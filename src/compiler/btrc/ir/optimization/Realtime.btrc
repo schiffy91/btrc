@@ -5,15 +5,47 @@ import Library.Vector;
 
 import ../Model.btrc;
 
+/* What proving some of one unit's functions left for the program: calls to
+ * names the unit neither defines nor knows to be safe, each with the function
+ * whose proof reached it and the call path. */
+class RealtimeUnitProof {
+	public Vector<string> starts = [];
+	public Vector<string> callees = [];
+	public Vector<string> paths = [];
+
+	public RealtimeUnitProof() {}
+}
+
 class RealtimeIRVerifier {
 	private Map<string, IRFunction> functions;
 	private Map<string, bool> safeExternals;
 	private Map<string, string> intrinsicTargets;
+	/* Unit proofs: unresolved calls are collected rather than rejected. */
+	private RealtimeUnitProof? pending = null;
+	private string pendingStart = "";
 
 	public RealtimeIRVerifier(IRModule module) {
 		self.functions = {};
 		self.safeExternals = module.realtimeSafeExternals;
 		self.intrinsicTargets = module.realtimeIntrinsicTargets;
+	}
+
+	/* Prove `names` through `unit`'s own definitions, each starting at its
+	 * path. A call the unit does not define, and does not know to be a safe
+	 * external, is returned for the program to resolve; everything else is
+	 * checked exactly as a whole-module proof checks it. */
+	class RealtimeUnitProof proveWithin(IRModule unit, Vector<string> names, Vector<string> paths) {
+		RealtimeUnitProof proof = RealtimeUnitProof();
+		RealtimeIRVerifier verifier = RealtimeIRVerifier(unit);
+		for definition in unit.functions { verifier.functions.put(definition.name, definition); }
+		verifier.pending = proof;
+		for (int index = 0; index < names.len; index++) {
+			if (!verifier.functions.has(names.get(index))) { continue; }
+			verifier.pendingStart = names.get(index);
+			Map<string, bool> visiting = {};
+			verifier.validateFunction(verifier.functions.get(names.get(index)), paths.get(index), visiting);
+		}
+		return proof;
 	}
 
 	public void validate(IRModule module) {
@@ -84,7 +116,14 @@ class RealtimeIRVerifier {
 			if (node.callee != "" && node.realtimeProvenance != "" && (!self.intrinsicTargets.has(node.callee) || self.intrinsicTargets.get(node.callee) != node.realtimeProvenance)) {
 				self.fail("invalid intrinsic provenance '" + node.realtimeProvenance + "' for '" + node.callee + "'", path);
 			}
-			if (node.callee != "" && !self.functions.has(node.callee)) {
+			RealtimeUnitProof? pending = self.pending;
+			if (node.callee != "" && !self.functions.has(node.callee) && pending != null) {
+				if (!self.safeExternals.has(node.callee) && node.realtimeProvenance == "") {
+					pending.starts.push(self.pendingStart);
+					pending.callees.push(node.callee);
+					pending.paths.push(path);
+				}
+			} else if (node.callee != "" && !self.functions.has(node.callee)) {
 				if (!self.safeExternals.has(node.callee) && node.realtimeProvenance == "") {
 					self.fail("external/runtime call '" + node.callee + "'", path);
 				}

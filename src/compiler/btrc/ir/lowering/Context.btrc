@@ -16,6 +16,43 @@ import ./Reachability.btrc;
  * function-local declarations, temporary expression substitutions, and
  * hosted-result conversion requests. */
 
+/* The declaration a module-unit lowering scope belongs to: its owning group,
+ * where its functions and globals start, and the enclosing foreign flag. */
+class DeclarationOwnershipScope {
+	public string owner;
+	public int functions;
+	public int globals;
+	public bool previousForeign;
+	/* A generic instance: its members are kept only where some unit needs them. */
+	public bool instance = false;
+
+	public DeclarationOwnershipScope(string owner, int functions, int globals, bool previousForeign) {
+		self.owner = owner;
+		self.functions = functions;
+		self.globals = globals;
+		self.previousForeign = previousForeign;
+	}
+}
+
+/* Program-wide lowering results that every module-unit lowering of one
+ * program shares. Each is a pure function of the analyzed program, computed
+ * by the first lowering that needs it and then only read. */
+class LoweringProgramFacts {
+	public bool sourceConfigured = false;
+	public string sourceFile = "";
+	public int stdlibLineCount = 0;
+	public Map<int, string> sourceFiles = {};
+	public Map<int, int> sourceLines = {};
+	public bool reachabilityComputed = false;
+	public StdlibReachability? reachability = null;
+	public bool trycatchComputed = false;
+	public bool usesTrycatch = false;
+	public bool alignmentsComputed = false;
+	public Map<string, int> packAlignments = {};
+
+	public LoweringProgramFacts() {}
+}
+
 class LoweringContext {
 	private IRTemporaryNames temporaryNameState;
 	private Map<string, bool> helperReferences;
@@ -74,6 +111,21 @@ class LoweringContext {
 	public bool enumInitializer;
 	public string enumOwner;
 	public Map<string, bool> enumMembers;
+	/* Module-unit lowering: the one compilation group whose bodies this run
+	 * lowers. A declaration another group owns keeps its declaration-level IR
+	 * but no body, or is skipped entirely when its declarations come from the
+	 * shared program declarations. Every function and global created while
+	 * lowering a declaration records that declaration's group. */
+	public bool moduleUnits;
+	public string ownedGroup;
+	public bool foreignBody;
+	public bool declarationsElsewhere;
+	public Map<string, string> groupOfFile;
+	public Map<string, string> definitionOwners;
+	public Map<string, bool> instanceDefinitions;
+	/* Functions named by a per-lowering counter (lambdas, spawn wrappers):
+	 * unit-local even when a declaration's body creates them. */
+	public Map<string, bool> localDefinitions;
 
 	public LoweringContext() {
 		self.temporaryNameState = IRTemporaryNames();
@@ -110,6 +162,56 @@ class LoweringContext {
 		self.enumInitializer = false;
 		self.enumOwner = "";
 		self.enumMembers = {};
+		self.moduleUnits = false;
+		self.ownedGroup = "";
+		self.foreignBody = false;
+		self.declarationsElsewhere = false;
+		self.groupOfFile = {};
+		self.definitionOwners = {};
+		self.instanceDefinitions = {};
+		self.localDefinitions = {};
+	}
+
+	/* Lower only `ownedGroup`'s bodies; `groupOfFile` maps each source file to
+	 * its group, and files outside it belong to the program unit (""). */
+	public void configureModuleUnit(string ownedGroup, Map<string, string> groupOfFile, bool declarationsElsewhere) {
+		self.moduleUnits = true;
+		self.ownedGroup = ownedGroup;
+		self.groupOfFile = groupOfFile;
+		self.declarationsElsewhere = declarationsElsewhere;
+	}
+
+	public string groupOfLine(int line) {
+		if (line <= 0) { return ""; }
+		string file = self.sourceFileForLine(line);
+		if (self.groupOfFile.has(file)) { return self.groupOfFile.get(file); }
+		return "";
+	}
+
+	/* Enter one declaration owned by `owner`; bodies are lowered only when
+	 * this run owns it. */
+	public DeclarationOwnershipScope beginOwnership(IRModule m, string owner) {
+		DeclarationOwnershipScope scope = DeclarationOwnershipScope(owner, m.functions.len, m.globalDecls.len, self.foreignBody);
+		if (self.moduleUnits) { self.foreignBody = !owner.equals(self.ownedGroup); }
+		return scope;
+	}
+
+	public void endOwnership(IRModule m, DeclarationOwnershipScope scope) {
+		self.foreignBody = scope.previousForeign;
+		if (!self.moduleUnits) { return; }
+		int index = scope.functions;
+		while (index < m.functions.len) {
+			string name = m.functions.get(index).name;
+			if (!self.localDefinitions.has(name) && !self.definitionOwners.has(name)) { self.definitionOwners.put(name, scope.owner); }
+			if (scope.instance && !self.localDefinitions.has(name)) { self.instanceDefinitions.put(name, true); }
+			index = index + 1;
+		}
+		index = scope.globals;
+		while (index < m.globalDecls.len) {
+			string name = m.globalDecls.get(index).name;
+			if (!self.definitionOwners.has(name)) { self.definitionOwners.put(name, scope.owner); }
+			index = index + 1;
+		}
 	}
 
 	public void configureSource(string sourceFile, int stdlibLineCount, Vector<FeLine> userLines) {
@@ -125,6 +227,22 @@ class LoweringContext {
 			self.sourceLines.put(combinedLine, sourceLine.lineNumber);
 			index = index + 1;
 		}
+	}
+
+	/* Share one program's source map instead of rebuilding it per lowering. */
+	public void shareSource(LoweringProgramFacts facts) {
+		if (facts.sourceConfigured) {
+			self.sourceFile = facts.sourceFile;
+			self.stdlibLineCount = facts.stdlibLineCount;
+			self.sourceFiles = facts.sourceFiles;
+			self.sourceLines = facts.sourceLines;
+			return;
+		}
+		facts.sourceFile = self.sourceFile;
+		facts.stdlibLineCount = self.stdlibLineCount;
+		facts.sourceFiles = self.sourceFiles;
+		facts.sourceLines = self.sourceLines;
+		facts.sourceConfigured = true;
 	}
 
 	public string freshTemporary(string prefix) { return self.temporaryNameState.fresh(prefix); }

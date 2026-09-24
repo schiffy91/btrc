@@ -64,6 +64,9 @@ if TYPE_CHECKING:
     from .expressions import ExpressionLowerer
     from .ownership import OwnershipLowerer
     from .session import LoweringSession
+# Every field name per dataclass type, or None for a type that is not one; the
+# setjmp search reflects over each type once instead of once per node.
+_SETJMP_SEARCH_FIELDS: dict[type, tuple[str, ...] | None] = {}
 AliasState = dict["Storage", set["PointerOrigin"]]
 _ASSIGNMENT_OPS = frozenset({"=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="})
 _TYPE_QUALIFIERS = frozenset({"const", "volatile"})
@@ -170,9 +173,13 @@ class FunctionEffectCatalog:
         self,
         function_names: set[str],
         external_effects: dict[str, FunctionEffect],
+        tracked_external: set[str] | None = None,
     ) -> None:
         self._functions = {name: FunctionEffect() for name in function_names}
         self._external = dict(external_effects)
+        # Externals whose summary another unit solves, and the ones consulted.
+        self._tracked_external = tracked_external or set()
+        self.consulted_external: set[str] | None = None
         # Definitions whose summary the flow being analyzed consulted.
         self.consulted: set[str] | None = None
 
@@ -183,10 +190,24 @@ class FunctionEffectCatalog:
                 self.consulted.add(callee)
             return self._functions[callee]
         if isinstance(callee, str) and callee in self._external:
+            if self.consulted_external is not None and callee in self._tracked_external:
+                self.consulted_external.add(callee)
             return self._external[callee]
         if isinstance(callee, str):
             return self.hosted_effect(callee, argument_count) or self.unknown_effect(argument_count)
         return self.unknown_effect(argument_count)
+
+    def summaries(self) -> dict[str, FunctionEffect]:
+        """The current summary of every function this catalog defines."""
+        return dict(self._functions)
+
+    def external(self, name: str) -> FunctionEffect | None:
+        """The summary this catalog assumes for a function defined elsewhere."""
+        return self._external.get(name)
+
+    def update_external(self, name: str, effect: FunctionEffect) -> None:
+        """Adopt another unit's newer summary for a function defined there."""
+        self._external[name] = effect
 
     def merge(self, name: str, effect: FunctionEffect) -> bool:
         """Join one inferred summary and report whether the fixed point moved."""
@@ -1145,17 +1166,32 @@ class ExceptionLowerer:
         )
 
     @staticmethod
-    def build_setjmp_call_effects(module: IRModule) -> dict[str, SetjmpCallEffects]:
-        """Compute write, return-alias, and capture summaries to a fixed point."""
+    def build_setjmp_call_effects(
+        module: IRModule,
+        solved_effects: Mapping[str, FunctionEffect] | None = None,
+        consulted_solved: set[str] | None = None,
+    ) -> dict[str, SetjmpCallEffects]:
+        """Compute write, return-alias, and capture summaries to a fixed point.
+
+        `solved_effects` supplies the program's least fixed point for functions
+        another module unit defines. With those fixed, this unit's own least
+        fixed point is the program's restricted to its functions.
+        """
         type_facts = ExceptionLowerer.pointer_type_facts(module)
         definitions = {function.name: function for function in module.function_defs}
+        solved = solved_effects or {}
         external = {
-            declaration.name: FunctionEffectCatalog.external_effect(declaration, type_facts)
+            declaration.name: solved[declaration.name]
+            if declaration.name in solved
+            else FunctionEffectCatalog.external_effect(declaration, type_facts)
             for declaration in module.function_decls
             if declaration.name not in definitions
         }
         globals_by_name = ExceptionLowerer._global_storages(module, type_facts)
-        catalog = FunctionEffectCatalog(set(definitions), external)
+        catalog = FunctionEffectCatalog(
+            set(definitions), external, set(solved) if consulted_solved is not None else None
+        )
+        catalog.consulted_external = consulted_solved
         flows: dict[str, PointerFlowResult] = {}
         consulted_by: dict[str, set[str]] = {}
 
@@ -1203,16 +1239,27 @@ class ExceptionLowerer:
 
     @staticmethod
     def contains_setjmp(value: object) -> bool:
-        from ..nodes import IRCall
-
-        if isinstance(value, IRCall):
-            return value.callee == "setjmp"
-        if dataclasses.is_dataclass(value):
-            return any(
-                ExceptionLowerer.contains_setjmp(getattr(value, field.name)) for field in dataclasses.fields(value)
-            )
-        if isinstance(value, (list, tuple)):
-            return any(ExceptionLowerer.contains_setjmp(item) for item in value)
+        """Whether `value` makes a `setjmp` call that is not another call's argument."""
+        pending = [value]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, IRCall):
+                if value.callee == "setjmp":
+                    return True
+                continue
+            if isinstance(value, (list, tuple)):
+                pending.extend(value)
+                continue
+            value_type = type(value)
+            if value_type not in _SETJMP_SEARCH_FIELDS:
+                _SETJMP_SEARCH_FIELDS[value_type] = (
+                    tuple(node_field.name for node_field in dataclasses.fields(value))
+                    if dataclasses.is_dataclass(value)
+                    else None
+                )
+            names = _SETJMP_SEARCH_FIELDS[value_type]
+            if names:
+                pending.extend(getattr(value, name) for name in names)
         return False
 
     @staticmethod
@@ -1392,7 +1439,78 @@ class ExceptionLowerer:
         return not declaration.is_static and (not declaration.is_extern)
 
     @staticmethod
-    def apply_setjmp_volatility(module: IRModule) -> None:
+    def solve_program_setjmp_effects(
+        units: Sequence[IRModule],
+        *,
+        fixed: Mapping[str, FunctionEffect] | None = None,
+        force: bool = False,
+    ) -> tuple[dict[str, FunctionEffect], list[set[str]], list[dict[str, SetjmpCallEffects]]]:
+        """Solve setjmp call effects for the functions units export to each other.
+
+        Each unit defines its exported functions once and declares the others.
+        Starting every exported summary at bottom, a unit is re-solved against
+        the current summaries whenever one it consulted moves. The system is a
+        monotone join, so this chaotic iteration reaches the same least fixed
+        point as analyzing the whole program at once; unit-local functions
+        (which may share names across units) stay inside their unit's solve.
+        `fixed` supplies summaries of functions whose units are not being
+        solved. Returns the summaries and, per unit, the exported summaries it
+        consulted and its last call effects: a unit is solved again whenever a
+        summary it consulted moves, so its last effects are exact for the final
+        summaries. Unless `force`d, returns empty when no unit calls `setjmp`,
+        as whole-program lowering then skips the analysis.
+        """
+        consulted: list[set[str]] = [set() for _ in units]
+        unit_effects: list[dict[str, SetjmpCallEffects]] = [{} for _ in units]
+        if not force and not any(
+            ExceptionLowerer.contains_setjmp(function.body) for unit in units for function in unit.function_defs
+        ):
+            return {}, consulted, unit_effects
+        solved: dict[str, FunctionEffect] = dict(fixed or {})
+        for unit in units:
+            for function in unit.function_defs:
+                if not function.is_static:
+                    solved[function.name] = FunctionEffect()
+        # A unit is solved again only when a summary it consulted moved after
+        # its last solve; units arrive dependencies first, so re-solving is
+        # limited to the cross-group back edges.
+        moved_at: dict[str, int] = {}
+        solved_at = [-1] * len(units)
+        step = 0
+        changed = True
+        while changed:
+            changed = False
+            for position, unit in enumerate(units):
+                if solved_at[position] >= 0 and not any(
+                    moved_at.get(name, -1) > solved_at[position] for name in consulted[position]
+                ):
+                    continue
+                step += 1
+                solved_at[position] = step
+                external: set[str] = set()
+                effects = ExceptionLowerer.build_setjmp_call_effects(unit, solved, external)
+                consulted[position] = external
+                unit_effects[position] = effects
+                if not effects:
+                    continue
+                summaries = next(iter(effects.values())).catalog.summaries()
+                for function in unit.function_defs:
+                    if function.is_static:
+                        continue
+                    if summaries[function.name] != solved[function.name]:
+                        solved[function.name] = summaries[function.name]
+                        moved_at[function.name] = step
+                        changed = True
+        return solved, consulted, unit_effects
+
+    @staticmethod
+    def apply_setjmp_volatility(
+        module: IRModule,
+        solved_effects: Mapping[str, FunctionEffect] | None = None,
+        *,
+        call_effects: Mapping[str, SetjmpCallEffects] | None = None,
+        setjmp_functions: frozenset[str] | None = None,
+    ) -> None:
         """Qualify automatics directly modified after a generated ``setjmp``.
 
         Declarations created in a try/catch branch occur after its setjmp, while
@@ -1402,15 +1520,20 @@ class ExceptionLowerer:
         aggregate incompatible with its declared C API. Source address/array
         aliases visible across setjmp are treated conservatively and rejected by
         the qualifier-safety pass because layered pointee qualifiers are not yet
-        representable in the source type model.
+        representable in the source type model. A module unit passes the
+        effects and `setjmp`-containing functions its program solve found.
         """
         globals_by_name = ExceptionLowerer.reject_volatile_global_aliases(module)
         with_setjmp = {
-            id(function): ExceptionLowerer.contains_setjmp(function.body) for function in module.function_defs
+            id(function): function.name in setjmp_functions
+            if setjmp_functions is not None
+            else ExceptionLowerer.contains_setjmp(function.body)
+            for function in module.function_defs
         }
         if not any(with_setjmp.values()):
             return
-        call_effects = ExceptionLowerer.build_setjmp_call_effects(module)
+        if not call_effects:
+            call_effects = ExceptionLowerer.build_setjmp_call_effects(module, solved_effects)
         for function in module.function_defs:
             if with_setjmp[id(function)]:
                 ExceptionLowerer.reject_unmodelled_setjmp_captures(function, call_effects[function.name])
@@ -1742,3 +1865,72 @@ class ExceptionLowerer:
         if pending_name is None:
             return rethrow
         return IRIf(condition=IRVar(name=pending_name), then_block=IRBlock(stmts=[rethrow]))
+
+
+class SetjmpUnitSolver:
+    """One module unit's setjmp call effects, re-solved as other units' summaries move.
+
+    The first solve analyzes every function. A later one re-analyzes only the
+    functions whose flow consulted an external summary that moved, then any
+    function that consulted one of theirs that moved in turn. Summaries only
+    grow, so continuing from the previous fixed point reaches the least fixed
+    point for the new external summaries.
+    """
+
+    def __init__(self, module: IRModule) -> None:
+        self._type_facts = ExceptionLowerer.pointer_type_facts(module)
+        self._definitions = {function.name: function for function in module.function_defs}
+        self._globals = ExceptionLowerer._global_storages(module, self._type_facts)
+        self._declared = {
+            declaration.name: declaration
+            for declaration in module.function_decls
+            if declaration.name not in self._definitions
+        }
+        self._catalog: FunctionEffectCatalog | None = None
+        self._flows: dict[str, PointerFlowResult] = {}
+        self._consulted_by: dict[str, set[str]] = {}
+        self._externals_of: dict[str, set[str]] = {}
+        self._users: dict[str, set[str]] = {}
+
+    def solve(self, solved: Mapping[str, FunctionEffect]) -> tuple[dict[str, SetjmpCallEffects], set[str]]:
+        """Call effects for every function, and the solved summaries consulted."""
+        if self._catalog is None:
+            external = {
+                name: solved[name]
+                if name in solved
+                else FunctionEffectCatalog.external_effect(declaration, self._type_facts)
+                for name, declaration in self._declared.items()
+            }
+            self._catalog = FunctionEffectCatalog(set(self._definitions), external, set(solved))
+            pending = set(self._definitions)
+        else:
+            pending = set()
+            for name in self._declared:
+                if name in solved and self._catalog.external(name) != solved[name]:
+                    self._catalog.update_external(name, solved[name])
+                    pending |= self._users.get(name, set())
+        catalog = self._catalog
+        while pending:
+            moved: set[str] = set()
+            for name, function in self._definitions.items():
+                if name not in pending:
+                    continue
+                catalog.consulted = set()
+                catalog.consulted_external = set()
+                flow = ExceptionLowerer.analyze_pointer_flow(function, self._globals, self._type_facts, catalog)
+                self._consulted_by[name] = catalog.consulted
+                for previous in self._externals_of.get(name, ()):
+                    self._users[previous].discard(name)
+                self._externals_of[name] = catalog.consulted_external
+                for external_name in catalog.consulted_external:
+                    self._users.setdefault(external_name, set()).add(name)
+                catalog.consulted = None
+                catalog.consulted_external = None
+                self._flows[name] = flow
+                parameters = [flow.storages[id(parameter)] for parameter in function.params]
+                if catalog.merge(name, ExceptionLowerer._flow_effect(flow, parameters)):
+                    moved.add(name)
+            pending = {name for name, consulted in self._consulted_by.items() if consulted & moved}
+        consulted_external = set().union(*self._externals_of.values()) if self._externals_of else set()
+        effects = {name: SetjmpCallEffects(catalog=catalog, flow=self._flows[name]) for name in self._definitions}
+        return effects, consulted_external

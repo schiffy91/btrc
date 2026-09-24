@@ -1,0 +1,19 @@
+inline refuses a second worker true
+inline busy refused true
+inline 0=echo:inline, then empty true
+inline closed cleanly true
+size 3
+distinct workers true, separate from owner true
+idle after replies true
+empty true
+inherited 42
+0=echo:hello
+2=2000005
+unknown worker refused true
+closed cleanly true
+send after close refused true
+crash failed true worker 1: worker exited with status 3
+send after failure refused true
+close after failure false
+terminated reply failed true
+PASS: process worker pool

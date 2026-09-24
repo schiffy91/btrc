@@ -1,0 +1,81 @@
+// Library module for the separate-compilation fixture: a generic, an
+// inherited managed hierarchy, a native header and calls with effects.
+import Library.Vector;
+
+#include "ShapeScale.h"
+
+class Box<T> {
+	public T value;
+	public int reads;
+	public Box(T value) {
+		self.value = value;
+		self.reads = 0;
+	}
+
+	public T get() {
+		self.reads = self.reads + 1;
+		return self.value;
+	}
+}
+
+// Dispatch is static for classes; interfaces carry dynamic dispatch.
+interface Measured {
+	int area();
+}
+
+// Managed base class whose string field is inherited by both shapes.
+class Shape {
+	public string name;
+	public Shape(string name) { self.name = name; }
+
+	public string label() { return f"shape {self.name}"; }
+}
+
+class Square extends Shape implements Measured {
+	public int side;
+	public Square(int side) {
+		self.name = "square";
+		self.side = side;
+	}
+
+	public int area() { return shape_scale(self.side * self.side); }
+}
+
+class Rectangle extends Shape implements Measured {
+	public int width;
+	public int height;
+	public Rectangle(int width, int height) {
+		self.name = "rectangle";
+		self.width = width;
+		self.height = height;
+	}
+
+	public int area() { return self.width * self.height; }
+}
+
+// Throws across the module boundary: callers need the exception effect.
+int checkedArea(Measured shape) {
+	int area = shape.area();
+	if (area <= 0) {
+		throw f"empty shape of area {area}";
+	}
+	return area;
+}
+
+string describe(Measured shape) { return f"measured {shape.area()}"; }
+
+// Retains its argument beyond the call: callers need the ownership effect.
+class ShapeShelf {
+	public Vector<Measured> shapes;
+	public ShapeShelf() { self.shapes = []; }
+
+	public void store(Measured shape) { self.shapes.push(shape); }
+
+	public int total() {
+		int sum = 0;
+		for shape in self.shapes {
+			sum = sum + checkedArea(shape);
+		}
+		return sum;
+	}
+}

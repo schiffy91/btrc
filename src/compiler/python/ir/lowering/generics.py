@@ -55,9 +55,33 @@ class TypeSubstitution:
         typedefs: Mapping[str, TypeExpr],
         identity: TypeIdentity,
     ) -> None:
-        codec = AstJsonCodec()
-        object.__setattr__(self, "_argument_values", self._freeze(arguments, codec))
-        object.__setattr__(self, "_typedef_values", self._freeze(typedefs, codec))
+        self._assign(self.freeze(arguments), self.freeze(typedefs), identity)
+
+    @classmethod
+    def over_frozen_typedefs(
+        cls,
+        arguments: Mapping[str, TypeExpr],
+        typedef_values: tuple[tuple[str, str], ...],
+        identity: TypeIdentity,
+    ) -> TypeSubstitution:
+        """A substitution over a typedef table `freeze` already froze.
+
+        A specializer shares one frozen table across every declaration it
+        plans; freezing it per declaration encoded the whole table hundreds
+        of times per lowering session.
+        """
+        substitution = object.__new__(cls)
+        substitution._assign(cls.freeze(arguments), typedef_values, identity)
+        return substitution
+
+    def _assign(
+        self,
+        argument_values: tuple[tuple[str, str], ...],
+        typedef_values: tuple[tuple[str, str], ...],
+        identity: TypeIdentity,
+    ) -> None:
+        object.__setattr__(self, "_argument_values", argument_values)
+        object.__setattr__(self, "_typedef_values", typedef_values)
         object.__setattr__(self, "identity", identity)
         object.__setattr__(self, "_arguments_cache", None)
         object.__setattr__(self, "_typedefs_cache", None)
@@ -111,12 +135,13 @@ class TypeSubstitution:
         return resolved if resolved is type_expr else copy.deepcopy(resolved)
 
     @staticmethod
-    def _freeze(values: Mapping[str, TypeExpr], codec: AstJsonCodec) -> tuple[tuple[str, str], ...]:
+    def freeze(values: Mapping[str, TypeExpr]) -> tuple[tuple[str, str], ...]:
+        """Canonical JSON bindings, sorted by name: a substitution's identity."""
         return tuple(
             sorted(
                 (
                     name,
-                    json.dumps(codec.encode(value), sort_keys=True, separators=(",", ":")),
+                    json.dumps(_CODEC.encode(value), sort_keys=True, separators=(",", ":")),
                 )
                 for name, value in values.items()
             )
@@ -150,6 +175,7 @@ class GenericSpecializer:
     def __init__(self, analyzed: AnalyzedProgram, type_identity: TypeIdentity) -> None:
         self._analyzed = analyzed
         self._type_identity = type_identity
+        self._typedef_values: tuple[tuple[str, str], ...] | None = None
 
     def class_views(self) -> Iterator[SpecializedDeclarationView[ClassDecl]]:
         declarations = {
@@ -230,8 +256,8 @@ class GenericSpecializer:
         )
 
     def _substitution(self, parameters: Sequence[str], arguments: Sequence[TypeExpr]) -> TypeSubstitution:
-        return TypeSubstitution(
-            arguments=dict(zip(parameters, arguments, strict=True)),
-            typedefs=self._analyzed.typedef_table,
-            identity=self._type_identity,
+        if self._typedef_values is None:
+            self._typedef_values = TypeSubstitution.freeze(self._analyzed.typedef_table)
+        return TypeSubstitution.over_frozen_typedefs(
+            dict(zip(parameters, arguments, strict=True)), self._typedef_values, self._type_identity
         )

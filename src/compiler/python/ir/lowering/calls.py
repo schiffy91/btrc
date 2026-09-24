@@ -847,6 +847,7 @@ class CallableSignatureLowerer:
     def __init__(self, analyzed: AnalyzedProgram, types: CTypeLowerer) -> None:
         self._analyzed = analyzed
         self._types = types
+        self._generic_parameter_names: frozenset[str] | None = None
 
     def source_binding_c_name(self, name: str) -> str:
         """Return a C binding name that cannot collide with a source type."""
@@ -878,15 +879,24 @@ class CallableSignatureLowerer:
         )
         if any(name in table for table in tables):
             return True
-        return any(
-            name in info.generic_params
-            for table in (self._analyzed.class_table, self._analyzed.interface_table)
-            for info in table.values()
-        ) or any(
-            name in method.generic_params
-            for info in self._analyzed.class_table.values()
-            for method in info.methods.values()
-        )
+        return name in self._generic_parameters()
+
+    def _generic_parameters(self) -> frozenset[str]:
+        """Every class, interface and method type-parameter name, indexed once.
+
+        Lowering never mutates the analyzed declaration tables, so one index
+        answers every binding for this program instead of rescanning them.
+        """
+        if self._generic_parameter_names is None:
+            names: set[str] = set()
+            for table in (self._analyzed.class_table, self._analyzed.interface_table):
+                for info in table.values():
+                    names.update(info.generic_params)
+            for info in self._analyzed.class_table.values():
+                for method in info.methods.values():
+                    names.update(method.generic_params)
+            self._generic_parameter_names = frozenset(names)
+        return self._generic_parameter_names
 
     def source_function_c_name(self, name: str, call=None) -> str:
         """Return the isolated C symbol for a concrete source function."""

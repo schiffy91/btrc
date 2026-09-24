@@ -843,6 +843,7 @@ class CallableValueLowerer {
 		string suffix = Strings.fromInt(identity);
 		string functionName = "__btrc_lambda_" + suffix;
 		string environmentName = functionName + "_env";
+		self.context.localDefinitions.put(functionName, true);
 		CallableLambdaPlan plan = CallableLambdaPlan(lambda, identity, functionName, environmentName);
 		plan.captures = self.values.captureNames(lambda, boundary);
 		plan.hasEnvironment = plan.captures.len > 0;
@@ -957,6 +958,7 @@ class CallableValueLowerer {
 		int identity = self.nextSyntheticIdentity();
 		string suffix = Strings.fromInt(identity);
 		CallableSpawnPlan plan = CallableSpawnPlan(sourceSpawn, lambda, identity, "__btrc_spawn_wrapper_" + suffix, "__btrc_spawn_env_" + suffix);
+		self.context.localDefinitions.put(plan.wrapperName, true);
 		plan.captures = self.values.captureNames(lambda, boundary);
 		plan.hasEnvironment = plan.captures.len > 0;
 		self.boundaries.rejectCapturedEnvironments(plan.captures, lambda, boundary);

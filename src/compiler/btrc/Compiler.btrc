@@ -1,5 +1,6 @@
 /* Application composition root for the production self-hosted compiler. */
 
+import Library.BackgroundJobs.WorkerPools;
 import Library.Digest.SHA256;
 import Library.FileSystem;
 import Library.Process;
@@ -14,8 +15,10 @@ class Compiler {
 	private GrammarInfo grammar;
 	private string stdlibDirectory;
 
-	public Compiler(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, IBtrccArtifactCache? cache = null, FeDirectiveCache? directiveCache = null) {
+	public Compiler(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, IBtrccArtifactCache? cache = null, FeDirectiveCache? directiveCache = null, IWorkerPoolFactory? workerPools = null) {
 		self.pipeline = CompilerPipeline(grammar, stdlibDirectory, sourceFiles, nativeHeaderReader, directiveCache);
+		self.pipeline.setModuleUnitStore(cache);
+		self.pipeline.setWorkerPools(workerPools);
 		self.cache = cache;
 		self.grammar = grammar;
 		self.stdlibDirectory = stdlibDirectory;
@@ -29,7 +32,7 @@ class Compiler {
 			self.stdlibDirectory, FileSystem.currentDirectory(), options.target,
 			options.outputPath, options.unitsPrefix, options.linkPlanPath,
 			Environment.get("BTRC_UNIT_LINES", "40000"),
-			f"{options.debug}:{options.runDce}:{options.strictImports}:{options.includeStdlib}"] {
+			f"{options.debug}:{options.runDce}:{options.strictImports}:{options.includeStdlib}:{options.moduleUnits}"] {
 			digest.appendText(SHA256.digest(value));
 		}
 		return digest.finish();
@@ -44,6 +47,7 @@ class Compiler {
 		var cached = cache.load(identity);
 		if (cached != null && cached.success) {
 			var restored = input.packages.linkPlan.withCachedArtifacts(cached.linkPlan, cached.units.len, options.unitsPrefix);
+			/* A no-op build reuses every unit of the stored generation. */
 			if (restored != null) {
 				cached.inputPaths = input.inputPaths;
 				cached.unitPaths = restored.emittedUnits;

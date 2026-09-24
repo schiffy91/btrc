@@ -11,11 +11,54 @@ import ../runtime/Catalog.btrc;
 import ../runtime/References.btrc;
 import ./Cleanup.btrc;
 import ./Realtime.btrc;
+import ./setjmp/Analysis.btrc;
 import ./setjmp/Safety.btrc;
 
 class IROptimizer {
 	private SetjmpSafetyPlanner setjmpSafety;
 	private RuntimeHelperCatalog runtimeHelpers;
+	/* A module unit's externally linked definitions are reachable from other units. */
+	private bool moduleUnit = false;
+	/* Module unit: exported functions DCE dropped because they contain a
+	 * deferred invalid-operator diagnostic, by name with that diagnostic. */
+	private Map<string, string> droppedInvalid = {};
+
+	public Map<string, string> droppedInvalidExports() { return self.droppedInvalid; }
+
+	private string invalidDiagnostic(IRNode? node) {
+		if (node == null) { return ""; }
+		if (node.kind == IRK_INVALID_EXPR) { return node.text; }
+		/* Field by field: a child list per node would allocate for every node
+		 * of every exported body. */
+		string found = self.invalidDiagnostic(node.left);
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.right); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.operand); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.expr); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.obj); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.index); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.condition); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.trueExpr); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.falseExpr); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.init); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.value); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.target); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.thenBlock); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.elseBlock); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.body); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.update); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.result); }
+		if (found.isEmpty()) { found = self.invalidDiagnostic(node.arraySize); }
+		if (!found.isEmpty()) { return found; }
+		for argument in node.args {
+			string found = self.invalidDiagnostic(argument);
+			if (!found.isEmpty()) { return found; }
+		}
+		for statement in node.stmts {
+			string found = self.invalidDiagnostic(statement);
+			if (!found.isEmpty()) { return found; }
+		}
+		return "";
+	}
 
 	public IROptimizer(SetjmpSafetyPlanner setjmpSafety, RuntimeHelperCatalog runtimeHelpers) {
 		self.setjmpSafety = setjmpSafety;
@@ -41,6 +84,44 @@ class IROptimizer {
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
 		self.runtimeHelpers.materializeInto(module, references.requiredBy(module));
 		BtrccPhaseTimer.mark("o-helpers");
+	}
+
+	/* One module unit: realtime and setjmp facts were solved across the
+	 * program's units, and whether any unit releases cyclable values is a
+	 * program fact. */
+	/* Generic-instance members of a module unit are export roots only when
+	 * some unit of the program needs them; others behave as in whole-program
+	 * DCE. */
+	private Map<string, bool> unneededInstances = {};
+
+	public void optimizeModuleUnit(IRModule module, bool eliminateDeadCode, Map<string, SetjmpCallEffects> setjmpEffects, bool programCyclableRelease, Map<string, bool> unneededInstances) {
+		self.moduleUnit = true;
+		self.unneededInstances = unneededInstances;
+		self.droppedInvalid = {};
+		/* A generic instance emits every method; one whose body carries a
+		 * deferred invalid-operator diagnostic is not an export root, exactly
+		 * as whole-program DCE drops it when nothing reaches it. */
+		for definition in module.functions {
+			if (!definition.isStatic) {
+				string diagnostic = self.invalidDiagnostic(definition.body);
+				if (!diagnostic.isEmpty()) { self.droppedInvalid.put(definition.name, diagnostic); }
+			}
+		}
+		RealtimeIRVerifier(module).validate(module);
+		self.setjmpSafety.applySolved(module, setjmpEffects);
+		CleanupSlotValidator(module).validate();
+		if (eliminateDeadCode) {
+			self.eliminateUnreachable(module);
+		}
+		for definition in module.functions {
+			if (self.droppedInvalid.has(definition.name)) { self.droppedInvalid.remove(definition.name); }
+		}
+		CycleReturnBoundaryLowerer(module.temporaryNames).installProgramBoundaryWhen(module, programCyclableRelease);
+		self.normalizeUnusedParameters(module);
+		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
+		self.runtimeHelpers.materializeInto(module, references.requiredBy(module));
+		self.moduleUnit = false;
+		self.unneededInstances = {};
 	}
 
 	private void eliminateUnreachable(IRModule module) {
@@ -363,7 +444,7 @@ class IROptimizer {
 		int r = 0;
 		while (r < names.len) {
 			string nm = names.get(r);
-			if (nm == "main" || nm == "btrc_main") {
+			if (nm == "main" || nm == "btrc_main" || (self.moduleUnit && !m.functions.get(r).isStatic && !self.droppedInvalid.has(nm) && !self.unneededInstances.has(nm))) {
 				if (!keepSet.has(nm)) { keepSet.put(nm, true); worklist.push(nm); }
 			}
 			r = r + 1;
@@ -663,6 +744,11 @@ class IROptimizer {
 			else { removed.put(sd.name, true); }
 			s = s + 1;
 		}
+		/* A module unit's dropped definitions are the program's shared
+		 * declaration IR, alive in other units: releasing this unit's list
+		 * would only prove each one still reachable. */
+		Vector<IRStructDef> previous = m.structDefs;
+		if (self.moduleUnit) { keep previous; }
 		m.structDefs = kept;
 		Vector<IRStructForward> forwards = [];
 		int d = 0;
@@ -673,6 +759,8 @@ class IROptimizer {
 			}
 			d = d + 1;
 		}
+		Vector<IRStructForward> previousForwards = m.structForwards;
+		if (self.moduleUnit) { keep previousForwards; }
 		m.structForwards = forwards;
 	}
 

@@ -780,8 +780,7 @@ class ConcurrencyLowerer:
             params=[IRParam(c_type=CType(text="void*"), name="__arg")],
             is_static=True,
         )
-        if declaration not in self._session.module.function_decls:
-            self._session.module.function_decls.append(declaration)
+        self._session.declare_function_once(declaration)
         self._session.module.function_defs.append(
             IRFunctionDef(
                 name=plan.wrapper_name,

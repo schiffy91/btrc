@@ -51,6 +51,7 @@ from src.compiler.python.syntax.ast.generated import (
     CallExpr,
     CastExpr,
     CharLiteral,
+    ClassDecl,
     FieldAccessExpr,
     FloatLiteral,
     FStringExpr,
@@ -359,6 +360,7 @@ class CycleMetadata:
         self._type_identity = type_identity
         self._graph_values = ManagedValueSemantics(analyzed, type_identity)
         self._visitor_types: set[str] = set()
+        self._generic_instances: dict[str, tuple[str, list[TypeExpr]]] | None = None
         self._emitted_may_cycle: dict[str, bool] = {}
         self._may_cycle_cache: dict[str, bool] = {}
         # Inheritance closure per name and its inverse in class-table order:
@@ -421,10 +423,34 @@ class CycleMetadata:
             return True
         if emitted_name in self._visitor_types:
             return True
+        # A specialization has a visitor wherever it is lowered; decide from
+        # the program's instances, since a module unit lowers only its own.
+        instance = self._generic_instance(emitted_name)
+        if instance is not None:
+            return self.generic_instance_needs_visitor(*instance)
         info = self.lookup_class_info(emitted_name)
         return bool(
             info is not None and (not info.generic_params) and self.type_needs_visitor(TypeExpr(base=info.name), set())
         )
+
+    def _generic_instance(self, emitted_name: str) -> tuple[str, list[TypeExpr]] | None:
+        """The program's generic instance emitted as `emitted_name`, if any."""
+        if self._generic_instances is None:
+            self._generic_instances = {}
+            # The instances lowering specializes: those of generic source classes.
+            classes = {
+                declaration.name
+                for declaration in self._analyzed.program.declarations
+                if isinstance(declaration, ClassDecl) and declaration.generic_params
+            }
+            for base, instances in self._analyzed.generic_instances.items():
+                if base not in classes or base not in self._analyzed.class_table:
+                    continue
+                for arguments in instances:
+                    self._generic_instances.setdefault(
+                        self._type_identity.specialization_symbol(base, arguments), (base, list(arguments))
+                    )
+        return self._generic_instances.get(emitted_name)
 
     def emitted_visitor_symbol(self, emitted_name: str) -> str | None:
         if emitted_name == MUTEX_RUNTIME_NAME:
@@ -2152,8 +2178,7 @@ class OwnershipLowerer:
                 params=[IRParam(c_type=CType(text="void*"), name="object")],
                 is_static=True,
             )
-            if declaration not in self._session.module.function_decls:
-                self._session.module.function_decls.append(declaration)
+            self._session.declare_function_once(declaration)
         elif self.program_has_exceptions:
             raise_name = "__btrc_throw"
             self._session.require_helper(raise_name)

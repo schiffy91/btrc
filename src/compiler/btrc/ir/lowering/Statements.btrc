@@ -100,6 +100,11 @@ class StatementLowerer {
      * +1 owners for one iteration, so ordinary scope/control/return/throw paths
      * must see them before the source body is lowered. */
 	public IRNode lowerBlockWithBindings(Node block, Map<string, Node> varTypes, Vector<IRNode> declarations, Vector<string> sourceNames, Vector<Node> types, Vector<bool> owned, CallableFlowState callableFlow) {
+		if (self.context.foreignBody) {
+			/* Another compilation group defines this body; its unit lowers it. */
+			Vector<IRNode> none = [];
+			return IRNode.block(none);
+		}
 		/* Type bindings are lexical just like C declarations.  Nested blocks,
          * loop initializers, and shadowing must not mutate the caller's view. */
 		Map<string, Node> scopedVarTypes = TypeValidator.cloneTypes(varTypes);

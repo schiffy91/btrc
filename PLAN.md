@@ -28,6 +28,28 @@ prerequisites or measured bottlenecks rather than blocking that delivery.
 Historical measurements live in
 [`docs/design/compile-performance.md`](docs/design/compile-performance.md).
 
+**September 23 progress (bucket 1, M11a + M10).** Module units are
+implemented in both compilers (`--emit-units PREFIX --module-units [--jobs N]`):
+one C unit per import SCC, reused by content key, with setjmp summaries,
+realtime proofs and generic-instance demand combined across units, and stale
+groups lowered, solved, optimized and emitted by worker processes forked after
+analysis (stdlib `BackgroundJobs.WorkerPools`/`ProcessWorkers`; the owner
+answers in-process where it cannot fork). Units are byte-identical for every
+worker count; the language corpus passes in module-unit mode through both
+compilers and the bootstrap stays at its fixed point. On BTRSmith (macOS
+self-host, single samples) a one-line private edit takes 40.5 s against
+97.8 s whole-program, and a cold build 88.2 s with the default two workers
+(66.7 s with four) against 96.6 s. Thread workers were measured and rejected (the ARC lock serializes
+them). Memory: system-wide anonymous growth is 4.83 GiB in-process and 5.93 GiB
+with the default two workers (four: 6.85 GiB) against the 6 GiB ceiling.
+The reference compiler's cold module build is now 205.2 s against 209.5 s
+whole-program (98%, from 142%). Both compilers' module units emit the same
+function bodies as their whole-program builds on BTRSmith.
+Open for M11a: product integration, and Stage B (per-group analysis
+summaries), which the ≤10 s edit budget needs because whole-program front end
+and analysis alone take about 28 s. Details:
+[`docs/design/separate-compilation.md`](docs/design/separate-compilation.md).
+
 Implementation was paused at the user's September 22 quota checkpoint. The full
 unit rerun records **7,638 passed / 49 skipped / 1 intermittent warm-link cache
 assertion failure**. The affected modules subsequently pass 42 tests, and ten

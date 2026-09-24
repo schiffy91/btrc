@@ -1,0 +1,113 @@
+// Forked worker pools: requests reach separate processes that inherit the
+// owner's state, large payloads round-trip whole, and a worker that dies or a
+// pool that is terminated mid-request fails without hanging.
+import Library.BackgroundJobs.ProcessWorkers;
+import Library.BackgroundJobs.WorkerPools;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+#include <unistd.h>
+
+class Configuration {
+	public int answer = 0;
+
+	public Configuration() {}
+}
+
+class ProbeHandler implements IWorkerRequestHandler {
+	private Configuration configuration;
+
+	public ProbeHandler(Configuration configuration) { self.configuration = configuration; }
+
+	public string handle(string request) {
+		if (request.equals("pid")) { return Strings.fromInt((int)getpid()); }
+		if (request.equals("inherited")) { return Strings.fromInt(self.configuration.answer); }
+		if (request.equals("crash")) { exit(3); }
+		if (request.equals("sleep")) {
+			sleep(5);
+			return "slept";
+		}
+		if (request.startsWith("size:")) { return Strings.fromInt(request.length()); }
+		return "echo:" + request;
+	}
+}
+
+int main() {
+	Configuration configuration = Configuration();
+	configuration.answer = 42;
+
+	// The owner itself as the only worker: the same contract, no fork.
+	IWorkerPool? inlineOpened = InlineWorkerPools().open(1, ProbeHandler(configuration));
+	if (inlineOpened == null) { return 1; }
+	IWorkerPool owner = inlineOpened;
+	print(f"inline refuses a second worker {InlineWorkerPools().open(2, ProbeHandler(configuration)) == null}");
+	owner.send(0, "inline");
+	print(f"inline busy refused {!owner.send(0, "again")}");
+	WorkerReply inlineReply = owner.awaitReply();
+	print(f"inline {inlineReply.worker}={inlineReply.payload}, then empty {owner.awaitReply().kind == WorkerReplyKind.WORKER_REPLY_EMPTY}");
+	print(f"inline closed cleanly {owner.close()}");
+	ForkedWorkerPools pools = ForkedWorkerPools();
+	IWorkerPool? opened = pools.open(3, ProbeHandler(configuration));
+	if (opened == null) {
+		print("FAIL: pool did not open");
+		return 1;
+	}
+	IWorkerPool pool = opened;
+	print(f"size {pool.size()}");
+	// Changes after the fork stay in the owner.
+	configuration.answer = 7;
+
+	Map<int, string> pids = {};
+	for (int worker = 0; worker < 3; worker++) { pool.send(worker, "pid"); }
+	for (int reply = 0; reply < 3; reply++) {
+		WorkerReply answered = pool.awaitReply();
+		if (answered.kind != WorkerReplyKind.WORKER_REPLY_READY) {
+			print(f"FAIL: {answered.error}");
+			return 1;
+		}
+		pids.put(answered.worker, answered.payload);
+	}
+	string ownerPid = Strings.fromInt((int)getpid());
+	bool distinct = pids.len == 3 && !pids.get(0).equals(pids.get(1)) && !pids.get(1).equals(pids.get(2)) && !pids.get(0).equals(pids.get(2));
+	bool separate = !pids.get(0).equals(ownerPid) && !pids.get(1).equals(ownerPid) && !pids.get(2).equals(ownerPid);
+	print(f"distinct workers {distinct}, separate from owner {separate}");
+
+	print(f"idle after replies {pool.idle(0) && pool.idle(1) && pool.idle(2)}");
+	print(f"empty {pool.awaitReply().kind == WorkerReplyKind.WORKER_REPLY_EMPTY}");
+
+	pool.send(1, "inherited");
+	print(f"inherited {pool.awaitReply().payload}");
+
+	string large = "size:" + "x".repeat(2000000);
+	pool.send(2, large);
+	pool.send(0, "hello");
+	Vector<string> answers = [];
+	for (int reply = 0; reply < 2; reply++) {
+		WorkerReply answered = pool.awaitReply();
+		answers.push(f"{answered.worker}={answered.payload}");
+	}
+	answers.sort();
+	for answer in answers { print(answer); }
+	print(f"unknown worker refused {!pool.send(5, "x")}");
+	print(f"closed cleanly {pool.close()}");
+	print(f"send after close refused {!pool.send(0, "x")}");
+
+	IWorkerPool? crashing = pools.open(2, ProbeHandler(configuration));
+	if (crashing == null) { return 1; }
+	IWorkerPool failing = crashing;
+	failing.send(1, "crash");
+	WorkerReply failure = failing.awaitReply();
+	print(f"crash failed {failure.kind == WorkerReplyKind.WORKER_REPLY_FAILED} worker {failure.worker}: {failure.error}");
+	print(f"send after failure refused {!failing.send(0, "x")}");
+	print(f"close after failure {failing.close()}");
+
+	IWorkerPool? stopping = pools.open(1, ProbeHandler(configuration));
+	if (stopping == null) { return 1; }
+	IWorkerPool stopped = stopping;
+	stopped.send(0, "sleep");
+	stopped.terminate();
+	print(f"terminated reply failed {stopped.awaitReply().kind == WorkerReplyKind.WORKER_REPLY_FAILED}");
+	print("PASS: process worker pool");
+	return 0;
+}

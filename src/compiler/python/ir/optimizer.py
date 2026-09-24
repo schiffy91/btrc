@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Iterable
 
@@ -80,6 +81,7 @@ class IROptimizer:
     """Own the complete ordered optimization cascade for one mutable IR module."""
 
     _C_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    _IDENTIFIER_TOKEN = re.compile(r"\b[A-Za-z_]\w*")
     _C_NON_CODE = re.compile(
         r"/\*.*?\*/|//(?:\\\n|[^\n])*(?:\n|$)|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
         re.DOTALL,
@@ -92,15 +94,25 @@ class IROptimizer:
         dce: bool = True,
         runtime_catalog: RuntimeHelperCatalog | None = None,
         freestanding_runtime: FreestandingRuntime | None = None,
+        module_unit: bool = False,
+        program_cyclable_release: bool | None = None,
     ) -> None:
         self._module = module
         self._dce = dce
+        # A module unit's external definitions are reachable from other units,
+        # and whether any unit releases a cyclable value is a program fact.
+        self._module_unit = module_unit
+        self._program_cyclable_release = program_cyclable_release
         self._runtime_catalog = runtime_catalog or RuntimeHelperCatalog()
         self._freestanding_runtime = freestanding_runtime or FreestandingRuntime()
 
     def optimize(self) -> IRModule:
         """Apply optimization mutations and return the transformed module."""
 
+        if self._dce and self._module_unit:
+            # A module unit declares the whole program; drop the prototypes
+            # its own definitions never reference before any full walk.
+            self._prune_externs()
         if self._dce:
             self._prune_program_reachability()
         self._install_program_cycle_boundary()
@@ -123,26 +135,41 @@ class IROptimizer:
         return self._module
 
     @staticmethod
-    def _identifier_pattern(names: Iterable[str]) -> re.Pattern[str] | None:
-        alternatives = "|".join(re.escape(name) for name in sorted(set(names), key=lambda item: (-len(item), item)))
-        return re.compile(rf"\b(?:{alternatives})\b") if alternatives else None
+    def _identifier_pattern(names: Iterable[str]) -> frozenset[str] | None:
+        """The identifier names one scan looks for, or None when there are none."""
+        return frozenset(names) or None
+
+    @staticmethod
+    @functools.lru_cache(maxsize=8192)
+    def _code_identifiers(text: str) -> frozenset[str]:
+        """Every identifier token of C code, outside comments and literals.
+
+        A name occurs as a whole identifier exactly when it is one of these
+        tokens, so scanning for a set of names is one tokenization per text.
+        """
+        return frozenset(IROptimizer._IDENTIFIER_TOKEN.findall(IROptimizer._C_NON_CODE.sub(" ", text)))
+
+    @classmethod
+    def identifier_tokens(cls, text: str) -> frozenset[str]:
+        """Identifier tokens of C text outside comments and literals."""
+        return cls._code_identifiers(text)
 
     @staticmethod
     def _scan_identifiers(
-        pattern: re.Pattern[str] | None,
+        names: frozenset[str] | None,
         text: str,
         out: set[str],
     ) -> None:
-        if pattern is not None:
+        if names:
             # Runtime helpers and macro replacements are C source, not bags of
             # words.  A helper name in prose or literal data is not a semantic
             # dependency and must not keep an otherwise dead helper alive.
-            out.update(pattern.findall(IROptimizer._C_NON_CODE.sub(" ", text)))
+            out.update(IROptimizer._code_identifiers(text) & names)
 
     @classmethod
     def _scan_macro_replacements(
         cls,
-        pattern: re.Pattern[str] | None,
+        pattern: frozenset[str] | None,
         macros,
         out: set[str],
     ) -> None:
@@ -169,7 +196,7 @@ class IROptimizer:
     def _collect_c_type_references(
         cls,
         root: object,
-        pattern: re.Pattern[str] | None,
+        pattern: frozenset[str] | None,
         out: set[str],
     ) -> None:
         for node in IRNode.walk_value(root):
@@ -256,7 +283,7 @@ class IROptimizer:
     def _ctype_references(
         cls,
         c_type: CType,
-        pattern: re.Pattern[str] | None,
+        pattern: frozenset[str] | None,
     ) -> set[str]:
         references: set[str] = set()
         cls._scan_identifiers(pattern, c_type.text, references)
@@ -267,7 +294,7 @@ class IROptimizer:
         cls,
         declarations: tuple[TypeDeclaration, ...],
         providers: dict[str, int],
-        pattern: re.Pattern[str] | None,
+        pattern: frozenset[str] | None,
     ) -> dict[int, set[int]]:
         memo: dict[int, set[int]] = {}
         for index in range(len(declarations)):
@@ -280,7 +307,7 @@ class IROptimizer:
         index: int,
         declarations: tuple[TypeDeclaration, ...],
         providers: dict[str, int],
-        pattern: re.Pattern[str] | None,
+        pattern: frozenset[str] | None,
         memo: dict[int, set[int]],
         visiting: set[int],
     ) -> set[int]:
@@ -324,7 +351,7 @@ class IROptimizer:
         declarations: tuple[TypeDeclaration, ...],
         providers: dict[str, int],
         value_providers: dict[str, int],
-        pattern: re.Pattern[str] | None,
+        pattern: frozenset[str] | None,
         alias_targets: dict[int, set[int]],
     ) -> set[int]:
         dependencies: set[int] = set()
@@ -381,6 +408,8 @@ class IROptimizer:
         self._function_names = set(self._functions)
         self._global_names = set(self._globals_by_name)
         live_functions = self._function_names & _ENTRY_POINTS
+        if self._module_unit:
+            live_functions |= {function.name for function in self._module.function_defs if not function.is_static}
         live_globals = {
             name
             for name, declarations in self._globals_by_name.items()
@@ -925,8 +954,16 @@ class IROptimizer:
             and (statement.expr.helper_ref == "__btrc_flush_cycles" or statement.expr.callee == "__btrc_flush_cycles")
         )
 
+    @classmethod
+    def releases_cyclable_values(cls, module: IRModule) -> bool:
+        """Whether any function of `module` may release a cyclable value."""
+        return any(cls._contains_cyclable_release(function.body) for function in module.function_defs)
+
     def _install_program_cycle_boundary(self) -> bool:
-        if not any(self._contains_cyclable_release(function.body) for function in self._module.function_defs):
+        releases = self._program_cyclable_release
+        if releases is None:
+            releases = self.releases_cyclable_values(self._module)
+        if not releases:
             return False
         installed = False
         for function in self._module.function_defs:

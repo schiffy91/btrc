@@ -785,6 +785,21 @@ class GpuPipeline {
 			string op = name == "min" ? "<" : ">";
 			return IRNode.ternary(IRNode.binary(arguments.get(0), op, arguments.get(1)), arguments.get(0), arguments.get(1));
 		}
+		if (name == "clamp") {
+			IRNode low = arguments.get(1);
+			IRNode high = arguments.get(2);
+			if (firstType == "float") {
+				Vector<IRNode> lower = [];
+				lower.push(arguments.get(0));
+				lower.push(low);
+				Vector<IRNode> upper = [];
+				upper.push(IRNode.call("fmaxf", lower));
+				upper.push(high);
+				return IRNode.call("fminf", upper);
+			}
+			IRNode raised = IRNode.ternary(IRNode.binary(arguments.get(0), ">", low), arguments.get(0), low);
+			return IRNode.ternary(IRNode.binary(raised, "<", high), raised, high);
+		}
 		return IRNode.call(name + "f", arguments);
 	}
 

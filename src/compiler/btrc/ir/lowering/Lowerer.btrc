@@ -55,6 +55,7 @@ class IRLowerer {
 	private DeclarationLowerer declarations;
 	private GpuPipeline gpuPipeline;
 	private RuntimeHelperCatalog runtimeHelpers;
+	private LoweringProgramFacts? programFacts = null;
 
 	public IRLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry semanticDeclarations, OperatorSemantics operators, ExpressionTypeResolver expressionTypes, GpuSemantics gpuSemantics, ManagedValueSemantics managedValues, CycleSemantics cycles, RuntimeHelperCatalog runtimeHelpers, string sourceFile, int stdlibLineCount, Vector<FeLine> userLines) {
 		self.expressionTypes = expressionTypes;
@@ -107,11 +108,27 @@ class IRLowerer {
 
 	public void setDebug(bool enabled) { self.context.debug = enabled; }
 
+	/* Module units: reuse one program's shared lowering facts. The first
+	 * lowering of a program publishes them; later ones only read them. */
+	public void shareProgramFacts(LoweringProgramFacts facts) {
+		self.programFacts = facts;
+		self.context.shareSource(facts);
+	}
+
+	/* Module units: functions lowered as members of a generic instance. */
+	public Map<string, bool> instanceDefinitions() { return self.context.instanceDefinitions; }
+
+	/* Lower one compilation group's module unit (see LoweringContext). */
+	public void configureModuleUnit(string ownedGroup, Map<string, string> groupOfFile, bool declarationsElsewhere) { self.context.configureModuleUnit(ownedGroup, groupOfFile, declarationsElsewhere); }
+
 	public IRModule lower(Node program) {
 		self.expressionTypes.disableMemo();
 		self.cleanupSlots.reset();
 		Map<string, bool>? stdlibKeys = self.stdlibKeys;
-		if (stdlibKeys == null) {
+		LoweringProgramFacts? facts = self.programFacts;
+		if (facts != null && facts.reachabilityComputed) {
+			self.context.reachability = facts.reachability;
+		} else if (stdlibKeys == null) {
 			self.context.reachability = null;
 		} else {
 			Vector<Node> instantiated = [];
@@ -128,38 +145,76 @@ class IRLowerer {
 			}
 			self.context.reachability = StdlibReachability(program.declarations, stdlibKeys, instantiated, instantiatedTypes);
 		}
+		if (facts != null && !facts.reachabilityComputed) {
+			facts.reachability = self.context.reachability;
+			facts.reachabilityComputed = true;
+		}
 		IRModule module = IRModule();
 		module.realtimeIntrinsicTargets = self.runtimeHelpers.realtimeIntrinsicTargetProvenance();
 		self.context.bindModule(module);
-		self.context.packAlignments = self.declarations.packAlignments(program);
+		if (facts != null && facts.alignmentsComputed) { self.context.packAlignments = facts.packAlignments; }
+		else {
+			self.context.packAlignments = self.declarations.packAlignments(program);
+			if (facts != null) {
+				facts.packAlignments = self.context.packAlignments;
+				facts.alignmentsComputed = true;
+			}
+		}
 		self.declarations.addStandardPreprocessorDecls(module);
-		self.context.setExceptionsEnabled(self.statements.programUsesTrycatch(program));
+		if (facts != null && facts.trycatchComputed) { self.context.setExceptionsEnabled(facts.usesTrycatch); }
+		else {
+			bool usesTrycatch = self.statements.programUsesTrycatch(program);
+			self.context.setExceptionsEnabled(usesTrycatch);
+			if (facts != null) {
+				facts.usesTrycatch = usesTrycatch;
+				facts.trycatchComputed = true;
+			}
+		}
 		if (self.context.exceptionsAreEnabled()) {
 			self.declarations.requireSystemInclude(module, "setjmp.h");
 		}
 
 		BtrccPhaseTimer.mark("l-setup");
-		self.declarations.emitForwardDecls(program, module);
+		/* A module unit whose declarations come from the shared program
+		 * declarations lowers only what its own group defines. */
+		bool shared = self.context.declarationsElsewhere;
+		if (!shared) { self.declarations.emitForwardDecls(program, module); }
 		self.gpuPipeline.registerKernels(program, module);
-		self.cTypes.appendTypedefs(program, module, self.context.reachability);
-		self.declarations.emitStructDefinitions(program, module);
+		if (!shared) {
+			self.cTypes.appendTypedefs(program, module, self.context.reachability);
+			self.declarations.emitStructDefinitions(program, module);
+		}
 		BtrccPhaseTimer.mark("l-types");
 
 		Vector<GenericClassLoweringPlan> classPlans = self.genericPlans.classPlans();
 		int classIndex = 0;
 		while (classIndex < classPlans.len) {
-			int before = module.functions.len;
-			self.declarations.emitGenericInstance(classPlans.get(classIndex).instance, module);
-			self.context.stampFunctionSources(module, before, classPlans.get(classIndex).declaration.line);
+			GenericClassLoweringPlan classPlan = classPlans.get(classIndex);
+			string classOwner = self.context.groupOfLine(classPlan.declaration.line);
+			if (!shared || classOwner.equals(self.context.ownedGroup)) {
+				int before = module.functions.len;
+				DeclarationOwnershipScope classScope = self.context.beginOwnership(module, classOwner);
+				classScope.instance = true;
+				self.declarations.emitGenericInstance(classPlan.instance, module);
+				self.context.endOwnership(module, classScope);
+				self.context.stampFunctionSources(module, before, classPlan.declaration.line);
+			}
 			classIndex = classIndex + 1;
 		}
 		BtrccPhaseTimer.mark("l-generic-classes");
 		Vector<GenericMethodLoweringPlan> methodPlans = self.genericPlans.methodPlans();
 		int methodIndex = 0;
 		while (methodIndex < methodPlans.len) {
-			int before = module.functions.len;
-			self.functions.emitOneMethodGenericInstance(methodPlans.get(methodIndex).instance, module);
-			self.context.stampFunctionSources(module, before, methodPlans.get(methodIndex).method.line);
+			GenericMethodLoweringPlan methodPlan = methodPlans.get(methodIndex);
+			string methodOwner = self.context.groupOfLine(methodPlan.method.line);
+			if (!shared || methodOwner.equals(self.context.ownedGroup)) {
+				int before = module.functions.len;
+				DeclarationOwnershipScope methodScope = self.context.beginOwnership(module, methodOwner);
+				methodScope.instance = true;
+				self.functions.emitOneMethodGenericInstance(methodPlan.instance, module);
+				self.context.endOwnership(module, methodScope);
+				self.context.stampFunctionSources(module, before, methodPlan.method.line);
+			}
 			methodIndex = methodIndex + 1;
 		}
 		BtrccPhaseTimer.mark("l-generic-methods");
@@ -167,6 +222,7 @@ class IRLowerer {
 		self.declarations.emitDeclarations(program, module);
 		BtrccPhaseTimer.mark("l-declarations");
 		self.functions.materializeDeferredClosure();
+		if (self.context.declarationsElsewhere) { self.declarations.emitReferencedInterfaces(module); }
 		self.cTypes.appendFunctionPointerTypedefs(module);
 		self.cTypes.appendRealtimeTypeDeclarations(module);
 		if (self.cTypes.usesAtomic()) {
@@ -174,7 +230,48 @@ class IRLowerer {
 		}
 		self.cleanupSlots.finalize(module);
 		self.expressionTypes.disableMemo();
+		if (self.context.moduleUnits) { self.partitionModuleUnit(module); }
 		BtrccPhaseTimer.mark("l-finalize");
 		return module;
+	}
+
+	/* Keep this group's definitions and declare every other group's. A
+	 * definition created while lowering a declaration has a program-wide name,
+	 * so its owner defines it with external linkage and every other unit sees
+	 * a prototype or an extern global. Anything created outside a declaration
+	 * (lambdas, cleanup adapters, default helpers, interface dispatch) is
+	 * session-local and keeps its own linkage. */
+	private void partitionModuleUnit(IRModule module) {
+		Map<string, string> owners = self.context.definitionOwners;
+		string owned = self.context.ownedGroup;
+		Map<string, bool> declared = {};
+		for declaration in module.functionDecls {
+			declared.put(declaration.name, true);
+			if (owners.has(declaration.name)) { declaration.isStatic = false; }
+		}
+		Vector<IRFunction> definitions = [];
+		for definition in module.functions {
+			if (!owners.has(definition.name)) {
+				definitions.push(definition);
+			} else if (owners.get(definition.name).equals(owned)) {
+				definition.isStatic = false;
+				definitions.push(definition);
+			} else if (!declared.has(definition.name)) {
+				IRFunctionDecl prototype = IRFunctionDecl(definition.name, definition.returnType, false);
+				prototype.params = definition.params;
+				prototype.cLinkage = definition.cLinkage;
+				module.functionDecls.push(prototype);
+				declared.put(definition.name, true);
+			}
+		}
+		module.functions = definitions;
+		for global in module.globalDecls {
+			if (!owners.has(global.name) || global.isExtern) { continue; }
+			global.isStatic = false;
+			if (!owners.get(global.name).equals(owned)) {
+				global.isExtern = true;
+				global.init = null;
+			}
+		}
 	}
 }

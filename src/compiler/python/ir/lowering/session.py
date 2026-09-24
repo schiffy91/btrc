@@ -8,14 +8,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from src.compiler.python.runtime.catalog import RuntimeHelperSelection
-from src.compiler.python.syntax.ast.generated import TypeExpr
+from src.compiler.python.syntax.ast.generated import ClassDecl, MethodDecl, TypeExpr
 
-from ..nodes import IRModule, IRVarDecl
+from ..nodes import IRFunctionDecl, IRModule, IRVarDecl
 
 if TYPE_CHECKING:
     from src.compiler.python.frontend.sources import SourceMap
 
-    from .generics import SpecializationView
+    from .generics import SpecializationView, SpecializedDeclarationView
     from .reachability import StdlibReachabilityPlan
 
 
@@ -31,6 +31,25 @@ class TemporaryNames:
     def fresh(self, prefix: str) -> str:
         self.counter += 1
         return f"{prefix}_{self.counter}"
+
+
+@dataclass(slots=True)
+class ProgramLoweringFacts:
+    """Program-wide results that every module-unit session of one program shares.
+
+    Each is a pure function of the analyzed program, computed by the first
+    session that needs it and then only read, so per-group sessions do not
+    repeat whole-program walks.
+    """
+
+    uses_trycatch: bool | None = None
+    stdlib_reachability: StdlibReachabilityPlan | None = None
+    stdlib_reachability_computed: bool = False
+    tuple_types: dict[str, list[TypeExpr]] | None = None
+    # Every generic class and method specialization the program demands, in
+    # plan order; a session filters them to what its group owns.
+    class_views: tuple[SpecializedDeclarationView[ClassDecl], ...] | None = None
+    method_views: tuple[SpecializedDeclarationView[MethodDecl], ...] | None = None
 
 
 @dataclass(slots=True)
@@ -75,6 +94,20 @@ class LoweringSession:
     persistent_edge_owner_c_name: str | None = None
     c_array_scopes: list[dict[str, bool]] = field(default_factory=list)
     control_context: list[object] = field(default_factory=list)
+    # Module-unit lowering: the one compilation group whose bodies this session
+    # lowers. A declaration owned by another group keeps its declaration-level
+    # IR but no body; `definition_owners` names the group behind every function
+    # and global created while lowering a declaration. None lowers everything.
+    owned_group: str | None = None
+    foreign_body: bool = False
+    # The unit's foreign declarations come from shared program declarations,
+    # so this session skips them entirely instead of lowering them bodiless.
+    declarations_elsewhere: bool = False
+    definition_owners: dict[str, str] = field(default_factory=dict)
+    # Name index over the append-only `module.function_decls` prefix it covers.
+    _declaration_index: dict[str, list[IRFunctionDecl]] = field(default_factory=dict)
+    _declaration_indexed: int = 0
+    _declaration_list: list[IRFunctionDecl] | None = None
 
     def source_type_of(self, node: object) -> TypeExpr | None:
         """Return the analyzed or operand-overridden type before specialization."""
@@ -98,6 +131,27 @@ class LoweringSession:
     def fresh_lambda_id(self) -> int:
         self.lambda_counter += 1
         return self.lambda_counter
+
+    def declare_function_once(self, declaration: IRFunctionDecl) -> None:
+        """Append a prototype unless an equal one is already declared.
+
+        Equivalent to a linear `in` test over `module.function_decls`, but
+        compares only same-named prototypes. The index covers the list as an
+        append-only sequence and is rebuilt if the list is replaced or shrinks.
+        """
+        declarations = self.module.function_decls
+        if declarations is not self._declaration_list or len(declarations) < self._declaration_indexed:
+            self._declaration_index = {}
+            self._declaration_indexed = 0
+            self._declaration_list = declarations
+        for existing in declarations[self._declaration_indexed :]:
+            self._declaration_index.setdefault(existing.name, []).append(existing)
+        self._declaration_indexed = len(declarations)
+        if declaration in self._declaration_index.get(declaration.name, ()):
+            return
+        declarations.append(declaration)
+        self._declaration_index.setdefault(declaration.name, []).append(declaration)
+        self._declaration_indexed = len(declarations)
 
     def record_declaration(self, declaration: IRVarDecl) -> None:
         self.function_declarations.append(declaration)

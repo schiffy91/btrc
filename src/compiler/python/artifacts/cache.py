@@ -987,6 +987,43 @@ class CompilerCache:
             digest.update(encoded)
         return digest.hexdigest()
 
+    def load_module_unit(self, identity: str, input_path: str | None = None) -> str | None:
+        """Read one checksum-verified module-unit record, or None on any doubt."""
+        try:
+            key = self.key_for(identity, "module-unit-v1")
+            path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
+            if not path.exists():
+                return None
+            self._storage.require_real_regular(path, "module unit")
+            payload = self._files.read_json(str(path), max_bytes=self._max_entry_bytes)
+            if (
+                not isinstance(payload, dict)
+                or set(payload) != {"key", "record", "sha256"}
+                or payload["key"] != key
+                or not isinstance(payload["record"], str)
+            ):
+                return None
+            encoded = payload["record"].encode("utf-8", errors="surrogatepass")
+            if hashlib.sha256(encoded).hexdigest() != payload["sha256"]:
+                return None
+            return payload["record"]
+        except (OSError, UnicodeError, ValueError, RecursionError):
+            return None
+
+    def store_module_unit(self, identity: str, record: str, input_path: str | None = None) -> None:
+        """Atomically store a module-unit record; storage failure only costs reuse."""
+        try:
+            key = self.key_for(identity, "module-unit-v1")
+            encoded = record.encode("utf-8", errors="surrogatepass")
+            if len(encoded) > self._max_entry_bytes:
+                return
+            path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
+            self._files.write_json(
+                str(path), {"key": key, "record": record, "sha256": hashlib.sha256(encoded).hexdigest()}
+            )
+        except (OSError, UnicodeError, ValueError, RecursionError):
+            return
+
     def load_directives(self, source: str, input_path: str) -> tuple[tuple[int, int], ...] | None:
         """Read content/toolchain-keyed directive spans, never resolved paths."""
         try:

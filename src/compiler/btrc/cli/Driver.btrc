@@ -12,6 +12,7 @@
  * source of executable or language data.
  */
 
+import Library.BackgroundJobs.WorkerPools;
 import Library.Bytes;
 import Library.FileSystem;
 import Library.FileSystem.FileSystemHandles;
@@ -198,7 +199,7 @@ class BtrccCommandLine {
 
 	public string argument(int index) { return self.arguments.get(index); }
 
-	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
+	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
 
 	private BtrccOptions invalid(BtrccOptions options, string diagnostic) {
 		options.valid = false;
@@ -271,6 +272,19 @@ class BtrccCommandLine {
 					return self.invalid(options, "--emit-units requires an output prefix");
 				}
 				options.unitsPrefix = self.arguments.get(index);
+			} else if (option.equals("--module-units")) {
+				options.moduleUnits = true;
+			} else if (option.equals("--jobs")) {
+				index++;
+				bool numeric = index < self.arguments.len && !self.arguments.get(index).isEmpty() && self.arguments.get(index).length() <= 2;
+				if (numeric) {
+					string count = self.arguments.get(index);
+					for (int position = 0; position < count.length(); position++) { if (count[position] < '0' || count[position] > '9') { numeric = false; } }
+				}
+				if (!numeric || Strings.toInt(self.arguments.get(index)) < 1 || Strings.toInt(self.arguments.get(index)) > 64) {
+					return self.invalid(options, "--jobs requires a worker count from 1 to 64");
+				}
+				options.moduleJobs = Strings.toInt(self.arguments.get(index));
 			} else if (option.equals("--help") || option.equals("-h")) {
 				options.showHelp = true;
 			} else if (option.equals("--")) {
@@ -293,6 +307,12 @@ class BtrccCommandLine {
 		}
 		options.inputIndex = inputIndex;
 		if (options.showHelp) { return options; }
+		if (options.moduleUnits && options.unitsPrefix.isEmpty()) {
+			return self.invalid(options, "--module-units requires --emit-units");
+		}
+		if (options.moduleJobs > 0 && !options.moduleUnits) {
+			return self.invalid(options, "--jobs requires --module-units");
+		}
 		if (options.showStdlibDirectory) {
 			if (inputIndex >= 0) {
 				return self.invalid(options, "--stdlib-dir does not accept an input file");
@@ -1525,10 +1545,13 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		return digests.digest(slot, content);
 	}
 
-	private bool open(string identity) {
+	/* `validateInputs` rechecks every source read so far. A module-unit key
+	 * already digests the exact source content its group read, so its record
+	 * stays exact for that key; publication of the build still validates. */
+	private bool open(string identity, bool validateInputs = true) {
 		self.close();
 		if (self.compilerIdentity.isEmpty()) { return false; }
-		if (!self.sourceFiles.validateInputs().isEmpty()) { return false; }
+		if (validateInputs && !self.sourceFiles.validateInputs().isEmpty()) { return false; }
 		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return false; }
 		var opened = FileSystem.openPrivateDirectory(self.directory);
 		if (!opened.ok()) { return false; }
@@ -1572,11 +1595,11 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		if (count == 0 && plan.has("emitted-units")) { return null; }
 		if (count > 0 && (self.unitsPrefix.isEmpty() || !emitted.isArray() || emitted.size() != count)) { return null; }
 		var result = BtrccCompilationResult(true, payloads.get(0), manifest.get("diagnostic").asString(), planText);
+		Vector<string>? paths = FeNativeLinkPlan.cachedUnitPaths(plan, self.unitsPrefix, count);
+		if (paths == null) { return null; }
 		for (int index = 0; index < count; index++) {
-			string path = self.unitsPrefix + f".unit-{index + 1}.c";
-			if (!emitted.at(index).isString() || !emitted.at(index).asString().equals(path)) { return null; }
 			result.units.push(payloads.get(index + 1));
-			result.unitPaths.push(path);
+			result.unitPaths.push(paths.get(index));
 		}
 		return result;
 	}
@@ -1627,6 +1650,52 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		self.close();
 	}
 
+	/* A module unit under its key, or null on any doubt. `record.json` starts
+	 * with the digests of the record and of `unit.c`, which holds the text. */
+	public BtrccModuleUnitPayload? loadModuleUnit(string identity) {
+		BtrccModuleUnitPayload? payload = null;
+		try {
+			if (self.open("module-unit\n" + identity, false)) {
+				var lease = self.lease;
+				if (lease != null) {
+					var stored = lease.readRegularChild("record.json", 536870912);
+					if (stored.ok() && stored.found() && stored.bytes().isNulFreeUtf8()) {
+						string framed = stored.bytes().toString();
+						if (framed.length() > 130 && framed[64] == ' ' && framed[129] == '\n') {
+							string record = framed.substring(130, framed.length() - 130);
+							if (self.payloadDigest(-1, record).equals(framed.substring(0, 64))) {
+								var unit = lease.readRegularChild("unit.c", 536870912);
+								if (unit.ok() && unit.found() && unit.bytes().isNulFreeUtf8()) {
+									string text = unit.bytes().toString();
+									if (self.payloadDigest(-2, text).equals(framed.substring(65, 64))) { payload = BtrccModuleUnitPayload(record, text); }
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		catch (string error) { payload = null; }
+		if (!self.close()) { payload = null; }
+		return payload;
+	}
+
+	/* Replace one module unit; storage failure only costs reuse. The text is
+	 * written first, and a record whose digests do not match is a miss. */
+	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) {
+		try {
+			if (payload.record.length() <= 536870912 && payload.text.length() <= 536870912 && self.open("module-unit\n" + identity, false)) {
+				var lease = self.lease;
+				if (lease != null && lease.replaceRegularChildDurably("unit.c", Bytes.fromString(payload.text)).committed()) {
+					string framed = self.payloadDigest(-1, payload.record) + " " + self.payloadDigest(-2, payload.text) + "\n" + payload.record;
+					lease.replaceRegularChildDurably("record.json", Bytes.fromString(framed));
+				}
+			}
+		}
+		catch (string error) { }
+		self.close();
+	}
+
 	public void __del__() { self.close(); }
 }
 
@@ -1637,13 +1706,17 @@ class BtrccDriver {
 	private FeSourceFileReader sourceFiles;
 	private FeNativeHeaderReader nativeHeaderReader;
 	private ISHA256Digest? artifactDigestProvider;
+	private IWorkerPoolFactory? workerPools;
 
-	public BtrccDriver(int argc, char** argv, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, ISHA256Digest? artifactDigestProvider = null) {
+	/* Host capabilities: the native header reader, an SDK digest and, where
+	 * the host can fork, module-unit worker processes. */
+	public BtrccDriver(int argc, char** argv, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, ISHA256Digest? artifactDigestProvider = null, IWorkerPoolFactory? workerPools = null) {
 		self.commandLine = BtrccCommandLine(argc, argv);
 		self.output = BtrccOutput(stdout);
 		self.sourceFiles = FeSourceFileReader();
 		self.nativeHeaderReader = nativeHeaderReader;
 		self.artifactDigestProvider = artifactDigestProvider;
+		self.workerPools = workerPools;
 	}
 
 	private int fail(string diagnostic) {
@@ -1699,7 +1772,7 @@ class BtrccDriver {
 			cache = artifacts;
 			directiveCache = artifacts.directiveCache();
 		}
-		Compiler compiler = Compiler(grammar, dataPaths.stdlib, self.sourceFiles, self.nativeHeaderReader, cache, directiveCache);
+		Compiler compiler = Compiler(grammar, dataPaths.stdlib, self.sourceFiles, self.nativeHeaderReader, cache, directiveCache, self.workerPools);
 		BtrccCompilationResult result = compiler.compile(source, sourcePath, options);
 		if (!result.success) {
 			fprintf(stderr, "%s\n", result.diagnostic);

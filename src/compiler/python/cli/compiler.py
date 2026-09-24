@@ -65,6 +65,17 @@ class CompilerCommand:
             help="Split the C into translation units; secondaries are written as PREFIX.unit-<k>.c",
         )
         parser.add_argument(
+            "--module-units",
+            action="store_true",
+            help="With --emit-units, lower and emit one unit per source compilation group",
+        )
+        parser.add_argument(
+            "--jobs",
+            type=int,
+            metavar="N",
+            help="With --module-units, lower groups on N worker processes (1-64; default one per CPU, up to 2)",
+        )
+        parser.add_argument(
             "--target",
             metavar="OS-ARCH",
             help="Select native package predicates (for example linux-x86_64 or macos-arm64)",
@@ -206,6 +217,12 @@ class CompilerCommand:
             return 0
         if not args.input:
             parser.error("the following arguments are required: input")
+        if args.module_units and args.emit_units is None:
+            parser.error("--module-units requires --emit-units")
+        if args.jobs is not None and not args.module_units:
+            parser.error("--jobs requires --module-units")
+        if args.jobs is not None and not 1 <= args.jobs <= 64:
+            parser.error("--jobs requires a worker count from 1 to 64")
 
         output = self._requested_output(args)
         out_path = None if output is not CompilerOutput.C else self._file_io.output_path(args.input, args.output)
@@ -225,6 +242,8 @@ class CompilerCommand:
             stdlib_archive=args.stdlib,
             generated_c_path=out_path,
             units_prefix=args.emit_units,
+            module_units=args.module_units,
+            module_jobs=args.jobs or min(os.cpu_count() or 1, 2),
             target=args.target,
         )
 
@@ -240,7 +259,7 @@ class CompilerCommand:
         output_paths = []
         if out_path is not None:
             output_paths.append(out_path)
-            output_paths.extend(f"{args.emit_units}.unit-{index}.c" for index in range(1, len(result.c_units) + 1))
+            output_paths.extend(f"{args.emit_units}.{name}.c" for name in result.unit_names)
             if args.freestanding:
                 output_paths.append(os.path.join(os.path.dirname(out_path) or ".", "btrc_rt.h"))
         if args.emit_link_plan:
@@ -278,7 +297,7 @@ class CompilerCommand:
         outputs = [(out_path, result.c_source)]
         roles = ["primary", *("secondary" for _ in result.c_units)]
         outputs.extend(
-            (f"{args.emit_units}.unit-{index}.c", unit) for index, unit in enumerate(result.c_units, start=1)
+            (f"{args.emit_units}.{name}.c", unit) for name, unit in zip(result.unit_names, result.c_units, strict=True)
         )
         if args.emit_link_plan:
             outputs.append((args.emit_link_plan, result.native_plan.canonical_json()))

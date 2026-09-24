@@ -11,13 +11,16 @@ from typing import TYPE_CHECKING
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
+from src.compiler.python.frontend.sources import CompilationGroups
 from src.compiler.python.ir.lowering.reachability import StdlibReachability
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
+    IRCall,
     IREnumDef,
     IREnumValue,
     IRFunctionDecl,
+    IRFunctionRef,
     IRGlobalDecl,
     IRHelperDecl,
     IRInclude,
@@ -67,7 +70,7 @@ if TYPE_CHECKING:
     from .generics import GenericSpecializer, SpecializedDeclarationView
     from .gpu import GpuLowerer
     from .ownership import CleanupSlotRegistry
-    from .session import LoweringSession
+    from .session import LoweringSession, ProgramLoweringFacts
 _STANDARD_FEATURE_MACROS = ("_DEFAULT_SOURCE", "_DARWIN_C_SOURCE")
 _STANDARD_INCLUDES = [
     "stdio.h",
@@ -110,8 +113,12 @@ class TranslationUnitLowerer:
         callable_boundaries: CallableStorageBoundary,
         cleanup_slots: CleanupSlotRegistry,
         prune_stdlib: bool = False,
+        groups: CompilationGroups | None = None,
+        program_facts: ProgramLoweringFacts | None = None,
     ) -> None:
         self._session = session
+        self._groups = groups
+        self._facts = program_facts if program_facts is not None else ProgramLoweringFacts()
         self._analyzed = analyzed
         self._prune_stdlib = prune_stdlib
         self._types = types
@@ -135,25 +142,39 @@ class TranslationUnitLowerer:
         """Run the ordered translation-unit phase cascade."""
         # With dead-code elimination on, stdlib callables no program name reaches
         # never enter the lowerer; the IR-level elimination stays the check.
-        class_views: tuple[SpecializedDeclarationView[ClassDecl], ...] = tuple(self._specializer.class_views())
-        method_views: tuple[SpecializedDeclarationView[MethodDecl], ...] = tuple(self._specializer.method_views())
-        self._session.stdlib_reachability = (
-            StdlibReachability(
-                self._analyzed.program.declarations,
-                [view.declaration for view in (*class_views, *method_views)],
-                [view.owner_name for view in method_views],
-                [argument for view in (*class_views, *method_views) for argument in view.type_arguments],
-            ).plan
-            if self._prune_stdlib
-            else None
-        )
+        if self._facts.class_views is None or self._facts.method_views is None:
+            self._facts.class_views = tuple(self._specializer.class_views())
+            self._facts.method_views = tuple(self._specializer.method_views())
+        class_views: tuple[SpecializedDeclarationView[ClassDecl], ...] = self._facts.class_views
+        method_views: tuple[SpecializedDeclarationView[MethodDecl], ...] = self._facts.method_views
+        if not self._facts.stdlib_reachability_computed:
+            self._facts.stdlib_reachability = (
+                StdlibReachability(
+                    self._analyzed.program.declarations,
+                    [view.declaration for view in (*class_views, *method_views)],
+                    [view.owner_name for view in method_views],
+                    [argument for view in (*class_views, *method_views) for argument in view.type_arguments],
+                ).plan
+                if self._prune_stdlib
+                else None
+            )
+            self._facts.stdlib_reachability_computed = True
+        self._session.stdlib_reachability = self._facts.stdlib_reachability
         self._classes.configure_pack_alignments(self.declaration_pack_alignments(self._analyzed.program))
+        # A module unit whose declarations come from the shared program
+        # declarations lowers only what its own group defines.
+        shared = self._session.declarations_elsewhere
+        if shared:
+            class_views = tuple(view for view in class_views if not self._foreign(view.declaration))
+            method_views = tuple(view for view in method_views if not self._foreign(view.declaration))
         self._emit_includes()
-        self._emit_forward_decls()
-        self._emit_tuple_structs(class_views, method_views)
+        if not shared:
+            self._emit_forward_decls()
+            self._emit_tuple_structs(class_views, method_views)
         self._emit_realtime_types()
         self._emit_fn_ptr_typedefs()
-        self._emit_structs()
+        if not shared:
+            self._emit_structs()
         self._gpu.emit_gpu_functions()
         for view in class_views:
             with self._session.specialization(view):
@@ -172,12 +193,65 @@ class TranslationUnitLowerer:
         self._functions.materialize_deferred_closure(
             self._session.deferred_specializations,
         )
+        if self._session.declarations_elsewhere:
+            self._emit_referenced_interfaces()
         self._emit_fn_ptr_typedefs()
         self._cleanup_slots.finalize()
-        self._exceptions.apply_setjmp_volatility(self._session.module)
+        if self._session.owned_group is None:
+            self._exceptions.apply_setjmp_volatility(self._session.module)
+        else:
+            # The pipeline solves setjmp effects once every group is lowered.
+            self._partition_module_unit()
         self._emit_helpers()
         self._materialize_runtime_headers()
         return self._session.module
+
+    def _partition_module_unit(self) -> None:
+        """Keep this group's definitions and declare every other group's.
+
+        A definition created while lowering a declaration has a program-wide
+        name, so its owner defines it with external linkage and every other
+        unit sees a prototype or an extern global. Anything created outside a
+        declaration (lambdas, cleanup adapters, default helpers, interface
+        dispatchers, enum names) is session-local and stays `static`.
+        """
+        module = self._session.module
+        owners = self._session.definition_owners
+        owned = self._session.owned_group
+        definitions = []
+        foreign: list[IRFunctionDecl] = []
+        for function in module.function_defs:
+            owner = owners.get(function.name)
+            if owner is None:
+                definitions.append(function)
+                continue
+            if owner == owned:
+                function.is_static = False
+                definitions.append(function)
+                continue
+            foreign.append(
+                IRFunctionDecl(
+                    name=function.name,
+                    return_type=function.return_type,
+                    params=function.params,
+                    is_static=False,
+                    c_linkage=function.c_linkage,
+                )
+            )
+        declared = {declaration.name for declaration in module.function_decls}
+        for declaration in module.function_decls:
+            if declaration.name in owners:
+                declaration.is_static = False
+        module.function_decls.extend(declaration for declaration in foreign if declaration.name not in declared)
+        module.function_defs = definitions
+        for declaration in module.global_decls:
+            owner = owners.get(declaration.name)
+            if owner is None or declaration.is_extern:
+                continue
+            declaration.is_static = False
+            if owner != owned:
+                declaration.is_extern = True
+                declaration.init = None
 
     def require_runtime_include(self, header: str) -> IRInclude | None:
         """Record a dependency on a hosted-libc header or runtime seam."""
@@ -291,15 +365,38 @@ class TranslationUnitLowerer:
     def _emit_enums(self):
         self._declarations.emit_enum_decls()
 
+    def _foreign(self, declaration) -> bool:
+        """Whether module-unit lowering assigns `declaration` to another group."""
+        return (
+            self._groups is not None
+            and self._session.owned_group is not None
+            and self._groups.group_of(getattr(declaration, "source_file", None)) != self._session.owned_group
+        )
+
     @contextmanager
     def _stamping_sources(self, declaration) -> Iterator[None]:
         """Functions appended while lowering `declaration` came from its .btrc
-        module; the emitter packs translation units along those boundaries."""
+        module; the emitter packs translation units along those boundaries.
+        In module-unit lowering they also belong to the declaration's group,
+        and a declaration another group owns is lowered without bodies."""
         functions = self._session.module.function_defs
+        globals_ = self._session.module.global_decls
         before = len(functions)
+        globals_before = len(globals_)
+        owner = None
+        previous_foreign = self._session.foreign_body
+        if self._groups is not None and self._session.owned_group is not None:
+            owner = self._groups.group_of(getattr(declaration, "source_file", None))
+            self._session.foreign_body = owner != self._session.owned_group
         try:
             yield
         finally:
+            self._session.foreign_body = previous_foreign
+            if owner is not None:
+                for function in functions[before:]:
+                    self._session.definition_owners.setdefault(function.name, owner)
+                for global_declaration in globals_[globals_before:]:
+                    self._session.definition_owners.setdefault(global_declaration.name, owner)
             line = getattr(declaration, "line", 0)
             mapped = self._session.source_map.combined(line) if self._session.source_map and line else None
             if mapped is not None:
@@ -307,16 +404,40 @@ class TranslationUnitLowerer:
                     if not function.source_file:
                         function.source_file = mapped[0]
 
+    def _emit_referenced_interfaces(self) -> None:
+        """Emit the dispatchers of every interface this module unit calls."""
+        module = self._session.module
+        callees = set()
+        for root in (*module.function_defs, *module.global_decls):
+            for node in root.walk():
+                if isinstance(node, IRCall) and isinstance(node.callee, str):
+                    callees.add(node.callee)
+                elif isinstance(node, IRFunctionRef):
+                    callees.add(node.name)
+        reachability = self._session.stdlib_reachability
+        for name, info in self._analyzed.interface_table.items():
+            if reachability is not None and not reachability.reaches_name(name):
+                continue
+            if any(f"{name}_{method}" in callees for method in info.methods):
+                self._classes.emit_interface(name)
+
     def _emit_declarations(self):
         """Emit executable and non-executable top-level declarations."""
         emitted_globals = set()
         native_adapters = set()
         declarations = self._analyzed.program.declarations
         reachability = self._session.stdlib_reachability
-        for name in self._analyzed.interface_table:
-            if reachability is None or reachability.reaches_name(name):
-                self._classes.emit_interface(name)
+        shared = self._session.declarations_elsewhere
+        # A module unit emits the dispatchers its own IR calls once its bodies
+        # are lowered (_emit_referenced_interfaces); the tables come with the
+        # shared declarations.
+        if not shared:
+            for name in self._analyzed.interface_table:
+                if reachability is None or reachability.reaches_name(name):
+                    self._classes.emit_interface(name)
         for decl in declarations:
+            if shared and self._foreign(decl):
+                continue
             with self._stamping_sources(decl):
                 if (
                     reachability is not None
@@ -416,6 +537,36 @@ class TranslationUnitLowerer:
         method_views: Sequence[SpecializedDeclarationView[MethodDecl]],
     ) -> None:
         """Declare every concrete tuple shape before specialized bodies lower."""
+        seen = self._facts.tuple_types
+        if seen is None:
+            seen = self._facts.tuple_types = self._collect_program_tuple_types(class_views, method_views)
+        for mangled, arguments in seen.items():
+            self._session.module.struct_defs.append(
+                IRStructDef(
+                    name=mangled,
+                    fields=[
+                        IRStructField(
+                            c_type=CType(text=self._types.render(argument)),
+                            name=f"_{index}",
+                            is_volatile=bool(argument.is_volatile),
+                            effective_is_volatile=StorageModel.effective_outer_volatile(
+                                argument, self._analyzed.typedef_table
+                            ),
+                        )
+                        for index, argument in enumerate(arguments)
+                    ],
+                )
+            )
+            forward = IRStructForward(name=mangled)
+            if forward not in self._session.module.struct_forwards:
+                self._session.module.struct_forwards.append(forward)
+
+    def _collect_program_tuple_types(
+        self,
+        class_views: Sequence[SpecializedDeclarationView[ClassDecl]],
+        method_views: Sequence[SpecializedDeclarationView[MethodDecl]],
+    ) -> dict[str, list[TypeExpr]]:
+        """Walk every declaration and specialization for its tuple shapes."""
         seen: dict[str, list[TypeExpr]] = {}
         reachability = self._session.stdlib_reachability
         for declaration in self._analyzed.program.declarations:
@@ -442,26 +593,7 @@ class TranslationUnitLowerer:
                     seen,
                     skip_generic_methods=False,
                 )
-        for mangled, arguments in seen.items():
-            self._session.module.struct_defs.append(
-                IRStructDef(
-                    name=mangled,
-                    fields=[
-                        IRStructField(
-                            c_type=CType(text=self._types.render(argument)),
-                            name=f"_{index}",
-                            is_volatile=bool(argument.is_volatile),
-                            effective_is_volatile=StorageModel.effective_outer_volatile(
-                                argument, self._analyzed.typedef_table
-                            ),
-                        )
-                        for index, argument in enumerate(arguments)
-                    ],
-                )
-            )
-            forward = IRStructForward(name=mangled)
-            if forward not in self._session.module.struct_forwards:
-                self._session.module.struct_forwards.append(forward)
+        return seen
 
     def _collect_declaration_tuple_types(
         self,
@@ -724,7 +856,12 @@ class TranslationUnitLowerer:
             raise CodegenError(f"malformed preprocessor directive: {text!r}")
         directive, payload = match.groups()
         if directive == "include":
-            self._session.module.preprocessor_decls.append(self._parse_include(payload, text))
+            include = self._parse_include(payload, text)
+            if self._session.foreign_body and include.header.endswith(".c"):
+                # An imported C source defines symbols: only its importing
+                # group's unit includes it, and others call its declarations.
+                return
+            self._session.module.preprocessor_decls.append(include)
         elif directive == "define":
             self._session.module.preprocessor_decls.append(self._parse_define(payload, text))
         elif directive == "pragma":

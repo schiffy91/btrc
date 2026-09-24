@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from ..frontend.packages import IncludeResolutionError
+from ..frontend.packages import IncludeResolutionError, NativeLinkPlan
 from ..frontend.sources import ResolvedSource, SourceFileReader, SourceText
 from .pipeline import CompilationPipeline
 from .results import (
@@ -83,9 +83,22 @@ class CompilerCachePort(Protocol):
         source_identity: str = "",
     ) -> None: ...
 
+    def load_module_unit(self, identity: str, input_path: str | None = None) -> str | None: ...
+
+    def store_module_unit(self, identity: str, payload: str, input_path: str | None = None) -> None: ...
+
 
 class DisabledCompilerCache:
     """Explicit no-persistence cache used by an unconfigured library compiler."""
+
+    @staticmethod
+    def load_module_unit(identity: str, input_path: str | None = None) -> None:
+        del identity, input_path
+        return None
+
+    @staticmethod
+    def store_module_unit(identity: str, payload: str, input_path: str | None = None) -> None:
+        del identity, payload, input_path
 
     @staticmethod
     def load_artifacts(
@@ -196,6 +209,7 @@ class Compiler:
                     # Only debug emission observes the primary output path.
                     "generated_c_path": options.generated_c_path if options.debug else None,
                     "units_prefix": options.units_prefix,
+                    "module_units": options.module_units,
                     "unit_lines": os.environ.get("BTRC_UNIT_LINES", "40000")
                     if options.units_prefix is not None
                     else None,
@@ -243,8 +257,11 @@ class Compiler:
                 source_identity=cache_inputs[1],
             )
             if cached is not None:
-                native_plan = resolved.native_plan.with_cached_artifacts(
-                    cached.link_plan, len(cached.c_units), options.units_prefix
+                names = NativeLinkPlan.cached_unit_names(cached.link_plan, options.units_prefix, len(cached.c_units))
+                native_plan = (
+                    resolved.native_plan.with_cached_artifacts(cached.link_plan, names, options.units_prefix)
+                    if names is not None
+                    else None
                 )
                 if native_plan is not None:
                     return CompilerResult(
@@ -252,6 +269,7 @@ class Compiler:
                         source_bundle=resolved,
                         c_source=cached.c_source,
                         c_units=cached.c_units,
+                        c_unit_names=names,
                         native_plan=native_plan,
                         diagnostics=tuple(CompilerDiagnostic(*record) for record in cached.diagnostics),
                         split_source_spaces=cached.split_source_spaces,
@@ -264,6 +282,8 @@ class Compiler:
             os.path.basename(source_path),
             options,
             profile,
+            module_store=self.cache if options.use_cache else None,
+            input_path=source_path,
         )
         if cache_inputs is not None and result.successful and result.c_source is not None:
             with contextlib.suppress(OSError, UnicodeError, ValueError):

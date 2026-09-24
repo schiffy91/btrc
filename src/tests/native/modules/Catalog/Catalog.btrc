@@ -1,0 +1,25 @@
+// Second consumer: its own generic instance and a caught cross-module throw.
+import Library.Vector;
+
+import ../Shapes/Shapes.btrc;
+
+int catalogArea(Measured shape) {
+	try {
+		return checkedArea(shape);
+	} catch (string error) {
+		print(f"catalog skipped {error}");
+		return -1;
+	}
+}
+
+int catalogTotal(Vector<Measured> shapes) {
+	Box<int> count = Box(shapes.len);
+	int sum = 0;
+	for shape in shapes {
+		int area = catalogArea(shape);
+		if (area > 0) {
+			sum = sum + area;
+		}
+	}
+	return sum + count.get();
+}

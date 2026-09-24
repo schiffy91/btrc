@@ -96,6 +96,12 @@ class CompilerOptions:
     target: str | None = None
     # Split the emitted C into units written as <prefix>.unit-<k>.c; None means one unit.
     units_prefix: str | None = None
+    # With units_prefix: lower and emit one unit per compilation group.
+    module_units: bool = False
+    # Module-unit worker processes. One keeps the compile in this process,
+    # which is what an embedding host with threads needs; the CLI, a process
+    # of its own, asks for one per CPU.
+    module_jobs: int = 1
 
     @property
     def parses_program(self) -> bool:
@@ -142,12 +148,26 @@ class CompilerResult:
     c_source: str | None = None
     # Secondary translation units in order; empty for a single-unit program.
     c_units: tuple[str, ...] = ()
+    # Each secondary unit is written as <units prefix>.<name>.c. Line-packed
+    # units are numbered; module units are named for their compilation group.
+    c_unit_names: tuple[str, ...] = ()
+    # Module units: the compilation groups lowered by this compile and those
+    # whose finished units were reused unchanged.
+    module_units_lowered: tuple[str, ...] = ()
+    module_units_reused: tuple[str, ...] = ()
     native_plan: NativeLinkPlan = field(default_factory=NativeLinkPlan.empty)
     failure: CompilerFailure | None = None
     diagnostics: tuple[CompilerDiagnostic, ...] = ()
     split_source_spaces: bool = False
     cache_hit: bool = False
     profile: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+
+    @property
+    def unit_names(self) -> tuple[str, ...]:
+        """Output names of the secondary units, numbered unless named."""
+        if self.c_unit_names:
+            return self.c_unit_names
+        return NativeLinkPlan.numbered_unit_names(len(self.c_units))
 
     @property
     def successful(self) -> bool:

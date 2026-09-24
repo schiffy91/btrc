@@ -1,0 +1,111 @@
+/* Pools of workers that each answer one request at a time. The owner decides
+ * what runs where and when; a pool only delivers requests, hands back each
+ * reply exactly once and owns its workers' lifetimes. The contracts here are
+ * portable; `InlineWorkerPool` answers in the owner and `ProcessWorkers`
+ * implements them with forked worker processes. */
+import Library.Vector;
+
+/* Runs inside a worker: answers one request with one reply. */
+interface IWorkerRequestHandler {
+	string handle(string request);
+}
+
+enum WorkerReplyKind {
+	/* A worker answered its outstanding request. */
+	WORKER_REPLY_READY = 0,
+	/* No request is outstanding, so nothing can arrive. */
+	WORKER_REPLY_EMPTY = 1,
+	/* A worker exited, crashed or broke the protocol. The pool has already
+	 * terminated every worker; no further request is accepted. */
+	WORKER_REPLY_FAILED = 2
+};
+
+class WorkerReply {
+	public WorkerReplyKind kind;
+	public int worker;
+	public string payload;
+	public string error;
+
+	public WorkerReply(WorkerReplyKind kind, int worker, string payload, string error) {
+		self.kind = kind;
+		self.worker = worker;
+		self.payload = payload;
+		self.error = error;
+	}
+}
+
+/* Owner-side view of a started pool. Requests go only to idle workers, and a
+ * worker is idle again once its reply has been returned by awaitReply. */
+interface IWorkerPool {
+	int size();
+	bool idle(int worker);
+	/* Deliver one request to an idle worker; false if the worker is busy or
+	 * the pool has failed or closed. */
+	bool send(int worker, string request);
+	/* Block until an outstanding request is answered (READY), return EMPTY if
+	 * none is outstanding, or FAILED once any worker has failed. */
+	WorkerReply awaitReply();
+	/* Let every idle worker finish and reap it. False if a request was still
+	 * outstanding (those workers are terminated) or any worker exited
+	 * abnormally. */
+	bool close();
+	/* Kill every worker and reap it. Idempotent. */
+	void terminate();
+}
+
+interface IWorkerPoolFactory {
+	/* A started pool of `workers` workers running `handler`, or null when the
+	 * host cannot start one. */
+	IWorkerPool? open(int workers, IWorkerRequestHandler handler);
+	/* How many workers suit this host when the owner has no preference. */
+	int suggestedWorkers();
+}
+
+/* A pool whose single worker is the owner itself: each request is answered
+ * as it is sent, and awaitReply hands the answers back in order. It runs the
+ * same schedule as a pool of processes where none can be forked. */
+class InlineWorkerPool implements IWorkerPool {
+	private IWorkerRequestHandler handler;
+	private Vector<string> answers = [];
+	private bool busy = false;
+	private bool closed = false;
+
+	public InlineWorkerPool(IWorkerRequestHandler handler) { self.handler = handler; }
+
+	public int size() { return 1; }
+
+	public bool idle(int worker) { return worker == 0 && !self.busy && !self.closed; }
+
+	public bool send(int worker, string request) {
+		if (!self.idle(worker)) { return false; }
+		self.busy = true;
+		self.answers.push(self.handler.handle(request));
+		return true;
+	}
+
+	public WorkerReply awaitReply() {
+		if (self.closed) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, -1, "", "worker pool is not open"); }
+		if (!self.busy) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_EMPTY, -1, "", ""); }
+		self.busy = false;
+		return WorkerReply(WorkerReplyKind.WORKER_REPLY_READY, 0, self.answers.pop(), "");
+	}
+
+	public bool close() {
+		bool clean = !self.busy && !self.closed;
+		self.closed = true;
+		return clean;
+	}
+
+	public void terminate() { self.closed = true; }
+}
+
+class InlineWorkerPools implements IWorkerPoolFactory {
+	public InlineWorkerPools() {}
+
+	public IWorkerPool? open(int workers, IWorkerRequestHandler handler) {
+		if (workers != 1) { return null; }
+		return InlineWorkerPool(handler);
+	}
+
+	public int suggestedWorkers() { return 1; }
+}

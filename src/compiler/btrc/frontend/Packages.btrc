@@ -2282,9 +2282,49 @@ class FeNativeLinkPlan {
 				restored.generatedUnits.push(FeNativeGeneratedUnit(name, language, standard, memory, row.get("source").asString()));
 			}
 		}
-		string output = count == 0 ? "" : FeNativeLinkPlan.outputPrefix(prefix);
-		for (int index = 0; index < count; index++) { restored.emittedUnits.push(output + f".unit-{index + 1}.c"); }
+		Vector<string>? units = FeNativeLinkPlan.cachedUnitPaths(document, prefix, count);
+		if (units == null) { return null; }
+		for path in units { restored.emittedUnits.push(path); }
 		return restored.canonicalJson().equals(serialized) ? restored : null;
+	}
+
+	/* A secondary unit is written as <prefix>.<name>.c: numbered for packed
+	 * units, named for its compilation group in a module-unit program. */
+	class bool validUnitName(string name) {
+		if (!name.startsWith("unit-") || name.length() <= 5) { return false; }
+		int index = 5;
+		while (index < name.length()) {
+			char letter = name[index];
+			bool alphanumeric = (letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z') || (letter >= '0' && letter <= '9');
+			if (!alphanumeric && (index == 5 || (letter != '-' && letter != '_'))) { return false; }
+			index = index + 1;
+		}
+		return true;
+	}
+
+	/* The emitted unit paths a stored plan records under the current prefix,
+	 * or null unless there are exactly `count` distinct well-formed ones. */
+	class Vector<string>? cachedUnitPaths(JSONValue document, string prefix, int count) {
+		Vector<string> paths = [];
+		if (count == 0) {
+			if (document.has("emitted-units")) { return null; }
+			return paths;
+		}
+		if (prefix.isEmpty() || !document.has("emitted-units")) { return null; }
+		var emitted = document.get("emitted-units");
+		if (!emitted.isArray() || emitted.size() != count) { return null; }
+		string head = FeNativeLinkPlan.outputPrefix(prefix) + ".";
+		Map<string, bool> seen = {};
+		for (int index = 0; index < count; index++) {
+			if (!emitted.at(index).isString()) { return null; }
+			string path = emitted.at(index).asString();
+			if (!path.startsWith(head) || !path.endsWith(".c") || path.length() <= head.length() + 2) { return null; }
+			string name = path.substring(head.length(), path.length() - head.length() - 2);
+			if (!FeNativeLinkPlan.validUnitName(name) || seen.has(name)) { return null; }
+			seen.put(name, true);
+			paths.push(path);
+		}
+		return paths;
 	}
 
 	public string canonicalJson() {

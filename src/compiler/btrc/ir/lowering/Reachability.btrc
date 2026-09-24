@@ -342,6 +342,12 @@ class StdlibReachability {
 		return false;
 	}
 
+	/* Whether a declaration is one of the compiler-owned stdlib declarations. */
+	public bool isStdlibDeclaration(Node declaration) { return self.stdlibKeys.has(StdlibReachability.declarationKey(declaration)); }
+
+	/* Every name the closure found mentioned. */
+	public Vector<string> mentionedNameList() { return self.names.keys(); }
+
 	/* User and native declarations always; a stdlib declaration once its name is mentioned. */
 	public bool reaches(Node declaration) {
 		string key = StdlibReachability.declarationKey(declaration);

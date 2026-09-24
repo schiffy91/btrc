@@ -43,6 +43,7 @@ PACKAGE_MANIFEST_VERSION = 1
 NATIVE_LINK_PLAN_SCHEMA = 1
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_UNIT_NAME = re.compile(r"^unit-[A-Za-z0-9][A-Za-z0-9_-]*$")
 _MODULE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _NATIVE_NAME = re.compile(r"^[A-Za-z0-9_.+-]+$")
 _NATIVE_SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
@@ -641,21 +642,66 @@ class NativeLinkPlan:
         directory, filename = os.path.split(prefix + suffix)
         return os.path.join(os.path.realpath(directory or "."), filename).removesuffix(suffix)
 
-    def with_emitted_units(self, prefix: str | None, count: int) -> NativeLinkPlan:
-        """Name secondary outputs independently of the primary C destination."""
-        if type(count) is not int or count < 0 or (count and not prefix):
+    @staticmethod
+    def numbered_unit_names(count: int) -> tuple[str, ...]:
+        return tuple(f"unit-{index}" for index in range(1, count + 1))
+
+    def with_emitted_units(self, prefix: str | None, units: int | Sequence[str]) -> NativeLinkPlan:
+        """Name secondary outputs independently of the primary C destination.
+
+        `units` is a count of numbered units or the units' explicit names;
+        each is written as <prefix>.<name>.c.
+        """
+        if type(units) is int:
+            if units < 0:
+                raise ValueError("emitted units require a nonnegative count and an output prefix")
+            names = self.numbered_unit_names(units)
+        else:
+            names = tuple(units)
+            if any(not _UNIT_NAME.fullmatch(name) for name in names) or len(set(names)) != len(names):
+                raise ValueError("emitted unit names must be distinct portable file-name components")
+        if names and not prefix:
             raise ValueError("emitted units require a nonnegative count and an output prefix")
-        absolute_prefix = self.output_prefix(prefix) if count else ""
+        absolute_prefix = self.output_prefix(prefix) if names else ""
         return replace(
             self,
-            emitted_units=tuple(f"{absolute_prefix}.unit-{index}.c" for index in range(1, count + 1)),
+            emitted_units=tuple(f"{absolute_prefix}.{name}.c" for name in names),
         )
 
+    @classmethod
+    def cached_unit_names(cls, serialized: str, units_prefix: str | None, count: int) -> tuple[str, ...] | None:
+        """Recover a cached generation's unit names from its stored link plan.
+
+        Every emitted path must be <prefix>.<name>.c under the current prefix
+        and there must be exactly `count` of them; anything else is a miss.
+        """
+        try:
+            document = json.loads(serialized)
+        except (ValueError, RecursionError):
+            return None
+        paths = document.get("emitted-units", []) if isinstance(document, dict) else None
+        if not isinstance(paths, list) or len(paths) != count:
+            return None
+        if not paths:
+            return ()
+        if not units_prefix:
+            return None
+        head = cls.output_prefix(units_prefix) + "."
+        names = []
+        for path in paths:
+            if not isinstance(path, str) or not path.startswith(head) or not path.endswith(".c"):
+                return None
+            name = path[len(head) : -2]
+            if not _UNIT_NAME.fullmatch(name):
+                return None
+            names.append(name)
+        return tuple(names) if len(set(names)) == len(names) else None
+
     def with_cached_artifacts(
-        self, serialized: str, emitted_units: int, units_prefix: str | None = None
+        self, serialized: str, emitted_units: int | Sequence[str], units_prefix: str | None = None
     ) -> NativeLinkPlan | None:
         """Restore generated adapters only when all resolved plan facts match."""
-        if type(emitted_units) is not int or emitted_units < 0:
+        if type(emitted_units) is int and emitted_units < 0:
             return None
         try:
             document = json.loads(serialized)

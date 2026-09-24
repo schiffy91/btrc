@@ -142,7 +142,18 @@ class Strings {
 		int slen = Strings.checkedLength(s);
 		int offset = 0;
 		while (true) {
-			int found = Strings.find(s, delim, offset);
+			/* Scan on from the offset with the lengths measured once:
+			 * re-measuring per piece would make splitting a large text
+			 * quadratic. */
+			int found = -1;
+			int index = offset;
+			while (dlen <= slen - index) {
+				if (strncmp((char*)s + index, delim, dlen) == 0) {
+					found = index;
+					break;
+				}
+				index++;
+			}
 			int seglen = found >= 0 ? found - offset : slen - offset;
 			char* item = (char*)__btrc_safe_realloc(NULL, (size_t)seglen + (size_t)1);
 			memcpy(item, (char*)s + offset, (size_t)seglen);

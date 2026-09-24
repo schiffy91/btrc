@@ -391,8 +391,7 @@ class ClassLowerer:
             *self.class_callable_declarations(declaration, class_info, selected_callables),
         ]
         for function in functions:
-            if function not in self._session.module.function_decls:
-                self._session.module.function_decls.append(function)
+            self._session.declare_function_once(function)
 
     def class_callable_declarations(
         self,

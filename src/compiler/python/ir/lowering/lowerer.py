@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
 from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeShapeError
-from src.compiler.python.frontend.sources import SourceMap
+from src.compiler.python.frontend.sources import CompilationGroups, SourceMap
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 from ..nodes import IRModule
@@ -35,7 +35,7 @@ from .ownership import (
     OwnershipLowerer,
     OwnershipOperandOrder,
 )
-from .session import LoweringSession
+from .session import LoweringSession, ProgramLoweringFacts
 from .statements import StatementLowerer
 from .storage import StorageLowerer
 from .translation_unit import TranslationUnitLowerer
@@ -57,7 +57,13 @@ class IRLowerer:
         runtime_catalog: RuntimeHelperCatalog | None = None,
         realtime_safe_externals: frozenset[str] = frozenset(),
         prune_stdlib: bool = False,
+        groups: CompilationGroups | None = None,
+        owned_group: str | None = None,
+        program_facts: ProgramLoweringFacts | None = None,
+        declarations_elsewhere: bool = False,
     ) -> None:
+        if (groups is None) != (owned_group is None):
+            raise ValueError("module-unit lowering needs both the groups and the owned group")
         identity = type_identity or TypeIdentity()
         catalog = runtime_catalog or RuntimeHelperCatalog()
         module = IRModule(
@@ -74,8 +80,13 @@ class IRLowerer:
             freestanding=freestanding,
             source_map=source_map,
             runtime_helpers=catalog.selection(),
+            owned_group=owned_group,
+            declarations_elsewhere=declarations_elsewhere,
         )
-        program_has_exceptions = TranslationUnitLowerer.program_uses_trycatch(analyzed.program)
+        facts = program_facts if program_facts is not None else ProgramLoweringFacts()
+        if facts.uses_trycatch is None:
+            facts.uses_trycatch = TranslationUnitLowerer.program_uses_trycatch(analyzed.program)
+        program_has_exceptions = facts.uses_trycatch
 
         default_context = DefaultArgumentLoweringContext(identity)
         types = CTypeLowerer(
@@ -298,6 +309,8 @@ class IRLowerer:
             callable_boundaries,
             cleanup_slots,
             prune_stdlib=prune_stdlib,
+            groups=groups,
+            program_facts=facts,
         )
 
     def lower(self) -> IRModule:

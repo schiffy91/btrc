@@ -1,0 +1,20 @@
+// First consumer: instantiates the library generic with a library class.
+import Library.Vector;
+
+import ../Shapes/Shapes.btrc;
+
+class Gallery {
+	public ShapeShelf shelf;
+	public Box<Square> featured;
+	public Gallery() {
+		self.shelf = ShapeShelf();
+		self.featured = Box(Square(2));
+	}
+
+	public void add(Measured shape) { self.shelf.store(shape); }
+
+	public string headline() { Square square = self.featured.get();
+		return f"{square.label()} {describe(square)}"; }
+
+	public int value() { return self.shelf.total(); }
+}

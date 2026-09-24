@@ -1,0 +1,374 @@
+/* Forked worker processes behind the IWorkerPool contract (POSIX only).
+ *
+ * Each worker is a fork of the owner taken when the pool opens, so it starts
+ * with everything the owner had built, shared copy-on-write. Owner and worker
+ * talk over two pipes; a frame is 16 lowercase hex digits giving the payload
+ * length, then the payload. A worker answers one request at a time and the
+ * owner sends only to idle workers, reading every reply whole, so neither
+ * side can block the other on a full pipe. While a pool is open the owner
+ * ignores SIGPIPE: a worker that died surfaces as a failed write or an end of
+ * input, never as a fatal signal. Workers leave through _exit, so they never
+ * run the owner's exit handlers or flush its stdio buffers a second time. */
+import Library.BackgroundJobs.WorkerPools;
+import Library.Bytes;
+import Library.Vector;
+
+#include <errno.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+/* One decoded frame, or the reason there is none. */
+class ProcessWorkerFrame {
+	public bool complete;
+	public string payload;
+	public string error;
+
+	public ProcessWorkerFrame(bool complete, string payload, string error) {
+		self.complete = complete;
+		self.payload = payload;
+		self.error = error;
+	}
+}
+
+/* Frame encoding shared by the owner and its workers. */
+class ProcessWorkerFrames {
+	class string header(int length) {
+		string digits = "0123456789abcdef";
+		string text = "";
+		int value = length;
+		for (int index = 0; index < 16; index++) {
+			text = digits.substring(value % 16, 1) + text;
+			value = value / 16;
+		}
+		return text;
+	}
+
+	/* The payload length of the frame starting `buffer`: -1 while the header
+	 * is incomplete, -2 when it is malformed. */
+	class int payloadLength(Bytes buffer) {
+		if (buffer.len < 16) { return -1; }
+		long long value = 0LL;
+		for (int index = 0; index < 16; index++) {
+			int c = buffer.get(index);
+			int digit = -1;
+			if (c >= '0' && c <= '9') { digit = c - '0'; }
+			else if (c >= 'a' && c <= 'f') { digit = c - 'a' + 10; }
+			if (digit < 0) { return -2; }
+			value = value * 16LL + (long long)digit;
+			if (value > 2147483000LL) { return -2; }
+		}
+		return (int)value;
+	}
+
+	/* The complete frame at the start of `buffer`, consuming it; null when
+	 * more bytes are needed. A malformed or oversized frame is an error. */
+	class ProcessWorkerFrame? take(Bytes buffer) {
+		int length = ProcessWorkerFrames.payloadLength(buffer);
+		if (length == -2) { return ProcessWorkerFrame(false, "", "malformed worker frame"); }
+		if (length < 0 || buffer.len < 16 + length) { return null; }
+		if (buffer.len != 16 + length) { return ProcessWorkerFrame(false, "", "unexpected bytes after a worker frame"); }
+		Bytes payload = buffer.slice(16, 16 + length);
+		string text = payload.toStringLossy();
+		buffer.len = 0;
+		return ProcessWorkerFrame(true, text, "");
+	}
+
+	/* Write one whole frame; false if the descriptor failed. */
+	class bool writeFrame(int descriptor, string payload) {
+		string framed = ProcessWorkerFrames.header(payload.length()) + payload;
+		int total = framed.length();
+		int offset = 0;
+		while (offset < total) {
+			ssize_t written = write(descriptor, (char*)framed + offset, (size_t)(total - offset));
+			if (written < (ssize_t)0) {
+				if (errno == EINTR) { continue; }
+				return false;
+			}
+			offset = offset + (int)written;
+		}
+		return true;
+	}
+
+	/* Append what a readable descriptor offers: the byte count, 0 at end of
+	 * input, or -1 on failure. */
+	class int readInto(int descriptor, Bytes buffer) {
+		char chunk[65536];
+		while (true) {
+			ssize_t count = read(descriptor, chunk, 65536);
+			if (count < (ssize_t)0 && errno == EINTR) { continue; }
+			if (count < (ssize_t)0) { return -1; }
+			if (count > (ssize_t)0) { buffer.appendRaw(chunk, (int)count); }
+			return (int)count;
+		}
+		return -1;
+	}
+}
+
+/* The owner's record of one worker. */
+class ProcessWorkerState {
+	public pid_t pid;
+	public int requests;
+	public int replies;
+	public bool busy = false;
+	public bool reaped = false;
+	public Bytes buffer = Bytes();
+
+	public ProcessWorkerState(pid_t pid, int requests, int replies) {
+		self.pid = pid;
+		self.requests = requests;
+		self.replies = replies;
+	}
+
+	public void closeRequests() {
+		if (self.requests >= 0) {
+			close(self.requests);
+			self.requests = -1;
+		}
+	}
+
+	public void closeReplies() {
+		if (self.replies >= 0) {
+			close(self.replies);
+			self.replies = -1;
+		}
+	}
+
+	/* Wait for the worker to exit; true when it exited with status 0. */
+	public bool reap() {
+		if (self.reaped) { return true; }
+		int status = 0;
+		while (true) {
+			pid_t waited = waitpid(self.pid, &status, 0);
+			if (waited == self.pid) { break; }
+			if (waited < (pid_t)0 && errno == EINTR) { continue; }
+			self.reaped = true;
+			return false;
+		}
+		self.reaped = true;
+		return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+	}
+
+	/* How the worker ended, for a failure message; reaps it. */
+	public string describeExit() {
+		if (self.reaped) { return "worker ended"; }
+		int status = 0;
+		while (true) {
+			pid_t waited = waitpid(self.pid, &status, 0);
+			if (waited == self.pid) { break; }
+			if (waited < (pid_t)0 && errno == EINTR) { continue; }
+			self.reaped = true;
+			return "worker could not be reaped";
+		}
+		self.reaped = true;
+		if (WIFEXITED(status)) { return f"worker exited with status {WEXITSTATUS(status)}"; }
+		if (WIFSIGNALED(status)) { return f"worker killed by signal {WTERMSIG(status)}"; }
+		return "worker ended abnormally";
+	}
+}
+
+class ForkedWorkerPool implements IWorkerPool {
+	private Vector<ProcessWorkerState> workers = [];
+	private bool failed = false;
+	private bool closed = false;
+
+	public ForkedWorkerPool() {}
+
+	/* Fork `count` workers running `handler`; null if any could not start. */
+	class ForkedWorkerPool? start(int count, IWorkerRequestHandler handler) {
+		if (count < 1 || count > 64) { return null; }
+		ForkedWorkerPool pool = ForkedWorkerPool();
+		signal((int)SIGPIPE, SIG_IGN);
+		/* Buffered output would otherwise be written once by each process. */
+		fflush(stdout);
+		fflush(stderr);
+		for (int index = 0; index < count; index++) {
+			int requestPipe[2];
+			int replyPipe[2];
+			requestPipe[0] = -1;
+			requestPipe[1] = -1;
+			replyPipe[0] = -1;
+			replyPipe[1] = -1;
+			if (pipe(requestPipe) != 0) {
+				pool.terminate();
+				return null;
+			}
+			if (pipe(replyPipe) != 0) {
+				close(requestPipe[0]);
+				close(requestPipe[1]);
+				pool.terminate();
+				return null;
+			}
+			pid_t child = fork();
+			if (child < (pid_t)0) {
+				close(requestPipe[0]);
+				close(requestPipe[1]);
+				close(replyPipe[0]);
+				close(replyPipe[1]);
+				pool.terminate();
+				return null;
+			}
+			if (child == (pid_t)0) {
+				close(requestPipe[1]);
+				close(replyPipe[0]);
+				/* Earlier workers' owner-side pipe ends: holding them open would
+				 * keep those workers from ever seeing their end of input. */
+				for earlier in pool.workers {
+					earlier.closeRequests();
+					earlier.closeReplies();
+				}
+				ForkedWorkerPool.serve(requestPipe[0], replyPipe[1], handler);
+			}
+			close(requestPipe[0]);
+			close(replyPipe[1]);
+			pool.workers.push(ProcessWorkerState(child, requestPipe[1], replyPipe[0]));
+		}
+		return pool;
+	}
+
+	/* A worker's whole life: answer frames until end of input. */
+	class void serve(int requests, int replies, IWorkerRequestHandler handler) {
+		signal((int)SIGPIPE, SIG_DFL);
+		Bytes buffer = Bytes();
+		while (true) {
+			ProcessWorkerFrame? frame = ProcessWorkerFrames.take(buffer);
+			if (frame == null) {
+				int count = ProcessWorkerFrames.readInto(requests, buffer);
+				if (count == 0 && buffer.len == 0) {
+					fflush(stdout);
+					fflush(stderr);
+					_exit(0);
+				}
+				if (count <= 0) { _exit(70); }
+				continue;
+			}
+			if (!frame.complete) { _exit(71); }
+			string reply = "";
+			try { reply = handler.handle(frame.payload); }
+			catch (string error) {
+				fprintf(stderr, "worker request failed: %s\n", error);
+				fflush(stderr);
+				_exit(72);
+			}
+			if (!ProcessWorkerFrames.writeFrame(replies, reply)) { _exit(73); }
+		}
+	}
+
+	public int size() { return self.workers.len; }
+
+	public bool idle(int worker) { return worker >= 0 && worker < self.workers.len && !self.failed && !self.closed && !self.workers.get(worker).busy; }
+
+	public bool send(int worker, string request) {
+		if (!self.idle(worker)) { return false; }
+		ProcessWorkerState state = self.workers.get(worker);
+		state.busy = true;
+		if (!ProcessWorkerFrames.writeFrame(state.requests, request)) {
+			self.fail();
+			return false;
+		}
+		return true;
+	}
+
+	public WorkerReply awaitReply() {
+		if (self.failed || self.closed) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, -1, "", "worker pool is not open"); }
+		while (true) {
+			struct pollfd ready[64];
+			int watched[64];
+			int count = 0;
+			for (int index = 0; index < self.workers.len; index++) {
+				ProcessWorkerState state = self.workers.get(index);
+				if (!state.busy) { continue; }
+				ready[count].fd = state.replies;
+				ready[count].events = POLLIN;
+				ready[count].revents = 0;
+				watched[count] = index;
+				count = count + 1;
+			}
+			if (count == 0) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_EMPTY, -1, "", ""); }
+			int polled = poll(ready, (nfds_t)count, -1);
+			if (polled < 0) {
+				if (errno == EINTR) { continue; }
+				self.fail();
+				return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, -1, "", "polling workers failed");
+			}
+			for (int slot = 0; slot < count; slot++) {
+				if (ready[slot].revents == 0) { continue; }
+				int index = watched[slot];
+				ProcessWorkerState state = self.workers.get(index);
+				int received = ProcessWorkerFrames.readInto(state.replies, state.buffer);
+				if (received <= 0) {
+					string reason = received == 0 ? state.describeExit() : "reading a worker reply failed";
+					self.fail();
+					return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, index, "", reason);
+				}
+				ProcessWorkerFrame? frame = ProcessWorkerFrames.take(state.buffer);
+				if (frame == null) { continue; }
+				if (!frame.complete) {
+					self.fail();
+					return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, index, "", frame.error);
+				}
+				state.busy = false;
+				return WorkerReply(WorkerReplyKind.WORKER_REPLY_READY, index, frame.payload, "");
+			}
+		}
+		return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, -1, "", "unreachable");
+	}
+
+	public bool close() {
+		if (self.closed) { return !self.failed; }
+		for state in self.workers {
+			if (state.busy) {
+				self.fail();
+				return false;
+			}
+		}
+		self.closed = true;
+		bool clean = true;
+		for state in self.workers { state.closeRequests(); }
+		for state in self.workers {
+			if (!state.reap()) { clean = false; }
+			state.closeReplies();
+		}
+		signal((int)SIGPIPE, SIG_DFL);
+		return clean;
+	}
+
+	public void terminate() {
+		for state in self.workers {
+			if (!state.reaped) { kill(state.pid, SIGKILL); }
+		}
+		for state in self.workers {
+			state.closeRequests();
+			state.reap();
+			state.closeReplies();
+		}
+		self.closed = true;
+		signal((int)SIGPIPE, SIG_DFL);
+	}
+
+	private void fail() {
+		self.failed = true;
+		self.terminate();
+	}
+}
+
+/* Opens forked pools; the host entry point hands this to its owners. */
+class ForkedWorkerPools implements IWorkerPoolFactory {
+	public ForkedWorkerPools() {}
+
+	public IWorkerPool? open(int workers, IWorkerRequestHandler handler) {
+		ForkedWorkerPool? pool = ForkedWorkerPool.start(workers, handler);
+		if (pool == null) { return null; }
+		return pool;
+	}
+
+	/* One worker per online CPU, at most four: past four, measured compiles
+	 * gained little and each worker adds its own memory. */
+	public int suggestedWorkers() {
+		long online = sysconf(_SC_NPROCESSORS_ONLN);
+		if (online < 1L) { return 1; }
+		return online > 4L ? 4 : (int)online;
+	}
+}

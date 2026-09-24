@@ -1,0 +1,11 @@
+// Entry point one: uses only the Gallery consumer.
+import ./Gallery/Gallery.btrc;
+
+int main() {
+	Gallery gallery = Gallery();
+	gallery.add(Square(3));
+	gallery.add(Rectangle(2, 5));
+	print(gallery.headline());
+	print(f"gallery value {gallery.value()}");
+	return 0;
+}

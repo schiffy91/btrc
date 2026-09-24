@@ -113,7 +113,10 @@ def test_type_substitution_detects_parameters_through_frozen_typedef_chains() ->
 
 def test_pipeline_passes_one_identity_to_concrete_lowerer() -> None:
     source = ast.parse((PYTHON_COMPILER / "application/pipeline.py").read_text())
-    lower_method = next(node for node in ast.walk(source) if isinstance(node, ast.FunctionDef) and node.name == "lower")
+    # Whole-program and module-unit lowering share one construction site.
+    lower_method = next(
+        node for node in ast.walk(source) if isinstance(node, ast.FunctionDef) and node.name == "_lowerer"
+    )
     lowerer_call = next(
         node
         for node in ast.walk(lower_method)

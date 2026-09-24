@@ -5849,3 +5849,70 @@ Final evidence: `build/plan-wrap-final-unit.{log,json}`,
 A persistent copy is under
 `~/.cache/btrc/checkpoints/2026-09-22-m7/unit-wrap/`. The quota wrap-up stops here;
 the implementation goal remains paused.
+
+### M11a module units with M10 workers (September 23)
+
+Design, protocol and invariants: `docs/design/separate-compilation.md`.
+`--emit-units PREFIX --module-units [--jobs N]` emits one C unit per source
+compilation group (import SCC) and reuses a group's unit by key.
+
+BTRSmith copy (444 sources, 438 groups), dev mode (`--debug`), compiler only,
+macOS arm64, macOS self-hosted compiler at clang -O2, single samples on a
+workstation shared with other jobs:
+
+| Scenario | Whole program | Module units |
+| --- | ---: | ---: |
+| Cold, default (two workers) | 96.6 s | 88.2 s |
+| Cold, 1 / 2 / 4 / 8 workers (scaling run) | 94–101 s | 120.0 / 83.8 / 66.7 / 64.7 s |
+| Unchanged repeat | 5.3 s | 5.4 s |
+| One-line private body edit | 97.8 s | 40.5 s (2 groups lowered, 1 of 401 units changed) |
+
+Summed RSS double-counts pages the workers share; system-wide anonymous
+memory growth counts them once: 4.83 / 5.93 / 6.85 GiB at 1 / 2 / 4 workers
+(cold 122.4 / 88.7 / 72.5 s in that run). Two workers are the default, the
+most that stays inside the 6 GiB aggregate budget; eight gained 2 s over four.
+Units are byte-identical for every worker count.
+The edit build is bounded by whole-program front end and analysis (about
+28 s), which Stage B is to remove.
+
+The reference compiler on the same program: whole-program cold 267.9 s and
+edit 292.4 s; module units in-process 613.8 s cold and 104.1 s for the edit;
+with its two default workers 339.7 s cold (127% of whole-program), 80.9 s
+for the edit and 4.5 s for an unchanged repeat.
+
+A sampled profile of its per-group lowering found every group session
+rebuilding every generic specialization view. Each view's substitution
+JSON-encoded the whole typedef table, which was 53 of the 93 profiled seconds.
+Now the views are planned once per program in the shared lowering facts, the
+typedef table is frozen once per specializer, group membership lookups are
+memoized, and the setjmp search is iterative. Cold whole-program went from
+238.6 s to 209.5 s, and module units from 338.0 s to 205.2 s (98%) in a
+same-machine pair.
+
+The same comparison exposed a reference-compiler module-unit bug. A unit
+that used a specialization another unit lowers found no registered visitor
+and emitted a `NULL` cycle visitor, so 321 BTRSmith functions differed from
+the whole-program build. The visitor is now decided from the program's
+instances, as the self-hosted compiler does, and no body differs.
+
+Equivalence with whole-program output was checked function by function,
+after normalizing per-session temporary numbering and dropping `#line`
+directives, which name the generated C file and where debug output wraps.
+The self-hosted compiler's own source had 6,577 shared functions and
+BTRSmith's edit build had 15,485, with no body differing from the
+whole-program build in either. Every consulted setjmp summary in BTRSmith's
+438 records (12,862 of them) also equalled its exporter's final summary. The
+unit-test fixture asserts the same body equality on both compilers.
+
+Before summaries were snapshotted, a consulted summary the solver later
+widened in place could be recorded wider than the reply that set it. Every
+record then compared equal to itself, and the edit build relowered 4 groups
+instead of 2. That cost extra relowering; it never changed emitted code, and
+the checks above passed on both builds. With the fix, the edit on a heavily
+loaded machine took 116.8 s against 274.6 s for whole-program, lowering 2
+groups; cold took 235.0 s against 271.3 s. Those are 43% and 87% of
+whole-program, against 41% and 91% in the quiet samples in the table.
+
+Thread workers were measured and rejected: every ARC operation takes one
+process-wide lock, and threads building managed objects took 0.73 / 3.37 /
+17.2 / 69.0 s at 1 / 2 / 4 / 8 threads for the same per-thread work.

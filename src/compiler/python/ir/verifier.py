@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import ClassVar
 
 from .nodes import (
@@ -59,6 +60,29 @@ class IRVerifier:
         self.module = module
         self._functions: dict[str, IRFunctionDef] = {}
         self._attached_cleanup_sites: dict[int, str] = {}
+        # Module units: a unit proof collects the calls it cannot resolve.
+        self._pending: list[tuple[str, str, tuple[str, ...]]] | None = None
+        self._pending_start = ""
+
+    @classmethod
+    def prove_realtime_within(
+        cls, unit: IRModule, names: Sequence[str], paths: Sequence[tuple[str, ...]]
+    ) -> list[tuple[str, str, tuple[str, ...]]]:
+        """Prove `names` through `unit`'s own definitions, each after its caller path.
+
+        A call the unit neither defines nor knows to be a safe external is
+        returned as (start, callee, path) for the program to resolve; every
+        other rule is checked exactly as a whole-module proof checks it.
+        """
+        verifier = cls(unit)
+        verifier._functions = {function.name: function for function in unit.function_defs}
+        verifier._pending = []
+        for name, path in zip(names, paths, strict=True):
+            function = verifier._functions.get(name)
+            if function is not None:
+                verifier._pending_start = name
+                verifier._validate_realtime_function(function, tuple(path), frozenset())
+        return verifier._pending
 
     def validate(self) -> None:
         """Reject every malformed translation-unit invariant owned here."""
@@ -312,9 +336,10 @@ class IRVerifier:
                     )
             target = self._functions.get(node.callee)
             if target is None:
-                if node.callee in self.module.realtime_safe_externals:
+                if node.callee in self.module.realtime_safe_externals or node.realtime_provenance:
                     continue
-                if node.realtime_provenance:
+                if self._pending is not None:
+                    self._pending.append((self._pending_start, node.callee, path))
                     continue
                 raise ValueError(
                     f"IR realtime backstop rejected external/runtime call {node.callee!r} via {' -> '.join(path)}"

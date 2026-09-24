@@ -4012,8 +4012,7 @@ class FunctionLowerer:
 
     def declare_specialization(self, view: SpecializedDeclarationView[MethodDecl]) -> None:
         declaration = self.specialization_declaration(view)
-        if declaration not in self._session.module.function_decls:
-            self._session.module.function_decls.append(declaration)
+        self._session.declare_function_once(declaration)
 
     def specialization_declaration(
         self,

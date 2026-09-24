@@ -1,0 +1,424 @@
+# Design: module reuse and parallel module compilation (M11a + M10)
+
+Status: **in progress — Stage A implemented in both compilers
+(`--module-units`) and measured on BTRSmith; product integration and Stages
+B/C open**.
+Owner milestone: PLAN.md bucket 1, M11a with the M10 concurrency contracts.
+
+## Why the design is staged
+
+Both compilers splice every import into one source string, parse one
+`Program`, analyze it once, lower it to one `IRModule` and only then split C
+into line-packed units. Two read-only audits (September 22) established which
+facts cross declaration boundaries. They decide the order of work.
+
+### Measured workload shape
+
+BTRSmith (`src/BTRSmith.btrc`, strict imports, resolved by the reference
+frontend): **444 source files, 100,202 lines, 435 import/include SCCs**. The
+largest SCC has 5 files (4,715 lines, `Library.UI`); the next has 5 files of
+the sqlite package. 110 files are stdlib. The longest dependency chain,
+weighted by lines, is **13,332 lines**, about 13% of the program. The import
+graph is therefore almost a DAG of single-file groups: module-level reuse is
+not blocked by a whole-program cycle, and the line-weighted critical path
+bounds ideal group parallelism at roughly 7.5×. This is a structural bound,
+not a speedup prediction.
+
+### Analysis reads other declarations' bodies
+
+The analyzer is not declaration-local:
+
+- raw-borrow proofs (`OwnershipAnalyzer._raw_parameter_is_borrow_only`) walk
+  a callee's body and read that body's `node_types`, transitively;
+- consuming-parameter detection (`owned_transfer_param_indices`) reads the
+  callee's leading statements; IR lowering calls it too;
+- native-invocation locality recurses into callee bodies;
+- the realtime analyzer scans every callable body, whenever any `@realtime`
+  root exists, and solves a program-wide fixed point;
+- generic closure rescans template bodies with their annotations;
+- callee default-argument and field-initializer annotations are produced by
+  the defining declaration's body pass;
+- many rules key on `body is None` (prototype, hosted/FFI routing, trusted
+  prototypes, required concrete bodies, auto-property storage).
+
+Stripping foreign bodies would silently change semantics. Restricting body
+analysis needs persisted per-callable summaries for every item above.
+
+### Lowering reads program-wide facts
+
+- setjmp volatility and capture rejection solve a least fixed point over the
+  lowered IR of every function (`FunctionEffectCatalog`), with conservative
+  effects for anything only declared;
+- `program_uses_trycatch` scans every declaration and changes cleanup
+  registration and ARC descriptors everywhere;
+- cycle metadata closes over the whole class table;
+- stdlib reachability and generic instance tables are program-wide;
+- the realtime verifier follows callees transitively through defined
+  functions;
+- lambda, cleanup-slot and GPU-dispatch names come from per-session counters,
+  and helpers, descriptors and default-argument helpers are deduplicated per
+  session;
+- `main` gets `__btrc_flush_cycles` only if its own module releases cyclable
+  values.
+
+## Staged delivery
+
+**Stage A — module-owned lowering under whole-program analysis.** Keep the
+existing whole-program analysis. Partition the program into compilation
+groups and lower each group in its own lowering session. A group's unit
+defines only what the group owns and declares everything else. Program facts
+(exception use, class hierarchy/cycle facts, generic demand, stdlib
+reachability) are inputs to every group. Cross-group lowering summaries
+(setjmp `FunctionEffect`s, realtime-verified callees, cyclable releases) are
+published by the defining group. Validate on the full language corpus through
+both compilers, then add per-group artifacts and reuse.
+
+**Stage B — module-owned analysis.** Replace whole-program body analysis of
+unchanged groups with persisted per-callable analysis summaries for every
+cross-declaration fact listed above. Stage A's artifacts, keys and scheduler
+are unchanged; only their inputs shrink.
+
+Stage B requirements found on September 23 (self-hosted analyzer; the
+reference analyzer has the same shape). An edit build today is bounded by
+whole-program front end (about 7 s) and analysis (about 20 s, of which body
+validation is 9.7 s). Skipping an unchanged group's body analysis needs:
+
+- **Stable node identities.** Validation records facts keyed by a node's
+  address: generic constructor types taken from context
+  (`Analyzed.genericConstructorTypes`), hosted-call classification
+  (`hostedCallKeys`), constant array bounds (`constantArrayBoundKeys`) and
+  array iteration capacities (`arrayIterationCapacityKeys`). Type inference,
+  the generic closure, the realtime analyzer and IR lowering all read them.
+  A persisted group record must key them by structural position within the
+  group and restore them before the generic closure runs.
+- **Per-group generic demand.** Both generic phases build the program's
+  instance list by scanning every body, and lowering consumes that list in
+  order. Each group must publish the instances its bodies request, and the
+  program list must not depend on which groups were scanned.
+- **Deferred symbol checks.** Generated-symbol references collected during
+  body walks are checked against the final instance set; a skipped group's
+  references must be re-checked from its record.
+- **Callee body facts.** A caller's validation walks callee bodies for
+  raw-borrow proofs, which the interface digest does not capture; those
+  proofs join the per-callable summaries listed above.
+
+**Stage C — bounded parallel groups.** Schedule dependency-ready groups on
+workers with the same scheduler used for one worker.
+
+Stage A alone cannot meet the 10 s body-edit budget: whole-program analysis
+is about 18–21 s of the self-host cold compile. It is still on the critical
+path, because partitioning, ownership, naming, linkage, summaries, keys and
+the scheduler are the same in Stage B.
+
+## Compilation groups
+
+A group is a strongly connected component of the resolved source graph, with
+import edges directed and textual include edges treated as reciprocal (the
+same rule `SourceDependencyGraph.visibility_reachable` uses). A declaration
+belongs to the group of its stamped `source_file`. Native-header declarations
+and anything without a source file belong to the **program unit**, which also
+defines the process-unique runtime state that a split program already places
+in its primary unit.
+
+Groups are ordered topologically for summaries. Mutual recursion across groups
+requires an import cycle and is therefore inside one group. Generic
+specializations are **definition-owned**: every instance of a template is
+lowered in the template's group, keyed by the demanded instance set.
+
+## Ownership, linkage and names
+
+Every emitted definition has exactly one owning unit; every other unit that
+needs it sees a declaration. Declarations with program-wide names —
+functions, methods, constructors, destructors and destructor hooks, ARC
+descriptors and visitors, interface tables and dispatchers, generic instance
+members and globals — have external linkage in their owner's unit.
+Session-counted or session-deduplicated synthesized functions (lambdas,
+spawn wrappers, cleanup adapters, default-argument helpers, GPU dispatch
+helpers) stay `static` in the unit that uses them, so per-unit counters
+cannot collide. Generated C remains strict C11; there are no weak symbols.
+
+A unit's C text must depend only on its group's inputs, never on which other
+groups were lowered in the same process. Each group therefore uses a fresh
+lowering session; only immutable program facts are shared.
+
+## Keys and invalidation
+
+A group artifact is valid when all of these match: compiler and runtime
+identity; options, target and mode; the group's source bytes; the program
+interface digest (declarations with non-template bodies removed, default
+arguments, field initializers, templates, native declarations); the program
+facts digest; and the digests of every cross-group summary the group's
+lowering consulted. Stage A over-approximates with a program-wide interface
+digest, so a public signature change invalidates every group; this is visible
+in the counters and replaced by dependency-closure declarations later.
+
+Summaries that participate in a call-graph cycle are recomputed from bottom
+for the whole cycle, so reuse never keeps a non-least fixed point. Cache
+misses rebuild; corruption must never produce a successful stale binary.
+Clean and incremental builds are compared unit-for-unit in tests.
+
+## Stage A as implemented (reference compiler)
+
+`btrcpy --emit-units PREFIX --module-units` (`ModuleUnitCompiler`,
+`application/modules.py`) compiles one build as follows:
+
+1. Whole-program resolve, parse and analysis are unchanged.
+2. One **declarations-only session** lowers every declaration with bodies
+   gated off. After partition its function definitions become prototypes and
+   its globals externs; this is the program's shared declaration IR
+   (`SharedDeclarations`). It also computes the program lowering facts every
+   later session shares (`ProgramLoweringFacts`: exception use, stdlib
+   reachability, tuple shapes).
+3. The **program unit** and every **stale group** are lowered in their own
+   sessions with `declarations_elsewhere`: foreign declarations are skipped
+   entirely, owned declarations and their bodies are lowered, and definitions
+   created under a declaration are stamped with its group. Each unit then takes
+   the shared declarations it references by name closure.
+4. Setjmp call effects are solved across units by chaotic iteration from
+   bottom, with reused units' published summaries fixed
+   (`ExceptionLowerer.solve_program_setjmp_effects`). Restricting the program
+   least fixed point to one unit and re-solving that unit with the others fixed
+   reproduces the same values (the program solution is a pre-fixed point of the
+   restricted system and the restricted least solution is below it), so each
+   unit's volatility and capture rejection match whole-program lowering.
+5. Realtime proofs follow calls into other units' IR
+   (`IRVerifier.validate_program_realtime`); the program-wide cyclable-release
+   fact is supplied to the unit defining `main`; the program unit defines the
+   runtime state of every helper any unit selected.
+6. Units that define nothing externally are dropped; each kept unit is named
+   `unit-<stem>-<path hash>` so its file and native object stay stable.
+
+A **`ModuleUnitRecord`** per group (in the compiler cache, checksummed and
+framed by the toolchain fingerprint) holds the unit text and the facts it
+published or consulted: exported setjmp summaries, the summaries it consulted,
+whether it contains `setjmp`, releases cyclable values or defines the entry,
+the cyclable-release fact it consulted, its helpers, and the groups its
+realtime proofs traversed. A record is reused only when its key matches and,
+after the stale groups are solved, every consulted summary is unchanged, no
+summary-dependency cycle joins it to a stale group, and no realtime proof it
+made or needs crosses a stale group; otherwise the group is lowered again and
+the solve repeats.
+
+The **key** is the context (debug, DCE, target, output paths in debug mode),
+the group's resolved lines with their original positions, the **program
+interface digest** and the **program facts digest**. The interface digest
+covers every declaration without source positions; callable bodies are elided
+except in generic templates, keeping only whether a body exists and which
+parameters its leading statements consume (the two body facts lowering reads
+from other declarations). The facts digest covers exception use, generic class,
+method and callable instance tables, the realtime-safe set and stdlib
+reachability. Both are whole-program: a public signature change, a new generic
+instance or newly reached stdlib declaration anywhere invalidates every group.
+That over-approximation is visible in the lowered/reused counters and is the
+next refinement (per-group consulted facts).
+
+### Validation so far
+
+- The full language corpus passes in module-unit mode through both
+  compilers (1,922 runs), each unit linked with the others, with
+  whole-program output unchanged (285 frozen boundary records) and the
+  self-hosted bootstrap at its byte-stable fixed point.
+- `src/tests/python/test_module_units.py`: groups/SCC ordering, record
+  round-trip and corruption, stable names, and the fixture's clean build,
+  full reuse, private body edit (only `Catalog` lowered, only its unit
+  changes), byte-identical clean rebuild in a fresh cache, interface edit and
+  corrupted records; the same private-edit sequence through btrcc; and the
+  CoreAudio unit conformance program built from units in both compilers,
+  whose realtime proof crosses into another unit's native callback adapter.
+
+## Stage A in the self-hosted compiler
+
+`btrcc --emit-units PREFIX --module-units` (`ModuleUnitCompiler` in
+`pipeline/ModuleUnits.btrc`) follows the same steps. Two differences come from
+how btrcc lowers generics:
+
+- btrcc lowers every member of a demanded generic instance and relies on DCE,
+  so a unit cannot tell alone which instance members the program needs. Each
+  unit publishes a reference graph (its roots, instance members and the names
+  each function references); the kept members are the fixed point of every
+  unit's roots through all graphs, and a reused unit is exact only while its
+  kept set is unchanged.
+- An exported instance member whose body failed lowering (a deferred invalid
+  operator) is not a DCE root; if another unit still calls it, its deferred
+  diagnostic is reported as whole-program DCE would.
+
+Records are stored as two files per key in the self-hosted artifact cache:
+`unit.c` holds the C text verbatim, and `record.json` starts with the digests
+of the record and of the text, followed by the record JSON (reference-graph
+edges as one tab- and newline-separated string). Either digest failing is a
+miss. Module-unit cache opens skip revalidating every input read so far: a key
+already digests the exact group sources, and publishing the build still
+validates.
+
+### Cross-unit facts in both compilers
+
+- Whether a native callee is realtime-safe is a program fact. A unit that
+  lowers a native realtime callback adapter records its callee; the program
+  realtime proof uses the union of every unit's safe externals, as a single
+  whole-program module does.
+- The program setjmp solve re-analyzes a unit only when a summary it consulted
+  moved after its last analysis. Units arrive dependencies first, so on
+  BTRSmith 439 units take 458 analyses.
+- A unit emits the interface dispatchers its own IR calls, after its bodies
+  are lowered; the dispatch tables arrive with the shared declarations.
+
+### BTRSmith measurements (September 23, macOS arm64, single samples)
+
+The macOS self-hosted compiler (`cli/MacOSMain.btrc`, clang -O2) compiling the
+BTRSmith copy in dev mode (`--debug`, 444 sources, 438 compilation groups),
+compiler only (no native build). Each mode keeps a fixed output directory,
+since debug-mode keys include the output path.
+
+| Scenario | Whole program | Module units |
+| --- | ---: | ---: |
+| Cold (empty caches), in-process | 101.1 s | 105.5 s (104%) |
+| Cold, two workers (the default) | 96.6 s | 88.2 s (91%) |
+| Unchanged repeat | 5.3 s | 5.4 s |
+| One-line private body edit | 97.8 s | **40.5 s**: 2 groups lowered, 436 reused, 1 of 401 units changed |
+
+The edit build is now whole-program front end and analysis (about 28 s:
+validation 9.7 s, generics 7.1 s, realtime 3.1 s, native headers 2.8 s,
+parsing 2.3 s), the program interface digest (2.8 s), lowering the edited
+group and the program unit (about 5 s) and loading 436 records (about 2 s).
+Only Stage B removes the analysis share.
+
+The cold overhead first measured 186 s (190%). The cuts, each found with an
+in-process sampling profiler:
+
+- releasing each group's lowering session, and the struct lists a unit's DCE
+  drops (shared declaration IR alive in other units), ran an ARC
+  reverse-reachability proof per object; the sessions now live until exit, as
+  whole-program compiles already do (optimize 18.7 → 6.1 s, emit 12.3 → 6.8 s);
+- the setjmp solve re-queued every consumer of a summary that moved earlier in
+  the same round (30.2 → 8.2 s with the other cuts);
+- three IR walks allocated an 18-element child list per node (graph 10.8 →
+  about 1 s);
+- every module-unit cache open revalidated all inputs (4.4 s of misses);
+- records were JSON-encoded twice and the pure-btrc digest hashed them (edit
+  61 → 45 s before the other cuts).
+
+About 45% of CPU in both modes is the system allocator (`IRNode`/`Node`
+construction allocates their child vectors eagerly). That is shared with
+whole-program compiles and is not module-unit overhead.
+
+### Measurements so far (diagnostic, single samples, macOS)
+
+Self-hosted compiler source through btrcpy, cold, no caches: whole-program
+**194.7 s** (lowering 94.9 s) after two quadratic scans were removed
+(generic-parameter membership and prototype deduplication; lowering was
+113.5 s before). The first module-unit implementation lowered the whole
+program's declarations in every group session and took **511 s**; per-unit
+optimizer passes then paid for program-sized regex alternations. Identifier
+scans now tokenize once per text, and units draw declarations from the shared
+IR, which removes that per-group program-sized work.
+
+## Stage C: forked group workers (implemented in both compilers)
+
+The analyzed program, the shared declaration IR and the program lowering facts
+never change once computed, so worker processes forked after they exist share
+them copy-on-write. A group's lowered IR stays in the worker that lowered it;
+only small messages cross the pipes. The owner keeps every program-wide
+decision and runs the same schedule with one worker (answered in-process) or
+many, so the emitted units are byte-identical for every worker count.
+`--jobs N` sets the count (both CLIs); without it the compilers use one per
+CPU, at most two, and the Python API stays in-process unless asked, because
+a threaded embedding process must not fork.
+
+Memory decides that default. Each worker starts as a copy-on-write image of
+the analyzed program, but ARC writes reference counts into the objects
+lowering reads, so a worker soon holds its own copy of much of that program
+besides its units. System-wide anonymous memory growth on the BTRSmith dev
+build (September 23): 4.83 GiB in-process, 5.93 GiB with two workers and
+6.85 GiB with four, against the 6 GiB aggregate budget. The in-process figure
+depends on keeping the lowered units alive until the process exits: releasing
+them at the end of the compile ran ARC reverse-reachability proofs over the
+whole graph and doubled the peak to 10 GB.
+
+1. **Plan (owner).** Keys, record loads and the stale set are computed as
+   before. Workers start on first need; a build that reuses everything never
+   forks.
+2. **Lower (workers).** Stale groups go to idle workers, largest first. A
+   worker lowers the group, keeps the unit and returns its exports, reference
+   graph, realtime roots and whether it calls `setjmp` or releases cyclable
+   values.
+3. **Solve (owner schedules, workers analyze).** Setjmp summaries follow calls
+   between units, so the owner orders units by the SCCs of those calls and
+   analyzes each dependency level together, callees first; a unit is analyzed
+   again only when a summary it consulted moved in or after its wave (a call
+   back into a lower level). Summaries travel as compact text, a worker
+   receives only the summaries that moved since it last heard and replies
+   only with its own that moved, and every solve pass has a generation, so a
+   pass after a reuse check restarts both sides from bottom. Within a unit,
+   a re-analysis recomputes only the functions that consulted a moved
+   summary, and their unit-local callers. Summaries are snapshotted whenever
+   they are published or recorded, because the solver widens effects in
+   place. Without the snapshot, a recorded consulted summary silently
+   followed later widening. It then compared equal to the exporter's final
+   summary, which cost relowering, never output.
+4. **Program checks (owner).** Instance demand runs on the reference graphs.
+   Realtime proofs are composed: each unit proves functions through its own
+   definitions and returns the calls it cannot resolve; the owner continues a
+   call into another unit's export in that unit, checks every other call
+   against the program-wide realtime-safe externals, and rejects call cycles
+   between units. A record keeps its unit's realtime roots and, for each
+   function a proof checked, the calls that proof left; a later proof through
+   a reused unit resumes from that record, so a reused unit is lowered again
+   only when a proof reaches one of its functions that was never proven.
+5. **Finish (workers).** Each worker applies the solved effects, optimizes and
+   emits its unit; the owner stores the record and assembles the build in
+   group order.
+
+Failure: a worker that exits, is killed or breaks the protocol fails the
+compile with its diagnostic after every worker has been terminated and reaped;
+a lowering diagnostic raised in a Python worker is raised again in the owner.
+Records are written only by the owner, only for finished units, and are
+content-keyed and checksummed, so a failed compile publishes no output and
+leaves no partial record. Tests cover identical units across worker counts in
+both compilers, a worker dying mid-compile (failure reported, no output, no
+child processes left), cancelling the owner mid-lowering (its workers exit,
+nothing is published), an effect-changing edit that forces a second solve
+(the incremental build equals a clean one and lowers only the two groups
+concerned, and every function body equals the whole-program build's), and
+the real link plan, native object cache and linker: a clean
+build compiles every unit, an unchanged rebuild none, and a private edit
+exactly the edited group's unit.
+
+## Concurrency contracts (M10)
+
+The compiler owns grouping, ordering, barriers and deterministic merging. The
+stdlib owns synchronization, bounded work delivery and worker lifecycle:
+`Library.BackgroundJobs.BackgroundJobExecutor` is the bounded pool, and
+`awaitCompletion()` is the blocking completion wait a dependency scheduler
+needs (predicate-rechecked condition wait; `EMPTY` with nothing outstanding;
+`CLOSED` after worker failure). Worker-owned lowering sessions and immutable
+shared program facts are the sharing rule.
+
+Every ARC retain and release currently takes one process-wide spinlock.
+Measured September 23 (macOS arm64, clang -O2): each thread builds 20,000
+managed nodes of 64 managed children, as lowering does, with no shared
+objects (program: `~/.cache/btrc/checkpoints/2026-09-22-m11a/ArcScaling.btrc`,
+run as `ArcScaling <threads> 20000`).
+
+| Threads (same work each) | Wall | Ideal |
+| ---: | ---: | ---: |
+| 1 | 0.73 s | 0.73 s |
+| 2 | 3.37 s | 0.73 s |
+| 4 | 17.2 s | 0.73 s |
+| 8 | 69.0 s | 0.73 s |
+
+Threads contending for the ARC lock are slower in total than one thread doing
+all the work. Worker threads therefore cannot parallelize ARC-heavy compiler
+work until the runtime stops serializing thread-confined objects; Stage C
+uses worker processes forked after analysis, which share the analyzed program
+copy-on-write and exchange only records and summaries. The same holds for the
+reference compiler, whose interpreter lock serializes threads.
+
+## Fixture
+
+`src/tests/native/modules/` holds the M11a fixture: the `Shapes` library
+(generic `Box<T>`, inherited managed `Shape` with `Square`/`Rectangle`
+implementing the `Measured` interface, a native header `ShapeScale.h`, a
+throwing `checkedArea`, and a retaining `ShapeShelf`), consumers `Gallery`
+and `Catalog`, and entry points `GalleryMain` and `CatalogMain`. Class
+dispatch is static in btrc; cross-module dynamic dispatch goes through the
+interface.

@@ -23,9 +23,24 @@ class BtrccResolvedCompilation {
 	}
 }
 
+/* One module unit as stored: its record (the facts it published or
+ * consulted) and its C text, kept apart so the text is never re-encoded. */
+class BtrccModuleUnitPayload {
+	public string record;
+	public string text;
+
+	public BtrccModuleUnitPayload(string record, string text) {
+		self.record = record;
+		self.text = text;
+	}
+}
+
 interface IBtrccArtifactCache {
 	BtrccCompilationResult? load(string identity);
 	void store(string identity, BtrccCompilationResult result);
+	/* Module units: one group's verified payload, or null for a miss. */
+	BtrccModuleUnitPayload? loadModuleUnit(string identity);
+	void storeModuleUnit(string identity, BtrccModuleUnitPayload payload);
 }
 
 class BtrccOptions {
@@ -39,6 +54,10 @@ class BtrccOptions {
 	public string linkPlanPath;
 	/* Split the emitted C into units written as <prefix>.unit-<k>.c; empty means one unit. */
 	public string unitsPrefix = "";
+	/* With unitsPrefix: lower and emit one unit per compilation group. */
+	public bool moduleUnits = false;
+	/* --jobs: module-unit worker processes; 0 picks the host's suggestion, at most two. */
+	public int moduleJobs = 0;
 	/* -o: write the generated C here instead of stdout; --debug: #line directives. */
 	public string outputPath = "";
 	public bool debug = false;
@@ -69,6 +88,9 @@ class BtrccCompilationResult {
 	public Vector<string> units = [];
 	/* Exact destinations accompany the units; the CLI does not rederive them. */
 	public Vector<string> unitPaths = [];
+	/* Module units: groups lowered by this compile and those reused unchanged. */
+	public Vector<string> moduleUnitsLowered = [];
+	public Vector<string> moduleUnitsReused = [];
 	/* Successful source reads plus declared native/package inputs. */
 	public Vector<string> inputPaths = [];
 

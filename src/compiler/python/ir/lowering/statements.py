@@ -163,7 +163,8 @@ class StatementLowerer:
         callable_abis=(),
     ) -> IRBlock:
         """Lower a btrc Block to an IRBlock."""
-        if block is None:
+        if block is None or self._session.foreign_body:
+            # Another compilation group defines this body; its unit lowers it.
             return IRBlock()
         local_bindings = tuple(local_bindings)
         iteration_bindings = tuple(iteration_bindings)

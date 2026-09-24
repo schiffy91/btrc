@@ -4,7 +4,7 @@ Status: **active architecture contract**.
 
 This document records the ownership-driven destination shared by the Python
 reference compiler, the self-hosted compiler, and developer tooling. The
-normative inventory is exactly 84 production Python compiler files and 99
+normative inventory is exactly 88 production Python compiler files and 100
 self-hosted `.btrc` files. File size is a review signal, not a boundary:
 independent state, invariants, and change reasons justify a separate owner.
 
@@ -103,7 +103,7 @@ namespaces.
 
 ## Exact Python destination
 
-The Python compiler contains exactly 84 production `.py` files:
+The Python compiler contains exactly 88 production `.py` files:
 
 ```text
 src/compiler/python/
@@ -114,6 +114,7 @@ src/compiler/python/
     __init__.py
     compiler.py                   # Compiler
     pipeline.py                   # CompilationPipeline
+    modules.py                    # ModuleUnitCompiler: per-group units and reuse
     results.py                    # immutable cross-stage results
 
   cli/
@@ -222,7 +223,7 @@ src/compiler/python/
 
 ## Exact self-hosted destination
 
-The self-hosted compiler contains exactly 99 `.btrc` files: 93
+The self-hosted compiler contains exactly 100 `.btrc` files: 94
 compiler/generated files and six explicit developer-tool files. Only the
 public compiler application object and thin process entry point remain at the
 package root:
@@ -241,6 +242,7 @@ src/compiler/btrc/
   pipeline/
     Stage.btrc                    # public package manifest
     Models.btrc                   # mutable options/results
+    ModuleUnits.btrc              # ModuleUnitCompiler: per-group units and reuse
     Pipeline.btrc                 # CompilerPipeline
 
   syntax/
@@ -578,3 +580,10 @@ composition root, taking the self-host inventory from 98 to 99 files. The
 portable Unix entry and cross-release C remain SDK-independent; the native
 macOS entry supplies a managed digest provider to the existing cache owner.
 No compiler stage, lowering path or native ownership model is duplicated.
+
+Module units (PLAN.md M11a) add one owner to each compiler:
+`application/modules.py` (`ModuleUnitCompiler`) and
+`pipeline/ModuleUnits.btrc` (`ModuleUnitCompiler`). Each orchestrates
+per-group lowering, the shared declaration closure, cross-unit program facts
+and record reuse using the existing stage owners; neither implements a second
+semantic pipeline. The self-host inventory is therefore 100 files.

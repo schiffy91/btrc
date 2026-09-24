@@ -2120,7 +2120,9 @@ class ExpressionLowerer {
 			if (et != null) {
 				Node vt = SemanticTypeSystem.primitive("Vector");
 				Vector<Node> ga = [];
-				ga.push(et);
+				/* The upgrade below writes pointer depths: never into the
+				 * inferred type, which may be a declaration's own type node. */
+				ga.push(TypeShape.copyTree(et));
 				vt.genericArgs = ga;
 				/* Class element types must be upgraded to pointers so the inferred
                  * mangle matches the registered instance (`btrc_Vector_GraphNode_p1`,
@@ -2296,8 +2298,8 @@ class ExpressionLowerer {
 			if (kt != null && vt != null) {
 				Node mt = SemanticTypeSystem.primitive("Map");
 				Vector<Node> ga = [];
-				ga.push(kt);
-				ga.push(vt);
+				ga.push(TypeShape.copyTree(kt));
+				ga.push(TypeShape.copyTree(vt));
 				mt.genericArgs = ga;
 				/* Class key/value types upgrade to pointers so the mangle matches
                  * the registered instance (e.g. `btrc_Map_int_OwnedItem_p1`). */

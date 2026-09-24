@@ -18,6 +18,7 @@ single compiler with `pytest --compilers=python` (or `=btrc`); the Makefile wire
 `make test-btrc` (python) and `make test-btrc-selfhost` (btrc).
 """
 
+import json
 import math
 import os
 import platform
@@ -68,6 +69,10 @@ if not BTRC_CC:
     raise ValueError("BTRC_CC must name a C compiler")
 
 _PYTHON_COMPILER = Compiler()
+
+# Module-unit mode compiles every corpus program as one C unit per source
+# compilation group (each stdlib module is its own group), linked together.
+MODULE_UNITS = os.environ.get("BTRC_TEST_MODULE_UNITS") == "1"
 
 
 def _positive_timeout_seconds(raw: str | None, *, name: str, default: float) -> float:
@@ -149,6 +154,22 @@ def _transpile_python(btrc_path, btrc_file):
     return _PYTHON_COMPILER.pipeline.emit(ir_module)
 
 
+def _transpile_python_module_units(btrc_path, btrc_file):
+    """Transpile through the public compiler API into module units."""
+    with open(btrc_path) as f:
+        source = f.read()
+    prefix = os.path.join(tempfile.mkdtemp(prefix="btrc-module-units-"), "program")
+    options = CompilerOptions(
+        map_stdlib_positions=True,
+        use_cache=False,
+        units_prefix=prefix,
+        module_units=True,
+    )
+    result = _PYTHON_COMPILER.compile(source, btrc_path, options)
+    assert result.failure is None, f"module-unit compile failed: {result.failure}"
+    return (result.c_source, *result.c_units)
+
+
 def _transpile_btrc(btrcc, btrc_path):
     """Transpile a .btrc file to C by running the self-hosted compiler binary.
 
@@ -165,6 +186,42 @@ def _transpile_btrc(btrcc, btrc_path):
     )
     assert r.returncode == 0 and r.stdout.strip(), f"btrcc failed to transpile:\nstderr: {r.stderr[:2000]}"
     return r.stdout
+
+
+def _transpile_btrc_module_units(btrcc, btrc_path):
+    """Transpile with the self-hosted compiler into module units."""
+    directory = tempfile.mkdtemp(prefix="btrc-module-units-")
+    primary = os.path.join(directory, "program.c")
+    plan = os.path.join(directory, "program.json")
+    r = subprocess.run(
+        [
+            btrcc,
+            "--no-cache",
+            btrc_path,
+            "-o",
+            primary,
+            "--emit-units",
+            os.path.join(directory, "program"),
+            "--module-units",
+            # Forked workers, but few: the corpus already runs in parallel.
+            "--jobs",
+            "2",
+            "--emit-link-plan",
+            plan,
+        ],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
+    )
+    assert r.returncode == 0, f"btrcc failed to transpile module units:\nstderr: {r.stderr[:2000]}"
+    with open(plan) as plan_file:
+        units = json.load(plan_file).get("emitted-units", [])
+    texts = []
+    for path in (primary, *units):
+        with open(path) as unit_file:
+            texts.append(unit_file.read())
+    return tuple(texts)
 
 
 def _gcc_flags(c_source, c_path, bin_path):
@@ -196,13 +253,25 @@ def _gcc_flags(c_source, c_path, bin_path):
 
 
 def _compile_run_check(c_source, btrc_path, btrc_file):
-    """Compile emitted C, run it, assert PASS + exit 0, and match the golden."""
+    """Compile emitted C, run it, assert PASS + exit 0, and match the golden.
+
+    `c_source` is one translation unit, or a tuple whose first unit is the
+    primary and whose others are linked with it."""
+    units = c_source if isinstance(c_source, tuple) else (c_source,)
+    c_source = "\n".join(units)
     with tempfile.NamedTemporaryFile(suffix=".c", delete=False, mode="w") as f:
-        f.write(c_source)
+        f.write(units[0])
         c_path = f.name
+    unit_paths = []
+    for index, unit in enumerate(units[1:], start=1):
+        unit_paths.append(f"{c_path}.unit-{index}.c")
+        with open(unit_paths[-1], "w") as unit_file:
+            unit_file.write(unit)
     bin_path = c_path.removesuffix(".c")
     try:
         gcc_flags = _gcc_flags(c_source, c_path, bin_path)
+        if unit_paths:
+            gcc_flags[gcc_flags.index(c_path) + 1 : gcc_flags.index(c_path) + 1] = unit_paths
         compile_result = subprocess.run(gcc_flags, capture_output=True, text=True, timeout=60)
         assert compile_result.returncode == 0, (
             f"gcc failed:\nstdout: {compile_result.stdout}\nstderr: {compile_result.stderr}"
@@ -235,7 +304,7 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
             f"Stderr mismatch vs golden file:\nExpected:\n{expected_stderr}\nGot:\n{run_result.stderr}"
         )
     finally:
-        for p in [c_path, bin_path]:
+        for p in [c_path, bin_path, *unit_paths]:
             if os.path.exists(p):
                 os.unlink(p)
 
@@ -244,8 +313,13 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
 def test_btrc_file(compiler, btrc_file, request):
     """Run one language test through the selected compiler."""
     btrc_path = os.path.join(BTRC_TEST_DIR, btrc_file)
-    if compiler == "python":
+    if compiler == "python" and MODULE_UNITS:
+        c_source = _transpile_python_module_units(btrc_path, btrc_file)
+    elif compiler == "python":
         c_source = _transpile_python(btrc_path, btrc_file)
+    elif MODULE_UNITS:
+        btrcc = request.getfixturevalue("btrcc_bin")
+        c_source = _transpile_btrc_module_units(btrcc, btrc_path)
     else:
         btrcc = request.getfixturevalue("btrcc_bin")
         c_source = _transpile_btrc(btrcc, btrc_path)

@@ -67,6 +67,48 @@ class SourceDependency:
     kind: SourceDependencyKind
 
 
+@dataclass(frozen=True)
+class CompilationGroups:
+    """Strongly connected source groups, each compiled into its own unit.
+
+    A group is named by its first canonical member path. Declarations with no
+    source path, or from a file outside every group, belong to the program
+    unit, which also owns process-unique runtime state.
+    """
+
+    PROGRAM = ""
+
+    groups: tuple[tuple[str, ...], ...]
+    _membership: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
+    # Stamped path → group: canonicalizing resolves symlinks on disk, and a
+    # module-unit session asks once per declaration.
+    _resolved: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        for members in self.groups:
+            for member in members:
+                self._membership[member] = members[0]
+
+    def names(self) -> tuple[str, ...]:
+        """Group names in dependency order."""
+
+        return tuple(members[0] for members in self.groups)
+
+    def members(self, name: str) -> tuple[str, ...]:
+        return next((members for members in self.groups if members[0] == name), ())
+
+    def group_of(self, source_file: object) -> str:
+        """The owning group of a declaration's stamped source file."""
+
+        if not isinstance(source_file, str) or not source_file or source_file.startswith("<"):
+            return self.PROGRAM
+        group = self._resolved.get(source_file)
+        if group is None:
+            group = self._membership.get(SourceDependencyGraph.canonical_file(source_file), self.PROGRAM)
+            self._resolved[source_file] = group
+        return group
+
+
 @dataclass
 class SourceDependencyGraph:
     """Typed source graph with the language's visibility semantics.
@@ -138,6 +180,65 @@ class SourceDependencyGraph:
                 for source, dependency in self.iter_edges()
             )
         )
+
+    def compilation_groups(self, root: str) -> CompilationGroups:
+        """Partition loaded files into strongly connected compilation groups.
+
+        Imports are directed and textual includes are reciprocal, exactly as
+        for visibility. Groups are ordered so every group follows the groups
+        it depends on; members and ties are ordered by canonical path.
+        """
+
+        adjacency: dict[str, set[str]] = {self.canonical_file(root): set()}
+        for path in self._outgoing:
+            adjacency.setdefault(self.canonical_file(path), set())
+        for source, dependency in self.iter_edges():
+            canonical_source = self.canonical_file(source)
+            canonical_target = self.canonical_file(dependency.target)
+            adjacency.setdefault(canonical_source, set()).add(canonical_target)
+            adjacency.setdefault(canonical_target, set())
+            if dependency.kind is SourceDependencyKind.INCLUDE:
+                adjacency[canonical_target].add(canonical_source)
+        # Tarjan's algorithm emits each component after every component it
+        # reaches, which is already dependency order.
+        index: dict[str, int] = {}
+        lowlink: dict[str, int] = {}
+        stack: list[str] = []
+        on_stack: set[str] = set()
+        groups: list[tuple[str, ...]] = []
+        for start in sorted(adjacency):
+            if start in index:
+                continue
+            index[start] = lowlink[start] = len(index)
+            stack.append(start)
+            on_stack.add(start)
+            work = [(start, iter(sorted(adjacency[start])))]
+            while work:
+                node, successors = work[-1]
+                for successor in successors:
+                    if successor not in index:
+                        index[successor] = lowlink[successor] = len(index)
+                        stack.append(successor)
+                        on_stack.add(successor)
+                        work.append((successor, iter(sorted(adjacency[successor]))))
+                        break
+                    if successor in on_stack:
+                        lowlink[node] = min(lowlink[node], index[successor])
+                else:
+                    work.pop()
+                    if work:
+                        parent = work[-1][0]
+                        lowlink[parent] = min(lowlink[parent], lowlink[node])
+                    if lowlink[node] == index[node]:
+                        members = []
+                        while True:
+                            member = stack.pop()
+                            on_stack.discard(member)
+                            members.append(member)
+                            if member == node:
+                                break
+                        groups.append(tuple(sorted(members)))
+        return CompilationGroups(tuple(groups))
 
     def visibility_reachable(self, start: str) -> set[str]:
         """Return files visible from ``start`` under import/include rules."""

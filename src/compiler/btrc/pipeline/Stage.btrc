@@ -2,4 +2,5 @@
 
 import ../ir/Stage.btrc;
 import ./Models.btrc;
+import ./ModuleUnits.btrc;
 import ./Pipeline.btrc;

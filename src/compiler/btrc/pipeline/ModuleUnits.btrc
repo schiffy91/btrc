@@ -1,0 +1,2127 @@
+/* Module units: one C unit per source compilation group, reused by key. */
+
+import Library.BackgroundJobs.WorkerPools;
+import Library.Digest.SHA256;
+import Library.JSON;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+import ../frontend/Models.btrc;
+import ../frontend/SourceIo.btrc;
+import ../frontend/Timing.btrc;
+import ../ir/Stage.btrc;
+import ./Models.btrc;
+
+/* Interface renderings keep what lowering reads from a foreign body: that it
+ * exists and which parameters its leading statements consume. */
+class ModuleUnitInterfaceSummary implements IAstInterfaceSummary {
+	public ModuleUnitInterfaceSummary() {}
+
+	public string callableBody(Node callable) {
+		Map<int, bool> consumed = DeclarationRegistry.ownedTransferParameters(callable);
+		Vector<int> indices = consumed.keys();
+		indices.sort();
+		Vector<string> rendered = [];
+		for index in indices { rendered.push(Strings.fromInt(index)); }
+		return "defined consumed=" + Strings.join(rendered, ",");
+	}
+}
+
+/* A unit's function reference graph: which functions each definition calls
+ * or names, the unit's roots (entry, non-instance exports, global
+ * initializers) and its generic-instance members, which are kept only where
+ * some unit of the program needs them. */
+class ModuleUnitGraph {
+	public Map<string, Vector<string>> edges = {};
+	public Vector<string> roots = [];
+	public Map<string, bool> instances = {};
+
+	public ModuleUnitGraph() {}
+
+	class void references(IRNode? node, Map<string, bool> out) {
+		if (node == null) { return; }
+		if (node.kind == IRK_CALL && !node.callee.isEmpty()) { out.put(node.callee, true); }
+		if ((node.kind == IRK_FUNCTION_REF || node.kind == IRK_VAR) && !node.name.isEmpty()) { out.put(node.name, true); }
+		/* Visited field by field: a child list per node would allocate for
+		 * every node of every unit. */
+		ModuleUnitGraph.references(node.left, out);
+		ModuleUnitGraph.references(node.right, out);
+		ModuleUnitGraph.references(node.operand, out);
+		ModuleUnitGraph.references(node.expr, out);
+		ModuleUnitGraph.references(node.obj, out);
+		ModuleUnitGraph.references(node.index, out);
+		ModuleUnitGraph.references(node.condition, out);
+		ModuleUnitGraph.references(node.trueExpr, out);
+		ModuleUnitGraph.references(node.falseExpr, out);
+		ModuleUnitGraph.references(node.init, out);
+		ModuleUnitGraph.references(node.value, out);
+		ModuleUnitGraph.references(node.target, out);
+		ModuleUnitGraph.references(node.thenBlock, out);
+		ModuleUnitGraph.references(node.elseBlock, out);
+		ModuleUnitGraph.references(node.body, out);
+		ModuleUnitGraph.references(node.update, out);
+		ModuleUnitGraph.references(node.result, out);
+		ModuleUnitGraph.references(node.arraySize, out);
+		for argument in node.args { ModuleUnitGraph.references(argument, out); }
+		for statement in node.stmts { ModuleUnitGraph.references(statement, out); }
+	}
+
+	/* Adds this graph to a record or worker reply: one line per function, its
+	 * name then the names it references, tab-separated (C identifiers contain
+	 * neither separator). */
+	public void writeTo(JSONValue root) {
+		Vector<string> lines = [];
+		Vector<string> sources = self.edges.keys();
+		sources.sort();
+		for name in sources {
+			Vector<string> row = [name];
+			row.extend(self.edges.get(name));
+			lines.push(Strings.join(row, "\t"));
+		}
+		root.set("graph-edges", JSONValue.makeString(Strings.join(lines, "\n")));
+		root.set("graph-roots", ModuleUnitRecord.stringsJson(self.roots));
+		Vector<string> instances = self.instances.keys();
+		instances.sort();
+		root.set("graph-instances", ModuleUnitRecord.stringsJson(instances));
+	}
+
+	/* Reads what writeTo wrote into `graph`; false for anything malformed. */
+	class bool readFrom(JSONValue root, ModuleUnitGraph graph) {
+		if (!root.get("graph-edges").isString()) { return false; }
+		string edges = root.get("graph-edges").asString();
+		if (!edges.isEmpty()) {
+			for line in Strings.split(edges, "\n") {
+				Vector<string> row = Strings.split(line, "\t");
+				string name = row.get(0);
+				if (name.isEmpty() || graph.edges.has(name)) { return false; }
+				Vector<string> targets = [];
+				for (int index = 1; index < row.len; index++) { targets.push(row.get(index)); }
+				graph.edges.put(name, targets);
+			}
+		}
+		if (!ModuleUnitRecord.stringsFrom(root.get("graph-roots"), graph.roots)) { return false; }
+		Vector<string> instances = [];
+		if (!ModuleUnitRecord.stringsFrom(root.get("graph-instances"), instances)) { return false; }
+		for name in instances { graph.instances.put(name, true); }
+		return true;
+	}
+
+	class ModuleUnitGraph fromUnit(IRModule unit, Map<string, bool> instanceNames) {
+		ModuleUnitGraph graph = ModuleUnitGraph();
+		for definition in unit.functions {
+			Map<string, bool> refs = {};
+			ModuleUnitGraph.references(definition.body, refs);
+			Vector<string> names = refs.keys();
+			names.sort();
+			graph.edges.put(definition.name, names);
+			if (instanceNames.has(definition.name) && !definition.isStatic) { graph.instances.put(definition.name, true); }
+			else if (!definition.isStatic || definition.name == "main" || definition.name == "btrc_main") { graph.roots.push(definition.name); }
+		}
+		Map<string, bool> globalRefs = {};
+		for global in unit.globalDecls {
+			if (!global.isExtern) { ModuleUnitGraph.references(global.init, globalRefs); }
+		}
+		for name in globalRefs.keys() { graph.roots.push(name); }
+		graph.roots.sort();
+		return graph;
+	}
+}
+
+/* Setjmp summaries between the owner and its workers, as text: one line per
+ * function, its name, a tab, then writes, captures and returns (each a comma
+ * list of index:depth) and whether its return is unknown, separated by '|'. */
+class ModuleUnitSummaries {
+	class string parameters(Vector<SetjmpParameterEffect> effects) {
+		Vector<string> items = [];
+		for effect in effects { items.push(Strings.fromInt(effect.index) + ":" + Strings.fromInt(effect.depth)); }
+		return Strings.join(items, ",");
+	}
+
+	class string encode(Map<string, SetjmpFunctionEffect> effects) {
+		Vector<string> names = effects.keys();
+		names.sort();
+		Vector<string> lines = [];
+		for name in names {
+			SetjmpFunctionEffect effect = effects.get(name);
+			lines.push(name + "\t" + ModuleUnitSummaries.parameters(effect.writes) + "|" + ModuleUnitSummaries.parameters(effect.captures) + "|" + ModuleUnitSummaries.parameters(effect.returns) + "|" + (effect.unknownReturn ? "1" : "0"));
+		}
+		return Strings.join(lines, "\n");
+	}
+
+	class bool parametersFrom(string text, Vector<SetjmpParameterEffect> out) {
+		if (text.isEmpty()) { return true; }
+		for item in Strings.split(text, ",") {
+			int separator = item.indexOf(":");
+			if (separator <= 0 || separator >= item.length() - 1) { return false; }
+			out.push(SetjmpParameterEffect(Strings.toInt(item.substring(0, separator)), Strings.toInt(item.substring(separator + 1, item.length() - separator - 1))));
+		}
+		return true;
+	}
+
+	/* Decodes what encode wrote into `out`; false for anything malformed. */
+	class bool decode(string text, Map<string, SetjmpFunctionEffect> out) {
+		if (text.isEmpty()) { return true; }
+		for line in Strings.split(text, "\n") {
+			int tab = line.indexOf("\t");
+			if (tab <= 0) { return false; }
+			Vector<string> fields = Strings.split(line.substring(tab + 1, line.length() - tab - 1), "|");
+			if (fields.len != 4 || !(fields.get(3).equals("0") || fields.get(3).equals("1"))) { return false; }
+			SetjmpFunctionEffect effect = SetjmpFunctionEffect();
+			if (!ModuleUnitSummaries.parametersFrom(fields.get(0), effect.writes) || !ModuleUnitSummaries.parametersFrom(fields.get(1), effect.captures) || !ModuleUnitSummaries.parametersFrom(fields.get(2), effect.returns)) { return false; }
+			effect.unknownReturn = fields.get(3).equals("1");
+			out.put(line.substring(0, tab), effect);
+		}
+		return true;
+	}
+}
+
+/* Everything later builds need from one group's finished unit. The emitted
+ * text is final; the remaining fields are the program facts the unit
+ * published or consulted, so a later build can decide whether reusing the
+ * text is still exact without lowering the group again. */
+class ModuleUnitRecord {
+	public string group = "";
+	public string text = "";
+	public bool kept = false;
+	public Vector<string> exports = [];
+	public bool hasSetjmp = false;
+	public bool effectsSolved = false;
+	public Map<string, SetjmpFunctionEffect> exportedEffects = {};
+	public Map<string, SetjmpFunctionEffect> consultedEffects = {};
+	public bool releasesCyclable = false;
+	public bool definesEntry = false;
+	public bool programRelease = false;
+	public Vector<string> helpers = [];
+	/* This unit's realtime roots, and for every function of it a realtime
+	 * proof has checked, the calls that proof left for the program to
+	 * resolve: the unit's own part of any proof through it. */
+	public Vector<string> realtimeRoots = [];
+	public Map<string, Vector<string>> realtimeProofs = {};
+	public ModuleUnitGraph graph = ModuleUnitGraph();
+	/* The generic-instance members this unit's text defines. */
+	public Vector<string> keptInstances = [];
+
+	public ModuleUnitRecord() {}
+
+	class JSONValue parameterEffects(Vector<SetjmpParameterEffect> effects) {
+		Vector<string> keys = [];
+		for effect in effects { keys.push(Strings.fromInt(effect.index) + ":" + Strings.fromInt(effect.depth)); }
+		keys.sort();
+		JSONValue array = JSONValue.makeArray();
+		for key in keys { array.push(JSONValue.makeString(key)); }
+		return array;
+	}
+
+	class JSONValue effectJson(SetjmpFunctionEffect effect) {
+		JSONValue value = JSONValue.makeObject();
+		value.set("writes", ModuleUnitRecord.parameterEffects(effect.writes));
+		value.set("captures", ModuleUnitRecord.parameterEffects(effect.captures));
+		value.set("returns", ModuleUnitRecord.parameterEffects(effect.returns));
+		value.set("unknown-return", JSONValue.makeBool(effect.unknownReturn));
+		return value;
+	}
+
+	class JSONValue effectsJson(Map<string, SetjmpFunctionEffect> effects) {
+		Vector<string> names = effects.keys();
+		names.sort();
+		JSONValue value = JSONValue.makeObject();
+		for name in names { value.set(name, ModuleUnitRecord.effectJson(effects.get(name))); }
+		return value;
+	}
+
+	class JSONValue stringsJson(Vector<string> values) {
+		JSONValue array = JSONValue.makeArray();
+		for value in values { array.push(JSONValue.makeString(value)); }
+		return array;
+	}
+
+	/* One line per proven function: its name, then the calls its proof left,
+	 * tab-separated. */
+	class string encodeProofs(Map<string, Vector<string>> proofs) {
+		Vector<string> names = proofs.keys();
+		names.sort();
+		Vector<string> lines = [];
+		for name in names {
+			Vector<string> row = [name];
+			Vector<string> callees = proofs.get(name).sorted();
+			row.extend(callees);
+			lines.push(Strings.join(row, "\t"));
+		}
+		return Strings.join(lines, "\n");
+	}
+
+	class bool decodeProofs(string text, Map<string, Vector<string>> out) {
+		if (text.isEmpty()) { return true; }
+		for line in Strings.split(text, "\n") {
+			Vector<string> row = Strings.split(line, "\t");
+			if (row.get(0).isEmpty() || out.has(row.get(0))) { return false; }
+			Vector<string> callees = [];
+			for (int index = 1; index < row.len; index++) { callees.push(row.get(index)); }
+			out.put(row.get(0), callees);
+		}
+		return true;
+	}
+
+	public string toJson() {
+		JSONValue root = JSONValue.makeObject();
+		root.set("schema", JSONValue.makeInt(3));
+		root.set("group", JSONValue.makeString(self.group));
+		root.set("kept", JSONValue.makeBool(self.kept));
+		root.set("exports", ModuleUnitRecord.stringsJson(self.exports));
+		root.set("has-setjmp", JSONValue.makeBool(self.hasSetjmp));
+		root.set("effects-solved", JSONValue.makeBool(self.effectsSolved));
+		root.set("exported-effects", ModuleUnitRecord.effectsJson(self.exportedEffects));
+		root.set("consulted-effects", ModuleUnitRecord.effectsJson(self.consultedEffects));
+		root.set("releases-cyclable", JSONValue.makeBool(self.releasesCyclable));
+		root.set("defines-entry", JSONValue.makeBool(self.definesEntry));
+		root.set("program-release", JSONValue.makeBool(self.programRelease));
+		root.set("helpers", ModuleUnitRecord.stringsJson(self.helpers));
+		root.set("realtime-roots", ModuleUnitRecord.stringsJson(self.realtimeRoots));
+		root.set("realtime-proofs", JSONValue.makeString(ModuleUnitRecord.encodeProofs(self.realtimeProofs)));
+		self.graph.writeTo(root);
+		root.set("kept-instances", ModuleUnitRecord.stringsJson(self.keptInstances));
+		return root.stringify();
+	}
+
+	class bool parameterEffectsFrom(JSONValue value, Vector<SetjmpParameterEffect> out) {
+		if (!value.isArray()) { return false; }
+		for (int index = 0; index < value.size(); index++) {
+			if (!value.at(index).isString()) { return false; }
+			string key = value.at(index).asString();
+			int separator = key.indexOf(":");
+			if (separator <= 0 || separator >= key.length() - 1) { return false; }
+			out.push(SetjmpParameterEffect(Strings.toInt(key.substring(0, separator)), Strings.toInt(key.substring(separator + 1, key.length() - separator - 1))));
+		}
+		return true;
+	}
+
+	class bool effectsFrom(JSONValue value, Map<string, SetjmpFunctionEffect> out) {
+		if (!value.isObject()) { return false; }
+		for name in value.keys() {
+			JSONValue row = value.get(name);
+			if (!row.isObject() || row.size() != 4 || !row.get("unknown-return").isBool()) { return false; }
+			SetjmpFunctionEffect effect = SetjmpFunctionEffect();
+			if (!ModuleUnitRecord.parameterEffectsFrom(row.get("writes"), effect.writes)) { return false; }
+			if (!ModuleUnitRecord.parameterEffectsFrom(row.get("captures"), effect.captures)) { return false; }
+			if (!ModuleUnitRecord.parameterEffectsFrom(row.get("returns"), effect.returns)) { return false; }
+			effect.unknownReturn = row.get("unknown-return").asBool();
+			out.put(name, effect);
+		}
+		return true;
+	}
+
+	class bool stringsFrom(JSONValue value, Vector<string> out) {
+		if (!value.isArray()) { return false; }
+		for (int index = 0; index < value.size(); index++) {
+			if (!value.at(index).isString()) { return false; }
+			out.push(value.at(index).asString());
+		}
+		return true;
+	}
+
+	/* A stored unit's record, or null for anything not exactly well formed. */
+	class ModuleUnitRecord? fromPayload(BtrccModuleUnitPayload? payload, string group) {
+		if (payload == null) { return null; }
+		JSONValue root = JSONValue.parse(payload.record);
+		if (!root.isObject() || root.size() != 18 || !root.get("schema").isInt() || root.get("schema").asInt() != 3) { return null; }
+		if (!root.get("group").isString() || !root.get("group").asString().equals(group) || !root.get("graph-edges").isString()) { return null; }
+		for flag in ["kept", "has-setjmp", "effects-solved", "releases-cyclable", "defines-entry", "program-release"] {
+			if (!root.get(flag).isBool()) { return null; }
+		}
+		ModuleUnitRecord record = ModuleUnitRecord();
+		record.group = group;
+		record.text = payload.text;
+		record.kept = root.get("kept").asBool();
+		record.hasSetjmp = root.get("has-setjmp").asBool();
+		record.effectsSolved = root.get("effects-solved").asBool();
+		record.releasesCyclable = root.get("releases-cyclable").asBool();
+		record.definesEntry = root.get("defines-entry").asBool();
+		record.programRelease = root.get("program-release").asBool();
+		if (!ModuleUnitRecord.stringsFrom(root.get("exports"), record.exports)) { return null; }
+		if (!ModuleUnitRecord.stringsFrom(root.get("helpers"), record.helpers)) { return null; }
+		if (!ModuleUnitRecord.stringsFrom(root.get("realtime-roots"), record.realtimeRoots) || !root.get("realtime-proofs").isString() || !ModuleUnitRecord.decodeProofs(root.get("realtime-proofs").asString(), record.realtimeProofs)) { return null; }
+		if (!ModuleUnitRecord.effectsFrom(root.get("exported-effects"), record.exportedEffects)) { return null; }
+		if (!ModuleUnitRecord.effectsFrom(root.get("consulted-effects"), record.consultedEffects)) { return null; }
+		if (!ModuleUnitGraph.readFrom(root, record.graph)) { return null; }
+		if (!ModuleUnitRecord.stringsFrom(root.get("kept-instances"), record.keptInstances)) { return null; }
+		return record;
+	}
+}
+
+/* The program's declaration-level IR, drawn from by every module unit. One
+ * declarations-only lowering produces every type, prototype and extern global;
+ * a unit lowers only what its group owns and then takes, by name closure, the
+ * shared declarations its own IR references. Preprocessor declarations are
+ * shared by every unit. */
+class ModuleUnitDeclarations {
+	private IRModule shared;
+	/* Entry kinds: 0 forward, 1 enum, 2 function-pointer typedef, 3 typedef,
+	 * 4 tagged union, 5 struct, 6 prototype, 7 extern global. */
+	private Vector<int> kinds = [];
+	private Vector<int> positions = [];
+	private Vector<Map<string, bool>> provides = [];
+	private Vector<Map<string, bool>> references = [];
+	private Map<string, Vector<int>> providers = {};
+
+	public ModuleUnitDeclarations(IRModule shared) {
+		self.shared = shared;
+		int index = 0;
+		while (index < shared.structForwards.len) { self.add(0, index, shared.structForwards.get(index).name, null, null); index++; }
+		index = 0;
+		while (index < shared.enumDefs.len) {
+			IREnumDef definition = shared.enumDefs.get(index);
+			Map<string, bool> names = {};
+			Map<string, bool> refs = {};
+			if (!definition.name.isEmpty()) { names.put(definition.name, true); }
+			for value in definition.values {
+				names.put(value.name, true);
+				ModuleUnitDeclarations.collectNode(value.value, refs);
+			}
+			self.addNames(1, index, names, refs);
+			index++;
+		}
+		index = 0;
+		while (index < shared.functionPointerTypedefs.len) {
+			IRFunctionPointerTypedef alias = shared.functionPointerTypedefs.get(index);
+			Map<string, bool> refs = {};
+			ModuleUnitDeclarations.collectText(alias.returnType, refs);
+			for parameter in alias.paramTypes { ModuleUnitDeclarations.collectText(parameter, refs); }
+			self.add(2, index, alias.name, refs, null);
+			index++;
+		}
+		index = 0;
+		while (index < shared.typedefDefs.len) {
+			IRTypedefDef alias = shared.typedefDefs.get(index);
+			Map<string, bool> refs = {};
+			ModuleUnitDeclarations.collectText(alias.targetType, refs);
+			self.add(3, index, alias.name, refs, null);
+			index++;
+		}
+		index = 0;
+		while (index < shared.taggedUnionDefs.len) {
+			IRTaggedUnionDef tagged = shared.taggedUnionDefs.get(index);
+			Map<string, bool> names = {};
+			Map<string, bool> refs = {};
+			names.put(tagged.name, true);
+			ModuleUnitDeclarations.collectText(tagged.tagType, refs);
+			for variant in tagged.variants {
+				if (variant.fields.len > 0) { names.put(tagged.name + "_" + variant.name + "_Data", true); }
+				for field in variant.fields { ModuleUnitDeclarations.collectField(field, refs); }
+			}
+			self.addNames(4, index, names, refs);
+			index++;
+		}
+		index = 0;
+		while (index < shared.structDefs.len) {
+			IRStructDef definition = shared.structDefs.get(index);
+			Map<string, bool> refs = {};
+			for field in definition.fields { ModuleUnitDeclarations.collectField(field, refs); }
+			self.add(5, index, definition.name, refs, null);
+			index++;
+		}
+		index = 0;
+		while (index < shared.functionDecls.len) {
+			IRFunctionDecl declaration = shared.functionDecls.get(index);
+			Map<string, bool> refs = {};
+			ModuleUnitDeclarations.collectText(declaration.returnType, refs);
+			for parameter in declaration.params { ModuleUnitDeclarations.collectText(parameter.cType, refs); }
+			self.add(6, index, declaration.name, refs, null);
+			index++;
+		}
+		index = 0;
+		while (index < shared.globalDecls.len) {
+			IRGlobalDecl global = shared.globalDecls.get(index);
+			if (global.isExtern) {
+				Map<string, bool> refs = {};
+				ModuleUnitDeclarations.collectText(global.cType, refs);
+				ModuleUnitDeclarations.collectNode(global.arraySize, refs);
+				self.add(7, index, global.name, refs, null);
+			}
+			index++;
+		}
+	}
+
+	private void add(int kind, int position, string name, Map<string, bool>? refs, Map<string, bool>? unused) {
+		Map<string, bool> names = {};
+		names.put(name, true);
+		Map<string, bool> resolved = {};
+		if (refs != null) { resolved = refs; }
+		self.addNames(kind, position, names, resolved);
+	}
+
+	private void addNames(int kind, int position, Map<string, bool> names, Map<string, bool> refs) {
+		int entry = self.kinds.len;
+		self.kinds.push(kind);
+		self.positions.push(position);
+		self.provides.push(names);
+		self.references.push(refs);
+		for name in names.keys() {
+			if (!self.providers.has(name)) {
+				Vector<int> none = [];
+				self.providers.put(name, none);
+			}
+			self.providers.get(name).push(entry);
+		}
+	}
+
+	class bool identifierCharacter(char value) { return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == '_'; }
+
+	/* Every identifier token of C text. */
+	class void collectText(string text, Map<string, bool> out) {
+		int length = text.length();
+		int index = 0;
+		while (index < length) {
+			while (index < length && !ModuleUnitDeclarations.identifierCharacter(text[index])) { index++; }
+			int start = index;
+			while (index < length && ModuleUnitDeclarations.identifierCharacter(text[index])) { index++; }
+			if (start < index && !(text[start] >= '0' && text[start] <= '9')) { out.put(text.substring(start, index - start), true); }
+		}
+	}
+
+	class void collectField(IRStructField field, Map<string, bool> out) {
+		ModuleUnitDeclarations.collectText(field.cType, out);
+		ModuleUnitDeclarations.collectNode(field.arraySize, out);
+	}
+
+	/* Every name and C type an IR subtree mentions. */
+	class void collectNode(IRNode? node, Map<string, bool> out) {
+		if (node == null) { return; }
+		if (!node.name.isEmpty()) { out.put(node.name, true); }
+		if (!node.callee.isEmpty()) { out.put(node.callee, true); }
+		ModuleUnitDeclarations.collectText(node.targetType, out);
+		ModuleUnitDeclarations.collectText(node.cType, out);
+		ModuleUnitDeclarations.collectText(node.text, out);
+		Vector<IRParam>? parameters = node.params;
+		if (parameters != null) { for parameter in parameters { ModuleUnitDeclarations.collectText(parameter.cType, out); } }
+		ModuleUnitDeclarations.collectNode(node.left, out);
+		ModuleUnitDeclarations.collectNode(node.right, out);
+		ModuleUnitDeclarations.collectNode(node.operand, out);
+		ModuleUnitDeclarations.collectNode(node.expr, out);
+		ModuleUnitDeclarations.collectNode(node.obj, out);
+		ModuleUnitDeclarations.collectNode(node.index, out);
+		ModuleUnitDeclarations.collectNode(node.condition, out);
+		ModuleUnitDeclarations.collectNode(node.trueExpr, out);
+		ModuleUnitDeclarations.collectNode(node.falseExpr, out);
+		ModuleUnitDeclarations.collectNode(node.arraySize, out);
+		ModuleUnitDeclarations.collectNode(node.init, out);
+		ModuleUnitDeclarations.collectNode(node.value, out);
+		ModuleUnitDeclarations.collectNode(node.target, out);
+		ModuleUnitDeclarations.collectNode(node.thenBlock, out);
+		ModuleUnitDeclarations.collectNode(node.elseBlock, out);
+		ModuleUnitDeclarations.collectNode(node.body, out);
+		ModuleUnitDeclarations.collectNode(node.update, out);
+		ModuleUnitDeclarations.collectNode(node.result, out);
+		for argument in node.args { ModuleUnitDeclarations.collectNode(argument, out); }
+		for statement in node.stmts { ModuleUnitDeclarations.collectNode(statement, out); }
+	}
+
+	private Map<string, bool> unitProvided(IRModule unit, int kind) {
+		Map<string, bool> names = {};
+		if (kind == 0) { for item in unit.structForwards { names.put(item.name, true); } }
+		else if (kind == 1) { for item in unit.enumDefs { if (!item.name.isEmpty()) { names.put(item.name, true); } for value in item.values { names.put(value.name, true); } } }
+		else if (kind == 2) { for item in unit.functionPointerTypedefs { names.put(item.name, true); } }
+		else if (kind == 3) { for item in unit.typedefDefs { names.put(item.name, true); } }
+		else if (kind == 4) {
+			for item in unit.taggedUnionDefs {
+				names.put(item.name, true);
+				for variant in item.variants { if (variant.fields.len > 0) { names.put(item.name + "_" + variant.name + "_Data", true); } }
+			}
+		}
+		else if (kind == 5) { for item in unit.structDefs { names.put(item.name, true); } }
+		else if (kind == 6) { for item in unit.functionDecls { names.put(item.name, true); } }
+		else { for item in unit.globalDecls { names.put(item.name, true); } }
+		return names;
+	}
+
+	/* Complete struct definitions must precede structs that embed them by
+	 * value; merged shared structs can depend on the unit's own and back.
+	 * Keep the given order among those that are ready. */
+	private void orderStructs(IRModule unit) {
+		Map<string, bool> names = {};
+		for definition in unit.structDefs { names.put(definition.name, true); }
+		Vector<IRStructDef> ordered = [];
+		Map<string, bool> placed = {};
+		int remaining = unit.structDefs.len;
+		while (remaining > 0) {
+			bool progressed = false;
+			for definition in unit.structDefs {
+				if (placed.has(definition.name)) { continue; }
+				bool ready = true;
+				for field in definition.fields {
+					if (field.cType.indexOf("*") >= 0) { continue; }
+					Map<string, bool> used = {};
+					ModuleUnitDeclarations.collectText(field.cType, used);
+					for name in used.keys() {
+						if (names.has(name) && !name.equals(definition.name) && !placed.has(name)) { ready = false; }
+					}
+				}
+				if (ready) {
+					ordered.push(definition);
+					placed.put(definition.name, true);
+					remaining = remaining - 1;
+					progressed = true;
+				}
+			}
+			if (!progressed) {
+				for definition in unit.structDefs {
+					if (!placed.has(definition.name)) {
+						ordered.push(definition);
+						placed.put(definition.name, true);
+					}
+				}
+				remaining = 0;
+			}
+		}
+		unit.structDefs = ordered;
+	}
+
+	/* Add the shared declarations `unit` needs that it does not provide. */
+	public void mergeInto(IRModule unit) {
+		Vector<Map<string, bool>> provided = [];
+		for (int kind = 0; kind < 8; kind++) { provided.push(self.unitProvided(unit, kind)); }
+		Map<string, bool> roots = {};
+		for item in unit.enumDefs { for value in item.values { ModuleUnitDeclarations.collectNode(value.value, roots); } }
+		for item in unit.functionPointerTypedefs {
+			ModuleUnitDeclarations.collectText(item.returnType, roots);
+			for parameter in item.paramTypes { ModuleUnitDeclarations.collectText(parameter, roots); }
+		}
+		for item in unit.typedefDefs { ModuleUnitDeclarations.collectText(item.targetType, roots); }
+		for item in unit.taggedUnionDefs {
+			ModuleUnitDeclarations.collectText(item.tagType, roots);
+			for variant in item.variants { for field in variant.fields { ModuleUnitDeclarations.collectField(field, roots); } }
+		}
+		for item in unit.structDefs { for field in item.fields { ModuleUnitDeclarations.collectField(field, roots); } }
+		for item in unit.functionDecls {
+			ModuleUnitDeclarations.collectText(item.returnType, roots);
+			for parameter in item.params { ModuleUnitDeclarations.collectText(parameter.cType, roots); }
+		}
+		for item in unit.globalDecls {
+			ModuleUnitDeclarations.collectText(item.cType, roots);
+			ModuleUnitDeclarations.collectNode(item.init, roots);
+			ModuleUnitDeclarations.collectNode(item.arraySize, roots);
+		}
+		for definition in unit.functions {
+			ModuleUnitDeclarations.collectText(definition.returnType, roots);
+			for parameter in definition.params { ModuleUnitDeclarations.collectText(parameter.cType, roots); }
+			ModuleUnitDeclarations.collectNode(definition.body, roots);
+		}
+		for declaration in unit.objectiveCClasses {
+			for field in declaration.fields { ModuleUnitDeclarations.collectField(field, roots); }
+			for method in declaration.methods {
+				ModuleUnitDeclarations.collectText(method.returnType, roots);
+				for parameter in method.params { ModuleUnitDeclarations.collectText(parameter.cType, roots); }
+				ModuleUnitDeclarations.collectNode(method.body, roots);
+			}
+		}
+		for helper in unit.helpers { ModuleUnitDeclarations.collectText(helper, roots); }
+		for declaration in self.shared.preprocessorDecls { ModuleUnitDeclarations.collectText(declaration.replacement, roots); }
+		for declaration in unit.preprocessorDecls { ModuleUnitDeclarations.collectText(declaration.replacement, roots); }
+		Map<int, bool> included = {};
+		Vector<string> pending = roots.keys();
+		Map<string, bool> seen = {};
+		for name in pending { seen.put(name, true); }
+		while (pending.len > 0) {
+			string name = pending.pop();
+			if (!self.providers.has(name)) { continue; }
+			for entry in self.providers.get(name) {
+				if (included.has(entry)) { continue; }
+				Map<string, bool> own = provided.get(self.kinds.get(entry));
+				bool alreadyOwned = own.len > 0;
+				for providedName in self.provides.get(entry).keys() {
+					if (!own.has(providedName)) { alreadyOwned = false; }
+				}
+				if (alreadyOwned) { continue; }
+				included.put(entry, true);
+				for reference in self.references.get(entry).keys() {
+					if (!seen.has(reference)) {
+						seen.put(reference, true);
+						pending.push(reference);
+					}
+				}
+			}
+		}
+		Vector<int> entries = included.keys();
+		entries.sort();
+		for entry in entries {
+			int kind = self.kinds.get(entry);
+			int position = self.positions.get(entry);
+			if (kind == 0) { unit.structForwards.push(self.shared.structForwards.get(position)); }
+			else if (kind == 1) { unit.enumDefs.push(self.shared.enumDefs.get(position)); }
+			else if (kind == 2) { unit.functionPointerTypedefs.push(self.shared.functionPointerTypedefs.get(position)); }
+			else if (kind == 3) { unit.typedefDefs.push(self.shared.typedefDefs.get(position)); }
+			else if (kind == 4) { unit.taggedUnionDefs.push(self.shared.taggedUnionDefs.get(position)); }
+			else if (kind == 5) { unit.structDefs.push(self.shared.structDefs.get(position)); }
+			else if (kind == 6) { unit.functionDecls.push(self.shared.functionDecls.get(position)); }
+			else { unit.globalDecls.push(self.shared.globalDecls.get(position)); }
+		}
+		self.orderStructs(unit);
+		/* Directives of other groups (their headers and macros) apply to every
+		 * unit, as they do to the whole program; they precede all C code. */
+		for declaration in self.shared.preprocessorDecls {
+			bool present = false;
+			for existing in unit.preprocessorDecls {
+				if (existing.kind == declaration.kind && existing.header.equals(declaration.header) && existing.isSystem == declaration.isSystem && existing.name.equals(declaration.name) && existing.replacement.equals(declaration.replacement)) { present = true; }
+			}
+			if (!present) { unit.preprocessorDecls.push(declaration); }
+		}
+	}
+}
+
+/* One group's state during a module-unit compile. A stale group's unit
+ * lives in the worker that lowered it; the owner keeps what the worker
+ * reported about it. */
+class ModuleUnitGroupState {
+	public string name;
+	public string key;
+	public int lines = 0;
+	public ModuleUnitRecord? record = null;
+	public bool stale = false;
+	public int worker = -1;
+	public Vector<string> exports = [];
+	public bool releasesCyclable = false;
+	public Vector<string> realtimeRoots = [];
+	public Vector<string> realtimeSafe = [];
+	public Vector<string> realtimeReached = [];
+	public int analyzedRound = -1;
+	public Map<string, bool> consulted = {};
+	public Map<string, Vector<string>> realtimeProofs = {};
+	public bool hasSetjmp = false;
+	public Vector<string> helpers = [];
+	public ModuleUnitGraph graph = ModuleUnitGraph();
+	public Map<string, bool> keptInstances = {};
+
+	public ModuleUnitGroupState(string name, string key) {
+		self.name = name;
+		self.key = key;
+	}
+}
+
+/* The finished units of one module-unit compile and how they were made. */
+class ModuleUnitBuild {
+	public string primary = "";
+	public Vector<string> units = [];
+	public Vector<string> unitNames = [];
+	public Vector<string> lowered = [];
+	public Vector<string> reused = [];
+	public IRModule? program = null;
+
+	public ModuleUnitBuild() {}
+}
+
+/* The analyzed program and services each module-unit lowering consumes. */
+class ModuleUnitProgram {
+	public Node program;
+	public Analyzed analyzed;
+	public DeclarationRegistry declarations;
+	public OperatorSemantics operators;
+	public ExpressionTypeResolver expressionTypes;
+	public GpuSemantics gpuSemantics;
+	public ManagedValueSemantics managedValues;
+	public CycleSemantics cycles;
+	public HostedAbiRepository hostedAbi;
+	public RuntimeHelperCatalog runtimeHelpers;
+	public FeResolvedSource resolved;
+	public string sourcePath;
+	public Map<string, bool>? stdlibKeys;
+
+	public ModuleUnitProgram(Node program, Analyzed analyzed, SemanticAnalyzer analyzer, HostedAbiRepository hostedAbi, RuntimeHelperCatalog runtimeHelpers, FeResolvedSource resolved, string sourcePath, Map<string, bool>? stdlibKeys) {
+		self.program = program;
+		self.analyzed = analyzed;
+		self.declarations = analyzer.declarationRegistry();
+		self.operators = analyzer.operatorSemantics();
+		self.expressionTypes = analyzer.expressionTypes();
+		self.gpuSemantics = analyzer.gpuSemantics();
+		self.managedValues = analyzer.managedValueSemantics();
+		self.cycles = analyzer.cycleSemantics();
+		self.hostedAbi = hostedAbi;
+		self.runtimeHelpers = runtimeHelpers;
+		self.resolved = resolved;
+		self.sourcePath = sourcePath;
+		self.stdlibKeys = stdlibKeys;
+	}
+}
+
+/* Lower, optimize and emit one C unit per group, reusing unchanged units.
+ * Every stale group is lowered on its own against the whole analyzed program,
+ * so a unit's text depends only on its group's inputs. Program facts that
+ * whole-program lowering reads from every body are combined across units:
+ * setjmp call effects are solved over the stale units with reused units'
+ * published summaries fixed, and a reused unit whose consulted facts moved, or
+ * that shares a summary cycle or realtime proof with a stale group, is lowered
+ * again. */
+class ModuleUnitCompiler {
+	private ModuleUnitProgram input;
+	private BtrccOptions options;
+	private IBtrccArtifactCache? store;
+	private FeCompilationGroups groups;
+	private Map<string, string> groupOfFile = {};
+	private LoweringProgramFacts facts;
+	private Vector<FeLine> noLines = [];
+	private IWorkerPoolFactory? pools;
+	private int workers;
+
+	/* `pools` starts worker processes where the host can fork; without it,
+	 * or with one worker, the owner answers every request itself. */
+	public ModuleUnitCompiler(ModuleUnitProgram input, BtrccOptions options, IBtrccArtifactCache? store, IWorkerPoolFactory? pools) {
+		self.input = input;
+		self.options = options;
+		self.store = store;
+		self.pools = pools;
+		self.workers = options.moduleJobs;
+		if (self.workers < 1) {
+			/* At most two by default: each worker copies much of the analyzed
+			 * program as ARC touches it, and two keep a BTRSmith-sized build
+			 * inside the 6 GiB aggregate budget (four measured 6.85 GiB). */
+			self.workers = pools != null ? pools.suggestedWorkers() : 1;
+			if (self.workers > 2) { self.workers = 2; }
+		}
+		self.facts = LoweringProgramFacts();
+		FeSourcePathPolicy paths = FeSourcePathPolicy();
+		self.groups = input.resolved.dependencies.compilationGroups(paths.identity(input.resolved.rootSourcePath));
+		for line in input.resolved.userLines {
+			if (!self.groupOfFile.has(line.sourceFile)) { self.groupOfFile.put(line.sourceFile, self.groups.groupOfIdentity(paths.identity(line.sourceFile))); }
+		}
+	}
+
+	/* A stable output name for a group's unit: its file stem and path hash. */
+	class string unitName(string group) {
+		string stem = group;
+		int slash = stem.lastIndexOf("/");
+		if (slash >= 0) { stem = stem.substring(slash + 1, stem.length() - slash - 1); }
+		if (stem.endsWith(".btrc")) { stem = stem.substring(0, stem.length() - 5); }
+		string slug = "";
+		for (int index = 0; index < stem.length(); index++) {
+			char value = stem[index];
+			bool alphanumeric = (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9');
+			slug = slug + (alphanumeric ? stem.substring(index, 1) : "-");
+		}
+		if (slug.isEmpty() || slug.startsWith("-")) { slug = "group" + slug; }
+		return "unit-" + slug + "-" + SHA256.digest(group).substring(0, 12);
+	}
+
+	private IRLowerer lowerer(string ownedGroup, bool declarationsElsewhere) {
+		ModuleUnitProgram input = self.input;
+		Vector<FeLine> lines = self.facts.sourceConfigured ? self.noLines : input.resolved.userLines;
+		IRLowerer lowerer = IRLowerer(input.analyzed, input.hostedAbi, input.declarations, input.operators, input.expressionTypes, input.gpuSemantics, input.managedValues, input.cycles, input.runtimeHelpers, input.sourcePath, input.resolved.stdlibLineCount, lines);
+		lowerer.shareProgramFacts(self.facts);
+		if (self.options.runDce) { lowerer.setStdlibKeys(input.stdlibKeys); }
+		lowerer.setDebug(self.options.debug);
+		lowerer.configureModuleUnit(ownedGroup, self.groupOfFile, declarationsElsewhere);
+		return lowerer;
+	}
+
+	private Map<string, bool> lastInstances = {};
+
+	/* The generic-instance members the last lowered group defines. */
+	public Map<string, bool> lastInstanceNames() { return self.lastInstances; }
+
+	public HostedAbiRepository hostedAbi() { return self.input.hostedAbi; }
+
+	public RuntimeHelperCatalog runtimeHelpers() { return self.input.runtimeHelpers; }
+
+	public bool runsDce() { return self.options.runDce; }
+
+	/* Debug builds map a unit's generated lines back to its own file. */
+	public void prepareDebugPaths(IRModule unit, string group) {
+		if (self.options.debug) { unit.debugCfile = FeNativeLinkPlan.outputPrefix(self.options.unitsPrefix) + "." + ModuleUnitCompiler.unitName(group) + ".c"; }
+	}
+
+	/* Realtime-safe externals every unit shares: native realtime contracts and
+	 * the hosted and runtime allowlists. */
+	private Map<string, bool>? baseSafe = null;
+
+	public Map<string, bool> baseRealtimeSafe() {
+		Map<string, bool>? known = self.baseSafe;
+		if (known != null) { return known; }
+		IRModule probe = IRModule();
+		self.addNativeRealtimeExternals(probe);
+		for name in self.input.hostedAbi.realtimeSafeFunctions().keys() { probe.realtimeSafeExternals.put(name, true); }
+		for name in self.input.runtimeHelpers.realtimeSafeFunctions().keys() { probe.realtimeSafeExternals.put(name, true); }
+		self.baseSafe = probe.realtimeSafeExternals;
+		return probe.realtimeSafeExternals;
+	}
+
+	public IRModule lowerGroup(string name, ModuleUnitDeclarations shared) {
+		BtrccPhaseTimer.mark("u-between");
+		IRLowerer lowerer = self.lowerer(name, true);
+		BtrccPhaseTimer.mark("u-construct");
+		IRModule unit = lowerer.lower(self.input.program);
+		self.lastInstances = lowerer.instanceDefinitions();
+		unit.debug = self.options.debug;
+		shared.mergeInto(unit);
+		self.addNativeRealtimeExternals(unit);
+		BtrccPhaseTimer.mark("u-merge");
+		/* As in whole-program compiles, a session's object graph lives until the
+		 * process exits: releasing it would prove each entry unreachable. */
+		keep lowerer;
+		return unit;
+	}
+
+	/* Which generic-instance members each unit must keep: the fixed point of
+	 * every unit's roots through the program's reference graphs. */
+	private void demandInstances(Vector<ModuleUnitGroupState> states, ModuleUnitGraph programGraph) {
+		Map<string, string> instanceOwner = {};
+		Map<string, ModuleUnitGraph> graphs = {};
+		for state in states {
+			ModuleUnitGraph graph = state.graph;
+			ModuleUnitRecord? record = state.record;
+			if (!state.stale && record != null) { graph = record.graph; }
+			graphs.put(state.name, graph);
+			state.keptInstances = {};
+			for name in graph.instances.keys() { if (!instanceOwner.has(name)) { instanceOwner.put(name, state.name); } }
+		}
+		graphs.put("", programGraph);
+		Map<string, Map<string, bool>> kept = {};
+		Vector<string> pendingGroups = [];
+		Vector<string> pendingNames = [];
+		for group in graphs.keys() {
+			Map<string, bool> none = {};
+			kept.put(group, none);
+			for root in graphs.get(group).roots {
+				pendingGroups.push(group);
+				pendingNames.push(root);
+			}
+		}
+		while (pendingNames.len > 0) {
+			string group = pendingGroups.pop();
+			string name = pendingNames.pop();
+			ModuleUnitGraph graph = graphs.get(group);
+			if (!graph.edges.has(name)) {
+				if (instanceOwner.has(name) && !instanceOwner.get(name).equals(group)) {
+					pendingGroups.push(instanceOwner.get(name));
+					pendingNames.push(name);
+				}
+				continue;
+			}
+			Map<string, bool> marked = kept.get(group);
+			if (marked.has(name)) { continue; }
+			marked.put(name, true);
+			for reference in graph.edges.get(name) {
+				pendingGroups.push(group);
+				pendingNames.push(reference);
+			}
+		}
+		for state in states {
+			ModuleUnitGraph graph = graphs.get(state.name);
+			Map<string, bool> marked = kept.get(state.name);
+			for name in graph.instances.keys() { if (marked.has(name)) { state.keptInstances.put(name, true); } }
+		}
+	}
+
+	private bool sameInstances(Map<string, bool> current, Vector<string> recorded) {
+		if (current.len != recorded.len) { return false; }
+		for name in recorded { if (!current.has(name)) { return false; } }
+		return true;
+	}
+
+	private void addNativeRealtimeExternals(IRModule unit) {
+		ModuleUnitProgram input = self.input;
+		for imported in input.analyzed.nativeDeclarations {
+			var contract = imported.callContract;
+			if (contract != null && contract.realtimeSafe) {
+				unit.realtimeSafeExternals.put(imported.declaration.name, true);
+				if (!contract.adapterSymbol(imported.declaration.name).equals(imported.declaration.name)) { unit.realtimeSafeExternals.put("__builtin_trap", true); }
+			}
+		}
+	}
+
+	public void addHostedRealtimeExternals(IRModule unit) {
+		bool hasRealtimeRoot = false;
+		for definition in unit.functions { if (definition.isRealtime) { hasRealtimeRoot = true; } }
+		if (!hasRealtimeRoot) { return; }
+		for name in self.input.hostedAbi.realtimeSafeFunctions().keys() { unit.realtimeSafeExternals.put(name, true); }
+		for name in self.input.runtimeHelpers.realtimeSafeFunctions().keys() { unit.realtimeSafeExternals.put(name, true); }
+	}
+
+	private bool containsSetjmp(IRNode? node) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_CALL && node.callee == "setjmp") { return true; }
+		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.trueExpr) || self.containsSetjmp(node.falseExpr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock) || self.containsSetjmp(node.body) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result)) { return true; }
+		for argument in node.args { if (self.containsSetjmp(argument)) { return true; } }
+		for statement in node.stmts { if (self.containsSetjmp(statement)) { return true; } }
+		return false;
+	}
+
+	public bool unitHasSetjmp(IRModule unit) {
+		for definition in unit.functions { if (self.containsSetjmp(definition.body)) { return true; } }
+		return false;
+	}
+
+	/* The context, the group's resolved lines with their original positions,
+	 * and the program interface and facts digests. */
+	private string programDigest() {
+		ModuleUnitProgram input = self.input;
+		AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
+		SHA256 digest = SHA256();
+		for declaration in input.program.declarations { digest.appendText(SHA256.digest(self.positionFree(renderer.render(declaration)))); }
+		digest.appendText("\nfacts\n");
+		digest.appendText(self.facts.usesTrycatch ? "trycatch" : "no-trycatch");
+		for instance in input.analyzed.genericInstances { digest.appendText("class:" + instance.mangled + "\n"); }
+		for instance in input.analyzed.methodGenInstances {
+			digest.appendText("method:" + instance.classBase + "." + instance.methodName + "<");
+			for argument in instance.classArgs { digest.appendText(self.positionFree(AstCanonicalRenderer().render(argument)) + ","); }
+			digest.appendText(";");
+			for argument in instance.methodArgs { digest.appendText(self.positionFree(AstCanonicalRenderer().render(argument)) + ","); }
+			digest.appendText(">\n");
+		}
+		StdlibReachability? reachability = self.facts.reachability;
+		if (reachability != null) {
+			for declaration in input.program.declarations {
+				if (reachability.isStdlibDeclaration(declaration) && reachability.reaches(declaration)) {
+					digest.appendText("reached:" + self.fileOfLine(declaration.line) + ":" + Strings.fromInt((int)declaration.kind) + ":" + declaration.name + "\n");
+				}
+			}
+			Vector<string> names = reachability.mentionedNameList();
+			names.sort();
+			for name in names { digest.appendText("name:" + name + "\n"); }
+		}
+		return digest.finish();
+	}
+
+	/* Source positions are not part of an interface. */
+	private string positionFree(string rendering) {
+		Vector<string> lines = [];
+		for line in Strings.split(rendering, "\n") {
+			string trimmed = line.trim();
+			if (trimmed.startsWith("line=") || trimmed.startsWith("col=") || trimmed.startsWith("name_line=") || trimmed.startsWith("name_col=") || trimmed.startsWith("source_file=")) { continue; }
+			lines.push(line);
+		}
+		return Strings.join(lines, "\n");
+	}
+
+	private string fileOfLine(int line) {
+		FeLine? source = self.input.resolved.userLineForCombined(line);
+		if (source == null) { return ""; }
+		return source.sourceFile;
+	}
+
+	private Map<string, int> groupLines = {};
+
+	private Map<string, string> groupSourceDigests() {
+		Map<string, SHA256> digests = {};
+		for line in self.input.resolved.userLines {
+			string group = self.groupOfFile.get(line.sourceFile);
+			if (!digests.has(group)) {
+				digests.put(group, SHA256());
+				self.groupLines.put(group, 0);
+			}
+			digests.get(group).appendText(line.sourceFile + "\t" + Strings.fromInt(line.lineNumber) + "\t" + line.text + "\n");
+			self.groupLines.put(group, self.groupLines.get(group) + 1);
+		}
+		Map<string, string> result = {};
+		for group in digests.keys() { result.put(group, digests.get(group).finish()); }
+		return result;
+	}
+
+	private ModuleUnitGroupState stateNamed(Vector<ModuleUnitGroupState> states, string name) {
+		for state in states { if (state.name.equals(name)) { return state; } }
+		return states.get(0);
+	}
+
+	private Map<string, string> exporters(Vector<ModuleUnitGroupState> states) {
+		Map<string, string> result = {};
+		for state in states {
+			ModuleUnitRecord? record = state.record;
+			Vector<string> exported = state.exports;
+			if (!state.stale && record != null) { exported = record.exports; }
+			for name in exported { if (!result.has(name)) { result.put(name, state.name); } }
+		}
+		return result;
+	}
+
+	/* Reused groups that share a summary-dependency cycle with a stale group:
+	 * solving a cycle with some members fixed at an earlier fixed point can
+	 * keep a stale, larger solution, so the whole cycle is lowered again. */
+	private Vector<ModuleUnitGroupState> summaryCycles(Vector<ModuleUnitGroupState> states, Map<string, string> exporters) {
+		Map<string, Vector<string>> edges = {};
+		for state in states {
+			Vector<string> targets = [];
+			Vector<string> consulted = [];
+			ModuleUnitRecord? record = state.record;
+			if (state.stale) { consulted = state.consulted.keys(); }
+			else if (record != null) { consulted = record.consultedEffects.keys(); }
+			for name in consulted {
+				if (exporters.has(name) && !exporters.get(name).equals(state.name) && !targets.contains(exporters.get(name))) { targets.push(exporters.get(name)); }
+			}
+			targets.sort();
+			edges.put(state.name, targets);
+		}
+		Vector<string> nodes = edges.keys();
+		nodes.sort();
+		Map<string, int> index = {};
+		Map<string, int> lowlink = {};
+		Map<string, bool> onStack = {};
+		Vector<string> stack = [];
+		Vector<string> workNodes = [];
+		Vector<int> workNext = [];
+		Vector<ModuleUnitGroupState> result = [];
+		for start in nodes {
+			if (index.has(start)) { continue; }
+			index.put(start, index.size());
+			lowlink.put(start, index.get(start));
+			stack.push(start);
+			onStack.put(start, true);
+			workNodes.push(start);
+			workNext.push(0);
+			while (workNodes.len > 0) {
+				int top = workNodes.len - 1;
+				string node = workNodes.get(top);
+				Vector<string> successors = edges.get(node);
+				int next = workNext.get(top);
+				if (next < successors.len) {
+					workNext.set(top, next + 1);
+					string successor = successors.get(next);
+					if (!edges.has(successor)) { continue; }
+					if (!index.has(successor)) {
+						index.put(successor, index.size());
+						lowlink.put(successor, index.get(successor));
+						stack.push(successor);
+						onStack.put(successor, true);
+						workNodes.push(successor);
+						workNext.push(0);
+					} else if (onStack.has(successor) && onStack.get(successor)) {
+						if (index.get(successor) < lowlink.get(node)) { lowlink.put(node, index.get(successor)); }
+					}
+					continue;
+				}
+				workNodes.pop();
+				workNext.pop();
+				if (workNodes.len > 0) {
+					string parent = workNodes.get(workNodes.len - 1);
+					if (lowlink.get(node) < lowlink.get(parent)) { lowlink.put(parent, lowlink.get(node)); }
+				}
+				if (lowlink.get(node) == index.get(node)) {
+					Vector<string> members = [];
+					while (true) {
+						string member = stack.pop();
+						onStack.put(member, false);
+						members.push(member);
+						if (member.equals(node)) { break; }
+					}
+					if (members.len < 2) { continue; }
+					bool anyStale = false;
+					for member in members { if (self.stateNamed(states, member).stale) { anyStale = true; } }
+					if (!anyStale) { continue; }
+					for member in members {
+						ModuleUnitGroupState state = self.stateNamed(states, member);
+						if (!state.stale) { result.push(state); }
+					}
+				}
+			}
+		}
+		return result;
+	}
+
+	/* Workers are started on first need and live for the rest of the compile:
+	 * a group lowered again later goes to the same pool. */
+	private IWorkerPool? workerPool = null;
+
+	private IWorkerPool pool(ModuleUnitWorker local, ModuleUnitDeclarations shared, int stale) {
+		IWorkerPool? existing = self.workerPool;
+		if (existing != null) { return existing; }
+		int count = self.workers < stale ? self.workers : stale;
+		IWorkerPoolFactory? factory = self.pools;
+		IWorkerPool? opened = null;
+		if (count > 1 && factory != null) { opened = factory.open(count, ModuleUnitWorker(self, shared)); }
+		if (opened == null) { opened = InlineWorkerPool(local); }
+		IWorkerPool started = opened;
+		self.workerPool = started;
+		BtrccPhaseTimer.note(f"module-unit-workers={started.size()}");
+		return started;
+	}
+
+	/* Deliver requests and collect their replies in request order. A request
+	 * with an affinity goes to that worker (which holds its group's unit);
+	 * the others go to whichever worker is idle, and `assigned` records which
+	 * one answered. A worker failure fails the compile. */
+	private Vector<string> exchange(IWorkerPool workers, Vector<string> requests, Vector<int> affinity, Vector<int> assigned) {
+		Vector<string> replies = [];
+		Vector<bool> sent = [];
+		for request in requests {
+			replies.push("");
+			sent.push(false);
+			assigned.push(-1);
+		}
+		Vector<int> serving = [];
+		for (int worker = 0; worker < workers.size(); worker++) { serving.push(-1); }
+		int done = 0;
+		int first = 0;
+		while (done < requests.len) {
+			for (int worker = 0; worker < workers.size(); worker++) {
+				if (serving.get(worker) >= 0) { continue; }
+				while (first < requests.len && sent.get(first)) { first = first + 1; }
+				for (int index = first; index < requests.len; index++) {
+					if (sent.get(index) || (affinity.get(index) >= 0 && affinity.get(index) != worker)) { continue; }
+					sent.set(index, true);
+					serving.set(worker, index);
+					if (!workers.send(worker, requests.get(index))) { self.workersFailed(workers, "a module-unit worker stopped accepting requests"); }
+					break;
+				}
+			}
+			WorkerReply reply = workers.awaitReply();
+			if (reply.kind != WorkerReplyKind.WORKER_REPLY_READY) {
+				self.workersFailed(workers, reply.kind == WorkerReplyKind.WORKER_REPLY_EMPTY ? "no module-unit request could be delivered" : reply.error);
+			}
+			int index = serving.get(reply.worker);
+			replies.set(index, reply.payload);
+			assigned.set(index, reply.worker);
+			serving.set(reply.worker, -1);
+			done = done + 1;
+		}
+		return replies;
+	}
+
+	private int solveGeneration = 0;
+
+	/* Why reused records were lowered again, for BTRC_TIMING. */
+	private Map<string, int> relowerReasons = {};
+
+	private void relowered(string reason) { self.relowerReasons.put(reason, (self.relowerReasons.has(reason) ? self.relowerReasons.get(reason) : 0) + 1); }
+
+	private void workersFailed(IWorkerPool workers, string reason) {
+		workers.terminate();
+		fprintf(stderr, "error: module-unit worker failed: %s\n", reason);
+		exit(1);
+	}
+
+	private JSONValue request(string operation, string group) {
+		JSONValue message = JSONValue.makeObject();
+		message.set("op", JSONValue.makeString(operation));
+		message.set("group", JSONValue.makeString(group));
+		return message;
+	}
+
+	private JSONValue parseReply(string payload, string group) {
+		JSONValue reply = JSONValue.parse(payload);
+		if (!reply.isObject()) {
+			fprintf(stderr, "internal compiler error: malformed module-unit reply for group '%s'\n", group);
+			exit(1);
+		}
+		return reply;
+	}
+
+	/* Lower every group in `toLower` on the workers, largest first. */
+	private void lowerGroups(IWorkerPool workers, Vector<ModuleUnitGroupState> toLower, Map<string, bool> lowered) {
+		Vector<ModuleUnitGroupState> order = [];
+		for state in toLower { order.push(state); }
+		/* Largest groups start first so one long group does not end the run alone. */
+		for (int outer = 1; outer < order.len; outer++) {
+			int inner = outer;
+			while (inner > 0 && order.get(inner - 1).lines < order.get(inner).lines) {
+				ModuleUnitGroupState swapped = order.get(inner - 1);
+				order.set(inner - 1, order.get(inner));
+				order.set(inner, swapped);
+				inner = inner - 1;
+			}
+		}
+		Vector<string> requests = [];
+		Vector<int> affinity = [];
+		for state in order {
+			requests.push(self.request("lower", state.name).stringify());
+			affinity.push(-1);
+		}
+		Vector<int> assigned = [];
+		Vector<string> replies = self.exchange(workers, requests, affinity, assigned);
+		for (int index = 0; index < order.len; index++) {
+			ModuleUnitGroupState state = order.get(index);
+			JSONValue reply = self.parseReply(replies.get(index), state.name);
+			state.stale = true;
+			state.worker = assigned.get(index);
+			state.exports = [];
+			state.realtimeRoots = [];
+			state.realtimeSafe = [];
+			state.graph = ModuleUnitGraph();
+			if (!ModuleUnitRecord.stringsFrom(reply.get("exports"), state.exports) || !ModuleUnitRecord.stringsFrom(reply.get("realtime-roots"), state.realtimeRoots) || !ModuleUnitRecord.stringsFrom(reply.get("realtime-safe"), state.realtimeSafe) || !reply.get("setjmp").isBool() || !reply.get("releases").isBool() || !ModuleUnitGraph.readFrom(reply, state.graph)) {
+				fprintf(stderr, "internal compiler error: malformed lowering reply for group '%s'\n", state.name);
+				exit(1);
+			}
+			state.hasSetjmp = reply.get("setjmp").asBool();
+			state.releasesCyclable = reply.get("releases").asBool();
+			state.analyzedRound = -1;
+			lowered.put(state.name, true);
+		}
+	}
+
+	private bool movedSince(Map<string, bool> consulted, Map<string, int> movedAt, int round) {
+		for name in consulted.keys() { if (movedAt.has(name) && movedAt.get(name) >= round) { return true; } }
+		return false;
+	}
+
+	/* Setjmp dependency levels of the units being solved: a unit's level is
+	 * one more than that of every other unit it calls into, and units whose
+	 * calls form a cycle share a level. The program unit is named "". */
+	private Map<string, int> setjmpLevels(Vector<ModuleUnitGroupState> stale, ModuleUnitGraph programGraph, Map<string, string> owners) {
+		Map<string, ModuleUnitGraph> graphs = {};
+		graphs.put("", programGraph);
+		for state in stale { graphs.put(state.name, state.graph); }
+		Map<string, Vector<string>> edges = {};
+		for node in graphs.keys() {
+			Map<string, bool> targets = {};
+			ModuleUnitGraph graph = graphs.get(node);
+			for source in graph.edges.keys() {
+				for name in graph.edges.get(source) {
+					if (owners.has(name) && !owners.get(name).equals(node)) { targets.put(owners.get(name), true); }
+				}
+			}
+			Vector<string> sorted = targets.keys();
+			sorted.sort();
+			edges.put(node, sorted);
+		}
+		Vector<string> nodes = edges.keys();
+		nodes.sort();
+		Map<string, int> index = {};
+		Map<string, int> lowlink = {};
+		Map<string, bool> onStack = {};
+		Map<string, int> component = {};
+		Vector<int> componentLevel = [];
+		Vector<string> stack = [];
+		Vector<string> workNodes = [];
+		Vector<int> workNext = [];
+		for start in nodes {
+			if (index.has(start)) { continue; }
+			index.put(start, index.size());
+			lowlink.put(start, index.get(start));
+			stack.push(start);
+			onStack.put(start, true);
+			workNodes.push(start);
+			workNext.push(0);
+			while (workNodes.len > 0) {
+				string node = workNodes.get(workNodes.len - 1);
+				Vector<string> successors = edges.get(node);
+				int next = workNext.get(workNext.len - 1);
+				if (next < successors.len) {
+					workNext.set(workNext.len - 1, next + 1);
+					string successor = successors.get(next);
+					if (!index.has(successor)) {
+						index.put(successor, index.size());
+						lowlink.put(successor, index.get(successor));
+						stack.push(successor);
+						onStack.put(successor, true);
+						workNodes.push(successor);
+						workNext.push(0);
+					} else if (onStack.has(successor) && onStack.get(successor) && index.get(successor) < lowlink.get(node)) {
+						lowlink.put(node, index.get(successor));
+					}
+					continue;
+				}
+				workNodes.pop();
+				workNext.pop();
+				if (workNodes.len > 0) {
+					string parent = workNodes.get(workNodes.len - 1);
+					if (lowlink.get(node) < lowlink.get(parent)) { lowlink.put(parent, lowlink.get(node)); }
+				}
+				if (lowlink.get(node) == index.get(node)) {
+					/* Tarjan emits a component after every component it reaches,
+					 * so its callees' levels are already known. */
+					int id = componentLevel.len;
+					Vector<string> members = [];
+					while (true) {
+						string member = stack.pop();
+						onStack.put(member, false);
+						component.put(member, id);
+						members.push(member);
+						if (member.equals(node)) { break; }
+					}
+					int level = 0;
+					for member in members {
+						for successor in edges.get(member) {
+							int other = component.get(successor);
+							if (other != id && componentLevel.get(other) + 1 > level) { level = componentLevel.get(other) + 1; }
+						}
+					}
+					componentLevel.push(level);
+				}
+			}
+		}
+		Map<string, int> levels = {};
+		for node in nodes { levels.put(node, componentLevel.get(component.get(node))); }
+		return levels;
+	}
+
+	/* The setjmp least fixed point across units: the program unit is analyzed
+	 * here and each stale unit by the worker holding it, with reused units'
+	 * published summaries fixed. Each round walks the dependency levels in
+	 * order, analyzing a level's units together, so a unit already sees what
+	 * its callees published in the same round; a unit is analyzed again only
+	 * when a summary it consulted moved in or after the wave that last
+	 * analyzed it (a call back into a lower level). Summaries only grow, so
+	 * any order reaches the same least fixed point. Each worker receives the
+	 * summaries that moved since it last heard. Returns the program unit's
+	 * call effects; `solved` holds the summaries. */
+	private Map<string, SetjmpCallEffects> solveSetjmp(IWorkerPool workers, IRModule programUnit, ModuleUnitGraph programGraph, Vector<ModuleUnitGroupState> stale, Map<string, SetjmpFunctionEffect> fixed, Map<string, SetjmpFunctionEffect> solved) {
+		for name in fixed.keys() { solved.put(name, fixed.get(name)); }
+		Map<string, string> owners = {};
+		for definition in programUnit.functions {
+			if (!definition.isStatic && definition.body != null) {
+				solved.put(definition.name, SetjmpFunctionEffect());
+				owners.put(definition.name, "");
+			}
+		}
+		for state in stale {
+			state.analyzedRound = -1;
+			state.consulted = {};
+			for name in state.exports {
+				solved.put(name, SetjmpFunctionEffect());
+				if (!owners.has(name)) { owners.put(name, state.name); }
+			}
+		}
+		Map<string, int> levels = self.setjmpLevels(stale, programGraph, owners);
+		/* Workers keep summaries between requests of one solve only. */
+		self.solveGeneration = self.solveGeneration + 1;
+		int deepest = 0;
+		for name in levels.keys() { if (levels.get(name) > deepest) { deepest = levels.get(name); } }
+		Map<string, int> movedAt = {};
+		Vector<string> movedLog = [];
+		Vector<int> movedLogWave = [];
+		Vector<int> synced = [];
+		for (int worker = 0; worker < workers.size(); worker++) { synced.push(-2); }
+		Map<string, SetjmpCallEffects> programEffects = {};
+		Map<string, bool> programConsulted = {};
+		SetjmpEffectAnalysis programAnalysis = SetjmpEffectAnalysis(self.input.hostedAbi);
+		keep programAnalysis;
+		int programWave = -1;
+		int analyses = 0;
+		int wave = 0;
+		int rounds = 0;
+		bool changed = true;
+		while (changed) {
+			changed = false;
+			rounds = rounds + 1;
+			for (int level = 0; level <= deepest; level++) {
+				Map<string, SetjmpFunctionEffect> moves = {};
+				if (levels.get("") == level && (programWave < 0 || self.movedSince(programConsulted, movedAt, programWave))) {
+					SetjmpEffectAnalysis analysis = programAnalysis;
+					programEffects = analysis.analyzeIncrementally(programUnit, solved);
+					programConsulted = analysis.consultedSolvedNames();
+					programWave = wave;
+					analyses = analyses + 1;
+					Map<string, SetjmpFunctionEffect> summaries = analysis.definitionSummaries();
+					for definition in programUnit.functions {
+						if (definition.isStatic || definition.body == null) { continue; }
+						SetjmpFunctionEffect summary = summaries.get(definition.name);
+						if (!summary.same(solved.get(definition.name))) { moves.put(definition.name, summary.snapshot()); }
+					}
+					keep analysis;
+				}
+				Vector<string> requests = [];
+				Vector<int> affinity = [];
+				Vector<ModuleUnitGroupState> analyzed = [];
+				Map<int, bool> primed = {};
+				for state in stale {
+					if (levels.get(state.name) != level) { continue; }
+					if (state.analyzedRound >= 0 && !self.movedSince(state.consulted, movedAt, state.analyzedRound)) { continue; }
+					JSONValue message = self.request("setjmp", state.name);
+					message.set("generation", JSONValue.makeInt(self.solveGeneration));
+					Map<string, SetjmpFunctionEffect> delta = {};
+					if (!primed.has(state.worker)) {
+						int since = synced.get(state.worker);
+						if (since == -2) {
+							for name in solved.keys() { delta.put(name, solved.get(name)); }
+						} else {
+							/* The move log is in wave order: read back to `since`. */
+							int entry = movedLog.len - 1;
+							while (entry >= 0 && movedLogWave.get(entry) > since) {
+								string name = movedLog.get(entry);
+								delta.put(name, solved.get(name));
+								entry = entry - 1;
+							}
+						}
+						primed.put(state.worker, true);
+					}
+					message.set("solved", JSONValue.makeString(ModuleUnitSummaries.encode(delta)));
+					requests.push(message.stringify());
+					affinity.push(state.worker);
+					analyzed.push(state);
+				}
+				for worker in primed.keys() { synced.set(worker, wave - 1); }
+				Vector<int> assigned = [];
+				Vector<string> replies = self.exchange(workers, requests, affinity, assigned);
+				for (int index = 0; index < analyzed.len; index++) {
+					ModuleUnitGroupState state = analyzed.get(index);
+					JSONValue reply = self.parseReply(replies.get(index), state.name);
+					Map<string, SetjmpFunctionEffect> summaries = {};
+					Vector<string> consulted = [];
+					if (!reply.get("summaries").isString() || !ModuleUnitSummaries.decode(reply.get("summaries").asString(), summaries) || !ModuleUnitRecord.stringsFrom(reply.get("consulted"), consulted)) {
+						fprintf(stderr, "internal compiler error: malformed setjmp reply for group '%s'\n", state.name);
+						exit(1);
+					}
+					state.analyzedRound = wave;
+					state.consulted = {};
+					for name in consulted { state.consulted.put(name, true); }
+					for name in summaries.keys() {
+						if (!summaries.get(name).same(solved.get(name))) { moves.put(name, summaries.get(name)); }
+					}
+					analyses = analyses + 1;
+				}
+				for name in moves.keys() {
+					solved.put(name, moves.get(name));
+					movedAt.put(name, wave);
+					movedLog.push(name);
+					movedLogWave.push(wave);
+					changed = true;
+				}
+				wave = wave + 1;
+			}
+		}
+		BtrccPhaseTimer.note(f"setjmp-analyses={analyses}/{stale.len + 1},rounds={rounds},levels={deepest + 1}");
+		return programEffects;
+	}
+
+	/* Realtime proofs across units. Each unit proves functions through its own
+	 * definitions (the program unit here, stale units in their workers) and
+	 * returns the calls it cannot resolve; a reused unit's part of a proof is
+	 * the one its record kept, since its code has not changed. A call into
+	 * another unit's export continues the proof there; any other call must be
+	 * a program-wide realtime-safe external; calls between units must not form
+	 * a cycle. Roots are the realtime functions of every unit. Records each
+	 * stale unit's proofs and reached callees, adds the program unit's reached
+	 * callees to its safe externals, and returns the reused groups whose
+	 * function a proof reached without a recorded proof: those are lowered
+	 * again. */
+	private Map<string, bool> proveRealtime(IWorkerPool workers, IRModule programUnit, Vector<ModuleUnitGroupState> states) {
+		Map<string, bool> needed = {};
+		Map<string, string> exporters = {};
+		Map<string, bool> programSafe = {};
+		for definition in programUnit.functions { if (!definition.isStatic) { exporters.put(definition.name, ""); } }
+		Map<string, string> unitExports = self.exporters(states);
+		for name in unitExports.keys() { if (!exporters.has(name)) { exporters.put(name, unitExports.get(name)); } }
+		for name in programUnit.realtimeSafeExternals.keys() { programSafe.put(name, true); }
+		for name in self.baseRealtimeSafe().keys() { programSafe.put(name, true); }
+		Map<string, ModuleUnitGroupState> byName = {};
+		for state in states {
+			byName.put(state.name, state);
+			if (state.stale) {
+				for name in state.realtimeSafe { programSafe.put(name, true); }
+				state.realtimeProofs = {};
+			}
+		}
+		Vector<string> groups = [];
+		Vector<string> names = [];
+		Vector<string> paths = [];
+		Map<string, bool> proven = {};
+		for definition in programUnit.functions {
+			if (definition.isRealtime) {
+				groups.push("");
+				names.push(definition.name);
+				paths.push(definition.name);
+				proven.put("\t" + definition.name, true);
+			}
+		}
+		for state in states {
+			ModuleUnitRecord? record = state.record;
+			Vector<string> roots = state.realtimeRoots;
+			if (!state.stale && record != null) { roots = record.realtimeRoots; }
+			if (!state.stale && record == null) { continue; }
+			for root in roots {
+				groups.push(state.name);
+				names.push(root);
+				paths.push(root);
+				proven.put(state.name + "\t" + root, true);
+			}
+		}
+		Map<string, Vector<string>> edges = {};
+		Map<string, Map<string, bool>> reached = {};
+		while (names.len > 0) {
+			Vector<string> startGroups = [];
+			Vector<string> starts = [];
+			Vector<string> callees = [];
+			Vector<string> callPaths = [];
+			Vector<string> programNames = [];
+			Vector<string> programPaths = [];
+			Map<string, Vector<string>> groupNames = {};
+			Map<string, Vector<string>> groupPaths = {};
+			Vector<string> requested = [];
+			for (int index = 0; index < names.len; index++) {
+				string group = groups.get(index);
+				string name = names.get(index);
+				if (group.isEmpty()) {
+					programNames.push(name);
+					programPaths.push(paths.get(index));
+					continue;
+				}
+				ModuleUnitGroupState owner = byName.get(group);
+				if (!owner.stale) {
+					/* A reused unit resumes the proof from its record. */
+					ModuleUnitRecord? record = owner.record;
+					if (record == null || !record.realtimeProofs.has(name)) {
+						needed.put(group, true);
+						continue;
+					}
+					for callee in record.realtimeProofs.get(name) {
+						startGroups.push(group);
+						starts.push(name);
+						callees.push(callee);
+						callPaths.push(paths.get(index));
+					}
+					continue;
+				}
+				if (!groupNames.has(group)) {
+					Vector<string> noNames = [];
+					Vector<string> noPaths = [];
+					groupNames.put(group, noNames);
+					groupPaths.put(group, noPaths);
+					requested.push(group);
+				}
+				groupNames.get(group).push(name);
+				groupPaths.get(group).push(paths.get(index));
+				Vector<string> none = [];
+				owner.realtimeProofs.put(name, none);
+			}
+			groups = [];
+			names = [];
+			paths = [];
+			if (programNames.len > 0) {
+				RealtimeUnitProof proof = RealtimeIRVerifier.proveWithin(programUnit, programNames, programPaths);
+				for (int index = 0; index < proof.callees.len; index++) {
+					startGroups.push("");
+					starts.push(proof.starts.get(index));
+					callees.push(proof.callees.get(index));
+					callPaths.push(proof.paths.get(index));
+				}
+			}
+			Vector<string> requests = [];
+			Vector<int> affinity = [];
+			for group in requested {
+				JSONValue message = self.request("realtime", group);
+				message.set("names", ModuleUnitRecord.stringsJson(groupNames.get(group)));
+				message.set("paths", ModuleUnitRecord.stringsJson(groupPaths.get(group)));
+				requests.push(message.stringify());
+				affinity.push(byName.get(group).worker);
+			}
+			Vector<int> assigned = [];
+			Vector<string> replies = self.exchange(workers, requests, affinity, assigned);
+			for (int index = 0; index < requested.len; index++) {
+				string group = requested.get(index);
+				JSONValue reply = self.parseReply(replies.get(index), group);
+				Vector<string> replyStarts = [];
+				Vector<string> replyCallees = [];
+				Vector<string> replyPaths = [];
+				if (!ModuleUnitRecord.stringsFrom(reply.get("starts"), replyStarts) || !ModuleUnitRecord.stringsFrom(reply.get("callees"), replyCallees) || !ModuleUnitRecord.stringsFrom(reply.get("paths"), replyPaths) || replyStarts.len != replyCallees.len || replyCallees.len != replyPaths.len) {
+					fprintf(stderr, "internal compiler error: malformed realtime reply for group '%s'\n", group);
+					exit(1);
+				}
+				Map<string, Vector<string>> proofs = byName.get(group).realtimeProofs;
+				for (int item = 0; item < replyCallees.len; item++) {
+					startGroups.push(group);
+					starts.push(replyStarts.get(item));
+					callees.push(replyCallees.get(item));
+					callPaths.push(replyPaths.get(item));
+					if (proofs.has(replyStarts.get(item)) && !proofs.get(replyStarts.get(item)).contains(replyCallees.get(item))) { proofs.get(replyStarts.get(item)).push(replyCallees.get(item)); }
+				}
+			}
+			for (int index = 0; index < callees.len; index++) {
+				string group = startGroups.get(index);
+				string callee = callees.get(index);
+				string from = group + "\t" + starts.get(index);
+				if (!reached.has(group)) {
+					Map<string, bool> none = {};
+					reached.put(group, none);
+				}
+				if (exporters.has(callee) && !exporters.get(callee).equals(group)) {
+					string owner = exporters.get(callee);
+					reached.get(group).put(callee, true);
+					string to = owner + "\t" + callee;
+					if (!edges.has(from)) {
+						Vector<string> none = [];
+						edges.put(from, none);
+					}
+					edges.get(from).push(to);
+					if (!proven.has(to)) {
+						proven.put(to, true);
+						groups.push(owner);
+						names.push(callee);
+						paths.push(callPaths.get(index) + " -> " + callee);
+					}
+				} else if (programSafe.has(callee)) {
+					reached.get(group).put(callee, true);
+				} else {
+					fprintf(stderr, "internal compiler error: IR realtime backstop rejected external/runtime call '%s' via %s\n", callee, callPaths.get(index));
+					exit(1);
+				}
+			}
+		}
+		self.rejectRealtimeCycles(edges);
+		for state in states {
+			if (!state.stale) { continue; }
+			state.realtimeReached = [];
+			if (reached.has(state.name)) { state.realtimeReached = reached.get(state.name).keys(); }
+			state.realtimeReached.sort();
+		}
+		if (reached.has("")) { for name in reached.get("").keys() { programUnit.realtimeSafeExternals.put(name, true); } }
+		return needed;
+	}
+
+	/* A realtime call chain that leaves a unit and comes back is recursion the
+	 * units could not see alone. */
+	private void rejectRealtimeCycles(Map<string, Vector<string>> edges) {
+		Map<string, int> color = {};
+		Vector<string> nodes = edges.keys();
+		nodes.sort();
+		for start in nodes {
+			if (color.has(start)) { continue; }
+			Vector<string> stack = [start];
+			Vector<int> next = [0];
+			color.put(start, 1);
+			while (stack.len > 0) {
+				string node = stack.get(stack.len - 1);
+				int position = next.get(next.len - 1);
+				Vector<string> successors = [];
+				if (edges.has(node)) { successors = edges.get(node); }
+				if (position >= successors.len) {
+					color.put(node, 2);
+					stack.pop();
+					next.pop();
+					continue;
+				}
+				next.set(next.len - 1, position + 1);
+				string successor = successors.get(position);
+				if (color.has(successor) && color.get(successor) == 1) {
+					Vector<string> path = [];
+					for member in stack { path.push(member.substring(member.indexOf("\t") + 1, member.length() - member.indexOf("\t") - 1)); }
+					path.push(successor.substring(successor.indexOf("\t") + 1, successor.length() - successor.indexOf("\t") - 1));
+					fprintf(stderr, "internal compiler error: IR realtime backstop rejected recursive call cycle via %s\n", Strings.join(path, " -> "));
+					exit(1);
+				}
+				if (!color.has(successor)) {
+					color.put(successor, 1);
+					stack.push(successor);
+					next.push(0);
+				}
+			}
+		}
+	}
+
+	public ModuleUnitBuild compile() {
+		ModuleUnitProgram input = self.input;
+		ModuleUnitBuild build = ModuleUnitBuild();
+		BtrccPhaseTimer.mark("u-start");
+		/* One declarations-only lowering produces every declaration without
+		 * bodies and computes the facts every later lowering shares. */
+		IRLowerer declarationsLowerer = self.lowerer("<declarations>", false);
+		IRModule declarations = declarationsLowerer.lower(input.program);
+		keep declarationsLowerer;
+		ModuleUnitDeclarations shared = ModuleUnitDeclarations(declarations);
+		BtrccPhaseTimer.mark("u-declarations");
+		/* The program unit is always lowered here: it owns native adapters and
+		 * defines every unit's runtime state. */
+		IRModule programUnit = self.lowerGroup("", shared);
+		ModuleUnitGraph programGraph = ModuleUnitGraph.fromUnit(programUnit, self.lastInstances);
+		self.addHostedRealtimeExternals(programUnit);
+		bool programSetjmp = self.unitHasSetjmp(programUnit);
+		CycleReturnBoundaryLowerer programBoundaries = CycleReturnBoundaryLowerer(programUnit.temporaryNames);
+		bool programReleases = programBoundaries.releasesCyclableValues(programUnit);
+		BtrccPhaseTimer.mark("u-program-unit");
+		string programIdentity = self.programDigest();
+		BtrccPhaseTimer.mark("u-digest");
+		Map<string, string> sources = self.groupSourceDigests();
+		BtrccPhaseTimer.mark("u-sources");
+		string context = f"debug={self.options.debug};dce={self.options.runDce};target={self.options.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
+		Vector<ModuleUnitGroupState> states = [];
+		for name in self.groups.names() {
+			string source = sources.has(name) ? sources.get(name) : "";
+			string identity = SHA256.digest("module-unit-v3\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
+			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
+			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }
+			IBtrccArtifactCache? store = self.store;
+			if (store != null) {
+				BtrccPhaseTimer.mark("u-keys");
+				BtrccModuleUnitPayload? payload = store.loadModuleUnit(identity);
+				BtrccPhaseTimer.mark("u-record-load");
+				state.record = ModuleUnitRecord.fromPayload(payload, name);
+				BtrccPhaseTimer.mark("u-record-parse");
+			}
+			states.push(state);
+		}
+		BtrccPhaseTimer.mark("u-plan");
+
+		ModuleUnitWorker local = ModuleUnitWorker(self, shared);
+		Map<string, bool> lowered = {};
+		Map<string, SetjmpFunctionEffect> solved = {};
+		Map<string, SetjmpCallEffects> programEffects = {};
+		Vector<ModuleUnitGroupState> stale = [];
+		bool releases = false;
+		bool needsSolve = false;
+		while (true) {
+			Vector<ModuleUnitGroupState> toLower = [];
+			for state in states { if (state.record == null && !state.stale) { toLower.push(state); } }
+			if (toLower.len > 0) { self.lowerGroups(self.pool(local, shared, toLower.len), toLower, lowered); }
+			BtrccPhaseTimer.mark("u-lowered");
+			stale = [];
+			releases = programReleases;
+			needsSolve = programSetjmp;
+			for state in states {
+				ModuleUnitRecord? record = state.record;
+				if (state.stale) {
+					stale.push(state);
+					if (state.releasesCyclable) { releases = true; }
+					if (state.hasSetjmp) { needsSolve = true; }
+				} else if (record != null) {
+					if (record.releasesCyclable) { releases = true; }
+					if (record.hasSetjmp) { needsSolve = true; }
+				}
+			}
+			/* The entry unit consults the program-wide cyclable-release fact; a
+			 * reused record solved without effects cannot serve a solve. */
+			bool again = false;
+			for state in states {
+				ModuleUnitRecord? record = state.record;
+				if (!state.stale && record != null && ((record.definesEntry && record.programRelease != releases) || (needsSolve && !record.effectsSolved))) {
+					state.record = null;
+					again = true;
+					self.relowered("entry-or-unsolved");
+				}
+			}
+			if (again) { continue; }
+			Map<string, SetjmpFunctionEffect> fixed = {};
+			for state in states {
+				ModuleUnitRecord? record = state.record;
+				if (!state.stale && record != null) {
+					for name in record.exportedEffects.keys() { fixed.put(name, record.exportedEffects.get(name)); }
+				}
+			}
+			solved = {};
+			programEffects = {};
+			if (needsSolve) {
+				IWorkerPool workers = self.pool(local, shared, stale.len);
+				programEffects = self.solveSetjmp(workers, programUnit, programGraph, stale, fixed, solved);
+			}
+			Map<string, string> exporters = self.exporters(states);
+			for state in states {
+				ModuleUnitRecord? record = state.record;
+				if (state.stale || record == null) { continue; }
+				for name in record.consultedEffects.keys() {
+					if (!solved.has(name) || !solved.get(name).same(record.consultedEffects.get(name))) {
+						if (state.record != null) {
+							self.relowered("consulted-summary");
+							if (self.relowerReasons.get("consulted-summary") <= 5) { BtrccPhaseTimer.note(f"consulted-mismatch={state.name}:{name}:solved={solved.has(name)}:{solved.has(name) ? ModuleUnitSummaries.encode({name: solved.get(name)}) : ""}:recorded={ModuleUnitSummaries.encode({name: record.consultedEffects.get(name)})}"); }
+						}
+						state.record = null;
+						again = true;
+					}
+				}
+			}
+			for state in self.summaryCycles(states, exporters) {
+				state.record = null;
+				again = true;
+				self.relowered("summary-cycle");
+			}
+			BtrccPhaseTimer.mark("u-solve");
+			if (again) { continue; }
+			Map<string, bool> needed = self.proveRealtime(self.pool(local, shared, stale.len), programUnit, states);
+			BtrccPhaseTimer.mark("u-realtime");
+			for state in states {
+				ModuleUnitRecord? record = state.record;
+				if (state.stale || record == null) { continue; }
+				if (needed.has(state.name)) {
+					state.record = null;
+					again = true;
+					self.relowered("realtime");
+				}
+			}
+			if (again) { continue; }
+			/* A reused unit is exact only for the instance members it kept. */
+			self.demandInstances(states, programGraph);
+			BtrccPhaseTimer.mark("u-demand");
+			for state in states {
+				ModuleUnitRecord? record = state.record;
+				if (!state.stale && record != null && !self.sameInstances(state.keptInstances, record.keptInstances)) {
+					state.record = null;
+					again = true;
+					self.relowered("kept-instances");
+				}
+			}
+			if (again) { continue; }
+			break;
+		}
+		BtrccPhaseTimer.mark("u-lower");
+
+		/* Every stale unit is optimized and emitted by the worker holding it. */
+		Map<string, bool> helperNames = {};
+		Vector<string> requests = [];
+		Vector<int> affinity = [];
+		for state in stale {
+			JSONValue message = self.request("finish", state.name);
+			message.set("releases", JSONValue.makeBool(releases));
+			Vector<string> unneeded = [];
+			for name in state.graph.instances.keys() { if (!state.keptInstances.has(name)) { unneeded.push(name); } }
+			unneeded.sort();
+			message.set("unneeded", ModuleUnitRecord.stringsJson(unneeded));
+			message.set("realtime-safe", ModuleUnitRecord.stringsJson(state.realtimeReached));
+			requests.push(message.stringify());
+			affinity.push(state.worker);
+		}
+		Vector<string> finished = [];
+		if (requests.len > 0) {
+			Vector<int> assigned = [];
+			finished = self.exchange(self.pool(local, shared, stale.len), requests, affinity, assigned);
+		}
+		BtrccPhaseTimer.mark("u-optimize");
+		for (int index = 0; index < stale.len; index++) {
+			ModuleUnitGroupState state = stale.get(index);
+			string reply = finished.get(index);
+			int newline = reply.indexOf("\n");
+			int headerLength = newline > 0 ? Strings.toInt(reply.substring(0, newline)) : -1;
+			if (headerLength <= 0 || newline + 1 + headerLength > reply.length()) {
+				fprintf(stderr, "internal compiler error: malformed finish reply for group '%s'\n", state.name);
+				exit(1);
+			}
+			JSONValue header = self.parseReply(reply.substring(newline + 1, headerLength), state.name);
+			ModuleUnitRecord record = ModuleUnitRecord();
+			record.group = state.name;
+			if (!header.get("kept").isBool() || !header.get("releases").isBool() || !header.get("entry").isBool() || !ModuleUnitRecord.stringsFrom(header.get("exports"), record.exports) || !ModuleUnitRecord.stringsFrom(header.get("helpers"), record.helpers) || !header.get("dropped").isObject()) {
+				fprintf(stderr, "internal compiler error: malformed finish reply for group '%s'\n", state.name);
+				exit(1);
+			}
+			record.kept = header.get("kept").asBool();
+			record.text = reply.substring(newline + 1 + headerLength, reply.length() - newline - 1 - headerLength);
+			record.hasSetjmp = state.hasSetjmp;
+			record.effectsSolved = needsSolve;
+			for name in record.exports { if (solved.has(name)) { record.exportedEffects.put(name, solved.get(name)); } }
+			for name in state.consulted.keys() { if (solved.has(name)) { record.consultedEffects.put(name, solved.get(name)); } }
+			record.releasesCyclable = header.get("releases").asBool();
+			record.definesEntry = header.get("entry").asBool();
+			record.programRelease = releases;
+			record.realtimeRoots = state.realtimeRoots;
+			record.realtimeProofs = state.realtimeProofs;
+			record.graph = state.graph;
+			record.keptInstances = state.keptInstances.keys();
+			record.keptInstances.sort();
+			/* A dropped member another unit still needs would have been kept
+			 * alive by whole-program DCE: report its deferred diagnostic. */
+			JSONValue dropped = header.get("dropped");
+			for name in dropped.keys() {
+				if (state.keptInstances.has(name)) {
+					fprintf(stderr, "error: %s\n", dropped.get(name).asString());
+					exit(1);
+				}
+			}
+			state.helpers = record.helpers;
+			for helper in record.helpers { helperNames.put(helper, true); }
+			IBtrccArtifactCache? store = self.store;
+			string recordJson = record.toJson();
+			if (store != null) { store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordJson, record.text)); }
+			state.record = record;
+		}
+		IWorkerPool? started = self.workerPool;
+		if (started != null && !started.close()) {
+			fprintf(stderr, "error: module-unit worker failed: a worker exited abnormally\n");
+			exit(1);
+		}
+		BtrccPhaseTimer.mark("u-records");
+		/* The program unit defines the state of every helper any unit uses. */
+		for state in states {
+			ModuleUnitRecord? record = state.record;
+			if (!state.stale && record != null) { for helper in record.helpers { helperNames.put(helper, true); } }
+		}
+		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(input.hostedAbi)), input.runtimeHelpers);
+		Map<string, bool> programUnneeded = {};
+		optimizer.optimizeModuleUnit(programUnit, self.options.runDce, programEffects, releases, programUnneeded);
+		RuntimeReferenceCollector references = RuntimeReferenceCollector(input.runtimeHelpers);
+		for helper in references.requiredBy(programUnit).keys() { helperNames.put(helper, true); }
+		input.runtimeHelpers.materializeInto(programUnit, helperNames);
+		for state in states {
+			ModuleUnitRecord? finishedRecord = state.record;
+			if (finishedRecord != null && finishedRecord.kept) {
+				build.units.push(finishedRecord.text);
+				build.unitNames.push(ModuleUnitCompiler.unitName(state.name));
+			}
+			if (lowered.has(state.name)) { build.lowered.push(state.name); }
+			else { build.reused.push(state.name); }
+		}
+		if (self.options.debug && !self.options.outputPath.isEmpty()) { programUnit.debugCfile = FeCanonicalPath.absolute(self.options.outputPath); }
+		build.primary = CEmitter().emitModuleUnit(programUnit, true);
+		build.program = programUnit;
+		keep states;
+		keep shared;
+		keep declarations;
+		keep optimizer;
+		/* An in-process worker holds every unit it lowered: releasing that
+		 * graph would run a reverse-reachability proof over all of it. */
+		keep local;
+		BtrccPhaseTimer.note(f"module-units=lowered:{build.lowered.len},reused:{build.reused.len}");
+		for reason in self.relowerReasons.keys() { BtrccPhaseTimer.note(f"relowered-{reason}={self.relowerReasons.get(reason)}"); }
+		BtrccPhaseTimer.mark("u-emit");
+		return build;
+	}
+}
+
+/* The worker side of a module-unit compile. It lowers the groups it is given
+ * and keeps their units, then answers the owner's setjmp, realtime and finish
+ * requests about them. It runs in a forked copy of the owner, which shares the
+ * analyzed program and shared declarations, or in the owner itself. */
+class ModuleUnitWorker implements IWorkerRequestHandler {
+	private ModuleUnitCompiler compiler;
+	private ModuleUnitDeclarations shared;
+	private Map<string, IRModule> units = {};
+	private Map<string, Map<string, SetjmpCallEffects>> effects = {};
+	private Map<string, SetjmpFunctionEffect> solved = {};
+	/* Each group's setjmp analysis, continued across one solve's rounds. */
+	private Map<string, SetjmpEffectAnalysis> analyses = {};
+	/* The summaries this worker last reported for each export, within the
+	 * owner's current solve; a new solve starts both maps again. */
+	private Map<string, SetjmpFunctionEffect> reported = {};
+	private int solveGeneration = -1;
+
+	public ModuleUnitWorker(ModuleUnitCompiler compiler, ModuleUnitDeclarations shared) {
+		self.compiler = compiler;
+		self.shared = shared;
+	}
+
+	public string handle(string request) {
+		JSONValue message = JSONValue.parse(request);
+		string operation = message.get("op").asString();
+		string group = message.get("group").asString();
+		if (operation.equals("lower")) { return self.lower(group); }
+		if (!self.units.has(group)) {
+			fprintf(stderr, "internal compiler error: module-unit worker does not hold group '%s'\n", group);
+			exit(1);
+		}
+		if (operation.equals("setjmp")) {
+			int generation = message.get("generation").asInt();
+			if (generation != self.solveGeneration) {
+				self.solveGeneration = generation;
+				self.solved = {};
+				self.reported = {};
+				self.analyses = {};
+			}
+			return self.analyze(group, message.get("solved").asString());
+		}
+		if (operation.equals("realtime")) { return self.prove(group, message); }
+		if (operation.equals("finish")) { return self.finish(group, message); }
+		fprintf(stderr, "internal compiler error: unknown module-unit request '%s'\n", operation);
+		exit(1);
+		return "";
+	}
+
+	/* Lower one group; report its exports, graph and the facts the owner
+	 * combines across units. */
+	private string lower(string group) {
+		IRModule unit = self.compiler.lowerGroup(group, self.shared);
+		ModuleUnitGraph graph = ModuleUnitGraph.fromUnit(unit, self.compiler.lastInstanceNames());
+		self.compiler.addHostedRealtimeExternals(unit);
+		self.units.put(group, unit);
+		JSONValue reply = JSONValue.makeObject();
+		Vector<string> exports = [];
+		Vector<string> roots = [];
+		for definition in unit.functions {
+			if (!definition.isStatic && definition.body != null) { exports.push(definition.name); }
+			if (definition.isRealtime) { roots.push(definition.name); }
+		}
+		Vector<string> safe = [];
+		Map<string, bool> base = self.compiler.baseRealtimeSafe();
+		for name in unit.realtimeSafeExternals.keys() { if (!base.has(name)) { safe.push(name); } }
+		safe.sort();
+		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer(unit.temporaryNames);
+		reply.set("exports", ModuleUnitRecord.stringsJson(exports));
+		reply.set("realtime-roots", ModuleUnitRecord.stringsJson(roots));
+		reply.set("realtime-safe", ModuleUnitRecord.stringsJson(safe));
+		reply.set("setjmp", JSONValue.makeBool(self.compiler.unitHasSetjmp(unit)));
+		reply.set("releases", JSONValue.makeBool(boundaries.releasesCyclableValues(unit)));
+		graph.writeTo(reply);
+		return reply.stringify();
+	}
+
+	/* One setjmp analysis of a unit against the summaries solved so far; the
+	 * request carries the summaries that moved since this worker last heard,
+	 * and the reply the unit's summaries that moved since it last reported. */
+	private string analyze(string group, string moved) {
+		Map<string, SetjmpFunctionEffect> updates = {};
+		if (!ModuleUnitSummaries.decode(moved, updates)) {
+			fprintf(stderr, "internal compiler error: malformed setjmp summaries for group '%s'\n", group);
+			exit(1);
+		}
+		for name in updates.keys() { self.solved.put(name, updates.get(name)); }
+		IRModule unit = self.units.get(group);
+		if (!self.analyses.has(group)) { self.analyses.put(group, SetjmpEffectAnalysis(self.compiler.hostedAbi())); }
+		SetjmpEffectAnalysis analysis = self.analyses.get(group);
+		self.effects.put(group, analysis.analyzeIncrementally(unit, self.solved));
+		Map<string, SetjmpFunctionEffect> summaries = analysis.definitionSummaries();
+		Map<string, SetjmpFunctionEffect> changed = {};
+		for definition in unit.functions {
+			if (definition.isStatic || definition.body == null) { continue; }
+			SetjmpFunctionEffect summary = summaries.get(definition.name);
+			SetjmpFunctionEffect previous = self.reported.has(definition.name) ? self.reported.get(definition.name) : SetjmpFunctionEffect();
+			if (!summary.same(previous)) {
+				changed.put(definition.name, summary);
+				self.reported.put(definition.name, summary.snapshot());
+			}
+		}
+		JSONValue reply = JSONValue.makeObject();
+		reply.set("summaries", JSONValue.makeString(ModuleUnitSummaries.encode(changed)));
+		Vector<string> consulted = analysis.consultedSolvedNames().keys();
+		consulted.sort();
+		reply.set("consulted", ModuleUnitRecord.stringsJson(consulted));
+		keep analysis;
+		return reply.stringify();
+	}
+
+	/* Realtime proofs of the named functions through this unit alone. */
+	private string prove(string group, JSONValue message) {
+		Vector<string> names = [];
+		Vector<string> paths = [];
+		if (!ModuleUnitRecord.stringsFrom(message.get("names"), names) || !ModuleUnitRecord.stringsFrom(message.get("paths"), paths) || names.len != paths.len) {
+			fprintf(stderr, "internal compiler error: malformed realtime request for group '%s'\n", group);
+			exit(1);
+		}
+		RealtimeUnitProof proof = RealtimeIRVerifier.proveWithin(self.units.get(group), names, paths);
+		JSONValue reply = JSONValue.makeObject();
+		reply.set("starts", ModuleUnitRecord.stringsJson(proof.starts));
+		reply.set("callees", ModuleUnitRecord.stringsJson(proof.callees));
+		reply.set("paths", ModuleUnitRecord.stringsJson(proof.paths));
+		return reply.stringify();
+	}
+
+	/* Optimize and emit the unit with the program facts the owner settled.
+	 * The reply is the decimal length of a JSON header, a newline, the header
+	 * and then the unit's C text. */
+	private string finish(string group, JSONValue message) {
+		IRModule unit = self.units.get(group);
+		Vector<string> unneededNames = [];
+		Vector<string> reached = [];
+		if (!message.get("releases").isBool() || !ModuleUnitRecord.stringsFrom(message.get("unneeded"), unneededNames) || !ModuleUnitRecord.stringsFrom(message.get("realtime-safe"), reached)) {
+			fprintf(stderr, "internal compiler error: malformed finish request for group '%s'\n", group);
+			exit(1);
+		}
+		Map<string, bool> unneeded = {};
+		for name in unneededNames { unneeded.put(name, true); }
+		for name in reached { unit.realtimeSafeExternals.put(name, true); }
+		Map<string, SetjmpCallEffects> unitEffects = {};
+		if (self.effects.has(group)) { unitEffects = self.effects.get(group); }
+		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(self.compiler.hostedAbi())), self.compiler.runtimeHelpers());
+		optimizer.optimizeModuleUnit(unit, self.compiler.runsDce(), unitEffects, message.get("releases").asBool(), unneeded);
+		Map<string, string> dropped = optimizer.droppedInvalidExports();
+		keep optimizer;
+		Vector<string> helpers = RuntimeReferenceCollector(self.compiler.runtimeHelpers()).requiredBy(unit).keys();
+		helpers.sort();
+		bool kept = false;
+		Vector<string> exports = [];
+		bool definesEntry = false;
+		for definition in unit.functions {
+			if (!definition.isStatic) {
+				kept = true;
+				exports.push(definition.name);
+			}
+			if (definition.name == "main" || definition.name == "btrc_main") { definesEntry = true; }
+		}
+		for global in unit.globalDecls { if (!global.isExtern) { kept = true; } }
+		exports.sort();
+		string text = "";
+		if (kept) {
+			self.compiler.prepareDebugPaths(unit, group);
+			text = CEmitter().emitModuleUnit(unit, false);
+		}
+		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer(unit.temporaryNames);
+		JSONValue header = JSONValue.makeObject();
+		header.set("kept", JSONValue.makeBool(kept));
+		header.set("exports", ModuleUnitRecord.stringsJson(exports));
+		header.set("releases", JSONValue.makeBool(boundaries.releasesCyclableValues(unit)));
+		header.set("entry", JSONValue.makeBool(definesEntry));
+		header.set("helpers", ModuleUnitRecord.stringsJson(helpers));
+		JSONValue invalid = JSONValue.makeObject();
+		for name in dropped.keys() { invalid.set(name, JSONValue.makeString(dropped.get(name))); }
+		header.set("dropped", invalid);
+		string rendered = header.stringify();
+		return Strings.fromInt(rendered.length()) + "\n" + rendered + text;
+	}
+}

@@ -20,7 +20,12 @@ from ..backend.c_emitter import CEmitter
 from ..frontend.imports import FrontendVisibilityError
 from ..frontend.native_imports import NativeHeaderSource
 from ..frontend.packages import NativeGeneratedUnit, NativeLinkPlan
-from ..frontend.sources import CompilerStdlibSource, ResolvedSource, SourceResolver, StdlibRepository
+from ..frontend.sources import (
+    CompilerStdlibSource,
+    ResolvedSource,
+    SourceResolver,
+    StdlibRepository,
+)
 from ..frontend.stage import FrontendParseResult, FrontendStage
 from ..ir.nodes import IRHelperDecl, IRInclude, IRMacroDef
 from ..ir.optimizer import IROptimizer
@@ -29,6 +34,7 @@ from ..lexer.lexer import Lexer, LexerError
 from ..parser.parser import ParseError, Parser
 from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import Program
+from .modules import ModuleUnitCompiler, ModuleUnitStore
 from .results import (
     CompilerActionResult,
     CompilerDiagnostic,
@@ -587,7 +593,28 @@ class CompilationPipeline:
             split_spaces=split_source_spaces,
         )
         start = time.perf_counter()
-        module = IRLowerer(
+        module = self._lower_session(analyzed, filename, options, source_map)
+        self._timed(profile, "lower", start)
+        return module
+
+    def _lower_session(self, analyzed, filename, options, source_map, *args, **kwargs):
+        """Lower one session and record the native calls realtime code may make."""
+        module = self._lowerer(analyzed, filename, options, source_map, *args, **kwargs).lower()
+        self._add_native_realtime_externals(module, analyzed)
+        return module
+
+    def _lowerer(
+        self,
+        analyzed,
+        filename,
+        options,
+        source_map,
+        groups=None,
+        owned_group=None,
+        program_facts=None,
+        declarations_elsewhere=False,
+    ) -> IRLowerer:
+        return IRLowerer(
             analyzed,
             debug=options.debug,
             source_file=filename,
@@ -601,7 +628,14 @@ class CompilationPipeline:
                 else frozenset()
             ),
             prune_stdlib=options.dce and options.stdlib_archive is None,
-        ).lower()
+            groups=groups,
+            owned_group=owned_group,
+            program_facts=program_facts,
+            declarations_elsewhere=declarations_elsewhere,
+        )
+
+    @staticmethod
+    def _add_native_realtime_externals(module, analyzed) -> None:
         for declaration in analyzed.program.declarations:
             source = getattr(declaration, "source_file", None)
             contract = source.call_contract if isinstance(source, NativeHeaderSource) else None
@@ -609,8 +643,6 @@ class CompilationPipeline:
                 module.realtime_safe_externals.add(declaration.name)
                 if contract.adapter_symbol(declaration.name) != declaration.name:
                     module.realtime_safe_externals.add("__builtin_trap")
-        self._timed(profile, "lower", start)
-        return module
 
     def optimize(self, module, options: CompilerOptions, profile: dict[str, float] | None = None):
         start = time.perf_counter()
@@ -649,7 +681,9 @@ class CompilationPipeline:
         native_plan = source.native_plan
         module = values.get("ir_module")
         if values.get("c_units"):
-            native_plan = native_plan.with_emitted_units(options.units_prefix, len(values["c_units"]))
+            native_plan = native_plan.with_emitted_units(
+                options.units_prefix, values.get("c_unit_names") or len(values["c_units"])
+            )
         if module is not None and module.native_units:
             native_plan = replace(
                 native_plan,
@@ -678,6 +712,9 @@ class CompilationPipeline:
         filename: str,
         options: CompilerOptions,
         profile: dict[str, float] | None = None,
+        *,
+        module_store: ModuleUnitStore | None = None,
+        input_path: str | None = None,
     ) -> CompilerResult:
         """Run a resolved source bundle through the requested terminal stage."""
 
@@ -718,6 +755,47 @@ class CompilationPipeline:
         }
         if analyzed.errors or any(diagnostic.severity == "error" for diagnostic in analyzed.diags):
             return self._result(source, options, profile, **common)
+
+        if (
+            options.module_units
+            and options.units_prefix is not None
+            and options.output is CompilerOutput.C
+            and options.stdlib_archive is None
+        ):
+            if not source.strict_imports:
+                failure = CompilerFailure(CompilerFailureKind.INPUT, "module units require strict imports")
+                return self._result(source, options, profile, failure=failure, **common)
+            try:
+                build = ModuleUnitCompiler(
+                    self._lower_session,
+                    self._finalize_optimized_ir,
+                    self.runtime_catalog,
+                    self.freestanding_runtime,
+                ).compile(
+                    analyzed,
+                    source,
+                    filename,
+                    options,
+                    split_source_spaces=split_source_spaces,
+                    store=module_store,
+                    input_path=input_path,
+                    profile=profile,
+                    timed=self._timed,
+                )
+            except CodegenError as error:
+                return self._result(source, options, profile, failure=self._failure(error), **common)
+            return self._result(
+                source,
+                options,
+                profile,
+                ir_module=build.program,
+                c_source=build.primary,
+                c_units=build.units,
+                c_unit_names=build.unit_names,
+                module_units_lowered=build.lowered,
+                module_units_reused=build.reused,
+                **common,
+            )
 
         try:
             module = self.lower(

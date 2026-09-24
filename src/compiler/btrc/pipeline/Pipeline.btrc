@@ -1,5 +1,6 @@
 /* Instance-owned orchestration for the self-hosted compiler pipeline. */
 
+import Library.BackgroundJobs.WorkerPools;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
@@ -8,6 +9,7 @@ import ../frontend/Packages.btrc;
 import ../frontend/NativeImports.btrc;
 import ../ir/Stage.btrc;
 import ./Models.btrc;
+import ./ModuleUnits.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
 import ../ir/lowering/Reachability.btrc;
@@ -20,6 +22,8 @@ class CompilerPipeline {
 	private FeSourceFileReader sourceFiles;
 	private FeNativeHeaderReader nativeHeaderReader;
 	private FeDirectiveCache? directiveCache;
+	private IBtrccArtifactCache? moduleUnitStore = null;
+	private IWorkerPoolFactory? workerPools = null;
 
 	public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, FeDirectiveCache? directiveCache = null) {
 		self.grammar = grammar;
@@ -33,6 +37,12 @@ class CompilerPipeline {
 	}
 
 	private BtrccCompilationResult failure(string diagnostic) { return BtrccCompilationResult(false, "", diagnostic, ""); }
+
+	/* Where module-unit records persist between builds; null disables reuse. */
+	public void setModuleUnitStore(IBtrccArtifactCache? store) { self.moduleUnitStore = store; }
+
+	/* Starts module-unit worker processes; null lowers every group here. */
+	public void setWorkerPools(IWorkerPoolFactory? pools) { self.workerPools = pools; }
 
 	private string visibilityDiagnostic(Vector<FeVisibilityDiagnostic> diagnostics) {
 		Vector<string> rendered = [];
@@ -124,6 +134,34 @@ class CompilerPipeline {
 		BtrccPhaseTimer.mark("catalog");
 		Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
 		BtrccPhaseTimer.mark("analyze");
+		if (options.moduleUnits && !options.unitsPrefix.isEmpty()) {
+			if (!resolved.strictImports) { return self.failure("error: module units require strict imports"); }
+			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations, self.hostedAbi) : null;
+			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys);
+			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();
+			IRModule? programModule = build.program;
+			if (programModule != null) {
+				for name in programModule.nativeUnits.keys() {
+					IRModule unit = programModule.nativeUnits.get(name);
+					if ((unit.language != "objective-c" && unit.language != "c++") || unit.nativeUnits.len > 0) { throw "native adapter must be a standalone Objective-C or C++ unit"; }
+					packages.linkPlan.generatedUnits.push(FeNativeGeneratedUnit(name, unit.language, unit.language == "c++" ? "c++17" : "c11", unit.language == "c++" ? "raii" : "arc", CEmitter().emit(unit)));
+				}
+			}
+			string modulePrefix = FeNativeLinkPlan.outputPrefix(options.unitsPrefix);
+			for name in build.unitNames { packages.linkPlan.emittedUnits.push(modulePrefix + "." + name + ".c"); }
+			keep program;
+			keep resolved;
+			keep analyzer;
+			keep analyzed;
+			BtrccPhaseTimer.print();
+			BtrccCompilationResult moduleResult = BtrccCompilationResult(true, build.primary, "", packages.linkPlan.canonicalJson());
+			moduleResult.units = build.units;
+			moduleResult.unitPaths = packages.linkPlan.emittedUnits;
+			moduleResult.inputPaths = input.inputPaths;
+			moduleResult.moduleUnitsLowered = build.lowered;
+			moduleResult.moduleUnitsReused = build.reused;
+			return moduleResult;
+		}
 
 		IRLowerer lowerer = IRLowerer(analyzed, self.hostedAbi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), runtimeHelpers, sourcePath, resolved.stdlibLineCount, resolved.userLines);
 		if (options.runDce) { lowerer.setStdlibKeys(StdlibReachability.classify(program.declarations, self.hostedAbi)); }

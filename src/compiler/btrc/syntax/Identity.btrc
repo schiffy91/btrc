@@ -14,10 +14,44 @@ class AstIdentity {
 	class string key(Node node) { return f"{(unsigned long long)(uintptr_t)node}"; }
 }
 
+/* What an interface rendering keeps of a callable body another declaration
+ * may read: supplied by the owner of those semantics, never by syntax. */
+interface IAstInterfaceSummary {
+	string callableBody(Node callable);
+}
+
 class AstCanonicalRenderer {
+	/* Interface mode: a non-template callable body renders as its summary. */
+	private IAstInterfaceSummary? interfaceSummary = null;
+	private int templateDepth = 0;
+	private Node? pendingBody = null;
+
 	public AstCanonicalRenderer() {}
 
+	/* A renderer for declaration interfaces: generic templates keep their
+	 * bodies because other groups instantiate them; any other callable body is
+	 * replaced by `summary`. Position fields remain in the text; callers that
+	 * need a position-free identity drop them. */
+	class AstCanonicalRenderer interfaceRenderer(IAstInterfaceSummary summary) {
+		AstCanonicalRenderer renderer = AstCanonicalRenderer();
+		renderer.interfaceSummary = summary;
+		return renderer;
+	}
+
 	public string render(Node node) { return self.renderAtDepth(node, 0); }
+
+	private void enterMembers(bool template) { if (template) { self.templateDepth = self.templateDepth + 1; } }
+
+	private void leaveMembers(bool template) { if (template) { self.templateDepth = self.templateDepth - 1; } }
+
+	/* The next canonNode of exactly `body` is the callable's own body. */
+	private void beginBody(Node callable, Node? body, bool template) {
+		if (self.interfaceSummary != null && self.templateDepth == 0 && !template) { self.pendingBody = body; }
+		else { self.pendingBody = null; }
+		self.pendingCallable = callable;
+	}
+
+	private Node? pendingCallable = null;
 
 	private string renderAtDepth(Node node, int d) {
 		if (node.kind == NK_PROGRAM) {
@@ -42,7 +76,9 @@ class AstCanonicalRenderer {
 			string out = "(ClassDecl";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams, d + 1);
+			self.enterMembers(node.genericParams.len > 0);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "members=" + self.canonNodeList(node.members, d + 1);
+			self.leaveMembers(node.genericParams.len > 0);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "interfaces=" + self.canonStrList(node.interfaces, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.isAbstract);
@@ -69,6 +105,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.returnType, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			self.beginBody(node, node.bodyNode, false);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.isGpu);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.isRealtime);
@@ -186,6 +223,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_constructor=" + self.canonBool(node.isConstructor);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			self.beginBody(node, node.bodyNode, node.genericParams.len > 0);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.isGpu);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.isRealtime);
@@ -203,7 +241,9 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "has_getter=" + self.canonBool(node.hasGetter);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "has_setter=" + self.canonBool(node.hasSetter);
+			self.beginBody(node, node.getterBody, false);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "getter_body=" + self.canonNode(node.getterBody, d + 1);
+			self.beginBody(node, node.setterBody, false);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "setter_body=" + self.canonNode(node.setterBody, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol);
@@ -641,6 +681,13 @@ class AstCanonicalRenderer {
 	}
 
 	private string canonNode(Node node, int d) {
+		Node? pending = self.pendingBody;
+		if (pending != null && pending == node) {
+			self.pendingBody = null;
+			IAstInterfaceSummary? summary = self.interfaceSummary;
+			Node? callable = self.pendingCallable;
+			if (summary != null && callable != null) { return "(ElidedBody " + summary.callableBody(callable) + ")"; }
+		}
 		if (node == null) { return "nil"; }
 		return self.renderAtDepth(node, d);
 	}

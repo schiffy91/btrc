@@ -65,6 +65,14 @@ class SetjmpFunctionEffect {
 		self.unknownReturn = false;
 	}
 
+	/* An independent copy: an incremental analysis keeps growing the summary
+	 * it published, so a record of what was published must not alias it. */
+	public SetjmpFunctionEffect snapshot() {
+		SetjmpFunctionEffect copy = SetjmpFunctionEffect();
+		copy.merge(self);
+		return copy;
+	}
+
 	public bool addParameterEffect(Vector<SetjmpParameterEffect> effects, int index, int depth) {
 		int current = 0;
 		while (current < effects.len) {
@@ -77,6 +85,20 @@ class SetjmpFunctionEffect {
 		effects.push(SetjmpParameterEffect(index, depth));
 		return true;
 	}
+
+	private bool covers(Vector<SetjmpParameterEffect> effects, Vector<SetjmpParameterEffect> other) {
+		for effect in other {
+			bool found = false;
+			for candidate in effects {
+				if (candidate.index == effect.index && candidate.depth == effect.depth) { found = true; }
+			}
+			if (!found) { return false; }
+		}
+		return true;
+	}
+
+	/* Set equality: the same writes, captures and returns in any order. */
+	public bool same(SetjmpFunctionEffect other) { return self.unknownReturn == other.unknownReturn && self.covers(self.writes, other.writes) && self.covers(other.writes, self.writes) && self.covers(self.captures, other.captures) && self.covers(other.captures, self.captures) && self.covers(self.returns, other.returns) && self.covers(other.returns, self.returns); }
 
 	public bool merge(SetjmpFunctionEffect other) {
 		bool changed = false;
@@ -692,6 +714,18 @@ class SetjmpEffectAnalysis {
 	private int globalCount;
 	/* Definitions whose summary the flow being analyzed consulted. */
 	private Map<string, bool> consulted = {};
+	/* Module units: summaries other units solved, used for their declared
+	 * functions, and the ones this analysis consulted. */
+	private Map<string, SetjmpFunctionEffect> solvedExternal = {};
+	private Map<string, bool> consultedSolved = {};
+	/* Incremental module-unit analysis: each function's flow and the unit
+	 * and solved summaries it consulted, and which functions consulted each
+	 * solved summary. */
+	private bool incrementalReady = false;
+	private Map<string, SetjmpPointerFlowResult> unitFlows = {};
+	private Map<string, Map<string, bool>> unitConsultedBy = {};
+	private Map<string, Map<string, bool>> solvedConsultedBy = {};
+	private Map<string, Map<string, bool>> solvedUsers = {};
 
 	public SetjmpEffectAnalysis(HostedAbiRepository hostedAbi) { self.hostedAbi = hostedAbi; }
 
@@ -714,7 +748,11 @@ class SetjmpEffectAnalysis {
 		while (index < module.functionDecls.len) {
 			IRFunctionDecl declaration = module.functionDecls.get(index);
 			if (!self.definitions.has(declaration.name)) {
-				self.externalEffects.put(declaration.name, self.externalEffect(declaration.name, declaration.returnType, declaration.params));
+				if (self.solvedExternal.has(declaration.name)) {
+					self.externalEffects.put(declaration.name, self.solvedExternal.get(declaration.name));
+				} else {
+					self.externalEffects.put(declaration.name, self.externalEffect(declaration.name, declaration.returnType, declaration.params));
+				}
 			}
 			index = index + 1;
 		}
@@ -790,6 +828,7 @@ class SetjmpEffectAnalysis {
 			return self.summaries.get(callee);
 		}
 		if (self.externalEffects.has(callee)) {
+			if (self.solvedExternal.has(callee)) { self.consultedSolved.put(callee, true); }
 			return self.externalEffects.get(callee);
 		}
 		SetjmpFunctionEffect? hosted = self.hostedEffect(callee, count);
@@ -1375,6 +1414,71 @@ class SetjmpEffectAnalysis {
 		self.flowBlock(flow, definition.body, false);
 		return flow.result;
 	}
+
+	public Map<string, bool> consultedSolvedNames() { return self.consultedSolved; }
+
+	/* Module units: analyze the unit against `solved` the first time and,
+	 * afterwards, re-analyze only the functions whose flow consulted a solved
+	 * summary that moved, then whatever consulted one of theirs that moved in
+	 * turn. Summaries only grow, so continuing from the previous fixed point
+	 * reaches the least fixed point for the new summaries. `solved` may be
+	 * updated in place between calls. */
+	public Map<string, SetjmpCallEffects> analyzeIncrementally(IRModule module, Map<string, SetjmpFunctionEffect> solved) {
+		Map<string, bool> pending = {};
+		self.solvedExternal = solved;
+		if (!self.incrementalReady) {
+			self.initialize(module);
+			self.incrementalReady = true;
+			for definition in module.functions { if (definition.body != null) { pending.put(definition.name, true); } }
+		} else {
+			for name in self.externalEffects.keys() {
+				if (solved.has(name) && !solved.get(name).same(self.externalEffects.get(name))) {
+					self.externalEffects.put(name, solved.get(name));
+					if (self.solvedUsers.has(name)) { for user in self.solvedUsers.get(name).keys() { pending.put(user, true); } }
+				}
+			}
+		}
+		while (pending.len > 0) {
+			Map<string, bool> moved = {};
+			for definition in self.module.functions {
+				if (definition.body == null || !pending.has(definition.name)) { continue; }
+				self.consulted = {};
+				self.consultedSolved = {};
+				SetjmpPointerFlowResult flow = self.analyzePointerFlow(definition);
+				self.unitConsultedBy.put(definition.name, self.consulted);
+				self.solvedConsultedBy.put(definition.name, self.consultedSolved);
+				for name in self.consultedSolved.keys() {
+					if (!self.solvedUsers.has(name)) {
+						Map<string, bool> users = {};
+						self.solvedUsers.put(name, users);
+					}
+					self.solvedUsers.get(name).put(definition.name, true);
+				}
+				self.unitFlows.put(definition.name, flow);
+				SetjmpFunctionEffect summary = self.flowSummary(flow, self.flowParameters(flow, definition));
+				if (self.summaries.get(definition.name).merge(summary)) { moved.put(definition.name, true); }
+			}
+			pending = {};
+			for name in self.unitConsultedBy.keys() {
+				for callee in self.unitConsultedBy.get(name).keys() {
+					if (moved.has(callee)) {
+						pending.put(name, true);
+						break;
+					}
+				}
+			}
+		}
+		Map<string, bool> consulted = {};
+		for name in self.solvedConsultedBy.keys() { for external in self.solvedConsultedBy.get(name).keys() { consulted.put(external, true); } }
+		self.consultedSolved = consulted;
+		Map<string, SetjmpCallEffects> contexts = {};
+		for definition in self.module.functions {
+			if (definition.body != null) { contexts.put(definition.name, SetjmpCallEffects(self.summaries, self.externalEffects, self.unitFlows.get(definition.name))); }
+		}
+		return contexts;
+	}
+
+	public Map<string, SetjmpFunctionEffect> definitionSummaries() { return self.summaries; }
 
 	/* The summaries form a monotone join lattice, so the least fixed point is
 	 * the same whichever functions each round revisits: after the first round,

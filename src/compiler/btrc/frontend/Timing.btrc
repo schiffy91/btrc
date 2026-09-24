@@ -35,6 +35,13 @@ class BtrccPhaseTimer {
 		report.push(phase + "=" + Strings.fromInt((int)micros) + "us");
 	}
 
+	/* A counter or fact recorded beside the phase times. */
+	class void note(string text) {
+		Vector<string>? report = BtrccPhaseTimer.report;
+		if (!BtrccPhaseTimer.enabled || report == null) { return; }
+		report.push(text);
+	}
+
 	class void print() {
 		Vector<string>? report = BtrccPhaseTimer.report;
 		if (!BtrccPhaseTimer.enabled || report == null) { return; }

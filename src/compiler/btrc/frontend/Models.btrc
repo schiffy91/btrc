@@ -175,6 +175,126 @@ class FeDependencyGraph {
 		Vector<string> empty = [];
 		return empty;
 	}
+
+	/* Strongly connected compilation groups: imports are directed and textual
+	 * includes reciprocal, exactly as for visibility. Groups come out after
+	 * every group they depend on; members and ties are in identity order. */
+	public FeCompilationGroups compilationGroups(string rootIdentity) {
+		Map<string, Vector<string>> adjacency = {};
+		Vector<string> empty = [];
+		adjacency.put(rootIdentity, empty);
+		for source in self.outgoing.keys() {
+			if (!adjacency.has(source)) {
+				Vector<string> none = [];
+				adjacency.put(source, none);
+			}
+			for edge in self.outgoing.get(source) {
+				if (!adjacency.has(edge.target)) {
+					Vector<string> none = [];
+					adjacency.put(edge.target, none);
+				}
+				adjacency.get(source).push(edge.target);
+				if (edge.kind == FE_DEPENDENCY_INCLUDE) { adjacency.get(edge.target).push(source); }
+			}
+		}
+		Vector<string> nodes = adjacency.keys();
+		nodes.sort();
+		for node in nodes {
+			Vector<string> successors = adjacency.get(node);
+			successors.sort();
+		}
+		Map<string, int> index = {};
+		Map<string, int> lowlink = {};
+		Map<string, bool> onStack = {};
+		Vector<string> stack = [];
+		Vector<string> workNodes = [];
+		Vector<int> workNext = [];
+		Vector<Vector<string>> groups = [];
+		for start in nodes {
+			if (index.has(start)) { continue; }
+			index.put(start, index.size());
+			lowlink.put(start, index.get(start));
+			stack.push(start);
+			onStack.put(start, true);
+			workNodes.push(start);
+			workNext.push(0);
+			while (workNodes.len > 0) {
+				int top = workNodes.len - 1;
+				string node = workNodes.get(top);
+				Vector<string> successors = adjacency.get(node);
+				int next = workNext.get(top);
+				if (next < successors.len) {
+					workNext.set(top, next + 1);
+					string successor = successors.get(next);
+					if (!index.has(successor)) {
+						index.put(successor, index.size());
+						lowlink.put(successor, index.get(successor));
+						stack.push(successor);
+						onStack.put(successor, true);
+						workNodes.push(successor);
+						workNext.push(0);
+					} else if (onStack.has(successor) && onStack.get(successor)) {
+						if (index.get(successor) < lowlink.get(node)) { lowlink.put(node, index.get(successor)); }
+					}
+					continue;
+				}
+				workNodes.pop();
+				workNext.pop();
+				if (workNodes.len > 0) {
+					string parent = workNodes.get(workNodes.len - 1);
+					if (lowlink.get(node) < lowlink.get(parent)) { lowlink.put(parent, lowlink.get(node)); }
+				}
+				if (lowlink.get(node) == index.get(node)) {
+					Vector<string> members = [];
+					while (true) {
+						string member = stack.pop();
+						onStack.put(member, false);
+						members.push(member);
+						if (member.equals(node)) { break; }
+					}
+					members.sort();
+					groups.push(members);
+				}
+			}
+		}
+		return FeCompilationGroups(groups);
+	}
+}
+
+/* Strongly connected source groups, each compiled into its own unit. A group
+ * is named by its first member identity; anything outside every group belongs
+ * to the program unit, named by the empty string. */
+class FeCompilationGroups {
+	private Vector<Vector<string>> groups;
+	private Map<string, string> membership;
+
+	public FeCompilationGroups(Vector<Vector<string>> groups) {
+		self.groups = groups;
+		self.membership = {};
+		for members in groups {
+			for member in members { self.membership.put(member, members.get(0)); }
+		}
+	}
+
+	/* Group names in dependency order. */
+	public Vector<string> names() {
+		Vector<string> result = [];
+		for members in self.groups { result.push(members.get(0)); }
+		return result;
+	}
+
+	public Vector<string> members(string name) {
+		for members in self.groups {
+			if (members.get(0).equals(name)) { return members; }
+		}
+		Vector<string> none = [];
+		return none;
+	}
+
+	public string groupOfIdentity(string identity) {
+		if (self.membership.has(identity)) { return self.membership.get(identity); }
+		return "";
+	}
 }
 
 /* Immutable-by-API capture of the standard-library roots used for one

@@ -2416,31 +2416,91 @@ class DeclarationLowerer {
 		}
 	}
 
+	private void emitNativeDeclaration(FeNativeImportedDeclaration imported, IRModule m, Map<string, bool> nativeAdapters, Map<string, bool> nativeConstants) {
+		if (imported.declaration.kind == NK_CLASS_DECL && !imported.coalesced) {
+			if (!imported.invocation.isEmpty()) { return; }
+			else if (imported.language == "c++") { self.emitCxxClass(imported, m); }
+			else if (imported.resource != null) { self.emitResourceLifetime(imported, m); }
+			else { self.emitObjectiveCAdapters(imported, m); }
+		}
+		if ((imported.language == "objective-c" || imported.language == "c++" || self.analyzed.nativeGlobalReturnsOwned(imported.declaration.name)) && imported.declaration.kind == NK_VAR_DECL_STMT && !nativeConstants.has(imported.declaration.name)) {
+			if (imported.declaration.initializer == null) { self.emitNativeGlobal(imported, m); }
+			else { self.emitGlobalVar(imported.declaration, m, false); }
+			nativeConstants.put(imported.declaration.name, true);
+		}
+		if (imported.declaration.kind == NK_FUNCTION_DECL && imported.callContract != null && !nativeAdapters.has(imported.declaration.name)) {
+			self.emitNativeAdapter(imported.declaration, imported.callContract, m);
+			nativeAdapters.put(imported.declaration.name, true);
+		}
+	}
+
+	/* Lower one top-level source declaration (not native, already reachable). */
+	private void emitDeclaration(Node d, IRModule m, Map<string, bool> externallyDefinedGlobals) {
+		if (d.kind == NK_CLASS_DECL) {
+			if (d.genericParams.len == 0) { self.emitClassDecl(d, m); }
+		} else if (d.kind == NK_FUNCTION_DECL) {
+			if (d.isGpu) {
+				self.functions.emitGpuCpuFallback(d, m);
+				return;
+			}
+			/* Bodyless FunctionDecl (e.g. `bool is_even(int n);`) is a
+                 * forward declaration, NOT a definition. Emit a typed callable
+                 * declaration and skip function_defs — otherwise we'd emit an
+                 * empty-bodied definition that collides with the real one
+                 * (mirrors functions.emit_function_decl: body is None branch). */
+			if (d.bodyNode == null) {
+				string fret = self.cTypes.lower(d.returnType);
+				if (fret == "") { fret = "void"; }
+				IRFunctionDecl declaration = IRFunctionDecl(self.semanticDeclarations.sourceFunctionSymbol(d.name), fret, false);
+				int fp = 0;
+				while (fp < d.params.len) {
+					Node pp = d.params.get(fp);
+					declaration.params.push(self.cTypes.lowerParameter(pp));
+					fp = fp + 1;
+				}
+				m.functionDecls.push(declaration);
+			} else {
+				m.functions.push(self.functions.lowerFunction(d));
+			}
+		} else if (d.kind == NK_STRUCT_DECL) {
+			/* Forward tags were emitted in phase one; complete definitions
+                 * were lowered above in by-value dependency order. */
+		} else if (d.kind == NK_ENUM_DECL) {
+			self.emitEnumDecl(d, m);
+		} else if (d.kind == NK_RICH_ENUM_DECL) {
+			self.emitRichEnumDecl(d, m);
+		} else if (d.kind == NK_TYPEDEF_DECL) {
+			/* Already lowered above in dependency order. */
+		} else if (d.kind == NK_VAR_DECL_STMT) {
+			bool redundantExtern = d.type != null && d.type.isExtern && d.initializer == null && self.analyzed.globalHasDefinition.has(d.name);
+			if (!redundantExtern) {
+				self.emitGlobalVar(d, m, externallyDefinedGlobals.has(d.name));
+			}
+		} else if (d.kind == NK_PREPROCESSOR_DIRECTIVE) {
+			self.emitPreprocessor(d, m);
+		}
+	}
+
 	public void emitDeclarations(Node prog, IRModule m) {
 		StdlibReachability? interfaceReachability = self.context.reachability;
-		for name in self.analyzed.interfaceTable.keys() {
-			if (interfaceReachability == null || interfaceReachability.reachesName(name)) { self.emitInterface(name, m); }
+		/* A module unit emits the dispatchers its own IR calls once its bodies
+		 * are lowered (emitReferencedInterfaces); the tables come with the
+		 * shared declarations. */
+		if (!self.context.declarationsElsewhere) {
+			for name in self.analyzed.interfaceTable.keys() {
+				if (interfaceReachability == null || interfaceReachability.reachesName(name)) { self.emitInterface(name, m); }
+			}
 		}
 		Map<string, bool> nativeAdapters = {};
 		Map<string, bool> nativeConstants = {};
 		for imported in self.analyzed.nativeDeclarations {
 			if (!self.validIncludeHeader(imported.header)) { self.preprocessorFail("invalid native include header"); }
 			if (imported.language == "c") { self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false)); }
-			if (imported.declaration.kind == NK_CLASS_DECL && !imported.coalesced) {
-				if (!imported.invocation.isEmpty()) { continue; }
-				else if (imported.language == "c++") { self.emitCxxClass(imported, m); }
-				else if (imported.resource != null) { self.emitResourceLifetime(imported, m); }
-				else { self.emitObjectiveCAdapters(imported, m); }
-			}
-			if ((imported.language == "objective-c" || imported.language == "c++" || self.analyzed.nativeGlobalReturnsOwned(imported.declaration.name)) && imported.declaration.kind == NK_VAR_DECL_STMT && !nativeConstants.has(imported.declaration.name)) {
-				if (imported.declaration.initializer == null) { self.emitNativeGlobal(imported, m); }
-				else { self.emitGlobalVar(imported.declaration, m, false); }
-				nativeConstants.put(imported.declaration.name, true);
-			}
-			if (imported.declaration.kind == NK_FUNCTION_DECL && imported.callContract != null && !nativeAdapters.has(imported.declaration.name)) {
-				self.emitNativeAdapter(imported.declaration, imported.callContract, m);
-				nativeAdapters.put(imported.declaration.name, true);
-			}
+			/* Native declarations belong to the program unit. */
+			if (self.context.declarationsElsewhere && !self.context.ownedGroup.isEmpty()) { continue; }
+			DeclarationOwnershipScope nativeScope = self.context.beginOwnership(m, "");
+			self.emitNativeDeclaration(imported, m, nativeAdapters, nativeConstants);
+			self.context.endOwnership(m, nativeScope);
 		}
 		Map<string, bool> externallyDefinedGlobals = {};
 		int globalDeclarationIndex = 0;
@@ -2468,50 +2528,14 @@ class DeclarationLowerer {
 				i++;
 				continue;
 			}
-			if (d.kind == NK_CLASS_DECL) {
-				if (d.genericParams.len == 0) { self.emitClassDecl(d, m); }
-			} else if (d.kind == NK_FUNCTION_DECL) {
-				if (d.isGpu) {
-					self.functions.emitGpuCpuFallback(d, m);
-					i = i + 1;
-					continue;
-				}
-				/* Bodyless FunctionDecl (e.g. `bool is_even(int n);`) is a
-                 * forward declaration, NOT a definition. Emit a typed callable
-                 * declaration and skip function_defs — otherwise we'd emit an
-                 * empty-bodied definition that collides with the real one
-                 * (mirrors functions.emit_function_decl: body is None branch). */
-				if (d.bodyNode == null) {
-					string fret = self.cTypes.lower(d.returnType);
-					if (fret == "") { fret = "void"; }
-					IRFunctionDecl declaration = IRFunctionDecl(self.semanticDeclarations.sourceFunctionSymbol(d.name), fret, false);
-					int fp = 0;
-					while (fp < d.params.len) {
-						Node pp = d.params.get(fp);
-						declaration.params.push(self.cTypes.lowerParameter(pp));
-						fp = fp + 1;
-					}
-					m.functionDecls.push(declaration);
-				} else {
-					m.functions.push(self.functions.lowerFunction(d));
-				}
-			} else if (d.kind == NK_STRUCT_DECL) {
-				/* Forward tags were emitted in phase one; complete definitions
-                 * were lowered above in by-value dependency order. */
-			} else if (d.kind == NK_ENUM_DECL) {
-				self.emitEnumDecl(d, m);
-			} else if (d.kind == NK_RICH_ENUM_DECL) {
-				self.emitRichEnumDecl(d, m);
-			} else if (d.kind == NK_TYPEDEF_DECL) {
-				/* Already lowered above in dependency order. */
-			} else if (d.kind == NK_VAR_DECL_STMT) {
-				bool redundantExtern = d.type != null && d.type.isExtern && d.initializer == null && self.analyzed.globalHasDefinition.has(d.name);
-				if (!redundantExtern) {
-					self.emitGlobalVar(d, m, externallyDefinedGlobals.has(d.name));
-				}
-			} else if (d.kind == NK_PREPROCESSOR_DIRECTIVE) {
-				self.emitPreprocessor(d, m);
+			string owner = self.context.groupOfLine(d.line);
+			if (self.context.declarationsElsewhere && !owner.equals(self.context.ownedGroup)) {
+				i++;
+				continue;
 			}
+			DeclarationOwnershipScope scope = self.context.beginOwnership(m, owner);
+			self.emitDeclaration(d, m, externallyDefinedGlobals);
+			self.context.endOwnership(m, scope);
 			i = i + 1;
 		}
 		self.context.stampFunctionSources(m, stampedFrom, stampedLine);
@@ -3024,6 +3048,52 @@ class DeclarationLowerer {
 		prototype.params = callable.params;
 		module.functionDecls.push(prototype);
 		module.functions.push(callable);
+	}
+
+	/* Module units: the static dispatchers of every interface this unit's
+	 * lowered IR calls. Dispatchers call only the runtime method lookup. */
+	public void emitReferencedInterfaces(IRModule module) {
+		Map<string, bool> callees = {};
+		for definition in module.functions { self.collectCallees(definition.body, callees); }
+		for global in module.globalDecls { self.collectCallees(global.init, callees); }
+		StdlibReachability? reachability = self.context.reachability;
+		for name in self.analyzed.interfaceTable.keys().sorted() {
+			if (reachability != null && !reachability.reachesName(name)) { continue; }
+			bool referenced = false;
+			for method in self.analyzed.interfaceMethods(name) {
+				if (callees.has(name + "_" + method.name)) {
+					referenced = true;
+					break;
+				}
+			}
+			if (referenced) { self.emitInterface(name, module); }
+		}
+	}
+
+	private void collectCallees(IRNode? node, Map<string, bool> out) {
+		if (node == null) { return; }
+		if (node.kind == IRK_CALL && !node.callee.isEmpty()) { out.put(node.callee, true); }
+		if (node.kind == IRK_FUNCTION_REF && !node.name.isEmpty()) { out.put(node.name, true); }
+		self.collectCallees(node.left, out);
+		self.collectCallees(node.right, out);
+		self.collectCallees(node.operand, out);
+		self.collectCallees(node.expr, out);
+		self.collectCallees(node.obj, out);
+		self.collectCallees(node.index, out);
+		self.collectCallees(node.condition, out);
+		self.collectCallees(node.trueExpr, out);
+		self.collectCallees(node.falseExpr, out);
+		self.collectCallees(node.init, out);
+		self.collectCallees(node.value, out);
+		self.collectCallees(node.target, out);
+		self.collectCallees(node.thenBlock, out);
+		self.collectCallees(node.elseBlock, out);
+		self.collectCallees(node.body, out);
+		self.collectCallees(node.update, out);
+		self.collectCallees(node.result, out);
+		self.collectCallees(node.arraySize, out);
+		for argument in node.args { self.collectCallees(argument, out); }
+		for statement in node.stmts { self.collectCallees(statement, out); }
 	}
 
 	private void emitInterface(string name, IRModule module) {
@@ -4459,7 +4529,11 @@ class DeclarationLowerer {
 		string directive = source.substring(nameStart, index - nameStart);
 		string payload = source.substring(index, source.length() - index);
 		if (directive == "include") {
-			self.appendPreprocessorDecl(module, self.parseIncludeDirective(payload, source));
+			IRPreprocessorDecl include = self.parseIncludeDirective(payload, source);
+			/* An imported C source defines symbols: only its importing group's
+			 * unit includes it, and others call its declarations. */
+			if (self.context.foreignBody && include.header.endsWith(".c")) { return; }
+			self.appendPreprocessorDecl(module, include);
 			return;
 		}
 		if (directive == "define") {

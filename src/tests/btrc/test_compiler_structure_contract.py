@@ -103,6 +103,7 @@ EXPECTED_BTRC_FILES = frozenset(
     parser/SourceMacros.btrc
     parser/Stage.btrc
     pipeline/Models.btrc
+    pipeline/ModuleUnits.btrc
     pipeline/Pipeline.btrc
     pipeline/Stage.btrc
     syntax/Grammar.btrc
@@ -151,6 +152,8 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
         ("TypeIdentity", "symbolComponent"),
+        # Called by the stdlib worker pool through IWorkerRequestHandler.
+        ("ModuleUnitWorker", "handle"),
     }
 )
 
@@ -158,6 +161,7 @@ REQUIRED_OWNER_BY_PATH = {
     "Compiler.btrc": "Compiler",
     "cli/Driver.btrc": "BtrccDriver",
     "pipeline/Pipeline.btrc": "CompilerPipeline",
+    "pipeline/ModuleUnits.btrc": "ModuleUnitCompiler",
     "lexer/Lexer.btrc": "Lexer",
     "parser/Parser.btrc": "Parser",
     "parser/SourceMacros.btrc": "SourceMacroDefinition",
@@ -490,7 +494,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 99
+    assert len(actual) == 100
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
 
 

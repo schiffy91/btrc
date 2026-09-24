@@ -1,0 +1,17 @@
+// Entry point two: uses both consumers and the library directly.
+import Library.Vector;
+
+import ./Catalog/Catalog.btrc;
+import ./Gallery/Gallery.btrc;
+
+int main() {
+	Vector<Measured> shapes = [];
+	shapes.push(Square(1));
+	shapes.push(Rectangle(0, 4));
+	shapes.push(Rectangle(3, 3));
+	print(f"catalog total {catalogTotal(shapes)}");
+	Gallery gallery = Gallery();
+	gallery.add(Rectangle(1, 1));
+	print(f"gallery value {gallery.value()}");
+	return 0;
+}

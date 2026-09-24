@@ -127,19 +127,24 @@ class CycleReturnBoundaryLowerer {
 		return true;
 	}
 
-	public void installProgramBoundary(IRModule module) {
-		bool hasCyclableRelease = false;
+	/* Whether any function of `module` may release a cyclable value. */
+	public bool releasesCyclableValues(IRModule module) {
 		int index = 0;
 		while (index < module.functions.len) {
 			IRFunction definition = module.functions.get(index);
-			if (definition.body != null && self.containsCyclableRelease(definition.body)) {
-				hasCyclableRelease = true;
-				break;
-			}
+			if (definition.body != null && self.containsCyclableRelease(definition.body)) { return true; }
 			index = index + 1;
 		}
+		return false;
+	}
+
+	public void installProgramBoundary(IRModule module) { self.installProgramBoundaryWhen(module, self.releasesCyclableValues(module)); }
+
+	/* A module unit's entry learns from the whole program whether any unit
+	 * releases cyclable values. */
+	public void installProgramBoundaryWhen(IRModule module, bool hasCyclableRelease) {
 		if (!hasCyclableRelease) { return; }
-		index = 0;
+		int index = 0;
 		while (index < module.functions.len) {
 			IRFunction definition = module.functions.get(index);
 			if (definition.name == "main" || definition.name == "btrc_main") {
