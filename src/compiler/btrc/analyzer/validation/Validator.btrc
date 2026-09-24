@@ -2,6 +2,7 @@
 
 import Library.Map;
 
+import ../../frontend/Timing.btrc;
 import ../../generated/ast/Node.btrc;
 import ../Declarations.btrc;
 import ../Expressions.btrc;
@@ -65,16 +66,22 @@ class SemanticValidator {
 			}
 			index = index + 1;
 		}
+		BtrccPhaseTimer.mark("v-inheritance");
 		self.constants.validateProgramEnumValues(self.program);
 		self.types.validateAggregateDeclarationTypes(self.program);
 		self.ownership.validateConcreteMutexInstances();
 		self.declarations.validateStructLayouts(self.program);
+		BtrccPhaseTimer.mark("v-layouts");
 		self.names.validateDeclarationNames(self.program);
 		self.names.validateDeclarationDuplicates(self.program);
+		BtrccPhaseTimer.mark("v-names");
 		self.names.publishKnownGeneratedSymbols(self.program);
+		BtrccPhaseTimer.mark("v-symbols");
 		self.borrows.validateNativeInvocations(self.program);
+		BtrccPhaseTimer.mark("v-native-invocations");
 		self.declarations.validateCallableShapes(self.program);
 
+		BtrccPhaseTimer.mark("v-shapes");
 		index = 0;
 		while (index < self.program.declarations.len) {
 			Node declaration = self.program.declarations.get(index);
@@ -93,6 +100,7 @@ class SemanticValidator {
 			index = index + 1;
 		}
 
+		BtrccPhaseTimer.mark("v-program");
 		Map<string, Node> globals = self.declarations.globalTypes(self.state.analyzed);
 		/* Field and global array bounds before any body, so every body sees
 		 * which are constant whatever the declaration order. */

@@ -5916,3 +5916,72 @@ whole-program, against 41% and 91% in the quiet samples in the table.
 Thread workers were measured and rejected: every ARC operation takes one
 process-wide lock, and threads building managed objects took 0.73 / 3.37 /
 17.2 / 69.0 s at 1 / 2 / 4 / 8 threads for the same per-thread work.
+
+### End-to-end dev builds with module units (September 24)
+
+This measures what a developer waits for: BTRSmith's `make/Product.mk
+btrsmith-native` dev target, covering compiler, native compile, link and
+signing.
+- **Setup:** the macOS self-hosted compiler at `-O2`, 8 native jobs, and a
+  product copy under `~/.cache/btrc/perf/e2e-2026-09-24`. Module units are
+  enabled through `BTRC_BUILD_FLAGS="--debug --module-units --jobs 2"`.
+- **Edits:** each of the three plan fixtures (navigation, UI, audio-adjacent)
+  gets a unique string edit twice. Only one file changes per build, and no
+  edit can hit an earlier cache state.
+- **Caveat:** these are diagnostic samples on this Mac, not
+  acceptance-host distributions.
+
+| Scenario | Whole program | Module units |
+| --- | ---: | ---: |
+| Cold | 108.6 s (compiler 98.4, native 9.7) | 168.5 s (compiler 82.3, native 85.6, 408 native units) |
+| No-op | 6.0 s | 13.5 s |
+| Body edit, 6 samples | 96.7–101.2 s (compiler 93–95, native 3–5) | 48.8–49.8 s (compiler 37–38, native 11.2–11.3) |
+
+Three native-build defects hid most of the module-unit gain; the first run
+measured 83 s for an edit and 35 s for a no-op.
+
+1. **Every output was rewritten.** Both compilers replaced every output
+   file, units included, on every build. Preprocessing receipts are bound to
+   a unit's inode and mtime, so after an edit only 2 of 408 still matched.
+   Publication now keeps a destination whose bytes and mode are already
+   current. Recovery already leaves a destination with no backup in place,
+   so this needs no new journal state. After the fix, 407 of 408 receipts hit
+   after an edit.
+2. **Batched receipts were silently dropped.** Each unit's expanded `-cc1`
+   command is about 20 KB, so 408 units exceeded the 8 MB request bound. The
+   build then opened one reader session per unit, about 0.46 s each. Requests
+   are now chunked within the bound, and any invalid chunk still rejects the
+   whole batch. This took the edit's native step from 32 s to 15 s.
+3. **Chunks ran one at a time.** They are now spread over the build's jobs:
+   native 15 s → 11.3 s, the edit 53 s → 49 s, the no-op 17 s → 13.5 s.
+
+What remains, at 408 units:
+- about 7 s validating receipts, because each unit re-proves the same system
+  headers;
+- 1.6 s of link validation and 0.9 s of linking;
+- a cold build compiling 408 units instead of 17.
+
+Two measurement traps:
+- **World-writable ancestors.** The receipt reader refuses capture storage
+  with a group- or world-writable ancestor. Under `/private/tmp` every
+  receipt was ineligible, so native benchmarks must run under `~/.cache`.
+- **The environment digest.** Receipt identities include the full
+  environment, and each `nix develop` invocation has a fresh `TMPDIR`, so
+  receipts do not carry across shells. A build from one shell is unaffected.
+
+Follow-up the same day: preparing receipts was mostly driver expansion. Each
+unit ran `clang -###` through the Nix wrapper script, about 0.25 s, and 408
+of them take about 13 s even on 8 threads. Units compiled with the same flags
+now share one expansion. Two units are expanded, and the second must equal
+the first with its own source spellings substituted; any mismatch expands
+every unit separately.
+
+| Module units | Before | After |
+| --- | ---: | ---: |
+| Receipt preparation | 7.0 s | 2.0 s |
+| Native step on an edit | 11.3 s | 6.3 s |
+| Body edit | 49 s | **44 s** |
+| No-op | 13.5 s | 8.5 s |
+
+The native step's remainder is link validation 1.6 s, link 0.9 s and object
+restore plus bookkeeping.

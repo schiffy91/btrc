@@ -232,6 +232,9 @@ class MutexDestroyReceiverPlan:
 _RUNTIME_COLLECTION_BASES = frozenset({"Array", "List", "Map", "Set", "Vector"})
 _NON_CARRYING_BINARY_OPS = {"==", "!=", "<", "<=", ">", ">=", "&&", "||"}
 _LOCATION_FIELDS = frozenset({"line", "col", "source_file"})
+# Per value type: the non-location field names the invocation search visits,
+# or None for a non-AST value. Filled on first sight of each type.
+_INVOCATION_SEARCH_FIELDS: dict[type, tuple[str, ...] | None] = {}
 _MANAGED_RUNTIME_BASES = frozenset({"string", "Mutex", "Thread", "Vector", "List", "Map", "Set", "Array"})
 _NON_CARRYING_BINARY_OPS = frozenset({"==", "!=", "<", "<=", ">", ">=", "&&", "||"})
 _CONDITIONAL_STORAGE_ERROR = "Conditional raw projection call arguments require branch-local backing storage"
@@ -586,24 +589,34 @@ class OwnershipAnalyzer:
                         )
             self._validate_invocation_types(declaration, capabilities, allowed_types)
 
-    def _validate_invocation_types(self, node, capabilities, allowed_types) -> None:
-        if node is None or isinstance(node, (str, int, float, bool)):
-            return
-        if isinstance(node, (list, tuple)):
-            for item in node:
-                self._validate_invocation_types(item, capabilities, allowed_types)
-            return
-        if not is_dataclass(node):
-            return
-        if hasattr(node, "base") and id(node) not in allowed_types:
-            canonical = self.types.canonical_type(node)
-            if canonical is not None and canonical.base in capabilities:
-                self.session.error(
-                    "Native invocation capability is only valid as a callback-local parameter", node.line, node.col
+    def _validate_invocation_types(self, root, capabilities, allowed_types) -> None:
+        # Pre-order over every AST value of a declaration, children in field
+        # order; iterative, with each dataclass type's fields reflected once.
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            if node is None or isinstance(node, (str, int, float, bool)):
+                continue
+            if isinstance(node, (list, tuple)):
+                pending.extend(reversed(node))
+                continue
+            node_type = type(node)
+            if node_type not in _INVOCATION_SEARCH_FIELDS:
+                _INVOCATION_SEARCH_FIELDS[node_type] = (
+                    tuple(field.name for field in fields(node) if field.name not in _LOCATION_FIELDS)
+                    if is_dataclass(node)
+                    else None
                 )
-        for field in fields(node):
-            if field.name not in _LOCATION_FIELDS:
-                self._validate_invocation_types(getattr(node, field.name), capabilities, allowed_types)
+            names = _INVOCATION_SEARCH_FIELDS[node_type]
+            if names is None:
+                continue
+            if hasattr(node, "base") and id(node) not in allowed_types:
+                canonical = self.types.canonical_type(node)
+                if canonical is not None and canonical.base in capabilities:
+                    self.session.error(
+                        "Native invocation capability is only valid as a callback-local parameter", node.line, node.col
+                    )
+            pending.extend(getattr(node, name) for name in reversed(names))
 
     def _invocation_uses_are_local(self, node, name, capability, visiting=()) -> bool:
         if node is None or isinstance(node, (str, int, float, bool)):

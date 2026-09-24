@@ -511,6 +511,55 @@ def test_module_units_emit_the_whole_program_functions(compiler: str, tmp_path, 
     assert ran.stdout == "1 0\n"
 
 
+def test_an_edit_replaces_only_the_changed_unit_files(compiler: str, tmp_path, request):
+    """Units whose bytes are unchanged keep their files, inode and mtime included.
+
+    Native preprocessing receipts are bound to that identity; rewriting every
+    unit made each edit preprocess the whole program again.
+    """
+    if compiler == "python":
+        command = [sys.executable, "-m", "src.compiler.python.main"]
+    else:
+        command = [str(request.getfixturevalue("immutable_btrcc"))]
+    source = (tmp_path / "program").resolve()
+    source.mkdir()
+    for name, text in _EFFECTS_PROGRAM.items():
+        (source / name).write_text(text)
+    output = tmp_path.resolve() / "out"
+    output.mkdir()
+    environment = {
+        **os.environ,
+        "BTRC_HOME": str(ROOT / "src"),
+        "PYTHONPATH": str(ROOT),
+        "BTRC_CACHE_DIR": str(tmp_path.resolve() / "cache"),
+        "BTRC_STATE_DIR": str(tmp_path.resolve() / "state"),
+    }
+
+    def build() -> dict[str, os.stat_result]:
+        completed = subprocess.run(
+            [*command, "Main.btrc", "-o", str(output / "p.c"), "--emit-units", str(output / "p"), "--module-units"],
+            cwd=source,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert completed.returncode == 0, completed.stderr
+        return {path.name: path.stat() for path in output.glob("p.unit-*.c")}
+
+    before = build()
+    main = source / "Main.btrc"
+    main.write_text(
+        main.read_text().replace('print(f"{useFill()} {useGrow()}");', 'print(f"{useGrow()} {useFill()}");')
+    )
+    after = build()
+    assert after.keys() == before.keys() and len(after) >= 3
+    replaced = {name for name in after if after[name].st_ino != before[name].st_ino}
+    assert replaced == {name for name in after if "Main" in name}
+    for name in after.keys() - replaced:
+        assert after[name].st_mtime_ns == before[name].st_mtime_ns
+
+
 _DYING_WORKER = """
 import os, sys
 from pathlib import Path

@@ -954,15 +954,16 @@ class ModuleUnitCompiler {
 		ModuleUnitProgram input = self.input;
 		AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
 		SHA256 digest = SHA256();
-		for declaration in input.program.declarations { digest.appendText(SHA256.digest(self.positionFree(renderer.render(declaration)))); }
+		for declaration in input.program.declarations { digest.appendText(SHA256.digest(renderer.render(declaration))); }
+		AstCanonicalRenderer positionFree = AstCanonicalRenderer.positionFreeRenderer();
 		digest.appendText("\nfacts\n");
 		digest.appendText(self.facts.usesTrycatch ? "trycatch" : "no-trycatch");
 		for instance in input.analyzed.genericInstances { digest.appendText("class:" + instance.mangled + "\n"); }
 		for instance in input.analyzed.methodGenInstances {
 			digest.appendText("method:" + instance.classBase + "." + instance.methodName + "<");
-			for argument in instance.classArgs { digest.appendText(self.positionFree(AstCanonicalRenderer().render(argument)) + ","); }
+			for argument in instance.classArgs { digest.appendText(positionFree.render(argument) + ","); }
 			digest.appendText(";");
-			for argument in instance.methodArgs { digest.appendText(self.positionFree(AstCanonicalRenderer().render(argument)) + ","); }
+			for argument in instance.methodArgs { digest.appendText(positionFree.render(argument) + ","); }
 			digest.appendText(">\n");
 		}
 		StdlibReachability? reachability = self.facts.reachability;
@@ -977,17 +978,6 @@ class ModuleUnitCompiler {
 			for name in names { digest.appendText("name:" + name + "\n"); }
 		}
 		return digest.finish();
-	}
-
-	/* Source positions are not part of an interface. */
-	private string positionFree(string rendering) {
-		Vector<string> lines = [];
-		for line in Strings.split(rendering, "\n") {
-			string trimmed = line.trim();
-			if (trimmed.startsWith("line=") || trimmed.startsWith("col=") || trimmed.startsWith("name_line=") || trimmed.startsWith("name_col=") || trimmed.startsWith("source_file=")) { continue; }
-			lines.push(line);
-		}
-		return Strings.join(lines, "\n");
 	}
 
 	private string fileOfLine(int line) {

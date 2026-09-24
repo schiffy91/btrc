@@ -114,6 +114,109 @@ ECOOP 2021, Build Systems à la Carte). Details are in the design document.
   general allocator, then per-group arenas. Parallel body validation over
   the import DAG's layers is the other cold-build lever.
 
+*Step 1 result: end-to-end dev builds.* These are BTRSmith product Make
+builds with native compile, link and signing. They are diagnostic samples on
+macOS; the details are in `docs/design/compile-performance.md`.
+
+| Scenario | Whole program | Module units |
+| --- | ---: | ---: |
+| Body edit | 97–101 s | **44 s** (compiler 37 + native 6) |
+| No-op | 6.0 s | 8.5 s |
+| Cold | 109 s | 169 s |
+
+- **Native defects fixed** (uncommitted: signing is blocked): unchanged
+  outputs are no longer rewritten; receipt requests are chunked and
+  validated in parallel; units with the same flags share one driver
+  expansion. Before these fixes the module-unit edit took 83 s.
+- **No-op guard:** module units still break the ≤5 s no-op guard, at 8.5 s.
+- **Native floor:** 408 native units leave a 6 s floor. Before Stage B, M11
+  needs either fewer native units or shared header validation in the receipt
+  reader.
+- **Compiler floor:** the edit's remaining compiler time is 37 s, of which
+  front end plus analysis is about 28 s. That is Stage B's target.
+
+*Step 2 result: reference compiler*, BTRSmith, compiler only, dev mode.
+
+| Scenario | Seconds |
+| --- | ---: |
+| Cold, whole program | 228 |
+| Cold, module units | 202 |
+| Module-unit edit (three fixtures) | 88–89 |
+| Whole-program edit | 227 |
+
+- **Where the edit's time goes:** front end and analysis account for 37 s:
+  resolve 3.0, lex 2.3, parse 10.7 and analyze 20.9. Lowering the edited
+  group and program unit takes 11.5 s. About 39 s of wall time lies outside
+  the profiled phases; it is not yet attributed, and native header import and
+  package resolution are the likely owners.
+- **Unmeasured repeat:** a timed repeat cannot hit the artifact cache, because
+  profiling disables it by design, so no-op numbers need an untimed run.
+- **The ≤15 s reference edit budget** needs everything the self-hosted
+  compiler needs, plus that unattributed time.
+
+*Step 3 result: where a self-hosted module-unit edit compile spends its time*
+(37.2 s, BTRSmith, from `BTRC_TIMING`):
+
+| Area | Seconds | Removed by |
+| --- | ---: | --- |
+| Analysis: validation 9.8 (program-level passes 3.1, bodies 6.7), generic discovery 4.3, realtime 3.1, generic closure 3.0 | 20.1 | Stage B slices 1–3 remove the body shares; program-level passes stay |
+| Module-unit bookkeeping: interface digest 2.8, record parse/load 1.6, setjmp solve 0.7, other 0.6 | 5.6 | Stage B slice 4 (per-group digest), cheaper records |
+| Lowering: declarations session 2.4, generic classes 1.3, setup 1.0, finalize 0.3 | 5.0 | caching the declarations session per program interface |
+| Front end: parse 1.7, native headers 1.1, visibility 0.9, graph 0.6, lex 0.5 | 5.0 | per-file parse and header caches |
+
+- **Program-level validation, split:** the native-invocation check was
+  2.79 s of the 3.1 s. It is a whole-program AST search for capability type
+  nodes, and it rebuilt a child vector per node. Walking iteratively over
+  `AstStructure.children` brought it to 0.55 s, and total validation
+  from 9.8 s to 6.8 s. The reference analyzer's walk, made
+  iterative with each node type's fields reflected once, went from 0.74 s to
+  0.58 s on BTRSmith; it was never that compiler's bottleneck.
+- **After Stage B:** program-level validation (now about 0.9 s) stays, so
+  its best case leaves about 18 s of compiler time. Slice 1 alone saves at
+  most 6.7 s.
+- **Compiler near 10 s:** also needs slice 4, cheaper records and a cached
+  declarations session.
+- **End to end:** the 10 s budget further requires the native step
+  (6 s at 408 units) to fall to about 3 s. The two options are fewer,
+  larger native units and shared header validation in the receipt reader.
+  That work is now as important as Stage B.
+
+*Step 7 result: can analysis facts be given structural keys?* Every
+identity-keyed fact the reference analyzer records was keyed by
+(source file, declaration ordinal, pre-order index within the
+declaration):
+
+| Program | Node types | Hosted calls | Constant bounds | Realtime bounded loops |
+| --- | ---: | ---: | ---: | ---: |
+| Self-hosted compiler source | 310,947 | 1,055 | 20 | 0 |
+| BTRSmith | 304,410 | 942 | 29 | 261 |
+
+- **Result:** every fact resolved to exactly one node. None was
+  unreachable or shared.
+- **Remaining identity risk:** the fact values. Node types can alias
+  another declaration's type node, so values must be serialized, not
+  referenced.
+- **Self-hosted analyzer:** it needs a structural walk of its fat `Node`
+  first.
+
+*Step 6 result: a faster general allocator.* The same self-hosted compiler
+binary, with mimalloc 3.4.5 injected through `DYLD_INSERT_LIBRARIES`,
+compiled BTRSmith with module units in two alternating pairs:
+
+| Build | System allocator | mimalloc |
+| --- | ---: | ---: |
+| Cold | 81.2 / 81.5 s | 75.1 / 75.4 s |
+| Edit | 37.0 / 36.9 s | 33.9 / 33.7 s |
+
+- **Gain:** 7–9% with no code change.
+- **Meaning:** a real but modest win, consistent with the survey. Most
+  allocation gains come from arenas and fewer allocations, which is M8a
+  work, not from a faster general allocator.
+- **Option:** linking mimalloc into compiler builds is a cheap follow-up
+  once its memory effect is measured.
+- **Priority:** it does not change the order. Stage B, the declarations
+  session and front-end caches remain the larger levers for the edit.
+
 *Next action: a measurement round before Stage B code.* Each step decides
 an ordering question.
 

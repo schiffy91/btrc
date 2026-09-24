@@ -29,15 +29,6 @@ class BorrowValidator {
 		self.ownership = ownership;
 	}
 
-	private Vector<Node> invocationChildren(Node node) {
-		Vector<Node> result = [];
-		Vector<Node> singles = [node.spec, node.returnType, node.bodyNode, node.original, node.arraySize, node.type, node.default_, node.initializer, node.getterBody, node.setterBody, node.valueNode, node.condition, node.thenBlock, node.elseBlock, node.iterable, node.init, node.update, node.expr, node.tryBlock, node.catchType, node.catchBlock, node.finallyBlock, node.ifStmt, node.varDecl, node.expression, node.left, node.right, node.operand, node.callee, node.obj, node.index, node.targetType, node.trueExpr, node.falseExpr, node.target, node.fn, node.key];
-		for child in singles { if (child != null) { result.push(child); } }
-		Vector<Vector<Node>> lists = [node.declarations, node.members, node.methods, node.params, node.fields, node.values, node.variants, node.genericArgs, node.statements, node.cases, node.bodyNodeList, node.args, node.elements, node.entries, node.parts, node.captures];
-		for children in lists { result.extend(children); }
-		return result;
-	}
-
 	private bool invocationUsesAreLocal(Node? node, string name, string capability, Vector<Node> visiting) {
 		if (node == null) { return true; }
 		if (node.kind == NK_IDENTIFIER) { return node.name != name; }
@@ -68,16 +59,37 @@ class BorrowValidator {
 		}
 		if (node.kind == NK_LAMBDA_EXPR) { for capture in node.captures { if (capture.name == name) { return false; } } }
 		if ((node.kind == NK_LAMBDA_EXPR || node.kind == NK_SPAWN_EXPR) && self.rawExpressionMentionsParam(node, name)) { return false; }
-		for child in self.invocationChildren(node) { if (!self.invocationUsesAreLocal(child, name, capability, visiting)) { return false; } }
+		Vector<Node> children = [];
+		AstStructure.children(node, children);
+		for child in children { if (!self.invocationUsesAreLocal(child, name, capability, visiting)) { return false; } }
 		return true;
 	}
 
-	private void validateInvocationTypes(Node node, Vector<Node> allowed) {
-		if (node.kind == NK_TYPE_EXPR && !allowed.contains(node)) {
-			Node? canonical = self.types.resolveAliases(node);
-			if (canonical != null && self.state.analyzed.nativeInvocation(canonical.base)) { TypeValidator.fail("Native invocation capability is only valid as a callback-local parameter", node); }
+	/* Every type a declaration names, other than its callback-local
+	 * parameters, must not be a native invocation capability. Only a typedef
+	 * can rename one, so other bases are checked without resolving. */
+	private void validateInvocationTypes(Node declaration, Vector<Node> allowed) {
+		Vector<Node> pending = [declaration];
+		Vector<Node> children = [];
+		while (pending.len > 0) {
+			Node node = pending.pop();
+			if (node.kind == NK_TYPE_EXPR && !allowed.contains(node)) {
+				string base = node.base;
+				if (self.state.analyzed.typedefTable.has(base)) {
+					Node? canonical = self.types.resolveAliases(node);
+					base = canonical == null ? "" : canonical.base;
+				}
+				if (self.state.analyzed.nativeInvocation(base)) { TypeValidator.fail("Native invocation capability is only valid as a callback-local parameter", node); }
+			}
+			/* Children are pushed last-first so they are checked in field order. */
+			children.clear();
+			AstStructure.children(node, children);
+			int index = children.len - 1;
+			while (index >= 0) {
+				pending.push(children.get(index));
+				index = index - 1;
+			}
 		}
-		for child in self.invocationChildren(node) { self.validateInvocationTypes(child, allowed); }
 	}
 
 	public void validateNativeInvocations(Node program) {

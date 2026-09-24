@@ -584,6 +584,8 @@ class CompilerGenerationPublisher:
                         validate_destinations,
                         public_destinations,
                     ),
+                    # Unchanged units keep their inode and mtime for native reuse.
+                    retain_unchanged=True,
                 )
             finally:
                 # Failure can leave a recovery journal; preserve intent until

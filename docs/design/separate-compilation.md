@@ -190,6 +190,95 @@ six ways.
   route. rustc pays 10–20% on cold builds and hashing is its largest
   incremental cost.
 
+#### Slice 1 implementation design (self-hosted compiler first)
+
+*Measured basis.* A self-hosted module-unit edit compile spends 9.8 s in
+body validation. Every identity-keyed fact the reference analyzer records
+maps to exactly one structural position: 311,000 facts on the compiler's
+own source and 306,000 on BTRSmith, none unreachable and none shared.
+
+*Structural positions.* `AstStructure` in `syntax/Identity.btrc` walks every
+`Node`-valued field in declaration order, and a structure test keeps that
+walk equal to `Node`'s field list. A position is (declaration path,
+pre-order index within the declaration). The declaration path follows the
+research recommendation: the source file plus the declaration's name path,
+with an ordinal only to separate same-named declarations such as
+prototypes.
+
+*When a group qualifies.* The key is computed after registration and before
+validation. It covers:
+- the compiler identity;
+- options;
+- the group's source digest;
+- the analysis interface digest, which is the position-free rendering of
+  every declaration with bodies elided (`programDigest`'s interface part,
+  computed before analysis instead of after).
+
+Groups the edit changed, and groups without a record, are validated live.
+
+*The record.* Written only after a build that passed, it holds for each
+declaration of the group, in program order:
+- node facts, as a position plus a value:
+  - the positions in `hostedCallKeys`, `constantArrayBoundKeys` and
+    `arrayIterationCapacityKeys`;
+  - `genericConstructorTypes` and ordinary `methodGenCallArgs`, whose values
+    are serialized TypeExprs. A value carrying an array-bound expression
+    makes the group non-reusable;
+- deferred generated-symbol references, as a position plus the decision
+  inputs;
+- the raw-borrow summaries the group consulted, as callee path, parameter
+  and result.
+
+Facts a declaration writes about another declaration's nodes, such as a
+callee's defaults, are stored under the owning declaration's path.
+
+*What body validation leaves behind (self-hosted analyzer, audited
+September 24).* The journal must reproduce exactly these effects; nothing
+else in the body loop outlives it.
+- **Four `Analyzed` side tables**, keyed today by node address:
+  - `hostedCallKeys`, `constantArrayBoundKeys` and
+    `arrayIterationCapacityKeys` are only ever added to.
+  - `genericConstructorTypes` is last-writer-wins. Its value can be a node
+    owned by another declaration (a callee's parameter type, a field type, a
+    typedef original) or a fresh node.
+- **Deferred generated-symbol references** (`NameValidator.generatedReferences`),
+  in order, because the order decides which error is reported first.
+- **The top-level `globals` map.** A top-level variable puts its binding
+  type there for later globals, and that type can differ from
+  `globalVarTypes`.
+- **No AST mutation.** `var` inference stays local, and every assignment is
+  to a copy or a synthetic node. The defaults merge and `sourceFile`
+  stamping run in pre-passes.
+- **Writes onto other declarations' nodes.** After the defaults merge, a
+  definition's defaults are the prototype's nodes. Validating either one
+  writes keys onto them.
+- **Order sensitivity.** A caller reads facts on its callee's nodes: default
+  expressions during ownership checks, and callee bodies during raw-borrow
+  proofs. Those facts exist only once the callee has been validated.
+  Replaying each journal at its declaration's place in program order
+  reproduces that state. The raw-borrow cache answers a cycle
+  pessimistically, and every member of the cycle comes out unsafe whatever
+  the query order, so the cache needs no replay.
+- **Errors abort.** `TypeValidator.fail` exits on the first error, so
+  records exist only for builds that passed.
+
+*Replay.* At a skipped declaration's place in the validation loop, the
+analyzer:
+- resolves each position through `AstStructure`;
+- installs the facts;
+- re-checks each consulted raw-borrow summary live, where any change
+  validates the group live instead;
+- queues the deferred references for the end-of-analysis check.
+
+AST patches that validation performs, such as `mergeCallableDefaults`, still
+run for every declaration.
+
+*The gate.* A developer option analyzes live and replays side by side, then
+requires every analysis map, compared by structural key, and every emitted
+unit to be equal. The option runs over the whole corpus, the self-hosted
+compiler's source and BTRSmith. A fallback to live analysis triggers when
+more than a set share of groups is dirty.
+
 Allocation is a separate lever and the only one that also reduces cold time
 and memory; the reports put arena gains at roughly 10–20% and more with a
 flat layout. Before any node-layout redesign, measure a faster general

@@ -1510,109 +1510,204 @@ class _PreprocessingReceipts:
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return None
 
-    def read(self, commands: list[tuple[list[str], Path]], jobs: int, *, capture: bool) -> list[dict | None]:
-        empty = [None] * len(commands)
-        if not self.reader or not commands:
-            return empty
+    def _expand_all(self, commands: list[tuple[list[str], Path]], directory: Path, jobs: int) -> list[list[str] | None]:
+        """Each command's -cc1 job, expanding one driver run per command shape.
+
+        Units compiled with the same flags differ only in their source file.
+        Two of them are expanded; when the second equals the first with its
+        own source spellings substituted, the rest are derived the same way
+        instead of each starting a driver process. Any mismatch expands every
+        command separately.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        def shape(index: int, command: list[str], source: Path) -> tuple[str, ...]:
+            # The object path is not part of the expanded preprocessing job.
+            try:
+                arguments = self._arguments(command)
+            except ValueError:
+                return ("\0unique", str(index))
+            return (command[0], *("\0source" if argument == str(source) else argument for argument in arguments))
+
+        def spellings(source: Path) -> dict[str, str]:
+            return {str(source): "\0source", source.name: "\0name"}
+
+        def substitute(template: list[str], source: Path) -> list[str]:
+            values = {marker: value for value, marker in spellings(source).items()}
+            return [values.get(argument, argument) for argument in template]
+
+        groups: dict[tuple[str, ...], list[int]] = {}
+        for index, (command, source) in enumerate(commands):
+            groups.setdefault(shape(index, command, source), []).append(index)
+        expanded: list[list[str] | None] = [None] * len(commands)
+        pending: list[int] = []
+        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(commands)))) as pool:
+            for members in groups.values():
+                first, second = (members + [None, None])[:2]
+                sources = [commands[index][1] for index in members]
+                if second is None or len({str(source) for source in sources}) != len(sources):
+                    pending.extend(members)
+                    continue
+                expanded_first, expanded_second = pool.map(
+                    lambda index: self._expand(commands[index][0], directory), (first, second)
+                )
+                if expanded_first is None or expanded_second is None:
+                    pending.extend(members)
+                    continue
+                source = commands[first][1]
+                markers = spellings(source)
+                template = [markers.get(argument, argument) for argument in expanded_first]
+                if substitute(template, commands[second][1]) != expanded_second:
+                    pending.extend(members)
+                    continue
+                expanded[first], expanded[second] = expanded_first, expanded_second
+                for index in members[2:]:
+                    expanded[index] = substitute(template, commands[index][1])
+            for index, result in zip(
+                pending, pool.map(lambda index: self._expand(commands[index][0], directory), pending), strict=True
+            ):
+                expanded[index] = result
+        return expanded
+
+    @staticmethod
+    def _chunks(requested: list[tuple[int, list[str]]], *, pieces: int = 1) -> Iterator[list[tuple[int, list[str]]]]:
+        """Consecutive units whose request stays within half the protocol bound,
+        split into at least `pieces` chunks so their sessions can run together."""
+        chunk: list[tuple[int, list[str]]] = []
+        size = 0
+        per_chunk = max(1, -(-len(requested) // max(1, pieces)))
+        for index, arguments in requested:
+            unit = len(json.dumps({"id": str(index), "cc1": arguments}).encode())
+            if chunk and (size + unit > MAX_PLAN_BYTES // 2 or len(chunk) >= per_chunk):
+                yield chunk
+                chunk, size = [], 0
+            chunk.append((index, arguments))
+            size += unit
+        if chunk:
+            yield chunk
+
+    def _read_chunk(
+        self, chunk: list[tuple[int, list[str]]], commands: list[tuple[list[str], Path]], directory: str, capture: bool
+    ) -> dict[int, dict] | None:
+        """One reader session for a chunk; None rejects the whole batch."""
         # These existing reader owners supply process-group deadlines, bounded
         # captures and no-follow, checksummed private blob reads for both APIs.
         from src.compiler.python.frontend.native_imports import NativeHeaderRead, NativeHeaderSession
 
+        records: dict[int, dict] = {}
+        payload = json.dumps(
+            {
+                "schema": "btrc.native-preprocess.v1",
+                "capture": capture,
+                "cache_directory": directory,
+                "drivers": list(self.drivers),
+                "units": [{"id": str(index), "cc1": arguments} for index, arguments in chunk],
+            }
+        )
+        if len(payload.encode()) > MAX_PLAN_BYTES:
+            return None
+        encoded = NativeHeaderRead((self.reader, "--native-preprocess=-"), (0,), payload).read(dict(os.environ))
+        response = json.loads(encoded, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+        if (
+            not isinstance(response, dict)
+            or response.get("schema") != "btrc.native-preprocess.v1"
+            or response.get("launcher") != self.reader
+            or response.get("eligible_launcher") is not True
+        ):
+            return None
+        contexts, units = response.get("contexts"), response.get("units")
+        if not isinstance(contexts, list) or not isinstance(units, list) or len(units) != len(chunk):
+            return None
+        bound = set()
+        for context in contexts:
+            if not isinstance(context, dict):
+                return None
+            if context.get("eligible") is True:
+                compiler = context.get("compiler")
+                if not isinstance(compiler, str) or context.get("drivers") != list(self.drivers):
+                    return None
+                bound.add(compiler)
+        for (index, arguments), unit in zip(chunk, units, strict=True):
+            if not isinstance(unit, dict) or unit.get("id") != str(index):
+                return None
+            if unit.get("eligible") is not True:
+                continue
+            identity, streams = unit.get("identity_sha256"), unit.get("response")
+            if (
+                str(Path(arguments[0]).resolve(strict=True)) not in bound
+                or not isinstance(identity, str)
+                or not re.fullmatch("[0-9a-f]{64}", identity)
+                or type(unit.get("cache_hit")) is not bool
+            ):
+                return None
+            if not capture and not unit["cache_hit"] and unit.get("reason") == "receipt-miss" and streams is None:
+                records[index] = {"identity": identity, "content": None, "cache_hit": False}
+                continue
+            if not isinstance(streams, dict):
+                return None
+            text = NativeHeaderSession._stream(directory, streams.get("stdout"), MAX_PLAN_BYTES)
+            errors = NativeHeaderSession._stream(directory, streams.get("stderr"), MAX_PLAN_BYTES)
+            if text is None or errors is None:
+                return None
+            content = json.loads(text, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+            _exact_mapping(
+                content,
+                frozenset({"schema", "preprocessed", "dependencies", "headers", "buffers"}),
+                "preprocessed inputs",
+            )
+            if content["schema"] != "btrc.native-preprocessed.v1":
+                return None
+            for name in ["preprocessed", "dependencies", "headers"]:
+                if not isinstance(content[name], str) or not re.fullmatch("[0-9a-f]{64}", content[name]):
+                    return None
+            buffers = content["buffers"]
+            if not isinstance(buffers, list) or not buffers:
+                return None
+            paths = set()
+            for buffer in buffers:
+                if (
+                    not isinstance(buffer, list)
+                    or len(buffer) != 2
+                    or not isinstance(buffer[0], str)
+                    or not buffer[0]
+                    or "\0" in buffer[0]
+                    or not isinstance(buffer[1], str)
+                    or not re.fullmatch("[0-9a-f]{64}", buffer[1])
+                ):
+                    return None
+                paths.add(os.path.abspath(buffer[0]))
+            if os.path.abspath(commands[index][1]) not in paths:
+                return None
+            records[index] = {"identity": identity, "content": content, "cache_hit": unit["cache_hit"]}
+        return records
+
+    def read(self, commands: list[tuple[list[str], Path]], jobs: int, *, capture: bool) -> list[dict | None]:
+        empty = [None] * len(commands)
+        if not self.reader or not commands:
+            return empty
         try:
             directory = str(self.directory.resolve(strict=True) / "preprocessing-v1")
             with tempfile.TemporaryDirectory(prefix=".expand-", dir=self.directory) as temporary:
-                from concurrent.futures import ThreadPoolExecutor
-
-                with ThreadPoolExecutor(max_workers=min(jobs, len(commands))) as pool:
-                    expanded = list(pool.map(lambda item: self._expand(item[0], Path(temporary)), commands))
+                expanded = self._expand_all(commands, Path(temporary), jobs)
             requested = [(index, arguments) for index, arguments in enumerate(expanded) if arguments is not None]
             if not requested:
                 return empty
-            payload = json.dumps(
-                {
-                    "schema": "btrc.native-preprocess.v1",
-                    "capture": capture,
-                    "cache_directory": directory,
-                    "drivers": list(self.drivers),
-                    "units": [{"id": str(index), "cc1": arguments} for index, arguments in requested],
-                }
-            )
-            if len(payload.encode()) > MAX_PLAN_BYTES:
+            # One request per chunk that fits the protocol bound: every unit's
+            # full -cc1 command (tens of KB with SDK and package paths) made a
+            # few hundred units exceed it, and the whole batch fell back to one
+            # reader session per unit. Any invalid chunk still rejects all.
+            # Chunks are independent helper sessions: validate them together.
+            from concurrent.futures import ThreadPoolExecutor
+
+            chunks = list(self._chunks(requested, pieces=jobs))
+            with ThreadPoolExecutor(max_workers=min(jobs, len(chunks))) as pool:
+                answered = list(pool.map(lambda chunk: self._read_chunk(chunk, commands, directory, capture), chunks))
+            if any(records is None for records in answered):
                 return empty
-            encoded = NativeHeaderRead((self.reader, "--native-preprocess=-"), (0,), payload).read(dict(os.environ))
-            response = json.loads(encoded, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
-            if (
-                not isinstance(response, dict)
-                or response.get("schema") != "btrc.native-preprocess.v1"
-                or response.get("launcher") != self.reader
-                or response.get("eligible_launcher") is not True
-            ):
-                return empty
-            contexts, units = response.get("contexts"), response.get("units")
-            if not isinstance(contexts, list) or not isinstance(units, list) or len(units) != len(requested):
-                return empty
-            bound = set()
-            for context in contexts:
-                if not isinstance(context, dict):
-                    return empty
-                if context.get("eligible") is True:
-                    compiler = context.get("compiler")
-                    if not isinstance(compiler, str) or context.get("drivers") != list(self.drivers):
-                        return empty
-                    bound.add(compiler)
             results = empty.copy()
-            for (index, arguments), unit in zip(requested, units, strict=True):
-                if not isinstance(unit, dict) or unit.get("id") != str(index):
-                    return empty
-                if unit.get("eligible") is not True:
-                    continue
-                identity, streams = unit.get("identity_sha256"), unit.get("response")
-                if (
-                    str(Path(arguments[0]).resolve(strict=True)) not in bound
-                    or not isinstance(identity, str)
-                    or not re.fullmatch("[0-9a-f]{64}", identity)
-                    or type(unit.get("cache_hit")) is not bool
-                ):
-                    return empty
-                if not capture and not unit["cache_hit"] and unit.get("reason") == "receipt-miss" and streams is None:
-                    results[index] = {"identity": identity, "content": None, "cache_hit": False}
-                    continue
-                if not isinstance(streams, dict):
-                    return empty
-                text = NativeHeaderSession._stream(directory, streams.get("stdout"), MAX_PLAN_BYTES)
-                errors = NativeHeaderSession._stream(directory, streams.get("stderr"), MAX_PLAN_BYTES)
-                if text is None or errors is None:
-                    return empty
-                content = json.loads(text, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
-                _exact_mapping(
-                    content,
-                    frozenset({"schema", "preprocessed", "dependencies", "headers", "buffers"}),
-                    "preprocessed inputs",
-                )
-                if content["schema"] != "btrc.native-preprocessed.v1":
-                    return empty
-                for name in ["preprocessed", "dependencies", "headers"]:
-                    if not isinstance(content[name], str) or not re.fullmatch("[0-9a-f]{64}", content[name]):
-                        return empty
-                buffers = content["buffers"]
-                if not isinstance(buffers, list) or not buffers:
-                    return empty
-                paths = set()
-                for buffer in buffers:
-                    if (
-                        not isinstance(buffer, list)
-                        or len(buffer) != 2
-                        or not isinstance(buffer[0], str)
-                        or not buffer[0]
-                        or "\0" in buffer[0]
-                        or not isinstance(buffer[1], str)
-                        or not re.fullmatch("[0-9a-f]{64}", buffer[1])
-                    ):
-                        return empty
-                    paths.add(os.path.abspath(buffer[0]))
-                if os.path.abspath(commands[index][1]) not in paths:
-                    return empty
-                results[index] = {"identity": identity, "content": content, "cache_hit": unit["cache_hit"]}
+            for records in answered:
+                for index, record in records.items():
+                    results[index] = record
             return results
         except (OSError, ValueError, UnicodeError, RecursionError, subprocess.TimeoutExpired):
             return empty

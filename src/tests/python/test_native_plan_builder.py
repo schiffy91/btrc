@@ -86,6 +86,7 @@ def _publish_native_generation(root, value, secondary_name="secondary", *, bound
         destination = Path(destination)
         if (
             (boundary == "primary" and destination == primary)
+            or (boundary == "secondary" and destination == secondary)
             or (boundary == "plan" and destination == plan)
             or (
                 boundary == "commit"
@@ -111,8 +112,94 @@ def _publish_native_generation(root, value, secondary_name="secondary", *, bound
         done.set()
 
 
-@pytest.mark.parametrize("boundary", ["primary", "plan", "commit"])
+def test_receipt_requests_are_chunked_within_the_protocol_bound():
+    """Hundreds of units with SDK-length commands still get batched receipts.
+
+    One request for every unit exceeded the protocol bound, and the build then
+    opened one reader session per unit.
+    """
+    from tools.native_plan import MAX_PLAN_BYTES, _PreprocessingReceipts
+
+    arguments = ["clang", "-cc1", *(["-isystem", "/nix/store/" + "x" * 200] * 60)]
+    requested = [(index, [*arguments, f"unit-{index}.c"]) for index in range(600)]
+    chunks = list(_PreprocessingReceipts._chunks(requested))
+    assert len(chunks) > 1
+    assert [unit for chunk in chunks for unit in chunk] == requested
+    for chunk in chunks:
+        size = sum(len(json.dumps({"id": str(index), "cc1": cc1}).encode()) for index, cc1 in chunk)
+        assert size <= MAX_PLAN_BYTES // 2
+    assert list(_PreprocessingReceipts._chunks([])) == []
+    # A small batch still spreads over the build's jobs, in order.
+    spread = list(_PreprocessingReceipts._chunks(requested[:40], pieces=8))
+    assert len(spread) == 8 and [unit for chunk in spread for unit in chunk] == requested[:40]
+
+
+@pytest.mark.parametrize("faithful", [True, False])
+def test_units_sharing_flags_share_one_verified_driver_expansion(tmp_path, faithful):
+    """Only two driver runs per command shape, unless the derived job would differ."""
+    from tools.native_plan import _PreprocessingReceipts
+
+    receipts = _PreprocessingReceipts(tmp_path, (), subprocess.run)
+    calls = []
+
+    def expand(command, directory):
+        calls.append(command)
+        source = command[command.index("-c") + 1]
+        name = Path(source).name
+        # An unfaithful driver adds a per-unit detail the template cannot know.
+        extra = [] if faithful else [f"-unit-{len(calls)}"]
+        return ["clang", "-cc1", "-main-file-name", name, *extra, source, "-o", str(directory / "source.i")]
+
+    receipts._expand = expand
+    commands = [
+        (
+            ["clang", "-std=c11", "-c", str(tmp_path / f"unit-{index}.c"), "-o", str(tmp_path / f"unit-{index}.o")],
+            tmp_path / f"unit-{index}.c",
+        )
+        for index in range(6)
+    ]
+    expanded = receipts._expand_all(commands, tmp_path, 4)
+    assert len(calls) == (2 if faithful else 8)
+    for (_, source), job in zip(commands, expanded, strict=True):
+        assert job[3] == source.name and str(source) in job
+
+
+def test_unchanged_generation_outputs_keep_their_files(tmp_path):
+    """Only outputs whose bytes changed are replaced; the rest keep inode and mtime.
+
+    Native preprocessing receipts are bound to a unit's inode and mtime, so a
+    rewrite of an unchanged unit would force it to be preprocessed again.
+    """
+    _publish_native_generation(tmp_path, 41)
+    secondary, plan, primary = tmp_path / "secondary/part.c", tmp_path / "plan/plan.json", tmp_path / "primary/main.c"
+    before = {path: path.stat() for path in (primary, secondary, plan)}
+    state = tmp_path / "state"
+    staged = primary.with_name("candidate-changed")
+    staged.write_text("int answer(void); int main(void) { return answer() == 41 ? 0 : 2; }\n")
+    unchanged = []
+    for path in (secondary, plan):
+        copy = path.with_name("candidate-same")
+        copy.write_bytes(path.read_bytes())
+        unchanged.append(copy)
+    CompilerGenerationPublisher(state).publish(
+        [
+            CompilerOutput(staged, primary, "primary"),
+            CompilerOutput(unchanged[0], secondary, "secondary"),
+            CompilerOutput(unchanged[1], plan, "link-plan"),
+        ]
+    )
+    after = {path: path.stat() for path in (primary, secondary, plan)}
+    assert "? 0 : 2" in primary.read_text()
+    assert after[primary].st_ino != before[primary].st_ino
+    for path in (secondary, plan):
+        assert (after[path].st_ino, after[path].st_mtime_ns) == (before[path].st_ino, before[path].st_mtime_ns)
+    assert not any(copy.exists() for copy in unchanged)
+
+
+@pytest.mark.parametrize("boundary", ["primary", "secondary", "commit"])
 def test_crashed_generation_requires_owner_recovery_before_native_build(tmp_path, boundary):
+    # The link plan is identical across both generations and is kept in place,
+    # so the interrupted replacement is a unit whose bytes differ.
     _publish_native_generation(tmp_path, 41)
     child = multiprocessing.get_context("spawn").Process(
         target=_publish_native_generation, args=(tmp_path, 42), kwargs={"boundary": boundary}

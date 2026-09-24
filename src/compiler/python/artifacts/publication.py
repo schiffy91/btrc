@@ -538,8 +538,16 @@ class ArtifactPublisher:
         *,
         policy: StagedPublicationPolicy | None = None,
         previous_inventory: Sequence[PublicationTarget] | None = None,
+        retain_unchanged: bool = False,
     ) -> None:
         """Durably publish payloads in order, with the final validator last.
+
+        With `retain_unchanged`, a regular-file payload whose destination
+        already holds the same bytes and mode stays in place: replacing it would
+        change its inode and mtime, which invalidates native preprocessing
+        receipts for an unchanged unit. Recovery leaves a previously existing
+        destination without a backup untouched, so a kept file needs no journal
+        state of its own. The final validator is always replaced.
 
         Candidates must be on their destination filesystem. Directory locks
         serialize overlapping writers; participant journals protect recovery
@@ -617,6 +625,7 @@ class ArtifactPublisher:
                 self._recover(directory, name, recovering)
                 self._recover(directory, name, targets if recovering == prior else prior)
             fixed_stages = []
+            kept = [False] * len(artifacts)
             try:
                 for index, artifact in enumerate(artifacts):
                     if artifact.is_absent:
@@ -624,6 +633,16 @@ class ArtifactPublisher:
                         continue
                     self._storage.validate_artifact(artifact.staged, artifact.is_directory)
                     self._storage.destination_exists(artifact.destination, artifact.is_directory)
+                    if (
+                        retain_unchanged
+                        and index != len(artifacts) - 1
+                        and not artifact.is_directory
+                        and self._same_regular_file(artifact.staged, artifact.destination)
+                    ):
+                        kept[index] = True
+                        self._storage.remove(artifact.staged)
+                        fixed_stages.append(None)
+                        continue
                     fixed = self._stage_path(directory, name, index, artifact)
                     os.replace(artifact.staged, fixed)
                     fixed_stages.append(fixed)
@@ -631,7 +650,14 @@ class ArtifactPublisher:
                 for parent in directories:
                     self._storage.fsync_directory(parent)
                 if policy is not None:
-                    policy.validate(tuple(path for path in fixed_stages if path is not None))
+                    # A kept destination holds the payload's exact bytes.
+                    policy.validate(
+                        tuple(
+                            artifact.destination if kept[index] else fixed_stages[index]
+                            for index, artifact in enumerate(artifacts)
+                            if not artifact.is_absent
+                        )
+                    )
                 for artifact in artifacts:
                     if artifact.is_absent:
                         self._validate_retirement(artifact)
@@ -652,7 +678,7 @@ class ArtifactPublisher:
                     self._journal_record(artifacts, "publishing", previous),
                 )
                 for index in [len(artifacts) - 1, *range(len(artifacts) - 1)]:
-                    if previous[index]:
+                    if previous[index] and not kept[index]:
                         os.replace(
                             artifacts[index].destination,
                             self._backup_path(directory, name, index, artifacts[index]),
@@ -677,6 +703,26 @@ class ArtifactPublisher:
                         self._storage.fsync_directory(parent)
                 raise
             self._recover(directory, name, targets)
+
+    def _same_regular_file(self, staged: Path, destination: Path) -> bool:
+        """Whether an existing regular destination already has the staged bytes and mode."""
+        current = self._storage.lstat_or_none(destination)
+        candidate = self._storage.lstat_or_none(staged)
+        if (
+            current is None
+            or candidate is None
+            or not stat.S_ISREG(current.st_mode)
+            or current.st_size != candidate.st_size
+            or stat.S_IMODE(current.st_mode) != stat.S_IMODE(candidate.st_mode)
+        ):
+            return False
+        with staged.open("rb") as left, destination.open("rb") as right:
+            while True:
+                expected = left.read(1 << 20)
+                if expected != right.read(1 << 20):
+                    return False
+                if not expected:
+                    return True
 
     def _validate_inventory(self, targets: Sequence[PublicationTarget]) -> None:
         if not targets:

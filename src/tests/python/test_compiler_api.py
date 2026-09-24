@@ -325,7 +325,11 @@ def test_application_dependency_boundaries_are_explicit_and_acyclic():
         node for node in publisher.body if isinstance(node, python_ast.FunctionDef) and node.name == "publish"
     )
     assert [argument.arg for argument in publish.args.args] == ["self", "name", "artifacts"]
-    assert [argument.arg for argument in publish.args.kwonlyargs] == ["policy", "previous_inventory"]
+    assert [argument.arg for argument in publish.args.kwonlyargs] == [
+        "policy",
+        "previous_inventory",
+        "retain_unchanged",
+    ]
     assert {"StagedPublicationPolicy", "PublicationTarget"} <= {
         node.name for node in publication_tree.body if isinstance(node, python_ast.ClassDef)
     }
