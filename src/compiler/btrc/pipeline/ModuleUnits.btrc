@@ -1792,10 +1792,7 @@ class ModuleUnitCompiler {
 				if (state.stale || record == null) { continue; }
 				for name in record.consultedEffects.keys() {
 					if (!solved.has(name) || !solved.get(name).same(record.consultedEffects.get(name))) {
-						if (state.record != null) {
-							self.relowered("consulted-summary");
-							if (self.relowerReasons.get("consulted-summary") <= 5) { BtrccPhaseTimer.note(f"consulted-mismatch={state.name}:{name}:solved={solved.has(name)}:{solved.has(name) ? ModuleUnitSummaries.encode({name: solved.get(name)}) : ""}:recorded={ModuleUnitSummaries.encode({name: record.consultedEffects.get(name)})}"); }
-						}
+						if (state.record != null) { self.relowered("consulted-summary"); }
 						state.record = null;
 						again = true;
 					}

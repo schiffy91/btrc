@@ -116,6 +116,26 @@ def test_transitive_failure_has_the_same_effect_and_path(
     assert "at 1:19" in selfhost.stderr
 
 
+def test_call_through_a_global_function_pointer_is_indirect_in_both_compilers(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "global_hook.btrc"
+    source.write_text(
+        "int inc(int x) { return x + 1; }\n"
+        "__fn_ptr<int, int> hook = inc;\n"
+        "@realtime int audio(int value) { return hook(value); }\n"
+    )
+    reference = run_reference(source, tmp_path / "global_hook.c")
+    selfhost = run_selfhost(semantic_btrcc, source)
+    expected = "@realtime callable 'audio' reaches forbidden unknown operation 'indirect call through 'hook''"
+
+    assert reference.returncode == 1
+    assert selfhost.returncode == 1
+    assert expected in reference.stderr
+    assert expected in selfhost.stderr
+
+
 def test_bodyless_external_fails_closed_in_both_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,

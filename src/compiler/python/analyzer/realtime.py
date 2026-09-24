@@ -110,7 +110,6 @@ class RealtimeAnalyzer:
         self.callables: dict[str, RealtimeCallable] = {}
         self._declaration_keys: dict[int, str] = {}
         self._property_keys: dict[tuple[str, str, str], str] = {}
-        self._global_names = frozenset(index.global_declarations)
         self._loop_guards: list[RealtimeLoopGuard] = []
 
     def analyze(self, program: ast.Program) -> frozenset[str]:
@@ -422,7 +421,8 @@ class RealtimeAnalyzer:
     def _direct_declaration(self, call: ast.CallExpr, callable_: RealtimeCallable):
         callee = call.callee
         if isinstance(callee, ast.Identifier):
-            if callee.name in callable_.local_names or callee.name in self._global_names:
+            # Globals are read when analyzed: registration fills the index after construction.
+            if callee.name in callable_.local_names or callee.name in self.index.global_declarations:
                 return None
             return self.index.function_table.get(callee.name)
         if isinstance(callee, ast.FieldAccessExpr):
@@ -436,7 +436,7 @@ class RealtimeAnalyzer:
             return
         if isinstance(callee, ast.Identifier):
             name = callee.name
-            if name in callable_.local_names or name in self._global_names:
+            if name in callable_.local_names or name in self.index.global_declarations:
                 self._effect(callable_, "unknown", f"indirect call through '{name}'", call)
                 return
             declaration = self.index.function_table.get(name)
