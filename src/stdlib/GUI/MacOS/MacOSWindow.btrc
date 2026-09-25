@@ -55,6 +55,9 @@ class MacOSWindowKeys implements IAppKitKeyMonitor {
 		if (code == kVK_ANSI_V) { return APP_KEY_V; }
 		if (code == kVK_ANSI_X) { return APP_KEY_X; }
 		if (code == kVK_ANSI_Z) { return APP_KEY_Z; }
+		if (code == kVK_ANSI_Q) { return APP_KEY_Q; }
+		if (code == kVK_ANSI_LeftBracket) { return APP_KEY_LEFT_BRACKET; }
+		if (code == kVK_ANSI_RightBracket) { return APP_KEY_RIGHT_BRACKET; }
 		if (code == kVK_Option) { return APP_KEY_LEFT_ALT; }
 		if (code == kVK_RightOption) { return APP_KEY_RIGHT_ALT; }
 		if (code == kVK_Shift) { return APP_KEY_LEFT_SHIFT; }
