@@ -289,7 +289,9 @@ class StdlibReachability:
         self._names: set[str] = set()
         self._reached: set[int] = set()
         self._pushed_methods: set[tuple[int, str]] = set()
-        self._reached_classes: list[ClassDecl] = []
+        # Method name -> the reached classes declaring it, so a newly
+        # mentioned name visits only its own classes.
+        self._method_classes: dict[str, list[ClassDecl]] = {}
         by_name: dict[str, list[object]] = {}
         self._stdlib_by_name = by_name
         implementers: dict[str, list[ClassDecl]] = {}
@@ -324,8 +326,9 @@ class StdlibReachability:
                     self._reach(declaration, worklist)
                 for implementer in implementers.get(name, ()):
                     self._reach(implementer, worklist)
-            for reached in self._reached_classes:
-                self._push_methods(reached, fresh, worklist)
+            for name in fresh:
+                for reached in self._method_classes.get(name, ()):
+                    self._push_methods(reached, {name}, worklist)
 
         self.plan = StdlibReachabilityPlan(
             names=frozenset(self._names),
@@ -358,7 +361,11 @@ class StdlibReachability:
         if not isinstance(declaration, ClassDecl):
             worklist.append(declaration)
             return
-        self._reached_classes.append(declaration)
+        for member in declaration.members:
+            if isinstance(member, MethodDecl):
+                classes = self._method_classes.setdefault(member.name, [])
+                if not classes or classes[-1] is not declaration:
+                    classes.append(declaration)
         skeleton: list[object] = [Identifier(name=declaration.parent)] if declaration.parent else []
         skeleton.extend(Identifier(name=interface) for interface in declaration.interfaces)
         for member in declaration.members:

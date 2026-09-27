@@ -307,31 +307,32 @@ class RealtimeAnalyzer {
 	private void addCallable(string key, string label, Node declaration, Node? body, string owner) {
 		RealtimeCallable callable = RealtimeCallable(key, label, declaration);
 		callable.body = body;
-		callable.variables.merge(self.analyzed.globalVarTypes);
-		int index = 0;
-		if (owner != "") {
-			Node selfType = Node();
-			selfType.kind = NK_TYPE_EXPR;
-			selfType.base = owner;
-			callable.variables.put("self", selfType);
-		}
-		index = 0;
-		while (index < declaration.params.len) {
-			Node parameter = declaration.params.get(index);
-			callable.variables.put(parameter.name, parameter.type);
-			callable.localNames.put(parameter.name, true);
-			index = index + 1;
-		}
-		if (key.endsWith(":set")) {
-			callable.variables.put("value", declaration.type);
-			callable.localNames.put("value", true);
-		}
 		Node? indexed = self.indexOwner;
 		Node top = indexed == null ? declaration : indexed;
 		self.ownerOfCallable.put(key, top);
-		/* A replayed callable keeps its recorded events; its locals are only
-		 * the scan's inputs. */
-		if (!self.replays.has(AstIdentity.key(top))) { self.collectLocals(body, callable); }
+		/* A replayed callable keeps its recorded events and is never scanned,
+		 * so only a callable scanned live needs its variable types. */
+		if (!self.replays.has(AstIdentity.key(top))) {
+			callable.variables.merge(self.analyzed.globalVarTypes);
+			if (owner != "") {
+				Node selfType = Node();
+				selfType.kind = NK_TYPE_EXPR;
+				selfType.base = owner;
+				callable.variables.put("self", selfType);
+			}
+			int index = 0;
+			while (index < declaration.params.len) {
+				Node parameter = declaration.params.get(index);
+				callable.variables.put(parameter.name, parameter.type);
+				callable.localNames.put(parameter.name, true);
+				index = index + 1;
+			}
+			if (key.endsWith(":set")) {
+				callable.variables.put("value", declaration.type);
+				callable.localNames.put("value", true);
+			}
+			self.collectLocals(body, callable);
+		}
 		self.callables.put(key, callable);
 		self.order.push(key);
 		self.declarationKeys.put(AstIdentity.key(declaration), key);

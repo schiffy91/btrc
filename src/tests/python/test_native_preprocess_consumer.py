@@ -81,6 +81,25 @@ def test_real_build_reuses_receipts_objects_executable_and_debug_inputs(project)
     assert execute(options) == "42\n"
 
 
+def test_cold_build_captures_receipts_in_the_shared_batch(project, monkeypatch):
+    """A cold build captures every receipt in the shared, chunked sessions and
+    revalidates after compiling in one more batch: no unit starts its own
+    driver expansion and reader session."""
+    _, _, options = project
+    from tools.native_plan import _ObjectCache
+
+    def unit_probe(self, command, source):
+        raise AssertionError(f"per-unit probe for {source}")
+
+    monkeypatch.setattr(_ObjectCache, "probe", unit_probe)
+    first = NativePlanBuilder().build(**options)
+    assert first.preprocessing_units == 2 and first.preprocessing_hits == 0
+    assert all(unit.publication_status == "stored" for unit in first.units)
+    assert execute(options) == "42\n"
+    warm = NativePlanBuilder().build(**options)
+    assert warm.as_dict()["compiled_units"] == 0
+
+
 @pytest.mark.parametrize("edit", ["value", "comment"])
 def test_preserved_mtime_edit_changes_object_identity(project, edit):
     _, header, options = project

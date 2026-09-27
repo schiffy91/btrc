@@ -625,6 +625,10 @@ class NativeDeclarationImporter:
     Objective-C objects use normal managed cleanup through generated adapters.
     """
 
+    # Per-shell scratch locations: the reader keys its cached responses by
+    # its environment, so it runs without them, as the native plan runs it.
+    SCRATCH_ENVIRONMENT: ClassVar[frozenset[str]] = frozenset({"TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"})
+
     def __init__(self):
         self._declarations = {}
         self._native_types = {}
@@ -695,7 +699,7 @@ class NativeDeclarationImporter:
         if not reader:
             plan.require_resolved_bindings()
         reader_identity = self._reader_identity(reader)
-        environment = dict(os.environ)
+        environment = {name: value for name, value in os.environ.items() if name not in self.SCRATCH_ENVIRONMENT}
         fingerprint = hashlib.sha256(b"btrc-native-resolution-v2\0")
         fingerprint.update(
             json.dumps(

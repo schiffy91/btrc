@@ -104,6 +104,16 @@ def _array(value: object, context: str) -> list[object]:
     return value
 
 
+# Where tools write scratch files, never what they produce. Each `nix
+# develop` shell draws new ones, so they must not decide cache identities.
+_SCRATCH_ENVIRONMENT = frozenset({"TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"})
+
+
+def _stable_environment() -> dict[str, str]:
+    """The process environment without per-shell scratch locations."""
+    return {name: value for name, value in os.environ.items() if name not in _SCRATCH_ENVIRONMENT}
+
+
 def _regular_file(path: str, context: str) -> Path:
     candidate = Path(path)
     if not candidate.is_absolute():
@@ -751,7 +761,10 @@ class NativePlanBuilder:
                 prepared = [None] * len(commands)
                 if cache is not None:
                     preparation = time.perf_counter()
-                    prepared = cache.prepare([(command, source) for command, source, _ in commands], jobs)
+                    # Missing receipts are captured here too, in the same chunked
+                    # sessions: a cold build otherwise started one driver
+                    # expansion and one reader session per unit, twice.
+                    prepared = cache.prepare([(command, source) for command, source, _ in commands], jobs, capture=True)
                     report.preprocessing_s = time.perf_counter() - preparation
                 work = [(*command, probe) for command, probe in zip(commands, prepared, strict=True)]
                 # Fully prepared receipts leave file copying/hashing and native
@@ -790,6 +803,8 @@ class NativePlanBuilder:
                 else:
                     for job in work:
                         report.units.append(compile_one(job))
+                if cache is not None:
+                    self._publish_deferred(cache, commands, report, jobs)
                 report.preprocessing_units = sum(
                     unit.preprocessing_status.startswith("receipt-") for unit in report.units
                 )
@@ -857,8 +872,16 @@ class NativePlanBuilder:
                     report.link_validation_s = time.perf_counter() - started
                     return
             dependencies_path = staged.parent / "link.dependencies"
+            # The previous receipt's inputs, snapshotted before this link: when
+            # the link reports exactly those inputs and they are unchanged after
+            # it, this one link was bracketed like a qualifying link.
+            prior = None
             if context is not None:
                 report.link_command.extend(["-Xlinker", "-dependency_info", "-Xlinker", str(dependencies_path)])
+                with contextlib.suppress(OSError, ValueError, TypeError, KeyError, RecursionError):
+                    previous = receipt.previous_dependencies()
+                    if previous is not None:
+                        prior = (previous, receipt.snapshot(previous))
             report.link_validation_s = time.perf_counter() - started
             link_started = time.perf_counter()
             self._run(report.link_command)
@@ -874,7 +897,9 @@ class NativePlanBuilder:
                 except (OSError, ValueError, TypeError, KeyError):
                     ready = False
                 report.link_validation_s += time.perf_counter() - started
-                if ready:
+                if ready and prior is not None and prior[0] == dependencies and prior[1] == before:
+                    qualified = True
+                elif ready:
                     link_started = time.perf_counter()
                     self._run(report.link_command)
                     report.links += 1
@@ -1079,9 +1104,10 @@ class NativePlanBuilder:
     ) -> NativeCompileResult:
         """Run one compile, or copy the object the cache holds for the same source and command."""
         result = NativeCompileResult(str(source), command)
+        batched = prepared is not None and prepared.key is not None
         if cache is not None:
             started = time.perf_counter()
-            probe = prepared if prepared is not None and prepared.key is not None else cache.probe(command, source)
+            probe = prepared if batched else cache.probe(command, source)
             if probe.key is not None and probe.manifest is not None:
                 cache._manifests[probe.key] = probe.manifest
                 result.preprocessing_status = "receipt-hit" if probe.receipt_hit else "receipt-captured"
@@ -1099,7 +1125,11 @@ class NativePlanBuilder:
         # A source/header changed while the compiler ran must not publish an
         # object under the earlier inputs. A failed validation leaves the build
         # usable but uncached; normal compiler diagnostics remain authoritative.
-        if result.cache_key is not None:
+        # Batch-prepared units are validated together once every compile has
+        # finished (_publish_deferred).
+        if result.cache_key is not None and batched:
+            result.publication_status = "deferred"
+        elif result.cache_key is not None:
             started = time.perf_counter()
             after = cache.probe(command, source)
             result.dependency_scan_s += after.scan_s
@@ -1110,6 +1140,49 @@ class NativePlanBuilder:
                 result.publication_status = "stored" if cache.store(result.cache_key, object_path) else "failed"
                 result.publication_s = time.perf_counter() - started
         return result
+
+    def _publish_deferred(
+        self,
+        cache: _ObjectCache,
+        commands: list[tuple[list[str], Path, Path]],
+        report: NativeBuildReport,
+        jobs: int,
+    ) -> None:
+        """Validate every deferred unit's inputs again, after all compiles, in one
+        batch; an object is published only when its inputs still have the key
+        it was compiled under."""
+        deferred = [
+            (unit, command, source, object_path)
+            for unit, (command, source, object_path) in zip(report.units, commands, strict=True)
+            if unit.publication_status == "deferred"
+        ]
+        if not deferred:
+            return
+        started = time.perf_counter()
+        after = cache.prepare([(command, source) for _, command, source, _ in deferred], jobs, capture=True)
+        share = (time.perf_counter() - started) / len(deferred)
+
+        def publish(item: tuple[tuple[NativeCompileResult, list[str], Path, Path], _CacheProbe | None]) -> None:
+            (unit, command, source, object_path), probe = item
+            unit.cache_validation_s += share
+            unit.publication_status = "inputs-changed"
+            if probe is None or probe.key is None:
+                # This unit's batch record is unavailable: validate it alone.
+                started = time.perf_counter()
+                probe = cache.probe(command, source)
+                unit.dependency_scan_s += probe.scan_s
+                unit.cache_validation_s += time.perf_counter() - started - probe.scan_s
+            if probe.key != unit.cache_key:
+                return
+            cache._manifests[probe.key] = probe.manifest
+            started = time.perf_counter()
+            unit.publication_status = "stored" if cache.store(unit.cache_key, object_path) else "failed"
+            unit.publication_s = time.perf_counter() - started
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(deferred)))) as pool:
+            list(pool.map(publish, zip(deferred, after, strict=True)))
 
     def _tool(self, value: str, context: str) -> str:
         _text(value, context)
@@ -1178,13 +1251,41 @@ class _DarwinLinkReceipt:
         self.output = output
         self.configuration = configuration
         self.path = self.directory / ("link-v1-" + hashlib.sha256(str(output).encode()).hexdigest() + ".json")
+        # One link computes its context and dependency snapshot more than once
+        # (before, between and after the qualifying links). A file is re-read
+        # only when its identity changed (a write always changes ctime), and a
+        # toolchain query only when the files it depends on did.
+        self._identities: dict[tuple[object, ...], dict[str, object]] = {}
+        self._queries: dict[tuple[object, ...], subprocess.CompletedProcess[str]] = {}
 
     def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
-        return self.runner(command, capture_output=True, text=True, check=False, shell=False)
+        key = ("run", *command)
+        if key not in self._queries:
+            self._queries[key] = self.runner(command, capture_output=True, text=True, check=False, shell=False)
+        return self._queries[key]
 
     def _file(self, path: str | Path) -> dict[str, object]:
         path = Path(path)
         resolved = path.resolve(strict=True)
+        current = resolved.stat()
+        key = (
+            str(path),
+            str(resolved),
+            current.st_dev,
+            current.st_ino,
+            current.st_size,
+            current.st_mtime_ns,
+            current.st_ctime_ns,
+            current.st_mode,
+        )
+        known = self._identities.get(key)
+        if known is not None:
+            return dict(known)
+        identity = self._read_identity(path, resolved)
+        self._identities[key] = identity
+        return dict(identity)
+
+    def _read_identity(self, path: Path, resolved: Path) -> dict[str, object]:
         with resolved.open("rb") as stream:
             before = os.fstat(stream.fileno())
             if not stat.S_ISREG(before.st_mode):
@@ -1218,14 +1319,19 @@ class _DarwinLinkReceipt:
         return identity
 
     def _traced(self, command: list[str]) -> subprocess.CompletedProcess[str]:
-        return self.runner(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            shell=False,
-            env={**os.environ, "DYLD_PRINT_LIBRARIES": "1"},
-        )
+        # The traced tool's own files are re-identified on every context, so a
+        # replaced tool still changes the context even when this trace is reused.
+        key = ("traced", *command)
+        if key not in self._queries:
+            self._queries[key] = self.runner(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                shell=False,
+                env={**os.environ, "DYLD_PRINT_LIBRARIES": "1"},
+            )
+        return self._queries[key]
 
     def _images(self, *traces: subprocess.CompletedProcess[str]) -> list[dict[str, object]]:
         images = set()
@@ -1371,7 +1477,7 @@ class _DarwinLinkReceipt:
                 ],
                 "cwd": str(Path.cwd()),
                 "host": list(os.uname()),
-                "environment": hashlib.sha256(_ObjectCache._encoded(dict(os.environ))).hexdigest(),
+                "environment": hashlib.sha256(_ObjectCache._encoded(_stable_environment())).hexdigest(),
             }
         except (OSError, ValueError, IndexError):
             return None
@@ -1408,6 +1514,16 @@ class _DarwinLinkReceipt:
         if any(os.path.lexists(p) for p in dependencies["missing"]):
             raise ValueError("a previously missing link candidate now exists")
         return {"inputs": [self._file(p) for p in dependencies["inputs"]], "missing": dependencies["missing"]}
+
+    def previous_dependencies(self) -> dict[str, list[str]] | None:
+        """The input inventory of this output's last stored receipt, if any."""
+        if not self.path.exists():
+            return None
+        record = json.loads(NativePlanReader()._read_regular(self.path))
+        dependencies = record.get("dependencies") if isinstance(record, dict) else None
+        if not isinstance(dependencies, dict) or set(dependencies) != {"inputs", "missing"}:
+            return None
+        return dependencies
 
     def retained(self, context: dict[str, object]) -> bool:
         try:
@@ -1606,7 +1722,7 @@ class _PreprocessingReceipts:
         )
         if len(payload.encode()) > MAX_PLAN_BYTES:
             return None
-        encoded = NativeHeaderRead((self.reader, "--native-preprocess=-"), (0,), payload).read(dict(os.environ))
+        encoded = NativeHeaderRead((self.reader, "--native-preprocess=-"), (0,), payload).read(_stable_environment())
         response = json.loads(encoded, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
         if (
             not isinstance(response, dict)
@@ -1923,7 +2039,7 @@ class _ObjectCache:
                     "cwd": str(Path.cwd()),
                     # Compiler wrappers can observe environment beyond CPATH and
                     # SDKROOT. Hash it conservatively without persisting secrets.
-                    "environment": hashlib.sha256(self._encoded(dict(os.environ))).hexdigest(),
+                    "environment": hashlib.sha256(self._encoded(_stable_environment())).hexdigest(),
                     "preprocessed": self._file_digest(preprocessed),
                     "dependencies": [{"path": str(path), "sha256": self._file_digest(path)} for path in dependencies],
                 }

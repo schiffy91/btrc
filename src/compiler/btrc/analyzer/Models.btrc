@@ -125,6 +125,11 @@ interface IValidationRecords {
 	 * program interface are unchanged since checks that read only those
 	 * last passed. */
 	bool reusable(Node declaration);
+	/* Generic instance scans, recorded per template: `section` names the
+	 * instance and whether validation's facts existed when it was scanned. */
+	Vector<ValidationFact>? recordedInstance(Node template, string section);
+	bool journalsInstance(Node template);
+	bool finishInstance(Node template, string section, ValidationJournal journal);
 }
 
 class Analyzed {
@@ -458,6 +463,8 @@ class Analyzed {
 			if (fact != null) { fact.arguments = arguments; }
 		} else {
 			self.instanceMethodCallArgs.put(self.activeInstance + "\t" + AstIdentity.key(call), arguments);
+			ValidationFact? fact = self.journalFact(VALIDATION_CALL_ARGUMENTS, call, null);
+			if (fact != null) { fact.arguments = arguments; }
 		}
 	}
 

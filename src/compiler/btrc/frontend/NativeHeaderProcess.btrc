@@ -12,6 +12,10 @@ import Library.Vector;
 import ./Models.btrc;
 
 class FeNativeHeaderProcess {
+	/* Per-shell scratch locations: the reader keys its cached responses by
+	 * its environment, so it runs without them, as the native plan runs it. */
+	class Vector<string> scratchEnvironment() { return ["TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"]; }
+
 	class void read(FeNativeHeaderBatch batch) { FeNativeHeaderProcess.readRange(batch, 0, batch.size()); }
 
 	/* Thread handles remain unique local owners. A balanced split uses at
@@ -81,7 +85,7 @@ class FeNativeHeaderProcess {
 				string payload = FeNativeHeaderProcess.cacheRequest(request);
 				if (payload.length() <= 8388608) { arguments = ["--cached-native-read=-"]; input = payload; }
 			}
-			var result = ChildProcess.run(request.command(), arguments, timeoutMilliseconds = request.timeoutMilliseconds, maxStdoutBytes = request.maxStdoutBytes, stdinData = input);
+			var result = ChildProcess.run(request.command(), arguments, unsetEnvironment = FeNativeHeaderProcess.scratchEnvironment(), timeoutMilliseconds = request.timeoutMilliseconds, maxStdoutBytes = request.maxStdoutBytes, stdinData = input);
 			string text = request.captureStderr ? result.err : result.out;
 			int capturedBytes = request.captureStderr ? result.capturedStderrBytes : result.capturedStdoutBytes;
 			if (result.ok() && text.length() != capturedBytes) {

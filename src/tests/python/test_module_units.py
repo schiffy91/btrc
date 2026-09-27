@@ -389,6 +389,11 @@ def test_realtime_proofs_cross_units_into_native_adapters(compiler: str, tmp_pat
     assert completed.returncode == 0, completed.stderr
     units = sorted(tmp_path.glob("program.unit-*.c"))
     assert len(units) > 1
+    # A unit includes a native binding header only when its C names something
+    # the header declares, so the units' include sets differ; the link below
+    # proves each unit still has every header it needs.
+    includes = [frozenset(re.findall(r'^#include "([^"]+)"', unit.read_text(), re.M)) for unit in units]
+    assert len(set(includes)) > 1
     host = {key: value for key, value in os.environ.items() if key not in {"DEVELOPER_DIR", "SDKROOT"}}
     executable = tmp_path / "program"
     built = subprocess.run(

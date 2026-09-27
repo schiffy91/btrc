@@ -30,6 +30,9 @@ class GenericSpecializer {
 	/* Type parameters of the template whose body is being scanned, if any. */
 	private Map<string, bool> templateParameters;
 	private IValidationRecords? records = null;
+	/* Whether validation's facts exist yet: instance scans that run before and
+	 * after validation are recorded apart. */
+	private bool validated = false;
 
 	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions) {
 		self.closedClassInstances = {};
@@ -82,6 +85,14 @@ class GenericSpecializer {
 		if (records == null || (declaration.kind != NK_FUNCTION_DECL && declaration.kind != NK_CLASS_DECL)) { return false; }
 		Vector<ValidationFact>? facts = records.recorded(phase, declaration);
 		if (facts == null) { return false; }
+		self.replayDemand(facts);
+		return true;
+	}
+
+	/* Recorded demand, re-applied exactly as the scan applied it: each
+	 * instance is de-duplicated and pushed, and call arguments go to the
+	 * active instance's table. */
+	private void replayDemand(Vector<ValidationFact> facts) {
 		Analyzed a = self.analyzed;
 		for fact in facts {
 			if (fact.kind == VALIDATION_GENERIC_CLASS) {
@@ -101,7 +112,39 @@ class GenericSpecializer {
 				if (call != null) { a.recordMethodCallArguments(call, fact.arguments); }
 			}
 		}
+	}
+
+	private string instanceSection(string context) { return (self.validated ? "after" : "before") + "\t" + context; }
+
+	/* An instance's recorded scan, replayed under its specialization context;
+	 * false when it must be scanned live. */
+	private bool replayInstance(Node? template, string context) {
+		IValidationRecords? records = self.records;
+		if (records == null || template == null) { return false; }
+		Vector<ValidationFact>? facts = records.recordedInstance(template, self.instanceSection(context));
+		if (facts == null) { return false; }
+		string previous = self.analyzed.beginInstance(context);
+		self.replayDemand(facts);
+		self.analyzed.endInstance(previous);
 		return true;
+	}
+
+	private ValidationJournal? beginInstanceJournal(Node? template) {
+		IValidationRecords? records = self.records;
+		if (records == null || template == null || !records.journalsInstance(template)) { return null; }
+		ValidationJournal journal = ValidationJournal();
+		self.analyzed.journal = journal;
+		return journal;
+	}
+
+	private void endInstanceJournal(Node? template, string context, ValidationJournal? journal) {
+		if (template == null || journal == null) { return; }
+		self.analyzed.journal = null;
+		IValidationRecords? records = self.records;
+		if (records != null && !records.finishInstance(template, self.instanceSection(context), journal)) {
+			fprintf(stderr, "error: generic instance record disagrees with live analysis for %s\n", context);
+			exit(1);
+		}
 	}
 
 	private ValidationJournal? beginJournal(int phase, Node declaration) {
@@ -123,6 +166,7 @@ class GenericSpecializer {
 	}
 
 	public void closeExpressionGraph(Node program, HostedAbiRepository hostedAbi) {
+		self.validated = true;
 		self.collectNativeCallbackInstances(hostedAbi);
 		BtrccPhaseTimer.mark("c-native");
 		self.closeProgramGenericExpressionGraph(program, self.analyzed, self.operators);
@@ -604,56 +648,54 @@ class GenericSpecializer {
      * type map and register any resolved generic-class type. Repeats until the
      * instance set stops growing (new instances can imply further ones). */
 	private void registerTransitiveGenericInstances(Analyzed a, OperatorSemantics operators) {
-		bool changed = true;
-		while (changed) {
-			changed = false;
-			int idx = 0;
-			/* genericInstances may grow during the loop; re-read .len each step. */
-			while (idx < a.genericInstances.len) {
-				GenInstance inst = a.genericInstances.get(idx);
-				if (a.genericClassTable.has(inst.base)) {
-					Node decl = a.genericClassTable.get(inst.base);
-					Map<string, Node> tm = {};
-					int g = 0;
-					while (g < decl.genericParams.len && g < inst.args.len) {
-						tm.put(decl.genericParams.get(g), inst.args.get(g));
-						g = g + 1;
-					}
-					int mi = 0;
-					while (mi < decl.members.len) {
-						Node mem = decl.members.get(mi);
-						Map<string, bool> unresolved = {};
-						if (mem.kind == NK_METHOD_DECL) {
-							unresolved = SemanticTypeSystem.genericParameterSet(mem.genericParams);
-						}
-						if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
-							if (self.registerResolvedGenericInstance(mem.type, tm, unresolved, a)) { changed = true; }
-						} else if (mem.kind == NK_METHOD_DECL) {
-							if (self.registerResolvedGenericInstance(mem.returnType, tm, unresolved, a)) { changed = true; }
-							int p = 0;
-							while (p < mem.params.len) {
-								if (self.registerResolvedGenericInstance(mem.params.get(p).type, tm, unresolved, a)) { changed = true; }
-								p = p + 1;
-							}
-						}
-						mi = mi + 1;
-					}
+		int idx = 0;
+		/* One pass closes this fixed point. Instances are only ever appended, and
+		 * re-reading .len each step walks the ones the pass itself adds, so no
+		 * instance is left unprocessed when it ends. What an instance implies
+		 * depends on its own arguments and the static generic class table, never
+		 * on which other instances are registered, so a repeated pass could only
+		 * re-derive what this one already registered. */
+		while (idx < a.genericInstances.len) {
+			GenInstance inst = a.genericInstances.get(idx);
+			if (a.genericClassTable.has(inst.base)) {
+				Node decl = a.genericClassTable.get(inst.base);
+				Map<string, Node> tm = {};
+				int g = 0;
+				while (g < decl.genericParams.len && g < inst.args.len) {
+					tm.put(decl.genericParams.get(g), inst.args.get(g));
+					g = g + 1;
 				}
-				idx = idx + 1;
+				int mi = 0;
+				while (mi < decl.members.len) {
+					Node mem = decl.members.get(mi);
+					Map<string, bool> unresolved = {};
+					if (mem.kind == NK_METHOD_DECL) {
+						unresolved = SemanticTypeSystem.genericParameterSet(mem.genericParams);
+					}
+					if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
+						self.registerResolvedGenericInstance(mem.type, tm, unresolved, a);
+					} else if (mem.kind == NK_METHOD_DECL) {
+						self.registerResolvedGenericInstance(mem.returnType, tm, unresolved, a);
+						int p = 0;
+						while (p < mem.params.len) {
+							self.registerResolvedGenericInstance(mem.params.get(p).type, tm, unresolved, a);
+							p = p + 1;
+						}
+					}
+					mi = mi + 1;
+				}
 			}
+			idx = idx + 1;
 		}
+		BtrccPhaseTimer.mark("g-members");
 		self.closeGenericInstanceGraph(a, operators);
 	}
 
 	/* Resolve a member TypeExpr through `tm` and, if the result is a concrete
-     * generic-class instance not yet seen, register it. Returns true if a new
-     * instance was added (so the caller's fixpoint loop iterates again). */
-	private bool registerResolvedGenericInstance(Node? t, Map<string, Node> tm, Map<string, bool> unresolved, Analyzed a) {
-		if (t == null) { return false; }
-		Node resolved = SemanticTypeSystem.resolveGenericType(t, tm, a);
-		int before = a.genericInstances.len;
-		self.registerGenericInstanceWithUnresolved(resolved, a, unresolved);
-		return a.genericInstances.len > before;
+     * generic-class instance not yet seen, register it. */
+	private void registerResolvedGenericInstance(Node? t, Map<string, Node> tm, Map<string, bool> unresolved, Analyzed a) {
+		if (t == null) { return; }
+		self.registerGenericInstanceWithUnresolved(SemanticTypeSystem.resolveGenericType(t, tm, a), a, unresolved);
 	}
 
 	/* --- AST pass: upgrade class-typed generic args to pointers in place. ---
@@ -1381,13 +1423,26 @@ class GenericSpecializer {
 		Map<string, bool> processedMethods = self.closedMethodInstances;
 		int classIndex = 0;
 		int methodIndex = 0;
+		int scannedClasses = 0;
+		int replayedClasses = 0;
+		int scannedMethods = 0;
+		int replayedMethods = 0;
 		while (classIndex < analyzed.genericInstances.len || methodIndex < analyzed.methodGenInstances.len) {
 			while (classIndex < analyzed.genericInstances.len) {
 				GenInstance instance = analyzed.genericInstances.get(classIndex);
 				classIndex = classIndex + 1;
 				if (!processedClasses.has(instance.mangled)) {
 					processedClasses.put(instance.mangled, true);
-					self.genericClosureScanClassInstance(instance, analyzed, operators);
+					Node? template = analyzed.genericClassTable.has(instance.base) ? analyzed.genericClassTable.get(instance.base) : null;
+					string context = GenericSpecializer.classInstanceContext(instance);
+					if (self.replayInstance(template, context)) {
+						replayedClasses = replayedClasses + 1;
+					} else {
+						ValidationJournal? journal = self.beginInstanceJournal(template);
+						self.genericClosureScanClassInstance(instance, analyzed, operators);
+						self.endInstanceJournal(template, context, journal);
+						scannedClasses = scannedClasses + 1;
+					}
 				}
 			}
 			while (methodIndex < analyzed.methodGenInstances.len) {
@@ -1396,10 +1451,20 @@ class GenericSpecializer {
 				string key = TypeIdentity.methodInstanceKey(instance.classBase, instance.classArgs, instance.methodName, instance.methodArgs);
 				if (!processedMethods.has(key)) {
 					processedMethods.put(key, true);
-					self.genericClosureScanMethodInstance(instance, analyzed, operators);
+					Node? template = self.genericClosureOwnerDeclaration(instance, analyzed);
+					string context = GenericSpecializer.methodInstanceContext(instance);
+					if (self.replayInstance(template, context)) {
+						replayedMethods = replayedMethods + 1;
+					} else {
+						ValidationJournal? journal = self.beginInstanceJournal(template);
+						self.genericClosureScanMethodInstance(instance, analyzed, operators);
+						self.endInstanceJournal(template, context, journal);
+						scannedMethods = scannedMethods + 1;
+					}
 				}
 			}
 		}
+		BtrccPhaseTimer.note(f"instance-closure=class:{scannedClasses}+{replayedClasses}r,method:{scannedMethods}+{replayedMethods}r");
 	}
 
 	private void genericClosureScanOrdinaryCallable(Node callable, Node? owner, Analyzed analyzed, OperatorSemantics operators) {

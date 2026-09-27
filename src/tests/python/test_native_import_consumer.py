@@ -10434,6 +10434,32 @@ sys.exit(result.returncode)
     assert len(events) == (2 if large and failure else 8 if failure else 12)
 
 
+def test_native_sdk_cache_survives_a_new_shell_scratch_directory(native_project, native_compile, monkeypatch):
+    """Every nix develop shell has its own TMPDIR; the reader must not key on it."""
+    import tempfile
+
+    source, _, _ = native_project
+    with tempfile.TemporaryDirectory(prefix=".btrc-sdk-scratch-", dir=Path.home()) as directory:
+        root = Path(directory)
+        monkeypatch.setenv("BTRC_CACHE_DIR", str(root / "cache"))
+        for name in ("first-shell", "second-shell"):
+            (root / name).mkdir()
+        monkeypatch.setenv("TMPDIR", str(root / "first-shell"))
+        cold = native_compile(source)
+        assert cold.successful, cold.failure
+        sdk_cache = root / "cache" / "native-headers-v1"
+        receipts = sorted(sdk_cache.glob("*.receipt"))
+        assert len(receipts) == 1, "the real frontend did not populate its SDK cache"
+        before = receipts[0].stat().st_ino
+        monkeypatch.setenv("TMPDIR", str(root / "second-shell"))
+        # An edit, so the emitted-artifact cache cannot answer for the reader.
+        source.write_text(source.read_text(encoding="utf-8") + "// edited in another shell\n", encoding="utf-8")
+        warm = native_compile(source)
+        assert warm.successful, warm.failure
+        assert sorted(sdk_cache.glob("*.receipt")) == receipts, "a new scratch directory missed the SDK cache"
+        assert receipts[0].stat().st_ino == before
+
+
 def test_native_sdk_cache_frontend_cold_warm_invalidation(native_project, native_compile, monkeypatch):
     import tempfile
 

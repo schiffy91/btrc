@@ -27,7 +27,9 @@ class StdlibReachability {
 	private Map<string, bool> names;
 	private Map<string, bool> reached;
 	private Map<string, bool> pushedMethods;
-	private Vector<Node> reachedClasses;
+	/* Method name -> the reached classes declaring it, so a newly mentioned
+	 * name visits only its own classes rather than every reached class. */
+	private Map<string, Vector<Node>> methodClasses;
 	private Map<string, Vector<Node>> stdlibByName;
 	private Map<string, Vector<Node>> implementers;
 
@@ -238,7 +240,7 @@ class StdlibReachability {
 		self.names = {};
 		self.reached = {};
 		self.pushedMethods = {};
-		self.reachedClasses = [];
+		self.methodClasses = {};
 		self.stdlibByName = {};
 		self.implementers = {};
 		Vector<Node> worklist = [];
@@ -285,9 +287,12 @@ class StdlibReachability {
 					for implementer in self.implementers.get(name) { self.reach(implementer, worklist); }
 				}
 			}
-			Map<string, bool> freshSet = {};
-			for name in fresh { freshSet.put(name, true); }
-			for reachedClass in self.reachedClasses { self.pushMethods(reachedClass, freshSet, worklist); }
+			for name in fresh {
+				if (!self.methodClasses.has(name)) { continue; }
+				Map<string, bool> named = {};
+				named.put(name, true);
+				for reachedClass in self.methodClasses.get(name) { self.pushMethods(reachedClass, named, worklist); }
+			}
 		}
 	}
 
@@ -299,7 +304,12 @@ class StdlibReachability {
 			worklist.push(declaration);
 			return;
 		}
-		self.reachedClasses.push(declaration);
+		for member in declaration.members {
+			if (member.kind != NK_METHOD_DECL) { continue; }
+			if (!self.methodClasses.has(member.name)) { Vector<Node> none = []; self.methodClasses.put(member.name, none); }
+			Vector<Node> classes = self.methodClasses.get(member.name);
+			if (classes.len == 0 || classes.get(classes.len - 1) != declaration) { classes.push(declaration); }
+		}
 		if (declaration.parent != null) { self.mentionName(declaration.parent, worklist); }
 		for iface in declaration.interfaces { self.mentionName(iface, worklist); }
 		for member in declaration.members {

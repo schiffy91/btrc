@@ -137,7 +137,7 @@ class CompilerPipeline {
 		ValidationRecords? records = null;
 		IBtrccArtifactCache? store = self.moduleUnitStore;
 		if (options.moduleUnits && !options.unitsPrefix.isEmpty() && options.useCache && store != null && resolved.strictImports) {
-			records = ValidationRecords(program, sourceDeclarations, resolved, options, store);
+			records = ValidationRecords(program, sourceDeclarations, resolved, options, store, input.nativeIdentity);
 			analyzer.configureValidationRecords(records);
 			BtrccPhaseTimer.mark("a-records");
 		}
@@ -146,6 +146,7 @@ class CompilerPipeline {
 		if (records != null) {
 			records.persist();
 			BtrccPhaseTimer.mark(f"a-records-stored(replayed={records.replayed},journaled={records.journaled})");
+			BtrccPhaseTimer.mark(f"a-instances(replayed={records.instancesReplayed})");
 		}
 		if (options.moduleUnits && !options.unitsPrefix.isEmpty()) {
 			if (!resolved.strictImports) { return self.failure("error: module units require strict imports"); }

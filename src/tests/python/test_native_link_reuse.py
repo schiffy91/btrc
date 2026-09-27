@@ -124,7 +124,12 @@ def test_library_changes_relink_without_recompiling_sources(tmp_path, change):
         archive(early, 2)
     changed = NativePlanBuilder().build(**options)
     assert changed.as_dict()["compiled_units"] == 0
-    assert changed.links == 2 and changed.link_cache_status == "stored"
+    # A library replaced at a known path is part of the last receipt's
+    # inventory, unchanged across this link, so one link qualifies. A library
+    # appearing where the last link found none (directly or through a moved
+    # search alias) voids that inventory.
+    expected_links = 1 if change == "same-mtime" else 2
+    assert changed.links == expected_links and changed.link_cache_status == "stored"
     assert output(options) == "2\n"
     assert NativePlanBuilder().build(**options).links == 0
 
@@ -149,8 +154,40 @@ def test_invalid_receipt_or_output_is_never_a_hit(tmp_path, damage):
         assert identity(options["output"]) == before
         return
     report = NativePlanBuilder().build(**options)
-    assert report.links == 2 and report.link_cache_status == "stored"
+    # A damaged output with intact inputs relinks once: the link reports the
+    # last receipt's inventory, unchanged across it. A damaged receipt has no
+    # inventory to predict, so it takes the discovery and qualifying links.
+    assert report.links == (2 if damage == "receipt" else 1) and report.link_cache_status == "stored"
     assert output(options) == "1\n"
+
+
+def test_an_unchanged_input_inventory_qualifies_a_relink_with_one_link(tmp_path):
+    options, _early, _late = library_build(tmp_path)
+    assert NativePlanBuilder().build(**options).links == 2
+    options["output"].unlink()
+    report = NativePlanBuilder().build(**options)
+    assert report.links == 1 and report.link_cache_status == "stored"
+    assert output(options) == "1\n"
+    assert NativePlanBuilder().build(**options).links == 0
+
+
+def test_an_input_changed_during_a_predicted_link_takes_the_qualifying_link(tmp_path):
+    options, _early, late = library_build(tmp_path)
+    NativePlanBuilder().build(**options)
+    options["output"].unlink()
+    changed = False
+
+    def run(command, **kwargs):
+        nonlocal changed
+        result = subprocess.run(command, **kwargs)
+        if "-dependency_info" in command and not changed:
+            changed = True
+            archive(late, 2)
+        return result
+
+    report = NativePlanBuilder(runner=run).build(**options)
+    assert report.links == 2 and report.link_cache_status == "stored"
+    assert output(options) == "2\n"
 
 
 def test_library_mutation_during_verified_link_does_not_publish_receipt(tmp_path):
@@ -180,12 +217,15 @@ def test_debug_release_and_source_changes_have_separate_identity(tmp_path):
     assert first.link_cache_status == "stored"
     options.update(debug_info=False, optimization=2)
     release = NativePlanBuilder().build(**options)
-    assert release.link_cache_status == "stored" and release.links == 2
+    # The receipt for this output predicts the link's input inventory; the
+    # release configuration and later source changes alter objects and the
+    # context, not that inventory, so each relink qualifies with one link.
+    assert release.link_cache_status == "stored" and release.links == 1
     assert NativePlanBuilder().build(**options).links == 0
     original = options["generated_c"].stat()
     options["generated_c"].write_text(options["generated_c"].read_text().replace("first", "other"))
     os.utime(options["generated_c"], ns=(original.st_atime_ns, original.st_mtime_ns))
-    assert NativePlanBuilder().build(**options).links == 2
+    assert NativePlanBuilder().build(**options).links == 1
     assert output(options) == "other\n"
 
 
@@ -238,6 +278,8 @@ def test_concurrent_configurations_cannot_reuse_each_others_executable(tmp_path,
 def test_failed_verification_link_preserves_previous_executable(tmp_path):
     options = setup_build(tmp_path)
     NativePlanBuilder().build(**options)
+    # Without the last receipt's inventory the relink needs a verification link.
+    next((options["object_cache"] / "links").glob("link-v1-*.json")).unlink()
     before = identity(options["output"])
     options["generated_c"].write_text(options["generated_c"].read_text().replace("first", "other"))
     links = 0
@@ -305,5 +347,22 @@ def test_compiler_replacement_at_same_path_invalidates_receipt(tmp_path):
     assert driver.stat().st_size == before.st_size
     os.utime(driver, ns=(before.st_atime_ns, before.st_mtime_ns))
     report = NativePlanBuilder().build(**options)
-    assert report.as_dict()["compiled_units"] == 1 and report.links == 2
+    # A replaced driver changes the context, not the link's input inventory.
+    assert report.as_dict()["compiled_units"] == 1 and report.links == 1
     assert output(options) == "2\n"
+
+
+def test_scratch_directories_do_not_change_cache_identities(tmp_path, monkeypatch):
+    """Each `nix develop` shell draws new scratch directories; a build from a
+    new shell must still reuse the objects and executable of the last one."""
+    options = setup_build(tmp_path)
+    for name in ("first", "second"):
+        (tmp_path / name).mkdir()
+    for variable in ("TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"):
+        monkeypatch.setenv(variable, str(tmp_path / "first"))
+    assert NativePlanBuilder().build(**options).link_cache_status == "stored"
+    for variable in ("TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"):
+        monkeypatch.setenv(variable, str(tmp_path / "second"))
+    report = NativePlanBuilder().build(**options)
+    assert report.as_dict()["compiled_units"] == 0
+    assert report.link_cache_status == "hit" and report.links == 0

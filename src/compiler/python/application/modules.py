@@ -22,11 +22,12 @@ from typing import NoReturn, Protocol
 
 from ..analyzer.ownership import OwnershipAnalyzer
 from ..backend.c_emitter import CEmitter
+from ..frontend.native_imports import NativeHeaderSource
 from ..frontend.sources import CompilationGroups, ResolvedSource, SourceDependencyGraph
 from ..ir.lowering.exceptions import ExceptionLowerer, FunctionEffect, ParameterEffect, SetjmpUnitSolver
 from ..ir.lowering.session import ProgramLoweringFacts
 from ..ir.lowering.types import CodegenError
-from ..ir.nodes import CType, IRCall, IRFunctionRef, IRModule, IRNode, IRVar
+from ..ir.nodes import CType, IRCall, IRFunctionRef, IRInclude, IRModule, IRNode, IRVar
 from ..ir.optimizer import IROptimizer
 from ..ir.verifier import IRVerifier
 from ..runtime.catalog import RuntimeHelperCatalog
@@ -37,6 +38,11 @@ _RECORD_SCHEMA = 2
 # The owner of the declarations-only session: a name no compilation group has.
 _DECLARATIONS = "\0declarations"
 _UNHASHED_FIELDS = frozenset({"line", "col", "name_line", "name_col", "source_file"})
+# Words of a C type spelling that name nothing a binding header declares.
+_C_TYPE_WORDS = frozenset(
+    {"struct", "union", "enum", "const", "volatile", "restrict", "signed", "unsigned"}
+    | {"char", "short", "int", "long", "float", "double", "void", "bool", "_Bool"}
+)
 
 
 class ModuleUnitStore(Protocol):
@@ -528,6 +534,7 @@ class SharedDeclarations:
 
     def __init__(self, module: IRModule) -> None:
         self._preprocessor = list(module.preprocessor_decls)
+        self._native_header_names: dict[str, set[str]] = {}
         self._entries: list[tuple[str, object]] = []
         for field_name in self._FIELDS:
             for declaration in getattr(module, field_name):
@@ -565,6 +572,52 @@ class SharedDeclarations:
             elif isinstance(node, IRFunctionRef):
                 names.add(node.name)
         return names
+
+    def configure_native_headers(self, declarations: Iterable[object]) -> None:
+        """Record the C names each native binding header declares.
+
+        Every unit otherwise includes every binding header of the program, and
+        the SDK headers behind them dominate each unit's preprocessing.
+        """
+        for declaration in declarations:
+            source = getattr(declaration, "source_file", None)
+            if not isinstance(source, NativeHeaderSource) or source.language != "c":
+                continue
+            names = self._native_header_names.setdefault(source.header, set())
+            for attribute in ("name", "alias"):
+                value = getattr(declaration, attribute, None)
+                if isinstance(value, str) and value:
+                    names.add(value)
+            names.update(value.name for value in getattr(declaration, "values", None) or () if value.name)
+            names.update(set(IROptimizer.identifier_tokens(source.type_spelling or "")) - _C_TYPE_WORDS)
+
+    def _native_include(self, declaration: object) -> bool:
+        return (
+            isinstance(declaration, IRInclude)
+            and not declaration.is_system
+            and declaration.header in self._native_header_names
+        )
+
+    def trim_native_includes(self, unit: IRModule) -> None:
+        """Keep a binding include only when the unit's C names what it declares.
+
+        The unit is emitted once without any binding include; that draft is the
+        complete inventory of identifiers the C compiler will see. A header whose
+        declared names are unknown stays.
+        """
+        everything = list(unit.preprocessor_decls)
+        others = [declaration for declaration in everything if not self._native_include(declaration)]
+        if len(others) == len(everything):
+            return
+        unit.preprocessor_decls = others
+        used = set(IROptimizer.identifier_tokens(CEmitter().emit_module_unit(unit, False)))
+        unit.preprocessor_decls = [
+            declaration
+            for declaration in everything
+            if not self._native_include(declaration)
+            or not self._native_header_names[declaration.header]
+            or self._native_header_names[declaration.header] & used
+        ]
 
     def merge_into(self, unit: IRModule) -> None:
         """Add the shared declarations `unit` needs that it does not provide."""
@@ -727,6 +780,7 @@ class ModuleUnitCompiler:
         # bodies; it also computes the program facts every session shares.
         declarations = self._lower(analyzed, filename, options, source_map, groups, _DECLARATIONS, facts)
         shared = SharedDeclarations(declarations)
+        shared.configure_native_headers(analyzed.program.declarations)
         # The program unit is always lowered: it owns native adapters and
         # defines every unit's runtime state.
         program_unit = self.lower_group(
@@ -1452,6 +1506,8 @@ class ModuleUnitWorker:
         kept = any(not function.is_static for function in unit.function_defs) or any(
             not declaration.is_extern for declaration in unit.global_decls
         )
+        if kept:
+            self._shared.trim_native_includes(unit)
         return {
             "kept": kept,
             "text": CEmitter().emit_module_unit(unit, False) if kept else "",

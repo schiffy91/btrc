@@ -2132,6 +2132,12 @@ class ExpressionLowerer {
 				elementExpected = vt.genericArgs.get(0);
 			}
 		}
+		/* An empty literal evaluates nothing between its allocation and its
+		 * consumer, so it needs no temporary and no cleanup of its own. */
+		if (node.elements.len == 0) {
+			Vector<IRNode> noArguments = [];
+			return IRNode.call(mangled + "_new", noArguments);
+		}
 		string tmp = self.context.freshTemporary("__list");
 		Vector<IRNode> declarations = [];
 		Vector<IRNode> newArgs = [];

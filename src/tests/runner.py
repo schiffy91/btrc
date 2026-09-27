@@ -55,8 +55,12 @@ def default_c_compiler() -> str:
     """The host C compiler when BTRC_CC is unset.
 
     Nix's `cc` on macOS is GCC, which emulates thread-local storage through
-    pthread keys and roughly halves the speed of every compiled btrc program,
-    the self-hosted compiler included. Apple's clang uses native TLS.
+    pthread keys, so every compiled btrc program pays a call per access where
+    Apple's clang reads a native TLV descriptor. Measured on one identical
+    generated btrcc.c, a cold BTRSmith compile takes 74.9 s from the GCC build
+    against 62.3 s from the clang build: 17% over the whole compile, and 79% on
+    the generic-instance closure, the phase densest in thread-local and ARC
+    traffic.
     """
     if sys.platform == "darwin" and shutil.which("clang"):
         return "clang"

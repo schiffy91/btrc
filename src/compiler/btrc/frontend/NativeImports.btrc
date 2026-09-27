@@ -17,6 +17,7 @@ import ../syntax/Identity.btrc;
 import ./Models.btrc;
 import ./Packages.btrc;
 import ./SourceIo.btrc;
+import ./Timing.btrc;
 
 class FeNativeDeclarationImporter {
 	private SHA256 resolvedIdentity = SHA256();
@@ -3137,6 +3138,7 @@ class FeNativeDeclarationImporter {
 		}
 
 		Map<string, FeNativeHeaderRead> prepared = useCache ? self.prepareReaders(reader, commands, groups) : new Map<string, FeNativeHeaderRead>();
+		BtrccPhaseTimer.mark("n-prepare");
 
 		for index in range(bindings.len) {
 			var binding = bindings.get(index);
@@ -3189,6 +3191,7 @@ class FeNativeDeclarationImporter {
 			if (self.mainThreadGlobals.len > 0) { self.fail("main-thread-globals names a non-object-global declaration"); }
 			for identity in self.stringViews.keys() { if (!self.usedStringViews.has(identity)) { self.fail("string-views requires a mapped C one-shot callback argument"); } }
 		}
+		BtrccPhaseTimer.mark("n-bindings");
 		for imported in self.declarations { if (self.resourceOperations.has(imported.declaration.name)) { self.fail("resource lifetime operations are reserved across native bindings"); } }
 		self.projectRecordInputs(bindings);
 		self.validateRecordCallbacks();

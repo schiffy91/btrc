@@ -1789,6 +1789,9 @@ class FePackageImportPolicy {
 	private Map<string, FeParsedPackageManifest> manifests;
 	private FeSourcePathPolicy paths;
 	private FeSourceFileReader files;
+	/* Visibility asks for the manifest of every file each source reaches:
+	 * a file's answer is remembered, as its directory's owner already is. */
+	private Map<string, string> manifestOf = {};
 
 	public FePackageImportPolicy(FePackageTarget target = null) {
 		self.target = target;
@@ -1833,6 +1836,7 @@ class FePackageImportPolicy {
 	}
 
 	private string manifestFor(string source) {
+		if (self.manifestOf.has(source)) { return self.manifestOf.get(source); }
 		string directory = PathTools.dirname(self.paths.absolute(source));
 		Vector<string> visited = [];
 		while (!self.owners.has(directory)) {
@@ -1845,6 +1849,7 @@ class FePackageImportPolicy {
 		}
 		string owner = self.owners.get(directory);
 		for path in visited { self.owners.put(path, owner); }
+		self.manifestOf.put(source, owner);
 		return owner;
 	}
 

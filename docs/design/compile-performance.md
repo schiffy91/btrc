@@ -5968,6 +5968,8 @@ Two measurement traps:
 - **The environment digest.** Receipt identities include the full
   environment, and each `nix develop` invocation has a fresh `TMPDIR`, so
   receipts do not carry across shells. A build from one shell is unaffected.
+  (Fixed September 26: the native plan and both compilers run the reader
+  without `TMPDIR`, `TMP`, `TEMP`, `TEMPDIR` and `NIX_BUILD_TOP`.)
 
 Follow-up the same day: preparing receipts was mostly driver expansion. Each
 unit ran `clang -###` through the Nix wrapper script, about 0.25 s, and 408

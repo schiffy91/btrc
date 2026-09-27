@@ -62,12 +62,274 @@ Design and measurements:
 demand (discovery's method scan and the closure's declaration scan). Slice 3
 replays realtime scans. Three scope copies now use the slot-copying
 `Map.merge`. Module-unit keys reuse the records' interface digest. The same
-edit build retires 43.2% fewer instructions than without records (246.5
-against 433.9 billion), and cold builds 2.6% fewer (436.5 against 448.3).
+edit build retires 50.3% fewer instructions than without records (215.8
+against 433.9 billion). Per-instance closure records contribute part of
+that. Cold builds are about 2% cheaper (439.6 against 448.3).
+
+*Wall clock, September 26* (BTRSmith through `make/Product.mk`, module
+units, two workers; compile, native compile and link):
+
+| Scenario | September 24 | September 26 | Budget |
+| --- | ---: | ---: | ---: |
+| Edit, three fixtures | 44 s (compiler 37, native 6) | 25.0–26.3 s (compiler 17.9–19.3, native 6.4–6.5) | ≤10 s |
+| No-op | 8.5 s | 9.1 s (compiler 3.2, native 5.2) | ≤5 s |
+| Cold | 165 s | 164 s (compiler 80.5, native 82.9) | ≤80 s compiler |
+
+The native link receipt now remembers file identities and toolchain queries
+within one link. It computes its context three times around the qualifying
+links, and each time re-launched the driver, `ld -v` and `clang --version`
+and re-hashed every object. Link validation fell from 1.62 s to 0.74 s.
+
+| Scenario | With the link receipt change |
+| --- | ---: |
+| Edit | 22.4–23.8 s (compiler 16.6–18.0, native 5.3) |
+| No-op | 7.4 s |
+| Cold | 150 s |
+
+Every module unit had included every native binding header of the
+program: CoreAudio, CoreText, WebGPU, sqlite and others. One unit
+preprocessed 50,352 lines from 622 headers; without the unused bindings it
+needs 6,993 lines from 189. A group unit is now emitted once without its
+binding includes, and only the headers that declare a name its C mentions
+are restored. The rest stay out: `Hardware.h` reaches 6 of 405 units instead
+of all of them.
+
+| Scenario | With trimmed native includes |
+| --- | ---: |
+| Edit | 21.1–22.5 s (compiler 16.1–17.4, native 4.5–4.6) |
+| No-op | 6.8 s |
+| Cold | 134.6 s (native 55.0 s; summed dependency scans 468 → 318 s) |
+
+Two more native-plan changes:
+- **One qualifying link.** A relink whose linker reports exactly the last
+  receipt's input inventory, snapshotted unchanged before and after the
+  link, needs no second link. Edits link once: 20.8–21.6 s end to end,
+  native 4.0–4.2 s.
+- **Scratch directories.** Object-cache keys, link receipts and
+  preprocessing identities hashed the whole environment, and every `nix
+  develop` shell draws new `TMPDIR`, `TMP`, `TEMP`, `TEMPDIR` and
+  `NIX_BUILD_TOP` values, so each new shell recompiled all 408 native units.
+  Those five variables no longer decide cache identities. The first build in
+  a new shell falls from 60.5 s to 9.4 s. Both compilers now also run the
+  native header reader without them. The reader keys its SDK responses by
+  its environment, so the first compile in each new shell had spent 3.8 s,
+  instead of 1.0 s, importing native declarations.
+
+A no-op build still relinks (about 1 s: link, link validation and
+re-signing).
+- **The cause is signing, not debug objects.** Debug generations are
+  content-addressed and keep their paths, so the link context matches
+  exactly. BTRSmith's `LINK_BTRC` code-signs the executable after the
+  native plan when a local signing identity exists. The receipt records
+  the unsigned executable, so the next build sees a changed output and
+  relinks and signs again.
+- **The fix spans both repositories.** The native plan would accept an
+  attested post-link identity. For example, BTRSmith would run
+  `native_plan --attest-output` after `SIGN_CODE`, and the receipt would
+  then accept the signed executable. The signing keychain stays with the
+  product's Makefile.
+September 26, later: module-unit records became a line format; replayed
+realtime callables skip their variable tables; each file's package manifest
+is looked up once (visibility 0.80 → 0.39 s); the stdlib reachability
+closure indexes reached classes' methods by name, so a newly mentioned name
+visits only its own classes (lowering setup 0.91 → 0.48 s, both compilers);
+and an empty list or map literal lowers to a plain constructor call with no
+temporary or cleanup registration, in both compilers (the ARC cleanup stack
+was a tenth of the compile). The edit compile retires 184.0 billion
+instructions, down from 213.1; the cold compile 412 billion, down from 434.
+End to end through make/Product.mk: an edit takes 18.5–20.1 s (compiler
+14.0–15.5, native about 4.1), a cold build 134.9 s.
+
+**September 26, worker-count sweep (cold module-unit compile of
+`src/BTRSmith.btrc`, compiler only, M1 Max 8P+2E, inside BTRSmith's dev
+shell).** Wall clock and peak system-wide anonymous growth over a pre-build
+baseline, sampled once a second:
+
+| Compiler | Jobs | Wall | Peak anonymous growth |
+| --- | ---: | ---: | ---: |
+| pre-Stage-B (`vmark`) | 2 | 78.6 s | 6.06 GiB |
+| pre-Stage-B (`vmark`) | 4 | 64.3 s | 6.61 GiB |
+| Stage B (`nmark`) | 2 | 80.6 s | 6.42 GiB |
+| Stage B (`nmark`) | 4 | 63.3 s | 6.85 GiB |
+| Stage B (`nmark`) | 6 | 61.2 s | 7.28 GiB |
+| Stage B (`nmark`) | 8 | 60.2 s | 7.84 GiB |
+
+Three things follow, and two of them constrain the plan.
+
+- **Worker parallelism is saturated at four.** Four to eight workers buys
+  3.1 s of 63.3 s, about 5%, for a further 1.0 GiB. The serial remainder —
+  whole-program analysis, the interface digest, the setjmp and realtime
+  program solves — sets a floor near 60 s that no worker count reaches past.
+  Bounded ready-group parallelism is therefore **not** the path from here to
+  the ≤20 s cold budget; a 3× gap remains at eight workers. Treat four as the
+  default ceiling and spend the next cold work on the serial remainder.
+- **The 6 GiB aggregate ceiling is already exceeded, and was before Stage B.**
+  Two workers reach 6.06 GiB on the pre-Stage-B compiler and 6.42 GiB on this
+  one; the earlier 5.93 GiB figure for two workers is consistent with the
+  former. Every measured configuration is over budget, so the ceiling needs
+  either a documented revision or real allocation work. This is a KPI gap, not
+  a rounding error, and no worker count fixes it.
+- **Stage B is cold-neutral and costs about 0.3 GiB.** Its wall clock moves
+  −1.0 s at four workers and +2.0 s at two, mixed and inside run-to-run noise;
+  its peak grows 0.36 GiB at two workers and 0.24 GiB at four. That is the
+  expected shape: records and journals are an edit-build optimization, so a
+  cold build pays to write them and has nothing to replay. The edit win
+  (433.9 → 184.0 billion instructions) is unaffected by this.
+
+Measured with `scratchpad/measure_anon.sh`; the compiler-only figure is not the
+end-to-end cold build, which also runs native compilation and the link.
+
+**Where the peak actually sits.** Two workers already reach 6.06 GiB on the
+pre-Stage-B compiler, and each further worker adds only about 0.21 GiB, so the
+owner's own footprint is roughly 5.6 GiB of the peak and the workers are a
+minor term. Cutting peak memory means cutting what the owner holds, which is
+M8a's subject rather than a scheduling change.
+
+`Node()` initializes **21 vectors for every AST node**, whatever its kind: an
+identifier allocates twenty-one empty vectors it never reads. Two cheap-looking
+repairs do not survive inspection:
+
+- **One shared immutable empty vector as every field's default.** Unsafe. The
+  self-hosted compiler pushes directly onto these fields in 259 places
+  (`params` 152, `fields` 47, `declarations` 23, `members` 16, `methods` 8,
+  `genericParams` 6, `values` 4, `interfaces` 3), so the first push would
+  publish its element into every other node sharing that default.
+- **Per-kind initialization, leaving a kind's unused fields null.** The
+  generator knows each constructor's fields, so this is mechanical, but fat
+  tagged nodes are read by code that does not always check `kind` first, and a
+  null vector turns a harmless empty read into a compiler crash. It needs an
+  audit of every read site, not just the 259 writes.
+
+What remains is an accessor migration — reads through a method that answers a
+shared empty, writes through a method that allocates on demand — across both
+the generated node and its consumers. That is a real M8a slice, not an
+afternoon's edit, and it should be measured against the 5.6 GiB owner footprint
+before it is started.
+
+**September 26, where the serial floor actually is.** The compiler already
+carries a dense phase timer (`BTRC_TIMING`), so the cold build's composition is
+readable directly rather than inferred. At four workers on BTRSmith the owner's
+own phase marks account for 61.2 s of a 62.3 s wall, and they split cleanly:
+
+| part | seconds | what it is |
+| --- | ---: | --- |
+| parallel wait (`u-lowered`, `u-solve`, `u-optimize`) | 29.6 | the owner blocked on forked workers |
+| serial remainder | 31.6 | everything the owner does itself |
+
+Against a one-worker run, the parallelized work scales unevenly: lowering
+2.83x, optimization 3.37x, but the **setjmp solve only 1.84x**. Its note reads
+`setjmp-analyses=858/439, rounds=5, levels=15`: nearly every group is analyzed
+twice, and the solve's `while (changed)` x per-level loop is a barrier per
+level, so most waves hold few groups. The level assignment itself is a correct
+Tarjan condensation, so the extra rounds come from cyclic components iterating,
+not from mis-ordering. Flattening those barriers is the one scheduling change
+still worth making; it is worth at most a few seconds of the 29.6.
+
+The serial 31.6 s is the real obstacle, and no worker count touches it. Its
+largest terms are `v-bodies` 5.17 s, `g-transitive` 5.02 s, `n-bindings`
+2.66 s, `r-scan` 2.30 s, `a-records` 2.26 s and `c-declarations` 2.15 s. A
+20 s cold build therefore needs the serial front end and analysis moved
+per-group, which is Stage B's destination, not more workers.
+
+*One phase attributed and one hypothesis refuted.* `g-transitive` looked like a
+redundant fixed point: `registerTransitiveGenericInstances` wrapped its
+instance walk in `while (changed)` although the walk re-reads `.len` each step
+and so already processes the instances it appends. That outer loop was indeed
+dead work, and removing it is provably equivalent — instances are only
+appended, and what an instance implies depends on its own arguments and the
+static generic class table, never on which others are registered. Every one of
+the 403 emitted units is byte-identical before and after. But it was worth only
+about 0.2 s: a new `g-members` mark shows the member walk costs **0.10 s**, and
+the whole 8.8 s of that phase is `closeGenericInstanceGraph`. A counter
+(`instance-closure`) puts the shape beyond doubt: **274 class instances, no
+method instances, about 32 ms per instance**, all in the first of its three
+calls. Per-instance template-body scanning under substitution is the cost, and
+it is the phase to attack — not the loop that surrounded it.
+
+*The slice this implies.* The 274 instances cover only **19 distinct generic
+class templates** (17 in the stdlib — `Vector`, `Map`, `Set`, `Array`, `List`,
+`Result`, the closure and callback families — plus BTRSmith's `CtlRunner` and
+`McpProcess`), about fourteen instances per template. The closure currently
+walks each instance's whole hierarchy and infers every expression in it, so it
+pays that cost fourteen times over per template. Scanning a template **once**,
+recording the generic type expressions it mentions in terms of its own type
+parameters, and then substituting per instance would replace 274 inference
+walks with 19 walks plus 274 cheap substitutions — roughly a fourteenfold
+reduction of the phase, worth about 8 s of a gcc-built cold compile and 4.5 s
+of a clang-built one.
+
+The risk is precisely stated: not every instance the live walk registers is
+symbolically derivable, because some arise from types *inferred* under the
+substitution rather than written in the template. A symbolic pre-pass is
+therefore a cache that must be proven equal to the live walk, not a
+replacement assumed correct. The repository already has the right shape for
+that — `BTRC_VERIFY_VALIDATION_RECORDS` proves replayed Stage B records
+against live analysis — so this slice should ship behind the same kind of
+verification gate and stay off until it agrees on the corpus and on BTRSmith.
+
+**September 26, the gcc/clang gap on btrcc, measured.** The repository already
+knows this one: `default_c_compiler()` in `src/tests/runner.py` prefers Apple
+clang on Darwin precisely because nix's `cc` is gcc, which emulates
+thread-local storage through pthread keys. The whole harness routes through it,
+the bootstrap included, and `C11_CC ?= gcc` is deliberate coverage of the
+generated C under both compilers rather than an oversight. What was missing was
+a number for the real workload. Two builds of one identical generated
+`btrcc.c`, same flags, alternating on the same cold compile:
+
+| btrcc built by | cold wall | `g-transitive` | `c-declarations` | `v-bodies` | `parse` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| gcc 15.2 (nix's `cc`) | 74.9 s | 8.77 s | 3.34 s | 6.54 s | 1.98 s |
+| Apple clang 21 | 62.3 s | 4.90 s | 2.17 s | 5.20 s | 1.64 s |
+
+So **17% overall, and 79% on the generic-instance closure** — the phases
+heaviest in thread-local and ARC traffic. A sample of the gcc build confirms
+the mechanism: `__emutls_get_address` and `pthread_getspecific` together take
+about 3,800 of its leaf samples. This refines the claim in that docstring,
+which says gcc "roughly halves the speed of every compiled btrc program": on
+this workload the whole-compile penalty is 17%, not 50%, though one phase
+approaches the stronger figure.
+
+Two practical consequences. First, **every cold or edit figure in this plan
+must name the C compiler that built the measured `btrcc`**, because 17% dwarfs
+most of the individual cuts recorded here — the lexical type-map copy cut was
+3.35%. Measuring by hand inside a nix dev shell silently gets the gcc build,
+which is how the first pass of this comparison went wrong; the quick tell is
+binary size, about 20.7 MB from clang against 13.0 MB from gcc for the same
+`.c`. The worker-count sweep above used a clang build and stands. Second, the
+thread-local consolidation recorded as rejected in `AGENTS.md` was measured on
+clang, where a thread-local is a cheap TLV read, so that result says nothing
+about gcc builds — but since every gate that builds `btrcc` already selects
+clang, the question is academic rather than load-bearing.
+
+The native plan then batched its cold path. The shared preparation had only
+validated existing receipts. On a cold build every unit missed and started
+its own driver expansion and reader session, and after compiling it started
+another pair, 816 in all (summed scan 333 s). The shared preparation now
+captures missing receipts in its chunked sessions. After every compile, one
+more batch revalidates the compiled units, and an object is published only
+under an unchanged key. Cold native falls from 56–58 s to 22–23 s, and an
+edit's native step from 4.1 s to 3.65 s. End to end, an edit takes
+18.05–19.65 s, and a cold build is about 101 s (a 78 s compile plus 23 s
+native).
+
+The no-op build takes 6.6–6.9 s, over the ≤5 s guard:
+- **Compiler, 2.4–2.9 s.** Source graph 0.5 s, native import 1.0 s (the
+  reader's session validation 0.57 s, then cached-response decoding 0.44 s),
+  and the artifact-cache hit 0.23 s.
+- **Native plan, 3.2–3.7 s.** Preprocessing receipt validation takes 1.75 s:
+  one reader call over 408 units' receipts, which already shares
+  observations across units. The relink and re-signing take 1.3 s, and the
+  native compiler context 0.65 s.
+- **What would close the gap needs a decision.** One option is the
+  cross-repository signing attestation above (about 1.3 s). The other is a
+  whole-build fast path keyed by the stat identities (including ctime) of
+  every observed input. That relaxes the reader's content-hash trust model,
+  so it is not taken unilaterally.
+
 Units stay byte-identical, and the verify gate passes on BTRSmith and all 965
 corpus programs. Next:
-- per-instance closure records (about 3 s);
 - cheaper realtime record decoding (about 1 s);
+- per-declaration stdlib reachability names (about 0.8 s);
 - the lowering declarations session (about 3 s);
 - front-end caching;
 - the reference compiler's records.

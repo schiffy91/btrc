@@ -52,6 +52,20 @@ The test harness builds the self-hosted compiler once per source revision and
 caches it under `build/test-btrcc/<fingerprint>/`; a change to any compiler
 source, the stdlib, a shared spec, a runtime asset, or the C compiler version
 invalidates it. Set `BTRC_TEST_BTRCC` to reuse a binary you built yourself.
+### Measuring a compile
+
+Name the C compiler that built the `btrcc` you measured. Nix's `cc` on macOS is
+gcc, which emulates thread-local storage; the same generated `btrcc.c` built by
+gcc runs a cold BTRSmith compile in 74.9 s against clang's 62.3 s, 17% slower
+overall and 79% slower on the generic-instance closure. The test harness
+already selects clang through `default_c_compiler()`, so this bites hand-rolled
+measurement inside a dev shell, not the gates. The quick tell is binary size:
+about 20.7 MB from clang against 13.0 MB from gcc.
+
+`BTRC_TIMING=1` prints a per-phase breakdown for a whole compile, owner and
+each forked worker on their own lines, which is enough to attribute a cold
+build without attaching a profiler.
+
 ### Performance changes already measured and rejected
 
 Each of these was implemented or prototyped, measured, and abandoned. Do not
@@ -67,7 +81,11 @@ retry them without new evidence:
   stack address yields a 900-byte read from a 16-byte buffer.
 - **Consolidating the thread-locals.** `_tlv_get_addr` was 45% of profile
   samples, but a build with `_Thread_local` stripped was not faster.
-  Leaf-sample share is not speedup.
+  Leaf-sample share is not speedup. This was measured on a **clang** build,
+  where a thread-local is a cheap TLV descriptor read, so it says nothing about
+  gcc builds, which emit emulated TLS. That distinction is already handled:
+  `default_c_compiler()` in `src/tests/runner.py` selects clang on Darwin, and
+  every gate that builds `btrcc` routes through it.
 - **`-ftls-model=local-exec`.** Identical timings; Darwin resolves
   thread-locals through its own TLV descriptors, not the ELF models that flag
   selects.

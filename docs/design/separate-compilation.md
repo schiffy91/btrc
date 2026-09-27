@@ -445,10 +445,108 @@ Two smaller cuts:
   among all type nodes, then anywhere, so a cold build rarely indexes every
   node.
 
+#### Per-instance closure records (September 25)
+
+The instance closure scans every generic class and method instance's
+members under substitution. Each scan is now recorded as a demand journal:
+- class and method instances;
+- call arguments under the instance's context, which go to
+  `instanceMethodCallArgs`.
+
+Records live in one rewritable record per template group,
+`validation-instances-v1`:
+- keyed by the group's record key;
+- loaded on first use;
+- with sections added as new instances appear.
+
+A section is named by the instance's context and by whether validation had
+run when it was scanned. An instance discovered before validation reads no
+validation facts, so the same instance can be recorded at both stages.
+Replay runs in place in the closure loop, under the instance's context, so
+the instance lists come out in the same order. Instance records keep their
+own dependency set. Mixing it into the validation records' set had made an
+unrelated group's validation record depend on the edited group.
+
+Also: `registerGenericInstanceWithUnresolved` computes the instance key
+once, for both de-duplication tables, and mangles only new instances. The
+inference memo is keyed by node identity.
+
+*Result on BTRSmith* (same edit):
+- **Edit-build cost:** 215.8 billion instructions (−50.3% against 433.9
+  without records); 276 instance scans replay.
+- **Instance closure:** about 2.7 s falls to 1.5 s (throttled).
+- **Cold build:** 439.6 billion.
+- **Correctness:** units byte-identical, verify passes, and all 965 corpus
+  programs verify.
+
 *Not yet:*
 - The reference compiler has no records (its output is unaffected).
-- Per-instance closure records, cheaper realtime record decoding, and the
-  lowering declarations session are next.
+- Stdlib reachability's per-declaration name walks (about 0.8 s) and the
+  lowering declarations session (about 4 s) are the largest per-build costs
+  left in analysis and lowering.
+- The front end (parse, native headers, visibility, graph; about 5 s) needs
+  per-file caching.
+
+#### What an edit build still spends (September 26)
+
+Wall clock, BTRSmith, three fixture edits: 22.4–23.8 s end to end (compiler
+16.6–18.0 s, native 5.3 s), against a 10 s budget. Throttled phase marks
+split the compiler share roughly as:
+
+| Area | Seconds | Kind |
+| --- | ---: | --- |
+| Front end: parse 1.8, native header import 1.5, visibility 0.9, dependency graph 0.8, lex 0.6 | ~5.6 | per build, whole program |
+| Declarations-only lowering session | ~4 | per build, whole program |
+| Module-unit plumbing: record parse 1.2, setjmp solve 1.2, record setup 0.6 | ~3 | per build |
+| Generic instance closure (fixed point, instances not yet recorded) | ~1.4 | per build |
+| Realtime record decoding | ~0.9 | per build |
+
+The native step's 5.3 s is:
+- preprocessing receipts: 2.0 s, spent in the header reader's session
+  (which already shares filesystem observations across units);
+- two links (discovery and qualification): 0.85 s;
+- link validation: 0.74 s;
+- dependency scans and cache validation.
+
+Records have removed the per-declaration analysis. What remains is
+whole-program work that runs on every build, and the next steps each remove
+one such pass:
+
+1. **Declarations session cache.** For a body-only edit the program
+   identity (interface plus analysis facts) is unchanged, so the
+   declarations-only IR is too. Caching it needs an IR codec for the node
+   kinds that session produces (about 3–4 s).
+2. **Durable standard-library front end.** The inline standard library is
+   identical across builds, so its tokens and AST could be restored.
+   Restoring allocates as many nodes as parsing does, so prototype the
+   decoder and measure it before building on it.
+3. **Native step.**
+   - Skip the qualifying second link when the output will be replaced
+     anyway (about 0.4 s).
+   - Make receipt-session parsing cheaper in the reader (about 1 s).
+*September 26 follow-up.* Measured end to end after these steps: an edit takes
+20.8–21.6 s (compiler about 16.5 s, native 4.0–4.2 s), a no-op 6.3 s, and a cold
+build about 135 s.
+- **Items that can be removed incrementally**, with estimated wall-clock
+  gains:
+  - the declarations session: IR and facts serializers, keyed after
+    reachability (about 1.4 s);
+  - module-unit record loading: one opened store root (about 0.35 s; the
+    line format replaced JSON records on September 26 and removed 8.3 G of
+    the edit's 213.1 G instructions);
+  - realtime record decoding (about 0.6 s);
+  - the instance closure's remaining fixed point (about 1 s);
+  - front-end parse caching for the durable standard library (unmeasured).
+- **Together** they leave the compiler near 9 s, and the native step about
+  4 s on top.
+- **Conclusion:** the ≤10 s edit budget needs the resident compiler in step 4,
+  or an equivalent that keeps the analyzed program between builds.
+
+4. **Resident compiler (not in the plan).** A process that keeps the
+   analyzed program between builds would re-parse and re-analyze only the
+   edited group, which is the most direct route under 10 s. Its lifetime,
+   invalidation and memory policy are a product decision.
+
 
 Allocation is a separate lever and the only one that also reduces cold time
 and memory; the reports put arena gains at roughly 10–20% and more with a
@@ -598,9 +696,11 @@ how btrcc lowers generics:
   diagnostic is reported as whole-program DCE would.
 
 Records are stored as two files per key in the self-hosted artifact cache:
-`unit.c` holds the C text verbatim, and `record.json` starts with the digests
-of the record and of the text, followed by the record JSON (reference-graph
-edges as one tab- and newline-separated string). Either digest failing is a
+`unit.c` holds the C text verbatim, and `record.txt` starts with the digests
+of the record and of the text, followed by the record itself: one
+tab-separated line per field, then counted sections for the effect summaries,
+realtime proofs and reference-graph edges, so reading it back is a split per
+line. Either digest failing is a
 miss. Module-unit cache opens skip revalidating every input read so far: a key
 already digests the exact group sources, and publishing the build still
 validates.

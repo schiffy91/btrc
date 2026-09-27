@@ -1678,7 +1678,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		self.close();
 	}
 
-	/* A module unit under its key, or null on any doubt. `record.json` starts
+	/* A module unit under its key, or null on any doubt. `record.txt` starts
 	 * with the digests of the record and of `unit.c`, which holds the text. */
 	public BtrccModuleUnitPayload? loadModuleUnit(string identity) {
 		BtrccModuleUnitPayload? payload = null;
@@ -1686,7 +1686,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 			if (self.open("module-unit\n" + identity, false)) {
 				var lease = self.lease;
 				if (lease != null) {
-					var stored = lease.readRegularChild("record.json", 536870912);
+					var stored = lease.readRegularChild("record.txt", 536870912);
 					if (stored.ok() && stored.found() && stored.bytes().isNulFreeUtf8()) {
 						string framed = stored.bytes().toString();
 						if (framed.length() > 130 && framed[64] == ' ' && framed[129] == '\n') {
@@ -1716,7 +1716,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 				var lease = self.lease;
 				if (lease != null && lease.replaceRegularChildDurably("unit.c", Bytes.fromString(payload.text)).committed()) {
 					string framed = self.payloadDigest(-1, payload.record) + " " + self.payloadDigest(-2, payload.text) + "\n" + payload.record;
-					lease.replaceRegularChildDurably("record.json", Bytes.fromString(framed));
+					lease.replaceRegularChildDurably("record.txt", Bytes.fromString(framed));
 				}
 			}
 		}

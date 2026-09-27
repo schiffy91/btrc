@@ -163,15 +163,20 @@ class ModuleUnitSummaries {
 	class bool decode(string text, Map<string, SetjmpFunctionEffect> out) {
 		if (text.isEmpty()) { return true; }
 		for line in Strings.split(text, "\n") {
-			int tab = line.indexOf("\t");
-			if (tab <= 0) { return false; }
-			Vector<string> fields = Strings.split(line.substring(tab + 1, line.length() - tab - 1), "|");
-			if (fields.len != 4 || !(fields.get(3).equals("0") || fields.get(3).equals("1"))) { return false; }
-			SetjmpFunctionEffect effect = SetjmpFunctionEffect();
-			if (!ModuleUnitSummaries.parametersFrom(fields.get(0), effect.writes) || !ModuleUnitSummaries.parametersFrom(fields.get(1), effect.captures) || !ModuleUnitSummaries.parametersFrom(fields.get(2), effect.returns)) { return false; }
-			effect.unknownReturn = fields.get(3).equals("1");
-			out.put(line.substring(0, tab), effect);
+			if (!ModuleUnitSummaries.decodeLine(line, out)) { return false; }
 		}
+		return true;
+	}
+
+	class bool decodeLine(string line, Map<string, SetjmpFunctionEffect> out) {
+		int tab = line.indexOf("\t");
+		if (tab <= 0) { return false; }
+		Vector<string> fields = Strings.split(line.substring(tab + 1, line.length() - tab - 1), "|");
+		if (fields.len != 4 || !(fields.get(3).equals("0") || fields.get(3).equals("1"))) { return false; }
+		SetjmpFunctionEffect effect = SetjmpFunctionEffect();
+		if (!ModuleUnitSummaries.parametersFrom(fields.get(0), effect.writes) || !ModuleUnitSummaries.parametersFrom(fields.get(1), effect.captures) || !ModuleUnitSummaries.parametersFrom(fields.get(2), effect.returns)) { return false; }
+		effect.unknownReturn = fields.get(3).equals("1");
+		out.put(line.substring(0, tab), effect);
 		return true;
 	}
 }
@@ -204,32 +209,6 @@ class ModuleUnitRecord {
 
 	public ModuleUnitRecord() {}
 
-	class JSONValue parameterEffects(Vector<SetjmpParameterEffect> effects) {
-		Vector<string> keys = [];
-		for effect in effects { keys.push(Strings.fromInt(effect.index) + ":" + Strings.fromInt(effect.depth)); }
-		keys.sort();
-		JSONValue array = JSONValue.makeArray();
-		for key in keys { array.push(JSONValue.makeString(key)); }
-		return array;
-	}
-
-	class JSONValue effectJson(SetjmpFunctionEffect effect) {
-		JSONValue value = JSONValue.makeObject();
-		value.set("writes", ModuleUnitRecord.parameterEffects(effect.writes));
-		value.set("captures", ModuleUnitRecord.parameterEffects(effect.captures));
-		value.set("returns", ModuleUnitRecord.parameterEffects(effect.returns));
-		value.set("unknown-return", JSONValue.makeBool(effect.unknownReturn));
-		return value;
-	}
-
-	class JSONValue effectsJson(Map<string, SetjmpFunctionEffect> effects) {
-		Vector<string> names = effects.keys();
-		names.sort();
-		JSONValue value = JSONValue.makeObject();
-		for name in names { value.set(name, ModuleUnitRecord.effectJson(effects.get(name))); }
-		return value;
-	}
-
 	class JSONValue stringsJson(Vector<string> values) {
 		JSONValue array = JSONValue.makeArray();
 		for value in values { array.push(JSONValue.makeString(value)); }
@@ -251,64 +230,80 @@ class ModuleUnitRecord {
 		return Strings.join(lines, "\n");
 	}
 
-	class bool decodeProofs(string text, Map<string, Vector<string>> out) {
-		if (text.isEmpty()) { return true; }
-		for line in Strings.split(text, "\n") {
-			Vector<string> row = Strings.split(line, "\t");
-			if (row.get(0).isEmpty() || out.has(row.get(0))) { return false; }
-			Vector<string> callees = [];
-			for (int index = 1; index < row.len; index++) { callees.push(row.get(index)); }
-			out.put(row.get(0), callees);
+	class bool decodeProofLine(string line, Map<string, Vector<string>> out) {
+		Vector<string> row = Strings.split(line, "\t");
+		if (row.get(0).isEmpty() || out.has(row.get(0))) { return false; }
+		Vector<string> callees = [];
+		for (int index = 1; index < row.len; index++) { callees.push(row.get(index)); }
+		out.put(row.get(0), callees);
+		return true;
+	}
+
+	/* One line per field and one counted section per table, tab-separated,
+	 * so reading a record back is a split per line with nothing to unescape.
+	 * Empty when a value cannot be carried in the format, and then nothing
+	 * is stored. */
+	public string toText() {
+		Vector<string> lines = ["btrc-module-unit-record\t4", "group\t" + self.group];
+		Vector<string> flags = ["flags"];
+		for flag in [self.kept, self.hasSetjmp, self.effectsSolved, self.releasesCyclable, self.definesEntry, self.programRelease] { flags.push(flag ? "1" : "0"); }
+		lines.push(Strings.join(flags, "\t"));
+		lines.push(ModuleUnitRecord.listLine("exports", self.exports));
+		lines.push(ModuleUnitRecord.listLine("helpers", self.helpers));
+		lines.push(ModuleUnitRecord.listLine("realtime-roots", self.realtimeRoots));
+		lines.push(ModuleUnitRecord.listLine("kept-instances", self.keptInstances));
+		lines.push(ModuleUnitRecord.listLine("graph-roots", self.graph.roots));
+		Vector<string> instances = self.graph.instances.keys();
+		instances.sort();
+		lines.push(ModuleUnitRecord.listLine("graph-instances", instances));
+		ModuleUnitRecord.section(lines, "exported-effects", ModuleUnitSummaries.encode(self.exportedEffects));
+		ModuleUnitRecord.section(lines, "consulted-effects", ModuleUnitSummaries.encode(self.consultedEffects));
+		ModuleUnitRecord.section(lines, "realtime-proofs", ModuleUnitRecord.encodeProofs(self.realtimeProofs));
+		Vector<string> edges = [];
+		Vector<string> sources = self.graph.edges.keys();
+		sources.sort();
+		for name in sources {
+			Vector<string> row = [name];
+			row.extend(self.graph.edges.get(name));
+			edges.push(Strings.join(row, "\t"));
+		}
+		ModuleUnitRecord.section(lines, "graph-edges", Strings.join(edges, "\n"));
+		if (self.group.indexOf("\t") >= 0 || self.group.indexOf("\n") >= 0) { return ""; }
+		return Strings.join(lines, "\n");
+	}
+
+	class string listLine(string name, Vector<string> values) {
+		Vector<string> row = [name];
+		row.extend(values);
+		return Strings.join(row, "\t");
+	}
+
+	class void section(Vector<string> lines, string name, string text) {
+		Vector<string> rows = [];
+		if (!text.isEmpty()) { rows = Strings.split(text, "\n"); }
+		lines.push("@" + name + "\t" + Strings.fromInt(rows.len));
+		lines.extend(rows);
+	}
+
+	class bool listFrom(string line, string name, Vector<string> out) {
+		Vector<string> row = Strings.split(line, "\t");
+		if (!row.get(0).equals(name)) { return false; }
+		for (int index = 1; index < row.len; index++) {
+			if (row.get(index).isEmpty()) { return false; }
+			out.push(row.get(index));
 		}
 		return true;
 	}
 
-	public string toJson() {
-		JSONValue root = JSONValue.makeObject();
-		root.set("schema", JSONValue.makeInt(3));
-		root.set("group", JSONValue.makeString(self.group));
-		root.set("kept", JSONValue.makeBool(self.kept));
-		root.set("exports", ModuleUnitRecord.stringsJson(self.exports));
-		root.set("has-setjmp", JSONValue.makeBool(self.hasSetjmp));
-		root.set("effects-solved", JSONValue.makeBool(self.effectsSolved));
-		root.set("exported-effects", ModuleUnitRecord.effectsJson(self.exportedEffects));
-		root.set("consulted-effects", ModuleUnitRecord.effectsJson(self.consultedEffects));
-		root.set("releases-cyclable", JSONValue.makeBool(self.releasesCyclable));
-		root.set("defines-entry", JSONValue.makeBool(self.definesEntry));
-		root.set("program-release", JSONValue.makeBool(self.programRelease));
-		root.set("helpers", ModuleUnitRecord.stringsJson(self.helpers));
-		root.set("realtime-roots", ModuleUnitRecord.stringsJson(self.realtimeRoots));
-		root.set("realtime-proofs", JSONValue.makeString(ModuleUnitRecord.encodeProofs(self.realtimeProofs)));
-		self.graph.writeTo(root);
-		root.set("kept-instances", ModuleUnitRecord.stringsJson(self.keptInstances));
-		return root.stringify();
-	}
-
-	class bool parameterEffectsFrom(JSONValue value, Vector<SetjmpParameterEffect> out) {
-		if (!value.isArray()) { return false; }
-		for (int index = 0; index < value.size(); index++) {
-			if (!value.at(index).isString()) { return false; }
-			string key = value.at(index).asString();
-			int separator = key.indexOf(":");
-			if (separator <= 0 || separator >= key.length() - 1) { return false; }
-			out.push(SetjmpParameterEffect(Strings.toInt(key.substring(0, separator)), Strings.toInt(key.substring(separator + 1, key.length() - separator - 1))));
-		}
-		return true;
-	}
-
-	class bool effectsFrom(JSONValue value, Map<string, SetjmpFunctionEffect> out) {
-		if (!value.isObject()) { return false; }
-		for name in value.keys() {
-			JSONValue row = value.get(name);
-			if (!row.isObject() || row.size() != 4 || !row.get("unknown-return").isBool()) { return false; }
-			SetjmpFunctionEffect effect = SetjmpFunctionEffect();
-			if (!ModuleUnitRecord.parameterEffectsFrom(row.get("writes"), effect.writes)) { return false; }
-			if (!ModuleUnitRecord.parameterEffectsFrom(row.get("captures"), effect.captures)) { return false; }
-			if (!ModuleUnitRecord.parameterEffectsFrom(row.get("returns"), effect.returns)) { return false; }
-			effect.unknownReturn = row.get("unknown-return").asBool();
-			out.put(name, effect);
-		}
-		return true;
+	/* The row count of section `name` at `cursor[0]`, advancing past its header;
+	 * -1 when the header is not that section or the rows run past the end. */
+	class int sectionRows(Vector<string> lines, string name, Vector<int> cursor) {
+		int at = cursor.get(0);
+		if (at >= lines.len || !lines.get(at).startsWith("@" + name + "\t")) { return -1; }
+		int count = Strings.toInt(lines.get(at).substring(name.length() + 2, lines.get(at).length() - name.length() - 2));
+		if (count < 0 || at + 1 + count > lines.len) { return -1; }
+		cursor.set(0, at + 1);
+		return count;
 	}
 
 	class bool stringsFrom(JSONValue value, Vector<string> out) {
@@ -323,28 +318,49 @@ class ModuleUnitRecord {
 	/* A stored unit's record, or null for anything not exactly well formed. */
 	class ModuleUnitRecord? fromPayload(BtrccModuleUnitPayload? payload, string group) {
 		if (payload == null) { return null; }
-		JSONValue root = JSONValue.parse(payload.record);
-		if (!root.isObject() || root.size() != 18 || !root.get("schema").isInt() || root.get("schema").asInt() != 3) { return null; }
-		if (!root.get("group").isString() || !root.get("group").asString().equals(group) || !root.get("graph-edges").isString()) { return null; }
-		for flag in ["kept", "has-setjmp", "effects-solved", "releases-cyclable", "defines-entry", "program-release"] {
-			if (!root.get(flag).isBool()) { return null; }
+		Vector<string> lines = Strings.split(payload.record, "\n");
+		if (lines.len < 9 || !lines.get(0).equals("btrc-module-unit-record\t4") || !lines.get(1).equals("group\t" + group)) { return null; }
+		Vector<string> flags = Strings.split(lines.get(2), "\t");
+		if (flags.len != 7 || !flags.get(0).equals("flags")) { return null; }
+		for (int index = 1; index < 7; index++) {
+			if (!flags.get(index).equals("0") && !flags.get(index).equals("1")) { return null; }
 		}
 		ModuleUnitRecord record = ModuleUnitRecord();
 		record.group = group;
 		record.text = payload.text;
-		record.kept = root.get("kept").asBool();
-		record.hasSetjmp = root.get("has-setjmp").asBool();
-		record.effectsSolved = root.get("effects-solved").asBool();
-		record.releasesCyclable = root.get("releases-cyclable").asBool();
-		record.definesEntry = root.get("defines-entry").asBool();
-		record.programRelease = root.get("program-release").asBool();
-		if (!ModuleUnitRecord.stringsFrom(root.get("exports"), record.exports)) { return null; }
-		if (!ModuleUnitRecord.stringsFrom(root.get("helpers"), record.helpers)) { return null; }
-		if (!ModuleUnitRecord.stringsFrom(root.get("realtime-roots"), record.realtimeRoots) || !root.get("realtime-proofs").isString() || !ModuleUnitRecord.decodeProofs(root.get("realtime-proofs").asString(), record.realtimeProofs)) { return null; }
-		if (!ModuleUnitRecord.effectsFrom(root.get("exported-effects"), record.exportedEffects)) { return null; }
-		if (!ModuleUnitRecord.effectsFrom(root.get("consulted-effects"), record.consultedEffects)) { return null; }
-		if (!ModuleUnitGraph.readFrom(root, record.graph)) { return null; }
-		if (!ModuleUnitRecord.stringsFrom(root.get("kept-instances"), record.keptInstances)) { return null; }
+		record.kept = flags.get(1).equals("1");
+		record.hasSetjmp = flags.get(2).equals("1");
+		record.effectsSolved = flags.get(3).equals("1");
+		record.releasesCyclable = flags.get(4).equals("1");
+		record.definesEntry = flags.get(5).equals("1");
+		record.programRelease = flags.get(6).equals("1");
+		Vector<string> instances = [];
+		if (!ModuleUnitRecord.listFrom(lines.get(3), "exports", record.exports) || !ModuleUnitRecord.listFrom(lines.get(4), "helpers", record.helpers) || !ModuleUnitRecord.listFrom(lines.get(5), "realtime-roots", record.realtimeRoots) || !ModuleUnitRecord.listFrom(lines.get(6), "kept-instances", record.keptInstances) || !ModuleUnitRecord.listFrom(lines.get(7), "graph-roots", record.graph.roots) || !ModuleUnitRecord.listFrom(lines.get(8), "graph-instances", instances)) { return null; }
+		for name in instances { record.graph.instances.put(name, true); }
+		Vector<int> cursor = [9];
+		int count = ModuleUnitRecord.sectionRows(lines, "exported-effects", cursor);
+		if (count < 0) { return null; }
+		for (int index = 0; index < count; index++) { if (!ModuleUnitSummaries.decodeLine(lines.get(cursor.get(0) + index), record.exportedEffects)) { return null; } }
+		cursor.set(0, cursor.get(0) + count);
+		count = ModuleUnitRecord.sectionRows(lines, "consulted-effects", cursor);
+		if (count < 0) { return null; }
+		for (int index = 0; index < count; index++) { if (!ModuleUnitSummaries.decodeLine(lines.get(cursor.get(0) + index), record.consultedEffects)) { return null; } }
+		cursor.set(0, cursor.get(0) + count);
+		count = ModuleUnitRecord.sectionRows(lines, "realtime-proofs", cursor);
+		if (count < 0) { return null; }
+		for (int index = 0; index < count; index++) { if (!ModuleUnitRecord.decodeProofLine(lines.get(cursor.get(0) + index), record.realtimeProofs)) { return null; } }
+		cursor.set(0, cursor.get(0) + count);
+		count = ModuleUnitRecord.sectionRows(lines, "graph-edges", cursor);
+		if (count < 0) { return null; }
+		for (int index = 0; index < count; index++) {
+			Vector<string> row = Strings.split(lines.get(cursor.get(0) + index), "\t");
+			string name = row.get(0);
+			if (name.isEmpty() || record.graph.edges.has(name)) { return null; }
+			Vector<string> targets = [];
+			for (int target = 1; target < row.len; target++) { targets.push(row.get(target)); }
+			record.graph.edges.put(name, targets);
+		}
+		if (cursor.get(0) + count != lines.len) { return null; }
 		return record;
 	}
 }
@@ -577,6 +593,59 @@ class ModuleUnitDeclarations {
 	}
 
 	/* Add the shared declarations `unit` needs that it does not provide. */
+	/* Native binding headers and the C names each declares. A group unit
+	 * keeps only the headers whose names its final C mentions: every unit
+	 * otherwise includes every binding header of the program, and the SDK
+	 * headers behind them dominate each unit's preprocessing and compile. */
+	private Map<string, Map<string, bool>> nativeHeaderNames = {};
+
+	public void configureNativeHeaders(Vector<FeNativeImportedDeclaration> imported) {
+		for native in imported {
+			if (native.language != "c") { continue; }
+			if (!self.nativeHeaderNames.has(native.header)) { self.nativeHeaderNames.put(native.header, {}); }
+			Map<string, bool> names = self.nativeHeaderNames.get(native.header);
+			Node declaration = native.declaration;
+			if (!declaration.name.isEmpty()) { names.put(declaration.name, true); }
+			if (declaration.alias != null && !declaration.alias.isEmpty()) { names.put(declaration.alias, true); }
+			for value in declaration.values { if (!value.name.isEmpty()) { names.put(value.name, true); } }
+			/* A type spelling such as `struct AudioBuffer` names the type; its C
+			 * keywords and built-in types name nothing the header declares. */
+			Map<string, bool> spelled = {};
+			ModuleUnitDeclarations.collectText(native.typeSpelling, spelled);
+			for word in spelled.keys() { if (!ModuleUnitDeclarations.builtinWord(word)) { names.put(word, true); } }
+		}
+	}
+
+	class bool builtinWord(string word) { return word == "struct" || word == "union" || word == "enum" || word == "const" || word == "volatile" || word == "restrict" || word == "signed" || word == "unsigned" || word == "char" || word == "short" || word == "int" || word == "long" || word == "float" || word == "double" || word == "void" || word == "bool" || word == "_Bool"; }
+
+	private bool nativeInclude(IRPreprocessorDecl declaration) { return declaration.kind == IR_PREPROCESSOR_INCLUDE && !declaration.isSystem && self.nativeHeaderNames.has(declaration.header); }
+
+	/* Keeps a native binding include only when the unit's C, emitted without
+	 * any of them, names something the header declares; a header whose names
+	 * are unknown stays. The draft emission is the complete inventory of the
+	 * identifiers the C compiler will see. */
+	public void trimNativeIncludes(IRModule unit) {
+		if (self.nativeHeaderNames.len == 0) { return; }
+		Vector<IRPreprocessorDecl> all = unit.preprocessorDecls;
+		Vector<IRPreprocessorDecl> others = [];
+		for declaration in all { if (!self.nativeInclude(declaration)) { others.push(declaration); } }
+		if (others.len == all.len) { return; }
+		unit.preprocessorDecls = others;
+		Map<string, bool> used = {};
+		ModuleUnitDeclarations.collectText(CEmitter().emitModuleUnit(unit, false), used);
+		Vector<IRPreprocessorDecl> kept = [];
+		for declaration in all {
+			if (self.nativeInclude(declaration)) {
+				Map<string, bool> names = self.nativeHeaderNames.get(declaration.header);
+				bool needed = names.len == 0;
+				for name in names.keys() { if (used.has(name)) { needed = true; } }
+				if (!needed) { continue; }
+			}
+			kept.push(declaration);
+		}
+		unit.preprocessorDecls = kept;
+	}
+
 	public void mergeInto(IRModule unit) {
 		Vector<Map<string, bool>> provided = [];
 		for (int kind = 0; kind < 8; kind++) { provided.push(self.unitProvided(unit, kind)); }
@@ -1704,6 +1773,7 @@ class ModuleUnitCompiler {
 		IRModule declarations = declarationsLowerer.lower(input.program);
 		keep declarationsLowerer;
 		ModuleUnitDeclarations shared = ModuleUnitDeclarations(declarations);
+		shared.configureNativeHeaders(input.analyzed.nativeDeclarations);
 		BtrccPhaseTimer.mark("u-declarations");
 		/* The program unit is always lowered here: it owns native adapters and
 		 * defines every unit's runtime state. */
@@ -1722,7 +1792,7 @@ class ModuleUnitCompiler {
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
-			string identity = SHA256.digest("module-unit-v3\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
+			string identity = SHA256.digest("module-unit-v4\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
 			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
 			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }
 			IBtrccArtifactCache? store = self.store;
@@ -1898,8 +1968,8 @@ class ModuleUnitCompiler {
 			state.helpers = record.helpers;
 			for helper in record.helpers { helperNames.put(helper, true); }
 			IBtrccArtifactCache? store = self.store;
-			string recordJson = record.toJson();
-			if (store != null) { store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordJson, record.text)); }
+			string recordText = record.toText();
+			if (store != null && !recordText.isEmpty()) { store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordText, record.text)); }
 			state.record = record;
 		}
 		IWorkerPool? started = self.workerPool;
@@ -2108,6 +2178,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		string text = "";
 		if (kept) {
 			self.compiler.prepareDebugPaths(unit, group);
+			self.shared.trimNativeIncludes(unit);
 			text = CEmitter().emitModuleUnit(unit, false);
 		}
 		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer(unit.temporaryNames);
@@ -2320,11 +2391,23 @@ class ValidationRecordCodec {
 	class bool plain(string text) { return text.indexOf("\t") < 0 && text.indexOf("\n") < 0; }
 
 	/* The node at fields[at .. at+3], or null when it names nothing here. */
+	/* Facts of one declaration mostly name its own nodes: remember the last
+	 * slot resolved. */
+	private string lastTag = "";
+	private string lastOrdinal = "";
+	private Vector<Node> lastNodes = [];
+
 	private Node? resolve(Vector<string> fields, int at) {
 		if (at + 4 > fields.len) { return null; }
-		string slot = fields.get(at) + "\t" + fields.get(at + 1);
-		if (!self.declarationAt.has(slot)) { return null; }
-		Vector<Node> nodes = self.preorder(slot);
+		Vector<Node> nodes = self.lastNodes;
+		if (!fields.get(at).equals(self.lastTag) || !fields.get(at + 1).equals(self.lastOrdinal)) {
+			string slot = fields.get(at) + "\t" + fields.get(at + 1);
+			if (!self.declarationAt.has(slot)) { return null; }
+			nodes = self.preorder(slot);
+			self.lastTag = fields.get(at);
+			self.lastOrdinal = fields.get(at + 1);
+			self.lastNodes = nodes;
+		}
 		int index = Strings.toInt(fields.get(at + 2));
 		if (index < 0 || index >= nodes.len) { return null; }
 		Node node = nodes.get(index);
@@ -2454,8 +2537,20 @@ class ValidationRecords implements IValidationRecords {
 	public int replayed = 0;
 	public int journaled = 0;
 	public string interfaceDigest = "";
+	/* Generic instance scans: one rewritable record per template group, loaded
+	 * on first use; sections journaled this build are merged in on persist. */
+	private Map<string, Map<string, string>> instancesLoaded = {};
+	private Map<string, Map<string, bool>> instanceDependencies = {};
+	private Map<string, Map<string, string>> instancesWritten = {};
+	private Map<string, bool> instancesUnwritable = {};
+	/* Files the instance records name outside their group, kept apart from
+	 * the validation records' so neither takes the other's dependencies. */
+	private Map<string, Map<string, bool>> instanceForeign = {};
+	public int instancesReplayed = 0;
 
-	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store) {
+	/* `nativeIdentity` identifies the imported native declarations (as the
+	 * artifact cache keys them), or is empty when they are not cacheable. */
+	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store, string nativeIdentity) {
 		self.store = store;
 		self.verify = getenv("BTRC_VERIFY_VALIDATION_RECORDS") != null;
 		FeSourcePathPolicy paths = FeSourcePathPolicy();
@@ -2491,7 +2586,7 @@ class ValidationRecords implements IValidationRecords {
 		Map<string, string> sources = {};
 		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
 		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }
-		string interfaceDigest = self.programInterface(program, context, sources);
+		string interfaceDigest = self.programInterface(program, context, sources, nativeIdentity);
 		self.interfaceDigest = interfaceDigest;
 		for group in sources.keys() { self.keys.put(group, SHA256.digest(context + "\n" + group + "\n" + sources.get(group) + "\n" + interfaceDigest)); }
 		for group in self.keys.keys() { self.load(group); }
@@ -2502,7 +2597,7 @@ class ValidationRecords implements IValidationRecords {
 	 * group's source digest and only changed groups are rendered again;
 	 * native declarations have no source of their own and are rendered each
 	 * time. */
-	private string programInterface(Node program, string context, Map<string, string> sources) {
+	private string programInterface(Node program, string context, Map<string, string> sources, string nativeIdentity) {
 		AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
 		Map<string, SHA256> rendered = {};
 		Map<string, string> cached = {};
@@ -2510,11 +2605,26 @@ class ValidationRecords implements IValidationRecords {
 			BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.interfaceKey(context, group, sources.get(group)));
 			if (payload != null && payload.record.equals("validation-interface-v1")) { cached.put(group, payload.text); }
 		}
+		/* Native declarations are a function of the native imports, whose
+		 * identity keys their digest when it is known. */
+		string nativesKey = nativeIdentity.isEmpty() ? "" : SHA256.digest("validation-natives-v1\n" + context + "\n" + nativeIdentity);
+		string nativesDigest = "";
+		if (!nativesKey.isEmpty()) {
+			BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(nativesKey);
+			if (payload != null && payload.record.equals("validation-natives-v1")) { nativesDigest = payload.text; }
+		}
 		SHA256 natives = SHA256();
+		SHA256 others = SHA256();
 		for declaration in program.declarations {
 			string group = self.groupAmong(declaration, sources);
 			if (group.isEmpty()) {
-				natives.appendText(SHA256.digest(renderer.render(declaration)));
+				string key = AstIdentity.key(declaration);
+				bool native = self.fileOfDeclaration.has(key) && self.fileOfDeclaration.get(key).equals("<native>");
+				if (!native) {
+					others.appendText(SHA256.digest(renderer.render(declaration)));
+				} else if (nativesDigest.isEmpty()) {
+					natives.appendText(SHA256.digest(renderer.render(declaration)));
+				}
 			} else if (!cached.has(group)) {
 				if (!rendered.has(group)) { rendered.put(group, SHA256()); }
 				rendered.get(group).appendText(SHA256.digest(renderer.render(declaration)));
@@ -2530,7 +2640,12 @@ class ValidationRecords implements IValidationRecords {
 		names.sort();
 		SHA256 result = SHA256();
 		for group in names { result.appendText(group + "\t" + cached.get(group) + "\n"); }
-		result.appendText("<native>\t" + natives.finish() + "\n");
+		if (nativesDigest.isEmpty()) {
+			nativesDigest = natives.finish();
+			if (!nativesKey.isEmpty()) { self.store.storeModuleUnit(nativesKey, BtrccModuleUnitPayload("validation-natives-v1", nativesDigest)); }
+		}
+		result.appendText("<native>\t" + nativesDigest + "\n");
+		result.appendText("<other>\t" + others.finish() + "\n");
 		return result.finish();
 	}
 
@@ -2601,6 +2716,9 @@ class ValidationRecords implements IValidationRecords {
 
 	public bool journals(int phase, Node declaration) {
 		string group = self.groupOf(declaration);
+		if (phase == RECORD_PHASE_VALIDATE && getenv("BTRC_DEBUG_RECORDS") != null) {
+			fprintf(stderr, "records: live %s (group %s, loaded %d)\n", self.codec.slot(declaration), group, self.loaded.has(group) ? 1 : 0);
+		}
 		if (group.isEmpty() || self.unwritable.has(group)) { return false; }
 		return self.verify || !self.loaded.has(group);
 	}
@@ -2641,6 +2759,93 @@ class ValidationRecords implements IValidationRecords {
 		return !group.isEmpty() && self.loaded.has(group) && !self.abandoned.has(group);
 	}
 
+	private string instanceKey(string group) { return SHA256.digest("validation-instances-v1\n" + self.keys.get(group)); }
+
+	/* A group's instance sections, loaded on first use; an empty map when it
+	 * has none or a dependency changed. */
+	private Map<string, string> instances(string group) {
+		if (self.instancesLoaded.has(group)) { return self.instancesLoaded.get(group); }
+		Map<string, string> sections = {};
+		Map<string, bool> dependencies = {};
+		self.instancesLoaded.put(group, sections);
+		self.instanceDependencies.put(group, dependencies);
+		BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.instanceKey(group));
+		if (payload == null || !payload.record.equals("validation-instances-v1")) { return sections; }
+		Map<string, string> parsed = {};
+		string section = "";
+		StringBuilder facts = StringBuilder();
+		bool open = false;
+		for line in Strings.split(payload.text, "\n") {
+			if (line.startsWith("dep\t")) {
+				Vector<string> fields = Strings.split(line, "\t");
+				if (fields.len != 3 || !self.keys.has(fields.get(1)) || !self.keys.get(fields.get(1)).equals(fields.get(2))) { return sections; }
+				dependencies.put(fields.get(1), true);
+			} else if (line.startsWith("i\t")) {
+				if (open) { parsed.put(section, facts.toString()); }
+				section = line.substring(2, line.length() - 2);
+				facts = StringBuilder();
+				open = true;
+			} else if (!line.isEmpty() && open) {
+				facts.append(line);
+				facts.append("\n");
+			}
+		}
+		if (open) { parsed.put(section, facts.toString()); }
+		self.instancesLoaded.put(group, parsed);
+		return parsed;
+	}
+
+	public Vector<ValidationFact>? recordedInstance(Node template, string section) {
+		if (self.verify) { return null; }
+		string group = self.groupOf(template);
+		/* After validation, an instance scan reads validation's facts. */
+		if (group.isEmpty() || (section.startsWith("after\t") && self.abandoned.has(group))) { return null; }
+		Map<string, string> sections = self.instances(group);
+		if (!sections.has(section)) { return null; }
+		Vector<ValidationFact>? facts = self.codec.decode(sections.get(section));
+		if (facts != null) { self.instancesReplayed = self.instancesReplayed + 1; }
+		return facts;
+	}
+
+	public bool journalsInstance(Node template) {
+		string group = self.groupOf(template);
+		return !group.isEmpty() && !self.instancesUnwritable.has(group);
+	}
+
+	public bool finishInstance(Node template, string section, ValidationJournal journal) {
+		string group = self.groupOf(template);
+		if (!self.instanceForeign.has(group)) { self.instanceForeign.put(group, {}); }
+		Map<string, bool> files = {};
+		string? text = self.codec.encode(template, journal, files);
+		if (self.verify) {
+			Map<string, string> sections = self.instances(group);
+			if (sections.has(section)) { return text != null && sections.get(section).equals(text); }
+		}
+		if (text == null) {
+			self.instancesUnwritable.put(group, true);
+			return true;
+		}
+		for file in files.keys() { self.instanceForeign.get(group).put(file, true); }
+		if (!self.instancesWritten.has(group)) { self.instancesWritten.put(group, {}); }
+		self.instancesWritten.get(group).put(section, text);
+		return true;
+	}
+
+	/* The dependency lines for the files a group's records name outside it,
+	 * or null when one of them has no key. */
+	private string? dependencyLines(string group) {
+		StringBuilder text = StringBuilder();
+		Map<string, bool> files = {};
+		if (self.instanceForeign.has(group)) { files = self.instanceForeign.get(group); }
+		for file in files.keys() {
+			if (file.equals("<native>")) { continue; }
+			string other = self.groupOfFile.has(file) ? self.groupOfFile.get(file) : "";
+			if (!self.keys.has(other)) { return null; }
+			if (!other.equals(group)) { text.append("dep\t" + other + "\t" + self.keys.get(other) + "\n"); }
+		}
+		return text.toString();
+	}
+
 	public void abandon(Node declaration) {
 		string group = self.groupOf(declaration);
 		if (!group.isEmpty()) { self.abandoned.put(group, true); }
@@ -2673,6 +2878,26 @@ class ValidationRecords implements IValidationRecords {
 			if (!complete) { continue; }
 			text.append(self.writing.get(group).toString());
 			self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-v4", text.toString()));
+		}
+		for group in self.instancesWritten.keys() {
+			if (self.instancesUnwritable.has(group) || self.verify) { continue; }
+			string? dependencies = self.dependencyLines(group);
+			if (dependencies == null) { continue; }
+			StringBuilder text = StringBuilder();
+			text.append(dependencies);
+			/* Earlier builds' sections stay valid under the same key. */
+			Map<string, string> previous = self.instances(group);
+			Map<string, string> written = self.instancesWritten.get(group);
+			Map<string, bool> dependencyGroups = {};
+			if (self.instanceDependencies.has(group)) { dependencyGroups = self.instanceDependencies.get(group); }
+			for other in dependencyGroups.keys() {
+				if (dependencies.indexOf("dep\t" + other + "\t") < 0 && self.keys.has(other)) { text.append("dep\t" + other + "\t" + self.keys.get(other) + "\n"); }
+			}
+			for section in previous.keys() {
+				if (!written.has(section)) { text.append("i\t" + section + "\n" + previous.get(section)); }
+			}
+			for section in written.keys() { text.append("i\t" + section + "\n" + written.get(section)); }
+			self.store.storeModuleUnit(self.instanceKey(group), BtrccModuleUnitPayload("validation-instances-v1", text.toString()));
 		}
 	}
 }

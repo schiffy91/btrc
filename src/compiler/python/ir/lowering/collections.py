@@ -665,6 +665,10 @@ class CollectionLowerer:
         if list_type is None:
             list_type = TypeExpr(base="Vector", generic_args=[element_type])
         mangled = self._type_identity.specialization_symbol(list_type.base, list_type.generic_args)
+        # An empty literal evaluates nothing between its allocation and its
+        # consumer, so it needs no temporary and no cleanup of its own.
+        if not node.elements:
+            return IRCall(callee=f"{mangled}_new", args=[])
         declarations, sequence, collection, result = self._collection_storage(list_type, mangled, "__list")
         for lowered in lowered_elements:
             sequence.append(
@@ -693,7 +697,7 @@ class CollectionLowerer:
             key_type, value_type = (TypeExpr(base="string"), TypeExpr(base="int"))
             map_type = TypeExpr(base="Map", generic_args=[key_type, value_type])
         mangled = self._type_identity.specialization_symbol(map_type.base, map_type.generic_args)
-        if not node.entries and (not self._cleanup_scope.exception_cleanup_active()):
+        if not node.entries:
             return IRCall(callee=f"{mangled}_new", args=[])
         declarations, sequence, collection, result = self._collection_storage(map_type, mangled, "__map")
         for key, value in lowered_entries:
