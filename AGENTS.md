@@ -79,6 +79,12 @@ retry them without new evidence:
 - **A pointer-keyed string-length cache.** Memory-unsafe. Cache `(buf, 900)`
   for a `char[1024]`, let the frame return, and a later `char[16]` at that
   stack address yields a 900-byte read from a 16-byte buffer.
+- **One shared empty list as a node field's default.** Correct (403 BTRSmith
+  units byte-identical) and 2-3x slower: 119-216 s against a 64 s baseline.
+  `__btrc_arc_unregister_incoming` finds an owner by walking a singly linked
+  incoming-edge list, so a managed object shared by millions of holders makes
+  every release of a holder walk that list. Sharing one managed object widely
+  is quadratic; a sentinel would first have to stop participating in ARC.
 - **Consolidating the thread-locals.** `_tlv_get_addr` was 45% of profile
   samples, but a build with `_Thread_local` stripped was not faster.
   Leaf-sample share is not speedup. This was measured on a **clang** build,

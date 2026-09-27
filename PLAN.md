@@ -337,6 +337,43 @@ data and schema declarations only, so either the generator is permitted to emit
 these accessors or they belong to a handwritten owner that the generator feeds.
 That is an architecture decision, not a coding detail, and it gates the slice.
 
+*The shared-empty design was built, measured and rejected — with a root cause
+that constrains every later attempt.* The generator was taught to give the 13
+low-mutation fields one shared empty list per element type, created on first
+use, with a `…Mut()` accessor that swaps an empty field for a fresh list before
+any mutation, and an invariant check in `Node()` that a shared empty is still
+empty. The 24 mutation sites, all in `Parser.btrc`, were moved onto the
+accessors.
+
+It is **correct** — all 403 emitted BTRSmith units are byte-identical — and
+**two to three times slower**: 119.2 s and 216.1 s against a 64–65 s baseline,
+with the variance itself a symptom. The cause is in the ownership runtime.
+`__btrc_arc_unregister_incoming` finds an owner by walking a singly linked
+incoming-edge list:
+
+```c
+__btrc_arc_incoming** link = &header->incoming;
+while (*link && (*link)->owner != owner) link = &(*link)->next;
+```
+
+A shared empty stored into 13 fields of 3.86 M nodes accumulates about 50
+million incoming edges, so every release of a node walks that list. Sharing one
+*managed* object among millions of holders is quadratic under this ARC
+implementation, which no amount of accessor discipline changes.
+
+Two consequences for M8a. The cheap 24-site route is **not available** while the
+sentinel is an ordinary managed object, so the remaining honest options are the
+nullable-field migration, which has no shared object but reaches all 3,235 read
+sites, or making the sentinel non-participating in ARC — a header flag that
+`__btrc_arc_register_incoming` and `__btrc_arc_unregister_incoming` skip, which
+is correct for a permanently empty object that is never freed and never
+collected, and which would then make the 24-site version work as intended. The
+second is far smaller, but it extends the ownership model, which is a canonical
+boundary and deserves its own slice rather than being smuggled in. The
+invariant check earned its place either way: it caught a genuinely missed
+mutation site — on `NativeNode`, which this same emitter generates and whose
+lists a reader writes directly — in 3.1 s instead of corrupting an AST silently.
+
 *On the ≤20 s cold budget.* It is worth stating plainly what the measurements
 imply. Compiler-only cold is 62 s on a clang build, 29.6 s of it waiting on
 workers and 31.6 s serial. Removing the generic closure entirely (4.9 s) and
