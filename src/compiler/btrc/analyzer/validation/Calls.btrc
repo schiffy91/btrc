@@ -543,7 +543,7 @@ class CallValidator {
 			/* A canonical bodyless hosted prototype is superseded by the GPU
              * intrinsic here. Retain the existing non-source call identity used by
              * CPU-fallback and WGSL lowering. */
-			self.state.analyzed.hostedCallKeys.put(AstIdentity.key(call), true);
+			self.state.analyzed.recordHostedCall(call);
 		}
 		return true;
 	}
@@ -635,7 +635,7 @@ class CallValidator {
 			return false;
 		}
 		bool bypass = self.hostedCallBypassesSourceDefinition(name);
-		self.state.analyzed.hostedCallKeys.put(AstIdentity.key(call), true);
+		self.state.analyzed.recordHostedCall(call);
 		self.validateDirectHostedCall(name, call,  vars);
 		return self.hostedAbi.exactFunction(name) || bypass || !self.state.analyzed.funcTable.has(name);
 	}

@@ -37,6 +37,7 @@ class SemanticValidator {
 	private ExpressionValidator expressions;
 	private ControlFlowValidator controlFlow;
 	private DeclarationValidator declarations;
+	private IValidationRecords? records = null;
 
 	public SemanticValidator(Node program, Analyzed analyzed, HostedAbiRepository hostedAbi, OperatorSemantics operators, GpuSemantics gpu, CycleSemantics cycles, SourceRuntimeSymbols sourceRuntimeSymbols, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
 		self.program = program;
@@ -118,15 +119,94 @@ class SemanticValidator {
 		index = 0;
 		while (index < self.program.declarations.len) {
 			Node declaration = self.program.declarations.get(index);
-			if (declaration.kind == NK_FUNCTION_DECL) {
-				self.declarations.validateCallableBody(declaration, null);
-			} else if (declaration.kind == NK_CLASS_DECL) {
-				self.declarations.validateClassBodies(declaration);
+			if (declaration.kind == NK_FUNCTION_DECL || declaration.kind == NK_CLASS_DECL) {
+				self.validateBodies(declaration);
 			} else if (declaration.kind == NK_VAR_DECL_STMT) {
+				/* Always live: cheap, and it extends `globals` for later
+				 * globals, which a record does not carry. */
 				self.controlFlow.validateVariable(declaration, globals);
 			}
 			index = index + 1;
 		}
+		BtrccPhaseTimer.mark("v-bodies");
+	}
+
+	public void useRecords(IValidationRecords? records) {
+		self.records = records;
+		self.state.records = records;
+	}
+
+	/* A function's or class's bodies: replayed from a validation record when
+	 * its group has one, otherwise validated live (and journaled for a
+	 * record when one is wanted). */
+	private void validateBodies(Node declaration) {
+		IValidationRecords? records = self.records;
+		if (records != null) {
+			Vector<ValidationFact>? facts = records.recorded(RECORD_PHASE_VALIDATE, declaration);
+			if (facts != null) {
+				if (self.replay(facts)) { return; }
+				records.abandon(declaration);
+			}
+			if (records.journals(RECORD_PHASE_VALIDATE, declaration)) {
+				ValidationJournal journal = ValidationJournal();
+				self.state.analyzed.journal = journal;
+				self.validateLive(declaration);
+				self.state.analyzed.journal = null;
+				if (!records.finish(RECORD_PHASE_VALIDATE, declaration, journal)) {
+					TypeValidator.fail("Validation record disagrees with live validation", declaration);
+				}
+				return;
+			}
+		}
+		self.validateLive(declaration);
+	}
+
+	private void validateLive(Node declaration) {
+		if (declaration.kind == NK_FUNCTION_DECL) {
+			self.declarations.validateCallableBody(declaration, null);
+		} else {
+			self.declarations.validateClassBodies(declaration);
+		}
+	}
+
+	/* Installs a record's facts in their original order. Raw-borrow proofs
+	 * read callee bodies, which the record's key does not cover, so each is
+	 * re-proved; if one no longer holds, the replay is undone as far as it
+	 * matters (deferred references are dropped; side-table writes are ones
+	 * live validation repeats) and the caller validates live. */
+	private bool replay(Vector<ValidationFact> facts) {
+		int references = self.names.deferredReferenceCount();
+		for fact in facts {
+			Node? node = fact.node;
+			if (node == null) {
+				self.names.truncateDeferredReferences(references);
+				return false;
+			}
+			if (fact.kind == VALIDATION_HOSTED_CALL) {
+				self.state.analyzed.recordHostedCall(node);
+			} else if (fact.kind == VALIDATION_CONSTANT_BOUND) {
+				self.state.analyzed.recordConstantArrayBound(node);
+			} else if (fact.kind == VALIDATION_ITERATION_CAPACITY) {
+				self.state.analyzed.recordArrayIterationCapacity(node);
+			} else if (fact.kind == VALIDATION_GENERIC_CONSTRUCTOR) {
+				Node? value = fact.value;
+				if (value == null) { return false; }
+				self.state.analyzed.recordGenericConstructorType(node, value);
+			} else if (fact.kind == VALIDATION_GENERATED_REFERENCE) {
+				self.names.deferGenerated(node, fact.directCall, fact.sourceKnown);
+			} else if (fact.kind == VALIDATION_RAW_BORROW) {
+				if (!self.borrows.rawParameterBorrowOnly(node, fact.parameter)) {
+					self.names.truncateDeferredReferences(references);
+					return false;
+				}
+			} else if (fact.kind == VALIDATION_CALL_ARGUMENTS) {
+				self.state.analyzed.recordMethodCallArguments(node, fact.arguments);
+			} else {
+				self.names.truncateDeferredReferences(references);
+				return false;
+			}
+		}
+		return true;
 	}
 
 	public void validateCompletedGeneratedSymbols() { self.names.validateCompletedGeneratedSymbols(self.program); }

@@ -20,10 +20,12 @@ class ExpressionTypeResolver {
 	private SemanticTypeSystem types;
 	private DeclarationRegistry declarations;
 	private bool memoEnabled;
-	private Map<string, bool> memoKnown;
-	private Map<string, Node> memoValues;
-	private Map<string, bool> rawKnown;
-	private Map<string, Node> rawValues;
+	/* Keyed by node identity: a key retains its node, so no later node can
+	 * reuse its address while the memo lives. */
+	private Map<Node, bool> memoKnown;
+	private Map<Node, Node> memoValues;
+	private Map<Node, bool> rawKnown;
+	private Map<Node, Node> rawValues;
 
 	public ExpressionTypeResolver(Analyzed analyzed, HostedAbiRepository hostedAbi, OperatorSemantics operators, SemanticTypeSystem types, DeclarationRegistry declarations) {
 		self.analyzed = analyzed;
@@ -249,7 +251,7 @@ class ExpressionTypeResolver {
 
 	private bool appendMemoizedBinaryType(Node expression, Vector<Node> values, Vector<bool> present) {
 		if (!self.memoEnabled) { return false; }
-		string key = AstIdentity.key(expression);
+		Node key = expression;
 		if (!self.memoKnown.has(key)) { return false; }
 		Node? value = null;
 		if (self.memoValues.has(key)) {
@@ -261,7 +263,7 @@ class ExpressionTypeResolver {
 
 	private void rememberBinaryType(Node expression, Node? value) {
 		if (!self.memoEnabled) { return; }
-		string key = AstIdentity.key(expression);
+		Node key = expression;
 		self.memoKnown.put(key, true);
 		if (value != null) {
 			self.memoValues.put(key, value);
@@ -761,7 +763,7 @@ class ExpressionTypeResolver {
      * never re-walk a subtree already proven in the active memo context. */
 	private Node? inferTypeRawMemoized(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) {
 		if (node == null || !self.memoEnabled) { return self.inferTypeRaw(node, a, operators, varTypes); }
-		string key = AstIdentity.key(node);
+		Node key = node;
 		if (self.rawKnown.has(key)) {
 			if (self.rawValues.has(key)) { return self.rawValues.get(key); }
 			return null;
@@ -921,7 +923,7 @@ class ExpressionTypeResolver {
 		if (!self.memoEnabled) {
 			return self.inferSpecializationTypeWithoutMemo(node, analyzed, operators, varTypes);
 		}
-		string key = AstIdentity.key(node);
+		Node key = node;
 		if (self.memoKnown.has(key)) {
 			if (self.memoValues.has(key)) {
 				return self.memoValues.get(key);
@@ -947,10 +949,10 @@ class ExpressionTypeResolver {
      * memo matches that cost without sharing node types across environments. */
 	private Node? inferSpecializationTypeWithoutMemo(Node? node, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> varTypes) {
 		bool enabled = self.memoEnabled;
-		Map<string, bool> known = self.memoKnown;
-		Map<string, Node> values = self.memoValues;
-		Map<string, bool> rawKnown = self.rawKnown;
-		Map<string, Node> rawValues = self.rawValues;
+		Map<Node, bool> known = self.memoKnown;
+		Map<Node, Node> values = self.memoValues;
+		Map<Node, bool> rawKnown = self.rawKnown;
+		Map<Node, Node> rawValues = self.rawValues;
 		self.beginExpressionInferenceMemo();
 		Node? result = self.inferSpecializationTypeUnmemoized(node, analyzed, operators, varTypes);
 		self.memoKnown = known;

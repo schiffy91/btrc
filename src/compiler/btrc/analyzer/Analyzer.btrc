@@ -29,6 +29,7 @@ class SemanticAnalyzer {
 	private ManagedValueSemantics managedValues;
 	private CycleSemantics cycles;
 	private SourceRuntimeSymbols sourceRuntimeSymbols;
+	private IValidationRecords? validationRecords = null;
 
 	public SemanticAnalyzer(SourceRuntimeSymbols sourceRuntimeSymbols) {
 		self.analysis = Analyzed();
@@ -41,6 +42,7 @@ class SemanticAnalyzer {
 		self.operators = OperatorSemantics(self.analysis);
 		self.expressions = ExpressionTypeResolver(self.analysis, hostedAbi, self.operators, self.types, self.declarations);
 		self.generics = GenericSpecializer(self.analysis, self.operators, self.expressions);
+		self.generics.useRecords(self.validationRecords);
 		self.gpu = GpuSemantics(self.analysis, hostedAbi, self.expressions);
 		self.managedValues = ManagedValueSemantics(self.analysis);
 		self.cycles = CycleSemantics(self.analysis, self.managedValues);
@@ -50,11 +52,13 @@ class SemanticAnalyzer {
 		self.generics.discover(program);
 		BtrccPhaseTimer.mark("a-generics");
 		SemanticValidator validator = SemanticValidator(program, self.analysis, hostedAbi, self.operators, self.gpu, self.cycles, self.sourceRuntimeSymbols, self.types, self.declarations, self.expressions);
+		validator.useRecords(self.validationRecords);
 		validator.validate();
 		BtrccPhaseTimer.mark("a-validate");
 		self.generics.closeExpressionGraph(program, hostedAbi);
 		BtrccPhaseTimer.mark("a-close-generics");
 		RealtimeAnalyzer realtime = RealtimeAnalyzer(program, self.analysis, hostedAbi, self.sourceRuntimeSymbols, self.expressions);
+		realtime.useRecords(self.validationRecords);
 		realtime.validate();
 		validator.validateCompletedGeneratedSymbols();
 		BtrccPhaseTimer.mark("a-realtime");
@@ -72,6 +76,8 @@ class SemanticAnalyzer {
 	public ExpressionTypeResolver expressionTypes() { return self.expressions; }
 
 	public DeclarationRegistry declarationRegistry() { return self.declarations; }
+
+	public void configureValidationRecords(IValidationRecords? records) { self.validationRecords = records; }
 
 	public void configureNativeDeclarations(Vector<FeNativeImportedDeclaration> declarations) { self.analysis.setNativeDeclarations(declarations); }
 

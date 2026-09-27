@@ -42,6 +42,91 @@ class MethodGenInstance {
 	}
 }
 
+/* What body validation leaves behind for later stages, per kind of fact. */
+enum ValidationFactKind {
+	VALIDATION_HOSTED_CALL = 1,
+	VALIDATION_CONSTANT_BOUND = 2,
+	VALIDATION_ITERATION_CAPACITY = 3,
+	VALIDATION_GENERIC_CONSTRUCTOR = 4,
+	VALIDATION_GENERATED_REFERENCE = 5,
+	VALIDATION_RAW_BORROW = 6,
+	VALIDATION_GENERIC_CLASS = 7,
+	VALIDATION_GENERIC_METHOD = 8,
+	VALIDATION_CALL_ARGUMENTS = 9,
+	VALIDATION_REALTIME_EFFECT = 10,
+	VALIDATION_REALTIME_EDGE = 11,
+	VALIDATION_BOUNDED_LOOP = 12,
+};
+
+/* The per-declaration analysis passes a record covers, in program order:
+ * generic discovery's method scan, body validation, and the generic
+ * closure's declaration scan. */
+enum ValidationPhase {
+	RECORD_PHASE_DISCOVER = 1,
+	RECORD_PHASE_VALIDATE = 2,
+	RECORD_PHASE_CLOSE = 3,
+	RECORD_PHASE_REALTIME = 4,
+};
+
+/* One recorded effect of analyzing a declaration: a side-table write
+ * (`node`, plus `value` for a generic constructor type), a deferred
+ * generated-symbol reference, a raw-borrow proof the body relied on (`node`
+ * is the callee declaration), or generic demand made before de-duplication:
+ * a class instance (`name`, `arguments`), a method instance (`name` is the
+ * class, `member` the method, `arguments` the class and `moreArguments` the
+ * method arguments) or a call's method arguments (`node`, `arguments`). A
+ * realtime scan records its callables' events, in order: an effect (`name` is
+ * the callable key, `member` the category, `detail` the operation) or an edge
+ * (`member` is the target key), each at the site `node`, and its bounded-loop
+ * proofs (`node` is the C-for statement). */
+class ValidationFact {
+	public int kind;
+	public Node? node;
+	public Node? value = null;
+	public bool directCall = false;
+	public bool sourceKnown = false;
+	public int parameter = -1;
+	public string name = "";
+	public string member = "";
+	public string detail = "";
+	public Vector<Node> arguments = [];
+	public Vector<Node> moreArguments = [];
+
+	public ValidationFact(int kind, Node? node) {
+		self.kind = kind;
+		self.node = node;
+	}
+}
+
+/* The facts one declaration's live validation produced, in the order they
+ * were written: replaying them in order reproduces the side tables, including
+ * which generic constructor type was written last. */
+class ValidationJournal {
+	public Vector<ValidationFact> facts = [];
+
+	public ValidationJournal() {}
+}
+
+/* Stage B validation records, consulted by body validation in program order.
+ * A declaration whose group has a reusable record replays `recorded` instead
+ * of being validated; a declaration validated live is journaled when
+ * `journals` says so, and its journal is handed to `finish`. */
+interface IValidationRecords {
+	/* The declaration's recorded facts for a phase, resolved to this
+	 * program's nodes, or null when it must be analyzed live. */
+	Vector<ValidationFact>? recorded(int phase, Node declaration);
+	bool journals(int phase, Node declaration);
+	/* False when a journal disagrees with the record it is verified against. */
+	bool finish(int phase, Node declaration, ValidationJournal journal);
+	/* A replay whose raw-borrow re-proof failed was validated live instead;
+	 * its group's record must not be trusted again. */
+	void abandon(Node declaration);
+	/* Whether the declaration's group replays a record: its source and the
+	 * program interface are unchanged since checks that read only those
+	 * last passed. */
+	bool reusable(Node declaration);
+}
+
 class Analyzed {
 	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
 	private Map<string, FeNativeImportedDeclaration> nativeClassIndex;
@@ -260,6 +345,9 @@ class Analyzed {
 	public Map<string, bool> constantArrayBoundKeys;
 	/* Source C-for identity -> canonical realtime bounded-loop proof. */
 	public Map<string, bool> realtimeBoundedLoopKeys;
+	/* While a declaration is validated for a validation record, every write
+	 * below is also journaled; null otherwise. */
+	public ValidationJournal? journal = null;
 
 	public Analyzed() {
 		self.nativeDeclarations = [];
@@ -325,9 +413,49 @@ class Analyzed {
 
 	public void endInstance(string previous) { self.activeInstance = previous; }
 
+	/* Validation's side-table writes. Each also journals when a record is
+	 * being built, and a replayed record installs its facts through them. */
+	public void recordHostedCall(Node call) {
+		self.hostedCallKeys.put(AstIdentity.key(call), true);
+		self.journalFact(VALIDATION_HOSTED_CALL, call, null);
+	}
+
+	public void recordConstantArrayBound(Node bound) {
+		self.constantArrayBoundKeys.put(AstIdentity.key(bound), true);
+		self.journalFact(VALIDATION_CONSTANT_BOUND, bound, null);
+	}
+
+	public void recordArrayIterationCapacity(Node iterable) {
+		self.arrayIterationCapacityKeys.put(AstIdentity.key(iterable), true);
+		self.journalFact(VALIDATION_ITERATION_CAPACITY, iterable, null);
+	}
+
+	public void recordRealtimeBoundedLoop(Node loop) {
+		self.realtimeBoundedLoopKeys.put(AstIdentity.key(loop), true);
+		self.journalFact(VALIDATION_BOUNDED_LOOP, loop, null);
+	}
+
+	public void recordGenericConstructorType(Node call, Node type) {
+		self.genericConstructorTypes.put(AstIdentity.key(call), type);
+		self.journalFact(VALIDATION_GENERIC_CONSTRUCTOR, call, type);
+	}
+
+	/* Journals a fact when a record is being built; returns it so the caller
+	 * can fill kind-specific fields, or null when nothing is journaling. */
+	public ValidationFact? journalFact(int kind, Node? node, Node? value) {
+		ValidationJournal? journal = self.journal;
+		if (journal == null) { return null; }
+		ValidationFact fact = ValidationFact(kind, node);
+		fact.value = value;
+		journal.facts.push(fact);
+		return fact;
+	}
+
 	public void recordMethodCallArguments(Node call, Vector<Node> arguments) {
 		if (self.activeInstance.isEmpty()) {
 			self.methodGenCallArgs.put(AstIdentity.key(call), arguments);
+			ValidationFact? fact = self.journalFact(VALIDATION_CALL_ARGUMENTS, call, null);
+			if (fact != null) { fact.arguments = arguments; }
 		} else {
 			self.instanceMethodCallArgs.put(self.activeInstance + "\t" + AstIdentity.key(call), arguments);
 		}

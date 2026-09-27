@@ -279,6 +279,177 @@ unit to be equal. The option runs over the whole corpus, the self-hosted
 compiler's source and BTRSmith. A fallback to live analysis triggers when
 more than a set share of groups is dirty.
 
+#### Slice 1 as implemented (self-hosted compiler, September 25)
+
+- **Journal.** `Analyzed` owns the four side-table writes
+  (`recordHostedCall` and its siblings). While a declaration is validated
+  for a record, each write, each deferred generated-symbol reference
+  (`NameValidator.deferGenerated`) and each top-level raw-borrow proof
+  (`BorrowValidator`) is appended to a `ValidationJournal`.
+- **Positions.** `ValidationRecordCodec` in `pipeline/ModuleUnits.btrc`
+  names a node by (file, ordinal among that file's top-level declarations,
+  pre-order index from `AstStructure.preorder`, node kind).
+  - The inline standard library is one file.
+  - Native declarations are another; they are bodyless, and the interface
+    digest in every key covers them.
+  - A resolved position must have the recorded kind, and a raw-borrow callee
+    must be a function or method with the recorded name.
+  - A generic constructor type is recorded as a position when the node is
+    in the tree, so replay yields the shared node that later phases mutate.
+    Otherwise it uses `TypeIdentity.encode`, and `TypeIdentity.decode`
+    inverts it. A type carrying an array size makes its group unrecordable.
+- **Keys.** `ValidationRecords` keys each group by options, the group's
+  source digest and the program interface digest.
+  - The interface digest is assembled from per-group interface digests,
+    cached under each group's source digest, plus the native declarations'
+    rendering. An edit build renders only the changed group.
+  - A record that names nodes in another group carries that group's key as
+    a dependency.
+- **Replay.** The validator loop replays a function or class whose group
+  has a record. Top-level variables always validate live: they are cheap,
+  and they extend the `globals` map.
+  - Raw-borrow proofs are re-proved. A failure undoes the deferred
+    references, validates the declaration live, and voids the record.
+  - A record is written only when every function and class of its group
+    was journaled.
+- **Gate.** `BTRC_VERIFY_VALIDATION_RECORDS` validates everything live. It
+  requires each stored record to equal the live journal, and each record to
+  resolve and re-encode to the same text. It never takes a stored result
+  generation.
+
+*Result on BTRSmith* (one-string edit, instructions retired, because this
+Mac throttles idle work):
+- **Replay:** 1,687 declarations replay and one validates live.
+- **Emitted units:** byte-identical to a clean build.
+- **Verify mode:** passes.
+- **Edit-build cost:** 433.9 billion instructions before, 360.7 billion
+  with records (−16.9%, about 6 s at normal clock). Body validation falls
+  from about 9 s to 0.3 s. Record setup costs about 0.6 s.
+
+*Corpus:* every language-corpus program was built once with a cache and
+then again under the verify gate. All 964 passed, with 6,251 declarations
+compared with their records and round-tripped through their nodes. The
+module-unit tests add an edit fixture that checks replay counts, the verify
+gate and byte equality with a fresh build.
+
+#### Slice 2 as implemented: generic demand (September 25)
+
+A record now has three sections per function or class, in the order the
+passes run:
+- **Discover:** generic discovery's method scan.
+- **Validate:** body validation.
+- **Close:** the closure's per-declaration scan.
+
+The two generic sections hold demand events, recorded at the push sites
+before de-duplication:
+- a class instance (base and arguments);
+- a method instance (class, method and both argument lists);
+- a call's method arguments.
+
+Replay re-runs only each event's `genericSeen`/`methodGenSeen` check and
+push, or `recordMethodCallArguments`. The instance lists, their order and
+the last-writer-wins call arguments therefore come out as a live scan
+leaves them. Specialization validation is skipped, since it only throws,
+and a record exists only for a build that passed.
+
+Unchanged and still live:
+- the idempotent generic-argument upgrade;
+- the cheap signature collection;
+- the transitive fixed points;
+- native callback instances;
+- the instance-body closure.
+
+A group whose validation replay is abandoned also scans its close section
+live, because that scan reads validation's facts.
+
+*Result on BTRSmith* (same edit):
+- **Edit-build cost:** 324.7 billion instructions, against 358.5 with slice
+  1 alone and 433.9 without records (−25.2% overall).
+- **Per-declaration scans:** the closure scan drops from about 4.5 s to
+  0.6 s and the method scan to under 0.01 s.
+- **Correctness:** units are byte-identical to a clean build and verify mode
+  passes.
+- **What remains:** the instance-body closure inside the transitive fixed
+  point (about 4–5 s) is now the largest analysis cost. It scans each
+  generic class instance's members under substitution, which a
+  per-instance record could reuse.
+
+#### Slice 3 as implemented: realtime scans (September 25)
+
+A fourth section per function or class records its realtime scan:
+- each callable's events in order: an effect (category and operation) or an
+  edge (target callable key), each at a site node position;
+- the bounded-loop proofs lowering reads.
+
+For a replayed declaration, the analyzer indexes its callables without
+inferring their locals and installs the recorded events before the scan.
+Event sites take their node's current line and column, so a witness still
+points at the right line after an earlier file shifts. The call-graph fixed
+point, witnesses and failure reporting stay live. A record that names a
+callable its unchanged declaration lacks is an internal error, not a
+fallback.
+
+*Record costs.* Two changes keep them in check:
+- Positions are computed once per declaration across the four phases, with
+  identity-keyed maps (`Map<Node, …>` hashes by address), not formatted
+  address strings.
+- A node outside the encoded declaration is looked up first among
+  declarations with parameter defaults (a callee's defaults are read at its
+  call sites), then across the whole program. Each index stores an integer
+  running position per node.
+
+*Same-shape scope copies.* Three more places copied the global variable map
+entry by entry:
+- the generic closure's scope copy;
+- lowering's per-function seed;
+- the realtime analyzer's per-callable seed.
+
+They now use `Map.merge` into an empty map, which copies slots. That removed
+about 9% of cold-build instructions and halved the instance closure.
+
+*Module-unit keys reuse the interface digest.* Analysis changes interfaces
+only as a function of the whole program's pre-analysis source (generic
+argument upgrades, merged defaults), and the program digest appends the
+analysis facts anyway. So the module-unit program digest now uses the
+records' cached pre-analysis interface digest instead of rendering every
+declaration again. On an edit build the digest falls from about 2.4 s to
+0.17 s.
+
+*Result on BTRSmith* (instructions retired, one-string edit):
+
+| Build | Before Stage B | With records |
+| --- | ---: | ---: |
+| Edit | 433.9 billion | 246.5 billion (−43.2%) |
+| Cold | 448.3 billion | 436.5 billion (−2.6%) |
+
+Records cost a cold build about 5% (journaling, encoding, interface
+rendering). The scope-copy fixes more than repay that.
+
+Two smaller cuts:
+- The native-invocation type walk skips declarations whose group record is
+  reusable. It reads only the declaration's own tree and the interface. The
+  per-parameter checks, which may follow callees, stay live. This pass fell
+  from 0.54 s to 0.02 s.
+- Record positions name a file by a 12-hex-digit tag of its path, so
+  realtime records, one line per event, no longer repeat long paths.
+
+- **Correctness:** units are byte-identical to a clean build, verify passes,
+  and all 965 corpus programs verify.
+- **Remaining analysis costs in an edit build:**
+  - the instance-body closure (about 3 s, throttled);
+  - decoding realtime records (about 1.1 s, since every call edge is a
+    line);
+  - record setup (about 0.9 s).
+
+  A foreign node is looked up first among declarations with defaults, then
+  among all type nodes, then anywhere, so a cold build rarely indexes every
+  node.
+
+*Not yet:*
+- The reference compiler has no records (its output is unaffected).
+- Per-instance closure records, cheaper realtime record decoding, and the
+  lowering declarations session are next.
+
 Allocation is a separate lever and the only one that also reduces cold time
 and memory; the reports put arena gains at roughly 10–20% and more with a
 flat layout. Before any node-layout redesign, measure a faster general

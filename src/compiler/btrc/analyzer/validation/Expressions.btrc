@@ -1076,7 +1076,7 @@ class ExpressionValidator {
 		}
 		string name = expression.callee.name;
 		if ((name == "Atomic" || name == "Span") && concrete.base == name && concrete.genericArgs.len == 1) {
-			self.state.analyzed.genericConstructorTypes.put(AstIdentity.key(expression), concrete);
+			self.state.analyzed.recordGenericConstructorType(expression, concrete);
 			return;
 		}
 		if (!self.state.analyzed.isGenericClass(name) || concrete.base != name) { return; }
@@ -1084,7 +1084,7 @@ class ExpressionValidator {
 		if (concrete.genericArgs.len != declaration.genericParams.len) {
 			return;
 		}
-		self.state.analyzed.genericConstructorTypes.put(AstIdentity.key(expression), concrete);
+		self.state.analyzed.recordGenericConstructorType(expression, concrete);
 		Node? constructor = self.state.analyzed.genericClassConstructor(name);
 		if (constructor == null) { return; }
 		Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, concrete);
@@ -1137,7 +1137,7 @@ class ExpressionValidator {
 				if (instance != null && self.state.analyzed.isClass(instance.base)) {
 					declaration = self.state.analyzed.classConstructor(instance.base);
 				} else if (instance != null && self.state.analyzed.isGenericClass(instance.base)) {
-					self.state.analyzed.genericConstructorTypes.put(AstIdentity.key(call), instance);
+					self.state.analyzed.recordGenericConstructorType(call, instance);
 					substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, instance);
 					declaration = self.state.analyzed.genericClassConstructor(instance.base);
 				}
@@ -1146,7 +1146,7 @@ class ExpressionValidator {
 			} else if (self.state.analyzed.isGenericClass(callee.name)) {
 				Node? instance = self.types.inferSpecialization(call, variables);
 				if (instance != null && instance.genericArgs.len > 0) {
-					self.state.analyzed.genericConstructorTypes.put(AstIdentity.key(call), instance);
+					self.state.analyzed.recordGenericConstructorType(call, instance);
 					substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, instance);
 					declaration = self.state.analyzed.genericClassConstructor(callee.name);
 				}

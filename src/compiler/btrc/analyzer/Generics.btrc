@@ -6,6 +6,7 @@ import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 import ../frontend/Models.btrc;
+import ../frontend/Timing.btrc;
 import ../syntax/Identity.btrc;
 import ../syntax/Types.btrc;
 import ./Declarations.btrc;
@@ -28,6 +29,7 @@ class GenericSpecializer {
 	private Map<string, bool> closedMethodInstances;
 	/* Type parameters of the template whose body is being scanned, if any. */
 	private Map<string, bool> templateParameters;
+	private IValidationRecords? records = null;
 
 	public GenericSpecializer(Analyzed analyzed, OperatorSemantics operators, ExpressionTypeResolver expressions) {
 		self.closedClassInstances = {};
@@ -45,22 +47,84 @@ class GenericSpecializer {
 			self.upgradeDeclGenericArgs(program.declarations.get(index), self.analyzed);
 			index = index + 1;
 		}
+		BtrccPhaseTimer.mark("g-upgrade");
 		index = 0;
 		while (index < program.declarations.len) {
 			self.collectGenericsDecl(program.declarations.get(index), self.analyzed);
 			index = index + 1;
 		}
+		BtrccPhaseTimer.mark("g-collect");
 		self.registerTransitiveGenericInstances(self.analyzed, self.operators);
+		BtrccPhaseTimer.mark("g-transitive");
 		index = 0;
 		while (index < program.declarations.len) {
-			self.collectMethodGenericsDecl(program.declarations.get(index), self.analyzed, self.operators);
+			Node declaration = program.declarations.get(index);
+			if (!self.replayRecorded(RECORD_PHASE_DISCOVER, declaration)) {
+				ValidationJournal? journal = self.beginJournal(RECORD_PHASE_DISCOVER, declaration);
+				self.collectMethodGenericsDecl(declaration, self.analyzed, self.operators);
+				self.endJournal(RECORD_PHASE_DISCOVER, declaration, journal);
+			}
 			index = index + 1;
 		}
+		BtrccPhaseTimer.mark("g-method-scan");
 		self.registerTransitiveGenericInstances(self.analyzed, self.operators);
+		BtrccPhaseTimer.mark("g-transitive-methods");
+	}
+
+	public void useRecords(IValidationRecords? records) { self.records = records; }
+
+	/* Stage B: a function's or class's recorded generic demand for `phase`,
+	 * replayed in its original order before de-duplication, so the instance
+	 * lists and call arguments come out exactly as a live scan leaves them.
+	 * False when the declaration must be scanned live. */
+	private bool replayRecorded(int phase, Node declaration) {
+		IValidationRecords? records = self.records;
+		if (records == null || (declaration.kind != NK_FUNCTION_DECL && declaration.kind != NK_CLASS_DECL)) { return false; }
+		Vector<ValidationFact>? facts = records.recorded(phase, declaration);
+		if (facts == null) { return false; }
+		Analyzed a = self.analyzed;
+		for fact in facts {
+			if (fact.kind == VALIDATION_GENERIC_CLASS) {
+				string key = TypeIdentity.genericInstanceKey(fact.name, fact.arguments);
+				if (!a.genericSeen.has(key)) {
+					a.genericSeen.put(key, true);
+					a.genericInstances.push(GenInstance(fact.name, fact.arguments, TypeIdentity.mangleGenericType(fact.name, fact.arguments)));
+				}
+			} else if (fact.kind == VALIDATION_GENERIC_METHOD) {
+				string key = TypeIdentity.methodInstanceKey(fact.name, fact.arguments, fact.member, fact.moreArguments);
+				if (!a.methodGenSeen.has(key)) {
+					a.methodGenSeen.put(key, true);
+					a.methodGenInstances.push(MethodGenInstance(fact.name, fact.member, fact.arguments, fact.moreArguments));
+				}
+			} else if (fact.kind == VALIDATION_CALL_ARGUMENTS) {
+				Node? call = fact.node;
+				if (call != null) { a.recordMethodCallArguments(call, fact.arguments); }
+			}
+		}
+		return true;
+	}
+
+	private ValidationJournal? beginJournal(int phase, Node declaration) {
+		IValidationRecords? records = self.records;
+		if (records == null || (declaration.kind != NK_FUNCTION_DECL && declaration.kind != NK_CLASS_DECL) || !records.journals(phase, declaration)) { return null; }
+		ValidationJournal journal = ValidationJournal();
+		self.analyzed.journal = journal;
+		return journal;
+	}
+
+	private void endJournal(int phase, Node declaration, ValidationJournal? journal) {
+		if (journal == null) { return; }
+		self.analyzed.journal = null;
+		IValidationRecords? records = self.records;
+		if (records != null && !records.finish(phase, declaration, journal)) {
+			fprintf(stderr, "error: generic analysis record disagrees with live analysis at %d:%d\n", declaration.line, declaration.col);
+			exit(1);
+		}
 	}
 
 	public void closeExpressionGraph(Node program, HostedAbiRepository hostedAbi) {
 		self.collectNativeCallbackInstances(hostedAbi);
+		BtrccPhaseTimer.mark("c-native");
 		self.closeProgramGenericExpressionGraph(program, self.analyzed, self.operators);
 	}
 
@@ -390,6 +454,13 @@ class GenericSpecializer {
 		}
 
 		string key = TypeIdentity.methodInstanceKey(classBase, classArgs, method, methodArgs);
+		ValidationFact? demand = a.journalFact(VALIDATION_GENERIC_METHOD, null, null);
+		if (demand != null) {
+			demand.name = classBase;
+			demand.member = method;
+			demand.arguments = classArgs;
+			demand.moreArguments = methodArgs;
+		}
 		if (!a.methodGenSeen.has(key)) {
 			a.methodGenSeen.put(key, true);
 			a.methodGenInstances.push(MethodGenInstance(classBase, method, classArgs, methodArgs));
@@ -798,25 +869,32 @@ class GenericSpecializer {
 		if (t == null) { return; }
 		if (t.genericArgs.len == 0) { return; }
 		string base = t.base;
-		if (a.genericClassTable.has(base)) {
+		bool generic = a.genericClassTable.has(base);
+		/* One key serves both the validation de-duplication and the instance
+		 * table: both identify the exact specialization. */
+		string key = generic ? TypeIdentity.genericInstanceKey(base, t.genericArgs) : "";
+		if (generic) {
 			/* A specialization's validity depends only on its owner declaration and
 			 * exact arguments, so validate each distinct specialization once instead
 			 * of once per expression that mentions it. */
-			string validationKey = TypeIdentity.genericInstanceKey(base, t.genericArgs);
-			if (!self.validatedSpecializations.has(validationKey)) {
+			if (!self.validatedSpecializations.has(key)) {
 				self.validateGenericClassSpecialization(t, a);
-				self.validatedSpecializations.put(validationKey, true);
+				self.validatedSpecializations.put(key, true);
 			}
 		}
-		if (a.genericClassTable.has(base) && !TypeIdentity.referencesNames(t, unresolved)) {
-			/* By this point class-typed args have been upgraded to pointers in the
-             * AST by upgradeProgramGenericArgs, so the mangled name carries the
-             * `_p1` suffix and the per-instance type map resolves T to a pointer. */
-			string mangled = TypeIdentity.mangleGenericType(base, t.genericArgs);
-			string key = TypeIdentity.genericInstanceKey(base, t.genericArgs);
+		if (generic && !TypeIdentity.referencesNames(t, unresolved)) {
+			ValidationFact? demand = a.journalFact(VALIDATION_GENERIC_CLASS, null, null);
+			if (demand != null) {
+				demand.name = base;
+				demand.arguments = t.genericArgs;
+			}
 			if (!a.genericSeen.has(key)) {
+				/* By this point class-typed args have been upgraded to pointers in
+				 * the AST by upgradeProgramGenericArgs, so the mangled name carries
+				 * the `_p1` suffix and the per-instance type map resolves T to a
+				 * pointer. */
 				a.genericSeen.put(key, true);
-				a.genericInstances.push(GenInstance(base, t.genericArgs, mangled));
+				a.genericInstances.push(GenInstance(base, t.genericArgs, TypeIdentity.mangleGenericType(base, t.genericArgs)));
 			}
 		}
 		/* Even when the outer shape is unresolved, a concrete nested argument is
@@ -984,13 +1062,7 @@ class GenericSpecializer {
 
 	private Map<string, Node> genericClosureCopyTypes(Map<string, Node> source) {
 		Map<string, Node> copy = {};
-		Vector<string> names = source.keys();
-		int index = 0;
-		while (index < names.len) {
-			string name = names.get(index);
-			copy.put(name, source.get(name));
-			index = index + 1;
-		}
+		copy.merge(source);
 		return copy;
 	}
 
@@ -1360,6 +1432,12 @@ class GenericSpecializer {
 		int declarationIndex = 0;
 		while (declarationIndex < program.declarations.len) {
 			Node declaration = program.declarations.get(declarationIndex);
+			if ((declaration.kind == NK_FUNCTION_DECL || (declaration.kind == NK_CLASS_DECL && declaration.genericParams.len == 0)) && self.replayRecorded(RECORD_PHASE_CLOSE, declaration)) {
+				declarationIndex = declarationIndex + 1;
+				continue;
+			}
+			ValidationJournal? journal = null;
+			if (declaration.kind == NK_FUNCTION_DECL || (declaration.kind == NK_CLASS_DECL && declaration.genericParams.len == 0)) { journal = self.beginJournal(RECORD_PHASE_CLOSE, declaration); }
 			if (declaration.kind == NK_FUNCTION_DECL) {
 				self.genericClosureScanOrdinaryCallable(declaration, null, analyzed, operators);
 			} else if (declaration.kind == NK_CLASS_DECL && declaration.genericParams.len == 0) {
@@ -1385,9 +1463,12 @@ class GenericSpecializer {
 				self.genericClosureWalkNode(declaration.initializer, substitutions, unresolved, analyzed, operators, self.genericClosureGlobalTypes(analyzed));
 				self.expressions.endScopedMemo(ownsMemo);
 			}
+			self.endJournal(RECORD_PHASE_CLOSE, declaration, journal);
 			declarationIndex = declarationIndex + 1;
 		}
+		BtrccPhaseTimer.mark("c-declarations");
 		self.closeGenericInstanceGraph(analyzed, operators);
+		BtrccPhaseTimer.mark("c-instances");
 	}
 
 

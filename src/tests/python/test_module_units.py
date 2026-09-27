@@ -231,6 +231,14 @@ def test_interface_edit_and_corrupt_records_rebuild(tmp_path, monkeypatch):
 
 def _btrcc_build(btrcc, workspace: _Workspace, entry: str, output: Path) -> tuple[dict[str, int], dict[str, str], str]:
     """Compile through the self-hosted CLI; return its unit counters and texts."""
+    counters, units, primary, _ = _btrcc_build_logged(btrcc, workspace, entry, output)
+    return counters, units, primary
+
+
+def _btrcc_build_logged(
+    btrcc, workspace: _Workspace, entry: str, output: Path, environment: dict[str, str] | None = None
+) -> tuple[dict[str, int], dict[str, str], str, str]:
+    """`_btrcc_build`, also returning the compiler's diagnostic output."""
     output.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
         [
@@ -249,6 +257,7 @@ def _btrcc_build(btrcc, workspace: _Workspace, entry: str, output: Path) -> tupl
             "BTRC_TIMING": "1",
             # The self-hosted cache requires a path without symbolic links.
             "BTRC_CACHE_DIR": str(workspace.cache.resolve()),
+            **(environment or {}),
         },
         capture_output=True,
         text=True,
@@ -262,7 +271,14 @@ def _btrcc_build(btrcc, workspace: _Workspace, entry: str, output: Path) -> tupl
         )
     )
     units = {path.name: path.read_text() for path in sorted(output.glob("program.unit-*.c"))}
-    return counters, units, (output / "program.c").read_text()
+    return counters, units, (output / "program.c").read_text(), result.stderr
+
+
+def _validation_records(stderr: str) -> dict[str, int]:
+    """Replayed and journaled declaration counts from the timing report."""
+    match = re.search(r"a-records-stored\(replayed=(\d+),journaled=(\d+)\)", stderr)
+    assert match, stderr
+    return {"replayed": int(match.group(1)), "journaled": int(match.group(2))}
 
 
 def test_selfhost_private_body_edit_relowers_only_its_group(tmp_path, immutable_btrcc):
@@ -292,6 +308,47 @@ def test_selfhost_private_body_edit_relowers_only_its_group(tmp_path, immutable_
     assert fresh == {"lowered": 6, "reused": 0}
     assert fresh_units == edited_units
     assert fresh_primary == edited_primary
+
+
+def test_selfhost_unchanged_groups_replay_validation_records(tmp_path, immutable_btrcc):
+    """Stage B: a body edit validates only its group; the others replay their
+    records, and the build matches a fresh one byte for byte. Verify mode then
+    validates everything live and requires every record to agree."""
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("self-hosted artifact reuse needs the native header reader identity")
+    workspace = _Workspace(tmp_path.resolve())
+    _, clean_units, _, clean_log = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "clean"
+    )
+    clean = _validation_records(clean_log)
+    assert clean["replayed"] == 0 and clean["journaled"] > 0
+
+    workspace.edit("Catalog/Catalog.btrc", 'print(f"catalog skipped {error}");', 'print(f"catalog skip: {error}");')
+    _, edited_units, edited_primary, edited_log = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "edit"
+    )
+    edited = _validation_records(edited_log)
+    assert edited["replayed"] > 0 and edited["journaled"] > 0
+    assert edited["replayed"] + edited["journaled"] == clean["journaled"]
+
+    workspace.edit("Catalog/Catalog.btrc", 'print(f"catalog skip: {error}");', 'print(f"catalog skip - {error}");')
+    _, _, _, verified_log = _btrcc_build_logged(
+        immutable_btrcc,
+        workspace,
+        "CatalogMain.btrc",
+        workspace.root / "verify",
+        {"BTRC_VERIFY_VALIDATION_RECORDS": "1"},
+    )
+    assert _validation_records(verified_log) == {"replayed": 0, "journaled": clean["journaled"]}
+
+    workspace.edit("Catalog/Catalog.btrc", 'print(f"catalog skip - {error}");', 'print(f"catalog skip: {error}");')
+    shutil.rmtree(workspace.cache)
+    _, fresh_units, fresh_primary, _ = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "fresh"
+    )
+    assert fresh_units == edited_units
+    assert fresh_primary == edited_primary
+    assert clean_units.keys() == fresh_units.keys()
 
 
 AUDIO = ROOT / "src" / "tests" / "native" / "audio"

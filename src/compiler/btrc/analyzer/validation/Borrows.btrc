@@ -111,6 +111,10 @@ class BorrowValidator {
 					if (!self.invocationUsesAreLocal(callable.bodyNode, parameter.name, canonical.base, visiting)) { TypeValidator.fail("Native invocation capability may only call its declared operations; it cannot escape or be reinterpreted", parameter); }
 				}
 			}
+			/* The type walk reads only the declaration's own tree and the
+			 * interface, which a reusable record's key pins. */
+			IValidationRecords? records = self.state.records;
+			if (records != null && records.reusable(declaration)) { continue; }
 			self.validateInvocationTypes(declaration, allowed);
 		}
 	}
@@ -660,7 +664,16 @@ class BorrowValidator {
 			return;
 		}
 		bool hostedBorrow = bodylessFfi && (self.hostedAbi.parameterReadOnlyBorrow(label, parameterIndex) || (self.explicitOpaqueStorageAddress(argument) && self.hostedAbi.parameterNonescaping(label, parameterIndex)));
-		if (hostedBorrow || (declaration != null && self.rawParameterBorrowOnly(declaration, parameterIndex))) { return; }
+		if (hostedBorrow) { return; }
+		if (declaration != null) {
+			if (self.rawParameterBorrowOnly(declaration, parameterIndex)) {
+				/* The proof reads the callee's body, which a record cannot
+				 * pin, so a replay re-proves it. */
+				ValidationFact? fact = self.state.analyzed.journalFact(VALIDATION_RAW_BORROW, declaration, null);
+				if (fact != null) { fact.parameter = parameterIndex; }
+				return;
+			}
+		}
 		TypeValidator.fail("Argument to '" + label + "()' cannot forward a managed value as a raw representation " + "because the parameter is not proven borrow-only", argument);
 	}
 

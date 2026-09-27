@@ -414,7 +414,7 @@ class ControlFlowValidator {
 				if (!self.storage.arrayTargetHasCapacity(statement.iterable, iterableType, vars)) {
 					TypeValidator.fail("Array for-in iterable has no provable element capacity", statement);
 				}
-				self.state.analyzed.arrayIterationCapacityKeys.put(AstIdentity.key(statement.iterable), true);
+				self.state.analyzed.recordArrayIterationCapacity(statement.iterable);
 				first = TypeShape.withoutOuterArray(iterableType);
 				if (statement.varName2 != null) {
 					TypeValidator.fail("Array iteration has exactly one loop variable", statement);

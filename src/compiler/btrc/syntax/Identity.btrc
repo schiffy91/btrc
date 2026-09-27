@@ -76,23 +76,38 @@ class AstStructure {
 		if (node.key != null) { out.push(node.key); }
 	}
 
-	/* Pre-order position of every node reachable from `root`, by identity. A
-	 * node reached again (a shared subtree) keeps its first position. */
-	class Map<string, int> positions(Node root) {
-		Map<string, int> result = {};
+	/* Every node reachable from `root` once, in pre-order: a node's index is
+	 * its position. A node reached again (a shared subtree) keeps its first
+	 * position. */
+	class Vector<Node> preorder(Node root) {
+		Vector<Node> result = [];
+		Map<Node, bool> seen = {};
 		Vector<Node> pending = [root];
+		Vector<Node> children = [];
 		while (pending.len > 0) {
 			Node node = pending.pop();
-			string key = AstIdentity.key(node);
-			if (result.has(key)) { continue; }
-			result.put(key, result.len);
-			Vector<Node> children = [];
+			if (seen.has(node)) { continue; }
+			seen.put(node, true);
+			result.push(node);
+			children.clear();
 			AstStructure.children(node, children);
 			int index = children.len - 1;
 			while (index >= 0) {
 				pending.push(children.get(index));
 				index = index - 1;
 			}
+		}
+		return result;
+	}
+
+	/* Pre-order position of every node reachable from `root`, by identity. */
+	class Map<Node, int> positions(Node root) {
+		Map<Node, int> result = {};
+		Vector<Node> nodes = AstStructure.preorder(root);
+		int index = 0;
+		while (index < nodes.len) {
+			result.put(nodes.get(index), index);
+			index = index + 1;
 		}
 		return result;
 	}
@@ -868,6 +883,113 @@ class TypeIdentity {
 		string encodedBase = TypeIdentity.utf8Hex(typeExpr.base);
 		string shape = "p" + Strings.fromInt(typeExpr.pointerDepth) + "n" + Strings.fromInt(typeExpr.isNullable ? 1 : 0) + "o" + Strings.fromInt(typeExpr.nullableOuterDepth) + "a" + Strings.fromInt(typeExpr.isArray ? 1 : 0) + "q" + Strings.fromInt(TypeIdentity.qualifierBits(typeExpr));
 		return TypeIdentity.field("b", encodedBase) + shape + TypeIdentity.encodeTypes(typeExpr.genericArgs);
+	}
+
+	/* Whether `encode` captures the whole type: it omits array-size
+	 * expressions (and source positions), so a type carrying one anywhere is
+	 * not encodable. */
+	class bool encodable(Node typeExpr) {
+		if (typeExpr.kind != NK_TYPE_EXPR || typeExpr.arraySize != null) { return false; }
+		for argument in typeExpr.genericArgs {
+			if (!TypeIdentity.encodable(argument)) { return false; }
+		}
+		return true;
+	}
+
+	/* The inverse of `encode` for an encodable type; null for text that is
+	 * not exactly one encoded type. */
+	class Node? decode(string text) {
+		Vector<int> cursor = [0];
+		Node? result = TypeIdentity.decodeAt(text, cursor);
+		if (result == null || cursor.get(0) != text.length()) { return null; }
+		return result;
+	}
+
+	class int decodeInt(string text, Vector<int> cursor) {
+		int index = cursor.get(0);
+		int start = index;
+		int value = 0;
+		while (index < text.length() && TypeIdentity.asciiDigit(text[index]) && index - start < 9) {
+			value = value * 10 + (int)(text[index] - '0');
+			index = index + 1;
+		}
+		if (index == start) { return -1; }
+		cursor.set(0, index);
+		return value;
+	}
+
+	/* `tag<length>_<value>`: the value, or null when malformed. */
+	class string? decodeField(string text, string tag, Vector<int> cursor) {
+		int index = cursor.get(0);
+		if (index >= text.length() || text[index] != tag[0]) { return null; }
+		cursor.set(0, index + 1);
+		int length = TypeIdentity.decodeInt(text, cursor);
+		index = cursor.get(0);
+		if (length < 0 || index >= text.length() || text[index] != '_' || index + 1 + length > text.length()) { return null; }
+		cursor.set(0, index + 1 + length);
+		return text.substring(index + 1, length);
+	}
+
+	/* `<letter><int>` for one shape component, or -1. */
+	class int decodeTagged(string text, char tag, Vector<int> cursor) {
+		int index = cursor.get(0);
+		if (index >= text.length() || text[index] != tag) { return -1; }
+		cursor.set(0, index + 1);
+		return TypeIdentity.decodeInt(text, cursor);
+	}
+
+	class string? hexText(string hex) {
+		if (hex.length() % 2 != 0) { return null; }
+		StringBuilder text = StringBuilder();
+		int index = 0;
+		while (index < hex.length()) {
+			int high = TypeIdentity.hexDigit(hex[index]);
+			int low = TypeIdentity.hexDigit(hex[index + 1]);
+			if (high < 0 || low < 0) { return null; }
+			text.appendChar((char)(high * 16 + low));
+			index = index + 2;
+		}
+		return text.toString();
+	}
+
+	class int hexDigit(char value) {
+		if (value >= '0' && value <= '9') { return (int)(value - '0'); }
+		if (value >= 'a' && value <= 'f') { return (int)(value - 'a') + 10; }
+		return -1;
+	}
+
+	class Node? decodeAt(string text, Vector<int> cursor) {
+		string? encodedBase = TypeIdentity.decodeField(text, "b", cursor);
+		if (encodedBase == null) { return null; }
+		string? base = TypeIdentity.hexText(encodedBase);
+		int pointers = TypeIdentity.decodeTagged(text, 'p', cursor);
+		int nullable = TypeIdentity.decodeTagged(text, 'n', cursor);
+		int outer = TypeIdentity.decodeTagged(text, 'o', cursor);
+		int array = TypeIdentity.decodeTagged(text, 'a', cursor);
+		int qualifiers = TypeIdentity.decodeTagged(text, 'q', cursor);
+		int count = TypeIdentity.decodeTagged(text, 'k', cursor);
+		if (base == null || pointers < 0 || nullable < 0 || nullable > 1 || outer < 0 || array < 0 || array > 1 || qualifiers < 0 || qualifiers > 15 || count < 0) { return null; }
+		Node result = Node();
+		result.kind = NK_TYPE_EXPR;
+		result.base = base;
+		result.pointerDepth = pointers;
+		result.isNullable = nullable == 1;
+		result.nullableOuterDepth = outer;
+		result.isArray = array == 1;
+		result.isConst = qualifiers % 2 == 1;
+		result.isStatic = (qualifiers / 2) % 2 == 1;
+		result.isExtern = (qualifiers / 4) % 2 == 1;
+		result.isVolatile = (qualifiers / 8) % 2 == 1;
+		int index = 0;
+		while (index < count) {
+			string? argument = TypeIdentity.decodeField(text, "t", cursor);
+			if (argument == null) { return null; }
+			Node? decoded = TypeIdentity.decode(argument);
+			if (decoded == null) { return null; }
+			result.genericArgs.push(decoded);
+			index = index + 1;
+		}
+		return result;
 	}
 
 	class string encodeNameAndTypes(string base, Vector<Node> args) { return TypeIdentity.field("b", TypeIdentity.utf8Hex(base)) + TypeIdentity.encodeTypes(args); }

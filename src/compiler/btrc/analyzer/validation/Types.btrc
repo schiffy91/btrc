@@ -16,6 +16,7 @@ import ../Types.btrc;
 
 class SemanticValidationState {
 	public Analyzed analyzed;
+	public IValidationRecords? records = null;
 	public Node? returnType;
 	public string owner;
 	public Map<string, bool> typeParams;

@@ -770,7 +770,7 @@ class NameValidator {
 		if (self.state.generatedSymbols.has(symbol)) {
 			TypeValidator.fail("Direct call to compiler-generated C symbol '" + symbol + "' for " + self.state.generatedSymbols.get(symbol) + " is not allowed", identifier);
 		}
-		self.generatedReferences.push(DeferredGeneratedSymbolReference(identifier, true, false));
+		self.deferGenerated(identifier, true, false);
 	}
 
 	private bool genericMethodStemMatches(string symbol, string classBase, int classArity, Node method) {
@@ -892,7 +892,7 @@ class NameValidator {
 			TypeValidator.fail("Source reference to compiler-generated C symbol '" + symbol + "' for " + self.state.generatedSymbols.get(symbol) + " is not allowed", identifier);
 		}
 		if (sourceKnown || self.couldBeLateGeneratedSymbol(symbol)) {
-			self.generatedReferences.push(DeferredGeneratedSymbolReference(identifier, false, sourceKnown));
+			self.deferGenerated(identifier, false, sourceKnown);
 			return;
 		}
 		if (self.sourceRuntimeSymbols.compilerOwnedUnresolved(symbol)) {
@@ -915,6 +915,26 @@ class NameValidator {
 		if (!reference.directCall && !reference.sourceKnown && !supported) {
 			TypeValidator.fail("Unknown identifier '" + symbol + "'", identifier);
 		}
+	}
+
+	/* Defers a reference to the completed-symbol check. A replayed validation
+	 * record calls this for each reference its declaration deferred, in the
+	 * original order, so the first failure reported is the same. */
+	public void deferGenerated(Node identifier, bool directCall, bool sourceKnown) {
+		self.generatedReferences.push(DeferredGeneratedSymbolReference(identifier, directCall, sourceKnown));
+		ValidationFact? fact = self.state.analyzed.journalFact(VALIDATION_GENERATED_REFERENCE, identifier, null);
+		if (fact != null) {
+			fact.directCall = directCall;
+			fact.sourceKnown = sourceKnown;
+		}
+	}
+
+	public int deferredReferenceCount() { return self.generatedReferences.len; }
+
+	/* Drops references deferred after `count`, when a replay is abandoned
+	 * and its declaration is validated live instead. */
+	public void truncateDeferredReferences(int count) {
+		while (self.generatedReferences.len > count) { self.generatedReferences.pop(); }
 	}
 
 	public void validateCompletedGeneratedSymbols(Node program) {

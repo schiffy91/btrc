@@ -132,12 +132,26 @@ class CompilerPipeline {
 		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols);
 		analyzer.configureNativeDeclarations(resolved.nativeDeclarations);
 		BtrccPhaseTimer.mark("catalog");
+		/* Stage B: with module units and a store, unchanged groups replay
+		 * their body-validation records instead of validating again. */
+		ValidationRecords? records = null;
+		IBtrccArtifactCache? store = self.moduleUnitStore;
+		if (options.moduleUnits && !options.unitsPrefix.isEmpty() && options.useCache && store != null && resolved.strictImports) {
+			records = ValidationRecords(program, sourceDeclarations, resolved, options, store);
+			analyzer.configureValidationRecords(records);
+			BtrccPhaseTimer.mark("a-records");
+		}
 		Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
 		BtrccPhaseTimer.mark("analyze");
+		if (records != null) {
+			records.persist();
+			BtrccPhaseTimer.mark(f"a-records-stored(replayed={records.replayed},journaled={records.journaled})");
+		}
 		if (options.moduleUnits && !options.unitsPrefix.isEmpty()) {
 			if (!resolved.strictImports) { return self.failure("error: module units require strict imports"); }
 			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations, self.hostedAbi) : null;
 			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys);
+			if (records != null) { unitProgram.interfaceDigest = records.interfaceDigest; }
 			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();
 			IRModule? programModule = build.program;
 			if (programModule != null) {

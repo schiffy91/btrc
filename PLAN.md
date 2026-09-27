@@ -50,6 +50,28 @@ summaries), which the ≤10 s edit budget needs because whole-program front end
 and analysis alone take about 28 s. Details:
 [`docs/design/separate-compilation.md`](docs/design/separate-compilation.md).
 
+**September 25: Stage B slice 1 landed in the self-hosted compiler.** An
+unchanged group replays its body-validation record instead of being
+validated again. On a BTRSmith one-string edit, 1,687 declarations replay
+and one validates live, and the emitted units are byte-identical to a clean
+build. The edit build retires 16.9% fewer instructions (about 6 s at normal
+clock). The verify gate passes on BTRSmith and on all 964 corpus programs.
+Design and measurements:
+[`docs/design/separate-compilation.md`](docs/design/separate-compilation.md)
+("Slice 1 as implemented"). Slice 2 then replays each declaration's generic
+demand (discovery's method scan and the closure's declaration scan). Slice 3
+replays realtime scans. Three scope copies now use the slot-copying
+`Map.merge`. Module-unit keys reuse the records' interface digest. The same
+edit build retires 43.2% fewer instructions than without records (246.5
+against 433.9 billion), and cold builds 2.6% fewer (436.5 against 448.3).
+Units stay byte-identical, and the verify gate passes on BTRSmith and all 965
+corpus programs. Next:
+- per-instance closure records (about 3 s);
+- cheaper realtime record decoding (about 1 s);
+- the lowering declarations session (about 3 s);
+- front-end caching;
+- the reference compiler's records.
+
 **September 24 status and plan revision (bucket 1, M11).** M11a module
 reuse is committed as `c955059`, with `4bb4694` fixing a realtime
 diagnostic; neither is pushed.

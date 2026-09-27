@@ -742,7 +742,7 @@ class StorageValidator {
 		Map<string, bool> unrestricted = {};
 		SemanticIntegerConstant constant = self.constants.integerConstant(typeExpr.arraySize, false, "", unrestricted);
 		if (constant.valid) {
-			self.state.analyzed.constantArrayBoundKeys.put(AstIdentity.key(typeExpr.arraySize), true);
+			self.state.analyzed.recordConstantArrayBound(typeExpr.arraySize);
 		}
 		if (constant.known && constant.value <= 0) {
 			TypeValidator.fail("Array bound for " + subject + " must be positive", typeExpr.arraySize);

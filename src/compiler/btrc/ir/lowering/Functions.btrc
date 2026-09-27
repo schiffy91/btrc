@@ -371,13 +371,7 @@ class FunctionLowerer {
      * + class_members). */
 	public Map<string, Node> seededVarTypes() {
 		Map<string, Node> vt = {};
-		Vector<string> gkeys = self.analyzed.globalVarTypes.keys();
-		int gk = 0;
-		while (gk < gkeys.len) {
-			string gn = gkeys.get(gk);
-			vt.put(gn, self.analyzed.globalVarTypes.get(gn));
-			gk = gk + 1;
-		}
+		vt.merge(self.analyzed.globalVarTypes);
 		return vt;
 	}
 

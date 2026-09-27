@@ -724,6 +724,9 @@ class ModuleUnitProgram {
 	public FeResolvedSource resolved;
 	public string sourcePath;
 	public Map<string, bool>? stdlibKeys;
+	/* The program's pre-analysis interface digest when validation records
+	 * computed it (per-group, cached); empty otherwise. */
+	public string interfaceDigest = "";
 
 	public ModuleUnitProgram(Node program, Analyzed analyzed, SemanticAnalyzer analyzer, HostedAbiRepository hostedAbi, RuntimeHelperCatalog runtimeHelpers, FeResolvedSource resolved, string sourcePath, Map<string, bool>? stdlibKeys) {
 		self.program = program;
@@ -952,9 +955,18 @@ class ModuleUnitCompiler {
 	 * and the program interface and facts digests. */
 	private string programDigest() {
 		ModuleUnitProgram input = self.input;
-		AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
 		SHA256 digest = SHA256();
-		for declaration in input.program.declarations { digest.appendText(SHA256.digest(renderer.render(declaration))); }
+		/* Analysis changes interfaces only as a function of the whole
+		 * program's pre-analysis source (generic-argument upgrades, merged
+		 * defaults), and the facts below follow it, so the pre-analysis
+		 * interface digest identifies the program as well as a rendering after
+		 * analysis does. */
+		if (!input.interfaceDigest.isEmpty()) {
+			digest.appendText("interface:" + input.interfaceDigest);
+		} else {
+			AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
+			for declaration in input.program.declarations { digest.appendText(SHA256.digest(renderer.render(declaration))); }
+		}
 		AstCanonicalRenderer positionFree = AstCanonicalRenderer.positionFreeRenderer();
 		digest.appendText("\nfacts\n");
 		digest.appendText(self.facts.usesTrycatch ? "trycatch" : "no-trycatch");
@@ -2110,5 +2122,557 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		header.set("dropped", invalid);
 		string rendered = header.stringify();
 		return Strings.fromInt(rendered.length()) + "\n" + rendered + text;
+	}
+}
+
+/* Nodes of some declarations by identity: each node's running pre-order
+ * position, and where each declaration's positions start. */
+class ValidationNodeIndex {
+	private Map<Node, int> positions = {};
+	private Vector<int> starts = [];
+	private Vector<string> slots = [];
+	private int running = 0;
+
+	public ValidationNodeIndex() {}
+
+	/* Indexes a declaration's nodes, or only its type nodes. */
+	public void add(string slot, Vector<Node> nodes, bool typesOnly) {
+		self.starts.push(self.running);
+		self.slots.push(slot);
+		int at = 0;
+		while (at < nodes.len) {
+			Node node = nodes.get(at);
+			if ((!typesOnly || node.kind == NK_TYPE_EXPR) && !self.positions.has(node)) { self.positions.put(node, self.running + at); }
+			at = at + 1;
+		}
+		self.running = self.running + nodes.len;
+	}
+
+	/* "file\tordinal\tindex" for an indexed node, or null. */
+	public string? locate(Node node) {
+		if (!self.positions.has(node)) { return null; }
+		int position = self.positions.get(node);
+		int low = 0;
+		int high = self.starts.len - 1;
+		while (low < high) {
+			int middle = (low + high + 1) / 2;
+			if (self.starts.get(middle) <= position) { low = middle; } else { high = middle - 1; }
+		}
+		return self.slots.get(low) + "\t" + Strings.fromInt(position - self.starts.get(low));
+	}
+}
+
+/* Stage B positions: a node's top-level declaration, named by its file and
+ * its ordinal among that file's declarations, and its pre-order index within
+ * the declaration (AstStructure). A reused group's files are unchanged, so
+ * its positions name the same nodes in every build. */
+class ValidationRecordCodec {
+	private Map<string, string> slotOfDeclaration = {};
+	private Map<string, Node> declarationAt = {};
+	private Map<string, string> fileOfSlot = {};
+	private Vector<string> slots = [];
+	private Map<string, Vector<Node>> preorders = {};
+	private Map<string, Map<Node, int>> ownPositions = {};
+	/* Foreign nodes are found first among declarations with parameter
+	 * defaults (a callee's defaults are read at its call sites), then among
+	 * every declaration's type nodes (instance arguments name parameter,
+	 * field and return types), then anywhere; each index is built on first
+	 * need, and the fixed order keeps positions canonical. */
+	private ValidationNodeIndex? defaultsIndex = null;
+	private ValidationNodeIndex? typesIndex = null;
+	private ValidationNodeIndex? everyIndex = null;
+
+	/* `files`: declaration identity -> the file it was read from. */
+	public ValidationRecordCodec(Vector<Node> declarations, Map<string, string> files) {
+		Map<string, int> ordinals = {};
+		Map<string, string> tags = {};
+		for declaration in declarations {
+			string key = AstIdentity.key(declaration);
+			string file = files.has(key) ? files.get(key) : "<other>";
+			int ordinal = ordinals.has(file) ? ordinals.get(file) : 0;
+			ordinals.put(file, ordinal + 1);
+			/* Records repeat a position on every line, so a file is named by a
+			 * short stable tag of its path rather than the path itself. */
+			if (!tags.has(file)) { tags.put(file, SHA256.digest(file).substring(0, 12)); }
+			string slot = tags.get(file) + "\t" + Strings.fromInt(ordinal);
+			self.slotOfDeclaration.put(key, slot);
+			self.declarationAt.put(slot, declaration);
+			self.fileOfSlot.put(slot, file);
+			self.slots.push(slot);
+		}
+	}
+
+	public string slot(Node declaration) { return self.slotOfDeclaration.get(AstIdentity.key(declaration)); }
+
+	private Vector<Node> preorder(string slot) {
+		if (!self.preorders.has(slot)) { self.preorders.put(slot, AstStructure.preorder(self.declarationAt.get(slot))); }
+		return self.preorders.get(slot);
+	}
+
+	/* Built on the first node found outside the declaration being encoded. */
+	/* 0: declarations with defaults; 1: every type node; 2: every node. */
+	private ValidationNodeIndex index(int scope) {
+		ValidationNodeIndex? existing = scope == 0 ? self.defaultsIndex : (scope == 1 ? self.typesIndex : self.everyIndex);
+		if (existing != null) { return existing; }
+		ValidationNodeIndex built = ValidationNodeIndex();
+		for slot in self.slots {
+			if (scope == 0 && !ValidationRecordCodec.hasDefaults(self.declarationAt.get(slot))) { continue; }
+			built.add(slot, self.preorder(slot), scope == 1);
+		}
+		if (scope == 0) { self.defaultsIndex = built; } else if (scope == 1) { self.typesIndex = built; } else { self.everyIndex = built; }
+		return built;
+	}
+
+	class bool hasDefaults(Node declaration) {
+		for parameter in declaration.params { if (parameter.default_ != null) { return true; } }
+		for member in declaration.members {
+			for parameter in member.params { if (parameter.default_ != null) { return true; } }
+		}
+		return false;
+	}
+
+	/* "file\tordinal\tindex\tkind", or null for a node in no declaration.
+	 * Files other than the encoded declaration's are added to `foreign`. */
+	private string? position(Node node, string ownSlot, Map<Node, int> own, Map<string, bool> foreign) {
+		string kind = Strings.fromInt((int)node.kind);
+		if (own.has(node)) { return ownSlot + "\t" + Strings.fromInt(own.get(node)) + "\t" + kind; }
+		string? located = self.index(0).locate(node);
+		if (located == null && node.kind == NK_TYPE_EXPR) { located = self.index(1).locate(node); }
+		if (located == null) { located = self.index(2).locate(node); }
+		if (located == null) { return null; }
+		string slot = located.substring(0, located.lastIndexOf("\t"));
+		foreign.put(self.fileOfSlot.get(slot), true);
+		return located + "\t" + kind;
+	}
+
+	/* A type: "@" and its position when the node is in the tree (replay then
+	 * yields the shared node later phases may mutate), else "=" and its
+	 * TypeIdentity encoding; null when it is neither. */
+	private string? typeText(Node type, string ownSlot, Map<Node, int> own, Map<string, bool> foreign) {
+		string? at = self.position(type, ownSlot, own, foreign);
+		if (at != null) { return "@\t" + at; }
+		if (TypeIdentity.encodable(type)) { return "=\t" + TypeIdentity.encode(type); }
+		return null;
+	}
+
+	private string? typesText(Vector<Node> types, string ownSlot, Map<Node, int> own, Map<string, bool> foreign) {
+		string text = Strings.fromInt(types.len);
+		for type in types {
+			string? item = self.typeText(type, ownSlot, own, foreign);
+			if (item == null) { return null; }
+			text = text + "\t" + item;
+		}
+		return text;
+	}
+
+	/* One declaration's journal as record text, or null when a fact cannot be
+	 * named by position (a synthetic node) or a type cannot be encoded. */
+	public string? encode(Node declaration, ValidationJournal journal, Map<string, bool> foreign) {
+		string ownSlot = self.slot(declaration);
+		/* Every phase encodes the same declarations; index each once. */
+		if (!self.ownPositions.has(ownSlot)) { self.ownPositions.put(ownSlot, AstStructure.positions(declaration)); }
+		Map<Node, int> own = self.ownPositions.get(ownSlot);
+		StringBuilder out = StringBuilder();
+		for fact in journal.facts {
+			string line = Strings.fromInt(fact.kind);
+			if (fact.kind == VALIDATION_GENERIC_CLASS) {
+				string? arguments = self.typesText(fact.arguments, ownSlot, own, foreign);
+				if (arguments == null) { return null; }
+				line = line + "\t" + fact.name + "\t" + arguments;
+			} else if (fact.kind == VALIDATION_GENERIC_METHOD) {
+				string? classArguments = self.typesText(fact.arguments, ownSlot, own, foreign);
+				string? methodArguments = self.typesText(fact.moreArguments, ownSlot, own, foreign);
+				if (classArguments == null || methodArguments == null) { return null; }
+				line = line + "\t" + fact.name + "\t" + fact.member + "\t" + classArguments + "\t" + methodArguments;
+			} else {
+				Node? node = fact.node;
+				if (node == null) { return null; }
+				string? at = self.position(node, ownSlot, own, foreign);
+				if (at == null) { return null; }
+				line = line + "\t" + at;
+				if (fact.kind == VALIDATION_GENERIC_CONSTRUCTOR) {
+					Node? value = fact.value;
+					if (value == null) { return null; }
+					string? valueText = self.typeText(value, ownSlot, own, foreign);
+					if (valueText == null) { return null; }
+					line = line + "\t" + valueText;
+				} else if (fact.kind == VALIDATION_GENERATED_REFERENCE) {
+					line = line + "\t" + (fact.directCall ? "1" : "0") + "\t" + (fact.sourceKnown ? "1" : "0");
+				} else if (fact.kind == VALIDATION_RAW_BORROW) {
+					line = line + "\t" + Strings.fromInt(fact.parameter) + "\t" + node.name;
+				} else if (fact.kind == VALIDATION_CALL_ARGUMENTS) {
+					string? arguments = self.typesText(fact.arguments, ownSlot, own, foreign);
+					if (arguments == null) { return null; }
+					line = line + "\t" + arguments;
+				} else if (fact.kind == VALIDATION_REALTIME_EFFECT || fact.kind == VALIDATION_REALTIME_EDGE) {
+					if (!ValidationRecordCodec.plain(fact.name) || !ValidationRecordCodec.plain(fact.member) || !ValidationRecordCodec.plain(fact.detail)) { return null; }
+					line = line + "\t" + fact.name + "\t" + fact.member;
+					if (fact.kind == VALIDATION_REALTIME_EFFECT) { line = line + "\t" + fact.detail; }
+				}
+			}
+			out.append(line);
+			out.append("\n");
+		}
+		return out.toString();
+	}
+
+	/* Text a record field can carry as is. */
+	class bool plain(string text) { return text.indexOf("\t") < 0 && text.indexOf("\n") < 0; }
+
+	/* The node at fields[at .. at+3], or null when it names nothing here. */
+	private Node? resolve(Vector<string> fields, int at) {
+		if (at + 4 > fields.len) { return null; }
+		string slot = fields.get(at) + "\t" + fields.get(at + 1);
+		if (!self.declarationAt.has(slot)) { return null; }
+		Vector<Node> nodes = self.preorder(slot);
+		int index = Strings.toInt(fields.get(at + 2));
+		if (index < 0 || index >= nodes.len) { return null; }
+		Node node = nodes.get(index);
+		if ((int)node.kind != Strings.toInt(fields.get(at + 3))) { return null; }
+		return node;
+	}
+
+	/* The type at fields[cursor]: "@" and a position, or "=" and an encoding. */
+	private Node? typeAt(Vector<string> fields, Vector<int> cursor) {
+		int at = cursor.get(0);
+		if (at + 2 > fields.len) { return null; }
+		if (fields.get(at).equals("@")) {
+			cursor.set(0, at + 5);
+			return self.resolve(fields, at + 1);
+		}
+		if (!fields.get(at).equals("=")) { return null; }
+		cursor.set(0, at + 2);
+		return TypeIdentity.decode(fields.get(at + 1));
+	}
+
+	private Vector<Node>? typesAt(Vector<string> fields, Vector<int> cursor) {
+		int at = cursor.get(0);
+		if (at >= fields.len) { return null; }
+		int count = Strings.toInt(fields.get(at));
+		cursor.set(0, at + 1);
+		Vector<Node> types = [];
+		int index = 0;
+		while (index < count) {
+			Node? type = self.typeAt(fields, cursor);
+			if (type == null) { return null; }
+			types.push(type);
+			index = index + 1;
+		}
+		return types;
+	}
+
+	/* A declaration's record text resolved to this program's nodes, or null
+	 * when any fact no longer names a node of the recorded kind. */
+	public Vector<ValidationFact>? decode(string text) {
+		Vector<ValidationFact> facts = [];
+		for line in Strings.split(text, "\n") {
+			if (line.isEmpty()) { continue; }
+			Vector<string> fields = Strings.split(line, "\t");
+			int kind = Strings.toInt(fields.get(0));
+			Vector<int> cursor = [1];
+			if (kind == VALIDATION_GENERIC_CLASS || kind == VALIDATION_GENERIC_METHOD) {
+				if (fields.len < 3) { return null; }
+				ValidationFact demand = ValidationFact(kind, null);
+				demand.name = fields.get(1);
+				cursor.set(0, 2);
+				if (kind == VALIDATION_GENERIC_METHOD) {
+					demand.member = fields.get(2);
+					cursor.set(0, 3);
+				}
+				Vector<Node>? arguments = self.typesAt(fields, cursor);
+				if (arguments == null) { return null; }
+				demand.arguments = arguments;
+				if (kind == VALIDATION_GENERIC_METHOD) {
+					Vector<Node>? methodArguments = self.typesAt(fields, cursor);
+					if (methodArguments == null) { return null; }
+					demand.moreArguments = methodArguments;
+				}
+				if (cursor.get(0) != fields.len) { return null; }
+				facts.push(demand);
+				continue;
+			}
+			Node? node = self.resolve(fields, 1);
+			if (node == null) { return null; }
+			ValidationFact fact = ValidationFact(kind, node);
+			cursor.set(0, 5);
+			if (kind == VALIDATION_GENERIC_CONSTRUCTOR) {
+				Node? value = self.typeAt(fields, cursor);
+				if (value == null || cursor.get(0) != fields.len) { return null; }
+				fact.value = value;
+			} else if (kind == VALIDATION_GENERATED_REFERENCE) {
+				if (fields.len != 7) { return null; }
+				fact.directCall = fields.get(5).equals("1");
+				fact.sourceKnown = fields.get(6).equals("1");
+			} else if (kind == VALIDATION_RAW_BORROW) {
+				if (fields.len != 7 || (node.kind != NK_FUNCTION_DECL && node.kind != NK_METHOD_DECL) || !node.name.equals(fields.get(6))) { return null; }
+				fact.parameter = Strings.toInt(fields.get(5));
+			} else if (kind == VALIDATION_CALL_ARGUMENTS) {
+				Vector<Node>? arguments = self.typesAt(fields, cursor);
+				if (arguments == null || cursor.get(0) != fields.len) { return null; }
+				fact.arguments = arguments;
+			} else if (kind == VALIDATION_REALTIME_EFFECT) {
+				if (fields.len != 8) { return null; }
+				fact.name = fields.get(5);
+				fact.member = fields.get(6);
+				fact.detail = fields.get(7);
+			} else if (kind == VALIDATION_REALTIME_EDGE) {
+				if (fields.len != 7) { return null; }
+				fact.name = fields.get(5);
+				fact.member = fields.get(6);
+			} else if (kind == VALIDATION_BOUNDED_LOOP) {
+				if (fields.len != 5) { return null; }
+			} else if (kind != VALIDATION_HOSTED_CALL && kind != VALIDATION_CONSTANT_BOUND && kind != VALIDATION_ITERATION_CAPACITY) {
+				return null;
+			} else if (fields.len != 5) {
+				return null;
+			}
+			facts.push(fact);
+		}
+		return facts;
+	}
+}
+
+/* Stage B validation records: one per compilation group, keyed by the
+ * group's source, the whole program's interface and the options that shape
+ * validation. The inline standard library is one durable group; native
+ * declarations are bodyless and never recorded. A record is written only
+ * when every function and class of its group was validated live. With
+ * BTRC_VERIFY_VALIDATION_RECORDS set, every declaration is validated live
+ * and compared with its group's record. */
+class ValidationRecords implements IValidationRecords {
+	private ValidationRecordCodec codec;
+	private IBtrccArtifactCache store;
+	private bool verify;
+	private Map<string, string> fileOfDeclaration = {};
+	private Map<string, string> groupOfFile = {};
+	private Map<string, string> keys = {};
+	private Map<string, Map<string, string>> loaded = {};
+	private Map<string, StringBuilder> writing = {};
+	private Map<string, Map<string, bool>> foreign = {};
+	private Map<string, bool> unwritable = {};
+	private Map<string, bool> abandoned = {};
+	public int replayed = 0;
+	public int journaled = 0;
+	public string interfaceDigest = "";
+
+	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store) {
+		self.store = store;
+		self.verify = getenv("BTRC_VERIFY_VALIDATION_RECORDS") != null;
+		FeSourcePathPolicy paths = FeSourcePathPolicy();
+		FeCompilationGroups groups = resolved.dependencies.compilationGroups(paths.identity(resolved.rootSourcePath));
+		Map<string, SHA256> digests = {};
+		for line in resolved.userLines {
+			if (!self.groupOfFile.has(line.sourceFile)) {
+				string group = groups.groupOfIdentity(paths.identity(line.sourceFile));
+				self.groupOfFile.put(line.sourceFile, group.isEmpty() ? "" : "group:" + group);
+			}
+			string group = self.groupOfFile.get(line.sourceFile);
+			if (group.isEmpty()) { continue; }
+			if (!digests.has(group)) { digests.put(group, SHA256()); }
+			digests.get(group).appendText(line.sourceFile + "\t" + Strings.fromInt(line.lineNumber) + "\t" + line.text + "\n");
+		}
+		self.groupOfFile.put("<stdlib>", "<stdlib>");
+		for declaration in sourceDeclarations {
+			string file = "<other>";
+			if (resolved.stdlibLineCount > 0 && declaration.line >= 1 && declaration.line <= resolved.stdlibLineCount) {
+				file = "<stdlib>";
+			} else {
+				int userLine = declaration.line - resolved.stdlibLineCount;
+				if (userLine >= 1 && userLine <= resolved.userLines.len) { file = resolved.userLines.get(userLine - 1).sourceFile; }
+			}
+			self.fileOfDeclaration.put(AstIdentity.key(declaration), file);
+		}
+		for declaration in program.declarations {
+			string key = AstIdentity.key(declaration);
+			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
+		}
+		self.codec = ValidationRecordCodec(program.declarations, self.fileOfDeclaration);
+		string context = f"validation-record-v4;target={options.target};strict={options.strictImports};stdlib={options.includeStdlib}";
+		Map<string, string> sources = {};
+		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
+		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }
+		string interfaceDigest = self.programInterface(program, context, sources);
+		self.interfaceDigest = interfaceDigest;
+		for group in sources.keys() { self.keys.put(group, SHA256.digest(context + "\n" + group + "\n" + sources.get(group) + "\n" + interfaceDigest)); }
+		for group in self.keys.keys() { self.load(group); }
+	}
+
+	/* The position-free interface of every declaration. A group's interface
+	 * is a function of its source alone, so its digest is cached under the
+	 * group's source digest and only changed groups are rendered again;
+	 * native declarations have no source of their own and are rendered each
+	 * time. */
+	private string programInterface(Node program, string context, Map<string, string> sources) {
+		AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
+		Map<string, SHA256> rendered = {};
+		Map<string, string> cached = {};
+		for group in sources.keys() {
+			BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.interfaceKey(context, group, sources.get(group)));
+			if (payload != null && payload.record.equals("validation-interface-v1")) { cached.put(group, payload.text); }
+		}
+		SHA256 natives = SHA256();
+		for declaration in program.declarations {
+			string group = self.groupAmong(declaration, sources);
+			if (group.isEmpty()) {
+				natives.appendText(SHA256.digest(renderer.render(declaration)));
+			} else if (!cached.has(group)) {
+				if (!rendered.has(group)) { rendered.put(group, SHA256()); }
+				rendered.get(group).appendText(SHA256.digest(renderer.render(declaration)));
+			}
+		}
+		for group in rendered.keys() {
+			string digest = rendered.get(group).finish();
+			cached.put(group, digest);
+			self.store.storeModuleUnit(self.interfaceKey(context, group, sources.get(group)), BtrccModuleUnitPayload("validation-interface-v1", digest));
+		}
+		Vector<string> names = [];
+		for group in cached.keys() { names.push(group); }
+		names.sort();
+		SHA256 result = SHA256();
+		for group in names { result.appendText(group + "\t" + cached.get(group) + "\n"); }
+		result.appendText("<native>\t" + natives.finish() + "\n");
+		return result.finish();
+	}
+
+	private string interfaceKey(string context, string group, string source) { return SHA256.digest("validation-interface-v1\n" + context + "\n" + group + "\n" + source); }
+
+	/* The recordable group a declaration was read from, among `groups`, or "". */
+	private string groupAmong(Node declaration, Map<string, string> groups) {
+		string key = AstIdentity.key(declaration);
+		if (!self.fileOfDeclaration.has(key)) { return ""; }
+		string file = self.fileOfDeclaration.get(key);
+		if (!self.groupOfFile.has(file)) { return ""; }
+		string group = self.groupOfFile.get(file);
+		return groups.has(group) ? group : "";
+	}
+
+	/* The group a declaration's record belongs to, or "" when none can. */
+	private string groupOf(Node declaration) {
+		string key = AstIdentity.key(declaration);
+		if (!self.fileOfDeclaration.has(key)) { return ""; }
+		string file = self.fileOfDeclaration.get(key);
+		if (!self.groupOfFile.has(file)) { return ""; }
+		string group = self.groupOfFile.get(file);
+		return self.keys.has(group) ? group : "";
+	}
+
+	private void load(string group) {
+		BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.keys.get(group));
+		if (payload == null || !payload.record.equals("validation-record-v4")) { return; }
+		Map<string, string> declarations = {};
+		string slot = "";
+		StringBuilder facts = StringBuilder();
+		bool open = false;
+		for line in Strings.split(payload.text, "\n") {
+			if (line.startsWith("dep\t")) {
+				Vector<string> fields = Strings.split(line, "\t");
+				if (fields.len != 3 || !self.keys.has(fields.get(1)) || !self.keys.get(fields.get(1)).equals(fields.get(2))) { return; }
+			} else if (line.startsWith("d\t")) {
+				if (open) { declarations.put(slot, facts.toString()); }
+				slot = line.substring(2, line.length() - 2);
+				facts = StringBuilder();
+				open = true;
+			} else if (!line.isEmpty() && open) {
+				facts.append(line);
+				facts.append("\n");
+			}
+		}
+		if (open) { declarations.put(slot, facts.toString()); }
+		self.loaded.put(group, declarations);
+	}
+
+	/* A declaration's section of its group's record: phase, then slot. */
+	private string section(int phase, Node declaration) { return Strings.fromInt(phase) + "\t" + self.codec.slot(declaration); }
+
+	public Vector<ValidationFact>? recorded(int phase, Node declaration) {
+		if (self.verify) { return null; }
+		string group = self.groupOf(declaration);
+		if (group.isEmpty() || !self.loaded.has(group)) { return null; }
+		/* The closure scan reads validation's facts, so it follows a group
+		 * whose validation replay was abandoned back to live analysis. */
+		if (phase == RECORD_PHASE_CLOSE && self.abandoned.has(group)) { return null; }
+		Map<string, string> declarations = self.loaded.get(group);
+		string slot = self.section(phase, declaration);
+		if (!declarations.has(slot)) { return null; }
+		Vector<ValidationFact>? facts = self.codec.decode(declarations.get(slot));
+		if (facts != null && phase == RECORD_PHASE_VALIDATE) { self.replayed = self.replayed + 1; }
+		return facts;
+	}
+
+	public bool journals(int phase, Node declaration) {
+		string group = self.groupOf(declaration);
+		if (group.isEmpty() || self.unwritable.has(group)) { return false; }
+		return self.verify || !self.loaded.has(group);
+	}
+
+	public bool finish(int phase, Node declaration, ValidationJournal journal) {
+		string group = self.groupOf(declaration);
+		if (!self.foreign.has(group)) { self.foreign.put(group, {}); }
+		string? text = self.codec.encode(declaration, journal, self.foreign.get(group));
+		if (phase == RECORD_PHASE_VALIDATE) { self.journaled = self.journaled + 1; }
+		string slot = self.section(phase, declaration);
+		if (self.loaded.has(group)) {
+			/* Verifying: the record must equal the live journal, and must
+			 * resolve to nodes that encode back to the same text. */
+			Map<string, string> declarations = self.loaded.get(group);
+			if (text == null || !declarations.has(slot) || !declarations.get(slot).equals(text)) { return false; }
+			Vector<ValidationFact>? decoded = self.codec.decode(text);
+			if (decoded == null) { return false; }
+			ValidationJournal replayed = ValidationJournal();
+			replayed.facts = decoded;
+			Map<string, bool> files = {};
+			string? again = self.codec.encode(declaration, replayed, files);
+			return again != null && again.equals(text);
+		}
+		if (text == null) {
+			self.unwritable.put(group, true);
+			return true;
+		}
+		if (!self.writing.has(group)) { self.writing.put(group, StringBuilder()); }
+		StringBuilder out = self.writing.get(group);
+		out.append("d\t" + slot + "\n");
+		out.append(text);
+		return true;
+	}
+
+	public bool reusable(Node declaration) {
+		if (self.verify) { return false; }
+		string group = self.groupOf(declaration);
+		return !group.isEmpty() && self.loaded.has(group) && !self.abandoned.has(group);
+	}
+
+	public void abandon(Node declaration) {
+		string group = self.groupOf(declaration);
+		if (!group.isEmpty()) { self.abandoned.put(group, true); }
+	}
+
+	/* After analysis succeeded: stores every complete new record, and voids
+	 * any record a replay had to abandon. */
+	public void persist() {
+		for group in self.abandoned.keys() { self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-void", "")); }
+		for group in self.writing.keys() {
+			if (self.unwritable.has(group) || self.loaded.has(group)) { continue; }
+			StringBuilder text = StringBuilder();
+			bool complete = true;
+			Map<string, bool> files = {};
+			if (self.foreign.has(group)) { files = self.foreign.get(group); }
+			for file in files.keys() {
+				if (file.equals("<native>") || file.equals("<other>")) {
+					/* Native declarations are bodyless: the interface digest in
+					 * every key already covers their positions. */
+					if (file.equals("<other>")) { complete = false; }
+					continue;
+				}
+				string other = self.groupOfFile.has(file) ? self.groupOfFile.get(file) : "";
+				if (!self.keys.has(other)) {
+					complete = false;
+				} else if (!other.equals(group)) {
+					text.append("dep\t" + other + "\t" + self.keys.get(other) + "\n");
+				}
+			}
+			if (!complete) { continue; }
+			text.append(self.writing.get(group).toString());
+			self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-v4", text.toString()));
+		}
 	}
 }

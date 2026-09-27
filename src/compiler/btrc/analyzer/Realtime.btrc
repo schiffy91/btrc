@@ -4,6 +4,7 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
+import ../frontend/Timing.btrc;
 import ../generated/ast/Node.btrc;
 import ../syntax/Identity.btrc;
 import ./Expressions.btrc;
@@ -175,6 +176,12 @@ class RealtimeAnalyzer {
 	private Map<string, string> declarationKeys;
 	private Map<string, string> propertyKeys;
 	private Vector<RealtimeLoopGuard> loopGuards;
+	private IValidationRecords? records = null;
+	private Node? indexOwner = null;
+	/* Stage B: the top-level declaration each callable belongs to, and the
+	 * declarations (by identity) whose realtime scan replays a record. */
+	private Map<string, Node> ownerOfCallable = {};
+	private Map<string, Vector<ValidationFact>> replays = {};
 
 	public RealtimeAnalyzer(Node program, Analyzed analyzed, HostedAbiRepository hostedAbi, SourceRuntimeSymbols runtimeSymbols, ExpressionTypeResolver expressionTypes) {
 		self.program = program;
@@ -188,6 +195,8 @@ class RealtimeAnalyzer {
 		self.propertyKeys = {};
 		self.loopGuards = [];
 	}
+
+	public void useRecords(IValidationRecords? records) { self.records = records; }
 
 	public void validate() {
 		bool hasRealtimeRoot = false;
@@ -210,12 +219,33 @@ class RealtimeAnalyzer {
 		}
 		if (!hasRealtimeRoot) { return; }
 		self.indexCallables();
+		BtrccPhaseTimer.mark("r-index");
+		self.installReplays();
+		/* Callables of one declaration are contiguous in `order`; each
+		 * declaration scanned live is journaled for a record when wanted. */
+		string owner = "";
+		Node? current = null;
+		ValidationJournal? journal = null;
 		index = 0;
 		while (index < self.order.len) {
-			self.scanCallable(self.callables.get(self.order.get(index)));
+			string key = self.order.get(index);
+			Node declaration = self.ownerOfCallable.get(key);
+			string identity = AstIdentity.key(declaration);
+			if (!self.replays.has(identity)) {
+				if (!identity.equals(owner)) {
+					self.endJournal(current, journal);
+					owner = identity;
+					current = declaration;
+					journal = self.beginJournal(declaration);
+				}
+				self.scanCallable(self.callables.get(key));
+			}
 			index = index + 1;
 		}
+		self.endJournal(current, journal);
+		BtrccPhaseTimer.mark("r-scan");
 		Map<string, bool> unsafe = self.unsafeFixedPoint();
+		BtrccPhaseTimer.mark("r-fixed-point");
 		index = 0;
 		while (index < self.order.len) {
 			RealtimeCallable callable = self.callables.get(self.order.get(index));
@@ -236,6 +266,12 @@ class RealtimeAnalyzer {
 		int index = 0;
 		while (index < self.program.declarations.len) {
 			Node declaration = self.program.declarations.get(index);
+			IValidationRecords? records = self.records;
+			if (records != null && (declaration.kind == NK_FUNCTION_DECL || declaration.kind == NK_CLASS_DECL)) {
+				Vector<ValidationFact>? facts = records.recorded(RECORD_PHASE_REALTIME, declaration);
+				if (facts != null) { self.replays.put(AstIdentity.key(declaration), facts); }
+			}
+			self.indexOwner = declaration;
 			if (declaration.kind == NK_FUNCTION_DECL) {
 				self.addCallable("function:" + declaration.name, declaration.name, declaration, declaration.bodyNode, "");
 			} else if (declaration.kind == NK_CLASS_DECL) {
@@ -271,13 +307,8 @@ class RealtimeAnalyzer {
 	private void addCallable(string key, string label, Node declaration, Node? body, string owner) {
 		RealtimeCallable callable = RealtimeCallable(key, label, declaration);
 		callable.body = body;
-		Vector<string> globalNames = self.analyzed.globalVarTypes.keys();
+		callable.variables.merge(self.analyzed.globalVarTypes);
 		int index = 0;
-		while (index < globalNames.len) {
-			string name = globalNames.get(index);
-			callable.variables.put(name, self.analyzed.globalVarTypes.get(name));
-			index = index + 1;
-		}
 		if (owner != "") {
 			Node selfType = Node();
 			selfType.kind = NK_TYPE_EXPR;
@@ -295,7 +326,12 @@ class RealtimeAnalyzer {
 			callable.variables.put("value", declaration.type);
 			callable.localNames.put("value", true);
 		}
-		self.collectLocals(body, callable);
+		Node? indexed = self.indexOwner;
+		Node top = indexed == null ? declaration : indexed;
+		self.ownerOfCallable.put(key, top);
+		/* A replayed callable keeps its recorded events; its locals are only
+		 * the scan's inputs. */
+		if (!self.replays.has(AstIdentity.key(top))) { self.collectLocals(body, callable); }
 		self.callables.put(key, callable);
 		self.order.push(key);
 		self.declarationKeys.put(AstIdentity.key(declaration), key);
@@ -380,7 +416,7 @@ class RealtimeAnalyzer {
 			self.visit(node.bodyNode, callable);
 			self.loopGuards.pop();
 			if (!guard.violated) {
-				self.analyzed.realtimeBoundedLoopKeys.put(AstIdentity.key(node), true);
+				self.analyzed.recordRealtimeBoundedLoop(node);
 			}
 			return;
 		}
@@ -1056,6 +1092,12 @@ class RealtimeAnalyzer {
 		event.line = site.line;
 		event.col = site.col;
 		callable.events.push(event);
+		ValidationFact? fact = self.analyzed.journalFact(VALIDATION_REALTIME_EFFECT, site, null);
+		if (fact != null) {
+			fact.name = callable.key;
+			fact.member = category;
+			fact.detail = operation;
+		}
 	}
 
 	private void edge(RealtimeCallable callable, string target, Node site) {
@@ -1064,6 +1106,66 @@ class RealtimeAnalyzer {
 		event.line = site.line;
 		event.col = site.col;
 		callable.events.push(event);
+		ValidationFact? fact = self.analyzed.journalFact(VALIDATION_REALTIME_EDGE, site, null);
+		if (fact != null) {
+			fact.name = callable.key;
+			fact.member = target;
+		}
+	}
+
+	/* Installs every replayed declaration's recorded events on its callables,
+	 * with sites at their nodes' current positions, and its bounded-loop
+	 * proofs. */
+	private void installReplays() {
+		for declaration in self.program.declarations {
+			string identity = AstIdentity.key(declaration);
+			if (!self.replays.has(identity)) { continue; }
+			for fact in self.replays.get(identity) {
+				Node? site = fact.node;
+				if (site == null) { self.replayMismatch(declaration); return; }
+				if (fact.kind == VALIDATION_BOUNDED_LOOP) {
+					self.analyzed.recordRealtimeBoundedLoop(site);
+					continue;
+				}
+				if ((fact.kind != VALIDATION_REALTIME_EFFECT && fact.kind != VALIDATION_REALTIME_EDGE) || !self.callables.has(fact.name)) { self.replayMismatch(declaration); return; }
+				RealtimeEvent event = RealtimeEvent();
+				event.isEffect = fact.kind == VALIDATION_REALTIME_EFFECT;
+				if (event.isEffect) {
+					event.category = fact.member;
+					event.operation = fact.detail;
+				} else {
+					event.target = fact.member;
+				}
+				event.line = site.line;
+				event.col = site.col;
+				self.callables.get(fact.name).events.push(event);
+			}
+		}
+	}
+
+	/* A record names a callable its unchanged declaration no longer has:
+	 * the record key did not capture something it should have. */
+	private void replayMismatch(Node declaration) {
+		fprintf(stderr, "internal compiler error: realtime record does not match its declaration at %d:%d\n", declaration.line, declaration.col);
+		exit(1);
+	}
+
+	private ValidationJournal? beginJournal(Node declaration) {
+		IValidationRecords? records = self.records;
+		if (records == null || (declaration.kind != NK_FUNCTION_DECL && declaration.kind != NK_CLASS_DECL) || !records.journals(RECORD_PHASE_REALTIME, declaration)) { return null; }
+		ValidationJournal journal = ValidationJournal();
+		self.analyzed.journal = journal;
+		return journal;
+	}
+
+	private void endJournal(Node? declaration, ValidationJournal? journal) {
+		if (declaration == null || journal == null) { return; }
+		self.analyzed.journal = null;
+		IValidationRecords? records = self.records;
+		if (records != null && !records.finish(RECORD_PHASE_REALTIME, declaration, journal)) {
+			fprintf(stderr, "error: realtime record disagrees with live analysis at %d:%d\n", declaration.line, declaration.col);
+			exit(1);
+		}
 	}
 
 	private Map<string, bool> unsafeFixedPoint() {
