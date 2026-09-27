@@ -58,6 +58,32 @@ class Map<K, V> implements Iterable {
 		free(oldOccupied);
 	}
 
+	/* Merging into an empty map adopts the other map's slot layout: every
+	 * probe position stays valid at the same capacity, so entries are copied
+	 * without rehashing, probing or growing. */
+	private void copySlots(Map<K, V> other) {
+		K* keys = (K*)__btrc_safe_calloc(other.cap, sizeof(K));
+		V* values = (V*)__btrc_safe_calloc(other.cap, sizeof(V));
+		bool* occupied = (bool*)__btrc_safe_calloc(other.cap, sizeof(bool));
+		for (int i = 0; i < other.cap; i++) {
+			if (other.occupied[i]) {
+				keep other.keys[i];
+				keep other.values[i];
+				keys[i] = other.keys[i];
+				values[i] = other.values[i];
+				occupied[i] = true;
+			}
+		}
+		free(self.keys);
+		free(self.values);
+		free(self.occupied);
+		self.keys = keys;
+		self.values = values;
+		self.occupied = occupied;
+		self.cap = other.cap;
+		self.len = other.len;
+	}
+
 	public void put(K key, V value) {
 		if (self.len >= self.cap - self.cap / 4) { self.resize(); }
 		self.putRetained(key, value);
@@ -212,6 +238,10 @@ class Map<K, V> implements Iterable {
 	public void set(K key, V value) { self.put(key, value); }
 
 	public void merge(Map<K, V> other) {
+		if (self.len == 0 && other.len > 0) {
+			self.copySlots(other);
+			return;
+		}
 		for (int i = 0; i < other.cap; i++) {
 			if (other.occupied[i]) { self.put(other.keys[i], other.values[i]); }
 		}

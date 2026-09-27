@@ -171,6 +171,14 @@ macOS; the details are in `docs/design/compile-performance.md`.
   from 9.8 s to 6.8 s. The reference analyzer's walk, made
   iterative with each node type's fields reflected once, went from 0.74 s to
   0.58 s on BTRSmith; it was never that compiler's bottleneck.
+- **Body validation, sampled:** about 22% of it was copying scope maps.
+  Every body cloned the whole global variable-type map, and every block
+  cloned its scope, by reinserting each entry. `Map.merge` into an empty map
+  now adopts the source's slot layout, with no rehashing, probing or growth.
+  A whole-program BTRSmith compile retires 3.1% fewer instructions
+  (1,076.3 to 1,042.8 billion, about 2.9 s), and peak memory is unchanged.
+  Instructions were compared because this Mac throttles background work
+  while idle, which made wall-clock A/B runs unusable.
 - **After Stage B:** program-level validation (now about 0.9 s) stays, so
   its best case leaves about 18 s of compiler time. Slice 1 alone saves at
   most 6.7 s.

@@ -1,0 +1,71 @@
+/* Map.merge() into an EMPTY map adopts the source's slot layout instead of
+ * reinserting each entry. The copy must hold its own references to managed
+ * keys and values, stay independent of the source afterwards, and keep
+ * working through removals (backward-shift) and growth. */
+import Library.Map;
+
+#include <assert.h>
+#include <stdio.h>
+
+class Box {
+	public int v;
+	public Box(int v) { self.v = v; }
+}
+
+int main() {
+	Map<string, Box> source = {};
+	for (int i = 0; i < 100; i++) { source.put(f"k{i}", Box(i)); }
+	source.remove("k7");
+
+	Map<string, Box> copy = {};
+	copy.merge(source);
+	assert(copy.size() == 99);
+	assert(!copy.has("k7"));
+	assert(copy.get("k42").v == 42);
+
+	/* the copy and the source change independently */
+	copy.remove("k3");
+	copy.put("extra", Box(1000));
+	source.put("k3", Box(-3));
+	source.remove("k50");
+	assert(copy.size() == 99);
+	assert(!copy.has("k3"));
+	assert(copy.has("k50"));
+	assert(source.get("k3").v == -3);
+	assert(source.size() == 98);
+
+	/* values survive the source going away */
+	source.free();
+	int total = 0;
+	for (int i = 0; i < 100; i++) {
+		string key = f"k{i}";
+		if (copy.has(key)) { total = total + copy.get(key).v; }
+	}
+	assert(total == 4950 - 7 - 3);
+
+	/* the adopted layout keeps growing correctly */
+	for (int i = 100; i < 400; i++) { copy.put(f"k{i}", Box(i)); }
+	assert(copy.size() == 399);
+	assert(copy.get("k399").v == 399);
+	assert(copy.get("extra").v == 1000);
+
+	/* a non-empty target still merges entry by entry */
+	Map<string, Box> into = {};
+	into.put("k1", Box(50));
+	into.put("own", Box(7));
+	into.merge(copy);
+	assert(into.get("k1").v == 1);
+	assert(into.get("own").v == 7);
+	assert(into.size() == 400);
+
+	/* merging an empty map changes nothing */
+	Map<string, bool> empty = {};
+	Map<string, bool> none = {};
+	none.merge(empty);
+	assert(none.size() == 0);
+
+	copy.free();
+	into.free();
+	printf("PASS: test_map_merge_into_empty\n");
+	return 0;
+}
