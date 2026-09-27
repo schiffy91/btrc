@@ -361,15 +361,28 @@ million incoming edges, so every release of a node walks that list. Sharing one
 *managed* object among millions of holders is quadratic under this ARC
 implementation, which no amount of accessor discipline changes.
 
-Two consequences for M8a. The cheap 24-site route is **not available** while the
-sentinel is an ordinary managed object, so the remaining honest options are the
-nullable-field migration, which has no shared object but reaches all 3,235 read
-sites, or making the sentinel non-participating in ARC — a header flag that
-`__btrc_arc_register_incoming` and `__btrc_arc_unregister_incoming` skip, which
-is correct for a permanently empty object that is never freed and never
-collected, and which would then make the 24-site version work as intended. The
-second is far smaller, but it extends the ownership model, which is a canonical
-boundary and deserves its own slice rather than being smuggled in. The
+A sample of the slow build puts **10,188 of 10,202 samples inside
+`__btrc_arc_replace_edge`**, which is where that scan is inlined, so the
+attribution is measured rather than read off the source.
+
+The second finding is the one that settles the design, and it is not about the
+scan at all. `Node_init` in the generated C contains 21 `_new(` calls and **58
+`__btrc_arc_replace_edge` calls**, and `__btrc_arc_register_incoming` mallocs an
+`__btrc_arc_incoming` record for every managed edge it publishes. A node
+therefore pays for roughly 21 vectors *and* an edge record per field edge. The
+shared empty removes the 13 vector allocations but still publishes 13 managed
+edges, so it trades vector allocations for edge-record allocations: even with
+O(1) removal it would save about 13 of some 42 allocations rather than 13 of 21.
+
+That makes the choice clear rather than open. **Only a null field captures the
+whole win**, because null publishes no edge and allocates nothing — no vector
+and no edge record. The shared sentinel is handicapped twice over, by the
+quadratic removal and by the edge records it still allocates, and excluding it
+from ARC's edges (a header flag that `__btrc_arc_register_incoming` and
+`__btrc_arc_unregister_incoming` honour) would only recover the smaller half of
+the prize while extending the ownership model, a canonical boundary. So the
+route for M8a is the nullable-field migration and its 3,235 read sites, which is
+large but is the only design that removes both allocations. The
 invariant check earned its place either way: it caught a genuinely missed
 mutation site — on `NativeNode`, which this same emitter generates and whose
 lists a reader writes directly — in 3.1 s instead of corrupting an AST silently.

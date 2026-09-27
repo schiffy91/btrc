@@ -83,8 +83,13 @@ retry them without new evidence:
   units byte-identical) and 2-3x slower: 119-216 s against a 64 s baseline.
   `__btrc_arc_unregister_incoming` finds an owner by walking a singly linked
   incoming-edge list, so a managed object shared by millions of holders makes
-  every release of a holder walk that list. Sharing one managed object widely
-  is quadratic; a sentinel would first have to stop participating in ARC.
+  every release of a holder walk that list (10,188 of 10,202 samples sat in
+  `__btrc_arc_replace_edge`, where it inlines). Worse, it could not have won
+  even with O(1) removal: `Node_init` holds 21 `_new(` calls and 58
+  `replace_edge` calls, and every published managed edge mallocs an
+  `__btrc_arc_incoming` record, so a shared empty trades vector allocations for
+  edge-record allocations. Only a **null** field removes both. Share a managed
+  object widely and you pay twice.
 - **Consolidating the thread-locals.** `_tlv_get_addr` was 45% of profile
   samples, but a build with `_Thread_local` stripped was not faster.
   Leaf-sample share is not speedup. This was measured on a **clang** build,
