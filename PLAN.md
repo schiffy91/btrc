@@ -288,6 +288,55 @@ node and its consumers, in both compilers. It is a multi-session slice and
 should be started deliberately, with the allocation count measured first so the
 payoff is known before the migration rather than after.
 
+*M8a's prize, measured.* Two numbers settle the priority. A counter in
+`Node()` reports **3,860,337 nodes** allocated on one cold BTRSmith build, and
+per-phase deltas show where they come from: `l-generic-classes` 1,418,488
+(36.7%), `l-declarations` 988,174 (25.6%), `parse` 535,364 (13.9%), `v-bodies`
+286,231, `g-transitive` 244,839, `r-scan` 146,341, `c-declarations` 142,888. So
+the parsed AST is only about **535 k nodes and 86% of the total are temporaries
+minted while lowering** — largely the type nodes `resolveGenericType` mints per
+instance, per member, per parameter. At four workers the owner allocates
+1,528,236 of them and the workers the rest.
+
+The cost of the 21 eager vectors was then measured symmetrically, by adding 21
+more per node and reading the delta, because a shared-empty spike cannot run to
+completion to be timed:
+
+| `Node()` allocates | cold wall | peak anonymous growth |
+| --- | ---: | ---: |
+| 21 vectors (today) | 67.2 s, 67.2 s | 6.85 / 7.76 GiB |
+| 42 vectors | 76.2 s, 81.4 s | 7.71 / 8.34 GiB |
+
+Twenty-one per-node vector allocations cost **9.0 to 14.2 s of a 67 s cold
+build** and about **0.6 to 0.9 GiB in the owner**, with the same saving again in
+each worker. Removing them need not be exactly symmetric with adding them, but
+it is the same order: **13 to 21% of cold time**, against 7% for removing the
+generic closure entirely. This is the largest measured lever in the campaign and
+it applies to every phase.
+
+*The cheap subset.* The migration does not have to be all 21 fields at once.
+Reads outnumber mutations heavily — 3,235 references against 356 mutations — and
+the mutations are concentrated: `params` 156, `fields` 48, `statements` 40,
+`declarations` 26, `genericArgs` 22, `members` 16. The other **13 fields carry
+only 33 mutations between them** (`captures` 0, `cases` 1, `bodyNodeList` 1,
+`argNames` 1, `segments` 2, `variants` 2, `args` 2, `interfaces` 3, `entries` 3,
+`parts` 3, `values` 4, `names` 5, `genericParams` 6). Converting just those
+removes 13 of the 21 allocations — about 62% of the win — for 33 edited call
+sites rather than 356.
+
+*The shape, and the question to settle first.* Make each field nullable and
+initialized to null; keep the 3,235 read sites untouched by having reads answer
+a shared immutable empty when the field is null; route every mutation through an
+accessor that allocates on demand. A missed mutation site would otherwise
+silently publish into the shared empty, so assert at the end of each compile
+that the shared empties are still empty — cheap, and it makes any miss fail
+loudly in all 1,930 corpus programs and the bootstrap rather than corrupting an
+AST quietly. What must be decided before writing any of it: a lazily allocating
+accessor is behavior, and `generated/ast/Node.btrc` is required to hold
+data and schema declarations only, so either the generator is permitted to emit
+these accessors or they belong to a handwritten owner that the generator feeds.
+That is an architecture decision, not a coding detail, and it gates the slice.
+
 *On the ≤20 s cold budget.* It is worth stating plainly what the measurements
 imply. Compiler-only cold is 62 s on a clang build, 29.6 s of it waiting on
 workers and 31.6 s serial. Removing the generic closure entirely (4.9 s) and
