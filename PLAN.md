@@ -246,26 +246,58 @@ method instances, about 32 ms per instance**, all in the first of its three
 calls. Per-instance template-body scanning under substitution is the cost, and
 it is the phase to attack — not the loop that surrounded it.
 
-*The slice this implies.* The 274 instances cover only **19 distinct generic
-class templates** (17 in the stdlib — `Vector`, `Map`, `Set`, `Array`, `List`,
-`Result`, the closure and callback families — plus BTRSmith's `CtlRunner` and
-`McpProcess`), about fourteen instances per template. The closure currently
-walks each instance's whole hierarchy and infers every expression in it, so it
-pays that cost fourteen times over per template. Scanning a template **once**,
-recording the generic type expressions it mentions in terms of its own type
-parameters, and then substituting per instance would replace 274 inference
-walks with 19 walks plus 274 cheap substitutions — roughly a fourteenfold
-reduction of the phase, worth about 8 s of a gcc-built cold compile and 4.5 s
-of a clang-built one.
+*What the phase is actually made of, and why the obvious slice is the wrong
+one.* A sample taken across the closure window on a clang build attributes
+7,851 samples:
 
-The risk is precisely stated: not every instance the live walk registers is
-symbolically derivable, because some arise from types *inferred* under the
-substitution rather than written in the template. A symbolic pre-pass is
-therefore a cache that must be proven equal to the live walk, not a
-replacement assumed correct. The repository already has the right shape for
-that — `BTRC_VERIFY_VALIDATION_RECORDS` proves replayed Stage B records
-against live analysis — so this slice should ship behind the same kind of
-verification gate and stay off until it agrees on the corpus and on BTRSmith.
+| bucket | share |
+| --- | ---: |
+| ARC bookkeeping (`__btrc_arc_*`, cleanup registration, reverse edges) | 24.5% |
+| malloc / free | 19.9% |
+| `Map<Node, …>` inserts and lookups | 13.1% |
+| thread-local access (`_tlv_get_addr`) | 9.4% |
+| Stage B record codec (`ValidationNodeIndex`, `AstStructure`) | 8.2% |
+| string operations | 6.0% |
+| **expression type inference** | **1.9%** |
+
+Allocation and ARC together are **44.4%** of the phase, and the inference the
+phase exists to perform is **1.9%**. The first instinct was to scan each
+template once symbolically and substitute per instance — the 274 instances
+cover only **19 distinct generic class templates**, so that promised roughly
+fourteenfold on the phase. It would help, because avoiding the walks avoids
+their allocations, but it aims at the 1.9% and carries a real correctness risk:
+instances also arise from types *inferred* under the substitution rather than
+written in the template, so a symbolic pass is a cache that must be proven
+equal to the live walk rather than assumed. It is no longer the first thing to
+do.
+
+**The lever is M8a, and it is a time lever, not only a memory one.** Every
+`Node()` eagerly constructs 21 vectors. `Vector()` allocates no buffer, so the
+cost is not 21 buffers — it is **21 ARC-managed heap objects per node**, paid
+again for every temporary type node that `resolveGenericType` mints per
+instance, per member, per parameter. That is the same allocation pressure the
+memory measurement already pointed at from the other direction: each worker
+adds only about 0.21 GiB, so roughly 5.6 GiB of the peak is the owner. One
+change therefore addresses both the peak and a double-digit share of the serial
+time, and it applies to every phase rather than to one.
+
+M8a's shape is unchanged from the triage above — a shared immutable empty
+default is unsafe against the 259 direct pushes, and per-kind null fields risk
+null dereferences — so it remains an accessor migration across the generated
+node and its consumers, in both compilers. It is a multi-session slice and
+should be started deliberately, with the allocation count measured first so the
+payoff is known before the migration rather than after.
+
+*On the ≤20 s cold budget.* It is worth stating plainly what the measurements
+imply. Compiler-only cold is 62 s on a clang build, 29.6 s of it waiting on
+workers and 31.6 s serial. Removing the generic closure entirely (4.9 s) and
+halving the setjmp solve (3.9 s) would reach about 53 s. The budget is not
+reachable by further increments of this kind: it needs the serial front end and
+analysis moved per-group, which is Stage B's destination and not yet built, and
+the allocation work above. Either that architecture lands, or the budget wants
+revising against measurement rather than intent — this plan already records
+these as proposed acceptance budgets, not forecasts, and that is the decision
+now due.
 
 **September 26, the gcc/clang gap on btrcc, measured.** The repository already
 knows this one: `default_c_compiler()` in `src/tests/runner.py` prefers Apple
