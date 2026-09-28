@@ -451,6 +451,17 @@ created lazily and without a lock; that is safe because the first read happens
 while parsing on one thread, and the only threads the compiler starts, in
 `NativeHeaderProcess`, never touch an AST node.
 
+*Fifteen fields (September 28).* `elements` and `statements`, the first of the
+eight heavy fields, now carry lazy storage too. Wall clock could not resolve
+the change -- six alternating rounds differed by a median 0.77 s with
+per-round differences from -7.5 to +7.6 s -- so it was measured on a
+single-process compile instead: 1,368.1 and 1,367.3 billion instructions
+retired against 1,377.8 and 1,381.9 (about 0.8% fewer), and peak footprint
+4.446 and 4.440 GB against 4.529 and 4.527 GB (84 MB less), with all 409
+emitted units byte-identical. The remaining six heavy fields (`params`,
+`genericArgs`, `fields`, `declarations`, `members`, `methods`) still need
+their receivers audited.
+
 *On the ≤20 s cold budget.* It is worth stating plainly what the measurements
 imply. Compiler-only cold is 62 s on a clang build, 29.6 s of it waiting on
 workers and 31.6 s serial. Removing the generic closure entirely (4.9 s) and

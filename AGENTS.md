@@ -62,6 +62,17 @@ already selects clang through `default_c_compiler()`, so this bites hand-rolled
 measurement inside a dev shell, not the gates. The quick tell is binary size:
 about 20.7 MB from clang against 13.0 MB from gcc.
 
+Compare two compilers on **instructions retired and peak memory**, not wall
+clock. On this laptop identical cold compiles of BTRSmith swing 3-7 s, which
+buries a 1-2% change; `/usr/bin/time -l` on a single-process compile
+(`--jobs 1`) reports `instructions retired` and `peak memory footprint`, and
+both repeat to within about 0.3%. A harness that samples memory in a 1 s
+polling loop and times around it also rounds every wall figure to a second.
+
+Keep measurement workspaces and inputs out of `/tmp`: macOS's daily cleanup
+deletes anything there untouched for three days, and on 2026-09-28 it emptied
+the BTRSmith measurement copy. `~/.cache/btrc/` is safe.
+
 `BTRC_TIMING=1` prints a per-phase breakdown for a whole compile, owner and
 each forked worker on their own lines, which is enough to attribute a cold
 build without attaching a profiler.
