@@ -262,9 +262,9 @@ class Parser {
 		}
 		Node n = Node();
 		n.kind = NK_PACKAGE_PATH;
-		n.segments.push(ident.value);
+		n.segmentsMut().push(ident.value);
 		while (self.matchTok("DOT")) {
-			n.segments.push(self.expect("IDENT").value);
+			n.segmentsMut().push(self.expect("IDENT").value);
 		}
 		return n;
 	}

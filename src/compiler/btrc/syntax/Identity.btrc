@@ -275,7 +275,7 @@ class AstCanonicalRenderer {
 			return out + ")";
 		} else if (node.kind == NK_PACKAGE_PATH) {
 			string out = "(PackagePath";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "segments=" + self.canonStrList(node.segments, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "segments=" + self.canonStrList(node.segments(), d + 1);
 			return out + ")";
 		} else if (node.kind == NK_RELATIVE_PATH) {
 			string out = "(RelativePath";

@@ -125,7 +125,10 @@ class Node {
 	public string alias;
 	public bool recursive;
 	public Vector<string> names;
-	public Vector<string> segments;
+	/* Null until written: a node pays neither a list allocation nor a
+     * managed edge for a `segments` it never fills. Read it
+     * through segments(), write it through segmentsMut(). */
+	public Vector<string>? segmentsStorage;
 	public string path;
 	public string base;
 	public Vector<Node> genericArgs;
@@ -198,6 +201,12 @@ class Node {
 	public Node fn;
 	public Node key;
 
+	/* One empty Vector<string> answered for every unwritten field.
+     * A reference held by a local is a reference count, not a managed
+     * edge, so answering it costs no allocation. A static takes no
+     * literal initializer, so it is created on first need. */
+	class Vector<string>? sharedEmptyStrings = null;
+
 	public Node() {
 		self.kind = NK_NONE;
 		self.declarations = [];
@@ -229,7 +238,7 @@ class Node {
 		self.alias = "";
 		self.recursive = false;
 		self.names = [];
-		self.segments = [];
+		self.segmentsStorage = null;
 		self.path = "";
 		self.base = "";
 		self.genericArgs = [];
@@ -301,5 +310,23 @@ class Node {
 		self.captures = [];
 		self.fn = null;
 		self.key = null;
+	}
+
+	/* `segments` for reading: the shared empty while unwritten. */
+	public Vector<string> segments() {
+		Vector<string>? stored = self.segmentsStorage;
+		if (stored != null) { return stored; }
+		Vector<string>? empty = Node.sharedEmptyStrings;
+		if (empty == null) { Vector<string> fresh = []; empty = fresh; Node.sharedEmptyStrings = empty; }
+		return empty;
+	}
+
+	/* `segments` for mutation: allocated on first write. */
+	public Vector<string> segmentsMut() {
+		Vector<string>? stored = self.segmentsStorage;
+		if (stored != null) { return stored; }
+		Vector<string> fresh = [];
+		self.segmentsStorage = fresh;
+		return fresh;
 	}
 }

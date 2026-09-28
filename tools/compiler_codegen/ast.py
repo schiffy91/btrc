@@ -233,15 +233,92 @@ class BtrcAstRenderer:
         self._emit_simple_enums(lines)
         declarations = self._build_declarations()
 
+        lazy = self._lazy_list_names()
         lines.append(f"class {self._node_name} {{")
         lines.append("    public int kind;")
         for declaration in declarations:
-            lines.append(f"    public {declaration.declared_type} {declaration.name};")
+            if declaration.name in lazy:
+                lines.append(
+                    f"    /* Null until written: a node pays neither a list allocation nor a"
+                )
+                lines.append(
+                    f"     * managed edge for a `{declaration.name}` it never fills. Read it"
+                )
+                lines.append(f"     * through {declaration.name}(), write it through {declaration.name}Mut(). */")
+                lines.append(f"    public {declaration.declared_type}? {self._storage_name(declaration.name)};")
+            else:
+                lines.append(f"    public {declaration.declared_type} {declaration.name};")
+        shared = self._lazy_shared_statics(declarations, lazy)
+        for declared_type, static_name in sorted(shared.items()):
+            lines.append("")
+            lines.append(f"    /* One empty {declared_type} answered for every unwritten field.")
+            lines.append("     * A reference held by a local is a reference count, not a managed")
+            lines.append("     * edge, so answering it costs no allocation. A static takes no")
+            lines.append("     * literal initializer, so it is created on first need. */")
+            lines.append(f"    class {declared_type}? {static_name} = null;")
         lines.extend(("", f"    public {self._node_name}() {{", f"        self.kind = {self._kind_prefix}NONE;"))
         for declaration in declarations:
-            lines.append(f"        self.{declaration.name} = {declaration.initializer};")
-        lines.extend(("    }", "}"))
+            if declaration.name in lazy:
+                lines.append(f"        self.{self._storage_name(declaration.name)} = null;")
+            else:
+                lines.append(f"        self.{declaration.name} = {declaration.initializer};")
+        lines.append("    }")
+        for declaration in declarations:
+            if declaration.name not in lazy:
+                continue
+            name = declaration.name
+            storage = self._storage_name(name)
+            static_name = shared[declaration.declared_type]
+            lines.extend(
+                (
+                    "",
+                    f"    /* `{name}` for reading: the shared empty while unwritten. */",
+                    f"    public {declaration.declared_type} {name}() {{",
+                    f"        {declaration.declared_type}? stored = self.{storage};",
+                    "        if (stored != null) { return stored; }",
+                    f"        {declaration.declared_type}? empty = {self._node_name}.{static_name};",
+                    f"        if (empty == null) {{ {declaration.declared_type} fresh = []; empty = fresh;"
+                    f" {self._node_name}.{static_name} = empty; }}",
+                    "        return empty;",
+                    "    }",
+                    "",
+                    f"    /* `{name}` for mutation: allocated on first write. */",
+                    f"    public {declaration.declared_type} {name}Mut() {{",
+                    f"        {declaration.declared_type}? stored = self.{storage};",
+                    "        if (stored != null) { return stored; }",
+                    f"        {declaration.declared_type} fresh = [];",
+                    f"        self.{storage} = fresh;",
+                    "        return fresh;",
+                    "    }",
+                )
+            )
+        lines.append("}")
         return "\n".join(lines) + "\n"
+
+    # List fields converted to lazy storage. Renaming the backing field makes
+    # the compiler name every site that still reads it directly, so a field is
+    # added here only together with its call sites.
+    _LAZY_LIST_FIELDS: ClassVar[frozenset[str]] = frozenset({"segments"})
+
+    def _lazy_list_names(self) -> frozenset[str]:
+        """Lazy list fields, which only the source AST node carries."""
+
+        return self._LAZY_LIST_FIELDS if self._node_name == "Node" else frozenset()
+
+    @staticmethod
+    def _storage_name(name: str) -> str:
+        return name + "Storage"
+
+    def _lazy_shared_statics(
+        self, declarations: tuple[_BtrcFieldDeclaration, ...], lazy: frozenset[str]
+    ) -> dict[str, str]:
+        names: dict[str, str] = {}
+        for declaration in declarations:
+            if declaration.name not in lazy or declaration.declared_type in names:
+                continue
+            suffix = "Nodes" if self._node_name in declaration.declared_type else "Strings"
+            names[declaration.declared_type] = f"sharedEmpty{suffix}"
+        return names
 
     def _is_sum_type(self, schema_type: AsdlType) -> bool:
         return len(schema_type.constructors) > 1
@@ -457,6 +534,11 @@ class BtrcCanonicalRendererContract:
         node_fields = {
             match.group("name"): match.group("type") for match in self._NODE_FIELD.finditer(self._generated_node)
         }
+        # A lazy list field keeps nullable storage and is read through an
+        # accessor named for the field, which is what the renderer calls.
+        for name, declared in list(node_fields.items()):
+            if name.endswith("Storage") and declared.endswith("?"):
+                node_fields.setdefault(name[: -len("Storage")], declared[:-1])
         for index, (constructor, fields) in enumerate(constructors):
             start = branches[index].end()
             end = branches[index + 1].start() if index + 1 < len(branches) else len(renderer)
