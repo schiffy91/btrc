@@ -280,8 +280,11 @@ class BtrcAstRenderer:
                     f"        {declaration.declared_type}? stored = self.{storage};",
                     "        if (stored != null) { return stored; }",
                     f"        {declaration.declared_type}? empty = {self._node_name}.{static_name};",
-                    f"        if (empty == null) {{ {declaration.declared_type} fresh = []; empty = fresh;"
-                    f" {self._node_name}.{static_name} = empty; }}",
+                    # Returning from the first-use branch lets the analyzer narrow
+                    # `empty` for the check below; reassigning it inside the branch
+                    # left it nullable and warned on every build of the compiler.
+                    f"        if (empty == null) {{ {declaration.declared_type} fresh = [];"
+                    f" {self._node_name}.{static_name} = fresh; return fresh; }}",
                     # A caller that mutates what a reader answered -- directly,
                     # through an alias, or through a callee -- would fill the
                     # one shared empty for every unwritten field in the program.
