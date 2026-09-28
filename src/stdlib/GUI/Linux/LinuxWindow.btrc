@@ -84,6 +84,9 @@ class LinuxKeys {
 		if (scancode == (unsigned int)SDL_SCANCODE_V) { return APP_KEY_V; }
 		if (scancode == (unsigned int)SDL_SCANCODE_X) { return APP_KEY_X; }
 		if (scancode == (unsigned int)SDL_SCANCODE_Z) { return APP_KEY_Z; }
+		if (scancode == (unsigned int)SDL_SCANCODE_Q) { return APP_KEY_Q; }
+		if (scancode == (unsigned int)SDL_SCANCODE_LEFTBRACKET) { return APP_KEY_LEFT_BRACKET; }
+		if (scancode == (unsigned int)SDL_SCANCODE_RIGHTBRACKET) { return APP_KEY_RIGHT_BRACKET; }
 		return APP_KEY_UNKNOWN;
 	}
 

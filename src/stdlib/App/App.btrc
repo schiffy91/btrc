@@ -185,7 +185,10 @@ enum AppKeyCode {
 	APP_KEY_HOME = 21,
 	APP_KEY_END = 22,
 	APP_KEY_DELETE = 23,
-	APP_KEY_Z = 24
+	APP_KEY_Z = 24,
+	APP_KEY_Q = 25,
+	APP_KEY_LEFT_BRACKET = 26,
+	APP_KEY_RIGHT_BRACKET = 27
 };
 
 class AppKeyboardEvent {

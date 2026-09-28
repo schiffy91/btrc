@@ -662,7 +662,7 @@ symbols = [
 	"NSEventModifierFlagShift", "NSEventModifierFlagControl", "NSEventModifierFlagCommand", "kVK_Space", "kVK_Option", "kVK_RightOption",
 	"MacOSLeftOptionFlag", "MacOSRightOptionFlag", "MacOSLeftShiftFlag", "MacOSRightShiftFlag",
 	"kVK_Escape", "kVK_Return", "kVK_LeftArrow", "kVK_RightArrow", "kVK_UpArrow", "kVK_DownArrow", "kVK_Tab", "kVK_Delete", "kVK_ForwardDelete", "kVK_Home", "kVK_End",
-	"kVK_ANSI_A", "kVK_ANSI_D", "kVK_ANSI_S", "kVK_ANSI_W", "kVK_ANSI_C", "kVK_ANSI_V", "kVK_ANSI_X", "kVK_ANSI_Z", "kVK_Shift", "kVK_RightShift",
+	"kVK_ANSI_A", "kVK_ANSI_D", "kVK_ANSI_S", "kVK_ANSI_W", "kVK_ANSI_C", "kVK_ANSI_V", "kVK_ANSI_X", "kVK_ANSI_Z", "kVK_ANSI_Q", "kVK_ANSI_LeftBracket", "kVK_ANSI_RightBracket", "kVK_Shift", "kVK_RightShift",
 	"+[NSEvent addLocalMonitorForEventsMatchingMask:handler:]", "+[NSEvent removeMonitor:]", "NSEventMaskKeyDown", "NSEventMaskKeyUp", "NSEventMaskFlagsChanged"
 ]
 os = ["macos"]
