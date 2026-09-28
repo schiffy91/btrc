@@ -387,6 +387,55 @@ invariant check earned its place either way: it caught a genuinely missed
 mutation site — on `NativeNode`, which this same emitter generates and whose
 lists a reader writes directly — in 3.1 s instead of corrupting an AST silently.
 
+*What landed: thirteen fields, 60.2 s to 57.2 s.* The nullable route is
+implemented for `segments`, `captures`, `cases`, `bodyNodeList`, `variants`,
+`args`, `entries`, `parts`, `values`, `argNames`, `interfaces`, `names` and
+`genericParams`. Each carries `<field>Storage` typed `Vector<X>?` and null until
+written, a `<field>()` reader that answers one shared empty while the field is
+unwritten, and a `<field>Mut()` that allocates on first write. The reader is
+safe where the shared-empty *field* was not: a reference answered to a local is
+a reference count, since `__btrc_arc_unregister_incoming` returns immediately
+for a null owner, so it neither allocates nor lengthens an incoming-edge list.
+
+Cold BTRSmith falls from **60.2 s to 57.2 s**, both reproduced in alternating
+pairs, with all 403 emitted units byte-identical, the 1,930-program corpus green
+through the changed compiler, and the bootstrap at its fixed point. That is
+5.0% for thirteen of the 21 fields — less than the 7–12% the symmetric
+experiment implied, because each read now pays an accessor call and a null test
+back.
+
+*Why this needed a call-site audit rather than a regex.* Of 1,169 textual
+references to those thirteen names only **637 are the source AST node**;
+`IRNode.args`, `IREnumDef.values`, `IRTaggedUnionDef.variants`, `NativeNode`,
+`CallableLambdaPlan.captures` and several enclosing-class fields carry the rest,
+and rewriting one of those breaks the build as surely as missing a real site.
+Renaming the backing field is what makes the migration safe, because every
+unconverted read becomes a compile error. Three traps were found that no
+call-site search would have surfaced, and all three are now handled:
+
+- `src/tests/btrc/test_ast_structure_contract.py` greps `Node.btrc` for
+  Node-valued field declarations and compares them **in order** against
+  `AstStructure.children()`. Nullable storage names would have silently dropped
+  out of that comparison; it now strips the suffix and accepts a nullable list.
+  The `segments` pilot passed only because a `Vector<string>` is invisible to
+  that test.
+- The generated constructor must emit `= null`. Applying the whole-assign rule
+  literally yields `self.capturesStorage = [];`, which compiles and keeps
+  exactly the allocation the change exists to remove.
+- `Node.captures` is never written by this compiler — capture names are
+  recomputed in `CallableValueSemantics` — so its mutator was dead code and
+  `test_only_explicit_external_probes_are_definition_only` flagged it. The
+  generator no longer emits a mutator for a read-only lazy field.
+
+The remaining eight fields (`params` 633 references, `genericArgs` 506, `fields`
+346, `declarations` 251, `members` 159, `elements` 112, `statements` 99,
+`methods` 92) hold the other eight allocations and are the next slice, on the
+same machinery. They carry one hazard the light fields did not: a field passed
+as a bare `Vector<Node>` argument to a callee that **mutates** it would fill the
+single shared empty for every node with an unwritten field, and no syntactic
+`.push(` marks the site. Each such call must be resolved against its callee
+before that field converts.
+
 *On the ≤20 s cold budget.* It is worth stating plainly what the measurements
 imply. Compiler-only cold is 62 s on a clang build, 29.6 s of it waiting on
 workers and 31.6 s serial. Removing the generic closure entirely (4.9 s) and
