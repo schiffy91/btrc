@@ -131,8 +131,8 @@ class OwnershipSemantics {
 		}
 		if (expression.kind == NK_F_STRING_LITERAL) {
 			int part = 0;
-			while (part < expression.parts.len) {
-				if (expression.parts.get(part).kind == NK_F_STRING_EXPR) {
+			while (part < expression.parts().len) {
+				if (expression.parts().get(part).kind == NK_F_STRING_EXPR) {
 					return true;
 				}
 				part = part + 1;
@@ -216,8 +216,8 @@ class OwnershipSemantics {
 		}
 		if (expression.kind == NK_F_STRING_LITERAL && self.managedValues.isString(self.resolveType(expectedType, environment))) {
 			int part = 0;
-			while (part < expression.parts.len) {
-				if (expression.parts.get(part).kind == NK_F_STRING_EXPR) {
+			while (part < expression.parts().len) {
+				if (expression.parts().get(part).kind == NK_F_STRING_EXPR) {
 					return true;
 				}
 				part = part + 1;
@@ -375,8 +375,8 @@ class OwnershipSemantics {
 		projection.recordExpression(expression, typeExpr, self.isManaged(typeExpr, environment), self.context.hasExpressionOverride(expression));
 		if (expression.kind == NK_CALL_EXPR && expression.callee != null && expression.callee.kind == NK_IDENTIFIER && self.analyzed.hostedCallKeys.has(AstIdentity.key(expression))) {
 			int parameter = self.hostedAbi.returnAliasParameter(expression.callee.name);
-			if (parameter >= 0 && parameter < expression.args.len) {
-				Node alias = expression.args.get(parameter);
+			if (parameter >= 0 && parameter < expression.args().len) {
+				Node alias = expression.args().get(parameter);
 				projection.recordAlias(expression, alias);
 				self.prepareRawProjection(projection, alias, environment);
 			}
@@ -389,8 +389,8 @@ class OwnershipSemantics {
 		self.prepareRawProjection(projection, expression.falseExpr, environment);
 		self.prepareRawProjection(projection, expression.obj, environment);
 		int argument = 0;
-		while (argument < expression.args.len) {
-			self.prepareRawProjection(projection, expression.args.get(argument), environment);
+		while (argument < expression.args().len) {
+			self.prepareRawProjection(projection, expression.args().get(argument), environment);
 			argument = argument + 1;
 		}
 	}

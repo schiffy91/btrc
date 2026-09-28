@@ -117,8 +117,8 @@ class GpuSemantics {
 			bool intrinsic = self.callResolvesToIntrinsic(expression, varTypes);
 			if (intrinsic && name == "gpu_id") { return "int"; }
 			if (intrinsic && self.floatBuiltin(name)) { return "float"; }
-			if (intrinsic && self.sameTypeBuiltin(name) && expression.args.len > 0) {
-				return self.contextualExprBase(expression.args.get(0), varTypes);
+			if (intrinsic && self.sameTypeBuiltin(name) && expression.args().len > 0) {
+				return self.contextualExprBase(expression.args().get(0), varTypes);
 			}
 		}
 		Node? inferred = self.expressions.inferSpecializationWithoutMemo(expression, varTypes);

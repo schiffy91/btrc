@@ -106,10 +106,10 @@ class ControlFlowValidator {
 		self.prepareExpression(expression.valueNode, variables);
 		self.prepareExpression(expression.fn, variables);
 		self.prepareExpression(expression.key, variables);
-		self.prepareExpressionList(expression.args, variables);
+		self.prepareExpressionList(expression.args(), variables);
 		self.prepareExpressionList(expression.elements, variables);
-		self.prepareExpressionList(expression.entries, variables);
-		self.prepareExpressionList(expression.parts, variables);
+		self.prepareExpressionList(expression.entries(), variables);
+		self.prepareExpressionList(expression.parts(), variables);
 	}
 
 	private void validateExpression(Node? expression, Map<string, Node> variables) {
@@ -180,13 +180,13 @@ class ControlFlowValidator {
 	}
 
 	class bool switchTerminates(Node statement) {
-		if (statement.cases.len == 0) { return false; }
+		if (statement.cases().len == 0) { return false; }
 		bool hasDefault = false;
 		int index = 0;
-		while (index < statement.cases.len) {
-			Node caseClause = statement.cases.get(index);
+		while (index < statement.cases().len) {
+			Node caseClause = statement.cases().get(index);
 			if (caseClause.valueNode == null) { hasDefault = true; }
-			if (!ControlFlowValidator.statementSequenceTerminates(caseClause.bodyNodeList)) {
+			if (!ControlFlowValidator.statementSequenceTerminates(caseClause.bodyNodeList())) {
 				return false;
 			}
 			index = index + 1;
@@ -276,8 +276,8 @@ class ControlFlowValidator {
 		Vector<long long> knownValues = [];
 		int defaults = 0;
 		int index = 0;
-		while (index < statement.cases.len) {
-			Node clause = statement.cases.get(index);
+		while (index < statement.cases().len) {
+			Node clause = statement.cases().get(index);
 			if (clause.valueNode == null) {
 				defaults = defaults + 1;
 			} else {
@@ -306,19 +306,19 @@ class ControlFlowValidator {
 	class bool isRangeForm(Node? expression) { return expression != null && expression.kind == NK_CALL_EXPR && expression.callee != null && expression.callee.kind == NK_IDENTIFIER && expression.callee.name == "range"; }
 
 	public void validateRangeForm(Node call, Map<string, Node> vars) {
-		if (call.args.len < 1 || call.args.len > 3) {
-			TypeValidator.fail("range expects 1 to 3 arguments, got " + Strings.fromInt(call.args.len), call);
+		if (call.args().len < 1 || call.args().len > 3) {
+			TypeValidator.fail("range expects 1 to 3 arguments, got " + Strings.fromInt(call.args().len), call);
 		}
 		int index = 0;
-		while (index < call.argNames.len) {
-			if (call.argNames.get(index) != "") {
+		while (index < call.argNames().len) {
+			if (call.argNames().get(index) != "") {
 				TypeValidator.fail("range does not accept named arguments", call);
 			}
 			index = index + 1;
 		}
 		index = 0;
-		while (index < call.args.len) {
-			Node argument = call.args.get(index);
+		while (index < call.args().len) {
+			Node argument = call.args().get(index);
 			self.validateExpression(argument,  vars);
 			self.rejectThreadValueEscape(argument, "passed as range arguments", vars);
 			Node? argumentType = self.types.inferType(argument,  vars);
@@ -331,11 +331,11 @@ class ControlFlowValidator {
 			}
 			index = index + 1;
 		}
-		if (call.args.len == 3) {
+		if (call.args().len == 3) {
 			Map<string, bool> unrestricted = {};
-			SemanticIntegerConstant step = self.constants.integerConstant(call.args.get(2), false, "", unrestricted);
+			SemanticIntegerConstant step = self.constants.integerConstant(call.args().get(2), false, "", unrestricted);
 			if (step.known && step.value == 0) {
-				TypeValidator.fail("range step cannot be zero", call.args.get(2));
+				TypeValidator.fail("range step cannot be zero", call.args().get(2));
 			}
 		}
 	}
@@ -496,8 +496,8 @@ class ControlFlowValidator {
 		int previousBreak = self.state.breakDepth;
 		self.state.breakDepth = previousBreak + 1;
 		int caseIndex = 0;
-		while (caseIndex < statement.cases.len) {
-			Node caseClause = statement.cases.get(caseIndex);
+		while (caseIndex < statement.cases().len) {
+			Node caseClause = statement.cases().get(caseIndex);
 			self.validateExpression(caseClause.valueNode,  vars);
 			Map<string, Node> caseVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> previousCaseLocals = self.types.cloneFlags(self.state.localBindings);
@@ -506,8 +506,8 @@ class ControlFlowValidator {
 			self.state.previousStatement = null;
 			int statementIndex = 0;
 			bool terminal = false;
-			while (statementIndex < caseClause.bodyNodeList.len) {
-				Node bodyStatement = caseClause.bodyNodeList.get(statementIndex);
+			while (statementIndex < caseClause.bodyNodeList().len) {
+				Node bodyStatement = caseClause.bodyNodeList().get(statementIndex);
 				if (terminal) {
 					TypeValidator.fail("Unreachable code after return/throw/break/continue", bodyStatement);
 				}

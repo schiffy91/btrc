@@ -607,7 +607,7 @@ class ModuleUnitDeclarations {
 			Node declaration = native.declaration;
 			if (!declaration.name.isEmpty()) { names.put(declaration.name, true); }
 			if (declaration.alias != null && !declaration.alias.isEmpty()) { names.put(declaration.alias, true); }
-			for value in declaration.values { if (!value.name.isEmpty()) { names.put(value.name, true); } }
+			for value in declaration.values() { if (!value.name.isEmpty()) { names.put(value.name, true); } }
 			/* A type spelling such as `struct AudioBuffer` names the type; its C
 			 * keywords and built-in types name nothing the header declares. */
 			Map<string, bool> spelled = {};

@@ -649,8 +649,8 @@ class CallableFlowState {
 		if (expression.kind == NK_CALL_EXPR) {
 			self.evaluateExpression(expression.callee, values, currentContext);
 			int argument = 0;
-			while (argument < expression.args.len) {
-				self.evaluateExpression(expression.args.get(argument), values, currentContext);
+			while (argument < expression.args().len) {
+				self.evaluateExpression(expression.args().get(argument), values, currentContext);
 				argument = argument + 1;
 			}
 			return values.expressionAbi(expression, currentContext);
@@ -674,8 +674,8 @@ class CallableFlowState {
 		}
 		if (expression.kind == NK_MAP_LITERAL) {
 			int entryIndex = 0;
-			while (entryIndex < expression.entries.len) {
-				Node entry = expression.entries.get(entryIndex);
+			while (entryIndex < expression.entries().len) {
+				Node entry = expression.entries().get(entryIndex);
 				self.evaluateExpression(entry.key, values, currentContext);
 				self.evaluateExpression(entry.valueNode, values, currentContext);
 				entryIndex = entryIndex + 1;
@@ -684,8 +684,8 @@ class CallableFlowState {
 		}
 		if (expression.kind == NK_F_STRING_LITERAL) {
 			int partIndex = 0;
-			while (partIndex < expression.parts.len) {
-				Node part = expression.parts.get(partIndex);
+			while (partIndex < expression.parts().len) {
+				Node part = expression.parts().get(partIndex);
 				if (part.kind == NK_F_STRING_EXPR) {
 					self.evaluateExpression(part.expression, values, currentContext);
 				}
@@ -695,8 +695,8 @@ class CallableFlowState {
 		}
 		if (expression.kind == NK_NEW_EXPR) {
 			int argument = 0;
-			while (argument < expression.args.len) {
-				self.evaluateExpression(expression.args.get(argument), values, currentContext);
+			while (argument < expression.args().len) {
+				self.evaluateExpression(expression.args().get(argument), values, currentContext);
 				argument = argument + 1;
 			}
 			return 0;
@@ -792,8 +792,8 @@ class CallableFlowState {
 		}
 		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs.len == 2) {
 			int index = 0;
-			while (index < value.entries.len) {
-				Node entry = value.entries.get(index);
+			while (index < value.entries().len) {
+				Node entry = value.entries().get(index);
 				if (self.unsafePersistentValue(canonical.genericArgs.get(0), entry.key, values, currentContext)) {
 					unsafe = true;
 				}

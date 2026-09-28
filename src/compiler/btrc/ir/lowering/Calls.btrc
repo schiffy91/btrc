@@ -273,8 +273,8 @@ class CallTargetResolver {
 		if (!self.analyzed.richEnumTable.has(enumName)) { return null; }
 		Node declaration = self.analyzed.richEnumTable.get(enumName);
 		int index = 0;
-		while (index < declaration.variants.len) {
-			Node variant = declaration.variants.get(index);
+		while (index < declaration.variants().len) {
+			Node variant = declaration.variants().get(index);
 			if (variant.name == variantName) { return variant; }
 			index = index + 1;
 		}
@@ -409,8 +409,8 @@ class CallTargetResolver {
 		}
 		if (callee != null && callee.kind == NK_IDENTIFIER && callee.name == "print" && !variableTypes.has(callee.name) && !self.analyzed.funcNames.has(callee.name) && !self.analyzed.isClass(callee.name)) {
 			int index = 0;
-			while (index < call.args.len) {
-				Node? sourceType = self.expressionType(call.args.get(index), variableTypes);
+			while (index < call.args().len) {
+				Node? sourceType = self.expressionType(call.args().get(index), variableTypes);
 				Node? targetType = sourceType;
 				if (self.sourceHasToString(sourceType)) {
 					targetType = SemanticTypeSystem.primitive("string");
@@ -461,7 +461,7 @@ class CallTargetResolver {
 		target.signature = self.declarationSignature(method, substitutions);
 		string prefix = receiverType.genericArgs.len > 0 ? TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs) : receiverType.base;
 		target.symbol = self.methodSymbol(receiverType.base, method.name, prefix);
-		Vector<Node>? methodArguments = method.genericParams.len > 0 ? self.analyzed.methodCallArguments(call) : null;
+		Vector<Node>? methodArguments = method.genericParams().len > 0 ? self.analyzed.methodCallArguments(call) : null;
 		if (methodArguments != null) {
 			target.symbol = GenericSpecializer.genericMethodInstanceName(receiverType.base, receiverType.genericArgs, method.name, methodArguments);
 		}
@@ -520,7 +520,7 @@ class CallTargetResolver {
 		}
 		if (self.analyzed.isGenericClass(name)) {
 			Node? instance = self.expressionType(call, variableTypes);
-			if (instance != null && instance.base == name && instance.genericArgs.len == self.analyzed.genericClassTable.get(name).genericParams.len) {
+			if (instance != null && instance.base == name && instance.genericArgs.len == self.analyzed.genericClassTable.get(name).genericParams().len) {
 				return self.constructorTarget(call, instance, variableTypes);
 			}
 			self.fail("cannot resolve generic constructor instance '" + name + "'");
@@ -684,12 +684,12 @@ class CallLowerer {
 		Vector<Node> parameters = target.signature.parameters;
 		if (parameters.len == 0) {
 			int sourceIndex = 0;
-			while (sourceIndex < call.args.len) {
+			while (sourceIndex < call.args().len) {
 				Node parameter = self.passthroughParameter(sourceIndex, null);
-				plan.evaluations.push(CallArgumentSlot(parameter, call.args.get(sourceIndex), sourceIndex, sourceIndex, false));
+				plan.evaluations.push(CallArgumentSlot(parameter, call.args().get(sourceIndex), sourceIndex, sourceIndex, false));
 				sourceIndex = sourceIndex + 1;
 			}
-			plan.resultCount = call.args.len;
+			plan.resultCount = call.args().len;
 			return plan;
 		}
 		Map<string, int> parameterIndices = {};
@@ -702,8 +702,8 @@ class CallLowerer {
 		}
 		int positional = 0;
 		index = 0;
-		while (index < call.args.len) {
-			string name = index < call.argNames.len ? call.argNames.get(index) : "";
+		while (index < call.args().len) {
+			string name = index < call.argNames().len ? call.argNames().get(index) : "";
 			int parameterIndex = positional;
 			if (name != "") {
 				if (!parameterIndices.has(name)) {
@@ -717,7 +717,7 @@ class CallLowerer {
 						self.fail("too many positional arguments");
 					}
 					Node parameter = self.passthroughParameter(parameterIndex, null);
-					plan.evaluations.push(CallArgumentSlot(parameter, call.args.get(index), index, parameterIndex, false));
+					plan.evaluations.push(CallArgumentSlot(parameter, call.args().get(index), index, parameterIndex, false));
 					index = index + 1;
 					continue;
 				}
@@ -726,7 +726,7 @@ class CallLowerer {
 				self.fail("duplicate argument for parameter '" + parameters.get(parameterIndex).name + "'");
 			}
 			sourceForParameter.set(parameterIndex, index);
-			plan.evaluations.push(CallArgumentSlot(parameters.get(parameterIndex), call.args.get(index), index, parameterIndex, false));
+			plan.evaluations.push(CallArgumentSlot(parameters.get(parameterIndex), call.args().get(index), index, parameterIndex, false));
 			index = index + 1;
 		}
 		int parameterIndex = 0;
@@ -741,8 +741,8 @@ class CallLowerer {
 			parameterIndex = parameterIndex + 1;
 		}
 		plan.resultCount = parameters.len;
-		if (target.signature.variadic && call.args.len > plan.resultCount) {
-			plan.resultCount = call.args.len;
+		if (target.signature.variadic && call.args().len > plan.resultCount) {
+			plan.resultCount = call.args().len;
 		}
 		return plan;
 	}

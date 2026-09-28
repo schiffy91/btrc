@@ -136,8 +136,8 @@ class CycleSemantics {
 			Node declaration = self.analyzed.genericClassTable.get(resolvedType.base);
 			Map<string, Node> substitutions = {};
 			int parameter = 0;
-			while (parameter < declaration.genericParams.len && parameter < resolvedType.genericArgs.len) {
-				substitutions.put(declaration.genericParams.get(parameter), resolvedType.genericArgs.get(parameter));
+			while (parameter < declaration.genericParams().len && parameter < resolvedType.genericArgs.len) {
+				substitutions.put(declaration.genericParams().get(parameter), resolvedType.genericArgs.get(parameter));
 				parameter = parameter + 1;
 			}
 			int memberIndex = 0;
@@ -213,8 +213,8 @@ class CycleSemantics {
 		Node declaration = self.analyzed.genericClassTable.get(instance.base);
 		Map<string, Node> substitutions = {};
 		int parameter = 0;
-		while (parameter < declaration.genericParams.len && parameter < instance.args.len) {
-			substitutions.put(declaration.genericParams.get(parameter), instance.args.get(parameter));
+		while (parameter < declaration.genericParams().len && parameter < instance.args.len) {
+			substitutions.put(declaration.genericParams().get(parameter), instance.args.get(parameter));
 			parameter = parameter + 1;
 		}
 		int member = 0;

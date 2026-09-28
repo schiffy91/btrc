@@ -208,13 +208,13 @@ class FunctionLowerer {
 		/* Combined {class_param: concrete, method_param: concrete} type map. */
 		Map<string, Node> typeMap = {};
 		int ci = 0;
-		while (ci < decl.genericParams.len && ci < inst.classArgs.len) {
-			typeMap.put(decl.genericParams.get(ci), inst.classArgs.get(ci));
+		while (ci < decl.genericParams().len && ci < inst.classArgs.len) {
+			typeMap.put(decl.genericParams().get(ci), inst.classArgs.get(ci));
 			ci = ci + 1;
 		}
 		int ui = 0;
-		while (ui < method.genericParams.len && ui < inst.methodArgs.len) {
-			typeMap.put(method.genericParams.get(ui), inst.methodArgs.get(ui));
+		while (ui < method.genericParams().len && ui < inst.methodArgs.len) {
+			typeMap.put(method.genericParams().get(ui), inst.methodArgs.get(ui));
 			ui = ui + 1;
 		}
 

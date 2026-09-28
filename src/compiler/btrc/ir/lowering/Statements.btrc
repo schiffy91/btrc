@@ -611,9 +611,9 @@ class StatementLowerer {
              * not create an overlength string literal.  The explicit discard
              * preserves btrc's eager call semantics under NDEBUG while keeping
              * strict unused-variable builds clean. */
-			if (e.kind == NK_CALL_EXPR && e.callee != null && e.callee.kind == NK_IDENTIFIER && e.callee.name == "assert" && e.args.len == 1 && (e.argNames.len == 0 || (e.argNames.len == 1 && e.argNames.get(0) == ""))) {
+			if (e.kind == NK_CALL_EXPR && e.callee != null && e.callee.kind == NK_IDENTIFIER && e.callee.name == "assert" && e.args().len == 1 && (e.argNames().len == 0 || (e.argNames().len == 1 && e.argNames().get(0) == ""))) {
 				string conditionName = self.context.freshTemporary("__btrc_assert_condition");
-				IRNode conditionDeclaration = IRNode.variableDeclaration("bool", conditionName, self.expressions.lowerExpr(e.args.get(0), varTypes, callableFlow));
+				IRNode conditionDeclaration = IRNode.variableDeclaration("bool", conditionName, self.expressions.lowerExpr(e.args().get(0), varTypes, callableFlow));
 				self.context.recordLocal(conditionDeclaration);
 				out.push(conditionDeclaration);
 				out.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable(conditionName))));
@@ -1229,8 +1229,8 @@ class StatementLowerer {
 		bool hasFallthroughFlow = false;
 		self.managedLifetime.pushControl("switch");
 		int i = 0;
-		while (i < node.cases.len) {
-			Node c = node.cases.get(i);
+		while (i < node.cases().len) {
+			Node c = node.cases().get(i);
 			callableFlow.restore(incoming);
 			if (hasFallthroughFlow) {
 				Vector<CallableFlowSnapshot> entries = [];
@@ -1252,8 +1252,8 @@ class StatementLowerer {
 			Vector<IRNode> body = [];
 			self.managedLifetime.pushManagedScope();
 			int j = 0;
-			while (j < c.bodyNodeList.len) {
-				self.lowerStmtInto(c.bodyNodeList.get(j), caseTypes, body, callableFlow);
+			while (j < c.bodyNodeList().len) {
+				self.lowerStmtInto(c.bodyNodeList().get(j), caseTypes, body, callableFlow);
 				j = j + 1;
 			}
 			IRStatementSequence sequence = IRStatementSequence(body);
@@ -1447,7 +1447,7 @@ class StatementLowerer {
 
 		/* range(...) form. */
 		if (iterable.kind == NK_CALL_EXPR && iterable.callee != null && iterable.callee.kind == NK_IDENTIFIER && iterable.callee.name == "range") {
-			self.lowerRangeFor(varName, iterable.args, node.bodyNode, loopTypes, out, callableFlow);
+			self.lowerRangeFor(varName, iterable.args(), node.bodyNode, loopTypes, out, callableFlow);
 			self.context.restoreSourceBindings(sourceBindings);
 			return;
 		}
@@ -1766,18 +1766,18 @@ class StatementLowerer {
 		if (self.nodeVectorUsesTrycatch(n.members)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.methods)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.fields)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.values)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.variants)) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.values())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.variants())) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.genericArgs)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.params)) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.statements)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.cases)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.bodyNodeList)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.args)) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.cases())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.bodyNodeList())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.args())) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.elements)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.entries)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.parts)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.captures)) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.entries())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.parts())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.captures())) { return true; }
 		if (self.nodeUsesTrycatch(n.spec)) { return true; }
 		if (self.nodeUsesTrycatch(n.returnType)) { return true; }
 		if (self.nodeUsesTrycatch(n.bodyNode)) { return true; }

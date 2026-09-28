@@ -246,7 +246,7 @@ class DeclarationValidator {
 		if (method.bodyNode == null) {
 			TypeValidator.fail(label + " requires a concrete body", method);
 		}
-		if (method.genericParams.len > 0) {
+		if (method.genericParams().len > 0) {
 			TypeValidator.fail(label + " cannot be generic", method);
 		}
 	}
@@ -261,7 +261,7 @@ class DeclarationValidator {
 		if (method.isAbstract || method.bodyNode == null) {
 			TypeValidator.fail(label + " requires a concrete body", method);
 		}
-		if (method.genericParams.len > 0) {
+		if (method.genericParams().len > 0) {
 			TypeValidator.fail(label + " cannot be generic", method);
 		}
 		if (method.params.len != arity) {
@@ -386,8 +386,8 @@ class DeclarationValidator {
 		Node interfaceDeclaration = self.state.interfaces.get(interfaceName);
 		Map<string, Node> substitutions = {};
 		int typeIndex = 0;
-		while (typeIndex < interfaceDeclaration.genericParams.len && typeIndex < classDeclaration.genericParams.len) {
-			substitutions.put(interfaceDeclaration.genericParams.get(typeIndex), SemanticTypeSystem.primitive(classDeclaration.genericParams.get(typeIndex)));
+		while (typeIndex < interfaceDeclaration.genericParams().len && typeIndex < classDeclaration.genericParams().len) {
+			substitutions.put(interfaceDeclaration.genericParams().get(typeIndex), SemanticTypeSystem.primitive(classDeclaration.genericParams().get(typeIndex)));
 			typeIndex = typeIndex + 1;
 		}
 		if (interfaceDeclaration.parent != null) {
@@ -453,7 +453,7 @@ class DeclarationValidator {
 		if (parent != "" && !self.state.analyzed.isClass(parent) && !self.state.analyzed.isGenericClass(parent)) {
 			TypeValidator.fail("Class '" + declaration.name + "' extends unknown class '" + parent + "'", declaration);
 		}
-		if (parent != "" && (declaration.genericParams.len > 0 || self.state.analyzed.isGenericClass(parent))) {
+		if (parent != "" && (declaration.genericParams().len > 0 || self.state.analyzed.isGenericClass(parent))) {
 			TypeValidator.fail("Generic class inheritance is not supported: " + "class '" + declaration.name + "' extends '" + parent + "'", declaration);
 		}
 		self.validateClassInheritanceCycle(declaration);
@@ -464,8 +464,8 @@ class DeclarationValidator {
 		self.validateConcreteAbstractMethods(declaration);
 		Map<string, bool> visited = {};
 		int index = 0;
-		while (index < declaration.interfaces.len) {
-			self.validateInterfaceRequirements(declaration, declaration.interfaces.get(index), visited);
+		while (index < declaration.interfaces().len) {
+			self.validateInterfaceRequirements(declaration, declaration.interfaces().get(index), visited);
 			index = index + 1;
 		}
 	}
@@ -555,7 +555,7 @@ class DeclarationValidator {
 		Map<string, Node> fieldVars = self.globalTypes(self.state.analyzed);
 		fieldVars.put("self", self.selfType(declaration));
 		Map<string, bool> previousParams = self.types.cloneFlags(self.state.typeParams);
-		self.state.typeParams = self.types.typeParamSet(declaration.genericParams);
+		self.state.typeParams = self.types.typeParamSet(declaration.genericParams());
 		int index = 0;
 		while (index < declaration.members.len) {
 			Node member = declaration.members.get(index);
@@ -672,21 +672,21 @@ class DeclarationValidator {
 		Node selfType = SemanticTypeSystem.namedClass(classDeclaration.name);
 		selfType.pointerDepth = 1;
 		int index = 0;
-		while (index < classDeclaration.genericParams.len) {
-			selfType.genericArgs.push(SemanticTypeSystem.primitive(classDeclaration.genericParams.get(index)));
+		while (index < classDeclaration.genericParams().len) {
+			selfType.genericArgs.push(SemanticTypeSystem.primitive(classDeclaration.genericParams().get(index)));
 			index = index + 1;
 		}
 		return selfType;
 	}
 
 	private Node declaredCallableReturnType(Node? classDeclaration, Node callable) {
-		if (classDeclaration == null || !callable.isConstructor || callable.returnType.genericArgs.len > 0 || classDeclaration.genericParams.len == 0) {
+		if (classDeclaration == null || !callable.isConstructor || callable.returnType.genericArgs.len > 0 || classDeclaration.genericParams().len == 0) {
 			return callable.returnType;
 		}
 		Vector<Node> ownerArguments = [];
 		int index = 0;
-		while (index < classDeclaration.genericParams.len) {
-			ownerArguments.push(SemanticTypeSystem.primitive(classDeclaration.genericParams.get(index)));
+		while (index < classDeclaration.genericParams().len) {
+			ownerArguments.push(SemanticTypeSystem.primitive(classDeclaration.genericParams().get(index)));
 			index = index + 1;
 		}
 		return TypeShape.copyWithArguments(callable.returnType, ownerArguments);
@@ -700,12 +700,12 @@ class DeclarationValidator {
 		Vector<string> signatureClassParams = [];
 		if (classDeclaration != null) {
 			int signatureClassIndex = 0;
-			while (signatureClassIndex < classDeclaration.genericParams.len) {
-				signatureClassParams.push(classDeclaration.genericParams.get(signatureClassIndex));
+			while (signatureClassIndex < classDeclaration.genericParams().len) {
+				signatureClassParams.push(classDeclaration.genericParams().get(signatureClassIndex));
 				signatureClassIndex = signatureClassIndex + 1;
 			}
 		}
-		self.state.typeParams = self.types.combinedTypeParams(signatureClassParams, callable.genericParams);
+		self.state.typeParams = self.types.combinedTypeParams(signatureClassParams, callable.genericParams());
 		Node declaredReturnType = self.declaredCallableReturnType(classDeclaration, callable);
 		if (callable.bodyNode == null) {
 			bool exposesRealtimeFunction = self.types.containsRealtimeFunctionStorage(declaredReturnType);
@@ -749,8 +749,8 @@ class DeclarationValidator {
 		Vector<string> classParams = [];
 		if (classDeclaration != null) {
 			int classParamIndex = 0;
-			while (classParamIndex < classDeclaration.genericParams.len) {
-				classParams.push(classDeclaration.genericParams.get(classParamIndex));
+			while (classParamIndex < classDeclaration.genericParams().len) {
+				classParams.push(classDeclaration.genericParams().get(classParamIndex));
 				classParamIndex = classParamIndex + 1;
 			}
 			self.state.owner = classDeclaration.name + "." + callable.name;
@@ -760,7 +760,7 @@ class DeclarationValidator {
 		} else {
 			self.state.owner = callable.name;
 		}
-		self.state.typeParams = self.types.combinedTypeParams(classParams, callable.genericParams);
+		self.state.typeParams = self.types.combinedTypeParams(classParams, callable.genericParams());
 		bool isConstructor = classDeclaration != null && callable.isConstructor;
 		if (isConstructor) {
 			self.state.returnType = SemanticTypeSystem.primitive("void");
@@ -811,8 +811,8 @@ class DeclarationValidator {
 		Map<string, bool> previousBorrowedBindings = self.types.cloneFlags(self.state.borrowedBindings);
 		Map<string, bool> previousLocalBindings = self.types.cloneFlags(self.state.localBindings);
 		int variantIndex = 0;
-		while (variantIndex < declaration.variants.len) {
-			Node variant = declaration.variants.get(variantIndex);
+		while (variantIndex < declaration.variants().len) {
+			Node variant = declaration.variants().get(variantIndex);
 			Map<string, bool> parameterNames = self.names.parameterNames(variant.params, "rich-enum variant '" + declaration.name + "." + variant.name + "'");
 			self.state.owner = declaration.name + "." + variant.name;
 			self.state.callable = variant;

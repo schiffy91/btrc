@@ -344,8 +344,8 @@ class GpuWgslEmitter {
 		}
 		string name = expression.callee.name;
 		int named = 0;
-		while (named < expression.argNames.len) {
-			if (expression.argNames.get(named) != "") {
+		while (named < expression.argNames().len) {
+			if (expression.argNames().get(named) != "") {
 				self.gpuLoweringFail(expression, "WGSL built-ins do not accept named arguments");
 			}
 			named = named + 1;
@@ -355,7 +355,7 @@ class GpuWgslEmitter {
 			self.gpuLoweringFail(expression, "call to '" + name + "' has no WGSL definition because it resolves to a source symbol");
 		}
 		if (name == "gpu_id") {
-			if (expression.args.len != 0) {
+			if (expression.args().len != 0) {
 				self.gpuLoweringFail(expression, "gpu_id() takes no arguments");
 			}
 			return "btrc_gid";
@@ -364,13 +364,13 @@ class GpuWgslEmitter {
 			self.gpuLoweringFail(expression, "call to '" + name + "' has no WGSL definition");
 		}
 		int arity = self.semantics.builtinArity(name);
-		if (expression.args.len != arity) {
+		if (expression.args().len != arity) {
 			self.gpuLoweringFail(expression, name + "() expects " + Strings.fromInt(arity) + " argument(s)");
 		}
 		string expectedBase = "";
 		int typeIndex = 0;
-		while (typeIndex < expression.args.len) {
-			string actual = self.gpuExprBase(expression.args.get(typeIndex));
+		while (typeIndex < expression.args().len) {
+			string actual = self.gpuExprBase(expression.args().get(typeIndex));
 			if (self.semantics.floatBuiltin(name) && actual != "float") {
 				self.gpuLoweringFail(expression, name + "() requires float arguments in GPU functions");
 			}
@@ -387,8 +387,8 @@ class GpuWgslEmitter {
 		}
 		Vector<string> rendered = [];
 		int i = 0;
-		while (i < expression.args.len) {
-			rendered.push(self.expr(expression.args.get(i)));
+		while (i < expression.args().len) {
+			rendered.push(self.expr(expression.args().get(i)));
 			i = i + 1;
 		}
 		if (name == "round") {

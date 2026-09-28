@@ -408,7 +408,7 @@ class ConcurrencyLowerer {
      * pre-lowered call arguments. Mirrors calls._lower_mutex_constructor. */
 	public IRNode lowerMutexConstructor(Node node, Vector<IRNode> args, Map<string, Node> varTypes) {
 		self.context.referenceHelper("__btrc_mutex_val_create");
-		if (node.args.len == 0) {
+		if (node.args().len == 0) {
 			Vector<IRNode> nargs = [];
 			nargs.push(IRNode.literal("NULL"));
 			nargs.push(IRNode.literal("0"));
@@ -422,7 +422,7 @@ class ConcurrencyLowerer {
 			nargs.push(IRNode.literal("NULL"));
 			return IRNode.call("__btrc_mutex_val_create", nargs);
 		}
-		Node? argType = self.resolvedExpressionType(node.args.get(0), varTypes);
+		Node? argType = self.resolvedExpressionType(node.args().get(0), varTypes);
 		if (node.kind == NK_NEW_EXPR && node.type.genericArgs.len > 0) {
 			argType = node.type.genericArgs.get(0);
 		}

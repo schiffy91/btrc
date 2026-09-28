@@ -44,8 +44,8 @@ class ExpressionTypeResolver {
 		if (!analyzed.richEnumTable.has(enumName)) { return null; }
 		Node declaration = analyzed.richEnumTable.get(enumName);
 		int index = 0;
-		while (index < declaration.variants.len) {
-			Node variant = declaration.variants.get(index);
+		while (index < declaration.variants().len) {
+			Node variant = declaration.variants().get(index);
 			if (variant.name == variantName) { return variant; }
 			index = index + 1;
 		}
@@ -156,15 +156,15 @@ class ExpressionTypeResolver {
 		Node declaration = self.analyzed.genericClassTable.get(name);
 		Node? constructor = self.analyzed.genericClassConstructor(name);
 		Map<string, Node> substitutions = {};
-		Map<string, bool> parameters = SemanticTypeSystem.genericParameterSet(declaration.genericParams);
+		Map<string, bool> parameters = SemanticTypeSystem.genericParameterSet(declaration.genericParams());
 		if (constructor != null) {
 			int positional = 0;
 			int argumentIndex = 0;
-			while (argumentIndex < call.args.len) {
+			while (argumentIndex < call.args().len) {
 				int parameterIndex = positional;
 				string argumentName = "";
-				if (argumentIndex < call.argNames.len) {
-					argumentName = call.argNames.get(argumentIndex);
+				if (argumentIndex < call.argNames().len) {
+					argumentName = call.argNames().get(argumentIndex);
 				}
 				if (argumentName != "") {
 					parameterIndex = -1;
@@ -179,7 +179,7 @@ class ExpressionTypeResolver {
 					positional = positional + 1;
 				}
 				if (parameterIndex >= 0 && parameterIndex < constructor.params.len) {
-					Node? actual = self.genericArgumentType(call.args.get(argumentIndex), variables);
+					Node? actual = self.genericArgumentType(call.args().get(argumentIndex), variables);
 					SemanticTypeSystem.unifyGenericParameter(constructor.params.get(parameterIndex).type, actual, parameters, substitutions);
 				}
 				argumentIndex = argumentIndex + 1;
@@ -187,12 +187,12 @@ class ExpressionTypeResolver {
 		}
 		Node instance = SemanticTypeSystem.primitive(name);
 		int typeIndex = 0;
-		while (typeIndex < declaration.genericParams.len) {
-			string parameter = declaration.genericParams.get(typeIndex);
+		while (typeIndex < declaration.genericParams().len) {
+			string parameter = declaration.genericParams().get(typeIndex);
 			if (!substitutions.has(parameter)) {
 				if (variables.has("self")) {
 					Node selfType = variables.get("self");
-					if (selfType.base == name && selfType.genericArgs.len == declaration.genericParams.len) {
+					if (selfType.base == name && selfType.genericArgs.len == declaration.genericParams().len) {
 						return selfType;
 					}
 				}
@@ -462,8 +462,8 @@ class ExpressionTypeResolver {
 					Node reDecl = a.richEnumTable.get(sType.base);
 					string variantName = node.obj.field;
 					int vi = 0;
-					while (vi < reDecl.variants.len) {
-						Node v = reDecl.variants.get(vi);
+					while (vi < reDecl.variants().len) {
+						Node v = reDecl.variants().get(vi);
 						if (v.name == variantName) {
 							int pi = 0;
 							while (pi < v.params.len) {
@@ -529,9 +529,9 @@ class ExpressionTypeResolver {
                  * semantic inference (matching the reference compiler) so ownership
                  * boundaries and every other consumer see a typed handle instead of
                  * falling back to an integer C temporary. */
-				if (callee.name == "Mutex" && node.args.len > 0) {
+				if (callee.name == "Mutex" && node.args().len > 0) {
 					Node mutexType = SemanticTypeSystem.primitive("Mutex");
-					Node? argumentType = self.inferSpecializationType(node.args.get(0), a, operators, varTypes);
+					Node? argumentType = self.inferSpecializationType(node.args().get(0), a, operators, varTypes);
 					if (argumentType == null) {
 						argumentType = SemanticTypeSystem.primitive("int");
 					} else if ((a.isClass(argumentType.base) || a.isGenericClass(argumentType.base)) && argumentType.pointerDepth == 0) {
@@ -546,15 +546,15 @@ class ExpressionTypeResolver {
 					mutexType.genericArgs.push(argumentType);
 					return mutexType;
 				}
-				if (callee.name == "Atomic" && node.args.len > 0) {
+				if (callee.name == "Atomic" && node.args().len > 0) {
 					Node atomicType = SemanticTypeSystem.primitive("Atomic");
-					Node? argumentType = self.inferSpecializationType(node.args.get(0), a, operators, varTypes);
+					Node? argumentType = self.inferSpecializationType(node.args().get(0), a, operators, varTypes);
 					atomicType.genericArgs.push(argumentType == null ? SemanticTypeSystem.primitive("int") : argumentType);
 					return atomicType;
 				}
-				if (callee.name == "Span" && node.args.len > 0) {
+				if (callee.name == "Span" && node.args().len > 0) {
 					Node spanType = SemanticTypeSystem.primitive("Span");
-					Node? backingType = self.inferSpecializationType(node.args.get(0), a, operators, varTypes);
+					Node? backingType = self.inferSpecializationType(node.args().get(0), a, operators, varTypes);
 					Node elementType = SemanticTypeSystem.primitive("int");
 					if (backingType != null && backingType.isArray) {
 						elementType = TypeShape.withoutOuterArray(backingType);
@@ -866,17 +866,17 @@ class ExpressionTypeResolver {
 		ExpressionTypeResolver.collectIdentifiersList(n.methods, names);
 		ExpressionTypeResolver.collectIdentifiersList(n.params, names);
 		ExpressionTypeResolver.collectIdentifiersList(n.fields, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.values, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.variants, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.values(), names);
+		ExpressionTypeResolver.collectIdentifiersList(n.variants(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.genericArgs, names);
 		ExpressionTypeResolver.collectIdentifiersList(n.statements, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.cases, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.args, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.cases(), names);
+		ExpressionTypeResolver.collectIdentifiersList(n.args(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.elements, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.entries, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.parts, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.captures, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.bodyNodeList, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.entries(), names);
+		ExpressionTypeResolver.collectIdentifiersList(n.parts(), names);
+		ExpressionTypeResolver.collectIdentifiersList(n.captures(), names);
+		ExpressionTypeResolver.collectIdentifiersList(n.bodyNodeList(), names);
 	}
 
 	class void collectIdentifiersList(Vector<Node> xs, Map<string, bool> names) {
@@ -1050,11 +1050,11 @@ class ExpressionTypeResolver {
 		}
 		if (statement.kind == NK_SWITCH_STMT) {
 			int caseIndex = 0;
-			while (caseIndex < statement.cases.len) {
-				Node caseClause = statement.cases.get(caseIndex);
+			while (caseIndex < statement.cases().len) {
+				Node caseClause = statement.cases().get(caseIndex);
 				int bodyIndex = 0;
-				while (bodyIndex < caseClause.bodyNodeList.len) {
-					Node? found = self.inferredLambdaReturnInStatement(caseClause.bodyNodeList.get(bodyIndex), analyzed, operators, vars);
+				while (bodyIndex < caseClause.bodyNodeList().len) {
+					Node? found = self.inferredLambdaReturnInStatement(caseClause.bodyNodeList().get(bodyIndex), analyzed, operators, vars);
 					if (found != null) { return found; }
 					bodyIndex = bodyIndex + 1;
 				}

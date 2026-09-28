@@ -426,7 +426,7 @@ class GpuPipeline {
 		}
 		Node call = plan.call;
 		IRGpuKernel target = self.kernel(plan.kernelName);
-		if (ledger.explicitValues.len != call.args.len) {
+		if (ledger.explicitValues.len != call.args().len) {
 			self.reject(call, "GPU explicit arguments were not evaluated exactly once");
 		}
 		int evaluationIndex = 0;
@@ -854,7 +854,7 @@ class GpuPipeline {
 			Node declaration = program.declarations.get(declarationIndex);
 			if (declaration.kind == NK_VAR_DECL_STMT && self.physicalArrayBacking(declaration.type, declaration.initializer)) {
 				self.translationUnitOutputTypes.put(declaration.name, declaration.type);
-			} else if (declaration.kind == NK_CLASS_DECL && declaration.genericParams.len == 0) {
+			} else if (declaration.kind == NK_CLASS_DECL && declaration.genericParams().len == 0) {
 				int memberIndex = 0;
 				while (memberIndex < declaration.members.len) {
 					Node member = declaration.members.get(memberIndex);

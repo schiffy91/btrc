@@ -185,7 +185,7 @@ class TypeValidator {
 		Node? resolvedType = self.resolveAliases(typeExpr);
 		if (resolvedType == null) { return; }
 		if (self.state.typeParams.has(resolvedType.base)) { return; }
-		if (self.state.interfaces.has(resolvedType.base) && self.state.interfaces.get(resolvedType.base).genericParams.len > 0) {
+		if (self.state.interfaces.has(resolvedType.base) && self.state.interfaces.get(resolvedType.base).genericParams().len > 0) {
 			TypeValidator.fail("Generic interface type '" + resolvedType.base + "' cannot be used as a runtime value yet", site);
 		}
 		int index = 0;
@@ -233,11 +233,11 @@ class TypeValidator {
 		}
 		Node? getter = self.indexedMethod(objectType, "get");
 		Node? result = null;
-		if (getter != null && getter.access != "class" && getter.genericParams.len == 0 && getter.params.len == 1 && !getter.params.get(0).keep_ && getter.returnType != null && !TypeValidator.scalarVoid(getter.returnType)) {
+		if (getter != null && getter.access != "class" && getter.genericParams().len == 0 && getter.params.len == 1 && !getter.params.get(0).keep_ && getter.returnType != null && !TypeValidator.scalarVoid(getter.returnType)) {
 			result = getter.returnType;
 		} else {
 			Node? setter = self.indexedMethod(objectType, "set");
-			if (setter != null && setter.access != "class" && setter.genericParams.len == 0 && setter.params.len == 2 && !setter.params.get(0).keep_ && TypeValidator.scalarVoid(setter.returnType)) {
+			if (setter != null && setter.access != "class" && setter.genericParams().len == 0 && setter.params.len == 2 && !setter.params.get(0).keep_ && TypeValidator.scalarVoid(setter.returnType)) {
 				result = setter.params.get(1).type;
 			}
 		}
@@ -360,8 +360,8 @@ class TypeValidator {
 		if (self.state.analyzed.richEnumTable.has(name)) {
 			Node declaration = self.state.analyzed.richEnumTable.get(name);
 			int variantIndex = 0;
-			while (variantIndex < declaration.variants.len) {
-				Node variant = declaration.variants.get(variantIndex);
+			while (variantIndex < declaration.variants().len) {
+				Node variant = declaration.variants().get(variantIndex);
 				int parameterIndex = 0;
 				while (parameterIndex < variant.params.len) {
 					if (self.aggregateTypeMatches(variant.params.get(parameterIndex).type, query, nested)) {
@@ -560,8 +560,8 @@ class TypeValidator {
 		if (!self.state.analyzed.richEnumTable.has(enumName)) { return null; }
 		Node declaration = self.state.analyzed.richEnumTable.get(enumName);
 		int index = 0;
-		while (index < declaration.variants.len) {
-			Node variant = declaration.variants.get(index);
+		while (index < declaration.variants().len) {
+			Node variant = declaration.variants().get(index);
 			if (variant.name == variantName) { return variant; }
 			index = index + 1;
 		}
@@ -571,8 +571,8 @@ class TypeValidator {
 	public Map<string, Node> genericClassMap(Node declaration, Vector<Node> arguments) {
 		Map<string, Node> substitutions = {};
 		int index = 0;
-		while (index < declaration.genericParams.len && index < arguments.len) {
-			substitutions.put(declaration.genericParams.get(index), arguments.get(index));
+		while (index < declaration.genericParams().len && index < arguments.len) {
+			substitutions.put(declaration.genericParams().get(index), arguments.get(index));
 			index = index + 1;
 		}
 		return substitutions;
@@ -775,13 +775,13 @@ class TypeValidator {
 
 	private int declaredGenericArity(string base) {
 		if (self.state.analyzed.genericClassTable.has(base)) {
-			return self.state.analyzed.genericClassTable.get(base).genericParams.len;
+			return self.state.analyzed.genericClassTable.get(base).genericParams().len;
 		}
 		if (self.state.analyzed.classTable.has(base)) {
-			return self.state.analyzed.classTable.get(base).genericParams.len;
+			return self.state.analyzed.classTable.get(base).genericParams().len;
 		}
 		if (self.state.analyzed.interfaceTable.has(base)) {
-			return self.state.analyzed.interfaceTable.get(base).genericParams.len;
+			return self.state.analyzed.interfaceTable.get(base).genericParams().len;
 		}
 		if (base == "Array" || base == "Atomic" || base == "List" || base == "Mutex" || base == "Set" || base == "Span" || base == "Thread" || base == "Vector") {
 			return 1;
@@ -931,7 +931,7 @@ class TypeValidator {
 				self.validateDeclaredType(declaration.original, "Typedef '" + declaration.alias + "'", "alias", declaration);
 			} else if (declaration.kind == NK_INTERFACE_DECL) {
 				Map<string, bool> previousParams = self.cloneFlags(self.state.typeParams);
-				self.state.typeParams = self.typeParamSet(declaration.genericParams);
+				self.state.typeParams = self.typeParamSet(declaration.genericParams());
 				int methodIndex = 0;
 				while (methodIndex < declaration.methods.len) {
 					Node method = declaration.methods.get(methodIndex);
@@ -948,8 +948,8 @@ class TypeValidator {
 				self.state.typeParams = previousParams;
 			} else if (declaration.kind == NK_RICH_ENUM_DECL) {
 				int variantIndex = 0;
-				while (variantIndex < declaration.variants.len) {
-					Node variant = declaration.variants.get(variantIndex);
+				while (variantIndex < declaration.variants().len) {
+					Node variant = declaration.variants().get(variantIndex);
 					int parameterIndex = 0;
 					while (parameterIndex < variant.params.len) {
 						Node parameter = variant.params.get(parameterIndex);

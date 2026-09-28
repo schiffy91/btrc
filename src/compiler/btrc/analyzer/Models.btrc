@@ -498,16 +498,16 @@ class Analyzed {
 			while (classIndex < keys.len) {
 				Node declaration = table == 0 ? self.classTable.get(keys.get(classIndex)) : self.genericClassTable.get(keys.get(classIndex));
 				int parameterIndex = 0;
-				while (parameterIndex < declaration.genericParams.len) {
-					names.put(declaration.genericParams.get(parameterIndex), true);
+				while (parameterIndex < declaration.genericParams().len) {
+					names.put(declaration.genericParams().get(parameterIndex), true);
 					parameterIndex = parameterIndex + 1;
 				}
 				int memberIndex = 0;
 				while (memberIndex < declaration.members.len) {
 					Node member = declaration.members.get(memberIndex);
 					int methodParameterIndex = 0;
-					while (methodParameterIndex < member.genericParams.len) {
-						names.put(member.genericParams.get(methodParameterIndex), true);
+					while (methodParameterIndex < member.genericParams().len) {
+						names.put(member.genericParams().get(methodParameterIndex), true);
 						methodParameterIndex = methodParameterIndex + 1;
 					}
 					memberIndex = memberIndex + 1;
@@ -545,8 +545,8 @@ class Analyzed {
 		if (!self.enumTable.has(enumName)) { return false; }
 		Node declaration = self.enumTable.get(enumName);
 		int index = 0;
-		while (index < declaration.values.len) {
-			if (declaration.values.get(index).name == valueName) {
+		while (index < declaration.values().len) {
+			if (declaration.values().get(index).name == valueName) {
 				return true;
 			}
 			index = index + 1;
@@ -658,7 +658,7 @@ class Analyzed {
 			else if (self.interfaceTable.has(cur)) { declaration = self.interfaceTable.get(cur); }
 			if (declaration == null) { continue; }
 			if (declaration.parent != null) { pending.push(declaration.parent); }
-			for implemented in declaration.interfaces { pending.push(implemented); }
+			for implemented in declaration.interfaces() { pending.push(implemented); }
 		}
 		self.ancestorSets.put(sub, seen);
 		return seen;

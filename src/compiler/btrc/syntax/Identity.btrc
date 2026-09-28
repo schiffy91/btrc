@@ -29,8 +29,8 @@ class AstStructure {
 		for child in node.params { out.push(child); }
 		if (node.bodyNode != null) { out.push(node.bodyNode); }
 		for child in node.fields { out.push(child); }
-		for child in node.values { out.push(child); }
-		for child in node.variants { out.push(child); }
+		for child in node.values() { out.push(child); }
+		for child in node.variants() { out.push(child); }
 		if (node.original != null) { out.push(node.original); }
 		for child in node.genericArgs { out.push(child); }
 		if (node.arraySize != null) { out.push(node.arraySize); }
@@ -47,7 +47,7 @@ class AstStructure {
 		if (node.iterable != null) { out.push(node.iterable); }
 		if (node.init != null) { out.push(node.init); }
 		if (node.update != null) { out.push(node.update); }
-		for child in node.cases { out.push(child); }
+		for child in node.cases() { out.push(child); }
 		if (node.expr != null) { out.push(node.expr); }
 		if (node.tryBlock != null) { out.push(node.tryBlock); }
 		if (node.catchType != null) { out.push(node.catchType); }
@@ -56,12 +56,12 @@ class AstStructure {
 		if (node.ifStmt != null) { out.push(node.ifStmt); }
 		if (node.varDecl != null) { out.push(node.varDecl); }
 		if (node.expression != null) { out.push(node.expression); }
-		for child in node.bodyNodeList { out.push(child); }
+		for child in node.bodyNodeList() { out.push(child); }
 		if (node.left != null) { out.push(node.left); }
 		if (node.right != null) { out.push(node.right); }
 		if (node.operand != null) { out.push(node.operand); }
 		if (node.callee != null) { out.push(node.callee); }
-		for child in node.args { out.push(child); }
+		for child in node.args() { out.push(child); }
 		if (node.obj != null) { out.push(node.obj); }
 		if (node.index != null) { out.push(node.index); }
 		if (node.targetType != null) { out.push(node.targetType); }
@@ -69,9 +69,9 @@ class AstStructure {
 		if (node.falseExpr != null) { out.push(node.falseExpr); }
 		if (node.target != null) { out.push(node.target); }
 		for child in node.elements { out.push(child); }
-		for child in node.entries { out.push(child); }
-		for child in node.parts { out.push(child); }
-		for child in node.captures { out.push(child); }
+		for child in node.entries() { out.push(child); }
+		for child in node.parts() { out.push(child); }
+		for child in node.captures() { out.push(child); }
 		if (node.fn != null) { out.push(node.fn); }
 		if (node.key != null) { out.push(node.key); }
 	}
@@ -183,12 +183,12 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_CLASS_DECL) {
 			string out = "(ClassDecl";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams, d + 1);
-			self.enterMembers(node.genericParams.len > 0);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams(), d + 1);
+			self.enterMembers(node.genericParams().len > 0);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "members=" + self.canonNodeList(node.members, d + 1);
-			self.leaveMembers(node.genericParams.len > 0);
+			self.leaveMembers(node.genericParams().len > 0);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "interfaces=" + self.canonStrList(node.interfaces, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "interfaces=" + self.canonStrList(node.interfaces(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.isAbstract);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
@@ -201,7 +201,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "methods=" + self.canonNodeList(node.methods, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
@@ -238,7 +238,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_ENUM_DECL) {
 			string out = "(EnumDecl";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "values=" + self.canonNodeList(node.values, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "values=" + self.canonNodeList(node.values(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
@@ -248,7 +248,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_RICH_ENUM_DECL) {
 			string out = "(RichEnumDecl";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "variants=" + self.canonNodeList(node.variants, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "variants=" + self.canonNodeList(node.variants(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
@@ -271,7 +271,7 @@ class AstCanonicalRenderer {
 			return out + ")";
 		} else if (node.kind == NK_LIBRARY_MODULES) {
 			string out = "(LibraryModules";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "names=" + self.canonStrList(node.names, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "names=" + self.canonStrList(node.names(), d + 1);
 			return out + ")";
 		} else if (node.kind == NK_PACKAGE_PATH) {
 			string out = "(PackagePath";
@@ -329,9 +329,9 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.returnType, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_constructor=" + self.canonBool(node.isConstructor);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
-			self.beginBody(node, node.bodyNode, node.genericParams.len > 0);
+			self.beginBody(node, node.bodyNode, node.genericParams().len > 0);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.isGpu);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.isRealtime);
@@ -463,7 +463,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_SWITCH_STMT) {
 			string out = "(SwitchStmt";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.valueNode, d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "cases=" + self.canonNodeList(node.cases, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "cases=" + self.canonNodeList(node.cases(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -536,7 +536,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_CASE_CLAUSE) {
 			string out = "(CaseClause";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonNode(node.valueNode, d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNodeList(node.bodyNodeList, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNodeList(node.bodyNodeList(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -612,8 +612,8 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_CALL_EXPR) {
 			string out = "(CallExpr";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "callee=" + self.canonNode(node.callee, d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "args=" + self.canonNodeList(node.args, d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "arg_names=" + self.canonStrList(node.argNames, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "args=" + self.canonNodeList(node.args(), d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "arg_names=" + self.canonStrList(node.argNames(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -670,7 +670,7 @@ class AstCanonicalRenderer {
 			return out + ")";
 		} else if (node.kind == NK_MAP_LITERAL) {
 			string out = "(MapLiteral";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "entries=" + self.canonNodeList(node.entries, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "entries=" + self.canonNodeList(node.entries(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -682,15 +682,15 @@ class AstCanonicalRenderer {
 			return out + ")";
 		} else if (node.kind == NK_F_STRING_LITERAL) {
 			string out = "(FStringLiteral";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "parts=" + self.canonNodeList(node.parts, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "parts=" + self.canonNodeList(node.parts(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
 		} else if (node.kind == NK_NEW_EXPR) {
 			string out = "(NewExpr";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "type=" + self.canonNode(node.type, d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "args=" + self.canonNodeList(node.args, d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "arg_names=" + self.canonStrList(node.argNames, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "args=" + self.canonNodeList(node.args(), d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "arg_names=" + self.canonStrList(node.argNames(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -705,7 +705,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.returnType, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "captures=" + self.canonNodeList(node.captures, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "captures=" + self.canonNodeList(node.captures(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";

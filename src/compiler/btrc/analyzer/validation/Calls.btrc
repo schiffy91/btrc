@@ -54,19 +54,19 @@ class CallValidator {
 
 	private void validateBuiltinSignature(string label, Vector<Node> expectedTypes, Node call, Map<string, Node> vars) {
 		int namedIndex = 0;
-		while (namedIndex < call.argNames.len) {
-			if (call.argNames.get(namedIndex) != "") {
+		while (namedIndex < call.argNames().len) {
+			if (call.argNames().get(namedIndex) != "") {
 				TypeValidator.fail("'" + label + "()' does not accept named arguments", call);
 			}
 			namedIndex = namedIndex + 1;
 		}
-		if (call.args.len != expectedTypes.len) {
-			TypeValidator.fail("'" + label + "()' expects " + Strings.fromInt(expectedTypes.len) + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+		if (call.args().len != expectedTypes.len) {
+			TypeValidator.fail("'" + label + "()' expects " + Strings.fromInt(expectedTypes.len) + " argument(s) but got " + Strings.fromInt(call.args().len), call);
 		}
 		int index = 0;
 		while (index < expectedTypes.len) {
 			Node expected = expectedTypes.get(index);
-			Node argument = call.args.get(index);
+			Node argument = call.args().get(index);
 			self.storage.validateReferenceQualifiers(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to '" + label + "()'", vars);
 			Node? actual = self.types.inferType(argument, vars);
 			if (actual != null && !self.types.assignmentCompatible(expected, actual)) {
@@ -120,20 +120,20 @@ class CallValidator {
 			TypeValidator.fail("Atomic." + method + " requires an integral payload", call);
 		}
 		if (method == "load") {
-			string actualOrder = self.literalMemoryOrder(call.args.get(0), "Atomic.load");
+			string actualOrder = self.literalMemoryOrder(call.args().get(0), "Atomic.load");
 			if (actualOrder == "RELEASE" || actualOrder == "ACQ_REL") {
 				TypeValidator.fail("Atomic.load does not accept MemoryOrder." + actualOrder, call);
 			}
 		} else if (method == "store") {
-			string actualOrder = self.literalMemoryOrder(call.args.get(1), "Atomic.store");
+			string actualOrder = self.literalMemoryOrder(call.args().get(1), "Atomic.store");
 			if (actualOrder == "ACQUIRE" || actualOrder == "ACQ_REL") {
 				TypeValidator.fail("Atomic.store does not accept MemoryOrder." + actualOrder, call);
 			}
 		} else if (method == "exchange" || method.startsWith("fetch")) {
-			self.literalMemoryOrder(call.args.get(1), "Atomic." + method);
+			self.literalMemoryOrder(call.args().get(1), "Atomic." + method);
 		} else if (method == "compareExchangeStrong") {
-			string success = self.literalMemoryOrder(call.args.get(2), "Atomic.compareExchangeStrong");
-			string failure = self.literalMemoryOrder(call.args.get(3), "Atomic.compareExchangeStrong");
+			string success = self.literalMemoryOrder(call.args().get(2), "Atomic.compareExchangeStrong");
+			string failure = self.literalMemoryOrder(call.args().get(3), "Atomic.compareExchangeStrong");
 			if (!self.compareExchangeFailureAllowed(success, failure)) {
 				TypeValidator.fail("Atomic.compareExchangeStrong failure order MemoryOrder." + failure + " is not allowed with success order MemoryOrder." + success, call);
 			}
@@ -182,8 +182,8 @@ class CallValidator {
 			self.ownership.validateRawLifetimeCall(call,  vars);
 		}
 		int threadArgumentIndex = 0;
-		while (threadArgumentIndex < call.args.len) {
-			self.rejectThreadValueEscape(call.args.get(threadArgumentIndex), "passed as arguments", vars);
+		while (threadArgumentIndex < call.args().len) {
+			self.rejectThreadValueEscape(call.args().get(threadArgumentIndex), "passed as arguments", vars);
 			threadArgumentIndex = threadArgumentIndex + 1;
 		}
 		self.ownership.rejectRichEnumOwnedArgs(call,  vars);
@@ -206,12 +206,12 @@ class CallValidator {
 				return;
 			}
 			if (name == "Mutex") {
-				if (call.args.len != 1) {
-					TypeValidator.fail("'Mutex()' expects 1 argument but got " + Strings.fromInt(call.args.len), call);
+				if (call.args().len != 1) {
+					TypeValidator.fail("'Mutex()' expects 1 argument but got " + Strings.fromInt(call.args().len), call);
 				}
 				int mutexArgIndex = 0;
-				while (mutexArgIndex < call.argNames.len) {
-					if (call.argNames.get(mutexArgIndex) != "") {
+				while (mutexArgIndex < call.argNames().len) {
+					if (call.argNames().get(mutexArgIndex) != "") {
 						TypeValidator.fail("'Mutex()' does not accept named arguments", call);
 					}
 					mutexArgIndex = mutexArgIndex + 1;
@@ -220,38 +220,38 @@ class CallValidator {
 			}
 			if (name == "Atomic" || name == "Span") {
 				int namedIndex = 0;
-				while (namedIndex < call.argNames.len) {
-					if (call.argNames.get(namedIndex) != "") {
+				while (namedIndex < call.argNames().len) {
+					if (call.argNames().get(namedIndex) != "") {
 						TypeValidator.fail("'" + name + "()' does not accept named arguments", call);
 					}
 					namedIndex = namedIndex + 1;
 				}
 				if (name == "Atomic") {
-					if (call.args.len != 1) {
-						TypeValidator.fail("'Atomic()' expects 1 argument but got " + Strings.fromInt(call.args.len), call);
+					if (call.args().len != 1) {
+						TypeValidator.fail("'Atomic()' expects 1 argument but got " + Strings.fromInt(call.args().len), call);
 					}
-					Node? payload = self.types.resolveAliases(self.types.inferType(call.args.get(0), vars));
+					Node? payload = self.types.resolveAliases(self.types.inferType(call.args().get(0), vars));
 					if (payload != null && !self.types.atomicPayload(payload)) {
 						TypeValidator.fail("Atomic<T> payload must be bool, int, uint, or a raw pointer", call);
 					}
 					return;
 				}
-				if (call.args.len != 1 && call.args.len != 2) {
-					TypeValidator.fail("'Span()' expects 1 or 2 arguments but got " + Strings.fromInt(call.args.len), call);
+				if (call.args().len != 1 && call.args().len != 2) {
+					TypeValidator.fail("'Span()' expects 1 or 2 arguments but got " + Strings.fromInt(call.args().len), call);
 				}
-				Node? backing = self.types.resolveAliases(self.types.inferType(call.args.get(0), vars));
+				Node? backing = self.types.resolveAliases(self.types.inferType(call.args().get(0), vars));
 				if (backing == null || (!backing.isArray && backing.pointerDepth == 0)) {
 					TypeValidator.fail("Span() backing must be a fixed array or raw pointer", call);
 				}
 				Node concreteBacking = backing;
-				if (call.args.len == 1 && !concreteBacking.isArray) {
+				if (call.args().len == 1 && !concreteBacking.isArray) {
 					TypeValidator.fail("Span(pointer) requires an explicit element count", call);
 				}
-				if (call.args.len == 1 && concreteBacking.isArray && (concreteBacking.arraySize == null || !self.state.analyzed.constantArrayBoundKeys.has(AstIdentity.key(concreteBacking.arraySize)))) {
+				if (call.args().len == 1 && concreteBacking.isArray && (concreteBacking.arraySize == null || !self.state.analyzed.constantArrayBoundKeys.has(AstIdentity.key(concreteBacking.arraySize)))) {
 					TypeValidator.fail("Span(array) requires a fixed constant extent", call);
 				}
-				if (call.args.len == 2) {
-					Node? countType = self.types.resolveAliases(self.types.inferType(call.args.get(1), vars));
+				if (call.args().len == 2) {
+					Node? countType = self.types.resolveAliases(self.types.inferType(call.args().get(1), vars));
 					if (countType != null && !self.types.integralType(countType, self.state.analyzed)) {
 						TypeValidator.fail("Span() element count must be integral", call);
 					}
@@ -274,8 +274,8 @@ class CallValidator {
 				}
 				Node? constructor = self.state.analyzed.classConstructor(constructorName);
 				if (constructor == null) {
-					if (call.args.len > 0) {
-						TypeValidator.fail("Class '" + constructorName + "' has no constructor but was called with " + Strings.fromInt(call.args.len) + " argument(s)", call);
+					if (call.args().len > 0) {
+						TypeValidator.fail("Class '" + constructorName + "' has no constructor but was called with " + Strings.fromInt(call.args().len) + " argument(s)", call);
 					}
 				} else {
 					self.validateConstructorAccess(constructorName, constructor, call);
@@ -294,14 +294,14 @@ class CallValidator {
 					TypeValidator.fail("Cannot instantiate abstract class '" + constructorName + "'", call);
 				}
 				Node? instance = aliasConstructorType != null ? aliasConstructorType : self.types.inferType(call, vars);
-				if (instance == null || instance.base != constructorName || instance.genericArgs.len != declaration.genericParams.len) {
+				if (instance == null || instance.base != constructorName || instance.genericArgs.len != declaration.genericParams().len) {
 					TypeValidator.fail("Cannot infer generic arguments for constructor '" + constructorName + "()'", call);
 				}
 				Node concreteInstance = instance;
 				Node? constructor = self.state.analyzed.genericClassConstructor(constructorName);
 				if (constructor == null) {
-					if (call.args.len > 0) {
-						TypeValidator.fail("Class '" + constructorName + "' has no constructor but was called with " + Strings.fromInt(call.args.len) + " argument(s)", call);
+					if (call.args().len > 0) {
+						TypeValidator.fail("Class '" + constructorName + "' has no constructor but was called with " + Strings.fromInt(call.args().len) + " argument(s)", call);
 					}
 					return;
 				}
@@ -449,10 +449,10 @@ class CallValidator {
 		Node? callback = null;
 		int positional = 0;
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len) {
-			string argumentName = argumentIndex < call.argNames.len ? call.argNames.get(argumentIndex) : "";
+		while (argumentIndex < call.args().len) {
+			string argumentName = argumentIndex < call.argNames().len ? call.argNames().get(argumentIndex) : "";
 			if (argumentName == parameterName || (argumentName == "" && positional == callbackParameter)) {
-				callback = call.args.get(argumentIndex);
+				callback = call.args().get(argumentIndex);
 			}
 			if (argumentName == "") { positional = positional + 1; }
 			argumentIndex = argumentIndex + 1;
@@ -501,26 +501,26 @@ class CallValidator {
 			return false;
 		}
 		int namedIndex = 0;
-		while (namedIndex < call.argNames.len) {
-			if (call.argNames.get(namedIndex) != "") {
+		while (namedIndex < call.argNames().len) {
+			if (call.argNames().get(namedIndex) != "") {
 				TypeValidator.fail("WGSL built-ins do not accept named arguments", call);
 			}
 			namedIndex = namedIndex + 1;
 		}
 		if (name == "gpu_id") {
-			if (call.args.len != 0) {
+			if (call.args().len != 0) {
 				TypeValidator.fail("gpu_id() takes no arguments", call);
 			}
 			return true;
 		}
 		int expected = self.gpu.builtinArity(name);
-		if (call.args.len != expected) {
-			TypeValidator.fail(name + "() expects " + Strings.fromInt(expected) + " argument(s), got " + Strings.fromInt(call.args.len), call);
+		if (call.args().len != expected) {
+			TypeValidator.fail(name + "() expects " + Strings.fromInt(expected) + " argument(s), got " + Strings.fromInt(call.args().len), call);
 		}
 		string firstBase = "";
 		int index = 0;
-		while (index < call.args.len) {
-			Node argument = call.args.get(index);
+		while (index < call.args().len) {
+			Node argument = call.args().get(index);
 			Node? actual = self.gpu.contextualExprType(argument, vars);
 			if (actual != null) {
 				string base = actual.base;
@@ -551,9 +551,9 @@ class CallValidator {
 	public void validateDirectHostedOpaqueArguments(string name, Node call, Map<string, Node> vars) {
 		int parameterCount = self.hostedAbi.parameterCount(name);
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len && argumentIndex < parameterCount) {
+		while (argumentIndex < call.args().len && argumentIndex < parameterCount) {
 			Node expected = self.hostedAbi.parameterType(name, argumentIndex);
-			self.borrows.validateOpaqueCallArgument(null, argumentIndex, expected, call.args.get(argumentIndex), name, true, vars);
+			self.borrows.validateOpaqueCallArgument(null, argumentIndex, expected, call.args().get(argumentIndex), name, true, vars);
 			argumentIndex = argumentIndex + 1;
 		}
 	}
@@ -583,8 +583,8 @@ class CallValidator {
 
 	public void validateUnknownHostedOpaqueArguments(string name, Node call, Map<string, Node> vars) {
 		int index = 0;
-		while (index < call.args.len) {
-			Node argument = call.args.get(index);
+		while (index < call.args().len) {
+			Node argument = call.args().get(index);
 			if (self.borrows.expressionIsOpaqueBorrow(argument, vars)) {
 				TypeValidator.fail("Argument to hosted function '" + name + "()' cannot forward a managed value as a raw " + "representation because its ABI effect is not proven " + "read-only", argument);
 			}
@@ -598,27 +598,27 @@ class CallValidator {
 			return;
 		}
 		int nameIndex = 0;
-		while (nameIndex < call.argNames.len) {
-			if (call.argNames.get(nameIndex) != "") {
+		while (nameIndex < call.argNames().len) {
+			if (call.argNames().get(nameIndex) != "") {
 				TypeValidator.fail("Hosted function '" + name + "()' does not accept named arguments", call);
 			}
 			nameIndex = nameIndex + 1;
 		}
 		int expectedCount = self.hostedAbi.parameterCount(name);
-		bool arityValid = call.args.len == expectedCount;
+		bool arityValid = call.args().len == expectedCount;
 		if (self.hostedAbi.variadic(name)) {
-			arityValid = call.args.len >= expectedCount;
+			arityValid = call.args().len >= expectedCount;
 		}
 		if (!arityValid) {
 			string qualifier = self.hostedAbi.variadic(name) ? "at least " : "";
-			TypeValidator.fail("'" + name + "()' expects " + qualifier + Strings.fromInt(expectedCount) + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+			TypeValidator.fail("'" + name + "()' expects " + qualifier + Strings.fromInt(expectedCount) + " argument(s) but got " + Strings.fromInt(call.args().len), call);
 			return;
 		}
 		self.validateDirectHostedOpaqueArguments(name, call,  vars);
 		int index = 0;
 		while (index < expectedCount) {
 			Node expected = self.hostedAbi.parameterType(name, index);
-			Node argument = call.args.get(index);
+			Node argument = call.args().get(index);
 			self.storage.validateReferenceQualifiers(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()'", vars);
 			Node? actual = self.types.inferType(argument,  vars);
 			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && !self.types.assignmentCompatible(expected, actual)) {
@@ -696,19 +696,19 @@ class CallValidator {
 	}
 
 	public void addMethodSubstitutions(Node method, Node call, Map<string, Node> substitutions) {
-		if (method.genericParams.len == 0) { return; }
+		if (method.genericParams().len == 0) { return; }
 		Vector<Node>? inferred = self.state.analyzed.methodCallArguments(call);
 		if (inferred == null) {
 			TypeValidator.fail("Cannot infer generic arguments for method '" + method.name + "'", call);
 			return;
 		}
 		Vector<Node> arguments = inferred;
-		if (arguments.len != method.genericParams.len) {
-			TypeValidator.fail("Generic method '" + method.name + "' requires " + Strings.fromInt(method.genericParams.len) + " type argument(s)", call);
+		if (arguments.len != method.genericParams().len) {
+			TypeValidator.fail("Generic method '" + method.name + "' requires " + Strings.fromInt(method.genericParams().len) + " type argument(s)", call);
 		}
 		int index = 0;
-		while (index < method.genericParams.len) {
-			substitutions.put(method.genericParams.get(index), arguments.get(index));
+		while (index < method.genericParams().len) {
+			substitutions.put(method.genericParams().get(index), arguments.get(index));
 			index = index + 1;
 		}
 	}
@@ -718,10 +718,10 @@ class CallValidator {
 		int positional = 0;
 		bool sawNamed = false;
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len) {
+		while (argumentIndex < call.args().len) {
 			string argumentName = "";
-			if (argumentIndex < call.argNames.len) {
-				argumentName = call.argNames.get(argumentIndex);
+			if (argumentIndex < call.argNames().len) {
+				argumentName = call.argNames().get(argumentIndex);
 			}
 			int parameterIndex = -1;
 			if (argumentName != "") {
@@ -738,7 +738,7 @@ class CallValidator {
 				positional = positional + 1;
 			}
 			if (parameterIndex >= params.len) {
-				TypeValidator.fail("'" + label + "()' expects at most " + Strings.fromInt(params.len) + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+				TypeValidator.fail("'" + label + "()' expects at most " + Strings.fromInt(params.len) + " argument(s) but got " + Strings.fromInt(call.args().len), call);
 			}
 			string suppliedKey = Strings.fromInt(parameterIndex);
 			if (supplied.has(suppliedKey)) {
@@ -750,7 +750,7 @@ class CallValidator {
 			if (substitutions.len > 0) {
 				expected = SemanticTypeSystem.resolveGenericType(expected, substitutions, self.state.analyzed);
 			}
-			Node argument = call.args.get(argumentIndex);
+			Node argument = call.args().get(argumentIndex);
 			self.types.validateRealtimeFunctionValue(expected, argument, vars);
 			Node? resolvedGpuExpected = self.types.resolveAliases(expected);
 			bool gpuArrayParameter = gpuDispatch && resolvedGpuExpected != null && resolvedGpuExpected.isArray;
@@ -891,7 +891,7 @@ class CallValidator {
 			return self.macroArgumentCallable(argument.operand, vars);
 		}
 		if (argument.kind == NK_CALL_EXPR) {
-			return self.macroArgumentCallable(argument.callee, vars) || self.macroExpressionListCallable(argument.args, vars);
+			return self.macroArgumentCallable(argument.callee, vars) || self.macroExpressionListCallable(argument.args(), vars);
 		}
 		if (argument.kind == NK_INDEX_EXPR) {
 			return self.macroArgumentCallable(argument.obj, vars) || self.macroArgumentCallable(argument.index, vars);
@@ -915,13 +915,13 @@ class CallValidator {
 			return self.macroExpressionListCallable(argument.elements, vars);
 		}
 		if (argument.kind == NK_MAP_LITERAL) {
-			return self.macroMapEntriesCallable(argument.entries, vars);
+			return self.macroMapEntriesCallable(argument.entries(), vars);
 		}
 		if (argument.kind == NK_F_STRING_LITERAL) {
-			return self.macroFStringCallable(argument.parts, vars);
+			return self.macroFStringCallable(argument.parts(), vars);
 		}
 		if (argument.kind == NK_NEW_EXPR) {
-			return self.macroExpressionListCallable(argument.args, vars);
+			return self.macroExpressionListCallable(argument.args(), vars);
 		}
 		return argument.kind == NK_SPAWN_EXPR && self.macroArgumentCallable(argument.fn, vars);
 	}
@@ -983,8 +983,8 @@ class CallValidator {
 		if (self.state.analyzed.richEnumTable.has(name)) {
 			Node richEnum = self.state.analyzed.richEnumTable.get(name);
 			int variantIndex = 0;
-			while (variantIndex < richEnum.variants.len) {
-				Node variant = richEnum.variants.get(variantIndex);
+			while (variantIndex < richEnum.variants().len) {
+				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
 				while (parameterIndex < variant.params.len) {
 					if (self.macroTypeBoundaryImpl(variant.params.get(parameterIndex).type, typeParams, nested)) {
@@ -1004,7 +1004,7 @@ class CallValidator {
 	}
 
 	public bool macroCallableSignatureBoundary(Node declaration) {
-		Map<string, bool> params = self.types.typeParamSet(declaration.genericParams);
+		Map<string, bool> params = self.types.typeParamSet(declaration.genericParams());
 		Map<string, bool> visiting = {};
 		if (self.macroTypeBoundaryImpl(declaration.returnType, params, visiting)) {
 			return true;
@@ -1079,23 +1079,23 @@ class CallValidator {
 		SourceMacroDefinition definition = active;
 		if (!definition.functionLike()) { return false; }
 		int nameIndex = 0;
-		while (nameIndex < call.argNames.len) {
-			if (call.argNames.get(nameIndex) != "") {
+		while (nameIndex < call.argNames().len) {
+			if (call.argNames().get(nameIndex) != "") {
 				TypeValidator.fail("Source macro '" + macroName + "' does not accept named arguments", call);
 			}
 			nameIndex = nameIndex + 1;
 		}
-		if (definition.parametersValid() && !definition.acceptsArity(call.args.len)) {
+		if (definition.parametersValid() && !definition.acceptsArity(call.args().len)) {
 			string expectation = Strings.fromInt(definition.expectedArity());
 			if (definition.variadic()) {
 				expectation = "at least " + Strings.fromInt(definition.minimumArity());
 			}
-			TypeValidator.fail("Source macro '" + macroName + "' expects " + expectation + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+			TypeValidator.fail("Source macro '" + macroName + "' expects " + expectation + " argument(s) but got " + Strings.fromInt(call.args().len), call);
 		}
 		Vector<string> parameters = definition.parameterOrder();
 		int index = 0;
-		while (index < call.args.len) {
-			Node argument = call.args.get(index);
+		while (index < call.args().len) {
+			Node argument = call.args().get(index);
 			if (self.macroArgumentCallable(argument, vars)) {
 				TypeValidator.fail("Source macro '" + macroName + "' cannot accept callable argument " + Strings.fromInt(index + 1) + " because macro expansion bypasses semantic call analysis", argument);
 			}

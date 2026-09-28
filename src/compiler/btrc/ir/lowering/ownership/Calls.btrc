@@ -343,13 +343,13 @@ class CallOwnershipLowerer {
 		Map<int, bool> bound = {};
 		int positional = 0;
 		int index = 0;
-		while (index < call.args.len) {
-			Node argument = call.args.get(index);
+		while (index < call.args().len) {
+			Node argument = call.args().get(index);
 			CallableFlowSnapshot flowEntry = callableFlow.snapshot();
 			int parameterIndex = positional;
 			string argumentName = "";
-			if (index < call.argNames.len) {
-				argumentName = call.argNames.get(index);
+			if (index < call.argNames().len) {
+				argumentName = call.argNames().get(index);
 			}
 			if (argumentName != "") {
 				parameterIndex = self.namedParameterIndex(parameters, argumentName);

@@ -254,10 +254,10 @@ class OperatorSemantics {
 			if (ancestor == "") { return false; }
 			int ancestorArity = 0;
 			if (self.analyzed.genericClassTable.has(ancestor)) {
-				ancestorArity = self.analyzed.genericClassTable.get(ancestor).genericParams.len;
+				ancestorArity = self.analyzed.genericClassTable.get(ancestor).genericParams().len;
 			}
 			if (ancestorArity > 0) {
-				int currentArity = declaration.genericParams.len;
+				int currentArity = declaration.genericParams().len;
 				if (!carriesArgs || ancestorArity != currentArity || currentArity != child.genericArgs.len) {
 					return false;
 				}

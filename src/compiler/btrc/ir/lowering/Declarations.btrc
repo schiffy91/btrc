@@ -2437,7 +2437,7 @@ class DeclarationLowerer {
 	/* Lower one top-level source declaration (not native, already reachable). */
 	private void emitDeclaration(Node d, IRModule m, Map<string, bool> externallyDefinedGlobals) {
 		if (d.kind == NK_CLASS_DECL) {
-			if (d.genericParams.len == 0) { self.emitClassDecl(d, m); }
+			if (d.genericParams().len == 0) { self.emitClassDecl(d, m); }
 		} else if (d.kind == NK_FUNCTION_DECL) {
 			if (d.isGpu) {
 				self.functions.emitGpuCpuFallback(d, m);
@@ -2562,8 +2562,8 @@ class DeclarationLowerer {
 		IREnumDef definition = IREnumDef(name);
 		Map<string, bool> priorMembers = {};
 		int i = 0;
-		while (i < d.values.len) {
-			Node v = d.values.get(i);
+		while (i < d.values().len) {
+			Node v = d.values().get(i);
 			IRNode value = null;
 			if (v.valueNode != null) {
 				Map<string, Node> empty = {};
@@ -2588,7 +2588,7 @@ class DeclarationLowerer {
          * usable toString name, so skip it entirely (the reference's `_toString`
          * is always dead and removed by DCE). */
 		if (name != "") {
-			m.functions.push(self.enumToStringFn(name, d.values, false));
+			m.functions.push(self.enumToStringFn(name, d.values(), false));
 		}
 	}
 
@@ -2599,16 +2599,16 @@ class DeclarationLowerer {
 		string name = d.name;
 		IREnumDef tagDefinition = IREnumDef(name + "_Tag");
 		int i = 0;
-		while (i < d.variants.len) {
-			Node v = d.variants.get(i);
+		while (i < d.variants().len) {
+			Node v = d.variants().get(i);
 			tagDefinition.values.push(IREnumValue(name + "_" + v.name + "_TAG", IRNode.literal(Strings.fromInt(i))));
 			i = i + 1;
 		}
 		m.enumDefs.push(tagDefinition);
 		IRTaggedUnionDef tagged = IRTaggedUnionDef(name, name + "_Tag");
 		int v2 = 0;
-		while (v2 < d.variants.len) {
-			Node v = d.variants.get(v2);
+		while (v2 < d.variants().len) {
+			Node v = d.variants().get(v2);
 			IRTaggedUnionVariant variant = IRTaggedUnionVariant(v.name);
 			int p = 0;
 			while (p < v.params.len) {
@@ -2626,8 +2626,8 @@ class DeclarationLowerer {
 		/* Variant constructors are ordinary IR functions so their field stores
          * participate in reachability and helper analysis. */
 		int v4 = 0;
-		while (v4 < d.variants.len) {
-			Node v = d.variants.get(v4);
+		while (v4 < d.variants().len) {
+			Node v = d.variants().get(v4);
 			IRFunction constructor = IRFunction();
 			constructor.name = name + "_" + v.name;
 			constructor.returnType = name;
@@ -2650,7 +2650,7 @@ class DeclarationLowerer {
 		}
 		/* toString over the tag field. Pushed into m.functions so DCE prunes it
          * when unused (mirrors enums._emit_rich_enum's function_defs.append). */
-		m.functions.push(self.enumToStringFn(name, d.variants, true));
+		m.functions.push(self.enumToStringFn(name, d.variants(), true));
 	}
 
 	/* Build `<Name>_toString` as structured comparisons so aliases remain
@@ -2781,8 +2781,8 @@ class DeclarationLowerer {
 		string mangled = inst.mangled;
 		Map<string, Node> typeMap = {};
 		int g = 0;
-		while (g < decl.genericParams.len && g < inst.args.len) {
-			typeMap.put(decl.genericParams.get(g), inst.args.get(g));
+		while (g < decl.genericParams().len && g < inst.args.len) {
+			typeMap.put(decl.genericParams().get(g), inst.args.get(g));
 			g = g + 1;
 		}
 
@@ -2838,7 +2838,7 @@ class DeclarationLowerer {
 		while (mi < decl.members.len) {
 			Node mem = decl.members.get(mi);
 			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
-			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
+			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0) {
 				string retC = self.cTypes.lowerGeneric(mem.returnType, typeMap);
 				IRFunctionDecl methodDeclaration = IRFunctionDecl(mangled + "_" + mem.name, retC, true);
 				methodDeclaration.params.push(IRParam(mangled + "*", "self"));
@@ -2982,7 +2982,7 @@ class DeclarationLowerer {
 		while (m2 < decl.members.len) {
 			Node mem = decl.members.get(m2);
 			bool bodyLowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
-			if (bodyLowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
+			if (bodyLowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0) {
 				IRFunction fn = IRFunction();
 				fn.name = mangled + "_" + mem.name;
 				Node rrt = SemanticTypeSystem.resolveGenericType(mem.returnType, typeMap, self.analyzed);
@@ -3097,7 +3097,7 @@ class DeclarationLowerer {
 	}
 
 	private void emitInterface(string name, IRModule module) {
-		if (self.analyzed.interfaceTable.get(name).genericParams.len > 0) { return; }
+		if (self.analyzed.interfaceTable.get(name).genericParams().len > 0) { return; }
 		string tableName = f"__btrc_interface_{name.length()}_{name}";
 		var table = IRStructDef();
 		table.name = tableName;
@@ -3134,7 +3134,7 @@ class DeclarationLowerer {
 		Vector<IRNode> entries = [];
 		Vector<string> names = self.analyzed.interfaceTable.keys().sorted();
 		for name in names {
-			if (self.analyzed.interfaceTable.get(name).genericParams.len > 0 || !self.analyzed.isSubclass(declaration.name, name)) { continue; }
+			if (self.analyzed.interfaceTable.get(name).genericParams().len > 0 || !self.analyzed.isSubclass(declaration.name, name)) { continue; }
 			Vector<Node> requirements = self.analyzed.interfaceMethods(name);
 			Vector<IRNode> methods = [];
 			for requirement in requirements {
@@ -3188,7 +3188,7 @@ class DeclarationLowerer {
 			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__") {
 				ownMethods.put(mem.name, true);
 				bool lowered = reachability == null || reachability.lowersMethod(decl, mem);
-				if (lowered && mem.genericParams.len == 0 && !mem.isAbstract && mem.bodyNode != null) {
+				if (lowered && mem.genericParams().len == 0 && !mem.isAbstract && mem.bodyNode != null) {
 					m.functions.push(self.lowerMethod(decl, mem));
 				}
 			} else if (mem.kind == NK_PROPERTY_DECL) {
@@ -3284,7 +3284,7 @@ class DeclarationLowerer {
 			Node mem = decl.members.get(i);
 			if (mem.kind == NK_METHOD_DECL) { own.put(mem.name, true); }
 			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
-			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams.len == 0) {
+			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0) {
 				bool isStatic = mem.access == "class";
 				string ret = self.cTypes.lower(mem.returnType);
 				IRFunctionDecl methodDeclaration = IRFunctionDecl(name + "_" + mem.name, ret, false);
@@ -3323,7 +3323,7 @@ class DeclarationLowerer {
 			int k = 0;
 			while (k < pm.len) {
 				MethodEntry e = pm.get(k);
-				if (!own.has(e.name) && e.sig.genericParams.len == 0) {
+				if (!own.has(e.name) && e.sig.genericParams().len == 0) {
 					string ret = self.cTypes.lower(e.sig.returnType);
 					IRFunctionDecl wrapper = IRFunctionDecl(name + "_" + e.name, ret, false);
 					if (e.sig.access != "class") {
@@ -3717,7 +3717,7 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < pm.len) {
 			MethodEntry e = pm.get(i);
-			if (!ownMethods.has(e.name) && e.sig.genericParams.len == 0) {
+			if (!ownMethods.has(e.name) && e.sig.genericParams().len == 0) {
 				ownMethods.put(e.name, true);
 				Node mem = e.sig;
 				IRFunction fn = IRFunction();
@@ -3762,8 +3762,8 @@ class DeclarationLowerer {
 
 	public void appendRichEnumForwardDecls(Node declaration, Vector<IRFunctionDecl> destination) {
 		int variantIndex = 0;
-		while (variantIndex < declaration.variants.len) {
-			Node variant = declaration.variants.get(variantIndex);
+		while (variantIndex < declaration.variants().len) {
+			Node variant = declaration.variants().get(variantIndex);
 			IRFunctionDecl constructor = IRFunctionDecl(declaration.name + "_" + variant.name, declaration.name, true);
 			int parameterIndex = 0;
 			while (parameterIndex < variant.params.len) {
@@ -3793,13 +3793,13 @@ class DeclarationLowerer {
 				i++;
 				continue;
 			}
-			if (((d.kind == NK_CLASS_DECL || d.kind == NK_INTERFACE_DECL) && d.genericParams.len == 0) || d.kind == NK_STRUCT_DECL || d.kind == NK_RICH_ENUM_DECL) {
+			if (((d.kind == NK_CLASS_DECL || d.kind == NK_INTERFACE_DECL) && d.genericParams().len == 0) || d.kind == NK_STRUCT_DECL || d.kind == NK_RICH_ENUM_DECL) {
 				/* Both non-generic classes and raw structs get a typed forward
                  * so a function prototype can name `struct X*` before X is
                  * defined (mirrors legacy forward-declaration phase-1, which
                  * tests ClassDecl OR StructDecl). Only classes get _destroy. */
 				m.structForwards.push(IRStructForward(d.name));
-				if (d.kind == NK_CLASS_DECL && d.genericParams.len == 0) {
+				if (d.kind == NK_CLASS_DECL && d.genericParams().len == 0) {
 					IRFunctionDecl destroyDeclaration = IRFunctionDecl(d.name + "_destroy", "void", false);
 					destroyDeclaration.params.push(IRParam("void*", "object"));
 					functionDeclarations.push(destroyDeclaration);

@@ -76,13 +76,13 @@ class GenericLowerer {
 				if (method != null) {
 					Map<string, Node> substitutions = {};
 					int classIndex = 0;
-					while (classIndex < concreteOwner.genericParams.len && classIndex < instance.classArgs.len) {
-						substitutions.put(concreteOwner.genericParams.get(classIndex), instance.classArgs.get(classIndex));
+					while (classIndex < concreteOwner.genericParams().len && classIndex < instance.classArgs.len) {
+						substitutions.put(concreteOwner.genericParams().get(classIndex), instance.classArgs.get(classIndex));
 						classIndex = classIndex + 1;
 					}
 					int methodIndex = 0;
-					while (methodIndex < method.genericParams.len && methodIndex < instance.methodArgs.len) {
-						substitutions.put(method.genericParams.get(methodIndex), instance.methodArgs.get(methodIndex));
+					while (methodIndex < method.genericParams().len && methodIndex < instance.methodArgs.len) {
+						substitutions.put(method.genericParams().get(methodIndex), instance.methodArgs.get(methodIndex));
 						methodIndex = methodIndex + 1;
 					}
 					plans.push(GenericMethodLoweringPlan(instance, concreteOwner, method, substitutions));

@@ -442,8 +442,8 @@ class CallableValueSemantics {
 		}
 		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs.len == 2) {
 			int index = 0;
-			while (index < value.entries.len) {
-				Node entry = value.entries.get(index);
+			while (index < value.entries().len) {
+				Node entry = value.entries().get(index);
 				if (self.valueRequiresEnvironment(canonical.genericArgs.get(0), entry.key, context) || self.valueRequiresEnvironment(canonical.genericArgs.get(1), entry.valueNode, context)) {
 					return true;
 				}
@@ -540,8 +540,8 @@ class CallableBoundaryPolicy {
 		}
 		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs.len == 2) {
 			int index = 0;
-			while (index < value.entries.len) {
-				Node entry = value.entries.get(index);
+			while (index < value.entries().len) {
+				Node entry = value.entries().get(index);
 				if (self.unsafeValue(canonical.genericArgs.get(0), entry.key, context) || self.unsafeValue(canonical.genericArgs.get(1), entry.valueNode, context)) {
 					return true;
 				}
@@ -650,11 +650,11 @@ class CallableBoundaryPolicy {
 		}
 		int positional = 0;
 		index = 0;
-		while (index < call.args.len) {
+		while (index < call.args().len) {
 			int parameterIndex = positional;
 			string argumentName = "";
-			if (index < call.argNames.len) {
-				argumentName = call.argNames.get(index);
+			if (index < call.argNames().len) {
+				argumentName = call.argNames().get(index);
 			}
 			if (argumentName != "") {
 				parameterIndex = -1;
@@ -666,7 +666,7 @@ class CallableBoundaryPolicy {
 			}
 			if (parameterIndex >= 0 && parameterIndex < parameters.len) {
 				bound.set(parameterIndex, 1);
-				self.rejectUnsafeArgument(parameters.get(parameterIndex), call.args.get(index), context);
+				self.rejectUnsafeArgument(parameters.get(parameterIndex), call.args().get(index), context);
 			}
 			index = index + 1;
 		}

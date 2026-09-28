@@ -191,8 +191,8 @@ class ExpressionValidator {
 			TypeValidator.fail(subject + " uses a map literal for a non-Map type", initializer);
 		}
 		int index = 0;
-		while (index < initializer.entries.len) {
-			Node entry = initializer.entries.get(index);
+		while (index < initializer.entries().len) {
+			Node entry = initializer.entries().get(index);
 			self.validateInitializerValue(expected.genericArgs.get(0), entry.key, subject + " key", vars);
 			self.validateInitializerValue(expected.genericArgs.get(1), entry.valueNode, subject + " value", vars);
 			index = index + 1;
@@ -644,8 +644,8 @@ class ExpressionValidator {
 				self.validateExpr(expression.callee,  vars);
 			}
 			int index = 0;
-			while (index < expression.args.len) {
-				self.validateExpr(expression.args.get(index),  vars);
+			while (index < expression.args().len) {
+				self.validateExpr(expression.args().get(index),  vars);
 				index = index + 1;
 			}
 			self.names.deferGeneratedSymbolCall(expression, vars);
@@ -838,18 +838,18 @@ class ExpressionValidator {
 			if (expression.type.genericArgs.len != 1) {
 				TypeValidator.fail("new Mutex requires exactly one value type", expression);
 			}
-			if (expression.args.len != 1) {
+			if (expression.args().len != 1) {
 				TypeValidator.fail("'new Mutex<T>()' expects exactly 1 argument", expression);
 			}
 			int mutexArgIndex = 0;
-			while (mutexArgIndex < expression.argNames.len) {
-				if (expression.argNames.get(mutexArgIndex) != "") {
+			while (mutexArgIndex < expression.argNames().len) {
+				if (expression.argNames().get(mutexArgIndex) != "") {
 					TypeValidator.fail("'new Mutex<T>()' does not accept named arguments", expression);
 				}
 				mutexArgIndex = mutexArgIndex + 1;
 			}
 			Node expected = expression.type.genericArgs.get(0);
-			Node argument = expression.args.get(0);
+			Node argument = expression.args().get(0);
 			self.validateTypedInitializer(expected, argument, "Mutex initializer", vars);
 			Node? actual = self.types.inferType(argument,  vars);
 			if (actual != null && !self.contextualAggregateInitializer(argument) && !self.types.assignmentCompatible(expected, actual)) {
@@ -869,8 +869,8 @@ class ExpressionValidator {
 			TypeValidator.fail("new requires a class type, got '" + self.types.formatType(expression.type) + "'", expression);
 		}
 		if (constructor == null) {
-			if (expression.args.len > 0) {
-				TypeValidator.fail("Class '" + className + "' has no constructor but was called with " + Strings.fromInt(expression.args.len) + " argument(s)", expression);
+			if (expression.args().len > 0) {
+				TypeValidator.fail("Class '" + className + "' has no constructor but was called with " + Strings.fromInt(expression.args().len) + " argument(s)", expression);
 			}
 			return;
 		}
@@ -973,12 +973,12 @@ class ExpressionValidator {
 				self.ownership.rejectOwnedElements(expression.elements, "a shallow aggregate", vars);
 			}
 		} else if (expression.kind == NK_MAP_LITERAL) {
-			self.validateMapEntries(expression.entries,  vars);
+			self.validateMapEntries(expression.entries(),  vars);
 		} else if (expression.kind == NK_F_STRING_LITERAL) {
-			self.validateFStringParts(expression.parts,  vars);
+			self.validateFStringParts(expression.parts(),  vars);
 		} else if (expression.kind == NK_NEW_EXPR) {
 			self.contextualizeNewGenericConstructors(expression,  vars);
-			self.validateExprList(expression.args,  vars);
+			self.validateExprList(expression.args(),  vars);
 			self.validateNew(expression,  vars);
 		} else if (expression.kind == NK_LAMBDA_EXPR) {
 			if (self.state.typeParams.len > 0) {
@@ -1034,8 +1034,8 @@ class ExpressionValidator {
 		}
 		if (expression.kind == NK_MAP_LITERAL && concrete.base == "Map" && concrete.genericArgs.len == 2) {
 			int entryIndex = 0;
-			while (entryIndex < expression.entries.len) {
-				Node entry = expression.entries.get(entryIndex);
+			while (entryIndex < expression.entries().len) {
+				Node entry = expression.entries().get(entryIndex);
 				self.contextualizeGenericConstructor(concrete.genericArgs.get(0), entry.key, variables);
 				self.contextualizeGenericConstructor(concrete.genericArgs.get(1), entry.valueNode, variables);
 				entryIndex = entryIndex + 1;
@@ -1081,7 +1081,7 @@ class ExpressionValidator {
 		}
 		if (!self.state.analyzed.isGenericClass(name) || concrete.base != name) { return; }
 		Node declaration = self.state.analyzed.genericClassTable.get(name);
-		if (concrete.genericArgs.len != declaration.genericParams.len) {
+		if (concrete.genericArgs.len != declaration.genericParams().len) {
 			return;
 		}
 		self.state.analyzed.recordGenericConstructorType(expression, concrete);
@@ -1094,8 +1094,8 @@ class ExpressionValidator {
 	public void contextualizeGenericCallParameters(Vector<Node> parameters, Map<string, Node> substitutions, Node call, Map<string, Node> variables) {
 		int positional = 0;
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len) {
-			string name = argumentIndex < call.argNames.len ? call.argNames.get(argumentIndex) : "";
+		while (argumentIndex < call.args().len) {
+			string name = argumentIndex < call.argNames().len ? call.argNames().get(argumentIndex) : "";
 			int parameterIndex = name == "" ? positional : self.genericConstructorParameterIndex(parameters, name);
 			if (name == "") { positional = positional + 1; }
 			if (parameterIndex >= 0 && parameterIndex < parameters.len) {
@@ -1103,7 +1103,7 @@ class ExpressionValidator {
 				if (substitutions.len > 0) {
 					parameterType = SemanticTypeSystem.resolveGenericType(parameterType, substitutions, self.state.analyzed);
 				}
-				self.contextualizeGenericConstructor(parameterType, call.args.get(argumentIndex), variables);
+				self.contextualizeGenericConstructor(parameterType, call.args().get(argumentIndex), variables);
 			}
 			argumentIndex = argumentIndex + 1;
 		}
@@ -1111,8 +1111,8 @@ class ExpressionValidator {
 
 	public void contextualizeCallableArguments(Node callable, Node call, Map<string, Node> variables) {
 		int index = 0;
-		while (index < call.args.len && index + 1 < callable.genericArgs.len) {
-			self.contextualizeGenericConstructor(callable.genericArgs.get(index + 1), call.args.get(index), variables);
+		while (index < call.args().len && index + 1 < callable.genericArgs.len) {
+			self.contextualizeGenericConstructor(callable.genericArgs.get(index + 1), call.args().get(index), variables);
 			index = index + 1;
 		}
 	}

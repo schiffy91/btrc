@@ -281,6 +281,12 @@ class BtrcAstRenderer:
                     f" {self._node_name}.{static_name} = empty; }}",
                     "        return empty;",
                     "    }",
+                )
+            )
+            if name in self._LAZY_READ_ONLY_FIELDS:
+                continue
+            lines.extend(
+                (
                     "",
                     f"    /* `{name}` for mutation: allocated on first write. */",
                     f"    public {declaration.declared_type} {name}Mut() {{",
@@ -298,7 +304,29 @@ class BtrcAstRenderer:
     # List fields converted to lazy storage. Renaming the backing field makes
     # the compiler name every site that still reads it directly, so a field is
     # added here only together with its call sites.
-    _LAZY_LIST_FIELDS: ClassVar[frozenset[str]] = frozenset({"segments"})
+    _LAZY_LIST_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "segments",
+            "captures",
+            "cases",
+            "bodyNodeList",
+            "variants",
+            "args",
+            "entries",
+            "parts",
+            "values",
+            "argNames",
+            "interfaces",
+            "names",
+            "genericParams",
+        }
+    )
+
+    # Lazy fields this compiler only ever reads. `Node.captures` is one: lambda
+    # capture names are recomputed by CallableValueSemantics rather than stored
+    # on the node, so emitting a mutator for it would be dead code. Move a name
+    # out of here the moment a site needs to write it.
+    _LAZY_READ_ONLY_FIELDS: ClassVar[frozenset[str]] = frozenset({"captures"})
 
     def _lazy_list_names(self) -> frozenset[str]:
         """Lazy list fields, which only the source AST node carries."""

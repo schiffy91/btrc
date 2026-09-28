@@ -219,7 +219,7 @@ class StdlibReachability {
 		return implied.has(name);
 	}
 
-	class bool alwaysLowered(Node member) { return member.isConstructor || member.name.startsWith("__") || StdlibReachability.impliedMethodName(member.name) || member.genericParams.len > 0; }
+	class bool alwaysLowered(Node member) { return member.isConstructor || member.name.startsWith("__") || StdlibReachability.impliedMethodName(member.name) || member.genericParams().len > 0; }
 
 	class string declarationKey(Node declaration) { return Strings.fromInt((int)declaration.kind) + ":" + declaration.name + ":" + Strings.fromInt(declaration.line) + ":" + Strings.fromInt(declaration.col); }
 
@@ -258,7 +258,7 @@ class StdlibReachability {
 				self.stdlibByName.get(name).push(declaration);
 			}
 			if (declaration.kind == NK_CLASS_DECL) {
-				for iface in declaration.interfaces {
+				for iface in declaration.interfaces() {
 					if (!self.implementers.has(iface)) { Vector<Node> none = []; self.implementers.put(iface, none); }
 					self.implementers.get(iface).push(declaration);
 				}
@@ -311,7 +311,7 @@ class StdlibReachability {
 			if (classes.len == 0 || classes.get(classes.len - 1) != declaration) { classes.push(declaration); }
 		}
 		if (declaration.parent != null) { self.mentionName(declaration.parent, worklist); }
-		for iface in declaration.interfaces { self.mentionName(iface, worklist); }
+		for iface in declaration.interfaces() { self.mentionName(iface, worklist); }
 		for member in declaration.members {
 			if (member.kind == NK_METHOD_DECL) {
 				if (StdlibReachability.alwaysLowered(member)) { self.pushMethod(declaration, member, worklist); }
@@ -387,7 +387,7 @@ class StdlibReachability {
 			else if (node.kind == NK_METHOD_SIG) { out.put(node.name, true); }
 			else if (node.kind == NK_CLASS_DECL) {
 				if (node.parent != null) { out.put(node.parent, true); }
-				for iface in node.interfaces { out.put(iface, true); }
+				for iface in node.interfaces() { out.put(iface, true); }
 			}
 			StdlibReachability.pushChildren(node, stack);
 		}
@@ -401,17 +401,17 @@ class StdlibReachability {
 		for child in node.methods { stack.push(child); }
 		for child in node.params { stack.push(child); }
 		for child in node.fields { stack.push(child); }
-		for child in node.values { stack.push(child); }
-		for child in node.variants { stack.push(child); }
+		for child in node.values() { stack.push(child); }
+		for child in node.variants() { stack.push(child); }
 		for child in node.genericArgs { stack.push(child); }
 		for child in node.statements { stack.push(child); }
-		for child in node.cases { stack.push(child); }
-		for child in node.bodyNodeList { stack.push(child); }
-		for child in node.args { stack.push(child); }
+		for child in node.cases() { stack.push(child); }
+		for child in node.bodyNodeList() { stack.push(child); }
+		for child in node.args() { stack.push(child); }
 		for child in node.elements { stack.push(child); }
-		for child in node.entries { stack.push(child); }
-		for child in node.parts { stack.push(child); }
-		for child in node.captures { stack.push(child); }
+		for child in node.entries() { stack.push(child); }
+		for child in node.parts() { stack.push(child); }
+		for child in node.captures() { stack.push(child); }
 		StdlibReachability.pushChild(node.spec, stack);
 		StdlibReachability.pushChild(node.returnType, stack);
 		StdlibReachability.pushChild(node.bodyNode, stack);

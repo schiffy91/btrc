@@ -520,8 +520,8 @@ class SemanticTypeSystem {
 		}
 		Node declaration = analyzed.genericClassTable.get(instanceType.base);
 		int index = 0;
-		while (index < declaration.genericParams.len && index < instanceType.genericArgs.len) {
-			substitutions.put(declaration.genericParams.get(index), instanceType.genericArgs.get(index));
+		while (index < declaration.genericParams().len && index < instanceType.genericArgs.len) {
+			substitutions.put(declaration.genericParams().get(index), instanceType.genericArgs.get(index));
 			index = index + 1;
 		}
 		return substitutions;
@@ -544,8 +544,8 @@ class SemanticTypeSystem {
 		}
 		Vector<Node> methodArguments = inferred;
 		int methodIndex = 0;
-		while (methodIndex < method.genericParams.len && methodIndex < methodArguments.len) {
-			substitutions.put(method.genericParams.get(methodIndex), methodArguments.get(methodIndex));
+		while (methodIndex < method.genericParams().len && methodIndex < methodArguments.len) {
+			substitutions.put(method.genericParams().get(methodIndex), methodArguments.get(methodIndex));
 			methodIndex = methodIndex + 1;
 		}
 		return substitutions;
@@ -595,11 +595,11 @@ class SemanticTypeSystem {
 		}
 		Node? getter = SemanticTypeSystem.indexedMethod(objectType, "get", analyzed);
 		Node? result = null;
-		if (getter != null && getter.access != "class" && getter.genericParams.len == 0 && getter.params.len == 1 && !getter.params.get(0).keep_ && getter.returnType != null && !(getter.returnType.base == "void" && getter.returnType.pointerDepth == 0 && !getter.returnType.isArray)) {
+		if (getter != null && getter.access != "class" && getter.genericParams().len == 0 && getter.params.len == 1 && !getter.params.get(0).keep_ && getter.returnType != null && !(getter.returnType.base == "void" && getter.returnType.pointerDepth == 0 && !getter.returnType.isArray)) {
 			result = getter.returnType;
 		} else {
 			Node? setter = SemanticTypeSystem.indexedMethod(objectType, "set", analyzed);
-			if (setter != null && setter.access != "class" && setter.genericParams.len == 0 && setter.params.len == 2 && !setter.params.get(0).keep_ && setter.returnType != null && setter.returnType.base == "void" && setter.returnType.pointerDepth == 0 && !setter.returnType.isArray) {
+			if (setter != null && setter.access != "class" && setter.genericParams().len == 0 && setter.params.len == 2 && !setter.params.get(0).keep_ && setter.returnType != null && setter.returnType.base == "void" && setter.returnType.pointerDepth == 0 && !setter.returnType.isArray) {
 				result = setter.params.get(1).type;
 			}
 		}

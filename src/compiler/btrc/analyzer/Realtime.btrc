@@ -424,8 +424,8 @@ class RealtimeAnalyzer {
 		if (node.kind == NK_CALL_EXPR) {
 			self.visitCallee(node.callee, callable);
 			int argument = 0;
-			while (argument < node.args.len) {
-				self.visit(node.args.get(argument), callable);
+			while (argument < node.args().len) {
+				self.visit(node.args().get(argument), callable);
 				argument = argument + 1;
 			}
 			self.visitOmittedDefaults(node, callable);
@@ -434,8 +434,8 @@ class RealtimeAnalyzer {
 		}
 		if (node.kind == NK_NEW_EXPR) {
 			int argument = 0;
-			while (argument < node.args.len) {
-				self.visit(node.args.get(argument), callable);
+			while (argument < node.args().len) {
+				self.visit(node.args().get(argument), callable);
 				argument = argument + 1;
 			}
 			self.effect(callable, "allocation", "new " + node.type.base, node);
@@ -624,17 +624,17 @@ class RealtimeAnalyzer {
 		self.dispatchVector(node.methods, callable, collecting);
 		self.dispatchVector(node.params, callable, collecting);
 		self.dispatchVector(node.fields, callable, collecting);
-		self.dispatchVector(node.values, callable, collecting);
-		self.dispatchVector(node.variants, callable, collecting);
+		self.dispatchVector(node.values(), callable, collecting);
+		self.dispatchVector(node.variants(), callable, collecting);
 		self.dispatchVector(node.genericArgs, callable, collecting);
 		self.dispatchVector(node.statements, callable, collecting);
-		self.dispatchVector(node.cases, callable, collecting);
-		self.dispatchVector(node.args, callable, collecting);
+		self.dispatchVector(node.cases(), callable, collecting);
+		self.dispatchVector(node.args(), callable, collecting);
 		self.dispatchVector(node.elements, callable, collecting);
-		self.dispatchVector(node.entries, callable, collecting);
-		self.dispatchVector(node.parts, callable, collecting);
-		self.dispatchVector(node.captures, callable, collecting);
-		self.dispatchVector(node.bodyNodeList, callable, collecting);
+		self.dispatchVector(node.entries(), callable, collecting);
+		self.dispatchVector(node.parts(), callable, collecting);
+		self.dispatchVector(node.captures(), callable, collecting);
+		self.dispatchVector(node.bodyNodeList(), callable, collecting);
 	}
 
 	private void dispatchChild(Node? node, RealtimeCallable callable, bool collecting) {
@@ -681,8 +681,8 @@ class RealtimeAnalyzer {
 		}
 		int positional = 0;
 		index = 0;
-		while (index < call.args.len) {
-			string argumentName = index < call.argNames.len ? call.argNames.get(index) : "";
+		while (index < call.args().len) {
+			string argumentName = index < call.argNames().len ? call.argNames().get(index) : "";
 			if (argumentName == "") {
 				if (positional < supplied.len) {
 					supplied.set(positional, true);
@@ -1051,8 +1051,8 @@ class RealtimeAnalyzer {
 		if (self.analyzed.richEnumTable.has(base)) {
 			Node declaration = self.analyzed.richEnumTable.get(base);
 			int variant = 0;
-			while (variant < declaration.variants.len) {
-				Node item = declaration.variants.get(variant);
+			while (variant < declaration.variants().len) {
+				Node item = declaration.variants().get(variant);
 				int parameter = 0;
 				while (parameter < item.params.len) {
 					if (self.managedType(item.params.get(parameter).type, self.nextSeen(seen, base))) {

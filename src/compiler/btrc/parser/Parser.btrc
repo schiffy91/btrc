@@ -287,17 +287,17 @@ class Parser {
 		if (self.matchTok("LBRACE")) {
 			Node n = Node();
 			n.kind = NK_LIBRARY_MODULES;
-			n.names.push(self.parseLibraryModuleName());
+			n.namesMut().push(self.parseLibraryModuleName());
 			while (self.matchTok("COMMA")) {
 				if (self.check("RBRACE")) { break; }
-				n.names.push(self.parseLibraryModuleName());
+				n.namesMut().push(self.parseLibraryModuleName());
 			}
 			self.expect("RBRACE");
 			return n;
 		}
 		Node n = Node();
 		n.kind = NK_LIBRARY_MODULES;
-		n.names.push(self.parseLibraryModuleName());
+		n.namesMut().push(self.parseLibraryModuleName());
 		return n;
 	}
 
@@ -319,9 +319,9 @@ class Parser {
 		n.nameCol = nameTok.col;
 
 		if (self.matchTok("LT")) {
-			n.genericParams.push(self.expect("IDENT").value);
+			n.genericParamsMut().push(self.expect("IDENT").value);
 			while (self.matchTok("COMMA")) {
-				n.genericParams.push(self.expect("IDENT").value);
+				n.genericParamsMut().push(self.expect("IDENT").value);
 			}
 			self.expectGt();
 		}
@@ -331,9 +331,9 @@ class Parser {
 		}
 
 		if (self.matchTok("IMPLEMENTS")) {
-			n.interfaces.push(self.expect("IDENT").value);
+			n.interfacesMut().push(self.expect("IDENT").value);
 			while (self.matchTok("COMMA")) {
-				n.interfaces.push(self.expect("IDENT").value);
+				n.interfacesMut().push(self.expect("IDENT").value);
 			}
 		}
 
@@ -443,9 +443,9 @@ class Parser {
 		n.nameCol = nameCol;
 
 		if (self.matchTok("LT")) {
-			n.genericParams.push(self.expect("IDENT").value);
+			n.genericParamsMut().push(self.expect("IDENT").value);
 			while (self.matchTok("COMMA")) {
-				n.genericParams.push(self.expect("IDENT").value);
+				n.genericParamsMut().push(self.expect("IDENT").value);
 			}
 			self.expectGt();
 		}
@@ -579,9 +579,9 @@ class Parser {
 		n.nameCol = nameTok.col;
 
 		if (self.matchTok("LT")) {
-			n.genericParams.push(self.expect("IDENT").value);
+			n.genericParamsMut().push(self.expect("IDENT").value);
 			while (self.matchTok("COMMA")) {
-				n.genericParams.push(self.expect("IDENT").value);
+				n.genericParamsMut().push(self.expect("IDENT").value);
 			}
 			self.expectGt();
 		}
@@ -643,7 +643,7 @@ class Parser {
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node ev = self.parseEnumValue();
-			n.values.push(ev);
+			n.valuesMut().push(ev);
 			if (!self.matchTok("COMMA")) { break; }
 		}
 		self.expect("RBRACE");
@@ -679,7 +679,7 @@ class Parser {
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node v = self.parseRichEnumVariant();
-			n.variants.push(v);
+			n.variantsMut().push(v);
 			if (!self.matchTok("COMMA")) { break; }
 		}
 		self.expect("RBRACE");
@@ -1518,7 +1518,7 @@ class Parser {
 		n.col = tok.col;
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node c = self.parseCaseClause();
-			n.cases.push(c);
+			n.casesMut().push(c);
 		}
 		self.expect("RBRACE");
 		return n;
@@ -1539,7 +1539,7 @@ class Parser {
 		self.expect("COLON");
 		while (!self.check("CASE") && !self.check("DEFAULT") && !self.check("RBRACE") && !self.atEnd()) {
 			Node s = self.parseStatement();
-			n.bodyNodeList.push(s);
+			n.bodyNodeListMut().push(s);
 		}
 		return n;
 	}
@@ -1986,8 +1986,8 @@ class Parser {
 				self.advance();
 			}
 			Node a = self.parseExpression();
-			target.args.push(a);
-			target.argNames.push(name);
+			target.argsMut().push(a);
+			target.argNamesMut().push(name);
 			if (!self.matchTok("COMMA")) {
 				more = false;
 			}
@@ -2216,11 +2216,11 @@ class Parser {
 			map.col = tok.col;
 			Node firstValue = self.parseExpression();
 			Node firstEntry = self.makeMapEntry(first, firstValue);
-			map.entries.push(firstEntry);
+			map.entriesMut().push(firstEntry);
 			while (self.matchTok("COMMA")) {
 				if (self.check("RBRACE")) { break; }
 				Node entN = self.parseMapEntry();
-				map.entries.push(entN);
+				map.entriesMut().push(entN);
 			}
 			self.expect("RBRACE");
 			return map;
@@ -2357,7 +2357,7 @@ class Parser {
 						Node tnode = Node();
 						tnode.kind = NK_F_STRING_TEXT;
 						tnode.text = textBuf;
-						n.parts.push(tnode);
+						n.partsMut().push(tnode);
 						textBuf = "";
 						hasText = false;
 					}
@@ -2383,7 +2383,7 @@ class Parser {
 					enode.kind = NK_F_STRING_EXPR;
 					Node sub = self.parseSubExpr(exprSrc);
 					enode.expression = sub;
-					n.parts.push(enode);
+					n.partsMut().push(enode);
 				}
 			} else if (ch == '}') {
 				if (i + 1 < rn && raw[i + 1] == '}') {
@@ -2414,7 +2414,7 @@ class Parser {
 			Node tnode2 = Node();
 			tnode2.kind = NK_F_STRING_TEXT;
 			tnode2.text = textBuf;
-			n.parts.push(tnode2);
+			n.partsMut().push(tnode2);
 		}
 		return n;
 	}

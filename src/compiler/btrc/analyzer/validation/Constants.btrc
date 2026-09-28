@@ -182,8 +182,8 @@ class ConstantValidator {
 			if (restrictEnum) { return self.invalidConstant(); }
 			Node declaration = self.state.analyzed.richEnumTable.get(expression.obj.name);
 			int variantIndex = 0;
-			while (variantIndex < declaration.variants.len) {
-				if (declaration.variants.get(variantIndex).name == expression.field) {
+			while (variantIndex < declaration.variants().len) {
+				if (declaration.variants().get(variantIndex).name == expression.field) {
 					return self.knownConstant(variantIndex);
 				}
 				variantIndex = variantIndex + 1;
@@ -251,8 +251,8 @@ class ConstantValidator {
 		bool previousKnown = true;
 		long long previous = -1;
 		int index = 0;
-		while (index < declaration.values.len) {
-			Node value = declaration.values.get(index);
+		while (index < declaration.values().len) {
+			Node value = declaration.values().get(index);
 			SemanticIntegerConstant result = self.unknownConstant();
 			if (value.valueNode != null) {
 				result = self.integerConstant(value.valueNode, true, declaration.name, prior);

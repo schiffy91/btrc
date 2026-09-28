@@ -294,7 +294,7 @@ class StorageValidator {
 	public void validateGenericPropertyInheritance(Node declaration) {
 		string parent = DeclarationRegistry.parentName(declaration);
 		if (parent == "") { return; }
-		bool crossesGenericBoundary = declaration.genericParams.len > 0 || self.state.analyzed.isGenericClass(parent);
+		bool crossesGenericBoundary = declaration.genericParams().len > 0 || self.state.analyzed.isGenericClass(parent);
 		if (!crossesGenericBoundary) { return; }
 		Map<string, bool> visited = {};
 		string property = self.inheritedPropertyName(parent, self.state.analyzed, visited);
@@ -311,10 +311,10 @@ class StorageValidator {
 		int index = 0;
 		while (index < declaration.members.len) {
 			Node member = declaration.members.get(index);
-			if (declaration.genericParams.len > 0 && member.kind == NK_FIELD_DECL && member.access == "class") {
+			if (declaration.genericParams().len > 0 && member.kind == NK_FIELD_DECL && member.access == "class") {
 				TypeValidator.fail("Static field '" + declaration.name + "." + member.name + "' is not supported on a generic class", member);
 			}
-			if (declaration.genericParams.len > 0 && member.kind == NK_METHOD_DECL && member.access == "class") {
+			if (declaration.genericParams().len > 0 && member.kind == NK_METHOD_DECL && member.access == "class") {
 				TypeValidator.fail("Static method '" + declaration.name + "." + member.name + "' has no specialization target and is " + "not supported on a generic class", member);
 			}
 			if (member.kind == NK_PROPERTY_DECL && member.access == "class") {
@@ -415,8 +415,8 @@ class StorageValidator {
 		}
 		if (expression.kind == NK_F_STRING_LITERAL) {
 			int partIndex = 0;
-			while (partIndex < expression.parts.len) {
-				if (expression.parts.get(partIndex).kind == NK_F_STRING_EXPR) {
+			while (partIndex < expression.parts().len) {
+				if (expression.parts().get(partIndex).kind == NK_F_STRING_EXPR) {
 					return true;
 				}
 				partIndex = partIndex + 1;
@@ -1008,9 +1008,9 @@ class StorageValidator {
 		return StorageValidator.indexedMethod(objectType, name, self.state.analyzed);
 	}
 
-	class bool validIndexedGetter(Node? method) { return method != null && method.access != "class" && method.genericParams.len == 0 && method.params.len == 1 && !method.params.get(0).keep_ && method.returnType != null && !TypeValidator.scalarVoid(method.returnType); }
+	class bool validIndexedGetter(Node? method) { return method != null && method.access != "class" && method.genericParams().len == 0 && method.params.len == 1 && !method.params.get(0).keep_ && method.returnType != null && !TypeValidator.scalarVoid(method.returnType); }
 
-	class bool validIndexedSetter(Node? method) { return method != null && method.access != "class" && method.genericParams.len == 0 && method.params.len == 2 && !method.params.get(0).keep_ && TypeValidator.scalarVoid(method.returnType); }
+	class bool validIndexedSetter(Node? method) { return method != null && method.access != "class" && method.genericParams().len == 0 && method.params.len == 2 && !method.params.get(0).keep_ && TypeValidator.scalarVoid(method.returnType); }
 
 	class Node resolvedIndexedType(Node declared, Node objectType, Analyzed analyzed) {
 		if (analyzed.isGenericClass(objectType.base) && objectType.genericArgs.len > 0) {

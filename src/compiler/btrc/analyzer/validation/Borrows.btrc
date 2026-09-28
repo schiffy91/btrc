@@ -36,19 +36,19 @@ class BorrowValidator {
 			Node callee = node.callee;
 			if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && callee.obj != null && callee.obj.kind == NK_IDENTIFIER && callee.obj.name == name) {
 				if (self.state.analyzed.classMethod(capability, callee.field) == null) { return false; }
-				for argument in node.args { if (self.rawExpressionMentionsParam(argument, name)) { return false; } }
+				for argument in node.args() { if (self.rawExpressionMentionsParam(argument, name)) { return false; } }
 				return true;
 			}
 			bool carries = false;
-			for argument in node.args { if (self.rawExpressionMentionsParam(argument, name)) { carries = true; } }
+			for argument in node.args() { if (self.rawExpressionMentionsParam(argument, name)) { carries = true; } }
 			if (carries) {
 				Node? target = null;
 				if (callee != null && callee.kind == NK_IDENTIFIER && callee.name != name && self.state.analyzed.funcTable.has(callee.name)) { target = self.state.analyzed.funcTable.get(callee.name); }
 				else if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && callee.obj != null && callee.obj.kind == NK_IDENTIFIER) { target = self.state.analyzed.classMethod(callee.obj.name, callee.field); }
 				if (target == null || !target.isRealtime || target.bodyNode == null || visiting.contains(target)) { return false; }
 				var nested = visiting.copy(); nested.push(target);
-				for index in range(node.args.len) {
-					Node value = node.args.get(index); if (!self.rawExpressionMentionsParam(value, name)) { continue; }
+				for index in range(node.args().len) {
+					Node value = node.args().get(index); if (!self.rawExpressionMentionsParam(value, name)) { continue; }
 					int slot = self.rawBorrowArgumentParameter(target, node, index);
 					if (value.kind != NK_IDENTIFIER || value.name != name || slot < 0 || slot >= target.params.len) { return false; }
 					Node parameter = target.params.get(slot); Node? canonical = self.types.resolveAliases(parameter.type);
@@ -57,7 +57,7 @@ class BorrowValidator {
 				return true;
 			}
 		}
-		if (node.kind == NK_LAMBDA_EXPR) { for capture in node.captures { if (capture.name == name) { return false; } } }
+		if (node.kind == NK_LAMBDA_EXPR) { for capture in node.captures() { if (capture.name == name) { return false; } } }
 		if ((node.kind == NK_LAMBDA_EXPR || node.kind == NK_SPAWN_EXPR) && self.rawExpressionMentionsParam(node, name)) { return false; }
 		Vector<Node> children = [];
 		AstStructure.children(node, children);
@@ -133,8 +133,8 @@ class BorrowValidator {
 		string name = expression.callee.name;
 		if (!self.ownership.hostedCallUsesOwnedSymbol(name, vars)) { return null; }
 		int parameter = self.hostedAbi.returnAliasParameter(name);
-		if (parameter < 0 || parameter >= expression.args.len) { return null; }
-		return expression.args.get(parameter);
+		if (parameter < 0 || parameter >= expression.args().len) { return null; }
+		return expression.args().get(parameter);
 	}
 
 	public bool opaqueManagedType(Node? typeExpr) {
@@ -384,8 +384,8 @@ class BorrowValidator {
 		}
 		if (expression.kind == NK_CALL_EXPR || expression.kind == NK_NEW_EXPR) {
 			int index = 0;
-			while (index < expression.args.len) {
-				if (self.rawExpressionMentionsParam(expression.args.get(index), name)) { return true; }
+			while (index < expression.args().len) {
+				if (self.rawExpressionMentionsParam(expression.args().get(index), name)) { return true; }
 				index = index + 1;
 			}
 			return expression.kind == NK_CALL_EXPR && self.rawExpressionMentionsParam(expression.callee, name);
@@ -399,8 +399,8 @@ class BorrowValidator {
 		}
 		if (expression.kind == NK_MAP_LITERAL) {
 			int index = 0;
-			while (index < expression.entries.len) {
-				Node entry = expression.entries.get(index);
+			while (index < expression.entries().len) {
+				Node entry = expression.entries().get(index);
 				if (self.rawExpressionMentionsParam(entry.key, name) || self.rawExpressionMentionsParam(entry.valueNode, name)) { return true; }
 				index = index + 1;
 			}
@@ -440,14 +440,14 @@ class BorrowValidator {
 					return false;
 				}
 				int parameter = self.hostedAbi.returnAliasParameter(expression.callee.name);
-				return parameter >= 0 && parameter < expression.args.len && self.rawExpressionCarriesParam(expression.args.get(parameter), name, vars);
+				return parameter >= 0 && parameter < expression.args().len && self.rawExpressionCarriesParam(expression.args().get(parameter), name, vars);
 			}
 			return false;
 		}
 		if (expression.kind == NK_NEW_EXPR) {
 			int index = 0;
-			while (index < expression.args.len) {
-				if (self.rawExpressionCarriesParam(expression.args.get(index), name, vars)) { return true; }
+			while (index < expression.args().len) {
+				if (self.rawExpressionCarriesParam(expression.args().get(index), name, vars)) { return true; }
 				index = index + 1;
 			}
 			return false;
@@ -461,8 +461,8 @@ class BorrowValidator {
 		}
 		if (expression.kind == NK_MAP_LITERAL) {
 			int index = 0;
-			while (index < expression.entries.len) {
-				Node entry = expression.entries.get(index);
+			while (index < expression.entries().len) {
+				Node entry = expression.entries().get(index);
 				if (self.rawExpressionCarriesParam(entry.key, name, vars) || self.rawExpressionCarriesParam(entry.valueNode, name, vars)) { return true; }
 				index = index + 1;
 			}
@@ -471,8 +471,8 @@ class BorrowValidator {
 	}
 
 	public int rawBorrowArgumentParameter(Node declaration, Node call, int argumentIndex) {
-		if (argumentIndex < call.argNames.len && call.argNames.get(argumentIndex) != "") {
-			return self.parameterIndex(declaration.params, call.argNames.get(argumentIndex));
+		if (argumentIndex < call.argNames().len && call.argNames().get(argumentIndex) != "") {
+			return self.parameterIndex(declaration.params, call.argNames().get(argumentIndex));
 		}
 		return argumentIndex;
 	}
@@ -501,8 +501,8 @@ class BorrowValidator {
 			target = self.state.analyzed.classMethod(owner, callee.field);
 		}
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len) {
-			Node argument = call.args.get(argumentIndex);
+		while (argumentIndex < call.args().len) {
+			Node argument = call.args().get(argumentIndex);
 			if (self.rawExpressionCarriesParam(argument, parameterName, vars)) {
 				if (callee != null && callee.kind == NK_IDENTIFIER && self.ownership.rawLifetimeCall(call, vars) && argumentIndex == 0) { return false; }
 				if (!(unresolved && self.rawUnresolvedCallBorrowOnly(callee, argumentIndex))) {
@@ -535,8 +535,8 @@ class BorrowValidator {
 		}
 		if (expression.kind == NK_CALL_EXPR || expression.kind == NK_NEW_EXPR) {
 			int index = 0;
-			while (index < expression.args.len) {
-				if (!self.rawParamExprSafe(expression.args.get(index), parameterName, owner, locals, vars)) { return false; }
+			while (index < expression.args().len) {
+				if (!self.rawParamExprSafe(expression.args().get(index), parameterName, owner, locals, vars)) { return false; }
 				index = index + 1;
 			}
 		}
@@ -584,12 +584,12 @@ class BorrowValidator {
 		if (statement.kind == NK_SWITCH_STMT) {
 			if (!self.rawParamExprSafe(statement.valueNode, parameterName, owner, locals, vars)) { return false; }
 			int caseIndex = 0;
-			while (caseIndex < statement.cases.len) {
-				Node caseClause = statement.cases.get(caseIndex);
+			while (caseIndex < statement.cases().len) {
+				Node caseClause = statement.cases().get(caseIndex);
 				if (!self.rawParamExprSafe(caseClause.valueNode, parameterName, owner, locals, vars)) { return false; }
 				int bodyIndex = 0;
-				while (bodyIndex < caseClause.bodyNodeList.len) {
-					if (!self.rawParamStmtSafe(caseClause.bodyNodeList.get(bodyIndex), parameterName, owner, locals, vars)) { return false; }
+				while (bodyIndex < caseClause.bodyNodeList().len) {
+					if (!self.rawParamStmtSafe(caseClause.bodyNodeList().get(bodyIndex), parameterName, owner, locals, vars)) { return false; }
 					bodyIndex = bodyIndex + 1;
 				}
 				caseIndex = caseIndex + 1;
@@ -679,17 +679,17 @@ class BorrowValidator {
 
 	public void validateOpaqueCallArguments(Node? declaration, Vector<Node> params, Node call, string label, Map<string, Node> substitutions, bool bodylessFfi, Map<string, Node> vars) {
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len) {
+		while (argumentIndex < call.args().len) {
 			int parameterIndex = argumentIndex;
-			if (argumentIndex < call.argNames.len && call.argNames.get(argumentIndex) != "") {
-				parameterIndex = self.parameterIndex(params, call.argNames.get(argumentIndex));
+			if (argumentIndex < call.argNames().len && call.argNames().get(argumentIndex) != "") {
+				parameterIndex = self.parameterIndex(params, call.argNames().get(argumentIndex));
 			}
 			if (parameterIndex >= 0 && parameterIndex < params.len) {
 				Node expected = params.get(parameterIndex).type;
 				if (substitutions.len > 0) {
 					expected = SemanticTypeSystem.resolveGenericType(expected, substitutions, self.state.analyzed);
 				}
-				self.validateOpaqueCallArgument(declaration, parameterIndex, expected, call.args.get(argumentIndex), label, bodylessFfi, vars);
+				self.validateOpaqueCallArgument(declaration, parameterIndex, expected, call.args().get(argumentIndex), label, bodylessFfi, vars);
 			}
 			argumentIndex = argumentIndex + 1;
 		}
@@ -714,8 +714,8 @@ class BorrowValidator {
 		self.prepareRawProjectionExpression(context, expression.falseExpr, vars);
 		self.prepareRawProjectionExpression(context, expression.obj, vars);
 		int argument = 0;
-		while (argument < expression.args.len) {
-			self.prepareRawProjectionExpression(context, expression.args.get(argument), vars);
+		while (argument < expression.args().len) {
+			self.prepareRawProjectionExpression(context, expression.args().get(argument), vars);
 			argument++;
 		}
 	}
@@ -728,9 +728,9 @@ class BorrowValidator {
 
 	public void validateConditionalRawProjectionCall(Node call, Map<string, Node> vars) {
 		int index = 0;
-		while (index < call.args.len) {
-			RawProjectionCarrierContext context = self.rawProjectionContext(call.args.get(index), vars);
-			RawProjectionCarrier? carrier = ExpressionTypeResolver.rawProjectionCarrier(call.args.get(index), context);
+		while (index < call.args().len) {
+			RawProjectionCarrierContext context = self.rawProjectionContext(call.args().get(index), vars);
+			RawProjectionCarrier? carrier = ExpressionTypeResolver.rawProjectionCarrier(call.args().get(index), context);
 			Node? choice = ExpressionTypeResolver.rawProjectionFirstBranchStorageChoice(carrier, context);
 			if (choice != null) {
 				TypeValidator.fail("Conditional raw projection call arguments require " + "branch-local backing storage", choice);

@@ -199,8 +199,8 @@ class HostedAbiRepository {
 
 	public bool aliasArgumentIsNull(string name, Node call) {
 		int index = self.returnAliasParameter(name);
-		if (index < 0 || index >= call.args.len) { return false; }
-		Node argument = call.args.get(index);
+		if (index < 0 || index >= call.args().len) { return false; }
+		Node argument = call.args().get(index);
 		while (argument.kind == NK_CAST_EXPR) { argument = argument.expr; }
 		return argument.kind == NK_NULL_LITERAL || (argument.kind == NK_IDENTIFIER && argument.name == "NULL");
 	}
@@ -332,8 +332,8 @@ class HostedAbiRepository {
 			}
 		} else if (declaration.kind == NK_RICH_ENUM_DECL) {
 			int index = 0;
-			while (index < declaration.variants.len) {
-				declaration.variants.get(index).sourceFile = marker;
+			while (index < declaration.variants().len) {
+				declaration.variants().get(index).sourceFile = marker;
 				index = index + 1;
 			}
 		}

@@ -113,8 +113,8 @@ class OwnershipValidator {
 			return null;
 		}
 		int parameter = self.hostedAbi.returnAliasParameter(expression.callee.name);
-		if (parameter < 0 || parameter >= expression.args.len) { return null; }
-		return expression.args.get(parameter);
+		if (parameter < 0 || parameter >= expression.args().len) { return null; }
+		return expression.args().get(parameter);
 	}
 
 	private bool opaqueManagedType(Node? typeExpr) {
@@ -190,8 +190,8 @@ class OwnershipValidator {
 		if (self.state.analyzed.richEnumTable.has(name)) {
 			Node richEnum = self.state.analyzed.richEnumTable.get(name);
 			int variantIndex = 0;
-			while (variantIndex < richEnum.variants.len) {
-				Node variant = richEnum.variants.get(variantIndex);
+			while (variantIndex < richEnum.variants().len) {
+				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
 				while (parameterIndex < variant.params.len) {
 					if (self.containsMutexStorageImpl(variant.params.get(parameterIndex).type, nested)) {
@@ -257,8 +257,8 @@ class OwnershipValidator {
 		if (self.state.analyzed.richEnumTable.has(name)) {
 			Node richEnum = self.state.analyzed.richEnumTable.get(name);
 			int variantIndex = 0;
-			while (variantIndex < richEnum.variants.len) {
-				Node variant = richEnum.variants.get(variantIndex);
+			while (variantIndex < richEnum.variants().len) {
+				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
 				while (parameterIndex < variant.params.len) {
 					if (self.threadAggregateHasManagedReference(variant.params.get(parameterIndex).type, nested)) {
@@ -316,8 +316,8 @@ class OwnershipValidator {
 		if (self.state.analyzed.richEnumTable.has(name)) {
 			Node richEnum = self.state.analyzed.richEnumTable.get(name);
 			int variantIndex = 0;
-			while (variantIndex < richEnum.variants.len) {
-				Node variant = richEnum.variants.get(variantIndex);
+			while (variantIndex < richEnum.variants().len) {
+				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
 				while (parameterIndex < variant.params.len) {
 					if (self.threadResultHasUnsizedArray(variant.params.get(parameterIndex).type, nested)) {
@@ -404,8 +404,8 @@ class OwnershipValidator {
 		if (self.state.analyzed.richEnumTable.has(name)) {
 			Node richEnum = self.state.analyzed.richEnumTable.get(name);
 			int variantIndex = 0;
-			while (variantIndex < richEnum.variants.len) {
-				Node variant = richEnum.variants.get(variantIndex);
+			while (variantIndex < richEnum.variants().len) {
+				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
 				while (parameterIndex < variant.params.len) {
 					if (self.mutexPayloadMatches(variant.params.get(parameterIndex).type, query, nested)) {
@@ -726,8 +726,8 @@ class OwnershipValidator {
 		}
 		if (expression.kind == NK_F_STRING_LITERAL) {
 			int index = 0;
-			while (index < expression.parts.len) {
-				if (expression.parts.get(index).kind == NK_F_STRING_EXPR) {
+			while (index < expression.parts().len) {
+				if (expression.parts().get(index).kind == NK_F_STRING_EXPR) {
 					return true;
 				}
 				index = index + 1;
@@ -864,10 +864,10 @@ class OwnershipValidator {
 		Map<string, bool> supplied = {};
 		int positional = 0;
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len) {
+		while (argumentIndex < call.args().len) {
 			string argumentName = "";
-			if (argumentIndex < call.argNames.len) {
-				argumentName = call.argNames.get(argumentIndex);
+			if (argumentIndex < call.argNames().len) {
+				argumentName = call.argNames().get(argumentIndex);
 			}
 			int parameterIndex = positional;
 			if (argumentName != "") {
@@ -906,14 +906,14 @@ class OwnershipValidator {
 		if (resolved == null) { return; }
 		Node variant = resolved;
 		string payload = callee.obj.name + "." + variant.name;
-		self.rejectOwnedElements(call.args, "rich-enum payload '" + payload + "'", vars);
+		self.rejectOwnedElements(call.args(), "rich-enum payload '" + payload + "'", vars);
 
 		int positional = 0;
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len) {
+		while (argumentIndex < call.args().len) {
 			string argumentName = "";
-			if (argumentIndex < call.argNames.len) {
-				argumentName = call.argNames.get(argumentIndex);
+			if (argumentIndex < call.argNames().len) {
+				argumentName = call.argNames().get(argumentIndex);
 			}
 			int parameterIndex = positional;
 			if (argumentName != "") {
@@ -923,7 +923,7 @@ class OwnershipValidator {
 			}
 			if (parameterIndex >= 0 && parameterIndex < variant.params.len) {
 				Node parameter = variant.params.get(parameterIndex);
-				Node argument = call.args.get(argumentIndex);
+				Node argument = call.args().get(argumentIndex);
 				if (self.richEnumPayloadRequiresOwner(parameter, argument, vars)) {
 					TypeValidator.fail("caller-owned temporary cannot be " + "embedded in rich-enum payload '" + payload + "'; aggregate class elements are shallow borrowed " + "references, so bind the owner to a local first", argument);
 				}
@@ -951,10 +951,10 @@ class OwnershipValidator {
 		Map<int, bool> supplied = {};
 		int positional = 0;
 		int argumentIndex = 0;
-		while (argumentIndex < call.args.len) {
+		while (argumentIndex < call.args().len) {
 			string argumentName = "";
-			if (argumentIndex < call.argNames.len) {
-				argumentName = call.argNames.get(argumentIndex);
+			if (argumentIndex < call.argNames().len) {
+				argumentName = call.argNames().get(argumentIndex);
 			}
 			int parameterIndex = positional;
 			if (argumentName != "") {
@@ -963,7 +963,7 @@ class OwnershipValidator {
 				positional = positional + 1;
 			}
 			supplied.put(parameterIndex, true);
-			Node argument = call.args.get(argumentIndex);
+			Node argument = call.args().get(argumentIndex);
 			if (transferred.has(parameterIndex) && !self.expressionOwnsResult(argument, vars)) {
 				TypeValidator.fail("Argument to consuming parameter '" + declaration.params.get(parameterIndex).name + "' must be a fresh caller-owned managed value", argument);
 			}
@@ -1007,16 +1007,16 @@ class OwnershipValidator {
 		} else if (method != "get" && method != "destroy") {
 			TypeValidator.fail("Mutex<T> has no method '" + method + "'", call);
 		}
-		if (call.args.len != expected) {
-			TypeValidator.fail("'Mutex." + method + "()' expects " + Strings.fromInt(expected) + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+		if (call.args().len != expected) {
+			TypeValidator.fail("'Mutex." + method + "()' expects " + Strings.fromInt(expected) + " argument(s) but got " + Strings.fromInt(call.args().len), call);
 		}
 		if (method == "set" && receiverType.genericArgs.len == 1) {
 			Node expectedType = receiverType.genericArgs.get(0);
-			Node argument = call.args.get(0);
+			Node argument = call.args().get(0);
 			self.types.validateTypedInitializer(expectedType, argument, "Argument 'value' to 'Mutex.set()'", vars);
 			Node? actualType = self.types.inferType(argument,  vars);
 			if (actualType != null && !self.types.contextualAggregateInitializer(argument) && !self.types.assignmentCompatible(expectedType, actualType)) {
-				TypeValidator.fail("Argument 'value' to 'Mutex.set()' expects '" + self.types.formatType(expectedType) + "' but got '" + self.types.formatType(actualType) + "'", call.args.get(0));
+				TypeValidator.fail("Argument 'value' to 'Mutex.set()' expects '" + self.types.formatType(expectedType) + "' but got '" + self.types.formatType(actualType) + "'", call.args().get(0));
 			}
 		}
 		if (method == "destroy") {
@@ -1105,25 +1105,25 @@ class OwnershipValidator {
 			return -1;
 		}
 		int aliasIndex = self.hostedAbi.returnAliasParameter(name);
-		if (aliasIndex < 0 || aliasIndex >= expression.args.len) { return -1; }
-		return self.hostedDeallocatorCompatibility(expression.args.get(aliasIndex), family, vars);
+		if (aliasIndex < 0 || aliasIndex >= expression.args().len) { return -1; }
+		return self.hostedDeallocatorCompatibility(expression.args().get(aliasIndex), family, vars);
 	}
 
 	public void validateRawLifetimeCall(Node call, Map<string, Node> vars) {
 		string name = call.callee.name;
 		int expected = self.rawLifetimeArity(name);
-		if (call.args.len != expected) {
-			TypeValidator.fail("'" + name + "()' expects " + Strings.fromInt(expected) + " argument(s) but got " + Strings.fromInt(call.args.len), call);
+		if (call.args().len != expected) {
+			TypeValidator.fail("'" + name + "()' expects " + Strings.fromInt(expected) + " argument(s) but got " + Strings.fromInt(call.args().len), call);
 		}
 		int nameIndex = 0;
-		while (nameIndex < call.argNames.len) {
-			if (call.argNames.get(nameIndex) != "") {
+		while (nameIndex < call.argNames().len) {
+			if (call.argNames().get(nameIndex) != "") {
 				TypeValidator.fail("'" + name + "()' does not accept named arguments", call);
 			}
 			nameIndex = nameIndex + 1;
 		}
 
-		Node argument = call.args.get(0);
+		Node argument = call.args().get(0);
 		if (self.rawLifetimeUsesStaticString(argument, vars)) {
 			TypeValidator.fail(name + "() cannot consume static string storage; only heap memory " + "owned by a raw allocator may be consumed", argument);
 		}

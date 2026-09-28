@@ -35,7 +35,7 @@ class DeclarationRegistry {
 				self.analyzed.funcRetTypes.put(d.name, d.returnType);
 				self.analyzed.funcTable.put(d.name, d);
 			} else if (d.kind == NK_CLASS_DECL) {
-				if (d.genericParams.len == 0) {
+				if (d.genericParams().len == 0) {
 					self.analyzed.classTable.put(d.name, d);
 				} else {
 					self.analyzed.genericClassTable.put(d.name, d);
@@ -49,8 +49,8 @@ class DeclarationRegistry {
 			} else if (d.kind == NK_ENUM_DECL) {
 				self.analyzed.enumTable.put(d.name, d);
 				int v = 0;
-				while (v < d.values.len) {
-					string valueName = d.values.get(v).name;
+				while (v < d.values().len) {
+					string valueName = d.values().get(v).name;
 					int ownerCount = 0;
 					if (self.analyzed.enumValueOwnerCount.has(valueName)) {
 						ownerCount = self.analyzed.enumValueOwnerCount.get(valueName);

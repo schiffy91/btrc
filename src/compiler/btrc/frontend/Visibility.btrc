@@ -133,13 +133,13 @@ class FeImportReferenceCollector {
 			return;
 		}
 		if (node.kind == NK_CLASS_DECL || node.kind == NK_INTERFACE_DECL) {
-			Vector<string> added = self.addGenericParameters(node.genericParams);
+			Vector<string> added = self.addGenericParameters(node.genericParams());
 			if (node.parent != null) {
 				self.add(node.parent, node.line, node.col, true);
 			}
 			int interfaceIndex = 0;
-			while (interfaceIndex < node.interfaces.len) {
-				self.add(node.interfaces.get(interfaceIndex), node.line, node.col, true);
+			while (interfaceIndex < node.interfaces().len) {
+				self.add(node.interfaces().get(interfaceIndex), node.line, node.col, true);
 				interfaceIndex++;
 			}
 			if (node.kind == NK_CLASS_DECL) { self.visitList(node.members); }
@@ -148,7 +148,7 @@ class FeImportReferenceCollector {
 			return;
 		}
 		if (node.kind == NK_FUNCTION_DECL || node.kind == NK_METHOD_DECL || node.kind == NK_METHOD_SIG) {
-			Vector<string> added = self.addGenericParameters(node.genericParams);
+			Vector<string> added = self.addGenericParameters(node.genericParams());
 			self.visit(node.returnType);
 			Vector<string> empty = [];
 			self.pushScope(empty);
@@ -160,7 +160,7 @@ class FeImportReferenceCollector {
 		}
 		if (node.kind == NK_LAMBDA_EXPR) {
 			self.visit(node.returnType);
-			self.visitList(node.captures);
+			self.visitList(node.captures());
 			Vector<string> empty = [];
 			self.pushScope(empty);
 			self.visitParameters(node.params);
@@ -219,12 +219,12 @@ class FeImportReferenceCollector {
 		if (node.kind == NK_SWITCH_STMT) {
 			self.visit(node.valueNode);
 			int caseIndex = 0;
-			while (caseIndex < node.cases.len) {
-				Node clause = node.cases.get(caseIndex);
+			while (caseIndex < node.cases().len) {
+				Node clause = node.cases().get(caseIndex);
 				self.visit(clause.valueNode);
 				Vector<string> empty = [];
 				self.pushScope(empty);
-				self.visitList(clause.bodyNodeList);
+				self.visitList(clause.bodyNodeList());
 				self.popScope();
 				caseIndex++;
 			}
@@ -296,17 +296,17 @@ class FeImportReferenceCollector {
 		self.visitList(node.methods);
 		self.visitList(node.params);
 		self.visitList(node.fields);
-		self.visitList(node.values);
-		self.visitList(node.variants);
+		self.visitList(node.values());
+		self.visitList(node.variants());
 		self.visitList(node.genericArgs);
 		self.visitList(node.statements);
-		self.visitList(node.cases);
-		self.visitList(node.args);
+		self.visitList(node.cases());
+		self.visitList(node.args());
 		self.visitList(node.elements);
-		self.visitList(node.entries);
-		self.visitList(node.parts);
-		self.visitList(node.captures);
-		self.visitList(node.bodyNodeList);
+		self.visitList(node.entries());
+		self.visitList(node.parts());
+		self.visitList(node.captures());
+		self.visitList(node.bodyNodeList());
 	}
 }
 
@@ -322,15 +322,15 @@ class FeDeclarationSymbolExtractor {
 		}
 		if (declaration.kind == NK_ENUM_DECL) {
 			int valueIndex = 0;
-			while (valueIndex < declaration.values.len) {
-				names.push(declaration.values.get(valueIndex).name);
+			while (valueIndex < declaration.values().len) {
+				names.push(declaration.values().get(valueIndex).name);
 				valueIndex++;
 			}
 		}
 		if (declaration.kind == NK_RICH_ENUM_DECL) {
 			int variantIndex = 0;
-			while (variantIndex < declaration.variants.len) {
-				names.push(declaration.variants.get(variantIndex).name);
+			while (variantIndex < declaration.variants().len) {
+				names.push(declaration.variants().get(variantIndex).name);
 				variantIndex++;
 			}
 		}
@@ -537,7 +537,7 @@ class FeImportVisibilityChecker {
 			if (declarationLine == null && generatedModule.isEmpty()) { continue; }
 			string sourceFile = generatedModule.isEmpty() ? declarationLine.sourceFile : generatedModule;
 			Map<string, bool> reachable = self.visibilityReachable(sourceFile);
-			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.genericParams);
+			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.genericParams());
 			collector.visit(declaration);
 			Map<string, bool> seen = {};
 			int referenceIndex = 0;
