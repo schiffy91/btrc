@@ -1052,7 +1052,10 @@ class CEmitter {
 				i = i + 1;
 			}
 			string callee = e.callee;
-			if (e.expr != null) { callee = self.expr(e.expr); }
+			/* A call through a struct member is parenthesized: a function-like macro of
+			 * the same name (the Windows POSIX layer defines open(...)) would otherwise
+			 * capture `obj->open(` while leaving the member declaration alone. */
+			if (e.expr != null) { callee = self.expr(e.expr); if (e.expr.kind == IRK_FIELD_ACCESS) { callee = "(" + callee + ")"; } }
 			Vector<string> call = [callee, self.delimited("(", args, ")")];
 			return self.compound("", call, "", "", "\n");
 		}

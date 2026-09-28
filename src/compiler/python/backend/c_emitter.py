@@ -623,6 +623,11 @@ class CEmitter:
                 ")",
             )
             callee = expression.callee if isinstance(expression.callee, str) else self._expr(expression.callee)
+            # A call through a struct member is parenthesized: a function-like macro of
+            # the same name (the Windows POSIX layer defines open(...)) would otherwise
+            # capture `obj->open(` while leaving the member declaration alone.
+            if isinstance(expression.callee, IRFieldAccess):
+                callee = f"({callee})"
             return self._compound("", [callee, arguments], "")
         if isinstance(expression, IRObjectiveCSelector):
             return f"@selector({expression.selector})"
