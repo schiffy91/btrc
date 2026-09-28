@@ -56,8 +56,8 @@ invalidates it. Set `BTRC_TEST_BTRCC` to reuse a binary you built yourself.
 
 Name the C compiler that built the `btrcc` you measured. Nix's `cc` on macOS is
 gcc, which emulates thread-local storage; the same generated `btrcc.c` built by
-gcc runs a cold BTRSmith compile in 74.9 s against clang's 62.3 s, 17% slower
-overall and 79% slower on the generic-instance closure. The test harness
+gcc runs a cold BTRSmith compile in 74.9 s against clang's 62.3 s, taking 20%
+longer overall and 79% longer on the generic-instance closure. The test harness
 already selects clang through `default_c_compiler()`, so this bites hand-rolled
 measurement inside a dev shell, not the gates. The quick tell is binary size:
 about 20.7 MB from clang against 13.0 MB from gcc.

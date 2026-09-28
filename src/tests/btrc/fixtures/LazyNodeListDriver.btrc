@@ -1,0 +1,40 @@
+import Library.Vector;
+
+#include "../../../compiler/btrc/generated/ast/Node.btrc"
+#include <assert.h>
+
+/* Drives the generated node's lazy list storage. With no argument it checks
+ * correct use and prints "ok". With an argument it mutates a list that a
+ * reader answered, which must stop the program with an internal compiler
+ * error rather than fill the shared empty that every unwritten field reads. */
+int main(int argc, char** argv) {
+	Node first = Node();
+	Node second = Node();
+
+	/* Unwritten fields read as empty and allocate nothing. */
+	assert(first.args().len == 0);
+	assert(first.argsStorage == null);
+	assert(first.names().len == 0);
+	assert(first.namesStorage == null);
+
+	/* A write allocates on the written node only. */
+	first.argsMut().push(second);
+	first.argsMut().push(second);
+	first.namesMut().push("a");
+	assert(first.args().len == 2);
+	assert(first.names().len == 1);
+	assert(first.argsStorage != null);
+	assert(second.args().len == 0);
+	assert(second.names().len == 0);
+	assert(second.argsStorage == null);
+	assert(second.namesStorage == null);
+
+	if (argc > 1 && argv[1] != NULL) {
+		second.values().push(first);
+		Node third = Node();
+		printf("unreachable: %d\n", third.values().len);
+		return 0;
+	}
+	printf("ok\n");
+	return 0;
+}

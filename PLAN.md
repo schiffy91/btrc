@@ -312,7 +312,9 @@ build** and about **0.6 to 0.9 GiB in the owner**, with the same saving again in
 each worker. Removing them need not be exactly symmetric with adding them, but
 it is the same order: **13 to 21% of cold time**, against 7% for removing the
 generic closure entirely. This is the largest measured lever in the campaign and
-it applies to every phase.
+it applies to every phase. *(Superseded by measurement: converting thirteen
+fields saved 3.0 s where this predicted 5.6–8.7 s, so the experiment overstated
+the prize two- to threefold; see "What landed" below.)*
 
 *The cheap subset.* The migration does not have to be all 21 fields at once.
 Reads outnumber mutations heavily — 3,235 references against 356 mutations — and
@@ -400,9 +402,15 @@ for a null owner, so it neither allocates nor lengthens an incoming-edge list.
 Cold BTRSmith falls from **60.2 s to 57.2 s**, both reproduced in alternating
 pairs, with all 403 emitted units byte-identical, the 1,930-program corpus green
 through the changed compiler, and the bootstrap at its fixed point. That is
-5.0% for thirteen of the 21 fields — less than the 7–12% the symmetric
-experiment implied, because each read now pays an accessor call and a null test
-back.
+5.0% for thirteen of the 21 fields, and that corrects the estimate above.
+Scaled linearly, the symmetric experiment predicted 5.6–8.7 s for thirteen
+fields; the measured saving is 3.0 s, so adding allocations to an
+already-pressured allocator overstated what removing them returns by two to
+three times. The "13 to 21% of cold time" figure and "the largest measured
+lever in the campaign" should be read in that light: all 21 fields are more
+plausibly worth about 8%, and the eight heavy fields about 2 s more. Why the
+shortfall is so large is not measured; the accessor call and null test each
+read now pays are one candidate, allocator nonlinearity another.
 
 *Why this needed a call-site audit rather than a regex.* Of 1,169 textual
 references to those thirteen names only **637 are the source AST node**;
@@ -430,11 +438,18 @@ call-site search would have surfaced, and all three are now handled:
 The remaining eight fields (`params` 633 references, `genericArgs` 506, `fields`
 346, `declarations` 251, `members` 159, `elements` 112, `statements` 99,
 `methods` 92) hold the other eight allocations and are the next slice, on the
-same machinery. They carry one hazard the light fields did not: a field passed
-as a bare `Vector<Node>` argument to a callee that **mutates** it would fill the
-single shared empty for every node with an unwritten field, and no syntactic
-`.push(` marks the site. Each such call must be resolved against its callee
-before that field converts.
+same machinery. A field passed as a bare `Vector<Node>` argument to a callee that
+**mutates** it would fill the single shared empty for every node with an
+unwritten field, and no syntactic `.push(` marks the site. For the thirteen
+converted fields every receiving callee was checked — 26 direct callees and one
+forwarding chain, all read-only — and each generated reader now checks that the
+shared empty is still empty before answering it, so a future violation stops
+the compiler with an internal error instead of corrupting an AST.
+`src/tests/btrc/test_lazy_node_lists.py` drives that guard through a fixture
+that mutates a reader's answer. The shared empty is a process-global static
+created lazily and without a lock; that is safe because the first read happens
+while parsing on one thread, and the only threads the compiler starts, in
+`NativeHeaderProcess`, never touch an AST node.
 
 *On the ≤20 s cold budget.* It is worth stating plainly what the measurements
 imply. Compiler-only cold is 62 s on a clang build, 29.6 s of it waiting on
@@ -461,16 +476,17 @@ a number for the real workload. Two builds of one identical generated
 | gcc 15.2 (nix's `cc`) | 74.9 s | 8.77 s | 3.34 s | 6.54 s | 1.98 s |
 | Apple clang 21 | 62.3 s | 4.90 s | 2.17 s | 5.20 s | 1.64 s |
 
-So **17% overall, and 79% on the generic-instance closure** — the phases
+So the gcc build takes **20% longer overall, and 79% longer on the
+generic-instance closure** — the phases
 heaviest in thread-local and ARC traffic. A sample of the gcc build confirms
 the mechanism: `__emutls_get_address` and `pthread_getspecific` together take
 about 3,800 of its leaf samples. This refines the claim in that docstring,
 which says gcc "roughly halves the speed of every compiled btrc program": on
-this workload the whole-compile penalty is 17%, not 50%, though one phase
-approaches the stronger figure.
+this workload the whole-compile penalty is 20%, not the doubling that halving
+the speed would mean, though one phase comes close to it.
 
 Two practical consequences. First, **every cold or edit figure in this plan
-must name the C compiler that built the measured `btrcc`**, because 17% dwarfs
+must name the C compiler that built the measured `btrcc`**, because 20% dwarfs
 most of the individual cuts recorded here — the lexical type-map copy cut was
 3.35%. Measuring by hand inside a nix dev shell silently gets the gcc build,
 which is how the first pass of this comparison went wrong; the quick tell is

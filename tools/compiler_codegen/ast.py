@@ -254,7 +254,10 @@ class BtrcAstRenderer:
             lines.append(f"    /* One empty {declared_type} answered for every unwritten field.")
             lines.append("     * A reference held by a local is a reference count, not a managed")
             lines.append("     * edge, so answering it costs no allocation. A static takes no")
-            lines.append("     * literal initializer, so it is created on first need. */")
+            lines.append("     * literal initializer, so it is created on first need; that first")
+            lines.append("     * read happens while parsing, on one thread, and the static is never")
+            lines.append("     * written again. Nothing may store it in a field or mutate it: the")
+            lines.append("     * readers check it is still empty each time they answer it. */")
             lines.append(f"    class {declared_type}? {static_name} = null;")
         lines.extend(("", f"    public {self._node_name}() {{", f"        self.kind = {self._kind_prefix}NONE;"))
         for declaration in declarations:
@@ -279,6 +282,14 @@ class BtrcAstRenderer:
                     f"        {declaration.declared_type}? empty = {self._node_name}.{static_name};",
                     f"        if (empty == null) {{ {declaration.declared_type} fresh = []; empty = fresh;"
                     f" {self._node_name}.{static_name} = empty; }}",
+                    # A caller that mutates what a reader answered -- directly,
+                    # through an alias, or through a callee -- would fill the
+                    # one shared empty for every unwritten field in the program.
+                    # One comparison on the unwritten path turns that into an
+                    # immediate failure instead of a silently corrupted AST.
+                    f'        if (empty.len != 0) {{ fprintf(stderr, "internal compiler error:'
+                    f" {self._node_name}.{static_name} is no longer empty; a list answered by a"
+                    f' lazy field reader was mutated instead of written through its Mut()\\n"); exit(1); }}',
                     "        return empty;",
                     "    }",
                 )
