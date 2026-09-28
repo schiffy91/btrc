@@ -11,7 +11,7 @@ class TypeShape {
 		Node result = Node();
 		result.kind = NK_TYPE_EXPR;
 		result.base = typeExpr.base;
-		result.genericArgs = genericArgs;
+		result.genericArgsStorage = genericArgs;
 		result.pointerDepth = typeExpr.pointerDepth;
 		result.isArray = typeExpr.isArray;
 		result.arraySize = typeExpr.arraySize;
@@ -26,13 +26,13 @@ class TypeShape {
 		return result;
 	}
 
-	class Node copy(Node typeExpr) { return TypeShape.copyWithArguments(typeExpr, typeExpr.genericArgs); }
+	class Node copy(Node typeExpr) { return TypeShape.copyWithArguments(typeExpr, typeExpr.genericArgs()); }
 
 	class Node copyTree(Node typeExpr) {
 		Vector<Node> genericArgs = [];
 		int index = 0;
-		while (index < typeExpr.genericArgs.len) {
-			genericArgs.push(TypeShape.copyTree(typeExpr.genericArgs.get(index)));
+		while (index < typeExpr.genericArgs().len) {
+			genericArgs.push(TypeShape.copyTree(typeExpr.genericArgs().get(index)));
 			index++;
 		}
 		return TypeShape.copyWithArguments(typeExpr, genericArgs);
@@ -147,7 +147,7 @@ class TypeComposition {
 	}
 
 	class bool isSemanticScalarString(Node? typeExpr) {
-		if (typeExpr == null || typeExpr.base != "string" || typeExpr.genericArgs.len > 0 || typeExpr.isArray) {
+		if (typeExpr == null || typeExpr.base != "string" || typeExpr.genericArgs().len > 0 || typeExpr.isArray) {
 			return false;
 		}
 		int depth = typeExpr.pointerDepth;
@@ -170,10 +170,10 @@ class CallableSignature {
 		Node callable = Node();
 		callable.kind = NK_TYPE_EXPR;
 		callable.base = "__fn_ptr";
-		callable.genericArgs.push(CallableSignature.component(declaration.returnType));
+		callable.genericArgsMut().push(CallableSignature.component(declaration.returnType));
 		int index = 0;
-		while (index < declaration.params.len) {
-			callable.genericArgs.push(CallableSignature.component(declaration.params.get(index).type));
+		while (index < declaration.params().len) {
+			callable.genericArgsMut().push(CallableSignature.component(declaration.params().get(index).type));
 			index++;
 		}
 		return callable;

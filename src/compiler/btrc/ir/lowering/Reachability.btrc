@@ -304,7 +304,7 @@ class StdlibReachability {
 			worklist.push(declaration);
 			return;
 		}
-		for member in declaration.members {
+		for member in declaration.members() {
 			if (member.kind != NK_METHOD_DECL) { continue; }
 			if (!self.methodClasses.has(member.name)) { Vector<Node> none = []; self.methodClasses.put(member.name, none); }
 			Vector<Node> classes = self.methodClasses.get(member.name);
@@ -312,7 +312,7 @@ class StdlibReachability {
 		}
 		if (declaration.parent != null) { self.mentionName(declaration.parent, worklist); }
 		for iface in declaration.interfaces() { self.mentionName(iface, worklist); }
-		for member in declaration.members {
+		for member in declaration.members() {
 			if (member.kind == NK_METHOD_DECL) {
 				if (StdlibReachability.alwaysLowered(member)) { self.pushMethod(declaration, member, worklist); }
 			} else {
@@ -331,7 +331,7 @@ class StdlibReachability {
 	}
 
 	private void pushMethods(Node declaration, Map<string, bool> names, Vector<Node> worklist) {
-		for member in declaration.members {
+		for member in declaration.members() {
 			if (member.kind == NK_METHOD_DECL && names.has(member.name)) { self.pushMethod(declaration, member, worklist); }
 		}
 	}
@@ -396,14 +396,14 @@ class StdlibReachability {
 	class void pushChild(Node? child, Vector<Node> stack) { if (child != null) { stack.push(child); } }
 
 	class void pushChildren(Node node, Vector<Node> stack) {
-		for child in node.declarations { stack.push(child); }
-		for child in node.members { stack.push(child); }
-		for child in node.methods { stack.push(child); }
-		for child in node.params { stack.push(child); }
-		for child in node.fields { stack.push(child); }
+		for child in node.declarations() { stack.push(child); }
+		for child in node.members() { stack.push(child); }
+		for child in node.methods() { stack.push(child); }
+		for child in node.params() { stack.push(child); }
+		for child in node.fields() { stack.push(child); }
 		for child in node.values() { stack.push(child); }
 		for child in node.variants() { stack.push(child); }
-		for child in node.genericArgs { stack.push(child); }
+		for child in node.genericArgs() { stack.push(child); }
 		for child in node.statements() { stack.push(child); }
 		for child in node.cases() { stack.push(child); }
 		for child in node.bodyNodeList() { stack.push(child); }

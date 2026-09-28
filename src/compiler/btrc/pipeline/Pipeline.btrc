@@ -97,11 +97,11 @@ class CompilerPipeline {
 		}
 
 		self.hostedAbi.stampProgramSources(program, resolved.stdlibLineCount, resolved.userLines, sourcePath, self.stdlib.directory());
-		Vector<Node> sourceDeclarations = program.declarations;
+		Vector<Node> sourceDeclarations = program.declarations();
 		Vector<Node> declarations = [];
 		for imported in resolved.nativeDeclarations { declarations.push(imported.declaration); }
-		for declaration in program.declarations { declarations.push(declaration); }
-		program.declarations = declarations;
+		for declaration in program.declarations() { declarations.push(declaration); }
+		program.declarationsStorage = declarations;
 
 		if (options.strictImports) {
 			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceSymbolShadows(program));
@@ -122,7 +122,7 @@ class CompilerPipeline {
 			if (!imported.generatedInput) { nativeDeclarations.push(imported); }
 		}
 		for declaration in sourceDeclarations { declarations.push(declaration); }
-		program.declarations = declarations;
+		program.declarationsStorage = declarations;
 		resolved.nativeDeclarations = nativeDeclarations;
 
 		BtrccPhaseTimer.mark("visibility");
@@ -150,7 +150,7 @@ class CompilerPipeline {
 		}
 		if (options.moduleUnits && !options.unitsPrefix.isEmpty()) {
 			if (!resolved.strictImports) { return self.failure("error: module units require strict imports"); }
-			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations, self.hostedAbi) : null;
+			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations(), self.hostedAbi) : null;
 			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys);
 			if (records != null) { unitProgram.interfaceDigest = records.interfaceDigest; }
 			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();
@@ -179,7 +179,7 @@ class CompilerPipeline {
 		}
 
 		IRLowerer lowerer = IRLowerer(analyzed, self.hostedAbi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), runtimeHelpers, sourcePath, resolved.stdlibLineCount, resolved.userLines);
-		if (options.runDce) { lowerer.setStdlibKeys(StdlibReachability.classify(program.declarations, self.hostedAbi)); }
+		if (options.runDce) { lowerer.setStdlibKeys(StdlibReachability.classify(program.declarations(), self.hostedAbi)); }
 		lowerer.setDebug(options.debug);
 		IRModule module = lowerer.lower(program);
 		module.debug = options.debug;

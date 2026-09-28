@@ -394,34 +394,34 @@ class FeNativeDeclarationImporter {
 			var projection = FeNativeCallbackProjection(selected.interfaceName, index, -1, contextIndex, result);
 			projection.unregister = unregister; projection.activationFailure = selected.activationFailure; projection.field = selected.field; projection.record = shape.record; projection.contextFields = selected.contexts; projection.callbackContextIndices = selected.contextIndices; projection.realtime = invocation;
 			Node callbackMethod = self.node(NK_METHOD_SIG); callbackMethod.name = "invoke"; callbackMethod.returnType = result;
-			Node capability = self.node(NK_PARAM); capability.name = "invocation"; capability.type = self.node(NK_TYPE_EXPR); capability.type.base = shape.invocation; callbackMethod.params.push(capability);
-			Node fallback = self.node(NK_TYPE_EXPR); fallback.base = "__realtime_fn_ptr"; fallback.genericArgs.push(result);
+			Node capability = self.node(NK_PARAM); capability.name = "invocation"; capability.type = self.node(NK_TYPE_EXPR); capability.type.base = shape.invocation; callbackMethod.paramsMut().push(capability);
+			Node fallback = self.node(NK_TYPE_EXPR); fallback.base = "__realtime_fn_ptr"; fallback.genericArgsMut().push(result);
 			for slot in range(signature.parameters.len) {
 				Node value = slot == contextIndex ? self.node(NK_TYPE_EXPR) : self.realtimeParameter(signature.parameters.get(slot));
 				if (slot == contextIndex) { value.base = "void"; value.pointerDepth = 1; }
 				projection.parameters.push(value);
-				if (slot != contextIndex) { Node parameter = self.node(NK_PARAM); parameter.name = f"argument{slot}"; parameter.type = value; callbackMethod.params.push(parameter); fallback.genericArgs.push(value); }
+				if (slot != contextIndex) { Node parameter = self.node(NK_PARAM); parameter.name = f"argument{slot}"; parameter.type = value; callbackMethod.paramsMut().push(parameter); fallback.genericArgsMut().push(value); }
 			}
-			Node projectedInterface = self.node(NK_INTERFACE_DECL); projectedInterface.name = selected.interfaceName; projectedInterface.methods.push(callbackMethod);
+			Node projectedInterface = self.node(NK_INTERFACE_DECL); projectedInterface.name = selected.interfaceName; projectedInterface.methodsMut().push(callbackMethod);
 			self.add(selected.interfaceName, projectedInterface, "realtime-callback:" + self.typeIdentity(signature));
 			Node owner = self.node(NK_CLASS_DECL); owner.name = shape.invocation; owner.isAbstract = true; owner.sourceFile = self.module;
-			Node contextField = self.node(NK_FIELD_DECL); contextField.access = "private"; contextField.name = "_context"; contextField.type = self.node(NK_TYPE_EXPR); contextField.type.base = "void"; contextField.type.pointerDepth = 1; owner.members.push(contextField);
+			Node contextField = self.node(NK_FIELD_DECL); contextField.access = "private"; contextField.name = "_context"; contextField.type = self.node(NK_TYPE_EXPR); contextField.type.base = "void"; contextField.type.pointerDepth = 1; owner.membersMut().push(contextField);
 			var generated = FeNativeImportedDeclaration(owner, self.module, self.header); generated.language = ""; generated.invocation = shape.invocation;
 			for operation in invocation.operations {
-				Node method = self.node(NK_METHOD_DECL); method.access = "public"; method.name = operation.name; method.returnType = operation.returnType; method.params = operation.parameters; method.sourceFile = self.module; owner.members.push(method);
+				Node method = self.node(NK_METHOD_DECL); method.access = "public"; method.name = operation.name; method.returnType = operation.returnType; method.paramsStorage = operation.parameters; method.sourceFile = self.module; owner.membersMut().push(method);
 				var contract = FeNativeCallContract(); contract.realtimeSafe = true; generated.methods.put(method.name, contract);
 			}
 			self.inputClasses.push(generated);
 			Node alias = self.node(NK_FUNCTION_DECL); alias.name = shape.name; alias.returnType = self.node(NK_TYPE_EXPR); alias.returnType.base = "CallbackState";
 			for slot in range(names.len) {
 				if (slot == index || slot == sizeIndex) { continue; }
-				Node parameter = self.node(NK_PARAM); parameter.name = names.get(slot); parameter.type = slot == ownerIndex ? self.resourceCallType(native.signature.parameters.get(slot)) : self.callType(native.signature.parameters.get(slot), true); alias.params.push(parameter);
+				Node parameter = self.node(NK_PARAM); parameter.name = names.get(slot); parameter.type = slot == ownerIndex ? self.resourceCallType(native.signature.parameters.get(slot)) : self.callType(native.signature.parameters.get(slot), true); alias.paramsMut().push(parameter);
 			}
 			Vector<string> additionalNames = ["receiver", "denied", "scope"];
 			Node receiverType = self.node(NK_TYPE_EXPR); receiverType.base = selected.interfaceName;
 			Node scopeType = self.node(NK_TYPE_EXPR); scopeType.base = "CallbackScope";
 			Vector<Node> additionalTypes = [receiverType, fallback, scopeType];
-			for slot in range(3) { string name = additionalNames.get(slot); while (names.contains(name)) { name = name + "_"; } names.push(name); Node parameter = self.node(NK_PARAM); parameter.name = name; parameter.type = additionalTypes.get(slot); alias.params.push(parameter); }
+			for slot in range(3) { string name = additionalNames.get(slot); while (names.contains(name)) { name = name + "_"; } names.push(name); Node parameter = self.node(NK_PARAM); parameter.name = name; parameter.type = additionalTypes.get(slot); alias.paramsMut().push(parameter); }
 			var contract = FeNativeCallContract(); contract.callbacks.push(projection); self.add(shape.name, alias, "realtime-registration:" + selected.parameter, "", false, contract);
 			self.callbacks.remove(selected.parameter);
 		}
@@ -524,10 +524,10 @@ class FeNativeDeclarationImporter {
 					if (slot == table.contextIndex) { continue; }
 					Node value = self.tableParameter(signature.parameters.get(slot));
 					projected.parameters.push(value);
-					Node parameter = self.node(NK_PARAM); parameter.name = f"argument{position}"; parameter.type = value; callbackMethod.params.push(parameter);
+					Node parameter = self.node(NK_PARAM); parameter.name = f"argument{position}"; parameter.type = value; callbackMethod.paramsMut().push(parameter);
 					position = position + 1;
 				}
-				projection.methods.push(projected); projectedInterface.methods.push(callbackMethod);
+				projection.methods.push(projected); projectedInterface.methodsMut().push(callbackMethod);
 			}
 			if (!table.label.isEmpty()) {
 				NativeNode signature = self.tableFunctionType(fields.get(table.label), "label");
@@ -552,10 +552,10 @@ class FeNativeDeclarationImporter {
 			Node factory = self.node(NK_FUNCTION_DECL); factory.name = table.name;
 			factory.returnType = self.node(NK_TYPE_EXPR); factory.returnType.base = name;
 			var contract = FeNativeCallContract(); contract.nonnullReturn = true; contract.resourceResult = name; contract.callbackTable = projection;
-			Node receiverParameter = self.node(NK_PARAM); receiverParameter.name = "receiver"; receiverParameter.type = self.node(NK_TYPE_EXPR); receiverParameter.type.base = table.interfaceName; factory.params.push(receiverParameter);
+			Node receiverParameter = self.node(NK_PARAM); receiverParameter.name = "receiver"; receiverParameter.type = self.node(NK_TYPE_EXPR); receiverParameter.type.base = table.interfaceName; factory.paramsMut().push(receiverParameter);
 			contract.nonnullParameters.push(true); contract.readOnlyBorrows.push(false); contract.resourceParameters.push(""); contract.recordInputs.push(null);
 			if (!table.label.isEmpty()) {
-				Node labelParameter = self.node(NK_PARAM); labelParameter.name = "label"; labelParameter.type = self.node(NK_TYPE_EXPR); labelParameter.type.base = "string"; factory.params.push(labelParameter);
+				Node labelParameter = self.node(NK_PARAM); labelParameter.name = "label"; labelParameter.type = self.node(NK_TYPE_EXPR); labelParameter.type.base = "string"; factory.paramsMut().push(labelParameter);
 				contract.nonnullParameters.push(true); contract.readOnlyBorrows.push(false); contract.resourceParameters.push(""); contract.recordInputs.push(null);
 			}
 			self.add(table.name, factory, "callback-table-factory:" + name, "", false, contract);
@@ -712,7 +712,7 @@ class FeNativeDeclarationImporter {
 			string identity = "callback-interface:" + self.typeIdentity(signature.returnType);
 			for position in range(signature.parameters.len) {
 				Node parameter = self.node(NK_PARAM);
-				parameter.name = f"argument{method.params.len}";
+				parameter.name = f"argument{method.params().len}";
 				if (callbackContextIndices.contains(position)) {
 					parameter.type = self.node(NK_TYPE_EXPR);
 					parameter.type.base = "void";
@@ -734,7 +734,7 @@ class FeNativeDeclarationImporter {
 						if (scalar.kind != NNK_NATIVE_BUILTIN && scalar.kind != NNK_NATIVE_ENUM_TYPE) { self.fail("callback non-scalar arguments require a borrow mapping"); }
 						parameter.type = isBlock ? self.objectiveCScalar(signature.parameters.get(position)) : self.callType(signature.parameters.get(position), true);
 					}
-					method.params.push(parameter);
+					method.paramsMut().push(parameter);
 					identity = identity + ":" + self.typeIdentity(signature.parameters.get(position));
 				}
 				projection.parameters.push(parameter.type);
@@ -749,7 +749,7 @@ class FeNativeDeclarationImporter {
 			}
 			Node projectedInterface = self.node(NK_INTERFACE_DECL);
 			projectedInterface.name = binding.interfaceName;
-			projectedInterface.methods.push(method);
+			projectedInterface.methodsMut().push(method);
 			self.add(binding.interfaceName, projectedInterface, identity);
 			projections.push(projection);
 		}
@@ -787,7 +787,7 @@ class FeNativeDeclarationImporter {
 		signature.returnType = returnType;
 		Node projectedInterface = self.node(NK_INTERFACE_DECL);
 		projectedInterface.name = binding.interfaceName;
-		projectedInterface.methods = [signature];
+		projectedInterface.methodsStorage = [signature];
 		self.add(binding.interfaceName, projectedInterface, "action-interface");
 		var projection = FeNativeCallbackProjection(binding.interfaceName, index, -1, -1, returnType);
 		projection.unregister = declaration;
@@ -845,13 +845,13 @@ class FeNativeDeclarationImporter {
 				Node projected = self.node(NK_PARAM);
 				projected.name = f"argument{position}";
 				projected.type = value;
-				signature.params.push(projected);
+				signature.paramsMut().push(projected);
 			}
 			Node context = self.node(NK_TYPE_EXPR);
 			context.base = "void";
 			context.pointerDepth = 1;
 			callback.parameters.push(context);
-			projectedInterface.methods.push(signature);
+			projectedInterface.methodsMut().push(signature);
 			projection.delegateMethods.push(callback);
 			identity = identity + ":" + name + ":" + self.typeIdentity(method.signature);
 		}
@@ -977,7 +977,7 @@ class FeNativeDeclarationImporter {
 					method.access = "public";
 					method.returnType = self.node(NK_TYPE_EXPR);
 					method.returnType.base = methodName == "close" ? "void" : "bool";
-					imported.members.push(method);
+					imported.membersMut().push(method);
 				}
 			}
 			self.add(resource.alias, imported, "c++-resource:" + name + ":" + resource.identity(), "void*", false, null, resource);
@@ -1108,8 +1108,8 @@ class FeNativeDeclarationImporter {
 			member.access = factory != null ? "class" : "public";
 			member.name = method.methodName;
 			member.returnType = returnType;
-			member.params = parameters;
-			owner.declaration.members.push(member);
+			member.paramsStorage = parameters;
+			owner.declaration.membersMut().push(member);
 		}
 		if (copies.len > 0) { self.fail("C++ copied-results names a method without a copied pointer result"); }
 	}
@@ -1129,7 +1129,7 @@ class FeNativeDeclarationImporter {
 			member.access = "public";
 			member.name = field.name;
 			member.type = field.valueType;
-			owner.members.push(member);
+			owner.membersMut().push(member);
 		}
 		var generated = FeNativeImportedDeclaration(owner, self.module, self.header);
 		generated.generatedInput = true;
@@ -1252,7 +1252,7 @@ class FeNativeDeclarationImporter {
 					method.returnType = self.node(NK_TYPE_EXPR);
 					method.returnType.base = "bool";
 					if (methodName == "close") { method.returnType = closeType; }
-					imported.members.push(method);
+					imported.membersMut().push(method);
 				}
 			}
 			self.add(name, imported, resourceIdentity, recordSpelling, false, null, resource);
@@ -1386,12 +1386,12 @@ class FeNativeDeclarationImporter {
 				if (self.language == "objective-c") {
 					member.type = self.objectiveCValue(field.fieldType);
 					if (member.type.isConst) { self.fail("Objective-C const record fields require initialization-only lowering"); }
-					declaration.fields.push(member);
+					declaration.fieldsMut().push(member);
 					continue;
 				}
 				member.type = self.callbackField(declaration, field.name, field.fieldType);
 				if (member.type == null) { member.type = self.fieldType(field.fieldType); }
-				declaration.fields.push(member);
+				declaration.fieldsMut().push(member);
 			}
 		}
 		Node projected = self.node(NK_TYPE_EXPR);
@@ -1435,13 +1435,13 @@ class FeNativeDeclarationImporter {
 		var contract = FeNativeCallContract();
 		Node projected = self.node(NK_TYPE_EXPR);
 		projected.base = "__fn_ptr";
-		projected.genericArgs.push(self.type(self.withoutCallNullability(signature.returnType, false)));
+		projected.genericArgsMut().push(self.type(self.withoutCallNullability(signature.returnType, false)));
 		bool checked = false;
 		for parameter in signature.parameters {
 			bool nonnull = self.callNullability(parameter).equals("nonnull");
 			contract.nonnullParameters.push(nonnull);
 			checked = checked || nonnull;
-			projected.genericArgs.push(self.type(self.withoutCallNullability(parameter, true)));
+			projected.genericArgsMut().push(self.type(self.withoutCallNullability(parameter, true)));
 		}
 		if (checked) {
 			for imported in self.declarations {
@@ -1497,8 +1497,8 @@ class FeNativeDeclarationImporter {
 				NativeNode signature = pointee;
 				if (signature.variadic) { self.fail("variadic native callbacks require adapter lowering"); }
 				projected.base = "__fn_ptr";
-				projected.genericArgs.push(self.type(signature.returnType));
-				for parameter in signature.parameters { projected.genericArgs.push(self.type(parameter)); }
+				projected.genericArgsMut().push(self.type(signature.returnType));
+				for parameter in signature.parameters { projected.genericArgsMut().push(self.type(parameter)); }
 				projected = self.qualify(projected, signature);
 			} else {
 				projected = self.type(native.pointee);
@@ -1647,8 +1647,8 @@ class FeNativeDeclarationImporter {
 		Node statusField = self.node(NK_FIELD_DECL); statusField.name = "status"; statusField.access = "public"; statusField.type = statusType;
 		Node valueField = self.node(NK_FIELD_DECL); valueField.name = "value"; valueField.access = "public";
 		valueField.type = self.node(NK_TYPE_EXPR); valueField.type.base = resource; valueField.type.isNullable = true; valueField.type.pointerDepth = 1;
-		owner.members = [statusField, valueField];
-		if (offset != null) { Node field = self.node(NK_FIELD_DECL); field.name = offset.field; field.access = "public"; field.type = self.node(NK_TYPE_EXPR); field.type.base = "int"; owner.members.push(field); }
+		owner.membersStorage = [statusField, valueField];
+		if (offset != null) { Node field = self.node(NK_FIELD_DECL); field.name = offset.field; field.access = "public"; field.type = self.node(NK_TYPE_EXPR); field.type.base = "int"; owner.membersMut().push(field); }
 		var generated = FeNativeImportedDeclaration(owner, self.module, self.header); generated.generatedInput = true;
 		self.inputClasses.push(generated); self.ownedOutputs.remove(selected);
 		FeNativeOwnedOutput projected = FeNativeOwnedOutput(position, resultName, resource, statusType); projected.offset = offset;
@@ -1735,7 +1735,7 @@ class FeNativeDeclarationImporter {
 		Node called = self.node(NK_FIELD_DECL); called.name = "called"; called.access = "public"; called.type = self.node(NK_TYPE_EXPR); called.type.base = "bool";
 		Node status = self.node(NK_FIELD_DECL); status.name = "status"; status.access = "public"; status.type = statusType;
 		Node value = self.node(NK_FIELD_DECL); value.name = "value"; value.access = "public"; value.type = self.node(NK_TYPE_EXPR); value.type.base = binding.resource; value.type.isNullable = true; value.type.pointerDepth = 1;
-		owner.members = [called, status, value];
+		owner.membersStorage = [called, status, value];
 		var generated = FeNativeImportedDeclaration(owner, self.module, self.header); generated.generatedInput = true; self.inputClasses.push(generated);
 		self.initializers.remove(declaration.name);
 		FeNativeOwnedOutput output = FeNativeOwnedOutput(position, binding.result, binding.resource, statusType);
@@ -1838,7 +1838,7 @@ class FeNativeDeclarationImporter {
 		Node boolType = self.node(NK_TYPE_EXPR); boolType.base = "bool";
 		Vector<string> fields = ["status", "size", "sizeValid", "value"];
 		Vector<Node> fieldTypes = [imported.returnType, sizeType, boolType, valueType];
-		for index in range(fields.len) { Node field = self.node(NK_FIELD_DECL); field.access = "public"; field.name = fields.get(index); field.type = fieldTypes.get(index); owner.members.push(field); }
+		for index in range(fields.len) { Node field = self.node(NK_FIELD_DECL); field.access = "public"; field.name = fields.get(index); field.type = fieldTypes.get(index); owner.membersMut().push(field); }
 		var generated = FeNativeImportedDeclaration(owner, self.module, self.header); generated.generatedInput = true;
 		self.inputClasses.push(generated);
 		var output = FeNativeOwnedOutput(position, resultName, resource, imported.returnType);
@@ -1847,7 +1847,7 @@ class FeNativeDeclarationImporter {
 		Node alias = self.node(NK_FUNCTION_DECL); alias.name = projection.alias; alias.returnType = self.node(NK_TYPE_EXPR); alias.returnType.base = resultName;
 		for index in range(names.len) {
 			if (output.hides(index)) { continue; }
-			alias.params.push(imported.params.get(index));
+			alias.paramsMut().push(imported.params().get(index));
 			aliasContract.nonnullParameters.push(contract.nonnullParameters.get(index));
 			aliasContract.readOnlyBorrows.push(contract.readOnlyBorrows.get(index));
 			aliasContract.resourceParameters.push(contract.resourceParameters.get(index));
@@ -1934,7 +1934,7 @@ class FeNativeDeclarationImporter {
 					self.resourceBorrows.remove(key);
 				}
 				callContract.resourceParameters.push(resourceParameter);
-				if (index == borrowedOwnerIndex) { callContract.borrowedResultOwner = imported.params.len; }
+				if (index == borrowedOwnerIndex) { callContract.borrowedResultOwner = imported.params().len; }
 				if (callbackParameters.has(index) && callbackParameters.get(index).field.isEmpty()) {
 					parameter.type = self.node(NK_TYPE_EXPR);
 					parameter.type.base = callbackParameters.get(index).interfaceName;
@@ -1950,10 +1950,10 @@ class FeNativeDeclarationImporter {
 				}
 				callContract.readOnlyBorrows.push(borrowed);
 				callContract.nonnullParameters.push(callbackParameters.has(index) || (!(callContract.copiedInput != null && index == callContract.copiedInput.inputIndex) && self.callNullability(signature.parameters.get(index)).equals("nonnull")));
-				imported.params.push(parameter);
+				imported.paramsMut().push(parameter);
 			}
 			for parameter in variadicParameters {
-				imported.params.push(parameter); callContract.resourceParameters.push(""); callContract.readOnlyBorrows.push(false); callContract.nonnullParameters.push(false);
+				imported.paramsMut().push(parameter); callContract.resourceParameters.push(""); callContract.readOnlyBorrows.push(false); callContract.nonnullParameters.push(false);
 			}
 			imported.returnType = self.resourceCallType(signature.returnType, callContract.resourceResult);
 			if (callContract.copiedInput != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = "bool"; }
@@ -1967,12 +1967,12 @@ class FeNativeDeclarationImporter {
 				receiver.base = callback.interfaceName;
 				Node requestType = self.node(NK_TYPE_EXPR);
 				requestType.base = "CallbackRequest";
-				requestType.genericArgs = [receiver];
+				requestType.genericArgsStorage = [receiver];
 				if (imported.returnType.base == "void") { imported.returnType = requestType; }
 				else {
 					Node pair = self.node(NK_TYPE_EXPR);
 					pair.base = "CallbackResult";
-					pair.genericArgs = [imported.returnType, requestType];
+					pair.genericArgsStorage = [imported.returnType, requestType];
 					imported.returnType = pair;
 				}
 				Node scope = self.node(NK_PARAM);
@@ -1980,7 +1980,7 @@ class FeNativeDeclarationImporter {
 				while (parameterNames.contains(scope.name)) { scope.name = scope.name + "_"; }
 				scope.type = self.node(NK_TYPE_EXPR);
 				scope.type.base = "CallbackScope";
-				imported.params.push(scope);
+				imported.paramsMut().push(scope);
 				callContract.nonnullParameters.push(true);
 				callContract.readOnlyBorrows.push(false);
 				callContract.resourceParameters.push("");
@@ -2184,7 +2184,7 @@ class FeNativeDeclarationImporter {
 				parameter.type = self.node(NK_TYPE_EXPR);
 				parameter.type.base = callbacks.get(index).interfaceName;
 			} else { parameter.type = self.objectiveCType(declaration.signature.parameters.get(index), true); }
-			method.params.push(parameter);
+			method.paramsMut().push(parameter);
 		}
 		for callback in contract.callbacks {
 			if (callback.oneShot) {
@@ -2193,12 +2193,12 @@ class FeNativeDeclarationImporter {
 				receiver.base = callback.interfaceName;
 				method.returnType = self.node(NK_TYPE_EXPR);
 				method.returnType.base = "CallbackRequest";
-				method.returnType.genericArgs = [receiver];
+				method.returnType.genericArgsStorage = [receiver];
 				Node scope = self.node(NK_PARAM);
 				scope.name = "scope";
 				scope.type = self.node(NK_TYPE_EXPR);
 				scope.type.base = "CallbackScope";
-				method.params.push(scope);
+				method.paramsMut().push(scope);
 				continue;
 			}
 			if (callback.unregister == null) { continue; }
@@ -2214,19 +2214,19 @@ class FeNativeDeclarationImporter {
 				source.base = declaration.receiver;
 				Node pair = self.node(NK_TYPE_EXPR);
 				pair.base = "CallbackToken";
-				pair.genericArgs = [source, token];
+				pair.genericArgsStorage = [source, token];
 				token = pair;
 			}
 			Node receiver = self.node(NK_TYPE_EXPR);
 			receiver.base = callback.interfaceName;
 			method.returnType = self.node(NK_TYPE_EXPR);
 			method.returnType.base = "CallbackContext";
-			method.returnType.genericArgs = [receiver, token];
+			method.returnType.genericArgsStorage = [receiver, token];
 			Node scope = self.node(NK_PARAM);
 			scope.name = "scope";
 			scope.type = self.node(NK_TYPE_EXPR);
 			scope.type.base = "CallbackScope";
-			method.params.push(scope);
+			method.paramsMut().push(scope);
 		}
 		FeNativeImportedDeclaration imported = self.objectiveCClass(declaration.receiver);
 		if (imported.methods.has(method.name)) {
@@ -2234,15 +2234,15 @@ class FeNativeDeclarationImporter {
 			return;
 		}
 		imported.methods.put(method.name, contract);
-		imported.declaration.members.push(method);
+		imported.declaration.membersMut().push(method);
 	}
 
 	private void mergeObjectiveCMethods(FeNativeImportedDeclaration selected, FeNativeImportedDeclaration imported) {
 		for name in imported.methods.keys() {
 			if (selected.methods.has(name) && !self.sameCallContract(selected.methods.get(name), imported.methods.get(name))) { self.fail(f"conflicting native declaration '{imported.declaration.name}', method '{name}', imported by {selected.module} and {imported.module}"); }
 		}
-		for member in imported.declaration.members {
-			if (!selected.methods.has(member.name)) { selected.declaration.members.push(member); }
+		for member in imported.declaration.members() {
+			if (!selected.methods.has(member.name)) { selected.declaration.membersMut().push(member); }
 		}
 		for name in imported.methods.keys() { selected.methods.put(name, imported.methods.get(name)); }
 		for header in imported.headers {
@@ -2409,8 +2409,8 @@ class FeNativeDeclarationImporter {
 			Node prior = previous.declaration;
 			string identity = self.typeIdentities.get(imported.module + "\x1f" + name);
 			string priorIdentity = self.typeIdentities.get(previous.module + "\x1f" + name);
-			bool sharedCRecord = prior.kind == NK_STRUCT_DECL && declaration.kind == NK_STRUCT_DECL && prior.fields.len > 0 && declaration.fields.len > 0 && ((previous.language == "c" && imported.language == "objective-c") || (previous.language == "objective-c" && imported.language == "c"));
-			if (prior.kind != declaration.kind || (previous.language != imported.language && !sharedCRecord) || !identity.equals(priorIdentity) || !previous.typeSpelling.equals(imported.typeSpelling) || previous.readOnly != imported.readOnly || !self.sameCallContract(previous.callContract, imported.callContract) || (declaration.kind == NK_STRUCT_DECL && prior.fields.len > 0 && declaration.fields.len > 0 && !self.sameFieldContracts(previous, imported))) { self.fail(f"conflicting native declaration '{name}' imported by {previous.module} and {imported.module}"); }
+			bool sharedCRecord = prior.kind == NK_STRUCT_DECL && declaration.kind == NK_STRUCT_DECL && prior.fields().len > 0 && declaration.fields().len > 0 && ((previous.language == "c" && imported.language == "objective-c") || (previous.language == "objective-c" && imported.language == "c"));
+			if (prior.kind != declaration.kind || (previous.language != imported.language && !sharedCRecord) || !identity.equals(priorIdentity) || !previous.typeSpelling.equals(imported.typeSpelling) || previous.readOnly != imported.readOnly || !self.sameCallContract(previous.callContract, imported.callContract) || (declaration.kind == NK_STRUCT_DECL && prior.fields().len > 0 && declaration.fields().len > 0 && !self.sameFieldContracts(previous, imported))) { self.fail(f"conflicting native declaration '{name}' imported by {previous.module} and {imported.module}"); }
 			if (sharedCRecord) {
 				/* Matching complete SDK layouts share C storage, not an ObjC-only projection. */
 				if (imported.language == "c") { previous.coalesced = true; selected.put(name, imported); }
@@ -2428,7 +2428,7 @@ class FeNativeDeclarationImporter {
 			}
 			/* Preserve visibility owners; selected SDK fields beat a record
 			 * first encountered only as a parameter type. */
-			if (declaration.kind == NK_STRUCT_DECL && ((prior.isForward && !declaration.isForward) || (prior.fields.len == 0 && declaration.fields.len > 0))) {
+			if (declaration.kind == NK_STRUCT_DECL && ((prior.isForward && !declaration.isForward) || (prior.fields().len == 0 && declaration.fields().len > 0))) {
 				previous.coalesced = true;
 				selected.put(name, imported);
 			} else { imported.coalesced = true; }
@@ -2558,7 +2558,7 @@ class FeNativeDeclarationImporter {
 		Map<string, bool> hidden = {};
 		for key in callbackFields.keys() { var callback = callbackFields.get(key); if (callback.record == name) { for field in callback.contextFields { hidden.put(field, true); } } }
 		Map<string, Node> importedFields = {};
-		for field in declaration.fields { importedFields.put(field.name, field); }
+		for field in declaration.fields() { importedFields.put(field.name, field); }
 		for index in range(layout.fields.len) {
 			string fieldName = layout.fields.get(index).name;
 			string key = name + "." + fieldName;
@@ -2685,12 +2685,12 @@ class FeNativeDeclarationImporter {
 			for name in fields {
 				var path = self.snapshotPath(selected.owner, selected.fields.get(name), "scalar", projection.guardPath != null);
 				projection.paths.push(path); projection.fields.push(FeNativeRecordInputField(name, path.valueType));
-				Node field = self.node(NK_FIELD_DECL); field.name = name; field.access = "public"; field.type = path.valueType; owner.members.push(field);
+				Node field = self.node(NK_FIELD_DECL); field.name = name; field.access = "public"; field.type = path.valueType; owner.membersMut().push(field);
 			}
 			var stringNames = selected.strings.keys(); stringNames.sortBy((string left, string right) => Strings.lessThan(left, right));
 			for name in stringNames {
 				projection.strings.put(name, self.snapshotPath(selected.owner, selected.strings.get(name), "pointer", projection.guardPath != null));
-				Node field = self.node(NK_FIELD_DECL); field.name = name; field.access = "public"; field.type = self.node(NK_TYPE_EXPR); field.type.base = "string"; field.type.isNullable = true; owner.members.push(field);
+				Node field = self.node(NK_FIELD_DECL); field.name = name; field.access = "public"; field.type = self.node(NK_TYPE_EXPR); field.type.base = "string"; field.type.isNullable = true; owner.membersMut().push(field);
 			}
 			if (selected.bytePlane.len > 0) {
 				projection.byteField = selected.bytePlane.get(0);
@@ -2703,14 +2703,14 @@ class FeNativeDeclarationImporter {
 				for index in range(kinds.len) { projection.bytePaths.push(self.snapshotPath(selected.owner, selected.byteSpan.get(index + 1), kinds.get(index), projection.guardPath != null)); }
 			}
 			if (!projection.byteField.isEmpty()) {
-				Node field = self.node(NK_FIELD_DECL); field.name = projection.byteField; field.access = "public"; field.type = self.node(NK_TYPE_EXPR); field.type.base = "Bytes"; owner.members.push(field);
+				Node field = self.node(NK_FIELD_DECL); field.name = projection.byteField; field.access = "public"; field.type = self.node(NK_TYPE_EXPR); field.type.base = "Bytes"; owner.membersMut().push(field);
 			}
 			var generated = FeNativeImportedDeclaration(owner, self.module, self.header); generated.generatedInput = true; self.inputClasses.push(generated);
 			Node declaration = self.node(NK_FUNCTION_DECL); declaration.name = selected.name; declaration.returnType = self.node(NK_TYPE_EXPR); declaration.returnType.base = selected.result; declaration.returnType.isNullable = true; declaration.returnType.pointerDepth = 1;
-			Node parameter = self.node(NK_PARAM); parameter.name = "owner"; parameter.type = self.node(NK_TYPE_EXPR); parameter.type.base = selected.owner; declaration.params.push(parameter);
+			Node parameter = self.node(NK_PARAM); parameter.name = "owner"; parameter.type = self.node(NK_TYPE_EXPR); parameter.type.base = selected.owner; declaration.paramsMut().push(parameter);
 			var contract = FeNativeCallContract(); contract.nonnullParameters.push(true); contract.resourceParameters.push(selected.owner); contract.recordSnapshot = projection;
 			if (!projection.byteField.isEmpty() || projection.strings.len > 0) {
-				Node maximum = self.node(NK_PARAM); maximum.name = "maximumBytes"; maximum.type = self.node(NK_TYPE_EXPR); maximum.type.base = "int"; declaration.params.push(maximum);
+				Node maximum = self.node(NK_PARAM); maximum.name = "maximumBytes"; maximum.type = self.node(NK_TYPE_EXPR); maximum.type.base = "int"; declaration.paramsMut().push(maximum);
 				contract.nonnullParameters.push(false); contract.resourceParameters.push("");
 			}
 			self.add(selected.name, declaration, "record-snapshot:" + projection.identity(), "", false, contract);
@@ -2733,7 +2733,7 @@ class FeNativeDeclarationImporter {
 				if (imported.module != binding.module || imported.declaration.kind != NK_FUNCTION_DECL || !binding.symbols.contains(imported.declaration.name)) { continue; }
 				for callback in imported.callContract.callbacks {
 					if (callback.field.isEmpty()) { continue; }
-					string parameter = imported.declaration.name + "." + imported.declaration.params.get(callback.parameterIndex).name;
+					string parameter = imported.declaration.name + "." + imported.declaration.params().get(callback.parameterIndex).name;
 					if (!binding.ownedRecords.contains(callback.record) || !binding.recordInputs.contains(parameter)) { self.fail("callback fields require owned-records and record-inputs"); }
 					string key = callback.record + "." + callback.field;
 					if (callbackFields.has(key)) {
@@ -2761,7 +2761,7 @@ class FeNativeDeclarationImporter {
 					member.access = "public";
 					member.name = field.name;
 					member.type = field.valueType;
-					declaration.members.push(member);
+					declaration.membersMut().push(member);
 				}
 				var imported = FeNativeImportedDeclaration(declaration, binding.module, binding.header);
 				imported.generatedInput = true;
@@ -2782,8 +2782,8 @@ class FeNativeDeclarationImporter {
 				if (contract.realtimeSafe) { self.fail("owning record input adapters are not realtime-safe"); }
 				Vector<string> selected = byFunction.get(name);
 				int found = 0;
-				for index in range(declaration.params.len) {
-					Node parameter = declaration.params.get(index);
+				for index in range(declaration.params().len) {
+					Node parameter = declaration.params().get(index);
 					if (!selected.contains(parameter.name)) { contract.recordInputs.push(null); continue; }
 					found++;
 					Node original = parameter.type;
@@ -2825,9 +2825,9 @@ class FeNativeDeclarationImporter {
 			if (contract.boundParameter >= 0) { self.fail("record-outputs cannot combine a selected variadic-calls shape"); }
 			if (contract.callbacks.len > 0 || contract.realtimeSafe || !contract.resourceResult.isEmpty()) { self.fail("record-outputs cannot combine callbacks, realtime or a managed native result"); }
 			int index = -1;
-			for position in range(declaration.params.len) { if (declaration.params.get(position).name == parameterName) { index = position; } }
+			for position in range(declaration.params().len) { if (declaration.params().get(position).name == parameterName) { index = position; } }
 			if (index < 0) { self.fail("record-outputs names an unknown parameter"); }
-			Node original = declaration.params.get(index).type;
+			Node original = declaration.params().get(index).type;
 			if (!projections.has(original.base) || original.pointerDepth != 1 || original.isConst || original.isArray) { self.fail("record-outputs requires a mutable pointer to an owned record"); }
 			FeNativeRecordInput projection = projections.get(original.base);
 			Vector<string> owned = [];
@@ -2873,13 +2873,13 @@ class FeNativeDeclarationImporter {
 					member.access = "public";
 					member.name = field.name;
 					member.type = field.valueType;
-					owner.members.push(member);
+					owner.membersMut().push(member);
 				}
 				var generated = FeNativeImportedDeclaration(owner, binding.module, binding.header);
 				generated.generatedInput = true;
 				self.inputClasses.push(generated);
 			}
-			declaration.params.remove(index);
+			declaration.paramsMut().remove(index);
 			Node result = self.node(NK_TYPE_EXPR);
 			result.base = outputName;
 			declaration.returnType = result;

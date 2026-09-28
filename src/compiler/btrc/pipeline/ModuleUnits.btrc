@@ -1034,7 +1034,7 @@ class ModuleUnitCompiler {
 			digest.appendText("interface:" + input.interfaceDigest);
 		} else {
 			AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
-			for declaration in input.program.declarations { digest.appendText(SHA256.digest(renderer.render(declaration))); }
+			for declaration in input.program.declarations() { digest.appendText(SHA256.digest(renderer.render(declaration))); }
 		}
 		AstCanonicalRenderer positionFree = AstCanonicalRenderer.positionFreeRenderer();
 		digest.appendText("\nfacts\n");
@@ -1049,7 +1049,7 @@ class ModuleUnitCompiler {
 		}
 		StdlibReachability? reachability = self.facts.reachability;
 		if (reachability != null) {
-			for declaration in input.program.declarations {
+			for declaration in input.program.declarations() {
 				if (reachability.isStdlibDeclaration(declaration) && reachability.reaches(declaration)) {
 					digest.appendText("reached:" + self.fileOfLine(declaration.line) + ":" + Strings.fromInt((int)declaration.kind) + ":" + declaration.name + "\n");
 				}
@@ -2295,9 +2295,9 @@ class ValidationRecordCodec {
 	}
 
 	class bool hasDefaults(Node declaration) {
-		for parameter in declaration.params { if (parameter.default_ != null) { return true; } }
-		for member in declaration.members {
-			for parameter in member.params { if (parameter.default_ != null) { return true; } }
+		for parameter in declaration.params() { if (parameter.default_ != null) { return true; } }
+		for member in declaration.members() {
+			for parameter in member.params() { if (parameter.default_ != null) { return true; } }
 		}
 		return false;
 	}
@@ -2577,11 +2577,11 @@ class ValidationRecords implements IValidationRecords {
 			}
 			self.fileOfDeclaration.put(AstIdentity.key(declaration), file);
 		}
-		for declaration in program.declarations {
+		for declaration in program.declarations() {
 			string key = AstIdentity.key(declaration);
 			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
 		}
-		self.codec = ValidationRecordCodec(program.declarations, self.fileOfDeclaration);
+		self.codec = ValidationRecordCodec(program.declarations(), self.fileOfDeclaration);
 		string context = f"validation-record-v4;target={options.target};strict={options.strictImports};stdlib={options.includeStdlib}";
 		Map<string, string> sources = {};
 		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
@@ -2615,7 +2615,7 @@ class ValidationRecords implements IValidationRecords {
 		}
 		SHA256 natives = SHA256();
 		SHA256 others = SHA256();
-		for declaration in program.declarations {
+		for declaration in program.declarations() {
 			string group = self.groupAmong(declaration, sources);
 			if (group.isEmpty()) {
 				string key = AstIdentity.key(declaration);

@@ -668,7 +668,7 @@ def test_default_helpers_share_call_claim_and_function_body_owners() -> None:
     functions = _path("ir/lowering/Functions.btrc").read_text()
     lowerer = _path("ir/lowering/Lowerer.btrc").read_text()
     assert "activeModule().functionDecls.push(declaration)" in calls
-    assert "selfType.genericArgs.push(" in calls
+    assert "selfType.genericArgsMut().push(" in calls
     assert expressions.count("self.calls.ensureDefaultHelper(") == 1
     assert "self.calls.defaultHelperSymbol(" not in expressions
     assert "self.calls.takePendingDefaultHelpers()" in functions

@@ -21,18 +21,18 @@ class AstIdentity {
  * checks the two lists agree. */
 class AstStructure {
 	class void children(Node node, Vector<Node> out) {
-		for child in node.declarations { out.push(child); }
+		for child in node.declarations() { out.push(child); }
 		if (node.spec != null) { out.push(node.spec); }
-		for child in node.members { out.push(child); }
-		for child in node.methods { out.push(child); }
+		for child in node.members() { out.push(child); }
+		for child in node.methods() { out.push(child); }
 		if (node.returnType != null) { out.push(node.returnType); }
-		for child in node.params { out.push(child); }
+		for child in node.params() { out.push(child); }
 		if (node.bodyNode != null) { out.push(node.bodyNode); }
-		for child in node.fields { out.push(child); }
+		for child in node.fields() { out.push(child); }
 		for child in node.values() { out.push(child); }
 		for child in node.variants() { out.push(child); }
 		if (node.original != null) { out.push(node.original); }
-		for child in node.genericArgs { out.push(child); }
+		for child in node.genericArgs() { out.push(child); }
 		if (node.arraySize != null) { out.push(node.arraySize); }
 		if (node.type != null) { out.push(node.type); }
 		if (node.default_ != null) { out.push(node.default_); }
@@ -164,7 +164,7 @@ class AstCanonicalRenderer {
 	private string renderAtDepth(Node node, int d) {
 		if (node.kind == NK_PROGRAM) {
 			string out = "(Program";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "declarations=" + self.canonNodeList(node.declarations, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "declarations=" + self.canonNodeList(node.declarations(), d + 1);
 			return out + ")";
 		} else if (node.kind == NK_PREPROCESSOR_DIRECTIVE) {
 			string out = "(PreprocessorDirective";
@@ -185,7 +185,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams(), d + 1);
 			self.enterMembers(node.genericParams().len > 0);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "members=" + self.canonNodeList(node.members, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "members=" + self.canonNodeList(node.members(), d + 1);
 			self.leaveMembers(node.genericParams().len > 0);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "interfaces=" + self.canonStrList(node.interfaces(), d + 1);
@@ -199,7 +199,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_INTERFACE_DECL) {
 			string out = "(InterfaceDecl";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "methods=" + self.canonNodeList(node.methods, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "methods=" + self.canonNodeList(node.methods(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "parent=" + self.canonOptStr(node.parent);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
@@ -212,7 +212,7 @@ class AstCanonicalRenderer {
 			string out = "(FunctionDecl";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.returnType, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params(), d + 1);
 			self.beginBody(node, node.bodyNode, false);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.isGpu);
@@ -227,7 +227,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_STRUCT_DECL) {
 			string out = "(StructDecl";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "fields=" + self.canonNodeList(node.fields, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "fields=" + self.canonNodeList(node.fields(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_forward=" + self.canonBool(node.isForward);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
@@ -288,7 +288,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_TYPE_EXPR) {
 			string out = "(TypeExpr";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "base=" + self.canonStr(node.base);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_args=" + self.canonNodeList(node.genericArgs, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_args=" + self.canonNodeList(node.genericArgs(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "pointer_depth=" + self.canonInt(node.pointerDepth);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_array=" + self.canonBool(node.isArray);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "array_size=" + self.canonNode(node.arraySize, d + 1);
@@ -330,7 +330,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_constructor=" + self.canonBool(node.isConstructor);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_params=" + self.canonStrList(node.genericParams(), d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params(), d + 1);
 			self.beginBody(node, node.bodyNode, node.genericParams().len > 0);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.isGpu);
@@ -362,7 +362,7 @@ class AstCanonicalRenderer {
 			string out = "(MethodSig";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.returnType, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keepReturn);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
@@ -379,7 +379,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_RICH_ENUM_VARIANT) {
 			string out = "(RichEnumVariant";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
@@ -703,7 +703,7 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_LAMBDA_EXPR) {
 			string out = "(LambdaExpr";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "return_type=" + self.canonNode(node.returnType, d + 1);
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "captures=" + self.canonNodeList(node.captures(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
@@ -882,7 +882,7 @@ class TypeIdentity {
 	class string encode(Node typeExpr) {
 		string encodedBase = TypeIdentity.utf8Hex(typeExpr.base);
 		string shape = "p" + Strings.fromInt(typeExpr.pointerDepth) + "n" + Strings.fromInt(typeExpr.isNullable ? 1 : 0) + "o" + Strings.fromInt(typeExpr.nullableOuterDepth) + "a" + Strings.fromInt(typeExpr.isArray ? 1 : 0) + "q" + Strings.fromInt(TypeIdentity.qualifierBits(typeExpr));
-		return TypeIdentity.field("b", encodedBase) + shape + TypeIdentity.encodeTypes(typeExpr.genericArgs);
+		return TypeIdentity.field("b", encodedBase) + shape + TypeIdentity.encodeTypes(typeExpr.genericArgs());
 	}
 
 	/* Whether `encode` captures the whole type: it omits array-size
@@ -890,7 +890,7 @@ class TypeIdentity {
 	 * not encodable. */
 	class bool encodable(Node typeExpr) {
 		if (typeExpr.kind != NK_TYPE_EXPR || typeExpr.arraySize != null) { return false; }
-		for argument in typeExpr.genericArgs {
+		for argument in typeExpr.genericArgs() {
 			if (!TypeIdentity.encodable(argument)) { return false; }
 		}
 		return true;
@@ -986,7 +986,7 @@ class TypeIdentity {
 			if (argument == null) { return null; }
 			Node? decoded = TypeIdentity.decode(argument);
 			if (decoded == null) { return null; }
-			result.genericArgs.push(decoded);
+			result.genericArgsMut().push(decoded);
 			index = index + 1;
 		}
 		return result;
@@ -1006,8 +1006,8 @@ class TypeIdentity {
 		if (typeExpr == null) { return false; }
 		if (names.has(typeExpr.base)) { return true; }
 		int index = 0;
-		while (index < typeExpr.genericArgs.len) {
-			if (TypeIdentity.referencesNames(typeExpr.genericArgs.get(index), names)) {
+		while (index < typeExpr.genericArgs().len) {
+			if (TypeIdentity.referencesNames(typeExpr.genericArgs().get(index), names)) {
 				return true;
 			}
 			index = index + 1;
@@ -1030,8 +1030,8 @@ class TypeIdentity {
 		}
 		bool childIsStructuralComponent = typeExpr.base == "Tuple" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr";
 		int index = 0;
-		while (index < typeExpr.genericArgs.len) {
-			string problem = TypeIdentity.genericArgumentProblemInner(typeExpr.genericArgs.get(index), childIsStructuralComponent);
+		while (index < typeExpr.genericArgs().len) {
+			string problem = TypeIdentity.genericArgumentProblemInner(typeExpr.genericArgs().get(index), childIsStructuralComponent);
 			if (problem != "") { return problem; }
 			index = index + 1;
 		}
@@ -1054,7 +1054,7 @@ class TypeIdentity {
 		}
 	}
 
-	class bool legacyComponentPossible(Node typeExpr) { return typeExpr.genericArgs.len == 0 && TypeIdentity.safeBase(typeExpr.base) && typeExpr.nullableOuterDepth == 0 && !typeExpr.isConst && !typeExpr.isStatic && !typeExpr.isExtern && !typeExpr.isVolatile; }
+	class bool legacyComponentPossible(Node typeExpr) { return typeExpr.genericArgs().len == 0 && TypeIdentity.safeBase(typeExpr.base) && typeExpr.nullableOuterDepth == 0 && !typeExpr.isConst && !typeExpr.isStatic && !typeExpr.isExtern && !typeExpr.isVolatile; }
 
 	class string legacyComponent(Node typeExpr) {
 		string component = typeExpr.base;

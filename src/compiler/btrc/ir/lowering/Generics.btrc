@@ -48,7 +48,7 @@ class GenericLowerer {
 			if (self.analyzed.genericClassTable.has(instance.base)) {
 				Node declaration = self.analyzed.genericClassTable.get(instance.base);
 				Node instanceType = SemanticTypeSystem.primitive(instance.base);
-				instanceType.genericArgs = instance.args;
+				instanceType.genericArgsStorage = instance.args;
 				plans.push(GenericClassLoweringPlan(instance, declaration, SemanticTypeSystem.genericTypeMap(self.analyzed, instanceType)));
 			}
 			index = index + 1;

@@ -144,8 +144,8 @@ class OwnershipValidator {
 		if (canonical == null) { return false; }
 		if (canonical.base == "Thread") { return true; }
 		int index = (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") ? 1 : 0;
-		while (index < canonical.genericArgs.len) {
-			if (self.containsThreadStorage(canonical.genericArgs.get(index))) {
+		while (index < canonical.genericArgs().len) {
+			if (self.containsThreadStorage(canonical.genericArgs().get(index))) {
 				return true;
 			}
 			index = index + 1;
@@ -158,8 +158,8 @@ class OwnershipValidator {
 		if (canonical == null) { return false; }
 		if (canonical.base == "Mutex") { return true; }
 		int index = (canonical.base == "__fn_ptr" || canonical.base == "__realtime_fn_ptr") ? 1 : 0;
-		while (index < canonical.genericArgs.len) {
-			if (self.containsMutexStorageImpl(canonical.genericArgs.get(index), visiting)) {
+		while (index < canonical.genericArgs().len) {
+			if (self.containsMutexStorageImpl(canonical.genericArgs().get(index), visiting)) {
 				return true;
 			}
 			index = index + 1;
@@ -179,8 +179,8 @@ class OwnershipValidator {
 			Node declaration = self.state.analyzed.structTable.get(name);
 			if (!declaration.isForward) {
 				int fieldIndex = 0;
-				while (fieldIndex < declaration.fields.len) {
-					if (self.containsMutexStorageImpl(declaration.fields.get(fieldIndex).type, nested)) {
+				while (fieldIndex < declaration.fields().len) {
+					if (self.containsMutexStorageImpl(declaration.fields().get(fieldIndex).type, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -193,8 +193,8 @@ class OwnershipValidator {
 			while (variantIndex < richEnum.variants().len) {
 				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
-				while (parameterIndex < variant.params.len) {
-					if (self.containsMutexStorageImpl(variant.params.get(parameterIndex).type, nested)) {
+				while (parameterIndex < variant.params().len) {
+					if (self.containsMutexStorageImpl(variant.params().get(parameterIndex).type, nested)) {
 						return true;
 					}
 					parameterIndex = parameterIndex + 1;
@@ -209,7 +209,7 @@ class OwnershipValidator {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null || canonical.isArray) { return false; }
 		bool scalarString = TypeComposition.isSemanticScalarString(canonical);
-		bool classReference = canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isInterface(canonical.base) || (canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base)));
+		bool classReference = canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isInterface(canonical.base) || (canonical.genericArgs().len > 0 && self.state.analyzed.isGenericClass(canonical.base)));
 		return scalarString || classReference;
 	}
 
@@ -224,8 +224,8 @@ class OwnershipValidator {
 		if (canonical.pointerDepth > 0) { return false; }
 		if (canonical.base == "Tuple") {
 			int argumentIndex = 0;
-			while (argumentIndex < canonical.genericArgs.len) {
-				if (self.threadAggregateHasManagedReference(canonical.genericArgs.get(argumentIndex), visiting)) {
+			while (argumentIndex < canonical.genericArgs().len) {
+				if (self.threadAggregateHasManagedReference(canonical.genericArgs().get(argumentIndex), visiting)) {
 					return true;
 				}
 				argumentIndex = argumentIndex + 1;
@@ -246,8 +246,8 @@ class OwnershipValidator {
 			Node declaration = self.state.analyzed.structTable.get(name);
 			if (!declaration.isForward) {
 				int fieldIndex = 0;
-				while (fieldIndex < declaration.fields.len) {
-					if (self.threadAggregateHasManagedReference(declaration.fields.get(fieldIndex).type, nested)) {
+				while (fieldIndex < declaration.fields().len) {
+					if (self.threadAggregateHasManagedReference(declaration.fields().get(fieldIndex).type, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -260,8 +260,8 @@ class OwnershipValidator {
 			while (variantIndex < richEnum.variants().len) {
 				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
-				while (parameterIndex < variant.params.len) {
-					if (self.threadAggregateHasManagedReference(variant.params.get(parameterIndex).type, nested)) {
+				while (parameterIndex < variant.params().len) {
+					if (self.threadAggregateHasManagedReference(variant.params().get(parameterIndex).type, nested)) {
 						return true;
 					}
 					parameterIndex = parameterIndex + 1;
@@ -283,8 +283,8 @@ class OwnershipValidator {
 		if (canonical.pointerDepth > 0) { return false; }
 		if (canonical.base == "Tuple") {
 			int argumentIndex = 0;
-			while (argumentIndex < canonical.genericArgs.len) {
-				if (self.threadResultHasUnsizedArray(canonical.genericArgs.get(argumentIndex), visiting)) {
+			while (argumentIndex < canonical.genericArgs().len) {
+				if (self.threadResultHasUnsizedArray(canonical.genericArgs().get(argumentIndex), visiting)) {
 					return true;
 				}
 				argumentIndex = argumentIndex + 1;
@@ -305,8 +305,8 @@ class OwnershipValidator {
 			Node declaration = self.state.analyzed.structTable.get(name);
 			if (!declaration.isForward) {
 				int fieldIndex = 0;
-				while (fieldIndex < declaration.fields.len) {
-					if (self.threadResultHasUnsizedArray(declaration.fields.get(fieldIndex).type, nested)) {
+				while (fieldIndex < declaration.fields().len) {
+					if (self.threadResultHasUnsizedArray(declaration.fields().get(fieldIndex).type, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -319,8 +319,8 @@ class OwnershipValidator {
 			while (variantIndex < richEnum.variants().len) {
 				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
-				while (parameterIndex < variant.params.len) {
-					if (self.threadResultHasUnsizedArray(variant.params.get(parameterIndex).type, nested)) {
+				while (parameterIndex < variant.params().len) {
+					if (self.threadResultHasUnsizedArray(variant.params().get(parameterIndex).type, nested)) {
 						return true;
 					}
 					parameterIndex = parameterIndex + 1;
@@ -344,12 +344,12 @@ class OwnershipValidator {
 
 	public bool mutexRuntimeCollection(string base) { return base == "Array" || base == "List" || base == "Map" || base == "Set" || base == "Vector"; }
 
-	public bool mutexUnresolvedParameter(Node typeExpr) { return self.state.typeParams.has(typeExpr.base) && typeExpr.genericArgs.len == 0 && typeExpr.pointerDepth == 0 && !typeExpr.isArray; }
+	public bool mutexUnresolvedParameter(Node typeExpr) { return self.state.typeParams.has(typeExpr.base) && typeExpr.genericArgs().len == 0 && typeExpr.pointerDepth == 0 && !typeExpr.isArray; }
 
 	public bool mutexDirectManagedValue(Node? typeExpr) {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null || canonical.isArray) { return false; }
-		return TypeComposition.isSemanticScalarString(canonical) || (canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isInterface(canonical.base) || (canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base))));
+		return TypeComposition.isSemanticScalarString(canonical) || (canonical.pointerDepth <= 1 && (self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isInterface(canonical.base) || (canonical.genericArgs().len > 0 && self.state.analyzed.isGenericClass(canonical.base))));
 	}
 
 	public bool mutexPayloadMatches(Node? typeExpr, int query, Map<string, bool> visiting) {
@@ -371,8 +371,8 @@ class OwnershipValidator {
 		bool inspectArguments = query != 5 || canonical.base == "Tuple";
 		if (inspectArguments) {
 			int argumentIndex = 0;
-			while (argumentIndex < canonical.genericArgs.len) {
-				if (self.mutexPayloadMatches(canonical.genericArgs.get(argumentIndex), query, visiting)) {
+			while (argumentIndex < canonical.genericArgs().len) {
+				if (self.mutexPayloadMatches(canonical.genericArgs().get(argumentIndex), query, visiting)) {
 					return true;
 				}
 				argumentIndex = argumentIndex + 1;
@@ -393,8 +393,8 @@ class OwnershipValidator {
 			Node declaration = self.state.analyzed.structTable.get(name);
 			if (!declaration.isForward) {
 				int fieldIndex = 0;
-				while (fieldIndex < declaration.fields.len) {
-					if (self.mutexPayloadMatches(declaration.fields.get(fieldIndex).type, query, nested)) {
+				while (fieldIndex < declaration.fields().len) {
+					if (self.mutexPayloadMatches(declaration.fields().get(fieldIndex).type, query, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -407,8 +407,8 @@ class OwnershipValidator {
 			while (variantIndex < richEnum.variants().len) {
 				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
-				while (parameterIndex < variant.params.len) {
-					if (self.mutexPayloadMatches(variant.params.get(parameterIndex).type, query, nested)) {
+				while (parameterIndex < variant.params().len) {
+					if (self.mutexPayloadMatches(variant.params().get(parameterIndex).type, query, nested)) {
 						return true;
 					}
 					parameterIndex = parameterIndex + 1;
@@ -448,15 +448,15 @@ class OwnershipValidator {
 	public void validateMutexPayloadsInType(Node? typeExpr, Node site) {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null) { return; }
-		if (canonical.base == "Mutex" && canonical.genericArgs.len == 1) {
-			string problem = self.mutexPayloadProblem(canonical.genericArgs.get(0));
+		if (canonical.base == "Mutex" && canonical.genericArgs().len == 1) {
+			string problem = self.mutexPayloadProblem(canonical.genericArgs().get(0));
 			if (problem != "") {
 				TypeValidator.fail("Mutex<T> payload type " + problem, site);
 			}
 		}
 		int argumentIndex = 0;
-		while (argumentIndex < canonical.genericArgs.len) {
-			self.validateMutexPayloadsInType(canonical.genericArgs.get(argumentIndex), site);
+		while (argumentIndex < canonical.genericArgs().len) {
+			self.validateMutexPayloadsInType(canonical.genericArgs().get(argumentIndex), site);
 			argumentIndex = argumentIndex + 1;
 		}
 	}
@@ -474,15 +474,15 @@ class OwnershipValidator {
 				Node declaration = self.state.analyzed.genericClassTable.get(instance.base);
 				Map<string, Node> substitutions = self.types.genericClassMap(declaration, instance.args);
 				int memberIndex = 0;
-				while (memberIndex < declaration.members.len) {
-					Node member = declaration.members.get(memberIndex);
+				while (memberIndex < declaration.members().len) {
+					Node member = declaration.members().get(memberIndex);
 					if (member.kind == NK_FIELD_DECL || member.kind == NK_PROPERTY_DECL) {
 						self.validateConcreteMutexType(member.type, substitutions, member);
 					} else if (member.kind == NK_METHOD_DECL) {
 						self.validateConcreteMutexType(member.returnType, substitutions, member);
 						int parameterIndex = 0;
-						while (parameterIndex < member.params.len) {
-							Node parameter = member.params.get(parameterIndex);
+						while (parameterIndex < member.params().len) {
+							Node parameter = member.params().get(parameterIndex);
 							self.validateConcreteMutexType(parameter.type, substitutions, parameter);
 							parameterIndex = parameterIndex + 1;
 						}
@@ -499,13 +499,13 @@ class OwnershipValidator {
 		if (self.state.typeParams.has(typeExpr.base)) {
 			return !typeExpr.isArray && (typeExpr.pointerDepth == 0 || (typeExpr.isNullable && typeExpr.pointerDepth == 1));
 		}
-		return !typeExpr.isArray && typeExpr.pointerDepth <= 1 && (SemanticTypeSystem.isString(typeExpr) || (typeExpr.base == "Mutex" && typeExpr.genericArgs.len == 1 && typeExpr.pointerDepth == 0) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base) || self.state.analyzed.isInterface(typeExpr.base));
+		return !typeExpr.isArray && typeExpr.pointerDepth <= 1 && (SemanticTypeSystem.isString(typeExpr) || (typeExpr.base == "Mutex" && typeExpr.genericArgs().len == 1 && typeExpr.pointerDepth == 0) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base) || self.state.analyzed.isInterface(typeExpr.base));
 	}
 
 	public bool rawDeleteType(Node? typeExpr) {
 		if (typeExpr == null || typeExpr.isArray) { return false; }
 		if (self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base) || self.state.analyzed.isInterface(typeExpr.base)) { return true; }
-		if (typeExpr.base == "Mutex" && typeExpr.pointerDepth == 0 && typeExpr.genericArgs.len == 1) { return true; }
+		if (typeExpr.base == "Mutex" && typeExpr.pointerDepth == 0 && typeExpr.genericArgs().len == 1) { return true; }
 		return typeExpr.pointerDepth > 0 && typeExpr.base != "__fn_ptr" && typeExpr.base != "__realtime_fn_ptr";
 	}
 
@@ -546,8 +546,8 @@ class OwnershipValidator {
 	public int currentParameterIndex(string name) {
 		if (self.state.callable == null) { return -1; }
 		int index = 0;
-		while (index < self.state.callable.params.len) {
-			if (self.state.callable.params.get(index).name == name) { return index; }
+		while (index < self.state.callable.params().len) {
+			if (self.state.callable.params().get(index).name == name) { return index; }
 			index = index + 1;
 		}
 		return -1;
@@ -639,7 +639,7 @@ class OwnershipValidator {
 			return false;
 		}
 		if (typeExpr.pointerDepth > 1) { return false; }
-		return SemanticTypeSystem.isString(typeExpr) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isInterface(typeExpr.base) || (typeExpr.genericArgs.len > 0 && self.state.analyzed.isGenericClass(typeExpr.base));
+		return SemanticTypeSystem.isString(typeExpr) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isInterface(typeExpr.base) || (typeExpr.genericArgs().len > 0 && self.state.analyzed.isGenericClass(typeExpr.base));
 	}
 
 	public bool stringCallOwnsResult(Node call, Map<string, Node> vars) {
@@ -798,8 +798,8 @@ class OwnershipValidator {
 			return self.types.arrayElementType(aggregate);
 		}
 		if (aggregate.base == "Tuple") {
-			if (index < aggregate.genericArgs.len) {
-				return aggregate.genericArgs.get(index);
+			if (index < aggregate.genericArgs().len) {
+				return aggregate.genericArgs().get(index);
 			}
 			return null;
 		}
@@ -808,10 +808,10 @@ class OwnershipValidator {
 			return null;
 		}
 		Node declaration = self.state.analyzed.structTable.get(structName);
-		if (declaration.isForward || index >= declaration.fields.len) {
+		if (declaration.isForward || index >= declaration.fields().len) {
 			return null;
 		}
-		return declaration.fields.get(index).type;
+		return declaration.fields().get(index).type;
 	}
 
 	public void rejectConvertedShallowElements(Node aggregate, Vector<Node> elements, Map<string, Node> vars) {
@@ -871,11 +871,11 @@ class OwnershipValidator {
 			}
 			int parameterIndex = positional;
 			if (argumentName != "") {
-				parameterIndex = self.parameterIndex(variant.params, argumentName);
+				parameterIndex = self.parameterIndex(variant.params(), argumentName);
 			} else {
 				positional = positional + 1;
 			}
-			if (parameterIndex >= 0 && parameterIndex < variant.params.len) {
+			if (parameterIndex >= 0 && parameterIndex < variant.params().len) {
 				supplied.put(Strings.fromInt(parameterIndex), true);
 			}
 			argumentIndex = argumentIndex + 1;
@@ -887,7 +887,7 @@ class OwnershipValidator {
 		Map<string, Node> vars = TypeValidator.cloneTypes(self.state.analyzed.globalVarTypes);
 		int prior = 0;
 		while (prior < parameterIndex) {
-			Node parameter = variant.params.get(prior);
+			Node parameter = variant.params().get(prior);
 			vars.put(parameter.name, parameter.type);
 			prior = prior + 1;
 		}
@@ -917,12 +917,12 @@ class OwnershipValidator {
 			}
 			int parameterIndex = positional;
 			if (argumentName != "") {
-				parameterIndex = self.parameterIndex(variant.params, argumentName);
+				parameterIndex = self.parameterIndex(variant.params(), argumentName);
 			} else {
 				positional = positional + 1;
 			}
-			if (parameterIndex >= 0 && parameterIndex < variant.params.len) {
-				Node parameter = variant.params.get(parameterIndex);
+			if (parameterIndex >= 0 && parameterIndex < variant.params().len) {
+				Node parameter = variant.params().get(parameterIndex);
 				Node argument = call.args().get(argumentIndex);
 				if (self.richEnumPayloadRequiresOwner(parameter, argument, vars)) {
 					TypeValidator.fail("caller-owned temporary cannot be " + "embedded in rich-enum payload '" + payload + "'; aggregate class elements are shallow borrowed " + "references, so bind the owner to a local first", argument);
@@ -933,8 +933,8 @@ class OwnershipValidator {
 
 		Map<string, bool> supplied = self.richEnumSuppliedParameters(variant, call);
 		int parameterIndex = 0;
-		while (parameterIndex < variant.params.len) {
-			Node parameter = variant.params.get(parameterIndex);
+		while (parameterIndex < variant.params().len) {
+			Node parameter = variant.params().get(parameterIndex);
 			if (!supplied.has(Strings.fromInt(parameterIndex)) && parameter.default_ != null) {
 				Map<string, Node> defaultVars = self.richEnumDefaultTypes(variant, parameterIndex);
 				if (self.richEnumPayloadRequiresOwner(parameter, parameter.default_, defaultVars)) {
@@ -958,20 +958,20 @@ class OwnershipValidator {
 			}
 			int parameterIndex = positional;
 			if (argumentName != "") {
-				parameterIndex = self.parameterIndex(declaration.params, argumentName);
+				parameterIndex = self.parameterIndex(declaration.params(), argumentName);
 			} else {
 				positional = positional + 1;
 			}
 			supplied.put(parameterIndex, true);
 			Node argument = call.args().get(argumentIndex);
 			if (transferred.has(parameterIndex) && !self.expressionOwnsResult(argument, vars)) {
-				TypeValidator.fail("Argument to consuming parameter '" + declaration.params.get(parameterIndex).name + "' must be a fresh caller-owned managed value", argument);
+				TypeValidator.fail("Argument to consuming parameter '" + declaration.params().get(parameterIndex).name + "' must be a fresh caller-owned managed value", argument);
 			}
 			argumentIndex = argumentIndex + 1;
 		}
 		int parameterIndex = 0;
-		while (parameterIndex < declaration.params.len) {
-			Node parameter = declaration.params.get(parameterIndex);
+		while (parameterIndex < declaration.params().len) {
+			Node parameter = declaration.params().get(parameterIndex);
 			if (transferred.has(parameterIndex) && !supplied.has(parameterIndex) && (parameter.default_ == null || !self.expressionOwnsResult(parameter.default_, vars))) {
 				TypeValidator.fail("Default for consuming parameter '" + parameter.name + "' must produce a fresh managed value", parameter);
 			}
@@ -1010,8 +1010,8 @@ class OwnershipValidator {
 		if (call.args().len != expected) {
 			TypeValidator.fail("'Mutex." + method + "()' expects " + Strings.fromInt(expected) + " argument(s) but got " + Strings.fromInt(call.args().len), call);
 		}
-		if (method == "set" && receiverType.genericArgs.len == 1) {
-			Node expectedType = receiverType.genericArgs.get(0);
+		if (method == "set" && receiverType.genericArgs().len == 1) {
+			Node expectedType = receiverType.genericArgs().get(0);
 			Node argument = call.args().get(0);
 			self.types.validateTypedInitializer(expectedType, argument, "Argument 'value' to 'Mutex.set()'", vars);
 			Node? actualType = self.types.inferType(argument,  vars);

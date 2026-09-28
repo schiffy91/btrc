@@ -131,7 +131,7 @@ class Parser {
 		while (!self.atEnd() && !self.failed) {
 			Node d = self.parseTopLevelItem();
 			if (!self.failed) {
-				prog.declarations.push(d);
+				prog.declarationsMut().push(d);
 			}
 		}
 		return prog;
@@ -340,7 +340,7 @@ class Parser {
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node m = self.parseClassMember(isAbstract);
-			n.members.push(m);
+			n.membersMut().push(m);
 		}
 		self.expect("RBRACE");
 		return n;
@@ -452,7 +452,7 @@ class Parser {
 		self.expect("LPAREN");
 		Vector<Node> params = self.parseParamList();
 		self.expect("RPAREN");
-		n.params = params;
+		n.paramsStorage = params;
 		if (isAbstract) {
 			self.expect("SEMICOLON");
 			n.bodyNode = null;
@@ -540,7 +540,7 @@ class Parser {
 			n.isForward = false;
 			while (!self.check("RBRACE") && !self.atEnd()) {
 				Node fdef = self.parseStructField();
-				n.fields.push(fdef);
+				n.fieldsMut().push(fdef);
 			}
 			self.expect("RBRACE");
 			self.expect("SEMICOLON");
@@ -592,7 +592,7 @@ class Parser {
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node sig = self.parseMethodSig();
-			n.methods.push(sig);
+			n.methodsMut().push(sig);
 		}
 		self.expect("RBRACE");
 		return n;
@@ -614,7 +614,7 @@ class Parser {
 		n.kind = NK_METHOD_SIG;
 		n.returnType = retType;
 		n.name = mnameTok.value;
-		n.params = params;
+		n.paramsStorage = params;
 		n.keepReturn = sigKeep;
 		n.line = retType.line;
 		n.col = retType.col;
@@ -696,7 +696,7 @@ class Parser {
 		if (self.matchTok("LPAREN")) {
 			if (!self.check("RPAREN")) {
 				Vector<Node> params = self.parseParamList();
-				v.params = params;
+				v.paramsStorage = params;
 			}
 			self.expect("RPAREN");
 		}
@@ -768,7 +768,7 @@ class Parser {
 			fn.kind = NK_FUNCTION_DECL;
 			fn.returnType = typeExpr;
 			fn.name = name;
-			fn.params = params;
+			fn.paramsStorage = params;
 			fn.isGpu = isGpu;
 			fn.isRealtime = isRealtime;
 			fn.keepReturn = keepReturn;
@@ -1025,16 +1025,16 @@ class Parser {
 		ty.isStatic = hasStatic;
 		ty.isExtern = hasExtern;
 		ty.isVolatile = hasVolatile;
-		ty.genericArgs = genericArgs;
+		ty.genericArgsStorage = genericArgs;
 
 		// Generic arguments
 		if (self.check("LT") && self.isGenericStart()) {
 			self.advance();
 			Node g0 = self.parseType();
-			ty.genericArgs.push(g0);
+			ty.genericArgsMut().push(g0);
 			while (self.matchTok("COMMA")) {
 				Node gN = self.parseType();
-				ty.genericArgs.push(gN);
+				ty.genericArgsMut().push(gN);
 			}
 			self.expectGt();
 		}
@@ -2276,7 +2276,7 @@ class Parser {
 		Node n = Node();
 		n.kind = NK_LAMBDA_EXPR;
 		n.returnType = returnType;
-		n.params = params;
+		n.paramsStorage = params;
 		n.bodyNode = lb;
 		n.line = tok.line;
 		n.col = tok.col;
@@ -2313,7 +2313,7 @@ class Parser {
 		Node n = Node();
 		n.kind = NK_LAMBDA_EXPR;
 		n.returnType = null;
-		n.params = params;
+		n.paramsStorage = params;
 		n.line = tok.line;
 		n.col = tok.col;
 		if (self.check("LBRACE")) {

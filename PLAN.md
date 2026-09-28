@@ -462,6 +462,27 @@ emitted units byte-identical. The remaining six heavy fields (`params`,
 `genericArgs`, `fields`, `declarations`, `members`, `methods`) still need
 their receivers audited.
 
+*All 21 fields (September 28).* The last six heavy fields (`methods`,
+`params`, `genericArgs`, `fields`, `declarations`, `members`) now carry lazy
+storage, so `Node()` allocates no lists at all. They were converted with the
+compiler as the oracle: with each reader temporarily renamed, every remaining
+AST-node access is a compile error, so rewriting flagged lines until the build
+is clean proves none is left, and the same diagnostics named the eight
+same-named fields on other classes a multi-match line had over-converted.
+
+The heavy six are a trade, not a speed win. On a single-process cold compile
+of BTRSmith, peak footprint falls from 4.451 to 4.181 GB (**270 MB, 6.1%**),
+but instructions retired rise from 1,365.0 to 1,400.2 billion (**2.6%**), and
+wall clock is flat (98.2–99.0 s against 98.4–99.5 s); all 409 emitted units
+are byte-identical. The generated C shows why: every reader call, even on its
+fast path, pays an ARC retain, a cleanup-stack registration and its discard,
+and hands the caller a reference to release -- traffic the old direct field
+read never paid, now multiplied by the most frequently read fields in the
+compiler. Recovering it needs a borrowed return from the accessor, a
+language/runtime capability rather than a change to this code. The memory
+side serves the 6 GiB aggregate ceiling, which two workers exceeded at
+6.42 GiB.
+
 *On the ≤20 s cold budget.* It is worth stating plainly what the measurements
 imply. Compiler-only cold is 62 s on a clang build, 29.6 s of it waiting on
 workers and 31.6 s serial. Removing the generic closure entirely (4.9 s) and

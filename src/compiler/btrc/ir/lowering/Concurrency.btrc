@@ -336,7 +336,7 @@ class ConcurrencyLowerer {
 			jargs.push(self.consumeThreadHandle(obj));
 			IRNode joinCall = IRNode.call("__btrc_thread_join", jargs);
 			Node? ret = null;
-			if (ot.genericArgs.len > 0) { ret = ot.genericArgs.get(0); }
+			if (ot.genericArgs().len > 0) { ret = ot.genericArgs().get(0); }
 			if (ret == null || ret.base == "void") { return joinCall; }
 			return self.unboxThreadResult(joinCall, ret);
 		}
@@ -371,7 +371,7 @@ class ConcurrencyLowerer {
      * the value; .destroy() tears down the mutex. Mirrors methods._lower_mutex_method. */
 	public IRNode lowerMutexMethod(IRNode obj, string method, Node ot, Vector<IRNode> args) {
 		Node? valType = null;
-		if (ot.genericArgs.len > 0) { valType = ot.genericArgs.get(0); }
+		if (ot.genericArgs().len > 0) { valType = ot.genericArgs().get(0); }
 		if (method == "get") {
 			self.context.referenceHelper("__btrc_mutex_val_get");
 			Vector<IRNode> gargs = [];
@@ -423,8 +423,8 @@ class ConcurrencyLowerer {
 			return IRNode.call("__btrc_mutex_val_create", nargs);
 		}
 		Node? argType = self.resolvedExpressionType(node.args().get(0), varTypes);
-		if (node.kind == NK_NEW_EXPR && node.type.genericArgs.len > 0) {
-			argType = node.type.genericArgs.get(0);
+		if (node.kind == NK_NEW_EXPR && node.type.genericArgs().len > 0) {
+			argType = node.type.genericArgs().get(0);
 		}
 		Node concreteType = argType;
 		IRNode boxed = self.boxExactValue(args.get(0), concreteType, "__btrc_mutex");

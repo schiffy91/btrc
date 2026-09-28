@@ -162,7 +162,7 @@ class CallTargetResolver {
 		self.nativeUniqueMethods = {};
 		for imported in analyzed.nativeDeclarations {
 			if (imported.resource != null && imported.resource.ownership == "unique") {
-				for method in imported.declaration.members {
+				for method in imported.declaration.members() {
 					if (method.kind == NK_METHOD_DECL) { self.nativeUniqueMethods.put(imported.declaration.name + "." + method.name, "__btrc_unique_" + imported.declaration.name + "_" + method.name + "_public"); }
 				}
 			}
@@ -219,7 +219,7 @@ class CallTargetResolver {
 
 	private CallSignature declarationSignature(Node declaration, Map<string, Node> substitutions) {
 		CallSignature signature = CallSignature();
-		signature.parameters = self.resolvedParameters(declaration.params, substitutions);
+		signature.parameters = self.resolvedParameters(declaration.params(), substitutions);
 		signature.substitutions = substitutions;
 		if (declaration.returnType != null) {
 			signature.returnType = SemanticTypeSystem.resolveGenericType(declaration.returnType, substitutions, self.analyzed);
@@ -229,12 +229,12 @@ class CallTargetResolver {
 
 	private CallSignature callableSignature(Node callableType) {
 		CallSignature signature = CallSignature();
-		if (callableType.genericArgs.len > 0) {
-			signature.returnType = self.bodyType(callableType.genericArgs.get(0));
+		if (callableType.genericArgs().len > 0) {
+			signature.returnType = self.bodyType(callableType.genericArgs().get(0));
 		}
 		int index = 1;
-		while (index < callableType.genericArgs.len) {
-			signature.parameters.push(self.syntheticParameter(Strings.fromInt(index - 1), self.bodyType(callableType.genericArgs.get(index))));
+		while (index < callableType.genericArgs().len) {
+			signature.parameters.push(self.syntheticParameter(Strings.fromInt(index - 1), self.bodyType(callableType.genericArgs().get(index))));
 			index = index + 1;
 		}
 		return signature;
@@ -266,7 +266,7 @@ class CallTargetResolver {
 		} else if (self.analyzed.isGenericClass(sourceType.base)) {
 			method = self.analyzed.genericClassMethod(sourceType.base, "toString");
 		}
-		return method != null && method.kind == NK_METHOD_DECL && method.params.len == 0 && method.returnType != null && TypeComposition.isSemanticScalarString(method.returnType);
+		return method != null && method.kind == NK_METHOD_DECL && method.params().len == 0 && method.returnType != null && TypeComposition.isSemanticScalarString(method.returnType);
 	}
 
 	private Node? richEnumVariant(string enumName, string variantName) {
@@ -287,8 +287,8 @@ class CallTargetResolver {
 		while (current != "" && self.analyzed.classTable.has(current)) {
 			Node declaration = self.analyzed.classTable.get(current);
 			int index = 0;
-			while (index < declaration.members.len) {
-				if (AstIdentity.key(declaration.members.get(index)) == key) {
+			while (index < declaration.members().len) {
+				if (AstIdentity.key(declaration.members().get(index)) == key) {
 					return current;
 				}
 				index = index + 1;
@@ -325,15 +325,15 @@ class CallTargetResolver {
 
 	private void configureDefaultMethodTarget(CallTarget target, string receiverClass, Node receiverType, Node method) {
 		string owner = self.methodOwner(receiverClass, method);
-		string prefix = receiverType.genericArgs.len > 0 ? TypeIdentity.mangleGenericType(owner, receiverType.genericArgs) : owner;
+		string prefix = receiverType.genericArgs().len > 0 ? TypeIdentity.mangleGenericType(owner, receiverType.genericArgs()) : owner;
 		target.ownerName = owner;
 		target.classPrefix = prefix;
 		target.defaultCName = self.methodSymbol(owner, method.name, prefix);
 		if (method.access != "class") {
 			Node selfType = SemanticTypeSystem.namedClass(owner);
 			int argumentIndex = 0;
-			while (argumentIndex < receiverType.genericArgs.len) {
-				selfType.genericArgs.push(receiverType.genericArgs.get(argumentIndex));
+			while (argumentIndex < receiverType.genericArgs().len) {
+				selfType.genericArgsMut().push(receiverType.genericArgs().get(argumentIndex));
 				argumentIndex = argumentIndex + 1;
 			}
 			target.selfType = selfType;
@@ -347,7 +347,7 @@ class CallTargetResolver {
 		target.signature = self.callableSignature(callableType);
 		if (callee.kind == NK_LAMBDA_EXPR) {
 			target.signature.parameters = self.resolvedParameters(
-				callee.params, {});
+				callee.params(), {});
 		}
 		target.signature.returnType = self.expressionType(call, variableTypes);
 		if (callee.kind != NK_LAMBDA_EXPR) {
@@ -441,7 +441,7 @@ class CallTargetResolver {
 		} else {
 			target.signature.substitutions = substitutions;
 		}
-		string prefix = instance.genericArgs.len > 0 ? TypeIdentity.mangleGenericType(base, instance.genericArgs) : base;
+		string prefix = instance.genericArgs().len > 0 ? TypeIdentity.mangleGenericType(base, instance.genericArgs()) : base;
 		target.symbol = prefix + "_new";
 		target.defaultCName = target.symbol;
 		target.ownerName = base;
@@ -459,11 +459,11 @@ class CallTargetResolver {
 		target.languageCall = true;
 		Map<string, Node> substitutions = self.targetTypeMap(call, receiverType, method, variableTypes);
 		target.signature = self.declarationSignature(method, substitutions);
-		string prefix = receiverType.genericArgs.len > 0 ? TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs) : receiverType.base;
+		string prefix = receiverType.genericArgs().len > 0 ? TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs()) : receiverType.base;
 		target.symbol = self.methodSymbol(receiverType.base, method.name, prefix);
 		Vector<Node>? methodArguments = method.genericParams().len > 0 ? self.analyzed.methodCallArguments(call) : null;
 		if (methodArguments != null) {
-			target.symbol = GenericSpecializer.genericMethodInstanceName(receiverType.base, receiverType.genericArgs, method.name, methodArguments);
+			target.symbol = GenericSpecializer.genericMethodInstanceName(receiverType.base, receiverType.genericArgs(), method.name, methodArguments);
 		}
 		self.configureDefaultMethodTarget(target, receiverType.base, receiverType, method);
 		return target;
@@ -520,7 +520,7 @@ class CallTargetResolver {
 		}
 		if (self.analyzed.isGenericClass(name)) {
 			Node? instance = self.expressionType(call, variableTypes);
-			if (instance != null && instance.base == name && instance.genericArgs.len == self.analyzed.genericClassTable.get(name).genericParams().len) {
+			if (instance != null && instance.base == name && instance.genericArgs().len == self.analyzed.genericClassTable.get(name).genericParams().len) {
 				return self.constructorTarget(call, instance, variableTypes);
 			}
 			self.fail("cannot resolve generic constructor instance '" + name + "'");

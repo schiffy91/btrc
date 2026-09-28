@@ -201,14 +201,14 @@ class RealtimeAnalyzer {
 	public void validate() {
 		bool hasRealtimeRoot = false;
 		int index = 0;
-		while (index < self.program.declarations.len) {
-			Node declaration = self.program.declarations.get(index);
+		while (index < self.program.declarations().len) {
+			Node declaration = self.program.declarations().get(index);
 			if (declaration.kind == NK_FUNCTION_DECL && declaration.isRealtime) {
 				hasRealtimeRoot = true;
 			} else if (declaration.kind == NK_CLASS_DECL) {
 				int member = 0;
-				while (member < declaration.members.len) {
-					Node item = declaration.members.get(member);
+				while (member < declaration.members().len) {
+					Node item = declaration.members().get(member);
 					if (item.kind == NK_METHOD_DECL && item.isRealtime) {
 						hasRealtimeRoot = true;
 					}
@@ -264,8 +264,8 @@ class RealtimeAnalyzer {
 
 	private void indexCallables() {
 		int index = 0;
-		while (index < self.program.declarations.len) {
-			Node declaration = self.program.declarations.get(index);
+		while (index < self.program.declarations().len) {
+			Node declaration = self.program.declarations().get(index);
 			IValidationRecords? records = self.records;
 			if (records != null && (declaration.kind == NK_FUNCTION_DECL || declaration.kind == NK_CLASS_DECL)) {
 				Vector<ValidationFact>? facts = records.recorded(RECORD_PHASE_REALTIME, declaration);
@@ -276,8 +276,8 @@ class RealtimeAnalyzer {
 				self.addCallable("function:" + declaration.name, declaration.name, declaration, declaration.bodyNode, "");
 			} else if (declaration.kind == NK_CLASS_DECL) {
 				int memberIndex = 0;
-				while (memberIndex < declaration.members.len) {
-					Node member = declaration.members.get(memberIndex);
+				while (memberIndex < declaration.members().len) {
+					Node member = declaration.members().get(memberIndex);
 					if (member.kind == NK_METHOD_DECL) {
 						string label = declaration.name + "." + member.name;
 						self.addCallable("method:" + label, label, member, member.bodyNode, declaration.name);
@@ -321,8 +321,8 @@ class RealtimeAnalyzer {
 				callable.variables.put("self", selfType);
 			}
 			int index = 0;
-			while (index < declaration.params.len) {
-				Node parameter = declaration.params.get(index);
+			while (index < declaration.params().len) {
+				Node parameter = declaration.params().get(index);
 				callable.variables.put(parameter.name, parameter.type);
 				callable.localNames.put(parameter.name, true);
 				index = index + 1;
@@ -373,8 +373,8 @@ class RealtimeAnalyzer {
 			return;
 		}
 		int index = 0;
-		while (index < declaration.params.len) {
-			Node parameter = declaration.params.get(index);
+		while (index < declaration.params().len) {
+			Node parameter = declaration.params().get(index);
 			if (self.managedType(parameter.type, {})) {
 				self.effect(callable, "ARC", "managed parameter '" + parameter.name + "'", parameter);
 			}
@@ -619,14 +619,14 @@ class RealtimeAnalyzer {
 		self.dispatchChild(node.fn, callable, collecting);
 		self.dispatchChild(node.key, callable, collecting);
 
-		self.dispatchVector(node.declarations, callable, collecting);
-		self.dispatchVector(node.members, callable, collecting);
-		self.dispatchVector(node.methods, callable, collecting);
-		self.dispatchVector(node.params, callable, collecting);
-		self.dispatchVector(node.fields, callable, collecting);
+		self.dispatchVector(node.declarations(), callable, collecting);
+		self.dispatchVector(node.members(), callable, collecting);
+		self.dispatchVector(node.methods(), callable, collecting);
+		self.dispatchVector(node.params(), callable, collecting);
+		self.dispatchVector(node.fields(), callable, collecting);
 		self.dispatchVector(node.values(), callable, collecting);
 		self.dispatchVector(node.variants(), callable, collecting);
-		self.dispatchVector(node.genericArgs, callable, collecting);
+		self.dispatchVector(node.genericArgs(), callable, collecting);
 		self.dispatchVector(node.statements(), callable, collecting);
 		self.dispatchVector(node.cases(), callable, collecting);
 		self.dispatchVector(node.args(), callable, collecting);
@@ -675,7 +675,7 @@ class RealtimeAnalyzer {
 		if (declaration == null) { return; }
 		Vector<bool> supplied = [];
 		int index = 0;
-		while (index < declaration.params.len) {
+		while (index < declaration.params().len) {
 			supplied.push(false);
 			index = index + 1;
 		}
@@ -690,8 +690,8 @@ class RealtimeAnalyzer {
 				}
 			} else {
 				int parameter = 0;
-				while (parameter < declaration.params.len) {
-					if (declaration.params.get(parameter).name == argumentName) {
+				while (parameter < declaration.params().len) {
+					if (declaration.params().get(parameter).name == argumentName) {
 						supplied.set(parameter, true);
 					}
 					parameter = parameter + 1;
@@ -700,8 +700,8 @@ class RealtimeAnalyzer {
 			index = index + 1;
 		}
 		index = 0;
-		while (index < declaration.params.len) {
-			Node parameter = declaration.params.get(index);
+		while (index < declaration.params().len) {
+			Node parameter = declaration.params().get(index);
 			if (!supplied.get(index) && parameter.default_ != null) {
 				self.visit(parameter.default_, callable);
 			}
@@ -1041,8 +1041,8 @@ class RealtimeAnalyzer {
 		if (self.analyzed.structTable.has(base)) {
 			Node structure = self.analyzed.structTable.get(base);
 			int field = 0;
-			while (field < structure.fields.len) {
-				if (self.managedType(structure.fields.get(field).type, self.nextSeen(seen, base))) {
+			while (field < structure.fields().len) {
+				if (self.managedType(structure.fields().get(field).type, self.nextSeen(seen, base))) {
 					return true;
 				}
 				field = field + 1;
@@ -1054,8 +1054,8 @@ class RealtimeAnalyzer {
 			while (variant < declaration.variants().len) {
 				Node item = declaration.variants().get(variant);
 				int parameter = 0;
-				while (parameter < item.params.len) {
-					if (self.managedType(item.params.get(parameter).type, self.nextSeen(seen, base))) {
+				while (parameter < item.params().len) {
+					if (self.managedType(item.params().get(parameter).type, self.nextSeen(seen, base))) {
 						return true;
 					}
 					parameter = parameter + 1;
@@ -1064,8 +1064,8 @@ class RealtimeAnalyzer {
 			}
 		}
 		int argument = 0;
-		while (argument < typeExpr.genericArgs.len) {
-			if (self.managedType(typeExpr.genericArgs.get(argument), self.nextSeen(seen, base))) {
+		while (argument < typeExpr.genericArgs().len) {
+			if (self.managedType(typeExpr.genericArgs().get(argument), self.nextSeen(seen, base))) {
 				return true;
 			}
 			argument = argument + 1;
@@ -1118,7 +1118,7 @@ class RealtimeAnalyzer {
 	 * with sites at their nodes' current positions, and its bounded-loop
 	 * proofs. */
 	private void installReplays() {
-		for declaration in self.program.declarations {
+		for declaration in self.program.declarations() {
 			string identity = AstIdentity.key(declaration);
 			if (!self.replays.has(identity)) { continue; }
 			for fact in self.replays.get(identity) {

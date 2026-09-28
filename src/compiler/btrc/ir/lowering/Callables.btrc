@@ -140,21 +140,21 @@ class CallableValueSemantics {
 		if (TypeComposition.nullableCollapsesReferenceLayer(resolved, false)) {
 			classDepth = classDepth - 1;
 		}
-		if (!resolved.isArray && classDepth <= 1 && (self.analysis.isClass(resolved.base) || (resolved.genericArgs.len > 0 && self.analysis.isGenericClass(resolved.base)))) {
+		if (!resolved.isArray && classDepth <= 1 && (self.analysis.isClass(resolved.base) || (resolved.genericArgs().len > 0 && self.analysis.isGenericClass(resolved.base)))) {
 			return true;
 		}
 		int mutexDepth = resolved.pointerDepth;
 		if (TypeComposition.nullableCollapsesReferenceLayer(resolved, true)) {
 			mutexDepth = mutexDepth - 1;
 		}
-		return !resolved.isArray && mutexDepth == 0 && resolved.base == "Mutex" && resolved.genericArgs.len == 1;
+		return !resolved.isArray && mutexDepth == 0 && resolved.base == "Mutex" && resolved.genericArgs().len == 1;
 	}
 
 	public bool managedReturnCallable(Node? typeExpr, CallableBoundaryContext context) {
 		Node? canonical = self.canonicalType(typeExpr, context);
 		if (canonical == null) { return false; }
 		Node callable = canonical;
-		return (callable.base == "__fn_ptr" || callable.base == "__realtime_fn_ptr") && callable.pointerDepth == 0 && !callable.isArray && callable.genericArgs.len > 0 && self.managedValueType(callable.genericArgs.get(0), context);
+		return (callable.base == "__fn_ptr" || callable.base == "__realtime_fn_ptr") && callable.pointerDepth == 0 && !callable.isArray && callable.genericArgs().len > 0 && self.managedValueType(callable.genericArgs().get(0), context);
 	}
 
 	public bool callableType(Node? typeExpr, CallableBoundaryContext context) {
@@ -217,8 +217,8 @@ class CallableValueSemantics {
 	public Vector<string> captureNames(Node lambda, CallableBoundaryContext context) {
 		Map<string, bool> parameterNames = {};
 		int parameter = 0;
-		while (parameter < lambda.params.len) {
-			parameterNames.put(lambda.params.get(parameter).name, true);
+		while (parameter < lambda.params().len) {
+			parameterNames.put(lambda.params().get(parameter).name, true);
 			parameter = parameter + 1;
 		}
 		Map<string, bool> usedNames = {};
@@ -287,10 +287,10 @@ class CallableValueSemantics {
 		if (receiverType.pointerDepth != 0 || receiverType.isArray) {
 			return false;
 		}
-		if (receiverType.base == "Thread" && receiverType.genericArgs.len == 1) {
+		if (receiverType.base == "Thread" && receiverType.genericArgs().len == 1) {
 			return methodName == "join";
 		}
-		if (receiverType.base == "Mutex" && receiverType.genericArgs.len == 1) {
+		if (receiverType.base == "Mutex" && receiverType.genericArgs().len == 1) {
 			return methodName == "get" || methodName == "set" || methodName == "destroy";
 		}
 		return SemanticTypeSystem.isString(receiverType) && SemanticTypeSystem.stringMethodResult(methodName) != null;
@@ -356,20 +356,20 @@ class CallableValueSemantics {
 		bool contains = false;
 		if (canonical.isArray) {
 			contains = self.typeContainsManagedSeen(self.arrayElement(canonical), context, active);
-		} else if (canonical.pointerDepth == 0 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs.len == 1) {
-			contains = self.typeContainsManagedSeen(canonical.genericArgs.get(0), context, active);
+		} else if (canonical.pointerDepth == 0 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {
+			contains = self.typeContainsManagedSeen(canonical.genericArgs().get(0), context, active);
 		} else if (canonical.pointerDepth == 0 && (canonical.base == "Map" || canonical.base == "Tuple")) {
 			int index = 0;
-			while (!contains && index < canonical.genericArgs.len) {
-				contains = self.typeContainsManagedSeen(canonical.genericArgs.get(index), context, active);
+			while (!contains && index < canonical.genericArgs().len) {
+				contains = self.typeContainsManagedSeen(canonical.genericArgs().get(index), context, active);
 				index = index + 1;
 			}
 		} else {
 			Node? declaration = self.structDeclaration(canonical);
 			if (declaration != null) {
 				int index = 0;
-				while (!contains && index < declaration.fields.len) {
-					contains = self.typeContainsManagedSeen(declaration.fields.get(index).type, context, active);
+				while (!contains && index < declaration.fields().len) {
+					contains = self.typeContainsManagedSeen(declaration.fields().get(index).type, context, active);
 					index = index + 1;
 				}
 			}
@@ -395,8 +395,8 @@ class CallableValueSemantics {
 			Node? elementType = null;
 			if (canonical.isArray) {
 				elementType = self.arrayElement(canonical);
-			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs.len == 1) {
-				elementType = canonical.genericArgs.get(0);
+			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {
+				elementType = canonical.genericArgs().get(0);
 			}
 			if (elementType != null) {
 				int index = 0;
@@ -410,8 +410,8 @@ class CallableValueSemantics {
 			}
 			if (canonical.base == "Tuple") {
 				int index = 0;
-				while (index < value.elements().len && index < canonical.genericArgs.len) {
-					if (self.valueRequiresEnvironment(canonical.genericArgs.get(index), value.elements().get(index), context)) {
+				while (index < value.elements().len && index < canonical.genericArgs().len) {
+					if (self.valueRequiresEnvironment(canonical.genericArgs().get(index), value.elements().get(index), context)) {
 						return true;
 					}
 					index = index + 1;
@@ -421,8 +421,8 @@ class CallableValueSemantics {
 			Node? declaration = self.structDeclaration(canonical);
 			if (declaration != null) {
 				int index = 0;
-				while (index < value.elements().len && index < declaration.fields.len) {
-					if (self.valueRequiresEnvironment(declaration.fields.get(index).type, value.elements().get(index), context)) {
+				while (index < value.elements().len && index < declaration.fields().len) {
+					if (self.valueRequiresEnvironment(declaration.fields().get(index).type, value.elements().get(index), context)) {
 						return true;
 					}
 					index = index + 1;
@@ -432,19 +432,19 @@ class CallableValueSemantics {
 		}
 		if (value.kind == NK_TUPLE_LITERAL && canonical.base == "Tuple") {
 			int index = 0;
-			while (index < value.elements().len && index < canonical.genericArgs.len) {
-				if (self.valueRequiresEnvironment(canonical.genericArgs.get(index), value.elements().get(index), context)) {
+			while (index < value.elements().len && index < canonical.genericArgs().len) {
+				if (self.valueRequiresEnvironment(canonical.genericArgs().get(index), value.elements().get(index), context)) {
 					return true;
 				}
 				index = index + 1;
 			}
 			return false;
 		}
-		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs.len == 2) {
+		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs().len == 2) {
 			int index = 0;
 			while (index < value.entries().len) {
 				Node entry = value.entries().get(index);
-				if (self.valueRequiresEnvironment(canonical.genericArgs.get(0), entry.key, context) || self.valueRequiresEnvironment(canonical.genericArgs.get(1), entry.valueNode, context)) {
+				if (self.valueRequiresEnvironment(canonical.genericArgs().get(0), entry.key, context) || self.valueRequiresEnvironment(canonical.genericArgs().get(1), entry.valueNode, context)) {
 					return true;
 				}
 				index = index + 1;
@@ -493,8 +493,8 @@ class CallableBoundaryPolicy {
 			Node? elementType = null;
 			if (canonical.isArray) {
 				elementType = self.values.arrayElement(canonical);
-			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs.len == 1) {
-				elementType = canonical.genericArgs.get(0);
+			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {
+				elementType = canonical.genericArgs().get(0);
 			}
 			if (elementType != null) {
 				int index = 0;
@@ -508,8 +508,8 @@ class CallableBoundaryPolicy {
 			}
 			if (canonical.base == "Tuple") {
 				int index = 0;
-				while (index < value.elements().len && index < canonical.genericArgs.len) {
-					if (self.unsafeValue(canonical.genericArgs.get(index), value.elements().get(index), context)) {
+				while (index < value.elements().len && index < canonical.genericArgs().len) {
+					if (self.unsafeValue(canonical.genericArgs().get(index), value.elements().get(index), context)) {
 						return true;
 					}
 					index = index + 1;
@@ -519,8 +519,8 @@ class CallableBoundaryPolicy {
 			Node? declaration = self.values.structDeclaration(canonical);
 			if (declaration != null) {
 				int index = 0;
-				while (index < value.elements().len && index < declaration.fields.len) {
-					if (self.unsafeValue(declaration.fields.get(index).type, value.elements().get(index), context)) {
+				while (index < value.elements().len && index < declaration.fields().len) {
+					if (self.unsafeValue(declaration.fields().get(index).type, value.elements().get(index), context)) {
 						return true;
 					}
 					index = index + 1;
@@ -530,19 +530,19 @@ class CallableBoundaryPolicy {
 		}
 		if (value.kind == NK_TUPLE_LITERAL && canonical.base == "Tuple") {
 			int index = 0;
-			while (index < value.elements().len && index < canonical.genericArgs.len) {
-				if (self.unsafeValue(canonical.genericArgs.get(index), value.elements().get(index), context)) {
+			while (index < value.elements().len && index < canonical.genericArgs().len) {
+				if (self.unsafeValue(canonical.genericArgs().get(index), value.elements().get(index), context)) {
 					return true;
 				}
 				index = index + 1;
 			}
 			return false;
 		}
-		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs.len == 2) {
+		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs().len == 2) {
 			int index = 0;
 			while (index < value.entries().len) {
 				Node entry = value.entries().get(index);
-				if (self.unsafeValue(canonical.genericArgs.get(0), entry.key, context) || self.unsafeValue(canonical.genericArgs.get(1), entry.valueNode, context)) {
+				if (self.unsafeValue(canonical.genericArgs().get(0), entry.key, context) || self.unsafeValue(canonical.genericArgs().get(1), entry.valueNode, context)) {
 					return true;
 				}
 				index = index + 1;
@@ -852,8 +852,8 @@ class CallableValueLowerer {
 
 		Node signature = self.values.lambdaType(lambda, boundary);
 		plan.returnType = lambda.returnType;
-		if (plan.returnType == null && signature.genericArgs.len > 0) {
-			plan.returnType = signature.genericArgs.get(0);
+		if (plan.returnType == null && signature.genericArgs().len > 0) {
+			plan.returnType = signature.genericArgs().get(0);
 		}
 		if (plan.returnType != null) {
 			Node concreteReturn = plan.returnType;
@@ -864,8 +864,8 @@ class CallableValueLowerer {
 		plan.liftedFunction.returnType = plan.returnCType;
 		plan.liftedFunction.isStatic = true;
 		int parameterIndex = 0;
-		while (parameterIndex < lambda.params.len) {
-			Node parameter = lambda.params.get(parameterIndex);
+		while (parameterIndex < lambda.params().len) {
+			Node parameter = lambda.params().get(parameterIndex);
 			plan.liftedFunction.params.push(self.cTypes.lowerParameter(parameter));
 			if (parameter.type != null) {
 				plan.bodyVariableTypes.put(parameter.name, parameter.type);
@@ -964,8 +964,8 @@ class CallableValueLowerer {
 		self.boundaries.rejectCapturedEnvironments(plan.captures, lambda, boundary);
 		plan.bodyVariableTypes = self.copyVariableTypes(variableTypes);
 		int parameterIndex = 0;
-		while (parameterIndex < lambda.params.len) {
-			Node parameter = lambda.params.get(parameterIndex);
+		while (parameterIndex < lambda.params().len) {
+			Node parameter = lambda.params().get(parameterIndex);
 			if (parameter.type != null) {
 				plan.bodyVariableTypes.put(parameter.name, parameter.type);
 			}
@@ -973,8 +973,8 @@ class CallableValueLowerer {
 		}
 		Node signature = self.values.lambdaType(lambda, boundary);
 		plan.returnType = lambda.returnType;
-		if (plan.returnType == null && signature.genericArgs.len > 0) {
-			plan.returnType = signature.genericArgs.get(0);
+		if (plan.returnType == null && signature.genericArgs().len > 0) {
+			plan.returnType = signature.genericArgs().get(0);
 		}
 		if (plan.returnType != null) {
 			plan.returnCType = self.concreteCType(plan.returnType);

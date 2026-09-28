@@ -225,8 +225,8 @@ class FunctionLowerer {
 		IRFunctionDecl declaration = IRFunctionDecl(fnName, retC, true);
 		declaration.params.push(IRParam(selfMangled + "*", "self"));
 		int fp = 0;
-		while (fp < method.params.len) {
-			Node pp = method.params.get(fp);
+		while (fp < method.params().len) {
+			Node pp = method.params().get(fp);
 			declaration.params.push(self.cTypes.lowerResolvedParameter(pp, SemanticTypeSystem.resolveGenericType(pp.type, typeMap, self.analyzed), self.cTypes.lowerGeneric(pp.type, typeMap)));
 			fp = fp + 1;
 		}
@@ -262,8 +262,8 @@ class FunctionLowerer {
 		fn.isStatic = true;
 		fn.params.push(IRParam(selfMangled + "*", "self"));
 		int pp2 = 0;
-		while (pp2 < method.params.len) {
-			Node pp = method.params.get(pp2);
+		while (pp2 < method.params().len) {
+			Node pp = method.params().get(pp2);
 			fn.params.push(self.cTypes.lowerResolvedParameter(pp, SemanticTypeSystem.resolveGenericType(pp.type, typeMap, self.analyzed), self.cTypes.lowerGeneric(pp.type, typeMap)));
 			pp2 = pp2 + 1;
 		}
@@ -274,19 +274,19 @@ class FunctionLowerer {
 		Node selfT = Node();
 		selfT.kind = NK_TYPE_EXPR;
 		selfT.base = inst.classBase;
-		selfT.genericArgs = inst.classArgs;
+		selfT.genericArgsStorage = inst.classArgs;
 		selfT.pointerDepth = 1;
 		vt.put("self", selfT);
 		int vp = 0;
-		while (vp < method.params.len) {
-			Node pp = method.params.get(vp);
+		while (vp < method.params().len) {
+			Node pp = method.params().get(vp);
 			vt.put(pp.name, pp.type);
 			vp = vp + 1;
 		}
 
 		Vector<IRNode> mbody = [];
 		if (method.bodyNode != null) {
-			Vector<string> methodSourceBindings = self.replaceSourceLexicalParameters(method.params);
+			Vector<string> methodSourceBindings = self.replaceSourceLexicalParameters(method.params());
 			self.resetFuncVarDecls();
 			IRNode blk = self.lowerBody(method.bodyNode, vt);
 			int b = 0;
@@ -323,12 +323,12 @@ class FunctionLowerer {
 		Node selfT = Node();
 		selfT.kind = NK_TYPE_EXPR;
 		selfT.base = inst.base;
-		selfT.genericArgs = inst.args;
+		selfT.genericArgsStorage = inst.args;
 		selfT.pointerDepth = 1;
 		vt.put("self", selfT);
 		int i = 0;
-		while (i < method.params.len) {
-			Node p = method.params.get(i);
+		while (i < method.params().len) {
+			Node p = method.params().get(i);
 			vt.put(p.name, p.type);
 			i = i + 1;
 		}
@@ -338,8 +338,8 @@ class FunctionLowerer {
 	/* The explicitly marked constructor of a generic class declaration. */
 	public Node? genericConstructor(Node decl) {
 		int i = 0;
-		while (i < decl.members.len) {
-			Node m = decl.members.get(i);
+		while (i < decl.members().len) {
+			Node m = decl.members().get(i);
 			if (m.kind == NK_METHOD_DECL && m.isConstructor) { return m; }
 			i = i + 1;
 		}
@@ -351,8 +351,8 @@ class FunctionLowerer {
 	public bool emitGenericFieldReleases(Node decl, Map<string, Node> typeMap, Vector<IRNode> body) {
 		bool emitted = false;
 		int i = 0;
-		while (i < decl.members.len) {
-			Node mem = decl.members.get(i);
+		while (i < decl.members().len) {
+			Node mem = decl.members().get(i);
 			string storage = DeclarationRegistry.instanceStorageName(mem);
 			if (storage != "") {
 				Node rt = SemanticTypeSystem.resolveGenericType(mem.type, typeMap, self.analyzed);
@@ -378,8 +378,8 @@ class FunctionLowerer {
 	private IRNode lowerLiftedCallableBody(Node source, Map<string, Node> variableTypes, Vector<string> captures, string returnCType, Node? returnType) {
 		ScopeSnapshot scope = self.enterIsolatedScope(returnCType, returnType);
 		int parameterIndex = 0;
-		while (parameterIndex < source.params.len) {
-			string name = source.params.get(parameterIndex).name;
+		while (parameterIndex < source.params().len) {
+			string name = source.params().get(parameterIndex).name;
 			self.context.borrowedLocalBindings.put(name, true);
 			self.context.activateSourceName(name, self.lexicalBindingCName(name));
 			parameterIndex = parameterIndex + 1;
@@ -534,7 +534,7 @@ class FunctionLowerer {
 		} else {
 			self.context.currentReturnType = declaration.returnType;
 		}
-		Vector<string> sourceBindings = self.replaceSourceLexicalParameters(declaration.params);
+		Vector<string> sourceBindings = self.replaceSourceLexicalParameters(declaration.params());
 		IRNode body = self.lowerBody(declaration.bodyNode, plan.variableTypes);
 		self.context.restoreSourceBindings(sourceBindings);
 		self.context.currentReturnCType = previousReturnC;
@@ -553,8 +553,8 @@ class FunctionLowerer {
 		if (d.name == "main" && ret == "void") { ret = "int"; }
 		fn.returnType = ret;
 		int i = 0;
-		while (i < d.params.len) {
-			Node p = d.params.get(i);
+		while (i < d.params().len) {
+			Node p = d.params().get(i);
 			fn.params.push(self.cTypes.lowerParameter(p));
 			if (p.type != null && p.type.isArray) {
 				self.gpuPipeline.recordUnknownHostCapacity(p.name);
@@ -566,8 +566,8 @@ class FunctionLowerer {
          * scope resolution order. */
 		Map<string, Node> varTypes = self.seededVarTypes();
 		int j = 0;
-		while (j < d.params.len) {
-			Node p = d.params.get(j);
+		while (j < d.params().len) {
+			Node p = d.params().get(j);
 			varTypes.put(p.name, p.type);
 			j = j + 1;
 		}
@@ -577,7 +577,7 @@ class FunctionLowerer {
 		self.context.currentClass = "";
 		self.resetFuncVarDecls();
 		if (d.bodyNode != null) {
-			Vector<string> sourceBindings = self.replaceSourceLexicalParameters(d.params);
+			Vector<string> sourceBindings = self.replaceSourceLexicalParameters(d.params());
 			/* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
              * (see gotchas), which would lower the body twice and desync the
              * fresh-temp counter. */

@@ -50,8 +50,8 @@ class BorrowValidator {
 				for index in range(node.args().len) {
 					Node value = node.args().get(index); if (!self.rawExpressionMentionsParam(value, name)) { continue; }
 					int slot = self.rawBorrowArgumentParameter(target, node, index);
-					if (value.kind != NK_IDENTIFIER || value.name != name || slot < 0 || slot >= target.params.len) { return false; }
-					Node parameter = target.params.get(slot); Node? canonical = self.types.resolveAliases(parameter.type);
+					if (value.kind != NK_IDENTIFIER || value.name != name || slot < 0 || slot >= target.params().len) { return false; }
+					Node parameter = target.params().get(slot); Node? canonical = self.types.resolveAliases(parameter.type);
 					if (canonical == null || canonical.base != capability || canonical.pointerDepth != 0 || canonical.isNullable || !self.invocationUsesAreLocal(target.bodyNode, parameter.name, capability, nested)) { return false; }
 				}
 				return true;
@@ -96,15 +96,15 @@ class BorrowValidator {
 		bool present = false;
 		for imported in self.state.analyzed.nativeDeclarations { if (!imported.invocation.isEmpty()) { present = true; } }
 		if (!present) { return; }
-		for declaration in program.declarations {
+		for declaration in program.declarations() {
 			if (self.state.analyzed.isNativeDeclaration(declaration)) { continue; }
 			if (declaration.parent != null && self.state.analyzed.nativeInvocation(declaration.parent)) { TypeValidator.fail("Native invocation capabilities cannot be inherited", declaration); }
-			Vector<Node> callables = declaration.kind == NK_FUNCTION_DECL ? [declaration] : declaration.members;
+			Vector<Node> callables = declaration.kind == NK_FUNCTION_DECL ? [declaration] : declaration.members();
 			Vector<Node> allowed = [];
 			for callable in callables {
-				for parameter in callable.params {
+				for parameter in callable.params() {
 					Node? canonical = self.types.resolveAliases(parameter.type);
-					if (canonical == null || !self.state.analyzed.nativeInvocation(canonical.base) || canonical.pointerDepth != 0 || canonical.isNullable || canonical.isArray || canonical.genericArgs.len > 0) { continue; }
+					if (canonical == null || !self.state.analyzed.nativeInvocation(canonical.base) || canonical.pointerDepth != 0 || canonical.isNullable || canonical.isArray || canonical.genericArgs().len > 0) { continue; }
 					allowed.push(parameter.type);
 					if (!callable.isRealtime) { TypeValidator.fail("Native invocation parameters require @realtime", parameter); }
 					Vector<Node> visiting = [];
@@ -305,8 +305,8 @@ class BorrowValidator {
 			string className = classes.get(classIndex);
 			Node classDeclaration = self.state.analyzed.classTable.get(className);
 			int memberIndex = 0;
-			while (memberIndex < classDeclaration.members.len) {
-				Node member = classDeclaration.members.get(memberIndex);
+			while (memberIndex < classDeclaration.members().len) {
+				Node member = classDeclaration.members().get(memberIndex);
 				if (member.kind == NK_METHOD_DECL && AstIdentity.key(member) == declarationKey) {
 					return className;
 				}
@@ -350,8 +350,8 @@ class BorrowValidator {
 		if (expression.kind == NK_IDENTIFIER) { return expression.name == name; }
 		if (expression.kind == NK_LAMBDA_EXPR) {
 			int parameter = 0;
-			while (parameter < expression.params.len) {
-				if (expression.params.get(parameter).name == name) { return false; }
+			while (parameter < expression.params().len) {
+				if (expression.params().get(parameter).name == name) { return false; }
 				parameter = parameter + 1;
 			}
 			Map<string, bool> used = {};
@@ -472,7 +472,7 @@ class BorrowValidator {
 
 	public int rawBorrowArgumentParameter(Node declaration, Node call, int argumentIndex) {
 		if (argumentIndex < call.argNames().len && call.argNames().get(argumentIndex) != "") {
-			return self.parameterIndex(declaration.params, call.argNames().get(argumentIndex));
+			return self.parameterIndex(declaration.params(), call.argNames().get(argumentIndex));
 		}
 		return argumentIndex;
 	}
@@ -619,7 +619,7 @@ class BorrowValidator {
 	public bool rawParameterBorrowOnly(Node declaration, int parameterIndex) {
 		var nativeContract = self.state.analyzed.nativeCallContract(declaration);
 		if (nativeContract != null) { return parameterIndex >= 0 && parameterIndex < nativeContract.readOnlyBorrows.len && nativeContract.readOnlyBorrows.get(parameterIndex); }
-		if (declaration.bodyNode == null || parameterIndex < 0 || parameterIndex >= declaration.params.len) { return false; }
+		if (declaration.bodyNode == null || parameterIndex < 0 || parameterIndex >= declaration.params().len) { return false; }
 		string provenance = declaration.sourceFile == null ? "none" : declaration.sourceFile;
 		string key = AstIdentity.key(declaration) + "#" + Strings.fromInt(parameterIndex) + "#" + provenance;
 		if (self.state.rawBorrowEffectKnown.has(key)) {
@@ -630,15 +630,15 @@ class BorrowValidator {
 		Map<string, bool> locals = {};
 		Map<string, Node> vars = {};
 		int paramIndex = 0;
-		while (paramIndex < declaration.params.len) {
-			locals.put(declaration.params.get(paramIndex).name, true);
-			vars.put(declaration.params.get(paramIndex).name, declaration.params.get(paramIndex).type);
+		while (paramIndex < declaration.params().len) {
+			locals.put(declaration.params().get(paramIndex).name, true);
+			vars.put(declaration.params().get(paramIndex).name, declaration.params().get(paramIndex).type);
 			paramIndex = paramIndex + 1;
 		}
 		self.rawCollectLocalNames(declaration.bodyNode, locals);
 		Node? previousCallable = self.state.callable;
 		self.state.callable = declaration;
-		bool safe = self.rawParamBlockSafe(declaration.bodyNode, declaration.params.get(parameterIndex).name, self.rawBorrowOwner(declaration), locals, vars);
+		bool safe = self.rawParamBlockSafe(declaration.bodyNode, declaration.params().get(parameterIndex).name, self.rawBorrowOwner(declaration), locals, vars);
 		self.state.callable = previousCallable;
 		self.state.rawBorrowVisiting.remove(key);
 		self.state.rawBorrowEffectKnown.put(key, true);

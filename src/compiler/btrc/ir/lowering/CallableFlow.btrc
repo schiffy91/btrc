@@ -745,8 +745,8 @@ class CallableFlowState {
 			Node? elementType = null;
 			if (canonical.isArray) {
 				elementType = values.arrayElement(canonical);
-			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs.len == 1) {
-				elementType = canonical.genericArgs.get(0);
+			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {
+				elementType = canonical.genericArgs().get(0);
 			}
 			if (elementType != null) {
 				int index = 0;
@@ -760,8 +760,8 @@ class CallableFlowState {
 			}
 			if (canonical.base == "Tuple") {
 				int index = 0;
-				while (index < value.elements().len && index < canonical.genericArgs.len) {
-					if (self.unsafePersistentValue(canonical.genericArgs.get(index), value.elements().get(index), values, currentContext)) {
+				while (index < value.elements().len && index < canonical.genericArgs().len) {
+					if (self.unsafePersistentValue(canonical.genericArgs().get(index), value.elements().get(index), values, currentContext)) {
 						unsafe = true;
 					}
 					index = index + 1;
@@ -771,8 +771,8 @@ class CallableFlowState {
 			Node? declaration = values.structDeclaration(canonical);
 			if (declaration != null) {
 				int index = 0;
-				while (index < value.elements().len && index < declaration.fields.len) {
-					if (self.unsafePersistentValue(declaration.fields.get(index).type, value.elements().get(index), values, currentContext)) {
+				while (index < value.elements().len && index < declaration.fields().len) {
+					if (self.unsafePersistentValue(declaration.fields().get(index).type, value.elements().get(index), values, currentContext)) {
 						unsafe = true;
 					}
 					index = index + 1;
@@ -782,22 +782,22 @@ class CallableFlowState {
 		}
 		if (value.kind == NK_TUPLE_LITERAL && canonical.base == "Tuple") {
 			int index = 0;
-			while (index < value.elements().len && index < canonical.genericArgs.len) {
-				if (self.unsafePersistentValue(canonical.genericArgs.get(index), value.elements().get(index), values, currentContext)) {
+			while (index < value.elements().len && index < canonical.genericArgs().len) {
+				if (self.unsafePersistentValue(canonical.genericArgs().get(index), value.elements().get(index), values, currentContext)) {
 					unsafe = true;
 				}
 				index = index + 1;
 			}
 			return unsafe;
 		}
-		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs.len == 2) {
+		if (value.kind == NK_MAP_LITERAL && canonical.base == "Map" && canonical.genericArgs().len == 2) {
 			int index = 0;
 			while (index < value.entries().len) {
 				Node entry = value.entries().get(index);
-				if (self.unsafePersistentValue(canonical.genericArgs.get(0), entry.key, values, currentContext)) {
+				if (self.unsafePersistentValue(canonical.genericArgs().get(0), entry.key, values, currentContext)) {
 					unsafe = true;
 				}
-				if (self.unsafePersistentValue(canonical.genericArgs.get(1), entry.valueNode, values, currentContext)) {
+				if (self.unsafePersistentValue(canonical.genericArgs().get(1), entry.valueNode, values, currentContext)) {
 					unsafe = true;
 				}
 				index = index + 1;

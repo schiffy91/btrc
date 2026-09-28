@@ -244,7 +244,7 @@ class CycleBoundaryLowerer {
 		Node nodeType = Node();
 		nodeType.kind = NK_TYPE_EXPR;
 		nodeType.base = "ListNode";
-		nodeType.genericArgs.push(element);
+		nodeType.genericArgsMut().push(element);
 		self.appendCollectionSlotVisit(nodeType, IRNode.fieldAccess(IRNode.variable("self"), "head", true), body);
 		self.appendCollectionSlotVisit(nodeType, IRNode.fieldAccess(IRNode.variable("self"), "tail", true), body);
 	}
@@ -302,8 +302,8 @@ class CycleBoundaryLowerer {
 		bool visited = self.appendBuiltinCollectionBody(instance, body);
 		if (!visited) {
 			int memberIndex = 0;
-			while (memberIndex < declaration.members.len) {
-				Node member = declaration.members.get(memberIndex);
+			while (memberIndex < declaration.members().len) {
+				Node member = declaration.members().get(memberIndex);
 				string storageName = DeclarationRegistry.instanceStorageName(member);
 				if (storageName != "") {
 					Node resolved = SemanticTypeSystem.resolveGenericType(member.type, substitutions, self.analyzed);

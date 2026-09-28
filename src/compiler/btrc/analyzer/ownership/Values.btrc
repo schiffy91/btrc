@@ -41,7 +41,7 @@ class ManagedValueSemantics {
          * field T* resolves to Item** for T = Item*. Raw backing storage is not
          * a managed Item value. */
 		if (resolved.isArray || depth > 1) { return false; }
-		return self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base) || (resolved.genericArgs.len > 0 && self.analyzed.isGenericClass(resolved.base));
+		return self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base) || (resolved.genericArgs().len > 0 && self.analyzed.isGenericClass(resolved.base));
 	}
 
 	public bool isMutex(Node? typeExpr) {
@@ -51,7 +51,7 @@ class ManagedValueSemantics {
 		if (TypeComposition.nullableCollapsesReferenceLayer(resolved, true)) {
 			depth = depth - 1;
 		}
-		return !resolved.isArray && depth == 0 && resolved.base == "Mutex" && resolved.genericArgs.len == 1;
+		return !resolved.isArray && depth == 0 && resolved.base == "Mutex" && resolved.genericArgs().len == 1;
 	}
 
 	public bool isNativeName(string name) { return !self.analyzed.nativeClassLanguage(name).isEmpty(); }
@@ -72,8 +72,8 @@ class ManagedValueSemantics {
 		Node resolved = self.canonical(typeExpr);
 		if (SemanticTypeSystem.isString(resolved)) { return self.stringRuntimeType(); }
 		if (self.isMutex(resolved)) { return self.mutexRuntimeType(); }
-		if (resolved.genericArgs.len > 0 && self.analyzed.isGenericClass(resolved.base)) {
-			return TypeIdentity.mangleGenericType(resolved.base, resolved.genericArgs);
+		if (resolved.genericArgs().len > 0 && self.analyzed.isGenericClass(resolved.base)) {
+			return TypeIdentity.mangleGenericType(resolved.base, resolved.genericArgs());
 		}
 		return resolved.base;
 	}

@@ -173,7 +173,7 @@ class Analyzed {
 			string identity = AstIdentity.key(native);
 			if (!self.nativeByDeclaration.has(identity)) { self.nativeByDeclaration.put(identity, imported); }
 			if (native.kind == NK_CLASS_DECL) {
-				for member in native.members {
+				for member in native.members() {
 					if (!imported.methods.has(member.name)) { continue; }
 					string memberIdentity = AstIdentity.key(member);
 					if (!self.nativeMethodContracts.has(memberIdentity)) { self.nativeMethodContracts.put(memberIdentity, imported.methods.get(member.name)); }
@@ -503,8 +503,8 @@ class Analyzed {
 					parameterIndex = parameterIndex + 1;
 				}
 				int memberIndex = 0;
-				while (memberIndex < declaration.members.len) {
-					Node member = declaration.members.get(memberIndex);
+				while (memberIndex < declaration.members().len) {
+					Node member = declaration.members().get(memberIndex);
 					int methodParameterIndex = 0;
 					while (methodParameterIndex < member.genericParams().len) {
 						names.put(member.genericParams().get(methodParameterIndex), true);
@@ -582,8 +582,8 @@ class Analyzed {
 			if (!self.interfaceTable.has(current)) { return null; }
 			Node declaration = self.interfaceTable.get(current);
 			int index = 0;
-			while (index < declaration.methods.len) {
-				Node method = declaration.methods.get(index);
+			while (index < declaration.methods().len) {
+				Node method = declaration.methods().get(index);
 				if (method.name == methodName) { return method; }
 				index = index + 1;
 			}
@@ -598,7 +598,7 @@ class Analyzed {
 		if (!self.interfaceTable.has(name)) { return methods; }
 		Node declaration = self.interfaceTable.get(name);
 		if (declaration.parent != null) { methods = self.interfaceMethods(declaration.parent); }
-		for method in declaration.methods {
+		for method in declaration.methods() {
 			int slot = -1;
 			for index in range(methods.len) { if (methods.get(index).name == method.name) { slot = index; } }
 			if (slot < 0) { methods.push(method); }
@@ -775,8 +775,8 @@ class Analyzed {
 			}
 		}
 		int i = 0;
-		while (i < decl.members.len) {
-			Node m = decl.members.get(i);
+		while (i < decl.members().len) {
+			Node m = decl.members().get(i);
 			if (m.kind == NK_METHOD_DECL && !m.isConstructor && m.name != "__del__") {
 				if (idx.has(m.name)) {
 					out.set(idx.get(m.name), MethodEntry(m.name, m));

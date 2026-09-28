@@ -36,15 +36,15 @@ class CycleSemantics {
 		root.base = instance.base;
 		int index = 0;
 		while (index < instance.args.len) {
-			root.genericArgs.push(instance.args.get(index));
+			root.genericArgsMut().push(instance.args.get(index));
 			index = index + 1;
 		}
 		return root;
 	}
 
 	private string typeKey(Node typeExpr) {
-		if (typeExpr.genericArgs.len > 0) {
-			return "generic:" + TypeIdentity.genericInstanceKey(typeExpr.base, typeExpr.genericArgs);
+		if (typeExpr.genericArgs().len > 0) {
+			return "generic:" + TypeIdentity.genericInstanceKey(typeExpr.base, typeExpr.genericArgs());
 		}
 		return "class:" + TypeIdentity.field("b", TypeIdentity.utf8Hex(typeExpr.base));
 	}
@@ -64,7 +64,7 @@ class CycleSemantics {
 			return;
 		}
 		if (!self.isGraphManaged(resolved)) { return; }
-		if (resolved.genericArgs.len == 0 && (self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base))) {
+		if (resolved.genericArgs().len == 0 && (self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base))) {
 			for runtimeClass in self.analyzed.subclassesOf(resolved.base) {
 				output.push(SemanticTypeSystem.primitive(runtimeClass));
 			}
@@ -86,8 +86,8 @@ class CycleSemantics {
 			self.collectClassFields(parent, output);
 		}
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			if (DeclarationRegistry.instanceStorageName(member) != "") {
 				output.push(member);
 			}
@@ -97,22 +97,22 @@ class CycleSemantics {
 
 	private void appendCollectionStorageRefs(Node typeExpr, Vector<Node> output) {
 		if (typeExpr.base == "List") {
-			if (typeExpr.genericArgs.len != 1) { return; }
+			if (typeExpr.genericArgs().len != 1) { return; }
 			Node nodeType = Node();
 			nodeType.kind = NK_TYPE_EXPR;
 			nodeType.base = "ListNode";
-			nodeType.genericArgs.push(typeExpr.genericArgs.get(0));
+			nodeType.genericArgsMut().push(typeExpr.genericArgs().get(0));
 			self.appendRuntimeTypes(nodeType, output);
 			return;
 		}
 		if (typeExpr.base == "Map") {
-			if (typeExpr.genericArgs.len != 2) { return; }
-			self.appendRuntimeTypes(typeExpr.genericArgs.get(0), output);
-			self.appendRuntimeTypes(typeExpr.genericArgs.get(1), output);
+			if (typeExpr.genericArgs().len != 2) { return; }
+			self.appendRuntimeTypes(typeExpr.genericArgs().get(0), output);
+			self.appendRuntimeTypes(typeExpr.genericArgs().get(1), output);
 			return;
 		}
-		if ((typeExpr.base == "Vector" || typeExpr.base == "Array" || typeExpr.base == "Set") && typeExpr.genericArgs.len == 1) {
-			self.appendRuntimeTypes(typeExpr.genericArgs.get(0), output);
+		if ((typeExpr.base == "Vector" || typeExpr.base == "Array" || typeExpr.base == "Set") && typeExpr.genericArgs().len == 1) {
+			self.appendRuntimeTypes(typeExpr.genericArgs().get(0), output);
 		}
 	}
 
@@ -125,24 +125,24 @@ class CycleSemantics {
 			self.appendRuntimeTypes(mutexPayload, output);
 			return;
 		}
-		if (resolvedType.genericArgs.len > 0 && self.isCollection(resolvedType.base)) {
+		if (resolvedType.genericArgs().len > 0 && self.isCollection(resolvedType.base)) {
 			/* Built-in collections store elements in compiler-known raw
              * backing layouts. Traverse those actual stored element types,
              * rather than every generic argument of every generic class. */
 			self.appendCollectionStorageRefs(resolvedType, output);
 			return;
 		}
-		if (resolvedType.genericArgs.len > 0 && self.analyzed.isGenericClass(resolvedType.base)) {
+		if (resolvedType.genericArgs().len > 0 && self.analyzed.isGenericClass(resolvedType.base)) {
 			Node declaration = self.analyzed.genericClassTable.get(resolvedType.base);
 			Map<string, Node> substitutions = {};
 			int parameter = 0;
-			while (parameter < declaration.genericParams().len && parameter < resolvedType.genericArgs.len) {
-				substitutions.put(declaration.genericParams().get(parameter), resolvedType.genericArgs.get(parameter));
+			while (parameter < declaration.genericParams().len && parameter < resolvedType.genericArgs().len) {
+				substitutions.put(declaration.genericParams().get(parameter), resolvedType.genericArgs().get(parameter));
 				parameter = parameter + 1;
 			}
 			int memberIndex = 0;
-			while (memberIndex < declaration.members.len) {
-				Node member = declaration.members.get(memberIndex);
+			while (memberIndex < declaration.members().len) {
+				Node member = declaration.members().get(memberIndex);
 				if (DeclarationRegistry.instanceStorageName(member) != "") {
 					Node resolved = SemanticTypeSystem.resolveGenericType(member.type, substitutions, self.analyzed);
 					self.appendRuntimeTypes(resolved, output);
@@ -218,8 +218,8 @@ class CycleSemantics {
 			parameter = parameter + 1;
 		}
 		int member = 0;
-		while (member < declaration.members.len) {
-			Node field = declaration.members.get(member);
+		while (member < declaration.members().len) {
+			Node field = declaration.members().get(member);
 			if (DeclarationRegistry.instanceStorageName(field) != "") {
 				Node resolved = SemanticTypeSystem.resolveGenericType(field.type, substitutions, self.analyzed);
 				if (self.isGraphManaged(resolved)) { return true; }

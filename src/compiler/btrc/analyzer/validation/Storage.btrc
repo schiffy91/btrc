@@ -173,7 +173,7 @@ class StorageValidator {
 	public bool staticInitializer(Node? expression, Node? expected) {
 		if (expression == null) { return true; }
 		bool literal = expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_LIST_LITERAL;
-		if (literal && expected != null && expected.genericArgs.len > 0 && expected.base != "Tuple" && expected.base != "__fn_ptr" && expected.base != "__realtime_fn_ptr" && (self.state.analyzed.isGenericClass(expected.base) || self.types.runtimeTypeBase(expected.base))) {
+		if (literal && expected != null && expected.genericArgs().len > 0 && expected.base != "Tuple" && expected.base != "__fn_ptr" && expected.base != "__realtime_fn_ptr" && (self.state.analyzed.isGenericClass(expected.base) || self.types.runtimeTypeBase(expected.base))) {
 			/* Collection/class literals allocate and populate at runtime; their
              * brace spelling is not a C aggregate constant initializer. A null
              * or other constant initializer of such a field is static storage
@@ -207,8 +207,8 @@ class StorageValidator {
 			if (declaration == null) { current = ""; }
 			else {
 				int index = 0;
-				while (index < declaration.members.len) {
-					Node member = declaration.members.get(index);
+				while (index < declaration.members().len) {
+					Node member = declaration.members().get(index);
 					if (member.kind == NK_METHOD_DECL && member.name == method.name && member.access == method.access) {
 						owner = current;
 						current = "";
@@ -236,8 +236,8 @@ class StorageValidator {
 			self.collectClassStorageSeen(parent, analyzed, output, visited);
 		}
 		int index = 0;
-		while (index < declaration.members.len) {
-			string storage = DeclarationRegistry.instanceStorageName(declaration.members.get(index));
+		while (index < declaration.members().len) {
+			string storage = DeclarationRegistry.instanceStorageName(declaration.members().get(index));
 			if (storage != "") { output.put(storage, true); }
 			index = index + 1;
 		}
@@ -255,8 +255,8 @@ class StorageValidator {
 			visited.put(current, true);
 			Node declaration = analyzed.classTable.get(current);
 			int index = 0;
-			while (index < declaration.members.len) {
-				Node member = declaration.members.get(index);
+			while (index < declaration.members().len) {
+				Node member = declaration.members().get(index);
 				if (member.name == memberName && !(member.kind == NK_METHOD_DECL && member.isConstructor)) {
 					return member;
 				}
@@ -283,8 +283,8 @@ class StorageValidator {
 		if (declaration == null) { return ""; }
 		visited.put(className, true);
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			if (member.kind == NK_PROPERTY_DECL) { return member.name; }
 			index = index + 1;
 		}
@@ -309,8 +309,8 @@ class StorageValidator {
 		storageNames.put("__rc", true);
 		storageNames.put("__cycle_safe_rc", true);
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			if (declaration.genericParams().len > 0 && member.kind == NK_FIELD_DECL && member.access == "class") {
 				TypeValidator.fail("Static field '" + declaration.name + "." + member.name + "' is not supported on a generic class", member);
 			}
@@ -339,8 +339,8 @@ class StorageValidator {
 		string parent = DeclarationRegistry.parentName(declaration);
 		if (parent == "" || !self.state.analyzed.classTable.has(parent)) { return; }
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			Node? inherited = self.inheritedClassMember(parent, member.name, self.state.analyzed);
 			if (inherited != null) {
 				bool conflict = (member.kind == NK_PROPERTY_DECL && inherited.kind != NK_PROPERTY_DECL) || (member.kind != NK_PROPERTY_DECL && inherited.kind == NK_PROPERTY_DECL);
@@ -358,8 +358,8 @@ class StorageValidator {
 		Map<string, bool> inheritedStorage = {};
 		self.collectClassStorage(parent, self.state.analyzed, inheritedStorage);
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			string storage = DeclarationRegistry.instanceStorageName(member);
 			if (storage != "" && inheritedStorage.has(storage)) {
 				TypeValidator.fail("Instance storage '" + storage + "' in class '" + declaration.name + "' conflicts with inherited storage", member);
@@ -542,8 +542,8 @@ class StorageValidator {
 		if (!self.state.analyzed.structTable.has(structName)) { return null; }
 		Node structure = self.state.analyzed.structTable.get(structName);
 		int index = 0;
-		while (index < structure.fields.len) {
-			Node field = structure.fields.get(index);
+		while (index < structure.fields().len) {
+			Node field = structure.fields().get(index);
 			if (field.name == target.field) { return field; }
 			index = index + 1;
 		}
@@ -628,7 +628,7 @@ class StorageValidator {
 	public bool arrayTargetHasCapacity(Node? expression, Node? inferredType, Map<string, Node> vars) {
 		Node? resolvedType = self.types.resolveAliases(inferredType);
 		if (expression == null || resolvedType == null) { return false; }
-		if ((resolvedType.base == "Array" || resolvedType.base == "Vector") && resolvedType.genericArgs.len > 0) {
+		if ((resolvedType.base == "Array" || resolvedType.base == "Vector") && resolvedType.genericArgs().len > 0) {
 			return self.types.gpuOutputCollectionType(resolvedType);
 		}
 		if (!resolvedType.isArray) { return false; }
@@ -680,8 +680,8 @@ class StorageValidator {
 	public Node? gpuBufferElementType(Node? typeExpr) {
 		Node? canonical = self.types.resolveAliases(typeExpr);
 		if (canonical == null) { return null; }
-		if ((canonical.base == "Array" || canonical.base == "Vector") && canonical.genericArgs.len == 1) {
-			return self.types.resolveAliases(canonical.genericArgs.get(0));
+		if ((canonical.base == "Array" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {
+			return self.types.resolveAliases(canonical.genericArgs().get(0));
 		}
 		if (canonical.isArray) {
 			return self.types.resolveAliases(self.types.arrayElementType(canonical));
@@ -824,8 +824,8 @@ class StorageValidator {
 		if (declaration.isForward) { return false; }
 		visiting.put(name, true);
 		int index = 0;
-		while (index < declaration.fields.len) {
-			Node field = declaration.fields.get(index);
+		while (index < declaration.fields().len) {
+			Node field = declaration.fields().get(index);
 			if ((field.type.isConst && field.type.pointerDepth == 0) || self.structContainsConst(field.type, analyzed, visiting)) {
 				return true;
 			}
@@ -1008,12 +1008,12 @@ class StorageValidator {
 		return StorageValidator.indexedMethod(objectType, name, self.state.analyzed);
 	}
 
-	class bool validIndexedGetter(Node? method) { return method != null && method.access != "class" && method.genericParams().len == 0 && method.params.len == 1 && !method.params.get(0).keep_ && method.returnType != null && !TypeValidator.scalarVoid(method.returnType); }
+	class bool validIndexedGetter(Node? method) { return method != null && method.access != "class" && method.genericParams().len == 0 && method.params().len == 1 && !method.params().get(0).keep_ && method.returnType != null && !TypeValidator.scalarVoid(method.returnType); }
 
-	class bool validIndexedSetter(Node? method) { return method != null && method.access != "class" && method.genericParams().len == 0 && method.params.len == 2 && !method.params.get(0).keep_ && TypeValidator.scalarVoid(method.returnType); }
+	class bool validIndexedSetter(Node? method) { return method != null && method.access != "class" && method.genericParams().len == 0 && method.params().len == 2 && !method.params().get(0).keep_ && TypeValidator.scalarVoid(method.returnType); }
 
 	class Node resolvedIndexedType(Node declared, Node objectType, Analyzed analyzed) {
-		if (analyzed.isGenericClass(objectType.base) && objectType.genericArgs.len > 0) {
+		if (analyzed.isGenericClass(objectType.base) && objectType.genericArgs().len > 0) {
 			return SemanticTypeSystem.resolveGenericType(declared, SemanticTypeSystem.genericTypeMap(analyzed, objectType), analyzed);
 		}
 		return declared;
@@ -1057,7 +1057,7 @@ class StorageValidator {
 			Node? setter = self.indexedMethodInState(objectType, "set");
 			if (StorageValidator.validIndexedSetter(setter)) {
 				Node concreteSetter = setter;
-				result = concreteSetter.params.get(1).type;
+				result = concreteSetter.params().get(1).type;
 			}
 		}
 		if (result == null) { return null; }
@@ -1065,8 +1065,8 @@ class StorageValidator {
 	}
 
 	public Node? indexParameterType(Node objectType, Node method, Analyzed analyzed) {
-		if (method.params.len == 0) { return null; }
-		return StorageValidator.resolvedIndexedType(method.params.get(0).type, objectType, analyzed);
+		if (method.params().len == 0) { return null; }
+		return StorageValidator.resolvedIndexedType(method.params().get(0).type, objectType, analyzed);
 	}
 
 	public Node? indexedSetterValueType(Node? target, Map<string, Node> vars) {
@@ -1078,7 +1078,7 @@ class StorageValidator {
 		Node? setter = self.indexedMethodInState(receiver, "set");
 		if (!StorageValidator.validIndexedSetter(setter)) { return null; }
 		Node concreteSetter = setter;
-		return StorageValidator.resolvedIndexedType(concreteSetter.params.get(1).type, receiver, self.state.analyzed);
+		return StorageValidator.resolvedIndexedType(concreteSetter.params().get(1).type, receiver, self.state.analyzed);
 	}
 
 	public void validateIndex(Node expression, Map<string, Node> vars, bool requireGetter) {
@@ -1138,20 +1138,20 @@ class StorageValidator {
 			Node concreteGetter = getter;
 			self.validateMethodAccess(receiver.base, concreteGetter, site);
 		}
-		Node expectedIndex = StorageValidator.resolvedIndexedType(concreteSetter.params.get(0).type, receiver, self.state.analyzed);
+		Node expectedIndex = StorageValidator.resolvedIndexedType(concreteSetter.params().get(0).type, receiver, self.state.analyzed);
 		Node? actualIndex = self.types.inferType(target.index,  vars);
 		if (actualIndex != null && !self.types.assignmentCompatible(expectedIndex, actualIndex)) {
 			TypeValidator.fail("Indexed setter expects index type '" + self.types.formatType(expectedIndex) + "' but got '" + self.types.formatType(actualIndex) + "'", target.index);
 		}
 		if (requireGetter) {
 			Node concreteGetter = getter;
-			Node getterIndex = StorageValidator.resolvedIndexedType(concreteGetter.params.get(0).type, receiver, self.state.analyzed);
+			Node getterIndex = StorageValidator.resolvedIndexedType(concreteGetter.params().get(0).type, receiver, self.state.analyzed);
 			if (actualIndex != null && !self.types.assignmentCompatible(getterIndex, actualIndex)) {
 				TypeValidator.fail("Indexed getter expects index type '" + self.types.formatType(getterIndex) + "' but got '" + self.types.formatType(actualIndex) + "'", target.index);
 			}
 		}
 
-		Node expectedValue = StorageValidator.resolvedIndexedType(concreteSetter.params.get(1).type, receiver, self.state.analyzed);
+		Node expectedValue = StorageValidator.resolvedIndexedType(concreteSetter.params().get(1).type, receiver, self.state.analyzed);
 		Node? actualValue = self.indexResultTypeInState(receiver);
 		if (site.kind == NK_ASSIGN_EXPR && site.op == "=") {
 			actualValue = self.types.inferType(site.valueNode,  vars);
@@ -1355,7 +1355,7 @@ class StorageValidator {
 			Node? canonicalTarget = self.types.resolveAliases(target);
 			/* Match reference template validation for literal null only. Storage,
 			 * mutability and ownership checks must still run for the target. */
-			genericNull = expression.valueNode.kind == NK_NULL_LITERAL && canonicalTarget != null && canonicalTarget.genericArgs.len == 0 && self.state.typeParams.has(canonicalTarget.base);
+			genericNull = expression.valueNode.kind == NK_NULL_LITERAL && canonicalTarget != null && canonicalTarget.genericArgs().len == 0 && self.state.typeParams.has(canonicalTarget.base);
 			Node? qualifiedTarget = self.qualifierDeclaredType(expression.target, vars);
 			if (setterType != null) { qualifiedTarget = setterType; }
 			self.validateReferenceQualifiers(qualifiedTarget, expression.valueNode, "Assignment", vars);
@@ -1391,8 +1391,8 @@ class StorageValidator {
 		Node? overload = self.types.binaryOverloadMethod(target, op);
 		if (overload != null) {
 			Node concreteOverload = overload;
-			if (concreteOverload.params.len > 0) {
-				Node expected = self.types.resolvedBinaryOverloadType(concreteOverload.params.get(0).type, target);
+			if (concreteOverload.params().len > 0) {
+				Node expected = self.types.resolvedBinaryOverloadType(concreteOverload.params().get(0).type, target);
 				if (!self.types.assignmentCompatible(expected, source)) {
 					TypeValidator.fail("Operator '" + op + "' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(source) + "'", expression);
 				}

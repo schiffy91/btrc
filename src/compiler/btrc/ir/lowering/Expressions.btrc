@@ -219,14 +219,14 @@ class ExpressionLowerer {
 			return null;
 		}
 		Node concreteSetter = setter;
-		Node indexType = StorageValidator.resolvedIndexedType(concreteSetter.params.get(0).type, receiver, self.analyzed);
-		Node valueType = StorageValidator.resolvedIndexedType(concreteSetter.params.get(1).type, receiver, self.analyzed);
+		Node indexType = StorageValidator.resolvedIndexedType(concreteSetter.params().get(0).type, receiver, self.analyzed);
+		Node valueType = StorageValidator.resolvedIndexedType(concreteSetter.params().get(1).type, receiver, self.analyzed);
 		Node? actualIndexType = self.resolvedExpressionType(target.index, varTypes);
 		if (actualIndexType == null) { actualIndexType = indexType; }
 		Node? actualType = self.resolvedExpressionType(expression.valueNode, varTypes);
 		if (actualType == null) { actualType = valueType; }
 		bool targetManaged = self.managedValues.isManaged(self.cTypes.resolveBodyType(valueType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
-		bool keepValue = targetManaged && concreteSetter.params.get(1).keep_;
+		bool keepValue = targetManaged && concreteSetter.params().get(1).keep_;
 		bool converted = self.strings.requiresTargetStringConversion(valueType, actualType);
 		bool indexConverted = self.strings.requiresTargetStringConversion(indexType, actualIndexType);
 		if (!targetManaged && !converted && !indexConverted) {
@@ -314,7 +314,7 @@ class ExpressionLowerer {
 		Node? expectedIndexType = indexType;
 		if (sourceGetter) {
 			Node concreteGetter = getter;
-			expectedIndexType = StorageValidator.resolvedIndexedType(concreteGetter.params.get(0).type, objectType, self.analyzed);
+			expectedIndexType = StorageValidator.resolvedIndexedType(concreteGetter.params().get(0).type, objectType, self.analyzed);
 		}
 		bool indexConverted = sourceGetter && self.strings.requiresTargetStringConversion(expectedIndexType, indexType);
 		bool objectPinned = !objectOwned && (sourceGetter || (orderingRequired && indexHasEffect)) && self.managedValues.isManaged(self.cTypes.resolveBodyType(objectType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && expression.obj.kind != NK_SELF_EXPR && expression.obj.kind != NK_SUPER_EXPR;
@@ -361,10 +361,10 @@ class ExpressionLowerer {
 		Node? rightType = self.resolvedExpressionType(expression.right, varTypes);
 		Node? overload = self.ownershipSemantics.binaryMethod(leftType, expression.op);
 		Node? rightTargetType = rightType;
-		if (overload != null && overload.params.len > 0) {
-			rightTargetType = self.cTypes.resolveBodyType(overload.params.get(0).type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
-			if (leftType != null && leftType.genericArgs.len > 0 && self.analyzed.isGenericClass(leftType.base)) {
-				rightTargetType = SemanticTypeSystem.resolveGenericType(overload.params.get(0).type, SemanticTypeSystem.genericTypeMap(self.analyzed, leftType), self.analyzed);
+		if (overload != null && overload.params().len > 0) {
+			rightTargetType = self.cTypes.resolveBodyType(overload.params().get(0).type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+			if (leftType != null && leftType.genericArgs().len > 0 && self.analyzed.isGenericClass(leftType.base)) {
+				rightTargetType = SemanticTypeSystem.resolveGenericType(overload.params().get(0).type, SemanticTypeSystem.genericTypeMap(self.analyzed, leftType), self.analyzed);
 			}
 		}
 		bool rightOwned = self.ownershipSemantics.contextualUnconsumedOwnedResult(expression.right, rightTargetType, environment, callableFlow);
@@ -1171,8 +1171,8 @@ class ExpressionLowerer {
 			Node? resultType = null;
 			if (fnType != null) {
 				fnType = SemanticTypeSystem.resolveTypedefType(fnType, self.analyzed.typedefTable);
-				if (fnType != null && (fnType.base == "__fn_ptr" || fnType.base == "__realtime_fn_ptr") && fnType.genericArgs.len > 0) {
-					resultType = fnType.genericArgs.get(0);
+				if (fnType != null && (fnType.base == "__fn_ptr" || fnType.base == "__realtime_fn_ptr") && fnType.genericArgs().len > 0) {
+					resultType = fnType.genericArgs().get(0);
 				}
 			}
 			self.concurrency.appendThreadResultDisposal(sargs, resultType);
@@ -1221,7 +1221,7 @@ class ExpressionLowerer {
 		}
 		if (target.kind == NK_FIELD_ACCESS_EXPR && target.obj != null) {
 			Node? receiverType = self.resolvedExpressionType(target.obj, varTypes);
-			if (receiverType != null && receiverType.genericArgs.len > 0 && self.analyzed.isGenericClass(receiverType.base)) {
+			if (receiverType != null && receiverType.genericArgs().len > 0 && self.analyzed.isGenericClass(receiverType.base)) {
 				Node? member = SemanticTypeSystem.genericMember(self.analyzed, receiverType.base, target.field);
 				if (member != null && member.type != null) {
 					return self.cTypes.lowerGeneric(member.type, SemanticTypeSystem.genericTypeMap(self.analyzed, receiverType));
@@ -1377,14 +1377,14 @@ class ExpressionLowerer {
 					Node? setter = StorageValidator.indexedMethod(receiverType, "set", self.analyzed);
 					if (StorageValidator.validIndexedSetter(setter)) {
 						Node concreteSetter = setter;
-						valueType = StorageValidator.resolvedIndexedType(concreteSetter.params.get(1).type, receiverType, self.analyzed);
+						valueType = StorageValidator.resolvedIndexedType(concreteSetter.params().get(1).type, receiverType, self.analyzed);
 					}
 				}
 				Node? indexType = self.resolvedExpressionType(target.index, varTypes);
 				Node? setterForIndex = StorageValidator.indexedMethod(receiverType, "set", self.analyzed);
 				if (StorageValidator.validIndexedSetter(setterForIndex)) {
 					Node concreteSetterForIndex = setterForIndex;
-					indexType = StorageValidator.resolvedIndexedType(concreteSetterForIndex.params.get(0).type, receiverType, self.analyzed);
+					indexType = StorageValidator.resolvedIndexedType(concreteSetterForIndex.params().get(0).type, receiverType, self.analyzed);
 				}
 				if (valueType == null || indexType == null) {
 					self.typedOperatorFail("cannot resolve collection assignment target type");
@@ -1410,7 +1410,7 @@ class ExpressionLowerer {
 				sequence.push(IRNode.binary(index, "=", indexValue));
 				string prefix = receiverType.base;
 				if (self.analyzed.isGenericClass(receiverType.base)) {
-					prefix = TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs);
+					prefix = TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs());
 				}
 				if (node.op == "=") {
 					IRNode value = self.lowerAssignedValueRaw(node.valueNode, valueType, varTypes, callableFlow);
@@ -1533,7 +1533,7 @@ class ExpressionLowerer {
 				sequence.push(IRNode.binary(index, "=", self.lowerExpr(target.index, varTypes, callableFlow)));
 				string prefix = receiverType.base;
 				if (self.analyzed.isGenericClass(receiverType.base)) {
-					prefix = TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs);
+					prefix = TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs());
 				}
 				Vector<IRNode> getterArgs = [];
 				getterArgs.push(receiver);
@@ -1670,21 +1670,21 @@ class ExpressionLowerer {
 			Node? method = self.analyzed.classMethod(leftType.base, magic);
 			if (method == null || method.kind != NK_METHOD_DECL) { return null; }
 			IRNode loweredRight = right;
-			if (method.params.len > 0) {
-				loweredRight = self.strings.upcastClassPointer(method.params.get(0).type, rightType, loweredRight);
+			if (method.params().len > 0) {
+				loweredRight = self.strings.upcastClassPointer(method.params().get(0).type, rightType, loweredRight);
 			}
 			Vector<IRNode> args = [];
 			args.push(left);
 			args.push(loweredRight);
 			return IRNode.call(leftType.base + "_" + magic, args);
 		}
-		if (leftType.genericArgs.len > 0 && self.analyzed.isGenericClass(leftType.base)) {
+		if (leftType.genericArgs().len > 0 && self.analyzed.isGenericClass(leftType.base)) {
 			Node? method = self.analyzed.genericClassMethod(leftType.base, magic);
 			if (method == null) { return null; }
 			Vector<IRNode> args = [];
 			args.push(left);
 			args.push(right);
-			return IRNode.call(TypeIdentity.mangleGenericType(leftType.base, leftType.genericArgs) + "_" + magic, args);
+			return IRNode.call(TypeIdentity.mangleGenericType(leftType.base, leftType.genericArgs()) + "_" + magic, args);
 		}
 		return null;
 	}
@@ -2067,10 +2067,10 @@ class ExpressionLowerer {
 			}
 			/* Monomorphized generic-instance __neg__: -box -> <mangled>___neg__(box).
              * Mirrors operators._lower_unary's generic_args branch. */
-			if (!self.context.genericBody && ot != null && ot.genericArgs.len > 0 && self.analyzed.isGenericClass(ot.base)) {
+			if (!self.context.genericBody && ot != null && ot.genericArgs().len > 0 && self.analyzed.isGenericClass(ot.base)) {
 				Node? gmm = self.analyzed.genericClassMethod(ot.base, "__neg__");
 				if (gmm != null) {
-					string gmangled = TypeIdentity.mangleGenericType(ot.base, ot.genericArgs);
+					string gmangled = TypeIdentity.mangleGenericType(ot.base, ot.genericArgs());
 					Vector<IRNode> gnargs = [];
 					gnargs.push(operand);
 					return IRNode.call(gmangled + "___neg__", gnargs);
@@ -2112,9 +2112,9 @@ class ExpressionLowerer {
 		string mangled = "btrc_Vector_int";
 		Node? elementExpected = null;
 		Node concreteExpected = self.cTypes.resolveBodyType(expected, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
-		if (expected != null && concreteExpected.genericArgs.len > 0) {
-			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs);
-			elementExpected = concreteExpected.genericArgs.get(0);
+		if (expected != null && concreteExpected.genericArgs().len > 0) {
+			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
+			elementExpected = concreteExpected.genericArgs().get(0);
 		} else if (node.elements().len > 0) {
 			Node? et = self.resolvedExpressionType(node.elements().get(0), varTypes);
 			if (et != null) {
@@ -2123,13 +2123,13 @@ class ExpressionLowerer {
 				/* The upgrade below writes pointer depths: never into the
 				 * inferred type, which may be a declaration's own type node. */
 				ga.push(TypeShape.copyTree(et));
-				vt.genericArgs = ga;
+				vt.genericArgsStorage = ga;
 				/* Class element types must be upgraded to pointers so the inferred
                  * mangle matches the registered instance (`btrc_Vector_GraphNode_p1`,
                  * not `btrc_Vector_GraphNode`). */
 				SemanticTypeSystem.upgradeConcreteTypeGenericArgs(vt, self.analyzed);
-				mangled = TypeIdentity.mangleGenericType("Vector", vt.genericArgs);
-				elementExpected = vt.genericArgs.get(0);
+				mangled = TypeIdentity.mangleGenericType("Vector", vt.genericArgs());
+				elementExpected = vt.genericArgs().get(0);
 			}
 		}
 		/* An empty literal evaluates nothing between its allocation and its
@@ -2176,9 +2176,9 @@ class ExpressionLowerer {
 				Vector<string> expectedFields = [];
 				Vector<IRNode> expectedValues = [];
 				int expectedIndex = 0;
-				while (expectedIndex < node.elements().len && expectedIndex < concrete.genericArgs.len) {
+				while (expectedIndex < node.elements().len && expectedIndex < concrete.genericArgs().len) {
 					expectedFields.push("_" + Strings.fromInt(expectedIndex));
-					expectedValues.push(self.lowerAssignedValue(node.elements().get(expectedIndex), concrete.genericArgs.get(expectedIndex), varTypes, callableFlow));
+					expectedValues.push(self.lowerAssignedValue(node.elements().get(expectedIndex), concrete.genericArgs().get(expectedIndex), varTypes, callableFlow));
 					expectedIndex = expectedIndex + 1;
 				}
 				return IRNode.compoundLiteral(self.cTypes.lower(concrete), expectedFields, expectedValues);
@@ -2205,9 +2205,9 @@ class ExpressionLowerer {
          * and Python's _lower_tuple, which mangles the node's (already
          * pointer-upgraded) declared type. */
 		Node tt = SemanticTypeSystem.primitive("Tuple");
-		tt.genericArgs = elemTypes;
+		tt.genericArgsStorage = elemTypes;
 		SemanticTypeSystem.upgradeConcreteTypeGenericArgs(tt, self.analyzed);
-		string mangled = TypeIdentity.mangleGenericSymbol("Tuple", tt.genericArgs);
+		string mangled = TypeIdentity.mangleGenericSymbol("Tuple", tt.genericArgs());
 		Vector<string> fields = [];
 		Vector<IRNode> elems = [];
 		int j = 0;
@@ -2293,10 +2293,10 @@ class ExpressionLowerer {
 		Node? keyExpected = null;
 		Node? valueExpected = null;
 		Node concreteExpected = self.cTypes.resolveBodyType(expected, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
-		if (expected != null && concreteExpected.genericArgs.len > 1) {
-			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs);
-			keyExpected = concreteExpected.genericArgs.get(0);
-			valueExpected = concreteExpected.genericArgs.get(1);
+		if (expected != null && concreteExpected.genericArgs().len > 1) {
+			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
+			keyExpected = concreteExpected.genericArgs().get(0);
+			valueExpected = concreteExpected.genericArgs().get(1);
 		} else if (node.entries().len > 0) {
 			Node ent0 = node.entries().get(0);
 			Node? kt = self.resolvedExpressionType(ent0.key, varTypes);
@@ -2306,13 +2306,13 @@ class ExpressionLowerer {
 				Vector<Node> ga = [];
 				ga.push(TypeShape.copyTree(kt));
 				ga.push(TypeShape.copyTree(vt));
-				mt.genericArgs = ga;
+				mt.genericArgsStorage = ga;
 				/* Class key/value types upgrade to pointers so the mangle matches
                  * the registered instance (e.g. `btrc_Map_int_OwnedItem_p1`). */
 				SemanticTypeSystem.upgradeConcreteTypeGenericArgs(mt, self.analyzed);
-				mangled = TypeIdentity.mangleGenericType("Map", mt.genericArgs);
-				keyExpected = mt.genericArgs.get(0);
-				valueExpected = mt.genericArgs.get(1);
+				mangled = TypeIdentity.mangleGenericType("Map", mt.genericArgs());
+				keyExpected = mt.genericArgs().get(0);
+				valueExpected = mt.genericArgs().get(1);
 			}
 		}
 		if (node.entries().len == 0) {
@@ -2380,9 +2380,9 @@ class ExpressionLowerer {
 				Vector<string> tupleFields = [];
 				Vector<IRNode> tupleValues = [];
 				int tupleIndex = 0;
-				while (tupleIndex < node.elements().len && tupleIndex < aggregateType.genericArgs.len) {
+				while (tupleIndex < node.elements().len && tupleIndex < aggregateType.genericArgs().len) {
 					tupleFields.push("_" + Strings.fromInt(tupleIndex));
-					tupleValues.push(self.lowerAssignedValue(node.elements().get(tupleIndex), aggregateType.genericArgs.get(tupleIndex), varTypes, callableFlow));
+					tupleValues.push(self.lowerAssignedValue(node.elements().get(tupleIndex), aggregateType.genericArgs().get(tupleIndex), varTypes, callableFlow));
 					tupleIndex = tupleIndex + 1;
 				}
 				return IRNode.compoundLiteral(self.cTypes.lower(aggregateType), tupleFields, tupleValues);
@@ -2393,8 +2393,8 @@ class ExpressionLowerer {
 				Vector<string> fields = [];
 				Vector<IRNode> values = [];
 				int fieldIndex = 0;
-				while (fieldIndex < node.elements().len && fieldIndex < declaration.fields.len) {
-					Node field = declaration.fields.get(fieldIndex);
+				while (fieldIndex < node.elements().len && fieldIndex < declaration.fields().len) {
+					Node field = declaration.fields().get(fieldIndex);
 					fields.push(field.name);
 					values.push(self.lowerAssignedValue(node.elements().get(fieldIndex), field.type, varTypes, callableFlow));
 					fieldIndex = fieldIndex + 1;
@@ -2403,8 +2403,8 @@ class ExpressionLowerer {
 			}
 		}
 		if (node.elements().len == 0) {
-			if (expected != null && expected.genericArgs.len > 0 && self.analyzed.isGenericClass(expected.base)) {
-				string mangled = TypeIdentity.mangleGenericType(expected.base, expected.genericArgs);
+			if (expected != null && expected.genericArgs().len > 0 && self.analyzed.isGenericClass(expected.base)) {
+				string mangled = TypeIdentity.mangleGenericType(expected.base, expected.genericArgs());
 				Vector<IRNode> newArgs = [];
 				return IRNode.call(mangled + "_new", newArgs);
 			}
@@ -2499,7 +2499,7 @@ class ExpressionLowerer {
 		Node? resultType = self.resolvedExpressionType(node, varTypes);
 		self.operandPlanner.requireType(resultType, node);
 		Node spanType = resultType;
-		Node element = spanType.genericArgs.get(0);
+		Node element = spanType.genericArgs().get(0);
 		IRNode extent = IRNode.literal("0");
 		if (args.len == 1) {
 			Node? sourceType = self.resolvedExpressionType(node.args().get(0), varTypes);
@@ -2534,7 +2534,7 @@ class ExpressionLowerer {
 	}
 
 	private IRNode lowerSpanMethod(IRNode receiver, string method, Node receiverType, Vector<IRNode> args) {
-		Node element = receiverType.genericArgs.get(0);
+		Node element = receiverType.genericArgs().get(0);
 		string spanName = self.context.freshTemporary("__btrc_span");
 		IRNode span = IRNode.variable(spanName);
 		Vector<IRNode> declarations = [];
@@ -2795,21 +2795,21 @@ class ExpressionLowerer {
 		}
 		/* Thread<T> methods: .join() -> __btrc_thread_join with result unboxing
          * (mirrors methods._lower_thread_method). */
-		if (ot != null && ot.base == "Thread" && ot.genericArgs.len > 0) {
+		if (ot != null && ot.base == "Thread" && ot.genericArgs().len > 0) {
 			IRNode obj = self.lowerExpr(objNode, varTypes, callableFlow);
 			return self.concurrency.lowerThreadMethod(obj, method, ot);
 		}
 		/* Mutex<T> methods: .get(), .set(v), .destroy() (mirrors
          * methods._lower_mutex_method). */
-		if (ot != null && ot.base == "Mutex" && ot.genericArgs.len > 0) {
+		if (ot != null && ot.base == "Mutex" && ot.genericArgs().len > 0) {
 			IRNode obj = self.lowerExpr(objNode, varTypes, callableFlow);
 			return self.concurrency.lowerMutexMethod(obj, method, ot, arguments);
 		}
-		if (ot != null && ot.base == "Atomic" && ot.genericArgs.len > 0) {
+		if (ot != null && ot.base == "Atomic" && ot.genericArgs().len > 0) {
 			IRNode obj = self.lowerExpr(objNode, varTypes, callableFlow);
 			return self.concurrency.lowerAtomicMethod(obj, method, ot, arguments);
 		}
-		if (ot != null && ot.base == "Span" && ot.genericArgs.len > 0) {
+		if (ot != null && ot.base == "Span" && ot.genericArgs().len > 0) {
 			IRNode obj = self.lowerExpr(objNode, varTypes, callableFlow);
 			return self.lowerSpanMethod(obj, method, ot, arguments);
 		}
@@ -2854,8 +2854,8 @@ class ExpressionLowerer {
 			Node variant = declaration.variants().get(variantIndex);
 			if (variant.name == node.obj.field) {
 				int parameterIndex = 0;
-				while (parameterIndex < variant.params.len) {
-					if (variant.params.get(parameterIndex).name == node.field) {
+				while (parameterIndex < variant.params().len) {
+					if (variant.params().get(parameterIndex).name == node.field) {
 						return self.hostedAbi.lexicalBindingCName(node.field, false);
 					}
 					parameterIndex = parameterIndex + 1;
@@ -2961,7 +2961,7 @@ class ExpressionLowerer {
 		if (objectType != null && !StorageValidator.rawIndexedPointer(objectType, self.analyzed) && StorageValidator.validIndexedGetter(StorageValidator.indexedMethod(objectType, "get", self.analyzed))) {
 			string prefix = objectType.base;
 			if (self.analyzed.isGenericClass(objectType.base)) {
-				prefix = TypeIdentity.mangleGenericType(objectType.base, objectType.genericArgs);
+				prefix = TypeIdentity.mangleGenericType(objectType.base, objectType.genericArgs());
 			}
 			Vector<IRNode> arguments = [];
 			arguments.push(object);
@@ -3303,8 +3303,8 @@ class ExpressionLowerer {
 			return TypeShape.withoutOuterArray(canonical);
 		}
 		if (canonical.base == "Tuple") {
-			if (index < canonical.genericArgs.len) {
-				return canonical.genericArgs.get(index);
+			if (index < canonical.genericArgs().len) {
+				return canonical.genericArgs().get(index);
 			}
 			return null;
 		}
@@ -3313,10 +3313,10 @@ class ExpressionLowerer {
 			return null;
 		}
 		Node declaration = self.analyzed.structTable.get(structName);
-		if (declaration.isForward || index >= declaration.fields.len) {
+		if (declaration.isForward || index >= declaration.fields().len) {
 			return null;
 		}
-		return declaration.fields.get(index).type;
+		return declaration.fields().get(index).type;
 	}
 
 	private int staticInitializerFieldCount(Node? aggregateType) {
@@ -3324,14 +3324,14 @@ class ExpressionLowerer {
 		if (canonicalType == null) { return -1; }
 		Node canonical = canonicalType;
 		if (canonical.isArray) { return -1; }
-		if (canonical.base == "Tuple") { return canonical.genericArgs.len; }
+		if (canonical.base == "Tuple") { return canonical.genericArgs().len; }
 		string structName = StorageValidator.structTypeName(canonical, self.analyzed);
 		if (structName == "" || !self.analyzed.structTable.has(structName)) {
 			return -1;
 		}
 		Node declaration = self.analyzed.structTable.get(structName);
 		if (declaration.isForward) { return -1; }
-		return declaration.fields.len;
+		return declaration.fields().len;
 	}
 
 	private IRNode zeroStaticInitializer(Node? expected) {
@@ -3664,7 +3664,7 @@ class ExpressionLowerer {
 	private Node resolvedCompoundOverloadType(Node? declaredType, Node receiverType) {
 		Node resolved = SemanticTypeSystem.primitive("void");
 		if (declaredType != null) { resolved = declaredType; }
-		if (receiverType.genericArgs.len > 0 && self.analyzed.isGenericClass(receiverType.base)) {
+		if (receiverType.genericArgs().len > 0 && self.analyzed.isGenericClass(receiverType.base)) {
 			resolved = SemanticTypeSystem.resolveGenericType(declaredType, SemanticTypeSystem.genericTypeMap(self.analyzed, receiverType), self.analyzed);
 		}
 		Node? canonical = self.concreteCompoundType(resolved);
@@ -3676,7 +3676,7 @@ class ExpressionLowerer {
 		return concrete;
 	}
 
-	private bool compoundTypeShapeCompatible(Node targetType, Node sourceType) { return targetType.base == sourceType.base && self.operators.valueDepth(targetType) == self.operators.valueDepth(sourceType) && targetType.isArray == sourceType.isArray && self.operators.genericArgsEqual(targetType.genericArgs, sourceType.genericArgs); }
+	private bool compoundTypeShapeCompatible(Node targetType, Node sourceType) { return targetType.base == sourceType.base && self.operators.valueDepth(targetType) == self.operators.valueDepth(sourceType) && targetType.isArray == sourceType.isArray && self.operators.genericArgsEqual(targetType.genericArgs(), sourceType.genericArgs()); }
 
 	private bool compoundOverloadArgumentCompatible(Node expectedType, Node actualType) {
 		if (self.compoundTypeShapeCompatible(expectedType, actualType)) {
@@ -3685,7 +3685,7 @@ class ExpressionLowerer {
 		if (self.operators.isNullType(actualType)) {
 			return self.operators.isReferenceType(expectedType);
 		}
-		if (actualType.isArray && !expectedType.isArray && expectedType.base == actualType.base && expectedType.pointerDepth == actualType.pointerDepth + 1 && self.operators.genericArgsEqual(expectedType.genericArgs, actualType.genericArgs)) {
+		if (actualType.isArray && !expectedType.isArray && expectedType.base == actualType.base && expectedType.pointerDepth == actualType.pointerDepth + 1 && self.operators.genericArgsEqual(expectedType.genericArgs(), actualType.genericArgs())) {
 			return true;
 		}
 		if (NumericSemantics.isType(expectedType, self.analyzed) && NumericSemantics.isType(actualType, self.analyzed) && expectedType.base != "bool" && actualType.base != "bool") {
@@ -3709,7 +3709,7 @@ class ExpressionLowerer {
 		if (self.compoundTypeShapeCompatible(targetType, resultType)) {
 			return true;
 		}
-		return targetType.genericArgs.len == 0 && resultType.genericArgs.len == 0 && targetType.isArray == resultType.isArray && self.operators.valueDepth(targetType) == self.operators.valueDepth(resultType) && (self.analyzed.isClass(targetType.base) || self.analyzed.isGenericClass(targetType.base)) && (self.analyzed.isClass(resultType.base) || self.analyzed.isGenericClass(resultType.base)) && self.operators.specializationIsSubtype(resultType, targetType);
+		return targetType.genericArgs().len == 0 && resultType.genericArgs().len == 0 && targetType.isArray == resultType.isArray && self.operators.valueDepth(targetType) == self.operators.valueDepth(resultType) && (self.analyzed.isClass(targetType.base) || self.analyzed.isGenericClass(targetType.base)) && (self.analyzed.isClass(resultType.base) || self.analyzed.isGenericClass(resultType.base)) && self.operators.specializationIsSubtype(resultType, targetType);
 	}
 
 	private IRNode materializeAssignmentCore(AssignmentPlan plan, Map<string, Node> variableTypes, CallableFlowState callableFlow) {
@@ -3733,8 +3733,8 @@ class ExpressionLowerer {
 				overloadResultType = overloadResult;
 			}
 			Node? rightTargetType = concreteStore.valueType;
-			if (overload != null && overload.params.len > 0) {
-				Node expectedRightType = self.resolvedCompoundOverloadType(overload.params.get(0).type, concreteStore.valueType);
+			if (overload != null && overload.params().len > 0) {
+				Node expectedRightType = self.resolvedCompoundOverloadType(overload.params().get(0).type, concreteStore.valueType);
 				rightTargetType = expectedRightType;
 				Node? concreteRightType = self.concreteCompoundType(plan.valueType);
 				if (concreteRightType == null) {
@@ -3759,7 +3759,7 @@ class ExpressionLowerer {
 				exit(1);
 			}
 			Node concreteRightType = rightType;
-			bool rightKeep = self.managedValues.isManaged(self.cTypes.resolveBodyType(concreteRightType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && overload != null && overload.params.len > 0 && overload.params.get(0).keep_;
+			bool rightKeep = self.managedValues.isManaged(self.cTypes.resolveBodyType(concreteRightType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && overload != null && overload.params().len > 0 && overload.params().get(0).keep_;
 			ManagedCompoundStore update = self.managedTypes.prepareCompoundStore(concreteStore, loweredReceiver, prepared.value, concreteRightType, prepared.owned, rightKeep);
 			IRNode? computed = self.lowerOverloadedValues(baseOp, update.oldValue, update.rightValue, concreteStore.valueType, concreteRightType);
 			bool computedOwned = computed != null;

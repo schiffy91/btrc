@@ -97,7 +97,7 @@ class CallValidator {
 
 	private void validateAtomicMethod(Node call, Node receiver, Map<string, Node> vars) {
 		string method = call.callee.field;
-		Node payload = receiver.genericArgs.get(0);
+		Node payload = receiver.genericArgs().get(0);
 		Node order = SemanticTypeSystem.primitive("MemoryOrder");
 		Vector<Node> expected = [];
 		if (method == "init") {
@@ -142,7 +142,7 @@ class CallValidator {
 
 	private void validateSpanMethod(Node call, Node receiver, Map<string, Node> vars) {
 		string method = call.callee.field;
-		Node element = receiver.genericArgs.get(0);
+		Node element = receiver.genericArgs().get(0);
 		Vector<Node> expected = [];
 		if (method == "tryGet") {
 			expected.push(SemanticTypeSystem.primitive("size_t"));
@@ -200,8 +200,8 @@ class CallValidator {
 			}
 			if (self.state.analyzed.funcTable.has(name)) {
 				Node functionDecl = self.state.analyzed.funcTable.get(name);
-				self.borrows.validateOpaqueCallArguments(functionDecl, functionDecl.params, call, name, noSubstitutions, functionDecl.bodyNode == null, vars);
-				self.validateSignature(name, functionDecl.params, call, noSubstitutions, functionDecl.isGpu, vars);
+				self.borrows.validateOpaqueCallArguments(functionDecl, functionDecl.params(), call, name, noSubstitutions, functionDecl.bodyNode == null, vars);
+				self.validateSignature(name, functionDecl.params(), call, noSubstitutions, functionDecl.isGpu, vars);
 				self.ownership.validateTransferredArguments(functionDecl, call, vars);
 				return;
 			}
@@ -279,8 +279,8 @@ class CallValidator {
 					}
 				} else {
 					self.validateConstructorAccess(constructorName, constructor, call);
-					self.borrows.validateOpaqueCallArguments(constructor, constructor.params, call, constructorName, noSubstitutions, false, vars);
-					self.validateSignature(constructorName, constructor.params, call, noSubstitutions, false, vars);
+					self.borrows.validateOpaqueCallArguments(constructor, constructor.params(), call, constructorName, noSubstitutions, false, vars);
+					self.validateSignature(constructorName, constructor.params(), call, noSubstitutions, false, vars);
 					self.ownership.validateTransferredArguments(constructor, call, vars);
 					if (constructorName == "CallbackRegistration") {
 						self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "invoke");
@@ -294,7 +294,7 @@ class CallValidator {
 					TypeValidator.fail("Cannot instantiate abstract class '" + constructorName + "'", call);
 				}
 				Node? instance = aliasConstructorType != null ? aliasConstructorType : self.types.inferType(call, vars);
-				if (instance == null || instance.base != constructorName || instance.genericArgs.len != declaration.genericParams().len) {
+				if (instance == null || instance.base != constructorName || instance.genericArgs().len != declaration.genericParams().len) {
 					TypeValidator.fail("Cannot infer generic arguments for constructor '" + constructorName + "()'", call);
 				}
 				Node concreteInstance = instance;
@@ -307,8 +307,8 @@ class CallValidator {
 				}
 				self.validateConstructorAccess(constructorName, constructor, call);
 				Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, concreteInstance);
-				self.borrows.validateOpaqueCallArguments(constructor, constructor.params, call, constructorName, substitutions, false, vars);
-				self.validateSignature(constructorName, constructor.params, call, substitutions, false, vars);
+				self.borrows.validateOpaqueCallArguments(constructor, constructor.params(), call, constructorName, substitutions, false, vars);
+				self.validateSignature(constructorName, constructor.params(), call, substitutions, false, vars);
 				self.ownership.validateTransferredArguments(constructor, call, vars);
 				if (constructorName == "CallbackRegistration") {
 					self.validateDirectRealtimeCallback(constructorName, constructor, call, vars, "invoke");
@@ -319,8 +319,8 @@ class CallValidator {
 			return;
 		}
 		if (callee.kind == NK_LAMBDA_EXPR) {
-			self.borrows.validateOpaqueCallArguments(null, callee.params, call, "lambda", noSubstitutions, false, vars);
-			self.validateSignature("lambda", callee.params, call, noSubstitutions, false, vars);
+			self.borrows.validateOpaqueCallArguments(null, callee.params(), call, "lambda", noSubstitutions, false, vars);
+			self.validateSignature("lambda", callee.params(), call, noSubstitutions, false, vars);
 			return;
 		}
 		if (callee.kind == NK_FIELD_ACCESS_EXPR && callee.obj != null && callee.obj.kind == NK_IDENTIFIER && !vars.has(callee.obj.name) && self.state.analyzed.isRichEnum(callee.obj.name)) {
@@ -329,8 +329,8 @@ class CallValidator {
 				TypeValidator.fail("Rich enum '" + callee.obj.name + "' has no variant '" + callee.field + "'", call);
 			}
 			Node concreteVariant = variant;
-			self.validateSignature(callee.obj.name + "." + callee.field, concreteVariant.params, call, noSubstitutions, false, vars);
-			self.borrows.validateOpaqueCallArguments(null, concreteVariant.params, call, callee.obj.name + "." + callee.field, noSubstitutions, false, vars);
+			self.validateSignature(callee.obj.name + "." + callee.field, concreteVariant.params(), call, noSubstitutions, false, vars);
+			self.borrows.validateOpaqueCallArguments(null, concreteVariant.params(), call, callee.obj.name + "." + callee.field, noSubstitutions, false, vars);
 			return;
 		}
 		/* Resolve only the outer alias: flattening the parameter aliases would
@@ -340,11 +340,11 @@ class CallValidator {
 		if (calleeType != null) {
 			Vector<Node> callableParams = [];
 			int callableIndex = 1;
-			while (callableIndex < calleeType.genericArgs.len) {
+			while (callableIndex < calleeType.genericArgs().len) {
 				Node callableParam = Node();
 				callableParam.kind = NK_PARAM;
 				callableParam.name = Strings.fromInt(callableIndex);
-				callableParam.type = calleeType.genericArgs.get(callableIndex);
+				callableParam.type = calleeType.genericArgs().get(callableIndex);
 				callableParams.push(callableParam);
 				callableIndex = callableIndex + 1;
 			}
@@ -370,8 +370,8 @@ class CallValidator {
 				TypeValidator.fail("Method '" + className + "." + methodName + "' is not a class method", call);
 			}
 			self.validateMethodAccess(className, concreteMethod, call);
-			self.validateSignature(className + "." + methodName, concreteMethod.params, call, noSubstitutions, false, vars);
-			self.borrows.validateOpaqueCallArguments(concreteMethod, concreteMethod.params, call, className + "." + methodName, noSubstitutions, false, vars);
+			self.validateSignature(className + "." + methodName, concreteMethod.params(), call, noSubstitutions, false, vars);
+			self.borrows.validateOpaqueCallArguments(concreteMethod, concreteMethod.params(), call, className + "." + methodName, noSubstitutions, false, vars);
 			self.ownership.validateTransferredArguments(concreteMethod, call, vars);
 			return;
 		}
@@ -382,15 +382,15 @@ class CallValidator {
 			self.ownership.validateThreadJoinReceiver(call);
 			return;
 		}
-		if (canonicalReceiver != null && canonicalReceiver.base == "Mutex" && canonicalReceiver.genericArgs.len == 1) {
+		if (canonicalReceiver != null && canonicalReceiver.base == "Mutex" && canonicalReceiver.genericArgs().len == 1) {
 			self.ownership.validateMutexCall(call, canonicalReceiver, vars);
 			return;
 		}
-		if (canonicalReceiver != null && canonicalReceiver.base == "Atomic" && canonicalReceiver.genericArgs.len == 1) {
+		if (canonicalReceiver != null && canonicalReceiver.base == "Atomic" && canonicalReceiver.genericArgs().len == 1) {
 			self.validateAtomicMethod(call, canonicalReceiver, vars);
 			return;
 		}
-		if (canonicalReceiver != null && canonicalReceiver.base == "Span" && canonicalReceiver.genericArgs.len == 1) {
+		if (canonicalReceiver != null && canonicalReceiver.base == "Span" && canonicalReceiver.genericArgs().len == 1) {
 			self.validateSpanMethod(call, canonicalReceiver, vars);
 			return;
 		}
@@ -416,8 +416,8 @@ class CallValidator {
 		} else if (self.state.interfaces.has(receiver.base)) {
 			method = self.interfaceMethod( receiver.base, methodName);
 			if (method == null) { TypeValidator.fail("Interface '" + receiver.base + "' has no method '" + methodName + "'", call); }
-			self.validateSignature(receiver.base + "." + methodName, method.params, call, substitutions, false, vars);
-			self.borrows.validateOpaqueCallArguments(method, method.params, call, receiver.base + "." + methodName, substitutions, false, vars);
+			self.validateSignature(receiver.base + "." + methodName, method.params(), call, substitutions, false, vars);
+			self.borrows.validateOpaqueCallArguments(method, method.params(), call, receiver.base + "." + methodName, substitutions, false, vars);
 			self.ownership.validateTransferredArguments(method, call, vars);
 			return;
 		} else {
@@ -432,16 +432,16 @@ class CallValidator {
 		}
 		self.validateMethodAccess(receiver.base, concreteMethod, call);
 		self.addMethodSubstitutions(concreteMethod, call, substitutions);
-		self.borrows.validateOpaqueCallArguments(concreteMethod, concreteMethod.params, call, receiver.base + "." + methodName, substitutions, false, vars);
-		self.validateSignature(receiver.base + "." + methodName, concreteMethod.params, call, substitutions, false, vars);
+		self.borrows.validateOpaqueCallArguments(concreteMethod, concreteMethod.params(), call, receiver.base + "." + methodName, substitutions, false, vars);
+		self.validateSignature(receiver.base + "." + methodName, concreteMethod.params(), call, substitutions, false, vars);
 		self.ownership.validateTransferredArguments(concreteMethod, call, vars);
 	}
 
 	public void validateDirectRealtimeCallback(string className, Node constructor, Node call, Map<string, Node> vars, string parameterName) {
 		int callbackParameter = -1;
 		int parameterIndex = 0;
-		while (parameterIndex < constructor.params.len) {
-			if (constructor.params.get(parameterIndex).name == parameterName) {
+		while (parameterIndex < constructor.params().len) {
+			if (constructor.params().get(parameterIndex).name == parameterName) {
 				callbackParameter = parameterIndex;
 			}
 			parameterIndex = parameterIndex + 1;
@@ -471,11 +471,11 @@ class CallValidator {
 		Node callable = resolvedCallable;
 		Vector<Node> params = [];
 		int index = 1;
-		while (index < callable.genericArgs.len) {
+		while (index < callable.genericArgs().len) {
 			Node parameter = Node();
 			parameter.kind = NK_PARAM;
 			parameter.name = Strings.fromInt(index);
-			parameter.type = callable.genericArgs.get(index);
+			parameter.type = callable.genericArgs().get(index);
 			params.push(parameter);
 			index = index + 1;
 		}
@@ -953,8 +953,8 @@ class CallValidator {
 			return true;
 		}
 		int argumentIndex = 0;
-		while (argumentIndex < value.genericArgs.len) {
-			if (self.macroTypeBoundaryImpl(value.genericArgs.get(argumentIndex), typeParams, visiting)) {
+		while (argumentIndex < value.genericArgs().len) {
+			if (self.macroTypeBoundaryImpl(value.genericArgs().get(argumentIndex), typeParams, visiting)) {
 				return true;
 			}
 			argumentIndex = argumentIndex + 1;
@@ -972,8 +972,8 @@ class CallValidator {
 			Node structure = self.state.analyzed.structTable.get(name);
 			if (!structure.isForward) {
 				int fieldIndex = 0;
-				while (fieldIndex < structure.fields.len) {
-					if (self.macroTypeBoundaryImpl(structure.fields.get(fieldIndex).type, typeParams, nested)) {
+				while (fieldIndex < structure.fields().len) {
+					if (self.macroTypeBoundaryImpl(structure.fields().get(fieldIndex).type, typeParams, nested)) {
 						return true;
 					}
 					fieldIndex = fieldIndex + 1;
@@ -986,8 +986,8 @@ class CallValidator {
 			while (variantIndex < richEnum.variants().len) {
 				Node variant = richEnum.variants().get(variantIndex);
 				int parameterIndex = 0;
-				while (parameterIndex < variant.params.len) {
-					if (self.macroTypeBoundaryImpl(variant.params.get(parameterIndex).type, typeParams, nested)) {
+				while (parameterIndex < variant.params().len) {
+					if (self.macroTypeBoundaryImpl(variant.params().get(parameterIndex).type, typeParams, nested)) {
 						return true;
 					}
 					parameterIndex = parameterIndex + 1;
@@ -1010,8 +1010,8 @@ class CallValidator {
 			return true;
 		}
 		int index = 0;
-		while (index < declaration.params.len) {
-			if (self.macroTypeBoundaryImpl(declaration.params.get(index).type, params, visiting)) {
+		while (index < declaration.params().len) {
+			if (self.macroTypeBoundaryImpl(declaration.params().get(index).type, params, visiting)) {
 				return true;
 			}
 			index = index + 1;
@@ -1131,8 +1131,8 @@ class CallValidator {
 		} else if (self.state.analyzed.isGenericClass(className)) {
 			Node declaration = self.state.analyzed.genericClassTable.get(className);
 			int index = 0;
-			while (index < declaration.members.len && member == null) {
-				Node candidate = declaration.members.get(index);
+			while (index < declaration.members().len && member == null) {
+				Node candidate = declaration.members().get(index);
 				bool matchingMethod = candidate.kind == NK_METHOD_DECL && !candidate.isConstructor && candidate.name == name;
 				bool matchingValue = candidate.kind != NK_METHOD_DECL && candidate.name == name;
 				if ((directCall && matchingMethod) || (!directCall && (matchingMethod || matchingValue))) {
@@ -1142,8 +1142,8 @@ class CallValidator {
 			}
 			if (directCall && member == null) {
 				index = 0;
-				while (index < declaration.members.len && member == null) {
-					Node candidate = declaration.members.get(index);
+				while (index < declaration.members().len && member == null) {
+					Node candidate = declaration.members().get(index);
 					if (candidate.kind != NK_METHOD_DECL && candidate.name == name) {
 						member = candidate;
 					}

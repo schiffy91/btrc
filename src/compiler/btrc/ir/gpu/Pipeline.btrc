@@ -432,7 +432,7 @@ class GpuPipeline {
 		int evaluationIndex = 0;
 		while (evaluationIndex < ledger.binding.evaluations.len) {
 			CallArgumentSlot slot = ledger.binding.evaluations.get(evaluationIndex);
-			if (slot.parameterIndex < 0 || slot.parameterIndex >= target.declaration.params.len) {
+			if (slot.parameterIndex < 0 || slot.parameterIndex >= target.declaration.params().len) {
 				self.reject(slot.expression, "GPU argument binding has no declaration parameter");
 			}
 			string key = Strings.fromInt(slot.parameterIndex);
@@ -470,7 +470,7 @@ class GpuPipeline {
 				self.reject(slot.expression, "GPU argument has no resolved source type");
 			}
 			Node concreteArgumentType = argumentType;
-			Node parameter = target.declaration.params.get(slot.parameterIndex);
+			Node parameter = target.declaration.params().get(slot.parameterIndex);
 			if (parameter.type.isArray && self.semantics.outputCollectionType(concreteArgumentType)) {
 				Node collectionType = concreteArgumentType;
 				string suffix = Strings.fromInt(self.inputCounter);
@@ -806,12 +806,12 @@ class GpuPipeline {
 	public void registerKernels(Node program, IRModule module) {
 		self.indexTranslationUnitOutputs(program);
 		int declarationIndex = 0;
-		while (declarationIndex < program.declarations.len) {
-			Node owner = program.declarations.get(declarationIndex);
+		while (declarationIndex < program.declarations().len) {
+			Node owner = program.declarations().get(declarationIndex);
 			if (owner.kind == NK_CLASS_DECL || owner.kind == NK_INTERFACE_DECL) {
 				int memberIndex = 0;
-				while (memberIndex < owner.members.len) {
-					Node member = owner.members.get(memberIndex);
+				while (memberIndex < owner.members().len) {
+					Node member = owner.members().get(memberIndex);
 					if (member.isGpu) {
 						self.reject(member, "@gpu methods are not supported; use a top-level kernel");
 					}
@@ -822,8 +822,8 @@ class GpuPipeline {
 		}
 		bool addedRuntime = false;
 		declarationIndex = 0;
-		while (declarationIndex < program.declarations.len) {
-			Node declaration = program.declarations.get(declarationIndex);
+		while (declarationIndex < program.declarations().len) {
+			Node declaration = program.declarations().get(declarationIndex);
 			if (declaration.kind == NK_FUNCTION_DECL && declaration.isGpu) {
 				if (!addedRuntime) {
 					module.preprocessorDecls.push(IRPreprocessorDecl.include("btrc_gpu_compute_internal.h", false));
@@ -850,14 +850,14 @@ class GpuPipeline {
 	private void indexTranslationUnitOutputs(Node program) {
 		self.translationUnitOutputTypes = {};
 		int declarationIndex = 0;
-		while (declarationIndex < program.declarations.len) {
-			Node declaration = program.declarations.get(declarationIndex);
+		while (declarationIndex < program.declarations().len) {
+			Node declaration = program.declarations().get(declarationIndex);
 			if (declaration.kind == NK_VAR_DECL_STMT && self.physicalArrayBacking(declaration.type, declaration.initializer)) {
 				self.translationUnitOutputTypes.put(declaration.name, declaration.type);
 			} else if (declaration.kind == NK_CLASS_DECL && declaration.genericParams().len == 0) {
 				int memberIndex = 0;
-				while (memberIndex < declaration.members.len) {
-					Node member = declaration.members.get(memberIndex);
+				while (memberIndex < declaration.members().len) {
+					Node member = declaration.members().get(memberIndex);
 					if (member.kind == NK_FIELD_DECL && member.access == "class" && self.physicalArrayBacking(member.type, member.initializer)) {
 						self.translationUnitOutputTypes.put(declaration.name + "." + member.name, member.type);
 					}
@@ -953,8 +953,8 @@ class GpuPipeline {
 		plan.variableTypes = seededTypes;
 		self.cpuArrayLengths = {};
 		int index = 0;
-		while (index < declaration.params.len) {
-			Node parameter = declaration.params.get(index);
+		while (index < declaration.params().len) {
+			Node parameter = declaration.params().get(index);
 			plan.worker.params.push(self.cTypes.lowerParameter(parameter));
 			plan.variableTypes.put(parameter.name, parameter.type);
 			if (parameter.type.isArray) {
@@ -994,8 +994,8 @@ class GpuPipeline {
 		wrapper.isStatic = true;
 		Vector<IRNode> invocationArgs = [];
 		parameterIndex = 0;
-		while (parameterIndex < declaration.params.len) {
-			Node parameter = declaration.params.get(parameterIndex);
+		while (parameterIndex < declaration.params().len) {
+			Node parameter = declaration.params().get(parameterIndex);
 			wrapper.params.push(self.cTypes.lowerParameter(parameter));
 			invocationArgs.push(IRNode.variable(self.lexicalBindingCName(parameter.name)));
 			if (parameter.type.isArray) {
@@ -1046,9 +1046,9 @@ class GpuPipeline {
 		prepared.cleanup = inputs.cleanup;
 		bool hasDispatchLength = false;
 		int parameterIndex = 0;
-		while (parameterIndex < kernel.declaration.params.len) {
+		while (parameterIndex < kernel.declaration.params().len) {
 			string key = Strings.fromInt(parameterIndex);
-			Node parameter = kernel.declaration.params.get(parameterIndex);
+			Node parameter = kernel.declaration.params().get(parameterIndex);
 			if (!inputs.values.has(key)) {
 				self.reject(call, "missing GPU argument '" + parameter.name + "'");
 			}
@@ -1076,8 +1076,8 @@ class GpuPipeline {
 		IRStructDef uniforms = IRStructDef();
 		uniforms.name = uniformStruct;
 		int parameterIndex = 0;
-		while (parameterIndex < kernel.declaration.params.len) {
-			Node parameter = kernel.declaration.params.get(parameterIndex);
+		while (parameterIndex < kernel.declaration.params().len) {
+			Node parameter = kernel.declaration.params().get(parameterIndex);
 			if (!parameter.type.isArray) {
 				string cType = self.cTypes.lower(parameter.type);
 				if (parameter.type.base == "bool") { cType = "uint32_t"; }
@@ -1132,8 +1132,8 @@ class GpuPipeline {
 	private void gpuAppendUnavailable(IRGpuKernel kernel, Vector<IRNode> body, bool withReturn) {
 		Vector<IRNode> cpuArgs = [];
 		int p = 0;
-		while (p < kernel.declaration.params.len) {
-			Node parameter = kernel.declaration.params.get(p);
+		while (p < kernel.declaration.params().len) {
+			Node parameter = kernel.declaration.params().get(p);
 			cpuArgs.push(IRNode.variable(self.lexicalBindingCName(parameter.name)));
 			if (parameter.type.isArray) {
 				cpuArgs.push(IRNode.variable(self.arrayLengthParameter(parameter.name)));
@@ -1216,8 +1216,8 @@ class GpuPipeline {
 		fn.isStatic = true;
 		Node declaration = kernel.declaration;
 		int p = 0;
-		while (p < declaration.params.len) {
-			Node parameter = declaration.params.get(p);
+		while (p < declaration.params().len) {
+			Node parameter = declaration.params().get(p);
 			fn.params.push(self.cTypes.lowerParameter(parameter));
 			if (parameter.type.isArray) {
 				fn.params.push(IRParam("int", self.arrayLengthParameter(parameter.name)));
@@ -1304,8 +1304,8 @@ class GpuPipeline {
 		}
 		body.push(IRNode.variableDeclaration("struct " + uniformStruct, uniforms, null));
 		int p = 0;
-		while (p < kernel.declaration.params.len) {
-			Node parameter = kernel.declaration.params.get(p);
+		while (p < kernel.declaration.params().len) {
+			Node parameter = kernel.declaration.params().get(p);
 			if (!parameter.type.isArray) {
 				IRNode value = IRNode.variable(self.lexicalBindingCName(parameter.name));
 				if (parameter.type.base == "bool") {

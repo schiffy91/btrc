@@ -124,7 +124,7 @@ class FeImportReferenceCollector {
 		if (node == null) { return; }
 		if (node.kind == NK_TYPE_EXPR) {
 			self.add(node.base, node.line, node.col, true);
-			self.visitList(node.genericArgs);
+			self.visitList(node.genericArgs());
 			self.visit(node.arraySize);
 			return;
 		}
@@ -142,8 +142,8 @@ class FeImportReferenceCollector {
 				self.add(node.interfaces().get(interfaceIndex), node.line, node.col, true);
 				interfaceIndex++;
 			}
-			if (node.kind == NK_CLASS_DECL) { self.visitList(node.members); }
-			else { self.visitList(node.methods); }
+			if (node.kind == NK_CLASS_DECL) { self.visitList(node.members()); }
+			else { self.visitList(node.methods()); }
 			self.removeGenericParameters(added);
 			return;
 		}
@@ -152,7 +152,7 @@ class FeImportReferenceCollector {
 			self.visit(node.returnType);
 			Vector<string> empty = [];
 			self.pushScope(empty);
-			self.visitParameters(node.params);
+			self.visitParameters(node.params());
 			self.visit(node.bodyNode);
 			self.popScope();
 			self.removeGenericParameters(added);
@@ -163,7 +163,7 @@ class FeImportReferenceCollector {
 			self.visitList(node.captures());
 			Vector<string> empty = [];
 			self.pushScope(empty);
-			self.visitParameters(node.params);
+			self.visitParameters(node.params());
 			self.visit(node.bodyNode);
 			self.popScope();
 			return;
@@ -180,7 +180,7 @@ class FeImportReferenceCollector {
 		if (node.kind == NK_RICH_ENUM_VARIANT) {
 			Vector<string> empty = [];
 			self.pushScope(empty);
-			self.visitParameters(node.params);
+			self.visitParameters(node.params());
 			self.popScope();
 			return;
 		}
@@ -291,14 +291,14 @@ class FeImportReferenceCollector {
 		self.visit(node.target);
 		self.visit(node.fn);
 		self.visit(node.key);
-		self.visitList(node.declarations);
-		self.visitList(node.members);
-		self.visitList(node.methods);
-		self.visitList(node.params);
-		self.visitList(node.fields);
+		self.visitList(node.declarations());
+		self.visitList(node.members());
+		self.visitList(node.methods());
+		self.visitList(node.params());
+		self.visitList(node.fields());
 		self.visitList(node.values());
 		self.visitList(node.variants());
-		self.visitList(node.genericArgs);
+		self.visitList(node.genericArgs());
 		self.visitList(node.statements());
 		self.visitList(node.cases());
 		self.visitList(node.args());
@@ -410,8 +410,8 @@ class FeImportVisibilityChecker {
 			self.addDeclarationSymbols(symbols, imported.declaration, imported.module);
 		}
 		int index = 0;
-		while (index < self.program.declarations.len) {
-			Node declaration = self.program.declarations.get(index);
+		while (index < self.program.declarations().len) {
+			Node declaration = self.program.declarations().get(index);
 			FeLine? line = self.resolved.userLineForCombined(declaration.line);
 			if (line != null) {
 				self.addDeclarationSymbols(symbols, declaration, line.sourceFile);
@@ -498,8 +498,8 @@ class FeImportVisibilityChecker {
 				return FeStdlibSymbolIndexResult(false, f"cannot index standard-library source '{path}': " + parser.diagnostic);
 			}
 			int declarationIndex = 0;
-			while (declarationIndex < stdlibProgram.declarations.len) {
-				self.addDeclarationSymbols(nextSymbolFiles, stdlibProgram.declarations.get(declarationIndex), path);
+			while (declarationIndex < stdlibProgram.declarations().len) {
+				self.addDeclarationSymbols(nextSymbolFiles, stdlibProgram.declarations().get(declarationIndex), path);
 				declarationIndex++;
 			}
 		}
@@ -518,8 +518,8 @@ class FeImportVisibilityChecker {
 		self.stdlibSymbols.mergeInto(symbols);
 		Vector<FeVisibilityDiagnostic> diagnostics = [];
 		int declarationIndex = 0;
-		while (declarationIndex < self.program.declarations.len) {
-			Node declaration = self.program.declarations.get(declarationIndex);
+		while (declarationIndex < self.program.declarations().len) {
+			Node declaration = self.program.declarations().get(declarationIndex);
 			declarationIndex++;
 			bool native = false;
 			string generatedModule = "";

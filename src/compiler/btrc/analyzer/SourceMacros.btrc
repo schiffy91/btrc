@@ -53,8 +53,8 @@ class SourceMacroNamespace {
 
 	private void collect(Node program) {
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
 				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
 				if (definition.isDefinition()) {

@@ -283,14 +283,6 @@ class FeCompilationGroups {
 		return result;
 	}
 
-	public Vector<string> members(string name) {
-		for members in self.groups {
-			if (members.get(0).equals(name)) { return members; }
-		}
-		Vector<string> none = [];
-		return none;
-	}
-
 	public string groupOfIdentity(string identity) {
 		if (self.membership.has(identity)) { return self.membership.get(identity); }
 		return "";

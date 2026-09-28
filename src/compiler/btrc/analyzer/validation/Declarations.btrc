@@ -88,12 +88,12 @@ class DeclarationValidator {
 		Node? optionalCanonical = self.types.resolveAliases(typeNode);
 		if (optionalCanonical == null) { return false; }
 		Node canonical = optionalCanonical;
-		if (self.hostedNormalizedBase(canonical.base) != shape.base || self.hostedPointerDepth(canonical) != shape.pointerDepth || canonical.isConst != shape.isConst || canonical.genericArgs.len != shape.genericArgs.len) {
+		if (self.hostedNormalizedBase(canonical.base) != shape.base || self.hostedPointerDepth(canonical) != shape.pointerDepth || canonical.isConst != shape.isConst || canonical.genericArgs().len != shape.genericArgs.len) {
 			return false;
 		}
 		int index = 0;
-		while (index < canonical.genericArgs.len) {
-			if (!self.hostedTypeMatchesShape(canonical.genericArgs.get(index), shape.genericArgs.get(index))) {
+		while (index < canonical.genericArgs().len) {
+			if (!self.hostedTypeMatchesShape(canonical.genericArgs().get(index), shape.genericArgs.get(index))) {
 				return false;
 			}
 			index = index + 1;
@@ -106,8 +106,8 @@ class DeclarationValidator {
 			return false;
 		}
 		int index = 0;
-		while (index < declaration.params.len) {
-			Node parameter = declaration.params.get(index);
+		while (index < declaration.params().len) {
+			Node parameter = declaration.params().get(index);
 			if (parameter.keep_ || parameter.default_ != null || parameter.type.isStatic || parameter.type.isExtern || parameter.type.isVolatile) {
 				return false;
 			}
@@ -169,10 +169,10 @@ class DeclarationValidator {
 			TypeValidator.fail("Hosted function '" + name + "' has an ABI that btrc prototypes cannot represent; include " + "its standard header and call it directly", declaration);
 			return;
 		}
-		bool valid = self.hostedDeclarationModifiersValid(declaration) && declaration.params.len == self.hostedAbi.parameterCount(name) && self.hostedTypeMatchesResult(declaration.returnType, name);
+		bool valid = self.hostedDeclarationModifiersValid(declaration) && declaration.params().len == self.hostedAbi.parameterCount(name) && self.hostedTypeMatchesResult(declaration.returnType, name);
 		int index = 0;
-		while (valid && index < declaration.params.len) {
-			valid = self.hostedTypeMatchesParameter(declaration.params.get(index).type, name, index);
+		while (valid && index < declaration.params().len) {
+			valid = self.hostedTypeMatchesParameter(declaration.params().get(index).type, name, index);
 			index = index + 1;
 		}
 		if (!valid) {
@@ -182,7 +182,7 @@ class DeclarationValidator {
 
 	public bool plainType(Node? typeExpr, string base) {
 		Node? resolvedType = self.types.resolveAliases(typeExpr);
-		return resolvedType != null && resolvedType.base == base && resolvedType.pointerDepth == 0 && !resolvedType.isArray && resolvedType.genericArgs.len == 0;
+		return resolvedType != null && resolvedType.base == base && resolvedType.pointerDepth == 0 && !resolvedType.isArray && resolvedType.genericArgs().len == 0;
 	}
 
 	public int magicArity(string name) {
@@ -213,13 +213,13 @@ class DeclarationValidator {
 	public void validateMainShape(Node functionDecl) {
 		if (functionDecl.name != "main") { return; }
 		bool resultValid = self.plainType(functionDecl.returnType, "int") || self.plainType(functionDecl.returnType, "void");
-		bool paramsValid = functionDecl.params.len == 0;
-		if (self.plainType(functionDecl.returnType, "int") && functionDecl.params.len == 2) {
-			Node argc = self.types.resolveAliases(functionDecl.params.get(0).type);
-			Node argv = self.types.resolveAliases(functionDecl.params.get(1).type);
+		bool paramsValid = functionDecl.params().len == 0;
+		if (self.plainType(functionDecl.returnType, "int") && functionDecl.params().len == 2) {
+			Node argc = self.types.resolveAliases(functionDecl.params().get(0).type);
+			Node argv = self.types.resolveAliases(functionDecl.params().get(1).type);
 			int argvDepth = argv.pointerDepth;
 			if (argv.isArray) { argvDepth = argvDepth + 1; }
-			paramsValid = argc.base == "int" && argc.pointerDepth == 0 && !argc.isArray && argc.genericArgs.len == 0 && argv.base == "char" && argvDepth == 2 && argv.genericArgs.len == 0;
+			paramsValid = argc.base == "int" && argc.pointerDepth == 0 && !argc.isArray && argc.genericArgs().len == 0 && argv.base == "char" && argvDepth == 2 && argv.genericArgs().len == 0;
 		}
 		if (!resultValid || !paramsValid || functionDecl.isGpu) {
 			TypeValidator.fail("main must be 'int main()', 'int main(int, char**)', or 'void main()'", functionDecl);
@@ -264,8 +264,8 @@ class DeclarationValidator {
 		if (method.genericParams().len > 0) {
 			TypeValidator.fail(label + " cannot be generic", method);
 		}
-		if (method.params.len != arity) {
-			TypeValidator.fail(label + " expects " + Strings.fromInt(arity) + " explicit parameter(s) but got " + Strings.fromInt(method.params.len), method);
+		if (method.params().len != arity) {
+			TypeValidator.fail(label + " expects " + Strings.fromInt(arity) + " explicit parameter(s) but got " + Strings.fromInt(method.params().len), method);
 		}
 		string requiredReturn = self.magicReturn(method.name);
 		if (requiredReturn != "" && !self.plainType(method.returnType, requiredReturn)) {
@@ -275,8 +275,8 @@ class DeclarationValidator {
 
 	public void validateClassCallableShapes(Node classDeclaration) {
 		int index = 0;
-		while (index < classDeclaration.members.len) {
-			Node member = classDeclaration.members.get(index);
+		while (index < classDeclaration.members().len) {
+			Node member = classDeclaration.members().get(index);
 			if (member.kind == NK_METHOD_DECL) {
 				string label = "Method '" + classDeclaration.name + "." + member.name + "'";
 				self.validateArrayReturn(member, label);
@@ -304,8 +304,8 @@ class DeclarationValidator {
 
 	public void validateCallableShapes(Node program) {
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_FUNCTION_DECL) {
 				self.validateArrayReturn(declaration, "Function '" + declaration.name + "'");
 				self.validateMainShape(declaration);
@@ -338,8 +338,8 @@ class DeclarationValidator {
 			if (!self.state.interfaces.has(current)) { return null; }
 			Node declaration = self.state.interfaces.get(current);
 			int index = 0;
-			while (index < declaration.methods.len) {
-				Node method = declaration.methods.get(index);
+			while (index < declaration.methods().len) {
+				Node method = declaration.methods().get(index);
 				if (method.name == methodName) { return method; }
 				index = index + 1;
 			}
@@ -358,13 +358,13 @@ class DeclarationValidator {
 		if (expectedReturn != null && substitutions.len > 0) {
 			expectedReturn = SemanticTypeSystem.resolveGenericType(expectedReturn, substitutions, self.state.analyzed);
 		}
-		if (implementation.kind != NK_METHOD_DECL || implementation.isAbstract || expectedReturn == null || implementation.returnType == null || !self.types.aliasTypesSame(expectedReturn, implementation.returnType) || requirement.params.len != implementation.params.len || requirement.keepReturn != implementation.keepReturn) {
+		if (implementation.kind != NK_METHOD_DECL || implementation.isAbstract || expectedReturn == null || implementation.returnType == null || !self.types.aliasTypesSame(expectedReturn, implementation.returnType) || requirement.params().len != implementation.params().len || requirement.keepReturn != implementation.keepReturn) {
 			return false;
 		}
 		int index = 0;
-		while (index < requirement.params.len) {
-			Node expected = requirement.params.get(index);
-			Node actual = implementation.params.get(index);
+		while (index < requirement.params().len) {
+			Node expected = requirement.params().get(index);
+			Node actual = implementation.params().get(index);
 			Node expectedType = expected.type;
 			if (substitutions.len > 0) {
 				expectedType = SemanticTypeSystem.resolveGenericType(expectedType, substitutions, self.state.analyzed);
@@ -394,8 +394,8 @@ class DeclarationValidator {
 			self.validateInterfaceRequirements(classDeclaration, interfaceDeclaration.parent, visited);
 		}
 		int index = 0;
-		while (index < interfaceDeclaration.methods.len) {
-			Node requirement = interfaceDeclaration.methods.get(index);
+		while (index < interfaceDeclaration.methods().len) {
+			Node requirement = interfaceDeclaration.methods().get(index);
 			Node? implementation = null;
 			if (self.state.analyzed.isGenericClass(classDeclaration.name)) {
 				implementation = self.state.analyzed.genericClassMethod(classDeclaration.name, requirement.name);
@@ -472,8 +472,8 @@ class DeclarationValidator {
 
 	public void validateInterfaceDeclarations(Node program) {
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_INTERFACE_DECL) {
 				if (self.state.interfaces.has(declaration.name)) {
 					TypeValidator.fail("Duplicate interface declaration '" + declaration.name + "'", declaration);
@@ -494,12 +494,12 @@ class DeclarationValidator {
 			}
 			Map<string, bool> methodNames = {};
 			int methodIndex = 0;
-			while (methodIndex < declaration.methods.len) {
-				Node method = declaration.methods.get(methodIndex);
+			while (methodIndex < declaration.methods().len) {
+				Node method = declaration.methods().get(methodIndex);
 				bool exposesRealtimeFunction = self.types.containsRealtimeFunctionStorage(method.returnType);
 				int realtimeParameter = 0;
-				while (realtimeParameter < method.params.len) {
-					exposesRealtimeFunction = exposesRealtimeFunction || self.types.containsRealtimeFunctionStorage(method.params.get(realtimeParameter).type);
+				while (realtimeParameter < method.params().len) {
+					exposesRealtimeFunction = exposesRealtimeFunction || self.types.containsRealtimeFunctionStorage(method.params().get(realtimeParameter).type);
 					realtimeParameter = realtimeParameter + 1;
 				}
 				if (exposesRealtimeFunction) {
@@ -546,7 +546,7 @@ class DeclarationValidator {
 			valueParameter.kind = NK_PARAM;
 			valueParameter.name = "value";
 			valueParameter.type = property.type;
-			synthetic.params.push(valueParameter);
+			synthetic.paramsMut().push(valueParameter);
 			self.validateCallableBody(synthetic, classDeclaration);
 		}
 	}
@@ -557,8 +557,8 @@ class DeclarationValidator {
 		Map<string, bool> previousParams = self.types.cloneFlags(self.state.typeParams);
 		self.state.typeParams = self.types.typeParamSet(declaration.genericParams());
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			if (member.kind == NK_FIELD_DECL) {
 				self.types.validateDeclaredType(member.type, "Field '" + declaration.name + "." + member.name + "'", "stable_field", member);
 				self.types.rejectRuntimeInterfaceType(member.type, member);
@@ -673,14 +673,14 @@ class DeclarationValidator {
 		selfType.pointerDepth = 1;
 		int index = 0;
 		while (index < classDeclaration.genericParams().len) {
-			selfType.genericArgs.push(SemanticTypeSystem.primitive(classDeclaration.genericParams().get(index)));
+			selfType.genericArgsMut().push(SemanticTypeSystem.primitive(classDeclaration.genericParams().get(index)));
 			index = index + 1;
 		}
 		return selfType;
 	}
 
 	private Node declaredCallableReturnType(Node? classDeclaration, Node callable) {
-		if (classDeclaration == null || !callable.isConstructor || callable.returnType.genericArgs.len > 0 || classDeclaration.genericParams().len == 0) {
+		if (classDeclaration == null || !callable.isConstructor || callable.returnType.genericArgs().len > 0 || classDeclaration.genericParams().len == 0) {
 			return callable.returnType;
 		}
 		Vector<Node> ownerArguments = [];
@@ -710,8 +710,8 @@ class DeclarationValidator {
 		if (callable.bodyNode == null) {
 			bool exposesRealtimeFunction = self.types.containsRealtimeFunctionStorage(declaredReturnType);
 			int realtimeParameter = 0;
-			while (realtimeParameter < callable.params.len) {
-				exposesRealtimeFunction = exposesRealtimeFunction || self.types.containsRealtimeFunctionStorage(callable.params.get(realtimeParameter).type);
+			while (realtimeParameter < callable.params().len) {
+				exposesRealtimeFunction = exposesRealtimeFunction || self.types.containsRealtimeFunctionStorage(callable.params().get(realtimeParameter).type);
 				realtimeParameter = realtimeParameter + 1;
 			}
 			var nativeContract = self.state.analyzed.nativeCallContract(callable);
@@ -726,8 +726,8 @@ class DeclarationValidator {
 		self.types.validateDeclaredType(declaredReturnType, returnSubject, "return", callable);
 		self.types.rejectRuntimeInterfaceType(declaredReturnType, callable);
 		int typeIndex = 0;
-		while (typeIndex < callable.params.len) {
-			Node parameter = callable.params.get(typeIndex);
+		while (typeIndex < callable.params().len) {
+			Node parameter = callable.params().get(typeIndex);
 			if (!self.state.analyzed.isNativeDeclaration(callable)) { self.names.validateGeneratedLexicalBindingName(parameter.name, "Parameter", parameter); }
 			self.types.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
 			self.storage.validateGpuArrayParameter(callable, parameter);
@@ -770,7 +770,7 @@ class DeclarationValidator {
 		self.state.loopDepth = 0;
 		self.state.breakDepth = 0;
 		self.state.gpuCallable = callable.isGpu;
-		Map<string, bool> parameterNames = self.names.parameterNames(callable.params, "callable '" + self.state.owner + "'", callable);
+		Map<string, bool> parameterNames = self.names.parameterNames(callable.params(), "callable '" + self.state.owner + "'", callable);
 		self.state.callable = callable;
 		self.state.parameterNames = self.types.cloneFlags(parameterNames);
 		self.state.borrowedBindings = self.types.cloneFlags(parameterNames);
@@ -782,7 +782,7 @@ class DeclarationValidator {
 		if (callable.bodyNode != null) {
 			self.names.validateDirectLocalNames(callable.bodyNode, parameterNames);
 		}
-		self.validateParameterDefaults(callable.params, vars, callable);
+		self.validateParameterDefaults(callable.params(), vars, callable);
 		if (callable.bodyNode != null) {
 			bool ownsMemo = self.expressions.beginBodyMemo();
 			self.controlFlow.validateBlock(callable.bodyNode,  vars);
@@ -813,14 +813,14 @@ class DeclarationValidator {
 		int variantIndex = 0;
 		while (variantIndex < declaration.variants().len) {
 			Node variant = declaration.variants().get(variantIndex);
-			Map<string, bool> parameterNames = self.names.parameterNames(variant.params, "rich-enum variant '" + declaration.name + "." + variant.name + "'");
+			Map<string, bool> parameterNames = self.names.parameterNames(variant.params(), "rich-enum variant '" + declaration.name + "." + variant.name + "'");
 			self.state.owner = declaration.name + "." + variant.name;
 			self.state.callable = variant;
 			self.state.parameterNames = self.types.cloneFlags(parameterNames);
 			self.state.borrowedBindings = self.types.cloneFlags(parameterNames);
 			self.state.localBindings = self.types.cloneFlags(parameterNames);
 			Map<string, Node> vars = self.globalTypes(self.state.analyzed);
-			self.validateParameterDefaults(variant.params, vars, variant);
+			self.validateParameterDefaults(variant.params(), vars, variant);
 			variantIndex = variantIndex + 1;
 		}
 		self.state.owner = previousOwner;
@@ -849,8 +849,8 @@ class DeclarationValidator {
 		}
 		states.put(name, 1);
 		int fieldIndex = 0;
-		while (fieldIndex < declaration.fields.len) {
-			Node field = declaration.fields.get(fieldIndex);
+		while (fieldIndex < declaration.fields().len) {
+			Node field = declaration.fields().get(fieldIndex);
 			string target = DeclarationValidator.structFieldTarget(field.type, declarations, registrations);
 			if (target != "") {
 				if (!declarations.has(target)) {
@@ -871,8 +871,8 @@ class DeclarationValidator {
 		Map<string, Node> declarations = {};
 		Vector<string> sourceOrder = [];
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
 				declarations.put(declaration.name, declaration);
 				sourceOrder.push(declaration.name);

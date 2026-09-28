@@ -51,15 +51,15 @@ class CTypeLowerer {
 	}
 
 	private string functionPointerName(Node typeExpr) {
-		string mangled = TypeIdentity.mangleFunctionPointerSymbol(typeExpr.genericArgs);
+		string mangled = TypeIdentity.mangleFunctionPointerSymbol(typeExpr.genericArgs());
 		if (!self.functionPointerTypes.has(mangled)) {
 			int component = 0;
-			while (component < typeExpr.genericArgs.len) {
+			while (component < typeExpr.genericArgs().len) {
 				/* Discover directly nested callbacks without flattening a
                  * named typedef boundary.  A typedef is both the source C
                  * spelling and the only representation of qualifiers applied
                  * to an intermediate pointer layer. */
-				self.lower(typeExpr.genericArgs.get(component));
+				self.lower(typeExpr.genericArgs().get(component));
 				component = component + 1;
 			}
 			self.functionPointerTypes.put(mangled, typeExpr);
@@ -76,7 +76,7 @@ class CTypeLowerer {
 		Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(aliasUse, self.analyzed.typedefTable);
 		if (canonical == null) { return false; }
 		Node resolved = canonical;
-		return TypeComposition.resolvedReferenceShape(resolved) || self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base) || (resolved.genericArgs.len > 0 && self.analyzed.isGenericClass(resolved.base));
+		return TypeComposition.resolvedReferenceShape(resolved) || self.analyzed.isClass(resolved.base) || self.analyzed.isInterface(resolved.base) || (resolved.genericArgs().len > 0 && self.analyzed.isGenericClass(resolved.base));
 	}
 
 	public string lower(Node? typeExpr) {
@@ -85,33 +85,33 @@ class CTypeLowerer {
 		string base = concrete.base;
 		string prefix = concrete.isConst ? "const " : "";
 		string rendered = base;
-		if ((base == "__fn_ptr" || base == "__realtime_fn_ptr") && concrete.genericArgs.len > 0) {
+		if ((base == "__fn_ptr" || base == "__realtime_fn_ptr") && concrete.genericArgs().len > 0) {
 			rendered = self.functionPointerName(concrete);
-		} else if (base == "Atomic" && concrete.genericArgs.len == 1) {
-			string name = TypeIdentity.mangleGenericSymbol(base, concrete.genericArgs);
+		} else if (base == "Atomic" && concrete.genericArgs().len == 1) {
+			string name = TypeIdentity.mangleGenericSymbol(base, concrete.genericArgs());
 			if (!self.atomicTypes.has(name)) {
-				self.atomicTypes.put(name, concrete.genericArgs.get(0));
+				self.atomicTypes.put(name, concrete.genericArgs().get(0));
 				self.atomicTypeOrder.push(name);
 			}
-			rendered = "_Atomic(" + self.lower(concrete.genericArgs.get(0)) + ")";
-		} else if (base == "MemoryOrder" && concrete.genericArgs.len == 0) {
+			rendered = "_Atomic(" + self.lower(concrete.genericArgs().get(0)) + ")";
+		} else if (base == "MemoryOrder" && concrete.genericArgs().len == 0) {
 			rendered = "memory_order";
-		} else if (base == "Span" && concrete.genericArgs.len == 1) {
-			string name = TypeIdentity.mangleGenericSymbol(base, concrete.genericArgs);
+		} else if (base == "Span" && concrete.genericArgs().len == 1) {
+			string name = TypeIdentity.mangleGenericSymbol(base, concrete.genericArgs());
 			if (!self.spanTypes.has(name)) {
-				self.spanTypes.put(name, concrete.genericArgs.get(0));
+				self.spanTypes.put(name, concrete.genericArgs().get(0));
 				self.spanTypeOrder.push(name);
 			}
 			rendered = name;
-		} else if (base == "Thread" && concrete.genericArgs.len > 0) {
+		} else if (base == "Thread" && concrete.genericArgs().len > 0) {
 			rendered = "__btrc_thread_t*";
-		} else if (base == "Mutex" && concrete.genericArgs.len > 0) {
+		} else if (base == "Mutex" && concrete.genericArgs().len > 0) {
 			rendered = "__btrc_mutex_val_t*";
-		} else if (concrete.genericArgs.len > 0) {
+		} else if (concrete.genericArgs().len > 0) {
 			if (base == "Tuple") {
-				rendered = TypeIdentity.mangleGenericSymbol(base, concrete.genericArgs);
+				rendered = TypeIdentity.mangleGenericSymbol(base, concrete.genericArgs());
 			} else {
-				rendered = TypeIdentity.mangleGenericType(base, concrete.genericArgs);
+				rendered = TypeIdentity.mangleGenericType(base, concrete.genericArgs());
 			}
 		} else if (base == "string") { rendered = "char*"; }
 		else if (base == "null") { rendered = "void"; }
@@ -133,9 +133,9 @@ class CTypeLowerer {
 			rendered = rendered + "*";
 			pointer = pointer + 1;
 		}
-		if (concrete.genericArgs.len == 0 && (self.analyzed.isClass(base) || self.analyzed.isInterface(base)) && concrete.pointerDepth == 0) {
+		if (concrete.genericArgs().len == 0 && (self.analyzed.isClass(base) || self.analyzed.isInterface(base)) && concrete.pointerDepth == 0) {
 			rendered = rendered + "*";
-		} else if (concrete.genericArgs.len > 0 && self.analyzed.isGenericClass(base) && concrete.pointerDepth == 0) {
+		} else if (concrete.genericArgs().len > 0 && self.analyzed.isGenericClass(base) && concrete.pointerDepth == 0) {
 			rendered = rendered + "*";
 		}
 		if (concrete.isArray) { rendered = rendered + "*"; }
@@ -175,12 +175,12 @@ class CTypeLowerer {
 
 	private void visitTypedefType(Node? typeExpr, Map<string, Node> declarations, Map<string, int> states, Vector<Node> ordered) {
 		if (typeExpr == null) { return; }
-		if (typeExpr.genericArgs.len == 0 && declarations.has(typeExpr.base)) {
+		if (typeExpr.genericArgs().len == 0 && declarations.has(typeExpr.base)) {
 			self.visitTypedef(typeExpr.base, declarations, states, ordered);
 		}
 		int index = 0;
-		while (index < typeExpr.genericArgs.len) {
-			self.visitTypedefType(typeExpr.genericArgs.get(index), declarations, states, ordered);
+		while (index < typeExpr.genericArgs().len) {
+			self.visitTypedefType(typeExpr.genericArgs().get(index), declarations, states, ordered);
 			index = index + 1;
 		}
 	}
@@ -205,8 +205,8 @@ class CTypeLowerer {
 		Map<string, Node> declarations = {};
 		Vector<string> sourceOrder = [];
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_TYPEDEF_DECL && !self.analyzed.isNativeDeclaration(declaration) && (reachability == null || reachability.reaches(declaration))) {
 				declarations.put(declaration.alias, declaration);
 				sourceOrder.push(declaration.alias);
@@ -236,13 +236,13 @@ class CTypeLowerer {
 			string name = self.functionPointerOrder.get(index);
 			Node typeExpr = self.functionPointerTypes.get(name);
 			string returnType = "void";
-			if (typeExpr.genericArgs.len > 0) {
-				returnType = self.lower(typeExpr.genericArgs.get(0));
+			if (typeExpr.genericArgs().len > 0) {
+				returnType = self.lower(typeExpr.genericArgs().get(0));
 			}
 			IRFunctionPointerTypedef declaration = IRFunctionPointerTypedef(name, returnType);
 			int parameter = 1;
-			while (parameter < typeExpr.genericArgs.len) {
-				declaration.paramTypes.push(self.lower(typeExpr.genericArgs.get(parameter)));
+			while (parameter < typeExpr.genericArgs().len) {
+				declaration.paramTypes.push(self.lower(typeExpr.genericArgs().get(parameter)));
 				parameter = parameter + 1;
 			}
 			module.functionPointerTypedefs.push(declaration);

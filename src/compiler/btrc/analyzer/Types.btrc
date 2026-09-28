@@ -18,7 +18,7 @@ class SemanticTypeSystem {
 
 	class Node? directFunctionPointer(Node? typeExpr, Analyzed analyzed) {
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
-		if (resolved == null || (resolved.base != "__fn_ptr" && resolved.base != "__realtime_fn_ptr") || resolved.pointerDepth != 0 || resolved.isArray || resolved.genericArgs.len == 0) {
+		if (resolved == null || (resolved.base != "__fn_ptr" && resolved.base != "__realtime_fn_ptr") || resolved.pointerDepth != 0 || resolved.isArray || resolved.genericArgs().len == 0) {
 			return null;
 		}
 		return resolved;
@@ -26,7 +26,7 @@ class SemanticTypeSystem {
 
 	class Node? directFunctionPointerSpecialization(Node? typeExpr, Analyzed analyzed) {
 		Node? resolved = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, analyzed.typedefTable);
-		if (resolved == null || (resolved.base != "__fn_ptr" && resolved.base != "__realtime_fn_ptr") || resolved.pointerDepth != 0 || resolved.isArray || resolved.genericArgs.len == 0) {
+		if (resolved == null || (resolved.base != "__fn_ptr" && resolved.base != "__realtime_fn_ptr") || resolved.pointerDepth != 0 || resolved.isArray || resolved.genericArgs().len == 0) {
 			return null;
 		}
 		return resolved;
@@ -34,15 +34,15 @@ class SemanticTypeSystem {
 
 	class bool realtimeFunctionPointer(Node? typeExpr, Analyzed analyzed) {
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
-		return resolved != null && resolved.base == "__realtime_fn_ptr" && resolved.pointerDepth == 0 && !resolved.isArray && resolved.genericArgs.len > 0;
+		return resolved != null && resolved.base == "__realtime_fn_ptr" && resolved.pointerDepth == 0 && !resolved.isArray && resolved.genericArgs().len > 0;
 	}
 
 	class bool ownedClosureInvokeIsAdmissible(Node? typeExpr, Analyzed analyzed, Map<string, bool> activeTypeParameters) {
 		Node? canonical = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
-		if (canonical == null || canonical.base != "OwnedClosure" || canonical.genericArgs.len == 0) {
+		if (canonical == null || canonical.base != "OwnedClosure" || canonical.genericArgs().len == 0) {
 			return true;
 		}
-		Node? invokeType = SemanticTypeSystem.resolveTypedefType(canonical.genericArgs.get(0), analyzed.typedefTable);
+		Node? invokeType = SemanticTypeSystem.resolveTypedefType(canonical.genericArgs().get(0), analyzed.typedefTable);
 		if (invokeType == null || activeTypeParameters.has(invokeType.base)) {
 			return true;
 		}
@@ -64,7 +64,7 @@ class SemanticTypeSystem {
 		Node u = Node();
 		u.kind = NK_TYPE_EXPR;
 		u.base = t.base;
-		u.genericArgs = t.genericArgs;
+		u.genericArgsStorage = t.genericArgsStorage;
 		u.pointerDepth = 1;
 		u.isArray = t.isArray;
 		u.isNullable = t.isNullable;
@@ -90,8 +90,8 @@ class SemanticTypeSystem {
 	class void upgradeTypeGenericArgs(Node? t, Analyzed a, Map<string, bool> unresolved) {
 		if (t == null) { return; }
 		int i = 0;
-		while (i < t.genericArgs.len) {
-			Node arg = t.genericArgs.get(i);
+		while (i < t.genericArgs().len) {
+			Node arg = t.genericArgs().get(i);
 			/* Recurse into the arg's own generic args first. */
 			SemanticTypeSystem.upgradeTypeGenericArgs(arg, a, unresolved);
 			/* A class instance (regular or generic) is a heap pointer: a bare
@@ -202,10 +202,10 @@ class SemanticTypeSystem {
 	class Node? mutexPayloadFor(Analyzed analyzed, Node? typeExpr) {
 		if (typeExpr == null) { return null; }
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
-		if (resolved == null || resolved.isArray || resolved.pointerDepth != 0 || resolved.base != "Mutex" || resolved.genericArgs.len != 1) {
+		if (resolved == null || resolved.isArray || resolved.pointerDepth != 0 || resolved.base != "Mutex" || resolved.genericArgs().len != 1) {
 			return null;
 		}
-		return resolved.genericArgs.get(0);
+		return resolved.genericArgs().get(0);
 	}
 
 
@@ -231,8 +231,8 @@ class SemanticTypeSystem {
 		Node declaration = analyzed.structTable.get(name);
 		if (declaration.isForward) { return null; }
 		int index = 0;
-		while (index < declaration.fields.len) {
-			Node field = declaration.fields.get(index);
+		while (index < declaration.fields().len) {
+			Node field = declaration.fields().get(index);
 			if (field.name == fieldName) { return field.type; }
 			index = index + 1;
 		}
@@ -264,7 +264,7 @@ class SemanticTypeSystem {
 	class Node? resolveOuterTypedefTypeInner(Node? typeExpr, Map<string, Node> typedefs, Map<string, bool> visited, Node site) {
 		if (typeExpr == null) { return null; }
 		Node current = typeExpr;
-		if (current.genericArgs.len > 0 || !typedefs.has(current.base)) {
+		if (current.genericArgs().len > 0 || !typedefs.has(current.base)) {
 			return current;
 		}
 		if (visited.has(current.base)) {
@@ -282,7 +282,7 @@ class SemanticTypeSystem {
 	class Node? resolveOuterTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
 		if (typeExpr == null) { return null; }
 		/* Most queries name no typedef; answer them without building a visit set. */
-		if (typeExpr.genericArgs.len > 0 || !typedefs.has(typeExpr.base)) { return typeExpr; }
+		if (typeExpr.genericArgs().len > 0 || !typedefs.has(typeExpr.base)) { return typeExpr; }
 		Map<string, bool> visited = {};
 		return SemanticTypeSystem.resolveOuterTypedefTypeInner(typeExpr, typedefs, visited, typeExpr);
 	}
@@ -300,7 +300,7 @@ class SemanticTypeSystem {
 		if (typeExpr.pointerDepth > 0) {
 			return TypeShape.withoutOuterPointers(typeExpr, 1);
 		}
-		if (typeExpr.genericArgs.len > 0 || !typedefs.has(typeExpr.base) || visiting.has(typeExpr.base)) {
+		if (typeExpr.genericArgs().len > 0 || !typedefs.has(typeExpr.base) || visiting.has(typeExpr.base)) {
 			return null;
 		}
 		visiting.put(typeExpr.base, true);
@@ -318,12 +318,12 @@ class SemanticTypeSystem {
 		Node? outer = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, typedefs);
 		if (outer == null) { return null; }
 		Node current = outer;
-		if (current.genericArgs.len == 0) { return current; }
+		if (current.genericArgs().len == 0) { return current; }
 		Vector<Node> args = [];
 		bool changed = false;
 		int index = 0;
-		while (index < current.genericArgs.len) {
-			Node argument = current.genericArgs.get(index);
+		while (index < current.genericArgs().len) {
+			Node argument = current.genericArgs().get(index);
 			Node? resolved = SemanticTypeSystem.resolveTypedefType(argument, typedefs);
 			if (resolved == null) {
 				SemanticTypeSystem.typedefSemanticFail("Invalid null generic type", typeExpr);
@@ -357,7 +357,7 @@ class SemanticTypeSystem {
 		if (typeExpr == null || depth < 0) { return false; }
 		int directDepth = typeExpr.isArray ? 1 : 0;
 		if (typeExpr.isVolatile && depth == directDepth) { return true; }
-		if (typeExpr.genericArgs.len > 0 || !typedefs.has(typeExpr.base) || visiting.has(typeExpr.base)) {
+		if (typeExpr.genericArgs().len > 0 || !typedefs.has(typeExpr.base) || visiting.has(typeExpr.base)) {
 			return false;
 		}
 		visiting.put(typeExpr.base, true);
@@ -376,7 +376,7 @@ class SemanticTypeSystem {
 	class bool typeConstAtDepthInner(Node? typeExpr, Map<string, Node> typedefs, int depth, Map<string, bool> visiting) {
 		if (typeExpr == null || depth < 0) { return false; }
 		Node? target = null;
-		if (typeExpr.genericArgs.len == 0 && typedefs.has(typeExpr.base) && !visiting.has(typeExpr.base)) {
+		if (typeExpr.genericArgs().len == 0 && typedefs.has(typeExpr.base) && !visiting.has(typeExpr.base)) {
 			target = typedefs.get(typeExpr.base);
 		}
 		int shift = SemanticTypeSystem.qualifierAppliedStorageLayers(typeExpr, target);
@@ -402,7 +402,7 @@ class SemanticTypeSystem {
 	class bool typeEffectiveOuterVolatile(Node? typeExpr, Map<string, Node> typedefs) {
 		if (typeExpr == null) { return false; }
 		if (typeExpr.isVolatile) { return true; }
-		if (typeExpr.genericArgs.len > 0 || !typedefs.has(typeExpr.base)) {
+		if (typeExpr.genericArgs().len > 0 || !typedefs.has(typeExpr.base)) {
 			return false;
 		}
 		Node target = typedefs.get(typeExpr.base);
@@ -419,7 +419,7 @@ class SemanticTypeSystem {
 	class bool typeEffectiveOuterVolatileInner(Node? typeExpr, Map<string, Node> typedefs, Map<string, bool> visiting) {
 		if (typeExpr == null) { return false; }
 		if (typeExpr.isVolatile) { return true; }
-		if (typeExpr.genericArgs.len > 0 || !typedefs.has(typeExpr.base) || visiting.has(typeExpr.base)) {
+		if (typeExpr.genericArgs().len > 0 || !typedefs.has(typeExpr.base) || visiting.has(typeExpr.base)) {
 			return false;
 		}
 		visiting.put(typeExpr.base, true);
@@ -445,7 +445,7 @@ class SemanticTypeSystem {
 		if (typeExpr.isVolatile) {
 			result = typeExpr.isArray ? 1 : 0;
 		}
-		if (typeExpr.genericArgs.len > 0 || !typedefs.has(typeExpr.base) || visiting.has(typeExpr.base)) {
+		if (typeExpr.genericArgs().len > 0 || !typedefs.has(typeExpr.base) || visiting.has(typeExpr.base)) {
 			return result;
 		}
 		visiting.put(typeExpr.base, true);
@@ -474,7 +474,7 @@ class SemanticTypeSystem {
 		if (typeExpr == null) {
 			return SemanticTypeSystem.primitive("void");
 		}
-		if (substitutions.has(typeExpr.base) && typeExpr.genericArgs.len == 0) {
+		if (substitutions.has(typeExpr.base) && typeExpr.genericArgs().len == 0) {
 			Node resolved = substitutions.get(typeExpr.base);
 			Node referenceShape = resolved;
 			Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(resolved, analyzed.typedefTable);
@@ -484,17 +484,17 @@ class SemanticTypeSystem {
 			}
 			return TypeComposition.compose(typeExpr, resolved, SemanticTypeSystem.genericSubstitutionReferenceShape(referenceShape, analyzed));
 		}
-		if (typeExpr.genericArgs.len > 0) {
+		if (typeExpr.genericArgs().len > 0) {
 			Node result = Node();
 			result.kind = NK_TYPE_EXPR;
 			result.base = typeExpr.base;
 			Vector<Node> arguments = [];
 			int index = 0;
-			while (index < typeExpr.genericArgs.len) {
-				arguments.push(SemanticTypeSystem.resolveGenericType(typeExpr.genericArgs.get(index), substitutions, analyzed));
+			while (index < typeExpr.genericArgs().len) {
+				arguments.push(SemanticTypeSystem.resolveGenericType(typeExpr.genericArgs().get(index), substitutions, analyzed));
 				index = index + 1;
 			}
-			result.genericArgs = arguments;
+			result.genericArgsStorage = arguments;
 			result.pointerDepth = typeExpr.pointerDepth;
 			result.isArray = typeExpr.isArray;
 			result.arraySize = typeExpr.arraySize;
@@ -520,8 +520,8 @@ class SemanticTypeSystem {
 		}
 		Node declaration = analyzed.genericClassTable.get(instanceType.base);
 		int index = 0;
-		while (index < declaration.genericParams().len && index < instanceType.genericArgs.len) {
-			substitutions.put(declaration.genericParams().get(index), instanceType.genericArgs.get(index));
+		while (index < declaration.genericParams().len && index < instanceType.genericArgs().len) {
+			substitutions.put(declaration.genericParams().get(index), instanceType.genericArgs().get(index));
 			index = index + 1;
 		}
 		return substitutions;
@@ -595,16 +595,16 @@ class SemanticTypeSystem {
 		}
 		Node? getter = SemanticTypeSystem.indexedMethod(objectType, "get", analyzed);
 		Node? result = null;
-		if (getter != null && getter.access != "class" && getter.genericParams().len == 0 && getter.params.len == 1 && !getter.params.get(0).keep_ && getter.returnType != null && !(getter.returnType.base == "void" && getter.returnType.pointerDepth == 0 && !getter.returnType.isArray)) {
+		if (getter != null && getter.access != "class" && getter.genericParams().len == 0 && getter.params().len == 1 && !getter.params().get(0).keep_ && getter.returnType != null && !(getter.returnType.base == "void" && getter.returnType.pointerDepth == 0 && !getter.returnType.isArray)) {
 			result = getter.returnType;
 		} else {
 			Node? setter = SemanticTypeSystem.indexedMethod(objectType, "set", analyzed);
-			if (setter != null && setter.access != "class" && setter.genericParams().len == 0 && setter.params.len == 2 && !setter.params.get(0).keep_ && setter.returnType != null && setter.returnType.base == "void" && setter.returnType.pointerDepth == 0 && !setter.returnType.isArray) {
-				result = setter.params.get(1).type;
+			if (setter != null && setter.access != "class" && setter.genericParams().len == 0 && setter.params().len == 2 && !setter.params().get(0).keep_ && setter.returnType != null && setter.returnType.base == "void" && setter.returnType.pointerDepth == 0 && !setter.returnType.isArray) {
+				result = setter.params().get(1).type;
 			}
 		}
 		if (result == null) { return null; }
-		if (analyzed.isGenericClass(objectType.base) && objectType.genericArgs.len > 0) {
+		if (analyzed.isGenericClass(objectType.base) && objectType.genericArgs().len > 0) {
 			return SemanticTypeSystem.resolveGenericType(result, SemanticTypeSystem.genericTypeMap(analyzed, objectType), analyzed);
 		}
 		return result;
@@ -636,7 +636,7 @@ class SemanticTypeSystem {
 
 	class void unifyGenericParameter(Node? declared, Node? actual, Map<string, bool> parameters, Map<string, Node> substitutions) {
 		if (declared == null || actual == null) { return; }
-		if (parameters.has(declared.base) && declared.genericArgs.len == 0) {
+		if (parameters.has(declared.base) && declared.genericArgs().len == 0) {
 			if (!substitutions.has(declared.base)) {
 				Node? binding = SemanticTypeSystem.genericParameterBinding(actual, declared);
 				if (binding != null) {
@@ -645,10 +645,10 @@ class SemanticTypeSystem {
 			}
 			return;
 		}
-		if (declared.genericArgs.len > 0 && actual.genericArgs.len > 0) {
+		if (declared.genericArgs().len > 0 && actual.genericArgs().len > 0) {
 			int index = 0;
-			while (index < declared.genericArgs.len && index < actual.genericArgs.len) {
-				SemanticTypeSystem.unifyGenericParameter(declared.genericArgs.get(index), actual.genericArgs.get(index), parameters, substitutions);
+			while (index < declared.genericArgs().len && index < actual.genericArgs().len) {
+				SemanticTypeSystem.unifyGenericParameter(declared.genericArgs().get(index), actual.genericArgs().get(index), parameters, substitutions);
 				index = index + 1;
 			}
 		}

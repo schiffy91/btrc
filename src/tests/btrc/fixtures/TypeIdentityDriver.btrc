@@ -49,7 +49,7 @@ int main() {
 	assert(TypeIdentity.mangleGenericSymbol("Vector", identityArgs1(array)).equals("btrc_Vector_int_a"));
 
 	Node nested = identityType("A");
-	nested.genericArgs = identityArgs1(scalar);
+	nested.genericArgsStorage = identityArgs1(scalar);
 	nested.pointerDepth = 1;
 	Node flat = identityType("A_int_p1");
 	assert(TypeIdentity.symbolComponent(nested).equals("ZQtb2_41p1n0o0a0q0k1t21_b6_696e74p0n0o0a0q0k0"));
@@ -134,7 +134,7 @@ int main() {
 	Map<string, bool> names = {};
 	names.put("U", true);
 	Node templated = identityType("Box");
-	templated.genericArgs = identityArgs1(identityType("U"));
+	templated.genericArgsStorage = identityArgs1(identityType("U"));
 	assert(TypeIdentity.referencesNames(templated, names));
 	assert(!TypeIdentity.referencesNames(identityType("T"), names));
 

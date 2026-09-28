@@ -240,7 +240,7 @@ class OwnershipSemantics {
 				return null;
 			}
 			Node concreteSetter = setter;
-			return StorageValidator.resolvedIndexedType(concreteSetter.params.get(1).type, receiver, self.analyzed);
+			return StorageValidator.resolvedIndexedType(concreteSetter.params().get(1).type, receiver, self.analyzed);
 		}
 		if (target.kind != NK_FIELD_ACCESS_EXPR) { return null; }
 		Node? receiver = self.expressionType(target.obj, environment);
@@ -364,7 +364,7 @@ class OwnershipSemantics {
 
 	public bool managedCompoundKeepsRhs(Node targetType, string op) {
 		Node? method = self.binaryMethod(targetType, op);
-		return method != null && method.params.len > 0 && method.params.get(0).keep_;
+		return method != null && method.params().len > 0 && method.params().get(0).keep_;
 	}
 
 	private void prepareRawProjection(RawProjectionCarrierContext projection, Node? expression, OwnershipOperandEnvironment environment) {

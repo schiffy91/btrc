@@ -18,7 +18,7 @@ import ./Types.btrc;
 class NumericSemantics {
 	class bool isScalar(Node? typeExpr) {
 		if (typeExpr == null) { return false; }
-		return typeExpr.pointerDepth == 0 && !typeExpr.isArray && typeExpr.genericArgs.len == 0;
+		return typeExpr.pointerDepth == 0 && !typeExpr.isArray && typeExpr.genericArgs().len == 0;
 	}
 
 	class bool isFloating(Node? typeExpr) {
@@ -195,7 +195,7 @@ class OperatorSemantics {
      * already carry it.  These spellings describe the same runtime value shape. */
 	public int valueDepth(Node typeExpr) {
 		int depth = self.referenceDepth(typeExpr);
-		if (depth == 0 && (self.analyzed.isClass(typeExpr.base) || self.analyzed.isInterface(typeExpr.base) || (typeExpr.genericArgs.len > 0 && self.analyzed.isGenericClass(typeExpr.base)))) {
+		if (depth == 0 && (self.analyzed.isClass(typeExpr.base) || self.analyzed.isInterface(typeExpr.base) || (typeExpr.genericArgs().len > 0 && self.analyzed.isGenericClass(typeExpr.base)))) {
 			depth = 1;
 		}
 		return depth;
@@ -205,7 +205,7 @@ class OperatorSemantics {
 
 	/* Exactly one C `char` indirection is interoperable with semantic `string`.
      * Arrays count as one indirection; char** and pointer-to-array shapes do not. */
-	public bool isCStringPointer(Node? typeExpr) { return typeExpr != null && typeExpr.base == "char" && self.referenceDepth(typeExpr) == 1 && typeExpr.genericArgs.len == 0; }
+	public bool isCStringPointer(Node? typeExpr) { return typeExpr != null && typeExpr.base == "char" && self.referenceDepth(typeExpr) == 1 && typeExpr.genericArgs().len == 0; }
 
 	public bool isReferenceType(Node? typeExpr) {
 		if (typeExpr == null) { return false; }
@@ -229,10 +229,10 @@ class OperatorSemantics {
 
 	public bool specializationIsSubtype(Node child, Node parent) {
 		if (self.analyzed.isInterface(parent.base)) {
-			return !child.isArray && !parent.isArray && parent.genericArgs.len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
+			return !child.isArray && !parent.isArray && parent.genericArgs().len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
 		}
 		if (self.analyzed.nativeClassLanguage(child.base) == "objective-c" || self.analyzed.nativeClassLanguage(child.base) == "c") {
-			return !child.isArray && !parent.isArray && child.genericArgs.len == 0 && parent.genericArgs.len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
+			return !child.isArray && !parent.isArray && child.genericArgs().len == 0 && parent.genericArgs().len == 0 && self.valueDepth(child) == 1 && self.valueDepth(parent) == 1 && self.analyzed.isSubclass(child.base, parent.base);
 		}
 		string currentBase = child.base;
 		bool carriesArgs = true;
@@ -240,8 +240,8 @@ class OperatorSemantics {
 		while (currentBase != "" && !seen.has(currentBase)) {
 			seen.put(currentBase, true);
 			if (currentBase == parent.base) {
-				if (!carriesArgs) { return parent.genericArgs.len == 0; }
-				return self.genericArgsEqual(child.genericArgs, parent.genericArgs);
+				if (!carriesArgs) { return parent.genericArgs().len == 0; }
+				return self.genericArgsEqual(child.genericArgs(), parent.genericArgs());
 			}
 			Node? declaration = null;
 			if (self.analyzed.classTable.has(currentBase)) {
@@ -258,7 +258,7 @@ class OperatorSemantics {
 			}
 			if (ancestorArity > 0) {
 				int currentArity = declaration.genericParams().len;
-				if (!carriesArgs || ancestorArity != currentArity || currentArity != child.genericArgs.len) {
+				if (!carriesArgs || ancestorArity != currentArity || currentArity != child.genericArgs().len) {
 					return false;
 				}
 			} else {
@@ -290,7 +290,7 @@ class OperatorSemantics {
 		if (left.base == "__fn_ptr" || left.base == "__realtime_fn_ptr" || right.base == "__fn_ptr" || right.base == "__realtime_fn_ptr") {
 			bool leftCallable = left.base == "__fn_ptr" || left.base == "__realtime_fn_ptr";
 			bool rightCallable = right.base == "__fn_ptr" || right.base == "__realtime_fn_ptr";
-			return leftCallable && rightCallable && self.genericArgsEqual(left.genericArgs, right.genericArgs);
+			return leftCallable && rightCallable && self.genericArgsEqual(left.genericArgs(), right.genericArgs());
 		}
 		if (self.isVoidPointer(left) || self.isVoidPointer(right)) {
 			return true;
@@ -302,7 +302,7 @@ class OperatorSemantics {
 			return false;
 		}
 		if (left.base == right.base) {
-			return self.genericArgsEqual(left.genericArgs, right.genericArgs);
+			return self.genericArgsEqual(left.genericArgs(), right.genericArgs());
 		}
 		return self.nominallyRelated(left, right);
 	}
@@ -377,7 +377,7 @@ class OperatorSemantics {
 		}
 		if (method == null || method.kind != NK_METHOD_DECL) { return null; }
 		Node concreteMethod = method;
-		if (receiverType.genericArgs.len > 0 && self.analyzed.isGenericClass(receiverType.base)) {
+		if (receiverType.genericArgs().len > 0 && self.analyzed.isGenericClass(receiverType.base)) {
 			return SemanticTypeSystem.resolveGenericType(concreteMethod.returnType, SemanticTypeSystem.genericTypeMap(self.analyzed, receiverType), self.analyzed);
 		}
 		return concreteMethod.returnType;

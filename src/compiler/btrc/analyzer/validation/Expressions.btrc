@@ -172,13 +172,13 @@ class ExpressionValidator {
 		if (initializer.kind != NK_BRACE_INITIALIZER) {
 			TypeValidator.fail(subject + " requires a brace initializer for " + "struct '" + name + "'", initializer);
 		}
-		if (initializer.elements().len > declaration.fields.len) {
-			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(declaration.fields.len) + " fields", initializer);
+		if (initializer.elements().len > declaration.fields().len) {
+			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(declaration.fields().len) + " fields", initializer);
 		}
 		if (initializer.elements().len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
 		int index = 0;
 		while (index < initializer.elements().len) {
-			Node field = declaration.fields.get(index);
+			Node field = declaration.fields().get(index);
 			Node? fieldValueType = self.storage.arrayFieldValueType(field);
 			if (fieldValueType == null) { fieldValueType = field.type; }
 			self.validateInitializerValue(fieldValueType, initializer.elements().get(index), subject + " field '" + field.name + "'", vars);
@@ -187,14 +187,14 @@ class ExpressionValidator {
 	}
 
 	public void validateMapInitializer(Node expected, Node initializer, string subject, Map<string, Node> vars) {
-		if (expected.base != "Map" || expected.genericArgs.len != 2) {
+		if (expected.base != "Map" || expected.genericArgs().len != 2) {
 			TypeValidator.fail(subject + " uses a map literal for a non-Map type", initializer);
 		}
 		int index = 0;
 		while (index < initializer.entries().len) {
 			Node entry = initializer.entries().get(index);
-			self.validateInitializerValue(expected.genericArgs.get(0), entry.key, subject + " key", vars);
-			self.validateInitializerValue(expected.genericArgs.get(1), entry.valueNode, subject + " value", vars);
+			self.validateInitializerValue(expected.genericArgs().get(0), entry.key, subject + " key", vars);
+			self.validateInitializerValue(expected.genericArgs().get(1), entry.valueNode, subject + " value", vars);
 			index = index + 1;
 		}
 	}
@@ -235,12 +235,12 @@ class ExpressionValidator {
 			return;
 		}
 		if (canonical.base == "Tuple" && canonical.pointerDepth == 0 && value.kind == NK_BRACE_INITIALIZER) {
-			if (value.elements().len > canonical.genericArgs.len) {
-				TypeValidator.fail(subject + " has " + Strings.fromInt(value.elements().len) + " initializer elements but tuple '" + self.types.formatType(canonical) + "' has " + Strings.fromInt(canonical.genericArgs.len) + " fields", value);
+			if (value.elements().len > canonical.genericArgs().len) {
+				TypeValidator.fail(subject + " has " + Strings.fromInt(value.elements().len) + " initializer elements but tuple '" + self.types.formatType(canonical) + "' has " + Strings.fromInt(canonical.genericArgs().len) + " fields", value);
 			}
 			int tupleIndex = 0;
 			while (tupleIndex < value.elements().len) {
-				self.validateInitializerValue(canonical.genericArgs.get(tupleIndex), value.elements().get(tupleIndex), subject + " field '_" + Strings.fromInt(tupleIndex) + "'", vars);
+				self.validateInitializerValue(canonical.genericArgs().get(tupleIndex), value.elements().get(tupleIndex), subject + " field '_" + Strings.fromInt(tupleIndex) + "'", vars);
 				tupleIndex = tupleIndex + 1;
 			}
 			return;
@@ -249,17 +249,17 @@ class ExpressionValidator {
 			if (value.kind == NK_BRACE_INITIALIZER && value.elements().len > 0 && self.state.analyzed.isGenericClass(canonical.base) && canonical.base != "Array" && canonical.base != "List" && canonical.base != "Map" && canonical.base != "Set" && canonical.base != "Vector") {
 				TypeValidator.fail(subject + " cannot use a non-empty brace initializer for heap class '" + self.types.formatType(canonical) + "'; use an explicit constructor call", value);
 			}
-			if (canonical.genericArgs.len == 1 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector")) {
+			if (canonical.genericArgs().len == 1 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector")) {
 				/* Lowering has no path from a brace list to a managed collection;
 				 * only the empty form builds one. */
 				if (value.kind == NK_BRACE_INITIALIZER && value.elements().len > 0 && canonical.base != "Array") {
 					string hint = canonical.base == "Set" ? "'{}' creates an empty Set and add() inserts elements" : "use a list literal [...]";
 					TypeValidator.fail(subject + " cannot use a non-empty brace initializer for '" + canonical.base + "'; " + hint, value);
 				}
-				self.validateInitializerElements(canonical.genericArgs.get(0), value.elements(), subject, vars);
+				self.validateInitializerElements(canonical.genericArgs().get(0), value.elements(), subject, vars);
 				return;
 			}
-			if (value.kind == NK_BRACE_INITIALIZER && value.elements().len == 0 && canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
+			if (value.kind == NK_BRACE_INITIALIZER && value.elements().len == 0 && canonical.genericArgs().len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
 				return;
 			}
 			TypeValidator.fail(subject + " uses an aggregate initializer for '" + self.types.formatType(canonical) + "'", value);
@@ -430,7 +430,7 @@ class ExpressionValidator {
 		}
 		if (receiver.base == "Tuple") {
 			int tupleIndex = SemanticTypeSystem.tupleIndex(expression.field);
-			if (tupleIndex < 0 || tupleIndex >= receiver.genericArgs.len) {
+			if (tupleIndex < 0 || tupleIndex >= receiver.genericArgs().len) {
 				TypeValidator.fail("Tuple type '" + self.types.formatType(receiver) + "' has no field '" + expression.field + "'", expression);
 			}
 			return;
@@ -683,8 +683,8 @@ class ExpressionValidator {
 		plan.variables = TypeValidator.cloneTypes(vars);
 		Map<string, bool> parameterNames = {};
 		int index = 0;
-		while (index < expression.params.len) {
-			Node parameter = expression.params.get(index);
+		while (index < expression.params().len) {
+			Node parameter = expression.params().get(index);
 			self.names.validateGeneratedLexicalBindingName(parameter.name, "Lambda parameter", parameter);
 			parameterNames.put(parameter.name, true);
 			self.types.validateDeclaredType(parameter.type, "Lambda parameter '" + parameter.name + "'", "parameter", parameter);
@@ -788,8 +788,8 @@ class ExpressionValidator {
 	public void validateSpawnCaptures(Node expression, Map<string, Node> vars) {
 		Map<string, bool> parameterNames = {};
 		int parameterIndex = 0;
-		while (parameterIndex < expression.params.len) {
-			parameterNames.put(expression.params.get(parameterIndex).name, true);
+		while (parameterIndex < expression.params().len) {
+			parameterNames.put(expression.params().get(parameterIndex).name, true);
 			parameterIndex = parameterIndex + 1;
 		}
 		Map<string, bool> usedNames = {};
@@ -835,7 +835,7 @@ class ExpressionValidator {
 			TypeValidator.fail("new requires an unqualified class type, got '" + self.types.formatType(expression.type) + "'", expression);
 		}
 		if (className == "Mutex") {
-			if (expression.type.genericArgs.len != 1) {
+			if (expression.type.genericArgs().len != 1) {
 				TypeValidator.fail("new Mutex requires exactly one value type", expression);
 			}
 			if (expression.args().len != 1) {
@@ -848,7 +848,7 @@ class ExpressionValidator {
 				}
 				mutexArgIndex = mutexArgIndex + 1;
 			}
-			Node expected = expression.type.genericArgs.get(0);
+			Node expected = expression.type.genericArgs().get(0);
 			Node argument = expression.args().get(0);
 			self.validateTypedInitializer(expected, argument, "Mutex initializer", vars);
 			Node? actual = self.types.inferType(argument,  vars);
@@ -875,7 +875,7 @@ class ExpressionValidator {
 			return;
 		}
 		self.calls.validateConstructorAccess(className, constructor, expression);
-		self.calls.validateSignature(className, constructor.params, expression, substitutions, false, vars);
+		self.calls.validateSignature(className, constructor.params(), expression, substitutions, false, vars);
 		if (className == "CallbackRegistration") {
 			self.calls.validateDirectRealtimeCallback(className, constructor, expression, vars, "invoke");
 		} else if (className == "RealtimeAudioProgram") {
@@ -998,7 +998,7 @@ class ExpressionValidator {
 				TypeValidator.fail("spawn expects a lambda or function pointer", expression);
 			} else if (expression.fn.kind != NK_LAMBDA_EXPR && callable != null) {
 				Node typedCallable = callable;
-				if (typedCallable.genericArgs.len != 2 || !self.operators.isVoidPointer(typedCallable.genericArgs.get(0)) || !self.operators.isVoidPointer(typedCallable.genericArgs.get(1))) {
+				if (typedCallable.genericArgs().len != 2 || !self.operators.isVoidPointer(typedCallable.genericArgs().get(0)) || !self.operators.isVoidPointer(typedCallable.genericArgs().get(1))) {
 					TypeValidator.fail("Non-lambda spawn requires __fn_ptr<void*, void*>; use a " + "lambda adapter for other signatures", expression);
 				}
 			}
@@ -1032,12 +1032,12 @@ class ExpressionValidator {
 			self.contextualizeGenericConstructor(concrete, expression.falseExpr, variables);
 			return;
 		}
-		if (expression.kind == NK_MAP_LITERAL && concrete.base == "Map" && concrete.genericArgs.len == 2) {
+		if (expression.kind == NK_MAP_LITERAL && concrete.base == "Map" && concrete.genericArgs().len == 2) {
 			int entryIndex = 0;
 			while (entryIndex < expression.entries().len) {
 				Node entry = expression.entries().get(entryIndex);
-				self.contextualizeGenericConstructor(concrete.genericArgs.get(0), entry.key, variables);
-				self.contextualizeGenericConstructor(concrete.genericArgs.get(1), entry.valueNode, variables);
+				self.contextualizeGenericConstructor(concrete.genericArgs().get(0), entry.key, variables);
+				self.contextualizeGenericConstructor(concrete.genericArgs().get(1), entry.valueNode, variables);
 				entryIndex = entryIndex + 1;
 			}
 			return;
@@ -1051,21 +1051,21 @@ class ExpressionValidator {
 			}
 			if (concrete.base == "Tuple") {
 				int tupleIndex = 0;
-				while (tupleIndex < expression.elements().len && tupleIndex < concrete.genericArgs.len) {
-					self.contextualizeGenericConstructor(concrete.genericArgs.get(tupleIndex), expression.elements().get(tupleIndex), variables);
+				while (tupleIndex < expression.elements().len && tupleIndex < concrete.genericArgs().len) {
+					self.contextualizeGenericConstructor(concrete.genericArgs().get(tupleIndex), expression.elements().get(tupleIndex), variables);
 					tupleIndex = tupleIndex + 1;
 				}
 				return;
 			}
-			if (concrete.genericArgs.len == 1 && (concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector")) {
-				self.contextualizeGenericElements(concrete.genericArgs.get(0), expression.elements(), variables);
+			if (concrete.genericArgs().len == 1 && (concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector")) {
+				self.contextualizeGenericElements(concrete.genericArgs().get(0), expression.elements(), variables);
 				return;
 			}
 			if (self.state.analyzed.structTable.has(concrete.base)) {
 				Node structure = self.state.analyzed.structTable.get(concrete.base);
 				int fieldIndex = 0;
-				while (fieldIndex < expression.elements().len && fieldIndex < structure.fields.len) {
-					self.contextualizeGenericConstructor(structure.fields.get(fieldIndex).type, expression.elements().get(fieldIndex), variables);
+				while (fieldIndex < expression.elements().len && fieldIndex < structure.fields().len) {
+					self.contextualizeGenericConstructor(structure.fields().get(fieldIndex).type, expression.elements().get(fieldIndex), variables);
 					fieldIndex = fieldIndex + 1;
 				}
 				return;
@@ -1075,20 +1075,20 @@ class ExpressionValidator {
 			return;
 		}
 		string name = expression.callee.name;
-		if ((name == "Atomic" || name == "Span") && concrete.base == name && concrete.genericArgs.len == 1) {
+		if ((name == "Atomic" || name == "Span") && concrete.base == name && concrete.genericArgs().len == 1) {
 			self.state.analyzed.recordGenericConstructorType(expression, concrete);
 			return;
 		}
 		if (!self.state.analyzed.isGenericClass(name) || concrete.base != name) { return; }
 		Node declaration = self.state.analyzed.genericClassTable.get(name);
-		if (concrete.genericArgs.len != declaration.genericParams().len) {
+		if (concrete.genericArgs().len != declaration.genericParams().len) {
 			return;
 		}
 		self.state.analyzed.recordGenericConstructorType(expression, concrete);
 		Node? constructor = self.state.analyzed.genericClassConstructor(name);
 		if (constructor == null) { return; }
 		Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, concrete);
-		self.contextualizeGenericCallParameters(constructor.params, substitutions, expression, variables);
+		self.contextualizeGenericCallParameters(constructor.params(), substitutions, expression, variables);
 	}
 
 	public void contextualizeGenericCallParameters(Vector<Node> parameters, Map<string, Node> substitutions, Node call, Map<string, Node> variables) {
@@ -1111,8 +1111,8 @@ class ExpressionValidator {
 
 	public void contextualizeCallableArguments(Node callable, Node call, Map<string, Node> variables) {
 		int index = 0;
-		while (index < call.args().len && index + 1 < callable.genericArgs.len) {
-			self.contextualizeGenericConstructor(callable.genericArgs.get(index + 1), call.args().get(index), variables);
+		while (index < call.args().len && index + 1 < callable.genericArgs().len) {
+			self.contextualizeGenericConstructor(callable.genericArgs().get(index + 1), call.args().get(index), variables);
 			index = index + 1;
 		}
 	}
@@ -1145,19 +1145,19 @@ class ExpressionValidator {
 				declaration = self.state.analyzed.classConstructor(callee.name);
 			} else if (self.state.analyzed.isGenericClass(callee.name)) {
 				Node? instance = self.types.inferSpecialization(call, variables);
-				if (instance != null && instance.genericArgs.len > 0) {
+				if (instance != null && instance.genericArgs().len > 0) {
 					self.state.analyzed.recordGenericConstructorType(call, instance);
 					substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, instance);
 					declaration = self.state.analyzed.genericClassConstructor(callee.name);
 				}
 			}
 			if (declaration != null) {
-				self.contextualizeGenericCallParameters(declaration.params, substitutions, call, variables);
+				self.contextualizeGenericCallParameters(declaration.params(), substitutions, call, variables);
 			}
 			return;
 		}
 		if (callee.kind == NK_LAMBDA_EXPR) {
-			self.contextualizeGenericCallParameters(callee.params, substitutions, call, variables);
+			self.contextualizeGenericCallParameters(callee.params(), substitutions, call, variables);
 			return;
 		}
 		if (callee.kind != NK_FIELD_ACCESS_EXPR) {
@@ -1181,7 +1181,7 @@ class ExpressionValidator {
 		}
 		if (method != null) {
 			substitutions = SemanticTypeSystem.methodCallTypeMap(self.state.analyzed, call, method, substitutions);
-			self.contextualizeGenericCallParameters(method.params, substitutions, call, variables);
+			self.contextualizeGenericCallParameters(method.params(), substitutions, call, variables);
 		}
 	}
 
@@ -1195,7 +1195,7 @@ class ExpressionValidator {
 			substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, expression.type);
 		}
 		if (constructor != null) {
-			self.contextualizeGenericCallParameters(constructor.params, substitutions, expression, variables);
+			self.contextualizeGenericCallParameters(constructor.params(), substitutions, expression, variables);
 		}
 	}
 }

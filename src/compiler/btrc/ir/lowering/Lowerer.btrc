@@ -146,7 +146,7 @@ class IRLowerer {
 				for argument in methodPlan.instance.classArgs { instantiatedTypes.push(argument); }
 				for argument in methodPlan.instance.methodArgs { instantiatedTypes.push(argument); }
 			}
-			self.context.reachability = StdlibReachability(program.declarations, stdlibKeys, instantiated, instantiatedTypes);
+			self.context.reachability = StdlibReachability(program.declarations(), stdlibKeys, instantiated, instantiatedTypes);
 		}
 		if (facts != null && !facts.reachabilityComputed) {
 			facts.reachability = self.context.reachability;

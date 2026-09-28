@@ -28,8 +28,8 @@ class DeclarationRegistry {
      * normalization and expression inference are deliberately separate passes. */
 	public void registerProgram(Node program) {
 		int i = 0;
-		while (i < program.declarations.len) {
-			Node d = program.declarations.get(i);
+		while (i < program.declarations().len) {
+			Node d = program.declarations().get(i);
 			if (d.kind == NK_FUNCTION_DECL) {
 				self.analyzed.funcNames.put(d.name, true);
 				self.analyzed.funcRetTypes.put(d.name, d.returnType);
@@ -95,8 +95,8 @@ class DeclarationRegistry {
 			visited.put(current, true);
 			Node declaration = analyzed.classTable.get(current);
 			int index = 0;
-			while (index < declaration.members.len) {
-				Node member = declaration.members.get(index);
+			while (index < declaration.members().len) {
+				Node member = declaration.members().get(index);
 				string key = Analyzed.memberKey(className, member.name);
 				if (member.kind == NK_METHOD_DECL && member.isConstructor) {
 					if (current == className && !analyzed.classConstructorIndex.has(className)) {
@@ -119,8 +119,8 @@ class DeclarationRegistry {
 	public void indexGenericClassMembers(Analyzed analyzed, string className) {
 		Node declaration = analyzed.genericClassTable.get(className);
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			string key = Analyzed.memberKey(className, member.name);
 			if (member.kind == NK_METHOD_DECL && member.isConstructor) {
 				if (!analyzed.genericConstructorIndex.has(className)) {
@@ -189,7 +189,7 @@ class DeclarationRegistry {
 		if (analyzed.isClass(receiverType.base)) {
 			return analyzed.classMember(receiverType.base, memberName);
 		}
-		if (receiverType.genericArgs.len > 0 && analyzed.isGenericClass(receiverType.base)) {
+		if (receiverType.genericArgs().len > 0 && analyzed.isGenericClass(receiverType.base)) {
 			return SemanticTypeSystem.genericMember(analyzed, receiverType.base, memberName);
 		}
 		return null;
@@ -197,15 +197,15 @@ class DeclarationRegistry {
 
 	class Node? resolvedInstanceMemberType(Analyzed analyzed, Node receiverType, Node member) {
 		if (member.type == null) { return null; }
-		if (receiverType.genericArgs.len > 0 && analyzed.isGenericClass(receiverType.base)) {
+		if (receiverType.genericArgs().len > 0 && analyzed.isGenericClass(receiverType.base)) {
 			return SemanticTypeSystem.resolveGenericType(member.type, SemanticTypeSystem.genericTypeMap(analyzed, receiverType), analyzed);
 		}
 		return member.type;
 	}
 
 	class string instanceFunctionPrefix(Analyzed analyzed, Node receiverType) {
-		if (receiverType.genericArgs.len > 0 && analyzed.isGenericClass(receiverType.base)) {
-			return TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs);
+		if (receiverType.genericArgs().len > 0 && analyzed.isGenericClass(receiverType.base)) {
+			return TypeIdentity.mangleGenericType(receiverType.base, receiverType.genericArgs());
 		}
 		return receiverType.base;
 	}
@@ -221,8 +221,8 @@ class DeclarationRegistry {
 			DeclarationRegistry.collectMergedClassProperties(analyzed, parent, output, indices, visited);
 		}
 		int memberIndex = 0;
-		while (memberIndex < declaration.members.len) {
-			Node member = declaration.members.get(memberIndex);
+		while (memberIndex < declaration.members().len) {
+			Node member = declaration.members().get(memberIndex);
 			if (member.kind == NK_PROPERTY_DECL) {
 				if (indices.has(member.name)) {
 					output.set(indices.get(member.name), member);
@@ -250,13 +250,13 @@ class DeclarationRegistry {
 
 	class Map<int, bool> ownedTransferParameters(Node? declaration) {
 		Map<int, bool> empty = {};
-		if (declaration == null || declaration.bodyNode == null || declaration.params.len == 0) {
+		if (declaration == null || declaration.bodyNode == null || declaration.params().len == 0) {
 			return empty;
 		}
 		Map<string, int> indices = {};
 		int index = 0;
-		while (index < declaration.params.len) {
-			Node parameter = declaration.params.get(index);
+		while (index < declaration.params().len) {
+			Node parameter = declaration.params().get(index);
 			if (!parameter.keep_) { indices.put(parameter.name, index); }
 			index++;
 		}

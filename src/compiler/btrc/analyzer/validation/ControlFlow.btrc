@@ -351,7 +351,7 @@ class ControlFlowValidator {
 	}
 
 	class Node iterableResolvedType(Node declared, Node iterableType, Analyzed analyzed) {
-		if (analyzed.isGenericClass(iterableType.base) && iterableType.genericArgs.len > 0) {
+		if (analyzed.isGenericClass(iterableType.base) && iterableType.genericArgs().len > 0) {
 			return SemanticTypeSystem.resolveGenericType(declared, SemanticTypeSystem.genericTypeMap(analyzed, iterableType), analyzed);
 		}
 		return declared;
@@ -359,7 +359,7 @@ class ControlFlowValidator {
 
 	public Node validateIterableMethod(Node iterableType, string methodName, int arity, Node site) {
 		Node? found = ControlFlowValidator.iterableMethod(iterableType, methodName, self.state.analyzed);
-		if (found == null || found.access == "class" || found.params.len != arity) {
+		if (found == null || found.access == "class" || found.params().len != arity) {
 			TypeValidator.fail("Type '" + self.types.formatType(iterableType) + "' does not satisfy the for-in protocol: instance " + methodName + "() must take " + Strings.fromInt(arity) + " argument(s)", site);
 		}
 		Node method = found;
@@ -374,7 +374,7 @@ class ControlFlowValidator {
 		}
 		string methodName = second ? "iterValueAt" : "iterGet";
 		Node valueMethod = self.validateIterableMethod(iterableType, methodName, 1, site);
-		Node indexType = ControlFlowValidator.iterableResolvedType(valueMethod.params.get(0).type, iterableType, self.state.analyzed);
+		Node indexType = ControlFlowValidator.iterableResolvedType(valueMethod.params().get(0).type, iterableType, self.state.analyzed);
 		if (!self.types.integralType(indexType, self.state.analyzed) || indexType.base == "bool") {
 			TypeValidator.fail("for-in " + methodName + "() index must have an integral non-bool type", valueMethod);
 		}
@@ -419,8 +419,8 @@ class ControlFlowValidator {
 				if (statement.varName2 != null) {
 					TypeValidator.fail("Array iteration has exactly one loop variable", statement);
 				}
-			} else if (iterableType != null && iterableType.base == "Span" && iterableType.genericArgs.len == 1) {
-				first = iterableType.genericArgs.get(0);
+			} else if (iterableType != null && iterableType.base == "Span" && iterableType.genericArgs().len == 1) {
+				first = iterableType.genericArgs().get(0);
 				if (statement.varName2 != null) {
 					TypeValidator.fail("Span iteration has exactly one loop variable", statement);
 				}

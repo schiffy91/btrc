@@ -1460,7 +1460,7 @@ class StatementLowerer {
 		}
 		IRNode irIter = self.expressions.lowerExpr(iterable, loopTypes, callableFlow);
 
-		if (iterType != null && iterType.base == "Span" && iterType.genericArgs.len == 1) {
+		if (iterType != null && iterType.base == "Span" && iterType.genericArgs().len == 1) {
 			self.lowerSpanForIn(node, irIter, iterType, varName, loopTypes, out, callableFlow);
 			self.context.restoreSourceBindings(sourceBindings);
 			return;
@@ -1474,7 +1474,7 @@ class StatementLowerer {
 		}
 
 		/* String iteration: for c in str. */
-		if (iterType != null && iterType.base == "string" && iterType.pointerDepth == 0 && iterType.genericArgs.len == 0) {
+		if (iterType != null && iterType.base == "string" && iterType.pointerDepth == 0 && iterType.genericArgs().len == 0) {
 			self.lowerStringForIn(node, irIter, varName, loopTypes, out, callableFlow);
 			self.context.restoreSourceBindings(sourceBindings);
 			return;
@@ -1489,7 +1489,7 @@ class StatementLowerer {
 		string indexName = self.context.freshTemporary("__i");
 		string iterName = self.context.freshTemporary("__span");
 		out.push(IRNode.variableDeclaration(self.cTypes.lower(iterType), iterName, irIter));
-		Node elementType = iterType.genericArgs.get(0);
+		Node elementType = iterType.genericArgs().get(0);
 		varTypes.put(varName, elementType);
 		self.context.activateSourceName(varName, self.lexicalBindingCName(varName));
 		string valueName = self.context.sourceCName(varName);
@@ -1513,7 +1513,7 @@ class StatementLowerer {
 	public void lowerIterableForIn(Node node, IRNode irIter, Node iterType, string varName, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
 		string calleePrefix = iterType.base;
 		if (self.analyzed.isGenericClass(iterType.base)) {
-			calleePrefix = TypeIdentity.mangleGenericType(iterType.base, iterType.genericArgs);
+			calleePrefix = TypeIdentity.mangleGenericType(iterType.base, iterType.genericArgs());
 		}
 		string idx = self.context.freshTemporary("__i");
 		string nVar = self.context.freshTemporary("__n");
@@ -1737,8 +1737,8 @@ class StatementLowerer {
      * feature_scan.program_uses_trycatch). */
 	public bool programUsesTrycatch(Node prog) {
 		int i = 0;
-		while (i < prog.declarations.len) {
-			if (self.nodeUsesTrycatch(prog.declarations.get(i))) {
+		while (i < prog.declarations().len) {
+			if (self.nodeUsesTrycatch(prog.declarations().get(i))) {
 				return true;
 			}
 			i = i + 1;
@@ -1762,14 +1762,14 @@ class StatementLowerer {
 	private bool nodeUsesTrycatch(Node? n) {
 		if (n == null) { return false; }
 		if (n.kind == NK_THROW_STMT || n.kind == NK_TRY_CATCH_STMT) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.declarations)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.members)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.methods)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.fields)) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.declarations())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.members())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.methods())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.fields())) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.values())) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.variants())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.genericArgs)) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.params)) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.genericArgs())) { return true; }
+		if (self.nodeVectorUsesTrycatch(n.params())) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.statements())) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.cases())) { return true; }
 		if (self.nodeVectorUsesTrycatch(n.bodyNodeList())) { return true; }

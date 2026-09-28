@@ -175,21 +175,21 @@ class AggregateValueLowerer {
 		if (concrete.isArray) {
 			return TypeShape.withoutOuterArray(concrete);
 		}
-		if (concrete.base == "Tuple" && index < concrete.genericArgs.len) {
-			return concrete.genericArgs.get(index);
+		if (concrete.base == "Tuple" && index < concrete.genericArgs().len) {
+			return concrete.genericArgs().get(index);
 		}
-		if ((concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector") && concrete.genericArgs.len == 1) {
-			return concrete.genericArgs.get(0);
+		if ((concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector") && concrete.genericArgs().len == 1) {
+			return concrete.genericArgs().get(0);
 		}
 		string structName = StorageValidator.structTypeName(concrete, self.analyzed);
 		if (structName == "" || !self.analyzed.structTable.has(structName)) {
 			return null;
 		}
 		Node declaration = self.analyzed.structTable.get(structName);
-		if (declaration.isForward || index >= declaration.fields.len) {
+		if (declaration.isForward || index >= declaration.fields().len) {
 			return null;
 		}
-		return declaration.fields.get(index).type;
+		return declaration.fields().get(index).type;
 	}
 
 	private void collectOperands(Node aggregate, Node? aggregateType, OwnershipOperandEnvironment environment, Vector<AggregateOperandPlan> operands) {

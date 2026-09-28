@@ -46,22 +46,22 @@ class GenericSpecializer {
 
 	public void discover(Node program) {
 		int index = 0;
-		while (index < program.declarations.len) {
-			self.upgradeDeclGenericArgs(program.declarations.get(index), self.analyzed);
+		while (index < program.declarations().len) {
+			self.upgradeDeclGenericArgs(program.declarations().get(index), self.analyzed);
 			index = index + 1;
 		}
 		BtrccPhaseTimer.mark("g-upgrade");
 		index = 0;
-		while (index < program.declarations.len) {
-			self.collectGenericsDecl(program.declarations.get(index), self.analyzed);
+		while (index < program.declarations().len) {
+			self.collectGenericsDecl(program.declarations().get(index), self.analyzed);
 			index = index + 1;
 		}
 		BtrccPhaseTimer.mark("g-collect");
 		self.registerTransitiveGenericInstances(self.analyzed, self.operators);
 		BtrccPhaseTimer.mark("g-transitive");
 		index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (!self.replayRecorded(RECORD_PHASE_DISCOVER, declaration)) {
 				ValidationJournal? journal = self.beginJournal(RECORD_PHASE_DISCOVER, declaration);
 				self.collectMethodGenericsDecl(declaration, self.analyzed, self.operators);
@@ -174,7 +174,7 @@ class GenericSpecializer {
 
 	private void collectNativeCallbackInstances(HostedAbiRepository hostedAbi) {
 		for imported in self.analyzed.nativeDeclarations {
-			Vector<Node> members = imported.declaration.members;
+			Vector<Node> members = imported.declaration.members();
 			if (imported.declaration.kind == NK_FUNCTION_DECL) { members = [imported.declaration]; }
 			for member in members {
 				FeNativeCallContract? contract = imported.callContract;
@@ -196,7 +196,7 @@ class GenericSpecializer {
 					if (callback.oneShot && context.base == "CallbackResult") {
 						if (!self.analyzed.genericClassTable.has(context.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(context.base))) { throw "Stored native callbacks require import Library.Callback"; }
 						self.registerGenericInstanceWithUnresolved(context, self.analyzed, {});
-						context = context.genericArgs.get(1);
+						context = context.genericArgs().get(1);
 					}
 					if (!self.analyzed.genericClassTable.has(context.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(context.base))) { throw "Stored native callbacks require import Library.Callback"; }
 					Vector<string> methods = ["activate", "publish", "abortActivation", "enter", "leave", "close", "cancel", "pollCompletion"];
@@ -206,7 +206,7 @@ class GenericSpecializer {
 						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 					}
 					if (!callback.oneShot && callback.unregister.signature.parameters.len > 0 && !callback.unregister.classMethod) {
-						Node token = context.genericArgs.get(1);
+						Node token = context.genericArgs().get(1);
 						if (!self.analyzed.genericClassTable.has(token.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(token.base))) { throw "Stored native callbacks require import Library.Callback"; }
 						for name in ["publish", "source", "value"] {
 							Node? method = self.analyzed.genericClassMethod(token.base, name);
@@ -234,8 +234,8 @@ class GenericSpecializer {
 		if (d.kind == NK_FUNCTION_DECL) {
 			Map<string, Node> vt = {};
 			int i = 0;
-			while (i < d.params.len) {
-				vt.put(d.params.get(i).name, d.params.get(i).type);
+			while (i < d.params().len) {
+				vt.put(d.params().get(i).name, d.params().get(i).type);
 				i = i + 1;
 			}
 			if (d.bodyNode != null) {
@@ -245,16 +245,16 @@ class GenericSpecializer {
 			}
 		} else if (d.kind == NK_CLASS_DECL && d.genericParams().len == 0) {
 			int i = 0;
-			while (i < d.members.len) {
-				Node mem = d.members.get(i);
+			while (i < d.members().len) {
+				Node mem = d.members().get(i);
 				if (mem.kind == NK_METHOD_DECL && mem.bodyNode != null) {
 					Map<string, Node> vt = {};
 					Node selfT = SemanticTypeSystem.namedClass(d.name);
 					selfT.pointerDepth = 1;
 					vt.put("self", selfT);
 					int p = 0;
-					while (p < mem.params.len) {
-						vt.put(mem.params.get(p).name, mem.params.get(p).type);
+					while (p < mem.params().len) {
+						vt.put(mem.params().get(p).name, mem.params().get(p).type);
 						p = p + 1;
 					}
 					bool ownsMemo = self.expressions.beginScopedMemo();
@@ -274,14 +274,14 @@ class GenericSpecializer {
 				parameter.base = name;
 				parameters.push(parameter);
 			}
-			for member in d.members {
+			for member in d.members() {
 				if (member.kind != NK_METHOD_DECL || member.bodyNode == null) { continue; }
 				Map<string, bool> previous = self.templateParameters;
 				self.templateParameters = SemanticTypeSystem.genericParameterSet(d.genericParams());
 				for name in member.genericParams() { self.templateParameters.put(name, true); }
 				Map<string, Node> vt = {};
 				vt.put("self", self.genericClosureSelfType(d.name, parameters));
-				for parameter in member.params { vt.put(parameter.name, parameter.type); }
+				for parameter in member.params() { vt.put(parameter.name, parameter.type); }
 				bool ownsMemo = self.expressions.beginScopedMemo();
 				self.collectMethodGenericsBlock(member.bodyNode, a, operators, vt);
 				self.expressions.endScopedMemo(ownsMemo);
@@ -415,12 +415,12 @@ class GenericSpecializer {
 		Node? methodDecl = null;
 		string classBase = "";
 		Vector<Node> classArgs = [];
-		bool ownerGeneric = ot.genericArgs.len > 0 && a.isGenericClass(ot.base);
+		bool ownerGeneric = ot.genericArgs().len > 0 && a.isGenericClass(ot.base);
 		if (ownerGeneric) {
 			methodDecl = a.genericClassMethod(ot.base, method);
 			classBase = ot.base;
 			int ca = 0;
-			while (ca < ot.genericArgs.len) { classArgs.push(ot.genericArgs.get(ca)); ca = ca + 1; }
+			while (ca < ot.genericArgs().len) { classArgs.push(ot.genericArgs().get(ca)); ca = ca + 1; }
 		} else if (a.isClass(ot.base)) {
 			methodDecl = a.classMethod(ot.base, method);
 			classBase = ot.base;
@@ -435,8 +435,8 @@ class GenericSpecializer {
 		if (ownerGeneric) {
 			Node gdecl = a.genericClassTable.get(ot.base);
 			int gi = 0;
-			while (gi < gdecl.genericParams().len && gi < ot.genericArgs.len) {
-				classSubs.put(gdecl.genericParams().get(gi), ot.genericArgs.get(gi));
+			while (gi < gdecl.genericParams().len && gi < ot.genericArgs().len) {
+				classSubs.put(gdecl.genericParams().get(gi), ot.genericArgs().get(gi));
 				gi = gi + 1;
 			}
 		}
@@ -492,8 +492,8 @@ class GenericSpecializer {
 		}
 		self.validateSpecializedType(owner, methodDecl.returnType, full, a);
 		int vsi = 0;
-		while (vsi < methodDecl.params.len) {
-			self.validateSpecializedType(owner, methodDecl.params.get(vsi).type, full, a);
+		while (vsi < methodDecl.params().len) {
+			self.validateSpecializedType(owner, methodDecl.params().get(vsi).type, full, a);
 			vsi = vsi + 1;
 		}
 
@@ -517,8 +517,8 @@ class GenericSpecializer {
          * (e.g. Vector<string> from mapTo's return type). */
 		self.registerSubstitutedGenerics(methodDecl.returnType, full, a);
 		int pi = 0;
-		while (pi < methodDecl.params.len) {
-			self.registerSubstitutedGenerics(methodDecl.params.get(pi).type, full, a);
+		while (pi < methodDecl.params().len) {
+			self.registerSubstitutedGenerics(methodDecl.params().get(pi).type, full, a);
 			pi = pi + 1;
 		}
 	}
@@ -543,8 +543,8 @@ class GenericSpecializer {
 			t = t + 1;
 		}
 		int i = 0;
-		while (i < method.params.len && i < call.args().len) {
-			Node declared = SemanticTypeSystem.resolveGenericType(method.params.get(i).type, classSubs, a);
+		while (i < method.params().len && i < call.args().len) {
+			Node declared = SemanticTypeSystem.resolveGenericType(method.params().get(i).type, classSubs, a);
 			Node? actual = self.expressions.genericArgumentType(call.args().get(i), vt);
 			if (actual != null) {
 				SemanticTypeSystem.unifyGenericParameter(declared, actual, tparams, subs);
@@ -586,11 +586,11 @@ class GenericSpecializer {
 	private void validateNestedClassArguments(string owner, Node? typeExpr, Analyzed a) {
 		if (typeExpr == null) { return; }
 		if (a.genericClassTable.has(typeExpr.base)) {
-			self.validateGenericArgumentsForOwner(owner + " via " + typeExpr.base, typeExpr.genericArgs);
+			self.validateGenericArgumentsForOwner(owner + " via " + typeExpr.base, typeExpr.genericArgs());
 		}
 		int index = 0;
-		while (index < typeExpr.genericArgs.len) {
-			self.validateNestedClassArguments(owner, typeExpr.genericArgs.get(index), a);
+		while (index < typeExpr.genericArgs().len) {
+			self.validateNestedClassArguments(owner, typeExpr.genericArgs().get(index), a);
 			index = index + 1;
 		}
 	}
@@ -609,33 +609,33 @@ class GenericSpecializer {
 			TypeIdentity.fail("OwnedClosure<Invoke> requires an exact " + "CFunction<Signature> invoke type");
 		}
 		int argumentIndex = 0;
-		while (argumentIndex < typeExpr.genericArgs.len) {
-			self.validateSpecializedContracts(typeExpr.genericArgs.get(argumentIndex), analyzed);
+		while (argumentIndex < typeExpr.genericArgs().len) {
+			self.validateSpecializedContracts(typeExpr.genericArgs().get(argumentIndex), analyzed);
 			argumentIndex = argumentIndex + 1;
 		}
 	}
 
 	private void validateGenericClassSpecialization(Node typeExpr, Analyzed a) {
 		if (!a.genericClassTable.has(typeExpr.base)) { return; }
-		self.validateGenericArgumentsForOwner(typeExpr.base, typeExpr.genericArgs);
+		self.validateGenericArgumentsForOwner(typeExpr.base, typeExpr.genericArgs());
 		Node declaration = a.genericClassTable.get(typeExpr.base);
-		if (declaration.genericParams().len != typeExpr.genericArgs.len) { return; }
+		if (declaration.genericParams().len != typeExpr.genericArgs().len) { return; }
 		Map<string, Node> substitutions = {};
 		int parameter = 0;
 		while (parameter < declaration.genericParams().len) {
-			substitutions.put(declaration.genericParams().get(parameter), typeExpr.genericArgs.get(parameter));
+			substitutions.put(declaration.genericParams().get(parameter), typeExpr.genericArgs().get(parameter));
 			parameter = parameter + 1;
 		}
 		int memberIndex = 0;
-		while (memberIndex < declaration.members.len) {
-			Node member = declaration.members.get(memberIndex);
+		while (memberIndex < declaration.members().len) {
+			Node member = declaration.members().get(memberIndex);
 			if (member.kind == NK_FIELD_DECL || member.kind == NK_PROPERTY_DECL) {
 				self.validateSpecializedType(typeExpr.base, member.type, substitutions, a);
 			} else if (member.kind == NK_METHOD_DECL) {
 				self.validateSpecializedType(typeExpr.base, member.returnType, substitutions, a);
 				int paramIndex = 0;
-				while (paramIndex < member.params.len) {
-					self.validateSpecializedType(typeExpr.base, member.params.get(paramIndex).type, substitutions, a);
+				while (paramIndex < member.params().len) {
+					self.validateSpecializedType(typeExpr.base, member.params().get(paramIndex).type, substitutions, a);
 					paramIndex = paramIndex + 1;
 				}
 			}
@@ -666,8 +666,8 @@ class GenericSpecializer {
 					g = g + 1;
 				}
 				int mi = 0;
-				while (mi < decl.members.len) {
-					Node mem = decl.members.get(mi);
+				while (mi < decl.members().len) {
+					Node mem = decl.members().get(mi);
 					Map<string, bool> unresolved = {};
 					if (mem.kind == NK_METHOD_DECL) {
 						unresolved = SemanticTypeSystem.genericParameterSet(mem.genericParams());
@@ -677,8 +677,8 @@ class GenericSpecializer {
 					} else if (mem.kind == NK_METHOD_DECL) {
 						self.registerResolvedGenericInstance(mem.returnType, tm, unresolved, a);
 						int p = 0;
-						while (p < mem.params.len) {
-							self.registerResolvedGenericInstance(mem.params.get(p).type, tm, unresolved, a);
+						while (p < mem.params().len) {
+							self.registerResolvedGenericInstance(mem.params().get(p).type, tm, unresolved, a);
 							p = p + 1;
 						}
 					}
@@ -709,15 +709,15 @@ class GenericSpecializer {
 			/* Requirements and implementations must use the same representation
 			 * for nested class arguments, including nullable container returns. */
 			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams());
-			for method in d.methods {
+			for method in d.methods() {
 				SemanticTypeSystem.upgradeTypeGenericArgs(method.returnType, a, unresolved);
-				for parameter in method.params { SemanticTypeSystem.upgradeTypeGenericArgs(parameter.type, a, unresolved); }
+				for parameter in method.params() { SemanticTypeSystem.upgradeTypeGenericArgs(parameter.type, a, unresolved); }
 			}
 		} else if (d.kind == NK_FUNCTION_DECL) {
 			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams());
 			int i = 0;
-			while (i < d.params.len) {
-				SemanticTypeSystem.upgradeTypeGenericArgs(d.params.get(i).type, a, unresolved);
+			while (i < d.params().len) {
+				SemanticTypeSystem.upgradeTypeGenericArgs(d.params().get(i).type, a, unresolved);
 				i = i + 1;
 			}
 			SemanticTypeSystem.upgradeTypeGenericArgs(d.returnType, a, unresolved);
@@ -731,15 +731,15 @@ class GenericSpecializer {
              * representation even though an unrelated `T` remains unresolved. */
 			Map<string, bool> classParameters = SemanticTypeSystem.genericParameterSet(d.genericParams());
 			int i = 0;
-			while (i < d.members.len) {
-				Node mem = d.members.get(i);
+			while (i < d.members().len) {
+				Node mem = d.members().get(i);
 				if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
 					SemanticTypeSystem.upgradeTypeGenericArgs(mem.type, a, classParameters);
 				} else if (mem.kind == NK_METHOD_DECL) {
 					Map<string, bool> unresolved = self.mergeTypeParameterSets(classParameters, mem.genericParams());
 					int p = 0;
-					while (p < mem.params.len) {
-						SemanticTypeSystem.upgradeTypeGenericArgs(mem.params.get(p).type, a, unresolved);
+					while (p < mem.params().len) {
+						SemanticTypeSystem.upgradeTypeGenericArgs(mem.params().get(p).type, a, unresolved);
 						p = p + 1;
 					}
 					SemanticTypeSystem.upgradeTypeGenericArgs(mem.returnType, a, unresolved);
@@ -845,8 +845,8 @@ class GenericSpecializer {
 		if (e.kind == NK_LAMBDA_EXPR) {
 			SemanticTypeSystem.upgradeTypeGenericArgs(e.returnType, a, unresolved);
 			int parameter = 0;
-			while (parameter < e.params.len) {
-				Node value = e.params.get(parameter);
+			while (parameter < e.params().len) {
+				Node value = e.params().get(parameter);
 				SemanticTypeSystem.upgradeTypeGenericArgs(value.type, a, unresolved);
 				self.upgradeExprGenericArgs(value.default_, a, unresolved);
 				parameter = parameter + 1;
@@ -909,12 +909,12 @@ class GenericSpecializer {
 
 	private void registerGenericInstanceWithUnresolved(Node? t, Analyzed a, Map<string, bool> unresolved) {
 		if (t == null) { return; }
-		if (t.genericArgs.len == 0) { return; }
+		if (t.genericArgs().len == 0) { return; }
 		string base = t.base;
 		bool generic = a.genericClassTable.has(base);
 		/* One key serves both the validation de-duplication and the instance
 		 * table: both identify the exact specialization. */
-		string key = generic ? TypeIdentity.genericInstanceKey(base, t.genericArgs) : "";
+		string key = generic ? TypeIdentity.genericInstanceKey(base, t.genericArgs()) : "";
 		if (generic) {
 			/* A specialization's validity depends only on its owner declaration and
 			 * exact arguments, so validate each distinct specialization once instead
@@ -928,7 +928,7 @@ class GenericSpecializer {
 			ValidationFact? demand = a.journalFact(VALIDATION_GENERIC_CLASS, null, null);
 			if (demand != null) {
 				demand.name = base;
-				demand.arguments = t.genericArgs;
+				demand.arguments = t.genericArgs();
 			}
 			if (!a.genericSeen.has(key)) {
 				/* By this point class-typed args have been upgraded to pointers in
@@ -936,14 +936,14 @@ class GenericSpecializer {
 				 * the `_p1` suffix and the per-instance type map resolves T to a
 				 * pointer. */
 				a.genericSeen.put(key, true);
-				a.genericInstances.push(GenInstance(base, t.genericArgs, TypeIdentity.mangleGenericType(base, t.genericArgs)));
+				a.genericInstances.push(GenInstance(base, t.genericArgs(), TypeIdentity.mangleGenericType(base, t.genericArgs())));
 			}
 		}
 		/* Even when the outer shape is unresolved, a concrete nested argument is
          * independently registerable and must not be lost. */
 		int i = 0;
-		while (i < t.genericArgs.len) {
-			self.registerGenericInstanceWithUnresolved(t.genericArgs.get(i), a, unresolved);
+		while (i < t.genericArgs().len) {
+			self.registerGenericInstanceWithUnresolved(t.genericArgs().get(i), a, unresolved);
 			i = i + 1;
 		}
 	}
@@ -955,15 +955,15 @@ class GenericSpecializer {
 			/* Dispatch signatures need concrete types even when no implementation
 			 * or call site independently instantiates the interface's containers. */
 			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams());
-			for method in d.methods {
+			for method in d.methods() {
 				self.registerGenericInstanceWithUnresolved(method.returnType, a, unresolved);
-				for parameter in method.params { self.registerGenericInstanceWithUnresolved(parameter.type, a, unresolved); }
+				for parameter in method.params() { self.registerGenericInstanceWithUnresolved(parameter.type, a, unresolved); }
 			}
 		} else if (d.kind == NK_FUNCTION_DECL) {
 			Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.genericParams());
 			int i = 0;
-			while (i < d.params.len) {
-				self.registerGenericInstanceWithUnresolved(d.params.get(i).type, a, unresolved);
+			while (i < d.params().len) {
+				self.registerGenericInstanceWithUnresolved(d.params().get(i).type, a, unresolved);
 				i = i + 1;
 			}
 			self.registerGenericInstanceWithUnresolved(d.returnType, a, unresolved);
@@ -977,15 +977,15 @@ class GenericSpecializer {
 			if (d.genericParams().len == 0) {
 				Map<string, bool> none = {};
 				int i = 0;
-				while (i < d.members.len) {
-					Node mem = d.members.get(i);
+				while (i < d.members().len) {
+					Node mem = d.members().get(i);
 					if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
 						self.registerGenericInstanceWithUnresolved(mem.type, a, none);
 					} else if (mem.kind == NK_METHOD_DECL) {
 						Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(mem.genericParams());
 						int p = 0;
-						while (p < mem.params.len) {
-							self.registerGenericInstanceWithUnresolved(mem.params.get(p).type, a, unresolved);
+						while (p < mem.params().len) {
+							self.registerGenericInstanceWithUnresolved(mem.params().get(p).type, a, unresolved);
 							p = p + 1;
 						}
 						self.registerGenericInstanceWithUnresolved(mem.returnType, a, unresolved);
@@ -1111,7 +1111,7 @@ class GenericSpecializer {
 	private void genericClosureRegisterType(Node? typeExpr, Map<string, Node> substitutions, Map<string, bool> unresolved, Analyzed analyzed) {
 		if (typeExpr == null) { return; }
 		Node resolved = SemanticTypeSystem.resolveGenericType(typeExpr, substitutions, analyzed);
-		if (resolved.genericArgs.len > 0) {
+		if (resolved.genericArgs().len > 0) {
 			self.validateSpecializedContracts(resolved, analyzed);
 			self.registerGenericInstanceWithUnresolved(resolved, analyzed, unresolved);
 		}
@@ -1129,8 +1129,8 @@ class GenericSpecializer {
 	private Node? genericClosureIterationType(Node? iterableType, Analyzed analyzed) {
 		if (iterableType == null) { return null; }
 		if (SemanticTypeSystem.isString(iterableType)) { return SemanticTypeSystem.primitive("char"); }
-		if (iterableType.genericArgs.len > 0) {
-			return iterableType.genericArgs.get(0);
+		if (iterableType.genericArgs().len > 0) {
+			return iterableType.genericArgs().get(0);
 		}
 		if (iterableType.isArray || iterableType.pointerDepth > 0) {
 			if (iterableType.isArray) {
@@ -1153,8 +1153,8 @@ class GenericSpecializer {
 		Map<string, Node> nested = self.genericClosureCopyTypes(variables);
 		self.genericClosureRegisterType(lambda.returnType, substitutions, unresolved, analyzed);
 		int parameter = 0;
-		while (parameter < lambda.params.len) {
-			Node value = lambda.params.get(parameter);
+		while (parameter < lambda.params().len) {
+			Node value = lambda.params().get(parameter);
 			Node resolved = SemanticTypeSystem.resolveGenericType(value.type, substitutions, analyzed);
 			self.genericClosureRegisterType(resolved, substitutions, unresolved, analyzed);
 			nested.put(value.name, resolved);
@@ -1205,8 +1205,8 @@ class GenericSpecializer {
 			Node? elementType = self.genericClosureIterationType(iterableType, analyzed);
 			Map<string, Node> nested = self.genericClosureCopyTypes(variables);
 			if (elementType != null) { nested.put(node.varName, elementType); }
-			if (node.varName2 != null && iterableType != null && iterableType.genericArgs.len > 1) {
-				nested.put(node.varName2, iterableType.genericArgs.get(1));
+			if (node.varName2 != null && iterableType != null && iterableType.genericArgs().len > 1) {
+				nested.put(node.varName2, iterableType.genericArgs().get(1));
 			}
 			self.genericClosureWalkNode(node.bodyNode, substitutions, unresolved, analyzed, operators, nested);
 			return;
@@ -1260,7 +1260,7 @@ class GenericSpecializer {
 		self.genericClosureWalkNode(node.key, substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkNode(node.arraySize, substitutions, unresolved, analyzed, operators, variables);
 
-		self.genericClosureWalkVector(node.params, substitutions, unresolved, analyzed, operators, variables);
+		self.genericClosureWalkVector(node.params(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.statements(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.cases(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.bodyNodeList(), substitutions, unresolved, analyzed, operators, variables);
@@ -1290,7 +1290,7 @@ class GenericSpecializer {
 		Node selfType = Node();
 		selfType.kind = NK_TYPE_EXPR;
 		selfType.base = base;
-		selfType.genericArgs = arguments;
+		selfType.genericArgsStorage = arguments;
 		selfType.pointerDepth = 1;
 		return selfType;
 	}
@@ -1298,8 +1298,8 @@ class GenericSpecializer {
 	private void genericClosureSeedParameters(Node method, Map<string, Node> substitutions, Map<string, bool> unresolved, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> variables) {
 		self.genericClosureRegisterType(method.returnType, substitutions, unresolved, analyzed);
 		int index = 0;
-		while (index < method.params.len) {
-			Node parameter = method.params.get(index);
+		while (index < method.params().len) {
+			Node parameter = method.params().get(index);
 			Node resolved = SemanticTypeSystem.resolveGenericType(parameter.type, substitutions, analyzed);
 			self.genericClosureRegisterType(resolved, substitutions, unresolved, analyzed);
 			variables.put(parameter.name, resolved);
@@ -1320,8 +1320,8 @@ class GenericSpecializer {
 
 	private void genericClosureScanMembers(Node declaration, Map<string, Node> substitutions, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> baseVariables, bool includeConstructor) {
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			if (member.kind == NK_FIELD_DECL) {
 				Map<string, bool> unresolved = {};
 				self.genericClosureRegisterType(member.type, substitutions, unresolved, analyzed);
@@ -1495,8 +1495,8 @@ class GenericSpecializer {
 		Map<string, Node> substitutions = {};
 		Map<string, bool> unresolved = {};
 		int declarationIndex = 0;
-		while (declarationIndex < program.declarations.len) {
-			Node declaration = program.declarations.get(declarationIndex);
+		while (declarationIndex < program.declarations().len) {
+			Node declaration = program.declarations().get(declarationIndex);
 			if ((declaration.kind == NK_FUNCTION_DECL || (declaration.kind == NK_CLASS_DECL && declaration.genericParams().len == 0)) && self.replayRecorded(RECORD_PHASE_CLOSE, declaration)) {
 				declarationIndex = declarationIndex + 1;
 				continue;
@@ -1511,8 +1511,8 @@ class GenericSpecializer {
 				fieldVariables.put("self", self.genericClosureSelfType(declaration.name, noArguments));
 				bool ownsMemo = self.expressions.beginScopedMemo();
 				int memberIndex = 0;
-				while (memberIndex < declaration.members.len) {
-					Node member = declaration.members.get(memberIndex);
+				while (memberIndex < declaration.members().len) {
+					Node member = declaration.members().get(memberIndex);
 					if (member.kind == NK_FIELD_DECL) {
 						self.genericClosureWalkNode(member.initializer, substitutions, unresolved, analyzed, operators, fieldVariables);
 					} else if (member.kind == NK_PROPERTY_DECL) {

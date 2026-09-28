@@ -82,7 +82,7 @@ class StringLowerer {
 	public bool printfCStringType(Node typeExpr) {
 		int indirections = typeExpr.pointerDepth;
 		if (typeExpr.isArray) { indirections = indirections + 1; }
-		return typeExpr.base == "char" && typeExpr.genericArgs.len == 0 && indirections == 1;
+		return typeExpr.base == "char" && typeExpr.genericArgs().len == 0 && indirections == 1;
 	}
 
 	public string printfFormatSpec(Node? typeExpr) {
@@ -235,7 +235,7 @@ class StringLowerer {
 		if (!self.requiresTargetStringConversion(target, source)) {
 			IRNode value = self.upcastClassPointer(target, source, lowered);
 			Node? effective = source;
-			if (target != null && source != null && (self.analyzed.isClass(target.base) || self.analyzed.isInterface(target.base)) && target.genericArgs.len == 0 && source.base != target.base && self.analyzed.isSubclass(source.base, target.base)) {
+			if (target != null && source != null && (self.analyzed.isClass(target.base) || self.analyzed.isInterface(target.base)) && target.genericArgs().len == 0 && source.base != target.base && self.analyzed.isSubclass(source.base, target.base)) {
 				effective = target;
 			}
 			if (effective == null) { effective = target; }
@@ -266,13 +266,13 @@ class StringLowerer {
 		} else {
 			return false;
 		}
-		return method != null && method.kind == NK_METHOD_DECL && method.params.len == 0 && method.returnType != null && TypeComposition.isSemanticScalarString(method.returnType);
+		return method != null && method.kind == NK_METHOD_DECL && method.params().len == 0 && method.returnType != null && TypeComposition.isSemanticScalarString(method.returnType);
 	}
 
 	public IRNode toStringCall(Node sourceType, IRNode value) {
 		string prefix = sourceType.base;
-		if (sourceType.genericArgs.len > 0 && self.analyzed.isGenericClass(sourceType.base)) {
-			prefix = TypeIdentity.mangleGenericType(sourceType.base, sourceType.genericArgs);
+		if (sourceType.genericArgs().len > 0 && self.analyzed.isGenericClass(sourceType.base)) {
+			prefix = TypeIdentity.mangleGenericType(sourceType.base, sourceType.genericArgs());
 		}
 		Vector<IRNode> arguments = [];
 		arguments.push(value);
@@ -281,7 +281,7 @@ class StringLowerer {
 
 	public IRNode upcastClassPointer(Node? targetType, Node? sourceType, IRNode value) {
 		if (targetType == null || sourceType == null) { return value; }
-		if ((!self.analyzed.isClass(targetType.base) && !self.analyzed.isInterface(targetType.base)) || targetType.genericArgs.len > 0 || sourceType.base == targetType.base || !self.analyzed.isSubclass(sourceType.base, targetType.base)) {
+		if ((!self.analyzed.isClass(targetType.base) && !self.analyzed.isInterface(targetType.base)) || targetType.genericArgs().len > 0 || sourceType.base == targetType.base || !self.analyzed.isSubclass(sourceType.base, targetType.base)) {
 			return value;
 		}
 		return IRNode.cast(self.cTypes.lower(targetType), value);

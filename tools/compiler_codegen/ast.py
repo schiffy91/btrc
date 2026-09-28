@@ -332,6 +332,12 @@ class BtrcAstRenderer:
             "genericParams",
             "elements",
             "statements",
+            "methods",
+            "params",
+            "genericArgs",
+            "fields",
+            "declarations",
+            "members",
         }
     )
 

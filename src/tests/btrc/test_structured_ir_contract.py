@@ -77,7 +77,7 @@ def test_top_level_declarations_are_typed_end_to_end() -> None:
     ]
     # Preserve named typedef boundaries while still registering directly
     # nested callback spellings before the outer function-pointer declaration.
-    register_nested = registration.index("self.lower(typeExpr.genericArgs.get(component))")
+    register_nested = registration.index("self.lower(typeExpr.genericArgs().get(component))")
     register_outer = registration.index("self.functionPointerOrder.push(mangled)")
     assert register_nested < register_outer
     assert "SemanticTypeSystem.resolveTypedefType(" not in registration

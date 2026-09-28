@@ -151,7 +151,7 @@ class GpuWgslEmitter {
 	private string gpuWgslScalarType(Node? type) {
 		if (type == null) { return "i32"; }
 		Node resolved = type;
-		if (resolved.isArray || resolved.pointerDepth > 0 || resolved.genericArgs.len > 0 || resolved.isNullable) {
+		if (resolved.isArray || resolved.pointerDepth > 0 || resolved.genericArgs().len > 0 || resolved.isNullable) {
 			self.gpuLoweringFail(resolved, "type has no WGSL scalar representation");
 		}
 		if (resolved.base == "int") { return "i32"; }
@@ -169,7 +169,7 @@ class GpuWgslEmitter {
 		if (resolved.base != "int" && resolved.base != "float") {
 			self.gpuLoweringFail(resolved, "GPU buffers require int or float elements");
 		}
-		if (resolved.pointerDepth > 0 || resolved.genericArgs.len > 0 || resolved.isNullable) {
+		if (resolved.pointerDepth > 0 || resolved.genericArgs().len > 0 || resolved.isNullable) {
 			self.gpuLoweringFail(resolved, "GPU buffer type is not host-shareable");
 		}
 		if (resolved.base == "float") { return "f32"; }
@@ -743,8 +743,8 @@ class GpuWgslEmitter {
 		int arrayOrdinal = 0;
 		int binding = 0;
 		int parameterIndex = 0;
-		while (parameterIndex < declaration.params.len) {
-			Node parameter = declaration.params.get(parameterIndex);
+		while (parameterIndex < declaration.params().len) {
+			Node parameter = declaration.params().get(parameterIndex);
 			string shaderName = "btrc_p_" + Strings.fromInt(sourceOrdinal);
 			self.names.put(parameter.name, shaderName);
 			self.varTypes.put(parameter.name, parameter.type);

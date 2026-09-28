@@ -65,8 +65,8 @@ class NameValidator {
 		}
 		if (declaration == null) { return null; }
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			if (member.kind == memberKind && (member.access == "class") == classAccess && !member.isConstructor && member.name == memberName) {
 				return member;
 			}
@@ -177,7 +177,7 @@ class NameValidator {
 	public void validateCallableNames(Node callable, string owner) {
 		self.validateDeclaredName(callable.name, "Callable", callable);
 		self.validateGenericNames(callable.genericParams(), owner, callable);
-		self.parameterNames(callable.params, owner, callable);
+		self.parameterNames(callable.params(), owner, callable);
 	}
 
 	public void validateUniqueNodeNames(Vector<Node> nodes, string subject, string owner, bool cNamesGenerated) {
@@ -196,8 +196,8 @@ class NameValidator {
 
 	public void validateDeclarationNames(Node program) {
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			self.nativeDeclaration = self.state.analyzed.isNativeDeclaration(declaration);
 			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
 				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
@@ -220,8 +220,8 @@ class NameValidator {
 			} else if (declaration.kind == NK_CLASS_DECL) {
 				self.validateGenericNames(declaration.genericParams(), "class '" + declaration.name + "'", declaration);
 				int memberIndex = 0;
-				while (memberIndex < declaration.members.len) {
-					Node member = declaration.members.get(memberIndex);
+				while (memberIndex < declaration.members().len) {
+					Node member = declaration.members().get(memberIndex);
 					self.validateDeclaredName(member.name, "Class member", member);
 					if (member.kind == NK_METHOD_DECL) {
 						self.validateCallableNames(member, "method '" + declaration.name + "." + member.name + "'");
@@ -231,13 +231,13 @@ class NameValidator {
 			} else if (declaration.kind == NK_INTERFACE_DECL) {
 				self.validateGenericNames(declaration.genericParams(), "interface '" + declaration.name + "'", declaration);
 				int methodIndex = 0;
-				while (methodIndex < declaration.methods.len) {
-					Node method = declaration.methods.get(methodIndex);
+				while (methodIndex < declaration.methods().len) {
+					Node method = declaration.methods().get(methodIndex);
 					self.validateCallableNames(method, "interface method '" + declaration.name + "." + method.name + "'");
 					methodIndex = methodIndex + 1;
 				}
 			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
-				self.validateUniqueNodeNames(declaration.fields, "Struct field", "struct '" + declaration.name + "'", false);
+				self.validateUniqueNodeNames(declaration.fields(), "Struct field", "struct '" + declaration.name + "'", false);
 			} else if (declaration.kind == NK_ENUM_DECL) {
 				self.validateUniqueNodeNames(declaration.values(), "Enum value", "enum '" + declaration.name + "'", declaration.name != "");
 				if (declaration.name == "") {
@@ -255,7 +255,7 @@ class NameValidator {
 				int variantIndex = 0;
 				while (variantIndex < declaration.variants().len) {
 					Node variant = declaration.variants().get(variantIndex);
-					self.parameterNames(variant.params, "rich-enum variant '" + declaration.name + "." + variant.name + "'");
+					self.parameterNames(variant.params(), "rich-enum variant '" + declaration.name + "." + variant.name + "'");
 					variantIndex = variantIndex + 1;
 				}
 			}
@@ -282,7 +282,7 @@ class NameValidator {
 	}
 
 	public void validateLambdaNames(Node expression) {
-		Map<string, bool> params = self.parameterNames(expression.params, "lambda");
+		Map<string, bool> params = self.parameterNames(expression.params(), "lambda");
 		Node body = expression.bodyNode;
 		if (body != null && body.kind == NK_LAMBDA_BLOCK) {
 			self.validateDirectLocalNames(body.bodyNode, params);
@@ -307,7 +307,7 @@ class NameValidator {
 			return false;
 		}
 		Node typeNode = declaration.type;
-		return typeNode.base == "char" && typeNode.pointerDepth == 2 && typeNode.isExtern && !typeNode.isArray && typeNode.genericArgs.len == 0;
+		return typeNode.base == "char" && typeNode.pointerDepth == 2 && typeNode.isExtern && !typeNode.isArray && typeNode.genericArgs().len == 0;
 	}
 
 	public bool hostedTrustedWinsize(Node declaration) { return self.hostedAbi.compilerStdlibNode(declaration) && declaration.kind == NK_STRUCT_DECL && declaration.name == "winsize" && declaration.isForward; }
@@ -354,9 +354,9 @@ class NameValidator {
 
 	public void mergeCallableDefaults(Node definition, Node declaration) {
 		int index = 0;
-		while (index < definition.params.len && index < declaration.params.len) {
-			Node target = definition.params.get(index);
-			Node source = declaration.params.get(index);
+		while (index < definition.params().len && index < declaration.params().len) {
+			Node target = definition.params().get(index);
+			Node source = declaration.params().get(index);
 			if (target.default_ == null && source.default_ != null) {
 				target.default_ = source.default_;
 			}
@@ -378,13 +378,13 @@ class NameValidator {
 	}
 
 	public bool callableSignatureSame(Node left, Node right) {
-		if (left.returnType == null || right.returnType == null || !self.types.aliasTypesSame(left.returnType, right.returnType) || left.params.len != right.params.len || left.keepReturn != right.keepReturn || left.isGpu != right.isGpu || left.isRealtime != right.isRealtime) {
+		if (left.returnType == null || right.returnType == null || !self.types.aliasTypesSame(left.returnType, right.returnType) || left.params().len != right.params().len || left.keepReturn != right.keepReturn || left.isGpu != right.isGpu || left.isRealtime != right.isRealtime) {
 			return false;
 		}
 		int index = 0;
-		while (index < left.params.len) {
-			Node leftParam = left.params.get(index);
-			Node rightParam = right.params.get(index);
+		while (index < left.params().len) {
+			Node leftParam = left.params().get(index);
+			Node rightParam = right.params().get(index);
 			if (!self.types.aliasTypesSame(leftParam.type, rightParam.type) || leftParam.name != rightParam.name || leftParam.keep_ != rightParam.keep_ || !self.defaultExpressionSame(leftParam.default_, rightParam.default_)) {
 				return false;
 			}
@@ -404,11 +404,11 @@ class NameValidator {
 		Map<string, Node> declarations = {};
 		Map<string, Node> globalDefinitions = {};
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (self.namedTopLevel(declaration)) {
 				string name = self.topLevelName(declaration);
-				if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward && declaration.fields.len == 0 && !self.state.analyzed.isNativeDeclaration(declaration)) {
+				if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward && declaration.fields().len == 0 && !self.state.analyzed.isNativeDeclaration(declaration)) {
 					TypeValidator.fail("Struct definition '" + name + "' must contain at least one field", declaration);
 				}
 				if (declarations.has(name)) {
@@ -478,8 +478,8 @@ class NameValidator {
 	public void validateClassMemberDuplicates(Node declaration) {
 		Map<string, Node> members = {};
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			/* Fields/properties and methods occupy separate source namespaces:
              * `map.keys` names the backing field while `map.keys()` names the
              * collection method.  Reject duplicates within either namespace. */
@@ -498,8 +498,8 @@ class NameValidator {
 		string parent = DeclarationRegistry.parentName(declaration);
 		if (parent == "" || !self.state.analyzed.classTable.has(parent)) { return; }
 		int index = 0;
-		while (index < declaration.members.len) {
-			Node member = declaration.members.get(index);
+		while (index < declaration.members().len) {
+			Node member = declaration.members().get(index);
 			if (member.kind == NK_METHOD_DECL && !member.isConstructor) {
 				Node? inherited = self.storage.inheritedClassMember(parent, member.name, self.state.analyzed);
 				if (inherited != null && inherited.kind == NK_METHOD_DECL) {
@@ -516,8 +516,8 @@ class NameValidator {
 	public void validateDeclarationDuplicates(Node program) {
 		self.validateTopLevelDuplicates(program);
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_CLASS_DECL) {
 				self.validateClassMemberDuplicates(declaration);
 				self.storage.validateClassStorage(declaration);
@@ -538,8 +538,8 @@ class NameValidator {
 			self.collectMergedClassMethods(analyzed, parent, output, indices, visited);
 		}
 		int memberIndex = 0;
-		while (memberIndex < declaration.members.len) {
-			Node member = declaration.members.get(memberIndex);
+		while (memberIndex < declaration.members().len) {
+			Node member = declaration.members().get(memberIndex);
 			if (member.kind == NK_METHOD_DECL && !member.isConstructor && member.name != "__del__" && member.genericParams().len == 0) {
 				MethodEntry entry = MethodEntry(member.name, member);
 				if (indices.has(member.name)) {
@@ -600,8 +600,8 @@ class NameValidator {
 			propertyIndex = propertyIndex + 1;
 		}
 		int memberIndex = 0;
-		while (memberIndex < declaration.members.len) {
-			Node member = declaration.members.get(memberIndex);
+		while (memberIndex < declaration.members().len) {
+			Node member = declaration.members().get(memberIndex);
 			if (member.kind == NK_FIELD_DECL && member.access == "class") {
 				self.claimGeneratedSymbol(symbols, name + "_" + member.name, "static field '" + name + "." + member.name + "'", member);
 			}
@@ -634,7 +634,7 @@ class NameValidator {
 			string stem = declaration.name + "_" + variant.name;
 			self.claimGeneratedSymbol(symbols, stem + "_TAG", "rich-enum tag '" + declaration.name + "." + variant.name + "'", variant);
 			self.claimGeneratedSymbol(symbols, stem, "rich-enum constructor '" + declaration.name + "." + variant.name + "'", variant);
-			if (variant.params.len > 0) {
+			if (variant.params().len > 0) {
 				self.claimGeneratedSymbol(symbols, stem + "_Data", "rich-enum payload type '" + declaration.name + "." + variant.name + "'", variant);
 			}
 			index = index + 1;
@@ -660,8 +660,8 @@ class NameValidator {
 					self.claimGeneratedSymbol(symbols, self.cycles.visitorName(instance.mangled), owner + " cycle visitor", declaration);
 				}
 				int memberIndex = 0;
-				while (memberIndex < declaration.members.len) {
-					Node member = declaration.members.get(memberIndex);
+				while (memberIndex < declaration.members().len) {
+					Node member = declaration.members().get(memberIndex);
 					if (member.kind == NK_METHOD_DECL && !member.isConstructor && member.name != "__del__" && member.genericParams().len == 0) {
 						self.claimGeneratedSymbol(symbols, instance.mangled + "_" + member.name, owner + " method '" + member.name + "'", member);
 					} else if (member.kind == NK_PROPERTY_DECL) {
@@ -729,13 +729,13 @@ class NameValidator {
 		Map<string, string> symbols = {};
 		self.claimSourceMacroSymbols(program, symbols);
 		int index = 0;
-		while (index < program.declarations.len) {
-			self.claimTopLevelSymbol(program.declarations.get(index), symbols);
+		while (index < program.declarations().len) {
+			self.claimTopLevelSymbol(program.declarations().get(index), symbols);
 			index = index + 1;
 		}
 		index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_FUNCTION_DECL && declaration.isGpu) {
 				self.claimGpuSymbols(symbols, declaration);
 			} else if (declaration.kind == NK_CLASS_DECL && declaration.genericParams().len == 0) {
@@ -787,8 +787,8 @@ class NameValidator {
 			visited.put(current, true);
 			Node declaration = self.state.analyzed.classTable.get(current);
 			int index = 0;
-			while (index < declaration.members.len) {
-				if (self.genericMethodStemMatches(symbol, classBase, 0, declaration.members.get(index))) {
+			while (index < declaration.members().len) {
+				if (self.genericMethodStemMatches(symbol, classBase, 0, declaration.members().get(index))) {
 					return true;
 				}
 				index = index + 1;
@@ -805,8 +805,8 @@ class NameValidator {
 			return true;
 		}
 		int memberIndex = 0;
-		while (memberIndex < declaration.members.len) {
-			Node member = declaration.members.get(memberIndex);
+		while (memberIndex < declaration.members().len) {
+			Node member = declaration.members().get(memberIndex);
 			if (member.kind == NK_METHOD_DECL && !member.isConstructor && member.name != "__del__") {
 				if (member.genericParams().len > 0) {
 					if (self.genericMethodStemMatches(symbol, base, arity, member)) {
@@ -974,8 +974,8 @@ class NameValidator {
 
 	public void claimSourceMacroSymbols(Node program, Map<string, string> symbols) {
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
 				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
 				if (definition.isDefinition()) {
@@ -1008,8 +1008,8 @@ class NameValidator {
 
 	public void validatePreprocessorSymbolReferences(Node program) {
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
 				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
 				if (definition.isUndef()) {

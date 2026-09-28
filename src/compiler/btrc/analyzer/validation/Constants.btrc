@@ -278,8 +278,8 @@ class ConstantValidator {
 
 	public void validateProgramEnumValues(Node program) {
 		int index = 0;
-		while (index < program.declarations.len) {
-			Node declaration = program.declarations.get(index);
+		while (index < program.declarations().len) {
+			Node declaration = program.declarations().get(index);
 			if (declaration.kind == NK_ENUM_DECL) {
 				self.validateEnumValues(declaration);
 			}
