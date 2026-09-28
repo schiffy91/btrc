@@ -477,8 +477,8 @@ class GpuWgslEmitter {
 		if (block == null) { return; }
 		self.pushScope();
 		int i = 0;
-		while (i < block.statements.len) {
-			self.stmt(block.statements.get(i));
+		while (i < block.statements().len) {
+			self.stmt(block.statements().get(i));
 			i = i + 1;
 		}
 		self.popScope();

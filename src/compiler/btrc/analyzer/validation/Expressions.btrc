@@ -172,16 +172,16 @@ class ExpressionValidator {
 		if (initializer.kind != NK_BRACE_INITIALIZER) {
 			TypeValidator.fail(subject + " requires a brace initializer for " + "struct '" + name + "'", initializer);
 		}
-		if (initializer.elements.len > declaration.fields.len) {
-			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements.len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(declaration.fields.len) + " fields", initializer);
+		if (initializer.elements().len > declaration.fields.len) {
+			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(declaration.fields.len) + " fields", initializer);
 		}
-		if (initializer.elements.len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
+		if (initializer.elements().len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
 		int index = 0;
-		while (index < initializer.elements.len) {
+		while (index < initializer.elements().len) {
 			Node field = declaration.fields.get(index);
 			Node? fieldValueType = self.storage.arrayFieldValueType(field);
 			if (fieldValueType == null) { fieldValueType = field.type; }
-			self.validateInitializerValue(fieldValueType, initializer.elements.get(index), subject + " field '" + field.name + "'", vars);
+			self.validateInitializerValue(fieldValueType, initializer.elements().get(index), subject + " field '" + field.name + "'", vars);
 			index = index + 1;
 		}
 	}
@@ -223,10 +223,10 @@ class ExpressionValidator {
 			/* A fixed-bound empty initializer is normalized by structured IR to
              * strict-C11 `{0}`.  Only an unsized array lacks enough information
              * to form an object. */
-			if (value.elements.len == 0 && canonical.arraySize == null) {
+			if (value.elements().len == 0 && canonical.arraySize == null) {
 				TypeValidator.fail(subject + " cannot infer an array bound from an empty initializer", value);
 			}
-			self.validateInitializerElements(self.arrayElementType(canonical), value.elements, subject, vars);
+			self.validateInitializerElements(self.arrayElementType(canonical), value.elements(), subject, vars);
 			return;
 		}
 		string structName = StorageValidator.structTypeName(canonical, self.state.analyzed);
@@ -235,31 +235,31 @@ class ExpressionValidator {
 			return;
 		}
 		if (canonical.base == "Tuple" && canonical.pointerDepth == 0 && value.kind == NK_BRACE_INITIALIZER) {
-			if (value.elements.len > canonical.genericArgs.len) {
-				TypeValidator.fail(subject + " has " + Strings.fromInt(value.elements.len) + " initializer elements but tuple '" + self.types.formatType(canonical) + "' has " + Strings.fromInt(canonical.genericArgs.len) + " fields", value);
+			if (value.elements().len > canonical.genericArgs.len) {
+				TypeValidator.fail(subject + " has " + Strings.fromInt(value.elements().len) + " initializer elements but tuple '" + self.types.formatType(canonical) + "' has " + Strings.fromInt(canonical.genericArgs.len) + " fields", value);
 			}
 			int tupleIndex = 0;
-			while (tupleIndex < value.elements.len) {
-				self.validateInitializerValue(canonical.genericArgs.get(tupleIndex), value.elements.get(tupleIndex), subject + " field '_" + Strings.fromInt(tupleIndex) + "'", vars);
+			while (tupleIndex < value.elements().len) {
+				self.validateInitializerValue(canonical.genericArgs.get(tupleIndex), value.elements().get(tupleIndex), subject + " field '_" + Strings.fromInt(tupleIndex) + "'", vars);
 				tupleIndex = tupleIndex + 1;
 			}
 			return;
 		}
 		if (value.kind == NK_BRACE_INITIALIZER || value.kind == NK_LIST_LITERAL) {
-			if (value.kind == NK_BRACE_INITIALIZER && value.elements.len > 0 && self.state.analyzed.isGenericClass(canonical.base) && canonical.base != "Array" && canonical.base != "List" && canonical.base != "Map" && canonical.base != "Set" && canonical.base != "Vector") {
+			if (value.kind == NK_BRACE_INITIALIZER && value.elements().len > 0 && self.state.analyzed.isGenericClass(canonical.base) && canonical.base != "Array" && canonical.base != "List" && canonical.base != "Map" && canonical.base != "Set" && canonical.base != "Vector") {
 				TypeValidator.fail(subject + " cannot use a non-empty brace initializer for heap class '" + self.types.formatType(canonical) + "'; use an explicit constructor call", value);
 			}
 			if (canonical.genericArgs.len == 1 && (canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector")) {
 				/* Lowering has no path from a brace list to a managed collection;
 				 * only the empty form builds one. */
-				if (value.kind == NK_BRACE_INITIALIZER && value.elements.len > 0 && canonical.base != "Array") {
+				if (value.kind == NK_BRACE_INITIALIZER && value.elements().len > 0 && canonical.base != "Array") {
 					string hint = canonical.base == "Set" ? "'{}' creates an empty Set and add() inserts elements" : "use a list literal [...]";
 					TypeValidator.fail(subject + " cannot use a non-empty brace initializer for '" + canonical.base + "'; " + hint, value);
 				}
-				self.validateInitializerElements(canonical.genericArgs.get(0), value.elements, subject, vars);
+				self.validateInitializerElements(canonical.genericArgs.get(0), value.elements(), subject, vars);
 				return;
 			}
-			if (value.kind == NK_BRACE_INITIALIZER && value.elements.len == 0 && canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
+			if (value.kind == NK_BRACE_INITIALIZER && value.elements().len == 0 && canonical.genericArgs.len > 0 && self.state.analyzed.isGenericClass(canonical.base)) {
 				return;
 			}
 			TypeValidator.fail(subject + " uses an aggregate initializer for '" + self.types.formatType(canonical) + "'", value);
@@ -968,9 +968,9 @@ class ExpressionValidator {
 				self.validateExpr(expression.operand.expr,  vars);
 			}
 		} else if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
-			self.validateExprList(expression.elements,  vars);
+			self.validateExprList(expression.elements(),  vars);
 			if (expression.kind == NK_TUPLE_LITERAL) {
-				self.ownership.rejectOwnedElements(expression.elements, "a shallow aggregate", vars);
+				self.ownership.rejectOwnedElements(expression.elements(), "a shallow aggregate", vars);
 			}
 		} else if (expression.kind == NK_MAP_LITERAL) {
 			self.validateMapEntries(expression.entries(),  vars);
@@ -1046,26 +1046,26 @@ class ExpressionValidator {
 		if (aggregate) {
 			if (concrete.isArray) {
 				Node elementType = TypeShape.withoutOuterArray(concrete);
-				self.contextualizeGenericElements(elementType, expression.elements, variables);
+				self.contextualizeGenericElements(elementType, expression.elements(), variables);
 				return;
 			}
 			if (concrete.base == "Tuple") {
 				int tupleIndex = 0;
-				while (tupleIndex < expression.elements.len && tupleIndex < concrete.genericArgs.len) {
-					self.contextualizeGenericConstructor(concrete.genericArgs.get(tupleIndex), expression.elements.get(tupleIndex), variables);
+				while (tupleIndex < expression.elements().len && tupleIndex < concrete.genericArgs.len) {
+					self.contextualizeGenericConstructor(concrete.genericArgs.get(tupleIndex), expression.elements().get(tupleIndex), variables);
 					tupleIndex = tupleIndex + 1;
 				}
 				return;
 			}
 			if (concrete.genericArgs.len == 1 && (concrete.base == "Array" || concrete.base == "List" || concrete.base == "Set" || concrete.base == "Vector")) {
-				self.contextualizeGenericElements(concrete.genericArgs.get(0), expression.elements, variables);
+				self.contextualizeGenericElements(concrete.genericArgs.get(0), expression.elements(), variables);
 				return;
 			}
 			if (self.state.analyzed.structTable.has(concrete.base)) {
 				Node structure = self.state.analyzed.structTable.get(concrete.base);
 				int fieldIndex = 0;
-				while (fieldIndex < expression.elements.len && fieldIndex < structure.fields.len) {
-					self.contextualizeGenericConstructor(structure.fields.get(fieldIndex).type, expression.elements.get(fieldIndex), variables);
+				while (fieldIndex < expression.elements().len && fieldIndex < structure.fields.len) {
+					self.contextualizeGenericConstructor(structure.fields.get(fieldIndex).type, expression.elements().get(fieldIndex), variables);
 					fieldIndex = fieldIndex + 1;
 				}
 				return;

@@ -293,8 +293,8 @@ class GenericSpecializer {
 	private void collectMethodGenericsBlock(Node block, Analyzed a, OperatorSemantics operators, Map<string, Node> vt) {
 		if (block == null) { return; }
 		int i = 0;
-		while (i < block.statements.len) {
-			self.collectMethodGenericsStmt(block.statements.get(i), a, operators, vt);
+		while (i < block.statements().len) {
+			self.collectMethodGenericsStmt(block.statements().get(i), a, operators, vt);
 			i = i + 1;
 		}
 	}
@@ -759,8 +759,8 @@ class GenericSpecializer {
 	private void upgradeBlockGenericArgs(Node block, Analyzed a, Map<string, bool> unresolved) {
 		if (block == null) { return; }
 		int i = 0;
-		while (i < block.statements.len) {
-			self.upgradeStmtGenericArgs(block.statements.get(i), a, unresolved);
+		while (i < block.statements().len) {
+			self.upgradeStmtGenericArgs(block.statements().get(i), a, unresolved);
 			i = i + 1;
 		}
 	}
@@ -883,8 +883,8 @@ class GenericSpecializer {
 			i = i + 1;
 		}
 		i = 0;
-		while (i < e.elements.len) {
-			self.upgradeExprGenericArgs(e.elements.get(i), a, unresolved);
+		while (i < e.elements().len) {
+			self.upgradeExprGenericArgs(e.elements().get(i), a, unresolved);
 			i = i + 1;
 		}
 		i = 0;
@@ -1003,8 +1003,8 @@ class GenericSpecializer {
 	private void collectGenericsBlock(Node block, Analyzed a, Map<string, bool> unresolved) {
 		if (block == null) { return; }
 		int i = 0;
-		while (i < block.statements.len) {
-			self.collectGenericsStmt(block.statements.get(i), a, unresolved);
+		while (i < block.statements().len) {
+			self.collectGenericsStmt(block.statements().get(i), a, unresolved);
 			i = i + 1;
 		}
 	}
@@ -1261,11 +1261,11 @@ class GenericSpecializer {
 		self.genericClosureWalkNode(node.arraySize, substitutions, unresolved, analyzed, operators, variables);
 
 		self.genericClosureWalkVector(node.params, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.statements, substitutions, unresolved, analyzed, operators, variables);
+		self.genericClosureWalkVector(node.statements(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.cases(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.bodyNodeList(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.args(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.elements, substitutions, unresolved, analyzed, operators, variables);
+		self.genericClosureWalkVector(node.elements(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.entries(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.parts(), substitutions, unresolved, analyzed, operators, variables);
 		self.genericClosureWalkVector(node.captures(), substitutions, unresolved, analyzed, operators, variables);

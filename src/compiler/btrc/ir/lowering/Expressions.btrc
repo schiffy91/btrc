@@ -2115,8 +2115,8 @@ class ExpressionLowerer {
 		if (expected != null && concreteExpected.genericArgs.len > 0) {
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs);
 			elementExpected = concreteExpected.genericArgs.get(0);
-		} else if (node.elements.len > 0) {
-			Node? et = self.resolvedExpressionType(node.elements.get(0), varTypes);
+		} else if (node.elements().len > 0) {
+			Node? et = self.resolvedExpressionType(node.elements().get(0), varTypes);
 			if (et != null) {
 				Node vt = SemanticTypeSystem.primitive("Vector");
 				Vector<Node> ga = [];
@@ -2134,7 +2134,7 @@ class ExpressionLowerer {
 		}
 		/* An empty literal evaluates nothing between its allocation and its
 		 * consumer, so it needs no temporary and no cleanup of its own. */
-		if (node.elements.len == 0) {
+		if (node.elements().len == 0) {
 			Vector<IRNode> noArguments = [];
 			return IRNode.call(mangled + "_new", noArguments);
 		}
@@ -2147,11 +2147,11 @@ class ExpressionLowerer {
 		Vector<IRNode> sequence = [];
 		sequence.push(IRNode.binary(IRNode.variable(tmp), "=", IRNode.call(mangled + "_new", newArgs)));
 		int i = 0;
-		while (i < node.elements.len) {
+		while (i < node.elements().len) {
 			Vector<IRNode> prefixArguments = [];
 			prefixArguments.push(IRNode.variable(tmp));
 			Vector<Node> operands = [];
-			operands.push(node.elements.get(i));
+			operands.push(node.elements().get(i));
 			Vector<Node> expectedTypes = [];
 			if (elementExpected != null) {
 				expectedTypes.push(elementExpected);
@@ -2176,9 +2176,9 @@ class ExpressionLowerer {
 				Vector<string> expectedFields = [];
 				Vector<IRNode> expectedValues = [];
 				int expectedIndex = 0;
-				while (expectedIndex < node.elements.len && expectedIndex < concrete.genericArgs.len) {
+				while (expectedIndex < node.elements().len && expectedIndex < concrete.genericArgs.len) {
 					expectedFields.push("_" + Strings.fromInt(expectedIndex));
-					expectedValues.push(self.lowerAssignedValue(node.elements.get(expectedIndex), concrete.genericArgs.get(expectedIndex), varTypes, callableFlow));
+					expectedValues.push(self.lowerAssignedValue(node.elements().get(expectedIndex), concrete.genericArgs.get(expectedIndex), varTypes, callableFlow));
 					expectedIndex = expectedIndex + 1;
 				}
 				return IRNode.compoundLiteral(self.cTypes.lower(concrete), expectedFields, expectedValues);
@@ -2186,8 +2186,8 @@ class ExpressionLowerer {
 		}
 		Vector<Node> elemTypes = [];
 		int i = 0;
-		while (i < node.elements.len) {
-			Node? et = self.resolvedExpressionType(node.elements.get(i), varTypes);
+		while (i < node.elements().len) {
+			Node? et = self.resolvedExpressionType(node.elements().get(i), varTypes);
 			if (et == null) {
 				Node fallback = Node();
 				fallback.kind = NK_TYPE_EXPR;
@@ -2211,9 +2211,9 @@ class ExpressionLowerer {
 		Vector<string> fields = [];
 		Vector<IRNode> elems = [];
 		int j = 0;
-		while (j < node.elements.len) {
+		while (j < node.elements().len) {
 			fields.push("_" + Strings.fromInt(j));
-			elems.push(self.lowerExpr(node.elements.get(j), varTypes, callableFlow));
+			elems.push(self.lowerExpr(node.elements().get(j), varTypes, callableFlow));
 			j = j + 1;
 		}
 		return IRNode.compoundLiteral(mangled, fields, elems);
@@ -2279,8 +2279,8 @@ class ExpressionLowerer {
 	public IRNode lowerArrayInitializerPlain(Node initializer, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Vector<IRNode> values = [];
 		int index = 0;
-		while (index < initializer.elements.len) {
-			values.push(self.lowerExpr(initializer.elements.get(index), varTypes, callableFlow));
+		while (index < initializer.elements().len) {
+			values.push(self.lowerExpr(initializer.elements().get(index), varTypes, callableFlow));
 			index = index + 1;
 		}
 		return IRNode.initializerList(values);
@@ -2380,9 +2380,9 @@ class ExpressionLowerer {
 				Vector<string> tupleFields = [];
 				Vector<IRNode> tupleValues = [];
 				int tupleIndex = 0;
-				while (tupleIndex < node.elements.len && tupleIndex < aggregateType.genericArgs.len) {
+				while (tupleIndex < node.elements().len && tupleIndex < aggregateType.genericArgs.len) {
 					tupleFields.push("_" + Strings.fromInt(tupleIndex));
-					tupleValues.push(self.lowerAssignedValue(node.elements.get(tupleIndex), aggregateType.genericArgs.get(tupleIndex), varTypes, callableFlow));
+					tupleValues.push(self.lowerAssignedValue(node.elements().get(tupleIndex), aggregateType.genericArgs.get(tupleIndex), varTypes, callableFlow));
 					tupleIndex = tupleIndex + 1;
 				}
 				return IRNode.compoundLiteral(self.cTypes.lower(aggregateType), tupleFields, tupleValues);
@@ -2393,16 +2393,16 @@ class ExpressionLowerer {
 				Vector<string> fields = [];
 				Vector<IRNode> values = [];
 				int fieldIndex = 0;
-				while (fieldIndex < node.elements.len && fieldIndex < declaration.fields.len) {
+				while (fieldIndex < node.elements().len && fieldIndex < declaration.fields.len) {
 					Node field = declaration.fields.get(fieldIndex);
 					fields.push(field.name);
-					values.push(self.lowerAssignedValue(node.elements.get(fieldIndex), field.type, varTypes, callableFlow));
+					values.push(self.lowerAssignedValue(node.elements().get(fieldIndex), field.type, varTypes, callableFlow));
 					fieldIndex = fieldIndex + 1;
 				}
 				return IRNode.compoundLiteral(self.cTypes.lower(expected), fields, values);
 			}
 		}
-		if (node.elements.len == 0) {
+		if (node.elements().len == 0) {
 			if (expected != null && expected.genericArgs.len > 0 && self.analyzed.isGenericClass(expected.base)) {
 				string mangled = TypeIdentity.mangleGenericType(expected.base, expected.genericArgs);
 				Vector<IRNode> newArgs = [];
@@ -2412,8 +2412,8 @@ class ExpressionLowerer {
 		}
 		Vector<IRNode> elements = [];
 		int i = 0;
-		while (i < node.elements.len) {
-			elements.push(self.lowerExpr(node.elements.get(i), varTypes, callableFlow));
+		while (i < node.elements().len) {
+			elements.push(self.lowerExpr(node.elements().get(i), varTypes, callableFlow));
 			i = i + 1;
 		}
 		return IRNode.initializerList(elements);
@@ -3437,9 +3437,9 @@ class ExpressionLowerer {
 
 		Vector<IRNode> elements = [];
 		int index = 0;
-		while (index < node.elements.len) {
+		while (index < node.elements().len) {
 			Node? elementType = self.staticInitializerElementType(expected, index);
-			elements.push(self.lowerStaticInitializer(node.elements.get(index), elementType, varTypes, callableFlow));
+			elements.push(self.lowerStaticInitializer(node.elements().get(index), elementType, varTypes, callableFlow));
 			index = index + 1;
 		}
 		int fieldCount = self.staticInitializerFieldCount(expected);

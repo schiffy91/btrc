@@ -330,6 +330,8 @@ class BtrcAstRenderer:
             "interfaces",
             "names",
             "genericParams",
+            "elements",
+            "statements",
         }
     )
 

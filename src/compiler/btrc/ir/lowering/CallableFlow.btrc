@@ -666,8 +666,8 @@ class CallableFlowState {
 		}
 		if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
 			int element = 0;
-			while (element < expression.elements.len) {
-				self.evaluateExpression(expression.elements.get(element), values, currentContext);
+			while (element < expression.elements().len) {
+				self.evaluateExpression(expression.elements().get(element), values, currentContext);
 				element = element + 1;
 			}
 			return 0;
@@ -750,8 +750,8 @@ class CallableFlowState {
 			}
 			if (elementType != null) {
 				int index = 0;
-				while (index < value.elements.len) {
-					if (self.unsafePersistentValue(elementType, value.elements.get(index), values, currentContext)) {
+				while (index < value.elements().len) {
+					if (self.unsafePersistentValue(elementType, value.elements().get(index), values, currentContext)) {
 						unsafe = true;
 					}
 					index = index + 1;
@@ -760,8 +760,8 @@ class CallableFlowState {
 			}
 			if (canonical.base == "Tuple") {
 				int index = 0;
-				while (index < value.elements.len && index < canonical.genericArgs.len) {
-					if (self.unsafePersistentValue(canonical.genericArgs.get(index), value.elements.get(index), values, currentContext)) {
+				while (index < value.elements().len && index < canonical.genericArgs.len) {
+					if (self.unsafePersistentValue(canonical.genericArgs.get(index), value.elements().get(index), values, currentContext)) {
 						unsafe = true;
 					}
 					index = index + 1;
@@ -771,8 +771,8 @@ class CallableFlowState {
 			Node? declaration = values.structDeclaration(canonical);
 			if (declaration != null) {
 				int index = 0;
-				while (index < value.elements.len && index < declaration.fields.len) {
-					if (self.unsafePersistentValue(declaration.fields.get(index).type, value.elements.get(index), values, currentContext)) {
+				while (index < value.elements().len && index < declaration.fields.len) {
+					if (self.unsafePersistentValue(declaration.fields.get(index).type, value.elements().get(index), values, currentContext)) {
 						unsafe = true;
 					}
 					index = index + 1;
@@ -782,8 +782,8 @@ class CallableFlowState {
 		}
 		if (value.kind == NK_TUPLE_LITERAL && canonical.base == "Tuple") {
 			int index = 0;
-			while (index < value.elements.len && index < canonical.genericArgs.len) {
-				if (self.unsafePersistentValue(canonical.genericArgs.get(index), value.elements.get(index), values, currentContext)) {
+			while (index < value.elements().len && index < canonical.genericArgs.len) {
+				if (self.unsafePersistentValue(canonical.genericArgs.get(index), value.elements().get(index), values, currentContext)) {
 					unsafe = true;
 				}
 				index = index + 1;

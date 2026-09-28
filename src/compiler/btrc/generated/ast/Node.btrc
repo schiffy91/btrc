@@ -167,7 +167,10 @@ class Node {
 	public Node getterBody;
 	public Node setterBody;
 	public Node valueNode;
-	public Vector<Node> statements;
+	/* Null until written: a node pays neither a list allocation nor a
+     * managed edge for a `statements` it never fills. Read it
+     * through statements(), write it through statementsMut(). */
+	public Vector<Node>? statementsStorage;
 	public Node condition;
 	public Node thenBlock;
 	public Node elseBlock;
@@ -221,7 +224,10 @@ class Node {
 	public Node trueExpr;
 	public Node falseExpr;
 	public Node target;
-	public Vector<Node> elements;
+	/* Null until written: a node pays neither a list allocation nor a
+     * managed edge for a `elements` it never fills. Read it
+     * through elements(), write it through elementsMut(). */
+	public Vector<Node>? elementsStorage;
 	/* Null until written: a node pays neither a list allocation nor a
      * managed edge for a `entries` it never fills. Read it
      * through entries(), write it through entriesMut(). */
@@ -310,7 +316,7 @@ class Node {
 		self.getterBody = null;
 		self.setterBody = null;
 		self.valueNode = null;
-		self.statements = [];
+		self.statementsStorage = null;
 		self.condition = null;
 		self.thenBlock = null;
 		self.elseBlock = null;
@@ -352,7 +358,7 @@ class Node {
 		self.trueExpr = null;
 		self.falseExpr = null;
 		self.target = null;
-		self.elements = [];
+		self.elementsStorage = null;
 		self.entriesStorage = null;
 		self.partsStorage = null;
 		self.capturesStorage = null;
@@ -474,6 +480,25 @@ class Node {
 		return fresh;
 	}
 
+	/* `statements` for reading: the shared empty while unwritten. */
+	public Vector<Node> statements() {
+		Vector<Node>? stored = self.statementsStorage;
+		if (stored != null) { return stored; }
+		Vector<Node>? empty = Node.sharedEmptyNodes;
+		if (empty == null) { Vector<Node> fresh = []; empty = fresh; Node.sharedEmptyNodes = empty; }
+		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return empty;
+	}
+
+	/* `statements` for mutation: allocated on first write. */
+	public Vector<Node> statementsMut() {
+		Vector<Node>? stored = self.statementsStorage;
+		if (stored != null) { return stored; }
+		Vector<Node> fresh = [];
+		self.statementsStorage = fresh;
+		return fresh;
+	}
+
 	/* `cases` for reading: the shared empty while unwritten. */
 	public Vector<Node> cases() {
 		Vector<Node>? stored = self.casesStorage;
@@ -547,6 +572,25 @@ class Node {
 		if (stored != null) { return stored; }
 		Vector<string> fresh = [];
 		self.argNamesStorage = fresh;
+		return fresh;
+	}
+
+	/* `elements` for reading: the shared empty while unwritten. */
+	public Vector<Node> elements() {
+		Vector<Node>? stored = self.elementsStorage;
+		if (stored != null) { return stored; }
+		Vector<Node>? empty = Node.sharedEmptyNodes;
+		if (empty == null) { Vector<Node> fresh = []; empty = fresh; Node.sharedEmptyNodes = empty; }
+		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return empty;
+	}
+
+	/* `elements` for mutation: allocated on first write. */
+	public Vector<Node> elementsMut() {
+		Vector<Node>? stored = self.elementsStorage;
+		if (stored != null) { return stored; }
+		Vector<Node> fresh = [];
+		self.elementsStorage = fresh;
 		return fresh;
 	}
 

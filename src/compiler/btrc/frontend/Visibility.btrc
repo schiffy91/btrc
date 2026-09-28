@@ -187,7 +187,7 @@ class FeImportReferenceCollector {
 		if (node.kind == NK_BLOCK) {
 			Vector<string> empty = [];
 			self.pushScope(empty);
-			self.visitList(node.statements);
+			self.visitList(node.statements());
 			self.popScope();
 			return;
 		}
@@ -299,10 +299,10 @@ class FeImportReferenceCollector {
 		self.visitList(node.values());
 		self.visitList(node.variants());
 		self.visitList(node.genericArgs);
-		self.visitList(node.statements);
+		self.visitList(node.statements());
 		self.visitList(node.cases());
 		self.visitList(node.args());
-		self.visitList(node.elements);
+		self.visitList(node.elements());
 		self.visitList(node.entries());
 		self.visitList(node.parts());
 		self.visitList(node.captures());

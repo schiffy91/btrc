@@ -142,7 +142,7 @@ class AggregateValueLowerer {
 	}
 
 	public void rejectHeapClassBrace(Node expression, Node? expected, OwnershipOperandEnvironment environment) {
-		if (expected == null || expression.elements.len == 0) {
+		if (expected == null || expression.elements().len == 0) {
 			return;
 		}
 		Node resolved = self.operandPlanner.resolveType(expected, environment);
@@ -194,8 +194,8 @@ class AggregateValueLowerer {
 
 	private void collectOperands(Node aggregate, Node? aggregateType, OwnershipOperandEnvironment environment, Vector<AggregateOperandPlan> operands) {
 		int index = 0;
-		while (index < aggregate.elements.len) {
-			Node element = aggregate.elements.get(index);
+		while (index < aggregate.elements().len) {
+			Node element = aggregate.elements().get(index);
 			Node? contextualType = self.contextualElementType(aggregateType, index, environment);
 			Node? elementType = self.operandPlanner.expressionType(element, environment);
 			if (elementType == null) {

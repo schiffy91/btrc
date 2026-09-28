@@ -1138,7 +1138,7 @@ class Parser {
 		blk.col = lb.col;
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node s = self.parseStatement();
-			blk.statements.push(s);
+			blk.statementsMut().push(s);
 		}
 		self.expect("RBRACE");
 		return blk;
@@ -2115,12 +2115,12 @@ class Parser {
 				tl.kind = NK_TUPLE_LITERAL;
 				tl.line = tok.line;
 				tl.col = tok.col;
-				tl.elements.push(expr);
+				tl.elementsMut().push(expr);
 				Node e2 = self.parseExpression();
-				tl.elements.push(e2);
+				tl.elementsMut().push(e2);
 				while (self.matchTok("COMMA")) {
 					Node eN = self.parseExpression();
-					tl.elements.push(eN);
+					tl.elementsMut().push(eN);
 				}
 				self.expect("RPAREN");
 				return tl;
@@ -2187,11 +2187,11 @@ class Parser {
 		n.col = tok.col;
 		if (!self.check("RBRACKET")) {
 			Node e0 = self.parseExpression();
-			n.elements.push(e0);
+			n.elementsMut().push(e0);
 			while (self.matchTok("COMMA")) {
 				if (self.check("RBRACKET")) { break; }
 				Node eN = self.parseExpression();
-				n.elements.push(eN);
+				n.elementsMut().push(eN);
 			}
 		}
 		self.expect("RBRACKET");
@@ -2230,11 +2230,11 @@ class Parser {
 		brace.kind = NK_BRACE_INITIALIZER;
 		brace.line = tok.line;
 		brace.col = tok.col;
-		brace.elements.push(first);
+		brace.elementsMut().push(first);
 		while (self.matchTok("COMMA")) {
 			if (self.check("RBRACE")) { break; }
 			Node eN = self.parseExpression();
-			brace.elements.push(eN);
+			brace.elementsMut().push(eN);
 		}
 		self.expect("RBRACE");
 		return brace;

@@ -912,7 +912,7 @@ class CallValidator {
 			return self.macroArgumentCallable(argument.target, vars) || self.macroArgumentCallable(argument.valueNode, vars);
 		}
 		if (argument.kind == NK_LIST_LITERAL || argument.kind == NK_BRACE_INITIALIZER || argument.kind == NK_TUPLE_LITERAL) {
-			return self.macroExpressionListCallable(argument.elements, vars);
+			return self.macroExpressionListCallable(argument.elements(), vars);
 		}
 		if (argument.kind == NK_MAP_LITERAL) {
 			return self.macroMapEntriesCallable(argument.entries(), vars);

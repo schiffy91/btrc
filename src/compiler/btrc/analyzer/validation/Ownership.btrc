@@ -835,8 +835,8 @@ class OwnershipValidator {
 		string structName = StorageValidator.structTypeName(canonical, self.state.analyzed);
 		bool shallow = canonical.isArray || canonical.base == "Tuple" || (structName != "" && canonical.pointerDepth == 0);
 		if (shallow) {
-			self.rejectConvertedShallowElements(canonical, initializer.elements, vars);
-			self.rejectOwnedElements(initializer.elements, "a shallow aggregate", vars);
+			self.rejectConvertedShallowElements(canonical, initializer.elements(), vars);
+			self.rejectOwnedElements(initializer.elements(), "a shallow aggregate", vars);
 		}
 	}
 

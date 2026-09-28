@@ -268,8 +268,8 @@ class NameValidator {
 		if (block == null) { return; }
 		Map<string, bool> seen = self.types.cloneFlags(reserved);
 		int index = 0;
-		while (index < block.statements.len) {
-			Node statement = block.statements.get(index);
+		while (index < block.statements().len) {
+			Node statement = block.statements().get(index);
 			if (statement.kind == NK_VAR_DECL_STMT) {
 				self.validateDeclaredName(statement.name, "Local variable", statement);
 				if (seen.has(statement.name)) {

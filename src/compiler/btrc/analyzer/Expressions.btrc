@@ -86,8 +86,8 @@ class ExpressionTypeResolver {
 	class bool blockTerminates(Node? block) {
 		if (block == null) { return false; }
 		int index = 0;
-		while (index < block.statements.len) {
-			if (ExpressionTypeResolver.statementTerminates(block.statements.get(index))) { return true; }
+		while (index < block.statements().len) {
+			if (ExpressionTypeResolver.statementTerminates(block.statements().get(index))) { return true; }
 			index = index + 1;
 		}
 		return false;
@@ -683,8 +683,8 @@ class ExpressionTypeResolver {
 			return falseType;
 		}
 		if (node.kind == NK_LIST_LITERAL) {
-			if (node.elements.len > 0) {
-				Node? et = self.inferSpecializationType(node.elements.get(0), a, operators, varTypes);
+			if (node.elements().len > 0) {
+				Node? et = self.inferSpecializationType(node.elements().get(0), a, operators, varTypes);
 				if (et != null) {
 					Node elementType = et;
 					if ((a.isClass(et.base) || a.isGenericClass(et.base) || a.isInterface(et.base)) && et.pointerDepth == 0) {
@@ -740,8 +740,8 @@ class ExpressionTypeResolver {
 			u.base = "Tuple";
 			Vector<Node> ga = [];
 			int ti = 0;
-			while (ti < node.elements.len) {
-				Node? et = self.inferSpecializationType(node.elements.get(ti), a, operators, varTypes);
+			while (ti < node.elements().len) {
+				Node? et = self.inferSpecializationType(node.elements().get(ti), a, operators, varTypes);
 				if (et == null) { et = SemanticTypeSystem.primitive("int"); }
 				ga.push(TypeShape.copyTree(et));
 				ti = ti + 1;
@@ -869,10 +869,10 @@ class ExpressionTypeResolver {
 		ExpressionTypeResolver.collectIdentifiersList(n.values(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.variants(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.genericArgs, names);
-		ExpressionTypeResolver.collectIdentifiersList(n.statements, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.statements(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.cases(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.args(), names);
-		ExpressionTypeResolver.collectIdentifiersList(n.elements, names);
+		ExpressionTypeResolver.collectIdentifiersList(n.elements(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.entries(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.parts(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.captures(), names);
@@ -972,8 +972,8 @@ class ExpressionTypeResolver {
 		if (block == null) { return null; }
 		Map<string, Node> vars = self.copyTypes(outerVars);
 		int index = 0;
-		while (index < block.statements.len) {
-			Node statement = block.statements.get(index);
+		while (index < block.statements().len) {
+			Node statement = block.statements().get(index);
 			if (statement.kind == NK_VAR_DECL_STMT) {
 				Node? localType = statement.type;
 				if (localType == null) {

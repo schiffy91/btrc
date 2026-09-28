@@ -261,7 +261,7 @@ class DeclarationRegistry {
 			index++;
 		}
 		Map<int, bool> transferred = {};
-		Vector<Node> statements = declaration.bodyNode.statements;
+		Vector<Node> statements = declaration.bodyNode.statements();
 		int position = 0;
 		while (position < statements.len) {
 			Node statement = statements.get(position);

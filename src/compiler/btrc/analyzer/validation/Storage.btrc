@@ -185,8 +185,8 @@ class StorageValidator {
 				return false;
 			}
 			int index = 0;
-			while (index < expression.elements.len) {
-				if (!self.staticInitializer(expression.elements.get(index), null)) {
+			while (index < expression.elements().len) {
+				if (!self.staticInitializer(expression.elements().get(index), null)) {
 					return false;
 				}
 				index = index + 1;
@@ -795,8 +795,8 @@ class StorageValidator {
 					TypeValidator.fail(subject + " is a variable-length array and cannot have " + "an initializer", declaration);
 				}
 				bool aggregateInitializer = declaration.initializer.kind == NK_LIST_LITERAL || declaration.initializer.kind == NK_BRACE_INITIALIZER;
-				if (aggregateInitializer && bound.known && declaration.initializer.elements.len > bound.value) {
-					TypeValidator.fail(subject + " has " + Strings.fromInt(declaration.initializer.elements.len) + " elements exceeding its fixed array bound", declaration);
+				if (aggregateInitializer && bound.known && declaration.initializer.elements().len > bound.value) {
+					TypeValidator.fail(subject + " has " + Strings.fromInt(declaration.initializer.elements().len) + " elements exceeding its fixed array bound", declaration);
 				}
 			}
 			bool hasStaticStorage = isGlobal || declaration.type.isStatic;

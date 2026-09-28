@@ -321,8 +321,8 @@ class BorrowValidator {
 		if (node == null) { return; }
 		if (node.kind == NK_BLOCK) {
 			int index = 0;
-			while (index < node.statements.len) {
-				self.rawCollectLocalNames(node.statements.get(index), names);
+			while (index < node.statements().len) {
+				self.rawCollectLocalNames(node.statements().get(index), names);
 				index = index + 1;
 			}
 			return;
@@ -392,8 +392,8 @@ class BorrowValidator {
 		}
 		if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
 			int index = 0;
-			while (index < expression.elements.len) {
-				if (self.rawExpressionMentionsParam(expression.elements.get(index), name)) { return true; }
+			while (index < expression.elements().len) {
+				if (self.rawExpressionMentionsParam(expression.elements().get(index), name)) { return true; }
 				index = index + 1;
 			}
 		}
@@ -454,8 +454,8 @@ class BorrowValidator {
 		}
 		if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
 			int index = 0;
-			while (index < expression.elements.len) {
-				if (self.rawExpressionCarriesParam(expression.elements.get(index), name, vars)) { return true; }
+			while (index < expression.elements().len) {
+				if (self.rawExpressionCarriesParam(expression.elements().get(index), name, vars)) { return true; }
 				index = index + 1;
 			}
 		}
@@ -609,8 +609,8 @@ class BorrowValidator {
 	public bool rawParamBlockSafe(Node? block, string parameterName, string owner, Map<string, bool> locals, Map<string, Node> vars) {
 		if (block == null) { return false; }
 		int index = 0;
-		while (index < block.statements.len) {
-			if (!self.rawParamStmtSafe(block.statements.get(index), parameterName, owner, locals, vars)) { return false; }
+		while (index < block.statements().len) {
+			if (!self.rawParamStmtSafe(block.statements().get(index), parameterName, owner, locals, vars)) { return false; }
 			index = index + 1;
 		}
 		return true;

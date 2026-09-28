@@ -2737,7 +2737,7 @@ class DeclarationLowerer {
 			if (d.type.arraySize != null) {
 				global.arraySize = self.expressions.lowerExpr(d.type.arraySize, empty, callableFlow);
 			} else if (inferredArray) {
-				global.arraySize = IRNode.literal(Strings.fromInt(d.initializer.elements.len));
+				global.arraySize = IRNode.literal(Strings.fromInt(d.initializer.elements().len));
 			} else {
 				global.isUnsizedArray = true;
 			}
@@ -3970,8 +3970,8 @@ class DeclarationLowerer {
 			}
 		}
 		int si = 0;
-		while (si < n.statements.len) {
-			self.collectTupleTypesBody(n.statements.get(si), seen, order, tupleTypes);
+		while (si < n.statements().len) {
+			self.collectTupleTypesBody(n.statements().get(si), seen, order, tupleTypes);
 			si = si + 1;
 		}
 		self.collectTupleTypesBody(n.thenBlock, seen, order, tupleTypes);
@@ -4569,7 +4569,7 @@ class DeclarationLowerer {
 					if (field.type.arraySize != null) {
 						global.arraySize = self.expressions.lowerExpr(field.type.arraySize, empty, callableFlow);
 					} else if (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)) {
-						global.arraySize = IRNode.literal(Strings.fromInt(field.initializer.elements.len));
+						global.arraySize = IRNode.literal(Strings.fromInt(field.initializer.elements().len));
 					}
 				}
 				if (field.initializer != null) {

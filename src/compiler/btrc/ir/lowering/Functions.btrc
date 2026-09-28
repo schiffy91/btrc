@@ -476,7 +476,7 @@ class FunctionLowerer {
 		}
 		Node helperBlock = Node();
 		helperBlock.kind = NK_BLOCK;
-		helperBlock.statements.push(returnStatement);
+		helperBlock.statementsMut().push(returnStatement);
 		CallableFlowState callableFlow = CallableFlowState();
 		IRNode body = self.statements.lowerBlock(helperBlock, variableTypes, callableFlow);
 

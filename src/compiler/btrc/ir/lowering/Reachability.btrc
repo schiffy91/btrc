@@ -404,11 +404,11 @@ class StdlibReachability {
 		for child in node.values() { stack.push(child); }
 		for child in node.variants() { stack.push(child); }
 		for child in node.genericArgs { stack.push(child); }
-		for child in node.statements { stack.push(child); }
+		for child in node.statements() { stack.push(child); }
 		for child in node.cases() { stack.push(child); }
 		for child in node.bodyNodeList() { stack.push(child); }
 		for child in node.args() { stack.push(child); }
-		for child in node.elements { stack.push(child); }
+		for child in node.elements() { stack.push(child); }
 		for child in node.entries() { stack.push(child); }
 		for child in node.parts() { stack.push(child); }
 		for child in node.captures() { stack.push(child); }

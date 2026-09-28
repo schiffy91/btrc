@@ -627,10 +627,10 @@ class RealtimeAnalyzer {
 		self.dispatchVector(node.values(), callable, collecting);
 		self.dispatchVector(node.variants(), callable, collecting);
 		self.dispatchVector(node.genericArgs, callable, collecting);
-		self.dispatchVector(node.statements, callable, collecting);
+		self.dispatchVector(node.statements(), callable, collecting);
 		self.dispatchVector(node.cases(), callable, collecting);
 		self.dispatchVector(node.args(), callable, collecting);
-		self.dispatchVector(node.elements, callable, collecting);
+		self.dispatchVector(node.elements(), callable, collecting);
 		self.dispatchVector(node.entries(), callable, collecting);
 		self.dispatchVector(node.parts(), callable, collecting);
 		self.dispatchVector(node.captures(), callable, collecting);

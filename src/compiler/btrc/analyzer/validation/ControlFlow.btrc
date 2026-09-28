@@ -107,7 +107,7 @@ class ControlFlowValidator {
 		self.prepareExpression(expression.fn, variables);
 		self.prepareExpression(expression.key, variables);
 		self.prepareExpressionList(expression.args(), variables);
-		self.prepareExpressionList(expression.elements, variables);
+		self.prepareExpressionList(expression.elements(), variables);
 		self.prepareExpressionList(expression.entries(), variables);
 		self.prepareExpressionList(expression.parts(), variables);
 	}
@@ -165,7 +165,7 @@ class ControlFlowValidator {
 
 	class bool blockTerminates(Node? block) {
 		if (block == null) { return false; }
-		return ControlFlowValidator.statementSequenceTerminates(block.statements);
+		return ControlFlowValidator.statementSequenceTerminates(block.statements());
 	}
 
 	class bool elseTerminates(Node? elseNode) {
@@ -202,8 +202,8 @@ class ControlFlowValidator {
 		}
 		if (node.kind == NK_BLOCK) {
 			int index = 0;
-			while (index < node.statements.len) {
-				if (ControlFlowValidator.containsLoopBreak(node.statements.get(index))) {
+			while (index < node.statements().len) {
+				if (ControlFlowValidator.containsLoopBreak(node.statements().get(index))) {
 					return true;
 				}
 				index = index + 1;
@@ -537,8 +537,8 @@ class ControlFlowValidator {
 		Map<string, Node> vars = TypeValidator.cloneTypes(outerVars);
 		bool terminal = false;
 		int index = 0;
-		while (index < block.statements.len) {
-			Node statement = block.statements.get(index);
+		while (index < block.statements().len) {
+			Node statement = block.statements().get(index);
 			if (terminal) {
 				TypeValidator.fail("Unreachable code after return/throw/break/continue", statement);
 			}
