@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -10,8 +11,18 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.python.test_arc_ownership_contracts import _asan_environment
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+# The sanitizer build also tries the Darwin system compiler, in the isolated
+# environment the other ASan contracts use: a Nix toolchain on Darwin may lack
+# a sanitizer runtime that links or runs.
+SANITIZER_COMPILERS = COMPILERS + tuple(
+    path
+    for path in ("/usr/bin/clang",)
+    if sys.platform == "darwin" and os.access(path, os.X_OK) and path not in map(os.path.realpath, COMPILERS)
+)
+SANITIZE = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
 
 HEADERS = """\
 #include <limits.h>
@@ -393,9 +404,12 @@ int main(void) {
     not COMPILERS or sys.platform == "win32",
     reason="requires a strict C11 compiler",
 )
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", SANITIZER_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("sanitize", [False, True], ids=["optimized", "asan-ubsan"])
 def test_witness_transitions_are_exact(tmp_path: Path, c_compiler: str, sanitize: bool) -> None:
+    environment = _asan_environment(c_compiler)
+    if sanitize:
+        _require_sanitizers(tmp_path, c_compiler, environment)
     source = tmp_path / "arc_witness.c"
     binary = tmp_path / "arc_witness"
     source.write_text(f"{HEADERS}\n{RUNTIME}\n{HARNESS}\n")
@@ -405,7 +419,7 @@ def test_witness_transitions_are_exact(tmp_path: Path, c_compiler: str, sanitize
             "-std=c11",
             "-pedantic-errors",
             "-O2",
-            *(["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitize else []),
+            *(SANITIZE if sanitize else []),
             "-Werror=implicit-function-declaration",
             str(source),
             "-o",
@@ -413,6 +427,29 @@ def test_witness_transitions_are_exact(tmp_path: Path, c_compiler: str, sanitize
         ],
         capture_output=True,
         text=True,
+        env=environment,
     )
     assert built.returncode == 0, built.stderr
-    subprocess.run([str(binary)], check=True, timeout=15)
+    subprocess.run([str(binary)], check=True, timeout=15, env=environment)
+
+
+def _require_sanitizers(tmp_path: Path, c_compiler: str, environment: dict[str, str] | None) -> None:
+    """Skip unless `c_compiler` builds and runs an empty ASan+UBSan program here."""
+    probe = tmp_path / "sanitizer-probe.c"
+    executable = tmp_path / "sanitizer-probe"
+    probe.write_text("int main(void) { return 0; }\n")
+    name = Path(c_compiler).name
+    built = subprocess.run(
+        [c_compiler, "-std=c11", *SANITIZE, str(probe), "-o", str(executable)],
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    if built.returncode != 0:
+        pytest.skip(f"{name} cannot link ASan+UBSan here: {built.stderr.strip()[:120]}")
+    try:
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=5, env=environment)
+    except subprocess.TimeoutExpired:
+        pytest.skip(f"{name}'s ASan+UBSan runtime does not start here")
+    if ran.returncode != 0:
+        pytest.skip(f"{name}'s ASan+UBSan probe exited {ran.returncode}: {ran.stderr.strip()[:120]}")

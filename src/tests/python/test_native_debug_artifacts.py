@@ -16,6 +16,11 @@ from tools.native_plan import NativePlanBuilder, NativePlanError
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="Darwin executable debug maps reference object files")
 
+# /usr/bin/lldb and /usr/bin/dsymutil are xcrun shims that resolve the tool in
+# DEVELOPER_DIR. A Nix build shell points that at its SDK, which carries no
+# debugger, so the host tools run against the host's selected developer dir.
+HOST_TOOLS = {name: value for name, value in os.environ.items() if name not in {"DEVELOPER_DIR", "SDKROOT"}}
+
 
 def debug_build(tmp_path, *, cached=True):
     source = tmp_path / "program.c"
@@ -57,6 +62,7 @@ def check_debugger(output, adapter, *, function="answer", line=2):
         capture_output=True,
         text=True,
         timeout=30,
+        env=HOST_TOOLS,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     line_entries = [entry for entry in result.stdout.splitlines() if "LineEntry:" in entry]
@@ -68,6 +74,7 @@ def check_debugger(output, adapter, *, function="answer", line=2):
         capture_output=True,
         text=True,
         timeout=30,
+        env=HOST_TOOLS,
     )
     assert debug_map.returncode == 0 and not debug_map.stderr, debug_map.stderr
     assert "objects:" in debug_map.stdout, debug_map.stdout
@@ -269,7 +276,11 @@ def test_split_compiler_outputs_remain_source_debuggable_after_link(tmp_path, re
     assert subprocess.run([output], capture_output=True, text=True, check=True, timeout=15).stdout == "780\n"
     symbols = tmp_path / "program.dSYM"
     result = subprocess.run(
-        ["/usr/bin/dsymutil", str(output), "-o", str(symbols)], capture_output=True, text=True, timeout=30
+        ["/usr/bin/dsymutil", str(output), "-o", str(symbols)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=HOST_TOOLS,
     )
     assert result.returncode == 0 and not result.stderr, result.stderr
     assert (symbols / "Contents/Resources/DWARF/program").is_file()
