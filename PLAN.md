@@ -850,6 +850,7 @@ peak footprint of one cold `--jobs 1` compile, clang -O2 btrcc.
 | Step | Target | Before | After | Met | Commit |
 |---|---|---|---|---|---|
 | 1. Runtime compiled once | native CPU <= 86.8 s | 82.4-82.8 s | 63.4-63.5 s (-23%) | yes | db57cda |
+| 2. Emitted C trimmed | native CPU -10% vs step 1, test-debug passes | 68.1-68.4 s | 57.9-58.6 s (-14 to -15%) | yes | 07ca1f6, c4f7f57 |
 
 **Step 1 -- the runtime unit.** Every module unit carried a static copy of
 each runtime helper it reached: BTRSmith's 408 units compiled the ARC,
@@ -870,6 +871,27 @@ DEVELOPER_DIR, and the ARC witness sanitizer build probes each compiler and
 also tries the system clang. Cross-unit calls into the runtime no longer
 inline tiny helpers at -O2; dev builds are -O0, and release builds of a
 module-unit program would want LTO.
+
+**Step 2 -- trimmed C and precompiled preludes.** The harness now uses the
+product's exact compile command (`-x c -std=c11 -pedantic-errors -Wall
+-Wextra -Werror -g <pkg-config cflags> -O0`); the step-1 harness added every
+package root as `-I` and `-w`, so step 2 compares against step 1 re-measured
+this way. A debug build leaves out `#line` directives that restate the next
+line's mapping and names a file only when it changes: every one of 1,217,822
+content lines keeps its btrc location and the emitted C falls from 129.8 MB
+to 73.8 MB, but Clang reads directives cheaply and this alone is about 1%.
+The measured waste was preprocessing, most of the native compile, because
+nearly every unit parses the same 28 system headers: the native plan
+builder now precompiles each prologue at least sixteen units share and
+compiles each unit with the longest one that prefixes its own leading lines,
+and module units emit native includes in include-once blocks so a prelude
+may contain an unguarded package header. The prelude only accelerates;
+cache keys and receipts use the unaltered command. Debug-info knobs were
+measured and rejected: `-fno-standalone-debug` saved nothing and
+`-gno-column-info` about 2%; `-g0` would save 10% but loses source-level
+debugging. Gates on c4f7f57: lint and format-check pass; `make test` 12,423
+passed, 142 skipped, bootstrap passed; `make bootstrap` passed; `make
+test-c11` 8 x 1,930 passed.
 
 ### Bucket 1 KPI checkpoint
 
