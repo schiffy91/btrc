@@ -416,7 +416,20 @@ class StorageLowerer:
         value_owned: bool,
     ) -> IRExpr:
         """Publish one protected caller reference into a persistent ARC edge."""
-        assert target.target is not None
+        assert target.target is not None and target.receiver is not None
+        if isinstance(lowered_value, IRLiteral) and lowered_value.text == "NULL":
+            # Null holds no reference: nothing to retain, protect or release,
+            # only the edge's old value to drop, as the protected path does.
+            sequence: list[IRExpr] = [
+                self._lifetime.replace_edge_value(
+                    target.target, lowered_value, value_type, target.receiver, adopt=False
+                )
+            ]
+            poll = self._lifetime.poll_release_batch(type_exprs=[value_type])
+            if poll is not None:
+                sequence.append(poll)
+            sequence.append(target.target)
+            return IRCommaExpr(expressions=sequence)
         value_decl = self._temporary(value_type, "__btrc_store_value", managed=True)
         target.declarations.append(value_decl)
         value = IRVar(name=value_decl.name)

@@ -919,7 +919,9 @@ class StatementLowerer {
 		if (promoteBorrowed) {
 			output.push(IRNode.expressionStatement(self.managedLifetime.retainValue(result, self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))));
 		}
-		if (managedReturn && returnedLocal == "") {
+		/* The returned reference needs an unwind cleanup only while a local's
+		 * release, whose destructor may throw, runs before the return. */
+		if (managedReturn && returnedLocal == "" && releases.len > 0) {
 			string runtimeType = self.managedValues.runtimeType(self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 			self.managedLifetime.maybeRegisterCleanup(temporaryName, runtimeType, output);
 		}

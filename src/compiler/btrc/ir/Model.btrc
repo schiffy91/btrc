@@ -139,23 +139,15 @@ class IRNode {
 	public IRNode result;        /* IRStmtExpr result expression */
 
 	public IRNode() {
+		/* A new node's storage is zeroed, so its null fields need no store:
+		 * each was a managed-edge replacement on the hottest allocation path. */
 		self.kind = IRK_NONE;
 		self.text = "";
 		self.name = "";
 		self.callee = "";
 		self.op = "";
 		self.prefix = false;
-		self.left = null;
-		self.right = null;
-		self.operand = null;
-		self.expr = null;
-		self.obj = null;
-		self.index = null;
-		self.condition = null;
-		self.trueExpr = null;
-		self.falseExpr = null;
 		self.args = [];
-		self.params = null;
 		self.fieldNames = [];
 		self.targetType = "";
 		self.bridge = "";
@@ -168,7 +160,6 @@ class IRNode {
 		self.arrayStorageKnown = false;
 		self.cType = "";
 		self.isArrayDecl = false;
-		self.arraySize = null;
 		self.isVolatile = false;
 		self.effectiveIsVolatile = false;
 		self.setjmpInferredVolatile = false;
@@ -178,19 +169,10 @@ class IRNode {
 		self.fallsThrough = false;
 		self.canFallThrough = true;
 		self.neverReturns = false;
-		self.cleanupSlot = null;
 		self.helperRef = "";
 		self.realtimeProvenance = "";
-		self.init = null;
-		self.value = null;
-		self.target = null;
-		self.thenBlock = null;
-		self.elseBlock = null;
-		self.body = null;
-		self.update = null;
 		self.realtimeBounded = false;
 		self.stmts = [];
-		self.result = null;
 	}
 
 	class string directStorageRoot(IRNode? node) {

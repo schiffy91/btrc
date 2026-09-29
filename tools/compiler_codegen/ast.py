@@ -238,12 +238,8 @@ class BtrcAstRenderer:
         lines.append("    public int kind;")
         for declaration in declarations:
             if declaration.name in lazy:
-                lines.append(
-                    f"    /* Null until written: a node pays neither a list allocation nor a"
-                )
-                lines.append(
-                    f"     * managed edge for a `{declaration.name}` it never fills. Read it"
-                )
+                lines.append(f"    /* Null until written: a node pays neither a list allocation nor a")
+                lines.append(f"     * managed edge for a `{declaration.name}` it never fills. Read it")
                 lines.append(f"     * through {declaration.name}(), write it through {declaration.name}Mut(). */")
                 lines.append(f"    public {declaration.declared_type}? {self._storage_name(declaration.name)};")
             else:
@@ -260,10 +256,10 @@ class BtrcAstRenderer:
             lines.append("     * readers check it is still empty each time they answer it. */")
             lines.append(f"    class {declared_type}? {static_name} = null;")
         lines.extend(("", f"    public {self._node_name}() {{", f"        self.kind = {self._kind_prefix}NONE;"))
+        # A new node's storage is zeroed, so a field whose initial value is
+        # null needs no store: each one cost a managed-edge replacement.
         for declaration in declarations:
-            if declaration.name in lazy:
-                lines.append(f"        self.{self._storage_name(declaration.name)} = null;")
-            else:
+            if declaration.name not in lazy and declaration.initializer != "null":
                 lines.append(f"        self.{declaration.name} = {declaration.initializer};")
         lines.append("    }")
         for declaration in declarations:

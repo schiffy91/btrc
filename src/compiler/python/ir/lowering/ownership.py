@@ -2300,7 +2300,9 @@ class OwnershipLowerer:
         if promote_borrowed:
             promote.append(IRExprStmt(expr=self._lifetime.retain_value(result, plan.return_type)))
         prefix = [temporary, *promote]
-        if managed_return and returned_local is None:
+        # The returned reference needs an unwind cleanup only while a local's
+        # release, whose destructor may throw, runs before the return.
+        if managed_return and returned_local is None and release_stmts:
             runtime_type = self._values.runtime_name(plan.return_type)
             self._lifetime.register_named_cleanup(temporary.name, runtime_type, prefix)
             cleanup_discard = self._emit_return_cleanup_discard()
