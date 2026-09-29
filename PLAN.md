@@ -837,6 +837,40 @@ experiments retain their existing evidence requirements; unnecessary machinery
 is not a deliverable. Detailed operating rules and the immediate next checkpoint
 are in [section 8](#8-execution-order-and-milestone-gates).
 
+### Performance research plan, steps 1-5 (September 28-29)
+
+The September 28 research plan orders five steps, each measured before and
+after in the same machine state, gated on `make test`, `make bootstrap`,
+`make test-c11`, `make lint` and `make format-check`, and committed alone.
+Native compile CPU is `~/.cache/btrc/perf/native_build.py` on the BTRSmith
+measurement copy (aeeca0fd): every unit of a `--module-units` build compiled
+at 8 jobs under `/usr/bin/time -l`. Compiler cost is instructions retired and
+peak footprint of one cold `--jobs 1` compile, clang -O2 btrcc.
+
+| Step | Target | Before | After | Met | Commit |
+|---|---|---|---|---|---|
+| 1. Runtime compiled once | native CPU <= 86.8 s | 82.4-82.8 s | 63.4-63.5 s (-23%) | yes | db57cda |
+
+**Step 1 -- the runtime unit.** Every module unit carried a static copy of
+each runtime helper it reached: BTRSmith's 408 units compiled the ARC,
+try-stack and string helpers about 400 times, and 24% of the emitted lines
+were those copies. A module-unit program now emits `unit-runtime`, which
+defines every helper any unit selected, and their state, once with external
+linkage; each group's unit keeps the helpers' types and macros and declares
+the rest. Emitted C fell from 2.45M to 1.80M lines. The 108.5 s the target was
+set from came from an older harness run in a different machine state; the
+same-state baseline measured 82.4-82.8 s. Gates on 2fad95e: lint and
+format-check pass; `make test` 12,417 passed, 142 skipped, bootstrap passed;
+`make bootstrap` passed; `make test-c11` 8 x 1,930 passed (a first run lost
+`stdlib/Daemon.btrc` to its wall-clock deadline on a saturated machine, as the
+handoff notes warn, and passed on rerun). 2fad95e also makes 18 tests that
+failed only inside the Nix shell run their host tools correctly: the debug
+artifact tests call the host lldb/dsymutil without the shell's
+DEVELOPER_DIR, and the ARC witness sanitizer build probes each compiler and
+also tries the system clang. Cross-unit calls into the runtime no longer
+inline tiny helpers at -O2; dev builds are -O0, and release builds of a
+module-unit program would want LTO.
+
 ### Bucket 1 KPI checkpoint
 
 The **unchanged-build latency objective is closed** under the September 22
