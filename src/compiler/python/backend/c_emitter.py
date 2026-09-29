@@ -7,6 +7,8 @@ during IR generation. The emitter just formats.
 
 from __future__ import annotations
 
+import hashlib
+
 from ..ir.nodes import (
     CType,
     IRAddressOf,
@@ -94,6 +96,9 @@ class CEmitter:
         # linkage, and a secondary unit only declares the globals and kernels.
         self._shared_linkage = False
         self._declarations_only = False
+        # A module-unit program guards each native include so a precompiled
+        # prelude that already included it leaves the unit's copy out.
+        self._include_once = False
 
     @staticmethod
     def _prepare_module(module: IRModule) -> None:
@@ -198,6 +203,7 @@ class CEmitter:
         self._module = module
         self._shared_linkage = unit_index >= 0
         self._declarations_only = unit_index > 0
+        self._include_once = runtime_definitions is not None
         self._debug_cfile = module.debug_cfile
         if unit_index > 0 and (units_prefix or module.debug_cfile):
             self._debug_cfile = f"{units_prefix or module.debug_cfile}.unit-{unit_index}.c"
@@ -437,11 +443,19 @@ class CEmitter:
             )
             if module.needs_runtime and not has_seam:
                 raise ValueError("freestanding runtime dependency lacks a typed btrc_rt.h include")
-            lines = [self._preprocessor_text(declaration) for declaration in module.preprocessor_decls]
+            lines = [
+                line
+                for declaration in module.preprocessor_decls
+                for line in self._preprocessor_text(declaration).split("\n")
+            ]
             if lines:
                 lines.append("")
             return lines
-        lines = [self._preprocessor_text(declaration) for declaration in module.preprocessor_decls]
+        lines = [
+            line
+            for declaration in module.preprocessor_decls
+            for line in self._preprocessor_text(declaration).split("\n")
+        ]
         if lines:
             lines.append("")
         return lines
@@ -478,6 +492,7 @@ class CEmitter:
         self._lines = []
         self._dbg_next = None
         self._dbg_presumed = None
+        self._include_once = False
 
     def _append(self, line: str) -> None:
         """Append one physical line; a btrc mapping advances past it."""
@@ -1080,8 +1095,18 @@ class CEmitter:
         declaration: IRInclude | IRMacroDef,
     ) -> str:
         if isinstance(declaration, IRInclude):
+            if self._include_once and not declaration.is_system:
+                return self._include_once_text(declaration)
             return self._include_text(declaration)
         return self._macro_text(declaration)
+
+    @classmethod
+    def _include_once_text(cls, include: IRInclude) -> str:
+        """A native include behind a guard named for its header. A unit
+        includes each header once, so the guard changes nothing unless a
+        precompiled prelude already included the header."""
+        guard = "BTRC_INCLUDE_" + hashlib.sha256(include.header.encode("utf-8")).hexdigest()[:16].upper()
+        return f"#ifndef {guard}\n#define {guard}\n{cls._include_text(include)}\n#endif"
 
     def _emit_preprocessor_declarations(self, module: IRModule) -> None:
         for declaration in module.preprocessor_decls:

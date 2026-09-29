@@ -1,3 +1,4 @@
+import Library.Digest.SHA256;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
@@ -24,6 +25,9 @@ class CEmitter {
 	private int unitIndex = -1;
 	/* Module unit: -1 none, 0 declares helper state extern, 1 defines it. */
 	private int moduleUnitState = -1;
+	/* A module-unit program guards each native include so a precompiled
+	 * prelude that already included it leaves the unit's copy out. */
+	private bool includeOnce = false;
 	/* --debug: every content line inside a function body is preceded by a
 	 * #line directive naming its .btrc origin, or the generated file itself
 	 * once a marker-less stretch begins (the line number is patched in last). */
@@ -178,6 +182,7 @@ class CEmitter {
 		self.indent = 0;
 		self.sharedLinkage = unitIndex >= 0;
 		self.declarationsOnly = unitIndex > 0;
+		self.includeOnce = self.moduleUnitState >= 0;
 		self.unitIndex = unitIndex;
 		self.debug = m.debug;
 		self.debugCfile = m.debugCfile;
@@ -407,6 +412,15 @@ class CEmitter {
 			if (declaration.kind == IR_PREPROCESSOR_INCLUDE) {
 				if (declaration.isSystem) {
 					out.push("#include <" + declaration.header + ">");
+				} else if (self.includeOnce) {
+					/* A unit includes each header once, so the guard changes
+					 * nothing unless a precompiled prelude already included
+					 * the header. */
+					string guard = "BTRC_INCLUDE_" + SHA256.digest(declaration.header).substring(0, 16).toUpper();
+					out.push("#ifndef " + guard);
+					out.push("#define " + guard);
+					out.push("#include \"" + declaration.header + "\"");
+					out.push("#endif");
 				} else {
 					out.push("#include \"" + declaration.header + "\"");
 				}

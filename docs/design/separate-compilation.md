@@ -598,6 +598,33 @@ A unit's C text must depend only on its group's inputs, never on which other
 groups were lowered in the same process. Each group therefore uses a fresh
 lowering session; only immutable program facts are shared.
 
+### Compiling the units natively
+
+Nearly every unit begins with the same feature macros and includes, and a
+cold build otherwise parses those headers once per unit: preprocessing was
+most of the native compile. The native plan builder (`tools/native_plan.py`,
+`_PreludeAccelerator`) precompiles each prologue that at least sixteen of the
+units it is about to compile share, and compiles a unit with the longest one
+that is a prefix of its own leading lines; fewer units, as in an edit build,
+compile as before. The unit's own includes then meet the guards the prelude
+already defined, so its translation is unchanged. A native header need not
+carry a guard of its own: a module unit emits each native include inside an
+include-once block named for the header (`BTRC_INCLUDE_<hash>`), and a
+prologue takes only whole blocks with absolute paths, since a precompiled
+header resolves a relative name against itself. The prelude only
+accelerates: object-cache keys and dependency receipts come from the
+unaltered command, and a compile that fails with a prelude runs again
+without it.
+
+A debug build also leaves out any `#line` directive that restates the
+mapping the next line already has, and names the file only when it changes.
+Every C line keeps its btrc location.
+
+On BTRSmith (409 units, clang -O0 -g, 8 jobs, same machine state) these two
+cut native compile CPU by 14-15% after the runtime unit, and the emitted C
+from 129.8 MB to 73.8 MB. The `#line` trim alone is about 1%: Clang reads
+directives cheaply, and the prelude carries the step.
+
 ## Keys and invalidation
 
 A group artifact is valid when all of these match: compiler and runtime

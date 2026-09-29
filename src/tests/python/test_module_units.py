@@ -478,6 +478,26 @@ def test_worker_counts_emit_identical_units(compiler: str, tmp_path, request):
     assert forked == single
 
 
+def test_native_includes_are_include_once_blocks(compiler: str, tmp_path, request):
+    """A module unit wraps each native include in a guard named for its header,
+    so a precompiled prelude that already included it leaves the unit's copy
+    out; system includes stay bare."""
+    import hashlib
+
+    if compiler == "python":
+        command = [sys.executable, "-m", "src.compiler.python.main"]
+    else:
+        command = [str(request.getfixturevalue("immutable_btrcc"))]
+    workspace = _Workspace(tmp_path.resolve())
+    units = _cli_units(command, workspace, "CatalogMain.btrc", workspace.root / "out", 1)
+    guard = "BTRC_INCLUDE_" + hashlib.sha256(b"ShapeScale.h").hexdigest()[:16].upper()
+    block = f'#ifndef {guard}\n#define {guard}\n#include "ShapeScale.h"\n#endif\n'
+    including = [text for text in units.values() if '#include "ShapeScale.h"' in text]
+    assert including
+    assert all(text.count('#include "ShapeScale.h"') == text.count(block) == 1 for text in including)
+    assert all("BTRC_INCLUDE_" not in line for text in units.values() for line in text.split("\n") if "<" in line)
+
+
 _CYCLE_PROGRAM = {
     "Model/Node.btrc": """import Library.Vector;
 

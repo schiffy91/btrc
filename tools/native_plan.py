@@ -532,6 +532,7 @@ class NativeCompileResult:
     publication_s: float = 0.0
     publication_status: str = "not-requested"
     preprocessing_status: str = "not-requested"
+    precompiled_prelude: bool = False
 
 
 @dataclass
@@ -556,6 +557,8 @@ class NativeBuildReport:
     preprocessing_s: float = 0.0
     preprocessing_units: int = 0
     preprocessing_hits: int = 0
+    prelude_status: str = "none"
+    prelude_s: float = 0.0
     adapter_source_status: str = "none"
     debug_object_status: str = "none"
 
@@ -573,6 +576,7 @@ class NativeBuildReport:
             summed_dependency_scan_s=sum(unit.dependency_scan_s for unit in self.units),
             summed_cache_validation_s=sum(unit.cache_validation_s for unit in self.units),
             summed_compile_s=sum(unit.compile_s for unit in self.units),
+            prelude_units=sum(unit.precompiled_prelude for unit in self.units),
         )
         return result
 
@@ -597,6 +601,150 @@ class _CacheProbe:
     reason: str = "unreadable-input"
     manifest: dict[str, object] | None = None
     receipt_hit: bool = False
+
+
+class _PreludeAccelerator:
+    """Precompiled headers of the prologues many emitted units share.
+
+    A module-unit program's units begin with feature macros and includes that
+    are nearly all the same, and a cold build otherwise parses those headers
+    once per unit. Each prologue enough compiles share is precompiled once,
+    and a unit compiles with the longest one that is a prefix of its own
+    leading lines; its own includes then meet the guards the header already
+    defined, so the translation is unchanged. It only accelerates: cache keys
+    and dependency receipts come from the unaltered command, and a compile
+    that fails with a header runs again without it.
+    """
+
+    # Precompiling costs about as much as parsing the prologue a dozen times,
+    # so a prologue fewer units share, as in an edit build, goes without.
+    MINIMUM_UNITS = 16
+    _SYSTEM = re.compile(r"#define _[A-Z0-9_]+|#include <[^<>\n]+>")
+    _GUARD = re.compile(r"#ifndef (BTRC_INCLUDE_[0-9A-F]{16})")
+    _QUOTED = re.compile(r'#include "([^"\n]+)"')
+    # Only a unit's first lines are read for its prologue.
+    _PROLOGUE_LINES = 512
+
+    def __init__(self, runner: Callable[..., subprocess.CompletedProcess[str]], directory: Path) -> None:
+        self._runner = runner
+        self._directory = directory
+        self.status = "none"
+        self.seconds = 0.0
+
+    @classmethod
+    def prologue(cls, source: Path) -> tuple[str, ...]:
+        """The feature macros, system includes and guarded native includes a
+        unit begins with, after its leading comment and pragma lines.
+
+        A native include joins only as the emitter's include-once block, whose
+        guard the prelude then defines, and only with an absolute path: a
+        precompiled header resolves a relative name against itself."""
+        lines: list[str] = []
+        try:
+            with source.open(encoding="utf-8", errors="surrogateescape") as stream:
+                for text in stream:
+                    line = text.rstrip("\n")
+                    if lines or not (line.startswith(("/*", "#pragma ")) or not line):
+                        lines.append(line)
+                    if len(lines) >= cls._PROLOGUE_LINES:
+                        break
+        except OSError:
+            return ()
+        prologue: list[str] = []
+        index = 0
+        while index < len(lines):
+            if cls._SYSTEM.fullmatch(lines[index]):
+                prologue.append(lines[index])
+                index += 1
+                continue
+            block = lines[index : index + 4]
+            guard = cls._GUARD.fullmatch(block[0]) if block else None
+            quoted = cls._QUOTED.fullmatch(block[2]) if len(block) == 4 else None
+            if not (
+                guard
+                and quoted
+                and block[1] == f"#define {guard.group(1)}"
+                and block[3] == "#endif"
+                and os.path.isabs(quoted.group(1))
+            ):
+                break
+            prologue.extend(block)
+            index += 4
+        return tuple(prologue)
+
+    @classmethod
+    def _system_prefix(cls, prologue: tuple[str, ...]) -> tuple[str, ...]:
+        """A prologue's leading feature macros and system includes."""
+        length = 0
+        while length < len(prologue) and cls._SYSTEM.fullmatch(prologue[length]):
+            length += 1
+        return prologue[:length]
+
+    def arguments(self, commands: Sequence[tuple[list[str], Path]], jobs: int) -> dict[Path, list[str]]:
+        """The extra compile arguments for each unit a prelude serves.
+
+        `commands` are the C compiles that will run. Every prologue at least
+        MINIMUM_UNITS of them share is a prelude, and so is the system prefix
+        that enough of the rest share."""
+        prologues = {source: self.prologue(source) for _, source in commands}
+        counts = Counter(prologue for prologue in prologues.values() if prologue)
+        candidates = {prologue for prologue, count in counts.items() if count >= self.MINIMUM_UNITS}
+        prefixes = Counter(
+            self._system_prefix(prologue) for prologue in prologues.values() if prologue not in candidates
+        )
+        candidates |= {prefix for prefix, count in prefixes.items() if prefix and count >= self.MINIMUM_UNITS}
+        if not candidates:
+            self.status = "too-few-units"
+            return {}
+        chosen: dict[Path, tuple[str, ...]] = {}
+        for source, prologue in prologues.items():
+            served = [candidate for candidate in candidates if prologue[: len(candidate)] == candidate]
+            if served:
+                chosen[source] = max(served, key=len)
+        preludes = sorted(set(chosen.values()))
+        command = next(iter(commands))[0]
+        started = time.perf_counter()
+        if not self._clang(command[0]):
+            self.status = "unsupported-driver"
+            return {}
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(preludes)))) as pool:
+            headers = dict(zip(preludes, pool.map(lambda item: self._build(command, *item), enumerate(preludes))))
+        self.seconds = time.perf_counter() - started
+        built = sum(header is not None for header in headers.values())
+        self.status = f"built-{built}" if built == len(preludes) else f"built-{built}-of-{len(preludes)}"
+        return {
+            source: ["-include-pch", str(headers[prelude])]
+            for source, prelude in chosen.items()
+            if headers[prelude] is not None
+        }
+
+    def _clang(self, driver: str) -> bool:
+        version = self._runner([driver, "--version"], capture_output=True, text=True, check=False, shell=False)
+        return version.returncode == 0 and "clang" in version.stdout.lower()
+
+    def _build(self, command: list[str], index: int, prologue: tuple[str, ...]) -> Path | None:
+        source = self._directory / f"prelude-{index}.h"
+        header = self._directory / f"prelude-{index}.pch"
+        source.write_text("\n".join(prologue) + "\n", encoding="utf-8")
+        # The unit's own flags, so the header is compatible with every compile;
+        # only the input language, source and output change.
+        arguments = command[1:]
+        output = arguments.index("-o")
+        arguments = [*arguments[:output], *arguments[output + 2 :]]
+        arguments.remove("-c")
+        arguments = arguments[:-1]
+        if arguments[:2] == ["-x", "c"]:
+            arguments = arguments[2:]
+        built = self._runner(
+            [command[0], "-x", "c-header", *arguments, str(source), "-o", str(header)],
+            capture_output=True,
+            text=True,
+            check=False,
+            shell=False,
+        )
+        return header if built.returncode == 0 else None
 
 
 class NativePlanBuilder:
@@ -766,7 +914,20 @@ class NativePlanBuilder:
                     # expansion and one reader session per unit, twice.
                     prepared = cache.prepare([(command, source) for command, source, _ in commands], jobs, capture=True)
                     report.preprocessing_s = time.perf_counter() - preparation
-                work = [(*command, probe) for command, probe in zip(commands, prepared, strict=True)]
+                # Units the cache does not already hold may share a
+                # precompiled prelude; the emitted C units are the candidates.
+                emitted_count = 1 + len(emitted)
+                pending = [
+                    (command, source)
+                    for index, ((command, source, _), probe) in enumerate(zip(commands, prepared, strict=True))
+                    if index < emitted_count and (cache is None or probe is None or not cache.holds(probe.key))
+                ]
+                accelerator = _PreludeAccelerator(self._runner, temporary)
+                preludes = accelerator.arguments(pending, jobs) if pending else {}
+                report.prelude_status, report.prelude_s = accelerator.status, accelerator.seconds
+                work = [
+                    (*entry, probe, preludes.get(entry[1], [])) for entry, probe in zip(commands, prepared, strict=True)
+                ]
                 # Fully prepared receipts leave file copying/hashing and native
                 # subprocesses, so threads avoid redundant interpreter startup.
                 # Ordinary Python validation still uses the process pool.
@@ -1101,8 +1262,12 @@ class NativePlanBuilder:
         source: Path,
         object_path: Path,
         prepared: _CacheProbe | None = None,
+        prelude: Sequence[str] = (),
     ) -> NativeCompileResult:
-        """Run one compile, or copy the object the cache holds for the same source and command."""
+        """Run one compile, or copy the object the cache holds for the same source and command.
+
+        `prelude` names a precompiled header of the unit's own prologue; it
+        joins the compile only, never the cache key."""
         result = NativeCompileResult(str(source), command)
         batched = prepared is not None and prepared.key is not None
         if cache is not None:
@@ -1120,7 +1285,7 @@ class NativePlanBuilder:
             if result.cache_status == "hit":
                 return result
         started = time.perf_counter()
-        self._run(command)
+        result.precompiled_prelude = self._run_with_prelude(command, prelude)
         result.compile_s = time.perf_counter() - started
         # A source/header changed while the compiler ran must not publish an
         # object under the earlier inputs. A failed validation leaves the build
@@ -1218,6 +1383,19 @@ class NativePlanBuilder:
         if any("\0" in argument for argument in arguments):
             raise NativePlanError(f"pkg-config {mode} returned an argument containing NUL")
         return arguments
+
+    def _run_with_prelude(self, command: list[str], prelude: Sequence[str]) -> bool:
+        """Compile with the precompiled prelude when there is one; a compile
+        that fails with it runs again without, whose diagnostics are the
+        ones reported. Whether the prelude served the compile."""
+        if prelude:
+            # Every compile command ends with `-c <source> -o <object>`.
+            accelerated = [*command[:-4], *prelude, *command[-4:]]
+            completed = self._runner(accelerated, capture_output=True, text=True, check=False, shell=False)
+            if completed.returncode == 0:
+                return True
+        self._run(command)
+        return False
 
     def _run(self, command: list[str]) -> None:
         completed = self._runner(command, capture_output=True, text=True, check=False, shell=False)
@@ -2050,6 +2228,10 @@ class _ObjectCache:
         except (OSError, ValueError):
             pass
         return result
+
+    def holds(self, key: str | None) -> bool:
+        """Whether an object is stored under `key`, before validating it."""
+        return key is not None and (self.directory / f"{key}.o").is_file()
 
     def restore(self, key: str, object_path: Path) -> str:
         cached = self.directory / f"{key}.o"
