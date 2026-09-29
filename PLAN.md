@@ -852,6 +852,8 @@ peak footprint of one cold `--jobs 1` compile, clang -O2 btrcc.
 | 1. Runtime compiled once | native CPU <= 86.8 s | 82.4-82.8 s | 63.4-63.5 s (-23%) | yes | db57cda |
 | 2. Emitted C trimmed | native CPU -10% vs step 1, test-debug passes | 68.1-68.4 s | 57.9-58.6 s (-14 to -15%) | yes | 07ca1f6, c4f7f57 |
 | 3. No needless ARC/cleanup work | instructions -25% | 1,366.5 G | 1,216.9 G (-10.9%) | no | 9e30c2d |
+| 4. Compact IR nodes (AST premise wrong) | peak <= 3 GiB, instructions <= step 3 | 3.95 GB, 1,216.9 G | 2.92 GiB, 1,188.5 G | yes (metric) | 6b22121 |
+| 5. Per-group interfaces | edit rebuild <= 10 s end to end | 14.7 s | not implemented | no | -- |
 
 **Step 1 -- the runtime unit.** Every module unit carried a static copy of
 each runtime helper it reached: BTRSmith's 408 units compiled the ARC,
@@ -920,6 +922,45 @@ passed. The first `make test` in the Google Drive checkout failed one test,
 "source input changed after read": the file provider touches files written
 under `build/`. The same commit passes from a worktree outside Drive, where
 the gates for later steps run.
+
+**Step 4 -- IR nodes, not AST nodes.** A heap census of the 3.7 GB peak
+contradicted the step's premise: the AST is 567k nodes of 768 bytes, 12% of
+it. The IR is the rest: 2.8M nodes in the 448-byte class, 11.8M 64-byte
+vectors and 28M 16-byte edge records. Every IR node allocated `args`,
+`fieldNames` and `stmts`, though only calls, compound literals and blocks use
+them. They are now null until written, read through `args()`/`fieldNames()`/
+`stmts()` (one shared empty, guarded like the AST's lazy lists, with a
+driver test) and written through `argsMut()`/`stmtsMut()`; `IRNode` declares
+its scalars after its pointers (416 -> ~360 bytes, one size class down);
+every lazy reader reads the field and the shared static in place instead of
+through a retained, registered local; and a string slot store no longer
+registers for unwinding, since a string's release cannot throw. Peak
+footprint 3.95 GB -> 3,136,146,048 bytes (2.92 GiB); instructions 1,216.9 G
+-> 1,188.5 G. **Met on the metric; the AST is neither arena-allocated nor
+compacted** -- the census showed that would not reach 3 GiB on its own.
+Gates on 6b22121, run from a worktree outside Google Drive: lint and
+format-check pass; `make test` 12,425 passed, 142 skipped, bootstrap passed;
+`make bootstrap` passed; `make test-c11` 8 x 1,930 passed. Two earlier C11
+runs each lost `stdlib/Daemon.btrc` to its 5 s daemon-stop deadline while
+eight workers saturated the machine; it passes 10 of 10 alone on this tree.
+
+**Step 5 -- per-group interfaces. Not implemented; not met.** Quiet
+end-to-end BTRSmith dev rebuilds on 6b22121 (`--module-units --debug`,
+default workers; native plan with object cache at -O0 -g, 8 jobs;
+`~/.cache/btrc/perf/edit_e2e.sh`): cold 64.7 s compile + 18.6 s native =
+83.3 s; a private-body edit to `InstrumentCamera.btrc` 12.2 + 3.5 = 15.7 s
+and a second edit 11.3 + 3.4 = 14.7 s; no-op 2.3 + 2.5 = 4.8 s. A
+steady-state edit compile is 5.5 s of whole-program front end, 4.3 s of
+lowering and module-unit machinery (0.96 s declarations-only session, 0.70 s
+loading 443 records, 0.55 s setjmp solve) and 1.0 s of native bindings; the
+native side is 1.5 s of preprocessing receipts for 410 unchanged units,
+object restores and a 0.34 s link. Reaching 10 s needs the front end and
+declaration lowering to run for the edited group alone -- Stage B in
+`separate-compilation.md`, which by its own estimate still leaves parsing,
+header import, visibility and the declarations session -- so per-file parse
+and header caches are needed too. The native header reader keys its cache on
+the whole process environment, so the first compile in a new `nix develop`
+session misses it (+2.4 s).
 
 ### Bucket 1 KPI checkpoint
 
