@@ -67,7 +67,6 @@ enum IRKind {
 };
 
 class IRNode {
-	public int kind;
 
 	/* IRLiteral: C literal text */
 	public string text;
@@ -76,7 +75,6 @@ class IRNode {
 	public string name;
 	public string callee;
 	public string op;
-	public bool prefix;
 
 	/* sub-expressions */
 	public IRNode left;
@@ -88,9 +86,13 @@ class IRNode {
 	public IRNode condition;
 	public IRNode trueExpr;
 	public IRNode falseExpr;
-	public Vector<IRNode> args;
+	/* Null until written: most nodes have no arguments or designators, and
+	 * each empty list was a vector and a managed edge on every IR node. Read
+	 * through args()/fieldNames(), write through argsMut(); designators are
+	 * only ever set whole, so fieldNames has no Mut(). */
+	public Vector<IRNode>? argsStorage;
 	public Vector<IRParam> params; /* IRObjectiveCBlock signature; body is separate. */
-	public Vector<string> fieldNames; /* IRCompoundLiteral designators */
+	public Vector<string>? fieldNamesStorage; /* IRCompoundLiteral designators */
 
 	/* IRCast / IRSizeof */
 	public string targetType;
@@ -98,33 +100,18 @@ class IRNode {
 
 	/* IRFieldAccess */
 	public string field;
-	public bool arrow;
 	/* Resolved direct-storage identity for source indexes and lowered derefs.
      * An empty known root means the lvalue changes a pointee, not the pointer
      * automatic itself. */
 	public string storageRoot;
-	public bool storageRootKnown;
-	public bool sourceAddress;
 	public string arrayStorageRoot;
-	public bool arrayStorageKnown;
 
 	/* statements */
 	public string cType;        /* IRVarDecl type text */
-	public bool isArrayDecl;   /* IRVarDecl declarator carries [] */
 	public IRNode arraySize;    /* optional local array/VLA bound */
-	public bool isVolatile;     /* Physical qualifier emitted in this declarator. */
-	public bool effectiveIsVolatile; /* Semantic outer-object qualification. */
-	public bool setjmpInferredVolatile;
-	public bool isStatic;       /* IRVarDecl storage class */
-	public bool isExtern;       /* IRVarDecl storage class */
-	public bool isCycleReturnTemp; /* Boundary-pass provenance marker. */
-	public bool fallsThrough;   /* IRCase: intentionally reaches next case. */
-	public bool canFallThrough; /* Structured statement continuation metadata. */
-	public bool neverReturns;   /* IRCall: control cannot continue afterward. */
 	/* Typed unwind-slot identity shared by one declaration and its calls. */
 	public IRCleanupSlot cleanupSlot;
 	public string sourceFile;  /* IRLineMarker: the .btrc file the next lines came from */
-	public int sourceLine;
 	public string helperRef;    /* Explicit runtime-helper edge on IRCall. */
 	public string realtimeProvenance; /* Exact typed-intrinsic or proof-carrying-call certificate. */
 	public IRNode init;          /* IRVarDecl initializer / IRFor init */
@@ -134,9 +121,30 @@ class IRNode {
 	public IRNode elseBlock;    /* IRIf */
 	public IRNode body;          /* IRWhile/IRDoWhile/IRFor body */
 	public IRNode update;        /* IRFor update */
-	public bool realtimeBounded; /* Semantic certificate for source C-for. */
-	public Vector<IRNode> stmts; /* IRBlock / IRStmtExpr setup statements */
+	/* IRBlock / IRStmtExpr setup statements; null until written, like args. */
+	public Vector<IRNode>? stmtsStorage;
 	public IRNode result;        /* IRStmtExpr result expression */
+
+	/* Scalars last: interleaved with the pointers they padded every node by
+	 * 56 bytes, into the next allocation size class. */
+	public int kind;
+	public bool prefix;
+	public bool arrow;
+	public bool storageRootKnown;
+	public bool sourceAddress;
+	public bool arrayStorageKnown;
+	public bool isArrayDecl;   /* IRVarDecl declarator carries [] */
+	public bool isVolatile;     /* Physical qualifier emitted in this declarator. */
+	public bool effectiveIsVolatile; /* Semantic outer-object qualification. */
+	public bool setjmpInferredVolatile;
+	public bool isStatic;       /* IRVarDecl storage class */
+	public bool isExtern;       /* IRVarDecl storage class */
+	public bool isCycleReturnTemp; /* Boundary-pass provenance marker. */
+	public bool fallsThrough;   /* IRCase: intentionally reaches next case. */
+	public bool canFallThrough; /* Structured statement continuation metadata. */
+	public bool neverReturns;   /* IRCall: control cannot continue afterward. */
+	public int sourceLine;
+	public bool realtimeBounded; /* Semantic certificate for source C-for. */
 
 	public IRNode() {
 		/* A new node's storage is zeroed, so its null fields need no store:
@@ -147,8 +155,6 @@ class IRNode {
 		self.callee = "";
 		self.op = "";
 		self.prefix = false;
-		self.args = [];
-		self.fieldNames = [];
 		self.targetType = "";
 		self.bridge = "";
 		self.field = "";
@@ -172,7 +178,54 @@ class IRNode {
 		self.helperRef = "";
 		self.realtimeProvenance = "";
 		self.realtimeBounded = false;
-		self.stmts = [];
+	}
+
+	/* One empty list of each element type answered for every unwritten
+	 * field, created on first need. Nothing may mutate it: the readers check
+	 * it is still empty each time they answer it. Readers read the field and
+	 * the static in place: a local copy cost a retain, a cleanup registration
+	 * and its discard per read. */
+	class Vector<IRNode>? sharedEmptyNodes = null;
+	class Vector<string>? sharedEmptyStrings = null;
+
+	/* `args` for reading: the shared empty while unwritten. */
+	public Vector<IRNode> args() {
+		if (self.argsStorage != null) { return self.argsStorage; }
+		if (IRNode.sharedEmptyNodes == null) { Vector<IRNode> fresh = []; IRNode.sharedEmptyNodes = fresh; return fresh; }
+		if ((IRNode.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: IRNode.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return IRNode.sharedEmptyNodes;
+	}
+
+	/* `args` for mutation: allocated on first write. */
+	public Vector<IRNode> argsMut() {
+		if (self.argsStorage != null) { return self.argsStorage; }
+		Vector<IRNode> fresh = [];
+		self.argsStorage = fresh;
+		return fresh;
+	}
+
+	/* `stmts` for reading: the shared empty while unwritten. */
+	public Vector<IRNode> stmts() {
+		if (self.stmtsStorage != null) { return self.stmtsStorage; }
+		if (IRNode.sharedEmptyNodes == null) { Vector<IRNode> fresh = []; IRNode.sharedEmptyNodes = fresh; return fresh; }
+		if ((IRNode.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: IRNode.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return IRNode.sharedEmptyNodes;
+	}
+
+	/* `stmts` for mutation: allocated on first write. */
+	public Vector<IRNode> stmtsMut() {
+		if (self.stmtsStorage != null) { return self.stmtsStorage; }
+		Vector<IRNode> fresh = [];
+		self.stmtsStorage = fresh;
+		return fresh;
+	}
+
+	/* `fieldNames` for reading: the shared empty while unwritten. */
+	public Vector<string> fieldNames() {
+		if (self.fieldNamesStorage != null) { return self.fieldNamesStorage; }
+		if (IRNode.sharedEmptyStrings == null) { Vector<string> fresh = []; IRNode.sharedEmptyStrings = fresh; return fresh; }
+		if ((IRNode.sharedEmptyStrings?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: IRNode.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return IRNode.sharedEmptyStrings;
 	}
 
 	class string directStorageRoot(IRNode? node) {
@@ -219,7 +272,7 @@ class IRNode {
 	class IRNode initializerList(Vector<IRNode> elements) {
 		IRNode n = IRNode();
 		n.kind = IRK_INITIALIZER_LIST;
-		n.args = elements;
+		n.argsStorage = elements;
 		return n;
 	}
 
@@ -230,8 +283,8 @@ class IRNode {
 		IRNode n = IRNode();
 		n.kind = IRK_COMPOUND_LITERAL;
 		n.targetType = cType;
-		n.fieldNames = fieldNames;
-		n.args = values;
+		n.fieldNamesStorage = fieldNames;
+		n.argsStorage = values;
 		return n;
 	}
 
@@ -271,7 +324,7 @@ class IRNode {
 		IRNode n = IRNode();
 		n.kind = IRK_CALL;
 		n.callee = callee;
-		n.args = args;
+		n.argsStorage = args;
 		return n;
 	}
 
@@ -279,7 +332,7 @@ class IRNode {
 		IRNode n = IRNode();
 		n.kind = IRK_CALL;
 		n.expr = callee;
-		n.args = args;
+		n.argsStorage = args;
 		return n;
 	}
 
@@ -288,7 +341,7 @@ class IRNode {
 		node.kind = IRK_OBJECTIVE_C_MESSAGE;
 		node.obj = receiver;
 		node.name = selector;
-		node.args = args;
+		node.argsStorage = args;
 		return node;
 	}
 
@@ -316,7 +369,7 @@ class IRNode {
 
 	class IRNode cxxNew(string valueType, Vector<IRNode> args) {
 		var node = IRNode(); node.kind = IRK_CXX_NEW;
-		node.targetType = valueType; node.args = args; return node;
+		node.targetType = valueType; node.argsStorage = args; return node;
 	}
 
 	class IRNode cxxDelete(IRNode value) {
@@ -491,7 +544,7 @@ class IRNode {
 	class IRNode block(Vector<IRNode> stmts) {
 		IRNode n = IRNode();
 		n.kind = IRK_BLOCK;
-		n.stmts = stmts;
+		n.stmtsStorage = stmts;
 		return n;
 	}
 
@@ -501,7 +554,7 @@ class IRNode {
 		IRNode n = IRNode();
 		n.kind = IRK_SWITCH;
 		n.value = value;
-		n.args = cases;
+		n.argsStorage = cases;
 		return n;
 	}
 
@@ -514,7 +567,7 @@ class IRNode {
          * assignment, which null-derefs for a `default:` clause (value == null).
          * Leaving the field at its constructor default (null) skips that. */
 		if (value != null) { n.value = value; }
-		n.stmts = body;
+		n.stmtsStorage = body;
 		n.fallsThrough = fallsThrough;
 		return n;
 	}
@@ -525,7 +578,7 @@ class IRNode {
 	class IRNode statementExpression(Vector<IRNode> stmts, IRNode result) {
 		IRNode n = IRNode();
 		n.kind = IRK_STMT_EXPR;
-		n.stmts = stmts;
+		n.stmtsStorage = stmts;
 		n.result = result;
 		return n;
 	}
@@ -535,7 +588,7 @@ class IRNode {
 	class IRNode commaExpression(Vector<IRNode> expressions) {
 		IRNode n = IRNode();
 		n.kind = IRK_COMMA_EXPR;
-		n.args = expressions;
+		n.argsStorage = expressions;
 		return n;
 	}
 

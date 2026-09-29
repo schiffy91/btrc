@@ -1093,8 +1093,8 @@ class CallableValueLowerer {
 			index = index + 1;
 		}
 		index = 0;
-		while (index < loweredBody.stmts.len) {
-			body.push(loweredBody.stmts.get(index));
+		while (index < loweredBody.stmts().len) {
+			body.push(loweredBody.stmts().get(index));
 			index = index + 1;
 		}
 		plan.liftedFunction.body = IRNode.block(body);
@@ -1127,7 +1127,7 @@ class CallableValueLowerer {
 			body.push(plan.bodyPrefix.get(index));
 			index = index + 1;
 		}
-		Vector<IRNode> rewritten = self.concurrency.rewriteThreadStatements(loweredBody.stmts, plan.returnType);
+		Vector<IRNode> rewritten = self.concurrency.rewriteThreadStatements(loweredBody.stmts(), plan.returnType);
 		index = 0;
 		while (index < rewritten.len) {
 			body.push(rewritten.get(index));

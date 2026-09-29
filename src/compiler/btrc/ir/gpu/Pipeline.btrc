@@ -1472,13 +1472,13 @@ class GpuPipeline {
 		GpuPipeline.collectGpuRefs(node.update, shaderNames, used);
 		GpuPipeline.collectGpuRefs(node.result, shaderNames, used);
 		int index = 0;
-		while (index < node.args.len) {
-			GpuPipeline.collectGpuRefs(node.args.get(index), shaderNames, used);
+		while (index < node.args().len) {
+			GpuPipeline.collectGpuRefs(node.args().get(index), shaderNames, used);
 			index = index + 1;
 		}
 		index = 0;
-		while (index < node.stmts.len) {
-			GpuPipeline.collectGpuRefs(node.stmts.get(index), shaderNames, used);
+		while (index < node.stmts().len) {
+			GpuPipeline.collectGpuRefs(node.stmts().get(index), shaderNames, used);
 			index = index + 1;
 		}
 	}

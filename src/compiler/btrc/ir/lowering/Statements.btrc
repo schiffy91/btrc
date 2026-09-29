@@ -263,7 +263,7 @@ class StatementLowerer {
 		self.managedLifetime.popControl();
 		self.managedLifetime.popLoopScope();
 		lowered.fallthrough = callableFlow.snapshot();
-		lowered.fallsThrough = IRStatementSequence(lowered.body.stmts).mayFallThrough();
+		lowered.fallsThrough = IRStatementSequence(lowered.body.stmts()).mayFallThrough();
 		lowered.exits = capture;
 		callableFlow.finishLoopCapture(capture);
 		callableFlow.restore(lowered.head);
@@ -279,7 +279,7 @@ class StatementLowerer {
 		self.managedLifetime.popControl();
 		self.managedLifetime.popLoopScope();
 		CallableFlowSnapshot bodyFlow = callableFlow.snapshot();
-		bool fallsThrough = IRStatementSequence(body.stmts).mayFallThrough();
+		bool fallsThrough = IRStatementSequence(body.stmts()).mayFallThrough();
 		callableFlow.finishLoopCapture(capture);
 		if (fallsThrough) {
 			callableFlow.requireInvariant(head, bodyFlow, "back-edge");
@@ -1045,7 +1045,7 @@ class StatementLowerer {
 		CallableExceptionalCapture exceptionalCapture = callableFlow.beginExceptionalCapture(varTypes, self.analyzed.typedefTable);
 		IRNode tryBody = self.lowerBlock(node.tryBlock, varTypes, callableFlow);
 		CallableFlowSnapshot tryFlow = callableFlow.snapshot();
-		bool tryContinues = IRStatementSequence(tryBody.stmts).mayFallThrough();
+		bool tryContinues = IRStatementSequence(tryBody.stmts()).mayFallThrough();
 		callableFlow.finishExceptionalCapture(exceptionalCapture);
 		callableFlow.restore(incoming);
 		self.managedLifetime.popControl();
@@ -1058,9 +1058,9 @@ class StatementLowerer {
 			self.context.referenceHelper("__btrc_discard_cleanups");
 			Vector<IRNode> dargs = [];
 			dargs.push(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
-			tryBody.stmts.push(IRNode.expressionStatement(IRNode.call("__btrc_discard_cleanups", dargs)));
+			tryBody.stmtsMut().push(IRNode.expressionStatement(IRNode.call("__btrc_discard_cleanups", dargs)));
 		}
-		tryBody.stmts.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
+		tryBody.stmtsMut().push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 
 		/* Without checked throws, every callback state reached while lowering
          * the try is visible to its exceptional edge. */
@@ -1135,16 +1135,16 @@ class StatementLowerer {
 			}
 			catchBody = self.lowerBlockWithBindings(node.catchBlock, catchVarTypes, catchBindings, catchSourceNames, catchTypes, catchOwned, callableFlow);
 			catchFlow = callableFlow.snapshot();
-			catchContinues = IRStatementSequence(catchBody.stmts).mayFallThrough();
+			catchContinues = IRStatementSequence(catchBody.stmts()).mayFallThrough();
 			callableFlow.restore(incoming);
 			if (node.catchVar != "") {
 				/* A catch binding may be intentionally ignored. Keep the C
                  * warning contract explicit without textual statement escapes. */
 				int declarationIndex = 0;
-				while (declarationIndex < catchBody.stmts.len && !(catchBody.stmts.get(declarationIndex).kind == IRK_VAR_DECL && catchBody.stmts.get(declarationIndex).name == catchCName)) {
+				while (declarationIndex < catchBody.stmts().len && !(catchBody.stmts().get(declarationIndex).kind == IRK_VAR_DECL && catchBody.stmts().get(declarationIndex).name == catchCName)) {
 					declarationIndex = declarationIndex + 1;
 				}
-				catchBody.stmts.insert(declarationIndex + 1, IRNode.expressionStatement(IRNode.variable(catchCName)));
+				catchBody.stmtsMut().insert(declarationIndex + 1, IRNode.expressionStatement(IRNode.variable(catchCName)));
 			}
 			self.context.restoreSourceBindings(catchSourceBindings);
 		}
@@ -1191,7 +1191,7 @@ class StatementLowerer {
 			CallableFlowSnapshot finallyExit = callableFlow.snapshot();
 			Vector<string> mutatedBindings = callableFlow.finishMutationCapture(finallyMutations);
 			int i = 0;
-			while (i < fin.stmts.len) { out.push(fin.stmts.get(i)); i = i + 1; }
+			while (i < fin.stmts().len) { out.push(fin.stmts().get(i)); i = i + 1; }
 			/* Re-throw the captured exception (finally-only). */
 			if (finallyOnly) {
 				Vector<IRNode> targs = [];
@@ -1314,10 +1314,10 @@ class StatementLowerer {
 			callableFlow.restore(incoming);
 		}
 		Vector<CallableFlowSnapshot> flows = [];
-		if (IRStatementSequence(thenB.stmts).mayFallThrough()) {
+		if (IRStatementSequence(thenB.stmts()).mayFallThrough()) {
 			flows.push(thenFlow);
 		}
-		if (elseB == null || IRStatementSequence(elseB.stmts).mayFallThrough()) {
+		if (elseB == null || IRStatementSequence(elseB.stmts()).mayFallThrough()) {
 			flows.push(elseFlow);
 		}
 		if (flows.len > 0) {

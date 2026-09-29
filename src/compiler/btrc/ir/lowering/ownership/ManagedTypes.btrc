@@ -351,8 +351,12 @@ class ManagedTypeLowerer {
 		if (!valueOwned) {
 			sequence.push(self.lifetime.retainValue(value, valueType));
 		}
-		IRNode? protection = self.lifetime.cleanupRegistration(valueDeclaration, self.managedValues.runtimeType(valueType));
-		if (protection != null) { sequence.push(protection); }
+		/* A string's release runs no destructor and cannot throw, so nothing
+		 * can unwind while the new reference waits to be stored. */
+		if (!self.managedValues.isString(valueType)) {
+			IRNode? protection = self.lifetime.cleanupRegistration(valueDeclaration, self.managedValues.runtimeType(valueType));
+			if (protection != null) { sequence.push(protection); }
+		}
 		self.appendStrongSlotCommit(declarations, sequence, slot, value, valueType, storageCType);
 	}
 

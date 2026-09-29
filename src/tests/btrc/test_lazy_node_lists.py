@@ -1,4 +1,4 @@
-"""The generated AST node's lazy list storage, and the guard on its shared empty.
+"""The AST and IR nodes' lazy list storage, and the guard on their shared empty.
 
 A lazy list field reads as one shared empty until it is written. Mutating what
 a reader answered would fill that empty for every unwritten field in the
@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 DRIVER = REPO / "src/tests/btrc/fixtures/LazyNodeListDriver.btrc"
+IR_DRIVER = REPO / "src/tests/btrc/fixtures/LazyIrListDriver.btrc"
 
 
 def _run(binary: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -29,3 +30,16 @@ def test_mutating_a_list_answered_by_a_reader_stops_the_compiler(selfhost_driver
     assert result.returncode == 1
     assert "unreachable" not in result.stdout
     assert "Node.sharedEmptyNodes is no longer empty" in result.stderr
+
+
+def test_unwritten_ir_lists_read_empty_and_writes_stay_on_their_node(selfhost_driver) -> None:
+    result = _run(selfhost_driver(IR_DRIVER))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "ok\n"
+
+
+def test_mutating_an_ir_list_answered_by_a_reader_stops_the_compiler(selfhost_driver) -> None:
+    result = _run(selfhost_driver(IR_DRIVER), "misuse")
+    assert result.returncode == 1
+    assert "unreachable" not in result.stdout
+    assert "IRNode.sharedEmptyNodes is no longer empty" in result.stderr

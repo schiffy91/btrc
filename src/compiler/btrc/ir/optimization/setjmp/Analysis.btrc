@@ -928,17 +928,17 @@ class SetjmpEffectAnalysis {
 	private Vector<SetjmpOrigin> flowCall(SetjmpPointerFlow flow, IRNode call) {
 		if (call.expr != null) { self.flowExpression(flow, call.expr); }
 		int index = 0;
-		while (index < call.args.len) {
-			self.flowExpression(flow, call.args.get(index));
+		while (index < call.args().len) {
+			self.flowExpression(flow, call.args().get(index));
 			index = index + 1;
 		}
-		SetjmpFunctionEffect effect = self.effectFor(call.callee, call.args.len);
+		SetjmpFunctionEffect effect = self.effectFor(call.callee, call.args().len);
 		Vector<SetjmpOrigin> writes = [];
 		index = 0;
 		while (index < effect.writes.len) {
 			SetjmpParameterEffect item = effect.writes.get(index);
-			if (item.index >= 0 && item.index < call.args.len) {
-				flow.result.addOrigins(writes, self.flowArgumentTargets(flow, call.args.get(item.index), item.depth));
+			if (item.index >= 0 && item.index < call.args().len) {
+				flow.result.addOrigins(writes, self.flowArgumentTargets(flow, call.args().get(item.index), item.depth));
 			}
 			index = index + 1;
 		}
@@ -959,8 +959,8 @@ class SetjmpEffectAnalysis {
 		index = 0;
 		while (index < effect.captures.len) {
 			SetjmpParameterEffect item = effect.captures.get(index);
-			if (item.index >= 0 && item.index < call.args.len) {
-				flow.result.addOrigins(flow.result.captures, self.flowArgumentTargets(flow, call.args.get(item.index), item.depth));
+			if (item.index >= 0 && item.index < call.args().len) {
+				flow.result.addOrigins(flow.result.captures, self.flowArgumentTargets(flow, call.args().get(item.index), item.depth));
 			}
 			index = index + 1;
 		}
@@ -968,15 +968,15 @@ class SetjmpEffectAnalysis {
 		index = 0;
 		while (index < effect.returns.len) {
 			SetjmpParameterEffect item = effect.returns.get(index);
-			if (item.index >= 0 && item.index < call.args.len) {
-				flow.result.addOrigins(returns, self.flowArgumentTargets(flow, call.args.get(item.index), item.depth));
+			if (item.index >= 0 && item.index < call.args().len) {
+				flow.result.addOrigins(returns, self.flowArgumentTargets(flow, call.args().get(item.index), item.depth));
 			}
 			index = index + 1;
 		}
 		if (effect.unknownReturn) {
 			index = 0;
-			while (index < call.args.len) {
-				flow.result.addOrigins(returns, flow.result.originsFor(call.args.get(index)));
+			while (index < call.args().len) {
+				flow.result.addOrigins(returns, flow.result.originsFor(call.args().get(index)));
 				index = index + 1;
 			}
 		}
@@ -1139,15 +1139,15 @@ class SetjmpEffectAnalysis {
 			origins = self.flowCastOrigins(flow, value.targetType, self.flowExpression(flow, value.expr));
 		} else if (value.kind == IRK_COMMA_EXPR) {
 			int index = 0;
-			while (index < value.args.len) {
-				origins = self.flowExpression(flow, value.args.get(index));
+			while (index < value.args().len) {
+				origins = self.flowExpression(flow, value.args().get(index));
 				index = index + 1;
 			}
 		} else if (value.kind == IRK_STMT_EXPR) {
 			int bindingCount = flow.bindings.len;
 			int index = 0;
-			while (index < value.stmts.len) {
-				self.flowStatement(flow, value.stmts.get(index));
+			while (index < value.stmts().len) {
+				self.flowStatement(flow, value.stmts().get(index));
 				index = index + 1;
 			}
 			origins = self.flowExpression(flow, value.result);
@@ -1209,8 +1209,8 @@ class SetjmpEffectAnalysis {
 			self.flowExpression(flow, value.index);
 		} else if (value.kind == IRK_INITIALIZER_LIST || value.kind == IRK_COMPOUND_LITERAL) {
 			int index = 0;
-			while (index < value.args.len) {
-				flow.result.addOrigins(origins, self.flowExpression(flow, value.args.get(index)));
+			while (index < value.args().len) {
+				flow.result.addOrigins(origins, self.flowExpression(flow, value.args().get(index)));
 				index = index + 1;
 			}
 		} else {
@@ -1230,8 +1230,8 @@ class SetjmpEffectAnalysis {
 			self.flowExpression(flow, value.result);
 			self.flowExpression(flow, value.arraySize);
 			int index = 0;
-			while (index < value.args.len) {
-				self.flowExpression(flow, value.args.get(index));
+			while (index < value.args().len) {
+				self.flowExpression(flow, value.args().get(index));
 				index = index + 1;
 			}
 		}
@@ -1243,8 +1243,8 @@ class SetjmpEffectAnalysis {
 		if (block == null) { return; }
 		int bindingCount = flow.bindings.len;
 		int index = 0;
-		while (index < block.stmts.len) {
-			self.flowStatement(flow, block.stmts.get(index));
+		while (index < block.stmts().len) {
+			self.flowStatement(flow, block.stmts().get(index));
 			index = index + 1;
 		}
 		if (scoped) { flow.leaveScope(bindingCount); }
@@ -1329,8 +1329,8 @@ class SetjmpEffectAnalysis {
 		SetjmpAliasState fallthrough = SetjmpAliasState();
 		bool hasFallthrough = false;
 		int index = 0;
-		while (index < statement.args.len) {
-			IRNode caseNode = statement.args.get(index);
+		while (index < statement.args().len) {
+			IRNode caseNode = statement.args().get(index);
 			SetjmpAliasState start = flow.copyState(entry);
 			if (hasFallthrough) {
 				start = flow.joinStates(start, fallthrough);
@@ -1339,7 +1339,7 @@ class SetjmpEffectAnalysis {
 			self.flowExpression(flow, caseNode.value);
 			IRNode caseBlock = IRNode();
 			caseBlock.kind = IRK_BLOCK;
-			caseBlock.stmts = caseNode.stmts;
+			caseBlock.stmtsStorage = caseNode.stmts();
 			self.flowBlock(flow, caseBlock, true);
 			if (caseNode.fallsThrough) {
 				fallthrough = flow.copyState(flow.state);

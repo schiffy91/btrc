@@ -325,18 +325,15 @@ class Node {
 
 	/* `declarations` for reading: the shared empty while unwritten. */
 	public Vector<Node> declarations() {
-		Vector<Node>? stored = self.declarationsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.declarationsStorage != null) { return self.declarationsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `declarations` for mutation: allocated on first write. */
 	public Vector<Node> declarationsMut() {
-		Vector<Node>? stored = self.declarationsStorage;
-		if (stored != null) { return stored; }
+		if (self.declarationsStorage != null) { return self.declarationsStorage; }
 		Vector<Node> fresh = [];
 		self.declarationsStorage = fresh;
 		return fresh;
@@ -344,18 +341,15 @@ class Node {
 
 	/* `genericParams` for reading: the shared empty while unwritten. */
 	public Vector<string> genericParams() {
-		Vector<string>? stored = self.genericParamsStorage;
-		if (stored != null) { return stored; }
-		Vector<string>? empty = Node.sharedEmptyStrings;
-		if (empty == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.genericParamsStorage != null) { return self.genericParamsStorage; }
+		if (Node.sharedEmptyStrings == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
+		if ((Node.sharedEmptyStrings?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyStrings;
 	}
 
 	/* `genericParams` for mutation: allocated on first write. */
 	public Vector<string> genericParamsMut() {
-		Vector<string>? stored = self.genericParamsStorage;
-		if (stored != null) { return stored; }
+		if (self.genericParamsStorage != null) { return self.genericParamsStorage; }
 		Vector<string> fresh = [];
 		self.genericParamsStorage = fresh;
 		return fresh;
@@ -363,18 +357,15 @@ class Node {
 
 	/* `members` for reading: the shared empty while unwritten. */
 	public Vector<Node> members() {
-		Vector<Node>? stored = self.membersStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.membersStorage != null) { return self.membersStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `members` for mutation: allocated on first write. */
 	public Vector<Node> membersMut() {
-		Vector<Node>? stored = self.membersStorage;
-		if (stored != null) { return stored; }
+		if (self.membersStorage != null) { return self.membersStorage; }
 		Vector<Node> fresh = [];
 		self.membersStorage = fresh;
 		return fresh;
@@ -382,18 +373,15 @@ class Node {
 
 	/* `interfaces` for reading: the shared empty while unwritten. */
 	public Vector<string> interfaces() {
-		Vector<string>? stored = self.interfacesStorage;
-		if (stored != null) { return stored; }
-		Vector<string>? empty = Node.sharedEmptyStrings;
-		if (empty == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.interfacesStorage != null) { return self.interfacesStorage; }
+		if (Node.sharedEmptyStrings == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
+		if ((Node.sharedEmptyStrings?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyStrings;
 	}
 
 	/* `interfaces` for mutation: allocated on first write. */
 	public Vector<string> interfacesMut() {
-		Vector<string>? stored = self.interfacesStorage;
-		if (stored != null) { return stored; }
+		if (self.interfacesStorage != null) { return self.interfacesStorage; }
 		Vector<string> fresh = [];
 		self.interfacesStorage = fresh;
 		return fresh;
@@ -401,18 +389,15 @@ class Node {
 
 	/* `methods` for reading: the shared empty while unwritten. */
 	public Vector<Node> methods() {
-		Vector<Node>? stored = self.methodsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.methodsStorage != null) { return self.methodsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `methods` for mutation: allocated on first write. */
 	public Vector<Node> methodsMut() {
-		Vector<Node>? stored = self.methodsStorage;
-		if (stored != null) { return stored; }
+		if (self.methodsStorage != null) { return self.methodsStorage; }
 		Vector<Node> fresh = [];
 		self.methodsStorage = fresh;
 		return fresh;
@@ -420,18 +405,15 @@ class Node {
 
 	/* `params` for reading: the shared empty while unwritten. */
 	public Vector<Node> params() {
-		Vector<Node>? stored = self.paramsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.paramsStorage != null) { return self.paramsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `params` for mutation: allocated on first write. */
 	public Vector<Node> paramsMut() {
-		Vector<Node>? stored = self.paramsStorage;
-		if (stored != null) { return stored; }
+		if (self.paramsStorage != null) { return self.paramsStorage; }
 		Vector<Node> fresh = [];
 		self.paramsStorage = fresh;
 		return fresh;
@@ -439,18 +421,15 @@ class Node {
 
 	/* `fields` for reading: the shared empty while unwritten. */
 	public Vector<Node> fields() {
-		Vector<Node>? stored = self.fieldsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.fieldsStorage != null) { return self.fieldsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `fields` for mutation: allocated on first write. */
 	public Vector<Node> fieldsMut() {
-		Vector<Node>? stored = self.fieldsStorage;
-		if (stored != null) { return stored; }
+		if (self.fieldsStorage != null) { return self.fieldsStorage; }
 		Vector<Node> fresh = [];
 		self.fieldsStorage = fresh;
 		return fresh;
@@ -458,18 +437,15 @@ class Node {
 
 	/* `values` for reading: the shared empty while unwritten. */
 	public Vector<Node> values() {
-		Vector<Node>? stored = self.valuesStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.valuesStorage != null) { return self.valuesStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `values` for mutation: allocated on first write. */
 	public Vector<Node> valuesMut() {
-		Vector<Node>? stored = self.valuesStorage;
-		if (stored != null) { return stored; }
+		if (self.valuesStorage != null) { return self.valuesStorage; }
 		Vector<Node> fresh = [];
 		self.valuesStorage = fresh;
 		return fresh;
@@ -477,18 +453,15 @@ class Node {
 
 	/* `variants` for reading: the shared empty while unwritten. */
 	public Vector<Node> variants() {
-		Vector<Node>? stored = self.variantsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.variantsStorage != null) { return self.variantsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `variants` for mutation: allocated on first write. */
 	public Vector<Node> variantsMut() {
-		Vector<Node>? stored = self.variantsStorage;
-		if (stored != null) { return stored; }
+		if (self.variantsStorage != null) { return self.variantsStorage; }
 		Vector<Node> fresh = [];
 		self.variantsStorage = fresh;
 		return fresh;
@@ -496,18 +469,15 @@ class Node {
 
 	/* `names` for reading: the shared empty while unwritten. */
 	public Vector<string> names() {
-		Vector<string>? stored = self.namesStorage;
-		if (stored != null) { return stored; }
-		Vector<string>? empty = Node.sharedEmptyStrings;
-		if (empty == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.namesStorage != null) { return self.namesStorage; }
+		if (Node.sharedEmptyStrings == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
+		if ((Node.sharedEmptyStrings?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyStrings;
 	}
 
 	/* `names` for mutation: allocated on first write. */
 	public Vector<string> namesMut() {
-		Vector<string>? stored = self.namesStorage;
-		if (stored != null) { return stored; }
+		if (self.namesStorage != null) { return self.namesStorage; }
 		Vector<string> fresh = [];
 		self.namesStorage = fresh;
 		return fresh;
@@ -515,18 +485,15 @@ class Node {
 
 	/* `segments` for reading: the shared empty while unwritten. */
 	public Vector<string> segments() {
-		Vector<string>? stored = self.segmentsStorage;
-		if (stored != null) { return stored; }
-		Vector<string>? empty = Node.sharedEmptyStrings;
-		if (empty == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.segmentsStorage != null) { return self.segmentsStorage; }
+		if (Node.sharedEmptyStrings == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
+		if ((Node.sharedEmptyStrings?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyStrings;
 	}
 
 	/* `segments` for mutation: allocated on first write. */
 	public Vector<string> segmentsMut() {
-		Vector<string>? stored = self.segmentsStorage;
-		if (stored != null) { return stored; }
+		if (self.segmentsStorage != null) { return self.segmentsStorage; }
 		Vector<string> fresh = [];
 		self.segmentsStorage = fresh;
 		return fresh;
@@ -534,18 +501,15 @@ class Node {
 
 	/* `genericArgs` for reading: the shared empty while unwritten. */
 	public Vector<Node> genericArgs() {
-		Vector<Node>? stored = self.genericArgsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.genericArgsStorage != null) { return self.genericArgsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `genericArgs` for mutation: allocated on first write. */
 	public Vector<Node> genericArgsMut() {
-		Vector<Node>? stored = self.genericArgsStorage;
-		if (stored != null) { return stored; }
+		if (self.genericArgsStorage != null) { return self.genericArgsStorage; }
 		Vector<Node> fresh = [];
 		self.genericArgsStorage = fresh;
 		return fresh;
@@ -553,18 +517,15 @@ class Node {
 
 	/* `statements` for reading: the shared empty while unwritten. */
 	public Vector<Node> statements() {
-		Vector<Node>? stored = self.statementsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.statementsStorage != null) { return self.statementsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `statements` for mutation: allocated on first write. */
 	public Vector<Node> statementsMut() {
-		Vector<Node>? stored = self.statementsStorage;
-		if (stored != null) { return stored; }
+		if (self.statementsStorage != null) { return self.statementsStorage; }
 		Vector<Node> fresh = [];
 		self.statementsStorage = fresh;
 		return fresh;
@@ -572,18 +533,15 @@ class Node {
 
 	/* `cases` for reading: the shared empty while unwritten. */
 	public Vector<Node> cases() {
-		Vector<Node>? stored = self.casesStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.casesStorage != null) { return self.casesStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `cases` for mutation: allocated on first write. */
 	public Vector<Node> casesMut() {
-		Vector<Node>? stored = self.casesStorage;
-		if (stored != null) { return stored; }
+		if (self.casesStorage != null) { return self.casesStorage; }
 		Vector<Node> fresh = [];
 		self.casesStorage = fresh;
 		return fresh;
@@ -591,18 +549,15 @@ class Node {
 
 	/* `bodyNodeList` for reading: the shared empty while unwritten. */
 	public Vector<Node> bodyNodeList() {
-		Vector<Node>? stored = self.bodyNodeListStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.bodyNodeListStorage != null) { return self.bodyNodeListStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `bodyNodeList` for mutation: allocated on first write. */
 	public Vector<Node> bodyNodeListMut() {
-		Vector<Node>? stored = self.bodyNodeListStorage;
-		if (stored != null) { return stored; }
+		if (self.bodyNodeListStorage != null) { return self.bodyNodeListStorage; }
 		Vector<Node> fresh = [];
 		self.bodyNodeListStorage = fresh;
 		return fresh;
@@ -610,18 +565,15 @@ class Node {
 
 	/* `args` for reading: the shared empty while unwritten. */
 	public Vector<Node> args() {
-		Vector<Node>? stored = self.argsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.argsStorage != null) { return self.argsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `args` for mutation: allocated on first write. */
 	public Vector<Node> argsMut() {
-		Vector<Node>? stored = self.argsStorage;
-		if (stored != null) { return stored; }
+		if (self.argsStorage != null) { return self.argsStorage; }
 		Vector<Node> fresh = [];
 		self.argsStorage = fresh;
 		return fresh;
@@ -629,18 +581,15 @@ class Node {
 
 	/* `argNames` for reading: the shared empty while unwritten. */
 	public Vector<string> argNames() {
-		Vector<string>? stored = self.argNamesStorage;
-		if (stored != null) { return stored; }
-		Vector<string>? empty = Node.sharedEmptyStrings;
-		if (empty == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.argNamesStorage != null) { return self.argNamesStorage; }
+		if (Node.sharedEmptyStrings == null) { Vector<string> fresh = []; Node.sharedEmptyStrings = fresh; return fresh; }
+		if ((Node.sharedEmptyStrings?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyStrings is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyStrings;
 	}
 
 	/* `argNames` for mutation: allocated on first write. */
 	public Vector<string> argNamesMut() {
-		Vector<string>? stored = self.argNamesStorage;
-		if (stored != null) { return stored; }
+		if (self.argNamesStorage != null) { return self.argNamesStorage; }
 		Vector<string> fresh = [];
 		self.argNamesStorage = fresh;
 		return fresh;
@@ -648,18 +597,15 @@ class Node {
 
 	/* `elements` for reading: the shared empty while unwritten. */
 	public Vector<Node> elements() {
-		Vector<Node>? stored = self.elementsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.elementsStorage != null) { return self.elementsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `elements` for mutation: allocated on first write. */
 	public Vector<Node> elementsMut() {
-		Vector<Node>? stored = self.elementsStorage;
-		if (stored != null) { return stored; }
+		if (self.elementsStorage != null) { return self.elementsStorage; }
 		Vector<Node> fresh = [];
 		self.elementsStorage = fresh;
 		return fresh;
@@ -667,18 +613,15 @@ class Node {
 
 	/* `entries` for reading: the shared empty while unwritten. */
 	public Vector<Node> entries() {
-		Vector<Node>? stored = self.entriesStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.entriesStorage != null) { return self.entriesStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `entries` for mutation: allocated on first write. */
 	public Vector<Node> entriesMut() {
-		Vector<Node>? stored = self.entriesStorage;
-		if (stored != null) { return stored; }
+		if (self.entriesStorage != null) { return self.entriesStorage; }
 		Vector<Node> fresh = [];
 		self.entriesStorage = fresh;
 		return fresh;
@@ -686,18 +629,15 @@ class Node {
 
 	/* `parts` for reading: the shared empty while unwritten. */
 	public Vector<Node> parts() {
-		Vector<Node>? stored = self.partsStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.partsStorage != null) { return self.partsStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 
 	/* `parts` for mutation: allocated on first write. */
 	public Vector<Node> partsMut() {
-		Vector<Node>? stored = self.partsStorage;
-		if (stored != null) { return stored; }
+		if (self.partsStorage != null) { return self.partsStorage; }
 		Vector<Node> fresh = [];
 		self.partsStorage = fresh;
 		return fresh;
@@ -705,11 +645,9 @@ class Node {
 
 	/* `captures` for reading: the shared empty while unwritten. */
 	public Vector<Node> captures() {
-		Vector<Node>? stored = self.capturesStorage;
-		if (stored != null) { return stored; }
-		Vector<Node>? empty = Node.sharedEmptyNodes;
-		if (empty == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
-		if (empty.len != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
-		return empty;
+		if (self.capturesStorage != null) { return self.capturesStorage; }
+		if (Node.sharedEmptyNodes == null) { Vector<Node> fresh = []; Node.sharedEmptyNodes = fresh; return fresh; }
+		if ((Node.sharedEmptyNodes?.len ?? 0) != 0) { fprintf(stderr, "internal compiler error: Node.sharedEmptyNodes is no longer empty; a list answered by a lazy field reader was mutated instead of written through its Mut()\n"); exit(1); }
+		return Node.sharedEmptyNodes;
 	}
 }

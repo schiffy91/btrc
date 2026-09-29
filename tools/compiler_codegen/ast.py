@@ -273,23 +273,22 @@ class BtrcAstRenderer:
                     "",
                     f"    /* `{name}` for reading: the shared empty while unwritten. */",
                     f"    public {declaration.declared_type} {name}() {{",
-                    f"        {declaration.declared_type}? stored = self.{storage};",
-                    "        if (stored != null) { return stored; }",
-                    f"        {declaration.declared_type}? empty = {self._node_name}.{static_name};",
-                    # Returning from the first-use branch lets the analyzer narrow
-                    # `empty` for the check below; reassigning it inside the branch
-                    # left it nullable and warned on every build of the compiler.
-                    f"        if (empty == null) {{ {declaration.declared_type} fresh = [];"
+                    # Reading the field and the static in place, not through a
+                    # local copy, answers each with one retain: a local was a
+                    # retain, a cleanup registration and its discard per read.
+                    f"        if (self.{storage} != null) {{ return self.{storage}; }}",
+                    f"        if ({self._node_name}.{static_name} == null) {{ {declaration.declared_type} fresh = [];"
                     f" {self._node_name}.{static_name} = fresh; return fresh; }}",
                     # A caller that mutates what a reader answered -- directly,
                     # through an alias, or through a callee -- would fill the
                     # one shared empty for every unwritten field in the program.
                     # One comparison on the unwritten path turns that into an
                     # immediate failure instead of a silently corrupted AST.
-                    f'        if (empty.len != 0) {{ fprintf(stderr, "internal compiler error:'
+                    f"        if (({self._node_name}.{static_name}?.len ?? 0) != 0) {{"
+                    f' fprintf(stderr, "internal compiler error:'
                     f" {self._node_name}.{static_name} is no longer empty; a list answered by a"
                     f' lazy field reader was mutated instead of written through its Mut()\\n"); exit(1); }}',
-                    "        return empty;",
+                    f"        return {self._node_name}.{static_name};",
                     "    }",
                 )
             )
@@ -300,8 +299,7 @@ class BtrcAstRenderer:
                     "",
                     f"    /* `{name}` for mutation: allocated on first write. */",
                     f"    public {declaration.declared_type} {name}Mut() {{",
-                    f"        {declaration.declared_type}? stored = self.{storage};",
-                    "        if (stored != null) { return stored; }",
+                    f"        if (self.{storage} != null) {{ return self.{storage}; }}",
                     f"        {declaration.declared_type} fresh = [];",
                     f"        self.{storage} = fresh;",
                     "        return fresh;",

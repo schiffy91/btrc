@@ -151,13 +151,13 @@ class RealtimeIRVerifier {
 		self.validateNode(node.update, path, visiting);
 		self.validateNode(node.result, path, visiting);
 		int index = 0;
-		while (index < node.args.len) {
-			self.validateNode(node.args.get(index), path, visiting);
+		while (index < node.args().len) {
+			self.validateNode(node.args().get(index), path, visiting);
 			index = index + 1;
 		}
 		index = 0;
-		while (index < node.stmts.len) {
-			self.validateNode(node.stmts.get(index), path, visiting);
+		while (index < node.stmts().len) {
+			self.validateNode(node.stmts().get(index), path, visiting);
 			index = index + 1;
 		}
 	}

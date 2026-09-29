@@ -63,8 +63,8 @@ class ModuleUnitGraph {
 		ModuleUnitGraph.references(node.update, out);
 		ModuleUnitGraph.references(node.result, out);
 		ModuleUnitGraph.references(node.arraySize, out);
-		for argument in node.args { ModuleUnitGraph.references(argument, out); }
-		for statement in node.stmts { ModuleUnitGraph.references(statement, out); }
+		for argument in node.args() { ModuleUnitGraph.references(argument, out); }
+		for statement in node.stmts() { ModuleUnitGraph.references(statement, out); }
 	}
 
 	/* Adds this graph to a record or worker reply: one line per function, its
@@ -528,8 +528,8 @@ class ModuleUnitDeclarations {
 		ModuleUnitDeclarations.collectNode(node.body, out);
 		ModuleUnitDeclarations.collectNode(node.update, out);
 		ModuleUnitDeclarations.collectNode(node.result, out);
-		for argument in node.args { ModuleUnitDeclarations.collectNode(argument, out); }
-		for statement in node.stmts { ModuleUnitDeclarations.collectNode(statement, out); }
+		for argument in node.args() { ModuleUnitDeclarations.collectNode(argument, out); }
+		for statement in node.stmts() { ModuleUnitDeclarations.collectNode(statement, out); }
 	}
 
 	private Map<string, bool> unitProvided(IRModule unit, int kind) {
@@ -1023,8 +1023,8 @@ class ModuleUnitCompiler {
 		if (node == null) { return false; }
 		if (node.kind == IRK_CALL && node.callee == "setjmp") { return true; }
 		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.trueExpr) || self.containsSetjmp(node.falseExpr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock) || self.containsSetjmp(node.body) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result)) { return true; }
-		for argument in node.args { if (self.containsSetjmp(argument)) { return true; } }
-		for statement in node.stmts { if (self.containsSetjmp(statement)) { return true; } }
+		for argument in node.args() { if (self.containsSetjmp(argument)) { return true; } }
+		for statement in node.stmts() { if (self.containsSetjmp(statement)) { return true; } }
 		return false;
 	}
 

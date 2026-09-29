@@ -76,13 +76,13 @@ class CleanupSlotValidator {
 		self.collect(node.update, state);
 		self.collect(node.result, state);
 		int index = 0;
-		while (index < node.args.len) {
-			self.collect(node.args.get(index), state);
+		while (index < node.args().len) {
+			self.collect(node.args().get(index), state);
 			index = index + 1;
 		}
 		index = 0;
-		while (index < node.stmts.len) {
-			self.collect(node.stmts.get(index), state);
+		while (index < node.stmts().len) {
+			self.collect(node.stmts().get(index), state);
 			index = index + 1;
 		}
 	}
@@ -106,15 +106,15 @@ class CleanupSlotValidator {
 		if (call.callee == "__btrc_register_direct_cleanup") {
 			arity = 3;
 		}
-		if (call.helperRef != call.callee || call.args.len != arity || call.cleanupSlot == null) {
+		if (call.helperRef != call.callee || call.args().len != arity || call.cleanupSlot == null) {
 			self.fail("malformed typed cleanup registration");
 		}
 		IRCleanupSlot metadata = call.cleanupSlot;
-		IRNode address = call.args.get(0);
+		IRNode address = call.args().get(0);
 		if (address.kind != IRK_CAST || address.targetType != "void*" || address.expr == null || address.expr.kind != IRK_ADDRESS_OF || address.expr.expr == null || address.expr.expr.kind != IRK_VAR || address.expr.expr.name != metadata.name) {
 			self.fail("cleanup slot must use an opaque address: " + metadata.name);
 		}
-		IRNode take = call.args.get(1);
+		IRNode take = call.args().get(1);
 		if (take.kind != IRK_FUNCTION_REF || take.name != metadata.takeFunction) {
 			self.fail("cleanup slot has the wrong take adapter: " + metadata.name);
 		}

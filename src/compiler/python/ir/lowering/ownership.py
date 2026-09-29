@@ -1034,13 +1034,16 @@ class ManagedLifetimeLowerer:
         sequence = [IRBinOp(left=replacement, op="=", right=value)]
         if not value_owned:
             sequence.append(self.retain_value(replacement, target_type))
-        self.protect_temporary(
-            replacement_decl,
-            target_type,
-            declarations,
-            sequence,
-            "__btrc_slot_cleanup",
-        )
+        # A string's release runs no destructor and cannot throw, so nothing
+        # can unwind while the new reference waits to be stored.
+        if not self._values.is_string(target_type):
+            self.protect_temporary(
+                replacement_decl,
+                target_type,
+                declarations,
+                sequence,
+                "__btrc_slot_cleanup",
+            )
         sequence.extend(
             [
                 IRBinOp(left=old, op="=", right=target),

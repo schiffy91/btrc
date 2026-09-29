@@ -636,7 +636,7 @@ def test_call_lowering_has_one_typed_target_resolution_owner() -> None:
     assert expressions.count("private bool replaceOptionalSequenceFallback(") == 1
     assert "resultName = alias;" in expressions
     assert "node.expr, resultName" in expressions
-    assert "node.args.get(node.args.len - 1), resultName" in expressions
+    assert "node.args().get(node.args().len - 1), resultName" in expressions
     assert "absentAssignment.right = fallback;" in expressions
     assert "definition.condition" not in expressions
     assert operators.count("private bool isOptionalValueExpression(") == 1

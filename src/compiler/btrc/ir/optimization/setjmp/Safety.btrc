@@ -57,8 +57,8 @@ class SetjmpSafetyPlanner {
 		if (node.kind == IRK_STMT_EXPR) {
 			Vector<IRNode> local = self.copyVisible(visible);
 			int statementIndex = 0;
-			while (statementIndex < node.stmts.len) {
-				self.validateStatement(node.stmts.get(statementIndex), local, params);
+			while (statementIndex < node.stmts().len) {
+				self.validateStatement(node.stmts().get(statementIndex), local, params);
 				statementIndex = statementIndex + 1;
 			}
 			self.validateExpression(node.result, local, params, node.kind, "result");
@@ -115,8 +115,8 @@ class SetjmpSafetyPlanner {
 		self.validateExpression(node.update, visible, params, node.kind, "update");
 		self.validateExpression(node.result, visible, params, node.kind, "result");
 		int index = 0;
-		while (index < node.args.len) {
-			self.validateExpression(node.args.get(index), visible, params, node.kind, "args");
+		while (index < node.args().len) {
+			self.validateExpression(node.args().get(index), visible, params, node.kind, "args");
 			index = index + 1;
 		}
 	}
@@ -125,8 +125,8 @@ class SetjmpSafetyPlanner {
 		if (block == null) { return; }
 		Vector<IRNode> visible = self.copyVisible(inherited);
 		int index = 0;
-		while (index < block.stmts.len) {
-			self.validateStatement(block.stmts.get(index), visible, params);
+		while (index < block.stmts().len) {
+			self.validateStatement(block.stmts().get(index), visible, params);
 			index = index + 1;
 		}
 	}
@@ -162,13 +162,13 @@ class SetjmpSafetyPlanner {
 		if (statement.kind == IRK_SWITCH) {
 			self.validateExpression(statement.value, visible, params, statement.kind, "value");
 			int caseIndex = 0;
-			while (caseIndex < statement.args.len) {
-				IRNode caseNode = statement.args.get(caseIndex);
+			while (caseIndex < statement.args().len) {
+				IRNode caseNode = statement.args().get(caseIndex);
 				Vector<IRNode> local = self.copyVisible(visible);
 				self.validateExpression(caseNode.value, local, params, caseNode.kind, "value");
 				int childIndex = 0;
-				while (childIndex < caseNode.stmts.len) {
-					self.validateStatement(caseNode.stmts.get(childIndex), local, params);
+				while (childIndex < caseNode.stmts().len) {
+					self.validateStatement(caseNode.stmts().get(childIndex), local, params);
 					childIndex = childIndex + 1;
 				}
 				caseIndex = caseIndex + 1;
@@ -233,7 +233,7 @@ class SetjmpSafetyPlanner {
 		if (node.kind == IRK_SIZEOF) { return; }
 		if (node.kind == IRK_STMT_EXPR) {
 			Map<string, bool> local = self.copyNameSet(bound);
-			self.collectMutationSequence(node.stmts, local, modified, effects);
+			self.collectMutationSequence(node.stmts(), local, modified, effects);
 			self.collectExpressionMutations(node.result, local, modified, effects);
 			return;
 		}
@@ -253,8 +253,8 @@ class SetjmpSafetyPlanner {
 		self.collectExpressionMutations(node.result, bound, modified, effects);
 		self.collectExpressionMutations(node.arraySize, bound, modified, effects);
 		int index = 0;
-		while (index < node.args.len) {
-			self.collectExpressionMutations(node.args.get(index), bound, modified, effects);
+		while (index < node.args().len) {
+			self.collectExpressionMutations(node.args().get(index), bound, modified, effects);
 			index = index + 1;
 		}
 	}
@@ -262,7 +262,7 @@ class SetjmpSafetyPlanner {
 	private void collectMutationBlock(IRNode? block, Map<string, bool> inherited, Map<string, bool> modified, SetjmpCallEffects effects) {
 		if (block == null) { return; }
 		Map<string, bool> bound = self.copyNameSet(inherited);
-		self.collectMutationSequence(block.stmts, bound, modified, effects);
+		self.collectMutationSequence(block.stmts(), bound, modified, effects);
 	}
 
 	private void collectMutationSequence(Vector<IRNode> statements, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
@@ -308,11 +308,11 @@ class SetjmpSafetyPlanner {
 		if (statement.kind == IRK_SWITCH) {
 			self.collectExpressionMutations(statement.value, bound, modified, effects);
 			int index = 0;
-			while (index < statement.args.len) {
-				IRNode caseNode = statement.args.get(index);
+			while (index < statement.args().len) {
+				IRNode caseNode = statement.args().get(index);
 				Map<string, bool> local = self.copyNameSet(bound);
 				self.collectExpressionMutations(caseNode.value, local, modified, effects);
-				self.collectMutationSequence(caseNode.stmts, local, modified, effects);
+				self.collectMutationSequence(caseNode.stmts(), local, modified, effects);
 				index = index + 1;
 			}
 			return;
@@ -346,10 +346,10 @@ class SetjmpSafetyPlanner {
 		IRNode block = IRNode();
 		block.kind = IRK_BLOCK;
 		if (loop.condition != null) {
-			block.stmts.push(IRNode.expressionStatement(loop.condition));
+			block.stmtsMut().push(IRNode.expressionStatement(loop.condition));
 		}
-		if (loop.update != null) { block.stmts.push(IRNode.expressionStatement(loop.update)); }
-		if (loop.body != null) { block.stmts.push(loop.body); }
+		if (loop.update != null) { block.stmtsMut().push(IRNode.expressionStatement(loop.update)); }
+		if (loop.body != null) { block.stmtsMut().push(loop.body); }
 		return self.mutatedNames(block, effects);
 	}
 
@@ -358,13 +358,13 @@ class SetjmpSafetyPlanner {
 		if (node.kind == IRK_CALL && node.callee == "setjmp") { return true; }
 		if (self.containsSetjmp(node.left) || self.containsSetjmp(node.right) || self.containsSetjmp(node.operand) || self.containsSetjmp(node.expr) || self.containsSetjmp(node.obj) || self.containsSetjmp(node.index) || self.containsSetjmp(node.condition) || self.containsSetjmp(node.trueExpr) || self.containsSetjmp(node.falseExpr) || self.containsSetjmp(node.init) || self.containsSetjmp(node.value) || self.containsSetjmp(node.target) || self.containsSetjmp(node.update) || self.containsSetjmp(node.result) || self.containsSetjmp(node.arraySize) || self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock) || self.containsSetjmp(node.body)) { return true; }
 		int index = 0;
-		while (index < node.args.len) {
-			if (self.containsSetjmp(node.args.get(index))) { return true; }
+		while (index < node.args().len) {
+			if (self.containsSetjmp(node.args().get(index))) { return true; }
 			index = index + 1;
 		}
 		index = 0;
-		while (index < node.stmts.len) {
-			if (self.containsSetjmp(node.stmts.get(index))) { return true; }
+		while (index < node.stmts().len) {
+			if (self.containsSetjmp(node.stmts().get(index))) { return true; }
 			index = index + 1;
 		}
 		return false;
@@ -507,8 +507,8 @@ class SetjmpSafetyPlanner {
 		self.scanResidual(node.update, visible, params, modified, filterModified, effects);
 		self.scanResidual(node.result, visible, params, modified, filterModified, effects);
 		int index = 0;
-		while (index < node.args.len) {
-			self.scanResidual(node.args.get(index), visible, params, modified, filterModified, effects);
+		while (index < node.args().len) {
+			self.scanResidual(node.args().get(index), visible, params, modified, filterModified, effects);
 			index = index + 1;
 		}
 	}
@@ -525,8 +525,8 @@ class SetjmpSafetyPlanner {
 		if (node == null) { return; }
 		if (node.kind == IRK_STMT_EXPR) {
 			int index = 0;
-			while (index < node.stmts.len) {
-				IRNode declaration = node.stmts.get(index);
+			while (index < node.stmts().len) {
+				IRNode declaration = node.stmts().get(index);
 				if (declaration.kind == IRK_VAR_DECL) {
 					self.prepareDeclaration(declaration, visible, params, modified, filterModified, effects);
 				}
@@ -551,8 +551,8 @@ class SetjmpSafetyPlanner {
 		self.prepareHoists(node.update, visible, params, modified, filterModified, effects);
 		self.prepareHoists(node.result, visible, params, modified, filterModified, effects);
 		int index = 0;
-		while (index < node.args.len) {
-			self.prepareHoists(node.args.get(index), visible, params, modified, filterModified, effects);
+		while (index < node.args().len) {
+			self.prepareHoists(node.args().get(index), visible, params, modified, filterModified, effects);
 			index = index + 1;
 		}
 	}
@@ -574,10 +574,10 @@ class SetjmpSafetyPlanner {
 		if (block == null) { return; }
 		Vector<IRNode> visible = self.copyVisible(inherited);
 		int index = 0;
-		while (index < block.stmts.len) {
-			IRNode statement = block.stmts.get(index);
+		while (index < block.stmts().len) {
+			IRNode statement = block.stmts().get(index);
 			if (self.containsSetjmp(statement)) {
-				Map<string, bool> continuation = self.mutatedSequenceAfter(block.stmts, index + 1, effects);
+				Map<string, bool> continuation = self.mutatedSequenceAfter(block.stmts(), index + 1, effects);
 				self.markVisible(visible, params, continuation, true, effects);
 			}
 			self.scanStatement(statement, visible, params, effects);
@@ -613,22 +613,22 @@ class SetjmpSafetyPlanner {
 	private void scanSwitch(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
 		self.prepareSimple(statement.value, null, visible, params, effects);
 		int index = 0;
-		while (index < statement.args.len) {
-			IRNode caseNode = statement.args.get(index);
+		while (index < statement.args().len) {
+			IRNode caseNode = statement.args().get(index);
 			Vector<IRNode> caseVisible = self.copyVisible(visible);
 			self.prepareSimple(caseNode.value, null, caseVisible, params, effects);
 			IRNode caseBlock = IRNode();
 			caseBlock.kind = IRK_BLOCK;
-			caseBlock.stmts = caseNode.stmts;
+			caseBlock.stmtsStorage = caseNode.stmts();
 			if (self.containsSetjmp(caseBlock) && caseNode.fallsThrough) {
 				Map<string, bool> continuation = {};
 				int next = index;
-				while (next + 1 < statement.args.len && statement.args.get(next).fallsThrough) {
+				while (next + 1 < statement.args().len && statement.args().get(next).fallsThrough) {
 					next = next + 1;
-					IRNode nextCase = statement.args.get(next);
+					IRNode nextCase = statement.args().get(next);
 					IRNode nextBlock = IRNode();
 					nextBlock.kind = IRK_BLOCK;
-					nextBlock.stmts = nextCase.stmts;
+					nextBlock.stmtsStorage = nextCase.stmts();
 					Map<string, bool> nextMutations = self.mutatedNames(nextBlock, effects);
 					Vector<string> names = nextMutations.keys();
 					int nameIndex = 0;

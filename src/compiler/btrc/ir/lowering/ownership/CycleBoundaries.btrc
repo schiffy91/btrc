@@ -33,15 +33,15 @@ class CycleReturnBoundaryLowerer {
 			return true;
 		}
 		int index = 0;
-		while (index < node.args.len) {
-			if (self.containsCyclableRelease(node.args.get(index))) {
+		while (index < node.args().len) {
+			if (self.containsCyclableRelease(node.args().get(index))) {
 				return true;
 			}
 			index = index + 1;
 		}
 		index = 0;
-		while (index < node.stmts.len) {
-			if (self.containsCyclableRelease(node.stmts.get(index))) {
+		while (index < node.stmts().len) {
+			if (self.containsCyclableRelease(node.stmts().get(index))) {
 				return true;
 			}
 			index = index + 1;
@@ -78,8 +78,8 @@ class CycleReturnBoundaryLowerer {
 			self.rewriteReturns(definition, node.body);
 		} else if (node.kind == IRK_SWITCH) {
 			int index = 0;
-			while (index < node.args.len) {
-				self.rewriteReturns(definition, node.args.get(index));
+			while (index < node.args().len) {
+				self.rewriteReturns(definition, node.args().get(index));
 				index = index + 1;
 			}
 		} else if (node.kind == IRK_CASE) {
@@ -90,8 +90,8 @@ class CycleReturnBoundaryLowerer {
 	private void rewriteReturns(IRFunction definition, IRNode block) {
 		Vector<IRNode> rewritten = [];
 		int index = 0;
-		while (index < block.stmts.len) {
-			IRNode statement = block.stmts.get(index);
+		while (index < block.stmts().len) {
+			IRNode statement = block.stmts().get(index);
 			self.rewriteNestedReturns(definition, statement);
 			if (statement.kind == IRK_RETURN) {
 				bool materialized = self.isMaterializedReturn(rewritten, statement);
@@ -109,13 +109,13 @@ class CycleReturnBoundaryLowerer {
 			rewritten.push(statement);
 			index = index + 1;
 		}
-		block.stmts = rewritten;
+		block.stmtsStorage = rewritten;
 	}
 
 	private void forceBoundary(IRFunction definition) {
 		self.rewriteReturns(definition, definition.body);
-		if (IRStatementSequence(definition.body.stmts).mayFallThrough() && !self.endsWithFlush(definition.body.stmts)) {
-			definition.body.stmts.push(self.forcedFlush());
+		if (IRStatementSequence(definition.body.stmts()).mayFallThrough() && !self.endsWithFlush(definition.body.stmts())) {
+			definition.body.stmtsMut().push(self.forcedFlush());
 		}
 	}
 
@@ -441,15 +441,15 @@ class CycleBoundaryLowerer {
 			changed = true;
 		}
 		int index = 0;
-		while (index < node.args.len) {
-			if (self.collectTopologyAliases(node.args.get(index), aliases)) {
+		while (index < node.args().len) {
+			if (self.collectTopologyAliases(node.args().get(index), aliases)) {
 				changed = true;
 			}
 			index = index + 1;
 		}
 		index = 0;
-		while (index < node.stmts.len) {
-			if (self.collectTopologyAliases(node.stmts.get(index), aliases)) {
+		while (index < node.stmts().len) {
+			if (self.collectTopologyAliases(node.stmts().get(index), aliases)) {
 				changed = true;
 			}
 			index = index + 1;
@@ -477,7 +477,7 @@ class CycleBoundaryLowerer {
 		}
 		if (node.kind == IRK_CALL) {
 			int slot = self.topologyMutatingCallSlot(node.callee);
-			if (slot >= 0 && slot < node.args.len && self.topologyRootedInSelf(node.args.get(slot), aliases)) {
+			if (slot >= 0 && slot < node.args().len && self.topologyRootedInSelf(node.args().get(slot), aliases)) {
 				return true;
 			}
 		}
@@ -485,15 +485,15 @@ class CycleBoundaryLowerer {
 			return true;
 		}
 		int index = 0;
-		while (index < node.args.len) {
-			if (self.containsTopologyMutation(node.args.get(index), aliases)) {
+		while (index < node.args().len) {
+			if (self.containsTopologyMutation(node.args().get(index), aliases)) {
 				return true;
 			}
 			index = index + 1;
 		}
 		index = 0;
-		while (index < node.stmts.len) {
-			if (self.containsTopologyMutation(node.stmts.get(index), aliases)) {
+		while (index < node.stmts().len) {
+			if (self.containsTopologyMutation(node.stmts().get(index), aliases)) {
 				return true;
 			}
 			index = index + 1;
@@ -544,8 +544,8 @@ class CycleBoundaryLowerer {
 			self.rewriteTopologyReturns(definition, node.body, token, marker);
 		} else if (node.kind == IRK_SWITCH) {
 			int index = 0;
-			while (index < node.args.len) {
-				self.rewriteTopologyReturns(definition, node.args.get(index), token, marker);
+			while (index < node.args().len) {
+				self.rewriteTopologyReturns(definition, node.args().get(index), token, marker);
 				index = index + 1;
 			}
 		} else if (node.kind == IRK_CASE) {
@@ -556,8 +556,8 @@ class CycleBoundaryLowerer {
 	private void rewriteTopologyReturns(IRFunction definition, IRNode block, string token, string marker) {
 		Vector<IRNode> rewritten = [];
 		int index = 0;
-		while (index < block.stmts.len) {
-			IRNode statement = block.stmts.get(index);
+		while (index < block.stmts().len) {
+			IRNode statement = block.stmts().get(index);
 			self.rewriteNestedTopologyReturns(definition, statement, token, marker);
 			if (statement.kind == IRK_RETURN) {
 				if (statement.value != null) {
@@ -570,7 +570,7 @@ class CycleBoundaryLowerer {
 			rewritten.push(statement);
 			index = index + 1;
 		}
-		block.stmts = rewritten;
+		block.stmtsStorage = rewritten;
 	}
 
 	private Vector<IRNode> topologyPrologue(string token, string marker, bool cleanupEnabled) {
@@ -607,16 +607,16 @@ class CycleBoundaryLowerer {
 			self.context.referenceHelper("__btrc_discard_cleanups_to");
 		}
 		self.rewriteTopologyReturns(definition, definition.body, token, marker);
-		if (IRStatementSequence(definition.body.stmts).mayFallThrough()) {
-			self.appendTopologyEpilogue(definition.body.stmts, token, marker);
+		if (IRStatementSequence(definition.body.stmts()).mayFallThrough()) {
+			self.appendTopologyEpilogue(definition.body.stmts(), token, marker);
 		}
 		Vector<IRNode> body = self.topologyPrologue(token, marker, cleanupEnabled);
 		int index = 0;
-		while (index < definition.body.stmts.len) {
-			body.push(definition.body.stmts.get(index));
+		while (index < definition.body.stmts().len) {
+			body.push(definition.body.stmts().get(index));
 			index = index + 1;
 		}
-		definition.body.stmts = body;
+		definition.body.stmtsStorage = body;
 		return true;
 	}
 }

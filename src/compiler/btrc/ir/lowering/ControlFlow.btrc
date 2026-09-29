@@ -15,12 +15,12 @@ class IRStatementSequence {
 			return false;
 		}
 		if (expression.kind == IRK_STMT_EXPR) {
-			return IRStatementSequence(expression.stmts).mayFallThrough() && self.expressionMayComplete(expression.result);
+			return IRStatementSequence(expression.stmts()).mayFallThrough() && self.expressionMayComplete(expression.result);
 		}
 		if (expression.kind == IRK_COMMA_EXPR) {
 			int index = 0;
-			while (index < expression.args.len) {
-				if (!self.expressionMayComplete(expression.args.get(index))) {
+			while (index < expression.args().len) {
+				if (!self.expressionMayComplete(expression.args().get(index))) {
 					return false;
 				}
 				index = index + 1;
@@ -44,7 +44,7 @@ class IRStatementSequence {
 			return self.expressionMayComplete(statement.init);
 		}
 		if (statement.kind == IRK_BLOCK || statement.kind == IRK_CASE) {
-			return IRStatementSequence(statement.stmts).mayFallThrough();
+			return IRStatementSequence(statement.stmts()).mayFallThrough();
 		}
 		if (statement.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL) { return self.statementMayFallThrough(statement.body); }
 		if (statement.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY) { return self.statementMayFallThrough(statement.body) || self.statementMayFallThrough(statement.elseBlock); }
@@ -77,15 +77,15 @@ class IRStatementSequence {
 			return true;
 		}
 		int argument = 0;
-		while (argument < node.args.len) {
-			if (self.nodeReferencesVariable(node.args.get(argument), name)) {
+		while (argument < node.args().len) {
+			if (self.nodeReferencesVariable(node.args().get(argument), name)) {
 				return true;
 			}
 			argument = argument + 1;
 		}
 		int statement = 0;
-		while (statement < node.stmts.len) {
-			if (self.nodeReferencesVariable(node.stmts.get(statement), name)) {
+		while (statement < node.stmts().len) {
+			if (self.nodeReferencesVariable(node.stmts().get(statement), name)) {
 				return true;
 			}
 			statement = statement + 1;

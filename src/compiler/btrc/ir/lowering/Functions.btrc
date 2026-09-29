@@ -290,7 +290,7 @@ class FunctionLowerer {
 			self.resetFuncVarDecls();
 			IRNode blk = self.lowerBody(method.bodyNode, vt);
 			int b = 0;
-			while (b < blk.stmts.len) { mbody.push(blk.stmts.get(b)); b = b + 1; }
+			while (b < blk.stmts().len) { mbody.push(blk.stmts().get(b)); b = b + 1; }
 			self.context.restoreSourceBindings(methodSourceBindings);
 		}
 		if (mbody.len == 0) {
@@ -397,8 +397,8 @@ class FunctionLowerer {
 		if (sourceBody != null && sourceBody.kind == NK_LAMBDA_BLOCK && sourceBody.bodyNode != null) {
 			IRNode block = self.statements.lowerBlock(sourceBody.bodyNode, variableTypes, callableFlow);
 			int statementIndex = 0;
-			while (statementIndex < block.stmts.len) {
-				body.push(block.stmts.get(statementIndex));
+			while (statementIndex < block.stmts().len) {
+				body.push(block.stmts().get(statementIndex));
 				statementIndex = statementIndex + 1;
 			}
 		} else if (sourceBody != null && sourceBody.kind == NK_LAMBDA_EXPR_BODY && sourceBody.expression != null) {

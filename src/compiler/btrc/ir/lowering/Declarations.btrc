@@ -334,7 +334,7 @@ class DeclarationLowerer {
 		if (self.uniqueResource(valueType.base)) {
 			string prefix = "__btrc_unique_" + valueType.base;
 			statements.push(IRNode.expressionStatement(IRNode.call(prefix + "_begin_" + operation, [value])));
-			registration.args.set(2, IRNode.functionReference(prefix + "_end_" + operation));
+			registration.argsMut().set(2, IRNode.functionReference(prefix + "_end_" + operation));
 		}
 		statements.push(IRNode.expressionStatement(registration));
 		string releasedName = f"__btrc_native_released_{index}";
@@ -2051,7 +2051,7 @@ class DeclarationLowerer {
 			string field = f"_invoke{index}";
 			configure.selector = configure.selector + f"invoke{index}:";
 			configure.params.push(IRParam(invocation.name, f"invoke{index}"));
-			configure.body.stmts.push(IRNode.assignment(IRNode.variable(field), IRNode.variable(f"invoke{index}")));
+			configure.body.stmtsMut().push(IRNode.assignment(IRNode.variable(field), IRNode.variable(f"invoke{index}")));
 			holder.fields.push(IRStructField(invocation.name, field));
 			Vector<IRParam> parameters = [];
 			Vector<IRNode> arguments = [];
@@ -2077,7 +2077,7 @@ class DeclarationLowerer {
 		configure.selector = configure.selector + "invoke:source:";
 		configure.params.extend([IRParam(invocationType, "invoke"), IRParam("id", "source")]);
 		holder.fields.extend([IRStructField(invocationType, "_invoke"), IRStructField("id", "_source")]);
-		configure.body.stmts.extend([
+		configure.body.stmtsMut().extend([
 			IRNode.assignment(IRNode.variable("_invoke"), IRNode.variable("invoke")),
 			IRNode.assignment(IRNode.variable("_source"), IRNode.variable("source"))
 		]);
@@ -2894,7 +2894,7 @@ class DeclarationLowerer {
 		if (ctor != null && ctor.bodyNode != null) {
 			IRNode blk = self.functions.lowerBody(ctor.bodyNode, genericCtorVars);
 			int b = 0;
-			while (b < blk.stmts.len) { ctorBodyStmts.push(blk.stmts.get(b)); b = b + 1; }
+			while (b < blk.stmts().len) { ctorBodyStmts.push(blk.stmts().get(b)); b = b + 1; }
 		}
 		self.context.restoreSourceBindings(constructorSourceBindings);
 		/* Empty ctor body -> (void)self; to avoid unused-param warning. */
@@ -2943,8 +2943,8 @@ class DeclarationLowerer {
 			IRNode destructorBlock = self.functions.lowerBody(genericDestructor.bodyNode, destructorTypes);
 			Vector<IRNode> hookBody = [];
 			int hookStatement = 0;
-			while (hookStatement < destructorBlock.stmts.len) {
-				hookBody.push(destructorBlock.stmts.get(hookStatement));
+			while (hookStatement < destructorBlock.stmts().len) {
+				hookBody.push(destructorBlock.stmts().get(hookStatement));
 				hookStatement = hookStatement + 1;
 			}
 			m.functions.push(self.buildDestructorHook(mangled, hookBody));
@@ -3009,7 +3009,7 @@ class DeclarationLowerer {
 					Map<string, Node> vt = self.functions.genericMethodVarTypes(inst, mem);
 					IRNode blk = self.functions.lowerBody(mem.bodyNode, vt);
 					int b = 0;
-					while (b < blk.stmts.len) { mbody.push(blk.stmts.get(b)); b = b + 1; }
+					while (b < blk.stmts().len) { mbody.push(blk.stmts().get(b)); b = b + 1; }
 					self.context.restoreSourceBindings(methodSourceBindings);
 				}
 				if (mbody.len == 0) {
@@ -3092,8 +3092,8 @@ class DeclarationLowerer {
 		self.collectCallees(node.update, out);
 		self.collectCallees(node.result, out);
 		self.collectCallees(node.arraySize, out);
-		for argument in node.args { self.collectCallees(argument, out); }
-		for statement in node.stmts { self.collectCallees(statement, out); }
+		for argument in node.args() { self.collectCallees(argument, out); }
+		for statement in node.stmts() { self.collectCallees(statement, out); }
 	}
 
 	private void emitInterface(string name, IRModule module) {
@@ -3382,7 +3382,7 @@ class DeclarationLowerer {
 		if (ctor != null && ctor.bodyNode != null) {
 			IRNode blk = self.functions.lowerBody(ctor.bodyNode, ctorVars);
 			int k = 0;
-			while (k < blk.stmts.len) { body.push(blk.stmts.get(k)); k = k + 1; }
+			while (k < blk.stmts().len) { body.push(blk.stmts().get(k)); k = k + 1; }
 		}
 		self.context.restoreSourceBindings(sourceBindings);
 		initFn.body = IRNode.block(body);
@@ -3454,8 +3454,8 @@ class DeclarationLowerer {
 			IRNode blk = self.functions.lowerBody(dtor.bodyNode, vt);
 			Vector<IRNode> hookBody = [];
 			int k = 0;
-			while (k < blk.stmts.len) {
-				hookBody.push(blk.stmts.get(k));
+			while (k < blk.stmts().len) {
+				hookBody.push(blk.stmts().get(k));
 				k = k + 1;
 			}
 			m.functions.push(self.buildDestructorHook(name, hookBody));
@@ -3656,7 +3656,7 @@ class DeclarationLowerer {
 				IRNode blk = self.functions.lowerBody(prop.getterBody, vt);
 				self.context.currentPropertyBacking = savedPropertyBacking;
 				int k = 0;
-				while (k < blk.stmts.len) { gb.push(blk.stmts.get(k)); k = k + 1; }
+				while (k < blk.stmts().len) { gb.push(blk.stmts().get(k)); k = k + 1; }
 			} else {
 				gb.push(IRNode.returnStatement(IRNode.fieldAccess(IRNode.variable("self"), backing, true)));
 			}
@@ -3692,7 +3692,7 @@ class DeclarationLowerer {
 				self.context.currentPropertyBacking = savedPropertyBacking;
 				self.context.restoreSourceBindings(sourceBindings);
 				int k = 0;
-				while (k < blk.stmts.len) { sb.push(blk.stmts.get(k)); k = k + 1; }
+				while (k < blk.stmts().len) { sb.push(blk.stmts().get(k)); k = k + 1; }
 			} else {
 				self.emitAutoPropertyStore(prop.type, IRNode.fieldAccess(IRNode.variable("self"), backing, true), IRNode.variable(valueCName), sb);
 			}
@@ -4127,8 +4127,8 @@ class DeclarationLowerer {
 						IRNode block = self.functions.lowerBody(property.getterBody, variables);
 						self.context.currentPropertyBacking = savedPropertyBacking;
 						int statement = 0;
-						while (statement < block.stmts.len) {
-							body.push(block.stmts.get(statement));
+						while (statement < block.stmts().len) {
+							body.push(block.stmts().get(statement));
 							statement = statement + 1;
 						}
 					}
@@ -4165,8 +4165,8 @@ class DeclarationLowerer {
 						self.context.currentPropertyBacking = savedPropertyBacking;
 						self.context.restoreSourceBindings(sourceBindings);
 						int statement = 0;
-						while (statement < block.stmts.len) {
-							body.push(block.stmts.get(statement));
+						while (statement < block.stmts().len) {
+							body.push(block.stmts().get(statement));
 							statement = statement + 1;
 						}
 					}

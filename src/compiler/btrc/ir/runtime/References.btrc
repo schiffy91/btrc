@@ -165,13 +165,13 @@ class RuntimeReferenceCollector {
 		self.collectNode(node.arraySize, used);
 
 		int argumentIndex = 0;
-		while (argumentIndex < node.args.len) {
-			self.collectNode(node.args.get(argumentIndex), used);
+		while (argumentIndex < node.args().len) {
+			self.collectNode(node.args().get(argumentIndex), used);
 			argumentIndex = argumentIndex + 1;
 		}
 		int statementIndex = 0;
-		while (statementIndex < node.stmts.len) {
-			self.collectNode(node.stmts.get(statementIndex), used);
+		while (statementIndex < node.stmts().len) {
+			self.collectNode(node.stmts().get(statementIndex), used);
 			statementIndex = statementIndex + 1;
 		}
 	}

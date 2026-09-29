@@ -49,11 +49,11 @@ class IROptimizer {
 		if (found.isEmpty()) { found = self.invalidDiagnostic(node.result); }
 		if (found.isEmpty()) { found = self.invalidDiagnostic(node.arraySize); }
 		if (!found.isEmpty()) { return found; }
-		for argument in node.args {
+		for argument in node.args() {
 			string found = self.invalidDiagnostic(argument);
 			if (!found.isEmpty()) { return found; }
 		}
-		for statement in node.stmts {
+		for statement in node.stmts() {
 			string found = self.invalidDiagnostic(statement);
 			if (!found.isEmpty()) { return found; }
 		}
@@ -147,8 +147,8 @@ class IROptimizer {
 			return true;
 		}
 		int argument = 0;
-		while (argument < node.args.len) {
-			if (self.globalInitializerHasEffects(node.args.get(argument))) {
+		while (argument < node.args().len) {
+			if (self.globalInitializerHasEffects(node.args().get(argument))) {
 				return true;
 			}
 			argument = argument + 1;
@@ -183,13 +183,13 @@ class IROptimizer {
 		self.collectGlobalRefs(node.result, names, out);
 		self.collectGlobalRefs(node.arraySize, names, out);
 		int argument = 0;
-		while (argument < node.args.len) {
-			self.collectGlobalRefs(node.args.get(argument), names, out);
+		while (argument < node.args().len) {
+			self.collectGlobalRefs(node.args().get(argument), names, out);
 			argument = argument + 1;
 		}
 		int statement = 0;
-		while (statement < node.stmts.len) {
-			self.collectGlobalRefs(node.stmts.get(statement), names, out);
+		while (statement < node.stmts().len) {
+			self.collectGlobalRefs(node.stmts().get(statement), names, out);
 			statement = statement + 1;
 		}
 	}
@@ -408,9 +408,9 @@ class IROptimizer {
 		self.collectFuncRefs(node.result, names, out);
 		self.collectFuncRefs(node.arraySize, names, out);
 		int i = 0;
-		while (i < node.args.len) { self.collectFuncRefs(node.args.get(i), names, out); i = i + 1; }
+		while (i < node.args().len) { self.collectFuncRefs(node.args().get(i), names, out); i = i + 1; }
 		int j = 0;
-		while (j < node.stmts.len) { self.collectFuncRefs(node.stmts.get(j), names, out); j = j + 1; }
+		while (j < node.stmts().len) { self.collectFuncRefs(node.stmts().get(j), names, out); j = j + 1; }
 	}
 
 	private void eliminateDeadFunctions(IRModule m) {
@@ -614,9 +614,9 @@ class IROptimizer {
 		self.collectStructRefsNode(node.result, names, out);
 		self.collectStructRefsNode(node.arraySize, names, out);
 		int i = 0;
-		while (i < node.args.len) { self.collectStructRefsNode(node.args.get(i), names, out); i = i + 1; }
+		while (i < node.args().len) { self.collectStructRefsNode(node.args().get(i), names, out); i = i + 1; }
 		int j = 0;
-		while (j < node.stmts.len) { self.collectStructRefsNode(node.stmts.get(j), names, out); j = j + 1; }
+		while (j < node.stmts().len) { self.collectStructRefsNode(node.stmts().get(j), names, out); j = j + 1; }
 	}
 
 	private void eliminateDeadStructs(IRModule m) {
@@ -794,13 +794,13 @@ class IROptimizer {
 		self.collectParameterUses(node.result, names, references, declarations);
 		self.collectParameterUses(node.arraySize, names, references, declarations);
 		int i = 0;
-		while (i < node.args.len) {
-			self.collectParameterUses(node.args.get(i), names, references, declarations);
+		while (i < node.args().len) {
+			self.collectParameterUses(node.args().get(i), names, references, declarations);
 			i = i + 1;
 		}
 		int s = 0;
-		while (s < node.stmts.len) {
-			self.collectParameterUses(node.stmts.get(s), names, references, declarations);
+		while (s < node.stmts().len) {
+			self.collectParameterUses(node.stmts().get(s), names, references, declarations);
 			s = s + 1;
 		}
 	}
@@ -823,8 +823,8 @@ class IROptimizer {
 
 				Map<string, bool> existingDiscards = {};
 				int s = 0;
-				while (s < fn.body.stmts.len) {
-					IRNode statement = fn.body.stmts.get(s);
+				while (s < fn.body.stmts().len) {
+					IRNode statement = fn.body.stmts().get(s);
 					if (statement.kind == IRK_EXPR_STMT && statement.expr != null && statement.expr.kind == IRK_VAR) {
 						existingDiscards.put(statement.expr.name, true);
 					}
@@ -842,11 +842,11 @@ class IROptimizer {
 					p = p + 1;
 				}
 				s = 0;
-				while (s < fn.body.stmts.len) {
-					prefix.push(fn.body.stmts.get(s));
+				while (s < fn.body.stmts().len) {
+					prefix.push(fn.body.stmts().get(s));
 					s = s + 1;
 				}
-				fn.body.stmts = prefix;
+				fn.body.stmtsStorage = prefix;
 			}
 			f = f + 1;
 		}
