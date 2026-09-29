@@ -95,10 +95,30 @@ TLS_RUNTIME_SYMBOLS = {
 # --- --debug / #line source map ---
 
 
+def _presumed_locations(c: str) -> list[tuple[str, int]]:
+    """The (file, line) a C compiler presumes for each non-directive line.
+
+    `#line N "file"` names both, `#line N` keeps the file, and each line after
+    a directive continues from it; the emitter leaves out a directive that
+    would restate that continuation."""
+    locations = []
+    file, line = "", 0
+    for text in c.splitlines():
+        if text.startswith("#line "):
+            number, _, name = text[len("#line ") :].partition(" ")
+            file = name.strip('"') if name else file
+            line = int(number)
+            continue
+        locations.append((file, line))
+        line += 1
+    return locations
+
+
 def test_debug_emits_line_directives_to_btrc(tmp_path, monkeypatch):
     c, _ = compile_btrc(tmp_path, monkeypatch, PURE, "--debug")
     assert '#line 1 "' in c and "prog.btrc" in c
-    assert '#line 2 "' in c  # both statements mapped
+    mapped = {line for file, line in _presumed_locations(c) if file.endswith("prog.btrc")}
+    assert {1, 2} <= mapped  # both statements mapped
 
 
 def test_no_debug_has_no_line_directives(tmp_path, monkeypatch):

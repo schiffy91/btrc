@@ -83,6 +83,11 @@ class CEmitter:
         self._module = None  # set by emit(); archive header/impl paths leave None
         self._dbg_enabled = False  # stamp #line on each content line (in func bodies)
         self._dbg_loc = None  # current (btrc_file, line) or None for .c-mapped
+        # The mapping the next physical line already has, as the last #line
+        # left it: (file, line), (file, None) for the unit's own lines, or None
+        # when unknown; and the file that #line last named.
+        self._dbg_next: tuple[str, int | None] | None = None
+        self._dbg_presumed: str | None = None
         self._debug_cfile = ""  # this unit's own path for #line resets
         self._line_filenames: dict[str, str] = {}
         # Several units share one program: functions and globals lose internal
@@ -135,7 +140,7 @@ class CEmitter:
         self._shared_linkage = True
         sizes = []
         for func in module.function_defs:
-            self._lines = []
+            self._reset_lines()
             self._indent = 0
             self._emit_function(func)
             sizes.append(len(self._lines))
@@ -188,7 +193,7 @@ class CEmitter:
         function definitions. `runtime_definitions` marks a module-unit
         program: its runtime unit defines the helpers (True) and every other
         unit declares them (False)."""
-        self._lines = []
+        self._reset_lines()
         self._indent = 0
         self._module = module
         self._shared_linkage = unit_index >= 0
@@ -329,7 +334,7 @@ class CEmitter:
             raise ValueError("native adapters require separate translation units, not a C archive header")
         self._prepare_module(module)
         shared_decls = shared_decls or {}
-        self._lines = []
+        self._reset_lines()
         self._indent = 0
 
         self._line("#ifndef BTRC_STDLIB_H")
@@ -375,7 +380,7 @@ class CEmitter:
             raise ValueError("native adapters require separate translation units, not a C archive implementation")
         self._prepare_module(module)
         shared_names = shared_names or set()
-        self._lines = []
+        self._reset_lines()
         self._indent = 0
 
         self._line(self._include_text(IRInclude(header=header_include, is_system=False)))
@@ -468,20 +473,32 @@ class CEmitter:
         self._line("")
 
     # --- Output helpers ---
+    def _reset_lines(self) -> None:
+        """Start an empty unit, whose line mapping is not yet known."""
+        self._lines = []
+        self._dbg_next = None
+        self._dbg_presumed = None
+
+    def _append(self, line: str) -> None:
+        """Append one physical line; a btrc mapping advances past it."""
+        self._lines.append(line)
+        if self._dbg_next is not None and self._dbg_next[1] is not None:
+            self._dbg_next = (self._dbg_next[0], self._dbg_next[1] + 1)
+
     def _line(self, text: str):
         """Emit physical lines with current indentation."""
         for part in text.split("\n"):
             if part.strip():
                 if self._dbg_enabled:
                     self._emit_line_directive()
-                self._lines.append("    " * self._indent + part)
+                self._append("    " * self._indent + part)
             else:
-                self._lines.append("")
+                self._append("")
 
     def _raw(self, text: str):
         """Emit raw text without indentation adjustment."""
         for line in text.rstrip("\n").split("\n"):
-            self._lines.append(line)
+            self._append(line)
 
     @staticmethod
     def _c_line_filename(path: str) -> str:
@@ -501,12 +518,25 @@ class CEmitter:
         return "".join(escaped)
 
     def _emit_line_directive(self):
-        """Map the next C line to its btrc origin or generated source."""
+        """Map the next C line to its btrc origin or generated source.
+
+        A directive that restates the mapping the next line already has is
+        left out, and one naming the file already in effect gives only the
+        line, so every C line keeps exactly the mapping it would have had."""
 
         if self._dbg_loc is not None:
             filename, line = self._dbg_loc
+            mapping = (filename, line)
         else:
             filename, line = self._debug_cfile or "<btrc-generated>", self._CLINE_PLACEHOLDER
+            mapping = (filename, None)
+        if mapping == self._dbg_next:
+            return
+        self._dbg_next = mapping
+        if filename == self._dbg_presumed:
+            self._lines.append(f"#line {line}")
+            return
+        self._dbg_presumed = filename
         # One encoding per path across the count pass and all emitted units.
         if filename not in self._line_filenames:
             self._line_filenames[filename] = self._c_line_filename(filename)

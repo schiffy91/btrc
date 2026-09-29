@@ -33,6 +33,14 @@ class CEmitter {
 	private bool dbgHasLocation = false;
 	private string dbgFile = "";
 	private int dbgLine = 0;
+	/* The mapping the next physical line already has, as the last #line left
+	 * it: a file and line, or the unit's own lines (dbgNextLine -1); and the
+	 * file that #line last named. */
+	private bool dbgNextKnown = false;
+	private string dbgNextFile = "";
+	private int dbgNextLine = -1;
+	private bool dbgPresumedKnown = false;
+	private string dbgPresumed = "";
 	private Map<string, string> lineFilenames;
 
 	public CEmitter() {
@@ -113,7 +121,7 @@ class CEmitter {
 		self.language = m.language;
 		self.sharedLinkage = true;
 		for fn in m.functions {
-			self.lines = [];
+			self.resetLines();
 			self.indent = 0;
 			self.emitFunction(fn);
 			sizes.push(self.lines.len);
@@ -166,7 +174,7 @@ class CEmitter {
 	private string emitUnit(IRModule m, int unitIndex, int first, int end, string unitsPrefix = "") {
 		if (m.language != "c" && m.language != "objective-c" && m.language != "c++") { throw "unsupported IR translation-unit language"; }
 		self.language = m.language;
-		self.lines = [];
+		self.resetLines();
 		self.indent = 0;
 		self.sharedLinkage = unitIndex >= 0;
 		self.declarationsOnly = unitIndex > 0;
@@ -715,10 +723,36 @@ class CEmitter {
 		return escaped;
 	}
 
+	/* Map the next C line to its btrc origin or generated source. A directive
+	 * that restates the mapping the next line already has is left out, and one
+	 * naming the file already in effect gives only the line, so every C line
+	 * keeps exactly the mapping it would have had. */
 	private void emitLineDirective() {
-		if (self.dbgHasLocation) { self.lines.push("#line " + Strings.fromInt(self.dbgLine) + " \"" + self.cLineFilename(self.dbgFile) + "\""); return; }
-		string cfile = self.debugCfile.isEmpty() ? "<btrc-generated>" : self.debugCfile;
-		self.lines.push("#line @@BTRC_CLINE@@ \"" + self.cLineFilename(cfile) + "\"");
+		string file = self.debugCfile.isEmpty() ? "<btrc-generated>" : self.debugCfile;
+		string number = "@@BTRC_CLINE@@";
+		int mapped = -1;
+		if (self.dbgHasLocation) { file = self.dbgFile; number = Strings.fromInt(self.dbgLine); mapped = self.dbgLine; }
+		if (self.dbgNextKnown && self.dbgNextFile == file && self.dbgNextLine == mapped) { return; }
+		self.dbgNextKnown = true;
+		self.dbgNextFile = file;
+		self.dbgNextLine = mapped;
+		if (self.dbgPresumedKnown && self.dbgPresumed == file) { self.lines.push("#line " + number); return; }
+		self.dbgPresumedKnown = true;
+		self.dbgPresumed = file;
+		self.lines.push("#line " + number + " \"" + self.cLineFilename(file) + "\"");
+	}
+
+	/* Start an empty unit, whose line mapping is not yet known. */
+	private void resetLines() {
+		self.lines = [];
+		self.dbgNextKnown = false;
+		self.dbgPresumedKnown = false;
+	}
+
+	/* Append one physical line; a btrc mapping advances past it. */
+	private void append(string text) {
+		self.lines.push(text);
+		if (self.dbgNextKnown && self.dbgNextLine >= 0) { self.dbgNextLine = self.dbgNextLine + 1; }
 	}
 
 	/* Generated-file resets name the line after themselves once the layout is final. */
@@ -1241,9 +1275,9 @@ class CEmitter {
 			string part = parts.get(index);
 			if (self.stripped(part) != "") {
 				if (self.dbgEnabled) { self.emitLineDirective(); }
-				self.lines.push(self.indentation(self.indent) + part);
+				self.append(self.indentation(self.indent) + part);
 			} else {
-				self.lines.push("");
+				self.append("");
 			}
 			index = index + 1;
 		}
@@ -1255,7 +1289,7 @@ class CEmitter {
 		string t = self.withoutTrailingNewlines(text);
 		Vector<string> parts = self.splitLines(t);
 		int i = 0;
-		while (i < parts.len) { self.lines.push(parts.get(i)); i = i + 1; }
+		while (i < parts.len) { self.append(parts.get(i)); i = i + 1; }
 	}
 
 	private string withoutTrailingNewlines(string s) {

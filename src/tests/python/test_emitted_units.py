@@ -64,6 +64,117 @@ def test_debug_filename_encoding_is_shared_within_one_emission(monkeypatch, spli
                     assert line == f'#line {number + 1} "{encode(filename)}"'
 
 
+def _presumed(text: str, own: str) -> tuple[list[tuple[str, object]], int]:
+    """Each non-directive line's presumed (file, line), with the unit's own
+    lines as (own, "C"); and how many directives restated the mapping the
+    next line already had."""
+    locations: list[tuple[str, object]] = []
+    file, line, state, redundant = "", 0, None, 0
+    for text_line in text.split("\n"):
+        if text_line.startswith("#line "):
+            number, _, name = text_line[len("#line ") :].partition(" ")
+            file = name[1:-1] if name else file
+            line = int(number)
+            target = (file, "C") if file == own else (file, line)
+            redundant += target == state
+            state = target
+            continue
+        locations.append((file, "C") if file == own else (file, line))
+        line += 1
+        if state is not None and state[1] != "C":
+            state = (state[0], state[1] + 1)
+    return locations, redundant
+
+
+def test_debug_line_directives_map_every_line_without_restating():
+    """A directive that the next line's mapping already implies is left out,
+    and one naming the file in effect gives only the line; every C line still
+    maps where its line marker says."""
+    from src.compiler.python.backend.c_emitter import CEmitter
+    from src.compiler.python.ir.nodes import (
+        CType,
+        IRBlock,
+        IRExprStmt,
+        IRFunctionDef,
+        IRLineMarker,
+        IRLiteral,
+        IRModule,
+    )
+
+    source, generated = "Program.btrc", "program.c"
+
+    def statement(text: str) -> IRExprStmt:
+        return IRExprStmt(IRLiteral(text=text))
+
+    module = IRModule(debug=True, debug_cfile=generated)
+    module.function_defs = [
+        IRFunctionDef(
+            name="stepped",
+            return_type=CType("void"),
+            body=IRBlock(
+                [
+                    IRLineMarker(file=source, line=5),
+                    statement("first"),
+                    statement("second"),
+                    IRLineMarker(file=source, line=6),
+                    statement("third"),
+                    IRLineMarker(file=source, line=9),
+                    statement("fourth"),
+                ]
+            ),
+        ),
+        IRFunctionDef(name="synthesized", return_type=CType("void"), body=IRBlock([statement("fifth")])),
+        IRFunctionDef(
+            name="resumed",
+            return_type=CType("void"),
+            body=IRBlock([IRLineMarker(file=source, line=10), statement("sixth")]),
+        ),
+    ]
+    text = CEmitter().emit(module)
+    locations, redundant = _presumed(text, generated)
+    content = [line for line in text.split("\n") if not line.startswith("#line ")]
+    where = {line.strip(): location for line, location in zip(content, locations, strict=True)}
+    assert where["(void)(first);"] == (source, 5)
+    assert where["(void)(second);"] == (source, 5)
+    assert where["(void)(third);"] == (source, 6)
+    assert where["(void)(fourth);"] == (source, 9)
+    assert where["(void)(fifth);"] == (generated, "C")
+    assert where["(void)(sixth);"] == (source, 10)
+    assert redundant == 0
+    directives = [line for line in text.split("\n") if line.startswith("#line ")]
+    # Line 6 follows line 5's second statement, so it needs no directive, and
+    # only a switch of file repeats a file name.
+    assert '#line 6 "Program.btrc"' not in directives and "#line 6" not in directives
+    assert sum(line.endswith('"Program.btrc"') for line in directives) == 2
+
+
+def test_both_compilers_map_the_same_lines_without_restating(tmp_path, request):
+    """Both compilers leave out restating directives and map the same btrc lines."""
+    program = ROOT / "src/tests/memory/CycleAndThrow.btrc"
+    environment = {**os.environ, "BTRC_HOME": str(ROOT / "src")}
+    mapped = []
+    for command in (
+        [sys.executable, "-m", "src.compiler.python.main"],
+        [str(request.getfixturevalue("immutable_btrcc"))],
+    ):
+        output = tmp_path / f"{len(mapped)}.c"
+        completed = subprocess.run(
+            [*command, "--no-cache", "--debug", str(program), "-o", str(output)],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        assert completed.returncode == 0, completed.stderr
+        text = output.read_text()
+        locations, redundant = _presumed(text, str(output))
+        assert redundant == 0
+        assert any(line.startswith("#line ") and '"' not in line for line in text.split("\n"))
+        mapped.append({line for file, line in locations if file == str(program)})
+    assert mapped[0] and mapped[0] == mapped[1]
+
+
 @pytest.mark.skipif(os.name == "nt" or shutil.which("cc") is None, reason="POSIX filenames and a C toolchain")
 @pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
 def test_debug_split_build_preserves_escaped_source_and_output_paths(tmp_path, request, frontend):
