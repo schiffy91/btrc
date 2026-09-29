@@ -570,8 +570,12 @@ import edges directed and textual include edges treated as reciprocal (the
 same rule `SourceDependencyGraph.visibility_reachable` uses). A declaration
 belongs to the group of its stamped `source_file`. Native-header declarations
 and anything without a source file belong to the **program unit**, which also
-defines the process-unique runtime state that a split program already places
-in its primary unit.
+gathers every runtime helper any unit selected. The **runtime unit**
+(`unit-runtime`) defines those helpers and their process-unique state once,
+with external linkage; every other unit, the program unit included, keeps the
+helpers' types and macros and declares their functions and state. The runtime
+is then compiled once per build instead of once per unit: on BTRSmith that
+removed 26% of the emitted C and 23% of the native compile's CPU time.
 
 Groups are ordered topologically for summaries. Mutual recursion across groups
 requires an import cycle and is therefore inside one group. Generic
@@ -636,10 +640,11 @@ Clean and incremental builds are compared unit-for-unit in tests.
    unit's volatility and capture rejection match whole-program lowering.
 5. Realtime proofs follow calls into other units' IR
    (`IRVerifier.validate_program_realtime`); the program-wide cyclable-release
-   fact is supplied to the unit defining `main`; the program unit defines the
-   runtime state of every helper any unit selected.
+   fact is supplied to the unit defining `main`; the runtime unit defines
+   every helper any unit selected, and its state.
 6. Units that define nothing externally are dropped; each kept unit is named
-   `unit-<stem>-<path hash>` so its file and native object stay stable.
+   `unit-<stem>-<path hash>` so its file and native object stay stable, and the
+   runtime unit is `unit-runtime`.
 
 A **`ModuleUnitRecord`** per group (in the compiler cache, checksummed and
 framed by the toolchain fingerprint) holds the unit text and the facts it

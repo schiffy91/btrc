@@ -34,7 +34,10 @@ from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
 from .results import CompilerOptions
 
-_RECORD_SCHEMA = 2
+_RECORD_SCHEMA = 3
+# The unit that defines every runtime helper of a module-unit program; a
+# group's unit is named for its path hash and so never takes this name.
+RUNTIME_UNIT_NAME = "unit-runtime"
 # The owner of the declarations-only session: a name no compilation group has.
 _DECLARATIONS = "\0declarations"
 _UNHASHED_FIELDS = frozenset({"line", "col", "name_line", "name_col", "source_file"})
@@ -610,7 +613,7 @@ class SharedDeclarations:
         if len(others) == len(everything):
             return
         unit.preprocessor_decls = others
-        used = set(IROptimizer.identifier_tokens(CEmitter().emit_module_unit(unit, False)))
+        used = set(IROptimizer.identifier_tokens(CEmitter().emit_module_unit(unit)))
         unit.preprocessor_decls = [
             declaration
             for declaration in everything
@@ -618,6 +621,18 @@ class SharedDeclarations:
             or not self._native_header_names[declaration.header]
             or self._native_header_names[declaration.header] & used
         ]
+
+    def runtime_module(self, unit: IRModule) -> IRModule:
+        """The runtime unit's module: `unit`'s helpers under its prologue,
+        without the native binding headers no helper reads."""
+        return IRModule(
+            preprocessor_decls=[
+                declaration for declaration in unit.preprocessor_decls if not self._native_include(declaration)
+            ],
+            freestanding=unit.freestanding,
+            needs_runtime=unit.needs_runtime,
+            helper_decls=list(unit.helper_decls),
+        )
 
     def merge_into(self, unit: IRModule) -> None:
         """Add the shared declarations `unit` needs that it does not provide."""
@@ -774,15 +789,13 @@ class ModuleUnitCompiler:
         groups = source.graph.compilation_groups(source.root_source_path)
         facts = ProgramLoweringFacts()
         start = time.perf_counter()
-        # The program unit is always lowered: it computes the shared program
-        # facts, owns native adapters and defines every unit's runtime state.
         # One declarations-only session lowers every declaration without
         # bodies; it also computes the program facts every session shares.
         declarations = self._lower(analyzed, filename, options, source_map, groups, _DECLARATIONS, facts)
         shared = SharedDeclarations(declarations)
         shared.configure_native_headers(analyzed.program.declarations)
         # The program unit is always lowered: it owns native adapters and
-        # defines every unit's runtime state.
+        # gathers every helper any unit uses, which the runtime unit defines.
         program_unit = self.lower_group(
             analyzed, filename, options, source_map, groups, CompilationGroups.PROGRAM, facts
         )
@@ -956,7 +969,9 @@ class ModuleUnitCompiler:
 
         start = time.perf_counter()
         emitted = [(self.unit_name(state.name), state.record.text) for state in states if state.record.kept]
-        primary = CEmitter().emit_module_unit(program_unit, True)
+        if program_unit.helper_decls:
+            emitted.insert(0, (RUNTIME_UNIT_NAME, CEmitter().emit_runtime_unit(shared.runtime_module(program_unit))))
+        primary = CEmitter().emit_module_unit(program_unit)
         timed(profile, "emit", start)
         native_units = tuple(
             (name, unit.language, CEmitter().emit(unit)) for name, unit in sorted(program_unit.native_units.items())
@@ -1510,7 +1525,7 @@ class ModuleUnitWorker:
             self._shared.trim_native_includes(unit)
         return {
             "kept": kept,
-            "text": CEmitter().emit_module_unit(unit, False) if kept else "",
+            "text": CEmitter().emit_module_unit(unit) if kept else "",
             "exports": tuple(sorted(function.name for function in unit.function_defs if not function.is_static)),
             "entry": any(function.name in {"main", "btrc_main"} for function in unit.function_defs),
             "helpers": helpers,

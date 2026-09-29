@@ -2,7 +2,9 @@
  * for one translation unit of a split program (mirrors backend/runtime_state.py):
  * helpers are plain `static` definitions; the unit that owns the state drops
  * `static` and every other unit declares the same names `extern` without an
- * initializer. */
+ * initializer. A module-unit program goes further: its runtime unit alone
+ * defines every helper function and object with external linkage, and each
+ * group's unit declares them, so the runtime is compiled once per build. */
 
 import Library.Strings;
 import Library.Vector;
@@ -50,6 +52,43 @@ class RuntimeUnitState {
 		string head = Strings.lstrip(unit);
 		if (!head.startsWith("static ") || head.startsWith("static const ") || head.startsWith("static inline ")) { return false; }
 		return !RuntimeUnitState.isFunctionDefinition(unit);
+	}
+
+	/* `text` without the leading `static`/`inline` specifiers that give a
+	 * helper internal linkage; the remaining specifiers keep their order. */
+	class string external(string text) {
+		Vector<string> words = Strings.split(Strings.lstrip(text), " ");
+		int kept = 0;
+		while (kept < words.len && (words.get(kept) == "static" || words.get(kept) == "inline")) { kept = kept + 1; }
+		Vector<string> rest = [];
+		while (kept < words.len) { rest.push(words.get(kept)); kept = kept + 1; }
+		return Strings.join(rest, " ");
+	}
+
+	/* Helper text for a module-unit program. The runtime unit (`define`) gives
+	 * every helper function and file-scope object external linkage; every
+	 * other unit keeps the types and macros and declares the functions and
+	 * objects instead of defining them. */
+	class string runtimeLinkage(string source, bool define) {
+		Vector<string> output = [];
+		for unit in RuntimeUnitState.splitToplevelUnits(source) {
+			string head = Strings.lstrip(unit);
+			if (head.startsWith("#") || !(head.startsWith("static ") || head.startsWith("inline "))) { output.push(unit); continue; }
+			if (RuntimeUnitState.isFunctionDefinition(unit)) {
+				if (define) { output.push(RuntimeUnitState.external(unit)); continue; }
+				int brace = Strings.find(unit, "{", 0);
+				output.push(RuntimeUnitState.external(Strings.rstrip(unit.substring(0, brace)) + ";"));
+				continue;
+			}
+			string definition = RuntimeUnitState.external(unit);
+			if (define) { output.push(definition); continue; }
+			string declaration = Strings.rstrip(definition);
+			if (declaration.endsWith(";")) { declaration = declaration.substring(0, declaration.length() - 1); }
+			int initializer = Strings.find(declaration, "=", 0);
+			if (initializer >= 0) { declaration = Strings.rstrip(declaration.substring(0, initializer)); }
+			output.push("extern " + declaration + ";");
+		}
+		return Strings.join(output, "\n");
 	}
 
 	/* Helper text for one unit of a split program: the primary defines the

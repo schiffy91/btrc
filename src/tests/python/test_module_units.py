@@ -573,6 +573,87 @@ def test_module_units_emit_the_whole_program_functions(compiler: str, tmp_path, 
     assert ran.stdout == "1 0\n"
 
 
+_DEFINITION = re.compile(r"^([A-Za-z_][\w \t*]*?)\b(__btrc_\w+)\s*\(", re.MULTILINE)
+
+
+def _runtime_definitions(text: str) -> dict[str, str]:
+    """Top-level runtime helper function definitions in one unit, name to storage.
+
+    A definition's signature may span lines, so each candidate header is read
+    up to its first `;` or `{`: a `{` makes it a definition."""
+    found = {}
+    for match in _DEFINITION.finditer(text):
+        rest = text[match.end() :]
+        end = min((index for index in (rest.find(";"), rest.find("{")) if index >= 0), default=-1)
+        if end >= 0 and rest[end] == "{" and "=" not in rest[:end]:
+            found[match.group(2)] = match.group(1)
+    return found
+
+
+def test_runtime_helpers_are_compiled_once_in_the_runtime_unit(compiler: str, tmp_path, request):
+    """The runtime unit defines every runtime helper once, with external
+    linkage; the group units only declare them, so the C compiler builds the
+    runtime once per program rather than once per unit."""
+    if compiler == "python":
+        command = [sys.executable, "-m", "src.compiler.python.main"]
+    else:
+        command = [str(request.getfixturevalue("immutable_btrcc"))]
+    source = (tmp_path / "program").resolve()
+    for name, text in _CYCLE_PROGRAM.items():
+        (source / name).parent.mkdir(parents=True, exist_ok=True)
+        (source / name).write_text(text)
+    output = tmp_path.resolve() / "units"
+    output.mkdir()
+    completed = subprocess.run(
+        [*command, "Main.btrc", "-o", str(output / "p.c"), "--emit-units", str(output / "p"), "--module-units"],
+        cwd=source,
+        env={
+            **os.environ,
+            "BTRC_HOME": str(ROOT / "src"),
+            "PYTHONPATH": str(ROOT),
+            "BTRC_CACHE_DIR": str(output / "cache"),
+        },
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert completed.returncode == 0, completed.stderr
+    runtime = output / "p.unit-runtime.c"
+    others = [path for path in sorted(output.glob("p*.c")) if path != runtime]
+    defined = _runtime_definitions(runtime.read_text())
+    # The ARC release path and the try stack are always in a program with
+    # cycles and exceptions; each is defined here and declared elsewhere.
+    assert {"__btrc_arc_release_impl", "__btrc_push_try"} <= defined.keys()
+    assert not any("static" in storage or "inline" in storage for storage in defined.values())
+    for path in others:
+        text = path.read_text()
+        assert not _runtime_definitions(text).keys() & defined.keys(), path.name
+    assert any("__btrc_push_try(void);" in path.read_text() for path in others)
+    if C_COMPILER is None:
+        pytest.skip("module-unit execution needs a C compiler")
+    executable = output / "program"
+    subprocess.run(
+        [
+            C_COMPILER,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            *map(str, [runtime, *others]),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+    ran = subprocess.run([str(executable)], check=True, capture_output=True, text=True, timeout=30)
+    assert ran.stdout == "1 0\n"
+
+
 def test_an_edit_replaces_only_the_changed_unit_files(compiler: str, tmp_path, request):
     """Units whose bytes are unchanged keep their files, inode and mtime included.
 

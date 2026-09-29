@@ -5,6 +5,11 @@ The stdlib archive and ``--emit-units`` both need one definition of every
 mutable runtime variable across several C files. The helpers are written as
 plain ``static`` definitions; the unit that owns the state drops ``static``
 and the others declare the same names ``extern`` without an initializer.
+
+A module-unit program goes further: its runtime unit alone defines every
+helper function and object with external linkage, and each group's unit
+declares them, so the runtime is compiled once per build rather than once per
+unit.
 """
 
 from __future__ import annotations
@@ -73,6 +78,49 @@ def unit_state(source: str, primary: bool) -> str:
             continue
         definition = unit.lstrip()[len("static ") :]
         if primary:
+            output.append(definition)
+            continue
+        declaration = definition.rstrip().rstrip(";")
+        initializer = declaration.find("=")
+        if initializer != -1:
+            declaration = declaration[:initializer].rstrip()
+        output.append(f"extern {declaration};")
+    return "\n".join(output)
+
+
+_LINKAGE_WORDS = ("static", "inline")
+
+
+def _external(text: str) -> str:
+    """``text`` without the leading ``static``/``inline`` specifiers that give a
+    helper internal linkage; the remaining specifiers keep their order."""
+
+    head = text.lstrip()
+    words = head.split(" ")
+    kept = 0
+    while kept < len(words) and words[kept] in _LINKAGE_WORDS:
+        kept += 1
+    return " ".join(words[kept:])
+
+
+def runtime_linkage(source: str, define: bool) -> str:
+    """Helper text for a module-unit program. The runtime unit (``define``)
+    gives every helper function and file-scope object external linkage; every
+    other unit keeps the types and macros and declares the functions and
+    objects instead of defining them."""
+
+    output: list[str] = []
+    for unit in split_toplevel_units(source):
+        head = unit.lstrip()
+        if head.startswith("#") or not head.startswith(("static ", "inline ")):
+            output.append(unit)
+            continue
+        prototype = function_definition_prototype(unit)
+        if prototype is not None:
+            output.append(_external(unit if define else prototype))
+            continue
+        definition = _external(unit)
+        if define:
             output.append(definition)
             continue
         declaration = definition.rstrip().rstrip(";")

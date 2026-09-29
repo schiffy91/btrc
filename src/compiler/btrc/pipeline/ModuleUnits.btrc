@@ -618,6 +618,15 @@ class ModuleUnitDeclarations {
 
 	class bool builtinWord(string word) { return word == "struct" || word == "union" || word == "enum" || word == "const" || word == "volatile" || word == "restrict" || word == "signed" || word == "unsigned" || word == "char" || word == "short" || word == "int" || word == "long" || word == "float" || word == "double" || word == "void" || word == "bool" || word == "_Bool"; }
 
+	/* The runtime unit's module: `unit`'s helpers under its prologue, without
+	 * the native binding headers no helper reads. */
+	public IRModule runtimeModule(IRModule unit) {
+		IRModule runtime = IRModule();
+		for declaration in unit.preprocessorDecls { if (!self.nativeInclude(declaration)) { runtime.preprocessorDecls.push(declaration); } }
+		for helper in unit.helpers { runtime.helpers.push(helper); }
+		return runtime;
+	}
+
 	private bool nativeInclude(IRPreprocessorDecl declaration) { return declaration.kind == IR_PREPROCESSOR_INCLUDE && !declaration.isSystem && self.nativeHeaderNames.has(declaration.header); }
 
 	/* Keeps a native binding include only when the unit's C, emitted without
@@ -632,7 +641,7 @@ class ModuleUnitDeclarations {
 		if (others.len == all.len) { return; }
 		unit.preprocessorDecls = others;
 		Map<string, bool> used = {};
-		ModuleUnitDeclarations.collectText(CEmitter().emitModuleUnit(unit, false), used);
+		ModuleUnitDeclarations.collectText(CEmitter().emitModuleUnit(unit), used);
 		Vector<IRPreprocessorDecl> kept = [];
 		for declaration in all {
 			if (self.nativeInclude(declaration)) {
@@ -855,6 +864,10 @@ class ModuleUnitCompiler {
 			if (!self.groupOfFile.has(line.sourceFile)) { self.groupOfFile.put(line.sourceFile, self.groups.groupOfIdentity(paths.identity(line.sourceFile))); }
 		}
 	}
+
+	/* The unit that defines every runtime helper of the program; a group's
+	 * unit is named for its path hash and so never takes this name. */
+	class string runtimeUnitName() { return "unit-runtime"; }
 
 	/* A stable output name for a group's unit: its file stem and path hash. */
 	class string unitName(string group) {
@@ -1776,7 +1789,7 @@ class ModuleUnitCompiler {
 		shared.configureNativeHeaders(input.analyzed.nativeDeclarations);
 		BtrccPhaseTimer.mark("u-declarations");
 		/* The program unit is always lowered here: it owns native adapters and
-		 * defines every unit's runtime state. */
+		 * gathers every helper any unit uses, which the runtime unit defines. */
 		IRModule programUnit = self.lowerGroup("", shared);
 		ModuleUnitGraph programGraph = ModuleUnitGraph.fromUnit(programUnit, self.lastInstances);
 		self.addHostedRealtimeExternals(programUnit);
@@ -1792,7 +1805,7 @@ class ModuleUnitCompiler {
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
-			string identity = SHA256.digest("module-unit-v4\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
+			string identity = SHA256.digest("module-unit-v5\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
 			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
 			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }
 			IBtrccArtifactCache? store = self.store;
@@ -1978,7 +1991,8 @@ class ModuleUnitCompiler {
 			exit(1);
 		}
 		BtrccPhaseTimer.mark("u-records");
-		/* The program unit defines the state of every helper any unit uses. */
+		/* The program unit gathers every helper any unit uses; the runtime
+		 * unit defines them. */
 		for state in states {
 			ModuleUnitRecord? record = state.record;
 			if (!state.stale && record != null) { for helper in record.helpers { helperNames.put(helper, true); } }
@@ -1989,6 +2003,10 @@ class ModuleUnitCompiler {
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(input.runtimeHelpers);
 		for helper in references.requiredBy(programUnit).keys() { helperNames.put(helper, true); }
 		input.runtimeHelpers.materializeInto(programUnit, helperNames);
+		if (programUnit.helpers.len > 0) {
+			build.units.push(CEmitter().emitRuntimeUnit(shared.runtimeModule(programUnit)));
+			build.unitNames.push(ModuleUnitCompiler.runtimeUnitName());
+		}
 		for state in states {
 			ModuleUnitRecord? finishedRecord = state.record;
 			if (finishedRecord != null && finishedRecord.kept) {
@@ -1999,7 +2017,7 @@ class ModuleUnitCompiler {
 			else { build.reused.push(state.name); }
 		}
 		if (self.options.debug && !self.options.outputPath.isEmpty()) { programUnit.debugCfile = FeCanonicalPath.absolute(self.options.outputPath); }
-		build.primary = CEmitter().emitModuleUnit(programUnit, true);
+		build.primary = CEmitter().emitModuleUnit(programUnit);
 		build.program = programUnit;
 		keep states;
 		keep shared;
@@ -2179,7 +2197,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		if (kept) {
 			self.compiler.prepareDebugPaths(unit, group);
 			self.shared.trimNativeIncludes(unit);
-			text = CEmitter().emitModuleUnit(unit, false);
+			text = CEmitter().emitModuleUnit(unit);
 		}
 		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer(unit.temporaryNames);
 		JSONValue header = JSONValue.makeObject();

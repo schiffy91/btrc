@@ -76,12 +76,23 @@ class CEmitter {
 	}
 
 	/* Emit one compilation group's unit of a module-unit program. Lowering
-	 * already chose each definition's linkage, so it is kept. The primary
-	 * (program) unit defines the process-unique runtime state that every other
-	 * unit declares extern. */
-	public string emitModuleUnit(IRModule m, bool primary) {
+	 * already chose each definition's linkage, so it is kept. The unit
+	 * declares the runtime helpers it uses; the program's runtime unit defines
+	 * them. */
+	public string emitModuleUnit(IRModule m) {
 		self.lineFilenames = {};
-		self.moduleUnitState = primary ? 1 : 0;
+		self.moduleUnitState = 0;
+		string text = self.emitUnit(m, -1, 0, m.functions.len);
+		self.moduleUnitState = -1;
+		return text;
+	}
+
+	/* Emit the runtime unit of a module-unit program: a module holding only
+	 * the program's helpers and their prologue, whose helper functions and
+	 * state are defined here once with external linkage. */
+	public string emitRuntimeUnit(IRModule m) {
+		self.lineFilenames = {};
+		self.moduleUnitState = 1;
 		string text = self.emitUnit(m, -1, 0, m.functions.len);
 		self.moduleUnitState = -1;
 		return text;
@@ -188,9 +199,11 @@ class CEmitter {
 		int h = 0;
 		while (h < m.helpers.len) {
 			/* A split program defines the helpers' file-scope state in the
-			 * primary unit and declares it extern in the others. */
+			 * primary unit and declares it extern in the others, and a
+			 * module-unit program defines every helper in its runtime unit
+			 * alone. */
 			if (self.sharedLinkage) { self.raw(RuntimeUnitState.forUnit(m.helpers.get(h), self.unitIndex == 0)); }
-			else if (self.moduleUnitState >= 0) { self.raw(RuntimeUnitState.forUnit(m.helpers.get(h), self.moduleUnitState == 1)); }
+			else if (self.moduleUnitState >= 0) { self.raw(RuntimeUnitState.runtimeLinkage(m.helpers.get(h), self.moduleUnitState == 1)); }
 			else { self.raw(m.helpers.get(h)); }
 			self.line("");
 			h = h + 1;
