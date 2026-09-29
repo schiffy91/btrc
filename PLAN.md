@@ -851,6 +851,7 @@ peak footprint of one cold `--jobs 1` compile, clang -O2 btrcc.
 |---|---|---|---|---|---|
 | 1. Runtime compiled once | native CPU <= 86.8 s | 82.4-82.8 s | 63.4-63.5 s (-23%) | yes | db57cda |
 | 2. Emitted C trimmed | native CPU -10% vs step 1, test-debug passes | 68.1-68.4 s | 57.9-58.6 s (-14 to -15%) | yes | 07ca1f6, c4f7f57 |
+| 3. No needless ARC/cleanup work | instructions -25% | 1,366.5 G | 1,216.9 G (-10.9%) | no | 9e30c2d |
 
 **Step 1 -- the runtime unit.** Every module unit carried a static copy of
 each runtime helper it reached: BTRSmith's 408 units compiled the ARC,
@@ -892,6 +893,33 @@ measured and rejected: `-fno-standalone-debug` saved nothing and
 debugging. Gates on c4f7f57: lint and format-check pass; `make test` 12,423
 passed, 142 skipped, bootstrap passed; `make bootstrap` passed; `make
 test-c11` 8 x 1,930 passed.
+
+**Step 3 -- references that cannot need an unwind cleanup.** A profile of a
+cold `--jobs 1` compile put 22.7% of samples under the ARC drain and a sixth
+under cleanup registration and its thread-local lookups. Three kinds of
+registration protected nothing and are gone: a returned reference
+registered and discarded on the next line when no local's release ran first
+(1,094 of btrcc's 2,136 return registrations, `Vector<T>.get` among them);
+63 null stores in the generated AST node constructor and 20 in `IRNode()`,
+each a retained, registered, released null and an edge replacement on a
+freshly zeroed object; and the reference compiler's pinned null store to an
+ARC field. Instructions retired 1,366.5 G -> 1,216.9 G (-10.9%), peak 4.00 ->
+3.95 GB. **Not met (-25%).** The step's premise, borrowed (+0) returns for
+readers and accessors, is not implemented: the borrowed return ABI exists
+for hosted calls (`CallableReturnABI.BORROWED`, `current_return_owned`), but
+treating a call to a field-returning accessor as a field read touches call,
+index, property-getter and iteration ownership in both compilers, receiver
+lifetime for temporary receivers, and the module-unit facts digest. A
+runtime fast path for `__btrc_flush_cycles` saved another 1.5% and was
+reverted: the frozen boundary pins the runtime source (`cycles.c`), and the
+plan forbids editing frozen fixtures.
+Gates on 9e30c2d: lint and format-check pass; `make bootstrap` passed; `make
+test-c11` 8 x 1,930 passed; `make test` 12,423 passed, 142 skipped, bootstrap
+passed. The first `make test` in the Google Drive checkout failed one test,
+`test_candidate_capture_is_build_only_complete_and_non_mutating`, with
+"source input changed after read": the file provider touches files written
+under `build/`. The same commit passes from a worktree outside Drive, where
+the gates for later steps run.
 
 ### Bucket 1 KPI checkpoint
 
