@@ -989,6 +989,130 @@ lint and format-check pass; `make test` 12,425 passed, 142 skipped;
 `make bootstrap` passed; `make test-c11` 8 x 1,930 passed after one rerun
 (the first run lost `stdlib/Daemon.btrc` to its wall-clock deadline).
 
+**Edit-path changes (perf-m11, landed on main as 79f225c..35b51de).** Each measured
+before/after on the private-body edit fixtures at `--jobs 1` (instructions
+retired, `/usr/bin/time -l`, the reader built from the same tree), or on the
+native plan's own phases:
+
+| Commit | Change | Measured |
+|---|---|---|
+| 79f225c | instance records keyed by each section's own dependencies | navigation instance closure 192+85r -> 1+276r, g-transitive 3.69 s -> 2.35 s |
+| 7a60afe | Fibonacci-mixed reference hash (both compilers) | cold 1,189.6 G -> 1,158.6 G; navigation g-transitive 2.31 s -> 1.16 s |
+| 270d4d8 | stable merge sort in `Vector` | edits -7% (audio 151.6 G -> 140.8 G); cold +1.6% |
+| aaa3b8e | reader traces directories by identity | n-bindings after a store write 3.05 s -> 0.45 s |
+| 330d7fd | reader runs without `BTRC_TIMING` | timing on/off no longer misses 3.7-4.0 s of headers |
+| 1803d55 | reader proves session-wide facts once | one receipt session 4.90 s -> 2.79 s |
+| 331ca12 | image digest in identities, slim receipts | receipts 164 KB -> 14.7 KB; one session 3.0 s -> 2.4 s |
+| 411a952 | artifact entries opened beside a kept root | audio 139.9 G -> 136.2 G |
+| 8ae7a69 | realtime events kept to the first effect | r-index 0.47-0.70 s -> 0.08-0.28 s |
+| d3262fe | preprocessor scan bounded by cached length | lex 0.46 s -> 0.37-0.40 s |
+| 641f612 | one realpath per directory in validation | audio 136.2 G -> 126.0 G (with the two above) |
+| 01bdd7e | no global seed for foreign bodies | l-declarations 0.92 s -> 0.70-0.78 s; audio 126.0 G -> 122.2 G |
+| 4204182 | same for foreign generic-instance methods | audio 122.2 G -> 120.3 G |
+| 8a2f458 | AST walks read lazy list storage | l-setup 0.49-0.60 s -> 0.17 s; audio 120.3 G -> 112.5 G |
+| 95e3722 | whole-tree walks skip unset fields | visibility 0.44 s -> 0.32 s; audio 112.5 G -> 109.7 G |
+| aa09eb1 | directive cache beside a kept root | audio 109.7 G -> 109.2 G |
+| cf0b494 | reader trusts immutable store objects | native receipts 1.40-1.50 s -> 1.04-1.16 s; n-prepare 0.57 s -> 0.42-0.46 s |
+| 2d15f17 | link toolchain queried beside receipts | link context 0.51 s -> 0.30 s |
+| 2bf5b31 | inline worker takes setjmp summaries as values | u-solve 0.80-0.99 s -> 0.42-0.61 s; audio 109.2 G -> 106.3 G |
+| 6a16645 | objects restored by link, hashed once | debug inventory 0.075 s -> 0.044 s |
+| 60273a4 | group source lines digested once | u-sources 0.21 s -> 0.05 s; audio 106.3 G -> 104.6 G |
+| 35b51de | native declarations imported only when compiling | no-op compile 1.92-1.96 s -> 1.54-1.57 s; edits unchanged |
+
+Net on the audio edit at `--jobs 1`: 151.6 G -> 104.6 G instructions (-31%).
+Rejected after measuring (reverted): a first-byte scan in `Strings.split`
+(no change, 109.7 G vs 110.4 G) and a compiled hex pattern in the native
+plan's receipt reads (1.13 s either way).
+
+**First batch on main: 35b51de.** Full run, all scenarios:
+
+| Target | Budget | Median | p95 | Met |
+|---|---|---|---|---|
+| private-body edit, navigation | median <= 10 s, p95 <= 15 s | 11.08 s | 11.23 s | median no |
+| private-body edit, UI controller | median <= 10 s, p95 <= 15 s | 11.15 s | 11.25 s | median no |
+| private-body edit, audio-adjacent | median <= 10 s, p95 <= 15 s | 10.70 s | 10.94 s | median no |
+| cold transpile, empty caches | <= 55 s | 44.45 s | 46.03 s | yes |
+| cold dev build, executable | <= 80 s | 60.83 s | 61.36 s | yes |
+| no-op | <= 5 s | 3.24 s | 3.27 s | yes |
+| byte-identical touch | <= 5 s | 3.27 s | 3.32 s | yes |
+| btrcc peak footprint, `--jobs 1` | <= 3 GiB | 2.944 GiB | | yes |
+| sampled aggregate build RSS, 8 native jobs | <= 6 GiB | 4.975 GiB | | yes |
+
+Every clean-build check matched (18,012 function bodies, same smoke output).
+Gates on 35b51de: lint and format-check pass; `make test` 12,430 passed, 142
+skipped; `make bootstrap` passed; `make test-c11` 8 x 1,934 passed.
+
+**Second edit-path batch (3033598..65057cb).** Measured like the first, each
+binary compiling the same stdlib input from primed snapshots (instructions at
+`--jobs 1`), or, for the native plan, alternating fresh audio edits:
+
+| Commit | Change | Measured |
+|---|---|---|
+| 3033598 | type-node misses skip the full node index | navigation g-transitive 0.85 s -> 0.79 s; UI c-declarations 0.43 s -> 0.34 s |
+| fcdbd6d | type identity keys built in one builder | g-transitive 0.50 s -> 0.33 s on every fixture; navigation 106.9 G -> 102.7 G |
+| f82e03e, 57aeb63, 5397c50 | split scans with strcspn; group digests streamed; one realpath per output directory (measured together) | navigation 102.7 G -> 101.2 G, UI 107.4 G -> 106.0 G, audio 100.0 G -> 98.3 G |
+| de43e8b | package policy asked only about referenced owners | visibility 0.32-0.34 s -> 0.26 s |
+| 3390d43 | Bytes scanned eight ASCII bytes at a time | u-record-load 0.37 s -> 0.29 s; navigation 101.1 G -> 99.9 G |
+| 3cd4764 | an edit's publication reads unchanged outputs once | navigation 99.9 G -> 98.7 G, UI 104.3 G -> 103.7 G |
+| ecf6774 | a stored generation references stored module units (schema 2) | navigation 98.7 G -> 98.0 G, UI 103.7 G -> 102.6 G; 407 of 410 payloads referenced; no-op compile 1.40 s -> 1.44 s |
+| d6ee6c8 | declarations-only lowering shares only foreign signatures | l-declarations 0.73 s -> 0.58 s; navigation 98.0 G -> 94.8 G; peak 1.06 -> 0.98 GiB; every emitted unit byte-identical |
+| af2d5ee | source content digested with the host's SHA-256 | r-graph 0.49 s -> 0.43 s; navigation 94.8 G -> 93.5 G |
+| 1a5530d | declaration symbols claimed once per program | navigation 93.5 G -> 93.0 G, UI 98.4 G -> 97.7 G |
+| fc581ee | the Python compiler API resolves on first use | `import tools.native_plan` 0.20 s -> 0.05 s |
+| 63b11aa | deferred objects validated beside debug retention and link expansion | native edit 2.73 s -> 2.44 s median of 4 alternating pairs, with fc581ee |
+| 65057cb | retention shares verified object identities with the link receipt | link context 0.10 s -> 0.05 s |
+
+Net at `--jobs 1` since 35b51de: navigation 107.7 G -> 93.0 G, UI 112.5 G ->
+97.7 G, audio 103.9 G -> 90.2 G (-13%). Rejected after measuring: indexing
+declarations lazily for codec lookups (101.2 G -> 101.5 G: lookups mostly miss
+and walk everything anyway) and 4, 6 or 12 receipt sessions instead of 8
+(1.08 / 1.05 / 1.30 s against 0.99 s).
+
+**Every M11 target met: 65057cb.** Full run, all scenarios, same harness
+(`tools/budget_bench.py`), btrcc built by clang `-O2` from the same tree:
+
+| Target | Budget | 35b51de median | Median | p95 | Max | Met |
+|---|---|---|---|---|---|---|
+| private-body edit, navigation (20) | median <= 10 s, p95 <= 15 s | 11.08 s | 9.62 s | 9.79 s | 10.09 s | yes |
+| private-body edit, UI controller (20) | median <= 10 s, p95 <= 15 s | 11.15 s | 9.69 s | 9.80 s | 9.89 s | yes |
+| private-body edit, audio-adjacent (20) | median <= 10 s, p95 <= 15 s | 10.70 s | 9.31 s | 9.57 s | 9.73 s | yes |
+| cold transpile, empty caches (5) | <= 55 s | 44.45 s | 43.57 s | 45.88 s | 45.88 s | yes |
+| cold dev build, executable (5) | <= 80 s | 60.83 s | 59.76 s | 60.10 s | 60.10 s | yes |
+| no-op (20) | <= 5 s | 3.24 s | 2.92 s | 2.96 s | 2.97 s | yes |
+| byte-identical touch (20) | <= 5 s | 3.27 s | 2.91 s | 2.96 s | 2.98 s | yes |
+| btrcc peak footprint, `--jobs 1` | <= 3 GiB | 2.944 GiB | 2.966 GiB | | | yes |
+| sampled aggregate build RSS, 8 native jobs | <= 6 GiB | 4.975 GiB | 4.828 GiB | | | yes |
+
+After each fixture's samples a clean build emitted the same 18,012 function
+bodies and printed the same smoke output. The cold `--jobs 1` compile retired
+1,084.7 G instructions (1,124.8 G on 35b51de). Gates on 65057cb, from a
+worktree outside Google Drive: lint and format-check pass; `make test`
+12,431 passed, 142 skipped; `make bootstrap` passed; `make test-c11`
+8 x 1,934 passed.
+
+**Where an edit goes now** (navigation medians): btrcc 7.32 s, of which the
+phases account for 6.86 s -- whole-program parse and lex 0.95 s, instance
+replay 0.63 s (0.33 s without a fresh instance), declarations-only lowering
+0.84 s with generic classes, source resolution 0.39 s, native header import
+0.66 s, record parsing 0.34 s, validation records 0.32 s, visibility 0.26 s --
+and publication with process start and exit the rest; the native plan 2.32 s,
+of which about 0.9 s is receipt validation of the 410 unchanged units and
+0.54 s the link.
+
+**The final targets remain open.** Edit <= 5 s, cold dev build <= 13.5 s,
+transpile <= 10 s and a 1.5 GiB compiler peak are not met: every edit still
+parses, resolves and analyzes the whole program and lowers every declaration
+once, and the native step alone costs 2.3 s. Closing them needs Stage B's
+remaining step (skip analysis and lowering of unchanged groups), a per-file
+parse cache and receipts that do not revalidate unchanged units one session
+at a time. The `--jobs 1` peak is 35 MiB under its M11 budget.
+
+Found on the way, not fixed: every debug edit leaves a new 46 MB
+`.btrc-debug-v1-*` object generation beside the executable (18 after a bench
+run), and native preprocessing receipts are keyed on the whole process
+environment, so a build from a shell with one different variable misses every
+receipt once.
+
 ### Bucket 1 KPI checkpoint
 
 The **unchanged-build latency objective is closed** under the September 22
