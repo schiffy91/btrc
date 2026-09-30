@@ -1227,9 +1227,36 @@ class NativeTraceVerifier {
 		const auto* expected = row.get("error");
 		return expected && *expected == llvm::json::Value(NativeFileTrace::error(ec));
 	}
+	// A registered store object never changes: its top-level directory is
+	// root-owned and unwritable, nix canonicalizes everything beneath it, and
+	// a different content is a different path. When a stored receipt is
+	// reused, every observation in it was checked as it was stored, so one
+	// inside such an object still answers as recorded, as this reader's own
+	// images are trusted. Storing checks every observation.
+	std::map<std::string, bool> immutableObjects;
+	bool insideImmutableObject(llvm::StringRef path) {
+		if (!path.starts_with("/nix/store/")) { return false; }
+		auto name = path.drop_front(11).take_until([](char value) { return value == '/'; });
+		if (name.size() < 34 || name[32] != '-' || name.contains("..")) { return false; }
+		for (auto value : name.take_front(32)) {
+			if (llvm::StringRef("0123456789abcdfghijklmnpqrsvwxyz").find(value) == llvm::StringRef::npos) { return false; }
+		}
+		std::string object = "/nix/store/" + name.str();
+		auto found = immutableObjects.find(object);
+		if (found != immutableObjects.end()) { return found->second; }
+		struct stat store, entry;
+		bool immutable = ::lstat("/nix/store", &store) == 0 && S_ISDIR(store.st_mode) && store.st_uid == 0 &&
+			((store.st_mode & (S_IWGRP | S_IWOTH)) == 0 || (store.st_mode & S_ISVTX) != 0) &&
+			::lstat(object.c_str(), &entry) == 0 && S_ISDIR(entry.st_mode) && entry.st_uid == 0 &&
+			(entry.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) == 0;
+		immutableObjects.emplace(object, immutable);
+		return immutable;
+	}
 	bool observe(const llvm::json::Object& row) {
 		auto operation = row.getString("operation").value_or("");
 		auto path = row.getString("path").value_or("");
+		if (trustImmutable && operation != "getcwd" && operation != "setcwd" && operation != "local" && llvm::sys::path::is_absolute(path) &&
+			path.find("/../") == llvm::StringRef::npos && !path.ends_with("/..") && insideImmutableObject(path)) { return true; }
 		if (operation == "directory-status") {
 			auto status = fs->status(path);
 			return status && status->isDirectory() && row.get("status") &&
@@ -1282,6 +1309,8 @@ class NativeTraceVerifier {
 		return !(*opened)->close() && valid;
 	}
 public:
+	// Set while a stored receipt is being reused; see insideImmutableObject.
+	bool trustImmutable = false;
 	bool validate(const llvm::json::Value& document) {
 		const auto* root = document.getAsObject();
 		if (!root || root->getBoolean("complete") != true) { return false; }
@@ -2091,6 +2120,8 @@ public:
 		if (!valid() || !proven) { return false; }
 		std::string key = proven->str(), bytes;
 		if (!admitted(prepared, &key) || prepared.getBoolean("eligible_inputs") != true) { return false; }
+		verifier.trustImmutable = true;
+		auto untrust = llvm::make_scope_exit([&] { verifier.trustImmutable = false; });
 		if (!read(root, key + ".receipt", receiptLimit, bytes) || bytes.size() < 65 || bytes[64] != '\n') { return false; }
 		llvm::StringRef payload(bytes.data() + 65, bytes.size() - 65);
 		if (!hex(llvm::StringRef(bytes).take_front(64)) || NativeFileTrace::digest(payload) != llvm::StringRef(bytes).take_front(64)) { return false; }
