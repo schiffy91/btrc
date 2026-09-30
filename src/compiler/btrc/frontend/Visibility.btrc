@@ -354,7 +354,10 @@ class FeImportVisibilityChecker {
 	private GrammarInfo grammar;
 	private FeSourcePathPolicy sourcePaths;
 	private FePackageImportPolicy packageAccess;
+	/* Per source identity: every file its imports reach, and the package
+	 * policy's answer for each file a reference has asked about. */
 	private Map<string, Map<string, bool>> visibleFiles;
+	private Map<string, Map<string, bool>> permittedFiles = {};
 	/* Whether a source file lies inside the compiler's stdlib, by path. The
 	 * answer needs two canonical-path lookups (system calls), and the checker
 	 * asks it for every reference it visits. */
@@ -423,11 +426,18 @@ class FeImportVisibilityChecker {
 		return symbols;
 	}
 
-	private bool anyOwnerVisible(Vector<string> owners, Map<string, bool> reachable) {
+	/* A reachable owner is visible when the package policy permits the
+	 * reference; the policy is asked only about owners references name. */
+	private bool anyOwnerVisible(string start, Vector<string> owners, Map<string, bool> reachable) {
+		if (!self.permittedFiles.has(start)) { self.permittedFiles.put(start, {}); }
+		Map<string, bool> permitted = self.permittedFiles.get(start);
 		int index = 0;
 		while (index < owners.len) {
-			if (reachable.has(owners.get(index))) { return true; }
+			string owner = owners.get(index);
 			index++;
+			if (!reachable.has(owner)) { continue; }
+			if (!permitted.has(owner)) { permitted.put(owner, self.packageAccess.permitsReference(start, owner)); }
+			if (permitted.get(owner)) { return true; }
 		}
 		return false;
 	}
@@ -440,7 +450,6 @@ class FeImportVisibilityChecker {
 		string start = self.sourcePaths.identity(sourceFile);
 		if (self.visibleFiles.has(start)) { return self.visibleFiles.get(start); }
 		Map<string, bool> seen = {};
-		Map<string, bool> visible = {};
 		Vector<string> pending = [start];
 		int index = 0;
 		while (index < pending.len) {
@@ -448,7 +457,6 @@ class FeImportVisibilityChecker {
 			index++;
 			if (seen.has(current)) { continue; }
 			seen.put(current, true);
-			if (self.packageAccess.permitsReference(start, current)) { visible.put(current, true); }
 			Vector<FeDependencyEdge> edges = self.resolved.dependencies.outgoingFrom(current);
 			int edgeIndex = 0;
 			while (edgeIndex < edges.len) {
@@ -462,8 +470,8 @@ class FeImportVisibilityChecker {
 				parentIndex++;
 			}
 		}
-		self.visibleFiles.put(start, visible);
-		return visible;
+		self.visibleFiles.put(start, seen);
+		return seen;
 	}
 
 	private bool compilerStdlibSource(string sourceFile) {
@@ -539,6 +547,7 @@ class FeImportVisibilityChecker {
 			if (declarationLine == null && generatedModule.isEmpty()) { continue; }
 			string sourceFile = generatedModule.isEmpty() ? declarationLine.sourceFile : generatedModule;
 			Map<string, bool> reachable = self.visibilityReachable(sourceFile);
+			string sourceIdentity = self.sourcePaths.identity(sourceFile);
 			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.genericParams());
 			collector.visit(declaration);
 			Map<string, bool> seen = {};
@@ -554,7 +563,7 @@ class FeImportVisibilityChecker {
 					continue;
 				}
 				Vector<string> owners = symbols.get(reference.name);
-				if (self.anyOwnerVisible(owners, reachable)) { continue; }
+				if (self.anyOwnerVisible(sourceIdentity, owners, reachable)) { continue; }
 				owners.sortBy((string left, string right) => Strings.lessThan(left, right));
 				string owner = self.sourcePaths.baseName(owners.get(0));
 				string message = f"'{reference.name}' is defined in {owner} but " + f"{self.sourcePaths.baseName(sourceFile)} does not import it";
