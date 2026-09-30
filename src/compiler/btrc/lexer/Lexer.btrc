@@ -139,7 +139,7 @@ class Lexer {
 		int line = self.line;
 		int col = self.col;
 		while (!self.atEnd()) {
-			int spliceWidth = self.preprocessorSpliceWidth(self.source, self.pos);
+			int spliceWidth = self.preprocessorSpliceWidth(self.pos);
 			if (spliceWidth > 0) {
 				int consumed = 0;
 				while (consumed < spliceWidth) {
@@ -155,18 +155,20 @@ class Lexer {
 		self.tokens.push(Token("PREPROCESSOR", value, line, col));
 	}
 
-	private char preprocessorCharacter(string text, int index) {
-		if (index < 0 || index >= text.length()) { return '\0'; }
-		return text[index];
+	/* Bounded by the cached length: a string's length() measures it, and the
+	 * source is the whole program. */
+	private char preprocessorCharacter(int index) {
+		if (index < 0 || index >= self.sourceLen) { return '\0'; }
+		return self.source[index];
 	}
 
-	private int preprocessorSpliceWidth(string text, int index) {
-		char first = self.preprocessorCharacter(text, index);
-		int markerWidth = first == '\\' ? 1 : (first == '?' && self.preprocessorCharacter(text, index + 1) == '?' && self.preprocessorCharacter(text, index + 2) == '/' ? 3 : 0);
-		if (markerWidth > 0 && self.preprocessorCharacter(text, index + markerWidth) == '\n') {
+	private int preprocessorSpliceWidth(int index) {
+		char first = self.preprocessorCharacter(index);
+		int markerWidth = first == '\\' ? 1 : (first == '?' && self.preprocessorCharacter(index + 1) == '?' && self.preprocessorCharacter(index + 2) == '/' ? 3 : 0);
+		if (markerWidth > 0 && self.preprocessorCharacter(index + markerWidth) == '\n') {
 			return markerWidth + 1;
 		}
-		if (markerWidth > 0 && self.preprocessorCharacter(text, index + markerWidth) == '\r' && self.preprocessorCharacter(text, index + markerWidth + 1) == '\n') {
+		if (markerWidth > 0 && self.preprocessorCharacter(index + markerWidth) == '\r' && self.preprocessorCharacter(index + markerWidth + 1) == '\n') {
 			return markerWidth + 2;
 		}
 		return 0;
