@@ -19,11 +19,13 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from src.compiler.python.artifacts.publication import ArtifactPublisher
 
@@ -813,6 +815,22 @@ class NativePlanBuilder:
                 _real_directory(str(report_path.parent), "native report directory")
                 self._validate_destination(report_path, (*inputs, output), "native report")
             tools = {"cc": self._tool(cc, "C compiler"), "cxx": self._tool(cxx, "C++ compiler")}
+            # The link receipt's toolchain queries do not depend on the objects:
+            # answer them beside preprocessing. Injected runners keep their
+            # exact call sequences. The thread stays off the builder, which
+            # compile workers receive by pickling.
+            prefetch = None
+            if (
+                object_cache is not None
+                and sys.platform == "darwin"
+                and plan.operating_system == "macos"
+                and self._runner is subprocess.run
+            ):
+                driver = tools["cxx" if plan.linker_language == "c++" else "cc"]
+                prefetch = threading.Thread(
+                    target=_DarwinLinkReceipt.prefetch, args=(self._runner, driver), daemon=True
+                )
+                prefetch.start()
             package_compile, package_link = self._pkg_config(plan, pkg_config)
             includes = [f"-I{path}" for path in plan.include_directories]
             defines = [f"-D{name}={value}" if value else f"-D{name}" for name, value in plan.defines]
@@ -988,7 +1006,7 @@ class NativePlanBuilder:
                     "-o",
                     str(staged),
                 ]
-                self._link(report, objects, staged, output, cache)
+                self._link(report, objects, staged, output, cache, prefetch)
             if cache is not None:
                 cache.prune()
             report.wall_s = time.perf_counter() - started
@@ -998,7 +1016,13 @@ class NativePlanBuilder:
             return report
 
     def _link(
-        self, report: NativeBuildReport, objects: list[Path], staged: Path, output: Path, cache: _ObjectCache | None
+        self,
+        report: NativeBuildReport,
+        objects: list[Path],
+        staged: Path,
+        output: Path,
+        cache: _ObjectCache | None,
+        prefetch: threading.Thread | None = None,
     ) -> None:
         publication = ArtifactPublisher()
         # A parent lock also serializes differently spelled aliases of the
@@ -1007,6 +1031,8 @@ class NativePlanBuilder:
             started = time.perf_counter()
             receipt = None
             context = None
+            if prefetch is not None:
+                prefetch.join()
             if cache is not None and sys.platform == "darwin" and report.target.startswith("macos-"):
                 receipt = _DarwinLinkReceipt(
                     cache.directory,
@@ -1433,9 +1459,36 @@ class _DarwinLinkReceipt:
         # One link computes its context and dependency snapshot more than once
         # (before, between and after the qualifying links). A file is re-read
         # only when its identity changed (a write always changes ctime), and a
-        # toolchain query only when the files it depends on did.
-        self._identities: dict[tuple[object, ...], dict[str, object]] = {}
-        self._queries: dict[tuple[object, ...], subprocess.CompletedProcess[str]] = {}
+        # toolchain query only when the files it depends on did. Both caches
+        # are the process's, so prefetch() can fill them while receipts run.
+        self._identities = _DarwinLinkReceipt._shared_identities
+        self._queries = _DarwinLinkReceipt._shared_queries
+
+    _shared_identities: ClassVar[dict[tuple[object, ...], dict[str, object]]] = {}
+    _shared_queries: ClassVar[dict[tuple[object, ...], subprocess.CompletedProcess[str]]] = {}
+
+    @staticmethod
+    def prefetch(runner: Callable[..., subprocess.CompletedProcess[str]], driver: str) -> None:
+        """Query and identify `driver`'s linker and compiler ahead of the link.
+
+        The queries a context makes of the toolchain do not depend on the
+        objects, so they can run beside preprocessing; context() still runs
+        every query it needs, answered from the shared caches when this got
+        there first. Any failure here only leaves them for context()."""
+        with contextlib.suppress(Exception):
+            probe = _DarwinLinkReceipt(Path("."), runner, [driver], [], Path("a.out"), {})
+            traced = probe._run([driver, "-###", "/dev/null", "-o", "btrc-link-probe"])
+            lines = [line.strip() for line in traced.stderr.splitlines() if line.lstrip().startswith('"')]
+            installed = [
+                line.removeprefix("InstalledDir: ")
+                for line in traced.stderr.splitlines()
+                if line.startswith("InstalledDir: ")
+            ]
+            if traced.returncode or len(lines) != 1 or len(installed) != 1:
+                return
+            version = probe._traced([shlex.split(lines[0])[0], "-v"])
+            compiler_version = probe._traced([str(Path(installed[0]) / "clang"), "--version"])
+            probe._images(version, compiler_version)
 
     def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
         key = ("run", *command)
