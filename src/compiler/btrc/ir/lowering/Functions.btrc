@@ -319,7 +319,7 @@ class FunctionLowerer {
      * active map for semantic queries while C lowering can still distinguish
      * `T*` with `T = int?` from direct `int*?`. */
 	public Map<string, Node> genericMethodVarTypes(GenInstance inst, Node method) {
-		Map<string, Node> vt = self.seededVarTypes();
+		Map<string, Node> vt = self.bodyVarTypes();
 		Node selfT = Node();
 		selfT.kind = NK_TYPE_EXPR;
 		selfT.base = inst.base;
