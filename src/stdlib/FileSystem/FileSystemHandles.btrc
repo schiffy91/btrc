@@ -1420,6 +1420,95 @@ class PrivateDirectory {
 		self._path = path;
 	}
 
+	/* The last component of `absolutePath`, named `component` inside the open
+	 * directory `parent`: created 0700 when missing, never a symlink, and
+	 * owned by the current user with mode 0700. `closeParent` hands `parent`
+	 * over to be closed on every path out. */
+	class PrivateDirectoryOpenOutcome openLeafAt(int parent, string component, string absolutePath, bool closeParent) {
+		bool created = false;
+		struct stat named;
+		errno = 0;
+		if (fstatat(parent, component, &named, AT_SYMLINK_NOFOLLOW) != 0) {
+			int inspectCode = errno;
+			if (inspectCode != ENOENT) {
+				if (closeParent) { close(parent); }
+				return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("inspect private directory", absolutePath, inspectCode));
+			}
+			errno = 0;
+			if (mkdirat(parent, component, (mode_t)0700) == 0) {
+				created = true;
+			} else if (errno != EEXIST) {
+				int nativeCode = errno;
+				if (closeParent) { close(parent); }
+				return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("create private directory", absolutePath, nativeCode));
+			}
+			errno = 0;
+			if (fstatat(parent, component, &named, AT_SYMLINK_NOFOLLOW) != 0) {
+				int nativeCode = errno;
+				if (closeParent) { close(parent); }
+				return PrivateDirectoryOpenOutcome.failed(nativeCode == ENOENT ? FileSystemError.changed("inspect created private directory", absolutePath, nativeCode) : FileSystemError.fromNative("inspect created private directory", absolutePath, nativeCode));
+			}
+		}
+		if (S_ISLNK(named.st_mode)) {
+			if (closeParent) { close(parent); }
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.symlink("open private directory", absolutePath));
+		}
+		if (!S_ISDIR(named.st_mode)) {
+			if (closeParent) { close(parent); }
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.wrongType("open private directory", absolutePath));
+		}
+
+		errno = 0;
+		int descriptor = openat(parent, component, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC | (int)O_NOFOLLOW);
+		if (descriptor < 0) {
+			int nativeCode = errno;
+			if (closeParent) { close(parent); }
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("open private directory", absolutePath, nativeCode));
+		}
+		struct stat openedLeaf;
+		struct stat currentLeaf;
+		errno = 0;
+		if (fstat(descriptor, &openedLeaf) != 0 || fstatat(parent, component, &currentLeaf, AT_SYMLINK_NOFOLLOW) != 0) {
+			int nativeCode = errno;
+			close(descriptor);
+			if (closeParent) { close(parent); }
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("validate private directory", absolutePath, nativeCode));
+		}
+		if (!S_ISDIR(openedLeaf.st_mode) || !S_ISDIR(currentLeaf.st_mode) || openedLeaf.st_dev != named.st_dev || openedLeaf.st_ino != named.st_ino || openedLeaf.st_dev != currentLeaf.st_dev || openedLeaf.st_ino != currentLeaf.st_ino) {
+			close(descriptor);
+			if (closeParent) { close(parent); }
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.changed("validate private directory", absolutePath));
+		}
+		if (created) {
+			errno = 0;
+			if (fchmod(descriptor, (mode_t)0700) != 0) {
+				int nativeCode = errno;
+				close(descriptor);
+				if (closeParent) { close(parent); }
+				return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("secure private directory", absolutePath, nativeCode));
+			}
+			errno = 0;
+			if (fstat(descriptor, &openedLeaf) != 0) {
+				int nativeCode = errno;
+				close(descriptor);
+				if (closeParent) { close(parent); }
+				return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("validate private directory permissions", absolutePath, nativeCode));
+			}
+		}
+		if ((unsigned long long)openedLeaf.st_uid != (unsigned long long)geteuid() || (openedLeaf.st_mode & (mode_t)0777) != (mode_t)0700) {
+			close(descriptor);
+			if (closeParent) { close(parent); }
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError(FS_ACCESS_DENIED, "validate private directory permissions", absolutePath, EPERM, "private directory must be owned by the current user with mode 0700"));
+		}
+		errno = 0;
+		if (closeParent && close(parent) != 0) {
+			int nativeCode = errno;
+			close(descriptor);
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("close private directory parent", absolutePath, nativeCode));
+		}
+		return PrivateDirectoryOpenOutcome.opened(PrivateDirectory(descriptor, Strings.copy(absolutePath)));
+	}
+
 	class PrivateDirectoryOpenOutcome openAbsoluteLeaf(string absolutePath) {
 		if (absolutePath == null || absolutePath.isEmpty() || !absolutePath.startsWith("/")) {
 			return PrivateDirectoryOpenOutcome.failed(FileSystemError.invalid("open private directory", absolutePath));
@@ -1508,92 +1597,25 @@ class PrivateDirectory {
 				continue;
 			}
 
-			bool created = false;
-			struct stat named;
-			errno = 0;
-			if (fstatat(parent, component, &named, AT_SYMLINK_NOFOLLOW) != 0) {
-				int inspectCode = errno;
-				if (inspectCode != ENOENT) {
-					close(parent);
-					return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("inspect private directory", absolutePath, inspectCode));
-				}
-				errno = 0;
-				if (mkdirat(parent, component, (mode_t)0700) == 0) {
-					created = true;
-				} else if (errno != EEXIST) {
-					int nativeCode = errno;
-					close(parent);
-					return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("create private directory", absolutePath, nativeCode));
-				}
-				errno = 0;
-				if (fstatat(parent, component, &named, AT_SYMLINK_NOFOLLOW) != 0) {
-					int nativeCode = errno;
-					close(parent);
-					return PrivateDirectoryOpenOutcome.failed(nativeCode == ENOENT ? FileSystemError.changed("inspect created private directory", absolutePath, nativeCode) : FileSystemError.fromNative("inspect created private directory", absolutePath, nativeCode));
-				}
-			}
-			if (S_ISLNK(named.st_mode)) {
-				close(parent);
-				return PrivateDirectoryOpenOutcome.failed(FileSystemError.symlink("open private directory", absolutePath));
-			}
-			if (!S_ISDIR(named.st_mode)) {
-				close(parent);
-				return PrivateDirectoryOpenOutcome.failed(FileSystemError.wrongType("open private directory", absolutePath));
-			}
-
-			errno = 0;
-			int descriptor = openat(parent, component, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC | (int)O_NOFOLLOW);
-			if (descriptor < 0) {
-				int nativeCode = errno;
-				close(parent);
-				return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("open private directory", absolutePath, nativeCode));
-			}
-			struct stat openedLeaf;
-			struct stat currentLeaf;
-			errno = 0;
-			if (fstat(descriptor, &openedLeaf) != 0 || fstatat(parent, component, &currentLeaf, AT_SYMLINK_NOFOLLOW) != 0) {
-				int nativeCode = errno;
-				close(descriptor);
-				close(parent);
-				return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("validate private directory", absolutePath, nativeCode));
-			}
-			if (!S_ISDIR(openedLeaf.st_mode) || !S_ISDIR(currentLeaf.st_mode) || openedLeaf.st_dev != named.st_dev || openedLeaf.st_ino != named.st_ino || openedLeaf.st_dev != currentLeaf.st_dev || openedLeaf.st_ino != currentLeaf.st_ino) {
-				close(descriptor);
-				close(parent);
-				return PrivateDirectoryOpenOutcome.failed(FileSystemError.changed("validate private directory", absolutePath));
-			}
-			if (created) {
-				errno = 0;
-				if (fchmod(descriptor, (mode_t)0700) != 0) {
-					int nativeCode = errno;
-					close(descriptor);
-					close(parent);
-					return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("secure private directory", absolutePath, nativeCode));
-				}
-				errno = 0;
-				if (fstat(descriptor, &openedLeaf) != 0) {
-					int nativeCode = errno;
-					close(descriptor);
-					close(parent);
-					return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("validate private directory permissions", absolutePath, nativeCode));
-				}
-			}
-			if ((unsigned long long)openedLeaf.st_uid != (unsigned long long)geteuid() || (openedLeaf.st_mode & (mode_t)0777) != (mode_t)0700) {
-				close(descriptor);
-				close(parent);
-				return PrivateDirectoryOpenOutcome.failed(FileSystemError(FS_ACCESS_DENIED, "validate private directory permissions", absolutePath, EPERM, "private directory must be owned by the current user with mode 0700"));
-			}
-			errno = 0;
-			if (close(parent) != 0) {
-				int nativeCode = errno;
-				close(descriptor);
-				return PrivateDirectoryOpenOutcome.failed(FileSystemError.fromNative("close private directory parent", absolutePath, nativeCode));
-			}
-			return PrivateDirectoryOpenOutcome.opened(PrivateDirectory(descriptor, Strings.copy(absolutePath)));
+			return PrivateDirectory.openLeafAt(parent, component, absolutePath, true);
 		}
 
 		close(parent);
 		return PrivateDirectoryOpenOutcome.failed(FileSystemError.invalid("open private directory", absolutePath));
+	}
+
+	/* A private child directory of this one, created when missing, with the
+	 * checks `openAbsoluteLeaf` makes of its last component; one open where a
+	 * fresh absolute open walks every ancestor again. */
+	public PrivateDirectoryOpenOutcome openChildDirectory(string name) {
+		string path = self._path + "/" + (name == null ? "" : name);
+		if (name == null || name.isEmpty() || name.indexOf("/") >= 0 || name.equals(".") || name.equals("..")) {
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.invalid("open private directory", path));
+		}
+		if (!self.isOpen()) {
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.invalid("open private directory", path));
+		}
+		return PrivateDirectory.openLeafAt(self._descriptor, name, path, false);
 	}
 
 	public bool isOpen() { return self._descriptor >= 0; }

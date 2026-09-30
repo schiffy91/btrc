@@ -1,0 +1,86 @@
+/* A private child directory opened relative to an open private directory:
+ * created 0700, reopened, never a symlink or a shared mode, and never at
+ * the cost of the parent's descriptor. POSIX calls are test setup only. */
+import Library.Bytes;
+import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+int descriptorCount() {
+	int count = 0;
+	for (int descriptor = 0; descriptor < 4096; descriptor++) {
+		errno = 0;
+		if (fcntl(descriptor, F_GETFD) != -1 || errno != EBADF) {
+			count++;
+		}
+	}
+	return count;
+}
+
+int exactMode(string path) {
+	struct stat status;
+	if (lstat(path, &status) != 0) { return -1; }
+	return (int)(status.st_mode & (mode_t)0777);
+}
+
+int main() {
+	TemporaryDirectoryOpenOutcome temporaryOpen = FileSystem.createTemporaryDirectory("btrc_private_directory_child");
+	assert(temporaryOpen.ok());
+	TemporaryDirectory temporary = temporaryOpen.directory();
+	string rootPath = PathTools.join(temporary.path(), "root");
+	PrivateDirectoryOpenOutcome rootOpen = FileSystem.openPrivateDirectory(rootPath);
+	assert(rootOpen.ok());
+	PrivateDirectory root = rootOpen.directory();
+	int baseline = descriptorCount();
+
+	PrivateDirectoryOpenOutcome created = root.openChildDirectory("entry");
+	assert(created.ok());
+	PrivateDirectory entry = created.directory();
+	assert(entry.path().equals(PathTools.join(rootPath, "entry")));
+	assert(exactMode(entry.path()) == 448);
+	assert(entry.validatePath().ok());
+	ExclusiveFileLeaseOpenOutcome leaseOpen = entry.acquireExclusiveLease(".lock", true);
+	assert(leaseOpen.ok());
+	ExclusiveFileLease lease = leaseOpen.lease();
+	assert(lease.replaceRegularChildDurably("data.bin", Bytes.fromString("kept")).committed());
+	assert(lease.close().ok());
+	assert(entry.close().ok());
+	assert(descriptorCount() == baseline);
+
+	PrivateDirectoryOpenOutcome reopened = root.openChildDirectory("entry");
+	assert(reopened.ok());
+	PrivateDirectory again = reopened.directory();
+	ExclusiveFileLeaseOpenOutcome againLease = again.acquireExclusiveLease(".lock", true);
+	assert(againLease.ok());
+	PrivateFileReadOutcome read = againLease.lease().readRegularChild("data.bin", 64);
+	assert(read.ok() && read.found() && read.bytes().toString().equals("kept"));
+	assert(againLease.lease().close().ok());
+	assert(again.close().ok());
+
+	assert(root.openChildDirectory("").error().kind() == FS_INVALID_ARGUMENT);
+	assert(root.openChildDirectory(".").error().kind() == FS_INVALID_ARGUMENT);
+	assert(root.openChildDirectory("..").error().kind() == FS_INVALID_ARGUMENT);
+	assert(root.openChildDirectory("a/b").error().kind() == FS_INVALID_ARGUMENT);
+
+	string target = PathTools.join(temporary.path(), "elsewhere");
+	assert(mkdir(target, (mode_t)0700) == 0);
+	assert(symlink(target, PathTools.join(rootPath, "linked")) == 0);
+	assert(!root.openChildDirectory("linked").ok());
+
+	assert(mkdir(PathTools.join(rootPath, "shared"), (mode_t)0755) == 0);
+	assert(chmod(PathTools.join(rootPath, "shared"), (mode_t)0755) == 0);
+	assert(root.openChildDirectory("shared").error().kind() == FS_ACCESS_DENIED);
+	assert(descriptorCount() == baseline);
+
+	assert(root.validatePath().ok());
+	assert(root.close().ok());
+	assert(!root.openChildDirectory("entry").ok());
+	printf("PASS: private child directories\n");
+	return 0;
+}

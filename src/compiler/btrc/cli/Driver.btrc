@@ -1554,15 +1554,28 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 
 	public FeDirectiveCache directiveCache() { return BtrccDirectiveCache(PathTools.join(PathTools.dirname(self.directory), "selfhost-directives-v1"), self.compilerIdentity); }
 
+	/* The root stays open between entries: every module unit and validation
+	 * record is an entry, and a build reads over a thousand of them. */
 	private bool close() {
 		bool clean = true;
 		var lease = self.lease; self.lease = null;
 		var entry = self.entry; self.entry = null;
-		var root = self.root; self.root = null;
 		if (lease != null && !lease.close().ok()) { clean = false; }
 		if (entry != null && !entry.close().ok()) { clean = false; }
-		if (root != null && !root.close().ok()) { clean = false; }
 		return clean;
+	}
+
+	/* The artifact root, opened once and kept while its path still names it. */
+	private PrivateDirectory? openRoot() {
+		var root = self.root;
+		if (root != null && root.validatePath().ok()) { return root; }
+		self.root = null;
+		if (root != null) { root.close(); }
+		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return null; }
+		var opened = FileSystem.openPrivateDirectory(self.directory);
+		if (!opened.ok()) { return null; }
+		self.root = opened.directory();
+		return self.root;
 	}
 
 	private string key(string identity) { return SHA256.digest(self.compilerIdentity + identity); }
@@ -1580,17 +1593,15 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		self.close();
 		if (self.compilerIdentity.isEmpty()) { return false; }
 		if (validateInputs && !self.sourceFiles.validateInputs().isEmpty()) { return false; }
-		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return false; }
-		var opened = FileSystem.openPrivateDirectory(self.directory);
-		if (!opened.ok()) { return false; }
-		self.root = opened.directory();
-		var entry = FileSystem.openPrivateDirectory(PathTools.join(self.directory, self.key(identity)));
+		PrivateDirectory? root = self.openRoot();
+		if (root == null) { return false; }
+		var entry = root.openChildDirectory(self.key(identity));
 		if (!entry.ok()) { return false; }
 		self.entry = entry.directory();
 		var acquired = entry.directory().acquireExclusiveLease(".artifacts.lock", true);
 		if (!acquired.ok()) { return false; }
 		self.lease = acquired.lease();
-		return opened.directory().validatePath().ok() && entry.directory().validatePath().ok();
+		return root.validatePath().ok() && entry.directory().validatePath().ok();
 	}
 
 	private BtrccCompilationResult? read(string identity) {
