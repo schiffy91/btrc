@@ -203,6 +203,24 @@ def test_source_change_with_preserved_metadata_requires_fresh_extraction(cache_s
     assert session.response() == (changed.stdout, changed.stderr)
 
 
+def test_unrelated_entry_in_searched_directory_keeps_response(cache_session):
+    # A search directory changes size and mtime whenever anything lands in it
+    # (a new path beside the SDK in the nix store). Only lookups decide a
+    # response, and each is observed on its own.
+    session = cache_session
+    first, second = session.root / "first", session.root / "second"
+    first.mkdir()
+    second.mkdir()
+    session.arguments += ["-I" + str(first), "-I" + str(second)]
+    (second / "Choice.h").write_text("enum { Selected = 1 };\n")
+    session.source.write_text('#include "Choice.h"\n')
+    _, original = session.seed()
+    (first / "Unrelated.txt").write_text("not a header\n")
+    (second / "Other.h").write_text("enum { Other = 2 };\n")
+    assert session.control()[0]["cache_hit"]
+    assert session.response() == (original.stdout, original.stderr)
+
+
 @pytest.mark.parametrize("kind", ["shadow", "has_include"])
 def test_new_header_invalidates_negative_lookups(cache_session, kind):
     session = cache_session

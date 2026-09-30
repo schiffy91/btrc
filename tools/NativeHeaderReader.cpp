@@ -1084,16 +1084,17 @@ public:
 
 class NativeTracedFileSystem : public llvm::vfs::ProxyFileSystem {
 	NativeFileTrace& trace;
-	bool directoryIdentity;
 public:
-	NativeTracedFileSystem(llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> fs, NativeFileTrace& observations, bool stableDirectories = false)
-		: llvm::vfs::ProxyFileSystem(std::move(fs)), trace(observations), directoryIdentity(stableDirectories) {}
+	NativeTracedFileSystem(llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> fs, NativeFileTrace& observations)
+		: llvm::vfs::ProxyFileSystem(std::move(fs)), trace(observations) {}
 	llvm::ErrorOr<llvm::vfs::Status> status(const llvm::Twine& path) override {
 		auto result = getUnderlyingFS().status(path);
-		// The admitted preprocessing mode uses DirectoryEntry identity, not
-		// directory size/mtime. It excludes modules and directory enumeration.
-		// Return and record the same view; each child lookup is still observed.
-		if (directoryIdentity && result && result->isDirectory()) {
+		// Header reading and preprocessing use DirectoryEntry identity, not
+		// directory size/mtime: both exclude modules, and enumeration leaves a
+		// trace incomplete. Return and record the same view; each child lookup
+		// is still observed, so an unrelated entry added to a searched
+		// directory (a new store path beside the SDK) keeps its responses.
+		if (result && result->isDirectory()) {
 			result = NativeFileTrace::directoryIdentity(*result);
 			trace.stat("directory-status", path.str(), result);
 		} else { trace.stat("status", path.str(), result); }
@@ -1339,7 +1340,7 @@ public:
 		if (context.getBoolean("eligible") != true || arguments.size() < 3 || arguments[1] != "-cc1") { return; }
 		llvm::SmallString<256> actual;
 		if (llvm::sys::fs::real_path(arguments[0], actual) || context.getString("compiler") != actual.str()) { return; }
-		fs = llvm::makeIntrusiveRefCnt<NativeTracedFileSystem>(llvm::vfs::getRealFileSystem(), trace, true);
+		fs = llvm::makeIntrusiveRefCnt<NativeTracedFileSystem>(llvm::vfs::getRealFileSystem(), trace);
 		compiler.createDiagnostics(*fs, new clang::TextDiagnosticPrinter(diagnosticStream, invocation->getDiagnosticOpts()), true);
 		compiler.setVerboseOutputStream(diagnosticStream);
 		llvm::SmallVector<const char*> options;
