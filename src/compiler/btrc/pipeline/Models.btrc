@@ -88,6 +88,8 @@ class BtrccCompilationResult {
 	public Vector<string> units = [];
 	/* Exact destinations accompany the units; the CLI does not rederive them. */
 	public Vector<string> unitPaths = [];
+	/* Per unit, the module-unit identity whose stored text it is, or empty. */
+	public Vector<string> unitKeys = [];
 	/* Module units: groups lowered by this compile and those reused unchanged. */
 	public Vector<string> moduleUnitsLowered = [];
 	public Vector<string> moduleUnitsReused = [];

@@ -754,6 +754,8 @@ class ModuleUnitGroupState {
 	public string key;
 	public int lines = 0;
 	public ModuleUnitRecord? record = null;
+	/* Whether the store holds the record's text under this state's key. */
+	public bool stored = false;
 	public bool stale = false;
 	public int worker = -1;
 	public Vector<string> exports = [];
@@ -780,6 +782,8 @@ class ModuleUnitBuild {
 	public string primary = "";
 	public Vector<string> units = [];
 	public Vector<string> unitNames = [];
+	/* Per unit, the module-unit identity its text is stored under, or empty. */
+	public Vector<string> unitKeys = [];
 	public Vector<string> lowered = [];
 	public Vector<string> reused = [];
 	public IRModule? program = null;
@@ -1836,6 +1840,7 @@ class ModuleUnitCompiler {
 				BtrccModuleUnitPayload? payload = store.loadModuleUnit(identity);
 				BtrccPhaseTimer.mark("u-record-load");
 				state.record = ModuleUnitRecord.fromPayload(payload, name);
+				state.stored = state.record != null;
 				BtrccPhaseTimer.mark("u-record-parse");
 			}
 			states.push(state);
@@ -1875,6 +1880,7 @@ class ModuleUnitCompiler {
 				ModuleUnitRecord? record = state.record;
 				if (!state.stale && record != null && ((record.definesEntry && record.programRelease != releases) || (needsSolve && !record.effectsSolved))) {
 					state.record = null;
+					state.stored = false;
 					again = true;
 					self.relowered("entry-or-unsolved");
 				}
@@ -1901,12 +1907,14 @@ class ModuleUnitCompiler {
 					if (!solved.has(name) || !solved.get(name).same(record.consultedEffects.get(name))) {
 						if (state.record != null) { self.relowered("consulted-summary"); }
 						state.record = null;
+						state.stored = false;
 						again = true;
 					}
 				}
 			}
 			for state in self.summaryCycles(states, exporters) {
 				state.record = null;
+				state.stored = false;
 				again = true;
 				self.relowered("summary-cycle");
 			}
@@ -1919,6 +1927,7 @@ class ModuleUnitCompiler {
 				if (state.stale || record == null) { continue; }
 				if (needed.has(state.name)) {
 					state.record = null;
+					state.stored = false;
 					again = true;
 					self.relowered("realtime");
 				}
@@ -1931,6 +1940,7 @@ class ModuleUnitCompiler {
 				ModuleUnitRecord? record = state.record;
 				if (!state.stale && record != null && !self.sameInstances(state.keptInstances, record.keptInstances)) {
 					state.record = null;
+					state.stored = false;
 					again = true;
 					self.relowered("kept-instances");
 				}
@@ -2005,6 +2015,7 @@ class ModuleUnitCompiler {
 			IBtrccArtifactCache? store = self.store;
 			string recordText = record.toText();
 			if (store != null && !recordText.isEmpty()) { store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordText, record.text)); }
+			state.stored = store != null && !recordText.isEmpty();
 			state.record = record;
 		}
 		IWorkerPool? started = self.workerPool;
@@ -2028,12 +2039,14 @@ class ModuleUnitCompiler {
 		if (programUnit.helpers.len > 0) {
 			build.units.push(CEmitter().emitRuntimeUnit(shared.runtimeModule(programUnit)));
 			build.unitNames.push(ModuleUnitCompiler.runtimeUnitName());
+			build.unitKeys.push("");
 		}
 		for state in states {
 			ModuleUnitRecord? finishedRecord = state.record;
 			if (finishedRecord != null && finishedRecord.kept) {
 				build.units.push(finishedRecord.text);
 				build.unitNames.push(ModuleUnitCompiler.unitName(state.name));
+				build.unitKeys.push(state.stored ? state.key : "");
 			}
 			if (lowered.has(state.name)) { build.lowered.push(state.name); }
 			else { build.reused.push(state.name); }

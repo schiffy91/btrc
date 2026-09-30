@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -349,6 +351,69 @@ def test_selfhost_unchanged_groups_replay_validation_records(tmp_path, immutable
     assert fresh_units == edited_units
     assert fresh_primary == edited_primary
     assert clean_units.keys() == fresh_units.keys()
+
+
+def test_selfhost_generation_references_stored_units(tmp_path, immutable_btrcc):
+    """A stored generation names the module units the store already holds
+    instead of copying their text; a referenced unit whose bytes changed makes
+    the generation a miss, and the rebuild emits the same program."""
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("self-hosted artifact reuse needs the native header reader identity")
+    workspace = _Workspace(tmp_path.resolve())
+    output = workspace.root / "out"
+    output.mkdir()
+
+    def build() -> tuple[str, dict[str, str], str]:
+        result = subprocess.run(
+            [
+                str(immutable_btrcc),
+                "CatalogMain.btrc",
+                "-o",
+                str(output / "program.c"),
+                "--emit-units",
+                str(output / "program"),
+                "--module-units",
+            ],
+            cwd=workspace.modules,
+            env={
+                **os.environ,
+                "BTRC_HOME": str(ROOT / "src"),
+                "BTRC_TIMING": "1",
+                "BTRC_CACHE_DIR": str(workspace.cache.resolve()),
+            },
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert result.returncode == 0, result.stderr
+        units = {path.name: path.read_text() for path in sorted(output.glob("program.unit-*.c"))}
+        return result.stderr, units, (output / "program.c").read_text()
+
+    first_log, first_units, first_primary = build()
+    assert "artifact-hit=" not in first_log
+    manifest_path = next(workspace.cache.glob("selfhost-artifacts-v1/*/manifest.json"))
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["schema"] == 2
+    referenced = [index for index, reference in enumerate(manifest["units"]) if reference]
+    assert referenced, manifest
+    assert all(not (manifest_path.parent / f"part-{index}").exists() for index in referenced)
+
+    hit_log, hit_units, hit_primary = build()
+    assert "artifact-hit=" in hit_log
+    assert (hit_units, hit_primary) == (first_units, first_primary)
+
+    digest = manifest["hashes"][referenced[-1]]
+    stored = [
+        path
+        for path in workspace.cache.glob("selfhost-artifacts-v1/*/unit.c")
+        if hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    ]
+    assert stored
+    for path in stored:
+        path.write_text(path.read_text() + "/* changed */\n")
+    miss_log, miss_units, miss_primary = build()
+    assert "artifact-hit=" not in miss_log
+    assert (miss_units, miss_primary) == (first_units, first_primary)
 
 
 AUDIO = ROOT / "src" / "tests" / "native" / "audio"

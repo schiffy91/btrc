@@ -184,6 +184,7 @@ class CompilerPipeline {
 			BtrccPhaseTimer.print();
 			BtrccCompilationResult moduleResult = BtrccCompilationResult(true, build.primary, "", packages.linkPlan.canonicalJson());
 			moduleResult.units = build.units;
+			moduleResult.unitKeys = build.unitKeys;
 			moduleResult.unitPaths = packages.linkPlan.emittedUnits;
 			moduleResult.inputPaths = input.inputPaths;
 			moduleResult.moduleUnitsLowered = build.lowered;

@@ -1669,27 +1669,53 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		return root.validatePath().ok() && entry.directory().validatePath().ok();
 	}
 
+	/* One payload of a generation: its own part, or the text of the module
+	 * unit it references. Either way its bytes must have the listed digest. */
+	private string? readPayload(ExclusiveFileLease lease, string name, int slot, string digest, Vector<int> remaining) {
+		if (remaining.get(0) <= 0) { return null; }
+		var payload = lease.readRegularChild(name, remaining.get(0));
+		if (!payload.ok() || !payload.found()) { return null; }
+		var bytes = payload.bytes();
+		if (!bytes.isNulFreeUtf8()) { return null; }
+		string content = bytes.toString();
+		if (!self.payloadDigest(slot, content).equals(digest)) { return null; }
+		remaining.set(0, remaining.get(0) - bytes.length());
+		return content;
+	}
+
+	/* Units the module-unit store already holds are not copied into the
+	 * generation: its manifest names their module-unit identities. */
 	private BtrccCompilationResult? read(string identity) {
 		var lease = self.lease;
 		if (lease == null) { return null; }
 		var record = lease.readRegularChild("manifest.json", 67108864);
 		if (!record.ok() || !record.found() || !record.bytes().isNulFreeUtf8()) { return null; }
 		var manifest = JSONValue.parse(record.bytes().toString());
-		if (!manifest.isObject() || manifest.size() != 4 || !manifest.get("schema").isInt() || manifest.get("schema").asInt() != 1 || !manifest.get("identity").isString() || !manifest.get("identity").asString().equals(self.key(identity)) || !manifest.get("hashes").isArray() || !manifest.get("diagnostic").isString()) { return null; }
+		if (!manifest.isObject() || manifest.size() != 5 || !manifest.get("schema").isInt() || manifest.get("schema").asInt() != 2 || !manifest.get("identity").isString() || !manifest.get("identity").asString().equals(self.key(identity)) || !manifest.get("hashes").isArray() || !manifest.get("units").isArray() || !manifest.get("diagnostic").isString()) { return null; }
 		var hashes = manifest.get("hashes");
-		if (hashes.size() < 2) { return null; }
+		var references = manifest.get("units");
+		if (hashes.size() < 2 || references.size() != hashes.size()) { return null; }
 		Vector<string> payloads = [];
-		int remaining = 536870912;
+		Vector<int> remaining = [536870912];
 		for (int index = 0; index < hashes.size(); index++) {
-			if (!hashes.at(index).isString() || hashes.at(index).asString().length() != 64 || remaining <= 0) { return null; }
-			var payload = lease.readRegularChild(f"part-{index}", remaining);
-			if (!payload.ok() || !payload.found()) { return null; }
-			var bytes = payload.bytes();
-			if (!bytes.isNulFreeUtf8()) { return null; }
-			string content = bytes.toString();
-			if (!self.payloadDigest(index, content).equals(hashes.at(index).asString())) { return null; }
-			remaining = remaining - bytes.length();
+			if (!hashes.at(index).isString() || hashes.at(index).asString().length() != 64 || !references.at(index).isString()) { return null; }
+			bool referenced = !references.at(index).asString().isEmpty();
+			if (referenced && (index == 0 || index == hashes.size() - 1)) { return null; }
+			string? content = referenced ? "" : self.readPayload(lease, f"part-{index}", index, hashes.at(index).asString(), remaining);
+			if (content == null) { return null; }
 			payloads.push(content);
+		}
+		/* Referenced units are read under their own entries' leases. */
+		for (int index = 0; index < hashes.size(); index++) {
+			string reference = references.at(index).asString();
+			if (reference.isEmpty()) { continue; }
+			string? content = null;
+			if (self.open("module-unit\n" + reference, false)) {
+				var unitLease = self.lease;
+				if (unitLease != null) { content = self.readPayload(unitLease, "unit.c", index, hashes.at(index).asString(), remaining); }
+			}
+			if (content == null) { return null; }
+			payloads.set(index, content);
 		}
 		string planText = payloads.get(payloads.len - 1);
 		var plan = JSONValue.parse(planText);
@@ -1731,19 +1757,27 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		for payload in payloads { total = total + (long long)payload.length(); }
 		if (total > 536870912LL) { return; }
 		var manifest = JSONValue.makeObject();
-		manifest.set("schema", JSONValue.makeInt(1));
+		manifest.set("schema", JSONValue.makeInt(2));
 		manifest.set("identity", JSONValue.makeString(self.key(identity)));
 		manifest.set("diagnostic", JSONValue.makeString(result.diagnostic));
 		var hashes = JSONValue.makeArray();
+		var references = JSONValue.makeArray();
 		/* Readers hold the same lease. A failed overwrite cannot advertise an
 		 * old manifest over a partial replacement generation. */
 		if (!lease.removeRegularChildDurably("manifest.json").committed()) { return; }
 		for (int index = 0; index < payloads.len; index++) {
 			string payload = payloads.get(index);
 			hashes.push(JSONValue.makeString(self.payloadDigest(index, payload)));
+			/* A unit the module-unit store holds is read from there; a stale
+			 * or missing entry only makes the generation a miss. */
+			int unit = index - 1;
+			string reference = unit >= 0 && unit < result.units.len && unit < result.unitKeys.len ? result.unitKeys.get(unit) : "";
+			references.push(JSONValue.makeString(reference));
+			if (!reference.isEmpty()) { continue; }
 			if (!lease.replaceRegularChildDurably(f"part-{index}", Bytes.fromString(payload)).committed()) { return; }
 		}
 		manifest.set("hashes", hashes);
+		manifest.set("units", references);
 		if (!self.sourceFiles.validateInputs().isEmpty()) { return; }
 		lease.replaceRegularChildDurably("manifest.json", Bytes.fromString(manifest.stringify()));
 	}
