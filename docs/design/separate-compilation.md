@@ -807,16 +807,21 @@ them copy-on-write. A group's lowered IR stays in the worker that lowered it;
 only small messages cross the pipes. The owner keeps every program-wide
 decision and runs the same schedule with one worker (answered in-process) or
 many, so the emitted units are byte-identical for every worker count.
-`--jobs N` sets the count (both CLIs); without it the compilers use one per
-CPU, at most two, and the Python API stays in-process unless asked, because
-a threaded embedding process must not fork.
+`--jobs N` sets the count (both CLIs); without it the self-hosted compiler
+uses one per CPU, at most four, the reference CLI at most two, and the Python
+API stays in-process unless asked, because a threaded embedding process must
+not fork.
 
 Memory decides that default. Each worker starts as a copy-on-write image of
 the analyzed program, but ARC writes reference counts into the objects
 lowering reads, so a worker soon holds its own copy of much of that program
 besides its units. System-wide anonymous memory growth on the BTRSmith dev
 build (September 23): 4.83 GiB in-process, 5.93 GiB with two workers and
-6.85 GiB with four, against the 6 GiB aggregate budget. The in-process figure
+6.85 GiB with four, against the 6 GiB aggregate budget. Once IR nodes stopped
+allocating lists they do not use (September 29), a cold btrcc transpile of
+BTRSmith sampled 4.20 / 4.62 / 4.97 / 5.78 GiB of process-tree RSS with two,
+three, four and six workers, taking 65.6 / 56.5 / 52.6 / 49.8 s, so btrcc now
+defaults to four. The in-process figure
 depends on keeping the lowered units alive until the process exits: releasing
 them at the end of the compile ran ARC reverse-reachability proofs over the
 whole graph and doubled the peak to 10 GB.

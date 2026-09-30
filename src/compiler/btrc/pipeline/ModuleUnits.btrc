@@ -851,11 +851,12 @@ class ModuleUnitCompiler {
 		self.pools = pools;
 		self.workers = options.moduleJobs;
 		if (self.workers < 1) {
-			/* At most two by default: each worker copies much of the analyzed
-			 * program as ARC touches it, and two keep a BTRSmith-sized build
-			 * inside the 6 GiB aggregate budget (four measured 6.85 GiB). */
+			/* One per CPU, at most four (the pool's suggestion). Each worker
+			 * copies much of the analyzed program as ARC touches it; since the
+			 * IR nodes stopped allocating unused lists, four keep a cold
+			 * BTRSmith transpile at a sampled 4.97 GiB aggregate, inside the
+			 * 6 GiB budget, and take it from 65.6 s with two to 52.6 s. */
 			self.workers = pools != null ? pools.suggestedWorkers() : 1;
-			if (self.workers > 2) { self.workers = 2; }
 		}
 		self.facts = LoweringProgramFacts();
 		FeSourcePathPolicy paths = FeSourcePathPolicy();
