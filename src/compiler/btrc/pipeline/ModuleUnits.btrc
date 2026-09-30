@@ -2360,8 +2360,11 @@ class ValidationRecordCodec {
 		string kind = Strings.fromInt((int)node.kind);
 		if (own.has(node)) { return ownSlot + "\t" + Strings.fromInt(own.get(node)) + "\t" + kind; }
 		string? located = self.index(0).locate(node);
+		/* The type index holds every declaration's type nodes at the same
+		 * positions as the full index, so a type node it lacks is in no
+		 * declaration: only other nodes need the full index. */
 		if (located == null && node.kind == NK_TYPE_EXPR) { located = self.index(1).locate(node); }
-		if (located == null) { located = self.index(2).locate(node); }
+		else if (located == null) { located = self.index(2).locate(node); }
 		if (located == null) { return null; }
 		string slot = located.substring(0, located.lastIndexOf("\t"));
 		foreign.put(self.fileOfSlot.get(slot), true);
