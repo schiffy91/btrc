@@ -3097,9 +3097,17 @@ class FeNativeDeclarationImporter {
 		return arguments;
 	}
 
-	public Vector<FeNativeImportedDeclaration> resolve(FeNativeLinkPlan plan, bool useCache = false) {
+	private Vector<FeNativeBinding> pendingBindings = [];
+	private Vector<string> pendingResponses = [];
+	private string pendingTarget = "";
+
+	/* Reads every binding's header response and digests it into the cache
+	 * identity; complete() decodes and imports them. A compile answered from
+	 * the artifact cache needs only the identity, and a response's content is
+	 * fixed by its digest, so it is decoded only when a compile runs. */
+	public void prepare(FeNativeLinkPlan plan, bool useCache = false) {
 		Vector<FeNativeBinding> bindings = plan.bindingImports();
-		if (bindings.len == 0) { return self.declarations; }
+		if (bindings.len == 0) { return; }
 		for binding in bindings {
 			for key in binding.callbacks.keys() {
 				var callback = binding.callbacks.get(key);
@@ -3142,6 +3150,26 @@ class FeNativeDeclarationImporter {
 
 		for index in range(bindings.len) {
 			var binding = bindings.get(index);
+			self.module = binding.module;
+			string response = self.readHeader(index, reader, commands, groups, prepared, pending, responses);
+			self.resolvedIdentity.appendText(SHA256.digest(response));
+			self.resolvedIdentity.appendText(SHA256.digest(reader));
+			for argument in commands.get(index) { self.resolvedIdentity.appendText(SHA256.digest(argument)); }
+			self.pendingResponses.push(response);
+		}
+		self.pendingBindings = bindings;
+		self.pendingTarget = target;
+		BtrccPhaseTimer.mark("n-bindings");
+	}
+
+	/* The prepared bindings' declarations, decoded and imported once. */
+	public Vector<FeNativeImportedDeclaration> complete() {
+		Vector<FeNativeBinding> bindings = self.pendingBindings;
+		if (bindings.len == 0) { return self.declarations; }
+		self.pendingBindings = [];
+		string target = self.pendingTarget;
+		for index in range(bindings.len) {
+			var binding = bindings.get(index);
 			self.staticGlobals = {};
 			for name in binding.staticGlobals { self.staticGlobals.put(name, true); }
 			self.borrows = {};
@@ -3153,11 +3181,7 @@ class FeNativeDeclarationImporter {
 			self.language = binding.language;
 			if (self.language != "c" && self.language != "objective-c" && self.language != "c++") { self.fail("Objective-C++ call adapters are not implemented"); }
 			if (self.headerReader == null) { self.fail("SDK header scanning is unavailable in this compiler host build"); }
-			string response = self.readHeader(index, reader, commands, groups, prepared, pending, responses);
-			NativeNode decoded = FeNativeHeaderCodec().decode(response, target);
-			self.resolvedIdentity.appendText(SHA256.digest(response));
-			self.resolvedIdentity.appendText(SHA256.digest(reader));
-			for argument in commands.get(index) { self.resolvedIdentity.appendText(SHA256.digest(argument)); }
+			NativeNode decoded = FeNativeHeaderCodec().decode(self.pendingResponses.get(index), target);
 			self.callbackExports = {};
 			for declaration in decoded.exports { self.callbackExports.put(declaration.name, declaration); }
 			if (self.language == "c++") { self.importCxxBinding(binding, decoded); continue; }
@@ -3191,7 +3215,8 @@ class FeNativeDeclarationImporter {
 			if (self.mainThreadGlobals.len > 0) { self.fail("main-thread-globals names a non-object-global declaration"); }
 			for identity in self.stringViews.keys() { if (!self.usedStringViews.has(identity)) { self.fail("string-views requires a mapped C one-shot callback argument"); } }
 		}
-		BtrccPhaseTimer.mark("n-bindings");
+		self.pendingResponses = [];
+		BtrccPhaseTimer.mark("n-import");
 		for imported in self.declarations { if (self.resourceOperations.has(imported.declaration.name)) { self.fail("resource lifetime operations are reserved across native bindings"); } }
 		self.projectRecordInputs(bindings);
 		self.validateRecordCallbacks();

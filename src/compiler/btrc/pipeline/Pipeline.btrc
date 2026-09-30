@@ -23,6 +23,8 @@ class CompilerPipeline {
 	private FeNativeHeaderReader nativeHeaderReader;
 	private FeDirectiveCache? directiveCache;
 	private IBtrccArtifactCache? moduleUnitStore = null;
+	/* The last resolve's native bindings, read and digested but not imported. */
+	private FeNativeDeclarationImporter? pendingNatives = null;
 	private IWorkerPoolFactory? workerPools = null;
 
 	public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, FeDirectiveCache? directiveCache = null) {
@@ -69,7 +71,10 @@ class CompilerPipeline {
 		packages.linkPlan.restrictToSources(sources);
 		packages.linkPlan.includeStdlib(self.stdlib.directory(), sources, self.sourceFiles);
 		var nativeImporter = FeNativeDeclarationImporter(self.nativeHeaderReader, self.sourceFiles);
-		resolved.nativeDeclarations = nativeImporter.resolve(packages.linkPlan, options.useCache);
+		nativeImporter.prepare(packages.linkPlan, options.useCache);
+		/* Imported once compileResolved runs: a stored generation needs only
+		 * the identity. */
+		self.pendingNatives = nativeImporter;
 		BtrccPhaseTimer.mark("native");
 		var inputs = self.sourceFiles.inputPaths();
 		inputs.push(sourcePath);
@@ -79,6 +84,11 @@ class CompilerPipeline {
 
 	public BtrccCompilationResult compileResolved(BtrccResolvedCompilation input, BtrccOptions options) {
 		var resolved = input.source;
+		FeNativeDeclarationImporter? natives = self.pendingNatives;
+		if (natives != null) {
+			self.pendingNatives = null;
+			resolved.nativeDeclarations = natives.complete();
+		}
 		var packages = input.packages;
 		string sourcePath = input.sourcePath;
 
