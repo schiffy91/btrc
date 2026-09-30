@@ -9,13 +9,13 @@ IDENTITY = ROOT / "src/compiler/btrc/syntax/Identity.btrc"
 
 
 def test_structural_walk_lists_every_node_field_in_declaration_order():
-    # A lazy list field is declared as nullable storage and walked through an
-    # accessor named for the field, so the suffix comes off before comparing.
+    # A lazy list field is declared, and walked, as nullable storage named for
+    # the field, so the suffix comes off both sides before comparing.
     declared = re.findall(r"public (?:Node\??|Vector<Node>\??) ([a-zA-Z_]+);", NODE.read_text())
     fields = [re.sub(r"Storage$", "", name) for name in declared]
     source = IDENTITY.read_text()
     body = source[source.index("class void children(Node node, Vector<Node> out) {") :]
     body = body[: body.index("\n\t}")]
-    walked = re.findall(r"node\.([a-zA-Z_]+)", body)
+    walked = [re.sub(r"Storage$", "", name) for name in re.findall(r"node\.([a-zA-Z_]+)", body)]
     # Each single child is named twice (null check, push); a list once.
     assert list(dict.fromkeys(walked)) == fields

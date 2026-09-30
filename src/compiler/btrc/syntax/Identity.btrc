@@ -18,21 +18,23 @@ class AstIdentity {
  * the order Node declares them. A kind leaves the fields it does not use null
  * or empty. Structural keys (pre-order positions within a declaration) are
  * built on this walk, so a new Node field belongs here too; a structure test
- * checks the two lists agree. */
+ * checks the two lists agree. A list is read through its lazy storage: an
+ * unwritten list is null, and the walk runs once per node of every replayed
+ * declaration. */
 class AstStructure {
 	class void children(Node node, Vector<Node> out) {
-		for child in node.declarations() { out.push(child); }
+		if (node.declarationsStorage != null) { for child in node.declarationsStorage { out.push(child); } }
 		if (node.spec != null) { out.push(node.spec); }
-		for child in node.members() { out.push(child); }
-		for child in node.methods() { out.push(child); }
+		if (node.membersStorage != null) { for child in node.membersStorage { out.push(child); } }
+		if (node.methodsStorage != null) { for child in node.methodsStorage { out.push(child); } }
 		if (node.returnType != null) { out.push(node.returnType); }
-		for child in node.params() { out.push(child); }
+		if (node.paramsStorage != null) { for child in node.paramsStorage { out.push(child); } }
 		if (node.bodyNode != null) { out.push(node.bodyNode); }
-		for child in node.fields() { out.push(child); }
-		for child in node.values() { out.push(child); }
-		for child in node.variants() { out.push(child); }
+		if (node.fieldsStorage != null) { for child in node.fieldsStorage { out.push(child); } }
+		if (node.valuesStorage != null) { for child in node.valuesStorage { out.push(child); } }
+		if (node.variantsStorage != null) { for child in node.variantsStorage { out.push(child); } }
 		if (node.original != null) { out.push(node.original); }
-		for child in node.genericArgs() { out.push(child); }
+		if (node.genericArgsStorage != null) { for child in node.genericArgsStorage { out.push(child); } }
 		if (node.arraySize != null) { out.push(node.arraySize); }
 		if (node.type != null) { out.push(node.type); }
 		if (node.default_ != null) { out.push(node.default_); }
@@ -40,14 +42,14 @@ class AstStructure {
 		if (node.getterBody != null) { out.push(node.getterBody); }
 		if (node.setterBody != null) { out.push(node.setterBody); }
 		if (node.valueNode != null) { out.push(node.valueNode); }
-		for child in node.statements() { out.push(child); }
+		if (node.statementsStorage != null) { for child in node.statementsStorage { out.push(child); } }
 		if (node.condition != null) { out.push(node.condition); }
 		if (node.thenBlock != null) { out.push(node.thenBlock); }
 		if (node.elseBlock != null) { out.push(node.elseBlock); }
 		if (node.iterable != null) { out.push(node.iterable); }
 		if (node.init != null) { out.push(node.init); }
 		if (node.update != null) { out.push(node.update); }
-		for child in node.cases() { out.push(child); }
+		if (node.casesStorage != null) { for child in node.casesStorage { out.push(child); } }
 		if (node.expr != null) { out.push(node.expr); }
 		if (node.tryBlock != null) { out.push(node.tryBlock); }
 		if (node.catchType != null) { out.push(node.catchType); }
@@ -56,22 +58,22 @@ class AstStructure {
 		if (node.ifStmt != null) { out.push(node.ifStmt); }
 		if (node.varDecl != null) { out.push(node.varDecl); }
 		if (node.expression != null) { out.push(node.expression); }
-		for child in node.bodyNodeList() { out.push(child); }
+		if (node.bodyNodeListStorage != null) { for child in node.bodyNodeListStorage { out.push(child); } }
 		if (node.left != null) { out.push(node.left); }
 		if (node.right != null) { out.push(node.right); }
 		if (node.operand != null) { out.push(node.operand); }
 		if (node.callee != null) { out.push(node.callee); }
-		for child in node.args() { out.push(child); }
+		if (node.argsStorage != null) { for child in node.argsStorage { out.push(child); } }
 		if (node.obj != null) { out.push(node.obj); }
 		if (node.index != null) { out.push(node.index); }
 		if (node.targetType != null) { out.push(node.targetType); }
 		if (node.trueExpr != null) { out.push(node.trueExpr); }
 		if (node.falseExpr != null) { out.push(node.falseExpr); }
 		if (node.target != null) { out.push(node.target); }
-		for child in node.elements() { out.push(child); }
-		for child in node.entries() { out.push(child); }
-		for child in node.parts() { out.push(child); }
-		for child in node.captures() { out.push(child); }
+		if (node.elementsStorage != null) { for child in node.elementsStorage { out.push(child); } }
+		if (node.entriesStorage != null) { for child in node.entriesStorage { out.push(child); } }
+		if (node.partsStorage != null) { for child in node.partsStorage { out.push(child); } }
+		if (node.capturesStorage != null) { for child in node.capturesStorage { out.push(child); } }
 		if (node.fn != null) { out.push(node.fn); }
 		if (node.key != null) { out.push(node.key); }
 	}

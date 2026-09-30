@@ -395,23 +395,24 @@ class StdlibReachability {
 
 	class void pushChild(Node? child, Vector<Node> stack) { if (child != null) { stack.push(child); } }
 
+	/* Lists are read through their lazy storage: an unwritten list is null. */
 	class void pushChildren(Node node, Vector<Node> stack) {
-		for child in node.declarations() { stack.push(child); }
-		for child in node.members() { stack.push(child); }
-		for child in node.methods() { stack.push(child); }
-		for child in node.params() { stack.push(child); }
-		for child in node.fields() { stack.push(child); }
-		for child in node.values() { stack.push(child); }
-		for child in node.variants() { stack.push(child); }
-		for child in node.genericArgs() { stack.push(child); }
-		for child in node.statements() { stack.push(child); }
-		for child in node.cases() { stack.push(child); }
-		for child in node.bodyNodeList() { stack.push(child); }
-		for child in node.args() { stack.push(child); }
-		for child in node.elements() { stack.push(child); }
-		for child in node.entries() { stack.push(child); }
-		for child in node.parts() { stack.push(child); }
-		for child in node.captures() { stack.push(child); }
+		if (node.declarationsStorage != null) { for child in node.declarationsStorage { stack.push(child); } }
+		if (node.membersStorage != null) { for child in node.membersStorage { stack.push(child); } }
+		if (node.methodsStorage != null) { for child in node.methodsStorage { stack.push(child); } }
+		if (node.paramsStorage != null) { for child in node.paramsStorage { stack.push(child); } }
+		if (node.fieldsStorage != null) { for child in node.fieldsStorage { stack.push(child); } }
+		if (node.valuesStorage != null) { for child in node.valuesStorage { stack.push(child); } }
+		if (node.variantsStorage != null) { for child in node.variantsStorage { stack.push(child); } }
+		if (node.genericArgsStorage != null) { for child in node.genericArgsStorage { stack.push(child); } }
+		if (node.statementsStorage != null) { for child in node.statementsStorage { stack.push(child); } }
+		if (node.casesStorage != null) { for child in node.casesStorage { stack.push(child); } }
+		if (node.bodyNodeListStorage != null) { for child in node.bodyNodeListStorage { stack.push(child); } }
+		if (node.argsStorage != null) { for child in node.argsStorage { stack.push(child); } }
+		if (node.elementsStorage != null) { for child in node.elementsStorage { stack.push(child); } }
+		if (node.entriesStorage != null) { for child in node.entriesStorage { stack.push(child); } }
+		if (node.partsStorage != null) { for child in node.partsStorage { stack.push(child); } }
+		if (node.capturesStorage != null) { for child in node.capturesStorage { stack.push(child); } }
 		StdlibReachability.pushChild(node.spec, stack);
 		StdlibReachability.pushChild(node.returnType, stack);
 		StdlibReachability.pushChild(node.bodyNode, stack);
