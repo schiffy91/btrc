@@ -1165,12 +1165,17 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 		return true;
 	}
 
-	private bool outputPath(string path) {
+	/* `directories` memoizes resolved parents across one validation pass:
+	 * a generation's outputs share a few directories. */
+	private bool outputPath(string path, Map<string, string>? memo = null) {
 		var root = self.root;
 		if (path.isEmpty() || !PathTools.isAbsolute(path) || root == null) { return false; }
 		if (path.contains("//") || path.contains("/./") || path.contains("/../") || path.endsWith("/.") || path.endsWith("/..") || path.endsWith("/")) { return false; }
 		if (path.equals(root.path()) || path.startsWith(root.path() + "/")) { return false; }
-		return path.equals(PathTools.join(PathTools.absolute(PathTools.dirname(path)), PathTools.basename(path)));
+		Map<string, string> directories = memo == null ? new Map<string, string>() : memo;
+		string parent = PathTools.dirname(path);
+		if (!directories.has(parent)) { directories.put(parent, PathTools.absolute(parent)); }
+		return path.equals(PathTools.join(directories.get(parent), PathTools.basename(path)));
 	}
 
 	private bool digest(string value) {
@@ -1196,13 +1201,14 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 		if (files.size() == 0) { return "compiler generation has no primary output"; }
 		Map<string, bool> paths = {};
 		Map<string, bool> roles = {};
+		Map<string, string> directories = {};
 		for (int index = 0; index < files.size(); index++) {
 			var row = files.at(index);
 			if (!self.keys(row, ["path", "role", "sha256", "mode"]) || !row.get("path").isString() || !row.get("role").isString() || !row.get("sha256").isString() || !row.get("mode").isInt()) { return "invalid compiler generation output identity"; }
 			string path = row.get("path").asString();
 			string role = row.get("role").asString();
 			long long mode = row.get("mode").asInt();
-			if (!self.outputPath(path) || paths.has(path) || !self.digest(row.get("sha256").asString()) || mode < 0LL || mode > 4095LL) { return "invalid compiler generation output identity"; }
+			if (!self.outputPath(path, directories) || paths.has(path) || !self.digest(row.get("sha256").asString()) || mode < 0LL || mode > 4095LL) { return "invalid compiler generation output identity"; }
 			if (!role.equals("primary") && !role.equals("secondary") && !role.equals("link-plan") && !role.equals("freestanding")) { return "unknown compiler generation output role"; }
 			if (index == 0 && (!path.equals(self.anchor) || !role.equals("primary"))) { return "compiler generation must begin with its primary output"; }
 			if (!role.equals("secondary") && roles.has(role)) { return "duplicate compiler generation output role"; }
@@ -1223,10 +1229,12 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 		var opened = FileSystem.openPrivateDirectory(state);
 		if (!opened.ok()) { return "cannot open private compiler generation state: " + opened.error().message(); }
 		self.root = opened.directory();
+		Map<string, string> directories = {};
+		Map<string, string> resolved = {};
 		for path in requested {
-			var destination = BtrccPathIdentity(path);
+			var destination = BtrccPathIdentity(path, directories);
 			if (!destination.diagnostic.isEmpty()) { return destination.diagnostic; }
-			if (!self.outputPath(destination.path)) { return "compiler outputs must not replace generation state"; }
+			if (!self.outputPath(destination.path, resolved)) { return "compiler outputs must not replace generation state"; }
 		}
 		self.anchor = BtrccPathIdentity(primary).path;
 		string entryPath = PathTools.join(state, SHA256.digest(self.anchor));
@@ -1265,6 +1273,7 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 			if (!self.keys(record, ["schema", "anchor", "targets"]) || !record.get("schema").isInt() || record.get("schema").asInt() != 1 || !record.get("anchor").isString() || !record.get("anchor").asString().equals(self.anchor) || !record.get("targets").isArray()) { return "invalid prepared compiler generation"; }
 			var rows = record.get("targets");
 			Map<string, bool> seen = {};
+			Map<string, string> directories = {};
 			if (rows.size() < 2) { return "invalid compiler generation recovery boundaries"; }
 			for (int index = 0; index < rows.size(); index++) {
 				var row = rows.at(index);
@@ -1275,7 +1284,7 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 				if (index == 0 && (!path.equals(self.anchor) || absent)) { return "invalid compiler generation recovery anchor"; }
 				if (index == rows.size() - 1) {
 					if (!path.equals(PathTools.join(entry.path(), "committed.json")) || absent) { return "invalid compiler generation recovery validator"; }
-				} else if (!self.outputPath(path)) { return "invalid compiler generation recovery output"; }
+				} else if (!self.outputPath(path, directories)) { return "invalid compiler generation recovery output"; }
 				seen.put(path, true);
 				self.intent.push(BtrccPublicationTarget(path, absent));
 			}
@@ -1319,10 +1328,12 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 			Vector<string> destinations = [];
 			/* Owner contention can outlive the preflight path bindings. Reject
 			 * newly resolved private paths before persisting recovery authority. */
+			Map<string, string> directories = {};
+			Map<string, string> resolved = {};
 			for path in requested {
-				var destination = BtrccPathIdentity(path);
+				var destination = BtrccPathIdentity(path, directories);
 				if (!destination.diagnostic.isEmpty()) { throw destination.diagnostic; }
-				if (!self.outputPath(destination.path)) { throw "compiler outputs must not replace generation state"; }
+				if (!self.outputPath(destination.path, resolved)) { throw "compiler outputs must not replace generation state"; }
 				destinations.push(destination.path);
 			}
 			if (!destinations.get(0).equals(self.anchor)) { throw "compiler generation anchor changed"; }
