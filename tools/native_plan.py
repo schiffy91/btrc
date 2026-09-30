@@ -983,31 +983,48 @@ class NativePlanBuilder:
                 else:
                     for job in work:
                         report.units.append(compile_one(job))
-                if cache is not None:
-                    self._publish_deferred(cache, commands, report, jobs)
+                from concurrent.futures import ThreadPoolExecutor
+
+                # The deferred units' second validation is a reader session of
+                # its own and the debug inventory only reads finished objects:
+                # neither waits for the other.
+                with ThreadPoolExecutor(max_workers=2) as deferral:
+                    deferred = (
+                        deferral.submit(self._publish_deferred, cache, commands, report, jobs)
+                        if cache is not None
+                        else None
+                    )
+                    if debug_info and plan.operating_system == "macos":
+                        objects, report.debug_object_status = self._retain_debug_objects(
+                            objects, temporary, parent, cache.digests if cache is not None else {}
+                        )
+                    staged = temporary / output.name
+                    runtime_libraries = ["-lm"]
+                    if plan.operating_system != "windows":
+                        runtime_libraries.append("-pthread")
+                    # Group packages may each declare the same framework; link it once.
+                    framework_flags = [
+                        part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)
+                    ]
+                    report.link_command = [
+                        tools["cxx" if plan.linker_language == "c++" else "cc"],
+                        *(str(path) for path in objects),
+                        *package_link,
+                        *framework_flags,
+                        *runtime_libraries,
+                        "-o",
+                        str(staged),
+                    ]
+                    # The link receipt's driver expansion of this exact command
+                    # also runs while the deferred units are validated.
+                    if prefetch is not None:
+                        deferral.submit(_DarwinLinkReceipt.expand, self._runner, report.link_command.copy())
+                    if deferred is not None:
+                        deferred.result()
                 report.preprocessing_units = sum(
                     unit.preprocessing_status.startswith("receipt-") for unit in report.units
                 )
                 report.preprocessing_hits = sum(unit.preprocessing_status == "receipt-hit" for unit in report.units)
-                if debug_info and plan.operating_system == "macos":
-                    objects, report.debug_object_status = self._retain_debug_objects(
-                        objects, temporary, parent, cache.digests if cache is not None else {}
-                    )
-                staged = temporary / output.name
-                runtime_libraries = ["-lm"]
-                if plan.operating_system != "windows":
-                    runtime_libraries.append("-pthread")
-                # Group packages may each declare the same framework; link it once.
-                framework_flags = [part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)]
-                report.link_command = [
-                    tools["cxx" if plan.linker_language == "c++" else "cc"],
-                    *(str(path) for path in objects),
-                    *package_link,
-                    *framework_flags,
-                    *runtime_libraries,
-                    "-o",
-                    str(staged),
-                ]
                 self._link(report, objects, staged, output, cache, prefetch)
             if cache is not None:
                 cache.prune()
@@ -1497,6 +1514,12 @@ class _DarwinLinkReceipt:
             version = probe._traced([shlex.split(lines[0])[0], "-v"])
             compiler_version = probe._traced([str(Path(installed[0]) / "clang"), "--version"])
             probe._images(version, compiler_version)
+
+    @staticmethod
+    def expand(runner: Callable[..., subprocess.CompletedProcess[str]], command: list[str]) -> None:
+        """Answer context()'s driver expansion of `command` ahead of the link."""
+        with contextlib.suppress(Exception):
+            _DarwinLinkReceipt(Path("."), runner, command, [], Path("a.out"), {})._run([*command, "-###"])
 
     def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
         key = ("run", *command)
