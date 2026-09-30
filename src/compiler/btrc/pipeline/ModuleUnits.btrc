@@ -2623,7 +2623,14 @@ class ValidationRecords implements IValidationRecords {
 			string group = self.groupOfFile.get(line.sourceFile);
 			if (group.isEmpty()) { continue; }
 			if (!digests.has(group)) { digests.put(group, SHA256()); }
-			digests.get(group).appendText(line.sourceFile + "\t" + Strings.fromInt(line.lineNumber) + "\t" + line.text + "\n");
+			/* The same digest as of the joined line, without building it. */
+			SHA256 digest = digests.get(group);
+			digest.appendText(line.sourceFile);
+			digest.appendText("\t");
+			digest.appendText(Strings.fromInt(line.lineNumber));
+			digest.appendText("\t");
+			digest.appendText(line.text);
+			digest.appendText("\n");
 		}
 		self.groupOfFile.put("<stdlib>", "<stdlib>");
 		for declaration in sourceDeclarations {
