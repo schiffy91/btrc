@@ -144,6 +144,16 @@ class Bytes {
 	public bool isNulFreeUtf8() {
 		int index = 0;
 		while (index < self.len) {
+			/* Eight ASCII bytes, none of them NUL, at a time: text is mostly
+			 * that, and a word test is exact for both conditions. */
+			if (self.len - index >= 8) {
+				unsigned long long word = 0ULL;
+				memcpy(&word, self.data + index, (size_t)8);
+				if ((word & 0x8080808080808080ULL) == 0ULL && ((word - 0x0101010101010101ULL) & ~word & 0x8080808080808080ULL) == 0ULL) {
+					index = index + 8;
+					continue;
+				}
+			}
 			int first = self.get(index);
 			index++;
 			if (first == 0) { return false; }
@@ -182,8 +192,9 @@ class Bytes {
      * accessors directly or toStringLossy(). */
 	public string toString() {
 		int n = self.len;
-		for (int i = 0; i < self.len; i++) {
-			if (self.data[i] == '\0') { n = i; break; }
+		if (n > 0) {
+			char* nul = (char*)memchr(self.data, 0, (size_t)n);
+			if (nul != NULL) { n = (int)(nul - self.data); }
 		}
 		char* out = (char*)__btrc_safe_realloc(NULL, (size_t)n + (size_t)1);
 		if (n > 0) { memcpy(out, self.data, (size_t)n); }
