@@ -1454,40 +1454,59 @@ class BtrccPreparedOutputs {
 class BtrccDirectiveCache implements FeDirectiveCache {
 	private string directory;
 	private string compilerIdentity;
+	private string compilerDigest;
+	private string grammarText = "";
+	private string grammarDigest = "";
 	private PrivateDirectory? root = null;
 	private ExclusiveFileLease? lease = null;
 
 	public BtrccDirectiveCache(string directory, string compilerIdentity) {
 		self.directory = directory;
 		self.compilerIdentity = compilerIdentity;
+		self.compilerDigest = SHA256.digest(compilerIdentity);
 	}
 
+	/* The root stays open between lookups: every source file is one. */
 	private bool close() {
 		var lease = self.lease; self.lease = null;
-		var root = self.root; self.root = null;
 		bool clean = true;
 		if (lease != null && !lease.close().ok()) { clean = false; }
-		if (root != null && !root.close().ok()) { clean = false; }
 		return clean;
 	}
 
 	private string key(string source, string grammar) {
-		/* Fixed-width digests frame arbitrary source and grammar bytes. */
-		return SHA256.digest("btrcc-directives-v1:" + SHA256.digest(self.compilerIdentity) + SHA256.digest(grammar) + SHA256.digest(source));
+		/* Fixed-width digests frame arbitrary source and grammar bytes; one
+		 * compile asks with one grammar. */
+		if (self.grammarDigest.isEmpty() || !self.grammarText.equals(grammar)) {
+			self.grammarText = grammar;
+			self.grammarDigest = SHA256.digest(grammar);
+		}
+		return SHA256.digest("btrcc-directives-v1:" + self.compilerDigest + self.grammarDigest + SHA256.digest(source));
+	}
+
+	/* The cache root, opened once and kept while its path still names it. */
+	private PrivateDirectory? openRoot() {
+		var root = self.root;
+		if (root != null && root.validatePath().ok()) { return root; }
+		self.root = null;
+		if (root != null) { root.close(); }
+		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return null; }
+		var opened = FileSystem.openPrivateDirectory(self.directory);
+		if (!opened.ok()) { return null; }
+		self.root = opened.directory();
+		return self.root;
 	}
 
 	private bool open(string key) {
 		self.close();
 		if (Platform.isWindows() || self.compilerIdentity.isEmpty() || !PathTools.isAbsolute(self.directory)) { return false; }
-		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return false; }
-		var opened = FileSystem.openPrivateDirectory(self.directory);
-		if (!opened.ok()) { return false; }
-		self.root = opened.directory();
+		PrivateDirectory? root = self.openRoot();
+		if (root == null) { return false; }
 		/* Contention is an optional cache miss, not a compiler-wide wait. */
-		var acquired = opened.directory().acquireExclusiveLease(key + ".lock");
+		var acquired = root.acquireExclusiveLease(key + ".lock");
 		if (!acquired.ok()) { return false; }
 		self.lease = acquired.lease();
-		return opened.directory().validatePath().ok();
+		return root.validatePath().ok();
 	}
 
 	private Vector<FeDirectiveRange>? read(string key) {
