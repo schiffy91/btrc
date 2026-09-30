@@ -962,6 +962,33 @@ and header caches are needed too. The native header reader keys its cache on
 the whole process environment, so the first compile in a new `nix develop`
 session misses it (+2.4 s).
 
+### M11 budget campaign (September 29-30)
+
+Measured with `tools/budget_bench.py` on the pinned BTRSmith copy
+(`~/.cache/btrc/bsm-measure`, aeeca0fd) in BTRSmith's dev shell: `btrcc
+--module-units --debug`, then `tools/native_plan` at `-O0 --debug-info` with
+the object cache and 8 native jobs, executable included. Cold scenarios take
+5 samples, incremental ones 20; medians and nearest-rank p95 over every
+printed sample. Each edit sample writes source no earlier build of the run
+has seen (navigation `AlbumGrid`, UI `UiPlayerTransport`, audio-adjacent
+`PlaybackPreparation`), and after a fixture's samples a clean build must emit
+the same function bodies and print the same smoke output.
+
+**6b2bf5e -- harness, and four btrcc workers by default.** The worker cap of
+two left the cold transpile at 65.6 s; one worker per CPU, at most four:
+
+| Target | Budget | Median | p95 | Met |
+|---|---|---|---|---|
+| cold transpile, empty caches | <= 55 s | 52.07 s | 52.30 s | yes |
+| cold dev build, executable | <= 80 s | 69.49 s | 69.91 s | yes |
+| btrcc peak footprint, `--jobs 1` | <= 3 GiB | 2.919 GiB | | yes |
+| sampled aggregate build RSS, 8 native jobs | <= 6 GiB | 5.03 GiB | | yes |
+
+Gates on 5008fae (6b2bf5e on main), from a worktree outside Google Drive:
+lint and format-check pass; `make test` 12,425 passed, 142 skipped;
+`make bootstrap` passed; `make test-c11` 8 x 1,930 passed after one rerun
+(the first run lost `stdlib/Daemon.btrc` to its wall-clock deadline).
+
 ### Bucket 1 KPI checkpoint
 
 The **unchanged-build latency objective is closed** under the September 22
