@@ -2557,14 +2557,16 @@ class ValidationRecords implements IValidationRecords {
 	public int journaled = 0;
 	public string interfaceDigest = "";
 	/* Generic instance scans: one rewritable record per template group, loaded
-	 * on first use; sections journaled this build are merged in on persist. */
+	 * on first use; sections journaled this build are merged in on persist.
+	 * Each section names the groups outside its template's that its facts
+	 * came from, so an edit discards only the instances that read the edited
+	 * group: a Vector<AlbumCell> scan, not every Vector scan in the program. */
 	private Map<string, Map<string, string>> instancesLoaded = {};
-	private Map<string, Map<string, bool>> instanceDependencies = {};
+	/* Per template group, each valid section's text as persisted: its
+	 * dependency lines, then its facts. */
+	private Map<string, Map<string, string>> instanceSections = {};
 	private Map<string, Map<string, string>> instancesWritten = {};
 	private Map<string, bool> instancesUnwritable = {};
-	/* Files the instance records name outside their group, kept apart from
-	 * the validation records' so neither takes the other's dependencies. */
-	private Map<string, Map<string, bool>> instanceForeign = {};
 	public int instancesReplayed = 0;
 
 	/* `nativeIdentity` identifies the imported native declarations (as the
@@ -2778,40 +2780,45 @@ class ValidationRecords implements IValidationRecords {
 		return !group.isEmpty() && self.loaded.has(group) && !self.abandoned.has(group);
 	}
 
-	private string instanceKey(string group) { return SHA256.digest("validation-instances-v1\n" + self.keys.get(group)); }
+	private string instanceKey(string group) { return SHA256.digest("validation-instances-v2\n" + self.keys.get(group)); }
 
-	/* A group's instance sections, loaded on first use; an empty map when it
-	 * has none or a dependency changed. */
+	/* A group's instance sections, loaded on first use, without any section
+	 * whose dependency changed. */
 	private Map<string, string> instances(string group) {
 		if (self.instancesLoaded.has(group)) { return self.instancesLoaded.get(group); }
 		Map<string, string> sections = {};
-		Map<string, bool> dependencies = {};
+		Map<string, string> texts = {};
 		self.instancesLoaded.put(group, sections);
-		self.instanceDependencies.put(group, dependencies);
+		self.instanceSections.put(group, texts);
 		BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.instanceKey(group));
-		if (payload == null || !payload.record.equals("validation-instances-v1")) { return sections; }
-		Map<string, string> parsed = {};
+		if (payload == null || !payload.record.equals("validation-instances-v2")) { return sections; }
 		string section = "";
 		StringBuilder facts = StringBuilder();
+		StringBuilder text = StringBuilder();
 		bool open = false;
+		bool current = true;
 		for line in Strings.split(payload.text, "\n") {
-			if (line.startsWith("dep\t")) {
-				Vector<string> fields = Strings.split(line, "\t");
-				if (fields.len != 3 || !self.keys.has(fields.get(1)) || !self.keys.get(fields.get(1)).equals(fields.get(2))) { return sections; }
-				dependencies.put(fields.get(1), true);
-			} else if (line.startsWith("i\t")) {
-				if (open) { parsed.put(section, facts.toString()); }
+			if (line.startsWith("i\t")) {
+				if (open && current) { sections.put(section, facts.toString()); texts.put(section, text.toString()); }
 				section = line.substring(2, line.length() - 2);
 				facts = StringBuilder();
+				text = StringBuilder();
 				open = true;
+				current = true;
+			} else if (open && line.startsWith("dep\t")) {
+				Vector<string> fields = Strings.split(line, "\t");
+				if (fields.len != 3 || !self.keys.has(fields.get(1)) || !self.keys.get(fields.get(1)).equals(fields.get(2))) { current = false; }
+				text.append(line);
+				text.append("\n");
 			} else if (!line.isEmpty() && open) {
 				facts.append(line);
 				facts.append("\n");
+				text.append(line);
+				text.append("\n");
 			}
 		}
-		if (open) { parsed.put(section, facts.toString()); }
-		self.instancesLoaded.put(group, parsed);
-		return parsed;
+		if (open && current) { sections.put(section, facts.toString()); texts.put(section, text.toString()); }
+		return sections;
 	}
 
 	public Vector<ValidationFact>? recordedInstance(Node template, string section) {
@@ -2833,7 +2840,6 @@ class ValidationRecords implements IValidationRecords {
 
 	public bool finishInstance(Node template, string section, ValidationJournal journal) {
 		string group = self.groupOf(template);
-		if (!self.instanceForeign.has(group)) { self.instanceForeign.put(group, {}); }
 		Map<string, bool> files = {};
 		string? text = self.codec.encode(template, journal, files);
 		if (self.verify) {
@@ -2844,25 +2850,32 @@ class ValidationRecords implements IValidationRecords {
 			self.instancesUnwritable.put(group, true);
 			return true;
 		}
-		for file in files.keys() { self.instanceForeign.get(group).put(file, true); }
+		/* A section whose facts name a file without a key cannot be checked
+		 * later, so it is not written; the others still are. */
+		string? dependencies = self.dependencyLines(group, files);
+		if (dependencies == null) { return true; }
 		if (!self.instancesWritten.has(group)) { self.instancesWritten.put(group, {}); }
-		self.instancesWritten.get(group).put(section, text);
+		self.instancesWritten.get(group).put(section, dependencies + text);
 		return true;
 	}
 
-	/* The dependency lines for the files a group's records name outside it,
-	 * or null when one of them has no key. */
-	private string? dependencyLines(string group) {
-		StringBuilder text = StringBuilder();
-		Map<string, bool> files = {};
-		if (self.instanceForeign.has(group)) { files = self.instanceForeign.get(group); }
+	/* The dependency lines for the files one section names outside its
+	 * template's group, or null when one of them has no key. */
+	private string? dependencyLines(string group, Map<string, bool> files) {
+		Vector<string> lines = [];
+		Map<string, bool> seen = {};
 		for file in files.keys() {
 			if (file.equals("<native>")) { continue; }
 			string other = self.groupOfFile.has(file) ? self.groupOfFile.get(file) : "";
 			if (!self.keys.has(other)) { return null; }
-			if (!other.equals(group)) { text.append("dep\t" + other + "\t" + self.keys.get(other) + "\n"); }
+			if (!other.equals(group) && !seen.has(other)) {
+				seen.put(other, true);
+				lines.push("dep\t" + other + "\t" + self.keys.get(other) + "\n");
+			}
 		}
-		return text.toString();
+		/* Sorted, so a section's text does not depend on map order. */
+		lines.sort();
+		return Strings.join(lines, "");
 	}
 
 	public void abandon(Node declaration) {
@@ -2900,23 +2913,16 @@ class ValidationRecords implements IValidationRecords {
 		}
 		for group in self.instancesWritten.keys() {
 			if (self.instancesUnwritable.has(group) || self.verify) { continue; }
-			string? dependencies = self.dependencyLines(group);
-			if (dependencies == null) { continue; }
 			StringBuilder text = StringBuilder();
-			text.append(dependencies);
-			/* Earlier builds' sections stay valid under the same key. */
-			Map<string, string> previous = self.instances(group);
+			/* Earlier builds' sections stay valid under their own dependencies. */
+			self.instances(group);
+			Map<string, string> previous = self.instanceSections.get(group);
 			Map<string, string> written = self.instancesWritten.get(group);
-			Map<string, bool> dependencyGroups = {};
-			if (self.instanceDependencies.has(group)) { dependencyGroups = self.instanceDependencies.get(group); }
-			for other in dependencyGroups.keys() {
-				if (dependencies.indexOf("dep\t" + other + "\t") < 0 && self.keys.has(other)) { text.append("dep\t" + other + "\t" + self.keys.get(other) + "\n"); }
-			}
 			for section in previous.keys() {
 				if (!written.has(section)) { text.append("i\t" + section + "\n" + previous.get(section)); }
 			}
 			for section in written.keys() { text.append("i\t" + section + "\n" + written.get(section)); }
-			self.store.storeModuleUnit(self.instanceKey(group), BtrccModuleUnitPayload("validation-instances-v1", text.toString()));
+			self.store.storeModuleUnit(self.instanceKey(group), BtrccModuleUnitPayload("validation-instances-v2", text.toString()));
 		}
 	}
 }
