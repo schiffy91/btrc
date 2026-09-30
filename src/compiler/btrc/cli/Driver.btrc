@@ -362,7 +362,9 @@ class BtrccPathIdentity {
 	public FileSnapshot? snapshot = null;
 	public string diagnostic = "";
 
-	public BtrccPathIdentity(string requested) {
+	/* `directories` memoizes resolved parents across one validation pass. */
+	public BtrccPathIdentity(string requested, Map<string, string>? directories = null) {
+		if (directories != null && self.resolveThroughParent(requested, directories)) { return; }
 		self.path = PathTools.absolute(requested);
 		var inspected = FileSystem.inspectExact(self.path);
 		if (inspected.ok()) {
@@ -381,6 +383,23 @@ class BtrccPathIdentity {
 		}
 	}
 
+	/* A leaf that exists and is not a symbolic link resolves to its name in its
+	 * resolved parent, what resolving the whole path returns: one resolution
+	 * per directory instead of one per file. Anything else takes the full
+	 * resolution. */
+	private bool resolveThroughParent(string requested, Map<string, string> directories) {
+		string name = PathTools.basename(requested);
+		if (Platform.isWindows() || name.isEmpty() || name.equals(".") || name.equals("..")) { return false; }
+		string parent = PathTools.dirname(requested);
+		if (!directories.has(parent)) { directories.put(parent, PathTools.absolute(parent)); }
+		string resolved = PathTools.join(directories.get(parent), name);
+		var inspected = FileSystem.inspectExact(resolved);
+		if (!inspected.ok() || inspected.snapshot().kind() == FILE_SYMLINK) { return false; }
+		self.path = resolved;
+		self.snapshot = inspected.snapshot();
+		return true;
+	}
+
 	public bool aliases(BtrccPathIdentity other) {
 		if (self.path.equals(other.path)) { return true; }
 		if (Platform.isWindows() && self.path.toLower().equals(other.path.toLower())) { return true; }
@@ -396,10 +415,11 @@ class BtrccOutputPaths {
 		if (requested.len == 0) { return ""; }
 		Vector<BtrccPathIdentity> protected = [];
 		Map<string, bool> seenInputs = {};
+		Map<string, string> directories = {};
 		for path in inputs {
 			if (path.isEmpty() || seenInputs.has(path)) { continue; }
 			seenInputs.put(path, true);
-			var identity = BtrccPathIdentity(path);
+			var identity = BtrccPathIdentity(path, directories);
 			if (!identity.diagnostic.isEmpty()) { return identity.diagnostic; }
 			protected.push(identity);
 		}
@@ -408,7 +428,7 @@ class BtrccOutputPaths {
 			if (path.isEmpty() || path.endsWith("/") || (Platform.isWindows() && path.endsWith("\\"))) {
 				return "output path must name a regular file: " + path;
 			}
-			var identity = BtrccPathIdentity(path);
+			var identity = BtrccPathIdentity(path, directories);
 			if (!identity.diagnostic.isEmpty()) { return identity.diagnostic; }
 			if (identity.snapshot != null && identity.snapshot.kind() != FILE_REGULAR) {
 				return "output path must name a regular file: " + path;
@@ -442,9 +462,10 @@ class BtrccPublicationLocks {
 
 	public string acquire(Vector<string> requested) {
 		Map<string, bool> names = {};
+		Map<string, string> directories = {};
 		for path in requested {
-			var output = BtrccPathIdentity(path);
-			var parent = BtrccPathIdentity(PathTools.dirname(path));
+			var output = BtrccPathIdentity(path, directories);
+			var parent = BtrccPathIdentity(PathTools.dirname(path), directories);
 			if (!output.diagnostic.isEmpty()) { return output.diagnostic; }
 			if (!parent.diagnostic.isEmpty()) { return parent.diagnostic; }
 			self.outputs.push(output);
@@ -480,9 +501,10 @@ class BtrccPublicationLocks {
 
 	public string validate(Vector<string> requested, Vector<string> inputs, Vector<string> ownedJournals = []) {
 		if (requested.len != self.outputs.len) { return "publication output inventory changed while acquiring locks"; }
+		Map<string, string> directories = {};
 		for (int index = 0; index < requested.len; index++) {
-			var output = BtrccPathIdentity(requested.get(index));
-			var parent = BtrccPathIdentity(PathTools.dirname(requested.get(index)));
+			var output = BtrccPathIdentity(requested.get(index), directories);
+			var parent = BtrccPathIdentity(PathTools.dirname(requested.get(index)), directories);
 			if (!output.diagnostic.isEmpty()) { return output.diagnostic; }
 			if (!parent.diagnostic.isEmpty()) { return parent.diagnostic; }
 			if (!output.path.equals(self.outputs.get(index).path) || !parent.aliases(self.parents.get(index))) {

@@ -247,10 +247,18 @@ class FeSourceReadIdentity {
 		self.version = version;
 	}
 
-	public string validate() {
-		if (!PathTools.absolute(self.path).equals(self.canonical)) { return "source input changed after read: " + self.path; }
+	/* `directories` memoizes resolved parents across one validation pass. A
+	 * path that resolves to its name in its resolved parent needs no second
+	 * resolution: the unchanged canonical file shows its leaf is not now a
+	 * link elsewhere. */
+	public string validate(Map<string, string>? memo = null) {
 		var current = FileSystem.inspectExact(self.canonical);
 		if (!current.ok() || !self.version.sameVersion(current.snapshot())) { return "source input changed after read: " + self.path; }
+		Map<string, string> directories = memo == null ? new Map<string, string>() : memo;
+		string parent = PathTools.dirname(self.path);
+		if (!directories.has(parent)) { directories.put(parent, PathTools.absolute(parent)); }
+		if (PathTools.join(directories.get(parent), PathTools.basename(self.path)).equals(self.canonical)) { return ""; }
+		if (!PathTools.absolute(self.path).equals(self.canonical)) { return "source input changed after read: " + self.path; }
 		return "";
 	}
 
@@ -314,8 +322,9 @@ class FeSourceFileReader {
 	}
 
 	public string validateInputs() {
+		Map<string, string> directories = {};
 		for path in self.readIdentities.keys() {
-			string diagnostic = self.readIdentities.get(path).validate();
+			string diagnostic = self.readIdentities.get(path).validate(directories);
 			if (!diagnostic.isEmpty()) { return diagnostic; }
 		}
 		return "";
