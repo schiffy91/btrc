@@ -625,9 +625,12 @@ class NativeDeclarationImporter:
     Objective-C objects use normal managed cleanup through generated adapters.
     """
 
-    # Per-shell scratch locations: the reader keys its cached responses by
-    # its environment, so it runs without them, as the native plan runs it.
-    SCRATCH_ENVIRONMENT: ClassVar[frozenset[str]] = frozenset({"TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"})
+    # Per-shell scratch locations and btrc's own phase-timing switch: the
+    # reader keys its cached responses by its environment and reads neither,
+    # so it runs without them, as the native plan runs it.
+    SCRATCH_ENVIRONMENT: ClassVar[frozenset[str]] = frozenset(
+        {"TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP", "BTRC_TIMING"}
+    )
 
     def __init__(self):
         self._declarations = {}

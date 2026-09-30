@@ -105,8 +105,9 @@ def _array(value: object, context: str) -> list[object]:
 
 
 # Where tools write scratch files, never what they produce. Each `nix
-# develop` shell draws new ones, so they must not decide cache identities.
-_SCRATCH_ENVIRONMENT = frozenset({"TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"})
+# develop` shell draws new ones, so they must not decide cache identities;
+# nor does btrc's phase-timing switch, which no compiler or reader reads.
+_SCRATCH_ENVIRONMENT = frozenset({"TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP", "BTRC_TIMING"})
 
 
 def _stable_environment() -> dict[str, str]:
