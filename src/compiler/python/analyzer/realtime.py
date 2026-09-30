@@ -46,6 +46,9 @@ class RealtimeCallable:
     source_file: str | None
     local_names: frozenset[str]
     events: list[RealtimeEvent] = field(default_factory=list)
+    # After its first effect a callable's verdict and witness are fixed; see
+    # _effect.
+    settled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,7 +490,7 @@ class RealtimeAnalyzer:
         if target is None:
             self._effect(callable_, "unknown", f"unindexed source call '{declaration.name}'", call)
             return
-        callable_.events.append(RealtimeEdge(target, call.line, call.col))
+        self._edge(callable_, target, call)
 
     def _operator_event(self, callable_, operand, operator, site, *, unary=False) -> bool:
         receiver = self.session.node_types.get(id(operand))
@@ -688,7 +691,7 @@ class RealtimeAnalyzer:
         if target is None:
             self._effect(callable_, "unknown", f"unresolved property {kind} '{access.field}'", access)
         else:
-            callable_.events.append(RealtimeEdge(target, access.line, access.col))
+            self._edge(callable_, target, access)
 
     def _external_call(self, callable_: RealtimeCallable, name: str, node, *, reviewed_native=False) -> None:
         if name in self._ALLOCATION_CALLS:
@@ -747,7 +750,19 @@ class RealtimeAnalyzer:
             )
         return any(self._managed_type(argument, (*seen, base)) for argument in getattr(type_expr, "generic_args", ()))
 
+    def _edge(self, callable_: RealtimeCallable, target: str, node) -> None:
+        if not callable_.settled:
+            callable_.events.append(RealtimeEdge(target, node.line, node.col))
+
     def _effect(self, callable_: RealtimeCallable, category: str, operation: str, node) -> None:
+        # After a callable's first effect nothing it does changes a verdict:
+        # it is unsafe, and a witness search returns at that effect before any
+        # later event. A cycle through one of its later calls leaves every
+        # member reaching an effect by earlier calls, so unsafe all the same.
+        # Later events are dropped; the self-hosted compiler also records less.
+        if callable_.settled:
+            return
+        callable_.settled = True
         callable_.events.append(
             RealtimeEffect(
                 category,

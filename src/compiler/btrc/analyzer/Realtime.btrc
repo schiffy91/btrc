@@ -38,6 +38,9 @@ class RealtimeCallable {
 	public Map<string, Node> variables;
 	public Map<string, bool> localNames;
 	public Vector<RealtimeEvent> events;
+	/* After its first effect a callable's verdict and witness are fixed; see
+	 * RealtimeAnalyzer.effect. */
+	public bool settled;
 
 	public RealtimeCallable(string key, string label, Node declaration) {
 		self.key = key;
@@ -47,6 +50,7 @@ class RealtimeCallable {
 		self.variables = {};
 		self.localNames = {};
 		self.events = [];
+		self.settled = false;
 	}
 }
 
@@ -1085,7 +1089,14 @@ class RealtimeAnalyzer {
 		return next;
 	}
 
+	/* After a callable's first effect nothing it does changes a verdict: it
+	 * is unsafe, and a witness search returns at that effect before any later
+	 * event. A cycle through one of its later calls leaves every member
+	 * reaching an effect by earlier calls, so unsafe all the same. Later events
+	 * are neither kept nor recorded, which was nine in ten record lines. */
 	private void effect(RealtimeCallable callable, string category, string operation, Node site) {
+		if (callable.settled) { return; }
+		callable.settled = true;
 		RealtimeEvent event = RealtimeEvent();
 		event.isEffect = true;
 		event.category = category;
@@ -1102,6 +1113,7 @@ class RealtimeAnalyzer {
 	}
 
 	private void edge(RealtimeCallable callable, string target, Node site) {
+		if (callable.settled) { return; }
 		RealtimeEvent event = RealtimeEvent();
 		event.target = target;
 		event.line = site.line;
@@ -1139,7 +1151,10 @@ class RealtimeAnalyzer {
 				}
 				event.line = site.line;
 				event.col = site.col;
-				self.callables.get(fact.name).events.push(event);
+				RealtimeCallable owner = self.callables.get(fact.name);
+				if (owner.settled) { continue; }
+				if (event.isEffect) { owner.settled = true; }
+				owner.events.push(event);
 			}
 		}
 	}
