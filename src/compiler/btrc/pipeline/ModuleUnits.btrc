@@ -805,6 +805,9 @@ class ModuleUnitProgram {
 	/* The program's pre-analysis interface digest when validation records
 	 * computed it (per-group, cached); empty otherwise. */
 	public string interfaceDigest = "";
+	/* Source digests of groups already taken, by module-unit group name; a
+	 * group's digest is of its lines, in order, as groupSourceDigests takes. */
+	public Map<string, string> knownSourceDigests = {};
 
 	public ModuleUnitProgram(Node program, Analyzed analyzed, SemanticAnalyzer analyzer, HostedAbiRepository hostedAbi, RuntimeHelperCatalog runtimeHelpers, FeResolvedSource resolved, string sourcePath, Map<string, bool>? stdlibKeys) {
 		self.program = program;
@@ -1083,19 +1086,24 @@ class ModuleUnitCompiler {
 
 	private Map<string, int> groupLines = {};
 
+	/* A digest validation records already took of the same lines is reused;
+	 * only the other groups are hashed here. */
 	private Map<string, string> groupSourceDigests() {
 		Map<string, SHA256> digests = {};
+		Map<string, string> known = self.input.knownSourceDigests;
 		for line in self.input.resolved.userLines {
 			string group = self.groupOfFile.get(line.sourceFile);
-			if (!digests.has(group)) {
-				digests.put(group, SHA256());
-				self.groupLines.put(group, 0);
-			}
-			digests.get(group).appendText(line.sourceFile + "\t" + Strings.fromInt(line.lineNumber) + "\t" + line.text + "\n");
+			if (!self.groupLines.has(group)) { self.groupLines.put(group, 0); }
 			self.groupLines.put(group, self.groupLines.get(group) + 1);
+			if (known.has(group)) { continue; }
+			if (!digests.has(group)) { digests.put(group, SHA256()); }
+			digests.get(group).appendText(line.sourceFile + "\t" + Strings.fromInt(line.lineNumber) + "\t" + line.text + "\n");
 		}
 		Map<string, string> result = {};
-		for group in digests.keys() { result.put(group, digests.get(group).finish()); }
+		for group in self.groupLines.keys() {
+			if (known.has(group)) { result.put(group, known.get(group)); }
+			else { result.put(group, digests.get(group).finish()); }
+		}
 		return result;
 	}
 
@@ -2581,6 +2589,8 @@ class ValidationRecords implements IValidationRecords {
 	public int replayed = 0;
 	public int journaled = 0;
 	public string interfaceDigest = "";
+	/* Each group's source digest, by module-unit group name. */
+	public Map<string, string> groupSourceDigests = {};
 	/* Generic instance scans: one rewritable record per template group, loaded
 	 * on first use; sections journaled this build are merged in on persist.
 	 * Each section names the groups outside its template's that its facts
@@ -2634,6 +2644,9 @@ class ValidationRecords implements IValidationRecords {
 		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }
 		string interfaceDigest = self.programInterface(program, context, sources, nativeIdentity);
 		self.interfaceDigest = interfaceDigest;
+		for group in sources.keys() {
+			if (group.startsWith("group:")) { self.groupSourceDigests.put(group.substring(6, group.length() - 6), sources.get(group)); }
+		}
 		for group in sources.keys() { self.keys.put(group, SHA256.digest(context + "\n" + group + "\n" + sources.get(group) + "\n" + interfaceDigest)); }
 		for group in self.keys.keys() { self.load(group); }
 	}

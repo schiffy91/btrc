@@ -152,7 +152,10 @@ class CompilerPipeline {
 			if (!resolved.strictImports) { return self.failure("error: module units require strict imports"); }
 			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations(), self.hostedAbi) : null;
 			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys);
-			if (records != null) { unitProgram.interfaceDigest = records.interfaceDigest; }
+			if (records != null) {
+				unitProgram.interfaceDigest = records.interfaceDigest;
+				unitProgram.knownSourceDigests = records.groupSourceDigests;
+			}
 			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();
 			IRModule? programModule = build.program;
 			if (programModule != null) {
