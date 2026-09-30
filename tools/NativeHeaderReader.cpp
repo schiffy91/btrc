@@ -793,7 +793,12 @@ public:
 		std::sort(images.begin(), images.end()); llvm::json::Array rows, reasons;
 		for (const auto& image : images) { llvm::json::Array row; for (const auto& value : image) { row.push_back(value); } rows.push_back(std::move(row)); }
 		for (const auto& reason : exclusions) { reasons.push_back(reason); }
-		return llvm::json::Object{{"supported", exclusions.empty()}, {"images", std::move(rows)}, {"exclusions", std::move(reasons)}};
+		// Identities name the images by this digest: every contract of a
+		// session shares one capture, and hundreds of rows per contract were
+		// most of what each receipt serialized, stored and parsed again.
+		llvm::SHA256 hash; hash.update(llvm::formatv("{0}", llvm::json::Value(llvm::json::Array(rows))).str());
+		std::string digest = llvm::toHex(hash.final(), true);
+		return llvm::json::Object{{"supported", exclusions.empty()}, {"images", std::move(rows)}, {"images_sha256", std::move(digest)}, {"exclusions", std::move(reasons)}};
 	}
 };
 
@@ -926,7 +931,7 @@ public:
 		auto cwd = llvm::vfs::getRealFileSystem()->getCurrentWorkingDirectory();
 		if (!cwd) { reject("unavailable-cwd"); }
 		if (invocations.size() != 1) { reject("invocation-count"); }
-		llvm::json::Array identity{"btrc.native-inputs.diagnostic.v2", llvm::json::Array(invocations), environment, cwd ? *cwd : "", llvm::json::Array(selections), *runtimeBefore.getAsObject()->get("images"), llvm::json::Array(requestArguments), dependencyDiagnosticDigest};
+		llvm::json::Array identity{"btrc.native-inputs.diagnostic.v3", llvm::json::Array(invocations), environment, cwd ? *cwd : "", llvm::json::Array(selections), runtimeBefore.getAsObject()->getString("images_sha256").value_or("").str(), llvm::json::Array(requestArguments), dependencyDiagnosticDigest};
 		auto serialized = llvm::formatv("{0}", llvm::json::Value(llvm::json::Array(identity))).str();
 		llvm::json::Array reasons; for (const auto& reason : exclusions) { reasons.push_back(reason); }
 		llvm::json::Object result{{"identity", std::move(identity)}, {"identity_sha256", digest(serialized)}, {"eligible_inputs", exclusions.empty()}, {"exclusions", std::move(reasons)}};
@@ -2025,6 +2030,10 @@ private:
 		std::string key = contract->getString("identity_sha256")->str();
 		uint64_t expandedBytes = 0;
 		if (!storeTrace(trace, expandedBytes)) { return false; }
+		// Admission read the runtime's verdicts; the captures themselves are
+		// diagnostics no lookup reads, and each was half a receipt.
+		inputs.getAsObject()->erase("runtime_before");
+		inputs.getAsObject()->erase("runtime_after");
 		llvm::json::Object receipt{{"schema","btrc.native-header-cache.v2"},{"inputs",std::move(inputs)},
 			{"filesystem",std::move(trace)},{"stdout",std::move(output)},{"stderr",std::move(errors)}};
 		std::string bytes = llvm::formatv("{0}", llvm::json::Value(std::move(receipt))).str();
