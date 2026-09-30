@@ -1281,10 +1281,11 @@ class NativePlanBuilder:
                 path = _regular_file(str(directory / name), "debug object")
                 if path.stat().st_mtime_ns != 1_000_000_000:
                     return False
-                with path.open("rb") as stream:
-                    if hashlib.file_digest(stream, "sha256").hexdigest() != digest:
-                        return False
-        except (OSError, NativePlanError):
+                # The identity the link receipt reads for this input, so its
+                # context does not read the object again.
+                if _DarwinLinkReceipt.file_identity(path)["sha256"] != digest:
+                    return False
+        except (OSError, ValueError, NativePlanError):
             return False
         return True
 
@@ -1485,8 +1486,8 @@ class _DarwinLinkReceipt:
         # (before, between and after the qualifying links). A file is re-read
         # only when its identity changed (a write always changes ctime), and a
         # toolchain query only when the files it depends on did. Both caches
-        # are the process's, so prefetch() can fill them while receipts run.
-        self._identities = _DarwinLinkReceipt._shared_identities
+        # are the process's, so prefetch() can fill them while receipts run
+        # and debug-object retention records the objects it verified.
         self._queries = _DarwinLinkReceipt._shared_queries
 
     _shared_identities: ClassVar[dict[tuple[object, ...], dict[str, object]]] = {}
@@ -1528,6 +1529,11 @@ class _DarwinLinkReceipt:
         return self._queries[key]
 
     def _file(self, path: str | Path) -> dict[str, object]:
+        return _DarwinLinkReceipt.file_identity(path)
+
+    @staticmethod
+    def file_identity(path: str | Path) -> dict[str, object]:
+        """A file's content identity, read again only when its metadata changed."""
         path = Path(path)
         resolved = path.resolve(strict=True)
         current = resolved.stat()
@@ -1541,14 +1547,15 @@ class _DarwinLinkReceipt:
             current.st_ctime_ns,
             current.st_mode,
         )
-        known = self._identities.get(key)
+        known = _DarwinLinkReceipt._shared_identities.get(key)
         if known is not None:
             return dict(known)
-        identity = self._read_identity(path, resolved)
-        self._identities[key] = identity
+        identity = _DarwinLinkReceipt._read_identity(path, resolved)
+        _DarwinLinkReceipt._shared_identities[key] = identity
         return dict(identity)
 
-    def _read_identity(self, path: Path, resolved: Path) -> dict[str, object]:
+    @staticmethod
+    def _read_identity(path: Path, resolved: Path) -> dict[str, object]:
         with resolved.open("rb") as stream:
             before = os.fstat(stream.fileno())
             if not stat.S_ISREG(before.st_mode):
