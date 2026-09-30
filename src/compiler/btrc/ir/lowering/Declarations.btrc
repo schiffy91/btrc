@@ -2877,21 +2877,24 @@ class DeclarationLowerer {
 		int ip = 0;
 		while (ip < ctorParams.len) { initFn.params.push(ctorParams.get(ip)); ip = ip + 1; }
 		Vector<IRNode> ibody = [];
-		self.managedTypes.appendHeaderInitialization(mangled, ibody);
+		/* An instance whose class another group defines shares only its
+		 * signatures here; that group's unit lowers the bodies. */
+		bool foreign = self.context.foreignBody;
+		if (!foreign) { self.managedTypes.appendHeaderInitialization(mangled, ibody); }
 		self.context.currentReturnCType = "void";
 		self.context.currentReturnType = null;
 		self.context.currentReturnOwned = true;
 		self.functions.resetFuncVarDecls();
-		Map<string, Node> genericCtorVars = self.genericInitializerVarTypes(inst, ctor);
+		Map<string, Node> genericCtorVars = foreign ? new Map<string, Node>() : self.genericInitializerVarTypes(inst, ctor);
 		Vector<string> constructorSourceBindings = self.context.snapshotSourceBindings();
 		Vector<string> noConstructorSourceBindings = [];
 		self.context.restoreSourceBindings(noConstructorSourceBindings);
 		if (ctor != null) {
 			self.functions.activateSourceLexicalParameters(ctor.params());
 		}
-		self.appendInstanceFieldInitializers(decl, genericCtorVars, true, typeMap, ibody);
+		if (!foreign) { self.appendInstanceFieldInitializers(decl, genericCtorVars, true, typeMap, ibody); }
 		Vector<IRNode> ctorBodyStmts = [];
-		if (ctor != null && ctor.bodyNode != null) {
+		if (!foreign && ctor != null && ctor.bodyNode != null) {
 			IRNode blk = self.functions.lowerBody(ctor.bodyNode, genericCtorVars);
 			int b = 0;
 			while (b < blk.stmts().len) { ctorBodyStmts.push(blk.stmts().get(b)); b = b + 1; }
@@ -2914,19 +2917,21 @@ class DeclarationLowerer {
 		int np = 0;
 		while (np < ctorParams.len) { newFn.params.push(ctorParams.get(np)); np = np + 1; }
 		Vector<IRNode> nbody = [];
-		self.context.referenceHelper("__btrc_safe_calloc");
-		Vector<IRNode> callocArgs = [];
-		callocArgs.push(IRNode.literal("1"));
-		callocArgs.push(IRNode.sizeofType(mangled));
-		nbody.push(IRNode.variableDeclaration(mangled + "*", "self", IRNode.cast(mangled + "*", IRNode.call("__btrc_safe_calloc", callocArgs))));
-		string cleanupMark = self.beginConstructorCleanup("self", nbody);
-		Vector<IRNode> initArgs = [];
-		initArgs.push(IRNode.variable("self"));
-		int ia = 0;
-		while (ia < ctorParams.len) { initArgs.push(IRNode.variable(ctorParams.get(ia).name)); ia = ia + 1; }
-		nbody.push(IRNode.expressionStatement(IRNode.call(mangled + "_init", initArgs)));
-		self.endConstructorCleanup(cleanupMark, nbody);
-		nbody.push(IRNode.returnStatement(IRNode.variable("self")));
+		if (!foreign) {
+			self.context.referenceHelper("__btrc_safe_calloc");
+			Vector<IRNode> callocArgs = [];
+			callocArgs.push(IRNode.literal("1"));
+			callocArgs.push(IRNode.sizeofType(mangled));
+			nbody.push(IRNode.variableDeclaration(mangled + "*", "self", IRNode.cast(mangled + "*", IRNode.call("__btrc_safe_calloc", callocArgs))));
+			string cleanupMark = self.beginConstructorCleanup("self", nbody);
+			Vector<IRNode> initArgs = [];
+			initArgs.push(IRNode.variable("self"));
+			int ia = 0;
+			while (ia < ctorParams.len) { initArgs.push(IRNode.variable(ctorParams.get(ia).name)); ia = ia + 1; }
+			nbody.push(IRNode.expressionStatement(IRNode.call(mangled + "_init", initArgs)));
+			self.endConstructorCleanup(cleanupMark, nbody);
+			nbody.push(IRNode.returnStatement(IRNode.variable("self")));
+		}
 		newFn.body = IRNode.block(nbody);
 		m.functions.push(newFn);
 
@@ -2961,7 +2966,7 @@ class DeclarationLowerer {
 		dFn.params.push(IRParam("void*", "object"));
 		Vector<IRNode> dbody = [];
 		dbody.push(IRNode.variableDeclaration(mangled + "*", "self", IRNode.cast(mangled + "*", IRNode.variable("object"))));
-		bool hasGenericFieldReleases = self.functions.emitGenericFieldReleases(decl, typeMap, dbody);
+		bool hasGenericFieldReleases = !foreign && self.functions.emitGenericFieldReleases(decl, typeMap, dbody);
 		if (hasGenericFieldReleases) {
 			self.context.referenceHelper("__btrc_mark_destroyed");
 			Vector<IRNode> markArgs = [];
@@ -3364,6 +3369,18 @@ class DeclarationLowerer {
 			}
 		}
 		Vector<IRNode> body = [];
+		/* Another compilation group defines this class: its unit lowers the
+		 * initializers, and only the signature is shared. */
+		if (self.context.foreignBody) {
+			self.context.currentReturnCType = "void";
+			self.context.currentReturnType = null;
+			self.context.currentReturnOwned = true;
+			self.functions.resetFuncVarDecls();
+			initFn.body = IRNode.block(body);
+			m.functions.push(initFn);
+			self.emitAllocatingConstructor(decl, ctor, m);
+			return;
+		}
 		self.managedTypes.appendHeaderInitialization(name, body);
 		self.context.currentReturnCType = "void";
 		self.context.currentReturnType = null;
@@ -3387,12 +3404,22 @@ class DeclarationLowerer {
 		self.context.restoreSourceBindings(sourceBindings);
 		initFn.body = IRNode.block(body);
 		m.functions.push(initFn);
+		self.emitAllocatingConstructor(decl, ctor, m);
+	}
 
-		/* X_new: checked zeroed allocation + init + return. */
+	/* X_new: checked zeroed allocation + init + return. */
+	private void emitAllocatingConstructor(Node decl, Node? ctor, IRModule m) {
+		string name = decl.name;
 		IRFunction newFn = IRFunction();
 		newFn.name = name + "_new";
 		newFn.returnType = name + "*";
 		Vector<IRNode> nbody = [];
+		if (self.context.foreignBody) {
+			if (ctor != null) { for parameter in ctor.params() { newFn.params.push(self.cTypes.lowerParameter(parameter)); } }
+			newFn.body = IRNode.block(nbody);
+			m.functions.push(newFn);
+			return;
+		}
 		self.context.referenceHelper("__btrc_safe_calloc");
 		Vector<IRNode> callocArgs = [];
 		callocArgs.push(IRNode.literal("1"));
@@ -3460,8 +3487,9 @@ class DeclarationLowerer {
 			}
 			m.functions.push(self.buildDestructorHook(name, hookBody));
 		}
-		/* Release class-instance fields (own + inherited), in source order. */
-		bool hasFieldReleases = self.emitFieldReleases(name, body);
+		/* Release class-instance fields (own + inherited), in source order;
+		 * a class another group defines shares only the signature. */
+		bool hasFieldReleases = !self.context.foreignBody && self.emitFieldReleases(name, body);
 		/* Mark cascade destruction before freeing. The helper itself checks
          * the process-wide unwind scope under the ARC mutation lock. */
 		if (hasFieldReleases) {
