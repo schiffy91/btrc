@@ -140,15 +140,19 @@ class Strings {
 		int dlen = Strings.checkedLength(delim);
 		if (dlen == 0) { return result; }
 		int slen = Strings.checkedLength(s);
+		string first = delim.substring(0, 1);
 		int offset = 0;
 		while (true) {
 			/* Scan on from the offset with the lengths measured once:
 			 * re-measuring per piece would make splitting a large text
-			 * quadratic. */
+			 * quadratic. strcspn skips to each candidate first byte; only a
+			 * candidate is compared in full. */
 			int found = -1;
 			int index = offset;
 			while (dlen <= slen - index) {
-				if (strncmp((char*)s + index, delim, dlen) == 0) {
+				index = index + (int)strcspn((char*)s + index, first);
+				if (dlen > slen - index) { break; }
+				if (memcmp((char*)s + index, delim, (size_t)dlen) == 0) {
 					found = index;
 					break;
 				}
