@@ -1201,6 +1201,9 @@ class ModuleUnitCompiler {
 	/* Workers are started on first need and live for the rest of the compile:
 	 * a group lowered again later goes to the same pool. */
 	private IWorkerPool? workerPool = null;
+	/* Whether the pool runs its worker in this process, where that worker
+	 * takes summaries as values. */
+	private bool inlinePool = false;
 
 	private IWorkerPool pool(ModuleUnitWorker local, ModuleUnitDeclarations shared, int stale) {
 		IWorkerPool? existing = self.workerPool;
@@ -1209,7 +1212,10 @@ class ModuleUnitCompiler {
 		IWorkerPoolFactory? factory = self.pools;
 		IWorkerPool? opened = null;
 		if (count > 1 && factory != null) { opened = factory.open(count, ModuleUnitWorker(self, shared)); }
-		if (opened == null) { opened = InlineWorkerPool(local); }
+		if (opened == null) {
+			opened = InlineWorkerPool(local);
+			self.inlinePool = true;
+		}
 		IWorkerPool started = opened;
 		self.workerPool = started;
 		BtrccPhaseTimer.note(f"module-unit-workers={started.size()}");
@@ -1434,7 +1440,7 @@ class ModuleUnitCompiler {
 	 * any order reaches the same least fixed point. Each worker receives the
 	 * summaries that moved since it last heard. Returns the program unit's
 	 * call effects; `solved` holds the summaries. */
-	private Map<string, SetjmpCallEffects> solveSetjmp(IWorkerPool workers, IRModule programUnit, ModuleUnitGraph programGraph, Vector<ModuleUnitGroupState> stale, Map<string, SetjmpFunctionEffect> fixed, Map<string, SetjmpFunctionEffect> solved) {
+	private Map<string, SetjmpCallEffects> solveSetjmp(IWorkerPool workers, ModuleUnitWorker local, IRModule programUnit, ModuleUnitGraph programGraph, Vector<ModuleUnitGroupState> stale, Map<string, SetjmpFunctionEffect> fixed, Map<string, SetjmpFunctionEffect> solved) {
 		for name in fixed.keys() { solved.put(name, fixed.get(name)); }
 		Map<string, string> owners = {};
 		for definition in programUnit.functions {
@@ -1514,7 +1520,14 @@ class ModuleUnitCompiler {
 						}
 						primed.put(state.worker, true);
 					}
-					message.set("solved", JSONValue.makeString(ModuleUnitSummaries.encode(delta)));
+					/* An inline worker takes the summaries as values: encoding every
+					 * export's summary to cross a call was most of a small solve. */
+					if (self.inlinePool) {
+						local.acceptSolved(self.solveGeneration, delta);
+						message.set("solved", JSONValue.makeString(""));
+					} else {
+						message.set("solved", JSONValue.makeString(ModuleUnitSummaries.encode(delta)));
+					}
 					requests.push(message.stringify());
 					affinity.push(state.worker);
 					analyzed.push(state);
@@ -1870,7 +1883,7 @@ class ModuleUnitCompiler {
 			programEffects = {};
 			if (needsSolve) {
 				IWorkerPool workers = self.pool(local, shared, stale.len);
-				programEffects = self.solveSetjmp(workers, programUnit, programGraph, stale, fixed, solved);
+				programEffects = self.solveSetjmp(workers, local, programUnit, programGraph, stale, fixed, solved);
 			}
 			Map<string, string> exporters = self.exporters(states);
 			for state in states {
@@ -2054,6 +2067,18 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 	public ModuleUnitWorker(ModuleUnitCompiler compiler, ModuleUnitDeclarations shared) {
 		self.compiler = compiler;
 		self.shared = shared;
+	}
+
+	/* Summaries handed over directly by an owner in the same process, as
+	 * copies, exactly as a request's decoded text would be. */
+	public void acceptSolved(int generation, Map<string, SetjmpFunctionEffect> delta) {
+		if (generation != self.solveGeneration) {
+			self.solveGeneration = generation;
+			self.solved = {};
+			self.reported = {};
+			self.analyses = {};
+		}
+		for name in delta.keys() { self.solved.put(name, delta.get(name).snapshot()); }
 	}
 
 	public string handle(string request) {
