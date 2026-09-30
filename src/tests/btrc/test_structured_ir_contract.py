@@ -250,6 +250,7 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     assert "lowerIndirectIncDec" in expressions
     assert "lowerGenericIntrinsic" in expressions
     assert 'IRNode.cast("uintptr_t", args.get(0))' in expressions
+    assert 'IRNode.literal("0x9E3779B97F4A7C15ULL")' in expressions
     assert "IRK_INVALID_EXPR" in model
     assert "invalidExpression" in model
     pointer = identity.index('component = component + "_p"')

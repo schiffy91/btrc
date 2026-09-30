@@ -157,6 +157,9 @@ def test_generic_operation_helpers_follow_live_structured_calls():
     assert "((unsigned int)key)" in int_bucket
     assert "uintptr_t" not in int_bucket
     assert "((uintptr_t)" in generated["pointer"]
+    # Aligned allocations share low address bits; the reference hash mixes
+    # every bit before a power-of-two table keeps the low ones.
+    assert "0x9E3779B97F4A7C15ULL" in generated["pointer"]
     assert "__btrc_hash_str" not in generated["dead_hash"]
 
     adopt_start = generated["adopt"].index("static char* btrc_Adopter_int_make(btrc_Adopter_int* self) {")

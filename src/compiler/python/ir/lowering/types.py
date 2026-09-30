@@ -597,9 +597,17 @@ class CTypeLowerer:
             helper = "__btrc_hash_real"
             self._session.require_helper(helper)
             return IRCall(callee=helper, args=[operand], helper_ref=helper)
+        # Allocations share their low address bits, and a power-of-two table
+        # keeps only those, so references crowd a few buckets. A Fibonacci
+        # multiply carries every address bit into the result.
+        address = IRCast(
+            target_type=CType(text="unsigned long long"),
+            expr=IRCast(target_type=CType(text="uintptr_t"), expr=operand),
+        )
+        mixed = IRBinOp(left=address, op="*", right=IRLiteral(text="0x9E3779B97F4A7C15ULL"))
         return IRCast(
             target_type=CType(text="unsigned int"),
-            expr=IRCast(target_type=CType(text="uintptr_t"), expr=operand),
+            expr=IRBinOp(left=mixed, op=">>", right=IRLiteral(text="32")),
         )
 
     def _lower_string_comparison(self, operator: str, left: IRExpr, right: IRExpr) -> IRExpr:
