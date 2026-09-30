@@ -37,6 +37,11 @@ class NameValidator {
 	private StorageValidator storage;
 	private CallValidator calls;
 	private Vector<DeferredGeneratedSymbolReference> generatedReferences;
+	/* The program's declaration claims, taken once: a later pass over the
+	 * same program starts from them and claims only generic instances. */
+	private Node? claimedProgram = null;
+	private int claimedDeclarations = -1;
+	private Map<string, string> declarationClaims = {};
 
 	public NameValidator(SemanticValidationState state, HostedAbiRepository hostedAbi, CycleSemantics cycles, SourceRuntimeSymbols sourceRuntimeSymbols, TypeValidator types, StorageValidator storage, CallValidator calls) {
 		self.nativeDeclaration = false;
@@ -727,6 +732,20 @@ class NameValidator {
 
 	public void publishKnownGeneratedSymbols(Node program) {
 		Map<string, string> symbols = {};
+		if (self.claimedProgram == program && self.claimedDeclarations == program.declarations().len) {
+			for symbol in self.declarationClaims.keys() { symbols.put(symbol, self.declarationClaims.get(symbol)); }
+		} else {
+			self.claimDeclarationSymbols(program, symbols);
+			self.declarationClaims = {};
+			for symbol in symbols.keys() { self.declarationClaims.put(symbol, symbols.get(symbol)); }
+			self.claimedProgram = program;
+			self.claimedDeclarations = program.declarations().len;
+		}
+		self.claimGenericInstanceSymbols(symbols);
+		self.claimGenericMethodSymbols(symbols);
+	}
+
+	private void claimDeclarationSymbols(Node program, Map<string, string> symbols) {
 		self.claimSourceMacroSymbols(program, symbols);
 		int index = 0;
 		while (index < program.declarations().len) {
@@ -749,8 +768,6 @@ class NameValidator {
 			}
 			index = index + 1;
 		}
-		self.claimGenericInstanceSymbols( symbols);
-		self.claimGenericMethodSymbols(symbols);
 	}
 
 	public void validateEmittedSymbols(Node program) {
