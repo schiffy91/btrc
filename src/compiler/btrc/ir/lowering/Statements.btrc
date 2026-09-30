@@ -1764,59 +1764,59 @@ class StatementLowerer {
 	private bool nodeUsesTrycatch(Node? n) {
 		if (n == null) { return false; }
 		if (n.kind == NK_THROW_STMT || n.kind == NK_TRY_CATCH_STMT) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.declarations())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.members())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.methods())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.fields())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.values())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.variants())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.genericArgs())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.params())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.statements())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.cases())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.bodyNodeList())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.args())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.elements())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.entries())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.parts())) { return true; }
-		if (self.nodeVectorUsesTrycatch(n.captures())) { return true; }
-		if (self.nodeUsesTrycatch(n.spec)) { return true; }
-		if (self.nodeUsesTrycatch(n.returnType)) { return true; }
-		if (self.nodeUsesTrycatch(n.bodyNode)) { return true; }
-		if (self.nodeUsesTrycatch(n.original)) { return true; }
-		if (self.nodeUsesTrycatch(n.arraySize)) { return true; }
-		if (self.nodeUsesTrycatch(n.type)) { return true; }
-		if (self.nodeUsesTrycatch(n.default_)) { return true; }
-		if (self.nodeUsesTrycatch(n.initializer)) { return true; }
-		if (self.nodeUsesTrycatch(n.getterBody)) { return true; }
-		if (self.nodeUsesTrycatch(n.setterBody)) { return true; }
-		if (self.nodeUsesTrycatch(n.valueNode)) { return true; }
-		if (self.nodeUsesTrycatch(n.condition)) { return true; }
-		if (self.nodeUsesTrycatch(n.thenBlock)) { return true; }
-		if (self.nodeUsesTrycatch(n.elseBlock)) { return true; }
-		if (self.nodeUsesTrycatch(n.iterable)) { return true; }
-		if (self.nodeUsesTrycatch(n.init)) { return true; }
-		if (self.nodeUsesTrycatch(n.update)) { return true; }
-		if (self.nodeUsesTrycatch(n.expr)) { return true; }
-		if (self.nodeUsesTrycatch(n.tryBlock)) { return true; }
-		if (self.nodeUsesTrycatch(n.catchType)) { return true; }
-		if (self.nodeUsesTrycatch(n.catchBlock)) { return true; }
-		if (self.nodeUsesTrycatch(n.finallyBlock)) { return true; }
-		if (self.nodeUsesTrycatch(n.ifStmt)) { return true; }
-		if (self.nodeUsesTrycatch(n.varDecl)) { return true; }
-		if (self.nodeUsesTrycatch(n.expression)) { return true; }
-		if (self.nodeUsesTrycatch(n.left)) { return true; }
-		if (self.nodeUsesTrycatch(n.right)) { return true; }
-		if (self.nodeUsesTrycatch(n.operand)) { return true; }
-		if (self.nodeUsesTrycatch(n.callee)) { return true; }
-		if (self.nodeUsesTrycatch(n.obj)) { return true; }
-		if (self.nodeUsesTrycatch(n.index)) { return true; }
-		if (self.nodeUsesTrycatch(n.targetType)) { return true; }
-		if (self.nodeUsesTrycatch(n.trueExpr)) { return true; }
-		if (self.nodeUsesTrycatch(n.falseExpr)) { return true; }
-		if (self.nodeUsesTrycatch(n.target)) { return true; }
-		if (self.nodeUsesTrycatch(n.fn)) { return true; }
-		if (self.nodeUsesTrycatch(n.key)) { return true; }
+		if (n.declarationsStorage != null && self.nodeVectorUsesTrycatch(n.declarationsStorage)) { return true; }
+		if (n.membersStorage != null && self.nodeVectorUsesTrycatch(n.membersStorage)) { return true; }
+		if (n.methodsStorage != null && self.nodeVectorUsesTrycatch(n.methodsStorage)) { return true; }
+		if (n.fieldsStorage != null && self.nodeVectorUsesTrycatch(n.fieldsStorage)) { return true; }
+		if (n.valuesStorage != null && self.nodeVectorUsesTrycatch(n.valuesStorage)) { return true; }
+		if (n.variantsStorage != null && self.nodeVectorUsesTrycatch(n.variantsStorage)) { return true; }
+		if (n.genericArgsStorage != null && self.nodeVectorUsesTrycatch(n.genericArgsStorage)) { return true; }
+		if (n.paramsStorage != null && self.nodeVectorUsesTrycatch(n.paramsStorage)) { return true; }
+		if (n.statementsStorage != null && self.nodeVectorUsesTrycatch(n.statementsStorage)) { return true; }
+		if (n.casesStorage != null && self.nodeVectorUsesTrycatch(n.casesStorage)) { return true; }
+		if (n.bodyNodeListStorage != null && self.nodeVectorUsesTrycatch(n.bodyNodeListStorage)) { return true; }
+		if (n.argsStorage != null && self.nodeVectorUsesTrycatch(n.argsStorage)) { return true; }
+		if (n.elementsStorage != null && self.nodeVectorUsesTrycatch(n.elementsStorage)) { return true; }
+		if (n.entriesStorage != null && self.nodeVectorUsesTrycatch(n.entriesStorage)) { return true; }
+		if (n.partsStorage != null && self.nodeVectorUsesTrycatch(n.partsStorage)) { return true; }
+		if (n.capturesStorage != null && self.nodeVectorUsesTrycatch(n.capturesStorage)) { return true; }
+		if (n.spec != null && self.nodeUsesTrycatch(n.spec)) { return true; }
+		if (n.returnType != null && self.nodeUsesTrycatch(n.returnType)) { return true; }
+		if (n.bodyNode != null && self.nodeUsesTrycatch(n.bodyNode)) { return true; }
+		if (n.original != null && self.nodeUsesTrycatch(n.original)) { return true; }
+		if (n.arraySize != null && self.nodeUsesTrycatch(n.arraySize)) { return true; }
+		if (n.type != null && self.nodeUsesTrycatch(n.type)) { return true; }
+		if (n.default_ != null && self.nodeUsesTrycatch(n.default_)) { return true; }
+		if (n.initializer != null && self.nodeUsesTrycatch(n.initializer)) { return true; }
+		if (n.getterBody != null && self.nodeUsesTrycatch(n.getterBody)) { return true; }
+		if (n.setterBody != null && self.nodeUsesTrycatch(n.setterBody)) { return true; }
+		if (n.valueNode != null && self.nodeUsesTrycatch(n.valueNode)) { return true; }
+		if (n.condition != null && self.nodeUsesTrycatch(n.condition)) { return true; }
+		if (n.thenBlock != null && self.nodeUsesTrycatch(n.thenBlock)) { return true; }
+		if (n.elseBlock != null && self.nodeUsesTrycatch(n.elseBlock)) { return true; }
+		if (n.iterable != null && self.nodeUsesTrycatch(n.iterable)) { return true; }
+		if (n.init != null && self.nodeUsesTrycatch(n.init)) { return true; }
+		if (n.update != null && self.nodeUsesTrycatch(n.update)) { return true; }
+		if (n.expr != null && self.nodeUsesTrycatch(n.expr)) { return true; }
+		if (n.tryBlock != null && self.nodeUsesTrycatch(n.tryBlock)) { return true; }
+		if (n.catchType != null && self.nodeUsesTrycatch(n.catchType)) { return true; }
+		if (n.catchBlock != null && self.nodeUsesTrycatch(n.catchBlock)) { return true; }
+		if (n.finallyBlock != null && self.nodeUsesTrycatch(n.finallyBlock)) { return true; }
+		if (n.ifStmt != null && self.nodeUsesTrycatch(n.ifStmt)) { return true; }
+		if (n.varDecl != null && self.nodeUsesTrycatch(n.varDecl)) { return true; }
+		if (n.expression != null && self.nodeUsesTrycatch(n.expression)) { return true; }
+		if (n.left != null && self.nodeUsesTrycatch(n.left)) { return true; }
+		if (n.right != null && self.nodeUsesTrycatch(n.right)) { return true; }
+		if (n.operand != null && self.nodeUsesTrycatch(n.operand)) { return true; }
+		if (n.callee != null && self.nodeUsesTrycatch(n.callee)) { return true; }
+		if (n.obj != null && self.nodeUsesTrycatch(n.obj)) { return true; }
+		if (n.index != null && self.nodeUsesTrycatch(n.index)) { return true; }
+		if (n.targetType != null && self.nodeUsesTrycatch(n.targetType)) { return true; }
+		if (n.trueExpr != null && self.nodeUsesTrycatch(n.trueExpr)) { return true; }
+		if (n.falseExpr != null && self.nodeUsesTrycatch(n.falseExpr)) { return true; }
+		if (n.target != null && self.nodeUsesTrycatch(n.target)) { return true; }
+		if (n.fn != null && self.nodeUsesTrycatch(n.fn)) { return true; }
+		if (n.key != null && self.nodeUsesTrycatch(n.key)) { return true; }
 		return false;
 	}
 }

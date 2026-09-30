@@ -1228,47 +1228,48 @@ class GenericSpecializer {
 			return;
 		}
 
-		self.genericClosureWalkNode(node.returnType, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.bodyNode, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.type, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.default_, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.initializer, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.getterBody, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.setterBody, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.valueNode, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.condition, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.thenBlock, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.elseBlock, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.iterable, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.init, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.update, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.expr, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.ifStmt, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.varDecl, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.expression, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.left, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.right, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.operand, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.callee, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.obj, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.index, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.targetType, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.trueExpr, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.falseExpr, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.target, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.fn, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.key, substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkNode(node.arraySize, substitutions, unresolved, analyzed, operators, variables);
+		/* Skip unset fields and unwritten lists without a call. */
+		if (node.returnType != null) { self.genericClosureWalkNode(node.returnType, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.bodyNode != null) { self.genericClosureWalkNode(node.bodyNode, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.type != null) { self.genericClosureWalkNode(node.type, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.default_ != null) { self.genericClosureWalkNode(node.default_, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.initializer != null) { self.genericClosureWalkNode(node.initializer, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.getterBody != null) { self.genericClosureWalkNode(node.getterBody, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.setterBody != null) { self.genericClosureWalkNode(node.setterBody, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.valueNode != null) { self.genericClosureWalkNode(node.valueNode, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.condition != null) { self.genericClosureWalkNode(node.condition, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.thenBlock != null) { self.genericClosureWalkNode(node.thenBlock, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.elseBlock != null) { self.genericClosureWalkNode(node.elseBlock, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.iterable != null) { self.genericClosureWalkNode(node.iterable, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.init != null) { self.genericClosureWalkNode(node.init, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.update != null) { self.genericClosureWalkNode(node.update, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.expr != null) { self.genericClosureWalkNode(node.expr, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.ifStmt != null) { self.genericClosureWalkNode(node.ifStmt, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.varDecl != null) { self.genericClosureWalkNode(node.varDecl, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.expression != null) { self.genericClosureWalkNode(node.expression, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.left != null) { self.genericClosureWalkNode(node.left, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.right != null) { self.genericClosureWalkNode(node.right, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.operand != null) { self.genericClosureWalkNode(node.operand, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.callee != null) { self.genericClosureWalkNode(node.callee, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.obj != null) { self.genericClosureWalkNode(node.obj, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.index != null) { self.genericClosureWalkNode(node.index, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.targetType != null) { self.genericClosureWalkNode(node.targetType, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.trueExpr != null) { self.genericClosureWalkNode(node.trueExpr, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.falseExpr != null) { self.genericClosureWalkNode(node.falseExpr, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.target != null) { self.genericClosureWalkNode(node.target, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.fn != null) { self.genericClosureWalkNode(node.fn, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.key != null) { self.genericClosureWalkNode(node.key, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.arraySize != null) { self.genericClosureWalkNode(node.arraySize, substitutions, unresolved, analyzed, operators, variables); }
 
-		self.genericClosureWalkVector(node.params(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.statements(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.cases(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.bodyNodeList(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.args(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.elements(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.entries(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.parts(), substitutions, unresolved, analyzed, operators, variables);
-		self.genericClosureWalkVector(node.captures(), substitutions, unresolved, analyzed, operators, variables);
+		if (node.paramsStorage != null) { self.genericClosureWalkVector(node.paramsStorage, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.statementsStorage != null) { self.genericClosureWalkVector(node.statementsStorage, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.casesStorage != null) { self.genericClosureWalkVector(node.casesStorage, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.bodyNodeListStorage != null) { self.genericClosureWalkVector(node.bodyNodeListStorage, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.argsStorage != null) { self.genericClosureWalkVector(node.argsStorage, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.elementsStorage != null) { self.genericClosureWalkVector(node.elementsStorage, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.entriesStorage != null) { self.genericClosureWalkVector(node.entriesStorage, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.partsStorage != null) { self.genericClosureWalkVector(node.partsStorage, substitutions, unresolved, analyzed, operators, variables); }
+		if (node.capturesStorage != null) { self.genericClosureWalkVector(node.capturesStorage, substitutions, unresolved, analyzed, operators, variables); }
 	}
 
 

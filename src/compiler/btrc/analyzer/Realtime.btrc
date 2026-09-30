@@ -587,58 +587,58 @@ class RealtimeAnalyzer {
 	}
 
 	private void collectChildren(Node node, RealtimeCallable callable, bool collecting) {
-		self.dispatchChild(node.spec, callable, collecting);
-		self.dispatchChild(node.returnType, callable, collecting);
-		self.dispatchChild(node.bodyNode, callable, collecting);
-		self.dispatchChild(node.original, callable, collecting);
-		self.dispatchChild(node.type, callable, collecting);
-		self.dispatchChild(node.default_, callable, collecting);
-		self.dispatchChild(node.initializer, callable, collecting);
-		self.dispatchChild(node.valueNode, callable, collecting);
-		self.dispatchChild(node.condition, callable, collecting);
-		self.dispatchChild(node.thenBlock, callable, collecting);
-		self.dispatchChild(node.elseBlock, callable, collecting);
-		self.dispatchChild(node.iterable, callable, collecting);
-		self.dispatchChild(node.init, callable, collecting);
-		self.dispatchChild(node.update, callable, collecting);
-		self.dispatchChild(node.expr, callable, collecting);
-		self.dispatchChild(node.tryBlock, callable, collecting);
-		self.dispatchChild(node.catchType, callable, collecting);
-		self.dispatchChild(node.catchBlock, callable, collecting);
-		self.dispatchChild(node.finallyBlock, callable, collecting);
-		self.dispatchChild(node.ifStmt, callable, collecting);
-		self.dispatchChild(node.varDecl, callable, collecting);
-		self.dispatchChild(node.expression, callable, collecting);
-		self.dispatchChild(node.left, callable, collecting);
-		self.dispatchChild(node.right, callable, collecting);
-		self.dispatchChild(node.operand, callable, collecting);
-		self.dispatchChild(node.callee, callable, collecting);
-		self.dispatchChild(node.obj, callable, collecting);
-		self.dispatchChild(node.index, callable, collecting);
-		self.dispatchChild(node.targetType, callable, collecting);
-		self.dispatchChild(node.trueExpr, callable, collecting);
-		self.dispatchChild(node.falseExpr, callable, collecting);
-		self.dispatchChild(node.target, callable, collecting);
-		self.dispatchChild(node.arraySize, callable, collecting);
-		self.dispatchChild(node.fn, callable, collecting);
-		self.dispatchChild(node.key, callable, collecting);
+		if (node.spec != null) { self.dispatchChild(node.spec, callable, collecting); }
+		if (node.returnType != null) { self.dispatchChild(node.returnType, callable, collecting); }
+		if (node.bodyNode != null) { self.dispatchChild(node.bodyNode, callable, collecting); }
+		if (node.original != null) { self.dispatchChild(node.original, callable, collecting); }
+		if (node.type != null) { self.dispatchChild(node.type, callable, collecting); }
+		if (node.default_ != null) { self.dispatchChild(node.default_, callable, collecting); }
+		if (node.initializer != null) { self.dispatchChild(node.initializer, callable, collecting); }
+		if (node.valueNode != null) { self.dispatchChild(node.valueNode, callable, collecting); }
+		if (node.condition != null) { self.dispatchChild(node.condition, callable, collecting); }
+		if (node.thenBlock != null) { self.dispatchChild(node.thenBlock, callable, collecting); }
+		if (node.elseBlock != null) { self.dispatchChild(node.elseBlock, callable, collecting); }
+		if (node.iterable != null) { self.dispatchChild(node.iterable, callable, collecting); }
+		if (node.init != null) { self.dispatchChild(node.init, callable, collecting); }
+		if (node.update != null) { self.dispatchChild(node.update, callable, collecting); }
+		if (node.expr != null) { self.dispatchChild(node.expr, callable, collecting); }
+		if (node.tryBlock != null) { self.dispatchChild(node.tryBlock, callable, collecting); }
+		if (node.catchType != null) { self.dispatchChild(node.catchType, callable, collecting); }
+		if (node.catchBlock != null) { self.dispatchChild(node.catchBlock, callable, collecting); }
+		if (node.finallyBlock != null) { self.dispatchChild(node.finallyBlock, callable, collecting); }
+		if (node.ifStmt != null) { self.dispatchChild(node.ifStmt, callable, collecting); }
+		if (node.varDecl != null) { self.dispatchChild(node.varDecl, callable, collecting); }
+		if (node.expression != null) { self.dispatchChild(node.expression, callable, collecting); }
+		if (node.left != null) { self.dispatchChild(node.left, callable, collecting); }
+		if (node.right != null) { self.dispatchChild(node.right, callable, collecting); }
+		if (node.operand != null) { self.dispatchChild(node.operand, callable, collecting); }
+		if (node.callee != null) { self.dispatchChild(node.callee, callable, collecting); }
+		if (node.obj != null) { self.dispatchChild(node.obj, callable, collecting); }
+		if (node.index != null) { self.dispatchChild(node.index, callable, collecting); }
+		if (node.targetType != null) { self.dispatchChild(node.targetType, callable, collecting); }
+		if (node.trueExpr != null) { self.dispatchChild(node.trueExpr, callable, collecting); }
+		if (node.falseExpr != null) { self.dispatchChild(node.falseExpr, callable, collecting); }
+		if (node.target != null) { self.dispatchChild(node.target, callable, collecting); }
+		if (node.arraySize != null) { self.dispatchChild(node.arraySize, callable, collecting); }
+		if (node.fn != null) { self.dispatchChild(node.fn, callable, collecting); }
+		if (node.key != null) { self.dispatchChild(node.key, callable, collecting); }
 
-		self.dispatchVector(node.declarations(), callable, collecting);
-		self.dispatchVector(node.members(), callable, collecting);
-		self.dispatchVector(node.methods(), callable, collecting);
-		self.dispatchVector(node.params(), callable, collecting);
-		self.dispatchVector(node.fields(), callable, collecting);
-		self.dispatchVector(node.values(), callable, collecting);
-		self.dispatchVector(node.variants(), callable, collecting);
-		self.dispatchVector(node.genericArgs(), callable, collecting);
-		self.dispatchVector(node.statements(), callable, collecting);
-		self.dispatchVector(node.cases(), callable, collecting);
-		self.dispatchVector(node.args(), callable, collecting);
-		self.dispatchVector(node.elements(), callable, collecting);
-		self.dispatchVector(node.entries(), callable, collecting);
-		self.dispatchVector(node.parts(), callable, collecting);
-		self.dispatchVector(node.captures(), callable, collecting);
-		self.dispatchVector(node.bodyNodeList(), callable, collecting);
+		if (node.declarationsStorage != null) { self.dispatchVector(node.declarationsStorage, callable, collecting); }
+		if (node.membersStorage != null) { self.dispatchVector(node.membersStorage, callable, collecting); }
+		if (node.methodsStorage != null) { self.dispatchVector(node.methodsStorage, callable, collecting); }
+		if (node.paramsStorage != null) { self.dispatchVector(node.paramsStorage, callable, collecting); }
+		if (node.fieldsStorage != null) { self.dispatchVector(node.fieldsStorage, callable, collecting); }
+		if (node.valuesStorage != null) { self.dispatchVector(node.valuesStorage, callable, collecting); }
+		if (node.variantsStorage != null) { self.dispatchVector(node.variantsStorage, callable, collecting); }
+		if (node.genericArgsStorage != null) { self.dispatchVector(node.genericArgsStorage, callable, collecting); }
+		if (node.statementsStorage != null) { self.dispatchVector(node.statementsStorage, callable, collecting); }
+		if (node.casesStorage != null) { self.dispatchVector(node.casesStorage, callable, collecting); }
+		if (node.argsStorage != null) { self.dispatchVector(node.argsStorage, callable, collecting); }
+		if (node.elementsStorage != null) { self.dispatchVector(node.elementsStorage, callable, collecting); }
+		if (node.entriesStorage != null) { self.dispatchVector(node.entriesStorage, callable, collecting); }
+		if (node.partsStorage != null) { self.dispatchVector(node.partsStorage, callable, collecting); }
+		if (node.capturesStorage != null) { self.dispatchVector(node.capturesStorage, callable, collecting); }
+		if (node.bodyNodeListStorage != null) { self.dispatchVector(node.bodyNodeListStorage, callable, collecting); }
 	}
 
 	private void dispatchChild(Node? node, RealtimeCallable callable, bool collecting) {

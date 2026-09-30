@@ -254,59 +254,61 @@ class FeImportReferenceCollector {
 			return;
 		}
 
-		self.visit(node.spec);
-		self.visit(node.returnType);
-		self.visit(node.bodyNode);
-		self.visit(node.original);
-		self.visit(node.arraySize);
-		self.visit(node.type);
-		self.visit(node.default_);
-		self.visit(node.initializer);
-		self.visit(node.getterBody);
-		self.visit(node.setterBody);
-		self.visit(node.valueNode);
-		self.visit(node.condition);
-		self.visit(node.thenBlock);
-		self.visit(node.elseBlock);
-		self.visit(node.iterable);
-		self.visit(node.init);
-		self.visit(node.update);
-		self.visit(node.expr);
-		self.visit(node.tryBlock);
-		self.visit(node.catchType);
-		self.visit(node.catchBlock);
-		self.visit(node.finallyBlock);
-		self.visit(node.ifStmt);
-		self.visit(node.varDecl);
-		self.visit(node.expression);
-		self.visit(node.left);
-		self.visit(node.right);
-		self.visit(node.operand);
-		self.visit(node.callee);
-		self.visit(node.obj);
-		self.visit(node.index);
-		self.visit(node.targetType);
-		self.visit(node.trueExpr);
-		self.visit(node.falseExpr);
-		self.visit(node.target);
-		self.visit(node.fn);
-		self.visit(node.key);
-		self.visitList(node.declarations());
-		self.visitList(node.members());
-		self.visitList(node.methods());
-		self.visitList(node.params());
-		self.visitList(node.fields());
-		self.visitList(node.values());
-		self.visitList(node.variants());
-		self.visitList(node.genericArgs());
-		self.visitList(node.statements());
-		self.visitList(node.cases());
-		self.visitList(node.args());
-		self.visitList(node.elements());
-		self.visitList(node.entries());
-		self.visitList(node.parts());
-		self.visitList(node.captures());
-		self.visitList(node.bodyNodeList());
+		/* Every node of the program passes here: skip unset fields and unwritten
+		 * lists without a call. */
+		if (node.spec != null) { self.visit(node.spec); }
+		if (node.returnType != null) { self.visit(node.returnType); }
+		if (node.bodyNode != null) { self.visit(node.bodyNode); }
+		if (node.original != null) { self.visit(node.original); }
+		if (node.arraySize != null) { self.visit(node.arraySize); }
+		if (node.type != null) { self.visit(node.type); }
+		if (node.default_ != null) { self.visit(node.default_); }
+		if (node.initializer != null) { self.visit(node.initializer); }
+		if (node.getterBody != null) { self.visit(node.getterBody); }
+		if (node.setterBody != null) { self.visit(node.setterBody); }
+		if (node.valueNode != null) { self.visit(node.valueNode); }
+		if (node.condition != null) { self.visit(node.condition); }
+		if (node.thenBlock != null) { self.visit(node.thenBlock); }
+		if (node.elseBlock != null) { self.visit(node.elseBlock); }
+		if (node.iterable != null) { self.visit(node.iterable); }
+		if (node.init != null) { self.visit(node.init); }
+		if (node.update != null) { self.visit(node.update); }
+		if (node.expr != null) { self.visit(node.expr); }
+		if (node.tryBlock != null) { self.visit(node.tryBlock); }
+		if (node.catchType != null) { self.visit(node.catchType); }
+		if (node.catchBlock != null) { self.visit(node.catchBlock); }
+		if (node.finallyBlock != null) { self.visit(node.finallyBlock); }
+		if (node.ifStmt != null) { self.visit(node.ifStmt); }
+		if (node.varDecl != null) { self.visit(node.varDecl); }
+		if (node.expression != null) { self.visit(node.expression); }
+		if (node.left != null) { self.visit(node.left); }
+		if (node.right != null) { self.visit(node.right); }
+		if (node.operand != null) { self.visit(node.operand); }
+		if (node.callee != null) { self.visit(node.callee); }
+		if (node.obj != null) { self.visit(node.obj); }
+		if (node.index != null) { self.visit(node.index); }
+		if (node.targetType != null) { self.visit(node.targetType); }
+		if (node.trueExpr != null) { self.visit(node.trueExpr); }
+		if (node.falseExpr != null) { self.visit(node.falseExpr); }
+		if (node.target != null) { self.visit(node.target); }
+		if (node.fn != null) { self.visit(node.fn); }
+		if (node.key != null) { self.visit(node.key); }
+		if (node.declarationsStorage != null) { self.visitList(node.declarationsStorage); }
+		if (node.membersStorage != null) { self.visitList(node.membersStorage); }
+		if (node.methodsStorage != null) { self.visitList(node.methodsStorage); }
+		if (node.paramsStorage != null) { self.visitList(node.paramsStorage); }
+		if (node.fieldsStorage != null) { self.visitList(node.fieldsStorage); }
+		if (node.valuesStorage != null) { self.visitList(node.valuesStorage); }
+		if (node.variantsStorage != null) { self.visitList(node.variantsStorage); }
+		if (node.genericArgsStorage != null) { self.visitList(node.genericArgsStorage); }
+		if (node.statementsStorage != null) { self.visitList(node.statementsStorage); }
+		if (node.casesStorage != null) { self.visitList(node.casesStorage); }
+		if (node.argsStorage != null) { self.visitList(node.argsStorage); }
+		if (node.elementsStorage != null) { self.visitList(node.elementsStorage); }
+		if (node.entriesStorage != null) { self.visitList(node.entriesStorage); }
+		if (node.partsStorage != null) { self.visitList(node.partsStorage); }
+		if (node.capturesStorage != null) { self.visitList(node.capturesStorage); }
+		if (node.bodyNodeListStorage != null) { self.visitList(node.bodyNodeListStorage); }
 	}
 }
 
