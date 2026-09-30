@@ -1107,11 +1107,13 @@ remaining step (skip analysis and lowering of unchanged groups), a per-file
 parse cache and receipts that do not revalidate unchanged units one session
 at a time. The `--jobs 1` peak is 35 MiB under its M11 budget.
 
-Found on the way, not fixed: every debug edit leaves a new 46 MB
+Found on the way, and fixed the same day: every debug edit left a new 46 MB
 `.btrc-debug-v1-*` object generation beside the executable (18 after a bench
-run), and native preprocessing receipts are keyed on the whole process
-environment, so a build from a shell with one different variable misses every
-receipt once.
+run) -- each output now keeps only the two it needs (1cadaf4) -- and native
+identities hashed the whole process environment, so a build from a shell
+with one different variable re-read every header and rebuilt every unit once;
+they now key only on the variables the tools read (ab1f68f). Both are
+described in `docs/design/compile-performance.md`.
 
 ### Bucket 1 KPI checkpoint
 
