@@ -815,26 +815,37 @@ class NativeHeaderInputs {
 		for (auto byte : bytes) { result.push_back(alphabet[byte >> 4]); result.push_back(alphabet[byte & 15]); }
 		return result;
 	}
+	// The reader never changes its environment, so one digest serves every
+	// request of a session: first, whether any name is ambiguous.
+	static const std::pair<bool, std::string>& processEnvironment() {
+		static const std::pair<bool, std::string> value = [] {
+			std::vector<std::string> values;
+#if defined(__APPLE__)
+			char** entries = *_NSGetEnviron();
+#elif defined(_WIN32)
+			char** entries = _environ;
+#else
+			char** entries = environ;
+#endif
+			for (auto entry = entries; *entry; ++entry) { values.emplace_back(*entry); }
+			bool ambiguous = false;
+			std::set<std::string> names;
+			for (const auto& value : values) {
+				auto separator = value.find('=');
+				if (separator == std::string::npos || !names.insert(value.substr(0, separator)).second) { ambiguous = true; }
+			}
+			std::sort(values.begin(), values.end());
+			std::string encoded;
+			for (const auto& value : values) { encoded += std::to_string(value.size()) + ":" + value; }
+			return std::make_pair(ambiguous, digest(encoded));
+		}();
+		return value;
+	}
 public:
 	explicit NativeHeaderInputs(const llvm::json::Value* runtime = nullptr) : runtimeBefore(runtime ? *runtime : llvm::json::Value(NativeRuntimeInputs::capture())) {
-		std::vector<std::string> values;
-#if defined(__APPLE__)
-		char** entries = *_NSGetEnviron();
-#elif defined(_WIN32)
-		char** entries = _environ;
-#else
-		char** entries = environ;
-#endif
-		for (auto entry = entries; *entry; ++entry) { values.emplace_back(*entry); }
-		std::set<std::string> names;
-		for (const auto& value : values) {
-			auto separator = value.find('=');
-			if (separator == std::string::npos || !names.insert(value.substr(0, separator)).second) { reject("ambiguous-environment"); }
-		}
-		std::sort(values.begin(), values.end());
-		std::string encoded;
-		for (const auto& value : values) { encoded += std::to_string(value.size()) + ":" + value; }
-		environment = digest(encoded);
+		const auto& process = processEnvironment();
+		if (process.first) { reject("ambiguous-environment"); }
+		environment = process.second;
 	}
 	void completed(int status) { readerExit = status; }
 	void request(const std::vector<std::string>& arguments, llvm::StringRef dependencyDiagnostics) {
@@ -1336,7 +1347,9 @@ class NativePreprocess {
 	llvm::json::Object prepared;
 	bool ready = false;
 public:
-	NativePreprocess(const std::vector<std::string>& arguments, const llvm::json::Object& context) {
+	// `runtime` is the session's capture of this process's loaded images; a
+	// session compares it with a final capture before answering.
+	NativePreprocess(const std::vector<std::string>& arguments, const llvm::json::Object& context, const llvm::json::Value* runtime = nullptr) : inputs(runtime) {
 		if (context.getBoolean("eligible") != true || arguments.size() < 3 || arguments[1] != "-cc1") { return; }
 		llvm::SmallString<256> actual;
 		if (llvm::sys::fs::real_path(arguments[0], actual) || context.getString("compiler") != actual.str()) { return; }
@@ -1357,7 +1370,7 @@ public:
 		compiler.createFileManager(fs); compiler.createSourceManager(compiler.getFileManager());
 		inputs.request({"btrc.native-preprocess.v1", context.getString("identity_sha256")->str()}, "");
 		inputs.invocation(*invocation, compiler.getFileManager(), true);
-		prepared = inputs.report(llvm::json::Array());
+		prepared = inputs.report(llvm::json::Array(), runtime);
 		ready = prepared.getBoolean("eligible_inputs") == true && prepared.getBoolean("eligible_runtime") == true;
 	}
 	bool valid() const { return ready; }
@@ -1555,8 +1568,21 @@ class NativeHeaderCache {
 	int root = -1;
 	std::string directory;
 	NativeTraceVerifier verifier;
-	struct TraceFragment { uint64_t bytes; llvm::json::Value rows; };
+	struct TraceFragment { uint64_t bytes; llvm::json::Value rows; bool contextFree; };
 	std::map<std::string, TraceFragment> traceFragments;
+	// Fragments proven against the filesystem in this invocation that name no
+	// working directory: every row absolute, none a directory change.
+	std::set<std::string> provenFragments;
+	static bool contextFree(const llvm::json::Array& rows) {
+		for (const auto& value : rows) {
+			const auto* row = value.getAsObject(); if (!row) { return false; }
+			auto operation = row->getString("operation").value_or("");
+			auto path = row->getString("path").value_or("");
+			auto openCwd = row->getString("open_cwd");
+			if (operation == "setcwd" || operation == "getcwd" || !llvm::sys::path::is_absolute(path) || (openCwd && !llvm::sys::path::is_absolute(*openCwd))) { return false; }
+		}
+		return true;
+	}
 	uint64_t fragmentBytes = 0;
 	static constexpr uint64_t receiptLimit = 64 * 1024 * 1024;
 	static constexpr uint64_t diagnosticLimit = 8 * 1024 * 1024;
@@ -1791,15 +1817,22 @@ class NativeHeaderCache {
 		if (!references || trace->get("operations")) { return false; }
 		std::vector<const llvm::json::Array*> arrays;
 		std::vector<std::unique_ptr<llvm::json::Value>> temporary;
+		std::vector<std::string> proving;
 		uint64_t expanded = 0;
 		for (const auto& reference : *references) {
 			auto digest = reference.getAsString();
 			if (!digest || !hex(*digest)) { return false; }
+			// The verifier trusts an observation it checked earlier in this
+			// invocation; a proven fragment independent of the working
+			// directory is exactly such observations, so it is not walked again.
+			if (provenFragments.count(digest->str())) { continue; }
 			auto found = traceFragments.find(digest->str());
 			if (found != traceFragments.end()) {
 				if (found->second.bytes > limit - expanded) { return false; }
 				expanded += found->second.bytes;
-				arrays.push_back(found->second.rows.getAsArray()); continue;
+				arrays.push_back(found->second.rows.getAsArray());
+				if (found->second.contextFree) { proving.push_back(digest->str()); }
+				continue;
 			}
 			std::string bytes;
 			if (!read(root, "trace-" + digest->str(), limit - expanded, bytes) || NativeFileTrace::digest(bytes) != *digest) { return false; }
@@ -1807,18 +1840,22 @@ class NativeHeaderCache {
 			auto parsed = llvm::json::parse(bytes);
 			if (!parsed) { llvm::consumeError(parsed.takeError()); return false; }
 			if (!parsed->getAsArray()) { return false; }
+			bool free = contextFree(*parsed->getAsArray());
+			if (free) { proving.push_back(digest->str()); }
 			// Retain verified immutable data only within this cache invocation.
 			// This shares parsing, not the proof of current filesystem answers.
 			if (bytes.size() <= receiptLimit - fragmentBytes) {
 				fragmentBytes += bytes.size();
-				auto inserted = traceFragments.emplace(digest->str(), TraceFragment{bytes.size(), std::move(*parsed)});
+				auto inserted = traceFragments.emplace(digest->str(), TraceFragment{bytes.size(), std::move(*parsed), free});
 				arrays.push_back(inserted.first->second.rows.getAsArray());
 			} else {
 				temporary.push_back(std::make_unique<llvm::json::Value>(std::move(*parsed)));
 				arrays.push_back(temporary.back()->getAsArray());
 			}
 		}
-		return verifier.validate(arrays);
+		if (!verifier.validate(arrays)) { return false; }
+		provenFragments.insert(proving.begin(), proving.end());
+		return true;
 	}
 	bool blob(int stage, const char* name, uint64_t limit, llvm::json::Object& result) {
 		Descriptor input(::openat(stage, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
@@ -1861,14 +1898,18 @@ class NativeHeaderCache {
 		}
 		return ::fstat(input.get(), &after) == 0 && same(before, after) && count == static_cast<uint64_t>(*expected) && llvm::toHex(hash.final(), true) == *digest;
 	}
-	static bool admitted(const llvm::json::Object& inputs) {
+	// `proven` is the digest of an identity equal to `inputs`' own, computed in
+	// this process; it stands in for serializing that identity again.
+	static bool admitted(const llvm::json::Object& inputs, const std::string* proven = nullptr) {
 		if (inputs.getBoolean("eligible_runtime") != true || inputs.getBoolean("runtime_stable") != true) { return false; }
 		const auto* reasons = inputs.getArray("exclusions");
 		if (!reasons || inputs.getBoolean("eligible_inputs") != reasons->empty()) { return false; }
 		// Successful worker diagnostics are retained as complete stderr blobs.
 		for (const auto& reason : *reasons) { if (reason.getAsString() != "diagnostics") { return false; } }
 		auto key = inputs.getString("identity_sha256"); const auto* identity = inputs.getArray("identity");
-		return key && hex(*key) && identity && NativeFileTrace::digest(llvm::formatv("{0}", llvm::json::Value(llvm::json::Array(*identity))).str()) == *key;
+		if (!key || !hex(*key) || !identity) { return false; }
+		if (proven) { return *key == *proven; }
+		return NativeFileTrace::digest(llvm::formatv("{0}", llvm::json::Value(llvm::json::Array(*identity))).str()) == *key;
 	}
 public:
 	explicit NativeHeaderCache(llvm::StringRef path) : directory(path.str()) {
@@ -1914,10 +1955,10 @@ public:
 	}
 
 
-	llvm::json::Object preprocess(const std::vector<std::string>& arguments, const llvm::json::Object& context, bool capture = true) {
+	llvm::json::Object preprocess(const std::vector<std::string>& arguments, const llvm::json::Object& context, bool capture = true, const llvm::json::Value* runtime = nullptr) {
 		llvm::json::Object result{{"eligible", false}, {"cache_hit", false}};
 		if (!valid()) { result["reason"] = "capture-storage-unavailable"; return result; }
-		NativePreprocess operation(arguments, context);
+		NativePreprocess operation(arguments, context, runtime);
 		if (!operation.valid()) { result["reason"] = "unsupported-preprocessing-inputs"; return result; }
 		result["identity_sha256"] = operation.contract().getString("identity_sha256")->str();
 		llvm::json::Object response;
@@ -2034,9 +2075,13 @@ public:
 		return status;
 	}
 
+	// `prepared` is a contract this process just reported, so its digest is
+	// its identity's; a stored receipt must carry that identity and digest.
 	bool lookup(const llvm::json::Object& prepared, uint64_t outputLimit, llvm::json::Object& response) {
-		if (!valid() || !admitted(prepared) || prepared.getBoolean("eligible_inputs") != true) { return false; }
-		std::string key = prepared.getString("identity_sha256")->str(), bytes;
+		auto proven = prepared.getString("identity_sha256");
+		if (!valid() || !proven) { return false; }
+		std::string key = proven->str(), bytes;
+		if (!admitted(prepared, &key) || prepared.getBoolean("eligible_inputs") != true) { return false; }
 		if (!read(root, key + ".receipt", receiptLimit, bytes) || bytes.size() < 65 || bytes[64] != '\n') { return false; }
 		llvm::StringRef payload(bytes.data() + 65, bytes.size() - 65);
 		if (!hex(llvm::StringRef(bytes).take_front(64)) || NativeFileTrace::digest(payload) != llvm::StringRef(bytes).take_front(64)) { return false; }
@@ -2048,7 +2093,7 @@ public:
 		if (schema != "btrc.native-header-cache.v1" && schema != "btrc.native-header-cache.v2") { return false; }
 		const auto* inputs = value->getObject("inputs"); const auto* trace = value->get("filesystem");
 		const auto* output = value->getObject("stdout"); const auto* errors = value->getObject("stderr");
-		if (!inputs || inputs->getInteger("reader_exit") != 0 || !admitted(*inputs) || !inputs->get("identity") || *inputs->get("identity") != *prepared.get("identity") ||
+		if (!inputs || inputs->getInteger("reader_exit") != 0 || !inputs->get("identity") || *inputs->get("identity") != *prepared.get("identity") || !admitted(*inputs, &key) ||
 			!trace || !output || !errors || !verifyBlob(*output, outputLimit) || !verifyBlob(*errors, diagnosticLimit) ||
 			!(schema == "btrc.native-header-cache.v1" ? verifier.validate(*trace) : validateTrace(*trace, receiptLimit - bytes.size()))) { return false; }
 		response = responseDescriptors(*output, *errors);
@@ -2061,7 +2106,7 @@ class NativeHeaderCache {
 public:
 	explicit NativeHeaderCache(llvm::StringRef) {}
 	llvm::json::Object compilerContext(const std::vector<std::string>& drivers, llvm::StringRef compiler = "") { return NativeCompilerContext(drivers, compiler).failure("unsupported-compiler-provider"); }
-	llvm::json::Object preprocess(const std::vector<std::string>&, const llvm::json::Object&, bool = true) { return llvm::json::Object{{"eligible", false}, {"cache_hit", false}, {"reason", "unsupported-compiler-provider"}}; }
+	llvm::json::Object preprocess(const std::vector<std::string>&, const llvm::json::Object&, bool = true, const llvm::json::Value* = nullptr) { return llvm::json::Object{{"eligible", false}, {"cache_hit", false}, {"reason", "unsupported-compiler-provider"}}; }
 	bool store(llvm::StringRef, uint64_t) { return false; }
 	std::optional<int> extract(const std::string&, const std::vector<std::string>&, llvm::StringRef, uint64_t) { return std::nullopt; }
 	bool valid() const { return false; }
@@ -2251,11 +2296,20 @@ public:
 		std::map<std::string, llvm::json::Object> contexts;
 		llvm::json::Array results, bindings;
 		if (NativeRuntimeInputs::immutableStorePath(launcher)) {
+			// One capture of this process's images serves every unit's contract;
+			// a final capture that differs withdraws every answer.
+			llvm::json::Value runtime(NativeRuntimeInputs::capture());
 			for (const auto& command : commands) {
 				const auto& compiler = command.second.front();
 				auto found = contexts.find(compiler);
 				if (found == contexts.end()) { found = contexts.emplace(compiler, cache.compilerContext(drivers, compiler)).first; }
-				auto result = cache.preprocess(command.second, found->second, capture); result["id"] = command.first; results.push_back(std::move(result));
+				auto result = cache.preprocess(command.second, found->second, capture, &runtime); result["id"] = command.first; results.push_back(std::move(result));
+			}
+			if (runtime != llvm::json::Value(NativeRuntimeInputs::capture())) {
+				for (auto& value : results) {
+					auto& unit = *value.getAsObject();
+					unit["eligible"] = false; unit["cache_hit"] = false; unit["reason"] = "runtime-changed"; unit.erase("response");
+				}
 			}
 		}
 		for (auto& entry : contexts) { bindings.push_back(std::move(entry.second)); }
