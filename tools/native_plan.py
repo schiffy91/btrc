@@ -990,7 +990,9 @@ class NativePlanBuilder:
                 )
                 report.preprocessing_hits = sum(unit.preprocessing_status == "receipt-hit" for unit in report.units)
                 if debug_info and plan.operating_system == "macos":
-                    objects, report.debug_object_status = self._retain_debug_objects(objects, temporary, parent)
+                    objects, report.debug_object_status = self._retain_debug_objects(
+                        objects, temporary, parent, cache.digests if cache is not None else {}
+                    )
                 staged = temporary / output.name
                 runtime_libraries = ["-lm"]
                 if plan.operating_system != "windows":
@@ -1202,7 +1204,9 @@ class NativePlanBuilder:
             return False
         return True
 
-    def _retain_debug_objects(self, objects: list[Path], temporary: Path, parent: Path) -> tuple[list[Path], str]:
+    def _retain_debug_objects(
+        self, objects: list[Path], temporary: Path, parent: Path, known: Mapping[str, str]
+    ) -> tuple[list[Path], str]:
         """Keep Darwin debug-map inputs with the build outputs, not the cache.
 
         Mach-O stores paths and timestamps of the linked objects instead of
@@ -1212,6 +1216,10 @@ class NativePlanBuilder:
         """
         hashes = {}
         for path in objects:
+            # A restored object's digest was verified as it was restored.
+            if str(path) in known:
+                hashes[path.name] = known[str(path)]
+                continue
             with path.open("rb") as stream:
                 hashes[path.name] = hashlib.file_digest(stream, "sha256").hexdigest()
         encoded = (json.dumps({"schema": 1, "objects": hashes}, sort_keys=True) + "\n").encode("utf-8")
@@ -2088,6 +2096,9 @@ class _ObjectCache:
         self._target = target
         self._receipts = _PreprocessingReceipts(directory, drivers, runner)
         self._manifests: dict[str, dict[str, object]] = {}
+        # Each restored object's verified SHA-256, by its build path, so the
+        # debug-object inventory does not read it again.
+        self.digests: dict[str, str] = {}
         # An optional cache must not make an otherwise valid build fail.
         with contextlib.suppress(OSError):
             directory.mkdir(parents=True, exist_ok=True)
@@ -2296,9 +2307,16 @@ class _ObjectCache:
             record = json.loads(metadata.read_bytes())
             if not isinstance(record, dict) or record.get("inputs") != self._manifests[key]:
                 return "invalid-manifest"
-            shutil.copyfile(cached, object_path)
-            if self._file_digest(object_path) != record.get("object-sha256"):
+            # Entries are replaced, never rewritten in place, so a link shares
+            # no later change; the digest below still checks what it names.
+            try:
+                os.link(cached, object_path)
+            except OSError:
+                shutil.copyfile(cached, object_path)
+            digest = self._file_digest(object_path)
+            if digest != record.get("object-sha256"):
                 return "object-checksum-mismatch"
+            self.digests[str(object_path)] = digest
             os.utime(cached)
             os.utime(metadata)
         except FileNotFoundError:
