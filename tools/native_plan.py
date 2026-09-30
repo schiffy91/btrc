@@ -750,6 +750,108 @@ class _PreludeAccelerator:
         return header if built.returncode == 0 else None
 
 
+class _RetainedGenerations:
+    """The retained debug-object and adapter-source generations an output needs.
+
+    Each executable's debug map names one debug-object generation and its
+    adapter sources one adapter generation, so neither can be rewritten in
+    place. Every output instead names the generations it uses in its own
+    record, written under the directory's retention lock when a generation is
+    chosen -- before any compile or link reads it -- and keeps the two newest
+    of each kind: the one its executable uses and the one the executable it
+    replaced used, for a debugger still attached to that. Under the same lock,
+    any generation no record names is removed. A record whose output has been
+    gone for an hour releases its generations too.
+    """
+
+    KEEP = 2
+    ORPHAN_SECONDS = 3600
+    RECORD_PREFIX = ".btrc-generations-v1-"
+    PREFIXES: ClassVar[dict[str, tuple[str, ...]]] = {
+        "debug": (".btrc-debug-v1-", ".btrc-debug-private-"),
+        "adapters": (".btrc-adapters-v1-", ".btrc-adapters-private-"),
+    }
+
+    def __init__(self, parent: Path, output: Path) -> None:
+        self.parent = parent
+        self.output = output.name
+        self.record = parent / f"{self.RECORD_PREFIX}{hashlib.sha256(self.output.encode()).hexdigest()}.json"
+
+    def lock(self) -> contextlib.AbstractContextManager[object]:
+        return ArtifactPublisher().lock(self.parent, "native-generations")
+
+    def claim(self, kind: str, generation: Path) -> None:
+        """Record `generation` as this output's newest of `kind`, then remove
+        what no output needs. The caller holds lock()."""
+        record = self._load(self.record) or {"schema": 1, "output": self.output, "debug": [], "adapters": []}
+        names = [generation.name, *(name for name in record[kind] if name != generation.name)]
+        record[kind] = names[: self.KEEP]
+        encoded = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        try:
+            with tempfile.NamedTemporaryFile(dir=self.parent, prefix=".btrc-generations-", delete=False) as stream:
+                staged = Path(stream.name)
+                stream.write(encoded)
+            try:
+                os.replace(staged, self.record)
+            finally:
+                staged.unlink(missing_ok=True)
+        except OSError:
+            # Without this output's record, nothing may be judged unused.
+            return
+        self._prune()
+
+    def _load(self, path: Path) -> dict[str, object] | None:
+        try:
+            if not stat.S_ISREG(path.lstat().st_mode):
+                return None
+            record = json.loads(path.read_bytes())
+        except (OSError, ValueError):
+            return None
+        if (
+            not isinstance(record, dict)
+            or record.get("schema") != 1
+            or not isinstance(record.get("output"), str)
+            or any(
+                not isinstance(record.get(kind), list) or not all(isinstance(name, str) for name in record[kind])
+                for kind in self.PREFIXES
+            )
+        ):
+            return None
+        return record
+
+    def _prune(self) -> None:
+        needed: set[str] = set()
+        with os.scandir(self.parent) as entries:
+            records = [
+                Path(entry.path)
+                for entry in entries
+                if entry.name.startswith(self.RECORD_PREFIX) and entry.name.endswith(".json")
+            ]
+        for path in records:
+            record = self._load(path)
+            if record is None:
+                continue
+            with contextlib.suppress(OSError):
+                if (
+                    path != self.record
+                    and not os.path.lexists(self.parent / str(record["output"]))
+                    and time.time() - path.lstat().st_mtime > self.ORPHAN_SECONDS
+                ):
+                    path.unlink()
+                    continue
+            for kind in self.PREFIXES:
+                needed.update(record[kind])
+        prefixes = tuple(prefix for kind in self.PREFIXES.values() for prefix in kind)
+        with os.scandir(self.parent) as entries:
+            unused = [
+                Path(entry.path)
+                for entry in entries
+                if entry.name.startswith(prefixes) and entry.is_dir(follow_symlinks=False) and entry.name not in needed
+            ]
+        for path in unused:
+            shutil.rmtree(path, ignore_errors=True)
+
+
 class NativePlanBuilder:
     """Compile and link exactly one validated plan without a command shell."""
 
@@ -852,8 +954,14 @@ class NativePlanBuilder:
                 retain_adapters = False
                 with contextlib.suppress(OSError):
                     retain_adapters = cache is not None and cache.directory.is_dir()
+                generations = _RetainedGenerations(parent, output)
                 adapter_sources, report.adapter_source_status = self._generated_sources(
-                    plan, temporary, parent, retain=retain_adapters or debug_info, required=debug_info
+                    plan,
+                    temporary,
+                    parent,
+                    retain=retain_adapters or debug_info,
+                    required=debug_info,
+                    generations=generations,
                 )
                 if report_path is not None and any(
                     report_path.resolve().is_relative_to(path.parent.resolve()) for path in adapter_sources.values()
@@ -996,16 +1104,14 @@ class NativePlanBuilder:
                     )
                     if debug_info and plan.operating_system == "macos":
                         objects, report.debug_object_status = self._retain_debug_objects(
-                            objects, temporary, parent, cache.digests if cache is not None else {}
+                            objects, temporary, parent, cache.digests if cache is not None else {}, generations
                         )
                     staged = temporary / output.name
                     runtime_libraries = ["-lm"]
                     if plan.operating_system != "windows":
                         runtime_libraries.append("-pthread")
                     # Group packages may each declare the same framework; link it once.
-                    framework_flags = [
-                        part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)
-                    ]
+                    framework_flags = [part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)]
                     report.link_command = [
                         tools["cxx" if plan.linker_language == "c++" else "cc"],
                         *(str(path) for path in objects),
@@ -1131,8 +1237,10 @@ class NativePlanBuilder:
         for candidate in (path, path.resolve()):
             if any(part.startswith(".btrc-debug-") for part in candidate.parts):
                 raise NativePlanError(f"{subject} must be outside retained debug object directories: {path}")
-            if candidate.name == ".btrc-publications.lock" or (
-                candidate.name.startswith(".") and ".publish." in candidate.name
+            if (
+                candidate.name == ".btrc-publications.lock"
+                or candidate.name.startswith(_RetainedGenerations.RECORD_PREFIX)
+                or (candidate.name.startswith(".") and ".publish." in candidate.name)
             ):
                 raise NativePlanError(f"{subject} must not replace publication control files: {path}")
         for existing in inputs:
@@ -1142,15 +1250,23 @@ class NativePlanBuilder:
                 raise NativePlanError(f"{subject} must differ from its output, plan and source inputs")
 
     def _generated_sources(
-        self, plan: NativeBuildPlan, temporary: Path, parent: Path, *, retain: bool, required: bool = False
+        self,
+        plan: NativeBuildPlan,
+        temporary: Path,
+        parent: Path,
+        *,
+        retain: bool,
+        required: bool = False,
+        generations: _RetainedGenerations | None = None,
     ) -> tuple[dict[str, Path], str]:
         """Materialize one immutable adapter generation without rewriting paths.
 
         Both temporary and retained sources sit one directory below the native
         output parent, preserving relative quoted-include lookup. Stable real
         paths are still part of ordinary dependency validation and debug data.
-        Retained generations live until their build-output directory is cleaned;
-        a builder must not prune files another compiler may still be reading.
+        A generation is chosen and claimed for the output under the retention
+        lock before anything compiles from it, so no build removes files
+        another compiler may still be reading (_RetainedGenerations).
         """
         if not plan.generated_units:
             return {}, "none"
@@ -1176,29 +1292,35 @@ class NativePlanBuilder:
             encoded = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
             destination = parent / f".btrc-adapters-v1-{hashlib.sha256(encoded).hexdigest()}"
             expected = {**contents, "manifest.json": encoded}
-            try:
-                if not destination.exists():
-                    staged = temporary / "sources"
+            with generations.lock() if generations is not None else contextlib.nullcontext():
+                try:
+                    if not destination.exists():
+                        staged = temporary / "sources"
+                        staged.mkdir()
+                        for name, content in expected.items():
+                            (staged / name).write_bytes(content)
+                        # Atomic directory publication: another caller either
+                        # sees the complete generation or verifies its own race
+                        # winner.
+                        staged.rename(destination)
+                except OSError:
+                    pass
+                if self._generated_sources_match(destination, expected):
+                    if generations is not None:
+                        generations.claim("adapters", destination)
+                    return {name: destination / filename for name, filename in filenames.items()}, "retained"
+                if required:
+                    # Debug source is an output dependency even without an
+                    # object cache. Never silently delete it on the fallback path.
+                    staged = temporary / "private-sources"
                     staged.mkdir()
                     for name, content in expected.items():
                         (staged / name).write_bytes(content)
-                    # Atomic directory publication: another caller either sees
-                    # the complete generation or verifies its own race winner.
+                    destination = parent / f".btrc-adapters-private-{temporary.name}"
                     staged.rename(destination)
-            except OSError:
-                pass
-            if self._generated_sources_match(destination, expected):
-                return {name: destination / filename for name, filename in filenames.items()}, "retained"
-            if required:
-                # Debug source is an output dependency even without an object
-                # cache. Never silently delete it on the fallback path.
-                staged = temporary / "private-sources"
-                staged.mkdir()
-                for name, content in expected.items():
-                    (staged / name).write_bytes(content)
-                destination = parent / f".btrc-adapters-private-{temporary.name}"
-                staged.rename(destination)
-                return {name: destination / filename for name, filename in filenames.items()}, "retained-private"
+                    if generations is not None:
+                        generations.claim("adapters", destination)
+                    return {name: destination / filename for name, filename in filenames.items()}, "retained-private"
         # Never repair/remove a shared generation in place: another build may
         # have it open. A partial/corrupt/unwritable cache only forfeits reuse.
         for name, content in contents.items():
@@ -1222,14 +1344,20 @@ class NativePlanBuilder:
         return True
 
     def _retain_debug_objects(
-        self, objects: list[Path], temporary: Path, parent: Path, known: Mapping[str, str]
+        self,
+        objects: list[Path],
+        temporary: Path,
+        parent: Path,
+        known: Mapping[str, str],
+        generations: _RetainedGenerations | None = None,
     ) -> tuple[list[Path], str]:
         """Keep Darwin debug-map inputs with the build outputs, not the cache.
 
         Mach-O stores paths and timestamps of the linked objects instead of
         their DWARF. Immutable generations survive temporary cleanup and cache
-        eviction; the build directory owns their lifetime. A fixed timestamp
-        lets identical generations remain valid across uncached recompiles.
+        eviction; the output's record keeps the ones it still needs
+        (_RetainedGenerations). A fixed timestamp lets identical generations
+        remain valid across uncached recompiles.
         """
         hashes = {}
         for path in objects:
@@ -1241,8 +1369,13 @@ class NativePlanBuilder:
                 hashes[path.name] = hashlib.file_digest(stream, "sha256").hexdigest()
         encoded = (json.dumps({"schema": 1, "objects": hashes}, sort_keys=True) + "\n").encode("utf-8")
         destination = parent / f".btrc-debug-v1-{hashlib.sha256(encoded).hexdigest()}"
-        if self._debug_objects_match(destination, hashes, encoded):
-            return [destination / path.name for path in objects], "retained"
+        # A generation is chosen and claimed under the retention lock, so no
+        # other build removes it between the two.
+        with generations.lock() if generations is not None else contextlib.nullcontext():
+            if self._debug_objects_match(destination, hashes, encoded):
+                if generations is not None:
+                    generations.claim("debug", destination)
+                return [destination / path.name for path in objects], "retained"
         staged = temporary / "debug-objects"
         staged.mkdir()
         for path in objects:
@@ -1252,20 +1385,22 @@ class NativePlanBuilder:
             os.utime(target, (1, 1))
         (staged / "manifest.json").write_bytes(encoded)
         status = "retained"
-        try:
-            if destination.exists():
-                raise FileExistsError(destination)
-            staged.rename(destination)
-        except OSError:
-            if self._debug_objects_match(destination, hashes, encoded):
-                return [destination / path.name for path in objects], status
-            # Never repair a shared generation in place: an older executable
-            # or concurrent debugger may still refer to it.
-            destination = parent / f".btrc-debug-private-{temporary.name}"
-            staged.rename(destination)
-            status = "retained-private"
-        if not self._debug_objects_match(destination, hashes, encoded):
-            raise NativePlanError("retained debug object generation changed during publication")
+        with generations.lock() if generations is not None else contextlib.nullcontext():
+            try:
+                if destination.exists():
+                    raise FileExistsError(destination)
+                staged.rename(destination)
+            except OSError:
+                if not self._debug_objects_match(destination, hashes, encoded):
+                    # Never repair a shared generation in place: an older
+                    # executable or concurrent debugger may still refer to it.
+                    destination = parent / f".btrc-debug-private-{temporary.name}"
+                    staged.rename(destination)
+                    status = "retained-private"
+            if not self._debug_objects_match(destination, hashes, encoded):
+                raise NativePlanError("retained debug object generation changed during publication")
+            if generations is not None:
+                generations.claim("debug", destination)
         return [destination / path.name for path in objects], status
 
     def _debug_objects_match(self, directory: Path, hashes: dict[str, str], encoded: bytes) -> bool:

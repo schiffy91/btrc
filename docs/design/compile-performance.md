@@ -6013,3 +6013,19 @@ requires the two to agree. On BTRSmith, edits built from three shells with
 different unrelated variables each reused all 410 receipts (native step 2.3 s)
 and btrcc's header import (0.08 s); setting `CLANG_EXTRA` invalidated both, as
 it must.
+
+### Each output keeps the debug generations it needs (September 30)
+
+A debug build retains its objects in a content-addressed `.btrc-debug-v1-*`
+directory beside the executable (46 MB for BTRSmith), because the executable's
+debug map names those files; adapter sources live in `.btrc-adapters-v1-*` the
+same way. Nothing removed them, so every edit left another generation behind.
+Now each output names its generations in a `.btrc-generations-v1-*.json`
+record, written under the directory's `native-generations` lock when a
+generation is chosen, before anything compiles from or links against it. An
+output keeps its two newest of each kind -- the one its executable uses and
+the one before, for a debugger still attached to the executable it replaced --
+and under the same lock anything no record names is removed. A record whose
+output has been gone for an hour releases its generations. Concurrent builds
+of different outputs in one directory keep each other's generations; the first
+build after this change removes generations no record names.

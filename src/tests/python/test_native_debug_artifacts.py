@@ -284,3 +284,55 @@ def test_split_compiler_outputs_remain_source_debuggable_after_link(tmp_path, re
     )
     assert result.returncode == 0 and not result.stderr, result.stderr
     assert (symbols / "Contents/Resources/DWARF/program").is_file()
+
+
+def test_each_output_keeps_only_the_generations_it_still_needs(tmp_path):
+    """A debug edit makes new object and adapter generations; each output keeps
+    the one its executable uses and the one before, and nothing it never
+    claimed survives the next build (a retained generation is 46 MB on a real
+    product)."""
+    options = debug_build(tmp_path)
+    plan = options["plan_path"]
+    legacy = tmp_path / ".btrc-debug-v1-unowned"
+    legacy.mkdir()
+    (legacy / "generated.o").write_bytes(b"left by an earlier builder")
+
+    def build(version, output="program"):
+        payload = json.loads(plan.read_text())
+        payload["generated-units"][0]["source"] = (
+            f"int answer(void) {{\n    return 42;\n}}\nint version(void) {{ return {version}; }}\n"
+        )
+        plan.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+        report = NativePlanBuilder().build(**{**options, "output": tmp_path / output})
+        objects = {Path(argument).parent.name for argument in report.link_command if argument.endswith(".o")}
+        assert len(objects) == 1
+        return report, objects.pop(), Path(report.units[-1].source).parent.name
+
+    def generations(kind):
+        return {path.name for path in tmp_path.glob(f".btrc-{kind}-*") if path.is_dir()}
+
+    other, other_debug, other_adapters = build(1, "other")
+    assert not legacy.exists()
+    kept_debug, kept_adapters = [], []
+    for version in (1, 2, 3):
+        report, debug, adapters = build(version)
+        kept_debug.insert(0, debug)
+        kept_adapters.insert(0, adapters)
+        assert generations("debug") == {other_debug, *kept_debug[:2]}
+        assert generations("adapters") == {other_adapters, *kept_adapters[:2]}
+    check_debugger(tmp_path / "program", Path(report.units[-1].source))
+    check_debugger(tmp_path / "other", Path(other.units[-1].source))
+    subprocess.run([tmp_path / "program"], check=True, timeout=15)
+
+    # An output gone for an hour releases what it held.
+    (tmp_path / "other").unlink()
+    record = next(
+        path
+        for path in tmp_path.glob(".btrc-generations-v1-*.json")
+        if json.loads(path.read_text())["output"] == "other"
+    )
+    os.utime(record, (0, 0))
+    build(3)
+    assert not record.exists()
+    assert generations("debug") == set(kept_debug[:2])
+    assert generations("adapters") == set(kept_adapters[:2])
