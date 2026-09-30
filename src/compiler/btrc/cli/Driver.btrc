@@ -973,26 +973,31 @@ class BtrccFilePublication {
 		return true;
 	}
 
-	/* Whether a destination already holds exactly this payload and mode. Such a
-	 * file is kept in place: replacing it would change its inode and mtime,
-	 * which invalidates native preprocessing receipts of an unchanged unit. */
-	private bool unchanged(string path, string expected, int mode) {
-		if (!self.exists(path) || (FileStatus(path).mode & 07777) != mode) { return false; }
+	/* The revision of a destination that already holds exactly this payload
+	 * and mode, or null. Such a file is kept in place: replacing it would
+	 * change its inode and mtime, which invalidates native preprocessing
+	 * receipts of an unchanged unit. */
+	private FileSnapshot? unchangedRevision(string path, string expected, int mode) {
+		if (!self.exists(path) || (FileStatus(path).mode & 07777) != mode) { return null; }
 		var opened = FileSystem.openRegularFileSnapshot(path, (long long)expected.length());
-		if (!opened.ok()) { return false; }
+		if (!opened.ok()) { return null; }
 		var file = opened.snapshot();
-		bool matches = false;
+		FileSnapshot? revision = null;
 		string diagnostic = "";
-		try { matches = self.contentMatches(file, expected); } catch (string error) { diagnostic = error; }
+		try { if (self.contentMatches(file, expected)) { revision = file.revision(); } } catch (string error) { diagnostic = error; }
 		self.closeSnapshot(file, path, diagnostic);
-		return matches;
+		return revision;
 	}
 
-	private void validatePrepared(Vector<string> contents, Vector<int> modes, Vector<bool> kept) {
+	/* A kept output is still the revision whose bytes were verified, as
+	 * retention checks its outputs: any write or mode change moves it. */
+	private void validatePrepared(Vector<string> contents, Vector<int> modes, Vector<FileSnapshot?> kept) {
 		for (int index = 0; index < self.targets.len; index++) {
 			var target = self.targets.get(index);
-			if (kept.get(index)) {
-				if (!self.unchanged(target.path, contents.get(index), modes.get(index))) { throw "kept compiler output changed: " + target.path; }
+			FileSnapshot? revision = kept.get(index);
+			if (revision != null) {
+				var current = FileSystem.inspectExact(target.path);
+				if (!current.ok() || !revision.sameVersion(current.snapshot())) { throw "kept compiler output changed: " + target.path; }
 				continue;
 			}
 			if (target.absent) {
@@ -1028,15 +1033,15 @@ class BtrccFilePublication {
 				/* The validator (last) always commits the generation; any other
 				 * output whose bytes are already current stays in place. Recovery
 				 * leaves a previously existing target without a backup untouched. */
-				Vector<bool> kept = [];
+				Vector<FileSnapshot?> kept = [];
 				int last = self.targets.len - 1;
 				for (int index = 0; index < self.targets.len; index++) {
 					var target = self.targets.get(index);
-					kept.push(index != last && !target.absent && self.unchanged(target.path, contents.get(index), modes.get(index)));
+					kept.push(index != last && !target.absent ? self.unchangedRevision(target.path, contents.get(index), modes.get(index)) : null);
 				}
 				for (int index = 0; index < self.targets.len; index++) {
 					var target = self.targets.get(index);
-					if (target.absent || kept.get(index)) { continue; }
+					if (target.absent || kept.get(index) != null) { continue; }
 					var candidate = FePackageFileStore().stage(self.stage(self.targets, index), contents.get(index), modes.get(index));
 					if (candidate == null) { throw "cannot stage publication payload: " + target.path; }
 					candidates.push(candidate);
@@ -1051,9 +1056,9 @@ class BtrccFilePublication {
 				for (int index = 1; index < journals.len; index++) { self.writeJournal(journals.get(index), publishing); }
 				self.writeJournal(journals.get(0), publishing);
 				if (previous.get(last)) { self.move(self.targets.get(last).path, self.backup(self.targets, last)); }
-				for (int index = 0; index < last; index++) { if (previous.get(index) && !kept.get(index)) { self.move(self.targets.get(index).path, self.backup(self.targets, index)); } }
+				for (int index = 0; index < last; index++) { if (previous.get(index) && kept.get(index) == null) { self.move(self.targets.get(index).path, self.backup(self.targets, index)); } }
 				for (int index = 0; index < self.targets.len; index++) {
-					if (kept.get(index)) { continue; }
+					if (kept.get(index) != null) { continue; }
 					if (!self.targets.get(index).absent) { self.move(self.stage(self.targets, index), self.targets.get(index).path); }
 					else { self.sync(PathTools.dirname(self.targets.get(index).path), true); }
 				}
@@ -1137,6 +1142,8 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 	private Vector<BtrccPublicationTarget> owned = [];
 	private Vector<BtrccPublicationTarget> intent = [];
 	private string authority = "";
+	/* The committed ownership manifest's digest, empty when there is none. */
+	private string committedDigest = "";
 	private FeSourceFileReader? sourceFiles;
 	private BtrccArtifactDigests? artifactDigests;
 
@@ -1189,11 +1196,14 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 
 	private string validateCommitted(ExclusiveFileLease lease) {
 		self.owned.clear();
+		self.committedDigest = "";
 		var loaded = lease.readRegularChild("committed.json", 67108864);
 		if (!loaded.ok()) { return "cannot read private compiler generation: " + loaded.error().message(); }
 		if (!loaded.found()) { return ""; }
 		var bytes = loaded.bytes();
-		self.authority = self.authority + SHA256.digestBytes(bytes);
+		string committedDigest = SHA256.digestBytes(bytes);
+		self.authority = self.authority + committedDigest;
+		self.committedDigest = committedDigest;
 		if (!bytes.isNulFreeUtf8()) { return "invalid compiler generation encoding"; }
 		var record = JSONValue.parse(bytes.toString());
 		if (!self.keys(record, ["schema", "anchor", "files"]) || !record.get("schema").isInt() || record.get("schema").asInt() != 1 || !record.get("anchor").isString() || !record.get("anchor").asString().equals(self.anchor) || !record.get("files").isArray()) { return "invalid committed compiler generation"; }
@@ -1384,7 +1394,10 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 				rows.push(row);
 			}
 			prepared.set("targets", rows);
-			if (!transaction.retain(payloads, modes)) {
+			/* Retention verifies the committed manifest last, after every
+			 * output: a manifest that already differs cannot be retained. */
+			bool committedCurrent = self.committedDigest.equals(SHA256.digest(encoded));
+			if (!committedCurrent || !transaction.retain(payloads, modes)) {
 				if (!lease.replaceRegularChildDurably("candidate.json", Bytes.fromString(encoded)).committed()) { throw "cannot durably stage compiler generation manifest"; }
 				if (!lease.replaceRegularChildDurably("intent.json", Bytes.fromString(prepared.stringify() + "\n")).committed()) { throw "cannot durably prepare compiler generation intent"; }
 				diagnostic = self.validate();
