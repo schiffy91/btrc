@@ -1,0 +1,67 @@
+/* sort and sortBy past one sixteen-element run: merged runs stay sorted and
+ * stable across every width, for odd sizes, reversed and repeated input. */
+import Library.Strings;
+import Library.Vector;
+
+#include <assert.h>
+#include <stdio.h>
+
+class Item {
+	public int key;
+	public int order;
+	public Item(int key, int order) {
+		self.key = key;
+		self.order = order;
+	}
+}
+
+void checkInts(int count, int stride) {
+	Vector<int> values = [];
+	for (int i = 0; i < count; i++) { values.push((i * stride + 7) % 97 - 40); }
+	values.sort();
+	assert(values.len == count);
+	for (int i = 1; i < count; i++) { assert(values.get(i - 1) <= values.get(i)); }
+	values.free();
+}
+
+void checkStable(int count) {
+	Vector<Item> items = [];
+	for (int i = 0; i < count; i++) { items.push(new Item((count - i) % 5, i)); }
+	Vector<Item> copy = items.sortedBy((Item p, Item q) => p.key < q.key);
+	items.sortBy((Item p, Item q) => p.key < q.key);
+	for (int i = 1; i < count; i++) {
+		Item previous = items.get(i - 1);
+		Item current = items.get(i);
+		assert(previous.key <= current.key);
+		if (previous.key == current.key) { assert(previous.order < current.order); }
+		assert(copy.get(i).order == current.order);
+	}
+	items.free();
+	copy.free();
+}
+
+int main() {
+	Vector<int> sizes = [0, 1, 2, 15, 16, 17, 31, 32, 33, 100, 257, 1000, 4099];
+	for size in sizes {
+		checkInts(size, 13);
+		checkInts(size, 1);
+		checkStable(size);
+	}
+	sizes.free();
+
+	Vector<int> reversed = [];
+	for (int i = 0; i < 300; i++) { reversed.push(300 - i); }
+	reversed.sort();
+	for (int i = 0; i < 300; i++) { assert(reversed.get(i) == i + 1); }
+	reversed.free();
+
+	Vector<string> words = [];
+	for (int i = 0; i < 64; i++) { words.push(f"w{(i * 37) % 64}"); }
+	words.sort();
+	for (int i = 1; i < 64; i++) { assert(Strings.lessThan(words.get(i - 1), words.get(i))); }
+	printf("%s %s %s\n", words.get(0), words.get(1), words.get(63));
+	words.free();
+
+	printf("PASS: test_vector_sort_merge\n");
+	return 0;
+}

@@ -236,17 +236,55 @@ class Vector<T> implements Iterable {
 		return result;
 	}
 
+	/* Stable merge sort ordered by __btrc_lt: runs of sixteen are
+	 * insertion-sorted in place, then merged pairwise through one scratch
+	 * array. Elements move as raw slots, so ownership never changes hands.
+	 * (Generic declarations take no lambdas, so this cannot defer to sortBy.) */
 	public void sort() {
-		/* Insertion sort using __btrc_lt for type-safe comparison */
-		for (int i = 1; i < self.len; i++) {
-			T key = self.data[i];
-			int j = i - 1;
-			while (j >= 0 && __btrc_lt(key, self.data[j])) {
-				self.data[j + 1] = self.data[j];
-				j = j - 1;
+		int n = self.len;
+		for (int start = 0; start < n; start += 16) {
+			int end = 16 < n - start ? start + 16 : n;
+			for (int i = start + 1; i < end; i++) {
+				T key = self.data[i];
+				int j = i - 1;
+				while (j >= start && __btrc_lt(key, self.data[j])) {
+					self.data[j + 1] = self.data[j];
+					j = j - 1;
+				}
+				self.data[j + 1] = key;
 			}
-			self.data[j + 1] = key;
 		}
+		if (n <= 16) { return; }
+		T* scratch = (T*)__btrc_safe_calloc((size_t)n, sizeof(T));
+		T* from = self.data;
+		T* to = scratch;
+		int width = 16;
+		while (width < n) {
+			int left = 0;
+			while (left < n) {
+				int middle = width < n - left ? left + width : n;
+				int right = width < n - middle ? middle + width : n;
+				int i = left;
+				int j = middle;
+				int k = left;
+				while (i < middle && j < right) {
+					if (__btrc_lt(from[j], from[i])) { to[k] = from[j]; j++; } else { to[k] = from[i]; i++; }
+					k++;
+				}
+				while (i < middle) { to[k] = from[i]; i++; k++; }
+				while (j < right) { to[k] = from[j]; j++; k++; }
+				left = right;
+			}
+			T* merged = to;
+			to = from;
+			from = merged;
+			if (width > n - width) { break; }
+			width = width * 2;
+		}
+		if (from != self.data) {
+			for (int k = 0; k < n; k++) { self.data[k] = from[k]; }
+		}
+		free(scratch);
 	}
 
 	public Vector<T> sorted() {
@@ -259,18 +297,53 @@ class Vector<T> implements Iterable {
 	}
 
 	/* Comparator-driven sorting. `less(a, b)` returns true when a should
-     * come before b. Mirrors sort()'s insertion-sort algorithm (stable for
-     * equal elements: keys never shift past an element they don't precede). */
+	 * come before b. The same stable merge sort as sort(): equal elements
+	 * keep their order. */
 	public void sortBy(__fn_ptr<bool, T, T> less) {
-		for (int i = 1; i < self.len; i++) {
-			T key = self.data[i];
-			int j = i - 1;
-			while (j >= 0 && less(key, self.data[j])) {
-				self.data[j + 1] = self.data[j];
-				j = j - 1;
+		int n = self.len;
+		for (int start = 0; start < n; start += 16) {
+			int end = 16 < n - start ? start + 16 : n;
+			for (int i = start + 1; i < end; i++) {
+				T key = self.data[i];
+				int j = i - 1;
+				while (j >= start && less(key, self.data[j])) {
+					self.data[j + 1] = self.data[j];
+					j = j - 1;
+				}
+				self.data[j + 1] = key;
 			}
-			self.data[j + 1] = key;
 		}
+		if (n <= 16) { return; }
+		T* scratch = (T*)__btrc_safe_calloc((size_t)n, sizeof(T));
+		T* from = self.data;
+		T* to = scratch;
+		int width = 16;
+		while (width < n) {
+			int left = 0;
+			while (left < n) {
+				int middle = width < n - left ? left + width : n;
+				int right = width < n - middle ? middle + width : n;
+				int i = left;
+				int j = middle;
+				int k = left;
+				while (i < middle && j < right) {
+					if (less(from[j], from[i])) { to[k] = from[j]; j++; } else { to[k] = from[i]; i++; }
+					k++;
+				}
+				while (i < middle) { to[k] = from[i]; i++; k++; }
+				while (j < right) { to[k] = from[j]; j++; k++; }
+				left = right;
+			}
+			T* merged = to;
+			to = from;
+			from = merged;
+			if (width > n - width) { break; }
+			width = width * 2;
+		}
+		if (from != self.data) {
+			for (int k = 0; k < n; k++) { self.data[k] = from[k]; }
+		}
+		free(scratch);
 	}
 
 	public Vector<T> sortedBy(__fn_ptr<bool, T, T> less) {
