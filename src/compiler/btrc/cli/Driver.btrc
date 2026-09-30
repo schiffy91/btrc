@@ -1852,6 +1852,7 @@ class BtrccDriver {
 		self.commandLine = BtrccCommandLine(argc, argv);
 		self.output = BtrccOutput(stdout);
 		self.sourceFiles = FeSourceFileReader();
+		if (artifactDigestProvider != null) { self.sourceFiles.useDigests(artifactDigestProvider); }
 		self.nativeHeaderReader = nativeHeaderReader;
 		self.artifactDigestProvider = artifactDigestProvider;
 		self.workerPools = workerPools;

@@ -14,6 +14,7 @@ class Compiler {
 	private IBtrccArtifactCache? cache;
 	private GrammarInfo grammar;
 	private string stdlibDirectory;
+	private FeSourceFileReader sourceFiles;
 
 	public Compiler(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, IBtrccArtifactCache? cache = null, FeDirectiveCache? directiveCache = null, IWorkerPoolFactory? workerPools = null) {
 		self.pipeline = CompilerPipeline(grammar, stdlibDirectory, sourceFiles, nativeHeaderReader, directiveCache);
@@ -22,6 +23,7 @@ class Compiler {
 		self.cache = cache;
 		self.grammar = grammar;
 		self.stdlibDirectory = stdlibDirectory;
+		self.sourceFiles = sourceFiles;
 	}
 
 	private string artifactIdentity(string rootSource, BtrccResolvedCompilation input, BtrccOptions options) {
@@ -33,7 +35,7 @@ class Compiler {
 			options.outputPath, options.unitsPrefix, options.linkPlanPath,
 			Environment.get("BTRC_UNIT_LINES", "40000"),
 			f"{options.debug}:{options.runDce}:{options.strictImports}:{options.includeStdlib}:{options.moduleUnits}"] {
-			digest.appendText(SHA256.digest(value));
+			digest.appendText(self.sourceFiles.contentDigest(value));
 		}
 		return digest.finish();
 	}

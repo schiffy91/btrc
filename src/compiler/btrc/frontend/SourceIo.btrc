@@ -274,8 +274,18 @@ class FeSourceFileReader {
 	private Map<string, bool> readPaths = {};
 	private Map<string, FeSourceReadIdentity> readIdentities = {};
 	private Map<string, string> contentDigests = {};
+	private ISHA256Digest? digests = null;
 
 	public FeSourceFileReader() { self.decoder = FeUtf8SourceDecoder(); }
+
+	/* A host's accelerated digest for content identities; the portable
+	 * SHA-256 otherwise. Both name the same bytes the same way. */
+	public void useDigests(ISHA256Digest provider) { self.digests = provider; }
+
+	public string contentDigest(string text) {
+		var provider = self.digests;
+		return provider == null ? SHA256.digest(text) : provider.digest(text);
+	}
 
 	/* Copied inventory of successful reads, including grammar, manifests and
 	 * stdlib metadata as well as source text. Output validation consumes it. */
@@ -317,7 +327,7 @@ class FeSourceFileReader {
 		if (!self.readIdentities.has(path)) { self.readIdentities.put(path, identity); }
 		self.readPaths.put(path, true);
 		string result = digest.finish();
-		self.contentDigests.put(path, SHA256.digest(PathTools.absolute(path)) + result);
+		self.contentDigests.put(path, self.contentDigest(PathTools.absolute(path)) + result);
 		return result;
 	}
 
@@ -369,7 +379,7 @@ class FeSourceFileReader {
 		}
 		string decoded = self.decoder.decode(encoded, path);
 		self.readPaths.put(path, true);
-		self.contentDigests.put(path, SHA256.digest(PathTools.absolute(path)) + SHA256.digest(decoded));
+		self.contentDigests.put(path, self.contentDigest(PathTools.absolute(path)) + self.contentDigest(decoded));
 		return decoded;
 	}
 }
