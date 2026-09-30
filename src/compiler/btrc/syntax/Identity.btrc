@@ -871,20 +871,63 @@ class TypeIdentity {
 		return bits;
 	}
 
-	class string encodeTypes(Vector<Node> args) {
-		string encoded = "k" + Strings.fromInt(args.len);
+	/* Keys are built on every replayed instance fact: the encoders append
+	 * into one builder rather than concatenating a string per field. */
+	class void appendInt(StringBuilder out, int value) {
+		if (value < 0) { out.append(Strings.fromInt(value)); return; }
+		if (value >= 10) { TypeIdentity.appendInt(out, value / 10); }
+		out.appendChar((char)((int)'0' + value % 10));
+	}
+
+	/* field(tag, utf8Hex(value)). */
+	class void appendHexField(StringBuilder out, string tag, string value) {
+		string digits = "0123456789abcdef";
+		int length = value.length();
+		out.append(tag);
+		TypeIdentity.appendInt(out, length * 2);
+		out.appendChar('_');
 		int index = 0;
-		while (index < args.len) {
-			encoded = encoded + TypeIdentity.field("t", TypeIdentity.encode(args.get(index)));
+		while (index < length) {
+			int byteValue = (int)((unsigned char)value[index]);
+			out.appendChar(digits[byteValue / 16]);
+			out.appendChar(digits[byteValue % 16]);
 			index = index + 1;
 		}
-		return encoded;
+	}
+
+	class void appendTypes(StringBuilder out, Vector<Node> args) {
+		out.appendChar('k');
+		TypeIdentity.appendInt(out, args.len);
+		for argument in args {
+			string encoded = TypeIdentity.encode(argument);
+			out.appendChar('t');
+			TypeIdentity.appendInt(out, encoded.length());
+			out.appendChar('_');
+			out.append(encoded);
+		}
+	}
+
+	class void appendEncoded(StringBuilder out, Node typeExpr) {
+		TypeIdentity.appendHexField(out, "b", typeExpr.base);
+		out.appendChar('p');
+		TypeIdentity.appendInt(out, typeExpr.pointerDepth);
+		out.append(typeExpr.isNullable ? "n1o" : "n0o");
+		TypeIdentity.appendInt(out, typeExpr.nullableOuterDepth);
+		out.append(typeExpr.isArray ? "a1q" : "a0q");
+		TypeIdentity.appendInt(out, TypeIdentity.qualifierBits(typeExpr));
+		TypeIdentity.appendTypes(out, typeExpr.genericArgs());
+	}
+
+	class string encodeTypes(Vector<Node> args) {
+		StringBuilder out = StringBuilder();
+		TypeIdentity.appendTypes(out, args);
+		return out.toString();
 	}
 
 	class string encode(Node typeExpr) {
-		string encodedBase = TypeIdentity.utf8Hex(typeExpr.base);
-		string shape = "p" + Strings.fromInt(typeExpr.pointerDepth) + "n" + Strings.fromInt(typeExpr.isNullable ? 1 : 0) + "o" + Strings.fromInt(typeExpr.nullableOuterDepth) + "a" + Strings.fromInt(typeExpr.isArray ? 1 : 0) + "q" + Strings.fromInt(TypeIdentity.qualifierBits(typeExpr));
-		return TypeIdentity.field("b", encodedBase) + shape + TypeIdentity.encodeTypes(typeExpr.genericArgs());
+		StringBuilder out = StringBuilder();
+		TypeIdentity.appendEncoded(out, typeExpr);
+		return out.toString();
 	}
 
 	/* Whether `encode` captures the whole type: it omits array-size
@@ -994,7 +1037,12 @@ class TypeIdentity {
 		return result;
 	}
 
-	class string encodeNameAndTypes(string base, Vector<Node> args) { return TypeIdentity.field("b", TypeIdentity.utf8Hex(base)) + TypeIdentity.encodeTypes(args); }
+	class string encodeNameAndTypes(string base, Vector<Node> args) {
+		StringBuilder out = StringBuilder();
+		TypeIdentity.appendHexField(out, "b", base);
+		TypeIdentity.appendTypes(out, args);
+		return out.toString();
+	}
 
 	/* Position-independent semantic key. The encoding is recursive and
      * length-delimited, so no two TypeExpr trees can share a key. */
@@ -1002,7 +1050,14 @@ class TypeIdentity {
 
 	class string genericInstanceKey(string base, Vector<Node> args) { return TypeIdentity.encodeNameAndTypes(base, args); }
 
-	class string methodInstanceKey(string classBase, Vector<Node> classArgs, string methodName, Vector<Node> methodArgs) { return TypeIdentity.encodeNameAndTypes(classBase, classArgs) + TypeIdentity.field("m", TypeIdentity.utf8Hex(methodName)) + TypeIdentity.encodeTypes(methodArgs); }
+	class string methodInstanceKey(string classBase, Vector<Node> classArgs, string methodName, Vector<Node> methodArgs) {
+		StringBuilder out = StringBuilder();
+		TypeIdentity.appendHexField(out, "b", classBase);
+		TypeIdentity.appendTypes(out, classArgs);
+		TypeIdentity.appendHexField(out, "m", methodName);
+		TypeIdentity.appendTypes(out, methodArgs);
+		return out.toString();
+	}
 
 	class bool referencesNames(Node? typeExpr, Map<string, bool> names) {
 		if (typeExpr == null) { return false; }
