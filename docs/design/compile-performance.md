@@ -5987,3 +5987,29 @@ every unit separately.
 
 The native step's remainder is link validation 1.6 s, link 0.9 s and object
 restore plus bookkeeping.
+
+### Native identities key on the tool environment (September 30)
+
+Header-reader responses, preprocessing receipts, the fallback object-cache
+manifest, the link receipt and the Python compiler's native-import fingerprint
+used to hash the whole process environment (less the scratch directories fixed
+on September 26), so a build from any shell with one different variable --
+another `SHLVL`, `OLDPWD`, terminal session or an unrelated tool's setting --
+re-read every header and rebuilt every native unit once. Every one of those
+identities already holds the effective compiler or linker arguments the driver
+and its wrapper expanded under the current environment, so a variable that
+only steers a driver or wrapper reaches the key through them. What remains is
+the set a front end, assembler, linker or loader reads itself, plus the shell
+variables that change what a wrapper script runs: `NIX_*`, `CLANG_*`,
+`LLVM_*`, `CC_*`, `CCC_*`, `LD_*`, `DYLD_*`, `RC_*`, `GCC_*`,
+`*_INCLUDE_PATH`, `*_DEPLOYMENT_TARGET`, `CPATH`, `LIBRARY_PATH`,
+`COMPILER_PATH`, `SDKROOT`, `DEVELOPER_DIR`, `SOURCE_DATE_EPOCH`,
+`ZERO_AR_DATE`, `AS_SECURE_LOG_FILE`, and bash's `BASH_ENV`, `ENV`,
+`BASH_FUNC_*`, `SHELLOPTS`, `BASHOPTS`, `BASH_XTRACEFD`, `BASH_COMPAT`,
+`POSIXLY_CORRECT`, `GLOBIGNORE` and `CDPATH`; the scratch directories stay
+excluded. `NativeToolEnvironment` holds the list in the reader
+(`tools/NativeHeaderReader.cpp`) and in the Python compiler, and a test
+requires the two to agree. On BTRSmith, edits built from three shells with
+different unrelated variables each reused all 410 receipts (native step 2.3 s)
+and btrcc's header import (0.08 s); setting `CLANG_EXTRA` invalidated both, as
+it must.

@@ -12,6 +12,7 @@ import signal
 import stat
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from typing import ClassVar
@@ -44,6 +45,69 @@ from ..abi.native_generated import (
 )
 from ..syntax.ast import generated as ast
 from .packages import IncludeResolutionError, NativeLinkPlan
+
+
+class NativeToolEnvironment:
+    """The environment variables a native cache identity depends on.
+
+    Identities already hold the effective compiler and linker arguments that
+    the driver and its wrapper expanded under the current environment, so a
+    variable that only steers a driver or wrapper reaches the key through
+    them. What remains are variables a front end, assembler, linker or loader
+    reads itself, and the shell variables that change what a wrapper script
+    runs. A shell's PWD, SHLVL or prompt cannot change a result and must not
+    force every header and unit to be read again. The native header reader
+    applies the same policy (NativeToolEnvironment in
+    tools/NativeHeaderReader.cpp).
+    """
+
+    # Per-shell scratch locations: where tools write, never what they produce.
+    SCRATCH: ClassVar[frozenset[str]] = frozenset({"TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"})
+    PREFIXES: ClassVar[tuple[str, ...]] = (
+        "NIX_",
+        "CLANG_",
+        "LLVM_",
+        "CC_",
+        "CCC_",
+        "LD_",
+        "DYLD_",
+        "RC_",
+        "GCC_",
+        "BASH_FUNC_",
+    )
+    SUFFIXES: ClassVar[tuple[str, ...]] = ("_DEPLOYMENT_TARGET", "_INCLUDE_PATH")
+    NAMES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "CPATH",
+            "LIBRARY_PATH",
+            "COMPILER_PATH",
+            "SDKROOT",
+            "DEVELOPER_DIR",
+            "SOURCE_DATE_EPOCH",
+            "ZERO_AR_DATE",
+            "AS_SECURE_LOG_FILE",
+            "BASH_ENV",
+            "ENV",
+            "SHELLOPTS",
+            "BASHOPTS",
+            "BASH_XTRACEFD",
+            "BASH_COMPAT",
+            "POSIXLY_CORRECT",
+            "GLOBIGNORE",
+            "CDPATH",
+        }
+    )
+
+    @classmethod
+    def relevant(cls, name: str) -> bool:
+        if name in cls.SCRATCH:
+            return False
+        return name.startswith(cls.PREFIXES) or name.endswith(cls.SUFFIXES) or name in cls.NAMES
+
+    @classmethod
+    def view(cls, environment: Mapping[str, str]) -> dict[str, str]:
+        """The part of `environment` an identity keys on."""
+        return {name: value for name, value in environment.items() if cls.relevant(name)}
 
 
 class NativeImportError(ValueError):
@@ -703,10 +767,10 @@ class NativeDeclarationImporter:
             plan.require_resolved_bindings()
         reader_identity = self._reader_identity(reader)
         environment = {name: value for name, value in os.environ.items() if name not in self.SCRATCH_ENVIRONMENT}
-        fingerprint = hashlib.sha256(b"btrc-native-resolution-v2\0")
+        fingerprint = hashlib.sha256(b"btrc-native-resolution-v3\0")
         fingerprint.update(
             json.dumps(
-                {"reader": reader_identity, "environment": environment},
+                {"reader": reader_identity, "environment": NativeToolEnvironment.view(environment)},
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8", errors="surrogatepass")

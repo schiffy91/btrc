@@ -802,6 +802,36 @@ public:
 	}
 };
 
+// The environment variables a cached response or receipt depends on. Every
+// identity already holds the effective compiler arguments -- the reader's own
+// parse, or the -cc1 job the driver and its wrapper expanded under the current
+// environment -- so variables that only steer a driver or wrapper reach the
+// key through them. What remains are variables a front end, assembler, linker
+// or loader reads itself, and the shell variables that change what a wrapper
+// script runs. Anything else (a shell's PWD, SHLVL or prompt, a terminal, an
+// unrelated tool's settings) cannot change the result and must not force every
+// header and unit to be read again. tools/native_plan.py and the Python
+// compiler apply the same policy (NativeToolEnvironment).
+class NativeToolEnvironment {
+public:
+	static bool relevant(llvm::StringRef name) {
+		// Per-shell scratch locations: where tools write, never what they produce.
+		if (name == "TMPDIR" || name == "TMP" || name == "TEMP" || name == "TEMPDIR" || name == "NIX_BUILD_TOP") { return false; }
+		for (llvm::StringRef prefix : {"NIX_", "CLANG_", "LLVM_", "CC_", "CCC_", "LD_", "DYLD_", "RC_", "GCC_", "BASH_FUNC_"}) {
+			if (name.starts_with(prefix)) { return true; }
+		}
+		for (llvm::StringRef suffix : {"_DEPLOYMENT_TARGET", "_INCLUDE_PATH"}) {
+			if (name.ends_with(suffix)) { return true; }
+		}
+		for (llvm::StringRef exact : {"CPATH", "LIBRARY_PATH", "COMPILER_PATH", "SDKROOT", "DEVELOPER_DIR", "SOURCE_DATE_EPOCH",
+			"ZERO_AR_DATE", "AS_SECURE_LOG_FILE", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "BASH_XTRACEFD", "BASH_COMPAT",
+			"POSIXLY_CORRECT", "GLOBIGNORE", "CDPATH"}) {
+			if (name == exact) { return true; }
+		}
+		return false;
+	}
+};
+
 // Effective compiler inputs; filesystem, runtime and storage admission are
 // independent obligations of a reusable SDK response.
 class NativeHeaderInputs {
@@ -821,7 +851,8 @@ class NativeHeaderInputs {
 		return result;
 	}
 	// The reader never changes its environment, so one digest serves every
-	// request of a session: first, whether any name is ambiguous.
+	// request of a session: first, whether any name is ambiguous; then the
+	// digest of the variables that can change a response.
 	static const std::pair<bool, std::string>& processEnvironment() {
 		static const std::pair<bool, std::string> value = [] {
 			std::vector<std::string> values;
@@ -835,13 +866,15 @@ class NativeHeaderInputs {
 			for (auto entry = entries; *entry; ++entry) { values.emplace_back(*entry); }
 			bool ambiguous = false;
 			std::set<std::string> names;
+			std::vector<std::string> relevant;
 			for (const auto& value : values) {
 				auto separator = value.find('=');
-				if (separator == std::string::npos || !names.insert(value.substr(0, separator)).second) { ambiguous = true; }
+				if (separator == std::string::npos || !names.insert(value.substr(0, separator)).second) { ambiguous = true; continue; }
+				if (NativeToolEnvironment::relevant(llvm::StringRef(value).take_front(separator))) { relevant.push_back(value); }
 			}
-			std::sort(values.begin(), values.end());
+			std::sort(relevant.begin(), relevant.end());
 			std::string encoded;
-			for (const auto& value : values) { encoded += std::to_string(value.size()) + ":" + value; }
+			for (const auto& value : relevant) { encoded += std::to_string(value.size()) + ":" + value; }
 			return std::make_pair(ambiguous, digest(encoded));
 		}();
 		return value;
@@ -931,7 +964,7 @@ public:
 		auto cwd = llvm::vfs::getRealFileSystem()->getCurrentWorkingDirectory();
 		if (!cwd) { reject("unavailable-cwd"); }
 		if (invocations.size() != 1) { reject("invocation-count"); }
-		llvm::json::Array identity{"btrc.native-inputs.diagnostic.v3", llvm::json::Array(invocations), environment, cwd ? *cwd : "", llvm::json::Array(selections), runtimeBefore.getAsObject()->getString("images_sha256").value_or("").str(), llvm::json::Array(requestArguments), dependencyDiagnosticDigest};
+		llvm::json::Array identity{"btrc.native-inputs.diagnostic.v4", llvm::json::Array(invocations), environment, cwd ? *cwd : "", llvm::json::Array(selections), runtimeBefore.getAsObject()->getString("images_sha256").value_or("").str(), llvm::json::Array(requestArguments), dependencyDiagnosticDigest};
 		auto serialized = llvm::formatv("{0}", llvm::json::Value(llvm::json::Array(identity))).str();
 		llvm::json::Array reasons; for (const auto& reason : exclusions) { reasons.push_back(reason); }
 		llvm::json::Object result{{"identity", std::move(identity)}, {"identity_sha256", digest(serialized)}, {"eligible_inputs", exclusions.empty()}, {"exclusions", std::move(reasons)}};
@@ -1476,7 +1509,12 @@ public:
 			environment.push_back(value.str());
 		}
 		std::sort(environment.begin(), environment.end());
-		llvm::json::Array values; for (const auto& value : environment) { values.push_back(value); }
+		// The observed compiler runs with the whole environment; only what can
+		// change its result enters the context identity.
+		llvm::json::Array values;
+		for (const auto& value : environment) {
+			if (NativeToolEnvironment::relevant(llvm::StringRef(value).take_until([](char c) { return c == '='; }))) { values.push_back(value); }
+		}
 		environmentDigest = NativeFileTrace::digest(llvm::formatv("{0}", llvm::json::Value(std::move(values))).str());
 		std::set<std::string> configured;
 		for (const auto* path : {BTRC_NATIVE_CLANG_DRIVER, BTRC_NATIVE_CLANGXX_DRIVER, BTRC_NATIVE_CLANG_COMPILER, BTRC_NATIVE_CLANGXX_COMPILER}) {

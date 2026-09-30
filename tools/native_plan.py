@@ -1626,6 +1626,9 @@ class _DarwinLinkReceipt:
         return identities
 
     def context(self) -> dict[str, object] | None:
+        # The same environment policy as the header reader's receipts.
+        from src.compiler.python.frontend.native_imports import NativeToolEnvironment
+
         try:
             if os.environ.get("DYLD_DIAGNOSTICS_FILE"):
                 return None
@@ -1747,7 +1750,9 @@ class _DarwinLinkReceipt:
                 ],
                 "cwd": str(Path.cwd()),
                 "host": list(os.uname()),
-                "environment": hashlib.sha256(_ObjectCache._encoded(_stable_environment())).hexdigest(),
+                "environment": hashlib.sha256(
+                    _ObjectCache._encoded(NativeToolEnvironment.view(os.environ))
+                ).hexdigest(),
             }
         except (OSError, ValueError, IndexError):
             return None
@@ -2233,6 +2238,8 @@ class _ObjectCache:
         return self._ordinary_probe(command, source)
 
     def _ordinary_probe(self, command: list[str], source: Path) -> _CacheProbe:
+        from src.compiler.python.frontend.native_imports import NativeToolEnvironment
+
         result = _CacheProbe()
         try:
             arguments = command[1:].copy()
@@ -2310,9 +2317,10 @@ class _ObjectCache:
                     },
                     "arguments": arguments,
                     "cwd": str(Path.cwd()),
-                    # Compiler wrappers can observe environment beyond CPATH and
-                    # SDKROOT. Hash it conservatively without persisting secrets.
-                    "environment": hashlib.sha256(self._encoded(_stable_environment())).hexdigest(),
+                    # Compiler wrappers and drivers observe environment beyond
+                    # CPATH and SDKROOT; hash every variable the tools can read
+                    # (NativeToolEnvironment) without persisting their values.
+                    "environment": hashlib.sha256(self._encoded(NativeToolEnvironment.view(os.environ))).hexdigest(),
                     "preprocessed": self._file_digest(preprocessed),
                     "dependencies": [{"path": str(path), "sha256": self._file_digest(path)} for path in dependencies],
                 }

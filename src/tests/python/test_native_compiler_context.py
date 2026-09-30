@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -66,12 +67,66 @@ def test_real_configured_compilers_bind_to_the_loaded_runtime(context):
     assert not list((root / "cache" / "workers").iterdir())
 
 
-def test_context_binds_the_current_environment(context):
+RELEVANT = [
+    "NIX_CFLAGS_COMPILE",
+    "CLANG_CONTEXT_FIXTURE",
+    "LLVM_CONTEXT_FIXTURE",
+    "CC_PRINT_OPTIONS",
+    "CCC_OVERRIDE_OPTIONS",
+    "LD_CONTEXT_FIXTURE",
+    "RC_DEBUG_OPTIONS",
+    "GCC_EXEC_PREFIX",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "C_INCLUDE_PATH",
+    "CPATH",
+    "LIBRARY_PATH",
+    "COMPILER_PATH",
+    "SDKROOT",
+    "DEVELOPER_DIR",
+    "SOURCE_DATE_EPOCH",
+    "ZERO_AR_DATE",
+    "AS_SECURE_LOG_FILE",
+    "BASH_COMPAT",
+    "POSIXLY_CORRECT",
+    "GLOBIGNORE",
+    "CDPATH",
+]
+IRRELEVANT = ["BTRC_CONTEXT_FIXTURE", "OLDPWD", "SHLVL", "TERM_SESSION_ID", "TMPDIR", "NIX_BUILD_TOP", "HOME", "PATH"]
+
+
+@pytest.mark.parametrize("variable", RELEVANT)
+def test_context_binds_the_tool_environment(context, variable):
     _, _, run = context
     first = response(run)
-    changed = response(run, changes={"BTRC_CONTEXT_FIXTURE": "changed"})
+    # The reader starts through a bash launcher: give bash a value it accepts.
+    changed = response(run, changes={variable: "51" if variable == "BASH_COMPAT" else "btrc-context-fixture"})
     assert first["eligible"] and changed["eligible"]
     assert first["identity_sha256"] != changed["identity_sha256"]
+
+
+@pytest.mark.parametrize("variable", IRRELEVANT)
+def test_context_ignores_variables_no_tool_reads(context, variable):
+    _, _, run = context
+    first = response(run)
+    changed = response(run, changes={variable: os.environ.get(variable, "") + "-btrc-context-fixture"})
+    assert first["eligible"] and changed["eligible"]
+    assert first["identity_sha256"] == changed["identity_sha256"]
+
+
+def test_python_and_reader_share_one_environment_policy():
+    """The native plan and the Python compiler key on the variables the reader does."""
+    from src.compiler.python.frontend.native_imports import NativeToolEnvironment
+
+    # Relevant too, though the reader refuses admission under any of them.
+    refused = {"BASH_ENV", "ENV", "BASH_FUNC_fixture%%", "DYLD_LIBRARY_PATH", "SHELLOPTS", "BASHOPTS", "BASH_XTRACEFD"}
+    assert all(NativeToolEnvironment.relevant(name) for name in [*RELEVANT, *refused])
+    assert not any(NativeToolEnvironment.relevant(name) for name in IRRELEVANT)
+    source = (Path(__file__).parents[3] / "tools" / "NativeHeaderReader.cpp").read_text()
+    policy = source.split("class NativeToolEnvironment {", 1)[1].split("};", 1)[0]
+    quoted = set(re.findall(r'"([A-Z_%]+)"', policy))
+    python = {*NativeToolEnvironment.SCRATCH, *NativeToolEnvironment.PREFIXES}
+    python |= {*NativeToolEnvironment.SUFFIXES, *NativeToolEnvironment.NAMES}
+    assert quoted == python
 
 
 @pytest.mark.parametrize("kind", ["wrapper", "symlink", "copied-binary", "other-compiler"])

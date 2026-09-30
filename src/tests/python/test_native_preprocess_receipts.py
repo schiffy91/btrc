@@ -274,13 +274,24 @@ def test_unsupported_side_outputs_are_not_written(preprocessing):
     assert destination.read_text() == "caller-owned"
 
 
-def test_environment_change_invalidates_the_context(preprocessing):
+def test_tool_environment_change_invalidates_the_context(preprocessing):
     _, _, _, _, normal, run, receipt = preprocessing
     normal()
     receipt()
     assert receipt()[0]["cache_hit"]
-    changed = run(changes={"BTRC_RECEIPT_CONTEXT": "changed"})
+    changed = run(changes={"CLANG_RECEIPT_CONTEXT": "changed"})
     assert all(context["eligible"] for context in changed["contexts"]) and not changed["units"][0]["cache_hit"]
+
+
+def test_variables_no_tool_reads_keep_the_receipt(preprocessing):
+    """A different shell -- another PWD, SHLVL or scratch directory -- reuses
+    every receipt: only the tool environment keys the compiler context."""
+    _, _, _, _, normal, run, receipt = preprocessing
+    normal()
+    receipt()
+    assert receipt()[0]["cache_hit"]
+    changed = run(changes={"BTRC_RECEIPT_CONTEXT": "changed", "OLDPWD": "/", "SHLVL": "9"})
+    assert all(context["eligible"] for context in changed["contexts"]) and changed["units"][0]["cache_hit"]
 
 
 def test_capture_destinations_do_not_change_identity_or_write_caller_files(preprocessing):

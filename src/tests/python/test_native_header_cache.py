@@ -276,7 +276,8 @@ def test_changed_contract_does_not_reuse(cache_session, change):
     session.seed()
     assert session.control()[0]["cache_hit"]
     if change == "environment":
-        session.environment["BTRC_CACHE_TEST_INPUT"] = "changed"
+        # A variable the front end reads itself (NativeToolEnvironment).
+        session.environment["CLANG_CACHE_TEST_INPUT"] = "changed"
     elif change == "driver":
         session.arguments += ["-Qunused-arguments"]
     elif change == "abi":
@@ -286,6 +287,19 @@ def test_changed_contract_does_not_reuse(cache_session, change):
     else:
         session.cache.chmod(0o755)
     assert not session.control()[0]["cache_hit"]
+
+
+@pytest.mark.parametrize(
+    "variable", ["BTRC_CACHE_TEST_INPUT", "OLDPWD", "SHLVL", "TERM_SESSION_ID", "TMPDIR", "NIX_BUILD_TOP"]
+)
+def test_variables_no_tool_reads_keep_the_response(cache_session, variable):
+    """A shell's own variables and scratch locations cannot change a parse;
+    only the tool environment (NativeToolEnvironment) keys a response."""
+    session = cache_session
+    session.seed()
+    assert session.control()[0]["cache_hit"]
+    session.environment[variable] = str(session.root / "changed")
+    assert session.control()[0]["cache_hit"]
 
 
 @pytest.mark.parametrize("kind", ["volatile", "failed", "diagnostic_output"])
