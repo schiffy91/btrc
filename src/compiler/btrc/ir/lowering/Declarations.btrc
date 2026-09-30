@@ -3449,7 +3449,7 @@ class DeclarationLowerer {
 			self.context.currentReturnType = null;
 			self.context.currentReturnOwned = true;
 			self.functions.resetFuncVarDecls();
-			Map<string, Node> vt = self.functions.seededVarTypes();
+			Map<string, Node> vt = self.functions.bodyVarTypes();
 			vt.put("self", SemanticTypeSystem.classReference(SemanticTypeSystem.namedClass(name)));
 			IRNode blk = self.functions.lowerBody(dtor.bodyNode, vt);
 			Vector<IRNode> hookBody = [];
@@ -3565,7 +3565,7 @@ class DeclarationLowerer {
 		fn.isRealtime = method.isRealtime;
 		string ret = self.cTypes.lower(method.returnType);
 		fn.returnType = ret;
-		Map<string, Node> vt = self.functions.seededVarTypes();
+		Map<string, Node> vt = self.functions.bodyVarTypes();
 		if (!isStatic) {
 			fn.params.push(IRParam(name + "*", "self"));
 			vt.put("self", SemanticTypeSystem.classReference(SemanticTypeSystem.namedClass(name)));

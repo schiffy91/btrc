@@ -270,7 +270,7 @@ class FunctionLowerer {
 
 		/* var-type map: self -> the receiver instance type, each param -> its
          * resolved type. */
-		Map<string, Node> vt = self.seededVarTypes();
+		Map<string, Node> vt = self.bodyVarTypes();
 		Node selfT = Node();
 		selfT.kind = NK_TYPE_EXPR;
 		selfT.base = inst.classBase;
@@ -373,6 +373,13 @@ class FunctionLowerer {
 		Map<string, Node> vt = {};
 		vt.merge(self.analyzed.globalVarTypes);
 		return vt;
+	}
+
+	/* Types for lowering one body: another group's body lowers to nothing
+	 * here, so it needs no copy of every global's type. */
+	public Map<string, Node> bodyVarTypes() {
+		if (self.context.foreignBody) { return new Map<string, Node>(); }
+		return self.seededVarTypes();
 	}
 
 	private IRNode lowerLiftedCallableBody(Node source, Map<string, Node> variableTypes, Vector<string> captures, string returnCType, Node? returnType) {
@@ -564,7 +571,7 @@ class FunctionLowerer {
 		/* Seed the global scope: module-level vars are visible inside every
          * function. Params (added next) shadow a same-named global, matching
          * scope resolution order. */
-		Map<string, Node> varTypes = self.seededVarTypes();
+		Map<string, Node> varTypes = self.bodyVarTypes();
 		int j = 0;
 		while (j < d.params().len) {
 			Node p = d.params().get(j);
