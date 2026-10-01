@@ -131,7 +131,7 @@
                 needed = lib.any (prefix: lib.hasPrefix prefix pathPrefix) prefixes
                   || lib.elem relativePath files;
                 parent = type == "directory"
-                  && lib.any (prefix: lib.hasPrefix relativePrefix prefix) prefixes;
+                  && lib.any (prefix: lib.hasPrefix relativePrefix prefix) (prefixes ++ files);
                 derived = lib.any (prefix: lib.hasPrefix prefix pathPrefix) excludedPrefixes
                   || lib.hasInfix "/__pycache__/" pathPrefix
                   || lib.hasInfix "/.pytest_cache/" pathPrefix
@@ -171,10 +171,26 @@
           ];
           excludedPrefixes = [ ];
         };
+        # Exactly the import closure of tools/native_plan.py, its lazy imports
+        # and the package initializers they execute included. The adapter
+        # imports the header reader's owner while it keys cached objects, so a
+        # missing module fails only builds that pass --object-cache.
+        # test_flake_installs_adapter_and_runs_native_plan_check recomputes it.
         nativePlanSource = sourceSubset {
-          prefixes = [
+          prefixes = [ ];
+          files = [
             "tools/native_plan.py"
+            "src/compiler/python/__init__.py"
+            "src/compiler/python/abi/__init__.py"
+            "src/compiler/python/abi/native_generated.py"
+            "src/compiler/python/artifacts/__init__.py"
             "src/compiler/python/artifacts/publication.py"
+            "src/compiler/python/frontend/__init__.py"
+            "src/compiler/python/frontend/native_imports.py"
+            "src/compiler/python/frontend/packages.py"
+            "src/compiler/python/syntax/__init__.py"
+            "src/compiler/python/syntax/ast/__init__.py"
+            "src/compiler/python/syntax/ast/generated.py"
           ];
           excludedPrefixes = [ ];
         };
@@ -486,6 +502,7 @@
         native-package-plan = pkgs.runCommand "btrc-native-package-plan-check" {
           nativeBuildInputs = [
             pkgs.gnumake
+            pkgs.jq
             pkgs.stdenv.cc
             self.packages.${system}.btrcc
             self.packages.${system}.btrcpy
@@ -515,6 +532,22 @@
               --output build/native-package.selfhost \
               --cc cc --cxx c++ --pkg-config pkg-config
             ./build/native-package.selfhost
+            # Cached objects are keyed through modules the plain build never
+            # imports; the second build must reuse every translation unit.
+            for run in 1 2; do
+              ${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan \
+                --plan build/native-package.link.json \
+                --generated-c build/native-package.c \
+                --output build/native-package.cached \
+                --object-cache build/objects \
+                --report-json "build/native-package.cached-$run.json" \
+                --cc cc --cxx c++ --pkg-config pkg-config
+              ./build/native-package.cached
+            done
+            jq -e '.reused_units == 0 and .compiled_units == (.units | length)' \
+              build/native-package.cached-1.json
+            jq -e '.compiled_units == 0 and .reused_units == (.units | length)' \
+              build/native-package.cached-2.json
           )
           mkdir -p "$out"
           cp source/build/native-package*.link.json "$out/"

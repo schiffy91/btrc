@@ -748,8 +748,10 @@ explicitly for every version-1 manifest and fails closed when it is omitted;
 [`src/language/package-manifest.md`](src/language/package-manifest.md).
 
 The default Nix package installs both `btrcpy` and `btrc-native-plan`; the
-adapter is also exposed as `.#btrc-native-plan`. The standalone proof uses the
-same installed surface:
+adapter is also exposed as `.#btrc-native-plan`, packaged with exactly the
+modules it imports. The standalone proof uses the same installed surface, and
+its flake check builds the example twice more with `--object-cache`, requiring
+the second build to reuse every translation unit:
 
 ```bash
 make examples-native-package TARGET=linux-x64
