@@ -289,9 +289,9 @@ def test_native_headers_are_exact_or_an_explicit_internal_seam() -> None:
     names = set()
     pattern = re.compile(r"\b((?:btrc|std)_[A-Za-z0-9_]+)\s*\(")
     stdlib = SOURCE_ROOT / "stdlib"
-    for path in stdlib.rglob("*.h"):
-        if path.relative_to(stdlib).parts[0] == "Windows":
-            continue
+    headers = [path for path in stdlib.rglob("*.h") if path.relative_to(stdlib).parts[0] != "Windows"]
+    headers += sorted((SOURCE_ROOT / "runtime" / "gpu").glob("*.h"))
+    for path in headers:
         names.update(pattern.findall(path.read_text()))
     assert names == set(HOSTED_NATIVE_FUNCTIONS) | set(HOSTED_NATIVE_INTERNAL_NAMES)
 
