@@ -1,0 +1,43 @@
+# Frozen inventory denominators (tools/qualification/denominators.py).
+#
+# Each entry is immutable for its release: a source that yields other ids
+# fails test_the_tracked_denominators_match_their_sources until the entry is
+# re-frozen with a new release, id count, slot count and sha256 -- a reviewed
+# change, never a side effect of deleting a row.
+#
+# The three UI0 denominators come from the 2026-09-21 source inventory (btrc
+# 4e5c982). P0's operation and journey denominators are frozen here when P0
+# checks in its compact inventory ledger: kind = "operation", source =
+# { ledger = "<that file>" }, platforms = the families it classifies.
+
+schema = "btrc.qualification.denominators/1"
+
+[[denominators]]
+kind = "family-cell"
+release = "ui0-source-inventory-2026-09-21"
+platforms = ["macos", "linux", "windows", "ios", "android"]
+frontends = []
+ids = 60
+slots = 300
+sha256 = "132b05e6b591c5687d74e4654cafa160f2ee0a52b81d17f4d632b82fc6223f5b"
+source = { document = "docs/design/native-ui-parity.md", pattern = '^\| (N\d{2}) —' }
+
+[[denominators]]
+kind = "ui-operation"
+release = "ui0-source-inventory-2026-09-21"
+platforms = ["macos", "linux", "windows", "ios", "android"]
+frontends = ["reference", "selfhost"]
+ids = 162
+slots = 1620
+sha256 = "c08b9a805be6b6af113049890ab74814b7d64832c4117800838edc58b417551e"
+source = { document = "docs/design/native-ui-api-inventory.md", pattern = '^\| `([A-Za-z]\w*\.[A-Za-z]\w*)` \|' }
+
+[[denominators]]
+kind = "ui-case"
+release = "ui0-source-inventory-2026-09-21"
+platforms = ["macos", "linux", "windows", "ios", "android"]
+frontends = ["reference", "selfhost"]
+ids = 47
+slots = 470
+sha256 = "1bbc6343d0dc262da4f93983669c3471bb21c9438483cb33bca7de0f67a1e864"
+source = { document = "docs/design/native-ui-parity.md", pattern = '^\| (E\d{2}) —' }

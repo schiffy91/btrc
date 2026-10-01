@@ -1,7 +1,9 @@
 """``python3 -m tools.qualification``: ingest evidence, render the report, gate skips.
 
-report        render the support/coverage report from raw inputs and ledgers
+report        render the support/coverage report from raw inputs and ledgers;
+              with --denominators, fail when a frozen inventory slot is missing
 ingest        copy raw inputs under the qualification root and write a ledger
+denominators  check the frozen inventory denominators against their sources
 skip-gate     fail on a skip the runner's expected-skip manifest does not explain
 skip-coverage compare skip reports: shard partitions and covered_by claims
 """
@@ -23,6 +25,8 @@ from tools.qualification.adapters import (
     JUnitAdapter,
     SkipReportAdapter,
 )
+from tools.qualification.denominators import MANIFEST as DENOMINATORS
+from tools.qualification.denominators import DenominatorManifest
 from tools.qualification.report import QualificationReport
 from tools.qualification.schema import (
     Budget,
@@ -44,7 +48,9 @@ from tools.qualification.skips import (
 from tools.qualification.statistics import Statistic
 from tools.qualification.store import QualificationStore, QualificationStoreError
 
-_BUDGET = re.compile(r"^(?P<scenario>[a-z0-9-]+):(?P<statistic>median|p95|max)<=(?P<limit>\d+(?:\.\d+)?)$")
+_STATISTICS = "|".join(re.escape(statistic.value) for statistic in sorted(Statistic, key=len, reverse=True))
+_BUDGET = re.compile(rf"^(?P<scenario>[a-z0-9-]+):(?P<statistic>{_STATISTICS})<=(?P<limit>\d+(?:\.\d+)?)$")
+_BUDGET_FORM = f"SCENARIO:{'|'.join(statistic.value for statistic in Statistic)}<=LIMIT"
 _PROVENANCE_OPTIONS = tuple(name for name in Provenance.TEXT_FIELDS if name != "source")
 
 
@@ -65,7 +71,8 @@ class QualificationCommand:
             command.add_argument("--skip-report", type=Path, action="append", default=[], help="a gate's skip report")
             command.add_argument("--boundary-report", type=Path, action="append", default=[])
             command.add_argument("--platform", choices=[platform.value for platform in Platform])
-            command.add_argument("--budget", action="append", default=[], help="SCENARIO:median|p95|max<=LIMIT")
+            command.add_argument("--variant", help="artifact variant of bench and JUnit slots: arm64-simulator, ...")
+            command.add_argument("--budget", action="append", default=[], help=_BUDGET_FORM)
             command.add_argument("--root", help="qualification root (default ~/.cache/btrc/qualification)")
             command.add_argument(
                 "--this-host",
@@ -80,8 +87,17 @@ class QualificationCommand:
                 command.add_argument("--all-ledgers", action="store_true", help="every ledger under the root")
                 command.add_argument("--format", choices=("markdown", "json"), default="markdown")
                 command.add_argument("--output", type=Path)
+                command.add_argument(
+                    "--denominators",
+                    type=Path,
+                    nargs="?",
+                    const=DENOMINATORS,
+                    help="count against frozen inventory denominators (default: the tracked manifest)",
+                )
             else:
                 command.add_argument("--run", help="run id (default: a UTC timestamp)")
+        frozen = commands.add_parser("denominators")
+        frozen.add_argument("--manifest", type=Path, default=DENOMINATORS)
         gate = commands.add_parser("skip-gate")
         gate.add_argument("reports", type=Path, nargs="+")
         gate.add_argument("--runner", help="classify as this runner instead of the one each report names")
@@ -100,6 +116,8 @@ class QualificationCommand:
                 return self.skip_gate(arguments)
             if arguments.command == "skip-coverage":
                 return self.skip_coverage(arguments)
+            if arguments.command == "denominators":
+                return self.check_denominators(arguments.manifest)
             records = self.records(arguments)
             if arguments.command == "ingest":
                 return self.ingest(arguments, records)
@@ -114,18 +132,16 @@ class QualificationCommand:
         return self.store
 
     def records(self, arguments: argparse.Namespace) -> list[LedgerRecord]:
-        given = {option: getattr(arguments, option) for option in _PROVENANCE_OPTIONS}
-        given["frontend"] = arguments.frontend
-        if arguments.this_host:
-            given["runner"] = given["runner"] or RunnerIdentity.detect()
-            provenance = self.host.detect(**given)
-        else:
-            # Evidence produced elsewhere or earlier says nothing about this machine.
-            provenance = Provenance(
-                frontend=Frontend(given.pop("frontend")) if given["frontend"] else None,
-                **{name: value for name, value in given.items() if value is not None and name != "frontend"},
-            )
-        platform = Platform(arguments.platform) if arguments.platform else RUNNER_PLATFORMS.get(provenance.runner or "")
+        explicit = Provenance(
+            frontend=Frontend(arguments.frontend) if arguments.frontend else None,
+            **{option: value for option in _PROVENANCE_OPTIONS if (value := getattr(arguments, option)) is not None},
+        )
+        # Evidence produced elsewhere or earlier says nothing about this machine,
+        # so only --this-host detects; explicit flags override what it finds.
+        detected = self.host.detect(runner=RunnerIdentity.detect()) if arguments.this_host else Provenance()
+        provenance = detected.overlay(explicit)
+        given_platform = Platform(arguments.platform) if arguments.platform else None
+        platform = given_platform or RUNNER_PLATFORMS.get(provenance.runner or "")
         run = getattr(arguments, "run", None) or datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
         if arguments.command == "ingest":
             arguments.run = run
@@ -138,15 +154,18 @@ class QualificationCommand:
         budgets = self.budgets(arguments.budget)
         for path in arguments.budget_bench:
             adapter = BudgetBenchAdapter(
-                provenance,
-                platform=platform or Platform.MACOS,
+                detected,
+                explicit=explicit,
+                platform=given_platform,
+                variant=arguments.variant,
                 budgets=budgets,
                 artifact=self.artifact(arguments, run, path),
                 recorded_at=self.modified(path),
             )
             records += adapter.records(json.loads(path.read_text(encoding="utf-8")), str(path))
         for path in arguments.junit:
-            records += JUnitAdapter(provenance, platform=platform).records(path, self.artifact(arguments, run, path))
+            adapter = JUnitAdapter(provenance, platform=platform, variant=arguments.variant)
+            records += adapter.records(path, self.artifact(arguments, run, path))
         for path in arguments.skip_report:
             report = SkipReport.load(path)
             records += SkipReportAdapter(provenance).records(report, self.artifact(arguments, run, path))
@@ -176,7 +195,7 @@ class QualificationCommand:
         for text in raw:
             match = _BUDGET.match(text.replace(" ", ""))
             if match is None:
-                raise LedgerSchemaError(f"budget {text!r} is not SCENARIO:median|p95|max<=LIMIT")
+                raise LedgerSchemaError(f"budget {text!r} is not {_BUDGET_FORM}")
             budgets.setdefault(match["scenario"], []).append(
                 Budget(statistic=Statistic(match["statistic"]), limit=float(match["limit"]))
             )
@@ -193,13 +212,33 @@ class QualificationCommand:
     def report(arguments: argparse.Namespace, records: list[LedgerRecord]) -> int:
         if not records:
             raise LedgerSchemaError("nothing to report: name raw inputs, --ledger or --all-ledgers")
-        report = QualificationReport(records)
+        denominators = DenominatorManifest.load(arguments.denominators) if arguments.denominators else None
+        report = QualificationReport(records, denominators)
         text = report.render_json() if arguments.format == "json" else report.render_markdown()
         if arguments.output is not None:
             arguments.output.parent.mkdir(parents=True, exist_ok=True)
             arguments.output.write_text(text, encoding="utf-8")
         else:
             sys.stdout.write(text)
+        if problems := report.problems():
+            print(f"qualification report incomplete: {len(problems)} problem(s)", file=sys.stderr)
+            for problem in problems:
+                print(f"  {problem}", file=sys.stderr)
+            return 1
+        return 0
+
+    @staticmethod
+    def check_denominators(path: Path) -> int:
+        manifest = DenominatorManifest.load(path)
+        for denominator in manifest.denominators:
+            print(
+                f"{denominator.kind.value}: {len(denominator.ids)} ids from {denominator.source} "
+                f"(frozen {denominator.frozen_ids} in {denominator.release}), {denominator.frozen_slots} slots"
+            )
+        if drift := manifest.drift():
+            for problem in drift:
+                print(f"  DRIFT {problem}", file=sys.stderr)
+            return 1
         return 0
 
     @staticmethod

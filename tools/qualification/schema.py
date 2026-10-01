@@ -8,11 +8,13 @@ may say how that slot is classified, what evidence currently stands behind it,
 which raw samples were measured for it, and the environment that produced the
 evidence. The same record carries:
 
-- a P0 inventory row (``operation`` or ``journey``, per platform slice, with
-  owner, regression and current evidence status);
+- a P0 inventory row (``operation`` or ``journey``, per platform family, with
+  parity, owner, regression and current evidence status);
 - a UI-catalog shard row (``family-cell``, ``ui-operation``, ``ui-case``:
-  family x platform cells, 162 x 5 x 2 operation slots, 47 x 5 x 2 case slots);
-- a P6 measurement (``scenario``, with raw samples, failures and budgets);
+  family x platform cells, 162 x 5 x 2 operation slots, 47 x 5 x 2 case slots),
+  with its implementation state kept apart from its qualification state;
+- a P6 measurement (``scenario``, with raw samples, failures, budgets and the
+  host that measured them);
 - a test outcome (``test``) from a JUnit run or a gate's skip report;
 - a frozen-boundary record (``boundary-record``) from ``boundary-check``.
 
@@ -41,9 +43,17 @@ Record fields
                            scenario name, a boundary record id.
   ``platform``             ``macos`` | ``linux`` | ``windows`` | ``ios`` |
                            ``ipados`` | ``android``; absent when the slot is
-                           not platform-specific.
+                           not platform-specific. An inventory row names a
+                           platform *family*, and iOS/iPadOS is one family, so
+                           it says ``ios`` and never ``ipados``; an iPad run
+                           shows in ``provenance.device_class``.
   ``frontend``             ``reference`` (the Python compiler) | ``selfhost``
                            (btrcc); absent when not frontend-specific.
+  ``variant``              the artifact variant a test or measurement ran
+                           as: ``arm64-simulator``, ``arm64-device``,
+                           ``x86_64``, ``release``. It is part of the slot, so
+                           simulator and device results never merge. Never
+                           on an inventory row, whose slot is the family.
   ``group``                reporting group: stdlib group, UI family, test
                            file, bench suite.
   ``title``                human label.
@@ -51,8 +61,22 @@ Record fields
 ``classification``         the P0/UI0 disposition of the slot.
   ``parity``               ``equivalent`` | ``adapted`` | ``os-restricted`` |
                            ``missing``.
+  ``implementation``       the source state, apart from any qualification:
+                           ``missing`` (no provider) | ``source-only``
+                           (declared, nothing behind it) | ``partial`` (a
+                           provider implements a subset: UI's **P**) |
+                           ``custom`` (custom controls stand in for native
+                           ones: UI's **C**) | ``implemented``.
   ``owner``                who answers for the slot.
-  ``regression``           the test (node id or path) that pins it.
+  ``regression``           the pytest node id (``path::name``) that pins it,
+                           or a list of them. The report derives an inventory
+                           slot's evidence from those tests' latest results
+                           on its platform, and flags hand-entered evidence
+                           that disagrees.
+  ``links``                cross-references to the UI roadmap: N-IDs, E-IDs
+                           and milestones (``N05``, ``E03``, ``UI2``).
+  ``configuration``        the supported OS/toolkit configuration.
+  ``input``                the input mechanism the regression exercises.
   ``decision``             the adaptation or decision reference (``D12``,
                            a document anchor).
   ``note``                 free text.
@@ -81,8 +105,10 @@ Record fields
   ``minimum_samples``      how many samples acceptance requires (P6: 5 cold,
                            20 edit/no-op).
   ``components``           name -> numbers, each list as long as
-                           ``samples`` (compile/native split, rebuild counts).
-  ``budgets``              list of ``{statistic: median|p95|max, limit}``.
+                           ``samples`` (compile/native split, rebuilt units,
+                           instructions retired).
+  ``budgets``              list of ``{statistic: median|p95|p99|p99.9|max,
+                           limit}``.
 
 ``provenance``             the environment the evidence came from.
   ``source``               the producing adapter or tool: ``budget_bench``,
@@ -92,28 +118,42 @@ Record fields
   ``runner``               ``macos`` | ``linux-devcontainer`` | ``windows`` |
                            ``ios`` | ``android`` | another named executor.
   ``btrc_revision``, ``btrsmith_revision``, ``frontend``, ``target_triple``,
-  ``sdk_build``, ``os_build``, ``device_id``, ``device_class``,
+  ``sdk_build``, ``os_build``, ``device_id``, ``device_class``, ``cpu``
+  (``8P+2E``), ``memory`` (``64 GiB``), ``c_compiler`` (what built the
+  measured btrcc: ``Apple clang 17.0.0 -O2``), ``compiler_digest``
+  (``sha256:`` of the measured compiler binary), ``jobs`` (worker counts),
   ``build_mode``, ``scale``, ``thermal``, ``power``: strings.
 
 Slots, denominators and merging
 -------------------------------
-A slot's key is ``(kind, id, platform, frontend)``. A denominator is the set of
-distinct slot keys of one kind, so it is fixed by what was *declared* --
-inventory rows, the bench's declared scenarios, a run's collected tests --
-and never shrinks because evidence is missing: an adapter emits a record
-without ``evidence`` for a declared slot it has no evidence for, and the
-report counts that slot as *unrecorded*. When several records name one slot,
-the last ``classification`` and the last ``evidence`` in ledger order win
-independently, so a later test result never erases an inventory row's owner.
+A slot's key is ``(kind, id, platform, frontend, variant)``. A denominator is
+the set of distinct slot keys of one kind, so it is fixed by what was
+*declared* -- inventory rows, the bench's declared scenarios, a run's
+collected tests -- and never shrinks because evidence is missing: an adapter
+emits a record without ``evidence`` for a declared slot it has no evidence
+for, and the report counts that slot as *unrecorded*. Inventory denominators
+are frozen per release in ``tools/qualification/denominators.toml``, so a
+deleted row is a missing slot rather than a smaller denominator. When several
+records name one slot, the last ``classification`` and the last ``evidence``
+in ledger order win independently, so a later test result never erases an
+inventory row's owner.
 
 Invariants
 ----------
 - ``passed`` with a measurement requires samples, no failures, at least
   ``minimum_samples`` samples, and every budget met.
+- A ``passed`` ``scenario`` also needs a measurement with a budget and a
+  declared ``minimum_samples``, and provenance naming its runner,
+  btrc_revision, frontend, build_mode, os_build, device_class, cpu and
+  memory -- plus c_compiler and compiler_digest for the selfhost frontend.
 - ``passed`` never accompanies an observed ``failed``, ``error`` or
   ``skipped`` outcome.
-- ``missing`` parity is never ``passed`` or ``implemented-unverified``.
+- ``missing`` parity, and ``missing`` or ``source-only`` implementation, is
+  never ``passed`` or ``implemented-unverified``.
 - ``covered_by`` appears only on ``unavailable`` evidence.
+- An inventory row never says ``ipados`` or names a ``variant``, and its
+  evidence carries provenance with ``btrc_revision`` and ``recorded_at``, so
+  whether it is current can be checked.
 - ``provenance.frontend``, when ``subject.frontend`` is also given, agrees.
 """
 
@@ -122,9 +162,10 @@ from __future__ import annotations
 import datetime
 import json
 import math
+import re
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -178,6 +219,16 @@ class Parity(StrEnum):
     MISSING = "missing"
 
 
+class Implementation(StrEnum):
+    """What the source provides for a slot, independent of any test result."""
+
+    MISSING = "missing"
+    SOURCE_ONLY = "source-only"
+    PARTIAL = "partial"
+    CUSTOM = "custom"
+    IMPLEMENTED = "implemented"
+
+
 class EvidenceStatus(StrEnum):
     """What currently stands behind a slot."""
 
@@ -188,10 +239,32 @@ class EvidenceStatus(StrEnum):
 
 
 _FAILED_OBSERVATIONS = frozenset({"failed", "error", "skipped"})
+# Rows of a frozen inventory: one slot per platform family, never per variant.
+INVENTORY_KINDS = frozenset(
+    {
+        SubjectKind.OPERATION,
+        SubjectKind.JOURNEY,
+        SubjectKind.FAMILY_CELL,
+        SubjectKind.UI_OPERATION,
+        SubjectKind.UI_CASE,
+    }
+)
+# Nothing stands behind such a slot, so no test can have verified it.
+_UNIMPLEMENTED = frozenset({Implementation.MISSING, Implementation.SOURCE_ONLY})
+# Inventory kinds whose evidence is the result of their regression tests.
+REGRESSION_KINDS = INVENTORY_KINDS - {SubjectKind.FAMILY_CELL}
+# What a passed P6 measurement must say about the host and build it measured.
+SCENARIO_PROVENANCE = ("runner", "btrc_revision", "frontend", "build_mode", "os_build", "device_class", "cpu", "memory")
+SELFHOST_PROVENANCE = ("c_compiler", "compiler_digest")
+_NODE_ID = re.compile(r"^[^\s:]+::\S")
+_LINK = re.compile(r"^[A-Z][A-Za-z]*\d+[a-z]?$")
 
 
-class _Fields:
-    """Strict field access over one mapping, with a location for every error."""
+class FieldReader:
+    """Strict field access over one mapping, with a location for every error.
+
+    Ledger records and the denominators manifest both read through it.
+    """
 
     def __init__(self, data: object, where: str, allowed: Iterable[str]) -> None:
         if not isinstance(data, Mapping):
@@ -273,6 +346,20 @@ class _Fields:
             raise LedgerSchemaError(f"{self.where}.{name}: entries must be unique")
         return tuple(result)
 
+    def references(self, name: str, pattern: re.Pattern[str], what: str) -> tuple[str, ...] | None:
+        """One reference or a list of them, each matching `pattern`."""
+
+        value = self.data.get(name)
+        if isinstance(value, str):
+            value = [value]
+        references = FieldReader({name: value}, self.where, (name,)).texts(name)
+        for reference in references or ():
+            if not pattern.match(reference) or "\n" in reference:
+                raise LedgerSchemaError(f"{self.where}.{name}: {reference!r} is not {what}")
+        if references == ():
+            raise LedgerSchemaError(f"{self.where}.{name}: expected at least one entry")
+        return references
+
 
 def _compact(mapping: Mapping[str, Any]) -> dict[str, Any]:
     """Drop absent fields so every encoding, TOML included, omits them alike."""
@@ -290,23 +377,36 @@ class Subject:
     frontend: Frontend | None = None
     group: str | None = None
     title: str | None = None
+    variant: str | None = None
 
-    FIELDS = ("kind", "id", "platform", "frontend", "group", "title")
+    FIELDS = ("kind", "id", "platform", "frontend", "variant", "group", "title")
 
     @property
-    def key(self) -> tuple[str, str, str, str]:
-        """The slot identity: kind, id, platform and frontend."""
+    def key(self) -> tuple[str, str, str, str, str]:
+        """The slot identity: kind, id, platform, frontend and artifact variant."""
 
-        return (self.kind.value, self.id, self.platform or "", self.frontend or "")
+        return (self.kind.value, self.id, self.platform or "", self.frontend or "", self.variant or "")
+
+    def problem(self) -> str | None:
+        """Why this cannot be a slot, or None: an inventory slot is one platform family."""
+
+        if self.kind in INVENTORY_KINDS and self.platform is Platform.IPADOS:
+            return (
+                f"a {self.kind.value} row names the iOS/iPadOS family as ios; record an iPad in provenance.device_class"
+            )
+        if self.kind in INVENTORY_KINDS and self.variant is not None:
+            return f"a {self.kind.value} row is one slot per platform family and takes no variant"
+        return None
 
     @classmethod
     def from_mapping(cls, data: object, where: str) -> Subject:
-        fields = _Fields(data, where, cls.FIELDS)
+        fields = FieldReader(data, where, cls.FIELDS)
         return cls(
             kind=fields.choice("kind", SubjectKind, required=True),
             id=fields.text("id", required=True),
             platform=fields.choice("platform", Platform),
             frontend=fields.choice("frontend", Frontend),
+            variant=fields.text("variant"),
             group=fields.text("group"),
             title=fields.text("title"),
         )
@@ -318,6 +418,7 @@ class Subject:
                 "id": self.id,
                 "platform": self.platform.value if self.platform else None,
                 "frontend": self.frontend.value if self.frontend else None,
+                "variant": self.variant,
                 "group": self.group,
                 "title": self.title,
             }
@@ -329,30 +430,56 @@ class Classification:
     """The P0/UI0 disposition of a slot."""
 
     parity: Parity | None = None
+    implementation: Implementation | None = None
     owner: str | None = None
-    regression: str | None = None
+    regression: tuple[str, ...] | None = None
+    links: tuple[str, ...] | None = None
+    configuration: str | None = None
+    input: str | None = None
     decision: str | None = None
     note: str | None = None
 
-    FIELDS = ("parity", "owner", "regression", "decision", "note")
+    FIELDS = (
+        "parity",
+        "implementation",
+        "owner",
+        "regression",
+        "links",
+        "configuration",
+        "input",
+        "decision",
+        "note",
+    )
 
     @classmethod
     def from_mapping(cls, data: object, where: str) -> Classification:
-        fields = _Fields(data, where, cls.FIELDS)
+        fields = FieldReader(data, where, cls.FIELDS)
         return cls(
             parity=fields.choice("parity", Parity),
+            implementation=fields.choice("implementation", Implementation),
             owner=fields.text("owner"),
-            regression=fields.text("regression"),
+            regression=fields.references("regression", _NODE_ID, "a pytest node id (path::name)"),
+            links=fields.references("links", _LINK, "an N-ID, E-ID or milestone such as N05, E03 or UI2"),
+            configuration=fields.text("configuration"),
+            input=fields.text("input"),
             decision=fields.text("decision"),
             note=fields.text("note"),
         )
 
     def to_mapping(self) -> dict[str, Any]:
+        # One regression is written as the node id itself, several as a list.
+        regression: str | list[str] | None = list(self.regression) if self.regression else None
+        if regression is not None and len(regression) == 1:
+            regression = regression[0]
         return _compact(
             {
                 "parity": self.parity.value if self.parity else None,
+                "implementation": self.implementation.value if self.implementation else None,
                 "owner": self.owner,
-                "regression": self.regression,
+                "regression": regression,
+                "links": list(self.links) if self.links else None,
+                "configuration": self.configuration,
+                "input": self.input,
                 "decision": self.decision,
                 "note": self.note,
             }
@@ -373,7 +500,7 @@ class Evidence:
 
     @classmethod
     def from_mapping(cls, data: object, where: str) -> Evidence:
-        fields = _Fields(data, where, cls.FIELDS)
+        fields = FieldReader(data, where, cls.FIELDS)
         return cls(
             status=fields.choice("status", EvidenceStatus, required=True),
             observed=fields.text("observed"),
@@ -383,7 +510,7 @@ class Evidence:
         )
 
     @staticmethod
-    def _reason(fields: _Fields) -> str | None:
+    def _reason(fields: FieldReader) -> str | None:
         # Skip and failure reasons are quoted from tools verbatim, and those
         # span lines; only the identifiers above must be single-line.
         value = fields.data.get("reason")
@@ -416,7 +543,7 @@ class Budget:
 
     @classmethod
     def from_mapping(cls, data: object, where: str) -> Budget:
-        fields = _Fields(data, where, cls.FIELDS)
+        fields = FieldReader(data, where, cls.FIELDS)
         limit = fields.data.get("limit")
         if isinstance(limit, bool) or not isinstance(limit, int | float) or not math.isfinite(limit) or limit < 0:
             raise LedgerSchemaError(f"{where}.limit: expected a finite non-negative number")
@@ -445,7 +572,7 @@ class Measurement:
 
     @classmethod
     def from_mapping(cls, data: object, where: str) -> Measurement:
-        fields = _Fields(data, where, cls.FIELDS)
+        fields = FieldReader(data, where, cls.FIELDS)
         samples = fields.numbers("samples", required=True)
         components: dict[str, tuple[float, ...]] = {}
         raw_components = fields.data.get("components")
@@ -455,7 +582,7 @@ class Measurement:
             for name, values in raw_components.items():
                 if not isinstance(name, str) or not name.strip():
                     raise LedgerSchemaError(f"{where}.components: names must be non-empty text")
-                numbers = _Fields.number_list(values, f"{where}.components.{name}")
+                numbers = FieldReader.number_list(values, f"{where}.components.{name}")
                 if len(numbers) != len(samples):
                     raise LedgerSchemaError(
                         f"{where}.components.{name}: {len(numbers)} values for {len(samples)} samples"
@@ -528,6 +655,11 @@ class Provenance:
     os_build: str | None = None
     device_id: str | None = None
     device_class: str | None = None
+    cpu: str | None = None
+    memory: str | None = None
+    c_compiler: str | None = None
+    compiler_digest: str | None = None
+    jobs: str | None = None
     build_mode: str | None = None
     scale: str | None = None
     thermal: str | None = None
@@ -545,6 +677,11 @@ class Provenance:
         "os_build",
         "device_id",
         "device_class",
+        "cpu",
+        "memory",
+        "c_compiler",
+        "compiler_digest",
+        "jobs",
         "build_mode",
         "scale",
         "thermal",
@@ -554,7 +691,7 @@ class Provenance:
 
     @classmethod
     def from_mapping(cls, data: object, where: str) -> Provenance:
-        fields = _Fields(data, where, cls.FIELDS)
+        fields = FieldReader(data, where, cls.FIELDS)
         recorded_at = fields.text("recorded_at")
         if recorded_at is not None:
             try:
@@ -578,6 +715,16 @@ class Provenance:
             }
         )
 
+    def overlay(self, other: Provenance | None) -> Provenance:
+        """These fields, replaced by every field `other` states."""
+
+        if other is None:
+            return self
+        return replace(self, **{name: value for name in self.FIELDS if (value := getattr(other, name)) is not None})
+
+    def lacking(self, names: Iterable[str]) -> list[str]:
+        return [name for name in names if getattr(self, name) is None]
+
 
 @dataclass(frozen=True, slots=True)
 class LedgerRecord:
@@ -598,25 +745,28 @@ class LedgerRecord:
     def problem(self) -> str | None:
         """The first cross-field invariant this record breaks, or None."""
 
+        if problem := self.subject.problem():
+            return problem
         evidence = self.evidence
         if evidence is not None and evidence.status is EvidenceStatus.PASSED:
             if evidence.observed in _FAILED_OBSERVATIONS:
                 return f"passed evidence cannot record an observed {evidence.observed!r}"
-            if self.measurement is not None and (shortfalls := self.measurement.shortfalls()):
-                return f"passed evidence for samples that fall short: {'; '.join(shortfalls)}"
         if (
             evidence is not None
             and evidence.covered_by is not None
             and evidence.status is not EvidenceStatus.UNAVAILABLE
         ):
             return "covered_by belongs only to unavailable evidence"
+        classification = self.classification
         if (
-            self.classification is not None
-            and self.classification.parity is Parity.MISSING
+            classification is not None
             and evidence is not None
             and evidence.status in {EvidenceStatus.PASSED, EvidenceStatus.IMPLEMENTED_UNVERIFIED}
         ):
-            return f"a missing slot cannot be {evidence.status.value}"
+            if classification.parity is Parity.MISSING:
+                return f"a missing slot cannot be {evidence.status.value}"
+            if (implementation := classification.implementation) in _UNIMPLEMENTED:
+                return f"a slot whose implementation is {implementation.value} cannot be {evidence.status.value}"
         if (
             self.provenance is not None
             and self.provenance.frontend is not None
@@ -624,11 +774,41 @@ class LedgerRecord:
             and self.provenance.frontend is not self.subject.frontend
         ):
             return "provenance frontend disagrees with the subject's"
+        if evidence is not None and self.subject.kind in INVENTORY_KINDS:
+            lacking = (self.provenance or Provenance()).lacking(("btrc_revision", "recorded_at"))
+            if lacking:
+                return f"evidence on a {self.subject.kind.value} row needs provenance {' and '.join(lacking)}"
+        if evidence is not None and evidence.status is EvidenceStatus.PASSED:
+            if shortfalls := self.acceptance_shortfalls(self.subject, self.measurement, self.provenance):
+                return f"passed evidence falls short: {'; '.join(shortfalls)}"
         return None
+
+    @staticmethod
+    def acceptance_shortfalls(
+        subject: Subject, measurement: Measurement | None, provenance: Provenance | None
+    ) -> list[str]:
+        """Every reason `passed` evidence for these samples would be refused; empty when it is accepted."""
+
+        if subject.kind is not SubjectKind.SCENARIO:
+            return measurement.shortfalls() if measurement is not None else []
+        if measurement is None:
+            return ["no measurement"]
+        problems = measurement.shortfalls()
+        if not measurement.budgets:
+            problems.append("no budget declared")
+        if measurement.minimum_samples is None:
+            problems.append("no minimum sample count declared")
+        provenance = provenance or Provenance()
+        required = SCENARIO_PROVENANCE
+        if (subject.frontend or provenance.frontend) is Frontend.SELFHOST:
+            required += SELFHOST_PROVENANCE
+        if lacking := provenance.lacking(required):
+            problems.append(f"provenance lacks {', '.join(lacking)}")
+        return problems
 
     @classmethod
     def from_mapping(cls, data: object, where: str = "record") -> LedgerRecord:
-        fields = _Fields(data, where, cls.FIELDS)
+        fields = FieldReader(data, where, cls.FIELDS)
         schema = fields.text("schema", required=True)
         if schema != SCHEMA:
             raise LedgerSchemaError(f"{where}.schema: {schema!r} is not {SCHEMA!r}")
@@ -707,7 +887,7 @@ class LedgerDocument:
 
     @staticmethod
     def from_document(document: object, where: str) -> list[LedgerRecord]:
-        fields = _Fields(document, where, ("schema", "records"))
+        fields = FieldReader(document, where, ("schema", "records"))
         schema = fields.text("schema", required=True)
         if schema != SCHEMA:
             raise LedgerSchemaError(f"{where}.schema: {schema!r} is not {SCHEMA!r}")
