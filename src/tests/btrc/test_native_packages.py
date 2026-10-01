@@ -681,6 +681,29 @@ def test_selfhost_cycle_and_future_lock_fail_closed(
     assert "unsupported btrc.lock schema 4" in future.stderr
 
 
+def test_manifest_basic_strings_decode_like_tomllib(semantic_btrcc: Path, tmp_path: Path) -> None:
+    escaped = tmp_path / "escaped"
+    _manifest(escaped, "\\u0061pp")
+    source = escaped / "src/Main.btrc"
+    source.write_text("int main() { return 0; }\n")
+    generated = tmp_path / "escaped.c"
+    assert _reference(source, generated).returncode == 0
+    accepted = _selfhost(semantic_btrcc, source)
+    assert accepted.returncode == 0, accepted.stderr
+
+    invalid = tmp_path / "invalid"
+    _manifest(invalid, "a\\qb")
+    source = invalid / "src/Main.btrc"
+    source.write_text("int main() { return 0; }\n")
+    reference = _reference(source, tmp_path / "invalid.c")
+    assert reference.returncode != 0
+    assert "cannot parse package manifest" in reference.stderr
+    rejected = _selfhost(semantic_btrcc, source)
+    assert rejected.returncode != 0
+    assert "cannot parse package manifest" in rejected.stderr
+    assert "invalid escape" in rejected.stderr
+
+
 def test_selfhost_rejects_malformed_nested_lock(
     semantic_btrcc: Path,
     tmp_path: Path,
