@@ -398,6 +398,7 @@ channels = [
   "helper.__btrc_suspect_locked",
   "helper.__btrc_suspect_state",
   "helper.__btrc_swapCase",
+  "helper.__btrc_target_platform",
   "helper.__btrc_terminal_adopt_foreground",
   "helper.__btrc_terminal_foreground_group",
   "helper.__btrc_thread_arc_dispose",
@@ -1375,8 +1376,8 @@ channel = "asset.core_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.core_c.bin"
 baseline_sha256 = "9073d4d1c0363d79bc29c168852ab117112c4f0796256864c553d5430f804cac"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.core_c.bin"
-accepted_sha256 = "946f3cc39d1f2cb8b73abd73d3bdc89c150b3a2331694683c1b03503a23ebdd5"
-reason = "ApplicationDirectories resolves macOS, Linux, and future Windows policy through a compiler-owned runtime platform discriminator."
+accepted_sha256 = "e8acd8df71b3e9060aa0384c1f317338f809959181c66dba15d017818f4c7076"
+reason = "ApplicationDirectories resolves macOS, Linux, and future Windows policy through a compiler-owned runtime platform discriminator. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change."
 regressions = ["src/tests/python/test_application_directories_contract.py"]
 
 [[records]]
@@ -4347,9 +4348,9 @@ channel = "helper.__btrc_application_directories_platform"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0228.bin"
 baseline_sha256 = "297a9a957afa03850c568ff30ba4f410f7f0ef33357ba32f5891d123877a8cc3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0228.bin"
-accepted_sha256 = "68d96f8004b12160b0f1e056bc1d363880b32ead917beb006516c5e0cf1b118d"
-reason = "Helper catalog orders shifted by one after __btrc_tls_state joined the trycatch asset ahead of __btrc_try_level; the helper text is unchanged."
-regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+reason = "The helper is renamed __btrc_target_platform (record 0233), so this name has no row."
+regressions = ["src/tests/python/test_application_directories_contract.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-order.python"
@@ -4361,9 +4362,9 @@ channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
 baseline_sha256 = "37e2442001713cb436302de380466e70ae4d1c6123368fbd0b4e30f5021b422a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "84dc25b1f1a735fcf79b5cf8ba52c6c6debbbdc4440d75993bdf5ecba35d8c7a"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
-regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
+accepted_sha256 = "2f487317971ebc46ced7ddd0adb25cd782da123a1a0c46c57b5c02b21256e114"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/python/test_application_directories_contract.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-order.btrc"
@@ -4375,9 +4376,9 @@ channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
 baseline_sha256 = "213371cc7e12185e6643930ec91b4a3016d51ab6add711a63cd7d41b6c85dea2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "08abaec51ff34c015abaae09d3acffb7da060ea682b33f36037968b1f0330f31"
-reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty."
-regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
+accepted_sha256 = "c13e45e5e03d7c2cadf08b83432fd4c8d4d0bebbbb5c8a306922175fb96367a3"
+reason = "Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change."
+regressions = ["src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/python/test_application_directories_contract.py"]
 
 [[equalities]]
 id = "surface.tokens.artifact"
@@ -4604,3 +4605,17 @@ accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0232.bin"
 accepted_sha256 = "40f09e39623921332a754cbf147a79978de71349ebeaa4e03fc4c4a057d64dd2"
 reason = "Per-thread runtime state is named directly as fields of the thread-local record __btrc_tls (the field-accessor macros that kept the old variable names are gone); both emitters lower try frames, error messages and cleanup levels as record fields, so every generated unit and the trycatch, cycles and threads assets change text without changing behaviour."
 regressions = ["src/tests/python/test_stdlib_archive_shared_state.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0233"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_target_platform"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0233.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0233.bin"
+accepted_sha256 = "f0ad4dafff78670fc3c794bd44b8cbba7592c6276ec3cd9e109c529911da100d"
+reason = "The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change."
+regressions = ["src/tests/python/test_application_directories_contract.py"]
