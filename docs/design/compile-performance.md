@@ -243,7 +243,10 @@ suite's `measure_peak` reported 63 MB for a 16 MiB child under pytest, and
 CI's recorded program peaks were 52,973,568 or 71,479,296 bytes for
 unrelated programs, the size of the suite's own process. The corpus scenario
 forked each transpile from the harness and had the same floor. Both now go
-through a fresh interpreter. Instructions come from
+through a fresh interpreter, whose own resident set (about 13 MiB) is the
+remaining floor: CI's BenchHello and BenchGenerics compile peaks read
+13,983,744 bytes for that reason. Above it, three local runs of the bench
+peaks repeated within 356 KiB, inside the guard's 1 MiB minimum slack. Instructions come from
 `perf stat -e instructions:u` when `perf` is on PATH and the kernel lets it
 count. Otherwise provenance records `instruction_counter: "unavailable on
 this host: …"` and the metric is absent, never estimated. Provenance also
@@ -307,6 +310,23 @@ own scenario numbers, batch (its ten entry points) and `--entry make`
 Linux packages. Still needing the Mac: footprint, instructions retired and
 the acceptance numbers themselves. No podman was available, so the
 `tools/linux-ci.sh` aarch64 container rehearsal is untested here.
+
+**CI bench gate (btrc-D002).** The bench job runs on ubuntu-latest
+(`linux-x86_64`), which had no baseline, and `check` without `--strict`
+passes a platform without one, so the gate compared nothing. Ten earlier
+`bench-results` artifacts showed that wall-clock gating would not work on that
+pool. One run was about 1.6x faster on every timing, one timing spread
+2.15x, and same-day runs of near-identical trees differed by up to 1.45x
+against the 0.35 slack. Sizes, lines and parity repeated exactly. The job now
+runs `bench-check --strict --timings report` against a `linux-x86_64`
+baseline recorded from its own artifact (CI run 36908778722 at `de086fd`,
+233 metrics, `python3 -m tools.bench baseline --results results.json`).
+Sizes, lines, parity and peaks gate, and timings are listed as "slower"
+without failing. To re-record after an intended change, download a green
+run's `bench-results` and run the same command. The `linux-arm64` and
+`darwin-arm64` program peaks predate the fresh-interpreter fix; on
+`linux-arm64` they were floored at the suite's own resident set, so they now
+read as improvements until they are recorded again.
 
 ### Baseline: the compiler compiling itself (`perf-self`, 2026-09-19)
 

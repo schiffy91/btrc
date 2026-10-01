@@ -7,10 +7,13 @@ long the system C compiler needs for it (the cost every test in the corpus
 pays), how fast a compiled program starts, and how fast the generated code
 runs on fixed workloads. Every number is recorded to JSON and compared with a
 tracked per-platform baseline, so a regression fails ``check`` on a developer
-machine. A platform without a baseline passes unless ``--strict``, and CI's
-runner (linux-x86_64) has none yet: its job uploads ``results.json``, from
-which ``baseline --results`` records one. ``--timings report`` compares
-timings without failing on them, for a pool of unlike hosted runners.
+machine and in CI. A platform without a baseline passes unless ``--strict``,
+which CI passes. CI's linux-x86_64 baseline is recorded from the bench job's
+own ``results.json`` artifact with ``baseline --results``, and CI checks with
+``--timings report``, which compares timings without failing on them: the
+hosted runners are a pool of unlike machines. On Linux a peak is a maximum
+resident set, and one below the measuring interpreter's own (about 13 MiB)
+reads as that floor.
 
 Peak memory is guarded too: each program's compile peak, and with
 ``--peak-workload <workspace>`` the cold ``--jobs 1`` module-unit compile of a

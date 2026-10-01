@@ -143,15 +143,16 @@ jobs:
       - run: make devcontainer
       - run: chmod -R a+w .
       # The suite measures compile time, startup, emitted-C size, cc time,
-      # generated-code speed and compile peaks. baseline.json has no
-      # linux-x86_64 entry yet, so this job compares nothing: without --strict
-      # a missing baseline passes. Its results.json is the artifact that
-      # baseline is recorded from (`python3 -m tools.bench baseline --results`),
-      # and --strict arrives in the same change. Timings are reported, not
-      # gated: ubuntu-latest is a pool of unlike machines (one timing spread
-      # 2.15x across runs of one tree); sizes, lines, parity and peaks repeat
-      # exactly and gate. Three samples per timing keep the job short.
-      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= bench-check BENCH_ARGS="--repeat 3 --timings report"
+      # generated-code speed and compile peaks against the tracked
+      # linux-x86_64 baseline, which was recorded from this job's own
+      # results.json (`python3 -m tools.bench baseline --results`); re-record
+      # it the same way from a green run's artifact when an intended change
+      # moves a size or a peak. --strict fails if that baseline is missing.
+      # Timings are reported, not gated: ubuntu-latest is a pool of unlike
+      # machines (one timing spread 2.15x across runs of one tree), while
+      # sizes, lines, parity and peaks repeat and gate. Three samples per
+      # timing keep the job short.
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= bench-check BENCH_ARGS="--repeat 3 --strict --timings report"
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
