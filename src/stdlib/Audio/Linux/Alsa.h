@@ -1,6 +1,6 @@
 /* ALSA PCM access for the Linux audio provider. Enum-typed setters, the
  * hint list's triple pointer and the scheduler call stay behind these plain
- * adapters; device policy lives in AlsaDevice.btrc. */
+ * adapters; device policy lives in LinuxAudioDevice.btrc. */
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
 #endif

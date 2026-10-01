@@ -1,4 +1,4 @@
-import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.MacOS.MacOSAudioDevice;
 import Library.Audio.AudioDevice;
 import Library.Audio.RealtimeAudio;
 
@@ -23,7 +23,7 @@ struct CoreAudioConformanceContext {
 }
 
 int main() {
-	CoreAudioDeviceProviderOpenOutcome opened = CoreAudioDeviceProvider.open();
+	AudioDeviceProviderOpenOutcome opened = MacOSAudioDevice.open();
 	if (!opened.succeeded()) { print("SKIP: CoreAudio provider unavailable"); return 0; }
 	IAudioDeviceProvider provider = opened.provider();
 	AudioDeviceInventoryOutcome inventoried = provider.inventory();

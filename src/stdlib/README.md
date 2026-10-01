@@ -35,7 +35,7 @@ the API surface, so the layout follows a few fixed rules.
   linux and macOS) and implements the group's portable
   contract: `GUI/MacOS/MacOSDirectoryPicker` implements `GUI/IDirectoryPicker`,
   `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
-  (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/CoreAudioDevice`
+  (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/MacOSAudioDevice`
   implements `Audio/AudioDevice`'s provider contract. A Linux or Windows
   provider is the sibling folder (`GUI/Linux/LinuxDirectoryPicker`) selected by
   the same `[[package.providers]]` entry in `btrc.toml`; consumers never name a

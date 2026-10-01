@@ -376,10 +376,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Audio", (
         BuiltinMemberSpec("createDevice", "AudioDeviceProviderOpenOutcome", "method", (), "createDevice"),
     )),
-    ("AlsaDeviceProvider", (
+    ("LinuxAudioDevice", (
         BuiltinMemberSpec("open", "AudioDeviceProviderOpenOutcome", "method", (), "open"),
     )),
-    ("CoreAudioDeviceProvider", (
+    ("MacOSAudioDevice", (
         BuiltinMemberSpec("open", "AudioDeviceProviderOpenOutcome", "method", (), "open"),
     )),
     ("RealtimeAudioSamples", (

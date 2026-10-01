@@ -35,7 +35,7 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
     assert plan.with_stdlib(str(library), [str(library / "Strings.btrc")]) == plan
     selected = plan.with_stdlib(
         str(library),
-        [str(library / "Audio/MacOS/CoreAudioDevice.btrc"), str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc")],
+        [str(library / "Audio/MacOS/MacOSAudioDevice.btrc"), str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc")],
     )
     payload = selected.as_dict()
     assert payload["units"] == []
@@ -51,7 +51,7 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
     assert sorted(package.name for package in selected.packages) == ["btrc_stdlib_audio", "btrc_stdlib_image"]
     assert all(len(package.manifest_hash) == 64 for package in selected.packages)
     assert [Path(binding.module).name for binding in selected.bindings] == [
-        "CoreAudioDevice.btrc",
+        "MacOSAudioDevice.btrc",
         "MacOSEncodedImageDecoder.btrc",
     ]
     assert selected.bindings[0].read_only_borrows == ("CFStringCreateWithCString.cStr",)
@@ -60,7 +60,7 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
         selected.with_stdlib(
             str(library),
             [
-                str(library / "Audio/MacOS/CoreAudioDevice.btrc"),
+                str(library / "Audio/MacOS/MacOSAudioDevice.btrc"),
                 str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc"),
             ],
         )
@@ -73,7 +73,7 @@ def test_stdlib_manifest_rejects_foreign_package_identity(tmp_path):
     foreign = PackageNode("btrc_stdlib_runtime", str(tmp_path), {}, {"path": str(tmp_path)}, "")
     plan = NativeLinkPlan(PackageTarget.parse("macos-aarch64"), (foreign,))
     with pytest.raises(IncludeResolutionError, match="reserved for compiler-owned"):
-        plan.with_stdlib(str(library), [str(library / "Audio/MacOS/CoreAudioDevice.btrc")])
+        plan.with_stdlib(str(library), [str(library / "Audio/MacOS/MacOSAudioDevice.btrc")])
 
 
 def _manifest(path: Path, name: str, dependencies: str = "", native: str = "") -> None:

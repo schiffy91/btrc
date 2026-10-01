@@ -649,9 +649,6 @@ class AlsaStream implements IAudioSessionBackend {
 	}
 }
 
-/* Spelled for callers that named the ALSA provider's own outcome. */
-typedef AudioDeviceProviderOpenOutcome AlsaDeviceProviderOpenOutcome;
-
 /* ALSA's half of PlatformAudioDeviceProvider. Setup changes no device setting
  * another client observes, so a prepared session reports the generation its
  * request was validated against. */
@@ -679,6 +676,6 @@ class AlsaPlatform implements IAudioDevicePlatform {
 	}
 }
 
-class AlsaDeviceProvider {
+class LinuxAudioDevice {
 	class AudioDeviceProviderOpenOutcome open() { return PlatformAudioDeviceProvider.open(AlsaPlatform()); }
 }

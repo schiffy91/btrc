@@ -980,9 +980,6 @@ class CoreAudioSessionResources implements IAudioSessionBackend {
 	}
 }
 
-/* Spelled for callers that named the CoreAudio provider's own outcome. */
-typedef AudioDeviceProviderOpenOutcome CoreAudioDeviceProviderOpenOutcome;
-
 /* CoreAudio's half of PlatformAudioDeviceProvider. Configuring a device moves
  * its nominal rate and buffer size, so a prepared session reports the
  * generation of the inventory refreshed after setup. */
@@ -1006,6 +1003,6 @@ class CoreAudioPlatform implements IAudioDevicePlatform {
 	}
 }
 
-class CoreAudioDeviceProvider {
+class MacOSAudioDevice {
 	class AudioDeviceProviderOpenOutcome open() { return PlatformAudioDeviceProvider.open(CoreAudioPlatform()); }
 }

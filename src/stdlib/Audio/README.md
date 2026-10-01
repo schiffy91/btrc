@@ -4,7 +4,7 @@ Portable device discovery/negotiation/lifecycle lives in `AudioDevice.btrc`;
 callback contracts and routing live in `RealtimeAudio.btrc` and
 `RealtimeAudioRouter.btrc`. Import them as `Library.Audio.AudioDevice`, etc.
 
-`MacOS/CoreAudioDevice.btrc` implements `IAudioDeviceProvider` using the real
+`MacOS/MacOSAudioDevice.btrc` implements `IAudioDeviceProvider` using the real
 CoreAudio SDK declared by `MacOS/Hardware.h`. Select it only at the application
 composition boundary; application policy and processors consume portable types.
 Its native binding/framework requirements are declared in the stdlib manifest.
@@ -13,10 +13,9 @@ Both providers share one provider shell in `AudioDevice.btrc`:
 `PlatformAudioDeviceProvider` owns the session lease, the retained failed
 setup and the `openDuplex` sequence, and each platform supplies only an
 `IAudioDevicePlatform` (hardware inventory plus `prepare`) and a stream that
-implements `IAudioSessionBackend`. `CoreAudioDeviceProvider.open()`,
-`AlsaDeviceProvider.open()` and `Audio.createDevice()` all return the one
-validated `AudioDeviceProviderOpenOutcome`; the platform outcome names remain
-as type aliases of it. Interleaved channel selection and silence go through
+implements `IAudioSessionBackend`. `MacOSAudioDevice.open()`,
+`LinuxAudioDevice.open()` and `Audio.createDevice()` all return the one
+validated `AudioDeviceProviderOpenOutcome`. Interleaved channel selection and silence go through
 `RealtimeAudioSamples` in `RealtimeAudio.btrc`, which composing programs can
 use too.
 
@@ -65,7 +64,7 @@ native backend; it does not infer an asynchronous entry barrier from a status
 code. The fault suite separately proves no callback publication on preparation
 failure and recovery after callback-installation failure.
 
-`Linux/AlsaDevice.btrc` implements the same provider over ALSA. Inventory
+`Linux/LinuxAudioDevice.btrc` implements the same provider over ALSA. Inventory
 enumerates PCM hints, keeps the shared server entry points (`default`,
 `pipewire`, `pulse`, `jack`) and per-card `sysdefault`/`hw`/`plughw` names,
 probes each direction for channel, rate and period ranges, and reports
