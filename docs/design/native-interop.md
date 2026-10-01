@@ -51,8 +51,9 @@ the hosted allowlist, and the manifest parser rejected resource sub-tables.
 
 Objective-C `SEL` arguments/results use the SDK's imported opaque C typedef,
 not `id`, `void*` or a fabricated integer token. Both frontends require that
-storage and reject incompatible definitions. `GUI.MacOS.ObjectiveCRuntime`
-owns its header selection and Foundation linkage, including standalone use.
+storage and reject incompatible definitions. A project that needs standalone
+selector interning binds `<objc/objc.h>` itself and links Foundation; the
+stdlib no longer ships a selector-only module.
 
 `MacOSButton` and `MacOSActionQueue` now use checked stored target/action bindings.
 The generated adapter owns native target/selector publication and cancellation;

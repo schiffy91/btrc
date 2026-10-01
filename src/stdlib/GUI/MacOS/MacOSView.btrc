@@ -139,21 +139,6 @@ class MacOSView implements IMacOSView {
 
 	public void setHidden(bool hidden) { self.nativeView().setHidden(hidden); }
 
-	public void setDarkAppearance(bool dark) {
-		var view = self.nativeView();
-		var appearance = NSAppearance.appearanceNamed(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua);
-		if (appearance == null) { throw "Native view appearance is unavailable"; }
-		view.setAppearance(appearance);
-	}
-
-	public void inheritAppearance() { self.nativeView().setAppearance(null); }
-
-	public void addChild(NSView child) {
-		var view = self.nativeView();
-		if (child == null || view.isDescendantOf(child)) { throw "Invalid native child hierarchy"; }
-		view.addSubview(child);
-	}
-
 	public CallbackCancellation pollClose() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		var view = self._view;

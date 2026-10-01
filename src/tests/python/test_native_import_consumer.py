@@ -4244,6 +4244,16 @@ int main() {
 def test_native_window_keyboard_monitor(native_project, native_compile, sanitize):
     source, _, _ = native_project
     source.write_text((REPO / "src/tests/native/gui/NativeKeyboard.btrc").read_text())
+    root = source.parent.parent
+    # Synthetic key events are test-only; the stdlib binds only what it uses.
+    (root / "KeyboardInput.h").write_text("#include <AppKit/AppKit.h>\n")
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "KeyboardInput.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["-[NSWindow windowNumber]", '
+        '"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]"]\n'
+    )
     plan = source.parent / "Keyboard.link.json"
     compiled = native_compile(source, plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
@@ -5975,6 +5985,15 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
             '"+[StackProbe contentView]", "+[StackProbe verifyDetachedButton]", "+[StackProbe verifyHiddenButton]"]\n'
             '[[native.sources]]\npath = "StackProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
+    if fixture_name == "NativePanel":
+        # Appearance readback is test-only; the provider binds only what it sets.
+        (root / "PanelProbe.h").write_text("#import <AppKit/AppKit.h>\n")
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "PanelProbe.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["-[NSView appearance]", "-[NSAppearance name]"]\n'
+        )
     if fixture_name == "NativeGUI":
         (root / "FactoryProbe.h").write_text(
             "#import <AppKit/AppKit.h>\n@interface FactoryProbe : NSObject\n"
@@ -6090,7 +6109,7 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
             'symbols = ["-[NSApplication postEvent:atStart:]", "-[NSWindow windowNumber]", "-[NSWindow sendEvent:]", "-[NSView hitTest:]", "-[NSView convertPoint:fromView:]", '
             '"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]", '
-            '"NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp"'
+            '"NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "-[NSView intrinsicContentSize]"'
             + (
                 ', "+[FlippedTestView new]", "-[NSView setBoundsOrigin:]", "+[ActionButtonProbe new]", '
                 '"+[ActionButtonProbe liveCount]", "-[ActionButtonProbe hasAction]", "-[ActionButtonProbe fire]"'
@@ -6295,11 +6314,20 @@ def test_system_text_uses_owned_btrc_rasters(native_project, native_compile, san
     assert "system text shaping, weights, Retina coverage and owned rasters" in completed.stdout
 
 
-def test_objective_c_runtime_module_links_without_appkit(native_project, native_compile):
+def test_objective_c_runtime_binding_links_without_appkit(native_project, native_compile):
     source, _sdk, _triple = native_project
     root = source.parent.parent
+    # The stdlib binds no standalone selector module; a project binds the
+    # Objective-C runtime header and links only Foundation.
+    (root / "ObjectiveCRuntime.h").write_text("#include <objc/objc.h>\n")
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "ObjectiveCRuntime.h"\n'
+        'language = "c"\nstandard = "c11"\nos = ["macos"]\nsymbols = ["SEL", "sel_registerName"]\n'
+        'read-only-borrows = ["sel_registerName.str"]\n'
+        '[[native.frameworks]]\nname = "Foundation"\nmodules = ["Main"]\nos = ["macos"]\n'
+    )
     source.write_text(
-        "import Library.GUI.MacOS.ObjectiveCRuntime;\n"
         'int main() { var selector = sel_registerName("nativeAction:"); '
         'return selector != null && selector == sel_registerName("nativeAction:") ? 0 : 1; }\n'
     )

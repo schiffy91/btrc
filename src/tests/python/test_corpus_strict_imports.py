@@ -55,6 +55,7 @@ OWNER_TREES = {
     "src/compiler/btrc/": "compiled whole by the bootstrap",
 }
 
+
 @dataclass(frozen=True)
 class CorpusImportAuditResult:
     source_count: int

@@ -124,8 +124,6 @@ class MacOSPanel implements IPanel, IMacOSView {
 		view.setFrame(frame);
 	}
 
-	public void setHidden(bool hidden) { self.setVisible(!hidden); }
-
 	public void addChild(NSView child) { MacOSView.attachNative(child, self.nativeView()); }
 
 	public CallbackCancellation close() {

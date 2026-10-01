@@ -493,9 +493,6 @@ class MacOSApplication implements IApplication {
 
 	public void updateWindows() { self.requireIdle(); self._application.updateWindows(); self.dispatchWindowEvents(); }
 
-	/* Activation is a request, not a focus guarantee. AppKit may defer or deny it. */
-	public void requestActivation() { self.requireIdle(); self._application.activate(); }
-
 	/* Wait without consuming the event: the host still owns shortcut routing.
 	 * A deadline keeps non-AppKit work (audio snapshots, jobs, IPC) progressing. */
 	public bool waitForEvents(double seconds) {

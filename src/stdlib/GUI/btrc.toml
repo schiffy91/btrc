@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["Capture", "Font", "FontFace", "FreeType", "GUI", "Geometry", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitEvents", "MacOS.AppKitText", "MacOS.MacOSActionQueue", "MacOS.MacOSApplication", "MacOS.MacOSButton", "MacOS.MacOSComposedCapture", "MacOS.MacOSContainer", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSGPUSurface", "MacOS.MacOSGrid", "MacOS.MacOSImageHandle", "MacOS.MacOSImageView", "MacOS.MacOSLabel", "MacOS.MacOSLevelIndicator", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSScrollView", "MacOS.MacOSSelect", "MacOS.MacOSSlider", "MacOS.MacOSSystemText", "MacOS.MacOSTextField", "MacOS.MacOSView", "MacOS.MacOSViewCapture", "MacOS.MacOSWindow", "MacOS.MetalLayer", "MacOS.ObjectiveCRuntime", "MacOS.WebGPUSurface", "Linux.SDL", "Linux.WebGPUSurface", "Linux.LinuxGPUSurface", "Linux.LinuxFonts", "Linux.LinuxPainter", "Linux.LinuxContext", "Linux.LinuxView", "Linux.LinuxActionQueue", "Linux.LinuxContainer", "Linux.LinuxPanel", "Linux.LinuxStack", "Linux.LinuxGrid", "Linux.LinuxScrollView", "Linux.LinuxLabel", "Linux.LinuxButton", "Linux.LinuxTextField", "Linux.LinuxSelect", "Linux.LinuxSlider", "Linux.LinuxImageView", "Linux.LinuxIndicators", "Linux.LinuxGPUView", "Linux.LinuxSymbols", "Linux.LinuxWindow", "Linux.LinuxApplication", "Linux.LinuxDirectoryPicker", "Linux.LinuxSystemText", "Raster", "TextRun"]
+exports = ["Capture", "Font", "FontFace", "FreeType", "GUI", "Geometry", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitEvents", "MacOS.AppKitText", "MacOS.MacOSActionQueue", "MacOS.MacOSApplication", "MacOS.MacOSButton", "MacOS.MacOSComposedCapture", "MacOS.MacOSContainer", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSGPUSurface", "MacOS.MacOSGrid", "MacOS.MacOSImageHandle", "MacOS.MacOSImageView", "MacOS.MacOSLabel", "MacOS.MacOSLevelIndicator", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSScrollView", "MacOS.MacOSSelect", "MacOS.MacOSSlider", "MacOS.MacOSSystemText", "MacOS.MacOSTextField", "MacOS.MacOSView", "MacOS.MacOSViewCapture", "MacOS.MacOSWindow", "MacOS.MetalLayer", "MacOS.WebGPUSurface", "Linux.SDL", "Linux.WebGPUSurface", "Linux.LinuxGPUSurface", "Linux.LinuxFonts", "Linux.LinuxPainter", "Linux.LinuxContext", "Linux.LinuxView", "Linux.LinuxActionQueue", "Linux.LinuxContainer", "Linux.LinuxPanel", "Linux.LinuxStack", "Linux.LinuxGrid", "Linux.LinuxScrollView", "Linux.LinuxLabel", "Linux.LinuxButton", "Linux.LinuxTextField", "Linux.LinuxSelect", "Linux.LinuxSlider", "Linux.LinuxImageView", "Linux.LinuxIndicators", "Linux.LinuxGPUView", "Linux.LinuxSymbols", "Linux.LinuxWindow", "Linux.LinuxApplication", "Linux.LinuxDirectoryPicker", "Linux.LinuxSystemText", "Raster", "TextRun"]
 
 [[package.providers]]
 module = "GUI"
@@ -174,16 +174,7 @@ os = ["macos"]
 
 [[native.frameworks]]
 name = "AppKit"
-modules = ["MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSImageHandle", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer"]
-os = ["macos"]
-
-[[native.bindings]]
-module = "MacOS.ObjectiveCRuntime"
-header = "MacOS/ObjectiveCRuntime.h"
-language = "c"
-standard = "c11"
-symbols = ["SEL", "sel_registerName"]
-read-only-borrows = ["sel_registerName.str"]
+modules = ["MacOS.GUIProvider", "MacOS.MacOSGPUView", "MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSImageHandle", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -285,7 +276,7 @@ module = "MacOS.MacOSView"
 header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView superview]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView setHidden:]", "-[NSView isHidden]", "-[NSView fittingSize]", "-[NSView intrinsicContentSize]", "-[NSView isDescendantOf:]", "-[NSView addSubview:]", "-[NSView removeFromSuperview]", "-[NSView setAppearance:]", "-[NSView appearance]", "+[NSAppearance appearanceNamed:]", "-[NSAppearance name]", "NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"]
+symbols = ["+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView superview]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView setHidden:]", "-[NSView isHidden]", "-[NSView fittingSize]", "-[NSView isDescendantOf:]", "-[NSView addSubview:]", "-[NSView removeFromSuperview]"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -301,7 +292,7 @@ module = "MacOS.MacOSContainer"
 header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["-[NSView translatesAutoresizingMaskIntoConstraints]", "-[NSView setTranslatesAutoresizingMaskIntoConstraints:]"]
+symbols = ["-[NSView translatesAutoresizingMaskIntoConstraints]", "-[NSView setTranslatesAutoresizingMaskIntoConstraints:]", "-[NSView autoresizingMask]", "-[NSView setAutoresizingMask:]", "-[NSView isFlipped]", "NSViewMinYMargin", "NSViewMaxYMargin", "NSViewHeightSizable"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -322,10 +313,10 @@ os = ["macos"]
 
 [[native.bindings]]
 module = "MacOS.MacOSPanel"
-header = "MacOS/MetalLayer.h"
+header = "MacOS/QuartzCore.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["+[NSThread isMainThread]", "+[NSBox new]", "-[NSBox setBoxType:]", "NSBoxCustom", "-[NSBox setTitlePosition:]", "NSNoTitle", "-[NSBox setBorderWidth:]", "-[NSBox contentView]", "-[NSBox contentViewMargins]", "-[NSBox setContentViewMargins:]", "-[NSBox setFillColor:]", "-[NSBox setCornerRadius:]", "+[NSColor colorWithSRGBRed:green:blue:alpha:]", "-[NSView setWantsLayer:]", "-[NSView layer]", "-[CALayer setCornerRadius:]", "-[CALayer setMasksToBounds:]"]
+symbols = ["+[NSThread isMainThread]", "+[NSBox new]", "-[NSBox setBoxType:]", "NSBoxCustom", "-[NSBox setTitlePosition:]", "NSNoTitle", "-[NSBox setBorderWidth:]", "-[NSBox contentView]", "-[NSBox contentViewMargins]", "-[NSBox setContentViewMargins:]", "-[NSBox setFillColor:]", "-[NSBox setCornerRadius:]", "+[NSColor colorWithSRGBRed:green:blue:alpha:]", "-[NSView setWantsLayer:]", "-[NSView layer]", "-[CALayer setCornerRadius:]", "-[CALayer setMasksToBounds:]", "-[NSView setAppearance:]", "+[NSAppearance appearanceNamed:]", "NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -409,7 +400,7 @@ symbols = [
 	"-[NSWindow setStyleMask:]", "NSWindowStyleMaskTitled", "NSWindowStyleMaskClosable", "NSWindowStyleMaskMiniaturizable", "NSWindowStyleMaskResizable",
 	"-[NSWindow title]", "-[NSWindow setTitle:]", "-[NSWindow contentView]", "-[NSView bounds]", "-[NSWindow frame]", "-[NSWindow setContentSize:]", "-[NSWindow close]",
 	"-[NSView autoresizingMask]", "-[NSView setAutoresizingMask:]", "NSViewWidthSizable", "NSViewHeightSizable",
-	"-[NSWindow makeKeyAndOrderFront:]", "-[NSWindow orderOut:]", "-[NSWindow isVisible]", "-[NSWindow isKeyWindow]", "-[NSWindow isMiniaturized]", "-[NSWindow setContentMinSize:]",
+	"-[NSWindow makeKeyAndOrderFront:]", "-[NSWindow orderOut:]", "-[NSWindow isVisible]", "-[NSWindow isKeyWindow]", "-[NSWindow setContentMinSize:]",
 	"+[NSAlert new]", "-[NSAlert setMessageText:]", "-[NSAlert setInformativeText:]", "-[NSAlert addButtonWithTitle:]", "-[NSAlert runModal]"
 ]
 os = ["macos"]
@@ -435,7 +426,7 @@ symbols = [
 	"+[NSTimer scheduledTimerWithTimeInterval:repeats:block:]", "-[NSTimer invalidate]", "-[NSTimer isValid]",
 	"+[NSThread isMainThread]", "+[NSApplication sharedApplication]", "-[NSApplication finishLaunching]",
 	"-[NSApplication activationPolicy]", "-[NSApplication setActivationPolicy:]", "NSApplicationActivationPolicyRegular",
-	"-[NSApplication activate]", "-[NSApplication run]", "-[NSApplication stop:]", "-[NSApplication isRunning]",
+	"-[NSApplication run]", "-[NSApplication stop:]", "-[NSApplication isRunning]",
 	"-[NSApplication modalWindow]", "-[NSApplication stopModalWithCode:]", "NSModalResponseAbort",
 	"-[NSApplication setDelegate:]", "-[NSApplication delegate]", "-[NSApplicationDelegate applicationShouldTerminate:]", "NSTerminateCancel",
 	"-[NSApplication postEvent:atStart:]", "+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]", "NSEventTypeApplicationDefined",
@@ -474,7 +465,7 @@ cancellation = "entry-barrier"
 
 [[native.frameworks]]
 name = "Foundation"
-modules = ["MacOS.MacOSDirectoryPicker", "MacOS.ObjectiveCRuntime"]
+modules = ["MacOS.MacOSDirectoryPicker"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -497,7 +488,7 @@ os = ["macos"]
 
 [[native.bindings]]
 module = "MacOS.MetalLayer"
-header = "MacOS/MetalLayer.h"
+header = "MacOS/QuartzCore.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
@@ -647,11 +638,8 @@ language = "objective-c"
 standard = "c11"
 symbols = [
 	"-[NSEvent type]", "-[NSEvent keyCode]", "-[NSEvent modifierFlags]", "-[NSEvent isARepeat]", "-[NSEvent window]",
-	"-[NSWindow isKeyWindow]", "-[NSWindow canBecomeKeyWindow]", "-[NSWindow windowNumber]",
-	"-[NSWindow makeFirstResponder:]", "-[NSWindow resignKeyWindow]", "-[NSWindow makeKeyWindow]", "-[NSApplication postEvent:atStart:]",
-	"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]",
-	"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]",
-	"NSEventTypeKeyDown", "NSEventTypeKeyUp", "NSEventTypeFlagsChanged", "NSEventModifierFlagOption",
+	"-[NSWindow isKeyWindow]",
+	"NSEventTypeKeyDown", "NSEventTypeFlagsChanged", "NSEventModifierFlagOption",
 	"NSEventModifierFlagShift", "NSEventModifierFlagControl", "NSEventModifierFlagCommand", "kVK_Space", "kVK_Option", "kVK_RightOption",
 	"MacOSLeftOptionFlag", "MacOSRightOptionFlag", "MacOSLeftShiftFlag", "MacOSRightShiftFlag",
 	"kVK_Escape", "kVK_Return", "kVK_LeftArrow", "kVK_RightArrow", "kVK_UpArrow", "kVK_DownArrow", "kVK_Tab", "kVK_Delete", "kVK_ForwardDelete", "kVK_Home", "kVK_End",
@@ -679,9 +667,9 @@ symbols = [
 	"+[NSThread isMainThread]", "-[NSView convertPoint:fromView:]", "-[NSView hitTest:]", "-[NSView visibleRect]", "-[NSView isHiddenOrHasHiddenAncestor]", "-[NSView window]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView isDescendantOf:]",
 	"-[NSWindow setAcceptsMouseMovedEvents:]", "-[NSWindow contentView]",
 	"-[NSEvent locationInWindow]", "-[NSEvent buttonNumber]", "-[NSEvent clickCount]", "-[NSEvent scrollingDeltaX]", "-[NSEvent scrollingDeltaY]", "-[NSEvent hasPreciseScrollingDeltas]", "-[NSEvent phase]", "-[NSEvent momentumPhase]", "-[NSEvent trackingArea]",
-	"NSEventTypeMouseMoved", "NSEventTypeMouseEntered", "NSEventTypeMouseExited", "NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "NSEventTypeLeftMouseDragged", "NSEventTypeRightMouseDown", "NSEventTypeRightMouseUp", "NSEventTypeRightMouseDragged", "NSEventTypeOtherMouseDown", "NSEventTypeOtherMouseUp", "NSEventTypeOtherMouseDragged", "NSEventTypeScrollWheel",
+	"NSEventTypeMouseMoved", "NSEventTypeMouseExited", "NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "NSEventTypeLeftMouseDragged", "NSEventTypeRightMouseDown", "NSEventTypeRightMouseUp", "NSEventTypeRightMouseDragged", "NSEventTypeOtherMouseDown", "NSEventTypeOtherMouseUp", "NSEventTypeOtherMouseDragged", "NSEventTypeScrollWheel",
 	"NSEventMaskMouseMoved", "NSEventMaskMouseEntered", "NSEventMaskMouseExited", "NSEventMaskLeftMouseDown", "NSEventMaskLeftMouseUp", "NSEventMaskLeftMouseDragged", "NSEventMaskRightMouseDown", "NSEventMaskRightMouseUp", "NSEventMaskRightMouseDragged", "NSEventMaskOtherMouseDown", "NSEventMaskOtherMouseUp", "NSEventMaskOtherMouseDragged", "NSEventMaskScrollWheel",
-	"NSEventPhaseNone", "NSEventPhaseBegan", "NSEventPhaseChanged", "NSEventPhaseEnded", "NSEventPhaseCancelled", "NSEventPhaseMayBegin", "NSEventPhaseStationary",
+	"NSEventPhaseBegan", "NSEventPhaseChanged", "NSEventPhaseEnded", "NSEventPhaseCancelled", "NSEventPhaseMayBegin", "NSEventPhaseStationary",
 	"-[NSTrackingArea initWithRect:options:owner:userInfo:]", "-[NSView addTrackingArea:]", "-[NSView removeTrackingArea:]", "NSTrackingMouseEnteredAndExited", "NSTrackingMouseMoved", "NSTrackingActiveInKeyWindow", "NSTrackingInVisibleRect",
 	"NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification"
 ]

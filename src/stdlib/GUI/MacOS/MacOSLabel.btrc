@@ -72,7 +72,5 @@ class MacOSLabel implements ILabel, IMacOSView {
 
 	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
-	public void setHidden(bool hidden) { self._view.setHidden(hidden); }
-
 	public CallbackCancellation close() { var state = self._view.close(); self._label = null; return state; }
 }

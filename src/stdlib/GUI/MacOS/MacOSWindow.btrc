@@ -257,8 +257,6 @@ class MacOSWindow implements IWindow {
 		return registration;
 	}
 
-	public bool isPresented() { return self.isOpen() && (self.isVisible() || self.nativeWindow().isMiniaturized()); }
-
 	public void setMinimumContentSize(double width, double height) {
 		self.requireSize(width, height);
 		var size = self.contentView().bounds().size;
