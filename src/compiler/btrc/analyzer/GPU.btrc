@@ -407,7 +407,7 @@ class GpuKernelValidator {
 	 * code; only an aggregate literal infers array storage. */
 	private Node? inferredLocalType(Node? initializer) {
 		Node? inferred = self.typeOf(initializer);
-		if (inferred == null || !inferred.isArray || initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL) {
+		if (inferred == null || initializer == null || !inferred.isArray || initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL) {
 			return inferred;
 		}
 		return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(inferred));
