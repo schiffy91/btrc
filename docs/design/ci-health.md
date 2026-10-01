@@ -329,7 +329,7 @@ for `cli/WindowsMain.btrc`.
 
 | Run | Job | Cause | Owner | State |
 | --- | --- | --- | --- | --- |
-| CI 36898564273 | `tests (unit)` | `test_bench_baseline.py`: `measure_peak` returned 189,808,640 bytes for both a 16 MiB and an 80 MiB child, and missed the injected regression. Linux carries a process's resident high-water mark across fork and exec, so a child of a large pytest worker reports the worker's RSS as its own `ru_maxrss`. Reproduced locally by holding 200 MiB in the caller. | this lane (no other lane owns `tools/bench`) | fixed: `MAXRSS_LAUNCHER` forks the measured command from a small process, with a regression test that holds 160 MiB of ballast |
+| CI 36898564273 | `tests (unit)` | `test_bench_baseline.py`: `measure_peak` returned 189,808,640 bytes for both a 16 MiB and an 80 MiB child, and missed the injected regression. Linux carries a process's resident high-water mark across fork and exec, so a child of a large pytest worker reports the worker's RSS as its own `ru_maxrss`. Reproduced locally by holding 200 MiB in the caller: 16 and 80 MiB children both measured 217 MiB. | Stage 3 (`tools/bench`) | fixed on `main` by `dc44a85` (`MAXRSS_REPORTER`). This lane's equivalent fix was reverted in its favour. The existing tests catch the defect only when the pytest worker is large; a test that holds ballast in the caller would catch it on any host. |
 | Windows 36898564289 | `windows` | green; 126 warnings, as above | this lane | fixed |
 
 ## Appendix: per-job evidence
