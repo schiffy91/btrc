@@ -34,7 +34,7 @@ from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
 from .results import CompilerOptions
 
-_RECORD_SCHEMA = 4
+_RECORD_SCHEMA = 5
 # The unit that defines every runtime helper of a module-unit program; a
 # group's unit is named for its path hash and so never takes this name.
 RUNTIME_UNIT_NAME = "unit-runtime"

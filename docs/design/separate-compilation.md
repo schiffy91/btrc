@@ -591,7 +591,10 @@ Every emitted definition has exactly one owning unit; every other unit that
 needs it sees a declaration. Declarations with program-wide names —
 functions, methods, constructors, destructors and destructor hooks, ARC
 descriptors and visitors, interface tables and dispatchers, generic instance
-members and globals — have external linkage in their owner's unit.
+members, enum `_toString` functions and rich-enum variant constructors, and
+globals — have external linkage in their owner's unit. An enum's functions
+belong to the enum's group even when only other groups call them, so a module
+that declares nothing but enums and interfaces still has a unit of its own.
 Session-counted or session-deduplicated synthesized functions (lambdas,
 spawn wrappers, cleanup adapters, default-argument helpers, GPU dispatch
 helpers) stay `static` in the unit that uses them, so per-unit counters

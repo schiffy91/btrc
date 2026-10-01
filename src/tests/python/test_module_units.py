@@ -702,6 +702,91 @@ def test_module_unit_link_plans_match_across_compilers(project: str, tmp_path, r
     assert plans["python"] == plans["btrc"]
 
 
+_ENUM_PROGRAM = {
+    "Kinds.btrc": (
+        "enum Shade { Light, Dark };\n\n"
+        "enum class Mark {\n\tHit(int points),\n\tMiss\n}\n\n"
+        "interface IShaded {\n\tShade shade();\n}\n"
+    ),
+    "Main.btrc": (
+        "import ./Kinds.btrc;\n\n"
+        "int main() {\n"
+        "\tShade value = Shade.Dark;\n"
+        "\tMark mark = Mark.Hit(3);\n"
+        "\tprint(value.toString());\n"
+        "\tprint(mark.toString());\n"
+        "\treturn 0;\n"
+        "}\n"
+    ),
+}
+
+
+def test_enum_functions_belong_to_the_enums_unit(tmp_path, request):
+    """An enum's `_toString` and variant constructors have program-wide names,
+    so the enum's group defines them once with external linkage and every
+    other unit declares them, in both compilers, even when only another
+    group calls them (the declaring group then keeps a unit of its own)."""
+    source = (tmp_path / "program").resolve()
+    source.mkdir()
+    for name, text in _ENUM_PROGRAM.items():
+        (source / name).write_text(text)
+    units: dict[str, dict[str, str]] = {}
+    for compiler in ("python", "btrc"):
+        output = tmp_path.resolve() / compiler
+        output.mkdir()
+        completed = subprocess.run(
+            [
+                *_native_command(compiler, request),
+                "Main.btrc",
+                "-o",
+                str(output / "p.c"),
+                "--emit-units",
+                str(output / "p"),
+                "--module-units",
+                "--jobs",
+                "1",
+            ],
+            cwd=source,
+            env={
+                **os.environ,
+                "BTRC_HOME": str(ROOT / "src"),
+                "PYTHONPATH": str(ROOT),
+                "BTRC_CACHE_DIR": str(output / "cache"),
+            },
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert completed.returncode == 0, completed.stderr
+        units[compiler] = {path.name: path.read_text() for path in sorted(output.glob("p*.c"))}
+    assert sorted(units["python"]) == sorted(units["btrc"])
+    kinds = ModuleUnitCompiler.unit_name(str(source / "Kinds.btrc"))
+    main = ModuleUnitCompiler.unit_name(str(source / "Main.btrc"))
+    for compiler, texts in units.items():
+        assert f"p.{kinds}.c" in texts, compiler
+        for symbol in ("Shade_toString", "Mark_toString", "Mark_Hit"):
+            definition = re.compile(rf"^(static )?[A-Za-z_][\w \t*]*\b{symbol}\([^;\n]*\)\s*\{{", re.M)
+            defining = [name for name, text in texts.items() if definition.search(text)]
+            assert defining == [f"p.{kinds}.c"], (compiler, symbol, defining)
+            assert not definition.search(texts[f"p.{kinds}.c"]).group(1), (compiler, symbol)
+            assert re.search(rf"^[^\n]*\b{symbol}\([^;\n]*\);$", texts[f"p.{main}.c"], re.M), (compiler, symbol)
+    if C_COMPILER is None:
+        return
+    for compiler in units:
+        output = tmp_path.resolve() / compiler
+        sources = sorted(str(path) for path in output.glob("p*.c"))
+        executable = output / "program"
+        subprocess.run(
+            [C_COMPILER, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", *sources, "-o", str(executable)]
+            + ["-lm", "-lpthread"],
+            check=True,
+            capture_output=True,
+            timeout=180,
+        )
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0 and ran.stdout == "Dark\nHit\n", (compiler, ran)
+
+
 def _cli_units(command: list[str], workspace: _Workspace, entry: str, output: Path, jobs: int) -> dict[str, str]:
     """Compile `entry` through a compiler CLI with `jobs` workers; return every emitted C file."""
     output.mkdir(parents=True, exist_ok=True)
