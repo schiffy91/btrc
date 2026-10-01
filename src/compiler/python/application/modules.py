@@ -256,6 +256,24 @@ class _GroupState:
     realtime_proofs: dict[str, list[str]] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class WorkerUsage:
+    """What one worker process used over its whole life, as its reaper saw it:
+    CPU time in microseconds and peak resident memory in KiB, whatever unit
+    the host reports it in."""
+
+    user_micros: int
+    system_micros: int
+    max_resident_kibibytes: int
+
+    @classmethod
+    def of(cls, used) -> WorkerUsage:
+        """A reaped child's usage. macOS reports peak resident memory in
+        bytes, linux in KiB."""
+        resident = used.ru_maxrss // 1024 if sys.platform == "darwin" else used.ru_maxrss
+        return cls(int(used.ru_utime * 1_000_000), int(used.ru_stime * 1_000_000), resident)
+
+
 class InlineModuleUnitWorkers:
     """The owner as the only worker: each request is answered as it is sent.
 
@@ -297,6 +315,8 @@ class ForkedModuleUnitWorkers:
     def __init__(self, workers: list[tuple[int, Connection]]) -> None:
         self._workers = workers
         self._busy = [False] * len(workers)
+        # Each reaped worker's own usage, by worker index, where wait4 reports it.
+        self._usage: dict[int, WorkerUsage] = {}
 
     @classmethod
     def start(cls, count: int, handler: Callable[[dict], dict]) -> ForkedModuleUnitWorkers | None:
@@ -388,10 +408,26 @@ class ForkedModuleUnitWorkers:
             raise payload
         return index, payload
 
-    def _exit_reason(self, index: int) -> str:
+    def _reap(self, index: int) -> int:
+        """Wait for worker `index` to exit and return its wait status.
+
+        wait4 also reports what that worker alone used; where the host has no
+        wait4 the worker is reaped without it.
+        """
         pid = self._workers[index][0]
+        if not hasattr(os, "wait4"):
+            return os.waitpid(pid, 0)[1]
+        _pid, status, used = os.wait4(pid, 0)
+        self._usage[index] = WorkerUsage.of(used)
+        return status
+
+    def usage(self, worker: int) -> WorkerUsage | None:
+        """What `worker` used, once close or terminate has reaped it."""
+        return self._usage.get(worker)
+
+    def _exit_reason(self, index: int) -> str:
         try:
-            _pid, status = os.waitpid(pid, 0)
+            status = self._reap(index)
         except ChildProcessError:
             return "worker exited"
         self._workers[index] = (-1, self._workers[index][1])
@@ -404,10 +440,10 @@ class ForkedModuleUnitWorkers:
         failures = []
         for _pid, connection in self._workers:
             connection.close()
-        for pid, _connection in self._workers:
+        for index, (pid, _connection) in enumerate(self._workers):
             if pid < 0:
                 continue
-            _pid, status = os.waitpid(pid, 0)
+            status = self._reap(index)
             if status != 0:
                 failures.append(os.waitstatus_to_exitcode(status))
         self._workers = []
@@ -420,11 +456,11 @@ class ForkedModuleUnitWorkers:
             if pid > 0:
                 with contextlib.suppress(ProcessLookupError):
                     os.kill(pid, signal.SIGKILL)
-        for pid, connection in self._workers:
+        for index, (pid, connection) in enumerate(self._workers):
             connection.close()
             if pid > 0:
                 with contextlib.suppress(ChildProcessError):
-                    os.waitpid(pid, 0)
+                    self._reap(index)
         self._workers = []
 
 
@@ -946,10 +982,15 @@ class ModuleUnitCompiler:
                 state.record = record
             worker_profiles: tuple[str, ...] = ()
             if self._workers is not None:
-                if profile is not None and isinstance(self._workers, ForkedModuleUnitWorkers):
-                    worker_profiles = self._worker_profiles(self._workers)
+                forked = self._workers if isinstance(self._workers, ForkedModuleUnitWorkers) else None
+                if profile is not None and forked is not None:
+                    worker_profiles = self._worker_profiles(forked)
                 self._workers.close()
                 self._workers = None
+                if forked is not None:
+                    worker_profiles = tuple(
+                        self.with_usage(report, forked.usage(index)) for index, report in enumerate(worker_profiles)
+                    )
         finally:
             if self._workers is not None:
                 self._workers.terminate()
@@ -999,6 +1040,18 @@ class ModuleUnitCompiler:
         """
         replies = self._exchange(workers, [(worker, {"op": "timing"}) for worker in range(workers.size)])
         return tuple(reply["timing"] for _worker, reply in replies)
+
+    @staticmethod
+    def with_usage(report: str, used: WorkerUsage | None) -> str:
+        """A worker's report with `usage=user:Nus,sys:Nus,maxrss:NKiB` appended:
+        what the worker process used over its whole life, as close() reaped
+        it. A host that reports no usage leaves the report as it was."""
+        if used is None:
+            return report
+        return (
+            f"{report} usage=user:{used.user_micros}us,sys:{used.system_micros}us,"
+            f"maxrss:{used.max_resident_kibibytes}KiB"
+        )
 
     @staticmethod
     def _exchange(workers, requests: Sequence[tuple[int, dict]]) -> list[tuple[int, dict]]:

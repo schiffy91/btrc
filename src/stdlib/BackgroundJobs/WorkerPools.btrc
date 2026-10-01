@@ -37,6 +37,21 @@ class WorkerReply {
 	}
 }
 
+/* What one worker process used over its whole life, as its reaper saw it:
+ * CPU time in microseconds and peak resident memory in KiB, whatever unit the
+ * host reports it in. */
+class WorkerUsage {
+	public long long userMicros;
+	public long long systemMicros;
+	public long long maxResidentKibibytes;
+
+	public WorkerUsage(long long userMicros, long long systemMicros, long long maxResidentKibibytes) {
+		self.userMicros = userMicros;
+		self.systemMicros = systemMicros;
+		self.maxResidentKibibytes = maxResidentKibibytes;
+	}
+}
+
 /* Owner-side view of a started pool. Requests go only to idle workers, and a
  * worker is idle again once its reply has been returned by awaitReply. */
 interface IWorkerPool {
@@ -56,6 +71,10 @@ interface IWorkerPool {
 	bool close();
 	/* Kill every worker and reap it. Idempotent. */
 	void terminate();
+	/* What `worker` used, once close or terminate has reaped it; null before
+	 * then, for a worker that is the owner itself, and on hosts that do not
+	 * report a reaped child's usage. */
+	WorkerUsage? usage(int worker);
 }
 
 interface IWorkerPoolFactory {
@@ -114,4 +133,7 @@ class InlineWorkerPool implements IWorkerPool {
 	}
 
 	public void terminate() { self.closed = true; }
+
+	/* The only worker is the owner, whose usage is its own. */
+	public WorkerUsage? usage(int worker) { return null; }
 }

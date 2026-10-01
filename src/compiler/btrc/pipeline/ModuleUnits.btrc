@@ -1290,6 +1290,14 @@ class ModuleUnitCompiler {
 		return self.exchange(workers, requests, affinity, assigned);
 	}
 
+	/* A worker's report with `usage=user:Nus,sys:Nus,maxrss:NKiB` appended:
+	 * what the worker process used over its whole life, as close() reaped
+	 * it. A host that reports no usage leaves the report as it was. */
+	class string withUsage(string report, WorkerUsage? used) {
+		if (used == null) { return report; }
+		return f"{report} usage=user:{used.userMicros}us,sys:{used.systemMicros}us,maxrss:{used.maxResidentKibibytes}KiB";
+	}
+
 	private int solveGeneration = 0;
 
 	/* Why reused records were lowered again, for BTRC_TIMING. */
@@ -2040,7 +2048,9 @@ class ModuleUnitCompiler {
 			fprintf(stderr, "error: module-unit worker failed: a worker exited abnormally\n");
 			exit(1);
 		}
-		for (int index = 0; index < workerTimings.len; index++) { BtrccPhaseTimer.worker(index, workerTimings.get(index)); }
+		if (started != null) {
+			for (int index = 0; index < workerTimings.len; index++) { BtrccPhaseTimer.worker(index, ModuleUnitCompiler.withUsage(workerTimings.get(index), started.usage(index))); }
+		}
 		BtrccPhaseTimer.mark("u-records");
 		/* The program unit gathers every helper any unit uses; the runtime
 		 * unit defines them. */

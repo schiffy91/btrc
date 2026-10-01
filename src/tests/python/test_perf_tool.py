@@ -41,6 +41,29 @@ def test_worker_phase_times_reads_worker_lines_and_owner_sums_skip_them():
     assert perf.worker_phase_times(owner) == {}
 
 
+def test_worker_usage_reads_reaped_usage_and_phase_sums_skip_it():
+    owner = "btrcc timing: lex=1000us module-unit-workers=2"
+    stderr = "\n".join(
+        (
+            owner,
+            "btrcc worker timing: worker=0 pid=11 requests=lower:1,setjmp:0,realtime:0,finish:1 "
+            "busy=lower:3000us,setjmp:0us,realtime:0us,finish:500us w-wait=10us "
+            "usage=user:2500000us,sys:125000us,maxrss:204800KiB",
+            "btrcpy worker timing: worker=1 pid=12 requests=lower:1,setjmp:0,realtime:0,finish:1 "
+            "busy=lower:2000us,setjmp:0us,realtime:0us,finish:7us w-wait=20us",
+        )
+    )
+    assert perf.worker_usage(stderr) == {0: {"user": 2.5, "sys": 0.125, "maxrss_kib": 204800.0}}
+    workers = perf.worker_phase_times(stderr)
+    assert not any(name.startswith("usage") or name in {"user", "sys", "maxrss"} for name in workers[0])
+    assert (
+        workers[0]
+        == perf.worker_phase_times(stderr.replace(" usage=user:2500000us,sys:125000us,maxrss:204800KiB", ""))[0]
+    )
+    assert perf.phase_times(stderr) == perf.phase_times(owner)
+    assert perf.worker_usage(owner) == {}
+
+
 @pytest.mark.parametrize("platform,raw", [("darwin", 32 * 1024 * 1024), ("linux", 32 * 1024)])
 def test_measurement_normalizes_peak_rss(platform, raw):
     measured = perf.Measurement.from_usage({"wall_s": 1.0, "cpu_s": 0.8, "max_rss": raw, "returncode": 0}, platform)

@@ -957,6 +957,17 @@ def test_forked_workers_report_timing_through_the_owner(compiler: str, tmp_path,
 
     assert perf.phase_times(summable(build.stderr)) == perf.phase_times(summable(owner))
     assert sorted(perf.worker_phase_times(build.stderr)) == list(range(count))
+    # The owner reaps each worker and appends what that process used, last:
+    # CPU time in microseconds and peak resident memory in KiB on every host.
+    for line in build.workers:
+        assert re.search(r" usage=user:\d+us,sys:\d+us,maxrss:\d+KiB$", line), line
+    usage = perf.worker_usage(build.stderr)
+    assert sorted(usage) == list(range(count))
+    for used in usage.values():
+        assert used["user"] + used["sys"] > 0
+        # A worker's peak is at most hundreds of megabytes; the same figure
+        # read in bytes would pass 16 GiB.
+        assert 1024 <= used["maxrss_kib"] < 16 * 1024 * 1024
 
 
 def test_inline_and_incremental_builds_print_no_worker_timing(compiler: str, tmp_path, request):
@@ -966,6 +977,7 @@ def test_inline_and_incremental_builds_print_no_worker_timing(compiler: str, tmp
     inline = _timed_cli_build(command, workspace, workspace.root / "inline", 1)
     assert len(inline.owner) == 1 and not inline.workers
     assert not re.search(r"\bw-", inline.owner[0])
+    assert "usage=" not in inline.stderr
     cache = workspace.root / "cache"
     _timed_cli_build(command, workspace, workspace.root / "cold", 2, cache=cache)
     warm = _timed_cli_build(command, workspace, workspace.root / "warm", 2, cache=cache)

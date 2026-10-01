@@ -221,6 +221,34 @@ def worker_phase_times(stderr: str) -> dict[int, dict[str, float]]:
     return workers
 
 
+WORKER_USAGE = re.compile(r"^user:(\d+)us,sys:(\d+)us,maxrss:(\d+)KiB$")
+
+
+def worker_usage(stderr: str) -> dict[int, dict[str, float]]:
+    """Forked module-unit workers' own resource usage, by worker index.
+
+    A worker line's `usage=user:Nus,sys:Nus,maxrss:NKiB` field, which the
+    owner appends after reaping the worker, becomes `user` and `sys` in
+    seconds and `maxrss_kib`. A worker the host reported no usage for is
+    absent, as is every worker of a build that forked none.
+    """
+
+    workers: dict[int, dict[str, float]] = {}
+    for line in stderr.splitlines():
+        match = WORKER_TIMING_LINE.match(line.strip())
+        if not match:
+            continue
+        for item in match.group(2).split():
+            name, _, value = item.partition("=")
+            if name == "usage" and (found := WORKER_USAGE.match(value)):
+                workers[int(match.group(1))] = {
+                    "user": int(found.group(1)) / 1_000_000.0,
+                    "sys": int(found.group(2)) / 1_000_000.0,
+                    "maxrss_kib": float(found.group(3)),
+                }
+    return workers
+
+
 def c_stats(path: Path) -> CStats:
     lines = functions = structs = directives = 0
     vectors: set[str] = set()

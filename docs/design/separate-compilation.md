@@ -883,8 +883,11 @@ one `timing` request, and after a clean close it prints the replies as
 `<compiler> worker timing: worker=<i> ...` lines after its own line. Only the
 owner writes, so worker reports never interleave and never repeat the owner's
 marks; a failed compile prints none, and an inline pool, whose work is already
-in the owner's line, adds no worker line and no `w-*` mark. Per-worker resource
-usage (`wait4`) is a follow-up. Tests check one owner line first, one line per
+in the owner's line, adds no worker line and no `w-*` mark. The pool reaps each
+worker with `wait4`, and the owner ends that worker's line with
+`usage=user:Nus,sys:Nus,maxrss:NKiB`, its whole-life CPU time and peak resident
+memory, normalized to KiB where macOS reports bytes; a host without `wait4`
+omits the field. Tests check one owner line first, one line per
 worker from distinct processes whose lowerings add up to the owner's count, no
 worker lines for inline, unchanged or one-group rebuilds, and identical units
 with timing on and off.
