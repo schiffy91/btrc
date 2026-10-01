@@ -42,7 +42,7 @@ import Library.Image;
 
 /* Query callbacks only request loop exit. Returning Cancel prevents AppKit
  * from exiting the process before ordinary BTRC shutdown has run. */
-class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitRunLoopEvents {
+class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotificationObserver {
 	public bool quitRequested = false;
 	private int _pendingWork = 0;
 	private int _workCapacity;

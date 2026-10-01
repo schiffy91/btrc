@@ -7,14 +7,14 @@ import Library.GUI.MacOS.MacOSRunLoop;
 /* One native subscription, not another view owner. The view and caller scopes
  * share its cancellation identity; native callbacks retain the receiver until
  * admission closes and in-flight dispatch drains. */
-class MacOSViewFocus implements IAppKitRunLoopEvents {
+class MacOSViewFocus implements IAppKitNotificationObserver {
 	private MacOSViewInput _input;
 	public MacOSViewFocus(MacOSViewInput input) { self._input = input; }
 
 	public void invoke(NSNotification notification) { self._input.focusLost(notification); }
 }
 
-class MacOSViewInput implements IAppKitKeyMonitor, ICallbackRegistration {
+class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 	private NSView? _view;
 	private IViewPointerHandler? _pointer;
 	private IViewScrollHandler? _scroll;

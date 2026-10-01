@@ -8,7 +8,7 @@ import Library.GUI.MacOS.MacOSRunLoop;
 
 /* This receiver cannot reach the provider's cancellation scope. Overflow is
  * latched and reported after returning from the native action callback. */
-class TrayCommands implements IAppKitRunLoopEvents {
+class TrayCommands implements IAppKitNotificationObserver {
 	private Tray _model;
 	private UnixShell _shell;
 	private Vector<NSMenuItem> _items;

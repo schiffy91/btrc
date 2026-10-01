@@ -219,7 +219,7 @@ symbols = [
 os = ["macos"]
 
 [native.bindings.callbacks."-[NSNotificationCenter addObserverForName:object:queue:usingBlock:].block"]
-interface = "IAppKitRunLoopEvents"
+interface = "IAppKitNotificationObserver"
 lifetime = "stored"
 failure = "abort"
 executor = "caller"
@@ -652,7 +652,7 @@ symbols = [
 os = ["macos"]
 
 [native.bindings.callbacks."+[NSEvent addLocalMonitorForEventsMatchingMask:handler:].block"]
-interface = "IAppKitKeyMonitor"
+interface = "IAppKitEventMonitor"
 lifetime = "stored"
 failure = "abort"
 executor = "caller"
