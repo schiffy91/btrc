@@ -238,7 +238,7 @@ class BtrcAstRenderer:
         lines.append("    public int kind;")
         for declaration in declarations:
             if declaration.name in lazy:
-                lines.append(f"    /* Null until written: a node pays neither a list allocation nor a")
+                lines.append("    /* Null until written: a node pays neither a list allocation nor a")
                 lines.append(f"     * managed edge for a `{declaration.name}` it never fills. Read it")
                 lines.append(f"     * through {declaration.name}(), write it through {declaration.name}Mut(). */")
                 lines.append(f"    public {declaration.declared_type}? {self._storage_name(declaration.name)};")

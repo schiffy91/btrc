@@ -32,9 +32,10 @@ PYTEST_WORKERS ?= 8
 PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
 PYTEST_SERIAL_ARGS ?= -q -rs
 BTRC_FORMAT_PATHS := src examples
-# Python outside src/ that lint and format-check also own. tools/ as a whole
-# cannot be added yet: tools/compiler_codegen/ast.py has one unrelated F541.
-PYTHON_TOOL_PATHS := tools/qualification tools/budget_bench.py tools/perf.py tools/bench/
+# Every tracked Python source: the compilers, tests and editor support under
+# src/, the generators, gates and measurement tools under tools/, and the
+# examples' helper scripts.
+PYTHON_PATHS := src/ tools/ examples/
 # Every gate's pytest session writes a skip report (src/tests/skip_ledger.py)
 # naming each skip, its gating environment and the runners that cover it, and
 # the skip gate fails on any skip the runner's manifest under
@@ -342,13 +343,13 @@ compiler-codegen-check: ## Check shared-spec generated compiler sources
 generated-check: compiler-codegen-check ## Check every committed generated source without modifying it
 
 lint: generated-check ## Run generated-policy checks and ruff linter
-	$(NIX) ruff check src/ $(PYTHON_TOOL_PATHS)
+	$(NIX) ruff check $(PYTHON_PATHS)
 
 format: format-btrc ## Format Python and BTRC sources
-	$(NIX) ruff format src/ $(PYTHON_TOOL_PATHS)
+	$(NIX) ruff format $(PYTHON_PATHS)
 
 format-check: format-btrc-check ## Check Python and BTRC formatting (CI)
-	$(NIX) ruff format --check src/ $(PYTHON_TOOL_PATHS)
+	$(NIX) ruff format --check $(PYTHON_PATHS)
 
 format-btrc: ## Format canonical BTRC source while preserving intentional fixtures
 	$(NIX) btrc-format write $(BTRC_FORMAT_EXCLUDES) $(BTRC_FORMAT_PATHS)
