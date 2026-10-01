@@ -67,7 +67,12 @@ class EntryResult {
 	}
 }
 
-Thread<int> spawnEntryWorker() {
+/* A capture's hook runs on whichever thread drops its last reference, and the
+ * spawning function holds its own locals until it returns. Each worker waits
+ * on the gate, which opens only after that return, so the environment owns the
+ * last reference to every capture: the capture hooks and the terminal cycle
+ * drain run on the worker, and their errors reach join or implicit free. */
+Thread<int> spawnEntryWorker(Mutex<int> gate) {
 	EntryCapture first = new EntryCapture(1);
 	EntryCapture second = new EntryCapture(2);
 	EntryDrainNode third = new EntryDrainNode(3);
@@ -75,6 +80,7 @@ Thread<int> spawnEntryWorker() {
 	third.next = fourth;
 	fourth.next = third;
 	Thread<int> worker = spawn(() => {
+			while (gate.get() == 0) {}
 			int observed = first.id + second.id + third.id + fourth.id;
 			if (throwWorkerBody) {
 				throw "worker body failure";
@@ -84,36 +90,43 @@ Thread<int> spawnEntryWorker() {
 	return worker;
 }
 
-Thread<EntryResult> spawnResultWorker() {
+Thread<EntryResult> spawnResultWorker(Mutex<int> gate) {
 	EntryCapture first = new EntryCapture(1);
 	EntryCapture second = new EntryCapture(2);
 	Thread<EntryResult> worker = spawn(() => {
+			while (gate.get() == 0) {}
 			return new EntryResult(first.id + second.id);
 		});
 	return worker;
 }
 
 bool catchJoinedError(string expected) {
-	Thread<int> worker = spawnEntryWorker();
+	Mutex<int> gate = Mutex(0);
+	Thread<int> worker = spawnEntryWorker(gate);
 	bool caught = false;
 	try {
+		gate.set(1);
 		int result = worker.join();
 		assert(result == 10);
 	} catch (string error) {
 		caught = error.equals(expected);
 	}
+	gate.destroy();
 	return caught;
 }
 
 bool catchFreedError(string expected) {
+	Mutex<int> gate = Mutex(0);
 	bool caught = false;
 	try {
 		{
-			Thread<EntryResult> worker = spawnResultWorker();
+			Thread<EntryResult> worker = spawnResultWorker(gate);
+			gate.set(1);
 		}
 	} catch (string error) {
 		caught = error.equals(expected);
 	}
+	gate.destroy();
 	return caught;
 }
 
