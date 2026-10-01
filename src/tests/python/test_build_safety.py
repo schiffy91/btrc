@@ -454,7 +454,10 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     for target in ("wheel", "package"):
         output = _make_dry_run(target, "NIX=")
         check = next(line for line in output.splitlines() if "zipfile.ZipFile" in line)
-        assert "src/stdlib/btrc.symbols src/stdlib/LocalApplicationChannel/btrc.lock" in check.replace("\\", "")
+        required = check.replace("\\", "").split(" dist/btrc-*.whl ", 1)[1].split()
+        assert {"src/language/grammar.ebnf", "src/stdlib/btrc.lock", "src/stdlib/btrc.symbols"} <= set(required)
+        # A required path the tree no longer tracks fails every packaging run.
+        assert sorted(set(required) - set(tracked)) == []
     hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/Tables.btrc"
     assert hosted_tables.is_file()
     hosted_source = hosted_tables.read_text()
