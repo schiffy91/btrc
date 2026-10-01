@@ -535,37 +535,6 @@ static inline char* __btrc_strcat(const char* a, const char* b) {
     return result;
 }
 /* btrc-runtime-helper:end __btrc_strcat */
-/* btrc-runtime-helper:begin __btrc_join */
-static inline char* __btrc_join(char** items, int count, const char* sep) {
-    if (count <= 0 || !items) return __btrc_string_alloc(0);
-    if (!sep) sep = "";
-    int separator_len = __btrc_string_length(sep);
-    long long total = (long long)separator_len * (long long)(count - 1);
-    if (total > INT_MAX) {
-        fprintf(stderr, "btrc: string join overflow\n"); exit(1);
-    }
-    for (int i = 0; i < count; i++) {
-        int item_len = __btrc_string_length(items[i]);
-        if (item_len > INT_MAX - (int)total) {
-            fprintf(stderr, "btrc: string join overflow\n"); exit(1);
-        }
-        total += item_len;
-    }
-    char* result = __btrc_string_alloc((int)total);
-    int position = 0;
-    for (int i = 0; i < count; i++) {
-        if (i > 0) {
-            memcpy(result + position, sep, (size_t)separator_len);
-            position += separator_len;
-        }
-        const char* item = items[i] ? items[i] : "";
-        int item_len = __btrc_string_length(item);
-        memcpy(result + position, item, (size_t)item_len);
-        position += item_len;
-    }
-    return result;
-}
-/* btrc-runtime-helper:end __btrc_join */
 /* btrc-runtime-helper:begin __btrc_charAt */
 static inline char __btrc_charAt(const char* s, int idx) {
     if (!s) { fprintf(stderr, "String index on NULL\n"); exit(1); }

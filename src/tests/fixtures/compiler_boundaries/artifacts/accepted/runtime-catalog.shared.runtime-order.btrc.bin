@@ -44,7 +44,6 @@ __btrc_lstrip
 __btrc_rstrip
 __btrc_zfill
 __btrc_strcat
-__btrc_join
 __btrc_charAt
 __btrc_indexOf
 __btrc_lastIndexOf
