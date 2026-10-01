@@ -1,6 +1,7 @@
 /* TOML standalone helpers: key / value / unquote / sectionName / tableArrayName
  * / stripInlineComment, plus rootMap stopping at the first section header. */
 import Library.TOML;
+import Library.Vector;
 
 #include <assert.h>
 
@@ -17,6 +18,25 @@ int main() {
 	assert(TOML.unquote("bare").equals("bare"));
 	// single-quoted is literal: backslash is NOT an escape.
 	assert(TOML.unquote("'a\\tb'").equals("a\\tb"));
+
+	// Basic strings decode TOML's escapes, matching Python's tomllib.
+	assert(TOML.unquote("\"a\\tb\\n\\\"q\\\"\\\\\"").equals("a\tb\n\"q\"\\"));
+	assert(TOML.unquote("\"\\b\\f\\r\"").equals("\b\f\r"));
+	assert(TOML.unquote("\"caf\\u00e9\"").equals("café"));
+	assert(TOML.unquote("\"\\U0001F600\"").equals("😀"));
+	assert(TOML.unquote("\"\\u20AC\"").equals("€"));
+	// A literal tab is valid inside a basic string.
+	assert(TOML.unquote("\"a\tb\"").equals("a\tb"));
+	Vector<string> invalid = ["\"\\x41\"", "\"\\e\"", "\"\\uD800\"", "\"\\u12\"", "\"\\U00110000\"", "\"\\u0000\"", "\"bad\\\"", "\"a\x01b\""];
+	for text in invalid {
+		bool rejected = false;
+		try {
+			TOML.unquote(text);
+		} catch (string error) {
+			rejected = error.startsWith("TOML");
+		}
+		assert(rejected);
+	}
 
 	// sectionName matches [x] but NOT [[x]].
 	assert(TOML.sectionName("[srv]").equals("srv"));
