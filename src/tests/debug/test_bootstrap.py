@@ -36,6 +36,77 @@ def test_interpreter_probe_imports_the_adapter_and_lldb():
     }
 
 
+class _Executed(Exception):
+    """Stands in for a successful execve, which never returns."""
+
+
+class _RecordedExecve:
+    """Record the adapter re-exec instead of replacing the test process."""
+
+    def __init__(self):
+        self.call = None
+
+    def __call__(self, path, argv, environment):
+        self.call = {"path": path, "argv": argv, "environment": environment}
+        raise _Executed
+
+
+def _lldb_unimportable(name):
+    raise ImportError(name)
+
+
+def test_lldb_resolution_drops_the_build_sdk_selectors():
+    """A build shell's DEVELOPER_DIR and SDKROOT misdirect Apple's xcrun shims."""
+
+    shell = {
+        "DEVELOPER_DIR": "/nix/store/apple-sdk",
+        "SDKROOT": "/nix/store/apple-sdk/MacOSX.sdk",
+        "PATH": "/nix/bin:/usr/bin",
+        "PYTHONPATH": "/project",
+    }
+    observed = {"probes": []}
+
+    def check_output(command, **options):
+        observed["lldb"] = (command, options)
+        return "/Xcode/LLDB.framework/Resources/Python\n"
+
+    def run(command, **options):
+        observed["probes"].append((command[0], options["env"]))
+        return types.SimpleNamespace(returncode=0 if command[0] == "/usr/bin/python3" else 1)
+
+    execve = _RecordedExecve()
+    owner = bootstrap.LldbBootstrap(
+        environment=shell,
+        arguments=("--trace",),
+        executable="/nix/bin/python3.14",
+        check_output=check_output,
+        process_runner=run,
+        path_lookup={"lldb": "/usr/bin/lldb", "python3": "/nix/bin/python3"}.get,
+        execve=execve,
+        module_importer=_lldb_unimportable,
+    )
+
+    with pytest.raises(_Executed):
+        owner.ensure_lldb()
+
+    command, options = observed["lldb"]
+    assert command == ["/usr/bin/lldb", "-P"]
+    assert options["env"] == {"PATH": "/nix/bin:/usr/bin", "PYTHONPATH": "/project"}
+    adapter_environment = {
+        "PATH": "/nix/bin:/usr/bin",
+        "PYTHONPATH": os.pathsep.join(("/Xcode/LLDB.framework/Resources/Python", str(REPO_ROOT), "/project")),
+        bootstrap.LldbBootstrap.GUARD_VARIABLE: "1",
+    }
+    assert observed["probes"] == [("/usr/bin/python3", adapter_environment)]
+    assert execve.call == {
+        "path": "/usr/bin/python3",
+        "argv": ["/usr/bin/python3", "-m", "src.devex.debug", "--trace"],
+        "environment": adapter_environment,
+    }
+    # The bootstrap's own record of the shell is untouched: only lldb's resolution drops them.
+    assert owner.environment["DEVELOPER_DIR"] == "/nix/store/apple-sdk"
+
+
 def test_interpreter_probe_timeout_is_a_failed_candidate():
     def timeout(command, **_options):
         raise subprocess.TimeoutExpired(command, bootstrap.LldbBootstrap.PROBE_TIMEOUT_SECONDS)
@@ -113,4 +184,29 @@ def test_adapter_imports_with_apple_lldb_python():
         text=True,
     )
 
+    assert imported.returncode == 0, imported.stderr
+
+
+@pytest.mark.skipif(platform.system() != "Darwin", reason="requires Apple LLDB")
+def test_bootstrap_finds_apple_lldb_under_a_build_shell_sdk(tmp_path):
+    """The real shims, under the developer directory a Nix shell exports: one that carries no lldb."""
+
+    shell = {name: value for name, value in os.environ.items() if name != bootstrap.LldbBootstrap.GUARD_VARIABLE}
+    shell.update(DEVELOPER_DIR=str(tmp_path), SDKROOT=str(tmp_path / "MacOSX.sdk"))
+    execve = _RecordedExecve()
+    owner = bootstrap.LldbBootstrap(environment=shell, execve=execve, module_importer=_lldb_unimportable)
+    if subprocess.run(["/usr/bin/lldb", "-P"], env=owner.lldb_environment(), capture_output=True).returncode != 0:
+        pytest.skip("Apple LLDB Python bridge is unavailable")
+
+    with pytest.raises(_Executed):
+        owner.ensure_lldb()
+
+    assert execve.call["argv"][1:3] == ["-m", "src.devex.debug"]
+    assert not {"DEVELOPER_DIR", "SDKROOT"} & set(execve.call["environment"])
+    imported = subprocess.run(
+        [execve.call["path"], "-c", "import lldb; import src.devex.debug.protocol.adapter"],
+        env=execve.call["environment"],
+        capture_output=True,
+        text=True,
+    )
     assert imported.returncode == 0, imported.stderr
