@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath, PurePosixPath
 from types import MappingProxyType
 
+from src.compiler.python.analyzer.types import STRING_METHODS
 from src.compiler.python.frontend.packages import PackageManifestReader, PackageManifestValidator
 from src.compiler.python.lexer.lexer import Lexer, LexerError
 from src.compiler.python.parser.parser import ParseError, Parser
@@ -13,122 +14,59 @@ from src.compiler.python.syntax.ast.generated import ClassDecl, FieldDecl, Metho
 
 from . import GeneratedArtifact
 
-INTRINSIC_STRING_MEMBERS = (
-    ("len", "int", "field", (), "Length of the string (bytes)"),
-    ("charAt", "char", "method", (("int", "index"),), "Character at index"),
-    ("trim", "string", "method", (), "Remove leading/trailing whitespace"),
-    ("lstrip", "string", "method", (), "Remove leading whitespace"),
-    ("rstrip", "string", "method", (), "Remove trailing whitespace"),
-    ("toUpper", "string", "method", (), "Convert to uppercase"),
-    ("toLower", "string", "method", (), "Convert to lowercase"),
-    ("contains", "bool", "method", (("string", "sub"),), "Check if contains substring"),
-    ("startsWith", "bool", "method", (("string", "prefix"),), "Check prefix"),
-    ("endsWith", "bool", "method", (("string", "suffix"),), "Check suffix"),
-    ("indexOf", "int", "method", (("string", "sub"),), "Index of first occurrence"),
-    (
-        "lastIndexOf",
-        "int",
-        "method",
-        (("string", "sub"),),
-        "Index of last occurrence",
-    ),
-    (
-        "substring",
-        "string",
-        "method",
-        (("int", "start"), ("int", "end")),
-        "Extract substring",
-    ),
-    ("equals", "bool", "method", (("string", "other"),), "Compare strings"),
-    ("split", "Vector<string>", "method", (("string", "delim"),), "Split into list"),
-    (
-        "replace",
-        "string",
-        "method",
-        (("string", "old"), ("string", "replacement")),
-        "Replace occurrences",
-    ),
-    ("repeat", "string", "method", (("int", "count"),), "Repeat N times"),
-    (
-        "count",
-        "int",
-        "method",
-        (("string", "sub"),),
-        "Count non-overlapping occurrences",
-    ),
-    (
-        "find",
-        "int",
-        "method",
-        (("string", "sub"), ("int", "start")),
-        "Find from start index",
-    ),
-    ("capitalize", "string", "method", (), "Uppercase first char"),
-    ("title", "string", "method", (), "Capitalize each word"),
-    ("swapCase", "string", "method", (), "Swap upper/lower case"),
-    (
-        "padLeft",
-        "string",
-        "method",
-        (("int", "width"), ("char", "fill")),
-        "Left-pad",
-    ),
-    (
-        "padRight",
-        "string",
-        "method",
-        (("int", "width"), ("char", "fill")),
-        "Right-pad",
-    ),
-    (
-        "center",
-        "string",
-        "method",
-        (("int", "width"), ("char", "fill")),
-        "Center with padding",
-    ),
-    ("charLen", "int", "method", (), "UTF-8 character count"),
-    ("byteLen", "int", "method", (), "Byte length"),
-    ("isDigitStr", "bool", "method", (), "All chars are digits"),
-    ("isAlphaStr", "bool", "method", (), "All chars are alphabetic"),
-    ("isBlank", "bool", "method", (), "Empty or all whitespace"),
-    ("isAlnum", "bool", "method", (), "All chars are alphanumeric"),
-    ("isUpper", "bool", "method", (), "All chars are uppercase"),
-    ("isLower", "bool", "method", (), "All chars are lowercase"),
-    ("reverse", "string", "method", (), "Reverse the string"),
-    ("isEmpty", "bool", "method", (), "True if string is empty"),
-    (
-        "removePrefix",
-        "string",
-        "method",
-        (("string", "prefix"),),
-        "Remove prefix if present",
-    ),
-    (
-        "removeSuffix",
-        "string",
-        "method",
-        (("string", "suffix"),),
-        "Remove suffix if present",
-    ),
-    ("toInt", "int", "method", (), "Parse as integer"),
-    ("toFloat", "float", "method", (), "Parse as float"),
-    ("toDouble", "double", "method", (), "Parse as double"),
-    ("toLong", "long", "method", (), "Parse as long"),
-    (
-        "toBool",
-        "bool",
-        "method",
-        (),
-        'Parse as bool (false for empty, "false", "0")',
-    ),
-    (
-        "zfill",
-        "string",
-        "method",
-        (("int", "width"),),
-        "Left-pad with zeros (preserves sign)",
-    ),
+# Parameter names and documentation for the string intrinsics. Names, return
+# types and parameter types come from the analyzer's STRING_METHODS table; the
+# generator fails when the two disagree on which members exist or on arity.
+STRING_MEMBER_DOCUMENTATION = MappingProxyType(
+    {
+        "len": ("field", (), "Length of the string (bytes)"),
+        "byteLen": ("method", (), "Byte length"),
+        "length": ("method", (), "Length of the string (bytes)"),
+        "charLen": ("method", (), "UTF-8 character count"),
+        "equals": ("method", ("other",), "Compare strings"),
+        "contains": ("method", ("sub",), "Check if contains substring"),
+        "startsWith": ("method", ("prefix",), "Check prefix"),
+        "endsWith": ("method", ("suffix",), "Check suffix"),
+        "indexOf": ("method", ("sub",), "Index of first occurrence"),
+        "lastIndexOf": ("method", ("sub",), "Index of last occurrence"),
+        "find": ("method", ("sub", "start"), "Find from start index"),
+        "count": ("method", ("sub",), "Count non-overlapping occurrences"),
+        "charAt": ("method", ("index",), "Character at index"),
+        "isEmpty": ("method", (), "True if string is empty"),
+        "isBlank": ("method", (), "Empty or all whitespace"),
+        "isUpper": ("method", (), "All chars are uppercase"),
+        "isLower": ("method", (), "All chars are lowercase"),
+        "isAlnum": ("method", (), "All chars are alphanumeric"),
+        "isAlnumStr": ("method", (), "All chars are alphanumeric"),
+        "isDigit": ("method", (), "All chars are digits"),
+        "isDigitStr": ("method", (), "All chars are digits"),
+        "isAlpha": ("method", (), "All chars are alphabetic"),
+        "isAlphaStr": ("method", (), "All chars are alphabetic"),
+        "trim": ("method", (), "Remove leading/trailing whitespace"),
+        "lstrip": ("method", (), "Remove leading whitespace"),
+        "rstrip": ("method", (), "Remove trailing whitespace"),
+        "toUpper": ("method", (), "Convert to uppercase"),
+        "toLower": ("method", (), "Convert to lowercase"),
+        "substring": ("method", ("start", "end"), "Extract substring"),
+        "replace": ("method", ("old", "replacement"), "Replace occurrences"),
+        "repeat": ("method", ("count",), "Repeat N times"),
+        "reverse": ("method", (), "Reverse the string"),
+        "capitalize": ("method", (), "Uppercase first char"),
+        "title": ("method", (), "Capitalize each word"),
+        "swapCase": ("method", (), "Swap upper/lower case"),
+        "padLeft": ("method", ("width", "fill"), "Left-pad"),
+        "padRight": ("method", ("width", "fill"), "Right-pad"),
+        "center": ("method", ("width", "fill"), "Center with padding"),
+        "zfill": ("method", ("width",), "Left-pad with zeros (preserves sign)"),
+        "removePrefix": ("method", ("prefix",), "Remove prefix if present"),
+        "removeSuffix": ("method", ("suffix",), "Remove suffix if present"),
+        "split": ("method", ("delim",), "Split into a string array"),
+        "toInt": ("method", (), "Parse as integer"),
+        "toFloat": ("method", (), "Parse as float"),
+        "toDouble": ("method", (), "Parse as double"),
+        "toLong": ("method", (), "Parse as long"),
+        "toBool": ("method", (), 'Parse as bool (false for empty, "false", "0")'),
+    }
 )
 
 
@@ -239,14 +177,11 @@ INTRINSIC_TYPE_MEMBERS = MappingProxyType(
 )
 
 
+# The free functions every program may call without an import: the analyzer's
+# print/len/range intrinsics and the hosted-ABI exit.
 INTRINSIC_FUNCTIONS = MappingProxyType(
     {
-        "println": ("void", (("string", "message"),)),
         "print": ("void", (("string", "message"),)),
-        "input": ("string", (("string", "prompt"),)),
-        "toString": ("string", (("int", "value"),)),
-        "toInt": ("int", (("string", "value"),)),
-        "toFloat": ("float", (("string", "value"),)),
         "len": ("int", (("string", "s"),)),
         "range": ("Vector<int>", (("int", "n"),)),
         "exit": ("void", (("int", "code"),)),
@@ -475,7 +410,7 @@ class BuiltinCatalogRenderer:
             "# " + "-" * 75,
             "",
             "# String methods are language intrinsics (not defined in any .btrc file)",
-            self._intrinsic_members("STRING_MEMBERS", INTRINSIC_STRING_MEMBERS),
+            self._intrinsic_members("STRING_MEMBERS", self._string_members()),
             "",
         ]
         for type_name, members in INTRINSIC_TYPE_MEMBERS.items():
@@ -563,6 +498,26 @@ class BuiltinCatalogRenderer:
             )
         lines.append(")")
         return "\n".join(lines)
+
+    @staticmethod
+    def _string_members() -> tuple:
+        """The analyzer's string intrinsics, documented; a mismatch is a generation error."""
+
+        methods = STRING_METHODS
+        undocumented = sorted(set(methods) - set(STRING_MEMBER_DOCUMENTATION))
+        stale = sorted(set(STRING_MEMBER_DOCUMENTATION) - set(methods))
+        if undocumented or stale:
+            raise BuiltinCatalogGenerationError(
+                f"string member documentation differs from the analyzer (undocumented: {undocumented}; stale: {stale})"
+            )
+        entries = []
+        for name, method in methods.items():
+            kind, parameter_names, documentation = STRING_MEMBER_DOCUMENTATION[name]
+            if len(parameter_names) != len(method.argument_types):
+                raise BuiltinCatalogGenerationError(f"string member {name} documents the wrong parameter count")
+            parameters = tuple(zip(method.argument_types, parameter_names, strict=True))
+            entries.append((name, method.return_type, kind, parameters, documentation))
+        return tuple(entries)
 
     def _intrinsic_members(self, variable_name: str, entries: tuple) -> str:
         lines = [f"{variable_name}: tuple[BuiltinMemberSpec, ...] = ("]
