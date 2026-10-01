@@ -6,7 +6,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer clean \
-	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline perf-budget perf-btrsmith perf-self
+	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
@@ -391,6 +391,14 @@ bench-check: generated-check btrcc ## Measure, then fail on regressions against 
 
 bench-baseline: generated-check btrcc ## Measure and record this platform's baseline (src/tests/fixtures/benchmarks)
 	$(NIX) $(BENCH) baseline $(BENCH_OPTIONS)
+
+# The M11 peak guard against the tracked baseline: the cold --jobs 1
+# module-unit compile of a pinned BTRSmith copy, budget_bench's memory command.
+# The workload needs BTRSmith's packages and native header reader, so run it
+# from that checkout's dev shell, like perf-budget, and never beside a gate.
+BTRSMITH_MEASURE ?= $(HOME)/.cache/btrc/bsm-measure
+bench-peak: generated-check btrcc ## Fail if the cold --jobs 1 BTRSmith compile peak rises >2% over its baseline or passes 3 GiB
+	$(NIX) $(BENCH) check --peak-only --no-peaks --peak-budget-gib 3 --peak-workload "$(BTRSMITH_MEASURE)" --btrcc "$(abspath $(BTRCC_NATIVE))" --json build/bench/peak.json $(BENCH_ARGS)
 
 # BTRSmith's bucket-1 budgets (PLAN.md "Numeric acceptance budgets") on either
 # frontend: cold, edit, instance-edit, interface-edit, noop, touch, memory,

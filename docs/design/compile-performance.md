@@ -6046,3 +6046,170 @@ and under the same lock anything no record names is removed. A record whose
 output has been gone for an hour releases its generations. Concurrent builds
 of different outputs in one directory keep each other's generations; the first
 build after this change removes generations no record names.
+
+## Retained-memory census at the self-host peak (October 1)
+
+M11 holds the self-hosted compiler's cold `--jobs 1` BTRSmith compile to
+3 GiB of peak footprint, with 1.5 GiB as the final target. This census
+gives every byte live at that peak to the owner that holds it.
+
+- **Workload.** `btrcc --jobs 1 --strict-imports --target macos-arm64 --debug
+  --emit-link-plan --emit-units --module-units src/BTRSmith.btrc` with cold
+  artifact caches, on a byte-identical copy of the pinned BTRSmith workspace
+  `~/.cache/btrc/bsm-measure`. This is the command budget_bench's memory
+  scenario and `make bench-peak` run.
+- **Host.** MacBookPro18,2 (Apple M1 Max, 8P+2E, 64 GiB), macOS 27.0, measured
+  2026-10-01 on a workstation shared with other jobs. Bytes do not depend on
+  load the way wall time does: the same binary repeats within 0.7%.
+- **Binary.** btrcc-65057cb's generated C, whose compiler, stdlib and runtime
+  sources are identical to 464a643, rebuilt by Apple clang 21 at `-O2` with
+  census probes added. The probes live only in a scratch copy of the generated
+  C and were never committed. Unpatched, btrcc-65057cb peaks at 3,184,167,552
+  bytes; the M11 record is 3,184,183,936, one 16 KiB page apart.
+- **Peak point.** `u-emit`, the end of `ModuleUnitCompiler.compile`, when every
+  unit is emitted and every deliberate `keep` is still live. The footprint
+  peaks here; at the end of the setjmp solve it was 157 MiB lower.
+- **Method.** The probes do three things:
+  1. Every `BtrccPhaseTimer` mark prints malloc's `size_in_use`
+     (`malloc_zone_statistics`), `phys_footprint` (`task_vm_info`) and its
+     lifetime peak.
+  2. At `u-emit`, the pipeline's locals and the module-unit compiler's locals
+     become named owners. Each owner is walked through the generated ARC visit
+     functions, and every reached object and managed string records one bit
+     per owner that reaches it.
+     - An object counts its malloc block, its container buffers (`malloc_size`
+       of data, keys, values and occupied) and its 16-byte incoming-edge
+       records.
+     - A string counts its buffer and its registry entry.
+     - The remaining live locals on the cleanup stack are walked last, skipping
+       whatever an owner already reached.
+     - Objects that `keep` statements in other functions leaked, which no live
+       owner reaches, are found by enumerating the malloc zones for instances of
+       the kept types. Each is walked as an owner of its own.
+  3. A final zone enumeration counts the managed objects that nothing reached.
+
+  Each byte goes to the first owner, in pipeline order, that reaches it, so the
+  rows sum exactly to malloc in use; the last row is the footprint above that.
+  A first attempt released each `keep` and measured the drop. It failed:
+  releasing the cyclic graphs frees almost nothing at once and builds 1.5 GB of
+  cycle-collector state, which is why the keeps exist.
+
+Line numbers are from 464a643; none of the cited lines had moved when this
+section was written. `Pipeline.btrc` and `ModuleUnits.btrc` are in
+`src/compiler/btrc/pipeline/`, and `Analyzer.btrc` is in
+`src/compiler/btrc/analyzer/`.
+
+| Owner | Bytes | MiB | Method | Notes |
+| --- | ---: | ---: | --- | --- |
+| In-process worker's lowered units (ModuleUnits.btrc:2063 `keep local`) | 1,696,642,672 | 1,618.0 | reachability | IR and per-unit tables 1192.1 MiB: 2,777,822 IRNode = 1079.4 MiB with 4,070,307 incoming-edge records, 445,758 `Vector<IRNode>` 51.7 MiB, IR params/functions/cleanup slots, 87,377 `Map<string,bool>` 22.3 MiB; setjmp origin and effect analysis the worker keeps after the solve 380.3 MiB (1,019,400 `Vector<SetjmpOrigin>`, 913,083 SetjmpNodeOrigins, 70,878 `Map<IRNode,SetjmpNodeOrigins>`, 292,829 SetjmpStorage, 318,100 SetjmpOrigin); strings 45.7 MiB. Everything it reaches, through the compiler back to the AST and analyzer: 2256.5 MiB. |
+| AST (Pipeline.btrc:180 `keep program`) | 556,567,504 | 530.8 | reachability | 550,781 Node = 501.0 MiB (768-byte class, 6,394,593 incoming-edge records), 117,719 `Vector<Node>` 11.5 MiB, strings 15.5 MiB. analyzer, analyzed, validation records, sourceDeclarations, declarations and unitProgram all reach it; it is counted once, here. |
+| Group states, including each unit record's C text (ModuleUnits.btrc:2057 `keep states`) | 137,485,968 | 131.1 | reachability | 109.1 MiB of strings (every stale unit's emitted C, record.text), 39,143 `Vector<string>` 9.3 MiB, setjmp parameter/function effects ~9 MiB. |
+| Kept RealtimeAnalyzer, unreachable from any live owner (Analyzer.btrc:70 `keep realtime`) | 127,804,064 | 121.9 | reachability | 12,217 `Map<string,Node>` = 102.8 MiB, almost all hash buckets (~8.6 KiB per RealtimeCallable), 11,953 Node 8.9 MiB, 12,216 RealtimeCallable and their event vectors. |
+| Token stream (pipeline locals tokens/lexer/parser; not a keep, live until the pipeline returns) | 103,236,192 | 98.5 | reachability | 885,383 Token = 81.1 MiB, the 8.0 MiB token vector, 9.3 MiB of token strings. Nothing reads it after parse. |
+| Finish replies (ModuleUnits.btrc local `finished`; not a keep, live at the peak) | 76,497,568 | 73.0 | reachability | The worker's 444 reply strings: a second copy of every unit's C text, because record.text is a substring copy of the reply. |
+| Analyzer indexes (Pipeline.btrc:182 `keep analyzer`; :183 `keep analyzed` adds nothing beyond it and the AST) | 54,101,824 | 51.6 | reachability | 1,695 `Map<Node,int>` = 34.2 MiB, 3,114 `Vector<Node>` 6.3 MiB, strings 4.7 MiB. analyzed reaches 523.9 MiB and the validation records 559.1 MiB, all shared with the analyzer and AST. |
+| Declarations-only lowering (ModuleUnits.btrc:1813 `keep declarationsLowerer`, :2059 `keep declarations`) | 50,325,888 | 48.0 | reachability | 39,075 IRNode 14.9 MiB, 51,076 IRParam 4.7 MiB, 26,715 IRFunctionDecl, `Map<int,string>` 3.3 MiB, strings 8.7 MiB. The declarations module adds nothing beyond its lowerer. |
+| Resolved sources and packages (Pipeline.btrc:181 `keep resolved`, local packages) | 28,460,784 | 27.1 | reachability | 101,763 FeLine 9.3 MiB, native header nodes ~4.5 MiB, strings 9.5 MiB. |
+| Shared declarations (ModuleUnits.btrc:2058 `keep shared`) | 28,031,568 | 26.7 | reachability | 67,766 `Map<string,bool>` 16.6 MiB, 33,865 `Vector<int>` 3.6 MiB, strings 4.5 MiB. |
+| Program unit and build result (ModuleUnits.btrc programUnit, build) | 20,195,232 | 19.3 | reachability | 40,165 IRNode 15.6 MiB; the build's unit list shares the records' strings. |
+| Per-group kept lowerers (ModuleUnits.btrc:950 `keep lowerer`, 445 instances, unreachable) | 12,992,976 | 12.4 | reachability | Lowering contexts and their scope maps. |
+| Setjmp solve results (ModuleUnits.btrc locals solved, programEffects) | 10,199,360 | 9.7 | reachability | - |
+| Native declaration importer (pipeline local natives) | 9,262,544 | 8.8 | reachability | 37,464 `Vector<NativeNode>`, 5,352 NativeNode. |
+| Kept SemanticValidator (Analyzer.btrc:69 `keep validator`, unreachable) | 7,301,904 | 7.0 | reachability | - |
+| Per-group kept setjmp analyses and optimizers (ModuleUnits.btrc:1485 `keep programAnalysis`; 1508, 2189 `keep analysis`; 2228 `keep optimizer`; unreachable) | 3,126,592 | 3.0 | reachability | 445 SetjmpEffectAnalysis, 444 IROptimizer. |
+| Other named locals of the pipeline and module-unit compiler, and every other live local | 1,332,304 | 1.3 | reachability | mu:affinity, mu:helperNames, mu:lowered, mu:optimizer, mu:programBoundaries, mu:programGraph, mu:programUnneeded, mu:references, mu:requests, mu:sources, mu:stale, pl:input, pl:options, pl:runtimeData, pl:runtimeHelpers, pl:self, pl:sourceDeclarations, pl:sourceRuntimeSymbols, pl:stdlibKeys, pl:unitProgram, remainder:live-locals |
+| Leaked containers no live owner or kept type reaches | 42,740,848 | 40.8 | heap enumeration minus reachability | 167,389 `Map<string,bool>` 38.3 MiB, 6,811 `Map<string,Node>` 2.3 MiB; buffers estimated from capacity. Not traced to a keep site. |
+| Runtime string registry buckets | 33,554,432 | 32.0 | string registry walk | One 32 MiB table for 2,258,933 managed strings. |
+| Unclassified malloc | 2,597,136 | 2.5 | remainder of malloc in use | Statics, cleanup stacks, runtime tables. |
+| Footprint above malloc in use | 174,173,576 | 166.1 | task_vm_info phys_footprint minus malloc_zone_statistics size_in_use | Allocator free lists and fragmentation, stacks, the image's dirty data. |
+| **Malloc in use** | **3,002,457,360** | **2,863.4** | `malloc_zone_statistics` | 35,585,259 blocks, 9,357,834 managed objects reached, 2,258,933 managed strings, 18,307,296 incoming-edge records. The sum of every row above except the last. |
+| **Footprint at the peak** | **3,176,630,936** | **3,029.5** | `task_vm_info` | The census build's peak. The 1.5 GiB final target is 1,610,612,736 bytes, 1,493.5 MiB below it. |
+
+### What each keep holds alone
+
+Releasing one keep frees almost nothing, because the graphs reach each other:
+the analyzer, the analysis, the validation records and the module-unit program
+all reach the AST, and the worker pool and the module-unit compiler both reach
+the worker's units. They have to be dropped together.
+
+| Keep | Reaches | Only it reaches | Given it in the census |
+| --- | ---: | ---: | ---: |
+| `program` (Pipeline.btrc:180) | 556,567,504 | 0 | 556,567,504 |
+| `resolved` (:181) | 97,800,144 | 0 | 27,982,272 |
+| `analyzer` (:182) | 619,388,736 | 11,328 | 54,101,824 |
+| `analyzed` (:183) | 567,302,912 | 0 | 0 |
+| `states` (ModuleUnits.btrc:2057) | 139,823,888 | 4,160 | 137,485,968 |
+| `shared` (:2058) | 67,639,664 | 0 | 28,031,568 |
+| `declarations` (:2059) | 39,569,744 | 0 | 0 |
+| `optimizer` (:2060) | 18,561,776 | 23,952 | 23,952 |
+| `local` (:2063), the in-process worker; the worker pool and the compiler reach the same bytes | 2,366,076,224 | 0 | 1,696,642,672 |
+| `declarationsLowerer` (:1813) | 619,482,272 | 5,153,088 | 50,325,888 |
+
+### When the memory arrives
+
+| Phase mark | Malloc in use (MiB) | Footprint (MiB) |
+| --- | ---: | ---: |
+| `lex` | 162.3 | 184.8 |
+| `parse` | 585.1 | 614.8 |
+| `analyze` | 891.6 | 927.1 |
+| `u-declarations` | 973.6 | 1,050.2 |
+| `u-lowered` (445 groups lowered in process) | 2,359.7 | 2,443.6 |
+| `u-solve` (setjmp fixed point) | 2,805.1 | 2,890.8 |
+| `u-optimize` | 2,784.3 | 2,959.0 |
+| `u-records` | 2,862.2 | 3,047.0 |
+| `u-emit` (peak) | 2,863.4 | 3,047.7 |
+
+The timeline is a separate run of the same binary, so its last footprint
+differs a little from the census run's.
+
+Malloc in use is already 2,360 MiB when lowering ends, before the setjmp solve
+adds anything.
+
+Since the September 28 census, IR nodes are unchanged at about 2.8 million
+(2,857,428 live, 384 bytes each; 2,777,822 of them the worker's). Vectors fell
+from 11.8 million to 2,335,827 once IR lists became lazy (6b22121), and
+incoming-edge records fell from 28 million to 18,307,296. The AST is 568,190
+`Node`s of 768 bytes (416 MiB of blocks). What is new is the 380 MiB of setjmp
+origin and effect data the worker keeps after the solve.
+
+### Levers, sized by this census
+
+| Lever | Up to (MiB) | Note |
+| --- | ---: | --- |
+| Hold fewer of the worker's lowered units at once (stream finish per group, or re-lower at finish) | 1,192.1 | The only term near the 1.46 GiB gap. Malloc in use is already 2,360 MiB when lowering ends, before the solve adds anything. |
+| Drop the worker's setjmp origin and effect data once the solve settles | 380.3 | - |
+| Drop the AST and analyzer indexes after the last group is lowered | 582.4 | Needs the release to avoid the ARC reverse-reachability cost that the keeps avoid. |
+| Release the token stream after parse | 98.5 | Acyclic; cheap to release. |
+| Keep one copy of each unit's C text (drop the finish replies or stop copying record.text) | 73.0 | - |
+| Size the RealtimeAnalyzer's per-callable `Map<string,Node>` to its contents | 102.8 | - |
+| Find who leaks the 167,389 unreachable `Map<string,bool>` | 40.8 | - |
+
+Only the first lever comes near the 1.46 GiB gap to the final target. Releasing
+the tokens, keeping one copy of each unit's C text and sizing the realtime maps
+together recover about 275 MiB, which matters under the 3 GiB budget's 35 MiB
+of headroom.
+
+### The peak guard
+
+`nix develop ../btrsmith -c make NIX= bench-peak` runs `python3 -m tools.bench
+check --peak-only --no-peaks --peak-budget-gib 3 --peak-workload
+~/.cache/btrc/bsm-measure` against the tracked darwin-arm64 baseline,
+`btrcc.workload.BTRSmith_peak` = 3,184,167,552 bytes. It fails a peak more than
+2% over the baseline (63.7 MB on this workload, never less than 1 MiB of
+slack), and `--peak-budget-gib 3` fails any peak over 3 GiB whatever the
+baseline says. The absolute check is needed because 2% is more than the 35 MiB
+of headroom left under 3 GiB. The guard was checked against these runs:
+
+| Run | Peak footprint (bytes) | Result |
+| --- | ---: | --- |
+| btrcc-65057cb, no injection | 3,184,167,552 | pass |
+| rebuilt btrcc, no injection (repeat) | 3,175,058,072 | pass |
+| rebuilt btrcc, `BTRC_INJECT_MIB`=32 at startup | 3,209,431,704 | pass (+0.8% against the tracked baseline) |
+| rebuilt btrcc, `BTRC_INJECT_MIB`=96 at startup | 3,284,028,128 | fail: regression +3.1% and over the 3 GiB budget (exit 1) |
+
+The injected binaries allocate and touch `BTRC_INJECT_MIB` MiB at startup; that
+hook exists only in the scratch rebuild. The census scripts and raw lines are
+kept outside the repository in `~/.cache/btrc/scratch/peak`
+(`census/patch.py`, `census_impl.c`, `census_attr.c`, `measure.sh`;
+`runs/attr2/stderr.txt` holds the raw census lines, `runs/census1` the phase
+timeline and `guard/` the guard runs).
