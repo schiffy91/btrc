@@ -2,6 +2,9 @@
 
 from pathlib import Path, PurePosixPath
 
+import pytest
+
+from tools.compiler_codegen.asdl import AsdlSchemaParser
 from tools.compiler_codegen.ast import AstCatalogGenerator
 
 # tests/ -> python/ -> compiler/ -> src/ -> repo root
@@ -32,3 +35,10 @@ def test_btrc_ast_matches_fresh_generation():
 
 def test_ast_generators_are_deterministic():
     assert _artifacts() == _artifacts()
+
+
+def test_asdl_tokenizer_rejects_characters_outside_the_grammar():
+    AsdlSchemaParser("module M { t = A(int x) }").parse()
+
+    with pytest.raises(SyntaxError, match=r"Unexpected character ';' at line 2, column 22"):
+        AsdlSchemaParser("module M {\n    t = A(int x) | B ; }").parse()

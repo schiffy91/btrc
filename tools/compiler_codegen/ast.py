@@ -70,9 +70,9 @@ class PythonAstRenderer:
         product_types: list[AsdlType] = []
         simple_enums: list[AsdlType] = []
         for schema_type in self._schema.types:
-            if self._is_simple_enum(schema_type):
+            if schema_type.is_simple_enum:
                 simple_enums.append(schema_type)
-            elif self._is_sum_type(schema_type):
+            elif schema_type.is_sum:
                 sum_types.append(schema_type)
                 for constructor in schema_type.constructors:
                     constructors.append((constructor, schema_type.attributes, schema_type))
@@ -121,20 +121,12 @@ class PythonAstRenderer:
                 lines.append(f"{schema_type.name} = {class_name}")
         return "\n".join(lines) + "\n"
 
-    def _is_sum_type(self, schema_type: AsdlType) -> bool:
-        return len(schema_type.constructors) > 1
-
-    def _is_simple_enum(self, schema_type: AsdlType) -> bool:
-        return self._is_sum_type(schema_type) and all(
-            not constructor.fields for constructor in schema_type.constructors
-        )
-
     def _build_type_name_map(self) -> dict[str, str]:
         names = dict(self._BUILTIN_TYPES)
         for schema_type in self._schema.types:
-            if self._is_simple_enum(schema_type):
+            if schema_type.is_simple_enum:
                 names[schema_type.name] = "str"
-            elif self._is_sum_type(schema_type):
+            elif schema_type.is_sum:
                 names[schema_type.name] = schema_type.name
             else:
                 names[schema_type.name] = schema_type.constructors[0].name
@@ -364,14 +356,6 @@ class BtrcAstRenderer:
             names[declaration.declared_type] = f"sharedEmpty{suffix}"
         return names
 
-    def _is_sum_type(self, schema_type: AsdlType) -> bool:
-        return len(schema_type.constructors) > 1
-
-    def _is_simple_enum(self, schema_type: AsdlType) -> bool:
-        return self._is_sum_type(schema_type) and all(
-            not constructor.fields for constructor in schema_type.constructors
-        )
-
     def _to_pascal(self, name: str) -> str:
         return "".join(part[:1].upper() + part[1:] for part in name.split("_"))
 
@@ -403,9 +387,9 @@ class BtrcAstRenderer:
     def _build_type_name_map(self) -> dict[str, str]:
         names = dict(self._BUILTIN_TYPES)
         for schema_type in self._schema.types:
-            if self._is_simple_enum(schema_type):
+            if schema_type.is_simple_enum:
                 names[schema_type.name] = "int"
-            elif self._is_sum_type(schema_type):
+            elif schema_type.is_sum:
                 names[schema_type.name] = self._to_pascal(schema_type.name)
             else:
                 names[schema_type.name] = schema_type.constructors[0].name
@@ -450,7 +434,7 @@ class BtrcAstRenderer:
     def _emit_node_kind_enum(self, lines: list[str]) -> None:
         lines.extend((f"enum {self._node_name}Kind {{", f"    {self._kind_prefix}NONE = 0,"))
         for schema_type in self._schema.types:
-            if self._is_simple_enum(schema_type):
+            if schema_type.is_simple_enum:
                 continue
             for constructor in schema_type.constructors:
                 lines.append(f"    {self._kind_prefix}{self._to_screaming_snake(constructor.name)},")
@@ -458,7 +442,7 @@ class BtrcAstRenderer:
 
     def _emit_simple_enums(self, lines: list[str]) -> None:
         for schema_type in self._schema.types:
-            if not self._is_simple_enum(schema_type):
+            if not schema_type.is_simple_enum:
                 continue
             lines.append(f"enum {self._to_pascal(schema_type.name)} {{")
             last_index = len(schema_type.constructors) - 1
@@ -470,7 +454,7 @@ class BtrcAstRenderer:
     def _build_declarations(self) -> tuple[_BtrcFieldDeclaration, ...]:
         constructors: list[_BtrcConstructorPlan] = []
         for schema_type in self._schema.types:
-            if self._is_simple_enum(schema_type):
+            if schema_type.is_simple_enum:
                 continue
             for constructor in schema_type.constructors:
                 constructors.append(

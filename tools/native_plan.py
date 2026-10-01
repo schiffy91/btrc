@@ -72,38 +72,42 @@ class NativePlanError(ValueError):
     """A plan or build input violated the closed adapter contract."""
 
 
-def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise NativePlanError(f"native link plan duplicates JSON key {key!r}")
-        result[key] = value
-    return result
+class PlanJson:
+    """Closed-schema reads of decoded native-plan JSON values."""
 
+    @staticmethod
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise NativePlanError(f"native link plan duplicates JSON key {key!r}")
+            result[key] = value
+        return result
 
-def _reject_constant(value: str) -> object:
-    raise NativePlanError(f"native link plan contains invalid JSON constant {value!r}")
+    @staticmethod
+    def reject_constant(value: str) -> object:
+        raise NativePlanError(f"native link plan contains invalid JSON constant {value!r}")
 
+    @staticmethod
+    def exact_mapping(value: object, fields: frozenset[str], context: str) -> dict[str, object]:
+        if not isinstance(value, dict) or set(value) != fields:
+            raise NativePlanError(f"{context} must contain exactly {', '.join(sorted(fields))}")
+        return value
 
-def _exact_mapping(value: object, fields: frozenset[str], context: str) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != fields:
-        raise NativePlanError(f"{context} must contain exactly {', '.join(sorted(fields))}")
-    return value
+    @staticmethod
+    def text(value: object, context: str, *, allow_empty: bool = False) -> str:
+        if not isinstance(value, str) or (not allow_empty and not value):
+            qualifier = "text" if allow_empty else "non-empty text"
+            raise NativePlanError(f"{context} must be {qualifier}")
+        if "\0" in value:
+            raise NativePlanError(f"{context} must not contain NUL")
+        return value
 
-
-def _text(value: object, context: str, *, allow_empty: bool = False) -> str:
-    if not isinstance(value, str) or (not allow_empty and not value):
-        qualifier = "text" if allow_empty else "non-empty text"
-        raise NativePlanError(f"{context} must be {qualifier}")
-    if "\0" in value:
-        raise NativePlanError(f"{context} must not contain NUL")
-    return value
-
-
-def _array(value: object, context: str) -> list[object]:
-    if not isinstance(value, list):
-        raise NativePlanError(f"{context} must be an array")
-    return value
+    @staticmethod
+    def array(value: object, context: str) -> list[object]:
+        if not isinstance(value, list):
+            raise NativePlanError(f"{context} must be an array")
+        return value
 
 
 # Where tools write scratch files, never what they produce. Each `nix
@@ -117,41 +121,45 @@ def _stable_environment() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name not in _SCRATCH_ENVIRONMENT}
 
 
-def _regular_file(path: str, context: str) -> Path:
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        raise NativePlanError(f"{context} must be absolute: {path!r}")
-    try:
-        metadata = candidate.lstat()
-    except OSError as error:
-        raise NativePlanError(f"{context} is unavailable: {path!r}: {error}") from error
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-        raise NativePlanError(f"{context} must be a real regular file: {path!r}")
-    return candidate
+class PlanPaths:
+    """Filesystem shape checks for plan and build inputs."""
 
+    @staticmethod
+    def regular_file(path: str, context: str) -> Path:
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            raise NativePlanError(f"{context} must be absolute: {path!r}")
+        try:
+            metadata = candidate.lstat()
+        except OSError as error:
+            raise NativePlanError(f"{context} is unavailable: {path!r}: {error}") from error
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise NativePlanError(f"{context} must be a real regular file: {path!r}")
+        return candidate
 
-def _real_directory(path: str, context: str) -> Path:
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        raise NativePlanError(f"{context} must be absolute: {path!r}")
-    try:
-        metadata = candidate.lstat()
-    except OSError as error:
-        raise NativePlanError(f"{context} is unavailable: {path!r}: {error}") from error
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-        raise NativePlanError(f"{context} must be a real directory: {path!r}")
-    return candidate
+    @staticmethod
+    def real_directory(path: str, context: str) -> Path:
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            raise NativePlanError(f"{context} must be absolute: {path!r}")
+        try:
+            metadata = candidate.lstat()
+        except OSError as error:
+            raise NativePlanError(f"{context} is unavailable: {path!r}: {error}") from error
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise NativePlanError(f"{context} must be a real directory: {path!r}")
+        return candidate
 
-
-def _inside(path: Path, root: Path, context: str) -> None:
-    try:
-        resolved_path = path.resolve(strict=True)
-        resolved_root = root.resolve(strict=True)
-        contained = os.path.commonpath((resolved_path, resolved_root)) == str(resolved_root)
-    except (OSError, ValueError):
-        contained = False
-    if not contained:
-        raise NativePlanError(f"{context} escapes package root {root}")
+    @staticmethod
+    def inside(path: Path, root: Path, context: str) -> None:
+        try:
+            resolved_path = path.resolve(strict=True)
+            resolved_root = root.resolve(strict=True)
+            contained = os.path.commonpath((resolved_path, resolved_root)) == str(resolved_root)
+        except (OSError, ValueError):
+            contained = False
+        if not contained:
+            raise NativePlanError(f"{context} escapes package root {root}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,7 +223,7 @@ class NativePlanReader:
                         # Never read plan bytes before its physical directory is
                         # locked and checked for an interrupted publication.
                         plan = self.read(bindings[path])
-                        for source in self.emitted_sources(plan, generated):
+                        for source in self.emitted_sources(plan):
                             bindings[source] = self._generated_target(source, "emitted translation unit")
                         required.update(self._binding_directories(bindings))
                         if required <= directories and all(
@@ -241,7 +249,7 @@ class NativePlanReader:
             target = path.resolve(strict=True)
         except (OSError, RuntimeError) as error:
             raise NativePlanError(f"{context} is unavailable: {str(path)!r}: {error}") from error
-        return _regular_file(str(target), context)
+        return PlanPaths.regular_file(str(target), context)
 
     def generated_input(self, path: str, context: str) -> Path:
         """Validate the target while retaining quoted-include and debug paths."""
@@ -249,12 +257,9 @@ class NativePlanReader:
         self._generated_target(candidate, context)
         return candidate
 
-    def emitted_sources(self, plan: NativeBuildPlan, generated: Path) -> tuple[Path, ...]:
-        """Return the ordered schema-4 paths or the legacy schema-3 filenames."""
-        return plan.emitted_paths or tuple(
-            self.generated_input(f"{generated}.unit-{index}.c", f"emitted translation unit {index}")
-            for index in range(1, plan.emitted_units + 1)
-        )
+    def emitted_sources(self, plan: NativeBuildPlan) -> tuple[Path, ...]:
+        """Return the ordered schema-4 secondary-unit paths."""
+        return plan.emitted_paths
 
     def read(self, path: Path) -> NativeBuildPlan:
         """Inspect a plan; use generation() to keep build inputs stable."""
@@ -262,8 +267,8 @@ class NativePlanReader:
         try:
             payload = json.loads(
                 encoded.decode("utf-8"),
-                object_pairs_hook=_unique_object,
-                parse_constant=_reject_constant,
+                object_pairs_hook=PlanJson.unique_object,
+                parse_constant=PlanJson.reject_constant,
             )
         except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
             raise NativePlanError(f"cannot parse native link plan {path}: {error}") from error
@@ -271,12 +276,12 @@ class NativePlanReader:
         fields = ROOT_FIELDS
         if schema == 2:
             fields = ROOT_FIELDS | {"generated-units"}
-        elif schema in (3, 4):
+        elif schema == 4:
             # Adapter units remain optional alongside secondary C outputs.
             fields = ROOT_FIELDS | {"emitted-units"}
             if isinstance(payload, dict) and "generated-units" in payload:
                 fields = fields | {"generated-units"}
-        root = _exact_mapping(payload, fields, "native link plan")
+        root = PlanJson.exact_mapping(payload, fields, "native link plan")
         canonical = json.dumps(root, allow_nan=False, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
         if encoded != canonical.encode("utf-8"):
             raise NativePlanError("native link plan must use canonical JSON")
@@ -303,11 +308,12 @@ class NativePlanReader:
         return encoded
 
     def _validate(self, root: dict[str, object]) -> NativeBuildPlan:
-        if type(root["schema"]) is not int or root["schema"] not in (1, 2, 3, 4):
-            raise NativePlanError("native link plan schema must be integer 1, 2, 3 or 4")
-        target = _exact_mapping(root["target"], frozenset({"arch", "os"}), "native link plan target")
-        operating_system = _text(target["os"], "native link plan target.os")
-        architecture = _text(target["arch"], "native link plan target.arch")
+        # Schema 3 (a bare emitted-unit count) was never written by either compiler.
+        if type(root["schema"]) is not int or root["schema"] not in (1, 2, 4):
+            raise NativePlanError("native link plan schema must be integer 1, 2 or 4")
+        target = PlanJson.exact_mapping(root["target"], frozenset({"arch", "os"}), "native link plan target")
+        operating_system = PlanJson.text(target["os"], "native link plan target.os")
+        architecture = PlanJson.text(target["arch"], "native link plan target.arch")
         if operating_system not in TARGET_OPERATING_SYSTEMS or architecture not in TARGET_ARCHITECTURES:
             raise NativePlanError(f"unsupported native link plan target {operating_system}-{architecture}")
 
@@ -331,23 +337,19 @@ class NativePlanReader:
         )
         emitted_units = 0
         emitted_paths = ()
-        if root["schema"] == 3 and "emitted-units" in root:
-            emitted_units = root["emitted-units"]
-            if type(emitted_units) is not int or not 1 <= emitted_units <= 4096:
-                raise NativePlanError("native link plan emitted-units must be an integer from 1 through 4096")
-        elif root["schema"] == 4:
-            records = _array(root["emitted-units"], "native link plan emitted-units")
+        if root["schema"] == 4:
+            records = PlanJson.array(root["emitted-units"], "native link plan emitted-units")
             if not records:
                 raise NativePlanError("native link plan emitted-units must not be empty")
             emitted_paths = tuple(
-                self.generated_input(_text(path, "emitted unit path"), f"emitted translation unit {index}")
+                self.generated_input(PlanJson.text(path, "emitted unit path"), f"emitted translation unit {index}")
                 for index, path in enumerate(records, 1)
             )
             identities = [(path.stat().st_dev, path.stat().st_ino) for path in emitted_paths]
             if len(set(identities)) != len(identities):
                 raise NativePlanError("native link plan emitted-units must name distinct files")
             emitted_units = len(emitted_paths)
-        linker_language = _text(root["linker-language"], "native link plan linker-language")
+        linker_language = PlanJson.text(root["linker-language"], "native link plan linker-language")
         expected_linker = (
             "c++" if any(unit.language in {"c++", "objective-c++"} for unit in (*units, *generated_units)) else "c"
         )
@@ -372,15 +374,15 @@ class NativePlanReader:
     def _generated_units(self, value: object) -> tuple[NativeGeneratedUnit, ...]:
         units = []
         names = []
-        for raw in _array(value, "native link plan generated-units"):
-            record = _exact_mapping(
+        for raw in PlanJson.array(value, "native link plan generated-units"):
+            record = PlanJson.exact_mapping(
                 raw, frozenset({"name", "language", "standard", "memory-management", "source"}), "generated unit"
             )
-            name = _text(record["name"], "generated unit name")
-            language = _text(record["language"], "generated unit language")
-            standard = _text(record["standard"], "generated unit standard")
-            memory = _text(record["memory-management"], "generated unit memory-management")
-            source = _text(record["source"], "generated unit source")
+            name = PlanJson.text(record["name"], "generated unit name")
+            language = PlanJson.text(record["language"], "generated unit language")
+            standard = PlanJson.text(record["standard"], "generated unit standard")
+            memory = PlanJson.text(record["memory-management"], "generated unit memory-management")
+            source = PlanJson.text(record["source"], "generated unit source")
             if not DEFINE_NAME.fullmatch(name):
                 raise NativePlanError("generated unit name must be an identifier")
             if language not in SOURCE_STANDARDS or standard not in SOURCE_STANDARDS[language]:
@@ -395,20 +397,22 @@ class NativePlanReader:
         return tuple(units)
 
     def _packages(self, value: object) -> dict[str, Path]:
-        packages = _array(value, "native link plan packages")
+        packages = PlanJson.array(value, "native link plan packages")
         roots: dict[str, Path] = {}
         names: list[str] = []
         dependencies: list[tuple[str, Mapping[str, object]]] = []
         for index, raw in enumerate(packages):
-            package = _exact_mapping(
+            package = PlanJson.exact_mapping(
                 raw,
                 frozenset({"dependencies", "name", "root"}),
                 f"native link plan packages[{index}]",
             )
-            name = _text(package["name"], f"native link plan packages[{index}].name")
+            name = PlanJson.text(package["name"], f"native link plan packages[{index}].name")
             if not DEFINE_NAME.fullmatch(name) or name in roots:
                 raise NativePlanError(f"native link plan has invalid or duplicate package {name!r}")
-            root = _real_directory(_text(package["root"], f"package {name} root"), f"package {name} root")
+            root = PlanPaths.real_directory(
+                PlanJson.text(package["root"], f"package {name} root"), f"package {name} root"
+            )
             raw_dependencies = package["dependencies"]
             if not isinstance(raw_dependencies, dict):
                 raise NativePlanError(f"package {name} dependencies must be an object")
@@ -432,22 +436,22 @@ class NativePlanReader:
         directory: bool,
     ) -> tuple[Path, ...]:
         result: list[tuple[str, Path]] = []
-        for index, raw in enumerate(_array(value, f"native link plan {field}")):
-            record = _exact_mapping(
+        for index, raw in enumerate(PlanJson.array(value, f"native link plan {field}")):
+            record = PlanJson.exact_mapping(
                 raw,
                 frozenset({"package", "path"}),
                 f"native link plan {field}[{index}]",
             )
-            package = _text(record["package"], f"native link plan {field}[{index}].package")
+            package = PlanJson.text(record["package"], f"native link plan {field}[{index}].package")
             if package not in roots:
                 raise NativePlanError(f"native link plan {field}[{index}] names unknown package {package!r}")
-            path_text = _text(record["path"], f"native link plan {field}[{index}].path")
+            path_text = PlanJson.text(record["path"], f"native link plan {field}[{index}].path")
             path = (
-                _real_directory(path_text, f"native link plan {field}[{index}].path")
+                PlanPaths.real_directory(path_text, f"native link plan {field}[{index}].path")
                 if directory
-                else _regular_file(path_text, f"native link plan {field}[{index}].path")
+                else PlanPaths.regular_file(path_text, f"native link plan {field}[{index}].path")
             )
-            _inside(path, roots[package], f"native link plan {field}[{index}].path")
+            PlanPaths.inside(path, roots[package], f"native link plan {field}[{index}].path")
             result.append((package, path))
         if result != sorted(result, key=lambda item: (item[0], str(item[1]))):
             raise NativePlanError(f"native link plan {field} must be sorted")
@@ -457,15 +461,15 @@ class NativePlanReader:
 
     def _defines(self, value: object, roots: Mapping[str, Path]) -> tuple[tuple[str, str], ...]:
         result: list[tuple[str, str, str]] = []
-        for index, raw in enumerate(_array(value, "native link plan defines")):
-            record = _exact_mapping(
+        for index, raw in enumerate(PlanJson.array(value, "native link plan defines")):
+            record = PlanJson.exact_mapping(
                 raw,
                 frozenset({"name", "package", "value"}),
                 f"native link plan defines[{index}]",
             )
-            package = _text(record["package"], f"native link plan defines[{index}].package")
-            name = _text(record["name"], f"native link plan defines[{index}].name")
-            detail = _text(record["value"], f"native link plan defines[{index}].value", allow_empty=True)
+            package = PlanJson.text(record["package"], f"native link plan defines[{index}].package")
+            name = PlanJson.text(record["name"], f"native link plan defines[{index}].name")
+            detail = PlanJson.text(record["value"], f"native link plan defines[{index}].value", allow_empty=True)
             if package not in roots or not DEFINE_NAME.fullmatch(name):
                 raise NativePlanError(f"native link plan defines[{index}] is invalid")
             result.append((package, name, detail))
@@ -482,14 +486,14 @@ class NativePlanReader:
         roots: Mapping[str, Path],
     ) -> tuple[str, ...]:
         result: list[tuple[str, str]] = []
-        for index, raw in enumerate(_array(value, f"native link plan {field}")):
-            record = _exact_mapping(
+        for index, raw in enumerate(PlanJson.array(value, f"native link plan {field}")):
+            record = PlanJson.exact_mapping(
                 raw,
                 frozenset({"name", "package"}),
                 f"native link plan {field}[{index}]",
             )
-            package = _text(record["package"], f"native link plan {field}[{index}].package")
-            name = _text(record["name"], f"native link plan {field}[{index}].name")
+            package = PlanJson.text(record["package"], f"native link plan {field}[{index}].package")
+            name = PlanJson.text(record["name"], f"native link plan {field}[{index}].name")
             if package not in roots or not NATIVE_NAME.fullmatch(name):
                 raise NativePlanError(f"native link plan {field}[{index}] is invalid")
             result.append((package, name))
@@ -500,22 +504,22 @@ class NativePlanReader:
     def _units(self, value: object, roots: Mapping[str, Path]) -> tuple[NativeUnit, ...]:
         result: list[NativeUnit] = []
         keys: list[tuple[str, str, str]] = []
-        for index, raw in enumerate(_array(value, "native link plan units")):
-            record = _exact_mapping(
+        for index, raw in enumerate(PlanJson.array(value, "native link plan units")):
+            record = PlanJson.exact_mapping(
                 raw,
                 frozenset({"language", "package", "path", "standard"}),
                 f"native link plan units[{index}]",
             )
-            package = _text(record["package"], f"native link plan units[{index}].package")
-            language = _text(record["language"], f"native link plan units[{index}].language")
-            standard = _text(record["standard"], f"native link plan units[{index}].standard")
+            package = PlanJson.text(record["package"], f"native link plan units[{index}].package")
+            language = PlanJson.text(record["language"], f"native link plan units[{index}].language")
+            standard = PlanJson.text(record["standard"], f"native link plan units[{index}].standard")
             if package not in roots or language not in SOURCE_STANDARDS or standard not in SOURCE_STANDARDS[language]:
                 raise NativePlanError(f"native link plan units[{index}] has unsupported language or standard")
-            path = _regular_file(
-                _text(record["path"], f"native link plan units[{index}].path"),
+            path = PlanPaths.regular_file(
+                PlanJson.text(record["path"], f"native link plan units[{index}].path"),
                 f"native link plan units[{index}].path",
             )
-            _inside(path, roots[package], f"native link plan units[{index}].path")
+            PlanPaths.inside(path, roots[package], f"native link plan units[{index}].path")
             result.append(NativeUnit(language, package, path, standard))
             keys.append((package, str(path), language))
         if keys != sorted(keys) or len(keys) != len(set(keys)):
@@ -916,18 +920,18 @@ class NativePlanBuilder:
                 len(plan.generated_units),
             )
             generated = self._reader.generated_input(str(generated_c.absolute()), "generated C input")
-            emitted = self._reader.emitted_sources(plan, generated)
+            emitted = self._reader.emitted_sources(plan)
             for unit in emitted:
                 if unit.samefile(generated) or any(unit.samefile(native.path) for native in plan.units):
                     raise NativePlanError("emitted translation units must differ from primary and native source inputs")
             if not output.is_absolute():
                 output = output.absolute()
-            parent = _real_directory(str(output.parent), "native output directory")
+            parent = PlanPaths.real_directory(str(output.parent), "native output directory")
             inputs = {plan_path.absolute(), generated, *emitted, *(unit.path for unit in plan.units)}
             self._validate_destination(output, inputs, "native output")
             if report_path is not None:
                 report_path = report_path.absolute()
-                _real_directory(str(report_path.parent), "native report directory")
+                PlanPaths.real_directory(str(report_path.parent), "native report directory")
                 self._validate_destination(report_path, (*inputs, output), "native report")
             tools = {"cc": self._tool(cc, "C compiler"), "cxx": self._tool(cxx, "C++ compiler")}
             # The link receipt's toolchain queries do not depend on the objects:
@@ -1344,12 +1348,12 @@ class NativePlanBuilder:
 
     def _generated_sources_match(self, directory: Path, expected: dict[str, bytes]) -> bool:
         try:
-            _real_directory(str(directory), "generated adapter directory")
+            PlanPaths.real_directory(str(directory), "generated adapter directory")
             with os.scandir(directory) as entries:
                 if {entry.name for entry in entries} != set(expected):
                     return False
             for name, content in expected.items():
-                path = _regular_file(str(directory / name), "generated adapter artifact")
+                path = PlanPaths.regular_file(str(directory / name), "generated adapter artifact")
                 if self._reader._read_regular(path) != content:
                     return False
         except (OSError, NativePlanError):
@@ -1418,15 +1422,15 @@ class NativePlanBuilder:
 
     def _debug_objects_match(self, directory: Path, hashes: dict[str, str], encoded: bytes) -> bool:
         try:
-            _real_directory(str(directory), "debug object directory")
+            PlanPaths.real_directory(str(directory), "debug object directory")
             with os.scandir(directory) as entries:
                 if {entry.name for entry in entries} != {*hashes, "manifest.json"}:
                     return False
-            manifest = _regular_file(str(directory / "manifest.json"), "debug object manifest")
+            manifest = PlanPaths.regular_file(str(directory / "manifest.json"), "debug object manifest")
             if self._reader._read_regular(manifest) != encoded:
                 return False
             for name, digest in hashes.items():
-                path = _regular_file(str(directory / name), "debug object")
+                path = PlanPaths.regular_file(str(directory / name), "debug object")
                 if path.stat().st_mtime_ns != 1_000_000_000:
                     return False
                 # The identity the link receipt reads for this input, so its
@@ -1551,7 +1555,7 @@ class NativePlanBuilder:
             list(pool.map(publish, zip(deferred, after, strict=True)))
 
     def _tool(self, value: str, context: str) -> str:
-        _text(value, context)
+        PlanJson.text(value, context)
         resolved = shutil.which(value)
         if resolved is None:
             raise NativePlanError(f"{context} is unavailable: {value!r}")
@@ -1953,7 +1957,7 @@ class _DarwinLinkReceipt:
             record = json.loads(NativePlanReader()._read_regular(self.path))
             if set(record) != {"context", "dependencies", "snapshot", "output"} or record["context"] != context:
                 return False
-            _regular_file(str(self.output), "retained executable")
+            PlanPaths.regular_file(str(self.output), "retained executable")
             return (
                 self.snapshot(record["dependencies"]) == record["snapshot"]
                 and self._file(self.output) == record["output"]
@@ -2146,7 +2150,9 @@ class _PreprocessingReceipts:
         if len(payload.encode()) > MAX_PLAN_BYTES:
             return None
         encoded = NativeHeaderRead((self.reader, "--native-preprocess=-"), (0,), payload).read(_stable_environment())
-        response = json.loads(encoded, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+        response = json.loads(
+            encoded, object_pairs_hook=PlanJson.unique_object, parse_constant=PlanJson.reject_constant
+        )
         if (
             not isinstance(response, dict)
             or response.get("schema") != "btrc.native-preprocess.v1"
@@ -2188,8 +2194,10 @@ class _PreprocessingReceipts:
             errors = NativeHeaderSession._stream(directory, streams.get("stderr"), MAX_PLAN_BYTES)
             if text is None or errors is None:
                 return None
-            content = json.loads(text, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
-            _exact_mapping(
+            content = json.loads(
+                text, object_pairs_hook=PlanJson.unique_object, parse_constant=PlanJson.reject_constant
+            )
+            PlanJson.exact_mapping(
                 content,
                 frozenset({"schema", "preprocessed", "dependencies", "headers", "buffers"}),
                 "preprocessed inputs",

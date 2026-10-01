@@ -14,7 +14,7 @@ import sys
 import tarfile
 import tempfile
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import ClassVar
@@ -22,6 +22,7 @@ from typing import ClassVar
 from src.compiler.python.syntax.ast.codec import AstCanonicalRenderer
 
 from . import GeneratedArtifact, GeneratedSourceError
+from .manifest_fields import ManifestFields
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,31 @@ class GeneratedSourceSet:
 
 class CompilerVerificationError(RuntimeError):
     """A compiler-boundary verifier could not be configured or executed."""
+
+
+class _ProcessRunner:
+    """Runs one verification subprocess with a wall-clock limit."""
+
+    @staticmethod
+    def run(
+        command: Sequence[str],
+        *,
+        cwd: Path,
+        timeout: float,
+        env: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[bytes]:
+        try:
+            return subprocess.run(
+                command,
+                cwd=cwd,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                check=False,
+                timeout=timeout,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise CompilerVerificationError(f"could not execute {command[0]!r}: {error}") from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +261,8 @@ class BoundaryCandidateSet:
 class BoundaryManifest:
     """Strict frozen-boundary manifest with no executable configuration."""
 
+    _FIELDS = ManifestFields(CompilerVerificationError, empty_strings=True)
+
     schema_version: int
     baseline_revision: str
     source_root: PurePosixPath
@@ -313,11 +341,11 @@ class BoundaryManifest:
             document = tomllib.loads(raw.decode("utf-8"))
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
             raise CompilerVerificationError(f"cannot read boundary manifest {manifest_path}: {error}") from error
-        cls._require_keys(document, cls._ROOT_KEYS, "boundary manifest")
-        schema_version = cls._integer(document, "schema_version", "boundary manifest")
+        cls._FIELDS.require_keys(document, cls._ROOT_KEYS, "boundary manifest")
+        schema_version = cls._FIELDS.integer(document, "schema_version", "boundary manifest")
         if schema_version != 1:
             raise CompilerVerificationError(f"unsupported boundary manifest schema version: {schema_version}")
-        revision = cls._string(document, "baseline_revision", "boundary manifest")
+        revision = cls._FIELDS.string(document, "baseline_revision", "boundary manifest")
         if not cls._REVISION.fullmatch(revision):
             raise CompilerVerificationError("boundary manifest baseline_revision must be a full lowercase commit id")
         source_root = cls._path(document, "source_root", "boundary manifest")
@@ -325,12 +353,12 @@ class BoundaryManifest:
         candidate_root = cls._path(document, "candidate_root", "boundary manifest")
         if candidate_root.parts[0] != "build":
             raise CompilerVerificationError("boundary candidate_root must be beneath build/")
-        formats_table = cls._table(document, "formats", "boundary manifest")
-        cls._require_keys(formats_table, cls._FORMAT_KEYS, "boundary manifest.formats")
+        formats_table = cls._FIELDS.table(document, "formats", "boundary manifest")
+        cls._FIELDS.require_keys(formats_table, cls._FORMAT_KEYS, "boundary manifest.formats")
         formats = BoundaryFormats(
-            ast=cls._string(formats_table, "ast", "boundary manifest.formats"),
-            ir=cls._string(formats_table, "ir", "boundary manifest.formats"),
-            status=cls._string(formats_table, "status", "boundary manifest.formats"),
+            ast=cls._FIELDS.string(formats_table, "ast", "boundary manifest.formats"),
+            ir=cls._FIELDS.string(formats_table, "ir", "boundary manifest.formats"),
+            status=cls._FIELDS.string(formats_table, "status", "boundary manifest.formats"),
         )
         if formats.ast != "selfhost-canonical-v1" or formats.ir != "btrc-ir-v1":
             raise CompilerVerificationError(f"unsupported boundary formats: ast={formats.ast}, ir={formats.ir}")
@@ -361,10 +389,10 @@ class BoundaryManifest:
         capabilities = []
         for index, table in enumerate(tables):
             context = f"boundary manifest.capabilities[{index}]"
-            cls._require_keys(table, cls._CAPABILITY_KEYS, context)
-            compiler = cls._string(table, "compiler", context)
-            boundary = cls._string(table, "boundary", context)
-            portability = cls._string(table, "portability", context)
+            cls._FIELDS.require_keys(table, cls._CAPABILITY_KEYS, context)
+            compiler = cls._FIELDS.string(table, "compiler", context)
+            boundary = cls._FIELDS.string(table, "boundary", context)
+            portability = cls._FIELDS.string(table, "portability", context)
             channels = cls._strings(table, "channels", context)
             if compiler not in cls._COMPILERS:
                 raise CompilerVerificationError(f"unsupported boundary compiler at {context}: {compiler}")
@@ -438,11 +466,11 @@ class BoundaryManifest:
         fixtures = []
         for index, table in enumerate(tables):
             context = f"boundary manifest.fixtures[{index}]"
-            cls._require_keys(table, cls._FIXTURE_KEYS, context)
-            kind = cls._string(table, "kind", context)
+            cls._FIELDS.require_keys(table, cls._FIXTURE_KEYS, context)
+            kind = cls._FIELDS.string(table, "kind", context)
             if kind not in cls._KINDS:
                 raise CompilerVerificationError(f"unsupported fixture kind at {context}: {kind}")
-            entry_text = cls._string(table, "entry", context)
+            entry_text = cls._FIELDS.string(table, "entry", context)
             entry = cls._relative_path(entry_text, f"{context}.entry") if entry_text else None
             files = cls._source_files(table.get("files"), context)
             fixture_capabilities = cls._strings(table, "capabilities", context)
@@ -491,7 +519,7 @@ class BoundaryManifest:
         files = []
         for index, table in enumerate(tables):
             file_context = f"{context}.files[{index}]"
-            cls._require_keys(table, cls._SOURCE_FILE_KEYS, file_context)
+            cls._FIELDS.require_keys(table, cls._SOURCE_FILE_KEYS, file_context)
             path = cls._path(table, "path", file_context)
             source = cls._path(table, "source", file_context)
             if path.suffix != ".btrc" or source.suffix != ".source":
@@ -514,32 +542,32 @@ class BoundaryManifest:
         records = []
         for index, table in enumerate(tables):
             context = f"boundary manifest.records[{index}]"
-            keys = set(table)
-            allowed = cls._RECORD_REQUIRED_KEYS | cls._RECORD_ACCEPTED_KEYS
-            missing = cls._RECORD_REQUIRED_KEYS - keys
-            unknown = keys - allowed
-            if missing or unknown:
-                cls._raise_key_error(context, missing, unknown)
-            fixture_id = cls._string(table, "fixture", context)
+            cls._FIELDS.require_keys(
+                table,
+                cls._RECORD_REQUIRED_KEYS | cls._RECORD_ACCEPTED_KEYS,
+                context,
+                required=cls._RECORD_REQUIRED_KEYS,
+            )
+            fixture_id = cls._FIELDS.string(table, "fixture", context)
             fixture = fixture_by_id.get(fixture_id)
             if fixture is None:
                 raise CompilerVerificationError(f"{context} names unknown fixture: {fixture_id}")
-            capability_id = cls._string(table, "capability", context)
+            capability_id = cls._FIELDS.string(table, "capability", context)
             capability = capability_by_id.get(capability_id)
             if capability is None or capability.id not in fixture.capabilities:
                 raise CompilerVerificationError(f"{context} is not declared by fixture capabilities")
-            compiler = cls._string(table, "compiler", context)
-            boundary = cls._string(table, "boundary", context)
+            compiler = cls._FIELDS.string(table, "compiler", context)
+            boundary = cls._FIELDS.string(table, "boundary", context)
             if (compiler, boundary) != (capability.compiler, capability.boundary):
                 raise CompilerVerificationError(f"{context} compiler/boundary differ from {capability.id}")
-            channel = cls._string(table, "channel", context)
+            channel = cls._FIELDS.string(table, "channel", context)
             if channel not in capability.channels:
                 raise CompilerVerificationError(f"{context}.channel is not declared by {capability.id}: {channel}")
             baseline_path = cls._path(table, "baseline_path", context)
             if not baseline_path.parts or baseline_path.parts[0] != "baseline":
                 raise CompilerVerificationError(f"{context}.baseline_path must be beneath baseline/")
             baseline_sha256 = cls._digest(table, "baseline_sha256", context)
-            accepted_present = keys & cls._RECORD_ACCEPTED_KEYS
+            accepted_present = set(table) & cls._RECORD_ACCEPTED_KEYS
             accepted_path = None
             accepted_sha256 = None
             reason = None
@@ -554,7 +582,7 @@ class BoundaryManifest:
                 if not accepted_path.parts or accepted_path.parts[0] != "accepted":
                     raise CompilerVerificationError(f"{context}.accepted_path must be beneath accepted/")
                 accepted_sha256 = cls._digest(table, "accepted_sha256", context)
-                reason = cls._string(table, "reason", context).strip()
+                reason = cls._FIELDS.string(table, "reason", context).strip()
                 regressions = cls._strings(table, "regressions", context)
                 if not reason or not regressions:
                     raise CompilerVerificationError(f"{context} accepted delta requires reason and regressions")
@@ -597,9 +625,9 @@ class BoundaryManifest:
         equalities = []
         for index, table in enumerate(tables):
             context = f"boundary manifest.equalities[{index}]"
-            cls._require_keys(table, cls._EQUALITY_KEYS, context)
-            left = cls._string(table, "left", context)
-            right = cls._string(table, "right", context)
+            cls._FIELDS.require_keys(table, cls._EQUALITY_KEYS, context)
+            left = cls._FIELDS.string(table, "left", context)
+            right = cls._FIELDS.string(table, "right", context)
             if left == right or left not in record_ids or right not in record_ids:
                 raise CompilerVerificationError(f"{context} must reference two distinct boundary records")
             equalities.append(BoundaryEquality(id=cls._manifest_id(table, "id", context), left=left, right=right))
@@ -911,53 +939,15 @@ class BoundaryManifest:
         return value
 
     @classmethod
-    def _require_keys(cls, table: dict, expected: frozenset[str], context: str) -> None:
-        keys = set(table)
-        missing = expected - keys
-        unknown = keys - expected
-        if missing or unknown:
-            cls._raise_key_error(context, missing, unknown)
-
-    @staticmethod
-    def _raise_key_error(context: str, missing: set[str], unknown: set[str]) -> None:
-        details = []
-        if missing:
-            details.append("missing " + ", ".join(sorted(missing)))
-        if unknown:
-            details.append("unknown " + ", ".join(sorted(unknown)))
-        raise CompilerVerificationError(f"{context} keys differ: {'; '.join(details)}")
-
-    @staticmethod
-    def _table(table: dict, key: str, context: str) -> dict:
-        value = table.get(key)
-        if not isinstance(value, dict):
-            raise CompilerVerificationError(f"{context}.{key} must be a table")
-        return value
-
-    @staticmethod
-    def _string(table: dict, key: str, context: str) -> str:
-        value = table.get(key)
-        if not isinstance(value, str):
-            raise CompilerVerificationError(f"{context}.{key} must be a string")
-        return value
-
-    @classmethod
     def _manifest_id(cls, table: dict, key: str, context: str) -> str:
-        value = cls._string(table, key, context)
+        value = cls._FIELDS.string(table, key, context)
         if not cls._IDENTIFIER.fullmatch(value):
             raise CompilerVerificationError(f"{context}.{key} is not a canonical id: {value!r}")
         return value
 
-    @staticmethod
-    def _integer(table: dict, key: str, context: str) -> int:
-        value = table.get(key)
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise CompilerVerificationError(f"{context}.{key} must be an integer")
-        return value
-
     @classmethod
     def _path(cls, table: dict, key: str, context: str) -> PurePosixPath:
-        return cls._relative_path(cls._string(table, key, context), f"{context}.{key}")
+        return cls._relative_path(cls._FIELDS.string(table, key, context), f"{context}.{key}")
 
     @staticmethod
     def _relative_path(value: str, context: str) -> PurePosixPath:
@@ -968,7 +958,7 @@ class BoundaryManifest:
 
     @classmethod
     def _digest(cls, table: dict, key: str, context: str) -> str:
-        value = cls._string(table, key, context)
+        value = cls._FIELDS.string(table, key, context)
         if not cls._SHA256.fullmatch(value):
             raise CompilerVerificationError(f"{context}.{key} must be a lowercase SHA-256")
         return value
@@ -1020,9 +1010,9 @@ class _SelfhostToolBuild:
 class _BoundaryCaptureSession:
     """Materialize declared candidate channels from one repository snapshot."""
 
+    # The Python AST boundary is the canonical dump (`dump-ast`), not --emit-ast.
     _PYTHON_FLAGS: ClassVar[dict[str, str]] = {
         "tokens": "--emit-tokens",
-        "ast": "--emit-ast",
         "raw-ir": "--emit-ir",
         "optimized-ir": "--emit-optimized-ir",
     }
@@ -1114,6 +1104,7 @@ class _BoundaryCaptureSession:
     ) -> dict[str, bytes]:
         if capability.compiler == "python" and capability.boundary in {
             *self._PYTHON_FLAGS,
+            "ast",
             "c",
             "diagnostics",
         }:
@@ -1141,7 +1132,7 @@ class _BoundaryCaptureSession:
     ) -> dict[str, bytes]:
         entry = self._stage_fixture(fixture)
         command = (
-            [sys.executable, "-m", "tools.compiler_codegen.main", "verify-ast", entry]
+            [sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", entry]
             if capability.boundary == "ast"
             else [
                 sys.executable,
@@ -1154,7 +1145,7 @@ class _BoundaryCaptureSession:
         )
         output_path = self.workspace_relative / "outputs" / fixture.id / "python.c"
         output_target = self.execution_repository.joinpath(*output_path.parts)
-        if capability.boundary in self._PYTHON_FLAGS and capability.boundary != "ast":
+        if capability.boundary in self._PYTHON_FLAGS:
             command.append(self._PYTHON_FLAGS[capability.boundary])
         elif capability.boundary in {"c", "diagnostics"}:
             output_target.parent.mkdir(parents=True, exist_ok=True)
@@ -1772,20 +1763,9 @@ class _BoundaryCaptureSession:
         self,
         command: Sequence[str],
         *,
-        timeout: int = 300,
+        timeout: float = 300,
     ) -> subprocess.CompletedProcess[bytes]:
-        try:
-            return subprocess.run(
-                command,
-                cwd=self.execution_repository,
-                env=self.environment,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                check=False,
-                timeout=timeout,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise CompilerVerificationError(f"could not execute {command[0]!r}: {error}") from error
+        return _ProcessRunner.run(command, cwd=self.execution_repository, env=self.environment, timeout=timeout)
 
 
 class CompilerBoundaryVerifier:
@@ -1921,6 +1901,7 @@ class CompilerBoundaryVerifier:
                     stdout=stream,
                     stderr=subprocess.PIPE,
                     check=False,
+                    timeout=300,
                 )
             if archived.returncode != 0:
                 raise CompilerVerificationError(
@@ -1947,6 +1928,8 @@ class CompilerBoundaryVerifier:
                             target.chmod(0o755)
                     else:
                         raise CompilerVerificationError(f"unsupported pinned boundary archive member: {member.name}")
+        except subprocess.TimeoutExpired as error:
+            raise CompilerVerificationError(f"cannot archive pinned boundary revision: {error}") from error
         finally:
             if archive_path.exists():
                 archive_path.unlink()
@@ -2025,16 +2008,9 @@ class CompilerBoundaryVerifier:
         return 0 if failures == 0 else 1
 
     def _run(self, command: Sequence[str]) -> subprocess.CompletedProcess[bytes]:
-        try:
-            return subprocess.run(
-                command,
-                cwd=self._repository_root,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                check=False,
-            )
-        except OSError as error:
-            raise CompilerVerificationError(f"could not execute {command[0]!r}: {error}") from error
+        # A self-hosted stage build compiles the whole compiler, so the limit
+        # bounds a hang rather than an ordinary run.
+        return _ProcessRunner.run(command, cwd=self._repository_root, timeout=1800)
 
     def _report_failure(self, label: str, source_path: Path, stderr: bytes) -> None:
         print(f"{label}: {source_path}")
