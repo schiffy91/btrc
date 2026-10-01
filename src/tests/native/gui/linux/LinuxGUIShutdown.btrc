@@ -7,8 +7,6 @@ import Library.GUI.IView;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
-import Library.GUI.Linux.LinuxPainter;
-import Library.App;
 import Library.Callback;
 import Library.Console;
 import Library.Datetime;
@@ -17,52 +15,17 @@ import Library.Datetime;
 
 /* A drawn view whose shutdown stays Pending until the test releases it, like
  * a GPU device that never reports CLOSED. */
-class StuckView implements ILinuxView {
-	private LinuxViewNode _node;
+class StuckView extends LinuxNodeView {
 	public bool released = false;
 	public int polls = 0;
 
-	public StuckView(LinuxContext context) { self._node = LinuxViewNode(context); }
+	public StuckView(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); }
 
-	public LinuxViewNode node() { return self._node; }
-
-	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
-
-	public void paint(LinuxPainter painter, double x, double y) {}
-
-	public void paintOverlay(LinuxPainter painter, double x, double y) {}
-
-	public bool pointer(AppPointerEvent event) { return false; }
-
-	public bool scroll(AppScrollEvent event) { return false; }
-
-	public bool key(AppKeyboardEvent event) { return false; }
-
-	public void textInput(string value) {}
-
-	public void focus(bool focused) {}
-
-	public bool isOpen() { return self._node.isOpen(); }
-
-	public double fittingWidth() { return 0.0; }
-
-	public double fittingHeight() { return 0.0; }
-
-	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
-
-	public bool isVisible() { return self._node.visible; }
-
-	public void setVisible(bool visible) { self._node.setVisible(visible); }
-
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
-
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
-
-	public CallbackCancellation close() { self._node.close(); return self.pollClose(); }
+	public CallbackCancellation close() { self.node().close(); return self.pollClose(); }
 
 	public CallbackCancellation pollClose() {
 		self.polls++;
-		return self.released ? self._node.pollClose() : CallbackCancellation.Pending;
+		return self.released ? self.node().pollClose() : CallbackCancellation.Pending;
 	}
 }
 

@@ -178,9 +178,9 @@ int main() {
 	GUI.initialize(64);
 	/* Everything but image handles belongs to the UI thread. */
 	Thread<string> stranger = spawn(() => {
-		try { GUI.requestQuit(); } catch (string error) { return error; }
-		return "";
-	});
+			try { GUI.requestQuit(); } catch (string error) { return error; }
+			return "";
+		});
 	assert(stranger.join().equals("GUI requires the main thread"));
 	var window = GUI.createWindow("BTRC Linux controls", 480.0, 320.0);
 	ILinuxWindow? native = (ILinuxWindow?)window;

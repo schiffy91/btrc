@@ -3,7 +3,6 @@ import Library.Console;
 import Library.Math;
 import Library.App;
 import Library.GUI.IScrollView;
-import Library.GUI.IView;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContainer;
 import Library.GUI.Linux.LinuxContext;
@@ -12,8 +11,7 @@ import Library.GUI.Linux.LinuxPainter;
 /* A vertical viewport over a document: children arrange in document points,
  * the viewport clips and offsets them, wheel input scrolls, and an overlay
  * scrollbar appears while content overflows. */
-class LinuxScrollView implements IScrollView, ILinuxView {
-	private LinuxViewNode _node;
+class LinuxScrollView extends LinuxContainerView implements IScrollView {
 	private double _contentHeight = 0.0;
 	private double _offset = 0.0;
 	private bool _dragging = false;
@@ -21,30 +19,26 @@ class LinuxScrollView implements IScrollView, ILinuxView {
 	private double _dragStartOffset = 0.0;
 
 	public LinuxScrollView(LinuxContext context) {
-		self._node = LinuxViewNode(context);
-		self._node.clipsChildren = true;
+		self.adoptNode(LinuxViewNode(context));
+		self.node().clipsChildren = true;
 	}
 
-	public LinuxViewNode node() { return self._node; }
-
-	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
-
-	private double maximumOffset() { return Math.maxDouble(0.0, self._contentHeight - self._node.height); }
+	private double maximumOffset() { return Math.maxDouble(0.0, self._contentHeight - self.node().height); }
 
 	private void applyOffset(double offset) {
 		double maximum = self.maximumOffset();
 		double clamped = !Math.isFinite(offset) || offset < 0.0 ? 0.0 : (offset > maximum ? maximum : offset);
-		if (clamped == self._offset && self._node.contentOffsetY == -clamped) { return; }
+		if (clamped == self._offset && self.node().contentOffsetY == -clamped) { return; }
 		self._offset = clamped;
-		self._node.contentOffsetY = -clamped;
-		self._node.invalidate();
+		self.node().contentOffsetY = -clamped;
+		self.node().invalidate();
 	}
 
-	private double trackHeight() { return Math.maxDouble(0.0, self._node.height - 4.0); }
+	private double trackHeight() { return Math.maxDouble(0.0, self.node().height - 4.0); }
 
 	private double thumbHeight() {
-		if (self._contentHeight <= self._node.height || self._contentHeight <= 0.0) { return 0.0; }
-		return Math.maxDouble(24.0, self.trackHeight() * self._node.height / self._contentHeight);
+		if (self._contentHeight <= self.node().height || self._contentHeight <= 0.0) { return 0.0; }
+		return Math.maxDouble(24.0, self.trackHeight() * self.node().height / self._contentHeight);
 	}
 
 	private double thumbY() {
@@ -54,29 +48,27 @@ class LinuxScrollView implements IScrollView, ILinuxView {
 	}
 
 	public void paint(LinuxPainter painter, double x, double y) {
-		LinuxComposite.paintChildren(self._node, painter, x, y);
+		LinuxComposite.paintChildren(self.node(), painter, x, y);
 		double thumb = self.thumbHeight();
 		if (thumb <= 0.0) { return; }
 		var theme = painter.theme();
-		double barX = x + self._node.width - 10.0;
+		double barX = x + self.node().width - 10.0;
 		painter.fillRect(barX, y + self.thumbY(), 6.0, thumb, RGBA(theme.text.red, theme.text.green, theme.text.blue, self._dragging ? 150 : 90), 3.0);
 	}
-
-	public void paintOverlay(LinuxPainter painter, double x, double y) {}
 
 	public bool pointer(AppPointerEvent event) {
 		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
 			double thumb = self.thumbHeight();
-			if (thumb > 0.0 && event.logicalX >= self._node.width - 14.0) {
+			if (thumb > 0.0 && event.logicalX >= self.node().width - 14.0) {
 				double top = self.thumbY();
 				if (event.logicalY >= top && event.logicalY <= top + thumb) {
 					self._dragging = true;
 					self._dragStartY = event.logicalY;
 					self._dragStartOffset = self._offset;
 				} else {
-					self.applyOffset(self._offset + (event.logicalY < top ? -self._node.height : self._node.height));
+					self.applyOffset(self._offset + (event.logicalY < top ? -self.node().height : self.node().height));
 				}
-				self._node.invalidate();
+				self.node().invalidate();
 				return true;
 			}
 			return false;
@@ -86,7 +78,7 @@ class LinuxScrollView implements IScrollView, ILinuxView {
 			if (travel > 0.0) { self.applyOffset(self._dragStartOffset + (event.logicalY - self._dragStartY) * self.maximumOffset() / travel); }
 			return true;
 		}
-		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; self._node.invalidate(); return true; }
+		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; self.node().invalidate(); return true; }
 		return false;
 	}
 
@@ -97,59 +89,23 @@ class LinuxScrollView implements IScrollView, ILinuxView {
 		return true;
 	}
 
-	public bool key(AppKeyboardEvent event) { return false; }
-
-	public void textInput(string value) {}
-
-	public void focus(bool focused) {}
-
-	public bool isOpen() { return self._node.isOpen(); }
-
-	public double fittingWidth() { self._node.requireOpen(); return 0.0; }
-
-	public double fittingHeight() { self._node.requireOpen(); return 0.0; }
-
-	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); self.applyOffset(self._offset); }
-
-	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
-
-	public void setVisible(bool visible) { self._node.setVisible(visible); }
-
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
-
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
-
-	public void attach(IView child) { self._node.attachChild(LinuxComposite.projection(child)); }
-
-	public IView detach(IView child) { return self._node.detachChild(LinuxComposite.projection(child)); }
-
-	public int childCount() { self._node.requireOpen(); return self._node.children.len; }
-
-	public IView childAt(int index) {
-		self._node.requireOpen();
-		if (index < 0 || index >= self._node.children.len) { throw "Container child index is out of bounds"; }
-		return self._node.children.get(index);
-	}
+	public void arrange(double x, double y, double width, double height) { self.node().arrange(x, y, width, height); self.applyOffset(self._offset); }
 
 	public void setContentSize(double width, double height) {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		if (!Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll content size"; }
 		self._contentHeight = height;
 		self.applyOffset(self._offset);
-		self._node.invalidate();
+		self.node().invalidate();
 	}
 
-	public double scrollOffset() { self._node.requireOpen(); return self._offset; }
+	public double scrollOffset() { self.node().requireOpen(); return self._offset; }
 
 	public void scrollTo(double offset) {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		if (!Math.isFinite(offset)) { throw "Invalid scroll offset"; }
 		self.applyOffset(offset);
 	}
 
-	public CallbackCancellation close() { return self._node.close(); }
-
-	public CallbackCancellation pollClose() { return self._node.pollClose(); }
-
-	public void __del__() { if (self._node != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.node() != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }
 }

@@ -1,10 +1,8 @@
-import Library.Callback;
 import Library.Math;
 import Library.Strings;
 import Library.Bytes;
 import Library.App;
 import Library.GUI.ITextField;
-import Library.GUI.IView;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxFonts;
@@ -14,8 +12,7 @@ import Library.GUI.Linux.SDL;
 /* A drawn single-line editor: caret, selection, clipboard and SDL text
  * input. Text is always an owned BTRC string; offsets are byte offsets on
  * scalar boundaries. */
-class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
-	private LinuxViewNode _node;
+class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarget {
 	private string _text;
 	private string _placeholder;
 	private double _size = 13.0;
@@ -29,19 +26,15 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 	private unsigned long long _blinkStart = 0ULL;
 
 	public LinuxTextField(LinuxContext context, string text, string placeholder) {
-		self._node = LinuxViewNode(context);
-		self._node.focusable = true;
-		self._node.cursor = 1;
+		self.adoptNode(LinuxViewNode(context));
+		self.node().focusable = true;
+		self.node().cursor = 1;
 		if (text == null || placeholder == null) { throw "Native text field text is missing"; }
 		self._text = text;
 		self._placeholder = placeholder;
 		self._caret = text.len();
 		self._anchor = self._caret;
 	}
-
-	public LinuxViewNode node() { return self._node; }
-
-	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
 
 	private double padding() { return 8.0; }
 
@@ -80,14 +73,14 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 		return index;
 	}
 
-	private double advanceTo(int offset) { return self._node.context.fonts.textWidth(self._text.substring(0, offset), self._size, self._node.scale(), false); }
+	private double advanceTo(int offset) { return self.node().context.fonts.textWidth(self._text.substring(0, offset), self._size, self.node().scale(), false); }
 
 	private int offsetAt(double localX) {
 		double x = localX - self.padding() + self._scroll;
 		int offset = 0;
 		int length = self._text.len();
-		var fonts = self._node.context.fonts;
-		double scale = self._node.scale();
+		var fonts = self.node().context.fonts;
+		double scale = self.node().scale();
 		while (offset < length) {
 			int next = self.nextBoundary(offset);
 			double left = fonts.textWidth(self._text.substring(0, offset), self._size, scale, false);
@@ -99,7 +92,7 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 	}
 
 	private void ensureCaretVisible() {
-		double inner = Math.maxDouble(1.0, self._node.width - self.padding() * 2.0);
+		double inner = Math.maxDouble(1.0, self.node().width - self.padding() * 2.0);
 		double caretX = self.advanceTo(self._caret);
 		if (caretX - self._scroll > inner) { self._scroll = caretX - inner; }
 		if (caretX - self._scroll < 0.0) { self._scroll = caretX; }
@@ -119,7 +112,7 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 	private void changed() {
 		self._blinkStart = SDL_GetTicksNS();
 		self.ensureCaretVisible();
-		self._node.invalidate();
+		self.node().invalidate();
 	}
 
 	private void moveCaret(int offset, bool extend) {
@@ -145,8 +138,8 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 
 	public void paint(LinuxPainter painter, double x, double y) {
 		var theme = painter.theme();
-		double width = self._node.width;
-		double height = self._node.height;
+		double width = self.node().width;
+		double height = self.node().height;
 		double radius = LinuxMetrics.cornerRadius();
 		painter.fillRect(x, y, width, height, theme.fieldFill, radius);
 		painter.strokeRect(x, y, width, height, self._focused ? theme.accent : theme.controlBorder, radius, self._focused ? 1.5 : 1.0);
@@ -166,20 +159,18 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 			unsigned long long elapsed = (SDL_GetTicksNS() - self._blinkStart) / 1000000ULL;
 			bool on = (elapsed / 530ULL) % 2ULL == 0ULL;
 			if (on) { painter.fillRect(textX + self.advanceTo(self._caret), textY + 1.0, 1.5, lineHeight - 2.0, theme.text, 0.0); }
-			var host = self._node.host;
+			var host = self.node().host;
 			if (host != null) { host.requestWake(0.53 - (double)(elapsed % 530ULL) / 1000.0); }
 		}
 		painter.popClip();
 	}
-
-	public void paintOverlay(LinuxPainter painter, double x, double y) {}
 
 	public bool pointer(AppPointerEvent event) {
 		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; return false; }
 		if (event.action == APP_POINTER_EXITED) { self._hovered = false; return false; }
 		if (!self._enabled) { return false; }
 		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
-			self._node.requestFocus();
+			self.node().requestFocus();
 			int offset = self.offsetAt(event.logicalX);
 			if (event.clickCount >= 3) { self._anchor = 0; self._caret = self._text.len(); }
 			else if (event.clickCount == 2) { self._anchor = self.previousWord(Math.min(self._text.len(), offset + 1)); self._caret = self.nextWord(offset); }
@@ -192,8 +183,6 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; return true; }
 		return false;
 	}
-
-	public bool scroll(AppScrollEvent event) { return false; }
 
 	public bool key(AppKeyboardEvent event) {
 		if (!self._focused || !self._enabled || event.action == APP_KEY_RELEASED) { return false; }
@@ -240,36 +229,26 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 		self._dragging = false;
 		if (!focused) { self._anchor = self._caret; }
 		self._blinkStart = SDL_GetTicksNS();
-		self._node.invalidate();
+		self.node().invalidate();
 	}
 
 	/* Where the input method should place its composition window. */
 	public void textInputArea(LinuxViewHost host, double x, double y) {
-		double lineHeight = self._node.context.fonts.lineHeight(self._size, self._node.scale(), false);
-		host.requestTextInput(true, x + self.padding() - self._scroll + self.advanceTo(self._caret), y + (self._node.height - lineHeight) * 0.5, 2.0, lineHeight);
+		double lineHeight = self.node().context.fonts.lineHeight(self._size, self.node().scale(), false);
+		host.requestTextInput(true, x + self.padding() - self._scroll + self.advanceTo(self._caret), y + (self.node().height - lineHeight) * 0.5, 2.0, lineHeight);
 	}
 
-	public bool isOpen() { return self._node.isOpen(); }
+	public double fittingWidth() { self.node().requireOpen(); return Math.maxDouble(96.0, Math.ceilDouble(self.node().context.fonts.textWidth(self._text.isEmpty() ? self._placeholder : self._text, self._size, self.node().scale(), false)) + self.padding() * 2.0); }
 
-	public double fittingWidth() { self._node.requireOpen(); return Math.maxDouble(96.0, Math.ceilDouble(self._node.context.fonts.textWidth(self._text.isEmpty() ? self._placeholder : self._text, self._size, self._node.scale(), false)) + self.padding() * 2.0); }
+	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.controlHeight(self._size); }
 
-	public double fittingHeight() { self._node.requireOpen(); return LinuxMetrics.controlHeight(self._size); }
+	public void arrange(double x, double y, double width, double height) { self.node().arrange(x, y, width, height); self.ensureCaretVisible(); }
 
-	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); self.ensureCaretVisible(); }
-
-	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
-
-	public void setVisible(bool visible) { self._node.setVisible(visible); }
-
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
-
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
-
-	public string text() { self._node.requireOpen(); return self._text; }
+	public string text() { self.node().requireOpen(); return self._text; }
 
 	/* Re-publishing unchanged state must not disturb caret or selection. */
 	public void setText(string text) {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		if (text == null) { throw "Native text field text is missing"; }
 		if (self._text.equals(text)) { return; }
 		self._text = text;
@@ -278,20 +257,16 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 		self.changed();
 	}
 
-	public void setPlaceholder(string text) { self._node.requireOpen(); self._placeholder = text == null ? "" : text; self._node.invalidate(); }
+	public void setPlaceholder(string text) { self.node().requireOpen(); self._placeholder = text == null ? "" : text; self.node().invalidate(); }
 
-	public bool isEnabled() { self._node.requireOpen(); return self._enabled; }
+	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
-	public void setEnabled(bool enabled) { self._node.requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self._node.invalidate(); } }
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().invalidate(); } }
 
 	public void setFont(double size) {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native text field font size"; }
 		self._size = size;
-		self._node.invalidate();
+		self.node().invalidate();
 	}
-
-	public CallbackCancellation close() { return self._node.close(); }
-
-	public CallbackCancellation pollClose() { return self._node.pollClose(); }
 }
