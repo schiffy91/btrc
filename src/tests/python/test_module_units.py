@@ -1260,11 +1260,18 @@ def test_cancelling_the_owner_leaves_no_workers(tmp_path, immutable_btrcc):
     """
     if shutil.which("pgrep") is None:
         pytest.skip("finding worker processes needs pgrep")
+    from src.compiler.python.frontend.packages import PackageTarget
+
+    host = PackageTarget.parse(None)
     output = tmp_path.resolve()
     owner = subprocess.Popen(
         [
             str(immutable_btrcc),
             "src/compiler/btrc/BtrccMain.btrc",
+            # HostWorkerPools selects its provider by target, which btrcc
+            # never infers.
+            "--target",
+            f"{host.operating_system}-{host.architecture}",
             "-o",
             str(output / "program.c"),
             "--emit-units",
