@@ -68,7 +68,7 @@ from ..ir.nodes import (
     IRWhile,
 )
 from ..ir.verifier import IRVerifier
-from . import runtime_state
+from .runtime_state import RuntimeUnitState
 from .wgsl_emitter import WgslEmitter
 
 _INLINE_EXPRESSION_LIMIT = 1000
@@ -233,9 +233,9 @@ class CEmitter:
         for helper in module.helper_decls:
             source = helper.c_source
             if unit_index >= 0:
-                source = runtime_state.unit_state(source, unit_index == 0)
+                source = RuntimeUnitState.unit_state(source, unit_index == 0)
             elif runtime_definitions is not None:
-                source = runtime_state.runtime_linkage(source, runtime_definitions)
+                source = RuntimeUnitState.runtime_linkage(source, runtime_definitions)
             self._raw(source)
             self._line("")
 

@@ -9,7 +9,7 @@ from types import MappingProxyType
 from typing import Protocol
 
 from src.compiler.python.analyzer.types import NumericLiteralSemantics, TypeIdentity
-from src.compiler.python.backend import runtime_state
+from src.compiler.python.backend.runtime_state import RuntimeUnitState
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
 
@@ -355,10 +355,10 @@ class StdlibArchiveAdapter:
             completed.update(required)
 
     def split_toplevel_units(self, source: str) -> list[str]:
-        return runtime_state.split_toplevel_units(source)
+        return RuntimeUnitState.split_toplevel_units(source)
 
     def function_definition_prototype(self, unit: str) -> str | None:
-        return runtime_state.function_definition_prototype(unit)
+        return RuntimeUnitState.function_definition_prototype(unit)
 
     def externize_toplevel(self, text: str) -> str:
         output = []

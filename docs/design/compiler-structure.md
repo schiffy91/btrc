@@ -146,6 +146,7 @@ src/compiler/python/
     imports.py                    # ImportResolver/visibility
     packages.py                   # PackageUniverse/GitDependencyCache
     native_imports.py             # NativeHeaderCodec: checked Clang semantic input
+    symbol_index.py               # StdlibSymbolIndex: generated root-stdlib owners
 
   analyzer/
     __init__.py
@@ -201,11 +202,13 @@ src/compiler/python/
       concurrency.py             # ConcurrencyLowerer
       generics.py                # GenericSpecializer only
       gpu.py                     # GpuLowerer
+      reachability.py            # StdlibReachability: stdlib callables to lower
 
   backend/
     __init__.py
     c_emitter.py                 # CEmitter
     wgsl_emitter.py              # WgslEmitter
+    runtime_state.py             # RuntimeUnitState: runtime text per split unit
 
   runtime/
     __init__.py
@@ -220,6 +223,18 @@ src/compiler/python/
     stdlib.py                    # StdlibArtifactRepository
     selfhost.py                  # SelfhostBundleBuilder
 ```
+
+`src/tests/python/test_python_compiler_structure.py` pins this inventory: the
+tree above must match the files on disk, here and in `AGENTS.md`.
+
+`backend/runtime_state.py` is the one sanctioned place where the backend
+reshapes runtime helper C text. A split program (the stdlib archive,
+`--emit-units`, module units) needs each mutable runtime variable defined once
+and declared `extern` elsewhere, so `RuntimeUnitState` re-specifies the
+linkage of the pre-authored helper units: it drops `static`/`inline`, turns a
+definition into its prototype or an `extern` declaration, and never invents
+helper bodies. The self-hosted compiler's `ir/RuntimeState.btrc` owns the
+same rewrite under the same class name.
 
 ## Exact self-hosted destination
 
