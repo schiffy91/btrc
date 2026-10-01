@@ -746,6 +746,160 @@ def test_worker_counts_emit_identical_units(compiler: str, tmp_path, request):
     assert forked == single
 
 
+@dataclass
+class _TimedBuild:
+    """One CLI module-unit compile's owner pid, timing lines and units."""
+
+    pid: int
+    owner: list[str]
+    workers: list[str]
+    stderr: str
+    units: dict[str, str]
+
+
+def _timed_cli_build(
+    command: list[str],
+    workspace: _Workspace,
+    output: Path,
+    jobs: int,
+    *,
+    timing: bool = True,
+    cache: Path | None = None,
+) -> _TimedBuild:
+    """Compile CatalogMain through a compiler CLI, with BTRC_TIMING set or unset."""
+    output.mkdir(parents=True, exist_ok=True)
+    environment = {
+        **os.environ,
+        "BTRC_HOME": str(ROOT / "src"),
+        "PYTHONPATH": str(ROOT),
+        "BTRC_CACHE_DIR": str((cache or output / "cache").resolve()),
+    }
+    for name in ("BTRC_TIMING", "BTRCC_TIMING"):
+        environment.pop(name, None)
+    if timing:
+        environment["BTRC_TIMING"] = "1"
+    process = subprocess.Popen(
+        [
+            *command,
+            "CatalogMain.btrc",
+            "-o",
+            str(output / "program.c"),
+            "--emit-units",
+            str(output / "program"),
+            "--module-units",
+            "--jobs",
+            str(jobs),
+        ],
+        cwd=workspace.modules,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    _stdout, stderr = process.communicate(timeout=300)
+    assert process.returncode == 0, stderr
+    lines = stderr.splitlines()
+    return _TimedBuild(
+        process.pid,
+        [line for line in lines if re.match(r"^(btrcpy|btrcc) timing: ", line)],
+        [line for line in lines if re.match(r"^(btrcpy|btrcc) worker timing: ", line)],
+        stderr,
+        {path.name: path.read_text() for path in sorted(output.glob("program*.c"))},
+    )
+
+
+def _timing_command(compiler: str, request) -> list[str]:
+    if compiler == "python":
+        return [sys.executable, "-m", "src.compiler.python.main"]
+    return [str(request.getfixturevalue("immutable_btrcc"))]
+
+
+def _python_lowered_groups(workspace: _Workspace, output: Path) -> int:
+    """How many groups a cold module-unit build of CatalogMain lowers."""
+    path = workspace.modules / "CatalogMain.btrc"
+    result = Compiler(cache=CompilerCache()).compile(
+        path.read_text(),
+        str(path),
+        CompilerOptions(units_prefix=str(output / "program"), module_units=True, use_cache=False),
+    )
+    assert result.failure is None, result.failure
+    return len(result.module_units_lowered)
+
+
+def test_forked_workers_report_timing_through_the_owner(compiler: str, tmp_path, request):
+    """A forked pool's workers each send the owner a report it prints last.
+
+    The owner's line comes first and is unchanged, so `tools.perf` sums only
+    the owner's phases; every worker reports once, from its own process, with
+    no owner-only token, and together the workers lowered every group.
+    """
+    from tools import perf
+
+    workspace = _Workspace(tmp_path.resolve())
+    build = _timed_cli_build(_timing_command(compiler, request), workspace, workspace.root / "cold", 2)
+    assert len(build.owner) == 1
+    assert build.stderr.splitlines().index(build.owner[0]) < min(
+        build.stderr.splitlines().index(line) for line in build.workers
+    )
+    owner = build.owner[0]
+    if compiler == "python":
+        count = 2
+        lowered = _python_lowered_groups(workspace, workspace.root / "probe")
+    else:
+        count = int(re.search(r"\bmodule-unit-workers=(\d+)", owner).group(1))
+        lowered = int(re.search(r"\bmodule-units=lowered:(\d+)", owner).group(1))
+    assert count == 2
+    assert len(build.workers) == count
+    fields = [dict(item.partition("=")[::2] for item in line.split(": ", 1)[1].split()) for line in build.workers]
+    assert sorted(int(field["worker"]) for field in fields) == list(range(count))
+    pids = {int(field["pid"]) for field in fields}
+    assert len(pids) == count and build.pid not in pids
+    requests = [dict(entry.split(":") for entry in field["requests"].split(",")) for field in fields]
+    assert all(set(entry) == {"lower", "setjmp", "realtime", "finish"} for entry in requests)
+    assert sum(int(entry["lower"]) for entry in requests) == lowered
+    for line in build.workers:
+        assert "w-wait=" in line
+        for token in ("grammar=", "analyze=", "u-plan=", "module-units=", "a-records-stored(", "artifact-hit="):
+            assert token not in line
+        if compiler == "btrc":
+            assert "l-setup=" in line and "w-reply=" in line
+
+    # `phase_times` cannot yet read btrcc's `a-records-stored(...)=` counter,
+    # whose name holds an `=`; that token is the owner's either way.
+    def summable(text: str) -> str:
+        return re.sub(r"\S*\(\S*", "", text)
+
+    assert perf.phase_times(summable(build.stderr)) == perf.phase_times(summable(owner))
+    assert sorted(perf.worker_phase_times(build.stderr)) == list(range(count))
+
+
+def test_inline_and_incremental_builds_print_no_worker_timing(compiler: str, tmp_path, request):
+    """Where the owner is the only worker its time is already the owner's."""
+    command = _timing_command(compiler, request)
+    workspace = _Workspace(tmp_path.resolve())
+    inline = _timed_cli_build(command, workspace, workspace.root / "inline", 1)
+    assert len(inline.owner) == 1 and not inline.workers
+    assert not re.search(r"\bw-", inline.owner[0])
+    cache = workspace.root / "cache"
+    _timed_cli_build(command, workspace, workspace.root / "cold", 2, cache=cache)
+    warm = _timed_cli_build(command, workspace, workspace.root / "warm", 2, cache=cache)
+    assert len(warm.owner) == 1 and not warm.workers
+    workspace.edit("Catalog/Catalog.btrc", 'print(f"catalog skipped {error}");', 'print(f"catalog skip: {error}");')
+    edited = _timed_cli_build(command, workspace, workspace.root / "edited", 2, cache=cache)
+    assert len(edited.owner) == 1 and not edited.workers
+
+
+def test_worker_timing_never_changes_the_units(compiler: str, tmp_path, request):
+    """Without BTRC_TIMING nothing is reported, and the units are the same."""
+    command = _timing_command(compiler, request)
+    workspace = _Workspace(tmp_path.resolve())
+    quiet = _timed_cli_build(command, workspace, workspace.root / "quiet", 2, timing=False)
+    assert "timing:" not in quiet.stderr
+    timed = _timed_cli_build(command, workspace, workspace.root / "timed", 2)
+    assert timed.workers
+    assert quiet.units == timed.units
+
+
 def test_native_includes_are_include_once_blocks(compiler: str, tmp_path, request):
     """A module unit wraps each native include in a guard named for its header,
     so a precompiled prelude that already included it leaves the unit's copy

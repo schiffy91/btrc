@@ -161,6 +161,9 @@ class CompilerResult:
     split_source_spaces: bool = False
     cache_hit: bool = False
     profile: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+    # Under profiling, each forked module-unit worker's timing report, in
+    # worker order; empty when no worker was forked.
+    worker_profiles: tuple[str, ...] = ()
 
     @property
     def unit_names(self) -> tuple[str, ...]:

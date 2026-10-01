@@ -1,9 +1,11 @@
 /* Module units: one C unit per source compilation group, reused by key. */
 
 import Library.BackgroundJobs.WorkerPools;
+import Library.Datetime;
 import Library.Digest.SHA256;
 import Library.JSON;
 import Library.Map;
+import Library.Platform;
 import Library.Strings;
 import Library.Vector;
 
@@ -1275,6 +1277,19 @@ class ModuleUnitCompiler {
 		return replies;
 	}
 
+	/* Each forked worker's own timing report, in worker order. Only the owner
+	 * writes to stderr, so lines from several workers never interleave. */
+	private Vector<string> workerTimings(IWorkerPool workers) {
+		Vector<string> requests = [];
+		Vector<int> affinity = [];
+		for (int worker = 0; worker < workers.size(); worker++) {
+			requests.push(self.request("timing", "").stringify());
+			affinity.push(worker);
+		}
+		Vector<int> assigned = [];
+		return self.exchange(workers, requests, affinity, assigned);
+	}
+
 	private int solveGeneration = 0;
 
 	/* Why reused records were lowered again, for BTRC_TIMING. */
@@ -2019,10 +2034,13 @@ class ModuleUnitCompiler {
 			state.record = record;
 		}
 		IWorkerPool? started = self.workerPool;
+		Vector<string> workerTimings = [];
+		if (started != null && BtrccPhaseTimer.enabled && !self.inlinePool) { workerTimings = self.workerTimings(started); }
 		if (started != null && !started.close()) {
 			fprintf(stderr, "error: module-unit worker failed: a worker exited abnormally\n");
 			exit(1);
 		}
+		for (int index = 0; index < workerTimings.len; index++) { BtrccPhaseTimer.worker(index, workerTimings.get(index)); }
 		BtrccPhaseTimer.mark("u-records");
 		/* The program unit gathers every helper any unit uses; the runtime
 		 * unit defines them. */
@@ -2084,11 +2102,20 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 	 * owner's current solve; a new solve starts both maps again. */
 	private Map<string, SetjmpFunctionEffect> reported = {};
 	private int solveGeneration = -1;
+	/* The process that made this worker. A forked copy runs elsewhere and,
+	 * under BTRC_TIMING, keeps its own report for the owner to print. */
+	private int ownerProcess;
+	private bool timingStarted = false;
+	private Map<string, int> requestCounts = {};
+	private Map<string, int> busyMicros = {};
 
 	public ModuleUnitWorker(ModuleUnitCompiler compiler, ModuleUnitDeclarations shared) {
 		self.compiler = compiler;
 		self.shared = shared;
+		self.ownerProcess = Platform.pid();
 	}
+
+	class Vector<string> timedOperations() { return ["lower", "setjmp", "realtime", "finish"]; }
 
 	/* Summaries handed over directly by an owner in the same process, as
 	 * copies, exactly as a request's decoded text would be. */
@@ -2102,9 +2129,49 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		for name in delta.keys() { self.solved.put(name, delta.get(name).snapshot()); }
 	}
 
+	/* A forked worker under BTRC_TIMING starts its report at its first
+	 * request, marks the idle time before each request (`w-wait`) and the
+	 * time after a request's last inner mark (`w-reply`), and keeps each
+	 * operation's request count and busy time; the owner asks for the report
+	 * just before it closes the pool. An in-process worker's marks fold into
+	 * the owner's own report. */
 	public string handle(string request) {
+		bool timed = BtrccPhaseTimer.enabled && Platform.pid() != self.ownerProcess;
+		if (timed && !self.timingStarted) {
+			BtrccPhaseTimer.restart();
+			self.timingStarted = true;
+		}
+		if (timed) { BtrccPhaseTimer.mark("w-wait"); }
 		JSONValue message = JSONValue.parse(request);
 		string operation = message.get("op").asString();
+		if (!timed) { return self.answer(operation, message); }
+		if (operation.equals("timing")) { return self.timingReport(); }
+		Timer busy = Timer();
+		busy.start();
+		string reply = self.answer(operation, message);
+		busy.stop();
+		int micros = (int)(busy.elapsed() * 1000000.0f);
+		self.requestCounts.put(operation, (self.requestCounts.has(operation) ? self.requestCounts.get(operation) : 0) + 1);
+		self.busyMicros.put(operation, (self.busyMicros.has(operation) ? self.busyMicros.get(operation) : 0) + micros);
+		BtrccPhaseTimer.mark("w-reply");
+		return reply;
+	}
+
+	/* `pid=<pid> requests=lower:n,... busy=lower:Nus,...` and then the marks
+	 * this worker recorded. */
+	private string timingReport() {
+		Vector<string> counts = [];
+		Vector<string> busy = [];
+		for operation in ModuleUnitWorker.timedOperations() {
+			int count = self.requestCounts.has(operation) ? self.requestCounts.get(operation) : 0;
+			int micros = self.busyMicros.has(operation) ? self.busyMicros.get(operation) : 0;
+			counts.push(f"{operation}:{count}");
+			busy.push(f"{operation}:{micros}us");
+		}
+		return f"pid={Platform.pid()} requests={Strings.join(counts, ",")} busy={Strings.join(busy, ",")} {BtrccPhaseTimer.rendered()}";
+	}
+
+	private string answer(string operation, JSONValue message) {
 		string group = message.get("group").asString();
 		if (operation.equals("lower")) { return self.lower(group); }
 		if (!self.units.has(group)) {

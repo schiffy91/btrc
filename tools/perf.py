@@ -189,6 +189,37 @@ def phase_times(stderr: str) -> dict[str, float]:
     return phases
 
 
+WORKER_TIMING_LINE = re.compile(r"^(?:btrcpy|btrcc) worker timing: worker=(\d+) (.*)$")
+MICROSECONDS = re.compile(r"^(\d+)us$")
+
+
+def worker_phase_times(stderr: str) -> dict[int, dict[str, float]]:
+    """Forked module-unit workers' reports, by worker index, in seconds.
+
+    Each `<name> worker timing: worker=<i> ...` line sums its `phase=NNNus`
+    marks per phase, and its `busy=op:NNNus,...` times as `busy:<op>`. The
+    owner's line is `phase_times`'s alone, so no worker time reaches it.
+    """
+
+    workers: dict[int, dict[str, float]] = {}
+    for line in stderr.splitlines():
+        match = WORKER_TIMING_LINE.match(line.strip())
+        if not match:
+            continue
+        phases = workers.setdefault(int(match.group(1)), {})
+        for item in match.group(2).split():
+            name, _, value = item.partition("=")
+            if name == "busy":
+                for entry in value.split(","):
+                    operation, _, micros = entry.partition(":")
+                    if found := MICROSECONDS.match(micros):
+                        key = f"busy:{operation}"
+                        phases[key] = phases.get(key, 0.0) + int(found.group(1)) / 1_000_000.0
+            elif found := MICROSECONDS.match(value):
+                phases[name] = phases.get(name, 0.0) + int(found.group(1)) / 1_000_000.0
+    return workers
+
+
 def c_stats(path: Path) -> CStats:
     lines = functions = structs = directives = 0
     vectors: set[str] = set()

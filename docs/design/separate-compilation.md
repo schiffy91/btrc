@@ -872,6 +872,20 @@ whole graph and doubled the peak to 10 GB.
    emits its unit; the owner stores the record and assembles the build in
    group order.
 
+Timing: under `BTRC_TIMING` (or `--profile`) a forked worker keeps its own
+report from its first request: the idle time before each request (`w-wait`),
+each operation's request count and busy time, and in btrcc its lowering marks
+and `w-reply`. Just before closing a forked pool the owner sends each worker
+one `timing` request, and after a clean close it prints the replies as
+`<compiler> worker timing: worker=<i> ...` lines after its own line. Only the
+owner writes, so worker reports never interleave and never repeat the owner's
+marks; a failed compile prints none, and an inline pool, whose work is already
+in the owner's line, adds no worker line and no `w-*` mark. Per-worker resource
+usage (`wait4`) is a follow-up. Tests check one owner line first, one line per
+worker from distinct processes whose lowerings add up to the owner's count, no
+worker lines for inline, unchanged or one-group rebuilds, and identical units
+with timing on and off.
+
 Failure: a worker that exits, is killed or breaks the protocol fails the
 compile with its diagnostic after every worker has been terminated and reaped;
 a lowering diagnostic raised in a Python worker is raised again in the owner.

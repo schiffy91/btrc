@@ -18,6 +18,28 @@ def test_phase_times_reads_both_compilers_marks():
     assert perf.phase_times(stderr) == {"lex": 0.0025, "parse": 0.0005, "analyze": 2.0, "emit": 0.00025}
 
 
+def test_worker_phase_times_reads_worker_lines_and_owner_sums_skip_them():
+    owner = "btrcc timing: lex=1000us u-lowered=4000us module-unit-workers=2"
+    stderr = "\n".join(
+        (
+            owner,
+            "btrcc worker timing: worker=0 pid=11 requests=lower:2,setjmp:0,realtime:0,finish:2 "
+            "busy=lower:3000us,setjmp:0us,realtime:0us,finish:500us w-wait=10us l-setup=100us l-setup=50us",
+            "btrcpy worker timing: worker=1 pid=12 requests=lower:1,setjmp:1,realtime:0,finish:1 "
+            "busy=lower:2000us,setjmp:5us,realtime:0us,finish:7us w-wait=20us",
+        )
+    )
+    assert perf.phase_times(stderr) == perf.phase_times(owner) == {"lex": 0.001, "u-lowered": 0.004}
+    workers = perf.worker_phase_times(stderr)
+    assert sorted(workers) == [0, 1]
+    assert workers[0]["l-setup"] == pytest.approx(0.00015)
+    assert workers[0]["w-wait"] == pytest.approx(0.00001)
+    assert workers[0]["busy:lower"] == pytest.approx(0.003)
+    assert workers[1]["busy:finish"] == pytest.approx(0.000007)
+    assert "pid" not in workers[0] and "requests" not in workers[0]
+    assert perf.worker_phase_times(owner) == {}
+
+
 @pytest.mark.parametrize("platform,raw", [("darwin", 32 * 1024 * 1024), ("linux", 32 * 1024)])
 def test_measurement_normalizes_peak_rss(platform, raw):
     measured = perf.Measurement.from_usage({"wall_s": 1.0, "cpu_s": 0.8, "max_rss": raw, "returncode": 0}, platform)

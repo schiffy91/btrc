@@ -293,6 +293,7 @@ class CompilerCommand:
             self._diagnostics.print_profile(
                 dict(result.profile),
                 result.source_length,
+                result.worker_profiles,
             )
         outputs = [(out_path, result.c_source)]
         roles = ["primary", *("secondary" for _ in result.c_units)]
@@ -703,11 +704,17 @@ class CompilerDiagnostics:
             input_source,
         )
 
-    def print_profile(self, profile: dict[str, float], source_len: int) -> None:
-        """Print a per-phase timing breakdown, with a one-line form shaped like btrcc's."""
+    def print_profile(self, profile: dict[str, float], source_len: int, worker_profiles: Sequence[str] = ()) -> None:
+        """Print a per-phase timing breakdown, with a one-line form shaped like btrcc's.
+
+        Each forked module-unit worker's report follows the owner's line on a
+        line of its own, whose prefix keeps it out of the owner's phase sums.
+        """
         total = sum(profile.values()) or 1e-9
         marks = " ".join(f"{label}={int(seconds * 1_000_000)}us" for label, seconds in profile.items())
         print(f"btrcpy timing: {marks}", file=self.stderr)
+        for index, report in enumerate(worker_profiles):
+            print(f"btrcpy worker timing: worker={index} {report}", file=self.stderr)
         print("--- btrc profile ---", file=self.stderr)
         for label, seconds in profile.items():
             pct = 100.0 * seconds / total
