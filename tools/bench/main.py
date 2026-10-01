@@ -109,6 +109,12 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--peak-tolerance", type=float, help="relative slack for peak memory (default 0.02)")
     check.add_argument("--strict", action="store_true", help="fail when this platform has no baseline")
     check.add_argument(
+        "--timings",
+        choices=("gate", "report"),
+        default="gate",
+        help="report: compare timings but fail only on sizes, lines, parity and peaks (a hosted runner pool)",
+    )
+    check.add_argument(
         "--peak-budget-gib",
         type=float,
         help="also fail when a workload's peak exceeds this many GiB (the M11 budget is 3), baseline or not",
@@ -131,7 +137,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"recorded {len(metrics)} metrics for {key} in {path}")
         return 0
     recorded = _baseline.platform_metrics(document, key)
-    findings = _baseline.compare(metrics, recorded, args.tolerance, args.peak_tolerance)
+    findings = _baseline.compare(
+        metrics, recorded, args.tolerance, args.peak_tolerance, gate_timings=args.timings == "gate"
+    )
     print(_baseline.render(findings))
     regressions = [finding for finding in findings if finding.status == "regression"]
     lower = [f.name for f in findings if f.status == "improvement" and _baseline.metric_kind(f.name) == "peak"]
@@ -150,6 +158,9 @@ def main(argv: list[str] | None = None) -> int:
     if recorded is None:
         print(f"\nno baseline for {key}; record one with `make bench-baseline`", file=sys.stderr)
         return 1 if args.strict or over else 0
+    slower = [finding for finding in findings if finding.status == "slower"]
+    if slower:
+        print(f"\n{len(slower)} timing(s) past their slack, reported only (--timings report)", file=sys.stderr)
     if regressions:
         print(f"\n{len(regressions)} regression(s) against the {key} baseline", file=sys.stderr)
     if regressions or over:

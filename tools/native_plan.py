@@ -560,6 +560,7 @@ class NativeBuildReport:
     preprocessing_s: float = 0.0
     preprocessing_units: int = 0
     preprocessing_hits: int = 0
+    preprocessing_provider: str = "none"
     prelude_status: str = "none"
     prelude_s: float = 0.0
     adapter_source_status: str = "none"
@@ -1054,6 +1055,7 @@ class NativePlanBuilder:
                     # expansion and one reader session per unit, twice.
                     prepared = cache.prepare([(command, source) for command, source, _ in commands], jobs, capture=True)
                     report.preprocessing_s = time.perf_counter() - preparation
+                    report.preprocessing_provider = cache.preprocessing_provider
                 # Units the cache does not already hold may share a
                 # precompiled prelude; the emitted C units are the candidates.
                 emitted_count = 1 + len(emitted)
@@ -1171,7 +1173,11 @@ class NativePlanBuilder:
             context = None
             if prefetch is not None:
                 prefetch.join()
-            if cache is not None and sys.platform == "darwin" and report.target.startswith("macos-"):
+            if cache is not None and not (sys.platform == "darwin" and report.target.startswith("macos-")):
+                # Only ld64's -dependency_info proves a retained executable;
+                # every other host and target relinks on each build.
+                report.link_cache_status = "host-unsupported"
+            elif cache is not None:
                 receipt = _DarwinLinkReceipt(
                     cache.directory,
                     self._runner,
@@ -1985,22 +1991,40 @@ class _DarwinLinkReceipt:
 
 
 class _PreprocessingReceipts:
-    """Fresh driver expansion and one bound reader session for native inputs."""
+    """Fresh driver expansion and one bound reader session for native inputs.
+
+    Only Darwin has a receipt provider: the reader binds its preprocessing
+    session to Apple's loaded-image identities (NativeHeaderReader.cpp's
+    __APPLE__ provider), and elsewhere it answers unsupported-compiler-provider.
+    Other hosts keep the object cache on its ordinary dependency scan, and
+    `provider` names which path a build took and why.
+    """
 
     def __init__(self, directory: Path, drivers: tuple[str, ...], runner: Callable) -> None:
         self.directory = directory
         self.drivers = drivers
         self.reader = None
-        if (
-            sys.platform == "darwin"
-            and runner is subprocess.run
-            and drivers
-            and all(driver.startswith("/nix/store/") for driver in drivers)
-            and os.environ.get("BTRC_NATIVE_PREPROCESS_RECEIPTS", "1") != "0"
-        ):
+        self.provider = self.unavailable(drivers, runner)
+        if self.provider is None:
             candidate = os.environ.get("BTRC_NATIVE_HEADER_READER") or shutil.which("btrc-native-header")
             if candidate and candidate.startswith("/nix/store/"):
                 self.reader = candidate
+                self.provider = "reader-receipts"
+            else:
+                self.provider = "dependency-scan: no store reader"
+
+    @staticmethod
+    def unavailable(drivers: tuple[str, ...], runner: Callable, system: str = sys.platform) -> str | None:
+        """Why this build cannot use preprocessing receipts, or None when it can."""
+        if system != "darwin":
+            return "dependency-scan: host has no receipt provider"
+        if runner is not subprocess.run:
+            return "dependency-scan: injected runner"
+        if not drivers or not all(driver.startswith("/nix/store/") for driver in drivers):
+            return "dependency-scan: drivers outside the store"
+        if os.environ.get("BTRC_NATIVE_PREPROCESS_RECEIPTS", "1") == "0":
+            return "dependency-scan: BTRC_NATIVE_PREPROCESS_RECEIPTS=0"
+        return None
 
     @staticmethod
     def _arguments(command: list[str]) -> list[str]:
@@ -2350,6 +2374,10 @@ class _ObjectCache:
                     raise ValueError("header report disagrees with dependency rule")
                 remaining[word] -= 1
         return list(dict.fromkeys(Path(name).absolute() for name in [*names, *remaining.elements()]))
+
+    @property
+    def preprocessing_provider(self) -> str:
+        return self._receipts.provider
 
     def prepare(
         self, commands: list[tuple[list[str], Path]], jobs: int, *, capture: bool = False

@@ -36,6 +36,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from src.compiler.python.frontend.packages import PackageTarget
+from tools.budget_bench import HostSummary
 from tools.native_plan import NativePlanError, NativePlanReader
 
 REPO = Path(__file__).resolve().parents[1]
@@ -406,6 +407,7 @@ class Perf:
             **self.input_snapshot(),
             "tools": tools,
             "host": platform.uname()._asdict(),
+            "host_summary": HostSummary.describe(),
             "cpu_count": os.cpu_count(),
             "jobs": self.arguments.jobs,
             "environment": {name: self.env[name] for name in self.ENVIRONMENT_INPUTS if name in self.env},

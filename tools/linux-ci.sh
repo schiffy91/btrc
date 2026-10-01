@@ -21,6 +21,14 @@
 #     filenames are host paths it cannot read. Everything that inspects a
 #     source, including the self-host fingerprint, then fails at import.
 #
+# The measurement path runs here too. A host without BTRSmith rehearses the
+# budget harness on its generated stand-in (no receipts on Linux: the object
+# cache validates by dependency scan and every build relinks):
+#
+#   tools/linux-ci.sh btrcc && tools/linux-ci.sh perf-budget \
+#     'BUDGET_BENCH_OPTIONS=--btrcc /workspace/bin/btrcc --stand-in' \
+#     'BUDGET_BENCH_ARGS=--scenarios cold,release,edit,instance-edit,interface-edit,noop,touch,memory,workers'
+#
 # Both budgets are larger than CI's because this runs in a VM: the self-hosted
 # compiler is rebuilt from scratch against a cold cache, and the corpus's
 # heaviest program does not finish inside the default run budget at -O0.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -22,16 +23,6 @@ btrcc timing: lex=1000us
          1084717529574  instructions retired
           140000000000  cycles elapsed
           3100000000  peak memory footprint
-"""
-
-GNU_TIME = """\
-\tCommand being timed: "btrcc src/BTRSmith.btrc"
-\tUser time (seconds): 40.12
-\tSystem time (seconds): 2.01
-\tPercent of CPU this job got: 98%
-\tElapsed (wall clock) time (h:mm:ss or m:ss): {elapsed}
-\tMaximum resident set size (kbytes): 3109554
-\tExit status: 0
 """
 
 
@@ -110,25 +101,57 @@ def test_scenario_summary_reports_every_sample_and_numeric_metric_medians(capsys
 
 
 def test_bsd_time_report_reads_bytes_and_apple_counters():
-    report = bench.TimeReport.parse(BSD_TIME, "darwin")
+    report = bench.TimeReport.parse(BSD_TIME)
     assert report == bench.TimeReport(43.21, 40.12, 2.01, 3184183936, 3100000000, 1084717529574)
-    assert bench.TimeReport.command("darwin") == ["/usr/bin/time", "-l"]
+    if bench.TimeReport.TOOL.is_file():
+        assert bench.TimeReport.command("darwin") == ["/usr/bin/time", "-l"]
     assert report.metrics("compiler_")["compiler_peak_footprint_bytes"] == 3100000000
 
 
-@pytest.mark.parametrize("elapsed,wall", [("0:43.21", 43.21), ("1:02:03", 3723.0), ("12:00.50", 720.5)])
-def test_gnu_time_report_reads_kibibytes_and_both_clock_forms(elapsed, wall):
-    report = bench.TimeReport.parse(GNU_TIME.format(elapsed=elapsed), "linux")
-    assert report.wall_s == pytest.approx(wall)
-    assert (report.user_s, report.system_s) == (40.12, 2.01)
-    assert report.max_rss_bytes == 3109554 * 1024
-    assert report.peak_footprint_bytes is None and report.instructions_retired is None
-    assert bench.TimeReport.command("linux") == ["/usr/bin/time", "-v"]
-
-
 def test_time_report_of_unrelated_output_is_empty():
-    assert bench.TimeReport.parse("nothing here", "darwin") == bench.TimeReport()
-    assert bench.TimeReport.parse("nothing here", "linux") == bench.TimeReport()
+    assert bench.TimeReport.parse("nothing here") == bench.TimeReport()
+
+
+def test_rusage_line_wins_over_compiler_output():
+    line = json.dumps({"wall_s": 1.5, "user_s": 1.25, "system_s": 0.25, "max_rss_bytes": 4096})
+    report = bench.TimeReport.parse(f"btrcc timing: lex=1us\n{bench.TimeReport.MARKER}{line}\n")
+    assert report == bench.TimeReport(1.5, 1.25, 0.25, 4096, None, None)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX wait4")
+def test_wait4_collector_measures_a_real_child_and_keeps_its_exit_status(tmp_path, monkeypatch):
+    """Off Darwin (or without /usr/bin/time) the collector is wait4's rusage, in bytes on every host."""
+    monkeypatch.setitem(bench.TimeReport._perf, "path", None)
+    monkeypatch.setitem(bench.TimeReport._perf, "reason", "unavailable on this host: test")
+    command = bench.TimeReport.command("linux")
+    assert command[:2] == [sys.executable, "-c"]
+    allocate = "import sys; block = bytearray(64 * 2**20); sys.stderr.write('child\\n'); sys.exit(int(sys.argv[1]))"
+    completed = subprocess.run([*command, sys.executable, "-c", allocate, "0"], capture_output=True, text=True)
+    assert completed.returncode == 0 and completed.stderr.startswith("child\n")
+    report = bench.TimeReport.parse(completed.stderr)
+    assert report.max_rss_bytes is not None and report.max_rss_bytes > 64 * 2**20
+    assert report.wall_s is not None and report.wall_s > 0 and report.user_s is not None
+    assert report.instructions_retired is None and report.peak_footprint_bytes is None
+    failed = subprocess.run([*command, sys.executable, "-c", allocate, "3"], capture_output=True, text=True)
+    assert failed.returncode == 3
+    assert bench.TimeReport.collector("linux") == "wait4 rusage of the measured process tree"
+    assert bench.TimeReport.instruction_counter("linux") == "unavailable on this host: test"
+
+
+def test_instruction_counter_names_why_it_is_unavailable(monkeypatch):
+    bench.TimeReport._perf.clear()
+    monkeypatch.setattr(bench.shutil, "which", lambda name: None)
+    try:
+        assert bench.TimeReport.perf() == (None, "unavailable on this host: perf is not on PATH")
+    finally:
+        bench.TimeReport._perf.clear()
+
+
+def test_host_summary_records_this_host_not_the_acceptance_mac():
+    summary = bench.HostSummary.describe()
+    assert f"{bench.os.cpu_count()} CPUs" in summary
+    if sys.platform.startswith("linux"):
+        assert "Linux " in summary and "GiB" in summary and "M1 Max" not in summary
 
 
 def test_phase_timing_names_the_owner_by_its_worker_count():
@@ -539,8 +562,10 @@ def test_self_compile_dry_run_writes_a_report(workspace, tmp_path, btrcc):
     assert len(scenario["samples"]) == 1
     assert scenario["facts"]["entry"] == configured.self_compile_entry
     assert scenario["metrics"][0]["c_bytes"] == (REPO / configured.self_compile_entry).stat().st_size
-    if bench.TimeReport.available():
-        assert scenario["metrics"][0]["max_rss_bytes"] > 0
+    assert scenario["metrics"][0]["max_rss_bytes"] > 0
+    assert written["provenance"]["time_tool"] == bench.TimeReport.collector()
+    assert written["provenance"]["instruction_counter"] == bench.TimeReport.instruction_counter()
+    assert written["provenance"]["host_summary"] == bench.HostSummary.describe()
     assert written["configuration"]["frontend"] == "selfhost"
     assert written["provenance"]["btrcc"]["path"] == str(btrcc)
     assert sorted(child.name for child in out.iterdir()) == [bench.RunDirectory.MARKER, "report.json"]
@@ -614,3 +639,27 @@ def test_only_btrcc_keeps_incremental_phase_timing(workspace, tmp_path, btrcc, f
     runner.settings = settings(workspace, tmp_path / "out", "--frontend", frontend, btrcc=btrcc)
     assert runner.incremental_label("noop-1") == expected
     assert runner.cold_label("cold-dev", 0) is None
+
+
+# -- stand-in workspace -------------------------------------------------------
+
+
+def test_stand_in_holds_every_fixture_original_and_smoke_resource(tmp_path):
+    bench.StandInWorkspace.write(tmp_path)
+    assert (tmp_path / bench.ENTRY).is_file() and (tmp_path / bench.TOUCHED).is_file()
+    for fixture in (*bench.EDIT_FIXTURES, bench.INSTANCE_FIXTURE, bench.INTERFACE_FIXTURE):
+        assert (tmp_path / fixture.module).read_text().count(fixture.original) == 1, fixture.name
+    assert all((tmp_path / "packaging/assets" / name).is_file() for name in bench.RESOURCES)
+    instance = (tmp_path / bench.INSTANCE_FIXTURE.module).read_text()
+    assert "import Library.Math;" in instance and "gcd" not in instance
+
+
+def test_stand_in_replaces_the_workspace_and_refuses_what_it_lacks(tmp_path):
+    configured = bench.BenchSettings.parse(["--stand-in", "--frontend", "reference", "--out", str(tmp_path / "run")])
+    assert configured.stand_in and configured.workspace is None
+    assert configured.describe()["stand_in"] is True
+    for options in (["--scenarios", "batch", "--dry-run"], ["--entry", "make", "--scenarios", "noop"]):
+        with pytest.raises(SystemExit):
+            bench.BenchSettings.parse(["--stand-in", "--frontend", "reference", "--out", str(tmp_path), *options])
+    with pytest.raises(SystemExit):
+        bench.BenchSettings.parse(["--stand-in", "--workspace", str(tmp_path), "--out", str(tmp_path / "run")])

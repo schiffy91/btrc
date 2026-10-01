@@ -227,6 +227,107 @@ accept a dry run or a failed one. `tools/bench/btrsmith-batch.json` lists the
 batch scenario's ten entry points (PLAN.md D10), and `tools/bench/scripts/`
 holds the scripts that drive the harness from a measurement clone.
 
+### Measuring off the Mac (2026-10-01)
+
+The harness and the native plan run on Linux; the Mac stays the acceptance
+host, and a Linux run never stands in for its numbers.
+
+**Collector.** `TimeReport` keeps `/usr/bin/time -l` on Darwin, the only
+source of peak footprint and instructions retired. Elsewhere the measured
+command runs under a fresh Python interpreter that reads its `wait4` rusage
+(Linux `ru_maxrss` is KiB, Darwin's bytes; both are reported in bytes).
+The interpreter must be fresh: Linux carries the replaced image's high-water
+RSS across `exec`, so a command forked from a large parent reports at least
+the parent's resident set. That floor was live in two places. The bench
+suite's `measure_peak` reported 63 MB for a 16 MiB child under pytest, and
+CI's recorded program peaks were 52,973,568 or 71,479,296 bytes for
+unrelated programs, the size of the suite's own process. The corpus scenario
+forked each transpile from the harness and had the same floor. Both now go
+through a fresh interpreter, whose own resident set (about 13 MiB) is the
+remaining floor: CI's BenchHello and BenchGenerics compile peaks read
+13,983,744 bytes for that reason. Above it, three local runs of the bench
+peaks repeated within 356 KiB, inside the guard's 1 MiB minimum slack. Instructions come from
+`perf stat -e instructions:u` when `perf` is on PATH and the kernel lets it
+count. Otherwise provenance records `instruction_counter: "unavailable on
+this host: …"` and the metric is absent, never estimated. Provenance also
+carries `host_summary`, read from the host: CPU, CPUs, memory, OS and
+architecture, in both `budget_bench` and `tools/perf.py`.
+
+**Receipts: Linux takes the object-cache-only path.** The reader builds its
+preprocessing provider only under `__APPLE__`, because it binds a session
+to Apple's loaded-image identities; on other hosts it answers
+`unsupported-compiler-provider`. The link receipt reads ld64's
+`-dependency_info`. A Linux provider would mean porting the runtime binding
+to ELF and `--dependency-file`, and the evidence below does not justify that:
+on Linux a warm unit is still proven by `-MD` dependency scan and SHA-256 of
+every input, and the stand-in's no-op build is 1.56 s, mostly relinking and
+transpiling. The native report now names the path it took:
+`preprocessing_provider` is `reader-receipts`, or `dependency-scan: <why>`
+(host, injected runner, drivers outside the store, or
+`BTRC_NATIVE_PREPROCESS_RECEIPTS=0`). `link_cache_status` is
+`host-unsupported` wherever no link receipt exists; that is a relink, not a
+disabled cache. Revisit a Linux receipt provider only if a BTRSmith Linux
+no-op shows the scan or the relink dominating.
+
+**Stand-in.** `--stand-in` replaces `--workspace` with a generated program
+(`StandInWorkspace`) at BTRSmith's fixture paths, holding every fixture's
+original text and the smoke's three resources. Every scenario except batch
+and `--entry make` then runs unchanged, clean-build and smoke checks
+included. Its numbers measure the harness, not BTRSmith:
+`configuration.stand_in` marks the report, and qualification refuses it.
+On six small modules, the module-unit/whole-program release ratio reports
+per-unit fixed cost, so its "MISSED" there says nothing about BTRSmith.
+In the container: `tools/linux-ci.sh perf-budget` with
+`BUDGET_BENCH_OPTIONS=--btrcc /workspace/bin/btrcc --stand-in` (see the
+script's header).
+
+**Rehearsal, 2026-10-01.** Cloud container: "Intel(R) Xeon(R) Processor @
+2.10GHz, 4 CPUs, 16 GiB, Linux 6.18.44-fc-v50, x86_64", nix shell,
+gcc 15.2.0 and clang 21.1.8. `btrcc` was the test harness's GCC 15.2 build
+of `cf28fe7`'s compiler (13,876,528 bytes, sha256 `287454ae…`); per the
+section on measuring a compile above, gcc builds emulate TLS. There was no
+`perf`, so no instructions were counted. The native plan used `--native-jobs 4`
+and samples were 5 cold and 20 incremental unless noted.
+
+| Scenario (selfhost, stand-in) | median | p95 | max | check |
+| --- | --- | --- | --- | --- |
+| cold-transpile | 0.48 s | 0.55 s | 0.55 s | |
+| cold-dev | 2.32 s | 2.46 s | 2.46 s | |
+| release-whole / -module | 1.70 / 2.17 s | 1.79 / 2.36 s | | ratio 1.28 (stand-in) |
+| edit-navigation / ui-controller / audio-preparation | 1.58 / 1.54 / 1.56 s | 1.71 / 1.65 / 1.74 s | 1.72 / 1.70 / 1.77 s | clean build: 84 bodies equal, smoke equal |
+| instance-edit | 1.92 s | 2.10 s | 2.12 s | 122 bodies equal, smoke equal |
+| interface-edit | 2.21 s | 2.79 s | 2.79 s | 5 clean builds equal; ratio median 0.888, max 1.040 (≤ 1.10) |
+| noop / touch | 1.56 / 1.45 s | 1.78 / 1.60 s | 1.79 / 1.66 s | |
+| memory | compile `--jobs 1` peak 25.5 MB; cold build tree 419 MB | | | |
+| workers 1/2/4/8 | 2.39 / 2.29 / 2.34 / 2.39 s | | | |
+| self-compile (BtrccMain, 3 samples) | 122.81 s | 123.16 s | 123.16 s | max RSS 2,857,287,680–2,857,484,288 B; 61.9 MB of C |
+| corpus (967 programs, 3 jobs, 1 sample) | 132.52 s | | | median RSS 16.2 MB, max 255 MB |
+
+The reference frontend's stand-in dry run of the same scenarios also
+completes with every clean-build check equal. Still needing BTRSmith: its
+own scenario numbers, batch (its ten entry points) and `--entry make`
+(its `make/Product.mk`), and a Linux BTRSmith build would also need its
+Linux packages. Still needing the Mac: footprint, instructions retired and
+the acceptance numbers themselves. No podman was available, so the
+`tools/linux-ci.sh` aarch64 container rehearsal is untested here.
+
+**CI bench gate (btrc-D002).** The bench job runs on ubuntu-latest
+(`linux-x86_64`), which had no baseline, and `check` without `--strict`
+passes a platform without one, so the gate compared nothing. Ten earlier
+`bench-results` artifacts showed that wall-clock gating would not work on that
+pool. One run was about 1.6x faster on every timing, one timing spread
+2.15x, and same-day runs of near-identical trees differed by up to 1.45x
+against the 0.35 slack. Sizes, lines and parity repeated exactly. The job now
+runs `bench-check --strict --timings report` against a `linux-x86_64`
+baseline recorded from its own artifact (CI run 36908778722 at `de086fd`,
+233 metrics, `python3 -m tools.bench baseline --results results.json`).
+Sizes, lines, parity and peaks gate, and timings are listed as "slower"
+without failing. To re-record after an intended change, download a green
+run's `bench-results` and run the same command. The `linux-arm64` and
+`darwin-arm64` program peaks predate the fresh-interpreter fix; on
+`linux-arm64` they were floored at the suite's own resident set, so they now
+read as improvements until they are recorded again.
+
 ### Baseline: the compiler compiling itself (`perf-self`, 2026-09-19)
 
 | Compiler | Wall | CPU | Peak RSS | front end | analyze | lower | optimize | emit |

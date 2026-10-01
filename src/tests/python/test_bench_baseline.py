@@ -55,6 +55,41 @@ def test_compare_applies_kind_tolerances_and_flags_regressions() -> None:
     assert all(finding.status == "new" for finding in baseline.compare(current, None))
 
 
+def test_reported_timings_never_fail_but_sizes_parity_and_peaks_still_do() -> None:
+    recorded = {"a.compile_ms": 100.0, "c.a.bytes": 1000, "c.a.parity": 1, "b.compile_peak": 50 << 20}
+    current = {"a.compile_ms": 200.0, "c.a.bytes": 1000, "c.a.parity": 1, "b.compile_peak": 50 << 20}
+    findings = {finding.name: finding for finding in baseline.compare(current, recorded, gate_timings=False)}
+    assert findings["a.compile_ms"].status == "slower"
+    assert {finding.status for name, finding in findings.items() if name != "a.compile_ms"} == {"ok"}
+    current.update({"c.a.bytes": 1100, "c.a.parity": 0, "b.compile_peak": 60 << 20})
+    findings = {finding.name: finding for finding in baseline.compare(current, recorded, gate_timings=False)}
+    assert [findings[name].status for name in ("c.a.bytes", "c.a.parity", "b.compile_peak")] == ["regression"] * 3
+    assert baseline.render(list(findings.values())).splitlines()[4].endswith("slower")
+
+
+def test_check_from_saved_results_is_strict_about_a_missing_baseline(tmp_path: Path) -> None:
+    """CI's transition: results recorded on the runner become its baseline, then --strict holds it."""
+    key = baseline.platform_key()
+    results = tmp_path / "results.json"
+    metrics = {"a.compile_ms": 100.0, "c.a.bytes": 1000, "c.a.parity": 1}
+    results.write_text(json.dumps({"meta": {"platform": key, "revision": "abc"}, "metrics": metrics}))
+    recorded = tmp_path / "baseline.json"
+    check = ["check", "--results", str(results), "--baseline", str(recorded)]
+    assert main(check) == 0
+    assert main([*check, "--strict"]) == 1
+    assert main(["baseline", "--results", str(results), "--baseline", str(recorded)]) == 0
+    assert baseline.platform_metrics(baseline.load(recorded), key) == metrics
+    assert main([*check, "--strict"]) == 0
+    slower = tmp_path / "slower.json"
+    slower.write_text(json.dumps({"meta": {"platform": key}, "metrics": {**metrics, "a.compile_ms": 300.0}}))
+    reported = ["check", "--results", str(slower), "--baseline", str(recorded), "--strict"]
+    assert main(reported) == 1
+    assert main([*reported, "--timings", "report"]) == 0
+    grown = tmp_path / "grown.json"
+    grown.write_text(json.dumps({"meta": {"platform": key}, "metrics": {**metrics, "c.a.bytes": 1100}}))
+    assert main(["check", "--results", str(grown), "--baseline", str(recorded), "--timings", "report"]) == 1
+
+
 def test_store_and_load_round_trip_one_platform_without_touching_others(tmp_path: Path) -> None:
     path = tmp_path / "baseline.json"
     document = baseline.load(path)

@@ -2150,7 +2150,7 @@ Manual install requires:
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push and PR to `main`:
 1. Builds and runs the relocatable Linux x64 release bundle, and verifies the release build did not mutate generated sources
 2. Runs thirteen parallel test shards in the devcontainer: `unit`, `btrc`, `corpus-python`, `corpus-btrc`, `bootstrap`, and the eight strict-C11 configurations (gcc and clang at `-O0` through `-O3`)
-3. Runs the benchmark gate against the tracked per-platform baseline
+3. Runs the benchmark gate against the tracked `linux-x86_64` baseline (`--strict`): emitted-C size, lines, parity and compile peaks fail on a regression, and timings are reported but not gated, because hosted runners differ
 4. Builds and runs the native Linux arm64 release archive
 
 CI builds the GPU runtime as a required gate before the corpus matrices; a

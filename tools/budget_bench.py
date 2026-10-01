@@ -7,6 +7,12 @@ runs, inside BTRSmith's dev shell (tools/bench/scripts/bsm_env.sh)::
     python3 -m tools.budget_bench --btrcc build/btrcc --workspace ~/.cache/btrc/bsm-measure \\
         --out ~/.cache/btrc/bench.noindex/run [--frontend reference] [--scenarios all]
 
+--stand-in replaces --workspace with a generated program at BTRSmith's fixture
+paths (StandInWorkspace), so a host without BTRSmith -- a Linux container, a
+CI runner -- rehearses every scenario but batch and --entry make, clean-build
+and smoke checks included. Its numbers measure the harness, not BTRSmith, and
+qualification refuses the report.
+
 Run it where BTRSmith builds: PKG_CONFIG_PATH names its packages and
 BTRC_NATIVE_HEADER_READER, BTRC_NATIVE_TARGET and BTRC_NATIVE_SYSROOT name the
 native header reader. The workspace is copied, never edited in place; --out is
@@ -55,7 +61,8 @@ Scenarios (--scenarios, comma-separated, or `all`):
   incremental one, which may take at most 110% of the clean build.
 - noop: nothing changed. touch: one source rewritten with identical bytes.
 - memory: the compiler's peak for one cold --jobs 1 compile (/usr/bin/time -l
-  on macOS, -v on Linux), and the process tree's summed RSS sampled every
+  on macOS; elsewhere wait4's rusage, with `perf stat -e instructions:u` when
+  the kernel allows it), and the process tree's summed RSS sampled every
   100 ms through a cold build.
 - release: cold release builds, whole-program and module-unit; the module-unit
   build may take at most 110% of the whole-program one.
@@ -78,6 +85,7 @@ starts itself, so they require --entry direct.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import functools
 import hashlib
@@ -95,7 +103,7 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path, PurePosixPath
 from typing import ClassVar, TypeVar
 
@@ -207,7 +215,17 @@ class Scenario:
 
 @dataclass(frozen=True)
 class TimeReport:
-    """One process's resource usage as /usr/bin/time reports it, in seconds and bytes."""
+    """One process's resource usage, in seconds and bytes.
+
+    On Darwin, /usr/bin/time -l reports Apple's peak memory footprint and
+    instructions retired, the counters CLAUDE.md compares compilers on.
+    Elsewhere (and on a Mac without it) a Python parent reads the child's
+    rusage from wait4, which no host lacks; that rusage covers the process
+    and every descendant it waited for, as BSD time's does. Linux reports
+    ru_maxrss in KiB and Darwin in bytes. Instructions come from
+    `perf stat -e instructions:u` where the kernel permits it, and are
+    otherwise absent rather than estimated; `instruction_counter()` says which.
+    """
 
     wall_s: float | None = None
     user_s: float | None = None
@@ -217,19 +235,94 @@ class TimeReport:
     instructions_retired: int | None = None
 
     TOOL = Path("/usr/bin/time")
+    MARKER = "budget-bench rusage: "
+    PERF_EVENT = "instructions:u"
+    # argv[1] is the perf executable, or empty; argv[2:] is the command.
+    WAIT4 = (
+        "import json, os, subprocess, sys, tempfile, time\n"
+        "perf, command = sys.argv[1], sys.argv[2:]\n"
+        "counts = None\n"
+        "if perf:\n"
+        "    counts = tempfile.NamedTemporaryFile(prefix='budget-bench-perf-', delete=False)\n"
+        "    counts.close()\n"
+        "    command = [perf, 'stat', '-x', ',', '-e', 'instructions:u', '-o', counts.name, '--', *command]\n"
+        "started = time.perf_counter()\n"
+        "process = subprocess.Popen(command)\n"
+        "_, status, usage = os.wait4(process.pid, 0)\n"
+        "wall = time.perf_counter() - started\n"
+        "instructions = None\n"
+        "if counts is not None:\n"
+        "    for line in open(counts.name, errors='replace'):\n"
+        "        fields = line.strip().split(',')\n"
+        "        if len(fields) > 2 and fields[2].startswith('instructions') and fields[0].isdigit():\n"
+        "            instructions = int(fields[0])\n"
+        "    os.unlink(counts.name)\n"
+        "scale = 1 if sys.platform == 'darwin' else 1024\n"
+        "print('budget-bench rusage: ' + json.dumps({'wall_s': wall, 'user_s': usage.ru_utime,\n"
+        "    'system_s': usage.ru_stime, 'max_rss_bytes': usage.ru_maxrss * scale,\n"
+        "    'instructions_retired': instructions}), file=sys.stderr, flush=True)\n"
+        "sys.exit(os.waitstatus_to_exitcode(status))\n"
+    )
+    _perf: ClassVar[dict[str, str | None]] = {}
 
     @classmethod
-    def available(cls) -> bool:
-        return cls.TOOL.is_file()
+    def uses_bsd_time(cls, system: str = sys.platform) -> bool:
+        return system == "darwin" and cls.TOOL.is_file()
 
     @classmethod
-    def command(cls, system: str = sys.platform) -> list[str]:
-        """BSD time reports bytes and Apple's counters with -l; GNU time reports KiB with -v."""
-        return [str(cls.TOOL), "-l" if system == "darwin" else "-v"]
+    def perf(cls) -> tuple[str | None, str]:
+        """The perf executable that counts this host's user instructions, and why or why not."""
+        if "path" not in cls._perf:
+            path = shutil.which("perf")
+            reason = "perf stat -e instructions:u"
+            if path is None:
+                reason = "unavailable on this host: perf is not on PATH"
+            else:
+                try:
+                    probe = subprocess.run(
+                        [path, "stat", "-x", ",", "-e", cls.PERF_EVENT, "--", "true"],
+                        capture_output=True,
+                        text=True,
+                        errors="replace",
+                        timeout=30,
+                    )
+                    counted = any(
+                        line.split(",")[0].isdigit() and cls.PERF_EVENT in line for line in probe.stderr.splitlines()
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    probe, counted = None, False
+                if not counted:
+                    detail = (probe.stderr.strip().splitlines() or ["no count"])[-1] if probe else "did not run"
+                    reason = f"unavailable on this host: perf cannot count {cls.PERF_EVENT} ({detail[:160]})"
+                    path = None
+            cls._perf.update(path=path, reason=reason)
+        return cls._perf["path"], str(cls._perf["reason"])
 
     @classmethod
-    def parse(cls, text: str, system: str = sys.platform) -> TimeReport:
-        return cls._parse_bsd(text) if system == "darwin" else cls._parse_gnu(text)
+    def command(cls, system: str = sys.platform, *, instructions: bool = True) -> list[str]:
+        """The measuring prefix. The wrapper is a fresh interpreter because Linux
+        carries an image's high-water RSS across exec: a command forked from a
+        large parent would report at least the parent's resident set."""
+        if cls.uses_bsd_time(system):
+            return [str(cls.TOOL), "-l"]
+        return [sys.executable, "-c", cls.WAIT4, (cls.perf()[0] if instructions else None) or ""]
+
+    @classmethod
+    def collector(cls, system: str = sys.platform) -> str:
+        return f"{cls.TOOL} -l" if cls.uses_bsd_time(system) else "wait4 rusage of the measured process tree"
+
+    @classmethod
+    def instruction_counter(cls, system: str = sys.platform) -> str:
+        return f"{cls.TOOL} -l" if cls.uses_bsd_time(system) else cls.perf()[1]
+
+    @classmethod
+    def parse(cls, text: str) -> TimeReport:
+        """The rusage wrapper's line when present, otherwise BSD time's report."""
+        for line in reversed(text.splitlines()):
+            if line.startswith(cls.MARKER):
+                values = json.loads(line[len(cls.MARKER) :])
+                return cls(**{item.name: values.get(item.name) for item in fields(cls)})
+        return cls._parse_bsd(text)
 
     @staticmethod
     def _integer(pattern: str, text: str) -> int | None:
@@ -246,26 +339,6 @@ class TimeReport:
             max_rss_bytes=cls._integer(r"^\s*(\d+)\s+maximum resident set size\s*$", text),
             peak_footprint_bytes=cls._integer(r"^\s*(\d+)\s+peak memory footprint\s*$", text),
             instructions_retired=cls._integer(r"^\s*(\d+)\s+instructions retired\s*$", text),
-        )
-
-    @classmethod
-    def _parse_gnu(cls, text: str) -> TimeReport:
-        def seconds(label: str) -> float | None:
-            match = re.search(rf"^\s*{re.escape(label)}: ([\d.]+)\s*$", text, re.MULTILINE)
-            return float(match.group(1)) if match else None
-
-        elapsed = re.search(r"^\s*Elapsed \(wall clock\) time \(h:mm:ss or m:ss\): ([\d:.]+)\s*$", text, re.MULTILINE)
-        wall = None
-        if elapsed:
-            wall = 0.0
-            for part in elapsed.group(1).split(":"):
-                wall = wall * 60 + float(part)
-        kilobytes = cls._integer(r"^\s*Maximum resident set size \(kbytes\): (\d+)\s*$", text)
-        return cls(
-            wall_s=wall,
-            user_s=seconds("User time (seconds)"),
-            system_s=seconds("System time (seconds)"),
-            max_rss_bytes=None if kilobytes is None else kilobytes * 1024,
         )
 
     def metrics(self, prefix: str) -> dict[str, object]:
@@ -681,12 +754,188 @@ class HostTarget:
         )
 
 
+class HostSummary:
+    """The one-line host provenance a manifest records: CPU, cores, memory, OS.
+
+    CLAUDE.md asks the Mac's runs to carry its exact string; any other host
+    records what it is, read from the host, so its numbers are never mistaken
+    for the acceptance host's.
+    """
+
+    @classmethod
+    def describe(cls, system: str | None = None) -> str:
+        system = system or platform.system()
+        cpu = memory = release = None
+        if system == "Darwin":
+            cpu = cls._output("sysctl", "-n", "machdep.cpu.brand_string")
+            size = cls._output("sysctl", "-n", "hw.memsize")
+            memory = int(size) if size and size.isdigit() else None
+            version = cls._output("sw_vers", "-productVersion")
+            release = f"macOS {version}" if version else None
+        elif system == "Linux":
+            with contextlib.suppress(OSError):
+                for line in Path("/proc/cpuinfo").read_text(errors="replace").splitlines():
+                    if line.split(":")[0].strip() in {"model name", "Model"}:
+                        cpu = line.split(":", 1)[1].strip()
+                        break
+            with contextlib.suppress(OSError, ValueError):
+                for line in Path("/proc/meminfo").read_text().splitlines():
+                    if line.startswith("MemTotal:"):
+                        memory = int(line.split()[1]) * 1024
+            release = f"Linux {platform.release()}"
+        parts = [
+            cpu or platform.processor() or platform.machine(),
+            f"{os.cpu_count()} CPUs",
+            f"{memory / 2**30:.0f} GiB" if memory else "memory unknown",
+            release or f"{system} {platform.release()}",
+            platform.machine(),
+        ]
+        return ", ".join(parts)
+
+    @staticmethod
+    def _output(*command: str) -> str | None:
+        try:
+            completed = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return completed.stdout.strip() or None if completed.returncode == 0 else None
+
+
+class StandInWorkspace:
+    """A small program at BTRSmith's fixture paths, for hosts without BTRSmith.
+
+    Every edit fixture's module holds its original text, the interface
+    fixture's class is imported by four modules, and the instance fixture's
+    module imports Library.Math and Library.Vector without reaching gcd or a
+    nested vector, so cold, release, edit, instance-edit, interface-edit,
+    noop, touch, memory and workers run their clean-build and smoke checks
+    unchanged. It is a rehearsal of the harness, never a BTRSmith number: a
+    report says so in configuration.stand_in, and qualification refuses it.
+    Batch (BTRSmith's ten entry points) and --entry make (its make/Product.mk)
+    have no stand-in.
+    """
+
+    SOURCES: ClassVar[dict[str, str]] = {
+        "src/BTRSmith.btrc": (
+            "/* A budget-bench stand-in: BTRSmith's fixture paths, none of its product. */\n"
+            "\n"
+            "import ./domain/song/Timeline.btrc;\n"
+            "import ./frontend/library/AlbumGrid.btrc;\n"
+            "import ./frontend/player/UiPlayerTransport.btrc;\n"
+            "import ./backend/audio/PlaybackPreparation.btrc;\n"
+            "import ./frontend/visualization/instrument/InstrumentCamera.btrc;\n"
+            "\n"
+            "int main() {\n"
+            "\tAuthoredTimeline timeline = AuthoredTimeline(7);\n"
+            "\tAlbumGrid grid = AlbumGrid();\n"
+            "\tUiPlayerTransport transport = UiPlayerTransport();\n"
+            "\tPlaybackPreparation preparation = PlaybackPreparation();\n"
+            "\tInstrumentCamera camera = InstrumentCamera();\n"
+            "\tint layout = grid.layout(timeline);\n"
+            "\tint label = transport.percentLabel(timeline, 41.6);\n"
+            "\tint chunks = preparation.chunks(timeline, 20000);\n"
+            "\tint settled = camera.settle();\n"
+            '\tprint(f"PASS: budget-bench stand-in layout={layout} label={label} chunks={chunks} settled={settled}");\n'
+            "\treturn 0;\n"
+            "}\n"
+        ),
+        "src/domain/song/Timeline.btrc": (
+            "/* The stand-in for BTRSmith's most widely imported song module. */\n"
+            "\n"
+            "class TimelineIdentity {\n"
+            "\tpublic int id;\n"
+            "\n"
+            "\tpublic TimelineIdentity(int id) {\n"
+            "\t\tself.id = id;\n"
+            "\t}\n"
+            "}\n"
+            "\n"
+            "class AuthoredTimeline {\n"
+            "\tprivate TimelineIdentity _identity;\n"
+            "\n"
+            "\tpublic AuthoredTimeline(int id) {\n"
+            "\t\tself._identity = TimelineIdentity(id);\n"
+            "\t}\n"
+            "\n"
+            "\tpublic int identity() {\n"
+            "\t\treturn self._identity.id;\n"
+            "\t}\n"
+            "}\n"
+        ),
+        "src/frontend/library/AlbumGrid.btrc": (
+            "import ../../domain/song/Timeline.btrc;\n"
+            "\n"
+            "class ArtworkStatus {\n"
+            "\tpublic double extent = 0.0;\n"
+            "\n"
+            "\tpublic void arrange(double x, double y, double width) {\n"
+            "\t\tself.extent = x + y + width;\n"
+            "\t}\n"
+            "}\n"
+            "\n"
+            "class AlbumGrid {\n"
+            "\tprivate ArtworkStatus _artworkStatus = ArtworkStatus();\n"
+            "\n"
+            "\tpublic int layout(AuthoredTimeline timeline) {\n"
+            "\t\tself._artworkStatus.arrange(12.0, 12.0, (double)timeline.identity());\n"
+            "\t\treturn (int)self._artworkStatus.extent;\n"
+            "\t}\n"
+            "}\n"
+        ),
+        "src/frontend/player/UiPlayerTransport.btrc": (
+            "import ../../domain/song/Timeline.btrc;\n"
+            "\n"
+            "class UiPlayerTransport {\n"
+            "\tpublic int percentLabel(AuthoredTimeline timeline, double percent) {\n"
+            "\t\tint rounded = (int)(percent + 0.5);\n"
+            "\t\treturn rounded + timeline.identity() * 0;\n"
+            "\t}\n"
+            "}\n"
+        ),
+        "src/backend/audio/PlaybackPreparation.btrc": (
+            "import ../../domain/song/Timeline.btrc;\n"
+            "\n"
+            "class PlaybackPreparation {\n"
+            "\tpublic int chunks(AuthoredTimeline timeline, int frames) {\n"
+            "\t\tint chunkFrames = 8192;\n"
+            "\t\treturn (frames + chunkFrames - 1) / chunkFrames + timeline.identity() * 0;\n"
+            "\t}\n"
+            "}\n"
+        ),
+        "src/frontend/visualization/instrument/InstrumentCamera.btrc": (
+            "import Library.Math;\n"
+            "import Library.Vector;\n"
+            "\n"
+            "class InstrumentCamera {\n"
+            "\tpublic double value = 4.0;\n"
+            "\tpublic double target = 1.0;\n"
+            "\n"
+            "\tpublic int settle() {\n"
+            "\t\tdouble offset = self.value - self.target;\n"
+            "\t\treturn (int)offset;\n"
+            "\t}\n"
+            "}\n"
+        ),
+    }
+
+    @classmethod
+    def write(cls, root: Path) -> None:
+        for relative, text in cls.SOURCES.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        for name in RESOURCES:
+            path = root / "packaging/assets" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"budget-bench stand-in resource\n")
+
+
 @dataclass(frozen=True)
 class BenchSettings:
     """One run's validated options."""
 
     btrcc: Path | None
-    workspace: Path
+    workspace: Path | None
     out: Path
     frontend: str
     mode: str
@@ -705,6 +954,7 @@ class BenchSettings:
     self_compile_entry: str
     make: str
     keep: bool
+    stand_in: bool = False
 
     @staticmethod
     def parser() -> argparse.ArgumentParser:
@@ -714,7 +964,13 @@ class BenchSettings:
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         parser.add_argument("--btrcc", help="the self-hosted compiler; required for --frontend selfhost")
-        parser.add_argument("--workspace", required=True, help="the pinned BTRSmith checkout; copied, never edited")
+        source = parser.add_mutually_exclusive_group(required=True)
+        source.add_argument("--workspace", help="the pinned BTRSmith checkout; copied, never edited")
+        source.add_argument(
+            "--stand-in",
+            action="store_true",
+            help="rehearse on a generated program at BTRSmith's fixture paths (never acceptance)",
+        )
         parser.add_argument("--out", required=True, help="run directory, replaced")
         parser.add_argument("--frontend", choices=("selfhost", "reference"), default="selfhost")
         parser.add_argument("--mode", choices=("dev", "release"), default="dev")
@@ -780,12 +1036,18 @@ class BenchSettings:
             btrcc = Path(arguments.btrcc).expanduser().resolve()
             if not btrcc.is_file():
                 raise ValueError(f"--btrcc {btrcc} is not a file")
-        workspace = Path(arguments.workspace).expanduser().resolve()
-        if not (workspace / ENTRY).is_file():
-            raise ValueError(f"--workspace {workspace} has no {ENTRY}")
         out = Path(arguments.out).expanduser().resolve()
-        if out == workspace or workspace.is_relative_to(out) or out.is_relative_to(workspace):
-            raise ValueError("--out must be outside the workspace and must not contain it")
+        workspace = None
+        if arguments.stand_in:
+            unsupported = [name for name in scenarios if name == "batch"]
+            if arguments.entry == "make" or unsupported:
+                raise ValueError("--stand-in has no make/Product.mk or batch entry points; drop --entry make and batch")
+        else:
+            workspace = Path(arguments.workspace).expanduser().resolve()
+            if not (workspace / ENTRY).is_file():
+                raise ValueError(f"--workspace {workspace} has no {ENTRY}")
+            if out == workspace or workspace.is_relative_to(out) or out.is_relative_to(workspace):
+                raise ValueError("--out must be outside the workspace and must not contain it")
         if arguments.entry == "make":
             direct = [name for name in scenarios if name in DIRECT_ONLY_SCENARIOS]
             if direct:
@@ -835,6 +1097,7 @@ class BenchSettings:
             self_compile_entry=self_compile_entry,
             make=arguments.make,
             keep=arguments.keep,
+            stand_in=arguments.stand_in,
         )
 
     @property
@@ -1039,7 +1302,10 @@ class BudgetBench:
         self.started = datetime.datetime.now(datetime.UTC)
         RunDirectory.prepare(self.out)
         self.workspace = self.out / "ws"
-        shutil.copytree(settings.workspace, self.workspace, symlinks=True)
+        if settings.workspace is None:
+            StandInWorkspace.write(self.workspace)
+        else:
+            shutil.copytree(settings.workspace, self.workspace, symlinks=True)
         self.commands = BuildCommands(settings, self.out / "bin")
         self.results: dict[str, Scenario] = {}
         self.revisions: dict[str, int] = {}
@@ -1433,17 +1699,16 @@ class BudgetBench:
         state.reset(objects=True)
         jobs = 1 if self.flavor.units == "module" else None
         label = f"{self.settings.frontend} {self.flavor.units}-unit compile" + (" --jobs 1" if jobs else "")
-        if TimeReport.available():
-            run = self.compile(state, jobs=jobs, measure=True)
-            usage = run.usage or TimeReport()
-            scenario.facts.update(compile_s=round(run.total_s, 3), **usage.metrics("compiler_"))
-            peak = usage.peak_footprint_bytes or usage.max_rss_bytes
-            if peak is not None:
-                scenario.note(f"{label} peak {peak} bytes ({peak / 2**30:.3f} GiB)")
-            if usage.instructions_retired is not None:
-                scenario.note(f"{label} instructions retired {usage.instructions_retired:,}")
+        run = self.compile(state, jobs=jobs, measure=True)
+        usage = run.usage or TimeReport()
+        scenario.facts.update(compile_s=round(run.total_s, 3), **usage.metrics("compiler_"))
+        peak = usage.peak_footprint_bytes or usage.max_rss_bytes
+        if peak is not None:
+            scenario.note(f"{label} peak {peak} bytes ({peak / 2**30:.3f} GiB)")
+        if usage.instructions_retired is not None:
+            scenario.note(f"{label} instructions retired {usage.instructions_retired:,}")
         else:
-            scenario.note(f"{TimeReport.TOOL} is missing: no compiler peak")
+            scenario.note(f"{label} instructions: {TimeReport.instruction_counter()}")
         state.reset(objects=True)
         _, aggregate = ProcessTreeSampler().run(lambda: self.build(state))
         scenario.facts["build_tree_rss_bytes"] = aggregate
@@ -1453,14 +1718,13 @@ class BudgetBench:
         state = self.state("workers")
         flavor = Flavor(self.settings.mode, "module")
         sampler = ProcessTreeSampler()
-        measure = TimeReport.available()
         for count in self.settings.workers:
             scenario = self.scenario(f"workers-{count}")
             for index in range(self.settings.cold_samples):
                 state.reset(objects=True)
                 compiled, compile_rss = sampler.run(
                     lambda count=count, index=index, name=scenario.name: self.compile(
-                        state, flavor, jobs=count, measure=measure, timing_label=self.cold_label(name, index)
+                        state, flavor, jobs=count, measure=True, timing_label=self.cold_label(name, index)
                     )
                 )
                 (native_s, native), native_rss = sampler.run(lambda: self.native(state, flavor))
@@ -1562,7 +1826,6 @@ class BudgetBench:
         state = self.state("self-compile")
         source = REPO / self.settings.self_compile_entry
         scenario.facts["entry"] = self.settings.self_compile_entry
-        measure = TimeReport.available()
         for _ in range(self.settings.cold_samples):
             state.reset(objects=False)
             output = state.build / "btrcc.c"
@@ -1578,12 +1841,12 @@ class BudgetBench:
                 str(output),
             ]
             elapsed, completed = self.execute(
-                [*TimeReport.command(), *command] if measure else command,
+                [*TimeReport.command(), *command],
                 cwd=REPO,
                 env=self.environment(state, timing=False),
                 label="self-compile",
             )
-            usage = TimeReport.parse(completed.stderr) if measure else TimeReport()
+            usage = TimeReport.parse(completed.stderr)
             scenario.add(
                 elapsed,
                 compile_s=elapsed,
@@ -1633,22 +1896,35 @@ class BudgetBench:
     def corpus_file(
         self, relative: str, *, root: Path, slots: queue.Queue[Path], environment: dict[str, str]
     ) -> tuple[str, float, int, int, str]:
-        """One corpus transpile in a free output slot, with its own peak RSS from wait4's rusage."""
+        """One corpus transpile in a free output slot, with its own peak RSS.
+
+        Darwin reads wait4's rusage directly. Linux carries the replaced
+        image's high-water RSS across exec, so a transpile forked from this
+        process would report at least this process's resident set; there it
+        runs under TimeReport's wrapper, and its seconds are the wrapper's
+        own, excluding the interpreter's start.
+        """
         slot = slots.get()
         try:
             command = [*self.commands.frontend(), str(root / relative), "-o", str(slot / "out.c")]
+            wrapped = sys.platform != "darwin"
+            if wrapped:
+                command = [*TimeReport.command(instructions=False), *command]
             error_path = slot / "stderr.txt"
             started = time.perf_counter()
             with error_path.open("w") as error:
                 process = subprocess.Popen(command, cwd=REPO, env=environment, stdout=subprocess.DEVNULL, stderr=error)
                 _, status, usage = os.wait4(process.pid, 0)
-            process.returncode = os.waitstatus_to_exitcode(status)
+            returncode = os.waitstatus_to_exitcode(status)
             elapsed = time.perf_counter() - started
-            message = error_path.read_text(errors="replace")[-2000:] if process.returncode else ""
+            stderr = error_path.read_text(errors="replace")
+            message = stderr[-2000:] if returncode else ""
         finally:
             slots.put(slot)
-        rss = usage.ru_maxrss * (1 if sys.platform == "darwin" else 1024)
-        return relative, elapsed, process.returncode, rss, message
+        if not wrapped:
+            return relative, elapsed, returncode, usage.ru_maxrss, message
+        report = TimeReport.parse(stderr)
+        return relative, report.wall_s or elapsed, returncode, report.max_rss_bytes or 0, message
 
     # -- run -----------------------------------------------------------------
 
@@ -1668,7 +1944,9 @@ class BudgetBench:
             "cpu_count": os.cpu_count(),
             "python": sys.version,
             "cc": (output(CC, "--version") or "").split("\n")[0],
-            "time_tool": shlex.join(TimeReport.command()) if TimeReport.available() else None,
+            "time_tool": TimeReport.collector(),
+            "instruction_counter": TimeReport.instruction_counter(),
+            "host_summary": HostSummary.describe(),
             "environment": {
                 name: os.environ[name]
                 for name in (

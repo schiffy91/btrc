@@ -795,6 +795,13 @@ def test_a_failed_or_dry_bench_run_is_never_accepted():
     dry = _schema_two_report(dry_run=True)
     evidence = {r.subject.id: r for r in _bench_records(budgets, dry, explicit=host)}["edit-navigation"].evidence
     assert (evidence.status, evidence.reason) == (EvidenceStatus.IMPLEMENTED_UNVERIFIED, "a dry run")
+    stand_in = _schema_two_report()
+    stand_in["configuration"] = {**stand_in["configuration"], "stand_in": True}
+    evidence = {r.subject.id: r for r in _bench_records(budgets, stand_in, explicit=host)}["edit-navigation"].evidence
+    assert (evidence.status, evidence.reason) == (
+        EvidenceStatus.IMPLEMENTED_UNVERIFIED,
+        "a stand-in workspace, not BTRSmith",
+    )
 
     adapter = BudgetBenchAdapter(Provenance())
     with pytest.raises(LedgerSchemaError, match="schema: 3 is not 2"):
