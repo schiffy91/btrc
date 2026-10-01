@@ -9,7 +9,8 @@ class ProcessThreadsProvider {
 		int count = 0;
 		struct dirent* entry = readdir(tasks);
 		while (entry != null) {
-			if (entry->d_name[0] != '.') { count = count + 1; }
+			char* name = (char*)entry->d_name;
+			if (name[0] != '.') { count = count + 1; }
 			entry = readdir(tasks);
 		}
 		closedir(tasks);

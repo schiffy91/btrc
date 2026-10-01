@@ -95,7 +95,7 @@ class GeneratedHostedAbiData {
 	public GeneratedHostedAbiData() {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "689d613b4d34a1be8208db4e4f03e4c435dbf631aaeecb4ac037e74b90a9a9de";
+		self.fingerprint = "4a248ebe74d14ddf523ecdc1c7db1d2611aca0da7943685a839dd0f7fc1fb0c0";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -9096,6 +9096,7 @@ class GeneratedHostedAbiData {
 		values.push("powl");
 		values.push("pread");
 		values.push("printf");
+		values.push("proc_pidinfo");
 		values.push("profil");
 		values.push("pselect");
 		values.push("psiginfo");
@@ -9219,10 +9220,10 @@ class GeneratedHostedAbiData {
 		values.push("pwrite");
 		values.push("qecvt");
 		values.push("qecvt_r");
-		values.push("qfcvt");
 	}
 
 	private void pushFunctionNames3(Vector<string> values) {
+		values.push("qfcvt");
 		values.push("qfcvt_r");
 		values.push("qgcvt");
 		values.push("qsort");
@@ -9472,10 +9473,10 @@ class GeneratedHostedAbiData {
 		values.push("tanl");
 		values.push("tcdrain");
 		values.push("tcflow");
-		values.push("tcflush");
 	}
 
 	private void pushFunctionNames4(Vector<string> values) {
+		values.push("tcflush");
 		values.push("tcgetattr");
 		values.push("tcgetpgrp");
 		values.push("tcgetsid");
@@ -15636,17 +15637,19 @@ class GeneratedHostedAbiData {
 		values.push("powl");
 		values.push("pread");
 		values.push("printf");
+		values.push("proc_pidinfo");
 		values.push("proc_rlimit_control_wakeupmon");
+		values.push("proc_taskinfo");
 		values.push("profil");
 		values.push("pselect");
 		values.push("pseudo_AF_HDRCMPLT");
 		values.push("pseudo_AF_KEY");
 		values.push("pseudo_AF_PIP");
-		values.push("pseudo_AF_RTIP");
-		values.push("pseudo_AF_XTP");
 	}
 
 	private void pushOwnedNames13(Vector<string> values) {
+		values.push("pseudo_AF_RTIP");
+		values.push("pseudo_AF_XTP");
 		values.push("psiginfo");
 		values.push("psignal");
 		values.push("psort");
@@ -15895,11 +15898,11 @@ class GeneratedHostedAbiData {
 		values.push("scalbn");
 		values.push("scalbnf");
 		values.push("scalbnl");
-		values.push("scandir");
-		values.push("scandir_b");
 	}
 
 	private void pushOwnedNames14(Vector<string> values) {
+		values.push("scandir");
+		values.push("scandir_b");
 		values.push("scandirat");
 		values.push("scandirat_b");
 		values.push("scanf");
@@ -16148,11 +16151,11 @@ class GeneratedHostedAbiData {
 		values.push("tcdrain");
 		values.push("tcflag_t");
 		values.push("tcflow");
-		values.push("tcflush");
-		values.push("tcgetattr");
 	}
 
 	private void pushOwnedNames15(Vector<string> values) {
+		values.push("tcflush");
+		values.push("tcgetattr");
 		values.push("tcgetpgrp");
 		values.push("tcgetsid");
 		values.push("tcsendbreak");

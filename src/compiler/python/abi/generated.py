@@ -6801,6 +6801,7 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     'powl',
     'pread',
     'printf',
+    'proc_pidinfo',
     'profil',
     'pselect',
     'psiginfo',
@@ -9992,6 +9993,7 @@ HOSTED_TYPE_NAMES: tuple[str, ...] = (
     'pid_t',
     'pollfd',
     'proc_rlimit_control_wakeupmon',
+    'proc_taskinfo',
     'pthread_attr_t',
     'pthread_barrier_t',
     'pthread_barrierattr_t',
@@ -13575,7 +13577,9 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     'powl',
     'pread',
     'printf',
+    'proc_pidinfo',
     'proc_rlimit_control_wakeupmon',
+    'proc_taskinfo',
     'profil',
     'pselect',
     'pseudo_AF_HDRCMPLT',
@@ -14668,6 +14672,7 @@ HOSTED_PLATFORM_FUNCTION_NAMES: tuple[str, ...] = (
     'posix_memalign',
     'posix_openpt',
     'pread',
+    'proc_pidinfo',
     'profil',
     'pselect',
     'psiginfo',
@@ -17353,6 +17358,7 @@ HOSTED_PLATFORM_TYPE_NAMES: tuple[str, ...] = (
     'pid_t',
     'pollfd',
     'proc_rlimit_control_wakeupmon',
+    'proc_taskinfo',
     'qaddr_t',
     'quad_t',
     'radvisory',
@@ -17569,4 +17575,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '689d613b4d34a1be8208db4e4f03e4c435dbf631aaeecb4ac037e74b90a9a9de'
+HOSTED_ABI_FINGERPRINT = '4a248ebe74d14ddf523ecdc1c7db1d2611aca0da7943685a839dd0f7fc1fb0c0'

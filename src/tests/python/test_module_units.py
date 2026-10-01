@@ -980,11 +980,13 @@ def test_inline_and_incremental_builds_print_no_worker_timing(compiler: str, tmp
     assert "usage=" not in inline.stderr
     cache = workspace.root / "cache"
     _timed_cli_build(command, workspace, workspace.root / "cold", 2, cache=cache)
+    # Timing keeps the artifact cache on in both compilers, so a no-op
+    # rebuild of the same outputs is a hit, and both mark it.
+    again = _timed_cli_build(command, workspace, workspace.root / "cold", 2, cache=cache)
+    assert len(again.owner) == 1 and not again.workers
+    assert re.search(r"\bartifact-hit=\d+us", again.owner[0]), again.owner[0]
     warm = _timed_cli_build(command, workspace, workspace.root / "warm", 2, cache=cache)
     assert len(warm.owner) == 1 and not warm.workers
-    # Timing keeps the artifact cache on in both compilers, so the no-op
-    # rebuild is a hit, and both mark it.
-    assert re.search(r"\bartifact-hit=\d+us", warm.owner[0]), warm.owner[0]
     workspace.edit("Catalog/Catalog.btrc", 'print(f"catalog skipped {error}");', 'print(f"catalog skip: {error}");')
     edited = _timed_cli_build(command, workspace, workspace.root / "edited", 2, cache=cache)
     assert len(edited.owner) == 1 and not edited.workers
