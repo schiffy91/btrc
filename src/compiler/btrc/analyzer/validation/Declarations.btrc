@@ -661,8 +661,9 @@ class DeclarationValidator {
 			} else if (sawDefault) {
 				TypeValidator.fail("Non-default parameter '" + parameter.name + "' follows default parameter", parameter);
 			}
-			if (parameterValueType != null) {
-				vars.put(parameter.name, parameterValueType);
+			Node? bindingType = self.storage.parameterBindingType(parameter.type);
+			if (bindingType != null) {
+				vars.put(parameter.name, bindingType);
 			}
 			index = index + 1;
 		}

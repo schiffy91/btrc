@@ -510,6 +510,17 @@ class StorageValidator {
 		return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(canonical));
 	}
 
+	/* The type a parameter name is bound to inside its body.  A @gpu body
+	 * addresses a parameter spelled with an array declarator as its whole
+	 * buffer, so that binding keeps the declarator; `return xs;` from an
+	 * array-returning kernel then names the buffer, not a decayed pointer.
+	 * Every other parameter, including an array reached only through an
+	 * alias, binds as the value its C ABI receives. */
+	public Node? parameterBindingType(Node? typeExpr) {
+		if (self.state.gpuCallable && typeExpr != null && typeExpr.isArray) { return typeExpr; }
+		return self.arrayParameterValueType(typeExpr);
+	}
+
 	public Node? arrayTargetMember(Node? expression, Map<string, Node> vars) {
 		if (expression == null || expression.kind != NK_FIELD_ACCESS_EXPR || expression.optional || expression.obj == null) {
 			return null;

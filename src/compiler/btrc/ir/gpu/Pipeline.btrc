@@ -545,9 +545,16 @@ class GpuPipeline {
 				self.reject(plan.statement, "array-returning GPU invocation must return an element value");
 			}
 			Node value = plan.value;
-			Node? valueType = self.semantics.contextualExprType(
-				value, {});
-			if (valueType != null && valueType.isArray && value.kind == NK_IDENTIFIER && self.hasCpuArrayLength(value.name)) {
+			/* The worker's own bindings type the value: a returned array
+			 * parameter is the whole buffer and yields this item's element. */
+			Node? valueType = self.semantics.contextualExprType(value, variableTypes);
+			if (valueType != null && valueType.isArray) {
+				if (value.kind != NK_IDENTIFIER) {
+					self.reject(plan.statement, "whole-array @gpu return must name a source buffer");
+				}
+				if (!self.hasCpuArrayLength(value.name)) {
+					self.reject(plan.statement, "whole-array @gpu return '" + value.name + "' has no source length");
+				}
 				Vector<IRNode> checked = [];
 				checked.push(IRNode.variable(self.cpuIndexName()));
 				checked.push(IRNode.variable(self.cpuArrayLength(value.name)));
