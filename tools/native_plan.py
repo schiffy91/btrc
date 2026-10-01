@@ -273,6 +273,8 @@ class NativePlanReader:
         except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
             raise NativePlanError(f"cannot parse native link plan {path}: {error}") from error
         schema = payload.get("schema") if isinstance(payload, dict) else None
+        if isinstance(payload, dict) and (type(schema) is not int or schema not in (1, 2, 4)):
+            raise NativePlanError("native link plan schema must be integer 1, 2 or 4")
         fields = ROOT_FIELDS
         if schema == 2:
             fields = ROOT_FIELDS | {"generated-units"}

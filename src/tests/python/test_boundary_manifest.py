@@ -110,7 +110,7 @@ def test_manifest_rejects_unknown_keys_and_missing_capability_channels(tmp_path:
             unknown_root="unknown = true",
         ),
     )
-    with pytest.raises(CompilerVerificationError, match="unknown unknown"):
+    with pytest.raises(CompilerVerificationError, match="unknown boundary manifest keys: unknown"):
         BoundaryManifest.load(unknown)
 
     missing = _write_manifest(
