@@ -22,6 +22,14 @@ LIBS = ["-lm", "-lpthread"]
 TIME = Path("/usr/bin/time")
 FOOTPRINT = re.compile(r"(\d+)\s+peak memory footprint")
 TIMING_VARIABLES = ("BTRC_TIMING", "BTRCC_TIMING")
+# Runs argv[1:] with standard output discarded and prints the child's own
+# maximum resident set and exit code. measure_peak spawns workloads through it.
+MAXRSS_REPORTER = (
+    "import os, subprocess, sys\n"
+    "child = subprocess.Popen(sys.argv[1:], stdout=subprocess.DEVNULL)\n"
+    "_, status, usage = os.wait4(child.pid, 0)\n"
+    "print(usage.ru_maxrss, os.waitstatus_to_exitcode(status))\n"
+)
 
 
 @dataclass(frozen=True)
@@ -105,7 +113,11 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
     On macOS it is the peak footprint `/usr/bin/time -l` reports, the number the
     M11 budget is written in. Elsewhere it is the child's own maximum resident
     set from wait4 (KiB on Linux), which a reaped sibling cannot inflate the way
-    RUSAGE_CHILDREN's running maximum would. Standard output is discarded.
+    RUSAGE_CHILDREN's running maximum would. The child is spawned by a small
+    reporter process rather than by this one: Linux folds the address space a
+    process execs from into its maximum resident set, and a forked or vforked
+    child execs from its parent's, so a child of a 180 MiB pytest worker would
+    report at least 180 MiB. Standard output is discarded.
     """
 
     if peak_counter() == "footprint":
@@ -125,14 +137,21 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
             raise RuntimeError(f"{TIME} -l reported no peak memory footprint:\n{completed.stderr[-2000:]}")
         return Peak(int(found.group(1)), "footprint")
     with tempfile.TemporaryFile() as errors:
-        process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.DEVNULL, stderr=errors)
-        _, status, usage = os.wait4(process.pid, 0)
-        process.returncode = os.waitstatus_to_exitcode(status)
-        if process.returncode != 0:
+        reporter = subprocess.run(
+            [sys.executable, "-c", MAXRSS_REPORTER, *command],
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            text=True,
+        )
+        fields = reporter.stdout.split()
+        returncode = int(fields[1]) if reporter.returncode == 0 and len(fields) == 2 else reporter.returncode
+        if returncode != 0:
             errors.seek(0)
             detail = errors.read().decode(errors="replace")[-2000:]
-            raise RuntimeError(f"{' '.join(command)} failed ({process.returncode}):\n{detail}")
-    return Peak(usage.ru_maxrss * (1 if sys.platform == "darwin" else 1024), "maxrss")
+            raise RuntimeError(f"{' '.join(command)} failed ({returncode}):\n{detail}")
+    return Peak(int(fields[0]) * (1 if sys.platform == "darwin" else 1024), "maxrss")
 
 
 def peak_counter() -> str:
