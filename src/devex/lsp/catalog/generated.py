@@ -332,7 +332,6 @@ VECTOR_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("max", "T", "method", (), "max"),
     BuiltinMemberSpec("sum", "T", "method", (), "sum"),
     BuiltinMemberSpec("join", "string", "method", (("string", "sep"),), "join"),
-    BuiltinMemberSpec("joinToString", "string", "method", (("string", "sep"),), "joinToString"),
     BuiltinMemberSpec("filter", "Vector<T>", "method", (("__fn_ptr<bool, T>", "pred"),), "filter"),
     BuiltinMemberSpec("findIndex", "int", "method", (("__fn_ptr<bool, T>", "pred"),), "findIndex"),
     BuiltinMemberSpec("forEach", "void", "method", (("__fn_ptr<void, T>", "fn"),), "forEach"),
@@ -395,7 +394,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),
         BuiltinMemberSpec("fatal", "void", "method", (("string", "msg"),), "fatal"),
         BuiltinMemberSpec("write", "void", "method", (("string", "msg"),), "write"),
-        BuiltinMemberSpec("writeLine", "void", "method", (("string", "msg"),), "writeLine"),
     )),
     ("DaemonControlRecord", (
         BuiltinMemberSpec("validToken", "bool", "method", (("string", "token"),), "validToken"),
@@ -916,9 +914,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"),), "run"),
     )),
     ("Regex", (
-        BuiltinMemberSpec("checkedLength", "int", "method", (("string", "text"),), "checkedLength"),
         BuiltinMemberSpec("capacityFor", "int", "method", (("int", "current"), ("long long", "required"),), "capacityFor"),
-        BuiltinMemberSpec("slice", "string", "method", (("string", "text"), ("int", "so"), ("int", "eo"),), "slice"),
         BuiltinMemberSpec("warn", "void", "method", (("string", "pattern"),), "warn"),
         BuiltinMemberSpec("matches", "bool", "method", (("string", "pattern"), ("string", "text"),), "matches"),
         BuiltinMemberSpec("fullMatch", "bool", "method", (("string", "pattern"), ("string", "text"),), "fullMatch"),

@@ -1178,7 +1178,7 @@ nums.free();
 Also available: `.insert()`, `.remove()`, `.removeAt()`, `.removeAll()`,
 `.indexOf()`, `.lastIndexOf()`, `.swap()`, `.fill()`, `.clear()`, `.first()`,
 `.last()`, `.min()`, `.max()`, `.count()`, `.distinct()`, `.take()`, `.drop()`,
-`.copy()`, `.extend()`, `.all()`, `.findIndex()`, `.join()`, `.joinToString()`,
+`.copy()`, `.extend()`, `.all()`, `.findIndex()`, `.join()`,
 `.map()`, `.sorted()`, `.sortBy()`, `.sortedBy()`, `.reversed()`.
 
 #### List (doubly-linked list)
@@ -1756,11 +1756,6 @@ if (r.isErr()) {
 `isErr()`, `unwrap()`, and `unwrapErr()` read it, and the unwrap methods throw
 when used on the wrong case.
 
-#### Error Classes
-
-Import `Library.Error` to use `Error`, `ValueError`, `IOError`, `TypeError`,
-`IndexError`, and `KeyError`; each provides `.toString()`.
-
 #### Data, text, and processes
 
 - `Library.JSON` -- `JSONObject`, `JSONValue`, `JSONParser`, with compact, pretty, and canonical serialization
@@ -1938,7 +1933,7 @@ src/
     Strings.btrc Bytes.btrc Math.btrc Random.btrc Datetime.btrc
     JSON.btrc JSONX.btrc TOML.btrc Regex.btrc Pattern.btrc BitPattern.btrc
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
-    Result.btrc Error.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
+    Result.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
     App/ Audio/ BackgroundJobs/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
     Graph/ HTTP/ Image/ LocalApplicationChannel/ Realtime/ Terminal/ Tray/ UI/
     Windows/                   # POSIX header overlays for the MinGW toolchain

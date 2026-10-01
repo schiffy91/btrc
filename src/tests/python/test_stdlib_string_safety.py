@@ -38,7 +38,7 @@ int main() {
     assert(Strings.checkedLength(missing) == 0);
     string repeated = "ignored".repeat(0);
     assert(strcmp(repeated, "") == 0);
-    Console.writeLine(missing);
+    Console.log(missing);
     return 0;
 }
 """

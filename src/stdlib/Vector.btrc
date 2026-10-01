@@ -432,8 +432,6 @@ class Vector<T> implements Iterable {
 		return __btrc_str_track(result);
 	}
 
-	public string joinToString(string sep) { return self.join(sep); }
-
 	/* Higher-order methods — use __fn_ptr<RetType, ParamTypes...> for
      * function pointer parameters (lambdas compile to static functions). */
 

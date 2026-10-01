@@ -20,6 +20,4 @@ class Console {
 	}
 
 	class void write(string msg) { printf("%s", __btrc_string_or_empty(msg)); }
-
-	class void writeLine(string msg) { printf("%s\n", __btrc_string_or_empty(msg)); }
 }
