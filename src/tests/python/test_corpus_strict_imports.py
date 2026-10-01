@@ -30,9 +30,6 @@ STDLIB_GLOB_EXCLUSIONS = {
 # consumer trees.
 SUPPORTING_CONSUMERS = frozenset(
     {
-        "src/compiler/btrc/tools/ast/DumpMain.btrc",
-        "src/compiler/btrc/tools/ast/GenerateMain.btrc",
-        "src/compiler/btrc/tools/ast/Schema.btrc",
         "src/compiler/btrc/generated/ast/Node.btrc",
         "src/compiler/btrc/syntax/Grammar.btrc",
         "src/compiler/btrc/frontend/SourceIo.btrc",

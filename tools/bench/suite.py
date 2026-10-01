@@ -220,7 +220,7 @@ class Suite:
     def environment(self) -> dict[str, str]:
         env = dict(os.environ)
         env["BTRC_HOME"] = str(REPO / "src")
-        env["BTRCC_TIMING"] = "1"
+        env["BTRC_TIMING"] = "1"
         return env
 
     def peak_environment(self) -> dict[str, str]:

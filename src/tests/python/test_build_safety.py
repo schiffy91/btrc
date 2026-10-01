@@ -252,13 +252,12 @@ def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
     assert "tools.compiler_codegen.main check" in linux + windows
 
 
-def test_explicit_ast_generation_targets_force_regeneration():
-    python_output = _make_dry_run("ast-generate", "NIX=")
-    btrc_output = _make_dry_run("ast-generate-btrc", "NIX=")
+def test_explicit_generation_target_forces_regeneration_without_aliases():
+    output = _make_dry_run("compiler-codegen-generate", "NIX=")
 
-    generator = "python3 -m tools.compiler_codegen.main generate"
-    assert generator in python_output
-    assert generator in btrc_output
+    assert "python3 -m tools.compiler_codegen.main generate" in output
+    # One target regenerates every catalog; the per-AST aliases were removed.
+    assert "\nast-generate" not in MAKEFILE.read_text()
 
 
 def test_clean_covers_generated_and_runtime_build_directories():

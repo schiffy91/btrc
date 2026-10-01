@@ -111,9 +111,6 @@ EXPECTED_BTRC_FILES = frozenset(
     syntax/Literals.btrc
     syntax/Tokens.btrc
     syntax/Types.btrc
-    tools/ast/DumpMain.btrc
-    tools/ast/GenerateMain.btrc
-    tools/ast/Schema.btrc
     tools/FrontendMain.btrc
     tools/LexMain.btrc
     tools/ParseMain.btrc
@@ -139,8 +136,6 @@ PUBLIC_ENTRY_POINTS = frozenset(
         "tools/FrontendMain.btrc",
         "tools/LexMain.btrc",
         "tools/ParseMain.btrc",
-        "tools/ast/DumpMain.btrc",
-        "tools/ast/GenerateMain.btrc",
     }
 )
 
@@ -494,7 +489,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 100
+    assert len(actual) == 97
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"BtrccMain.btrc", "Compiler.btrc"}
 
 

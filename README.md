@@ -583,7 +583,7 @@ outputs on POSIX, spans live under `$BTRC_CACHE_DIR/selfhost-directives-v1` or
 ./bin/btrcpy --target linux-x86_64 --emit-link-plan plan.json App.btrc -o app.c
 ```
 
-`BTRCC_TIMING=1` prints the same kind of per-phase breakdown for the
+`BTRC_TIMING=1` prints the same kind of per-phase breakdown for the
 self-hosted compiler. See [the precompiled-stdlib design](docs/design/precompiled-stdlib.md)
 for the archive layout and cross-translation-unit ownership contract. Run
 `./bin/btrcpy --help` for the complete current option list.
@@ -1811,7 +1811,7 @@ structured IR separates lowering from emission.
     gcc/clang     --> native binary      any C11 compiler works
 ```
 
-Both compilers print identical diagnostics, and `--profile` (or `BTRCC_TIMING=1`
+Both compilers print identical diagnostics, and `--profile` (or `BTRC_TIMING=1`
 for `btrcc`) reports per-phase timings. A one-line program compiles in roughly
 10 ms of measured phases on an Apple M-series machine, about 14 ms wall
 including process start.
@@ -1850,7 +1850,7 @@ mode. The compiler is bootstrapped by transpiling its own source with the
 reference compiler (a C compiler does the rest); from then on `btrcc` compiles
 btrc programs on its own.
 
-Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The checked-in Python and btrc AST layers are generated from the same [`ast.asdl`](src/language/ast.asdl) contract by the unified [`AstCatalogGenerator`](tools/compiler_codegen/ast.py); `make ast-generate` delegates to that canonical generator. The self-hosted AST tooling consumes the same schema and is verified against that generated contract.
+Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The checked-in Python and btrc AST layers are generated from the same [`ast.asdl`](src/language/ast.asdl) contract by the unified [`AstCatalogGenerator`](tools/compiler_codegen/ast.py); `make compiler-codegen-generate` regenerates both, and `make compiler-codegen-check` fails on any drift.
 
 The self-hosted compiler is held to a strict bar: across the entire language test suite, the C it emits must compile under `gcc -std=c11` (and `clang`) **and** produce byte-identical program output to the reference compiler. It also reaches a **bootstrap fixed point** -- the self-built `btrcc` compiles its own source, and that output, recompiled, is byte-identical (the compiler reproduces itself bit-for-bit). Run the bootstrap-parity suite and the fixed-point check with:
 
@@ -2035,7 +2035,6 @@ make format-check           # Check Python and BTRC formatting (CI)
 make format-btrc            # Format canonical BTRC source, preserving intentional fixtures
 make test-generate-goldens  # Regenerate golden .stdout files
 make compiler-codegen-generate # Regenerate compiler/devex data from shared specs
-make ast-generate           # Regenerate both AST catalogs through the unified owner
 make extension              # Package VS Code extension (.vsix)
 make extension-install      # Install VS Code extension (dev)
 make examples               # Build and run the example set (callback, realtime-primitives,

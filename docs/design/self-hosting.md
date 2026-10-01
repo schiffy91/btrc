@@ -97,7 +97,7 @@ generation; the emitter only formats structured IR.
 
 `src/compiler/btrc/generated/ast/Node.btrc` is generated from
 `src/language/ast.asdl` by `tools/compiler_codegen/ast.py`.
-`make ast-generate-btrc` regenerates and validates it. Never edit the generated
+`make compiler-codegen-generate` regenerates and validates it. Never edit the generated
 node file directly.
 
 ## Shared runtime contract

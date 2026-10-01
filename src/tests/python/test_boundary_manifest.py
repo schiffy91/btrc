@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shlex
 import subprocess
-import sys
 import tempfile
 from dataclasses import replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -486,61 +484,19 @@ def test_toolchain_observation_and_behavior_commands_do_not_leak_absolute_paths(
     assert not any(Path(argument).is_absolute() for argument in commands[0] if "/" in argument)
 
 
-def test_bootstrap_producer_is_structurally_modeled_without_large_artifacts(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = "build/verification/boundary-bootstrap-model"
+def test_manifest_has_no_bootstrap_capability(tmp_path: Path) -> None:
+    """make bootstrap owns the fixed point; the boundary manifest never captured it."""
+    root = "build/verification/boundary-bootstrap"
     _write_sources(tmp_path, root)
-    manifest = BoundaryManifest.load(
-        _write_manifest(
-            tmp_path,
-            root,
-            _manifest_text(
-                root,
-                [("surface.python.tokens.artifact", "artifact", ZERO_DIGEST)],
-                channels=("artifact",),
-            ),
-        )
+    text = _manifest_text(root, [("surface.python.tokens.artifact", "artifact", ZERO_DIGEST)], channels=("artifact",))
+    text = text.replace(
+        'compiler = "python"\nboundary = "tokens"\nportability',
+        'compiler = "bootstrap"\nboundary = "tokens"\nportability',
+        1,
     )
-    session = _BoundaryCaptureSession(manifest, tmp_path, tmp_path)
-    monkeypatch.setenv("BTRC_CC", shlex.quote(sys.executable))
-    stage = b"fixed point C bytes\n"
 
-    def fake_run(command, *, timeout=300):
-        if "--version" in command:
-            return subprocess.CompletedProcess(command, 0, b"test compiler\n", b"")
-        if "src.compiler.python.main" in command:
-            output = tmp_path.joinpath(*PurePosixPath(command[command.index("-o") + 1]).parts)
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(b"stage one")
-            return subprocess.CompletedProcess(command, 0, b"", b"")
-        if command[0].endswith("btrcc1") or command[0].endswith("btrcc2"):
-            return subprocess.CompletedProcess(command, 0, stage, b"")
-        return subprocess.CompletedProcess(command, 0, b"", b"")
-
-    monkeypatch.setattr(session, "_run", fake_run)
-    capability = BoundaryCapability(
-        id="bootstrap.fixed-point",
-        compiler="bootstrap",
-        boundary="bootstrap-fixed-point",
-        portability="observed",
-        channels=(
-            "observation",
-            "stage1-status",
-            "stage1-compile-status",
-            "stage2-status",
-            "stage2-compile-status",
-            "stage3-status",
-            "fixed-point-status",
-            "stage2-sha256",
-            "stage3-sha256",
-        ),
-    )
-    channels = session._bootstrap_boundary(capability)
-    assert channels["fixed-point-status"] == b"0\n"
-    assert channels["stage2-sha256"] == channels["stage3-sha256"]
-    assert not any(channel.endswith("artifact") for channel in channels)
+    with pytest.raises(CompilerVerificationError, match=r"unsupported boundary compiler .*: bootstrap"):
+        BoundaryManifest.load(_write_manifest(tmp_path, root, text))
 
 
 def test_runtime_snapshot_reader_preserves_pinned_v1_rows(tmp_path: Path) -> None:

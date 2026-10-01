@@ -1,5 +1,5 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
-        btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required ast-generate ast-generate-btrc \
+        btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         skip-gate qualification-report \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
@@ -221,11 +221,6 @@ gpu-required: gpu ## Require the compiler's WebGPU compute runtime
 			exit 1; \
 		}; \
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_async\\.o$$"'
-
-
-ast-generate: compiler-codegen-generate ## Regenerate both AST catalogs through the unified owner
-
-ast-generate-btrc: compiler-codegen-generate ## Regenerate both AST catalogs through the unified owner
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 

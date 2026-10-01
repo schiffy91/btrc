@@ -19,14 +19,14 @@ def test_python_ast_matches_fresh_generation():
 
     assert _artifacts()[_PYTHON_AST] == (_REPO_ROOT / _PYTHON_AST).read_bytes(), (
         "syntax/ast/generated.py is out of sync with the unified AST catalog. "
-        "Regenerate it with `make ast-generate` (do not hand-edit)."
+        "Regenerate it with `make compiler-codegen-generate` (do not hand-edit)."
     )
 
 
 def test_btrc_ast_matches_fresh_generation():
     assert _artifacts()[_BTRC_AST] == (_REPO_ROOT / _BTRC_AST).read_bytes(), (
         "btrc generated/ast/Node.btrc is out of sync with the unified AST catalog. "
-        "Regenerate it with `make ast-generate-btrc` (do not hand-edit)."
+        "Regenerate it with `make compiler-codegen-generate` (do not hand-edit)."
     )
 
 

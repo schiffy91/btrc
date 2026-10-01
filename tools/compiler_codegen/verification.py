@@ -107,7 +107,7 @@ class BoundarySourceFile:
 
 @dataclass(frozen=True, slots=True)
 class BoundaryFixture:
-    """One source, runtime, or bootstrap boundary fixture."""
+    """One source or runtime boundary fixture."""
 
     id: str
     kind: str
@@ -278,7 +278,7 @@ class BoundaryManifest:
     )
     _RECORD_ACCEPTED_KEYS = frozenset({"accepted_path", "accepted_sha256", "reason", "regressions"})
     _EQUALITY_KEYS = frozenset({"id", "left", "right"})
-    _COMPILERS = frozenset({"python", "btrc", "shared", "bootstrap"})
+    _COMPILERS = frozenset({"python", "btrc", "shared"})
     _BOUNDARIES = frozenset(
         {
             "tokens",
@@ -292,10 +292,9 @@ class BoundaryManifest:
             "runtime-helper-order",
             "behavior-gcc",
             "behavior-clang",
-            "bootstrap-fixed-point",
         }
     )
-    _KINDS = frozenset({"source", "runtime", "bootstrap"})
+    _KINDS = frozenset({"source", "runtime"})
     _PORTABILITY = frozenset({"portable", "observed"})
     _IDENTIFIER = re.compile(r"[a-z0-9][a-z0-9._-]*\Z")
     _CHANNEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
@@ -381,7 +380,7 @@ class BoundaryManifest:
             has_observation = "observation" in channels
             if has_observation != (portability == "observed"):
                 raise CompilerVerificationError(f"{context} observed capabilities alone require an observation channel")
-            requires_observation = boundary in {"behavior-gcc", "behavior-clang", "bootstrap-fixed-point"}
+            requires_observation = boundary in {"behavior-gcc", "behavior-clang"}
             if requires_observation != (portability == "observed"):
                 raise CompilerVerificationError(f"{context} executable capabilities must be observed")
             capabilities.append(
@@ -418,13 +417,11 @@ class BoundaryManifest:
                 "behavior-gcc",
                 "behavior-clang",
             }
-        if compiler == "shared":
-            return boundary in {
-                "runtime-helper-source",
-                "runtime-helper-metadata",
-                "runtime-helper-order",
-            }
-        return compiler == "bootstrap" and boundary == "bootstrap-fixed-point"
+        return compiler == "shared" and boundary in {
+            "runtime-helper-source",
+            "runtime-helper-metadata",
+            "runtime-helper-order",
+        }
 
     @classmethod
     def _fixtures(
@@ -481,8 +478,6 @@ class BoundaryManifest:
     def _capability_kind(capability: BoundaryCapability) -> str:
         if capability.compiler == "shared":
             return "runtime"
-        if capability.compiler == "bootstrap":
-            return "bootstrap"
         return "source"
 
     @classmethod
@@ -1127,8 +1122,6 @@ class _BoundaryCaptureSession:
             "behavior-clang",
         }:
             return self._behavior_boundary(fixture, capability)
-        if capability.compiler == "bootstrap" and capability.boundary == "bootstrap-fixed-point":
-            return self._bootstrap_boundary(capability)
         raise CompilerVerificationError(
             f"candidate capture does not implement declared capability {capability.id} "
             f"({capability.compiler}/{capability.boundary})"
@@ -1486,18 +1479,6 @@ class _BoundaryCaptureSession:
     def _capability_observation(self, capability: BoundaryCapability) -> bytes:
         if capability.boundary in {"behavior-gcc", "behavior-clang"}:
             return self._behavior_observation(capability)[4]
-        if capability.boundary == "bootstrap-fixed-point":
-            compiler_command = self._environment_command("BTRC_CC", os.environ.get("CC", "cc"))
-            resolved = shutil.which(compiler_command[0]) if compiler_command else None
-            flags = tuple(
-                shlex.split(
-                    os.environ.get(
-                        "BTRC_BOOTSTRAP_CFLAGS",
-                        "-std=c11 -Wall -Wextra -Werror -pedantic -O2",
-                    )
-                )
-            )
-            return self._toolchain_observation(compiler_command, resolved, flags)
         raise CompilerVerificationError(f"capability has no executable observation: {capability.id}")
 
     def _behavior_c_source(self, fixture: BoundaryFixture, compiler: str) -> tuple[bytes | None, int]:
@@ -1517,98 +1498,6 @@ class _BoundaryCaptureSession:
             channels = self._selfhost_boundary(fixture, synthetic)
         status = int(channels["status"].decode("ascii").strip())
         return (channels["artifact"] if status == 0 else None), status
-
-    def _bootstrap_boundary(self, capability: BoundaryCapability) -> dict[str, bytes]:
-        """Capture every stage of a three-generation self-host fixed point."""
-
-        compiler_command = self._environment_command("BTRC_CC", os.environ.get("CC", "cc"))
-        resolved = shutil.which(compiler_command[0]) if compiler_command else None
-        flags = tuple(
-            shlex.split(
-                os.environ.get(
-                    "BTRC_BOOTSTRAP_CFLAGS",
-                    "-std=c11 -Wall -Wextra -Werror -pedantic -O2",
-                )
-            )
-        )
-        observation = self._toolchain_observation(compiler_command, resolved, flags)
-        statuses = {
-            "stage1-status": -1,
-            "stage1-compile-status": -1,
-            "stage2-status": -1,
-            "stage2-compile-status": -1,
-            "stage3-status": -1,
-            "fixed-point-status": -1,
-        }
-        stage2 = b""
-        stage3 = b""
-        if resolved is not None:
-            root = self.workspace_relative / "bootstrap"
-            target_root = self.execution_repository.joinpath(*root.parts)
-            target_root.mkdir(parents=True, exist_ok=True)
-            compiler_source = "src/compiler/btrc/BtrccMain.btrc"
-            c1 = root / "btrcc1.c"
-            b1 = root / "btrcc1"
-            c2 = root / "btrcc2.c"
-            b2 = root / "btrcc2"
-            stage1 = self._run(
-                [
-                    sys.executable,
-                    "-m",
-                    "src.compiler.python.main",
-                    compiler_source,
-                    "--strict-imports",
-                    "--no-cache",
-                    "-o",
-                    c1.as_posix(),
-                ],
-                timeout=1200,
-            )
-            statuses["stage1-status"] = stage1.returncode
-            if stage1.returncode == 0 and self.execution_repository.joinpath(*c1.parts).is_file():
-                compiled1 = self._run(
-                    [*compiler_command, *flags, c1.as_posix(), "-o", b1.as_posix(), "-lm", "-lpthread"],
-                    timeout=1200,
-                )
-                statuses["stage1-compile-status"] = compiled1.returncode
-                if compiled1.returncode == 0:
-                    generated2 = self._run(
-                        [b1.as_posix(), "--strict-imports", compiler_source],
-                        timeout=1200,
-                    )
-                    statuses["stage2-status"] = generated2.returncode
-                    if generated2.returncode == 0:
-                        stage2 = generated2.stdout
-                        self.execution_repository.joinpath(*c2.parts).write_bytes(stage2)
-                        compiled2 = self._run(
-                            [
-                                *compiler_command,
-                                *flags,
-                                c2.as_posix(),
-                                "-o",
-                                b2.as_posix(),
-                                "-lm",
-                                "-lpthread",
-                            ],
-                            timeout=1200,
-                        )
-                        statuses["stage2-compile-status"] = compiled2.returncode
-                        if compiled2.returncode == 0:
-                            generated3 = self._run(
-                                [b2.as_posix(), "--strict-imports", compiler_source],
-                                timeout=1200,
-                            )
-                            statuses["stage3-status"] = generated3.returncode
-                            if generated3.returncode == 0:
-                                stage3 = generated3.stdout
-                                statuses["fixed-point-status"] = int(stage2 != stage3)
-        available = {
-            "observation": observation,
-            "stage2-sha256": (hashlib.sha256(stage2).hexdigest() + "\n").encode("ascii") if stage2 else b"",
-            "stage3-sha256": (hashlib.sha256(stage3).hexdigest() + "\n").encode("ascii") if stage3 else b"",
-        }
-        available.update({channel: self._status_bytes(status) for channel, status in statuses.items()})
-        return self._select_channels(capability, available)
 
     def _stage_fixture(self, fixture: BoundaryFixture) -> str:
         if fixture.kind != "source" or fixture.entry is None:
