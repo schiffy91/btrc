@@ -877,7 +877,7 @@ class CoreAudioHardwareInventory {
 
 /* Owns setup before publication and resources after session close. A provider
  * retains failed setup until every native borrower and rollback is finished. */
-class CoreAudioSessionResources implements AudioSessionBackend {
+class CoreAudioSessionResources implements IAudioSessionBackend {
 	private CoreAudioDeviceConfiguration? _input;
 	private CoreAudioDeviceConfiguration? _output;
 	private CoreAudioAggregateDevice? _aggregate;
@@ -986,7 +986,7 @@ typedef AudioDeviceProviderOpenOutcome CoreAudioDeviceProviderOpenOutcome;
 /* CoreAudio's half of PlatformAudioDeviceProvider. Configuring a device moves
  * its nominal rate and buffer size, so a prepared session reports the
  * generation of the inventory refreshed after setup. */
-class CoreAudioPlatform implements AudioDevicePlatform {
+class CoreAudioPlatform implements IAudioDevicePlatform {
 	private CoreAudioHardwareInventory _inventory = CoreAudioHardwareInventory();
 
 	public string name() { return "CoreAudio"; }

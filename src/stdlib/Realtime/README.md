@@ -11,7 +11,7 @@ these modules and widen every importer's visibility to all of them.
 | --- | --- |
 | `Library.Realtime.RealtimeClock` | Immutable frame-rate, speed and clock-mapping values. |
 | `Library.Realtime.RealtimeClipPractice` | Practice configuration, telemetry and captured-input values. |
-| `Library.Realtime.RealtimeClipTransport` | The clip transport contract (`RealtimeClipTransportPort`) and its preallocated implementation. |
+| `Library.Realtime.RealtimeClipTransport` | The clip transport contract (`IRealtimeClipTransport`) and its preallocated implementation. |
 
 ## Threads and barriers
 

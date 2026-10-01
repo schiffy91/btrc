@@ -35,7 +35,7 @@ struct BlockLog { int blocks; int inputBlocks; };
 	for (int index = 0; index < samples; index++) { output.trySet((size_t)index, 0.0f); }
 }
 
-DuplexAudioOpenRequest request(AudioDeviceProvider provider) {
+DuplexAudioOpenRequest request(IAudioDeviceProvider provider) {
 	var inventoried = provider.inventory();
 	assert(inventoried.succeeded());
 	var inventory = inventoried.inventory();
@@ -123,7 +123,7 @@ void retriedClose() {
 }
 
 /* Opens the default duplex session and starts it. */
-DuplexAudioSession startedSession(AudioDeviceProvider provider, struct BlockLog* state) {
+DuplexAudioSession startedSession(IAudioDeviceProvider provider, struct BlockLog* state) {
 	var session = provider.openDuplex(request(provider), RealtimeAudioProgram(logProcess, state));
 	assert(session.succeeded());
 	var duplex = session.session();

@@ -64,8 +64,11 @@ the API surface, so the layout follows a few fixed rules.
   graph. A group folder therefore never carries its own `btrc.lock`.
   `Windows/` is the toolchain compatibility layer, not a module group.
 - **Interfaces are `I`-prefixed** (`IView`, `IWindow`, `IDirectoryPicker`,
-  `IEncodedImageDecoder`); providers are `<Platform><Capability>`; facades keep
-  the group name. Value types carry no platform prefix.
+  `IEncodedImageDecoder`, `IAudioDeviceProvider`, `IRealtimeClipTransport`);
+  providers are `<Platform><Capability>`; facades keep the group name. Value
+  types carry no platform prefix. The one exemption is the root `Iterable<T>`:
+  it is the language's for-in protocol, named for the loop it enables, not a
+  stdlib capability.
 
 Current groups: `App`, `Audio`, `BackgroundJobs`, `Daemon`, `Digest`,
 `FileSystem`, `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`), `HTTP`, `Image`

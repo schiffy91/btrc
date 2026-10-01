@@ -4,7 +4,7 @@ Portable device discovery/negotiation/lifecycle lives in `AudioDevice.btrc`;
 callback contracts and routing live in `RealtimeAudio.btrc` and
 `RealtimeAudioRouter.btrc`. Import them as `Library.Audio.AudioDevice`, etc.
 
-`MacOS/CoreAudioDevice.btrc` implements `AudioDeviceProvider` using the real
+`MacOS/CoreAudioDevice.btrc` implements `IAudioDeviceProvider` using the real
 CoreAudio SDK declared by `MacOS/Hardware.h`. Select it only at the application
 composition boundary; application policy and processors consume portable types.
 Its native binding/framework requirements are declared in the stdlib manifest.
@@ -12,8 +12,8 @@ Its native binding/framework requirements are declared in the stdlib manifest.
 Both providers share one provider shell in `AudioDevice.btrc`:
 `PlatformAudioDeviceProvider` owns the session lease, the retained failed
 setup and the `openDuplex` sequence, and each platform supplies only an
-`AudioDevicePlatform` (hardware inventory plus `prepare`) and a stream that
-implements `AudioSessionBackend`. `CoreAudioDeviceProvider.open()`,
+`IAudioDevicePlatform` (hardware inventory plus `prepare`) and a stream that
+implements `IAudioSessionBackend`. `CoreAudioDeviceProvider.open()`,
 `AlsaDeviceProvider.open()` and `Audio.createDevice()` all return the one
 validated `AudioDeviceProviderOpenOutcome`; the platform outcome names remain
 as type aliases of it. Interleaved channel selection and silence go through

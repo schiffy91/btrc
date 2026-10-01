@@ -259,7 +259,7 @@ void* alsaWorkerEntry(void* raw) {
 enum AlsaStreamState { ALSA_STREAM_READY, ALSA_STREAM_RUNNING, ALSA_STREAM_SUSPENDED, ALSA_STREAM_DRAINED, ALSA_STREAM_CLOSED, ALSA_STREAM_INDETERMINATE };
 
 /* One duplex ALSA stream and its worker. */
-class AlsaStream implements AudioSessionBackend {
+class AlsaStream implements IAudioSessionBackend {
 	private OwnedBuffer<AlsaRenderState> _render;
 	private AtomicBuffer<uint> _counters;
 	private OwnedBuffer<int>? _inputChannels = null;
@@ -655,7 +655,7 @@ typedef AudioDeviceProviderOpenOutcome AlsaDeviceProviderOpenOutcome;
 /* ALSA's half of PlatformAudioDeviceProvider. Setup changes no device setting
  * another client observes, so a prepared session reports the generation its
  * request was validated against. */
-class AlsaPlatform implements AudioDevicePlatform {
+class AlsaPlatform implements IAudioDevicePlatform {
 	private AlsaHardwareInventory _inventory = AlsaHardwareInventory();
 	private AlsaStream? _stream = null;
 

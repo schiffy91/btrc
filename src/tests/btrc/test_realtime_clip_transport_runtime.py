@@ -83,7 +83,7 @@ def _strict_build(compiler: str, generated: Path, output: Path) -> subprocess.Co
 def test_runtime_is_product_neutral_and_keeps_callback_mechanics_private() -> None:
     public_api = PUBLIC_API.read_text()
     private_runtime = RUNTIME.read_text() + PRACTICE_RUNTIME.read_text()
-    assert "class RealtimeClipTransport implements RealtimeClipTransportPort" in public_api
+    assert "class RealtimeClipTransport implements IRealtimeClipTransport" in public_api
     assert "class RealtimeClipTransportOpenOutcome open(RealtimeClipTransportConfiguration configuration)" in public_api
     assert "btrcRealtimeClipTransportProcess" in private_runtime
     assert "@realtime static int btrcRealtimeClipTransportRenderRaw" in private_runtime

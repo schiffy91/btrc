@@ -1,6 +1,6 @@
 /* btrc standard library — generic clip transport contract.
  *
- * RealtimeClipTransportPort is the compile-time contract shared by product
+ * IRealtimeClipTransport is the compile-time contract shared by product
  * adapters and the preallocated stdlib implementation. The control thread owns
  * clips and transport values. realtimeProgram() lends one non-owning callback
  * pair, and renderer() one plain-data render handle, until suspend() returns;
@@ -470,7 +470,7 @@ class RealtimeClipTransportTelemetryOutcome {
 	}
 }
 
-interface RealtimeClipTransportPort {
+interface IRealtimeClipTransport {
 	RealtimeAudioFormat format();
 	RealtimeClipTransportLimits limits();
 	RealtimeClipTransportLifecycle lifecycle();
@@ -529,7 +529,7 @@ class RealtimeClipTransportOpenOutcome {
 	}
 }
 
-class RealtimeClipTransport implements RealtimeClipTransportPort {
+class RealtimeClipTransport implements IRealtimeClipTransport {
 	private RealtimeClipTransportConfiguration _configuration;
 	private RealtimeClipTransportLifecycle _lifecycle;
 	private void* _owner;
