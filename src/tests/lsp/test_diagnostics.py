@@ -59,7 +59,7 @@ def test_analyzer_error_reported_with_message_and_line():
 
 
 def test_analyzer_warning_reported_with_warning_severity():
-    src = "class Box { public int x; public Box() { self.x = 0; } }\nint main() { Box? b = new Box(); return b.x; }\n"
+    src = "class Box { public int x; public Box() { self.x = 0; } }\nint read(Box? b) { return b.x; }\n"
     r = analyze(src)
     warnings = [d for d in r.diagnostics if d.severity == lsp.DiagnosticSeverity.Warning]
     assert any("Non-optional access" in d.message for d in warnings)
