@@ -89,7 +89,10 @@ OSStatus hardwareRead(AudioObjectID object, const AudioObjectPropertyAddress* ad
     if (selector == kAudioHardwarePropertyDefaultInputDevice || selector == kAudioHardwarePropertyDefaultOutputDevice) {
         if (scenario == 12) { return kAudioHardwareUnknownPropertyError; }
         AudioObjectID id = selector == kAudioHardwarePropertyDefaultInputDevice ? 11u : (scenario == 2 ? 44u : 22u);
-        return copy_property(&id, (UInt32)sizeof(id), size, output);
+        OSStatus status = copy_property(&id, (UInt32)sizeof(id), size, output);
+        /* A short default-output read that still reports success. */
+        if (scenario == 21 && selector == kAudioHardwarePropertyDefaultOutputDevice) { *size = 2u; }
+        return status;
     }
     if (selector == kAudioDevicePropertyStreamConfiguration) {
         UInt32 needed = (UInt32)(offsetof(AudioBufferList, mBuffers) + 2 * sizeof(AudioBuffer));

@@ -10,6 +10,7 @@
  */
 
 import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
 import Library.Callback;
 import Library.Datetime;
 import Library.OwnedBuffer;
@@ -25,35 +26,6 @@ AudioDeviceStatus coreAudioStatus(OSStatus status) {
 	if (status == kAudioUnitErr_CannotDoInCurrentContext || status == kAudioHardwareIllegalOperationError) { return AUDIO_DEVICE_BUSY; }
 	if (status == kAudioHardwareNotRunningError || status == kAudioUnitErr_FailedInitialization || status == kAudioUnitErr_Uninitialized) { return AUDIO_DEVICE_UNAVAILABLE; }
 	return AUDIO_DEVICE_FAILED;
-}
-
-class CoreAudioSessionLease {
-	public bool active;
-	public CoreAudioSessionLease() { self.active = false; }
-}
-
-class CoreAudioSessionBackend implements AudioSessionBackend {
-	private CoreAudioSessionLease _lease;
-	private CoreAudioSessionResources _resources;
-
-	public CoreAudioSessionBackend(CoreAudioSessionLease lease, CoreAudioSessionResources resources) {
-		self._lease = lease;
-		self._resources = resources;
-	}
-
-	public AudioDeviceStatus start() { return self._resources.unit().start(); }
-
-	public AudioDeviceStatus suspend() { return self._resources.unit().suspend(); }
-
-	public AudioDeviceStatus drain() { return self._resources.unit().drain(); }
-
-	public AudioDeviceStatus close() {
-		var status = self._resources.close();
-		if (status == AUDIO_DEVICE_OK) { self._lease.active = false; }
-		return status;
-	}
-
-	public unsigned long long epoch() { return self._resources.unit().epoch(); }
 }
 
 enum CoreAudioUnitState { CORE_AUDIO_UNIT_READY, CORE_AUDIO_UNIT_RUNNING, CORE_AUDIO_UNIT_SUSPENDED, CORE_AUDIO_UNIT_DRAINED, CORE_AUDIO_UNIT_CLOSED, CORE_AUDIO_UNIT_INDETERMINATE };
@@ -293,7 +265,7 @@ class CoreAudioUnit {
 	class @realtime OSStatus render(CoreAudioRenderInvocation invocation, CoreAudioRenderState* state, AudioUnitRenderActionFlags* flags, const AudioTimeStamp* timestamp, UInt32 frames, AudioBufferList* output) {
 		CoreAudioUnit.silence(output, flags);
 		if (state == null || output == null || state->admission->load(MemoryOrder.ACQUIRE) == 0u) { return 0; }
-		if (state->admission->load(MemoryOrder.ACQUIRE) != 0u && frames > 0u && frames <= (UInt32)state->maximumFrames && state->blockFrames > 0 && state->sampleRate > 0 && output->mNumberBuffers == 1u && output->mBuffers[0].mData != null && output->mBuffers[0].mNumberChannels == (UInt32)state->physicalOutputCount && (size_t)output->mBuffers[0].mDataByteSize >= (size_t)frames * (size_t)state->physicalOutputCount * sizeof(float)) {
+		if (frames > 0u && frames <= (UInt32)state->maximumFrames && state->blockFrames > 0 && state->sampleRate > 0 && output->mNumberBuffers == 1u && output->mBuffers[0].mData != null && output->mBuffers[0].mNumberChannels == (UInt32)state->physicalOutputCount && (size_t)output->mBuffers[0].mDataByteSize >= (size_t)frames * (size_t)state->physicalOutputCount * sizeof(float)) {
 			CoreAudioUnit.process(invocation, state, flags, timestamp, (int)frames, output);
 		}
 		return 0;
@@ -308,24 +280,25 @@ class CoreAudioUnit {
 		state->nextOutputFrame = validFrame ? frame + (unsigned long long)frames : 0ULL;
 		int inputCount = state->inputCount;
 		int outputCount = state->outputCount;
+		size_t physicalInputSamples = (size_t)frames * (size_t)state->physicalInputCount;
+		size_t selectedInputSamples = (size_t)frames * (size_t)inputCount;
+		size_t selectedOutputSamples = (size_t)frames * (size_t)outputCount;
 		if (inputCount > 0) {
-			size_t bytes = (size_t)frames * (size_t)state->physicalInputCount * sizeof(float);
-			CoreAudioUnit.clear(state->physicalInput, frames * state->physicalInputCount);
+			size_t bytes = physicalInputSamples * sizeof(float);
+			RealtimeAudioSamples.silence(Span(state->physicalInput, physicalInputSamples));
 			state->inputBuffers->mNumberBuffers = 1u;
 			state->inputBuffers->mBuffers[0].mNumberChannels = (UInt32)state->physicalInputCount;
 			state->inputBuffers->mBuffers[0].mDataByteSize = (UInt32)bytes;
 			state->inputBuffers->mBuffers[0].mData = state->physicalInput;
 			AudioUnitRenderActionFlags inputFlags = flags == null ? 0u : *flags & ~kAudioUnitRenderAction_OutputIsSilence;
 			bool rendered = timestamp != null && invocation.input(&inputFlags, timestamp, 1u, (UInt32)frames, state->inputBuffers) == 0;
-			if (!rendered) { CoreAudioUnit.clear(state->physicalInput, frames * state->physicalInputCount); }
+			if (!rendered) { RealtimeAudioSamples.silence(Span(state->physicalInput, physicalInputSamples)); }
 			if (!rendered || first || !validFrame || (state->haveInputFrame && frame != state->nextInputFrame)) { blockFlags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY; }
 			state->haveInputFrame = validFrame;
 			state->nextInputFrame = validFrame ? frame + (unsigned long long)frames : 0ULL;
-			for (int index = 0; index < frames; index++) {
-				for (int channel = 0; channel < inputCount; channel++) { state->selectedInput[(size_t)index * (size_t)inputCount + (size_t)channel] = state->physicalInput[(size_t)index * (size_t)state->physicalInputCount + (size_t)state->inputChannels[channel]]; }
-			}
+			RealtimeAudioSamples.gather(Span((const float*)state->physicalInput, physicalInputSamples), state->physicalInputCount, Span((const int*)state->inputChannels, (size_t)inputCount), Span(state->selectedInput, selectedInputSamples), frames);
 		}
-		CoreAudioUnit.clear(state->selectedOutput, frames * outputCount);
+		RealtimeAudioSamples.silence(Span(state->selectedOutput, selectedOutputSamples));
 		bool validHost = timestamp != null && (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0u;
 		unsigned long long host = validHost ? AudioConvertHostTimeToNanos(timestamp->mHostTime) : 0ULL;
 		int slices = state->maximumSlices;
@@ -339,13 +312,9 @@ class CoreAudioUnit {
 			state->process(state->processContext, block, Span(inputCount > 0 ? (const float*)state->selectedInput + (size_t)offset * (size_t)inputCount : (const float*)null, (size_t)count * (size_t)inputCount), Span(state->selectedOutput + (size_t)offset * (size_t)outputCount, (size_t)count * (size_t)outputCount));
 		}
 		float* physical = (float*)output->mBuffers[0].mData;
-		for (int index = 0; index < frames; index++) {
-			for (int channel = 0; channel < outputCount; channel++) { physical[(size_t)index * (size_t)state->physicalOutputCount + (size_t)state->outputChannels[channel]] = state->selectedOutput[(size_t)index * (size_t)outputCount + (size_t)channel]; }
-		}
+		RealtimeAudioSamples.scatter(Span((const float*)state->selectedOutput, selectedOutputSamples), Span((const int*)state->outputChannels, (size_t)outputCount), Span(physical, (size_t)frames * (size_t)state->physicalOutputCount), state->physicalOutputCount, frames);
 		if (flags != null) { *flags &= ~kAudioUnitRenderAction_OutputIsSilence; }
 	}
-
-	class @realtime void clear(float* samples, int count) { for (int index = 0; index < count; index++) { samples[index] = 0.0f; } }
 
 	public unsigned long long epoch() { return self._render.opened() ? self._render.borrow()->epoch : 0ULL; }
 
@@ -856,14 +825,20 @@ class CoreAudioHardwareInventory {
 		return null;
 	}
 
+	/* An absent default, a failed read and a short read all publish no default,
+	 * never whatever bytes the failed read left behind. */
+	class AudioObjectID defaultDevice(CoreAudioHardwareDevice system, AudioObjectPropertySelector selector) {
+		AudioObjectID device = kAudioObjectUnknown;
+		UInt32 size = (UInt32)sizeof(AudioObjectID);
+		if (!system.read(selector, kAudioObjectPropertyScopeGlobal, &device, &size) || size != (UInt32)sizeof(AudioObjectID)) { return kAudioObjectUnknown; }
+		return device;
+	}
+
 	public AudioDeviceInventoryOutcome refresh() {
 		var system = CoreAudioHardwareDevice(kAudioObjectSystemObject);
-		AudioObjectID defaultInput = kAudioObjectUnknown;
-		AudioObjectID defaultOutput = kAudioObjectUnknown;
-		UInt32 size = (UInt32)sizeof(AudioObjectID);
-		system.read(kAudioHardwarePropertyDefaultInputDevice, kAudioObjectPropertyScopeGlobal, &defaultInput, &size);
-		size = (UInt32)sizeof(AudioObjectID);
-		system.read(kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, &defaultOutput, &size);
+		AudioObjectID defaultInput = CoreAudioHardwareInventory.defaultDevice(system, kAudioHardwarePropertyDefaultInputDevice);
+		AudioObjectID defaultOutput = CoreAudioHardwareInventory.defaultDevice(system, kAudioHardwarePropertyDefaultOutputDevice);
+		UInt32 size = 0u;
 		for (int attempt = 0; attempt < 3; attempt++) {
 			size = 0u;
 			if (!system.readSize(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, &size) || (size_t)size % sizeof(AudioObjectID) != (size_t)0 || (size_t)size / sizeof(AudioObjectID) > (size_t)256) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE); }
@@ -887,41 +862,26 @@ class CoreAudioHardwareInventory {
 				hardware.insert(position, device);
 				descriptors.insert(position, descriptor);
 			}
-			bool changed = self._generation == 0ULL || descriptors.len != self._descriptors.len;
-			for (int index = 0; !changed && index < descriptors.len; index++) {
-				changed = hardware.get(index).nativeId() != self._hardware.get(index).nativeId() || !self.sameDescriptor(descriptors.get(index), self._descriptors.get(index));
-			}
-			if (changed && self._generation == 18446744073709551615ULL) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_FAILED); }
-			if (changed) { self._generation++; }
+			bool changed = !AudioDeviceInventory.sameDevices(descriptors, self._descriptors);
+			for (int index = 0; !changed && index < descriptors.len; index++) { changed = hardware.get(index).nativeId() != self._hardware.get(index).nativeId(); }
+			unsigned long long generation = AudioDeviceInventory.nextGeneration(self._generation, changed);
+			if (generation == 0ULL) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_FAILED, "audio device inventory generation is exhausted"); }
+			self._generation = generation;
 			self._hardware = hardware;
 			self._descriptors = descriptors;
 			return AudioDeviceInventoryOutcome.available(AudioDeviceInventory(self._generation, descriptors));
 		}
 		return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE);
 	}
-
-	private bool sameDescriptor(AudioDeviceDescriptor left, AudioDeviceDescriptor right) {
-		if (left.id() != right.id() || left.name() != right.name() || left.inputChannels() != right.inputChannels() || left.outputChannels() != right.outputChannels() || left.isDefaultInput() != right.isDefaultInput() || left.isDefaultOutput() != right.isDefaultOutput()) { return false; }
-		var first = left.streamCapability();
-		var second = right.streamCapability();
-		if (first.isKnown() != second.isKnown()) { return false; }
-		if (!first.isKnown()) { return true; }
-		if (first.currentSampleRate() != second.currentSampleRate() || first.minimumBufferFrames() != second.minimumBufferFrames() || first.maximumBufferFrames() != second.maximumBufferFrames() || first.currentBufferFrames() != second.currentBufferFrames() || first.sampleRateRangeCount() != second.sampleRateRangeCount()) { return false; }
-		for (int index = 0; index < first.sampleRateRangeCount(); index++) {
-			if (first.sampleRateRangeAt(index).minimum() != second.sampleRateRangeAt(index).minimum() || first.sampleRateRangeAt(index).maximum() != second.sampleRateRangeAt(index).maximum()) { return false; }
-		}
-		return true;
-	}
 }
 
 /* Owns setup before publication and resources after session close. A provider
  * retains failed setup until every native borrower and rollback is finished. */
-class CoreAudioSessionResources {
+class CoreAudioSessionResources implements AudioSessionBackend {
 	private CoreAudioDeviceConfiguration? _input;
 	private CoreAudioDeviceConfiguration? _output;
 	private CoreAudioAggregateDevice? _aggregate;
 	private CoreAudioDeviceConfiguration? _aggregateConfiguration;
-	private RealtimeAudioProgram? _program;
 	private CoreAudioUnit? _unit;
 	private bool _attempted;
 
@@ -930,7 +890,6 @@ class CoreAudioSessionResources {
 		self._output = null;
 		self._aggregate = null;
 		self._aggregateConfiguration = null;
-		self._program = null;
 		self._unit = null;
 		self._attempted = false;
 	}
@@ -940,10 +899,17 @@ class CoreAudioSessionResources {
 		return self._unit;
 	}
 
+	public AudioDeviceStatus start() { return self.unit().start(); }
+
+	public AudioDeviceStatus suspend() { return self.unit().suspend(); }
+
+	public AudioDeviceStatus drain() { return self.unit().drain(); }
+
+	public unsigned long long epoch() { return self.unit().epoch(); }
+
 	public AudioDeviceStatus prepare(CoreAudioHardwareDevice? input, CoreAudioHardwareDevice output, DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
 		if (self._attempted) { return AUDIO_DEVICE_WRONG_STATE; }
 		self._attempted = true;
-		self._program = program;
 		var stream = request.stream();
 		bool separate = input != null && input.nativeId() != output.nativeId();
 		if (input != null && separate) {
@@ -1006,7 +972,6 @@ class CoreAudioSessionResources {
 		if (outputStatus != AUDIO_DEVICE_OK) { return outputStatus; }
 		self._input = null;
 		self._output = null;
-		self._program = null;
 		return AUDIO_DEVICE_OK;
 	}
 
@@ -1015,120 +980,32 @@ class CoreAudioSessionResources {
 	}
 }
 
-class CoreAudioDeviceProviderOpenOutcome {
-	private AudioDeviceStatus _status;
-	private CoreAudioDeviceProvider? _provider;
-	private string _message;
+/* Spelled for callers that named the CoreAudio provider's own outcome. */
+typedef AudioDeviceProviderOpenOutcome CoreAudioDeviceProviderOpenOutcome;
 
-	private CoreAudioDeviceProviderOpenOutcome(AudioDeviceStatus status, CoreAudioDeviceProvider? provider, string message) {
-		if ((status == AUDIO_DEVICE_OK) != (provider != null && message.isEmpty())) { throw "invalid CoreAudio provider outcome"; }
-		self._status = status;
-		self._provider = provider;
-		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
-	}
+/* CoreAudio's half of PlatformAudioDeviceProvider. Configuring a device moves
+ * its nominal rate and buffer size, so a prepared session reports the
+ * generation of the inventory refreshed after setup. */
+class CoreAudioPlatform implements AudioDevicePlatform {
+	private CoreAudioHardwareInventory _inventory = CoreAudioHardwareInventory();
 
-	class CoreAudioDeviceProviderOpenOutcome opened(CoreAudioDeviceProvider provider) { return CoreAudioDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, provider, ""); }
+	public string name() { return "CoreAudio"; }
 
-	class CoreAudioDeviceProviderOpenOutcome failed(AudioDeviceStatus status, string message = "") {
-		if (status == AUDIO_DEVICE_OK) { throw "failed CoreAudio provider open requires an error status"; }
-		return CoreAudioDeviceProviderOpenOutcome(status, null, message);
-	}
+	public AudioDeviceInventoryOutcome inventory() { return self._inventory.refresh(); }
 
-	public AudioDeviceStatus status() { return self._status; }
-
-	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
-
-	public CoreAudioDeviceProvider provider() {
-		if (self._provider == null) { throw "CoreAudio provider is unavailable"; }
-		return self._provider;
-	}
-
-	public string message() { return self._message; }
-}
-
-class CoreAudioDeviceProvider implements AudioDeviceProvider {
-	private bool _open;
-	private CoreAudioHardwareInventory _inventory;
-	private CoreAudioSessionLease _lease;
-	private CoreAudioSessionResources? _pending;
-
-	private CoreAudioDeviceProvider() {
-		self._open = true;
-		self._inventory = CoreAudioHardwareInventory();
-		self._lease = CoreAudioSessionLease();
-		self._pending = null;
-	}
-
-	class CoreAudioDeviceProviderOpenOutcome open() {
-		var provider = CoreAudioDeviceProvider();
-		var inventory = provider.inventory();
-		if (!inventory.succeeded()) { return CoreAudioDeviceProviderOpenOutcome.failed(inventory.status(), inventory.message()); }
-		return CoreAudioDeviceProviderOpenOutcome.opened(provider);
-	}
-
-	public bool isOpen() { return self._open; }
-
-	public AudioDeviceInventoryOutcome inventory() {
-		if (!self._open) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_WRONG_STATE); }
-		return self._inventory.refresh();
-	}
-
-	public DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
-		if (!self._open || request == null || program == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
-		if (self._lease.active) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_BUSY); }
-		if (self._pending != null) {
-			var cleanup = self._pending.close();
-			if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Previous audio setup cleanup is still pending"); }
-			self._pending = null;
-		}
-		var inventoried = self.inventory();
-		if (!inventoried.succeeded()) { return DuplexAudioSessionOpenOutcome.failed(inventoried.status(), inventoried.message()); }
-		var inventory = inventoried.inventory();
-		AudioDeviceStatus validation = request.validate(inventory);
-		if (validation != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(validation); }
+	public AudioSessionSetup prepare(DuplexAudioOpenRequest request, RealtimeAudioProgram program, AudioDeviceInventory inventory) {
 		var output = self._inventory.find(request.outputDeviceId());
 		var input = request.hasInput() ? self._inventory.find(request.inputDeviceId()) : null;
-		if (output == null || (request.hasInput() && input == null)) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_NOT_FOUND); }
+		if (output == null || (request.hasInput() && input == null)) { return AudioSessionSetup.failed(AUDIO_DEVICE_NOT_FOUND, null); }
 		var resources = CoreAudioSessionResources();
-		self._pending = resources;
 		var status = resources.prepare(input, output, request, program);
-		if (status != AUDIO_DEVICE_OK) { return self.failedSetup(status); }
-		var refreshed = self.inventory();
-		if (!refreshed.succeeded()) { return self.failedSetup(refreshed.status(), refreshed.message()); }
-		var stream = request.stream();
-		int inputCount = request.hasInput() ? request.inputChannels().count() : 0;
-		var outputSelection = request.outputChannels();
-		RealtimeAudioFormat? inputFormat = request.hasInput() ? RealtimeAudioFormat(stream.sampleRate(), inputCount) : null;
-		var format = DuplexAudioNegotiatedFormat(refreshed.inventory().generation(), request.hasInput() ? request.inputDeviceId() : "", inputFormat, request.outputDeviceId(), RealtimeAudioFormat(stream.sampleRate(), outputSelection.count()), stream.bufferFrames());
-		var backend = CoreAudioSessionBackend(self._lease, resources);
-		var session = DuplexAudioSession(format, program, backend);
-		var outcome = DuplexAudioSessionOpenOutcome.opened(session);
-		self._lease.active = true;
-		self._pending = null;
-		return outcome;
+		if (status != AUDIO_DEVICE_OK) { return AudioSessionSetup.failed(status, resources); }
+		var refreshed = self._inventory.refresh();
+		if (!refreshed.succeeded()) { return AudioSessionSetup.failed(refreshed.status(), resources, refreshed.message()); }
+		return AudioSessionSetup.prepared(resources, refreshed.inventory().generation());
 	}
+}
 
-	public AudioDeviceOperationOutcome close() {
-		if (self._lease.active) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_BUSY); }
-		if (self._pending != null) {
-			var cleanup = self._pending.close();
-			if (cleanup != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(cleanup); }
-			self._pending = null;
-		}
-		self._open = false;
-		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
-	}
-
-	private DuplexAudioSessionOpenOutcome failedSetup(AudioDeviceStatus status, string message = "") {
-		var resources = self._pending;
-		if (resources == null) { throw "Audio setup has no resource owner"; }
-		var cleanup = resources.close();
-		if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Audio setup failed; native cleanup remains pending: " + audioDeviceStatusMessage(status)); }
-		self._pending = null;
-		return DuplexAudioSessionOpenOutcome.failed(status, message);
-	}
-
-	public void __del__() {
-		if (self._open && !self.close().succeeded()) { Console.fatal("CoreAudio provider destroyed before its sessions closed"); }
-	}
+class CoreAudioDeviceProvider {
+	class AudioDeviceProviderOpenOutcome open() { return PlatformAudioDeviceProvider.open(CoreAudioPlatform()); }
 }

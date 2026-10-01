@@ -9,6 +9,30 @@ CoreAudio SDK declared by `MacOS/Hardware.h`. Select it only at the application
 composition boundary; application policy and processors consume portable types.
 Its native binding/framework requirements are declared in the stdlib manifest.
 
+Both providers share one provider shell in `AudioDevice.btrc`:
+`PlatformAudioDeviceProvider` owns the session lease, the retained failed
+setup and the `openDuplex` sequence, and each platform supplies only an
+`AudioDevicePlatform` (hardware inventory plus `prepare`) and a stream that
+implements `AudioSessionBackend`. `CoreAudioDeviceProvider.open()`,
+`AlsaDeviceProvider.open()` and `Audio.createDevice()` all return the one
+validated `AudioDeviceProviderOpenOutcome`; the platform outcome names remain
+as type aliases of it. Interleaved channel selection and silence go through
+`RealtimeAudioSamples` in `RealtimeAudio.btrc`, which composing programs can
+use too.
+
+## Device loss and stalled devices
+
+`drain()` is the reclamation barrier and the place a stream's failure is
+reported. A stream that stopped early because its device was lost or failed
+has still completed the barrier: `drain()` returns that fault
+(`AUDIO_DEVICE_NOT_FOUND` for a vanished device, `AUDIO_DEVICE_UNAVAILABLE` or
+`AUDIO_DEVICE_PERMISSION_DENIED` for one that stopped serving the stream,
+`AUDIO_DEVICE_FAILED` for exhausted resources), the session is drained, and
+`close()` releases it as usual. `AUDIO_DEVICE_BUSY` from `drain()` means the
+barrier did not complete within the provider's deadline; the session stays
+suspended and `drain()` may be retried. Between `start()` and `drain()` a lost
+device shows up only as callbacks that stop arriving.
+
 The control thread owns provider/session lifecycle. Processors retain their
 preallocated context until the provider's drain barrier; native callbacks must
 not allocate, block, mutate UI or reclaim callback-owned state.
@@ -50,15 +74,27 @@ playback handles configured to the requested period with two periods of
 buffer, then runs a worker thread that reads one capture period, calls the
 realtime program on the selected channels and writes one playback period in
 lock step; xruns are recovered in place and reported as discontinuities, and
-the worker asks for `SCHED_FIFO` when the system allows it. `suspend()` stops
-admission and signals the worker, `drain()` joins it, `close()` stops and
-releases the handles. A failed `snd_pcm_drop` keeps the handle, so the close is
+the worker asks for `SCHED_FIFO` when the system allows it. Channel counts are
+negotiated as at least the selection's highest channel, so a device fixed at a
+larger count opens and the selection is scattered into it. The worker waits
+for each period with `snd_pcm_wait` and a 100 ms timeout, re-checking the stop
+request between waits, so a stalled device never holds it. A failed
+`snd_pcm_recover`, prefill write or capture start latches the stream's fault
+and ends the worker. `suspend()` stops admission and signals the worker;
+`drain()` waits up to five seconds for the worker to leave the device
+(`AUDIO_DEVICE_BUSY` otherwise), joins it and reports any latched fault;
+`close()` stops and releases the handles. While a session holds a PCM, an
+inventory refresh reuses that PCM's last probe instead of reopening it, so a
+`hw:` device that admits one opener stays published and the generation does
+not move. A failed `snd_pcm_drop` keeps the handle, so the close is
 retryable; alsa-lib frees the handle whether or not `snd_pcm_close` succeeds,
 so that failure is indeterminate and the stream is never touched again, the
 same disposal contract the CoreAudio provider exposes. The fault suite
 (`src/tests/native/audio/linux/AlsaFaults.h`, `LinuxAudioFaults.btrc`) stands
 in for alsa-lib with one fake `default` PCM and drives every failure point
-without hardware. The session test (`LinuxAudioSession.btrc`) needs a PCM the
+without hardware, including a lost device, failed prefill and capture start,
+a stalled device, an overdue worker, a fixed four-channel device and an
+exclusive device held by the session. The session test (`LinuxAudioSession.btrc`) needs a PCM the
 real alsa-lib can open. The devcontainer has no sound card, so its image
 installs `nix/asound.conf` as `/etc/asound.conf`: a null default PCM that
 discards playback and captures silence. CI's Linux shards therefore run the

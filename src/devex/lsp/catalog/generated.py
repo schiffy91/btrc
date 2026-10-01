@@ -384,6 +384,17 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Audio", (
         BuiltinMemberSpec("createDevice", "AudioDeviceProviderOpenOutcome", "method", (), "createDevice"),
     )),
+    ("AlsaDeviceProvider", (
+        BuiltinMemberSpec("open", "AudioDeviceProviderOpenOutcome", "method", (), "open"),
+    )),
+    ("CoreAudioDeviceProvider", (
+        BuiltinMemberSpec("open", "AudioDeviceProviderOpenOutcome", "method", (), "open"),
+    )),
+    ("RealtimeAudioSamples", (
+        BuiltinMemberSpec("silence", "void", "method", (("Span<float>", "samples"),), "silence"),
+        BuiltinMemberSpec("gather", "void", "method", (("Span<float>", "physical"), ("int", "physicalChannels"), ("Span<int>", "channels"), ("Span<float>", "selected"), ("int", "frames"),), "gather"),
+        BuiltinMemberSpec("scatter", "void", "method", (("Span<float>", "selected"), ("Span<int>", "channels"), ("Span<float>", "physical"), ("int", "physicalChannels"), ("int", "frames"),), "scatter"),
+    )),
     ("ProcessWorkerFrames", (
         BuiltinMemberSpec("header", "string", "method", (("int", "length"),), "header"),
         BuiltinMemberSpec("payloadLength", "int", "method", (("Bytes", "buffer"),), "payloadLength"),

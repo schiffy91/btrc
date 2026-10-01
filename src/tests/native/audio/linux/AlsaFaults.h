@@ -26,7 +26,8 @@ void alsaFaultHwFree(snd_pcm_hw_params_t* params);
 int alsaFaultHwAny(snd_pcm_t* pcm, snd_pcm_hw_params_t* params);
 int alsaFaultHwSetAccess(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, snd_pcm_access_t access);
 int alsaFaultHwSetFormat(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, snd_pcm_format_t format);
-int alsaFaultHwSetChannels(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int channels);
+int alsaFaultHwSetChannelsMin(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int* channels);
+int alsaFaultHwSetChannelsNear(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int* channels);
 int alsaFaultHwSetRate(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int rate, int direction);
 int alsaFaultHwSetPeriodSizeNear(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, snd_pcm_uframes_t* frames, int* direction);
 int alsaFaultHwSetPeriodsNear(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int* periods, int* direction);
@@ -50,11 +51,15 @@ snd_pcm_state_t alsaFaultState(snd_pcm_t* pcm);
 snd_pcm_sframes_t alsaFaultWrite(snd_pcm_t* pcm, const void* buffer, snd_pcm_uframes_t frames);
 snd_pcm_sframes_t alsaFaultRead(snd_pcm_t* pcm, void* buffer, snd_pcm_uframes_t frames);
 int alsaFaultRecover(snd_pcm_t* pcm, int error, int silent);
+int alsaFaultWait(snd_pcm_t* pcm, int timeout);
 int alsaFaultErrorHandler(snd_lib_error_handler_t handler);
 
 /* Failure points: 1 enumeration, 2 session open, 3 hardware parameters,
  * 7 prepare, 9 drop (retryable), 10 close (indeterminate), 12 hardware
- * parameters with an indeterminate cleanup, 20 capture start. */
+ * parameters with an indeterminate cleanup, 20 capture start, 21 device lost
+ * while running (unrecoverable write), 22 a stalled device that never becomes
+ * ready, 23 one wait that overstays its timeout by six seconds, 24 the first
+ * prefill write fails unrecoverably. */
 void unitReset(int failure);
 void unitFail(int failure);
 void allowSessionCleanup(void);
@@ -65,6 +70,13 @@ int unitRenders(void);
 int unitInputChannels(void);
 int unitOutputChannels(void);
 void unitDeviceChannels(int input, int output);
+/* A device that accepts exactly its channel count (0 lifts the restriction). */
+void unitFixedChannels(int fixed);
+/* Channels the last session PCM in each direction was configured with. */
+int unitConfiguredChannels(int capture);
+/* A device like hw: that admits one opener: while a session holds a PCM,
+ * every other open of the device fails with EBUSY. */
+void unitExclusive(int exclusive);
 
 #ifndef BTRC_ALSA_FAULT_IMPLEMENTATION
 #define snd_device_name_hint alsaFaultHint
@@ -77,7 +89,8 @@ void unitDeviceChannels(int input, int output);
 #define snd_pcm_hw_params_any alsaFaultHwAny
 #define snd_pcm_hw_params_set_access alsaFaultHwSetAccess
 #define snd_pcm_hw_params_set_format alsaFaultHwSetFormat
-#define snd_pcm_hw_params_set_channels alsaFaultHwSetChannels
+#define snd_pcm_hw_params_set_channels_min alsaFaultHwSetChannelsMin
+#define snd_pcm_hw_params_set_channels_near alsaFaultHwSetChannelsNear
 #define snd_pcm_hw_params_set_rate alsaFaultHwSetRate
 #define snd_pcm_hw_params_set_period_size_near alsaFaultHwSetPeriodSizeNear
 #define snd_pcm_hw_params_set_periods_near alsaFaultHwSetPeriodsNear
@@ -101,6 +114,7 @@ void unitDeviceChannels(int input, int output);
 #define snd_pcm_writei alsaFaultWrite
 #define snd_pcm_readi alsaFaultRead
 #define snd_pcm_recover alsaFaultRecover
+#define snd_pcm_wait alsaFaultWait
 #define snd_lib_error_set_handler alsaFaultErrorHandler
 #endif
 #endif

@@ -157,11 +157,6 @@ struct BtrcRealtimeAudioRouterContext {
 	int routeDiscontinuity;
 };
 
-@realtime static void btrcRealtimeAudioRouterClear(Span<float> outputs) {
-	size_t sampleCount = outputs.length();
-	for (size_t sample = 0u; sample < sampleCount; sample++) { outputs.trySet(sample, 0.0f); }
-}
-
 @realtime static Atomic<uint>* btrcRealtimeAudioRouterSlotGate(struct BtrcRealtimeAudioRouterContext* context, int slot) { return &context->atomics[BTRC_REALTIME_AUDIO_ROUTER_SLOT_GATE_START + slot]; }
 
 @realtime static bool btrcRealtimeAudioRouterSameRoute(int leftSlot, unsigned long long leftGeneration, int rightSlot, unsigned long long rightGeneration) { return leftSlot == rightSlot && leftGeneration == rightGeneration; }
@@ -250,7 +245,7 @@ struct BtrcRealtimeAudioRouterContext {
 @realtime static void btrcRealtimeAudioRouterProcess(void* raw, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
 	struct BtrcRealtimeAudioRouterContext* context = (struct BtrcRealtimeAudioRouterContext*)raw;
 	if (context == null || !inputs.isValid() || !outputs.isValid() || block.frameCount < 0 || block.frameCount > 65536 || block.inputChannelCount < 0 || block.inputChannelCount > 256 || block.outputChannelCount < 0 || block.outputChannelCount > 256 || inputs.length() != (size_t)block.frameCount * (size_t)block.inputChannelCount || outputs.length() != (size_t)block.frameCount * (size_t)block.outputChannelCount) { return; }
-	btrcRealtimeAudioRouterClear(outputs);
+	RealtimeAudioSamples.silence(outputs);
 	Atomic<uint>* lifetimeGate = &context->atomics[BTRC_REALTIME_AUDIO_ROUTER_LIFETIME_GATE];
 	if (!callbackGateTryEnter(lifetimeGate)) { return; }
 	Atomic<uint>* callbackActive = &context->atomics[BTRC_REALTIME_AUDIO_ROUTER_CALLBACK_ACTIVE];

@@ -488,10 +488,7 @@ static bool btrcRealtimeClipTransportReadSnapshot(struct BtrcRealtimeClipTranspo
 	}
 }
 
-@realtime static void btrcRealtimeClipTransportClear(Span<float> outputs) {
-	size_t outputSampleCount = outputs.length();
-	for (size_t sampleIndex = 0u; sampleIndex < outputSampleCount; sampleIndex++) { outputs.trySet(sampleIndex, 0.0f); }
-}
+@realtime static void btrcRealtimeClipTransportClear(Span<float> outputs) { RealtimeAudioSamples.silence(outputs); }
 
 @realtime static int btrcRealtimeClipTransportRenderRaw(struct BtrcRealtimeClipTransportContext* context, Span<const float> inputs, int inputChannels, Span<float> outputs, int channels, int frames) {
 	if (context == null || !inputs.isValid() || !outputs.isValid() || channels != context->channels || inputChannels < 0 || inputChannels > 256 || frames < 0 || frames > context->blockFrames) { return 1; }

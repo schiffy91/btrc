@@ -77,6 +77,8 @@ class AudioSampleRateRange {
 	public int maximum() { return self._maximum; }
 
 	public bool contains(int sampleRate) { return sampleRate >= self._minimum && sampleRate <= self._maximum; }
+
+	public bool equals(AudioSampleRateRange other) { return other != null && self._minimum == other._minimum && self._maximum == other._maximum; }
 }
 
 enum AudioStreamCapabilityKind {
@@ -151,6 +153,13 @@ class AudioStreamCapability {
 		if (!self.isKnown()) { throw "audio stream buffer size is unknown"; }
 		return self._currentBufferFrames;
 	}
+
+	/* Every advertised value, including each sample-rate range. */
+	public bool equals(AudioStreamCapability other) {
+		if (other == null || self._kind != other._kind || self._currentSampleRate != other._currentSampleRate || self._minimumBufferFrames != other._minimumBufferFrames || self._maximumBufferFrames != other._maximumBufferFrames || self._currentBufferFrames != other._currentBufferFrames || self._sampleRates.len != other._sampleRates.len) { return false; }
+		for (int index = 0; index < self._sampleRates.len; index++) { if (!self._sampleRates.get(index).equals(other._sampleRates.get(index))) { return false; } }
+		return true;
+	}
 }
 
 class AudioDeviceDescriptor {
@@ -190,6 +199,8 @@ class AudioDeviceDescriptor {
 	public bool isDefaultOutput() { return self._defaultOutput; }
 
 	public AudioStreamCapability streamCapability() { return self._streamCapability; }
+
+	public bool equals(AudioDeviceDescriptor other) { return other != null && self._id == other._id && self._name == other._name && self._inputChannels == other._inputChannels && self._outputChannels == other._outputChannels && self._defaultInput == other._defaultInput && self._defaultOutput == other._defaultOutput && self._streamCapability.equals(other._streamCapability); }
 }
 
 /* Generation changes whenever topology, defaults, or selectable capabilities
@@ -212,6 +223,20 @@ class AudioDeviceInventory {
 	}
 
 	public unsigned long long generation() { return self._generation; }
+
+	/* The generation a provider publishes after a refresh: unchanged when the
+	 * descriptors are, else the next one; 0 when the counter is exhausted,
+	 * which the provider reports instead of reusing a generation. */
+	class unsigned long long nextGeneration(unsigned long long generation, bool changed) {
+		if (generation != 0ULL && !changed) { return generation; }
+		return generation == 18446744073709551615ULL ? 0ULL : generation + 1ULL;
+	}
+
+	class bool sameDevices(Vector<AudioDeviceDescriptor> left, Vector<AudioDeviceDescriptor> right) {
+		if (left == null || right == null || left.len != right.len) { return false; }
+		for (int index = 0; index < left.len; index++) { if (!left.get(index).equals(right.get(index))) { return false; } }
+		return true;
+	}
 
 	public int count() { return self._devices.len; }
 
@@ -427,7 +452,14 @@ interface AudioSessionBackend {
 
 /* Sessions are deliberately one-shot. suspend() closes callback admission;
  * drain() waits for every admitted callback and is the reclamation barrier;
- * close() then releases native state. Playback pause belongs in the program. */
+ * close() then releases native state. Playback pause belongs in the program.
+ *
+ * drain() reports BUSY when the barrier has not completed within the
+ * provider's deadline; the session stays suspended and drain() may be retried.
+ * A stream that stopped early because its device was lost or failed has still
+ * completed the barrier: drain() then reports that fault (NOT_FOUND,
+ * UNAVAILABLE, PERMISSION_DENIED or FAILED), the session is drained, and
+ * close() releases it as usual. */
 class DuplexAudioSession {
 	private DuplexAudioNegotiatedFormat _format;
 	private RealtimeAudioProgram _program;
@@ -478,9 +510,12 @@ class DuplexAudioSession {
 	public AudioDeviceOperationOutcome drain() {
 		if (self._state != DUPLEX_AUDIO_SESSION_SUSPENDED) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_WRONG_STATE); }
 		AudioDeviceStatus status = self.backend().drain();
-		if (status == AUDIO_DEVICE_OK) { self._state = DUPLEX_AUDIO_SESSION_DRAINED; }
+		if (DuplexAudioSession.drainCompleted(status)) { self._state = DUPLEX_AUDIO_SESSION_DRAINED; }
 		return AudioDeviceOperationOutcome.fromStatus(status);
 	}
+
+	/* Whether a backend drain status leaves no callback that can touch the program. */
+	class bool drainCompleted(AudioDeviceStatus status) { return status == AUDIO_DEVICE_OK || status == AUDIO_DEVICE_NOT_FOUND || status == AUDIO_DEVICE_UNAVAILABLE || status == AUDIO_DEVICE_PERMISSION_DENIED || status == AUDIO_DEVICE_FAILED; }
 
 	public AudioDeviceOperationOutcome close() {
 		if (self._state == DUPLEX_AUDIO_SESSION_CLOSED) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK); }
@@ -494,7 +529,8 @@ class DuplexAudioSession {
 
 	public void __del__() {
 		if (self._state == DUPLEX_AUDIO_SESSION_RUNNING && !self.suspend().succeeded()) { Console.fatal("audio session could not suspend during destruction"); }
-		if (self._state == DUPLEX_AUDIO_SESSION_SUSPENDED && !self.drain().succeeded()) { Console.fatal("audio session could not drain during destruction"); }
+		if (self._state == DUPLEX_AUDIO_SESSION_SUSPENDED) { self.drain(); }
+		if (self._state == DUPLEX_AUDIO_SESSION_SUSPENDED) { Console.fatal("audio session could not drain during destruction"); }
 		if (self._state != DUPLEX_AUDIO_SESSION_CLOSED && !self.close().succeeded()) { Console.fatal("audio session could not close during destruction"); }
 	}
 }
@@ -538,4 +574,193 @@ interface AudioDeviceProvider {
 	AudioDeviceInventoryOutcome inventory();
 	DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program);
 	AudioDeviceOperationOutcome close();
+}
+
+/* The outcome owns an alias to the provider, not a second native resource.
+ * Session lifetimes and failures use the AudioDeviceProvider contract. */
+class AudioDeviceProviderOpenOutcome {
+	private AudioDeviceStatus _status;
+	private AudioDeviceProvider? _provider;
+	private string _message;
+
+	private AudioDeviceProviderOpenOutcome(AudioDeviceStatus status, AudioDeviceProvider? provider, string message) {
+		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_INDETERMINATE || message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "invalid audio provider status"; }
+		if ((status == AUDIO_DEVICE_OK) != (provider != null && message.isEmpty())) { throw "invalid audio provider outcome"; }
+		self._status = status;
+		self._provider = provider;
+		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
+	}
+
+	class AudioDeviceProviderOpenOutcome opened(AudioDeviceProvider provider) { return AudioDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, provider, ""); }
+
+	class AudioDeviceProviderOpenOutcome failed(AudioDeviceStatus status, string message = "") {
+		if (status == AUDIO_DEVICE_OK) { throw "failed audio provider open requires an error status"; }
+		return AudioDeviceProviderOpenOutcome(status, null, message);
+	}
+
+	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public string message() { return self._message; }
+
+	public AudioDeviceProvider provider() {
+		if (self._provider == null) { throw "audio provider is unavailable"; }
+		return self._provider;
+	}
+}
+
+/* A provider publishes at most one session at a time; the session's backend
+ * clears the lease only once its native close has succeeded. */
+class AudioSessionLease {
+	public bool active = false;
+}
+
+class LeasedAudioSessionBackend implements AudioSessionBackend {
+	private AudioSessionLease _lease;
+	private AudioSessionBackend _backend;
+
+	public LeasedAudioSessionBackend(AudioSessionLease lease, AudioSessionBackend backend) {
+		if (lease == null || backend == null) { throw "leased audio session backend is incomplete"; }
+		self._lease = lease;
+		self._backend = backend;
+	}
+
+	public AudioDeviceStatus start() { return self._backend.start(); }
+
+	public AudioDeviceStatus suspend() { return self._backend.suspend(); }
+
+	public AudioDeviceStatus drain() { return self._backend.drain(); }
+
+	public AudioDeviceStatus close() {
+		var status = self._backend.close();
+		if (status == AUDIO_DEVICE_OK) { self._lease.active = false; }
+		return status;
+	}
+
+	public unsigned long long epoch() { return self._backend.epoch(); }
+}
+
+/* What a platform's prepare produced. The backend is present whenever native
+ * resources exist, including after a failure, so the provider can retain and
+ * release them; a prepared setup also names the inventory generation its
+ * negotiated format reports. */
+class AudioSessionSetup {
+	private AudioDeviceStatus _status;
+	private string _message;
+	private AudioSessionBackend? _backend;
+	private unsigned long long _generation;
+
+	private AudioSessionSetup(AudioDeviceStatus status, string message, AudioSessionBackend? backend, unsigned long long generation) {
+		if ((status == AUDIO_DEVICE_OK) != (backend != null && generation != 0ULL && message.isEmpty())) { throw "invalid audio session setup"; }
+		self._status = status;
+		self._message = message;
+		self._backend = backend;
+		self._generation = generation;
+	}
+
+	class AudioSessionSetup prepared(AudioSessionBackend backend, unsigned long long generation) { return AudioSessionSetup(AUDIO_DEVICE_OK, "", backend, generation); }
+
+	class AudioSessionSetup failed(AudioDeviceStatus status, AudioSessionBackend? backend, string message = "") {
+		if (status == AUDIO_DEVICE_OK) { throw "failed audio session setup requires an error status"; }
+		return AudioSessionSetup(status, message, backend, 0ULL);
+	}
+
+	public AudioDeviceStatus status() { return self._status; }
+
+	public string message() { return self._message; }
+
+	public AudioSessionBackend? backend() { return self._backend; }
+
+	public unsigned long long generation() { return self._generation; }
+}
+
+/* The native half of a provider: hardware inventory and session setup.
+ * prepare() runs only after inventory() has published the snapshot the
+ * request was validated against, and finds its devices in that snapshot. */
+interface AudioDevicePlatform {
+	string name();
+	AudioDeviceInventoryOutcome inventory();
+	AudioSessionSetup prepare(DuplexAudioOpenRequest request, RealtimeAudioProgram program, AudioDeviceInventory inventory);
+}
+
+/* The provider every platform shares: one control thread, one published
+ * session at a time, and failed setups retained until their native cleanup
+ * succeeds. The provider must outlive its sessions. */
+class PlatformAudioDeviceProvider implements AudioDeviceProvider {
+	private bool _open = true;
+	private AudioDevicePlatform _platform;
+	private AudioSessionLease _lease = AudioSessionLease();
+	private AudioSessionBackend? _pending = null;
+
+	private PlatformAudioDeviceProvider(AudioDevicePlatform platform) { self._platform = platform; }
+
+	/* Opens a provider whose first inventory succeeds. */
+	class AudioDeviceProviderOpenOutcome open(AudioDevicePlatform platform) {
+		if (platform == null) { return AudioDeviceProviderOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
+		var provider = PlatformAudioDeviceProvider(platform);
+		var inventory = provider.inventory();
+		if (!inventory.succeeded()) { return AudioDeviceProviderOpenOutcome.failed(inventory.status(), inventory.message()); }
+		return AudioDeviceProviderOpenOutcome.opened(provider);
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public AudioDeviceInventoryOutcome inventory() {
+		if (!self._open) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_WRONG_STATE); }
+		return self._platform.inventory();
+	}
+
+	public DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
+		if (!self._open || request == null || program == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
+		if (self._lease.active) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_BUSY); }
+		if (self._pending != null) {
+			var cleanup = self._pending.close();
+			if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Previous audio setup cleanup is still pending"); }
+			self._pending = null;
+		}
+		var inventoried = self.inventory();
+		if (!inventoried.succeeded()) { return DuplexAudioSessionOpenOutcome.failed(inventoried.status(), inventoried.message()); }
+		var inventory = inventoried.inventory();
+		AudioDeviceStatus validation = request.validate(inventory);
+		if (validation != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(validation); }
+		var setup = self._platform.prepare(request, program, inventory);
+		self._pending = setup.backend();
+		if (setup.status() != AUDIO_DEVICE_OK) { return self.failedSetup(setup.status(), setup.message()); }
+		var stream = request.stream();
+		RealtimeAudioFormat? inputFormat = request.hasInput() ? RealtimeAudioFormat(stream.sampleRate(), request.inputChannels().count()) : null;
+		var format = DuplexAudioNegotiatedFormat(setup.generation(), request.hasInput() ? request.inputDeviceId() : "", inputFormat, request.outputDeviceId(), RealtimeAudioFormat(stream.sampleRate(), request.outputChannels().count()), stream.bufferFrames());
+		var backend = setup.backend();
+		if (backend == null) { throw "prepared audio setup has no backend"; }
+		var session = DuplexAudioSession(format, program, LeasedAudioSessionBackend(self._lease, backend));
+		var outcome = DuplexAudioSessionOpenOutcome.opened(session);
+		self._lease.active = true;
+		self._pending = null;
+		return outcome;
+	}
+
+	private DuplexAudioSessionOpenOutcome failedSetup(AudioDeviceStatus status, string message) {
+		var pending = self._pending;
+		if (pending != null) {
+			var cleanup = pending.close();
+			if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Audio setup failed; native cleanup remains pending: " + audioDeviceStatusMessage(status)); }
+			self._pending = null;
+		}
+		return DuplexAudioSessionOpenOutcome.failed(status, message);
+	}
+
+	public AudioDeviceOperationOutcome close() {
+		if (self._lease.active) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_BUSY); }
+		if (self._pending != null) {
+			var cleanup = self._pending.close();
+			if (cleanup != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(cleanup); }
+			self._pending = null;
+		}
+		self._open = false;
+		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
+	}
+
+	public void __del__() {
+		if (self._open && !self.close().succeeded()) { Console.fatal(self._platform.name() + " provider destroyed before its sessions closed"); }
+	}
 }

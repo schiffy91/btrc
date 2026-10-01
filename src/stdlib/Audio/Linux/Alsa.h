@@ -69,22 +69,8 @@ static inline int btrcAlsaSetInterleavedFloat(snd_pcm_t* pcm, snd_pcm_hw_params_
 	return snd_pcm_hw_params_set_format(pcm, params, SND_PCM_FORMAT_FLOAT);
 }
 
-static inline int btrcAlsaState(snd_pcm_t* pcm) { return (int)snd_pcm_state(pcm); }
-
-static inline int btrcAlsaStateRunning(void) { return (int)SND_PCM_STATE_RUNNING; }
-
-static inline int btrcAlsaStatePrepared(void) { return (int)SND_PCM_STATE_PREPARED; }
-
 /* Whether the PCM holds a started or prepared stream that a close must drop first. */
 static inline int btrcAlsaNeedsDrop(snd_pcm_t* pcm) {
 	snd_pcm_state_t state = snd_pcm_state(pcm);
 	return state == SND_PCM_STATE_PREPARED || state == SND_PCM_STATE_RUNNING || state == SND_PCM_STATE_XRUN || state == SND_PCM_STATE_DRAINING || state == SND_PCM_STATE_PAUSED;
 }
-
-static inline int btrcAlsaPipeError(void) { return -EPIPE; }
-
-static inline int btrcAlsaBusyError(void) { return -EBUSY; }
-
-static inline int btrcAlsaAgainError(void) { return -EAGAIN; }
-
-static inline int btrcAlsaStrandedError(void) { return -ESTRPIPE; }

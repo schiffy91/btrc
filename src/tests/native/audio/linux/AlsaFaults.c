@@ -17,7 +17,8 @@ struct FakeHw { struct FakePcm* pcm; unsigned int channels, rate; snd_pcm_uframe
 
 static struct FakePcm handles[HANDLES];
 static const char* hint_names[] = {"default", "hw:0,0", "dmix:0"};
-static int failure, disposals, stops, renders, input_channels = 2, output_channels = 2;
+static int failure, disposals, stops, renders, input_channels = 2, output_channels = 2, fixed_channels, exclusive, waits;
+static unsigned int configured[2];
 
 static struct FakePcm* handle(snd_pcm_t* pcm) {
     struct FakePcm* fake = (struct FakePcm*)pcm;
@@ -30,7 +31,9 @@ void unitReset(int requested) {
     assert(pendingSessions() == 0);
     for (int index = 0; index < HANDLES; index++) { assert(!handles[index].used); }
     failure = requested;
-    disposals = stops = renders = 0;
+    disposals = stops = renders = waits = 0;
+    fixed_channels = exclusive = 0;
+    configured[0] = configured[1] = 0u;
 }
 void unitFail(int requested) { failure = requested; }
 void allowSessionCleanup(void) { failure = 0; }
@@ -46,6 +49,9 @@ int unitRenders(void) { return renders; }
 int unitInputChannels(void) { return input_channels; }
 int unitOutputChannels(void) { return output_channels; }
 void unitDeviceChannels(int input, int output) { input_channels = input; output_channels = output; }
+void unitFixedChannels(int fixed) { fixed_channels = fixed; }
+int unitConfiguredChannels(int capture) { return (int)configured[capture ? 1 : 0]; }
+void unitExclusive(int value) { exclusive = value; }
 
 int alsaFaultHint(int card, const char* iface, void*** hints) {
     assert(card == -1 && strcmp(iface, "pcm") == 0 && hints);
@@ -73,6 +79,9 @@ int alsaFaultOpen(snd_pcm_t** pcm, const char* name, snd_pcm_stream_t stream, in
     if (capture && input_channels == 0) { return -ENOENT; }
     if (!capture && output_channels == 0) { return -ENOENT; }
     if (!nonblocking && failure == 2) { return -EBUSY; }
+    if (exclusive && nonblocking) {
+        for (int index = 0; index < HANDLES; index++) { if (handles[index].used && !handles[index].nonblocking) { return -EBUSY; } }
+    }
     for (int index = 0; index < HANDLES; index++) {
         if (handles[index].used) { continue; }
         handles[index] = (struct FakePcm){true, capture, nonblocking, STATE_OPEN, 0u, 0u, 0UL};
@@ -101,12 +110,20 @@ int alsaFaultHwAny(snd_pcm_t* pcm, snd_pcm_hw_params_t* params) {
 }
 int alsaFaultHwSetAccess(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, snd_pcm_access_t access) { assert(hardware(params)->pcm == handle(pcm)); return access == SND_PCM_ACCESS_RW_INTERLEAVED ? 0 : -EINVAL; }
 int alsaFaultHwSetFormat(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, snd_pcm_format_t format) { assert(hardware(params)->pcm == handle(pcm)); return format == SND_PCM_FORMAT_FLOAT ? 0 : -EINVAL; }
-int alsaFaultHwSetChannels(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int channels) {
+/* Narrows the space to at least *channels; a fixed device has one count. */
+int alsaFaultHwSetChannelsMin(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int* channels) {
     struct FakeHw* hw = hardware(params);
-    assert(hw->pcm == handle(pcm));
+    assert(hw->pcm == handle(pcm) && channels);
     unsigned int maximum = hw->pcm->capture ? (unsigned int)input_channels : (unsigned int)output_channels;
-    if (channels == 0u || channels > maximum) { return -EINVAL; }
-    hw->channels = channels;
+    if (*channels == 0u || *channels > maximum) { return -EINVAL; }
+    hw->channels = fixed_channels ? (unsigned int)fixed_channels : *channels;
+    return 0;
+}
+int alsaFaultHwSetChannelsNear(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int* channels) {
+    struct FakeHw* hw = hardware(params);
+    assert(hw->pcm == handle(pcm) && channels && *channels <= hw->channels);
+    if (!fixed_channels) { hw->channels = *channels; }
+    *channels = hw->channels;
     return 0;
 }
 int alsaFaultHwSetRate(snd_pcm_t* pcm, snd_pcm_hw_params_t* params, unsigned int rate, int direction) {
@@ -136,6 +153,7 @@ int alsaFaultHwParams(snd_pcm_t* pcm, snd_pcm_hw_params_t* params) {
     assert(hw->pcm == fake && fake->state == STATE_OPEN);
     if (failure == 3 || failure == 12) { return -EINVAL; }
     fake->channels = hw->channels;
+    configured[fake->capture ? 1 : 0] = hw->channels;
     fake->rate = hw->rate;
     fake->period = hw->period;
     fake->state = STATE_PREPARED;
@@ -186,6 +204,8 @@ static void pace(struct FakePcm* fake, snd_pcm_uframes_t frames) {
 snd_pcm_sframes_t alsaFaultWrite(snd_pcm_t* pcm, const void* buffer, snd_pcm_uframes_t frames) {
     struct FakePcm* fake = handle(pcm);
     assert(buffer && !fake->capture && fake->state >= STATE_PREPARED && frames == fake->period);
+    if (failure == 21 && fake->state == STATE_RUNNING) { return -ENODEV; }
+    if (failure == 24) { return -EIO; }
     const float* samples = buffer;
     for (snd_pcm_uframes_t index = 0; index < frames * fake->channels; index++) { assert(samples[index] == samples[index]); }
     fake->state = STATE_RUNNING;
@@ -201,4 +221,14 @@ snd_pcm_sframes_t alsaFaultRead(snd_pcm_t* pcm, void* buffer, snd_pcm_uframes_t 
     return (snd_pcm_sframes_t)frames;
 }
 int alsaFaultRecover(snd_pcm_t* pcm, int error, int silent) { handle(pcm); (void)silent; return error == -EPIPE || error == -ESTRPIPE ? 0 : error; }
+int alsaFaultWait(snd_pcm_t* pcm, int timeout) {
+    struct FakePcm* fake = handle(pcm);
+    assert(timeout > 0 && fake->state >= STATE_PREPARED);
+    if (failure == 22 || (failure == 23 && waits++ == 0)) {
+        struct timespec pause = {failure == 23 ? 6 : 0, failure == 23 ? 0L : (long)timeout * 1000000L};
+        nanosleep(&pause, NULL);
+        return failure == 23 ? 1 : 0;
+    }
+    return 1;
+}
 int alsaFaultErrorHandler(snd_lib_error_handler_t handler) { assert(handler); return 0; }
