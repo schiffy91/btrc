@@ -60,10 +60,34 @@ class Parser {
 	public Token expect(string ty) {
 		Token tok = self.peek();
 		if (tok.type == ty) {
+			if (ty == "IDENT") { self.refuseDeferredCSpecifier(tok); }
 			return self.advance();
 		}
 		self.failExpected(ty, tok);
 		return tok;
+	}
+
+	/* A grammar keyword sitting where a declarator name belongs. */
+	public bool isReservedName(int p) {
+		if (p < 0 || p >= self.tokens.len) { return false; }
+		Token token = self.tokens.get(p);
+		if (self.grammar.vocabulary.keywordToken(token.value) != token.type) { return false; }
+		string follower = self.tokenTypeAt(p + 1);
+		return follower == "EQ" || follower == "SEMICOLON" || follower == "LBRACKET" || follower == "COMMA" || follower == "RPAREN" || follower == "LPAREN";
+	}
+
+	/* C11 type specifiers btrc defers (C row 24). They lex as identifiers, so
+	 * each is refused where a type, name or expression would begin. */
+	public string deferredCSpecifierMessage(string spelling) {
+		if (spelling == "_Atomic") { return "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage"; }
+		if (spelling == "_Complex") { return "C11 '_Complex' is not supported; btrc has no complex types"; }
+		return "";
+	}
+
+	public void refuseDeferredCSpecifier(Token token) {
+		if (token.type != "IDENT") { return; }
+		string message = self.deferredCSpecifierMessage(token.value);
+		if (message != "") { self.failAt(message, token); }
 	}
 
 	/* Record only the first parser failure, then move to EOF so every nested
@@ -72,6 +96,10 @@ class Parser {
      * the process. */
 	public void failExpected(string expected, Token actual) {
 		if (self.failed) { return; }
+		if (expected == "IDENT" && self.peek().line == actual.line && self.peek().col == actual.col && self.isReservedName(self.pos)) {
+			self.failAt(f"'{actual.value}' is a reserved word and cannot be used as a name", actual);
+			return;
+		}
 		self.failed = true;
 		string message = f"Expected {expected}, got {actual.type} {actual.valueRepr()} at {actual.line}:{actual.col}";
 		self.diagnostic = message;
@@ -1007,6 +1035,7 @@ class Parser {
 			}
 			self.expect("RPAREN");
 		} else {
+			self.refuseDeferredCSpecifier(self.peek());
 			Token baseTok = self.advance();
 			base = baseTok.value;
 		}
@@ -1015,6 +1044,8 @@ class Parser {
 		 * semantic bases so RealtimeFunction provenance cannot be erased. */
 		if (base == "CFunction") { base = "__fn_ptr"; }
 		if (base == "RealtimeFunction") { base = "__realtime_fn_ptr"; }
+		// C11's spelling of the boolean type (D20); int-to-bool stays refused.
+		if (base == "_Bool") { base = "bool"; }
 
 		Node ty = Node();
 		ty.kind = NK_TYPE_EXPR;
@@ -1263,8 +1294,17 @@ class Parser {
 
 	public bool lookaheadIsVarDecl() {
 		int typeEnd = self.scanTypeEnd(self.pos);
-		if (typeEnd < 0 || self.tokenTypeAt(typeEnd) != "IDENT") {
+		if (typeEnd < 0 || typeEnd >= self.tokens.len) {
 			return false;
+		}
+		if (self.tokenTypeAt(typeEnd) != "IDENT") {
+			// `int string = 0;` is a declaration the name check refuses;
+			// `int function(...)` stays a verbose lambda.
+			string follower = self.tokenTypeAt(typeEnd + 1);
+			return self.isReservedName(typeEnd) && (follower == "EQ" || follower == "SEMICOLON" || follower == "LBRACKET");
+		}
+		if (self.deferredCSpecifierMessage(self.tokens.get(typeEnd).value) != "") {
+			return true;
 		}
 		string afterName = self.tokenTypeAt(typeEnd + 1);
 		return afterName == "EQ" || afterName == "SEMICOLON" || afterName == "LBRACKET";
@@ -2138,6 +2178,7 @@ class Parser {
 		}
 
 		if (tt == "IDENT") {
+			self.refuseDeferredCSpecifier(tok);
 			self.advance();
 			Node n = Node();
 			n.kind = NK_IDENTIFIER;

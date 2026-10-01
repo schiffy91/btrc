@@ -1,0 +1,24 @@
+// C11's `_Bool` is a spelling of `bool` (C row 22, D20). An integer still never
+// converts to bool implicitly: `_Bool ready = 1;` is refused.
+#include <assert.h>
+
+_Bool flip(_Bool value) { return !value; }
+
+_Bool globalFlag = false;
+
+struct Holder {
+	_Bool set;
+};
+
+int main() {
+	_Bool ready = true;
+	bool alias = ready;
+	_Bool* pointer = &ready;
+	_Bool cast = (_Bool)(alias && *pointer);
+	_Bool compared = 3 > 2;
+	struct Holder holder = {true};
+	assert(flip(globalFlag) && cast && compared && holder.set);
+	assert(sizeof(_Bool) == sizeof(bool));
+	print("PASS: _Bool spelling");
+	return 0;
+}

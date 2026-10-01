@@ -46,10 +46,9 @@ row = "20"
 construct = "int string = 0;"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 2:2" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 2:2" }
+revision = "828f3a2"
+python = { diagnostic = "'string' is a reserved word and cannot be used as a name at 2:6" }
+btrcc = { diagnostic = "'string' is a reserved word and cannot be used as a name at 2:6" }
 source = '''
 int main() {
 	int string = 0;
@@ -63,10 +62,9 @@ row = "20"
 construct = "int in = 0;"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 2:2" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 2:2" }
+revision = "828f3a2"
+python = { diagnostic = "'in' is a reserved word and cannot be used as a name at 2:6" }
+btrcc = { diagnostic = "'in' is a reserved word and cannot be used as a name at 2:6" }
 source = '''
 int main() {
 	int in = 0;
@@ -80,10 +78,9 @@ row = "20"
 construct = "int f(int self)"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected parameter name, got SELF 'self' at 1:18" }
-btrcc = { diagnostic = "Expected IDENT, got SELF 'self' at 1:18" }
+revision = "828f3a2"
+python = { diagnostic = "'self' is a reserved word and cannot be used as a name at 1:18" }
+btrcc = { diagnostic = "'self' is a reserved word and cannot be used as a name at 1:18" }
 source = '''
 int identity(int self) { return self; }
 int main() { return identity(0); }
@@ -95,10 +92,9 @@ row = "20"
 construct = "struct S { int new; };"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected field name, got NEW 'new' at 1:21" }
-btrcc = { diagnostic = "Expected IDENT, got NEW 'new' at 1:21" }
+revision = "828f3a2"
+python = { diagnostic = "'new' is a reserved word and cannot be used as a name at 1:21" }
+btrcc = { diagnostic = "'new' is a reserved word and cannot be used as a name at 1:21" }
 source = '''
 struct Record { int new; };
 int main() { return 0; }
@@ -122,37 +118,14 @@ int main() {
 '''
 
 [[probe]]
-id = "r22-bool-spelling"
-row = "22"
-construct = "_Bool b = true; (D20: a spelling of bool)"
-intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Cannot assign 'bool' to variable 'ready' of type '_Bool' at 3:2" }
-btrcc = { diagnostic = "Variable 'ready' uses unknown by-value type '_Bool' at 3:2" }
-source = '''
-#include <assert.h>
-int main() {
-	_Bool ready = true;
-	bool alias = ready;
-	assert(alias);
-	assert(sizeof(_Bool) == sizeof(bool));
-	print("PASS: _Bool spelling");
-	return 0;
-}
-'''
-
-[[probe]]
 id = "r22-bool-from-int"
 row = "22"
 construct = "_Bool b = 1; implicit int-to-bool"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Cannot assign 'int' to variable 'ready' of type '_Bool' at 2:2" }
-btrcc = { diagnostic = "Variable 'ready' uses unknown by-value type '_Bool' at 2:2" }
+revision = "828f3a2"
+python = { diagnostic = "Cannot assign 'int' to variable 'ready' of type 'bool' at 2:2" }
+btrcc = { diagnostic = "Cannot assign 'int' to variable 'ready' of type 'bool' at 2:2" }
 source = '''
 int main() {
 	_Bool ready = 1;
@@ -212,9 +185,9 @@ row = "24"
 construct = "_Atomic int counter;"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got INT 'int' at 2:10" }
-btrcc = { diagnostic = "Expected SEMICOLON, got INT 'int' at 2:10" }
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 2:2" }
+btrcc = { diagnostic = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 2:2" }
 source = '''
 int main() {
 	_Atomic int counter = 0;
@@ -228,10 +201,9 @@ row = "24"
 construct = "_Atomic(int) counter;"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 2:10" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 2:10" }
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 2:2" }
+btrcc = { diagnostic = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 2:2" }
 source = '''
 int main() {
 	_Atomic(int) counter = 0;
@@ -245,10 +217,9 @@ row = "24"
 construct = "double _Complex z;"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'double' in expression at 2:2" }
-btrcc = { diagnostic = "Expected expression, got DOUBLE 'double' at 2:2" }
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:9" }
+btrcc = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:9" }
 source = '''
 int main() {
 	double _Complex value;
@@ -262,9 +233,9 @@ row = "24"
 construct = "_Complex double z;"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got DOUBLE 'double' at 2:11" }
-btrcc = { diagnostic = "Expected SEMICOLON, got DOUBLE 'double' at 2:11" }
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:2" }
+btrcc = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:2" }
 source = '''
 int main() {
 	_Complex double value;
@@ -294,10 +265,9 @@ row = "20"
 construct = "int while = 0; uses a C keyword"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 2:2" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 2:2" }
+revision = "828f3a2"
+python = { diagnostic = "'while' is a reserved word and cannot be used as a name at 2:6" }
+btrcc = { diagnostic = "'while' is a reserved word and cannot be used as a name at 2:6" }
 source = '''
 int main() {
 	int while = 0;
@@ -328,9 +298,9 @@ row = "24"
 construct = "_Complex int is not ISO C"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got INT 'int' at 2:11" }
-btrcc = { diagnostic = "Expected SEMICOLON, got INT 'int' at 2:11" }
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:2" }
+btrcc = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:2" }
 source = '''
 int main() {
 	_Complex int value;
@@ -348,6 +318,17 @@ revision = "cf28fe7"
 python = { exit = 0, stdout = "PASS: explicit integer conversion\n" }
 btrcc = { exit = 0, stdout = "PASS: explicit integer conversion\n" }
 corpus = "c_compat/ExplicitIntegerConversion.btrc"
+
+[[probe]]
+id = "r22-bool-spelling"
+row = "22"
+construct = "_Bool b = true; (D20: a spelling of bool)"
+intent = "positive"
+status = "accepted"
+revision = "828f3a2"
+python = { exit = 0, stdout = "PASS: _Bool spelling\n" }
+btrcc = { exit = 0, stdout = "PASS: _Bool spelling\n" }
+corpus = "c_compat/BoolSpelling.btrc"
 
 [[probe]]
 id = "r23-variable-length-array"

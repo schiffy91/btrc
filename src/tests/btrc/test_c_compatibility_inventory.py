@@ -18,7 +18,8 @@ track (``c1``, ``c2``, ``c3_c4``, ``c5``); every ``[[probe]]`` entry holds:
     ``refused-on-purpose`` -- a documented btrc refusal (rows 19-24,
     docs/known-language-gaps.md).
 ``revision``
-    The commit at which the outcome was recorded or last changed.
+    The commit the outcome was recorded against. An entry whose outcome a
+    commit changes names that commit's parent, the tree it was changed on.
 ``python``, ``btrcc``
     The outcome per compiler: ``diagnostic`` (message and ``line:col``), or
     for generated C, ``c = "rejected"`` when every strict C11 compiler refuses

@@ -99,6 +99,22 @@ INVALID_PROGRAMS = [
         "int main() { var value = 1e-50f; }",
         "error: Floating literal '1e-50f' underflows to zero as float at 1:26\n",
     ),
+    (
+        "int main() { int string = 0; return 0; }",
+        "error: 'string' is a reserved word and cannot be used as a name at 1:18\n",
+    ),
+    (
+        "int identity(int self) { return 0; }",
+        "error: 'self' is a reserved word and cannot be used as a name at 1:18\n",
+    ),
+    (
+        "int main() { _Atomic int counter = 0; return 0; }",
+        "error: C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 1:14\n",
+    ),
+    (
+        "int main() { double _Complex value; return 0; }",
+        "error: C11 '_Complex' is not supported; btrc has no complex types at 1:21\n",
+    ),
 ]
 
 
