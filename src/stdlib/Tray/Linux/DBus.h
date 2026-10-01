@@ -3,7 +3,11 @@
 #include <dbus/dbus.h>
 #include <stddef.h>
 
-/* DBusError carries bitfields the typed importer cannot lower; these adapters keep it C-side. */
+/* Only two kinds of adapter remain; every other libdbus call, including the
+ * header getters, is bound directly.
+ *
+ * DBusError carries bitfields the typed importer cannot lower, so the four
+ * calls that report through one keep it C-side and return a plain result. */
 static inline DBusConnection* btrcDBusOpenSessionBus(void) {
 	DBusError error;
 	dbus_error_init(&error);
@@ -40,16 +44,8 @@ static inline dbus_bool_t btrcDBusAddMatch(DBusConnection* connection, const cha
 	return !failed;
 }
 
-/* The unique connection name (":1.54") supplies the per-item id the
- * StatusNotifierItem bus-name convention asks for. */
-static inline const char* btrcDBusUniqueName(DBusConnection* connection) { const char* value = dbus_bus_get_unique_name(connection); return value == NULL ? "" : value; }
-
-/* Message header fields may be absent; BTRC strings may not be null. */
-static inline const char* btrcDBusMessagePath(DBusMessage* message) { const char* value = dbus_message_get_path(message); return value == NULL ? "" : value; }
-static inline const char* btrcDBusMessageInterface(DBusMessage* message) { const char* value = dbus_message_get_interface(message); return value == NULL ? "" : value; }
-static inline const char* btrcDBusMessageMember(DBusMessage* message) { const char* value = dbus_message_get_member(message); return value == NULL ? "" : value; }
-
-/* libdbus reads and writes basic values by address; BTRC passes them by value. */
+/* libdbus reads and writes basic values through a typed `void*` address;
+ * BTRC passes them by value, so these marshal one basic value each. */
 static inline dbus_bool_t btrcDBusAppendString(DBusMessageIter* iter, int type, const char* value) { return dbus_message_iter_append_basic(iter, type, &value); }
 static inline dbus_bool_t btrcDBusAppendInt32(DBusMessageIter* iter, int value) { dbus_int32_t wire = value; return dbus_message_iter_append_basic(iter, DBUS_TYPE_INT32, &wire); }
 static inline dbus_bool_t btrcDBusAppendUInt32(DBusMessageIter* iter, unsigned int value) { dbus_uint32_t wire = value; return dbus_message_iter_append_basic(iter, DBUS_TYPE_UINT32, &wire); }

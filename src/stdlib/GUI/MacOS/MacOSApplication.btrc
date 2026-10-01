@@ -212,16 +212,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitRunLoop
 	}
 
 	private void stopNative(NSApplication application) {
-		if (application.isRunning()) {
-			// stop: is observed after an NSEvent, not after a timer callback.
-			CGPoint location;
-			location.x = 0.0;
-			location.y = 0.0;
-			var wake = NSEvent.otherEventWithType(NSEventTypeApplicationDefined, location, 0UL, 0.0, 0L, null, (short)0, 0L, 0L);
-			if (wake == null) { throw "Cannot wake the native application for shutdown"; }
-			application.stop(null);
-			application.postEvent(wake, false);
-		}
+		if (!MacOSRunLoopSignal.stopApplication(application)) { throw "Cannot wake the native application for shutdown"; }
 	}
 
 	public unsigned long applicationShouldTerminate(NSApplication sender) {

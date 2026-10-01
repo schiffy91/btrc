@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_tray"
-exports = ["Tray"]
+exports = ["ITray", "Tray", "TrayModel"]
 
 [[package.providers]]
 module = "Tray"
@@ -15,7 +15,7 @@ implementation = "Linux.TrayProvider"
 os = ["linux"]
 
 [[native.bindings]]
-module = "MacOS.TrayProvider"
+module = "MacOS.MacOSTray"
 header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
@@ -61,12 +61,8 @@ symbols = [
 	"NSEventMaskAny",
 	"NSDefaultRunLoopMode",
 	"-[NSApplication run]",
-	"-[NSApplication stop:]",
 	"-[NSApplication isRunning]",
-	"-[NSApplication finishLaunching]",
-	"-[NSApplication postEvent:atStart:]",
-	"+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]",
-	"NSEventTypeApplicationDefined"
+	"-[NSApplication finishLaunching]"
 ]
 os = ["macos"]
 
@@ -84,30 +80,30 @@ cancellation = "entry-barrier"
 
 [[native.frameworks]]
 name = "AppKit"
-modules = ["MacOS.TrayProvider"]
+modules = ["MacOS.MacOSTray"]
 os = ["macos"]
 
 [[native.pkg-config]]
 name = "dbus-1"
-modules = ["Linux.TrayProvider"]
+modules = ["Linux.LinuxTray"]
 os = ["linux"]
 
 [[native.bindings]]
-module = "Linux.TrayProvider"
+module = "Linux.LinuxTray"
 header = "Linux/DBus.h"
 language = "c"
 standard = "c11"
 symbols = [
 	"DBusConnection", "DBusMessage", "DBusMessageIter",
-	"btrcDBusOpenSessionBus", "btrcDBusOwnName", "btrcDBusCallSucceeds", "btrcDBusAddMatch", "btrcDBusUniqueName",
-	"btrcDBusMessagePath", "btrcDBusMessageInterface", "btrcDBusMessageMember",
+	"btrcDBusOpenSessionBus", "btrcDBusOwnName", "btrcDBusCallSucceeds", "btrcDBusAddMatch",
+	"dbus_bus_get_unique_name", "dbus_message_get_path", "dbus_message_get_interface", "dbus_message_get_member",
 	"btrcDBusAppendString", "btrcDBusAppendInt32", "btrcDBusAppendUInt32", "btrcDBusAppendBool",
 	"btrcDBusReadString", "btrcDBusReadInt32",
 	"dbus_connection_set_exit_on_disconnect", "dbus_connection_close", "dbus_connection_unref",
 	"dbus_connection_read_write", "dbus_connection_pop_message", "dbus_connection_send", "dbus_connection_flush",
 	"dbus_message_new_method_call", "dbus_message_new_method_return", "dbus_message_new_error", "dbus_message_new_signal",
 	"dbus_message_unref", "dbus_message_get_type", "dbus_message_get_no_reply", "dbus_message_is_signal",
-	"dbus_message_iter_init_append", "dbus_message_iter_init", "dbus_message_iter_next",
+	"dbus_message_iter_init_append", "dbus_message_iter_init", "dbus_message_iter_next", "dbus_message_iter_get_arg_type", "dbus_message_iter_recurse",
 	"dbus_message_iter_open_container", "dbus_message_iter_close_container"
 ]
 read-only-borrows = [

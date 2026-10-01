@@ -1,0 +1,12 @@
+/* The contract every platform tray implements. A tray is live from
+ * construction: it shows the item and menu or throws. pump and run throw the
+ * tray's terminal failure (a lost native connection, a failed command queue)
+ * instead of returning normally; close is idempotent. */
+
+interface ITray {
+	bool pump(int timeoutMs);
+	void refreshCheckItems();
+	void run();
+	void quit();
+	void close();
+}

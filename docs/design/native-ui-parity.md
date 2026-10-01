@@ -369,7 +369,7 @@ The source anchors for existing cells are the provider and interface audit
 above: application/window/view owners for N01–N08; the named controls for
 N10–N26; tooltip/alert/picker/editor owners for N34–N40; native controls and
 text/theme owners for N42–N45; GPU/capture/native fixtures for N47–N50; and
-`Tray/{MacOS,Linux}/TrayProvider.btrc` for N56. Missing rows identify contracts
+`Tray/MacOS/MacOSTray.btrc` and `Tray/Linux/LinuxTray.btrc` for N56. Missing rows identify contracts
 to add, rather than inviting a duplicate owner for neighboring functionality.
 Reclassify individual operations as they are implemented and tested; a whole
 family must not become “passed” because its simplest control works.
