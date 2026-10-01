@@ -4,7 +4,13 @@
 import Library.GUI.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IButton;
+import Library.GUI.ISelect;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.IImageHandle;
+import Library.GUI.IImageView;
 import Library.GUI.IView;
+import Library.GUI.IGPUView;
+import Library.GUI.Capture;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxWindow;
@@ -33,6 +39,19 @@ class Pointer implements IViewPointerHandler {
 	}
 }
 
+/* A modal picker pumps the loop itself, so opening one from inside native
+ * dispatch is rejected before any dialog transaction exists. */
+class PickerProbe implements IViewPointerHandler {
+	public string error = "";
+
+	public bool pointer(AppPointerEvent event) {
+		if (event.action != APP_POINTER_PRESSED) { return false; }
+		try { GUI.chooseDirectory(DirectoryPickerRequest("Choose", "")); }
+		catch (string failure) { self.error = failure; }
+		return false;
+	}
+}
+
 class Journey implements IApplicationWork {
 	private int _step = 0;
 	private unsigned int _window;
@@ -46,10 +65,16 @@ class Journey implements IApplicationWork {
 	private Counter _counter;
 	private Pointer _cardPointer;
 	private Pointer _rootPointer;
+	private PickerProbe _picker;
+	private IImageView _image;
+	private IImageHandle _artwork;
 	private int _rootBefore = 0;
 	public bool passed = false;
 
-	public Journey(unsigned int window, IView root, IButton button, ITextField field, ISelect select, ISlider slider, IScrollView scroll, IPanel card, Counter counter, Pointer cardPointer, Pointer rootPointer) {
+	public Journey(unsigned int window, IView root, IButton button, ITextField field, ISelect select, ISlider slider, IScrollView scroll, IPanel card, Counter counter, Pointer cardPointer, Pointer rootPointer, PickerProbe picker, IImageView image, IImageHandle artwork) {
+		self._picker = picker;
+		self._image = image;
+		self._artwork = artwork;
 		self._window = window; self._root = root; self._button = button; self._field = field; self._select = select; self._slider = slider; self._scroll = scroll; self._card = card; self._counter = counter; self._cardPointer = cardPointer; self._rootPointer = rootPointer;
 	}
 
@@ -59,21 +84,39 @@ class Journey implements IApplicationWork {
 		btrcSdlPushPointerButton(self._window, (float)x, (float)y, 1u, 0, 1u);
 	}
 
+	private void chord(unsigned int scancode, unsigned int key, unsigned int modifiers) {
+		btrcSdlPushKey(self._window, scancode, key, modifiers, 1, 0);
+		btrcSdlPushKey(self._window, scancode, key, modifiers, 0, 0);
+	}
+
 	public void run() {
 		self._step++;
 		int step = self._step;
-		if (step == 2) { self.click(60.0, 30.0); }
+		if (step == 2) {
+			/* Synthetic text waits in a bounded ring: overflow and oversize pushes are rejected. */
+			for (int index = 0; index < 16; index++) { assert(btrcSdlPushText(self._window, "z") == 1); }
+			assert(btrcSdlPushText(self._window, "z") == 0);
+			assert(btrcSdlPushText(self._window, "0123456789012345678901234567890123456789012345678901234567890123") == 0);
+			self.click(60.0, 30.0);
+		}
 		else if (step == 4) {
 			assert(self._counter.count == 1);
 			self.click(200.0, 30.0);
-			btrcSdlPushText(self._window, "hello");
+			assert(btrcSdlPushText(self._window, "hello") == 1);
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_LEFT, (unsigned int)SDLK_LEFT, 0u, 1, 0);
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_LEFT, (unsigned int)SDLK_LEFT, 0u, 0, 0);
-			btrcSdlPushText(self._window, "X");
+			assert(btrcSdlPushText(self._window, "X") == 1);
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_BACKSPACE, (unsigned int)SDLK_BACKSPACE, 0u, 1, 0);
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_BACKSPACE, (unsigned int)SDLK_BACKSPACE, 0u, 0, 0);
 		} else if (step == 6) {
 			assert(self._field.text().equals("hello"));
+			/* Select all, copy, move to the end and paste through SDL's clipboard. */
+			self.chord((unsigned int)SDL_SCANCODE_A, (unsigned int)SDLK_A, (unsigned int)SDL_KMOD_LCTRL);
+			self.chord((unsigned int)SDL_SCANCODE_C, (unsigned int)SDLK_C, (unsigned int)SDL_KMOD_LCTRL);
+			self.chord((unsigned int)SDL_SCANCODE_END, (unsigned int)SDLK_END, 0u);
+			self.chord((unsigned int)SDL_SCANCODE_V, (unsigned int)SDLK_V, (unsigned int)SDL_KMOD_LCTRL);
+		} else if (step == 7) {
+			assert(self._field.text().equals("hellohello"));
 			self.click(360.0, 30.0);
 		} else if (step == 8) {
 			self.click(360.0, 30.0 + 26.0 + 4.0 + 20.0 * 2.0 + 10.0);
@@ -94,10 +137,26 @@ class Journey implements IApplicationWork {
 			/* Subscriptions see every press before built-in controls; the card consumed its own. */
 			assert(self._cardPointer.presses == 1 && self._rootPointer.presses == self._rootBefore);
 			assert(self._cardPointer.entered >= 1);
+			assert(self._picker.error.equals("Native event dispatch is already active"));
+			/* Layers must name GPU views inside the capture root. */
+			var stray = GUI.createGPUView();
+			Vector<GUICaptureLayer> strayLayers = [GUICaptureLayer(stray, Image(1, 1))];
+			string layerError = "";
+			try { GUI.capture(self._root, strayLayers); } catch (string error) { layerError = error; }
+			assert(layerError.equals("Capture layer is outside the capture root"));
 			var image = GUI.capture(self._root, new Vector<GUICaptureLayer>());
 			assert(image.width > 0 && image.height > 0);
 			var pixel = image.pixel(image.width / 8, image.height * 3 / 4);
 			assert(pixel.red > 150 && pixel.green < 100 && pixel.blue < 100);
+			/* The worker-made handle is presented, then a closed handle draws nothing. */
+			var artwork = image.pixel(image.width * 220 / 480, image.height * 220 / 320);
+			assert(artwork.green > 150 && artwork.red < 100 && artwork.blue < 100);
+			self._artwork.close();
+			assert(!self._artwork.isOpen());
+			var closed = GUI.capture(self._root, new Vector<GUICaptureLayer>()).pixel(image.width * 220 / 480, image.height * 220 / 320);
+			assert(closed.green < 100);
+			self._image.setImageHandle(null);
+			assert(self._image.fittingWidth() == 0.0);
 			self.passed = true;
 			GUI.requestQuit();
 			return;
@@ -107,7 +166,22 @@ class Journey implements IApplicationWork {
 }
 
 int main() {
+	/* Image handles are worker-safe and need no initialized application. */
+	var pixels = Image(4, 2);
+	for (int index = 0; index < 8; index++) { pixels.data[index * 4] = 0; pixels.data[index * 4 + 1] = 200; pixels.data[index * 4 + 2] = 0; pixels.data[index * 4 + 3] = 255; }
+	Thread<IImageHandle> worker = spawn(() => { return GUI.createImageHandle(pixels, 64); });
+	var artwork = worker.join();
+	assert(artwork.isOpen() && artwork.width() == 4 && artwork.height() == 2);
+	bool oversized = false;
+	try { GUI.createImageHandle(pixels, 4); } catch (string error) { oversized = error.equals("Native artwork exceeds image limits"); }
+	assert(oversized);
 	GUI.initialize(64);
+	/* Everything but image handles belongs to the UI thread. */
+	Thread<string> stranger = spawn(() => {
+			try { GUI.requestQuit(); } catch (string error) { return error; }
+			return "";
+		});
+	assert(stranger.join().equals("GUI requires the main thread"));
 	var window = GUI.createWindow("BTRC Linux controls", 480.0, 320.0);
 	ILinuxWindow? native = (ILinuxWindow?)window;
 	assert(native != null);
@@ -129,12 +203,19 @@ int main() {
 	content.arrange(0.0, 0.0, 160.0, 480.0);
 	scroll.setContentSize(160.0, 480.0);
 	var card = GUI.createPanel(RGBA(220, 60, 60, 255), 8.0);
+	/* More large glyphs than the window's atlas holds: the frame drops the
+	 * rest instead of resetting texels it already recorded. */
+	var giant = GUI.createLabel("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+	giant.setFont(500.0);
+	var imageView = GUI.createImageView();
+	imageView.setImageHandle(artwork);
+	assert(imageView.fittingWidth() == 4.0);
 	var counter = Counter();
 	var scope = CallbackScope();
 	button.onAction(counter, scope);
 	var cardPointer = Pointer(true);
 	var rootPointer = Pointer(false);
-	root.attach(button); root.attach(field); root.attach(select); root.attach(slider); root.attach(scroll); root.attach(card);
+	root.attach(button); root.attach(field); root.attach(select); root.attach(slider); root.attach(scroll); root.attach(card); root.attach(imageView); root.attach(giant);
 	window.attachRoot(root);
 	button.arrange(20.0, 16.0, 80.0, button.fittingHeight());
 	field.arrange(120.0, 16.0, 160.0, field.fittingHeight());
@@ -142,13 +223,36 @@ int main() {
 	slider.arrange(20.0, 80.0, 120.0, slider.fittingHeight());
 	scroll.arrange(320.0, 120.0, 140.0, 160.0);
 	card.arrange(20.0, 160.0, 120.0, 120.0);
+	imageView.arrange(180.0, 200.0, 80.0, 40.0);
+	giant.arrange(470.0, 310.0, 10.0, 10.0);
+	var picker = PickerProbe();
+	card.onPointer(picker, scope);
 	card.onPointer(cardPointer, scope);
 	root.onPointer(rootPointer, scope);
 	assert(button.fittingWidth() > 40.0 && button.fittingHeight() > 20.0);
 	assert(select.fittingWidth() > 60.0);
+	/* Portable contracts: the symbol vocabulary and typography limits. */
+	var symbols = GUI.createButton("");
+	string symbolError = "";
+	try { symbols.setSystemSymbol("no.such.symbol"); } catch (string error) { symbolError = error; }
+	assert(symbolError.equals("Native button system symbol is unavailable"));
+	symbols.setSystemSymbol("tuningfork");
+	symbols.setSystemSymbol("quote.bubble");
+	assert(symbols.fittingWidth() > 0.0);
+	string fontError = "";
+	try { symbols.setFont(ButtonTypography.borderedMaximumSize() + 1.0); } catch (string error) { fontError = error; }
+	assert(fontError.equals("Native bordered buttons support font sizes up to 20 points"));
+	symbols.setBordered(false);
+	symbols.setFont(24.0);
+	fontError = "";
+	try { symbols.setBordered(true); } catch (string error) { fontError = error; }
+	assert(fontError.equals("Native bordered buttons support font sizes up to 20 points"));
+	fontError = "";
+	try { select.setFont(SelectTypography.maximumSize() + 1.0); } catch (string error) { fontError = error; }
+	assert(fontError.equals("Native selections support font sizes up to 20 points"));
 	window.show();
 	unsigned int windowId = native == null ? 0u : native.nativeId();
-	var journey = Journey(windowId, root, button, field, select, slider, scroll, card, counter, cardPointer, rootPointer);
+	var journey = Journey(windowId, root, button, field, select, slider, scroll, card, counter, cardPointer, rootPointer, picker, imageView, artwork);
 	GUI.post(journey);
 	GUI.run();
 	assert(journey.passed);

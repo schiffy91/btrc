@@ -1,7 +1,6 @@
 import Library.Map;
 import Library.Math;
 import Library.Strings;
-import Library.GUI.Font;
 import Library.GUI.FontFace;
 import Library.GUI.FreeType.FreeTypeFace;
 
@@ -58,18 +57,16 @@ class LinuxGlyph {
 class LinuxFace {
 	public int key;
 	public int pixelSize;
-	public bool bold;
 	public double ascent;
 	public double descent;
 	public double lineHeight;
 	private FreeTypeFace _face;
 	private Map<int, LinuxGlyph> _glyphs;
 
-	public LinuxFace(int key, string path, int pixelSize, bool bold) {
+	public LinuxFace(int key, string path, int pixelSize) {
 		self._glyphs = new Map<int, LinuxGlyph>();
 		self.key = key;
 		self.pixelSize = pixelSize;
-		self.bold = bold;
 		self._face = FreeTypeFace(path, pixelSize);
 		var metrics = self._face.metrics();
 		self.ascent = (double)metrics.ascenderFixed() / 64.0;
@@ -102,58 +99,66 @@ class LinuxFace {
 }
 
 /* Application-wide font resolution and measurement. Sizes are logical points;
- * the backing scale chooses the FreeType pixel size so measurement matches
- * what the atlas later draws. fontconfig supplies the system sans face. */
+ * each caller passes the backing scale of the window it measures or draws
+ * for, which chooses the FreeType pixel size so measurement matches what that
+ * window's atlas later draws. fontconfig supplies the system sans face. */
 class LinuxFonts {
 	private string _regularPath = "";
 	private string _boldPath = "";
-	private double _scale = 1.0;
 	private Map<int, LinuxFace> _faces;
 
 	public LinuxFonts() {
 		self._faces = new Map<int, LinuxFace>();
-		self._regularPath = LinuxFonts.resolve("sans-serif", 80);
-		self._boldPath = LinuxFonts.resolve("sans-serif", 200);
+		self._regularPath = LinuxFonts.resolve("sans-serif", FC_WEIGHT_REGULAR);
+		self._boldPath = LinuxFonts.resolve("sans-serif", FC_WEIGHT_BOLD);
 		if (self._boldPath.isEmpty()) { self._boldPath = self._regularPath; }
 		if (self._regularPath.isEmpty()) { throw "No system sans-serif font is available"; }
 	}
 
+	/* The file of fontconfig's best match for a family and weight; empty when
+	 * none. FcPattern is a record typedef, which the importer cannot declare as
+	 * a resource (docs/design/native-interop.md), so both patterns are
+	 * destroyed explicitly; nothing between creation and destruction throws. */
 	class string resolve(string family, int weight) {
-		var matched = btrcFontconfigMatchFile(family, weight);
-		if (matched == null) { return ""; }
-		string path = Strings.copy(matched);
-		btrcFontconfigFree(matched);
+		if (!FcInit()) { return ""; }
+		FcPattern* pattern = FcNameParse((const FcChar8*)family);
+		if (pattern == null) { return ""; }
+		FcPatternAddInteger(pattern, FC_WEIGHT, weight);
+		FcConfigSubstitute(null, pattern, FcMatchPattern);
+		FcDefaultSubstitute(pattern);
+		FcResult result = FcResultNoMatch;
+		FcPattern* match = FcFontMatch(null, pattern, &result);
+		FcPatternDestroy(pattern);
+		if (match == null) { return ""; }
+		FcChar8* file = null;
+		bool found = FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch && file != null;
+		string path = found ? Strings.copy((char*)file) : "";
+		FcPatternDestroy(match);
 		return path;
 	}
 
-	public double scale() { return self._scale; }
+	/* An unusable scale measures at one point per pixel. */
+	class double backing(double scale) { return Math.isFinite(scale) && scale > 0.0 ? scale : 1.0; }
 
-	/* Faces are keyed by pixel size, so a scale change simply selects new ones. */
-	public void setScale(double scale) {
-		if (!Math.isFinite(scale) || scale <= 0.0) { return; }
-		self._scale = scale;
-	}
-
-	public int pixelSize(double points) {
-		int size = (int)Math.round((float)(points * self._scale));
+	/* Faces are keyed by pixel size, so windows of different density select different ones. */
+	public int pixelSize(double points, double scale) {
+		int size = (int)Math.round((float)(points * LinuxFonts.backing(scale)));
 		return size < 4 ? 4 : (size > 512 ? 512 : size);
 	}
 
-	public LinuxFace face(double points, bool bold) { return self.faceForPixels(self.pixelSize(points), bold); }
+	public LinuxFace face(double points, double scale, bool bold) { return self.faceForPixels(self.pixelSize(points, scale), bold); }
 
 	public LinuxFace faceForPixels(int pixelSize, bool bold) {
 		int key = pixelSize * 2 + (bold ? 1 : 0);
 		if (self._faces.has(key)) { return self._faces.get(key); }
 		if (self._faces.size() > 48) { self._faces.clear(); }
-		var face = LinuxFace(key, bold ? self._boldPath : self._regularPath, pixelSize, bold);
+		var face = LinuxFace(key, bold ? self._boldPath : self._regularPath, pixelSize);
 		self._faces.put(key, face);
 		return face;
 	}
 
-	/* Measured in logical points. */
-	public double textWidth(string text, double points, bool bold) { return self.face(points, bold).advance(text) / self._scale; }
+	/* Measured in logical points at the given backing scale. */
+	public double textWidth(string text, double points, double scale, bool bold) { return self.face(points, scale, bold).advance(text) / LinuxFonts.backing(scale); }
 
-	public double lineHeight(double points, bool bold) { return self.face(points, bold).lineHeight / self._scale; }
-
-	public double ascent(double points, bool bold) { return self.face(points, bold).ascent / self._scale; }
+	public double lineHeight(double points, double scale, bool bold) { return self.face(points, scale, bold).lineHeight / LinuxFonts.backing(scale); }
 }

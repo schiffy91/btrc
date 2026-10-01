@@ -558,10 +558,17 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("subtract", "int", "method", (("int", "left"), ("int", "right"),), "subtract"),
         BuiltinMemberSpec("multiply", "int", "method", (("int", "left"), ("int", "right"),), "multiply"),
     )),
+    ("ButtonTypography", (
+        BuiltinMemberSpec("borderedMaximumSize", "double", "method", (), "borderedMaximumSize"),
+        BuiltinMemberSpec("maximumSize", "double", "method", (), "maximumSize"),
+    )),
     ("DirectoryPickerOutcome", (
         BuiltinMemberSpec("selected", "DirectoryPickerOutcome", "method", (("string", "directory"),), "selected"),
         BuiltinMemberSpec("cancelled", "DirectoryPickerOutcome", "method", (), "cancelled"),
         BuiltinMemberSpec("failed", "DirectoryPickerOutcome", "method", (("AppError", "error"),), "failed"),
+    )),
+    ("SelectTypography", (
+        BuiltinMemberSpec("maximumSize", "double", "method", (), "maximumSize"),
     )),
     ("LinuxComposite", (
         BuiltinMemberSpec("projection", "ILinuxView", "method", (("IView", "view"),), "projection"),
@@ -586,16 +593,20 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("decode", "LinuxScalar", "method", (("string", "text"), ("int", "offset"),), "decode"),
     )),
     ("LinuxTextLines", (
-        BuiltinMemberSpec("wrap", "Vector<string>", "method", (("LinuxFonts", "fonts"), ("string", "text"), ("double", "size"), ("bool", "bold"), ("double", "width"),), "wrap"),
+        BuiltinMemberSpec("wrap", "Vector<string>", "method", (("LinuxFonts", "fonts"), ("string", "text"), ("double", "size"), ("double", "scale"), ("bool", "bold"), ("double", "width"),), "wrap"),
     )),
     ("LinuxSymbols", (
-        BuiltinMemberSpec("known", "bool", "method", (("string", "name"),), "known"),
-        BuiltinMemberSpec("paint", "void", "method", (("LinuxPainter", "painter"), ("string", "name"), ("double", "x"), ("double", "y"), ("double", "size"), ("RGBA", "color"),), "paint"),
+        BuiltinMemberSpec("symbol", "int", "method", (("string", "name"),), "symbol"),
+        BuiltinMemberSpec("paint", "void", "method", (("LinuxPainter", "painter"), ("int", "symbol"), ("double", "x"), ("double", "y"), ("double", "size"), ("RGBA", "color"),), "paint"),
         BuiltinMemberSpec("arc", "void", "method", (("LinuxPainter", "painter"), ("double", "cx"), ("double", "cy"), ("double", "radius"), ("double", "from"), ("double", "to"), ("double", "stroke"), ("RGBA", "color"),), "arc"),
     )),
     ("LinuxSystemText", (
         BuiltinMemberSpec("rasterize", "void", "method", (("LinuxFonts", "fonts"), ("TextRasterization", "request"),), "rasterize"),
         BuiltinMemberSpec("raster", "Image", "method", (("LinuxFonts", "fonts"), ("TextRun", "run"),), "raster"),
+    )),
+    ("LinuxClock", (
+        BuiltinMemberSpec("nanoseconds", "unsigned long long", "method", (("double", "seconds"),), "nanoseconds"),
+        BuiltinMemberSpec("after", "unsigned long long", "method", (("double", "seconds"),), "after"),
     )),
     ("LinuxKeys", (
         BuiltinMemberSpec("keyCode", "AppKeyCode", "method", (("unsigned int", "key"), ("unsigned int", "scancode"),), "keyCode"),

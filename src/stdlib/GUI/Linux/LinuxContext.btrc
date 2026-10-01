@@ -1,8 +1,10 @@
 import Library.Math;
 import Library.Image;
+import Library.GUI.Linux.LinuxFonts;
+import Library.GUI.Linux.LinuxActionQueue;
 
-/* A monotonically increasing revision that windows compare against their last
- * frame. Views bump it on every visible mutation; nothing retains the views. */
+/* A monotonically increasing revision a window compares against its last
+ * frame. Its views bump it on every visible mutation; nothing retains them. */
 class LinuxInvalidation {
 	private unsigned long long _revision = 1ULL;
 
@@ -12,16 +14,14 @@ class LinuxInvalidation {
 }
 
 /* Stable identities for focus, capture and hover so no owner needs a back
- * reference to the view it names. Image handles take identities on worker
- * threads, so the counter is atomic. */
+ * reference to the view it names. Views are created on the UI thread. */
 class LinuxIds {
-	private Atomic<int> _next;
-
-	public LinuxIds() { self._next.init(1); }
+	private int _next = 1;
 
 	public int next() {
-		int id = self._next.fetchAdd(1, MemoryOrder.ACQ_REL);
+		int id = self._next;
 		if (id <= 0 || id == 2147483647) { throw "Native view identities are exhausted"; }
+		self._next++;
 		return id;
 	}
 }
@@ -103,4 +103,22 @@ class LinuxMetrics {
 	class double levelWidth() { return 100.0; }
 
 	class double spinnerSize() { return 24.0; }
+}
+
+/* Application-wide services every drawn view shares. Views retain it; it
+ * retains no view. */
+class LinuxContext {
+	public LinuxFonts fonts;
+	public LinuxIds ids;
+	public LinuxActionQueue actions;
+	public LinuxTheme darkTheme;
+	public LinuxTheme lightTheme;
+
+	public LinuxContext(int workCapacity) {
+		self.fonts = LinuxFonts();
+		self.ids = LinuxIds();
+		self.actions = LinuxActionQueue(workCapacity);
+		self.darkTheme = LinuxTheme.darkTheme();
+		self.lightTheme = LinuxTheme.lightTheme();
+	}
 }

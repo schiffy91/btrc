@@ -1,13 +1,15 @@
 import Library.Callback;
-import Library.Math;
-import Library.App;
 import Library.Image;
 import Library.GUI.IImageView;
 import Library.GUI.IImageHandle;
-import Library.GUI.IView;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
+
+/* Image identities come from one process-wide counter, so any thread creates
+ * a handle without reaching the application. Static Atomic<T> storage is
+ * zero-initialized before program entry. */
+static Atomic<int> linuxImageIdentities;
 
 /* Decoded pixels with a stable identity. Any thread may create one; painters
  * upload it to their device on first use and cache by identity. */
@@ -29,12 +31,18 @@ class LinuxImageHandle implements ILinuxImageHandle {
 		self._height = pixels.height;
 	}
 
-	class LinuxImageHandle create(LinuxIds ids, Image pixels, int maximumPixels = 16777216) {
+	class LinuxImageHandle create(Image pixels, int maximumPixels = 16777216) {
 		if (pixels == null || pixels.isEmpty() || pixels.data == null) { throw "Native image handle requires decoded pixels"; }
 		if (maximumPixels <= 0 || maximumPixels > 16777216 || (long long)pixels.width * (long long)pixels.height > (long long)maximumPixels) { throw "Native artwork exceeds image limits"; }
 		var copy = Image(pixels.width, pixels.height);
 		memcpy(copy.data, pixels.data, (size_t)pixels.width * (size_t)pixels.height * (size_t)4);
-		return LinuxImageHandle(ids.next(), copy);
+		return LinuxImageHandle(LinuxImageHandle.nextIdentity(), copy);
+	}
+
+	class int nextIdentity() {
+		int id = linuxImageIdentities.fetchAdd(1, MemoryOrder.RELAXED) + 1;
+		if (id <= 0 || id == 2147483647) { throw "Native image identities are exhausted"; }
+		return id;
 	}
 
 	public int identity() { return self._identity; }
@@ -53,69 +61,40 @@ class LinuxImageHandle implements ILinuxImageHandle {
 }
 
 /* Aspect-preserving presentation of one image handle. */
-class LinuxImageView implements IImageView, ILinuxView {
-	private LinuxViewNode _node;
+class LinuxImageView extends LinuxNodeView implements IImageView {
 	private ILinuxImageHandle? _handle = null;
 
-	public LinuxImageView(LinuxContext context) { self._node = LinuxViewNode(context); }
-
-	public LinuxViewNode node() { return self._node; }
-
-	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+	public LinuxImageView(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); }
 
 	public void paint(LinuxPainter painter, double x, double y) {
 		var handle = self._handle;
 		if (handle == null || !handle.isOpen()) { return; }
 		var texture = painter.imageTexture(handle.identity(), handle.pixels());
-		painter.imageFit(texture, x, y, self._node.width, self._node.height, RGBA(255, 255, 255, 255));
+		painter.imageFit(texture, x, y, self.node().width, self.node().height, RGBA(255, 255, 255, 255));
 	}
 
-	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+	public double fittingWidth() { self.node().requireOpen(); var handle = self._handle; return handle == null ? 0.0 : (double)handle.width(); }
 
-	public bool pointer(AppPointerEvent event) { return false; }
-
-	public bool scroll(AppScrollEvent event) { return false; }
-
-	public bool key(AppKeyboardEvent event) { return false; }
-
-	public void textInput(string value) {}
-
-	public void focus(bool focused) {}
-
-	public bool isOpen() { return self._node.isOpen(); }
-
-	public double fittingWidth() { self._node.requireOpen(); var handle = self._handle; return handle == null ? 0.0 : (double)handle.width(); }
-
-	public double fittingHeight() { self._node.requireOpen(); var handle = self._handle; return handle == null ? 0.0 : (double)handle.height(); }
-
-	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
-
-	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
-
-	public void setVisible(bool visible) { self._node.setVisible(visible); }
-
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
-
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+	public double fittingHeight() { self.node().requireOpen(); var handle = self._handle; return handle == null ? 0.0 : (double)handle.height(); }
 
 	public void setImage(Image? pixels, int maximumPixels = 16777216) {
-		self._node.requireOpen();
-		if (pixels == null) { self._handle = null; self._node.invalidate(); return; }
-		self._handle = LinuxImageHandle.create(self._node.context.ids, pixels, maximumPixels);
-		self._node.invalidate();
+		self.node().requireOpen();
+		if (pixels == null) { self._handle = null; self.node().invalidate(); return; }
+		self._handle = LinuxImageHandle.create(pixels, maximumPixels);
+		self.node().invalidate();
 	}
 
 	public void setImageHandle(IImageHandle? handle) {
-		self._node.requireOpen();
-		if (handle == null) { self._handle = null; self._node.invalidate(); return; }
+		self.node().requireOpen();
+		if (handle == null) { self._handle = null; self.node().invalidate(); return; }
 		ILinuxImageHandle? native = (ILinuxImageHandle?)handle;
 		if (native == null) { throw "Native image view requires a Linux image handle"; }
 		if (self._handle == native) { return; }
 		self._handle = native;
-		self._node.invalidate();
+		self.node().invalidate();
 	}
 
-	public CallbackCancellation close() { var state = self._node.close(); if (state == CallbackCancellation.Complete) { self._handle = null; } return state; }
+	public CallbackCancellation close() { var state = self.node().close(); if (state == CallbackCancellation.Complete) { self._handle = null; } return state; }
 
-	public CallbackCancellation pollClose() { var state = self._node.pollClose(); if (state == CallbackCancellation.Complete) { self._handle = null; } return state; }
+	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CallbackCancellation.Complete) { self._handle = null; } return state; }
 }

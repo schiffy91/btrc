@@ -2,7 +2,11 @@ import Library.GUI.IGPUView;
 import Library.Image;
 
 /* Completed readback pixels for one GPU child. The GUI provider composes native
- * siblings/clipping synchronously; it never waits for GPU work on the UI thread. */
+ * siblings/clipping synchronously; it never waits for GPU work on the UI thread.
+ * The exception is a provider whose window already composites its GPU children
+ * (Linux): it validates that each layer's view lies inside the capture root,
+ * ignores the layer pixels and waits for one readback of the composed frame,
+ * failing at once if the window's device is not ready. */
 class GUICaptureLayer {
 	public IGPUView view;
 	public Image pixels;

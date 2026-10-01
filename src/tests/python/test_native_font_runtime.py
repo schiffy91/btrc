@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,15 +15,40 @@ from src.tests.python.test_native_import_consumer import native_project as nativ
 from tools.native_plan import NativePlanBuilder
 
 
+@pytest.fixture
+def font_project(request, tmp_path):
+    """macOS's native project, or on Linux an empty package with the same
+    layout: these cases write their own sources and FreeType manifest."""
+    if sys.platform == "darwin":
+        return request.getfixturevalue("native_project")
+    if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("requires macOS or Linux and the explicitly built native header reader")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "nativeConsumer"\n', encoding="utf-8")
+    return tmp_path / "src/Main.btrc", None, None
+
+
+def _test_font() -> Path:
+    """BTRC_TEST_FONT, else macOS's Arial, else fontconfig's sans-serif match,
+    so Linux CI exercises FreeType without configuration."""
+    if configured := os.environ.get("BTRC_TEST_FONT"):
+        return Path(configured)
+    arial = Path("/System/Library/Fonts/Supplemental/Arial.ttf")
+    if arial.is_file() or not shutil.which("fc-match"):
+        return arial
+    matched = subprocess.run(["fc-match", "--format=%{file}", "sans-serif"], capture_output=True, text=True)
+    return Path(matched.stdout.strip()) if matched.returncode == 0 and matched.stdout.strip() else arial
+
+
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("snapshot", [False, True])
-def test_freetype_unique_setup(native_project, native_compile, sanitize, snapshot):
+def test_freetype_unique_setup(font_project, native_compile, sanitize, snapshot):
     if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "freetype2"]).returncode:
         pytest.skip("requires the optional FreeType SDK through pkg-config")
-    font = Path(os.environ.get("BTRC_TEST_FONT", "/System/Library/Fonts/Supplemental/Arial.ttf"))
+    font = _test_font()
     if not font.is_file():
-        pytest.skip("requires BTRC_TEST_FONT or the system Arial font")
-    source, _, _ = native_project
+        pytest.skip("requires BTRC_TEST_FONT, the system Arial font or fontconfig")
+    source, _, _ = font_project
     root = source.parent.parent
     provider = REPO / "src/stdlib/GUI/FreeType"
     (source.parent / "FreeTypeFace.btrc").write_text((provider / "FreeTypeFace.btrc").read_text())
@@ -122,22 +148,26 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
     generated.write_text(compiled.c_source)
     executable = source.parent / "FreeTypeSetup"
 
+    apple = sys.platform == "darwin"
+    cc, cxx = ("/usr/bin/clang", "/usr/bin/clang++") if apple else ("cc", "c++")
+    environment = apple_environment() if apple else {**os.environ, "ASAN_OPTIONS": "detect_leaks=0"}
+
     def runner(command, **kwargs):
-        flags = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        flags = ["-O2"] if command[0] in {cc, cxx} else []
         if flags and sanitize:
             flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
-        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+        return subprocess.run([command[0], *flags, *command[1:]], env=environment, **kwargs)
 
     NativePlanBuilder(runner=runner).build(
         plan_path=plan,
         generated_c=generated,
         output=executable,
-        cc="/usr/bin/clang",
-        cxx="/usr/bin/clang++",
+        cc=cc,
+        cxx=cxx,
     )
     completed = subprocess.run(
         [str(executable), *arguments],
-        env=apple_environment(),
+        env=environment,
         capture_output=True,
         text=True,
         timeout=30,
@@ -148,13 +178,13 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
 
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("consumer", ["GuiFontConformance", "FontSmoke"])
-def test_optional_freetype_factory(native_project, native_compile, sanitize, consumer):
+def test_optional_freetype_factory(font_project, native_compile, sanitize, consumer):
     if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "freetype2"]).returncode:
         pytest.skip("requires the optional FreeType SDK through pkg-config")
-    font = Path(os.environ.get("BTRC_TEST_FONT", "/System/Library/Fonts/Supplemental/Arial.ttf"))
+    font = _test_font()
     if consumer == "GuiFontConformance" and not font.is_file():
-        pytest.skip("requires BTRC_TEST_FONT or the system Arial font")
-    source, _, _ = native_project
+        pytest.skip("requires BTRC_TEST_FONT, the system Arial font or fontconfig")
+    source, _, _ = font_project
     directory = REPO / ("src/tests/native/gui" if consumer == "GuiFontConformance" else "examples/gui")
     source.write_text((directory / f"{consumer}.btrc").read_text())
     arguments = [str(font)] if consumer == "GuiFontConformance" else []

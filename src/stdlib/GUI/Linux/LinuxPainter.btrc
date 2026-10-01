@@ -121,8 +121,9 @@ class LinuxAtlasSlot {
 	public LinuxAtlasSlot(int x, int y, int width, int height, LinuxGlyph glyph) { self.x = x; self.y = y; self.width = width; self.height = height; self.glyph = glyph; }
 }
 
-/* A shelf-packed R8 coverage atlas per device. Overflow resets the atlas; the
- * frame that overflowed re-uploads what it still needs. */
+/* A shelf-packed R8 coverage atlas per painter. A full atlas places no more
+ * glyphs: texels already recorded this frame stay valid, and the painter
+ * resets it at the start of the next frame, which re-uploads what it needs. */
 class LinuxGlyphAtlas {
 	private LinuxTexture _texture;
 	private int _size;
@@ -131,7 +132,7 @@ class LinuxGlyphAtlas {
 	private int _shelfHeight = 0;
 	private Map<long long, LinuxAtlasSlot> _slots;
 	private OwnedBuffer<unsigned char> _staging;
-	private unsigned long long _generation = 1ULL;
+	private bool _full = false;
 
 	public LinuxGlyphAtlas(GPUDevice device, int size, WGPUBindGroupLayout layout, WGPUSampler sampler, WGPUBuffer uniform, unsigned long long uniformBytes) {
 		self._slots = new Map<long long, LinuxAtlasSlot>();
@@ -145,14 +146,15 @@ class LinuxGlyphAtlas {
 
 	public int size() { return self._size; }
 
-	public unsigned long long generation() { return self._generation; }
+	public bool full() { return self._full; }
 
-	private void reset() {
+	/* Only between frames: a reset mid-frame would overwrite recorded glyphs. */
+	public void reset() {
 		self._slots.clear();
 		self._shelfX = 0;
 		self._shelfY = 0;
 		self._shelfHeight = 0;
-		self._generation++;
+		self._full = false;
 	}
 
 	public LinuxAtlasSlot? slot(LinuxFace face, int codepoint) {
@@ -168,7 +170,7 @@ class LinuxGlyphAtlas {
 		int height = glyph.rows + 2;
 		if (width > 512 || height > 512 || width > self._size || height > self._size) { return null; }
 		if (self._shelfX + width > self._size) { self._shelfY += self._shelfHeight; self._shelfX = 0; self._shelfHeight = 0; }
-		if (self._shelfY + height > self._size) { self.reset(); }
+		if (self._shelfY + height > self._size) { self._full = true; return null; }
 		var slot = LinuxAtlasSlot(self._shelfX + 1, self._shelfY + 1, glyph.width, glyph.rows, glyph);
 		self._shelfX += width;
 		if (height > self._shelfHeight) { self._shelfHeight = height; }
@@ -244,6 +246,8 @@ class LinuxPainter {
 	private Map<int, LinuxTexture> _images;
 	private Map<int, unsigned long long> _imageUse;
 	private unsigned long long _frame = 0ULL;
+	private bool _freshAtlas = false;
+	private bool _atlasRetry = false;
 	private double _scale = 1.0;
 	private int _pixelWidth = 0;
 	private int _pixelHeight = 0;
@@ -378,14 +382,6 @@ class LinuxPainter {
 		if (self._uniform == null) { throw "Cannot allocate native painter uniform"; }
 	}
 
-	public GPUDevice device() { return self._device; }
-
-	public WGPUTextureFormat nativeFormat() { return self._format; }
-
-	public LinuxFonts fonts() { return self._fonts; }
-
-	public double scale() { return self._scale; }
-
 	/* Wrap an external view (a GPU view's offscreen target) for sampling. */
 	public LinuxTexture borrowTexture(WGPUTextureView view, int width, int height) { return LinuxTexture.borrow(self._device, view, width, height, self._layout, self._sampler, self._uniform, 16ULL); }
 
@@ -400,8 +396,6 @@ class LinuxPainter {
 		self._images.put(identity, texture);
 		return texture;
 	}
-
-	public bool hasImageTexture(int identity) { return self._images.has(identity); }
 
 	public void forgetImageTexture(int identity) {
 		if (!self._images.has(identity)) { return; }
@@ -424,6 +418,9 @@ class LinuxPainter {
 		if (self._closed) { throw "Native painter is closed"; }
 		self._frame++;
 		self.evictImages();
+		self._freshAtlas = self._atlas.full();
+		if (self._freshAtlas) { self._atlas.reset(); }
+		self._atlasRetry = false;
 		self._pixelWidth = pixelWidth;
 		self._pixelHeight = pixelHeight;
 		self._scale = scale;
@@ -434,6 +431,10 @@ class LinuxPainter {
 		self._themes.clear();
 		self._themes.push(self._defaultTheme);
 	}
+
+	/* True when the atlas filled during this frame and dropped glyphs; one
+	 * more frame, starting from an empty atlas, draws them. */
+	public bool needsCorrectiveFrame() { return self._atlasRetry; }
 
 	public void setDefaultTheme(LinuxTheme theme) { self._defaultTheme = theme; }
 
@@ -453,8 +454,6 @@ class LinuxPainter {
 	}
 
 	public void popClip() { if (self._clips.len > 1) { self._clips.pop(); } }
-
-	public LinuxClip clip() { return self._clips.last(); }
 
 	private LinuxDrawRun run(LinuxTexture texture) {
 		var clip = self._clips.last();
@@ -582,7 +581,7 @@ class LinuxPainter {
 
 	/* Draw one line of text with its top-left at (x, y); returns the advance in points. */
 	public double text(string value, double x, double y, double size, bool bold, RGBA color) {
-		var face = self._fonts.face(size, bold);
+		var face = self._fonts.face(size, self._scale, bold);
 		double s = self._scale;
 		double penX = Math.floorDouble(x * s) + 0.0;
 		double baseline = Math.floorDouble(y * s + face.ascent + 0.5);
@@ -593,7 +592,11 @@ class LinuxPainter {
 			var scalar = LinuxScalar.decode(value, offset);
 			offset = scalar.next;
 			var slot = self._atlas.slot(face, scalar.codepoint);
-			if (slot == null) { continue; }
+			if (slot == null) {
+				if (self._atlas.full() && !self._freshAtlas) { self._atlasRetry = true; }  // the reset next frame fits it
+				penX += face.glyph(scalar.codepoint).advance;
+				continue;
+			}
 			var glyph = slot.glyph;
 			if (slot.width > 0 && slot.height > 0) {
 				double gx = penX + (double)glyph.left;
@@ -605,9 +608,9 @@ class LinuxPainter {
 		return (penX - Math.floorDouble(x * s)) / s;
 	}
 
-	public double textWidth(string value, double size, bool bold) { return self._fonts.textWidth(value, size, bold); }
+	public double textWidth(string value, double size, bool bold) { return self._fonts.textWidth(value, size, self._scale, bold); }
 
-	public double lineHeight(double size, bool bold) { return self._fonts.lineHeight(size, bold); }
+	public double lineHeight(double size, bool bold) { return self._fonts.lineHeight(size, self._scale, bold); }
 
 	/* Draw text vertically centered in a box, horizontally aligned by `align`
 	 * (0 left, 1 center, 2 right), clipped to the box. */
@@ -620,8 +623,6 @@ class LinuxPainter {
 		self.text(value, textX, textY, size, bold, color);
 		self.popClip();
 	}
-
-	public int vertexCount() { return self._vertexCount; }
 
 	/* Replay the recorded stream into the renderer's active pass. */
 	public void render(GPUSurfaceRenderer renderer) {

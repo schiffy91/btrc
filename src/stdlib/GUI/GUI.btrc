@@ -47,7 +47,8 @@ class GUI {
 
 	class IImageView createImageView() { return GUIProvider.application().createImageView(); }
 
-	/* Convert decoded pixels to the platform image on the calling thread, which may be a worker. */
+	/* Convert decoded pixels to the platform image on the calling thread, which
+	 * may be a worker; it needs no initialized application (see IImageHandle). */
 	class IImageHandle createImageHandle(Image pixels, int maximumPixels = 16777216) { return GUIProvider.createImageHandle(pixels, maximumPixels); }
 
 	class IPanel createPanel(RGBA fill, double radius = 0.0) { return GUIProvider.application().createPanel(fill, radius); }

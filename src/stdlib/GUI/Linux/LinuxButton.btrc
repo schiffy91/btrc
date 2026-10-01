@@ -1,10 +1,8 @@
 import Library.Callback;
 import Library.Math;
-import Library.Vector;
 import Library.App;
 import Library.Image;
 import Library.GUI.IButton;
-import Library.GUI.IView;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
@@ -14,8 +12,7 @@ import Library.GUI.Linux.LinuxActionQueue;
 /* A drawn push button. Pressing inside and releasing inside queues one
  * action; the application delivers it after native dispatch. Setters only
  * change model state. */
-class LinuxButton implements IButton, ILinuxView {
-	private LinuxViewNode _node;
+class LinuxButton extends LinuxNodeView implements IButton {
 	private string _title;
 	private LinuxAction? _action;
 	private double _size = 13.0;
@@ -25,27 +22,23 @@ class LinuxButton implements IButton, ILinuxView {
 	private bool _selected = false;
 	private bool _transparent = false;
 	private bool _bordered = true;
-	private string _symbol = "";
+	private int _symbol = -1;
 	private bool _hovered = false;
 	private bool _pressed = false;
 
 	public LinuxButton(LinuxContext context, string title) {
-		self._node = LinuxViewNode(context);
+		self.adoptNode(LinuxViewNode(context));
 		if (title == null) { throw "Native button title is missing"; }
 		self._title = title;
 		self._action = context.actions.bind();
 	}
 
-	public LinuxViewNode node() { return self._node; }
-
-	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
-
 	private double symbolSize() { return Math.ceilDouble(self._size * 1.15); }
 
 	public void paint(LinuxPainter painter, double x, double y) {
 		var theme = painter.theme();
-		double width = self._node.width;
-		double height = self._node.height;
+		double width = self.node().width;
+		double height = self.node().height;
 		double radius = LinuxMetrics.cornerRadius();
 		bool active = self._selectable && self._selected;
 		/* A transparent button is pure tracking over its parent's content, as AppKit draws none. */
@@ -59,7 +52,7 @@ class LinuxButton implements IButton, ILinuxView {
 			painter.fillRect(x, y, width, height, RGBA(theme.text.red, theme.text.green, theme.text.blue, alpha), radius);
 		}
 		RGBA color = !self._enabled ? theme.disabledText : (active && self._bordered ? theme.accentText : theme.text);
-		double symbol = self._symbol.isEmpty() ? 0.0 : self.symbolSize();
+		double symbol = self._symbol < 0 ? 0.0 : self.symbolSize();
 		double titleWidth = self._title.isEmpty() ? 0.0 : painter.textWidth(self._title, self._size, false);
 		double gap = symbol > 0.0 && titleWidth > 0.0 ? 6.0 : 0.0;
 		double contentWidth = symbol + gap + titleWidth;
@@ -70,134 +63,119 @@ class LinuxButton implements IButton, ILinuxView {
 		painter.popClip();
 	}
 
-	public void paintOverlay(LinuxPainter painter, double x, double y) {}
-
 	public bool pointer(AppPointerEvent event) {
-		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self._node.invalidate(); return false; }
-		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self._node.invalidate(); return false; }
+		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self.node().invalidate(); return false; }
+		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self.node().invalidate(); return false; }
 		if (!self._enabled) { return false; }
-		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) { self._pressed = true; self._node.invalidate(); return true; }
+		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) { self._pressed = true; self.node().invalidate(); return true; }
 		if (event.action == APP_POINTER_DRAGGED && self._pressed) {
-			bool inside = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self._node.width && event.logicalY < self._node.height;
-			if (inside != self._hovered) { self._hovered = inside; self._node.invalidate(); }
+			bool inside = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self.node().width && event.logicalY < self.node().height;
+			if (inside != self._hovered) { self._hovered = inside; self.node().invalidate(); }
 			return true;
 		}
 		if (event.action == APP_POINTER_RELEASED && self._pressed) {
 			self._pressed = false;
-			bool inside = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self._node.width && event.logicalY < self._node.height;
-			self._node.invalidate();
+			bool inside = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self.node().width && event.logicalY < self.node().height;
+			self.node().invalidate();
 			if (inside) { self.fire(); }
 			return true;
 		}
-		if (event.action == APP_POINTER_CANCELLED && self._pressed) { self._pressed = false; self._node.invalidate(); return true; }
+		if (event.action == APP_POINTER_CANCELLED && self._pressed) { self._pressed = false; self.node().invalidate(); return true; }
 		return false;
 	}
 
 	private void fire() { var action = self._action; if (action != null) { action.invoke(); } }
 
-	public bool scroll(AppScrollEvent event) { return false; }
-
-	public bool key(AppKeyboardEvent event) { return false; }
-
-	public void textInput(string value) {}
-
-	public void focus(bool focused) {}
-
-	public bool isOpen() { return self._node.isOpen(); }
-
 	public double fittingWidth() {
-		self._node.requireOpen();
-		double symbol = self._symbol.isEmpty() ? 0.0 : self.symbolSize();
-		double titleWidth = self._title.isEmpty() ? 0.0 : self._node.context.fonts.textWidth(self._title, self._size, false);
+		self.node().requireOpen();
+		double symbol = self._symbol < 0 ? 0.0 : self.symbolSize();
+		double titleWidth = self._title.isEmpty() ? 0.0 : self.node().context.fonts.textWidth(self._title, self._size, self.node().scale(), false);
 		double gap = symbol > 0.0 && titleWidth > 0.0 ? 6.0 : 0.0;
 		double padding = self._bordered ? LinuxMetrics.horizontalPadding() : 6.0;
 		return Math.ceilDouble(symbol + gap + titleWidth + padding * 2.0);
 	}
 
-	public double fittingHeight() { self._node.requireOpen(); return LinuxMetrics.controlHeight(self._size); }
+	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.controlHeight(self._size); }
 
-	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
-
-	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
-
-	public void setVisible(bool visible) { self._node.setVisible(visible); }
-
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
-
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
-
-	public string title() { self._node.requireOpen(); return self._title; }
+	public string title() { self.node().requireOpen(); return self._title; }
 
 	public void setTitle(string title) {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		if (title == null) { throw "Native button title is missing"; }
 		if (self._title.equals(title)) { return; }
 		self._title = title;
-		self._node.invalidate();
+		self.node().invalidate();
 	}
 
-	public bool isEnabled() { self._node.requireOpen(); return self._enabled; }
+	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
 	public void setEnabled(bool enabled) {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		if (enabled == self._enabled) { return; }
 		self._enabled = enabled;
 		if (!enabled) { self._pressed = false; }
-		self._node.invalidate();
+		self.node().invalidate();
 	}
 
 	public void setFont(double size) {
-		self._node.requireOpen();
-		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native button font size"; }
+		self.node().requireOpen();
+		if (!Math.isFinite(size) || size <= 0.0 || size > ButtonTypography.maximumSize()) { throw "Invalid native button font size"; }
+		if (self._bordered && size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
 		self._size = size;
-		self._node.invalidate();
+		self.node().invalidate();
 	}
 
-	public void setCentered(bool centered) { self._node.requireOpen(); self._centered = centered; self._node.invalidate(); }
+	public void setCentered(bool centered) { self.node().requireOpen(); self._centered = centered; self.node().invalidate(); }
 
 	public void setSystemSymbol(string name) {
-		self._node.requireOpen();
-		if (name == null || name.isEmpty()) { throw "Native button system symbol is unavailable"; }
-		self._symbol = name;
-		self._node.invalidate();
+		self.node().requireOpen();
+		int symbol = LinuxSymbols.symbol(name);
+		if (symbol < 0) { throw "Native button system symbol is unavailable"; }
+		self._symbol = symbol;
+		self.node().invalidate();
 	}
 
-	public void setToolTip(string text) { self._node.requireOpen(); self._node.toolTip = text == null ? "" : text; }
+	public void setToolTip(string text) { self.node().requireOpen(); self.node().toolTip = text == null ? "" : text; }
 
-	public string toolTip() { self._node.requireOpen(); return self._node.toolTip; }
+	public string toolTip() { self.node().requireOpen(); return self.node().toolTip; }
 
 	public void setSelected(bool selected) {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		self._selectable = true;
 		if (selected == self._selected) { return; }
 		self._selected = selected;
-		self._node.invalidate();
+		self.node().invalidate();
 	}
 
-	public bool isSelected() { self._node.requireOpen(); return self._selectable && self._selected; }
+	public bool isSelected() { self.node().requireOpen(); return self._selectable && self._selected; }
 
-	public void setTransparent(bool transparent) { self._node.requireOpen(); self._transparent = transparent; self._node.invalidate(); }
+	public void setTransparent(bool transparent) { self.node().requireOpen(); self._transparent = transparent; self.node().invalidate(); }
 
-	public void setBordered(bool bordered) { self._node.requireOpen(); self._bordered = bordered; self._node.invalidate(); }
+	public void setBordered(bool bordered) {
+		self.node().requireOpen();
+		if (bordered && self._size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
+		self._bordered = bordered;
+		self.node().invalidate();
+	}
 
-	public void cancelPendingActions() { self._node.requireOpen(); var action = self._action; if (action != null) { action.discard(); } }
+	public void cancelPendingActions() { self.node().requireOpen(); var action = self._action; if (action != null) { action.discard(); } }
 
 	public bool activate() {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		if (!self._enabled) { return false; }
 		self.fire();
 		return true;
 	}
 
 	public ICallbackRegistration onAction(IButtonAction action, CallbackScope scope) {
-		self._node.requireOpen();
+		self.node().requireOpen();
 		var bound = self._action;
 		if (bound == null) { throw "Native button action is closed"; }
 		return bound.onAction(action, scope);
 	}
 
 	public CallbackCancellation close() {
-		var state = self._node.close();
+		var state = self.node().close();
 		if (state == CallbackCancellation.Complete) { self.releaseAction(); }
 		return state;
 	}
@@ -206,14 +184,14 @@ class LinuxButton implements IButton, ILinuxView {
 		var action = self._action;
 		if (action == null) { return; }
 		self._action = null;
-		self._node.context.actions.unbind(action);
+		self.node().context.actions.unbind(action);
 	}
 
 	public CallbackCancellation pollClose() {
-		var state = self._node.pollClose();
+		var state = self.node().pollClose();
 		if (state == CallbackCancellation.Complete) { self.releaseAction(); }
 		return state;
 	}
 
-	public void __del__() { if (self._action != null && self._node != null && !self._node.attached) { self.close(); } }
+	public void __del__() { if (self._action != null && self.node() != null && !self.node().attached) { self.close(); } }
 }

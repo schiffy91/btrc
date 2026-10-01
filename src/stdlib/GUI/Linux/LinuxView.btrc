@@ -4,44 +4,37 @@ import Library.Vector;
 import Library.App;
 import Library.GUI.IView;
 import Library.GUI.Linux.LinuxContext;
-import Library.GUI.Linux.LinuxFonts;
 import Library.GUI.Linux.LinuxPainter;
-import Library.GUI.Linux.LinuxActionQueue;
 import Library.GUI.Linux.SDL;
 import Library.GPU.Device;
 import Library.GPU.WebGPU;
 
-/* Application-wide services every drawn view shares. Views retain it; it
- * retains no view. */
-class LinuxContext {
-	public LinuxFonts fonts;
-	public LinuxInvalidation invalidation;
-	public LinuxIds ids;
-	public LinuxActionQueue actions;
-	public LinuxTheme darkTheme;
-	public LinuxTheme lightTheme;
-
-	public LinuxContext(int workCapacity) {
-		self.fonts = LinuxFonts();
-		self.invalidation = LinuxInvalidation();
-		self.ids = LinuxIds();
-		self.actions = LinuxActionQueue(workCapacity);
-		self.darkTheme = LinuxTheme.darkTheme();
-		self.lightTheme = LinuxTheme.lightTheme();
+/* SDL's monotonic clock in nanoseconds. Delays are clamped to a billion
+ * seconds so the conversion and the deadline sum stay in range; a longer
+ * delay never fires either way. */
+class LinuxClock {
+	class unsigned long long nanoseconds(double seconds) {
+		if (!Math.isFinite(seconds) || seconds <= 0.0) { return 0ULL; }
+		if (seconds >= 1000000000.0) { return 1000000000000000000ULL; }
+		return (unsigned long long)(seconds * 1000000000.0);
 	}
+
+	class unsigned long long after(double seconds) { return SDL_GetTicksNS() + LinuxClock.nanoseconds(seconds); }
 }
 
-/* What an attached subtree learns from its window: the native window for
- * text input, the device for GPU children, focus and the backing scale.
- * Owned by the window, referenced by attached nodes, referencing no view. */
 /* The window behind a host: advances its asynchronous device request on demand. */
 interface ILinuxDevicePoller {
 	bool pollDevice();
 }
 
+/* What an attached subtree learns from its window: the native window for
+ * text input, the device for GPU children, focus, the backing scale and the
+ * window's own invalidation, so a change repaints only its window.
+ * Owned by the window, referenced by attached nodes, referencing no view. */
 class LinuxViewHost {
 	public SDL_Window* window;
 	public LinuxContext context;
+	public LinuxInvalidation invalidation;
 	public ILinuxDevicePoller? poller = null;
 	public GPUDevice? device = null;
 	public WGPUTextureFormat format;
@@ -53,13 +46,12 @@ class LinuxViewHost {
 	public double textInputY = 0.0;
 	public double textInputWidth = 0.0;
 	public double textInputHeight = 0.0;
-	public int cursorRequest = 0;
 	public int overlayId = 0;
 	public double width = 0.0;
 	public double height = 0.0;
 	public double wakeSeconds = -1.0;
 
-	public LinuxViewHost(SDL_Window* window, LinuxContext context) { self.window = window; self.context = context; }
+	public LinuxViewHost(SDL_Window* window, LinuxContext context) { self.window = window; self.context = context; self.invalidation = LinuxInvalidation(); }
 
 	/* Ask the window to repaint after at most `seconds`, for blinking or spinning. */
 	public void requestWake(double seconds) {
@@ -78,7 +70,7 @@ class LinuxViewHost {
 		return device != null && device.state() == GPU_DEVICE_READY;
 	}
 
-	public void requestFocus(int id) { self.focusRequest = id; self.context.invalidation.mark(); }
+	public void requestFocus(int id) { self.focusRequest = id; self.invalidation.mark(); }
 
 	public void requestTextInput(bool wanted, double x, double y, double width, double height) {
 		self.textInputWanted = wanted;
@@ -228,7 +220,11 @@ class LinuxViewNode {
 
 	public bool isOpen() { return !self.closing && !self.closed; }
 
-	public void invalidate() { self.context.invalidation.mark(); }
+	/* A detached subtree has nothing to repaint; attaching it invalidates its new window. */
+	public void invalidate() { var host = self.host; if (host != null) { host.invalidation.mark(); } }
+
+	/* The backing scale of the window this view measures for; one when detached. */
+	public double scale() { var host = self.host; return host == null ? 1.0 : host.scale; }
 
 	public void requireDetached() { if (self.attached) { throw "Detach the view from its container before closing it"; } }
 
@@ -250,8 +246,6 @@ class LinuxViewNode {
 		self.invalidate();
 	}
 
-	public bool isFocused() { var host = self.host; return host != null && host.focusedId == self.id; }
-
 	public void requestFocus() { var host = self.host; if (host != null) { host.requestFocus(self.id); } }
 
 	/* Attach a child subtree: lifecycle responsibility moves here. */
@@ -268,7 +262,7 @@ class LinuxViewNode {
 		self.invalidate();
 	}
 
-	private bool contains(LinuxViewNode node) {
+	public bool contains(LinuxViewNode node) {
 		for child in self.children { var childNode = child.node(); if (childNode == node || childNode.contains(node)) { return true; } }
 		return false;
 	}
@@ -354,4 +348,57 @@ class LinuxViewNode {
 		self.closed = true;
 		return CallbackCancellation.Complete;
 	}
+}
+
+/* The ILinuxView members every drawn control shares over its one node. A
+ * control extends it, adopts its node first thing in its constructor and
+ * overrides what it draws or handles. btrc neither chains base constructors
+ * nor applies a base's field defaults to a subclass, so this base declares
+ * none, and its methods never call one another through `self` (inherited
+ * bodies dispatch statically). */
+class LinuxNodeView implements ILinuxView {
+	private LinuxViewNode _node;
+
+	public void adoptNode(LinuxViewNode node) {
+		if (self._node != null) { throw "Native view already has a node"; }
+		self._node = node;
+	}
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) {}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return 0.0; }
+
+	public double fittingHeight() { self._node.requireOpen(); return 0.0; }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
 }

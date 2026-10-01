@@ -115,7 +115,9 @@ class ClassLowerer:
         selected_callables = view.selected_callables
         reachability = self._session.stdlib_reachability
         if reachability is not None:
-            selected_callables = reachability.selected_callables(view.declaration, selected_callables)
+            selected_callables = reachability.selected_callables(
+                view.declaration, selected_callables, self._inherited_methods(class_info)
+            )
         if class_info is not None:
             self.emit_class_callable_declarations(
                 declaration,
@@ -1142,7 +1144,9 @@ class ClassLowerer:
         selected_callables = specialization.selected_callables if specialization is not None else None
         reachability = self._session.stdlib_reachability
         if reachability is not None:
-            selected_callables = reachability.selected_callables(source_declaration, selected_callables)
+            selected_callables = reachability.selected_callables(
+                source_declaration, selected_callables, self._inherited_methods(cls_info)
+            )
         if specialization is not None and specialization.declaration is decl:
             decl = replace(decl, name=specialization.symbol, generic_params=[])
         self._session.current_class = cls_info
@@ -1219,6 +1223,16 @@ class ClassLowerer:
             )
         self._session.current_class = None
         self._session.current_class_name = ""
+
+    def _inherited_methods(self, class_info: ClassInfo | None) -> list[MethodDecl]:
+        """Every ancestor's methods, nearest ancestor first."""
+        methods: list[MethodDecl] = []
+        parent_name = class_info.parent if class_info is not None else None
+        while parent_name and parent_name in self._analyzed.class_table:
+            parent_info = self._analyzed.class_table[parent_name]
+            methods.extend(parent_info.methods.values())
+            parent_name = parent_info.parent
+        return methods
 
     def _specialized_linkage(self) -> bool:
         """Whether the active class instance has translation-unit-local linkage."""

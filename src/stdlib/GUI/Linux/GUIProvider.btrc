@@ -1,5 +1,4 @@
 import Library.Strings;
-import Library.Datetime;
 import Library.Vector;
 import Library.Image;
 import Library.GUI.IView;
@@ -9,19 +8,25 @@ import Library.GUI.Capture;
 import Library.GUI.TextRun;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxApplication;
-import Library.GUI.Linux.LinuxWindow;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxImageView;
 import Library.GUI.Linux.LinuxDirectoryPicker;
 import Library.GUI.Linux.LinuxSystemText;
 
 /* Private package implementation for Linux. The static slot is the
- * application owner, not a widget registry. */
+ * application owner, not a widget registry. SDL is initialized once and kept
+ * for the process: a later initialize reuses it, SDL's main thread stays
+ * fixed, and an abandoned folder dialog's callback may still run after
+ * close, so SDL_Quit is deliberately never called. */
 class GUIProvider {
 	class LinuxApplication? active = null;
 	class bool sdlReady = false;
 
+	/* SDL's main thread is the one that first initialized it: GUI.initialize. */
+	class void requireUIThread() { if (!SDL_IsMainThread()) { throw "GUI requires the main thread"; } }
+
 	class void initialize(int workCapacity) {
+		GUIProvider.requireUIThread();
 		if (GUIProvider.active != null) { throw "GUI is already initialized"; }
 		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
 		if (!GUIProvider.sdlReady) {
@@ -32,16 +37,14 @@ class GUIProvider {
 	}
 
 	class LinuxApplication application() {
+		GUIProvider.requireUIThread();
 		var application = GUIProvider.active;
 		if (application == null) { throw "Initialize GUI before creating views or running work"; }
 		return application;
 	}
 
-	class IImageHandle createImageHandle(Image pixels, int maximumPixels) {
-		var application = GUIProvider.active;
-		if (application == null) { throw "Initialize GUI before creating image handles"; }
-		return LinuxImageHandle.create(application.context().ids, pixels, maximumPixels);
-	}
+	/* Worker-safe and independent of initialization: never reads `active`. */
+	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return LinuxImageHandle.create(pixels, maximumPixels); }
 
 	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
 		var application = GUIProvider.application();
@@ -49,24 +52,28 @@ class GUIProvider {
 		return LinuxDirectoryPicker(window == null ? null : window.nativeWindow(), application).chooseDirectory(request);
 	}
 
-	class void rasterizeText(TextRasterization request) { LinuxSystemText.rasterize(GUIProvider.application().context().fonts, request); }
+	class void rasterizeText(TextRasterization request) { GUIProvider.requireUIThread(); LinuxSystemText.rasterize(GUIProvider.application().context().fonts, request); }
 
-	class Image rasterText(TextRun run) { return LinuxSystemText.raster(GUIProvider.application().context().fonts, run); }
+	class Image rasterText(TextRun run) { GUIProvider.requireUIThread(); return LinuxSystemText.raster(GUIProvider.application().context().fonts, run); }
 
-	/* The window already composites every GPU child, so the readback is the
-	 * composed capture; the caller's layers are accepted for API parity. */
+	/* The window composites every GPU child itself, so the readback is the
+	 * composed capture. Layers must name GPU views inside the root; their
+	 * pixels are not needed. The device request is asynchronous, and capture
+	 * fails at once rather than waiting for it on the UI thread. */
 	class Image capture(IView root, Vector<GUICaptureLayer> layers) {
 		var application = GUIProvider.application();
 		var native = (ILinuxView?)root;
 		if (native == null) { throw "Capture root belongs to another GUI provider"; }
 		var window = application.windowOwning(native);
 		if (window == null) { throw "Capture root is not attached to a window"; }
-		var deadline = Timer();
-		deadline.start();
-		while (!window.pollDevice()) {  // the device request is asynchronous; captures may precede the first loop turn
-			if (deadline.elapsedMillis() > 5000.0f) { throw "Capture window has no GPU device"; }
-			Timer.sleepMillis(1);
+		if (layers == null) { throw "Capture layers are missing"; }
+		for layer in layers {
+			if (layer == null) { throw "Capture layer is missing"; }
+			var gpu = (ILinuxView?)layer.view;
+			if (gpu == null) { throw "Capture layer belongs to another GPU provider"; }
+			if (gpu.node() != native.node() && !native.node().contains(gpu.node())) { throw "Capture layer is outside the capture root"; }
 		}
+		if (!window.pollDevice()) { throw "Capture window GPU device is not ready"; }
 		var image = window.render(true);
 		if (image == null) { throw "Capture window produced no frame"; }
 		return image;
@@ -79,6 +86,7 @@ class GUIProvider {
 	}
 
 	class CallbackCancellation close() {
+		GUIProvider.requireUIThread();
 		var application = GUIProvider.active;
 		if (application == null) { return CallbackCancellation.Complete; }
 		var result = application.close();

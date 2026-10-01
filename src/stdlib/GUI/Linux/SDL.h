@@ -1,6 +1,10 @@
-/* SDL3 windowing for the Linux GUI provider. The union-typed SDL_Event and
- * the dialog callback cannot cross the typed importer, so these inline
- * adapters flatten them into plain C values; no policy lives here. */
+/* SDL3 windowing for the Linux GUI provider. The manifest binds ordinary SDL
+ * functions directly; this header keeps only what the typed importer cannot
+ * express, each for its stated reason:
+ * - SDL_Event is a union, so btrcSdlPollEvent/WaitEvent flatten it and the
+ *   btrcSdlPush* helpers build one (synthetic input for automation/tests);
+ * - the folder dialog's callback may run on another thread, so its
+ *   transaction (atomic state, two owners) lives on the C side. */
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +27,11 @@ typedef struct BtrcSdlEvent {
 	int repeat;
 	const char* text;
 } BtrcSdlEvent;
+
+/* Synthetic text events point into this ring (see btrcSdlPushText). */
+static char btrcSdlTextRing[16][64];
+static unsigned int btrcSdlTextRingPushed = 0u;
+static unsigned int btrcSdlTextRingTaken = 0u;
 
 static inline void btrcSdlFlatten(const SDL_Event* source, BtrcSdlEvent* out) {
 	memset(out, 0, sizeof(*out));
@@ -60,6 +69,7 @@ static inline void btrcSdlFlatten(const SDL_Event* source, BtrcSdlEvent* out) {
 	} else if (source->type == SDL_EVENT_TEXT_INPUT) {
 		out->window = source->text.windowID;
 		out->text = source->text.text;
+		for (int slot = 0; slot < 16; slot++) { if (source->text.text == btrcSdlTextRing[slot]) { btrcSdlTextRingTaken++; break; } }
 	}
 }
 
@@ -86,60 +96,61 @@ static inline void btrcSdlPushWake(void) {
 	SDL_PushEvent(&event);
 }
 
-static inline void* btrcSdlWindowPointerProperty(SDL_Window* window, const char* name) { return SDL_GetPointerProperty(SDL_GetWindowProperties(window), name, NULL); }
-
-static inline long long btrcSdlWindowNumberProperty(SDL_Window* window, const char* name) { return (long long)SDL_GetNumberProperty(SDL_GetWindowProperties(window), name, 0); }
-
-static inline int btrcSdlWindowFlag(SDL_Window* window, unsigned long long flag) { return (SDL_GetWindowFlags(window) & (SDL_WindowFlags)flag) != 0 ? 1 : 0; }
-
-static inline void btrcSdlSetTextInputArea(SDL_Window* window, int x, int y, int width, int height, int cursor) {
-	SDL_Rect area;
-	area.x = x; area.y = y; area.w = width; area.h = height;
-	SDL_SetTextInputArea(window, &area, cursor);
-}
-
-static inline int btrcSdlSimpleMessageBox(const char* title, const char* message, SDL_Window* window) { return SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, message, window) ? 1 : 0; }
-
-/* One folder-dialog transaction. SDL delivers the callback on the thread
- * pumping events; the owner polls the state and frees it afterward. */
+/* One folder-dialog transaction. SDL may deliver the callback on another
+ * thread (the zenity backend does), so the result is published through an
+ * atomic state after the path is written, and the transaction has two owners:
+ * the caller and the pending callback. Whichever releases last frees it, so a
+ * caller that stops waiting never leaves SDL a dangling userdata. */
 typedef struct BtrcSdlFolderDialog {
-	int state;
+	SDL_AtomicInt state;
+	SDL_AtomicInt owners;
 	char* path;
 } BtrcSdlFolderDialog;
+
+static inline void btrcSdlFolderDialogRelease(BtrcSdlFolderDialog* dialog) {
+	if (dialog == NULL) { return; }
+	if (SDL_AddAtomicInt(&dialog->owners, -1) != 1) { return; }
+	free(dialog->path);
+	free(dialog);
+}
 
 static void btrcSdlFolderDialogCallback(void* userdata, const char* const* filelist, int filter) {
 	BtrcSdlFolderDialog* dialog = (BtrcSdlFolderDialog*)userdata;
 	(void)filter;
 	if (dialog == NULL) { return; }
-	if (filelist == NULL) { dialog->state = 3; return; }
-	if (filelist[0] == NULL) { dialog->state = 2; return; }
-	size_t length = strlen(filelist[0]);
-	dialog->path = (char*)malloc(length + 1);
-	if (dialog->path == NULL) { dialog->state = 3; return; }
-	memcpy(dialog->path, filelist[0], length + 1);
-	dialog->state = 1;
+	int state = 3;
+	if (filelist != NULL && filelist[0] == NULL) { state = 2; }
+	else if (filelist != NULL) {
+		size_t length = strlen(filelist[0]);
+		char* path = (char*)malloc(length + 1);
+		if (path != NULL) { memcpy(path, filelist[0], length + 1); dialog->path = path; state = 1; }
+	}
+	SDL_SetAtomicInt(&dialog->state, state);  /* full barrier: the path is visible before the state */
+	btrcSdlFolderDialogRelease(dialog);
 }
 
-static inline BtrcSdlFolderDialog* btrcSdlFolderDialogOpen(SDL_Window* window, const char* initialDirectory) {
+/* Returns NULL when no transaction could be allocated; otherwise the caller
+ * owns one reference and must release it. */
+static inline BtrcSdlFolderDialog* btrcSdlFolderDialogOpen(SDL_Window* window, const char* initialDirectory, const char* title) {
 	BtrcSdlFolderDialog* dialog = (BtrcSdlFolderDialog*)calloc(1, sizeof(BtrcSdlFolderDialog));
 	if (dialog == NULL) { return NULL; }
-	SDL_ShowOpenFolderDialog(btrcSdlFolderDialogCallback, dialog, window, initialDirectory != NULL && initialDirectory[0] != '\0' ? initialDirectory : NULL, false);
+	SDL_PropertiesID properties = SDL_CreateProperties();
+	if (properties == 0) { free(dialog); return NULL; }
+	if (window != NULL) { SDL_SetPointerProperty(properties, SDL_PROP_FILE_DIALOG_WINDOW_POINTER, window); }
+	if (initialDirectory != NULL && initialDirectory[0] != '\0') { SDL_SetStringProperty(properties, SDL_PROP_FILE_DIALOG_LOCATION_STRING, initialDirectory); }
+	if (title != NULL && title[0] != '\0') { SDL_SetStringProperty(properties, SDL_PROP_FILE_DIALOG_TITLE_STRING, title); }
+	SDL_SetBooleanProperty(properties, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, false);
+	SDL_SetAtomicInt(&dialog->owners, 2);
+	SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFOLDER, btrcSdlFolderDialogCallback, dialog, properties);
+	SDL_DestroyProperties(properties);
 	return dialog;
 }
 
-static inline int btrcSdlFolderDialogState(const BtrcSdlFolderDialog* dialog) { return dialog->state; }
+/* 0 while pending, then 1 selected, 2 cancelled, 3 failed. */
+static inline int btrcSdlFolderDialogState(BtrcSdlFolderDialog* dialog) { return SDL_GetAtomicInt(&dialog->state); }
 
+/* Valid only after the state reports a selection. */
 static inline const char* btrcSdlFolderDialogPath(const BtrcSdlFolderDialog* dialog) { return dialog->path == NULL ? "" : dialog->path; }
-
-static inline void btrcSdlFolderDialogFree(BtrcSdlFolderDialog* dialog) {
-	if (dialog == NULL) { return; }
-	free(dialog->path);
-	free(dialog);
-}
-
-static inline char* btrcSdlClipboardText(void) { return SDL_GetClipboardText(); }
-
-static inline void btrcSdlFree(void* memory) { SDL_free(memory); }
 
 /* Synthetic input for automation and tests: events enter SDL's own queue and
  * reach the window exactly like device events. Coordinates are window points. */
@@ -191,22 +202,21 @@ static inline void btrcSdlPushKey(unsigned int window, unsigned int scancode, un
 	SDL_PushEvent(&event);
 }
 
-/* Pushed text lives in a small ring the next few pumps will have consumed;
- * at most 63 bytes reach the window per event. */
-static char btrcSdlTextRing[16][64];
-static unsigned int btrcSdlTextRingIndex = 0u;
-
-static inline void btrcSdlPushText(unsigned int window, const char* text) {
-	SDL_Event event;
-	memset(&event, 0, sizeof(event));
-	char* slot = btrcSdlTextRing[btrcSdlTextRingIndex % 16u];
-	btrcSdlTextRingIndex++;
+/* Pushed text lives in a small ring until the pump flattens its event: at
+ * most 16 pushes may be pending and at most 63 bytes each. A push that would
+ * overwrite pending text or truncate this one is rejected and returns 0. */
+static inline int btrcSdlPushText(unsigned int window, const char* text) {
 	size_t length = strlen(text);
-	if (length > 63) { length = 63; }
+	if (length > 63u || btrcSdlTextRingPushed - btrcSdlTextRingTaken >= 16u) { return 0; }
+	char* slot = btrcSdlTextRing[btrcSdlTextRingPushed % 16u];
 	memcpy(slot, text, length);
 	slot[length] = '\0';
+	SDL_Event event;
+	memset(&event, 0, sizeof(event));
 	event.type = SDL_EVENT_TEXT_INPUT;
 	event.text.windowID = window;
 	event.text.text = slot;
-	SDL_PushEvent(&event);
+	if (!SDL_PushEvent(&event)) { return 0; }
+	btrcSdlTextRingPushed++;
+	return 1;
 }

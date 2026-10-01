@@ -3,13 +3,29 @@ import Library.Callback;
 
 interface IButtonAction { void invoke(); }
 
+/* Typography limits every provider enforces rather than clipping text. */
+class ButtonTypography {
+	/* The largest font a bordered button's bezel holds. */
+	class double borderedMaximumSize() { return 20.0; }
+
+	/* The largest font any button accepts. */
+	class double maximumSize() { return 512.0; }
+}
+
 /* Setters publish model state without synthesizing user actions. activate()
  * uses native control tracking and returns false when the control is disabled.
  * onAction registers one queued receiver in an independently owned scope.
  * Cancel before replacement; cancellation/close discards queued old actions.
  * Delivery happens after native dispatch, on the application UI executor.
- * Providers reject unsupported typography rather than clipping it. macOS
- * bordered buttons support up to 20pt; borderless buttons allow larger text. */
+ * Providers reject unsupported typography rather than clipping it: bordered
+ * buttons support up to ButtonTypography.borderedMaximumSize() points and
+ * borderless buttons up to ButtonTypography.maximumSize().
+ * setSystemSymbol takes an SF Symbols name. The portable vocabulary every
+ * provider draws is gearshape, chevron.left, chevron.right, play.fill,
+ * pause.fill, stop.fill, waveform, folder, paintbrush, metronome, repeat,
+ * speaker.wave.2.fill, speedometer, line.3.horizontal.decrease, xmark,
+ * magnifyingglass, tuningfork and quote.bubble; a name the provider cannot
+ * draw throws "Native button system symbol is unavailable". */
 interface IButton extends IView {
 	string title();
 	void setTitle(string title);

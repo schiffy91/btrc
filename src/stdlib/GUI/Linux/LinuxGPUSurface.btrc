@@ -1,5 +1,4 @@
 import Library.Math;
-import Library.Strings;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.WebGPUSurface;
 
@@ -26,16 +25,17 @@ class LinuxGPUSurface {
 		memset(&wayland, 0, sizeof(WGPUSurfaceSourceWaylandSurface));
 		WGPUSurfaceSourceXlibWindow xlib;
 		memset(&xlib, 0, sizeof(WGPUSurfaceSourceXlibWindow));
-		void* waylandDisplay = btrcSdlWindowPointerProperty(window, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER);
-		void* waylandSurface = btrcSdlWindowPointerProperty(window, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER);
+		var properties = SDL_GetWindowProperties(window);
+		void* waylandDisplay = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, null);
+		void* waylandSurface = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, null);
 		if (waylandDisplay != null && waylandSurface != null) {
 			wayland.chain.sType = WGPUSType_SurfaceSourceWaylandSurface;
 			wayland.display = waylandDisplay;
 			wayland.surface = waylandSurface;
 			descriptor.nextInChain = &wayland.chain;
 		} else {
-			void* xDisplay = btrcSdlWindowPointerProperty(window, SDL_PROP_WINDOW_X11_DISPLAY_POINTER);
-			long long xWindow = btrcSdlWindowNumberProperty(window, SDL_PROP_WINDOW_X11_WINDOW_NUMBER);
+			void* xDisplay = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, null);
+			long long xWindow = (long long)SDL_GetNumberProperty(properties, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0LL);
 			if (xDisplay == null || xWindow == 0LL) { self.close(); throw "Native window exposes neither a Wayland surface nor an X11 window"; }
 			xlib.chain.sType = WGPUSType_SurfaceSourceXlibWindow;
 			xlib.display = xDisplay;

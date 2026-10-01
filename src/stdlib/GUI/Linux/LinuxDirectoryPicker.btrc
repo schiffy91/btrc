@@ -4,8 +4,12 @@ import Library.GUI.IDirectoryPicker;
 import Library.GUI.Linux.SDL;
 
 /* The desktop's folder chooser through SDL's dialog API (portal or zenity).
- * The application pumps events until the dialog answers, like a modal. */
-interface ILinuxDialogPump { void pumpOnce(int timeoutMilliseconds); }
+ * The application pumps events until the dialog answers, like a modal, so a
+ * picker cannot open from inside native event dispatch. */
+interface ILinuxDialogPump {
+	bool isDispatching();
+	void pumpOnce(int timeoutMilliseconds);
+}
 
 class LinuxDirectoryPicker implements IDirectoryPicker {
 	private SDL_Window* _parent;
@@ -15,7 +19,8 @@ class LinuxDirectoryPicker implements IDirectoryPicker {
 
 	public DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
 		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
-		var dialog = btrcSdlFolderDialogOpen(self._parent, request.initialDirectory);
+		if (self._pump.isDispatching()) { throw "Native event dispatch is already active"; }
+		var dialog = btrcSdlFolderDialogOpen(self._parent, request.initialDirectory, request.title);
 		if (dialog == null) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "directory picker is unavailable")); }
 		DirectoryPickerOutcome outcome = DirectoryPickerOutcome.cancelled();
 		try {
@@ -25,7 +30,7 @@ class LinuxDirectoryPicker implements IDirectoryPicker {
 			if (state == 1 && directory.isEmpty()) { outcome = DirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker selected an empty path")); }
 			else if (state == 1) { outcome = DirectoryPickerOutcome.selected(directory); }
 			else if (state != 2) { outcome = DirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "directory picker failed: " + Strings.copy((char*)SDL_GetError()))); }
-		} finally { btrcSdlFolderDialogFree(dialog); }
+		} finally { btrcSdlFolderDialogRelease(dialog); }
 		return outcome;
 	}
 }

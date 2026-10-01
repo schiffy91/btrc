@@ -7015,7 +7015,10 @@ def native_compile(request):
     if request.param == "reference":
         return compile_source
     binary = request.getfixturevalue("immutable_btrcc")
-    target = "macos-arm64" if platform.machine() == "arm64" else "macos-x86_64"
+    if sys.platform == "darwin":
+        target = "macos-arm64" if platform.machine() == "arm64" else "macos-x86_64"
+    else:  # the Linux FreeType cases in test_native_font_runtime
+        target = "linux-aarch64" if platform.machine() in ("aarch64", "arm64") else "linux-x86_64"
 
     def compile_native(source, data_root=None, plan_path=None, *, use_cache=True):
         result = subprocess.run(

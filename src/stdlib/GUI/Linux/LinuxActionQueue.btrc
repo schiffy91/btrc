@@ -1,21 +1,19 @@
 import Library.Callback;
-import Library.Vector;
 import Library.GUI.IButton;
+import Library.GUI.ActionMailbox;
 
 /* Stable BTRC identity for one button's action subscription. Each queued
  * click snapshots its generation; cancellation or replacement invalidates
  * older clicks without touching the ring. No path leads back to the scope. */
-class LinuxAction {
-	private LinuxActionMailbox _mailbox;
+class LinuxAction implements IQueuedAction {
+	private ActionMailbox _mailbox;
 	private int _generation = 0;
 	private bool _open = true;
 	private CallbackContext<IButtonAction, LinuxAction>? _handler;
 
-	public LinuxAction(LinuxActionMailbox mailbox) { self._mailbox = mailbox; }
+	public LinuxAction(ActionMailbox mailbox) { self._mailbox = mailbox; }
 
 	public bool accepts(int generation) { return self._open && self._generation == generation; }
-
-	public bool hasReceiver() { return self._open && self._handler != null; }
 
 	/* Called by the button on a completed click. */
 	public void invoke() { if (self._open) { self._mailbox.enqueue(self, self._generation); } }
@@ -59,75 +57,14 @@ class LinuxAction {
 	}
 }
 
-/* Preallocated ordered click storage. Overflow is latched and reported by
- * the consumer after dispatch, never by throwing inside input handling. */
-class LinuxActionMailbox {
-	private Vector<LinuxAction?> _pending = [];
-	private Vector<int> _generations = [];
-	private int _capacity;
-	private int _head = 0;
-	private int _count = 0;
-	private bool _overflow = false;
-
-	public LinuxActionMailbox(int capacity) {
-		if (capacity <= 0 || capacity > 65536) { throw "Native action capacity must be between 1 and 65536"; }
-		self._capacity = capacity;
-		for (int index = 0; index < capacity; index++) { self._pending.push(null); self._generations.push(0); }
-	}
-
-	public int pendingCount() { self.requireCapacity(); return self._count; }
-
-	private void requireCapacity() { if (self._overflow) { throw "Native action capacity exceeded; close this action queue before continuing"; } }
-
-	public void prune() {
-		int retained = 0;
-		for (int offset = 0; offset < self._count; offset++) {
-			int index = (self._head + offset) % self._capacity;
-			var action = self._pending.get(index);
-			int generation = self._generations.get(index);
-			self._pending.set(index, null);
-			if (action != null && action.accepts(generation)) {
-				int destination = (self._head + retained) % self._capacity;
-				self._pending.set(destination, action);
-				self._generations.set(destination, generation);
-				retained++;
-			}
-		}
-		self._count = retained;
-	}
-
-	public void enqueue(LinuxAction action, int generation) {
-		if (self._overflow) { return; }
-		if (self._count == self._capacity) { self.prune(); }
-		if (self._count == self._capacity) { self._overflow = true; return; }
-		int index = (self._head + self._count) % self._capacity;
-		self._pending.set(index, action);
-		self._generations.set(index, generation);
-		self._count++;
-	}
-
-	public LinuxAction? take() {
-		self.requireCapacity();
-		while (self._count > 0) {
-			var action = self._pending.get(self._head);
-			int generation = self._generations.get(self._head);
-			self._pending.set(self._head, null);
-			self._head = (self._head + 1) % self._capacity;
-			self._count--;
-			if (action != null && action.accepts(generation)) { return action; }
-		}
-		return null;
-	}
-}
-
 /* The application's click queue. Buttons bind one action each; dispatch runs
  * on the UI thread after native events, in click order. */
 class LinuxActionQueue {
-	private LinuxActionMailbox _mailbox;
+	private ActionMailbox _mailbox;
 	private int _bound = 0;
 	private bool _closed = false;
 
-	public LinuxActionQueue(int capacity = 256) { self._mailbox = LinuxActionMailbox(capacity); }
+	public LinuxActionQueue(int capacity = 256) { self._mailbox = ActionMailbox(capacity); }
 
 	private void requireOpen() { if (self._closed) { throw "Native action queue is closed"; } }
 

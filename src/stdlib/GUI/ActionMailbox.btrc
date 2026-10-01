@@ -1,0 +1,76 @@
+import Library.Vector;
+
+/* One provider action a mailbox entry names. An entry stays deliverable
+ * while its action still accepts the generation it was queued with:
+ * cancellation or replacement moves the generation on and so invalidates
+ * every older entry without touching the ring. */
+interface IQueuedAction {
+	bool accepts(int generation);
+	void deliver();
+}
+
+/* Preallocated, ordered click storage a GUI provider confines to its UI
+ * thread. Overflow is latched and reported by the consumer after dispatch,
+ * never by throwing inside input handling. */
+class ActionMailbox {
+	private Vector<IQueuedAction?> _pending = [];
+	private Vector<int> _generations = [];
+	private int _capacity;
+	private int _head = 0;
+	private int _count = 0;
+	private bool _overflow = false;
+
+	public ActionMailbox(int capacity) {
+		if (capacity <= 0 || capacity > 65536) { throw "Native action capacity must be between 1 and 65536"; }
+		self._capacity = capacity;
+		for (int index = 0; index < capacity; index++) { self._pending.push(null); self._generations.push(0); }
+	}
+
+	public int pendingCount() { self.requireCapacity(); return self._count; }
+
+	private void requireCapacity() { if (self._overflow) { throw "Native action capacity exceeded; close this action queue before continuing"; } }
+
+	/* Drop entries their actions no longer accept, keeping click order. */
+	public void prune() {
+		int retained = 0;
+		for (int offset = 0; offset < self._count; offset++) {
+			int index = (self._head + offset) % self._capacity;
+			var action = self._pending.get(index);
+			int generation = self._generations.get(index);
+			self._pending.set(index, null);
+			if (action != null && action.accepts(generation)) {
+				int destination = (self._head + retained) % self._capacity;
+				self._pending.set(destination, action);
+				self._generations.set(destination, generation);
+				retained++;
+			}
+		}
+		self._count = retained;
+	}
+
+	/* False when the click was not queued: the ring is full or already overflowed. */
+	public bool enqueue(IQueuedAction action, int generation) {
+		if (self._overflow) { return false; }
+		if (self._count == self._capacity) { self.prune(); }
+		if (self._count == self._capacity) { self._overflow = true; return false; }
+		int index = (self._head + self._count) % self._capacity;
+		self._pending.set(index, action);
+		self._generations.set(index, generation);
+		self._count++;
+		return true;
+	}
+
+	/* The oldest entry its action still accepts, or null. */
+	public IQueuedAction? take() {
+		self.requireCapacity();
+		while (self._count > 0) {
+			var action = self._pending.get(self._head);
+			int generation = self._generations.get(self._head);
+			self._pending.set(self._head, null);
+			self._head = (self._head + 1) % self._capacity;
+			self._count--;
+			if (action != null && action.accepts(generation)) { return action; }
+		}
+		return null;
+	}
+}

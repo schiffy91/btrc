@@ -1,8 +1,6 @@
 import Library.Callback;
 import Library.Console;
-import Library.Datetime;
 import Library.Math;
-import Library.Strings;
 import Library.Vector;
 import Library.Image;
 import Library.GUI.IApplication;
@@ -83,7 +81,6 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 	private string _workFailure = "";
 	private bool _workFailed = false;
 	private string _closeFailure = "";
-	private unsigned long long _wakeDeadline = 0ULL;
 
 	public LinuxApplication(int workCapacity) {
 		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
@@ -93,9 +90,11 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	public LinuxContext context() { return self._context; }
 
-	public bool quitRequested() { return self._quitRequested; }
+	/* SDL's main thread is the one GUI.initialize ran SDL_Init on. */
+	private void requireUIThread() { if (!SDL_IsMainThread()) { throw "Native application dispatch requires the main thread"; } }
 
 	private void requireIdle() {
+		self.requireUIThread();
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
 	}
@@ -105,9 +104,15 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 		if (self._quitRequested) { throw "Application quit has been requested"; }
 	}
 
-	public bool isRunning() { return self._running; }
+	public bool isRunning() { self.requireUIThread(); return self._running; }
+
+	public bool isDispatching() { return self._dispatching; }
+
+	/* How long run() drains a closing subtree before reporting it stalled. */
+	class double shutdownSeconds() { return 10.0; }
 
 	public void requestQuit() {
+		self.requireUIThread();
 		if (self._closed || self._quitRequested) { return; }
 		self._quitRequested = true;
 		btrcSdlPushWake();
@@ -119,6 +124,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 	}
 
 	public void post(IApplicationWork work) {
+		self.requireUIThread();
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
 		if (work == null) { throw "Application work is required"; }
 		if (self._quitRequested) { throw "Application quit has been requested"; }
@@ -132,12 +138,13 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 	private void pruneDelayed() { for (int index = self._delayed.len - 1; index >= 0; index--) { if (!self._delayed.get(index).isOpen()) { self._delayed.remove(index); } } }
 
 	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
+		self.requireUIThread();
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
 		if (work == null || !Math.isFinite(delaySeconds) || delaySeconds < 0.0) { throw "Delayed work requires a finite nonnegative delay and a receiver"; }
 		if (self._quitRequested) { throw "Application quit has been requested"; }
 		self.pruneDelayed();
 		if (self._pendingWork + self._delayed.len >= self._workCapacity) { throw "Application work capacity exceeded"; }
-		var registration = LinuxDelayedWork(work, SDL_GetTicksNS() + (unsigned long long)(delaySeconds * 1000000000.0));
+		var registration = LinuxDelayedWork(work, LinuxClock.after(delaySeconds));
 		self._delayed.push(registration);
 		return registration;
 	}
@@ -248,29 +255,24 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 		unsigned long long now = SDL_GetTicksNS();
 		unsigned long long deadline = now + 250000000ULL;
 		for delayed in self._delayed { if (delayed.isOpen() && delayed.deadline() < deadline) { deadline = delayed.deadline(); } }
-		if (self._wakeDeadline != 0ULL && self._wakeDeadline < deadline) { deadline = self._wakeDeadline; }
-		for window in self._windows { if (window.isOpen() && window.needsFrame()) { return 0; } }
+		for window in self._windows {
+			if (!window.isOpen()) { continue; }
+			if (window.needsFrame()) { return 0; }
+			unsigned long long wake = window.wakeAt();
+			if (wake != 0ULL && wake < deadline) { deadline = wake; }
+		}
 		if (deadline <= now) { return 0; }
 		return (int)((deadline - now) / 1000000ULL) + 1;
 	}
 
 	private void renderWindows() {
-		self._wakeDeadline = 0ULL;
 		for (int index = self._windows.len - 1; index >= 0; index--) {
 			var window = self._windows.get(index);
 			if (!window.isOpen()) { continue; }
 			if (window.closeRequested()) { window.close(); continue; }
 			if (!window.pollDevice()) { continue; }
-			if (window.needsFrame()) {
-				window.render(false);
-				double wake = window.wakeSeconds();
-				if (wake >= 0.0) {
-					unsigned long long deadline = SDL_GetTicksNS() + (unsigned long long)(wake * 1000000000.0);
-					if (self._wakeDeadline == 0ULL || deadline < self._wakeDeadline) { self._wakeDeadline = deadline; }
-				}
-			}
+			if (window.needsFrame()) { window.render(false); }
 		}
-		if (self._wakeDeadline != 0ULL && SDL_GetTicksNS() >= self._wakeDeadline) { self._context.invalidation.mark(); }
 		for (int index = self._windows.len - 1; index >= 0; index--) {
 			var window = self._windows.get(index);
 			if (window.isOpen()) { continue; }
@@ -280,11 +282,11 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	/* One loop turn: wait for events or the next deadline, then service everything. */
 	public void pumpOnce(int timeoutMilliseconds) {
+		self.requireUIThread();
+		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		self._dispatching = true;
-		try {
-			self.pumpEvents(timeoutMilliseconds);
-			if (self._wakeDeadline != 0ULL && SDL_GetTicksNS() >= self._wakeDeadline) { self._wakeDeadline = 0ULL; self._context.invalidation.mark(); }
-		} finally { self._dispatching = false; }
+		try { self.pumpEvents(timeoutMilliseconds); }
+		finally { self._dispatching = false; }
 		self.runDelayed();
 		self.runWork();
 		self.dispatchActions();
@@ -292,6 +294,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 	}
 
 	public void run() {
+		self.requireUIThread();
 		if (self._running || self._dispatching) { throw "Native application loop is already active"; }
 		if (self._closed) { throw "Application shutdown has completed"; }
 		self._running = true;
@@ -303,8 +306,12 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 		} catch (string error) { self._running = false; self.close(); throw error; }
 		self._running = false;
 		self.requestQuit();
+		/* A subtree that never drains (a GPU device that never reaches CLOSED)
+		 * fails the run after one deadline; its pending owners stay retained. */
 		var result = self.close();
+		unsigned long long deadline = LinuxClock.after(LinuxApplication.shutdownSeconds());
 		while (result == CallbackCancellation.Pending) {
+			if (SDL_GetTicksNS() >= deadline) { throw "Native subtree shutdown did not complete"; }
 			self.pumpOnce(10);
 			result = self.pollClose();
 		}
@@ -352,6 +359,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	public CallbackCancellation close() {
 		if (self._closed) { return CallbackCancellation.Complete; }
+		self.requireUIThread();
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		if (self._running) { throw "Request application quit before closing a running application"; }

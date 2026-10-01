@@ -155,3 +155,33 @@ def test_generic_instance_type_arguments_are_roots() -> None:
     assert reach.reaches(box) and reach.reaches(named["Element"])
     assert reach.lowers_method(named["Element"], next(m for m in named["Element"].members if isinstance(m, MethodDecl)))
     assert not reach.reaches(named["Hidden"])
+
+
+def test_inherited_wrappers_follow_the_ancestor_body_rule() -> None:
+    """A stdlib subclass keeps a wrapper for every reached ancestor method, at any depth."""
+    stdlib = Parser(
+        Lexer(
+            """
+class Root {
+    public int node() { return 1; }
+    public int unusedRoot() { return 2; }
+}
+class Middle extends Root { public int middle() { return 3; } }
+class Leaf extends Middle { public Leaf() {} }
+""",
+            "<stdlib>",
+        ).tokenize()
+    ).parse()
+    for declaration in stdlib.declarations:
+        declaration.source_file = CompilerStdlibSource("<stdlib>")
+    user = Parser(
+        Lexer("int main() { var leaf = Leaf(); return leaf.node() + leaf.middle(); }", "<user>").tokenize()
+    ).parse()
+    declarations = stdlib.declarations + user.declarations
+    reach = StdlibReachability(declarations)
+    named = _by_name(declarations)
+    inherited = [m for name in ("Middle", "Root") for m in named[name].members if isinstance(m, MethodDecl)]
+    selected = reach.selected_callables(named["Leaf"], None, inherited)
+    assert ("method", "node") in selected and ("method", "middle") in selected
+    assert ("method", "unusedRoot") not in selected
+    assert ("method", "node") not in reach.selected_callables(named["Leaf"], None)

@@ -252,9 +252,17 @@ class StdlibReachabilityPlan:
         )
 
     def selected_callables(
-        self, declaration: ClassDecl, selected: frozenset[tuple[str, str]] | None
+        self,
+        declaration: ClassDecl,
+        selected: frozenset[tuple[str, str]] | None,
+        inherited: Iterable[MethodDecl] = (),
     ) -> frozenset[tuple[str, str]] | None:
-        """Narrow a class's callable selection to the methods this program reaches."""
+        """Narrow a class's callable selection to the methods this program reaches.
+
+        ``inherited`` are the ancestors' methods: the class's wrapper for one is
+        kept by the same rule that lowers the ancestor's body, since a call or
+        interface table names the wrapper, never the ancestor's symbol.
+        """
 
         if not StdlibReachability.is_stdlib_declaration(declaration):
             return selected
@@ -266,6 +274,9 @@ class StdlibReachabilityPlan:
             elif isinstance(member, PropertyDecl):
                 chosen.add(("get", member.name))
                 chosen.add(("set", member.name))
+        for member in inherited:
+            if StdlibReachability.always_lowered(member) or member.name in self.names:
+                chosen.add(("method", member.name))
         return frozenset(chosen) if selected is None else frozenset(chosen & selected)
 
 
@@ -350,9 +361,12 @@ class StdlibReachability:
         return self.plan.lowers_method(declaration, member)
 
     def selected_callables(
-        self, declaration: ClassDecl, selected: frozenset[tuple[str, str]] | None
+        self,
+        declaration: ClassDecl,
+        selected: frozenset[tuple[str, str]] | None,
+        inherited: Iterable[MethodDecl] = (),
     ) -> frozenset[tuple[str, str]] | None:
-        return self.plan.selected_callables(declaration, selected)
+        return self.plan.selected_callables(declaration, selected, inherited)
 
     def _reach(self, declaration: object, worklist: list[object]) -> None:
         if id(declaration) in self._reached:

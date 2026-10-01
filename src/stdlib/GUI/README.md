@@ -420,7 +420,7 @@ backing scale, so measurement and drawing agree at fractional scales.
 
 - `LinuxApplication.run()` pumps SDL events, delivers posted and delayed
   work, dispatches queued button actions in click order, and renders every
-  window whose invalidation revision moved. Blinking carets and spinners ask
+  window whose own invalidation revision moved. Blinking carets and spinners ask
   the host for a wake instead of redrawing continuously.
 - Pointer input is routed by hit-testing the tree: subscriptions along the
   path see the event first, leaf to root, then the controls' own behavior. A
@@ -432,14 +432,30 @@ backing scale, so measurement and drawing agree at fractional scales.
   device request, so a child polled before the first loop turn still becomes
   ready. `GUI.capture` paints the whole window into an offscreen target and
   reads it back, so a window captures before it is shown and presentation is
-  never reconfigured; the layers argument is accepted for parity because the
-  frame already composes every GPU child.
+  never reconfigured. It fails at once if the window's device is not ready
+  yet rather than waiting on the UI thread, and it checks that every layer
+  names a GPU view inside the capture root; the layer pixels are unused
+  because the frame already composes every GPU child.
+- Every provider and application entry point except `createImageHandle`
+  requires SDL's main thread, the one that called `GUI.initialize`.
 - `ISelect` opens a window overlay that receives pointer and keyboard input
   first; `IWindow.showAlert` is SDL's message box; `GUI.chooseDirectory` is
   the desktop folder dialog (portal or zenity) pumped like a modal.
-- `SDL.h` also exposes `btrcSdlPush*` synthetic input so automation and the
-  native tests drive windows through SDL's own queue.
+- The manifest binds SDL and fontconfig functions directly. `SDL.h` keeps
+  only what the typed importer cannot express: flattening the `SDL_Event`
+  union, the folder dialog's cross-thread transaction, and `btrcSdlPush*`
+  synthetic input so automation and the native tests drive windows through
+  SDL's own queue.
+- SDL is initialized once, by the first `GUI.initialize`, and stays
+  initialized for the process: a later `GUI.initialize` reuses it, the main
+  thread SDL reports stays fixed, and an abandoned folder dialog's callback
+  may still run after close. Process exit reclaims it; `SDL_Quit` is not
+  bound.
 
 `src/tests/native/gui/linux/LinuxGUIControls.btrc` is the live regression:
-clicks, typing, a select choice, a slider drag, wheel scrolling, subscription
-capture and a readback pixel check on a real window.
+clicks, typing, clipboard paste, a select choice, a slider drag, wheel
+scrolling, subscription capture, worker-made image handles, contract errors
+and readback pixel checks on a real window. `LinuxGUIShutdown.btrc` proves a
+subtree that never finishes closing fails `run()` after the drain deadline.
+Linux CI offers no display, so both skip there; locally they run under Xvfb
+with Mesa's lavapipe Vulkan driver.
