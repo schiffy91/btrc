@@ -18,10 +18,10 @@ int main(void) {
     check(btrc_gpu_create_shader(NULL, "") == NULL, "null shader context");
     check(btrc_gpu_create_buffer(NULL, 4, BTRC_GPU_STORAGE) == NULL,
           "null buffer context");
-    btrc_gpu_write_buffer(NULL, NULL, NULL, -1);
+    check(!btrc_gpu_write_buffer(NULL, NULL, NULL, -1),
+          "write rejects invalid inputs");
     check(!btrc_gpu_read_buffer_checked(NULL, NULL, NULL, -1),
           "checked read rejects invalid inputs");
-    btrc_gpu_read_buffer(NULL, NULL, NULL, -1);
     btrc_gpu_buffer_destroy(NULL);
     check(btrc_gpu_create_compute_pipeline(NULL, NULL, "main") == NULL,
           "null compute pipeline inputs");

@@ -1,0 +1,18 @@
+/* The request policy every system image decoder shares: admission, content
+ * sniffing, BTRC's own DDS decoder, and UNSUPPORTED for unknown content. A
+ * platform codec only decodes the formats this hands it. */
+
+import Library.Bytes;
+import Library.Image.DDSEncodedImageDecoder;
+import Library.Image.EncodedImage;
+
+class EncodedImageDispatch {
+	class EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits, IEncodedImageFormatDecoder codec) {
+		var rejected = EncodedImageDecodeOutcome.admit(encoded, limits);
+		if (rejected != null) { return rejected; }
+		var format = EncodedImageSignature.sniff(encoded);
+		if (format == ENCODED_IMAGE_FORMAT_DDS) { return DDSEncodedImageDecoder().decodeRecognized(encoded, limits); }
+		if (format == ENCODED_IMAGE_FORMAT_UNKNOWN) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, encoded.length()); }
+		return codec.decodeFormat(format, encoded, limits);
+	}
+}

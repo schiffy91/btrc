@@ -75,7 +75,7 @@ def test_gpu_void_kernel_dispatch_with_uniform_and_fallback():
     )
     assert "btrc_gpu_acquire_compute" in c  # atomic singleton/fallback guard
     assert "_uniforms" in c  # scalar uniform upload
-    assert "btrc_gpu_read_buffer" in c  # in-place readback
+    assert "btrc_gpu_read_buffer_checked" in c  # in-place readback
 
 
 def test_gpu_array_kernel_dispatch_with_assignment():
@@ -83,7 +83,7 @@ def test_gpu_array_kernel_dispatch_with_assignment():
         "@gpu\nint[] dbl(int[] a) { int i = gpu_id(); return a[i] * 2; }\n"
         "int main() { int[] xs = {1, 2, 3}; int[] ys = dbl(xs); return ys[0]; }"
     )
-    assert "btrc_gpu_read_buffer" in c  # output buffer read back
+    assert "btrc_gpu_read_buffer_checked" in c  # output buffer read back
     assert "btrc_gpu_dispatch" in c
 
 

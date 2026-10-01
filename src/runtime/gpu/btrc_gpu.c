@@ -459,10 +459,10 @@ void* btrc_gpu_create_buffer(void* gpu_, int size, int usage) {
     GPU_* gpu = (GPU_*)gpu_;
     if (!gpu || !gpu->device || size <= 0) { return NULL; }
     WGPUBufferUsage wgpu_usage = 0;
-    if (usage & 0x80) wgpu_usage |= WGPUBufferUsage_Storage;
-    if (usage & 0x40) wgpu_usage |= WGPUBufferUsage_Uniform;
-    if (usage & 0x08) wgpu_usage |= WGPUBufferUsage_CopyDst;
-    if (usage & 0x04) wgpu_usage |= WGPUBufferUsage_CopySrc;
+    if (usage & BTRC_GPU_STORAGE) wgpu_usage |= WGPUBufferUsage_Storage;
+    if (usage & BTRC_GPU_UNIFORM) wgpu_usage |= WGPUBufferUsage_Uniform;
+    if (usage & BTRC_GPU_COPY_DST) wgpu_usage |= WGPUBufferUsage_CopyDst;
+    if (usage & BTRC_GPU_COPY_SRC) wgpu_usage |= WGPUBufferUsage_CopySrc;
     if (wgpu_usage == 0) { return NULL; }
 
     WGPUBufferDescriptor desc = {
@@ -478,14 +478,17 @@ void* btrc_gpu_create_buffer(void* gpu_, int size, int usage) {
     return (void*)buf;
 }
 
-void btrc_gpu_write_buffer(void* gpu_, void* buf, void* data, int size) {
+/* False, with nothing queued, for an upload the buffer cannot take; the
+ * generated dispatch then fails instead of running on stale contents. */
+bool btrc_gpu_write_buffer(void* gpu_, void* buf, void* data, int size) {
     GPU_* gpu = (GPU_*)gpu_;
     reap_pending_async(gpu);
     if (!gpu || !gpu->queue || !buf || !data || size <= 0 || (size & 3) != 0 ||
         (unsigned long long)size > wgpuBufferGetSize((WGPUBuffer)buf)) {
-        return;
+        return false;
     }
     wgpuQueueWriteBuffer(gpu->queue, (WGPUBuffer)buf, 0, data, (size_t)size);
+    return true;
 }
 
 static void on_buffer_map(WGPUMapAsyncStatus status,
@@ -595,10 +598,6 @@ bool btrc_gpu_read_buffer_checked(void* gpu_, void* buf_, void* dst, int size) {
     }
     wgpuBufferRelease(staging);
     return success;
-}
-
-void btrc_gpu_read_buffer(void* gpu, void* buf, void* dst, int size) {
-    (void)btrc_gpu_read_buffer_checked(gpu, buf, dst, size);
 }
 
 void btrc_gpu_buffer_destroy(void* buf) {

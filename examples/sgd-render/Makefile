@@ -7,7 +7,7 @@
 BTRC_ROOT := ../..
 BTRC      := python3 -m src.compiler.python.main
 GUI_DIR   := $(BTRC_ROOT)/src/stdlib/GUI
-GPU_DIR   := $(BTRC_ROOT)/src/stdlib/GPU
+GPU_DIR   := $(BTRC_ROOT)/src/runtime/gpu
 GPU_BUILD := $(BTRC_ROOT)/build/stdlib/GPU
 
 CC      := cc

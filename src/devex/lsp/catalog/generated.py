@@ -702,6 +702,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("readAll", "string", "method", (("string", "path"),), "readAll"),
         BuiltinMemberSpec("writeAll", "bool", "method", (("string", "path"), ("string", "content"),), "writeAll"),
     )),
+    ("EncodedImageSignature", (
+        BuiltinMemberSpec("sniff", "EncodedImageFormat", "method", (("Bytes", "encoded"),), "sniff"),
+        BuiltinMemberSpec("portable", "bool", "method", (("EncodedImageFormat", "format"),), "portable"),
+    )),
+    ("EncodedImageDispatch", (
+        BuiltinMemberSpec("decode", "EncodedImageDecodeOutcome", "method", (("Bytes", "encoded"), ("EncodedImageDecodeLimits", "limits"), ("IEncodedImageFormatDecoder", "codec"),), "decode"),
+    )),
     ("ImageBinary", (
         BuiltinMemberSpec("has", "bool", "method", (("Bytes", "bytes"), ("long long", "offset"), ("long long", "count"),), "has"),
         BuiltinMemberSpec("u16", "int", "method", (("Bytes", "bytes"), ("int", "offset"),), "u16"),
@@ -957,15 +964,18 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("TraySignal", (
         BuiltinMemberSpec("quit", "string", "method", (), "quit"),
     )),
+    ("UIStyle", (
+        BuiltinMemberSpec("decimal", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "decimal"),
+        BuiltinMemberSpec("pixels", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "pixels"),
+        BuiltinMemberSpec("color", "bool", "method", (("string", "value"),), "color"),
+        BuiltinMemberSpec("gradientColors", "Vector<string>", "method", (("string", "value"),), "gradientColors"),
+        BuiltinMemberSpec("parse", "UIStyleDeclarations", "method", (("string", "css"),), "parse"),
+        BuiltinMemberSpec("validate", "UIStyleError", "method", (("string", "css"),), "validate"),
+        BuiltinMemberSpec("checkValue", "UIStyleError", "method", (("string", "property"), ("string", "value"),), "checkValue"),
+        BuiltinMemberSpec("validateClassName", "UIStyleError", "method", (("string", "value"),), "validateClassName"),
+    )),
     ("UITextInput", (
         BuiltinMemberSpec("iconBounds", "UIRect", "method", (("UILayoutBox", "box"),), "iconBounds"),
-        BuiltinMemberSpec("byteAt", "int", "method", (("string", "value"), ("int", "index"),), "byteAt"),
-        BuiltinMemberSpec("continuation", "bool", "method", (("int", "value"),), "continuation"),
-        BuiltinMemberSpec("scalarWidth", "int", "method", (("string", "value"), ("int", "index"),), "scalarWidth"),
-        BuiltinMemberSpec("validUtf8", "bool", "method", (("string", "value"),), "validUtf8"),
-        BuiltinMemberSpec("previousBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "previousBoundary"),
-        BuiltinMemberSpec("nextBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "nextBoundary"),
-        BuiltinMemberSpec("scalarCount", "int", "method", (("string", "value"), ("int", "endOffset"),), "scalarCount"),
         BuiltinMemberSpec("wordCharacter", "bool", "method", (("string", "value"), ("int", "offset"),), "wordCharacter"),
         BuiltinMemberSpec("previousWord", "int", "method", (("string", "value"), ("int", "offset"),), "previousWord"),
         BuiltinMemberSpec("selectionGroup", "int", "method", (("string", "value"), ("int", "offset"),), "selectionGroup"),
@@ -1002,10 +1012,18 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("frame", "void", "method", (("Image", "image"), ("Vector<UILayoutBox>", "boxes"), ("UITheme", "theme"), ("UITypography", "typography"), ("string", "hovered"), ("string", "focused"), ("string", "focusedValue"), ("int", "caretByteOffset"), ("int", "scrollX"), ("int", "scrollY"), ("UISelectPopup", "popup"), ("int", "highlightedOption"), ("UIScrollbar*", "scrollbar"), ("int", "anchorByteOffset"), ("bool", "caretVisible"),), "frame"),
     )),
     ("UISemanticText", (
+        BuiltinMemberSpec("valid", "bool", "method", (("string", "value"), ("int", "maximumBytes"),), "valid"),
+    )),
+    ("UIText", (
         BuiltinMemberSpec("byteAt", "int", "method", (("string", "value"), ("int", "index"),), "byteAt"),
         BuiltinMemberSpec("continuation", "bool", "method", (("int", "value"),), "continuation"),
         BuiltinMemberSpec("scalarWidth", "int", "method", (("string", "value"), ("int", "index"),), "scalarWidth"),
         BuiltinMemberSpec("valid", "bool", "method", (("string", "value"), ("int", "maximumBytes"),), "valid"),
+        BuiltinMemberSpec("previousBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "previousBoundary"),
+        BuiltinMemberSpec("nextBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "nextBoundary"),
+        BuiltinMemberSpec("floorBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "floorBoundary"),
+        BuiltinMemberSpec("scalarCount", "int", "method", (("string", "value"), ("int", "endOffset"),), "scalarCount"),
+        BuiltinMemberSpec("prefix", "string", "method", (("string", "value"), ("int", "maximumBytes"),), "prefix"),
     )),
     ("UITextRaster", (
         BuiltinMemberSpec("maximumBytes", "int", "method", (), "maximumBytes"),
@@ -1015,15 +1033,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("deterministic", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "deterministic"),
         BuiltinMemberSpec("rasterize", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "rasterize"),
         BuiltinMemberSpec("blit", "void", "method", (("Image", "target"), ("Image", "source"), ("int", "left"), ("int", "top"),), "blit"),
-    )),
-    ("UIStyle", (
-        BuiltinMemberSpec("decimal", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "decimal"),
-        BuiltinMemberSpec("pixels", "bool", "method", (("string", "value"), ("bool", "allowZero"),), "pixels"),
-        BuiltinMemberSpec("hexDigit", "bool", "method", (("char", "value"),), "hexDigit"),
-        BuiltinMemberSpec("color", "bool", "method", (("string", "value"),), "color"),
-        BuiltinMemberSpec("gradientColors", "Vector<string>", "method", (("string", "value"),), "gradientColors"),
-        BuiltinMemberSpec("validate", "UIStyleError", "method", (("string", "css"),), "validate"),
-        BuiltinMemberSpec("validateClassName", "UIStyleError", "method", (("string", "value"),), "validateClassName"),
     )),
 )
 

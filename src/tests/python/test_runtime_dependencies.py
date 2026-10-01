@@ -172,7 +172,7 @@ def test_try_runtime_selects_target_owned_setjmp_type():
         (
             "extern bool btrc_gpu_available(); int main() { return btrc_gpu_available() ? 0 : 1; }",
             "BTRC_RT_GPU_HEADER=<btrc_gpu_compute_internal.h>",
-            STDLIB / "GPU",
+            Path(__file__).parents[2] / "runtime" / "gpu",
         ),
     ),
     ids=("compute",),

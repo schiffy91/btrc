@@ -4,7 +4,7 @@
 
 include ../Example.mk
 
-GPU_DIR   := $(BTRC_ROOT)/src/stdlib/GPU
+GPU_DIR   := $(BTRC_ROOT)/src/runtime/gpu
 GPU_BUILD := $(BTRC_ROOT)/build/stdlib/GPU
 
 GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)

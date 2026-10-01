@@ -19,10 +19,9 @@ void* btrc_gpu_init_compute(void);
 void* btrc_gpu_acquire_compute(void);
 
 void* btrc_gpu_create_buffer(void* gpu, int size, int usage);
-void btrc_gpu_write_buffer(void* gpu, void* buf, void* data, int size);
+bool btrc_gpu_write_buffer(void* gpu, void* buf, void* data, int size);
 bool btrc_gpu_read_buffer_checked(
     void* gpu, void* buf, void* dst, int size);
-void btrc_gpu_read_buffer(void* gpu, void* buf, void* dst, int size);
 void btrc_gpu_buffer_destroy(void* buf);
 
 void* btrc_gpu_create_compute_pipeline(

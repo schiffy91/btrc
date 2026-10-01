@@ -5,6 +5,11 @@
  * introducing ambient font state or changing application element trees.
  */
 
+import Library.Image;
+import Library.Map;
+import Library.Vector;
+import Library.UI.Text;
+
 enum UITextAlignment {
 	UI_TEXT_ALIGN_LEFT = 0,
 	UI_TEXT_ALIGN_CENTER = 1,
@@ -133,7 +138,7 @@ class UITypography {
 		if (self.platformBacked()) {
 			if (self.providerLineBreakValue == null) { throw "native UI typography provider does not support text wrapping"; }
 			int end = self.providerLineBreakValue(self.providerIdentityValue, text, fontSize, lineHeight, fontWeight, width);
-			if (end < 1 || end > text.len() || !UITextInput.validUtf8(text.substring(0, end))) { throw "native UI typography provider rejected line breaking"; }
+			if (end < 1 || end > text.len() || !UIText.valid(text.substring(0, end))) { throw "native UI typography provider rejected line breaking"; }
 			return end;
 		}
 		/* The deterministic test font has one cell per scalar, not linguistic
@@ -147,7 +152,7 @@ class UITypography {
 			if (value == '\r') { return end + (end + 1 < text.len() && text[end + 1] == '\n' ? 2 : 1); }
 			if (value == ' ' || value == '\t') { word = end + 1; }
 			if (cells > 0 && (cells + 1) * self.advance(fontSize) > width) { return word > 0 ? word : end; }
-			end = UITextInput.nextBoundary(text, end);
+			end = UIText.nextBoundary(text, end);
 			cells++;
 		}
 		return end;
@@ -156,7 +161,7 @@ class UITypography {
 	public UITextLayout wrap(string value, int fontSize, int lineHeight, int fontWeight, int width) {
 		if (value == null || value.len() > 4096 || width < 1 || width > 1000000000) { throw "invalid native UI wrapped text bounds"; }
 		self.measure("", fontSize, lineHeight, fontWeight);
-		if (!UITextInput.validUtf8(value)) { throw "invalid native UI wrapped UTF-8"; }
+		if (!UIText.valid(value)) { throw "invalid native UI wrapped UTF-8"; }
 		Vector<UITextLine> lines = [];
 		int start = 0;
 		int top = 0;
@@ -185,13 +190,13 @@ class UITypography {
 		string suffix = "…";
 		if (self.measure(suffix, fontSize, lineHeight, fontWeight).width() > width) { return UITextLayout([UITextLine("", self.measure("", fontSize, lineHeight, fontWeight), 0)]); }
 		int low = 0;
-		int high = value.len() > 4093 ? UITextViewport.boundary(value, 4093) : value.len();
+		int high = value.len() > 4093 ? UIText.floorBoundary(value, 4093) : value.len();
 		while (low < high) {
-			int middle = UITextViewport.boundary(value, low + (high - low + 1) / 2);
-			if (middle == low) { middle = UITextInput.nextBoundary(value, low); }
+			int middle = UIText.floorBoundary(value, low + (high - low + 1) / 2);
+			if (middle == low) { middle = UIText.nextBoundary(value, low); }
 			string candidate = value.substring(0, middle) + suffix;
 			if (self.measure(candidate, fontSize, lineHeight, fontWeight).width() <= width) { low = middle; }
-			else { high = UITextInput.previousBoundary(value, middle); }
+			else { high = UIText.previousBoundary(value, middle); }
 		}
 		string fitted = value.substring(0, low) + suffix;
 		return UITextLayout([UITextLine(fitted, self.measure(fitted, fontSize, lineHeight, fontWeight), 0)]);
@@ -200,6 +205,20 @@ class UITypography {
 	public bool platformBacked() { return self.providerIdentityValue != 0ULL && self.providerMeasureValue != null; }
 
 	public bool platformRasterizes() { return self.platformBacked() && self.providerRasterizeValue != null; }
+
+	/* Bytes of one run a platform raster accepts. */
+	class int rasterMaximumBytes() { return 4096; }
+
+	/* The platform raster of one run, cut at a scalar boundary to
+	 * rasterMaximumBytes and tinted with color; null without a provider or
+	 * when it rejects the run. */
+	public Image? tintedPlatformRaster(string value, int fontSize, int lineHeight, int fontWeight, RGBA color, float backingScale = 1.0f) {
+		Image? raster = self.platformRaster(UIText.prefix(value, UITypography.rasterMaximumBytes()), fontSize, lineHeight, fontWeight, backingScale);
+		if (raster == null) { return null; }
+		Image image = raster;
+		if (!image.isEmpty()) { image.tintCoverage(color); }
+		return image;
+	}
 
 	/* White, straight-alpha raster of one run from the platform provider, in
 	 * backing pixels. null when the provider is absent or rejects the run;
@@ -254,7 +273,7 @@ class UITypography {
 	}
 
 	private UITextMetrics measureUncached(string value, int fontSize, int lineHeight, int fontWeight) {
-		if (value == null || fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || (fontWeight != 400 && fontWeight != 500 && fontWeight != 600 && fontWeight != 700) || !UITextInput.validUtf8(value)) { throw "invalid native UI text measurement"; }
+		if (value == null || fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || (fontWeight != 400 && fontWeight != 500 && fontWeight != 600 && fontWeight != 700) || !UIText.valid(value)) { throw "invalid native UI text measurement"; }
 		if (self.platformBacked()) {
 			int width = 0;
 			int height = 0;
@@ -264,7 +283,7 @@ class UITypography {
 			if (self.providerMeasureValue(self.providerIdentityValue, value, fontSize, lineHeight, fontWeight, &width, &height, &ascent, &descent, &advance) == 0) { throw "native UI typography provider rejected measurement"; }
 			return UITextMetrics(width, height, ascent, descent, advance);
 		}
-		int scalarCount = UITextInput.scalarCount(value, value.len());
+		int scalarCount = UIText.scalarCount(value, value.len());
 		int advance = self.advance(fontSize);
 		long long width = (long long)scalarCount * (long long)advance;
 		if (width > 1000000000LL) { throw "native UI text measurement exceeds its bound"; }

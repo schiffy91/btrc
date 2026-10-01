@@ -83,3 +83,5 @@ def test_encoded_image_contract_is_content_only_bounded_and_owning() -> None:
     assert "extension" in source.lower()
     assert "failures own no image" in source
     assert "encodedImageDecodeStatusMessage" in source
+    assert "limits.allowsInput(inputBytes)" in source
+    assert "class EncodedImageSignature" in source

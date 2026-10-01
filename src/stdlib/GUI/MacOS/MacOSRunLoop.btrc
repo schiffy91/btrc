@@ -32,6 +32,22 @@ class MacOSRunLoopSignal {
 		if (self._queue != null) { self._queue.enqueueNotification(self._notification, NSPostASAP); }
 	}
 
+	/* Stop a running AppKit loop. stop: is observed only after an NSEvent, not
+	 * after a timer or notification callback, so an application-defined event
+	 * wakes the loop. False, with the loop still running, when that event
+	 * cannot be created. */
+	class bool stopApplication(NSApplication application) {
+		if (!application.isRunning()) { return true; }
+		CGPoint location;
+		location.x = 0.0;
+		location.y = 0.0;
+		var wake = NSEvent.otherEventWithType(NSEventTypeApplicationDefined, location, 0UL, 0.0, 0L, null, (short)0, 0L, 0L);
+		if (wake == null) { return false; }
+		application.stop(null);
+		application.postEvent(wake, false);
+		return true;
+	}
+
 	public void close() {
 		self.requireMainThread();
 		if (self._queue == null) { return; }

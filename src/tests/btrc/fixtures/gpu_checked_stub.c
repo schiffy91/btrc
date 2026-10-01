@@ -34,12 +34,12 @@ void* btrc_gpu_create_buffer(void* gpu, int size, int usage) {
     buffer->data = calloc((size_t)size, 1);
     return buffer;
 }
-void btrc_gpu_write_buffer(void* gpu, void* raw, void* data, int size) {
+bool btrc_gpu_write_buffer(void* gpu, void* raw, void* data, int size) {
     (void)gpu;
     StubBuffer* buffer = raw;
-    if (buffer != NULL && data != NULL && size <= buffer->size) {
-        memcpy(buffer->data, data, (size_t)size);
-    }
+    if (buffer == NULL || data == NULL || size > buffer->size) { return false; }
+    memcpy(buffer->data, data, (size_t)size);
+    return true;
 }
 bool btrc_gpu_read_buffer_checked(void* gpu, void* raw, void* data, int size) {
     (void)gpu;
@@ -48,9 +48,6 @@ bool btrc_gpu_read_buffer_checked(void* gpu, void* raw, void* data, int size) {
     if (buffer == NULL || data == NULL || size > buffer->size) { return false; }
     memcpy(data, buffer->data, (size_t)size);
     return true;
-}
-void btrc_gpu_read_buffer(void* gpu, void* raw, void* data, int size) {
-    (void)btrc_gpu_read_buffer_checked(gpu, raw, data, size);
 }
 void btrc_gpu_buffer_destroy(void* raw) {
     StubBuffer* buffer = raw;

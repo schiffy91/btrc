@@ -669,7 +669,7 @@ The current groups are:
 | --- | --- |
 | `App`, `UI`, `GUI`, `Tray` | Application lifecycle, the BTRC-drawn declarative toolkit, native windows/controls/fonts (AppKit on macOS, drawn over SDL3/WebGPU on Linux), system tray |
 | `Audio`, `Realtime` | Device enumeration, duplex sessions, realtime clocks, clip transport; `Audio/MacOS` is the CoreAudio provider, `Audio/Linux` the ALSA provider |
-| `GPU` | WebGPU device, programs, uniform buffers, image textures, surface rendering, offscreen targets, readback, compute dispatch |
+| `GPU` | WebGPU device, programs, uniform buffers, image textures, surface rendering, offscreen targets, readback (`@gpu` compute dispatch is compiler-generated and links the separate runtime in `src/runtime/gpu`, built by `make gpu`) |
 | `Image` | DDS decoding, platform image decoding (ImageIO on macOS, libpng/libjpeg-turbo on Linux), pixel access |
 | `FileSystem`, `HTTP`, `Terminal`, `Daemon`, `Digest` | Files, directories and application directories; HTTP client/server and framing; terminal control and password prompts; daemon control protocol; incremental SHA-256 |
 | `BackgroundJobs`, `Graph`, `LocalApplicationChannel` | Worker queues, graph utilities, local IPC between an app and its agent tools |

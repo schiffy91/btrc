@@ -1,6 +1,8 @@
 /* Bounded, dependency-free DDS DXT1/DXT5 image decoding. */
 
+import Library.Bytes;
 import Library.Image.EncodedImage;
+import Library.Image.Pixels;
 
 class DDSEncodedImageHeader {
 	private EncodedImageDecodeStatus _status;
@@ -34,7 +36,7 @@ class DDSEncodedImageHeader {
 class DDSEncodedImageDecoder implements IEncodedImageDecoder {
 	public DDSEncodedImageDecoder() {}
 
-	class bool recognizes(Bytes encoded) { return DDSEncodedImageDecoder.match4(encoded, 0, 68, 68, 83, 32); }
+	class bool recognizes(Bytes encoded) { return EncodedImageSignature.sniff(encoded) == ENCODED_IMAGE_FORMAT_DDS; }
 
 	class bool match4(Bytes encoded, int offset, int first, int second, int third, int fourth) { return encoded != null && offset >= 0 && offset <= encoded.length() - 4 && encoded.get(offset) == first && encoded.get(offset + 1) == second && encoded.get(offset + 2) == third && encoded.get(offset + 3) == fourth; }
 
@@ -104,11 +106,6 @@ class DDSEncodedImageDecoder implements IEncodedImageDecoder {
 
 	class int packedAlpha(int packed) { return (packed >> 24) & 255; }
 
-	class RGBA color(int first, int second, int selector, bool allowTransparent) {
-		int packed = DDSEncodedImageDecoder.packedColor(first, second, selector, allowTransparent);
-		return RGBA(DDSEncodedImageDecoder.packedRed(packed), DDSEncodedImageDecoder.packedGreen(packed), DDSEncodedImageDecoder.packedBlue(packed), DDSEncodedImageDecoder.packedAlpha(packed));
-	}
-
 	class int alpha(int first, int second, unsigned long long selectors, int pixel) {
 		int selector = (int)((selectors >> (pixel * 3)) & 7ULL);
 		if (selector == 0) { return first; }
@@ -120,7 +117,9 @@ class DDSEncodedImageDecoder implements IEncodedImageDecoder {
 	}
 
 	private EncodedImageDecodeOutcome decodeBlocks(Bytes encoded, DDSEncodedImageHeader header) {
-		Image image = Image(header.width(), header.height());
+		Image? decoded = Image.tryCreate(header.width(), header.height());
+		if (decoded == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
+		Image image = decoded;
 		int blockBytes = header.encoding() == 1 ? 8 : 16;
 		int blocksWide = (header.width() + 3) / 4;
 		int blocksHigh = (header.height() + 3) / 4;
@@ -156,10 +155,15 @@ class DDSEncodedImageDecoder implements IEncodedImageDecoder {
 	}
 
 	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) {
-		int inputBytes = encoded == null ? 0 : encoded.length();
-		if (encoded == null || encoded.isEmpty() || limits == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_INVALID_ARGUMENT, inputBytes); }
-		if (!limits.allowsInput(inputBytes)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
-		if (!DDSEncodedImageDecoder.recognizes(encoded)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, inputBytes); }
+		var rejected = EncodedImageDecodeOutcome.admit(encoded, limits);
+		if (rejected != null) { return rejected; }
+		if (!DDSEncodedImageDecoder.recognizes(encoded)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, encoded.length()); }
+		return self.decodeRecognized(encoded, limits);
+	}
+
+	/* An admitted request already sniffed as DDS (EncodedImageDispatch). */
+	public EncodedImageDecodeOutcome decodeRecognized(Bytes encoded, EncodedImageDecodeLimits limits) {
+		int inputBytes = encoded.length();
 		DDSEncodedImageHeader header = DDSEncodedImageDecoder.header(encoded);
 		if (header.status() != ENCODED_IMAGE_DECODE_OK) { return EncodedImageDecodeOutcome.rejected(header.status(), inputBytes); }
 		if (!limits.allowsDimensions(header.width(), header.height())) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }

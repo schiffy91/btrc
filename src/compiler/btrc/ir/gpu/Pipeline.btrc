@@ -1285,8 +1285,7 @@ class GpuPipeline {
 			write.push(IRNode.variable(gpu)); write.push(IRNode.variable(name));
 			write.push(IRNode.cast("void*", IRNode.variable(self.lexicalBindingCName(buffer.name))));
 			write.push(IRNode.binary(IRNode.variable(self.arrayLengthParameter(buffer.name)), "*", IRNode.sizeofType(buffer.elemType == "f32" ? "float" : "int")));
-			body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
-				self.gpuCallStatement("btrc_gpu_write_buffer", write)]), null));
+			body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([self.gpuCheckedWrite(write, ok)]), null));
 			b = b + 1;
 		}
 		self.gpuAppendDispatchPipeline(kernel, helperName, uniformStruct, body, bufferNames, gpu, ok, uniforms, uniformBuffer, statusBuffer, status, shader, pipeline, bindings, bindGroup, started);
@@ -1295,6 +1294,9 @@ class GpuPipeline {
 	}
 
 	private void gpuMarkNull(Vector<IRNode> body, string name, string ok) { body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(name), "==", IRNode.variable("NULL")), IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))]), null)); }
+
+	/* Upload, failing the dispatch rather than running on stale data. */
+	private IRNode gpuCheckedWrite(Vector<IRNode> args, string ok) { return IRNode.ifStatement(IRNode.unary("!", IRNode.call("btrc_gpu_write_buffer", args), true), IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))]), null); }
 
 	private void gpuAppendCheckedRead(Vector<IRNode> body, Vector<IRNode> args, string ok) { body.push(IRNode.ifStatement(IRNode.unary("!", IRNode.call("btrc_gpu_read_buffer_checked", args), true), IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))]), null)); }
 
@@ -1340,8 +1342,7 @@ class GpuPipeline {
 		writeUniform.push(IRNode.variable(gpu)); writeUniform.push(IRNode.variable(uniformBuffer));
 		writeUniform.push(IRNode.cast("void*", IRNode.addressOf(IRNode.variable(uniforms))));
 		writeUniform.push(IRNode.sizeofType("struct " + uniformStruct));
-		body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
-			self.gpuCallStatement("btrc_gpu_write_buffer", writeUniform)]), null));
+		body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([self.gpuCheckedWrite(writeUniform, ok)]), null));
 		body.push(IRNode.variableDeclaration("uint32_t", status, IRNode.literal("0U")));
 		Vector<IRNode> createStatus = [];
 		createStatus.push(IRNode.variable(gpu));
@@ -1353,8 +1354,7 @@ class GpuPipeline {
 		writeStatus.push(IRNode.variable(gpu)); writeStatus.push(IRNode.variable(statusBuffer));
 		writeStatus.push(IRNode.cast("void*", IRNode.addressOf(IRNode.variable(status))));
 		writeStatus.push(IRNode.sizeofType("uint32_t"));
-		body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
-			self.gpuCallStatement("btrc_gpu_write_buffer", writeStatus)]), null));
+		body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([self.gpuCheckedWrite(writeStatus, ok)]), null));
 		body.push(IRNode.variableDeclaration("void*", shader, IRNode.variable("NULL")));
 		body.push(IRNode.variableDeclaration("void*", pipeline, IRNode.variable("NULL")));
 		body.push(IRNode.variableDeclaration("void*", bindGroup, IRNode.variable("NULL")));
@@ -1416,12 +1416,12 @@ class GpuPipeline {
 		writeUniform.push(IRNode.variable(gpu)); writeUniform.push(IRNode.variable(uniformBuffer));
 		writeUniform.push(IRNode.cast("void*", IRNode.addressOf(IRNode.variable(uniforms))));
 		writeUniform.push(IRNode.sizeofType("struct " + uniformStruct));
-		loop.push(self.gpuCallStatement("btrc_gpu_write_buffer", writeUniform));
+		loop.push(self.gpuCheckedWrite(writeUniform, ok));
 		loop.push(IRNode.variableDeclaration("int", groups, IRNode.binary(IRNode.binary(IRNode.variable(items), "+", IRNode.literal("63")), "/", IRNode.literal("64"))));
 		Vector<IRNode> dispatch = [];
 		dispatch.push(IRNode.variable(gpu)); dispatch.push(IRNode.variable(pipeline));
 		dispatch.push(IRNode.variable(bindGroup)); dispatch.push(IRNode.variable(groups));
-		loop.push(IRNode.ifStatement(IRNode.call("btrc_gpu_dispatch", dispatch), IRNode.block([IRNode.assignment(IRNode.variable(started), IRNode.literal("true"))]), IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))])));
+		loop.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([IRNode.ifStatement(IRNode.call("btrc_gpu_dispatch", dispatch), IRNode.block([IRNode.assignment(IRNode.variable(started), IRNode.literal("true"))]), IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))]))]), null));
 		loop.push(IRNode.assignment(IRNode.variable(offset), IRNode.binary(IRNode.variable(offset), "+", IRNode.variable(items))));
 		Vector<IRNode> execute = [];
 		execute.push(IRNode.variableDeclaration("int", offset, IRNode.literal("0")));

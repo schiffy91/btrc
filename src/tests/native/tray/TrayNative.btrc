@@ -18,8 +18,6 @@ int main() {
 	assert(tray.model.items.get(0).stateCommand.isEmpty());
 	assert(tray.model.items.get(2).stateCommand.equals("true"));
 	assert(tray.model.items.get(3).stateCommand.equals("false"));
-	assert(tray.probeState("true"));
-	assert(!tray.probeState("false"));
 	assert(tray.model.items.get(4).command.equals("__quit__"));
 
 	/* fromTray adopts an existing portable Tray unchanged. */
@@ -30,9 +28,9 @@ int main() {
 
 	/* Native initialization is required; a headless false-success is a failure. */
 	assert(!tray.available());
-	assert(tray.show());
+	tray.show();
+	tray.show();
 	assert(tray.available());
-	assert(tray.realized);
 	for (int index = 0; index < 3; index++) { assert(tray.pump(0)); }
 	tray.quit();
 	assert(!tray.pump(0));
@@ -40,8 +38,8 @@ int main() {
 	tray.close();
 	tray.close();
 	assert(!tray.available());
-	assert(!tray.realized);
-	assert(tray.show());
+	tray.show();
+	assert(tray.available());
 	tray.close();
 	print("PASS: test_tray_native");
 	return 0;

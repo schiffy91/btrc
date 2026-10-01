@@ -1,4 +1,5 @@
 import Library.Image.EncodedImage;
+import Library.Image.EncodedImageDispatch;
 import Library.Bytes;
 import Library.Image;
 
@@ -20,6 +21,21 @@ class FakeEncodedImageDecoder implements IEncodedImageDecoder {
 		return EncodedImageDecodeOutcome.decoded(image, inputBytes);
 	}
 }
+
+class RecordingFormatDecoder implements IEncodedImageFormatDecoder {
+	public int calls = 0;
+	public EncodedImageFormat format = ENCODED_IMAGE_FORMAT_UNKNOWN;
+
+	public RecordingFormatDecoder() {}
+
+	public EncodedImageDecodeOutcome decodeFormat(EncodedImageFormat format, Bytes encoded, EncodedImageDecodeLimits limits) {
+		self.calls++;
+		self.format = format;
+		return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length());
+	}
+}
+
+Bytes text(string value) { return Bytes.fromString(value); }
 
 Bytes encoded(int first, int second = 0) {
 	Bytes bytes = Bytes();
@@ -49,6 +65,30 @@ int main() {
 	assert(corrupt.status() == ENCODED_IMAGE_DECODE_CORRUPT && corrupt.message() == "encoded image data is corrupt");
 	EncodedImageDecodeOutcome bounded = decoder.decode(encoded(42, 7), EncodedImageDecodeLimits(1, 2, 2, 4LL));
 	assert(bounded.status() == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED && bounded.inputBytes() == 2);
+
+	/* One signature table: the portable set is PNG, JPEG and DDS. */
+	Bytes png = Bytes();
+	int pngSignature[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+	for (int index = 0; index < 8; index++) { png.append(pngSignature[index]); }
+	assert(EncodedImageSignature.sniff(png) == ENCODED_IMAGE_FORMAT_PNG);
+	assert(EncodedImageSignature.sniff(encoded(255, 216)) == ENCODED_IMAGE_FORMAT_JPEG);
+	assert(EncodedImageSignature.sniff(text("DDS ")) == ENCODED_IMAGE_FORMAT_DDS);
+	assert(EncodedImageSignature.sniff(text("GIF89a")) == ENCODED_IMAGE_FORMAT_GIF);
+	assert(EncodedImageSignature.sniff(text("MM")) == ENCODED_IMAGE_FORMAT_UNKNOWN);
+	assert(EncodedImageSignature.sniff(null) == ENCODED_IMAGE_FORMAT_UNKNOWN);
+	assert(EncodedImageSignature.portable(ENCODED_IMAGE_FORMAT_DDS) && !EncodedImageSignature.portable(ENCODED_IMAGE_FORMAT_TIFF));
+
+	/* Dispatch owns admission, sniffing and DDS; a codec sees only its formats. */
+	EncodedImageDecodeLimits wide = EncodedImageDecodeLimits(1024, 2, 2, 4LL);
+	RecordingFormatDecoder codec = RecordingFormatDecoder();
+	assert(EncodedImageDispatch.decode(null, wide, codec).status() == ENCODED_IMAGE_DECODE_INVALID_ARGUMENT);
+	assert(EncodedImageDispatch.decode(png, null, codec).status() == ENCODED_IMAGE_DECODE_INVALID_ARGUMENT);
+	assert(EncodedImageDispatch.decode(png, limits, codec).status() == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED);
+	assert(EncodedImageDispatch.decode(encoded(11, 7), wide, codec).status() == ENCODED_IMAGE_DECODE_UNSUPPORTED);
+	assert(EncodedImageDispatch.decode(text("DDS truncated"), wide, codec).status() == ENCODED_IMAGE_DECODE_CORRUPT);
+	assert(codec.calls == 0);
+	assert(EncodedImageDispatch.decode(png, wide, codec).status() == ENCODED_IMAGE_DECODE_CORRUPT);
+	assert(codec.calls == 1 && codec.format == ENCODED_IMAGE_FORMAT_PNG);
 	print("PASS EncodedImageContract");
 	return 0;
 }

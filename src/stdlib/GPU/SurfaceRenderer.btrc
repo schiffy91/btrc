@@ -21,6 +21,7 @@ class GPUSurfaceRenderer {
 	private GPUOffscreenTarget? _target = null;
 	private WGPUTextureFormat _format;
 	private WGPUCompositeAlphaMode _alphaMode;
+	private WGPUPresentMode _presentMode = WGPUPresentMode_Fifo;
 	private uint32_t _maximumDimension;
 	/* Persistent capture keeps CopySrc on every frame (tests, tools). Requested
 	 * capture adds it for one frame only: on Metal a swapchain whose usage is
@@ -60,8 +61,6 @@ class GPUSurfaceRenderer {
 	/* Frames render into the target's texture; present submits without a swapchain. */
 	class GPUSurfaceRenderer offscreen(GPUDevice device, GPUOffscreenTarget target, bool capture = false) { return GPUSurfaceRenderer(device, null, capture, target); }
 
-	public bool isOffscreen() { return self._target != null; }
-
 	private WGPUSurface nativeSurface() {
 		var surface = self._surface;
 		if (surface == null) { throw "GPU renderer has no native surface"; }
@@ -76,6 +75,12 @@ class GPUSurfaceRenderer {
 		for (size_t index = (size_t)0; index < capabilities.formatCount; index++) {
 			var format = capabilities.formats[index];
 			if (format == WGPUTextureFormat_BGRA8Unorm || format == WGPUTextureFormat_RGBA8Unorm) { self._format = format; formatFound = true; break; }
+		}
+		/* Immediate presentation never waits for the display, so the frame rate
+		 * is bounded by rendering cost rather than the panel's refresh (tearing
+		 * is accepted). WebGPU guarantees only Fifo, the fallback. */
+		for (size_t index = (size_t)0; index < capabilities.presentModeCount; index++) {
+			if (capabilities.presentModes[index] == WGPUPresentMode_Immediate) { self._presentMode = WGPUPresentMode_Immediate; break; }
 		}
 		bool alphaFound = capabilities.alphaModeCount > (size_t)0;
 		if (alphaFound) { self._alphaMode = capabilities.alphaModes[0]; }
@@ -155,10 +160,7 @@ class GPUSurfaceRenderer {
 		if (self._capture || self._captureRequested) { configuration.usage |= WGPUTextureUsage_CopySrc; }
 		configuration.width = (uint32_t)self._width;
 		configuration.height = (uint32_t)self._height;
-		/* Immediate presentation never waits for the display: frames leave as
-		 * soon as they are recorded, so the frame rate is bounded by rendering
-		 * cost rather than the panel's refresh (tearing is accepted). */
-		configuration.presentMode = WGPUPresentMode_Immediate;
+		configuration.presentMode = self._presentMode;
 		configuration.alphaMode = self._alphaMode;
 		wgpuSurfaceConfigure(self.nativeSurface(), configuration);
 		self._configured = true;

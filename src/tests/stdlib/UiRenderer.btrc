@@ -272,7 +272,7 @@ void assertTextRaster() {
 	for (int i = 0; i < 1400; i++) { longRun = longRun + "\xc3\xa9" + "a"; }
 	string bounded = UITextRaster.bounded(longRun);
 	assert(bounded.len() == 4095);
-	assert(UITextInput.validUtf8(bounded));
+	assert(UIText.valid(bounded));
 	assert(UITextRaster.bounded("short") == "short");
 	string malformed = "";
 	for (int i = 0; i < 4000; i++) { malformed = malformed + "a"; }
@@ -287,6 +287,28 @@ void assertFrozenStyleRejectsMutation(UIResolvedStyle style) {
 	bool rejected = false;
 	try { style.apply("padding: 99px"); } catch (string error) { rejected = error == "cannot edit a frozen native UI style; copy it first"; }
 	assert(rejected && style.isFrozen());
+}
+
+string applyError(string css) {
+	UIResolvedStyle style = UIResolvedStyle(UI_TEXT);
+	string error = "";
+	try { style.apply(css); } catch (string thrown) { error = thrown; }
+	assert(style.fontSize() == 14 && !style.hasForeground());
+	return error;
+}
+
+/* apply() and validate() share one parser: unsupported or invalid css is an
+ * error, never an out-of-bounds read or a silently skipped declaration. */
+void assertStyleDeclarationErrors() {
+	assert(applyError("color: red") == "color requires #RRGGBB or #RRGGBBAA");
+	assert(applyError("bogus") == "invalid native UI style declaration: bogus");
+	assert(applyError("font-size: 20px; shadow: 1px") == "unsupported native UI style property: shadow");
+	assert(UIStyle.validate("color: red").code() == UI_STYLE_INVALID_VALUE);
+	assert(UIStyle.parse("gap: 4px; ; color: #010203").count() == 2);
+	assert(UIColor.hexDigit('g') == -1 && UIColor.hexDigit('F') == 15 && !UIColor.validHex("#12345g"));
+	UIStyleSheet sheet = UIStyleSheet().kindRule((UIElementKind)UIStyleSheet.kindCount(), "gap: 4px");
+	assert(!sheet.ok() && sheet.issue().code() == UI_STYLE_INVALID_SELECTOR);
+	assert(UIStyleSheet().kindRule(UI_ROW, "gap: 4px").kindCssFor(UI_ROW) == "gap: 4px");
 }
 
 void assertFrozenStyleSharing() {
@@ -623,7 +645,7 @@ void assertGradients() {
 int proportionalTypographyMeasure(unsigned long long provider, string value, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut) {
 	assert(provider == 43ULL && fontSize == 14 && fontWeight == 400);
 	int width = 0;
-	for (int offset = 0; offset < value.len(); offset = UITextInput.nextBoundary(value, offset)) { width += value[offset] == 'i' ? 2 : (value[offset] == 'W' ? 14 : 8); }
+	for (int offset = 0; offset < value.len(); offset = UIText.nextBoundary(value, offset)) { width += value[offset] == 'i' ? 2 : (value[offset] == 'W' ? 14 : 8); }
 	widthOut[0] = width;
 	heightOut[0] = lineHeight;
 	ascentOut[0] = 12;
@@ -938,6 +960,7 @@ void assertTextUndoHistory() {
 }
 
 int main() {
+	assertStyleDeclarationErrors();
 	assertTextUndoHistory();
 	assertLeadingInputIcon();
 	assertPinnedScrollbar();

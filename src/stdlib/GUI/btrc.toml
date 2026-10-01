@@ -228,7 +228,9 @@ symbols = [
 	"+[NSNotificationCenter defaultCenter]", "-[NSNotificationCenter addObserverForName:object:queue:usingBlock:]", "-[NSNotificationCenter removeObserver:]",
 	"+[NSNotification notificationWithName:object:]", "-[NSNotification name]", "-[NSNotification object]", "+[NSNotificationQueue defaultQueue]",
 	"-[NSNotificationQueue enqueueNotification:postingStyle:]", "-[NSNotificationQueue dequeueNotificationsMatching:coalesceMask:]",
-	"NSPostASAP", "NSNotificationCoalescingOnName", "NSNotificationCoalescingOnSender"
+	"NSPostASAP", "NSNotificationCoalescingOnName", "NSNotificationCoalescingOnSender",
+	"-[NSApplication isRunning]", "-[NSApplication stop:]", "-[NSApplication postEvent:atStart:]",
+	"+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]", "NSEventTypeApplicationDefined"
 ]
 os = ["macos"]
 

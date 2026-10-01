@@ -42,7 +42,7 @@ from src.tests.runner_capabilities import (
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
-_GPU_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "GPU")
+_GPU_DIR = os.path.join(_REPO_ROOT, "src", "runtime", "gpu")
 _GPU_BUILD = os.path.join(_REPO_ROOT, "build", "stdlib", "GPU")
 
 # Compiler and flags configurable via environment; the compiler defaults to
