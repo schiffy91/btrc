@@ -25,7 +25,7 @@ This plan contains no effort or calendar estimates (ref:1822): order is by depen
   - The podman machine is a 99 GB raw disk with 10 CPUs and 24 GiB. The applehv provider also holds unrelated `semu-*` VMs.
   - Google Drive sync and Spotlight indexing are running. `FRACTAL-NORTH.local` (in `~/.ssh/config`) did not resolve.
 - **Commit signing.** Commits are unsigned (1Password SSH agent). The standing directive is to commit unsigned rather than stall, and not to push.
-- **The reference** (the previous PLAN.md) is 3,885 lines. 21 of the 35 `~/.cache/btrc` paths cited in it and in the docs are already gone. Among them are `perf/setjmp-builds-2026-09-22`, `scope-copy-builds-2026-09-22` and `emission-builds-2026-09-22`.
+- **The reference** (the previous PLAN.md) is 3,885 lines. 23 of the 35 `~/.cache/btrc` paths cited in it and in the docs are already gone (listed under Corrections). Among them are `perf/setjmp-builds-2026-09-22`, `scope-copy-builds-2026-09-22` and `emission-builds-2026-09-22`.
 
 | | |
 |---|---|
@@ -33,7 +33,7 @@ This plan contains no effort or calendar estimates (ref:1822): order is by depen
 | **Open, bucket 1 (M11)** | • Stage B skip-unchanged, which is required by the M11 acceptance counter<br>• M11 acceptance matrix<br>• 10-executable batch: ≤60 s self-host, ≤120 s reference<br>• Cold release ≤90 s<br>• Reference M11 budgets. Last reference numbers (Sept 24, compiler only): 202 s cold with module units, 228 s cold whole-program, 88–89 s module-unit edit. None taken since the M11 campaign.<br>• BTRSmith dev builds still don't use module units<br>• The required x86_64 NixOS host, where nothing has been measured |
 | **Open, bucket 1 (M8a, M10, finals)** | • **M8a** (ref:2720–2724): ≥50% fewer empty child-container allocations, peak ≤3 GiB, cold transpile ≤40 s (now 43.57 s)<br>• **M10** (ref:3042–3071): a 1/2/4/8-worker table with peak RSS; ≥1.5× wall speedup at 4 workers (4 workers became the default in `6b2bf5e` with no recorded evidence); lock wait/hold counts; TSan; real-thread qualification of the stdlib concurrency contracts<br>• **Self-host finals** (ref:1740–1751):<br>  – transpile ≤10 s<br>  – cold dev ≥10× and ≤min(20 s, baseline/10), working budget 13 s<br>  – cold release ≤30 s<br>  – edit ≤5 s (p95 ≤8 s)<br>  – batch ≤30 s<br>  – peak ≤1.5 GiB<br>• **Reference finals:** transpile ≤60 s; cold dev ≤75 s; edit ≤10 s (p95 ≤15 s); batch ≤60 s; peak ≤1.5 GiB<br>• **≥10× against a frozen, repeated baseline on each required host** (ref:11–12, 23–25, 815–817)<br>• **Self-compile and full-corpus scaling workloads** (ref:1792–1794): baseline not yet recorded; no median wall/RSS regression >5% allowed |
 | **Open, buckets 2–5** | • **Bucket 2:** all of C1–C5. The probe battery was never committed. There is one silent divergence: the reference compiler lowers `int d[];` to `int* d;`. There is also one misleading diagnostic: `{[2]=7}` fails with "Assignment target is not assignable".<br>• **Bucket 3:** all of P0–P4, W1, and the non-UI parts of W2/I1/I2/A1/A2. There are six target vocabularies, and none can express iOS or Android.<br>• **Bucket 4:** UI0–UI11. Windows, iOS and Android have 0 of 60 capability families.<br>• **Bucket 5:** all of P5–P7. BTRSmith has no CI. |
-| **Stale** | • The reference's bucket row (ref:828) still says "next is the September 24 measurement round". Its header (ref:4–30) and KPI table (ref:1333–1339) still show 92 s edits.<br>• The reference's M11 record says "met" while its own acceptance counter (ref:2915–2918) is unmet.<br>• Its header says a 13 s working cold-dev budget; ref:1102 says ≤13.5 s.<br>• The P6 tables differ in the no-op row (ref:3351 vs platform-parity.md:498). The reference private-body edit row (≤15/≤20/≤30 s, platform-parity.md:501) is missing from ref:3347–3353.<br>• CLAUDE.md lines 14–40 still call the structure-first review "next" and point at BTRSmith GOAL.md, which is now issue #15. They also quote 7,274 passed / 20 skipped, and 301/277 boundary records with "twenty skips".<br>• The 21 missing cited evidence paths are not recorded as lost. |
+| **Stale (corrected in Stage 1; see [Corrections](#corrections-to-the-reference))** | • The reference's bucket row (ref:828) still says "next is the September 24 measurement round". Its header (ref:4–30) and KPI table (ref:1333–1339) still show 92 s edits.<br>• The reference's M11 record says "met" while its own acceptance counter (ref:2915–2918) is unmet.<br>• Its header says a 13 s working cold-dev budget; ref:1102 says ≤13.5 s.<br>• The P6 tables differ in the no-op row (ref:3351 vs platform-parity.md:498). The reference private-body edit row (≤15/≤20/≤30 s, platform-parity.md:501) is missing from ref:3347–3353.<br>• CLAUDE.md lines 14–40 still call the structure-first review "next" and point at BTRSmith GOAL.md, which is now issue #15. They also quote 7,274 passed / 20 skipped, and 301/277 boundary records with "twenty skips".<br>• The 21 missing cited evidence paths are not recorded as lost. |
 
 **Unverified assumptions (marked ⚠ where they are used):**
 - FRACTAL-NORTH (the 2026-09-18 x86_64 KDE/NVIDIA/PipeWire host) still exists and meets ≥16 logical CPUs and ≥16 GiB.
@@ -49,6 +49,19 @@ This plan contains no effort or calendar estimates (ref:1822): order is by depen
 - The batch gate saturates the machine. `make bootstrap` must never run beside the parallel suite.
 - `stdlib/StdlibDaemon.btrc` asserts a wall-clock deadline. It already failed `test-c11` on `5008fae` under load, so agent builds beside a gate risk a full gate rerun.
 - Wall-clock benchmarks need an otherwise idle machine. Agents change no system settings, so quiet rounds use the automated check in the standing approvals.
+
+## Progress log
+
+Each stage records its exit evidence here as it closes; measurements and commit hashes go with it.
+
+### Stage 1: pre-flight (2026-09-30, in progress)
+- **Disk.** 54 GB free → 212 GB free. Measurement tooling preserved in `~/.cache/btrc/tools` (48 scripts, including every D2-listed one). Deleted: the `btrcc-m11*`/`btrcc-m12*` binaries and logs, `step1`–`step4`, every uncited `perf/` workspace (kept `edit-cold-2026-09-22`, `e2e-2026-09-24`, `btrcc-65057cb`), `build/test-btrcc` pruned from 828 to 20 fingerprints, and BTRSmith's `build/tests` and `build/perf` (see the lost-evidence note under Corrections). Every cited path that resolved before still resolves except those BTRSmith test outputs.
+- **Podman.** `podman machine list` showed only `podman-machine-default`; it was recreated at 6 CPUs / 24 GiB / 40 GB. The 13 `semu-*` files in the applehv directory are untouched.
+- **Hubs.** `~/.cache/btrc/hub.git` and `~/.cache/btrsmith/hub.git` (bare), added as remote `hub` in both Drive checkouts.
+- **D3(b).** `archive/native-ui-row` tags `1e4cb30`; `native-ui-row`, `native-ui-chrome` and `btrsmith-macos-menu` deleted; `git worktree prune` removed 4 stale entries. Other sessions' worktrees untouched.
+- **D3(a).** BTRSmith's 18 files committed as `5a840ba6` on `wip/2026-09-28-snapshot` (working tree unchanged); its check runs from `~/.cache/btrsmith/clones/d3a`.
+- **Locks.** `~/.cache/btrc/locks/{gate,bench,linux-ci,guest,gui-capture,signing}` plus the two-slot `btrcc-build` semaphore, taken through `~/.cache/btrc/tools/withlock.sh` (macOS `lockf`).
+- **Docs.** CLAUDE.md's current-state section and host capacity rules; this plan's Corrections section; the P6 table made identical in `platform-parity.md`.
 
 ## Decisions (all resolved 2026-09-30)
 
@@ -98,6 +111,36 @@ Every decision below is settled. Where stage text further down still says "you a
 | Physical sessions (Stage 40) | The agent builds the rig software, the latency program, the checklists and the per-platform scripts, then sends a push notification that the session is ready. The sessions themselves need you; until then they are recorded as **awaiting you**. |
 | Agreements | Accepting the Android SDK licences is approved. No other agreement or account. |
 | Signing | Commit unsigned rather than stall. |
+
+## Corrections to the reference
+
+The reference is frozen, so its stale or conflicting statements are corrected here (Stage 1, 2026-09-30). Where a correction and the reference disagree, the correction governs.
+
+| Reference | Correction |
+|---|---|
+| **M11 status** (ref:4–30, ref:828, ref:2915–2918) | **Budgets met; acceptance counter open.** The self-host M11 budget numbers were met at `65057cb` (Status above). The acceptance counter, exactly one changed source group analyzed and lowered per body edit, is unmet; Stage 9 closes it. The header's "92 s edits" (ref:4–30, ref:1333–1339) and "next is the September 24 measurement round" (ref:828) are superseded by the Status section. |
+| **Cold-dev working budget** (ref:6–7 says 13 s; ref:1102 says ≤13.5 s) | **The final cold-dev objective is ≥10× against the frozen repeated baseline and ≤min(20 s, baseline/10) (ref:1747), with a working budget of 13.5 s.** The header's 13 s is superseded. |
+| **P6 build budgets** (ref:3347–3353 vs `platform-parity.md:494–501`) | One authoritative table, identical in both documents, below. The no-op row is ≤5 s on every platform (D26, matching the M6a closure), and the reference private-body edit row from platform-parity is added. |
+| **Gating** (ref:842–844, ref:3269–3271) | Every-step gating is replaced by D5's batch gate. |
+| **C-construct selection** (ref:3266–3267) | Replaced by D19: every row is approved, with the Stage 14 probe battery as consumer. |
+| **x86_64 acceptance host** (ref:1724) | Governed by D7. |
+| **Stale performance leads** | Python `_binding_conflicts_with_type` is already table lookups (`src/compiler/python/ir/lowering/calls.py:868`), so Stage 12 profiles it before treating it as a hotspot. M8a's lazy lists are done (`449d00c`); its ≤40 s cold-transpile target is still unmet (43.57 s at `65057cb`). |
+| **CLAUDE.md handoff** | Updated in Stage 1: the structure-first "next" claim, the `GOAL.md` pointer (now BTRSmith issue #15), the 12,439/172 counts, the 309 boundary records and the skip bullet, plus the host capacity rules. |
+
+**Authoritative P6 build budgets** (final self-host product builds after M6a/M11; identical in `docs/design/platform-parity.md`):
+
+| Scenario | Windows | iOS/iPadOS | Android |
+| --- | --- | --- | --- |
+| Cold dev package, one architecture | ≤30 s | ≤45 s | ≤60 s |
+| One private-body edit to installable dev artifact | ≤10 s; p95 ≤15 s | ≤15 s; p95 ≤20 s | ≤20 s; p95 ≤30 s |
+| No-op through actual platform build driver | ≤5 s | ≤5 s | ≤5 s |
+| Install/relaunch on already-running local test target, incremental artifact | ≤5 s | ≤15 s | ≤15 s |
+| Cold reference-frontend dev package | ≤90 s | ≤120 s | ≤150 s |
+| Reference private-body edit to installable artifact | ≤15 s | ≤20 s | ≤30 s |
+
+**Lost evidence.** These 23 cited paths no longer exist; they were deleted before 2026-09-30 and cannot be recovered. Their numbers survive only as recorded in the reference and `compile-performance.md`:<br>`~/.cache/btrc/perf/artifact-execution-2026-09-21/`<br>`~/.cache/btrc/perf/directive-cache-2026-09-21/`<br>`~/.cache/btrc/perf/edit-cold-2026-09-22/summary.json`<br>`~/.cache/btrc/perf/emission-builds-2026-09-22/`<br>`~/.cache/btrc/perf/emission-owner-2026-09-22/bootstrap/results.json`<br>`~/.cache/btrc/perf/flow-owner-2026-09-22/results.json`<br>`~/.cache/btrc/perf/lowering-owner-2026-09-22/results.json`<br>`~/.cache/btrc/perf/native-fragment-2026-09-22/`<br>`~/.cache/btrc/perf/native-observation-2026-09-22/`<br>`~/.cache/btrc/perf/native-operation-2026-09-22/`<br>`~/.cache/btrc/perf/native-preparation-2026-09-22/`<br>`~/.cache/btrc/perf/native-receipt-profile-2026-09-21/`<br>`~/.cache/btrc/perf/native-validation-2026-09-21/`<br>`~/.cache/btrc/perf/operator-lookup-2026-09-21/`<br>`~/.cache/btrc/perf/scope-copy-2026-09-22/bootstrap/results.json`<br>`~/.cache/btrc/perf/scope-copy-builds-2026-09-22/`<br>`~/.cache/btrc/perf/scope-copy-final-2026-09-22/bootstrap/results.json`<br>`~/.cache/btrc/perf/selfhost-sdk-profile-2026-09-22/qualified/`<br>`~/.cache/btrc/perf/setjmp-builds-2026-09-22/`<br>`~/.cache/btrc/perf/setjmp-origin-2026-09-22/qualified/results.json`<br>`~/.cache/btrc/perf/source-resolution-2026-09-21/`<br>`~/.cache/btrc/perf/type-owner-2026-09-22/results.json`<br>`~/.cache/btrc/perf/vocabulary-identity-2026-09-21/`
+
+Also lost, on 2026-09-30 during the Stage 1 reclaim: the regenerable test outputs under `~/.cache/btrsmith/build/tests` (30 GB) and `~/.cache/btrsmith/build/perf` (5.8 GB). A citation check found that 73 of the 259 notes in `~/.cache/btrsmith/build/evidence` cite run directories there, but the delete ran in the same command as the check, so it went ahead. The notes themselves are kept; the captures and logs they point at are gone, and no backup exists. The affected notes and paths are listed in `~/.cache/btrc/roadmap/lost-btrsmith-test-outputs.txt`. Stages 4, 39 and 40 regenerate every capture their exits need instead of citing these.
 
 ## Phase overview
 

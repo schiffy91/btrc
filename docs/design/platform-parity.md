@@ -495,7 +495,7 @@ Final **self-host** product build goals after M6a/M11 integration:
 | --- | --- | --- | --- |
 | Cold dev package, one architecture | ≤30 s | ≤45 s | ≤60 s |
 | One private-body edit to installable dev artifact | ≤10 s; p95 ≤15 s | ≤15 s; p95 ≤20 s | ≤20 s; p95 ≤30 s |
-| No-op through actual platform build driver | ≤2 s | ≤3 s | ≤5 s |
+| No-op through actual platform build driver | ≤5 s | ≤5 s | ≤5 s |
 | Install/relaunch on already-running local test target, incremental artifact | ≤5 s | ≤15 s | ≤15 s |
 | Cold reference-frontend dev package | ≤90 s | ≤120 s | ≤150 s |
 | Reference private-body edit to installable artifact | ≤15 s | ≤20 s | ≤30 s |
