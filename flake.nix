@@ -11,7 +11,7 @@
         nixInstallerVersion = "v3.21.5";
         nixInstallerSha256 = "c9368f4bbfbc78ace32bf018cb15534344b33c0161468deddbfcc8a04f7c9a01";
         runtime = "podman";
-        machine = { memory = 8192; cpus = 4; disk = 100; };
+        machine = { memory = 24576; cpus = 6; disk = 40; };   # AGENTS.md host capacity: podman-machine-default
         workspace = "/workspace";
         user = { name = "dev"; uid = 1000; };
         ports = [ 3000 ];

@@ -17,10 +17,7 @@ coverage.xml
 # Compilation cache
 .btrc-cache/
 
-# Generated C files from btrc compilation (named after their test_*.btrc).
-# Hand-written C-interop fixtures (e.g. cenum/color.c) are NOT generated and
-# must stay tracked, so only ignore the test_*.c the runner/emit produces.
-src/tests/**/test_*.c
+# Generated C from the examples; their native package sources stay tracked.
 examples/**/*.c
 !examples/native-package/packages/**/native/*.c
 

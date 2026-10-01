@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import subprocess
+import re
 import tomllib
 from pathlib import Path
 
@@ -111,6 +112,15 @@ def test_main_gate_runs_portable_boundaries_and_keeps_observed_proof_explicit():
 
 
 def test_container_builds_never_prune_global_podman_state():
+def test_podman_machine_matches_the_documented_host_capacity():
+    agents = (REPO_ROOT / "AGENTS.md").read_text()
+    row = next(line for line in agents.splitlines() if "`podman-machine-default`" in line)
+    memory, cpus, disk = (int(value) for value in re.findall(r"(\d+) (?:GiB|CPUs|GB disk)", row))
+
+    assert f"machine = {{ memory = {memory * 1024}; cpus = {cpus}; disk = {disk}; }};" in FLAKE.read_text()
+    assert "test_*.c" not in (REPO_ROOT / ".gitignore").read_text()
+
+
     build_sources = MAKEFILE.read_text() + (DEVCONTAINER_CONFIG / "host.nix").read_text()
 
     assert "image prune" not in build_sources
