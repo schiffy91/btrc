@@ -69,7 +69,7 @@ class FeSourcePathPolicy {
 
 	public string slashFormFor(string path, bool windows) {
 		if (path == null) { return ""; }
-		return windows ? Strings.replace(path, "\\", "/") : Strings.copy(path);
+		return windows ? path.replace("\\", "/") : Strings.copy(path);
 	}
 
 	public string composeFor(string path, string current, bool windows) {

@@ -72,10 +72,10 @@ class DeclarationLowerer {
 	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
 
 	private string compactPackDirective(string text) {
-		string compact = Strings.replace(text, " ", "");
-		compact = Strings.replace(compact, "\t", "");
-		compact = Strings.replace(compact, "\r", "");
-		return Strings.replace(compact, "\n", "");
+		string compact = text.replace(" ", "");
+		compact = compact.replace("\t", "");
+		compact = compact.replace("\r", "");
+		return compact.replace("\n", "");
 	}
 
 	private int packPushAlignment(string text) {
