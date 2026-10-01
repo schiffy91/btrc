@@ -4,6 +4,7 @@ import Library.Vector;
 import Library.Math;
 import Library.GUI.MacOS.MacOSGPUSurface;
 import Library.GUI.MacOS.MacOSViewCapture;
+import Library.GUI.MacOS.MacOSImageHandle;
 
 /* An independently owned, completed renderer readback. Do not change its pixels
  * during capture. Native controls belong beside the leaf GPU surface in their
@@ -39,14 +40,7 @@ class MacOSComposedCapture {
 		Bytes captured = null;
 		try {
 			for layer in layers {
-				var encoded = ImageIO.encodeBmp(layer.pixels);
-				var data = NSData.dataWithBytes(encoded.data, (unsigned long)encoded.length());
-				if (data == null) { throw "Cannot allocate GPU capture data"; }
-				var representation = NSBitmapImageRep.imageRepWithData(data);
-				if (representation == null) { throw "Cannot decode GPU capture image"; }
-				var image = NSImage.new();
-				if (image == null) { throw "Cannot allocate capture image"; }
-				image.addRepresentation(representation);
+				var image = MacOSImageHandle.nativeImageOf(layer.pixels);
 				var proxy = NSImageView.new();
 				if (proxy == null) { throw "Cannot allocate capture view"; }
 				var view = layer.surface.nativeView();

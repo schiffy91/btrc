@@ -52,15 +52,7 @@ class MacOSImageView implements IImageView, IMacOSView {
 		if (view == null) { throw "Native image view is closed"; }
 		if (pixels == null) { view.setImage(null); return; }
 		if (maximumPixels <= 0 || maximumPixels > 16777216 || pixels.isEmpty() || (long long)pixels.width * (long long)pixels.height > (long long)maximumPixels) { throw "Native artwork exceeds image limits"; }
-		var encoded = ImageIO.encodeBmp(pixels);
-		var data = NSData.dataWithBytes(encoded.data, (unsigned long)encoded.length());
-		if (data == null) { throw "Cannot allocate native image data"; }
-		var representation = NSBitmapImageRep.imageRepWithData(data);
-		if (representation == null) { throw "Cannot decode native image"; }
-		var image = NSImage.new();
-		if (image == null) { throw "Cannot allocate native image"; }
-		image.addRepresentation(representation);
-		view.setImage(image);
+		view.setImage(MacOSImageHandle.nativeImageOf(pixels));
 	}
 
 	public void setImageHandle(IImageHandle? handle) {

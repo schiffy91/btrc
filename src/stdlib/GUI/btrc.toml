@@ -148,7 +148,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"+[NSThread isMainThread]", "+[NSString stringWithUTF8String:]", "+[NSOpenPanel openPanel]",
+	"+[NSThread isMainThread]", "+[NSOpenPanel openPanel]",
 	"-[NSOpenPanel setTitle:]", "-[NSOpenPanel setPrompt:]", "-[NSOpenPanel setCanChooseDirectories:]",
 	"-[NSOpenPanel setCanChooseFiles:]", "-[NSOpenPanel setAllowsMultipleSelection:]", "-[NSOpenPanel setCanCreateDirectories:]",
 	"-[NSOpenPanel setResolvesAliases:]", "-[NSOpenPanel setDirectoryURL:]", "-[NSOpenPanel runModal]", "-[NSOpenPanel URL]",
@@ -266,7 +266,6 @@ language = "objective-c"
 standard = "c11"
 symbols = [
 	"+[NSThread isMainThread]", "-[NSView isDescendantOf:]", "-[NSView bounds]", "-[NSView convertRectToBacking:]", "-[NSView addSubview:]",
-	"+[NSData dataWithBytes:length:]", "+[NSBitmapImageRep imageRepWithData:]", "+[NSImage new]", "-[NSImage addRepresentation:]",
 	"+[NSImageView new]", "-[NSImageView setFrame:]", "-[NSImageView setImage:]", "-[NSImageView setImageScaling:]", "-[NSImageView removeFromSuperview]", "NSImageScaleAxesIndependently"
 ]
 os = ["macos"]
@@ -348,7 +347,7 @@ module = "MacOS.MacOSImageView"
 header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["+[NSThread isMainThread]", "+[NSImageView new]", "-[NSImageView setImage:]", "-[NSImageView setImageScaling:]", "NSImageScaleProportionallyUpOrDown", "+[NSData dataWithBytes:length:]", "+[NSBitmapImageRep imageRepWithData:]", "+[NSImage new]", "-[NSImage addRepresentation:]"]
+symbols = ["+[NSThread isMainThread]", "+[NSImageView new]", "-[NSImageView setImage:]", "-[NSImageView setImageScaling:]", "NSImageScaleProportionallyUpOrDown"]
 os = ["macos"]
 
 [[native.bindings]]

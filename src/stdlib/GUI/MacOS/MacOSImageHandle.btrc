@@ -25,9 +25,14 @@ class MacOSImageHandle implements IImageHandle, IMacOSImageHandle {
 	class MacOSImageHandle create(Image pixels, int maximumPixels = 16777216) {
 		if (pixels == null || pixels.isEmpty() || pixels.data == null) { throw "Native image handle requires decoded pixels"; }
 		if (maximumPixels <= 0 || maximumPixels > 16777216 || (long long)pixels.width * (long long)pixels.height > (long long)maximumPixels) { throw "Native artwork exceeds image limits"; }
-		/* The bitmap representation copies the bytes it is given, so the
-		 * decoded Image may be released afterwards; the cost stays on the
-		 * calling thread, never on the view that presents the result. */
+		return MacOSImageHandle(MacOSImageHandle.nativeImageOf(pixels), pixels.width, pixels.height);
+	}
+
+	/* The provider's one Image to NSImage conversion. The bitmap representation
+	 * copies the bytes it is given, so the decoded Image may be released
+	 * afterwards; the cost stays on the calling thread, never on the view that
+	 * presents the result. Callers own the pixel limits they enforce. */
+	class NSImage nativeImageOf(Image pixels) {
 		var encoded = ImageIO.encodeBmp(pixels);
 		var data = NSData.dataWithBytes(encoded.data, (unsigned long)encoded.length());
 		if (data == null) { throw "Cannot allocate native image data"; }
@@ -36,7 +41,7 @@ class MacOSImageHandle implements IImageHandle, IMacOSImageHandle {
 		var image = NSImage.new();
 		if (image == null) { throw "Cannot allocate native image"; }
 		image.addRepresentation(representation);
-		return MacOSImageHandle(image, pixels.width, pixels.height);
+		return image;
 	}
 
 	public int width() { return self._width; }
