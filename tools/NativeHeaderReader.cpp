@@ -41,6 +41,8 @@
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/FrontendActions.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
+#include <clang/Sema/EnterExpressionEvaluationContext.h>
+#include <clang/Sema/Sema.h>
 #include <clang/Index/USRGeneration.h>
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
@@ -59,6 +61,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -138,6 +141,202 @@ public:
 			declarations[name] = value;
 		}
 		return true;
+	}
+};
+
+// An object-like macro selected as a symbol is an SDK constant with no
+// declaration. Its replacement tokens, with nested object-like macros spliced
+// in, are parsed here and every operand and operator is built through Clang's
+// Sema, so the constant's type and value are exactly what the SDK's own C
+// gives it. Only integer constant expressions are accepted; anything else
+// (strings, function-like macros, non-constant operands) refuses.
+class NativeMacroConstant {
+	clang::Sema& sema;
+	clang::Preprocessor& preprocessor;
+	clang::ASTContext& context;
+	std::vector<clang::Token> tokens;
+	size_t position = 0;
+	std::string failure;
+
+	bool expand(const clang::MacroInfo& info, std::set<const clang::IdentifierInfo*>& active) {
+		for (const auto& token : info.tokens()) {
+			const auto* identifier = token.getIdentifierInfo();
+			const auto* nested = identifier && !active.count(identifier) ? preprocessor.getMacroInfo(identifier) : nullptr;
+			if (!nested) { tokens.push_back(token); continue; }
+			if (nested->isFunctionLike()) { return refuse("uses function-like macro " + identifier->getName().str()); }
+			active.insert(identifier);
+			if (!expand(*nested, active)) { return false; }
+			active.erase(identifier);
+		}
+		return true;
+	}
+
+	bool refuse(std::string reason) {
+		if (failure.empty()) { failure = std::move(reason); }
+		return false;
+	}
+
+	const clang::Token* peek() const { return position < tokens.size() ? &tokens[position] : nullptr; }
+	bool at(clang::tok::TokenKind kind) const { return peek() && peek()->is(kind); }
+	clang::SourceLocation location() const { return peek() ? peek()->getLocation() : clang::SourceLocation(); }
+
+	const clang::NamedDecl* lookup(const clang::IdentifierInfo* name) const {
+		for (const auto* found : context.getTranslationUnitDecl()->lookup(clang::DeclarationName(name))) { return found; }
+		return nullptr;
+	}
+
+	bool startsTypeName() const {
+		const auto* token = peek();
+		if (!token) { return false; }
+		switch (token->getKind()) {
+		case clang::tok::kw_unsigned: case clang::tok::kw_signed: case clang::tok::kw_char: case clang::tok::kw_short:
+		case clang::tok::kw_int: case clang::tok::kw_long: case clang::tok::kw__Bool: case clang::tok::kw_bool:
+			return true;
+		case clang::tok::identifier:
+			return llvm::isa_and_nonnull<clang::TypedefNameDecl>(lookup(token->getIdentifierInfo()));
+		default:
+			return false;
+		}
+	}
+
+	clang::QualType typeName() {
+		if (at(clang::tok::identifier)) {
+			const auto* alias = llvm::cast<clang::TypedefNameDecl>(lookup(peek()->getIdentifierInfo()));
+			++position;
+			return context.getTypedefType(alias);
+		}
+		bool isUnsigned = false, isSigned = false;
+		int longs = 0;
+		clang::tok::TokenKind base = clang::tok::kw_int;
+		for (; peek(); ++position) {
+			auto kind = peek()->getKind();
+			if (kind == clang::tok::kw_unsigned) { isUnsigned = true; }
+			else if (kind == clang::tok::kw_signed) { isSigned = true; }
+			else if (kind == clang::tok::kw_long) { ++longs; }
+			else if (kind == clang::tok::kw_int) {}
+			else if (kind == clang::tok::kw_char || kind == clang::tok::kw_short || kind == clang::tok::kw__Bool || kind == clang::tok::kw_bool) { base = kind; }
+			else { break; }
+		}
+		if (base == clang::tok::kw__Bool || base == clang::tok::kw_bool) { return context.BoolTy; }
+		if (base == clang::tok::kw_char) { return isUnsigned ? context.UnsignedCharTy : isSigned ? context.SignedCharTy : context.CharTy; }
+		if (base == clang::tok::kw_short) { return isUnsigned ? context.UnsignedShortTy : context.ShortTy; }
+		if (longs >= 2) { return isUnsigned ? context.UnsignedLongLongTy : context.LongLongTy; }
+		if (longs == 1) { return isUnsigned ? context.UnsignedLongTy : context.LongTy; }
+		return isUnsigned ? context.UnsignedIntTy : context.IntTy;
+	}
+
+	clang::Expr* checked(clang::ExprResult result, const char* what) {
+		if (result.isInvalid() || !result.get()) { refuse(std::string("is not a valid ") + what); return nullptr; }
+		return result.get();
+	}
+
+	clang::Expr* primary() {
+		const auto* token = peek();
+		if (!token) { refuse("ends before an operand"); return nullptr; }
+		if (token->is(clang::tok::numeric_constant)) { ++position; return checked(sema.ActOnNumericConstant(*token), "integer literal"); }
+		if (token->is(clang::tok::char_constant)) { ++position; return checked(sema.ActOnCharacterConstant(*token), "character literal"); }
+		if (token->is(clang::tok::identifier)) {
+			++position;
+			const auto* found = lookup(token->getIdentifierInfo());
+			if (const auto* constant = llvm::dyn_cast_or_null<clang::EnumConstantDecl>(found)) {
+				return sema.BuildDeclRefExpr(const_cast<clang::EnumConstantDecl*>(constant), constant->getType(), clang::VK_PRValue, token->getLocation());
+			}
+			refuse("names " + token->getIdentifierInfo()->getName().str() + ", which is not an enumerator");
+			return nullptr;
+		}
+		if (token->is(clang::tok::l_paren)) {
+			auto open = token->getLocation();
+			++position;
+			if (startsTypeName()) {
+				auto target = typeName();
+				if (!at(clang::tok::r_paren)) { refuse("has an unsupported cast type"); return nullptr; }
+				auto close = location();
+				++position;
+				auto* operand = unary();
+				if (!operand) { return nullptr; }
+				return checked(sema.BuildCStyleCastExpr(open, context.getTrivialTypeSourceInfo(target, open), close, operand), "cast");
+			}
+			auto* inner = conditional();
+			if (!inner || !at(clang::tok::r_paren)) { refuse("has unbalanced parentheses"); return nullptr; }
+			auto close = location();
+			++position;
+			return checked(sema.ActOnParenExpr(open, close, inner), "parenthesized expression");
+		}
+		refuse(std::string("uses unsupported token ") + clang::tok::getTokenName(token->getKind()));
+		return nullptr;
+	}
+
+	clang::Expr* unary() {
+		static const std::map<clang::tok::TokenKind, clang::UnaryOperatorKind> operators{
+			{clang::tok::plus, clang::UO_Plus}, {clang::tok::minus, clang::UO_Minus},
+			{clang::tok::tilde, clang::UO_Not}, {clang::tok::exclaim, clang::UO_LNot}};
+		const auto* token = peek();
+		auto found = token ? operators.find(token->getKind()) : operators.end();
+		if (found == operators.end()) { return primary(); }
+		++position;
+		auto* operand = unary();
+		return operand ? checked(sema.CreateBuiltinUnaryOp(token->getLocation(), found->second, operand), "unary expression") : nullptr;
+	}
+
+	clang::Expr* binary(int minimum) {
+		static const std::map<clang::tok::TokenKind, std::pair<int, clang::BinaryOperatorKind>> operators{
+			{clang::tok::star, {10, clang::BO_Mul}}, {clang::tok::slash, {10, clang::BO_Div}}, {clang::tok::percent, {10, clang::BO_Rem}},
+			{clang::tok::plus, {9, clang::BO_Add}}, {clang::tok::minus, {9, clang::BO_Sub}},
+			{clang::tok::lessless, {8, clang::BO_Shl}}, {clang::tok::greatergreater, {8, clang::BO_Shr}},
+			{clang::tok::less, {7, clang::BO_LT}}, {clang::tok::greater, {7, clang::BO_GT}},
+			{clang::tok::lessequal, {7, clang::BO_LE}}, {clang::tok::greaterequal, {7, clang::BO_GE}},
+			{clang::tok::equalequal, {6, clang::BO_EQ}}, {clang::tok::exclaimequal, {6, clang::BO_NE}},
+			{clang::tok::amp, {5, clang::BO_And}}, {clang::tok::caret, {4, clang::BO_Xor}}, {clang::tok::pipe, {3, clang::BO_Or}},
+			{clang::tok::ampamp, {2, clang::BO_LAnd}}, {clang::tok::pipepipe, {1, clang::BO_LOr}}};
+		auto* left = unary();
+		while (left) {
+			const auto* token = peek();
+			auto found = token ? operators.find(token->getKind()) : operators.end();
+			if (found == operators.end() || found->second.first < minimum) { break; }
+			++position;
+			auto* right = binary(found->second.first + 1);
+			if (!right) { return nullptr; }
+			left = checked(sema.CreateBuiltinBinOp(token->getLocation(), found->second.second, left, right), "binary expression");
+		}
+		return left;
+	}
+
+	clang::Expr* conditional() {
+		auto* condition = binary(1);
+		if (!condition || !at(clang::tok::question)) { return condition; }
+		auto question = location();
+		++position;
+		auto* chosen = conditional();
+		if (!chosen || !at(clang::tok::colon)) { refuse("has an incomplete conditional"); return nullptr; }
+		auto colon = location();
+		++position;
+		auto* other = conditional();
+		return other ? checked(sema.ActOnConditionalOp(question, colon, condition, chosen, other), "conditional expression") : nullptr;
+	}
+
+public:
+	NativeMacroConstant(clang::Sema& value, clang::Preprocessor& macros) : sema(value), preprocessor(macros), context(value.getASTContext()) {}
+
+	// The macro's integer value and type, or an explanation in `failure`.
+	std::optional<std::pair<clang::QualType, llvm::APSInt>> evaluate(const clang::IdentifierInfo& name, const clang::MacroInfo& info, std::string& reason) {
+		std::set<const clang::IdentifierInfo*> active{&name};
+		if (info.isFunctionLike()) { refuse("is a function-like macro"); }
+		else if (info.tokens_empty()) { refuse("has no replacement tokens"); }
+		else if (expand(info, active)) {
+			auto& diagnostics = sema.getDiagnostics();
+			bool suppressed = diagnostics.getSuppressAllDiagnostics();
+			diagnostics.setSuppressAllDiagnostics(true);
+			clang::EnterExpressionEvaluationContext constant(sema, clang::Sema::ExpressionEvaluationContext::ConstantEvaluated);
+			auto* expression = conditional();
+			diagnostics.setSuppressAllDiagnostics(suppressed);
+			clang::Expr::EvalResult evaluated;
+			if (expression && position != tokens.size()) { refuse("has trailing tokens"); }
+			else if (expression && !expression->getType()->isIntegralOrEnumerationType()) { refuse("is not an integer constant"); }
+			else if (expression && !expression->EvaluateAsInt(evaluated, context)) { refuse("is not an integer constant expression"); }
+			else if (expression) { return std::make_pair(expression->getType(), evaluated.Val.getInt()); }
+		}
+		reason = failure;
+		return std::nullopt;
 	}
 };
 
@@ -537,6 +736,32 @@ class NativeHeaderReader {
 		return result;
 	}
 
+	static const clang::MacroInfo* macroDefinition(clang::Preprocessor& preprocessor, const std::string& name) {
+		auto found = preprocessor.getIdentifierTable().find(name);
+		if (found == preprocessor.getIdentifierTable().end()) { return nullptr; }
+		return preprocessor.getMacroInfo(found->getValue());
+	}
+
+	llvm::json::Object macroConstant(const std::string& name, const clang::MacroInfo& info, clang::Sema& sema, clang::Preprocessor& preprocessor) {
+		llvm::json::Object result{{"name", name}};
+		auto location = context->getSourceManager().getPresumedLoc(info.getDefinitionLoc());
+		if (location.isValid()) {
+			result["source"] = location.getFilename();
+			result["line"] = static_cast<int64_t>(location.getLine());
+			result["column"] = static_cast<int64_t>(location.getColumn());
+		}
+		std::string reason;
+		auto value = NativeMacroConstant(sema, preprocessor).evaluate(*preprocessor.getIdentifierInfo(name), info, reason);
+		if (!value) { errors.push_back("Native macro " + name + " " + reason); return result; }
+		result["kind"] = "enum_constant";
+		result["type"] = type(value->first.getUnqualifiedType());
+		result["enum_identity"] = "";
+		llvm::SmallString<32> decimal;
+		value->second.toString(decimal);
+		result["value"] = decimal.str().str();
+		return result;
+	}
+
 public:
 	explicit NativeHeaderReader(const std::vector<std::string>& symbols, const std::vector<std::string>& paths, const std::vector<std::string>& values) : requested(symbols.begin(), symbols.end()), recordPaths(paths), recordValues(values.begin(), values.end()) {}
 
@@ -573,7 +798,7 @@ public:
 		}
 	}
 
-	void read(clang::ASTContext& value, const NativeHeaderIndex& index) {
+	void read(clang::ASTContext& value, const NativeHeaderIndex& index, clang::Sema* sema = nullptr, clang::Preprocessor* preprocessor = nullptr) {
 		if (value.getDiagnostics().hasErrorOccurred()) { return; }
 		context = &value;
 		header = &index;
@@ -588,7 +813,9 @@ public:
 			auto found = header->declarations.find(name);
 			const clang::NamedDecl* selected = found == header->declarations.end() ? lookupObjectiveCMethod(name) : found->second;
 			if (!selected && value.getLangOpts().CPlusPlus) { selected = lookupCppMethod(name); }
-			if (!selected) { errors.push_back("Native declaration not found: " + name); }
+			const auto* macro = !selected && sema && preprocessor ? macroDefinition(*preprocessor, name) : nullptr;
+			if (macro) { exports.push_back(macroConstant(name, *macro, *sema, *preprocessor)); }
+			else if (!selected) { errors.push_back("Native declaration not found: " + name); }
 			else {
 				auto exported = declaration(selected);
 				if (llvm::isa<clang::CXXMethodDecl>(selected)) {
@@ -700,10 +927,10 @@ public:
 		return true;
 	}
 
-	void read(clang::ASTContext& context) {
+	void read(clang::ASTContext& context, clang::Sema* sema = nullptr, clang::Preprocessor* preprocessor = nullptr) {
 		if (context.getDiagnostics().hasErrorOccurred()) { return; }
 		const NativeHeaderIndex index(context, selectedNames);
-		for (auto& reader : readers) { reader->read(context, index); }
+		for (auto& reader : readers) { reader->read(context, index, sema, preprocessor); }
 	}
 
 	bool publish(bool batch) {
@@ -991,10 +1218,15 @@ public:
 
 class NativeHeaderConsumer : public clang::ASTConsumer {
 	NativeHeaderRequests& requests;
+	clang::CompilerInstance& compiler;
 
 public:
-	explicit NativeHeaderConsumer(NativeHeaderRequests& value) : requests(value) {}
-	void HandleTranslationUnit(clang::ASTContext& context) override { requests.read(context); }
+	NativeHeaderConsumer(NativeHeaderRequests& value, clang::CompilerInstance& instance) : requests(value), compiler(instance) {}
+	// Sema and the preprocessor outlive this call: macro constants are built
+	// through them after the translation unit is complete.
+	void HandleTranslationUnit(clang::ASTContext& context) override {
+		requests.read(context, compiler.hasSema() ? &compiler.getSema() : nullptr, compiler.hasPreprocessor() ? &compiler.getPreprocessor() : nullptr);
+	}
 };
 
 class NativeHeaderAction : public clang::ASTFrontendAction {
@@ -1010,7 +1242,7 @@ public:
 	void EndSourceFileAction() override {
 		if (inputs && getCompilerInstance().getDiagnostics().getNumWarnings()) { inputs->reject("diagnostics"); }
 	}
-	std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance&, llvm::StringRef) override { return std::make_unique<NativeHeaderConsumer>(requests); }
+	std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance& compiler, llvm::StringRef) override { return std::make_unique<NativeHeaderConsumer>(requests, compiler); }
 };
 
 class NativeHeaderActionFactory : public clang::tooling::FrontendActionFactory {
@@ -2168,12 +2400,13 @@ public:
 		const auto* value = receipt->getAsObject();
 		if (!value) { return false; }
 		auto schema = value->getString("schema");
-		if (schema != "btrc.native-header-cache.v1" && schema != "btrc.native-header-cache.v2") { return false; }
+		// v1 inline-trace receipts were never written by a released reader; they miss.
+		if (schema != "btrc.native-header-cache.v2") { return false; }
 		const auto* inputs = value->getObject("inputs"); const auto* trace = value->get("filesystem");
 		const auto* output = value->getObject("stdout"); const auto* errors = value->getObject("stderr");
 		if (!inputs || inputs->getInteger("reader_exit") != 0 || !inputs->get("identity") || *inputs->get("identity") != *prepared.get("identity") || !admitted(*inputs, &key) ||
 			!trace || !output || !errors || !verifyBlob(*output, outputLimit) || !verifyBlob(*errors, diagnosticLimit) ||
-			!(schema == "btrc.native-header-cache.v1" ? verifier.validate(*trace) : validateTrace(*trace, receiptLimit - bytes.size()))) { return false; }
+			!validateTrace(*trace, receiptLimit - bytes.size())) { return false; }
 		response = responseDescriptors(*output, *errors);
 		return true;
 	}

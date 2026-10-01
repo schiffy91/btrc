@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
     var metrics = copyFreeTypeMetrics(face);
     if (metrics == null) { throw "Cannot snapshot FreeType metrics"; }
     assert(metrics.ascender > 0L && metrics.height > 0L);
-    assert(FT_Load_Char(face, 65UL, BTRC_FT_LOAD_RENDER) == 0);
+    assert(FT_Load_Char(face, 65UL, FT_LOAD_RENDER) == 0);
     var glyph = copyFreeTypeGlyph(face, 65536);
     if (glyph == null) { throw "Cannot snapshot actual glyph"; }
     assert(glyph.width > 0U && glyph.rows > 0U && glyph.pitch > 0);
@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
     int coverage = 0;
     for (int index = 0; index < glyph.bitmap.length(); index++) { coverage += glyph.bitmap.get(index); }
     assert(coverage > 0);
-    assert(FT_Load_Char(face, 32UL, BTRC_FT_LOAD_RENDER) == 0);
+    assert(FT_Load_Char(face, 32UL, FT_LOAD_RENDER) == 0);
     var empty = copyFreeTypeGlyph(face, 0);
     if (empty == null) { throw "Space glyph must have an owned empty bitmap"; }
     assert(empty.bitmap.length() == 0);
