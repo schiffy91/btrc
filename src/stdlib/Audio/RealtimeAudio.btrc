@@ -67,3 +67,46 @@ class RealtimeAudioProgram {
 
 	public void* context() { return self._context; }
 }
+
+/* Allocation-free block helpers shared by providers and composing programs.
+ * Blocks are interleaved: frame f of channel c is at f * channels + c. Each
+ * helper checks its extents through the spans and stops at the first sample
+ * that would fall outside them. */
+class RealtimeAudioSamples {
+	class @realtime void silence(Span<float> samples) {
+		size_t count = samples.length();
+		for (size_t index = 0u; index < count; index++) { samples.trySet(index, 0.0f); }
+	}
+
+	/* Copies the physical channels named by `channels` into a dense block of
+	 * channels.length() channels, in that order. */
+	class @realtime void gather(Span<const float> physical, int physicalChannels, Span<const int> channels, Span<float> selected, int frames) {
+		size_t selectedChannels = channels.length();
+		if (physicalChannels <= 0 || frames <= 0) { return; }
+		size_t stride = (size_t)physicalChannels;
+		size_t frameCount = (size_t)frames;
+		for (size_t frame = 0u; frame < frameCount; frame++) {
+			for (size_t channel = 0u; channel < selectedChannels; channel++) {
+				int source = 0;
+				float sample = 0.0f;
+				if (!channels.tryGet(channel, &source) || source < 0 || source >= physicalChannels || !physical.tryGet(frame * stride + (size_t)source, &sample) || !selected.trySet(frame * selectedChannels + channel, sample)) { return; }
+			}
+		}
+	}
+
+	/* Writes a dense block of channels.length() channels into the physical
+	 * channels named by `channels`; other physical channels keep their samples. */
+	class @realtime void scatter(Span<const float> selected, Span<const int> channels, Span<float> physical, int physicalChannels, int frames) {
+		size_t selectedChannels = channels.length();
+		if (physicalChannels <= 0 || frames <= 0) { return; }
+		size_t stride = (size_t)physicalChannels;
+		size_t frameCount = (size_t)frames;
+		for (size_t frame = 0u; frame < frameCount; frame++) {
+			for (size_t channel = 0u; channel < selectedChannels; channel++) {
+				int destination = 0;
+				float sample = 0.0f;
+				if (!channels.tryGet(channel, &destination) || destination < 0 || destination >= physicalChannels || !selected.tryGet(frame * selectedChannels + channel, &sample) || !physical.trySet(frame * stride + (size_t)destination, sample)) { return; }
+			}
+		}
+	}
+}

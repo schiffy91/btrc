@@ -1,6 +1,9 @@
 /* The ALSA provider against the AlsaFaults fixture: setup failures release
- * their PCM, a failed stop keeps the handle for a retried close, and a failed
- * close is indeterminate and never retried. */
+ * their PCM, a failed stop keeps the handle for a retried close, a failed
+ * close is indeterminate and never retried, a stream fault ends the worker and
+ * is reported by drain(), a stalled device never hangs suspend or drain, a
+ * fixed-channel device opens a narrower selection, and an open session's PCM
+ * stays in the inventory without being probed. */
 import Library.Audio.Audio;
 import Library.Audio.AudioDevice;
 import Library.Audio.RealtimeAudio;
@@ -17,6 +20,10 @@ int pendingSessions();
 int unitDisposals();
 int unitStops();
 int unitRenders();
+void unitDeviceChannels(int input, int output);
+void unitFixedChannels(int fixed);
+int unitConfiguredChannels(int capture);
+void unitExclusive(int exclusive);
 
 struct BlockLog { int blocks; int inputBlocks; };
 
@@ -115,6 +122,134 @@ void retriedClose() {
 	assert(provider.close().succeeded());
 }
 
+/* Opens the default duplex session and starts it. */
+DuplexAudioSession startedSession(AudioDeviceProvider provider, struct BlockLog* state) {
+	var session = provider.openDuplex(request(provider), RealtimeAudioProgram(logProcess, state));
+	assert(session.succeeded());
+	var duplex = session.session();
+	assert(duplex.start().succeeded());
+	return duplex;
+}
+
+/* An unrecoverable write ends the worker; drain() completes and names the loss. */
+void lostDevice() {
+	unitReset(0);
+	var provider = Audio.createDevice().provider();
+	struct BlockLog state = {0, 0};
+	var duplex = startedSession(provider, &state);
+	Timer.sleepMillis(30);
+	unitFail(21);
+	Timer.sleepMillis(60);
+	int blocks = state.blocks;
+	Timer.sleepMillis(30);
+	assert(state.blocks == blocks);
+	assert(duplex.suspend().succeeded());
+	assert(duplex.drain().status() == AUDIO_DEVICE_NOT_FOUND && duplex.state() == DUPLEX_AUDIO_SESSION_DRAINED);
+	allowSessionCleanup();
+	assert(duplex.close().succeeded() && pendingSessions() == 0 && unitDisposals() == 2);
+	assert(provider.close().succeeded());
+}
+
+/* Prefill and capture start are checked: either failure is the stream's fault. */
+void failedWorkerStart(int failure) {
+	unitReset(0);
+	var provider = Audio.createDevice().provider();
+	struct BlockLog state = {0, 0};
+	var session = provider.openDuplex(request(provider), RealtimeAudioProgram(logProcess, &state));
+	assert(session.succeeded());
+	var duplex = session.session();
+	unitFail(failure);
+	assert(duplex.start().succeeded());
+	Timer.sleepMillis(30);
+	assert(duplex.suspend().succeeded());
+	assert(duplex.drain().status() == AUDIO_DEVICE_UNAVAILABLE && state.blocks == 0);
+	allowSessionCleanup();
+	assert(duplex.close().succeeded() && pendingSessions() == 0);
+	assert(provider.close().succeeded());
+}
+
+/* A device that never becomes ready stops within one bounded wait. */
+void stalledDevice() {
+	unitReset(0);
+	var provider = Audio.createDevice().provider();
+	struct BlockLog state = {0, 0};
+	var session = provider.openDuplex(request(provider), RealtimeAudioProgram(logProcess, &state));
+	assert(session.succeeded());
+	var duplex = session.session();
+	unitFail(22);
+	assert(duplex.start().succeeded());
+	Timer.sleepMillis(50);
+	var timer = Timer();
+	timer.start();
+	assert(duplex.suspend().succeeded() && duplex.drain().succeeded());
+	assert(timer.elapsedMillis() < 1000.0f && state.blocks == 0);
+	allowSessionCleanup();
+	assert(duplex.close().succeeded() && pendingSessions() == 0);
+	assert(provider.close().succeeded());
+}
+
+/* A worker held past the drain deadline reports BUSY; the retried drain completes. */
+void overdueDrain() {
+	unitReset(0);
+	var provider = Audio.createDevice().provider();
+	struct BlockLog state = {0, 0};
+	var session = provider.openDuplex(request(provider), RealtimeAudioProgram(logProcess, &state));
+	assert(session.succeeded());
+	var duplex = session.session();
+	unitFail(23);
+	assert(duplex.start().succeeded());
+	Timer.sleepMillis(10);
+	assert(duplex.suspend().succeeded());
+	assert(duplex.drain().status() == AUDIO_DEVICE_BUSY && duplex.state() == DUPLEX_AUDIO_SESSION_SUSPENDED);
+	Timer.sleepMillis(1500);
+	assert(duplex.drain().succeeded());
+	allowSessionCleanup();
+	assert(duplex.close().succeeded() && pendingSessions() == 0);
+	assert(provider.close().succeeded());
+}
+
+/* A device fixed at four channels serves a two-channel selection. */
+void fixedChannelDevice() {
+	unitReset(0);
+	unitDeviceChannels(4, 4);
+	unitFixedChannels(4);
+	var provider = Audio.createDevice().provider();
+	var inventory = provider.inventory().inventory();
+	var output = inventory.defaultOutput();
+	assert(output != null && output.outputChannels() == 4 && output.inputChannels() == 4);
+	struct BlockLog state = {0, 0};
+	var spec = DuplexAudioOpenRequest.duplex(inventory.generation(), "default", AudioChannelSelection.leading(1), "default", AudioChannelSelection.leading(2), AudioStreamRequest(48000, 128));
+	var session = provider.openDuplex(spec, RealtimeAudioProgram(logProcess, &state));
+	assert(session.succeeded() && unitConfiguredChannels(0) == 4 && unitConfiguredChannels(1) == 4);
+	var duplex = session.session();
+	assert(duplex.format().outputFormat().channels() == 2 && duplex.format().inputFormat().channels() == 1);
+	assert(duplex.start().succeeded());
+	Timer.sleepMillis(30);
+	assert(duplex.suspend().succeeded() && duplex.drain().succeeded() && duplex.close().succeeded());
+	assert(state.blocks > 0 && pendingSessions() == 0);
+	assert(provider.close().succeeded());
+	unitDeviceChannels(2, 2);
+}
+
+/* A device that admits one opener stays published while a session holds it. */
+void heldDevice() {
+	unitReset(0);
+	unitExclusive(1);
+	var provider = Audio.createDevice().provider();
+	var before = provider.inventory().inventory();
+	struct BlockLog state = {0, 0};
+	var session = provider.openDuplex(request(provider), RealtimeAudioProgram(logProcess, &state));
+	assert(session.succeeded());
+	var duplex = session.session();
+	assert(duplex.format().inventoryGeneration() == before.generation());
+	var during = provider.inventory();
+	assert(during.succeeded() && during.inventory().generation() == before.generation() && during.inventory().count() == 1);
+	assert(duplex.close().succeeded() && pendingSessions() == 0);
+	var after = provider.inventory();
+	assert(after.succeeded() && after.inventory().generation() == before.generation());
+	assert(provider.close().succeeded());
+}
+
 /* Runs in its own process: the retained session ends the program on destruction. */
 void indeterminateClose() {
 	unitReset(0);
@@ -145,6 +280,13 @@ int main() {
 	failedSetup(3, AUDIO_DEVICE_UNSUPPORTED_FORMAT);
 	failedStart();
 	retriedClose();
+	lostDevice();
+	failedWorkerStart(20);
+	failedWorkerStart(24);
+	stalledDevice();
+	overdueDrain();
+	fixedChannelDevice();
+	heldDevice();
 	Console.log("PASS: linux audio faults");
 	return 0;
 }

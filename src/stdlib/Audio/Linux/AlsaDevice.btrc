@@ -4,11 +4,15 @@
  * owns one worker thread that reads capture periods, runs the realtime
  * program on interleaved selected channels and writes playback periods in
  * lock step, so both spans share one frame domain of bufferFrames. Xruns are
- * recovered in place and reported as discontinuities. A provider and all its
- * sessions belong to one control thread; the provider outlives them.
+ * recovered in place and reported as discontinuities; a failed recovery,
+ * prefill or start latches the stream's fault and ends the worker, which
+ * drain() then reports. Every wait on the device is bounded, so suspend and
+ * drain never hang on a stalled PCM. A provider and all its sessions belong to
+ * one control thread; the provider outlives them.
  */
 
 import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
 import Library.Console;
 import Library.Datetime;
 import Library.Math;
@@ -22,6 +26,14 @@ AudioDeviceStatus alsaStatus(int error) {
 	if (error == -ENOENT || error == -ENODEV) { return AUDIO_DEVICE_NOT_FOUND; }
 	if (error == -EACCES || error == -EPERM) { return AUDIO_DEVICE_PERMISSION_DENIED; }
 	if (error == -EBUSY) { return AUDIO_DEVICE_BUSY; }
+	if (error == -ENOMEM) { return AUDIO_DEVICE_FAILED; }
+	return AUDIO_DEVICE_UNAVAILABLE;
+}
+
+/* A running stream's fault, reported by drain() after its barrier completed. */
+AudioDeviceStatus alsaFaultStatus(int error) {
+	if (error == -ENOENT || error == -ENODEV) { return AUDIO_DEVICE_NOT_FOUND; }
+	if (error == -EACCES || error == -EPERM) { return AUDIO_DEVICE_PERMISSION_DENIED; }
 	if (error == -ENOMEM) { return AUDIO_DEVICE_FAILED; }
 	return AUDIO_DEVICE_UNAVAILABLE;
 }
@@ -69,7 +81,7 @@ class AlsaHardwareDevice {
 				snd_pcm_hw_params_get_rate_max(params, &rateMax, &direction);
 				snd_pcm_hw_params_get_period_size_min(params, &periodMin, &direction);
 				snd_pcm_hw_params_get_period_size_max(params, &periodMax, &direction);
-				result = AlsaProbe((int)(channelsMax > 32u ? 32u : channelsMax), (int)rateMin, (int)(rateMax > 768000u ? 768000u : rateMax), (int)(periodMin > 65536UL ? 65536UL : periodMin), (int)(periodMax > 65536UL ? 65536UL : periodMax));
+				result = AlsaProbe((int)(channelsMax > 256u ? 256u : channelsMax), (int)rateMin, (int)(rateMax > 768000u ? 768000u : rateMax), (int)(periodMin > 65536UL ? 65536UL : periodMin), (int)(periodMax > 65536UL ? 65536UL : periodMax));
 			}
 			snd_pcm_hw_params_free(params);
 		}
@@ -141,7 +153,10 @@ class AlsaHardwareInventory {
 		return null;
 	}
 
-	public AudioDeviceInventoryOutcome refresh() {
+	/* `held` names the PCMs an open session owns. A hw: device admits one
+	 * opener, so probing it would fail with EBUSY and drop it from the
+	 * inventory; its last probe is reused instead. */
+	public AudioDeviceInventoryOutcome refresh(Vector<string> held) {
 		btrcAlsaQuietErrors();
 		var hints = btrcAlsaHints();
 		if (hints == null) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE, "ALSA device enumeration failed"); }
@@ -155,6 +170,11 @@ class AlsaHardwareInventory {
 			btrcAlsaFreeText(rawName);
 			if (name.isEmpty() || name.len() > 511 || !AlsaHardwareInventory.selectable(name) || seen.contains(name)) { continue; }
 			seen.push(name);
+			var cached = held.contains(name) ? self.find(name) : null;
+			if (cached != null) {
+				devices.push(cached);
+				continue;
+			}
 			string description = name;
 			var rawDescription = btrcAlsaHintValue(hints, index, "DESC");
 			if (rawDescription != null) {
@@ -184,34 +204,24 @@ class AlsaHardwareInventory {
 		}
 		if (!inputAssigned) { for (int index = 0; index < published.len && !inputAssigned; index++) { var entry = published.get(index); if (entry.inputChannels() > 0) { published.set(index, AudioDeviceDescriptor(entry.id(), entry.name(), entry.inputChannels(), entry.outputChannels(), true, entry.isDefaultOutput(), entry.streamCapability())); inputAssigned = true; } } }
 		if (!outputAssigned) { for (int index = 0; index < published.len && !outputAssigned; index++) { var entry = published.get(index); if (entry.outputChannels() > 0) { published.set(index, AudioDeviceDescriptor(entry.id(), entry.name(), entry.inputChannels(), entry.outputChannels(), entry.isDefaultInput(), true, entry.streamCapability())); outputAssigned = true; } } }
-		if (self._generation == 0ULL || !self.same(published)) { self._generation++; }
+		unsigned long long generation = AudioDeviceInventory.nextGeneration(self._generation, !AudioDeviceInventory.sameDevices(published, self._published));
+		if (generation == 0ULL) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_FAILED, "audio device inventory generation is exhausted"); }
+		self._generation = generation;
 		self._devices = devices;
 		self._published = published;
 		return AudioDeviceInventoryOutcome.available(AudioDeviceInventory(self._generation, published));
 	}
-
-	private bool same(Vector<AudioDeviceDescriptor> published) {
-		if (published.len != self._published.len) { return false; }
-		for (int index = 0; index < published.len; index++) {
-			var left = published.get(index);
-			var right = self._published.get(index);
-			if (left.id() != right.id() || left.name() != right.name() || left.inputChannels() != right.inputChannels() || left.outputChannels() != right.outputChannels() || left.isDefaultInput() != right.isDefaultInput() || left.isDefaultOutput() != right.isDefaultOutput()) { return false; }
-			var first = left.streamCapability();
-			var second = right.streamCapability();
-			if (first.isKnown() != second.isKnown()) { return false; }
-			if (first.isKnown() && (first.currentSampleRate() != second.currentSampleRate() || first.minimumBufferFrames() != second.minimumBufferFrames() || first.maximumBufferFrames() != second.maximumBufferFrames() || first.sampleRateRangeCount() != second.sampleRateRangeCount())) { return false; }
-		}
-		return true;
-	}
 }
 
 /* POD shared with the worker thread; the stream retains every backing buffer
- * until the worker has joined. */
+ * until the worker has joined. `fault` holds a latched negative errno, negated. */
 struct AlsaRenderState {
 	RealtimeAudioProcess process;
 	void* processContext;
 	Atomic<uint>* admission;
 	Atomic<uint>* stopping;
+	Atomic<uint>* exited;
+	Atomic<uint>* fault;
 	int inputCount;
 	int outputCount;
 	int physicalInputCount;
@@ -219,7 +229,6 @@ struct AlsaRenderState {
 	int* inputChannels;
 	int* outputChannels;
 	int blockFrames;
-	int sampleRate;
 	float* physicalInput;
 	float* physicalOutput;
 	float* selectedInput;
@@ -227,7 +236,6 @@ struct AlsaRenderState {
 	unsigned long long epoch;
 	unsigned long long inputFrame;
 	unsigned long long outputFrame;
-	uint pendingFlags;
 	snd_pcm_t* capture;
 	snd_pcm_t* playback;
 };
@@ -251,7 +259,7 @@ void* alsaWorkerEntry(void* raw) {
 enum AlsaStreamState { ALSA_STREAM_READY, ALSA_STREAM_RUNNING, ALSA_STREAM_SUSPENDED, ALSA_STREAM_DRAINED, ALSA_STREAM_CLOSED, ALSA_STREAM_INDETERMINATE };
 
 /* One duplex ALSA stream and its worker. */
-class AlsaStream {
+class AlsaStream implements AudioSessionBackend {
 	private OwnedBuffer<AlsaRenderState> _render;
 	private AtomicBuffer<uint> _counters;
 	private OwnedBuffer<int>? _inputChannels = null;
@@ -267,29 +275,42 @@ class AlsaStream {
 	private bool _threadJoined = false;
 	private AlsaStreamState _state = ALSA_STREAM_READY;
 	private bool _attempted = false;
-	private int _actualPeriod = 0;
+	private string _inputName = "";
+	private string _outputName = "";
 
 	public AlsaStream() {
 		self._render = OwnedBuffer((size_t)1);
-		self._counters = AtomicBuffer((size_t)2);
+		self._counters = AtomicBuffer((size_t)4);
 		if (self._counters.opened()) {
 			var counters = self._counters.borrow();
-			for (int index = 0; index < 2; index++) { counters[index].init(0u); }
+			for (int index = 0; index < 4; index++) { counters[index].init(0u); }
 		}
 		if (self._render.opened() && self._counters.opened()) {
 			var render = self._render.borrow();
 			render->admission = self._counters.borrow();
 			render->stopping = self._counters.borrow() + 1;
+			render->exited = self._counters.borrow() + 2;
+			render->fault = self._counters.borrow() + 3;
 		}
 	}
 
+	/* The worker re-checks `stopping` at least this often while a PCM is not ready. */
+	class int waitMilliseconds() { return 100; }
+
+	/* drain() waits this long for the worker to leave the device before reporting BUSY. */
+	class unsigned long long drainNanoseconds() { return 5000000000ULL; }
+
+	/* At least `channels`, the nearest count above when the device fixes a larger one. */
 	private AudioDeviceStatus configure(snd_pcm_t* pcm, int channels, int rate, int periodFrames, int* actualChannels, int* actualPeriod) {
 		snd_pcm_hw_params_t* params = null;
 		if (snd_pcm_hw_params_malloc(&params) != 0 || params == null) { return AUDIO_DEVICE_FAILED; }
 		AudioDeviceStatus status = AUDIO_DEVICE_OK;
 		int error = snd_pcm_hw_params_any(pcm, params);
 		if (error >= 0) { error = btrcAlsaSetInterleavedFloat(pcm, params); }
-		if (error >= 0) { error = snd_pcm_hw_params_set_channels(pcm, params, (unsigned int)channels); }
+		unsigned int minimumChannels = (unsigned int)channels;
+		if (error >= 0) { error = snd_pcm_hw_params_set_channels_min(pcm, params, &minimumChannels); }
+		unsigned int nearestChannels = (unsigned int)channels;
+		if (error >= 0) { error = snd_pcm_hw_params_set_channels_near(pcm, params, &nearestChannels); }
 		if (error >= 0) { error = snd_pcm_hw_params_set_rate(pcm, params, (unsigned int)rate, 0); }
 		snd_pcm_uframes_t period = (snd_pcm_uframes_t)periodFrames;
 		int direction = 0;
@@ -337,29 +358,29 @@ class AlsaStream {
 		render->processContext = program.context();
 		render->inputCount = inputCount;
 		render->outputCount = outputCount;
-		render->sampleRate = stream.sampleRate();
 		render->blockFrames = stream.bufferFrames();
 		snd_pcm_t* playback = null;
 		int error = btrcAlsaOpen(request.outputDeviceId(), 0, 0, &playback);
 		if (error != 0 || playback == null) { return alsaStatus(error); }
 		render->playback = playback;
+		self._outputName = request.outputDeviceId();
 		int actualChannels = 0;
 		int actualPeriod = 0;
 		var status = self.configure(playback, physicalOutput, stream.sampleRate(), stream.bufferFrames(), &actualChannels, &actualPeriod);
 		if (status != AUDIO_DEVICE_OK) { return status; }
-		if (actualChannels < physicalOutput || actualPeriod != stream.bufferFrames()) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+		if (actualChannels < physicalOutput || actualChannels > 256 || actualPeriod != stream.bufferFrames()) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
 		render->physicalOutputCount = actualChannels;
 		if (inputCount > 0 && input != null) {
 			snd_pcm_t* capture = null;
 			error = btrcAlsaOpen(request.inputDeviceId(), 1, 0, &capture);
 			if (error != 0 || capture == null) { return alsaStatus(error); }
 			render->capture = capture;
+			self._inputName = request.inputDeviceId();
 			status = self.configure(capture, physicalInput, stream.sampleRate(), stream.bufferFrames(), &actualChannels, &actualPeriod);
 			if (status != AUDIO_DEVICE_OK) { return status; }
-			if (actualChannels < physicalInput || actualPeriod != stream.bufferFrames()) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+			if (actualChannels < physicalInput || actualChannels > 256 || actualPeriod != stream.bufferFrames()) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
 			render->physicalInputCount = actualChannels;
 		}
-		self._actualPeriod = actualPeriod;
 		var inputChannels = new OwnedBuffer<int>((size_t)(inputCount > 0 ? inputCount : 1));
 		var outputChannels = new OwnedBuffer<int>((size_t)outputCount);
 		var physicalOutputSamples = new OwnedBuffer<float>((size_t)render->blockFrames * (size_t)render->physicalOutputCount);
@@ -387,63 +408,119 @@ class AlsaStream {
 		return AUDIO_DEVICE_OK;
 	}
 
-	class @realtime void clear(float* samples, int count) { for (int index = 0; index < count; index++) { samples[index] = 0.0f; } }
+	/* The PCM names this stream still holds open. */
+	public Vector<string> heldDeviceNames() {
+		Vector<string> names = [];
+		if (!self._render.opened()) { return names; }
+		var render = self._render.borrow();
+		if (render->playback != null) { names.push(self._outputName); }
+		if (render->capture != null && !names.contains(self._inputName)) { names.push(self._inputName); }
+		return names;
+	}
 
 	/* One block: select input channels, run the program, scatter output channels. */
 	class @realtime void process(AlsaRenderState* state, int frames, unsigned long long host, uint flags) {
 		int inputCount = state->inputCount;
 		int outputCount = state->outputCount;
-		if (inputCount > 0) {
-			for (int index = 0; index < frames; index++) {
-				for (int channel = 0; channel < inputCount; channel++) { state->selectedInput[(size_t)index * (size_t)inputCount + (size_t)channel] = state->physicalInput[(size_t)index * (size_t)state->physicalInputCount + (size_t)state->inputChannels[channel]]; }
-			}
-		}
-		AlsaStream.clear(state->selectedOutput, frames * outputCount);
+		size_t selectedInputSamples = (size_t)frames * (size_t)inputCount;
+		size_t selectedOutputSamples = (size_t)frames * (size_t)outputCount;
+		size_t physicalOutputSamples = (size_t)frames * (size_t)state->physicalOutputCount;
+		if (inputCount > 0) { RealtimeAudioSamples.gather(Span((const float*)state->physicalInput, (size_t)frames * (size_t)state->physicalInputCount), state->physicalInputCount, Span((const int*)state->inputChannels, (size_t)inputCount), Span(state->selectedInput, selectedInputSamples), frames); }
+		RealtimeAudioSamples.silence(Span(state->selectedOutput, selectedOutputSamples));
 		struct AudioBlockView block = {inputCount, outputCount, frames, state->inputFrame, state->outputFrame, state->epoch, host, flags};
-		state->process(state->processContext, block, Span(inputCount > 0 ? (const float*)state->selectedInput : (const float*)null, (size_t)frames * (size_t)inputCount), Span(state->selectedOutput, (size_t)frames * (size_t)outputCount));
-		AlsaStream.clear(state->physicalOutput, frames * state->physicalOutputCount);
-		for (int index = 0; index < frames; index++) {
-			for (int channel = 0; channel < outputCount; channel++) { state->physicalOutput[(size_t)index * (size_t)state->physicalOutputCount + (size_t)state->outputChannels[channel]] = state->selectedOutput[(size_t)index * (size_t)outputCount + (size_t)channel]; }
-		}
+		state->process(state->processContext, block, Span(inputCount > 0 ? (const float*)state->selectedInput : (const float*)null, selectedInputSamples), Span(state->selectedOutput, selectedOutputSamples));
+		RealtimeAudioSamples.silence(Span(state->physicalOutput, physicalOutputSamples));
+		RealtimeAudioSamples.scatter(Span((const float*)state->selectedOutput, selectedOutputSamples), Span((const int*)state->outputChannels, (size_t)outputCount), Span(state->physicalOutput, physicalOutputSamples), state->physicalOutputCount, frames);
 	}
 
-	/* The worker: blocking period reads and writes drive the clock. */
+	/* 1 when the PCM can transfer a period, 0 when a stop was requested first,
+	 * or the PCM's negative error. */
+	class int waitReady(AlsaRenderState* state, snd_pcm_t* pcm) {
+		while (state->stopping->load(MemoryOrder.ACQUIRE) == 0u) {
+			int ready = snd_pcm_wait(pcm, AlsaStream.waitMilliseconds());
+			if (ready != 0) { return ready < 0 ? ready : 1; }
+		}
+		return 0;
+	}
+
+	/* Writes one playback period: 1 written, 0 stopping, or an unrecoverable error. */
+	class int writePeriod(AlsaRenderState* state, uint* flags) {
+		int frames = state->blockFrames;
+		int ready = AlsaStream.waitReady(state, state->playback);
+		if (ready == 0) { return 0; }
+		snd_pcm_sframes_t written = ready < 0 ? (snd_pcm_sframes_t)ready : snd_pcm_writei(state->playback, state->physicalOutput, (snd_pcm_uframes_t)frames);
+		if (written < 0L) {
+			int recovered = snd_pcm_recover(state->playback, (int)written, 1);
+			if (recovered < 0) { return recovered; }
+			*flags |= (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY;
+		} else if ((int)written < frames) { *flags |= (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY; }
+		return 1;
+	}
+
+	/* Reads one capture period: 1 read, 0 stopping, or an unrecoverable error. */
+	class int readPeriod(AlsaRenderState* state, uint* flags) {
+		int frames = state->blockFrames;
+		size_t physicalSamples = (size_t)frames * (size_t)state->physicalInputCount;
+		int ready = AlsaStream.waitReady(state, state->capture);
+		if (ready == 0) { return 0; }
+		snd_pcm_sframes_t read = ready < 0 ? (snd_pcm_sframes_t)ready : snd_pcm_readi(state->capture, state->physicalInput, (snd_pcm_uframes_t)frames);
+		if (read < 0L) {
+			int recovered = snd_pcm_recover(state->capture, (int)read, 1);
+			if (recovered < 0) { return recovered; }
+			/* Recovery leaves capture prepared, and a prepared capture never becomes ready. */
+			int restarted = snd_pcm_start(state->capture);
+			if (restarted < 0) { return restarted; }
+			RealtimeAudioSamples.silence(Span(state->physicalInput, physicalSamples));
+			*flags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY;
+		} else if ((int)read < frames) {
+			size_t kept = (size_t)read * (size_t)state->physicalInputCount;
+			RealtimeAudioSamples.silence(Span(state->physicalInput + kept, physicalSamples - kept));
+			*flags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY;
+		}
+		return 1;
+	}
+
+	/* Prefill, start capture, then run blocks until stopped: 0, or the fault. */
+	class int run(AlsaRenderState* state) {
+		int frames = state->blockFrames;
+		size_t physicalOutputSamples = (size_t)frames * (size_t)state->physicalOutputCount;
+		uint flags = 0u;
+		RealtimeAudioSamples.silence(Span(state->physicalOutput, physicalOutputSamples));
+		for (int prefill = 0; prefill < 2; prefill++) {
+			int written = AlsaStream.writePeriod(state, &flags);
+			if (written <= 0) { return written; }
+		}
+		if (state->capture != null) {
+			int started = snd_pcm_start(state->capture);
+			if (started < 0) { return started; }
+		}
+		flags = (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY | (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY;
+		while (state->stopping->load(MemoryOrder.ACQUIRE) == 0u) {
+			if (state->capture != null) {
+				int read = AlsaStream.readPeriod(state, &flags);
+				if (read <= 0) { return read; }
+			}
+			unsigned long long host = btrcAlsaHostNanoseconds();
+			if (state->admission->load(MemoryOrder.ACQUIRE) != 0u) { AlsaStream.process(state, frames, host, flags); }
+			else { RealtimeAudioSamples.silence(Span(state->physicalOutput, physicalOutputSamples)); }
+			flags = 0u;
+			state->inputFrame += (unsigned long long)frames;
+			state->outputFrame += (unsigned long long)frames;
+			int written = AlsaStream.writePeriod(state, &flags);
+			if (written <= 0) { return written; }
+		}
+		return 0;
+	}
+
+	/* The worker: period reads and writes drive the clock. */
 	public int workLoop() {
 		var render = self._render.borrow();
 		btrcAlsaRealtimePriority();
-		int frames = render->blockFrames;
-		snd_pcm_t* playback = render->playback;
-		snd_pcm_t* capture = render->capture;
-		AlsaStream.clear(render->physicalOutput, frames * render->physicalOutputCount);
-		for (int prefill = 0; prefill < 2; prefill++) { snd_pcm_writei(playback, render->physicalOutput, (snd_pcm_uframes_t)frames); }
-		if (capture != null) { snd_pcm_start(capture); }
-		uint flags = (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY | (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY;
-		while (render->stopping->load(MemoryOrder.ACQUIRE) == 0u) {
-			if (capture != null) {
-				snd_pcm_sframes_t read = snd_pcm_readi(capture, render->physicalInput, (snd_pcm_uframes_t)frames);
-				if (read < 0L) {
-					if (snd_pcm_recover(capture, (int)read, 1) < 0) { Timer.sleepMillis(1); }
-					AlsaStream.clear(render->physicalInput, frames * render->physicalInputCount);
-					flags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY;
-				} else if ((int)read < frames) {
-					AlsaStream.clear(render->physicalInput + (size_t)read * (size_t)render->physicalInputCount, (frames - (int)read) * render->physicalInputCount);
-					flags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY;
-				}
-			}
-			unsigned long long host = btrcAlsaHostNanoseconds();
-			if (render->admission->load(MemoryOrder.ACQUIRE) != 0u) { AlsaStream.process(render, frames, host, flags); }
-			else { AlsaStream.clear(render->physicalOutput, frames * render->physicalOutputCount); }
-			flags = 0u;
-			render->inputFrame += (unsigned long long)frames;
-			render->outputFrame += (unsigned long long)frames;
-			snd_pcm_sframes_t written = snd_pcm_writei(playback, render->physicalOutput, (snd_pcm_uframes_t)frames);
-			if (written < 0L) {
-				if (snd_pcm_recover(playback, (int)written, 1) < 0) { Timer.sleepMillis(1); }
-				flags |= (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY;
-			} else if ((int)written < frames) { flags |= (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY; }
-		}
-		snd_pcm_drop(playback);
-		if (capture != null) { snd_pcm_drop(capture); }
+		int fault = AlsaStream.run(render);
+		if (fault < 0) { render->fault->store((uint)(-fault), MemoryOrder.RELEASE); }
+		snd_pcm_drop(render->playback);
+		if (render->capture != null) { snd_pcm_drop(render->capture); }
+		render->exited->store(1u, MemoryOrder.RELEASE);
 		return 0;
 	}
 
@@ -457,6 +534,8 @@ class AlsaStream {
 		render->inputFrame = 0ULL;
 		render->outputFrame = 0ULL;
 		render->stopping->store(0u, MemoryOrder.RELEASE);
+		render->exited->store(0u, MemoryOrder.RELEASE);
+		render->fault->store(0u, MemoryOrder.RELEASE);
 		render->admission->store(1u, MemoryOrder.RELEASE);
 		int prepared = snd_pcm_prepare(render->playback);
 		if (prepared < 0) { render->admission->store(0u, MemoryOrder.RELEASE); return alsaStatus(prepared); }
@@ -504,12 +583,25 @@ class AlsaStream {
 		return result == null ? AUDIO_DEVICE_OK : AUDIO_DEVICE_FAILED;
 	}
 
+	/* Waits a bounded time for the worker to leave the device, joins it, and
+	 * reports any fault that ended the stream early. BUSY leaves the stream
+	 * suspended for a retry. */
 	public AudioDeviceStatus drain() {
 		if (self._state != ALSA_STREAM_SUSPENDED) { return AUDIO_DEVICE_WRONG_STATE; }
+		var render = self._render.borrow();
+		if (self._threadStarted && !self._threadJoined) {
+			unsigned long long started = btrcAlsaHostNanoseconds();
+			while (render->exited->load(MemoryOrder.ACQUIRE) == 0u) {
+				if (btrcAlsaHostNanoseconds() - started >= AlsaStream.drainNanoseconds()) { return AUDIO_DEVICE_BUSY; }
+				Timer.sleepMillis(1);
+			}
+		}
 		var joined = self.joinWorker();
 		if (joined == AUDIO_DEVICE_INDETERMINATE) { return joined; }
 		self._state = ALSA_STREAM_DRAINED;
-		return AUDIO_DEVICE_OK;
+		uint fault = render->fault->load(MemoryOrder.ACQUIRE);
+		if (fault != 0u) { return alsaFaultStatus(-(int)fault); }
+		return joined;
 	}
 
 	/* Stops then closes one PCM. A failed stop keeps the handle for a retry;
@@ -557,139 +649,36 @@ class AlsaStream {
 	}
 }
 
-class AlsaSessionLease {
-	public bool active = false;
-}
+/* Spelled for callers that named the ALSA provider's own outcome. */
+typedef AudioDeviceProviderOpenOutcome AlsaDeviceProviderOpenOutcome;
 
-class AlsaSessionBackend implements AudioSessionBackend {
-	private AlsaSessionLease _lease;
-	private AlsaStream _stream;
-
-	public AlsaSessionBackend(AlsaSessionLease lease, AlsaStream stream) { self._lease = lease; self._stream = stream; }
-
-	public AudioDeviceStatus start() { return self._stream.start(); }
-
-	public AudioDeviceStatus suspend() { return self._stream.suspend(); }
-
-	public AudioDeviceStatus drain() { return self._stream.drain(); }
-
-	public AudioDeviceStatus close() {
-		var status = self._stream.close();
-		if (status == AUDIO_DEVICE_OK) { self._lease.active = false; }
-		return status;
-	}
-
-	public unsigned long long epoch() { return self._stream.epoch(); }
-}
-
-class AlsaDeviceProviderOpenOutcome {
-	private AudioDeviceStatus _status;
-	private AlsaDeviceProvider? _provider;
-	private string _message;
-
-	private AlsaDeviceProviderOpenOutcome(AudioDeviceStatus status, AlsaDeviceProvider? provider, string message) {
-		if ((status == AUDIO_DEVICE_OK) != (provider != null && message.isEmpty())) { throw "invalid ALSA provider outcome"; }
-		self._status = status;
-		self._provider = provider;
-		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
-	}
-
-	class AlsaDeviceProviderOpenOutcome opened(AlsaDeviceProvider provider) { return AlsaDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, provider, ""); }
-
-	class AlsaDeviceProviderOpenOutcome failed(AudioDeviceStatus status, string message = "") {
-		if (status == AUDIO_DEVICE_OK) { throw "failed ALSA provider open requires an error status"; }
-		return AlsaDeviceProviderOpenOutcome(status, null, message);
-	}
-
-	public AudioDeviceStatus status() { return self._status; }
-
-	public bool succeeded() { return self._status == AUDIO_DEVICE_OK; }
-
-	public AlsaDeviceProvider provider() {
-		if (self._provider == null) { throw "ALSA provider is unavailable"; }
-		return self._provider;
-	}
-
-	public string message() { return self._message; }
-}
-
-class AlsaDeviceProvider implements AudioDeviceProvider {
-	private bool _open = true;
+/* ALSA's half of PlatformAudioDeviceProvider. Setup changes no device setting
+ * another client observes, so a prepared session reports the generation its
+ * request was validated against. */
+class AlsaPlatform implements AudioDevicePlatform {
 	private AlsaHardwareInventory _inventory = AlsaHardwareInventory();
-	private AlsaSessionLease _lease = AlsaSessionLease();
-	private AlsaStream? _pending = null;
+	private AlsaStream? _stream = null;
 
-	private AlsaDeviceProvider() {}
-
-	class AlsaDeviceProviderOpenOutcome open() {
-		var provider = AlsaDeviceProvider();
-		var inventory = provider.inventory();
-		if (!inventory.succeeded()) { return AlsaDeviceProviderOpenOutcome.failed(inventory.status(), inventory.message()); }
-		return AlsaDeviceProviderOpenOutcome.opened(provider);
-	}
-
-	public bool isOpen() { return self._open; }
+	public string name() { return "ALSA"; }
 
 	public AudioDeviceInventoryOutcome inventory() {
-		if (!self._open) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_WRONG_STATE); }
-		return self._inventory.refresh();
+		Vector<string> held = [];
+		if (self._stream != null) { held = self._stream.heldDeviceNames(); }
+		return self._inventory.refresh(held);
 	}
 
-	public DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program) {
-		if (!self._open || request == null || program == null) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
-		if (self._lease.active) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_BUSY); }
-		if (self._pending != null) {
-			var cleanup = self._pending.close();
-			if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Previous audio setup cleanup is still pending"); }
-			self._pending = null;
-		}
-		var inventoried = self.inventory();
-		if (!inventoried.succeeded()) { return DuplexAudioSessionOpenOutcome.failed(inventoried.status(), inventoried.message()); }
-		var inventory = inventoried.inventory();
-		AudioDeviceStatus validation = request.validate(inventory);
-		if (validation != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(validation); }
+	public AudioSessionSetup prepare(DuplexAudioOpenRequest request, RealtimeAudioProgram program, AudioDeviceInventory inventory) {
 		var output = self._inventory.find(request.outputDeviceId());
 		var input = request.hasInput() ? self._inventory.find(request.inputDeviceId()) : null;
-		if (output == null || (request.hasInput() && input == null)) { return DuplexAudioSessionOpenOutcome.failed(AUDIO_DEVICE_NOT_FOUND); }
+		if (output == null || (request.hasInput() && input == null)) { return AudioSessionSetup.failed(AUDIO_DEVICE_NOT_FOUND, null); }
 		var stream = AlsaStream();
-		self._pending = stream;
+		self._stream = stream;
 		var status = stream.prepare(input, output, request, program);
-		if (status != AUDIO_DEVICE_OK) { return self.failedSetup(status); }
-		var refreshed = self.inventory();
-		if (!refreshed.succeeded()) { return self.failedSetup(refreshed.status(), refreshed.message()); }
-		var requestedStream = request.stream();
-		int inputCount = request.hasInput() ? request.inputChannels().count() : 0;
-		RealtimeAudioFormat? inputFormat = request.hasInput() ? RealtimeAudioFormat(requestedStream.sampleRate(), inputCount) : null;
-		var format = DuplexAudioNegotiatedFormat(refreshed.inventory().generation(), request.hasInput() ? request.inputDeviceId() : "", inputFormat, request.outputDeviceId(), RealtimeAudioFormat(requestedStream.sampleRate(), request.outputChannels().count()), requestedStream.bufferFrames());
-		var backend = AlsaSessionBackend(self._lease, stream);
-		var session = DuplexAudioSession(format, program, backend);
-		var outcome = DuplexAudioSessionOpenOutcome.opened(session);
-		self._lease.active = true;
-		self._pending = null;
-		return outcome;
+		if (status != AUDIO_DEVICE_OK) { return AudioSessionSetup.failed(status, stream); }
+		return AudioSessionSetup.prepared(stream, inventory.generation());
 	}
+}
 
-	private DuplexAudioSessionOpenOutcome failedSetup(AudioDeviceStatus status, string message = "") {
-		var stream = self._pending;
-		if (stream == null) { throw "Audio setup has no resource owner"; }
-		var cleanup = stream.close();
-		if (cleanup != AUDIO_DEVICE_OK) { return DuplexAudioSessionOpenOutcome.failed(cleanup, "Audio setup failed; native cleanup remains pending: " + audioDeviceStatusMessage(status)); }
-		self._pending = null;
-		return DuplexAudioSessionOpenOutcome.failed(status, message);
-	}
-
-	public AudioDeviceOperationOutcome close() {
-		if (self._lease.active) { return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_BUSY); }
-		if (self._pending != null) {
-			var cleanup = self._pending.close();
-			if (cleanup != AUDIO_DEVICE_OK) { return AudioDeviceOperationOutcome.fromStatus(cleanup); }
-			self._pending = null;
-		}
-		self._open = false;
-		return AudioDeviceOperationOutcome.fromStatus(AUDIO_DEVICE_OK);
-	}
-
-	public void __del__() {
-		if (self._open && !self.close().succeeded()) { Console.fatal("ALSA provider destroyed before its sessions closed"); }
-	}
+class AlsaDeviceProvider {
+	class AudioDeviceProviderOpenOutcome open() { return PlatformAudioDeviceProvider.open(AlsaPlatform()); }
 }

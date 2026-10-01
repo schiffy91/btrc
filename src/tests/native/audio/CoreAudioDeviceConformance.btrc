@@ -25,7 +25,7 @@ struct CoreAudioConformanceContext {
 int main() {
 	CoreAudioDeviceProviderOpenOutcome opened = CoreAudioDeviceProvider.open();
 	if (!opened.succeeded()) { print("SKIP: CoreAudio provider unavailable"); return 0; }
-	CoreAudioDeviceProvider provider = opened.provider();
+	AudioDeviceProvider provider = opened.provider();
 	AudioDeviceInventoryOutcome inventoried = provider.inventory();
 	assert(inventoried.succeeded());
 	AudioDeviceInventory inventory = inventoried.inventory();

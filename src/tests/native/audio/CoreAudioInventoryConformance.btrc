@@ -61,6 +61,9 @@ int main() {
 			assert(inventoryRetainedValues() == 0);
 		}
 	}
+	inventoryScenario(21);
+	var shortDefault = hardware.refresh();
+	assert(shortDefault.succeeded() && shortDefault.inventory().defaultInput().id() == "device-a" && shortDefault.inventory().defaultOutput() == null);
 	print("PASS: CoreAudio inventory validates SDK data and publishes stable snapshots");
 	return 0;
 }

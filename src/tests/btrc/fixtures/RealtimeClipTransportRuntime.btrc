@@ -293,7 +293,81 @@ void requireInvalidSpeed(double speed) {
 	assert(rejected);
 }
 
+/* suspend() is the drain barrier: once it returns, neither the lent program
+ * nor the composition seam enters the transport, so clip state stays still. */
+void proveSuspendClosesAdmission() {
+	RealtimeAudioFormat format = RealtimeAudioFormat(1000, 1);
+	RealtimeClip clip = RealtimeClip.open(format, 4LL).clip();
+	const float source[4] = {0.25f, 0.5f, 0.75f, 1.0f};
+	assert(clip.tryWriteChannel(0, 0LL, Span(source)));
+	RealtimeClipTransport transport = openTransport(format);
+	RealtimeClipToken token = transport.stage(clip).token();
+	assert(transport.activate(token) == REALTIME_CLIP_TRANSPORT_OK && transport.play(token) == REALTIME_CLIP_TRANSPORT_OK);
+	RealtimeAudioProgram program = transport.realtimeProgram();
+	struct RealtimeClipTransportRenderer renderer = transport.renderer();
+	struct AudioBlockView block = {0, 1, 2, 0ULL, 0ULL, 1ULL, 0ULL, (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY};
+	float composed[2] = {-1.0f, -1.0f};
+	assert(RealtimeClipTransport.render(renderer, block, Span((const float*)null, (size_t)0), Span(composed)));
+	assert(composed[0] == 0.25f && composed[1] == 0.5f);
+	struct AudioBlockView wrongFormat = {0, 2, 2, 2ULL, 2ULL, 1ULL, 0ULL, 0u};
+	float wide[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
+	assert(!RealtimeClipTransport.render(renderer, wrongFormat, Span((const float*)null, (size_t)0), Span(wide)));
+	assert(wide[0] == 0.0f && wide[3] == 0.0f);
+	unsigned long long calls = transport.telemetry().telemetry().renderCalls();
+	assert(calls == 1ULL);
+
+	assert(transport.suspend() == REALTIME_CLIP_TRANSPORT_OK);
+	float late[2] = {-1.0f, -1.0f};
+	invokeBlock(program.invokePointer(), program.context(), null, 0, late, 1, 2, 0ULL, 2ULL, 1ULL, (uint)AUDIO_BLOCK_CONTINUOUS);
+	assert(late[0] == 0.0f && late[1] == 0.0f);
+	late[0] = -1.0f;
+	assert(!RealtimeClipTransport.render(renderer, block, Span((const float*)null, (size_t)0), Span(late)));
+	assert(late[0] == 0.0f);
+	assert(transport.telemetry().telemetry().renderCalls() == calls);
+	assert(transport.clock(token).clock().frame() == 2LL);
+	assert(transport.close() == REALTIME_CLIP_TRANSPORT_OK);
+}
+
+/* Publishes snapshots whose every payload word carries one value while the
+ * control side reads them; an accepted snapshot is never a mix of two. */
+void proveSnapshotPublicationIsAtomic() {
+	RealtimeClipTransport transport = openTransport(RealtimeAudioFormat(1000, 1));
+	void* opaque = transport.realtimeProgram().context();
+	Thread<int> publisher = spawn(() => {
+			struct BtrcRealtimeClipTransportContext* context = (struct BtrcRealtimeClipTransportContext*)opaque;
+			for (int round = 1; round <= 200000; round++) {
+				unsigned long long value = (unsigned long long)round * 4294967297ULL;
+				context->activeToken = value;
+				context->activeFrames = (long long)value;
+				context->loopStart = (long long)value;
+				context->loopEnd = (long long)value;
+				context->renderCalls = value;
+				context->renderedFrames = value;
+				context->silentFrames = value;
+				context->completedClips = value;
+				context->mappingGeneration = value;
+				btrcRealtimeClipTransportPublishSnapshot(context);
+			}
+			return 0;
+		});
+	struct BtrcRealtimeClipTransportContext* context = (struct BtrcRealtimeClipTransportContext*)opaque;
+	int accepted = 0;
+	for (int read = 0; read < 200000; read++) {
+		struct BtrcRealtimeClipTransportSnapshotValue observed = {0};
+		if (!btrcRealtimeClipTransportReadSnapshot(context, &observed)) { continue; }
+		unsigned long long value = observed.token;
+		assert((unsigned long long)observed.totalFrames == value && (unsigned long long)observed.loopStart == value && (unsigned long long)observed.loopEnd == value);
+		assert(observed.renderSequence == value && observed.renderedFrames == value && observed.silentFrames == value && observed.completedClips == value && observed.mappingGeneration == value);
+		accepted++;
+	}
+	assert(publisher.join() == 0 && accepted > 0);
+	context->activeToken = 0ULL;
+	assert(transport.suspend() == REALTIME_CLIP_TRANSPORT_OK && transport.close() == REALTIME_CLIP_TRANSPORT_OK);
+}
+
 int main() {
+	proveSuspendClosesAdmission();
+	proveSnapshotPublicationIsAtomic();
 	provePracticeSpeedSteps();
 	requireInvalidSpeed(0.0);
 	requireInvalidSpeed(0.099);
