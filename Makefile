@@ -6,7 +6,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer clean \
-	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline perf-btrsmith perf-self
+	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline perf-budget perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
@@ -32,8 +32,9 @@ PYTEST_WORKERS ?= 8
 PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
 PYTEST_SERIAL_ARGS ?= -q -rs
 BTRC_FORMAT_PATHS := src examples
-# Python outside src/ that lint and format-check also own.
-PYTHON_TOOL_PATHS := tools/qualification
+# Python outside src/ that lint and format-check also own. tools/ as a whole
+# cannot be added yet: tools/compiler_codegen/ast.py has one unrelated F541.
+PYTHON_TOOL_PATHS := tools/qualification tools/budget_bench.py tools/perf.py tools/bench/
 # Every gate's pytest session writes a skip report (src/tests/skip_ledger.py)
 # naming each skip, its gating environment and the runners that cover it, and
 # the skip gate fails on any skip the runner's manifest under
@@ -391,17 +392,30 @@ bench-check: generated-check btrcc ## Measure, then fail on regressions against 
 bench-baseline: generated-check btrcc ## Measure and record this platform's baseline (src/tests/fixtures/benchmarks)
 	$(NIX) $(BENCH) baseline $(BENCH_OPTIONS)
 
-# One whole program through both compilers, by phase and peak memory, then the
-# C compiler on the result. `perf-btrsmith` needs BTRSmith's own packages, so
-# run it from that checkout's dev shell: `nix develop ../btrsmith -c make NIX= perf-btrsmith`.
+# BTRSmith's bucket-1 budgets (PLAN.md "Numeric acceptance budgets") on either
+# frontend: cold, edit, instance-edit, interface-edit, noop, touch, memory,
+# release, batch, workers, self-compile and corpus. It needs BTRSmith's packages
+# and native header reader, so run it from that checkout's dev shell:
+#   nix develop ../btrsmith -c make NIX= perf-budget BUDGET_BENCH_ARGS="--scenarios all --frontend reference"
+# A measurement clone runs it through tools/bench/scripts/bench.sh instead.
+BUDGET_BENCH := python3 -m tools.budget_bench
+BUDGET_BENCH_ARGS ?=
+BUDGET_BENCH_OUT ?= build/perf/budget
+BTRSMITH ?= ../btrsmith
+BUDGET_BENCH_OPTIONS = --btrcc "$(abspath $(BTRCC_NATIVE))" --workspace "$(BTRSMITH)"
+perf-budget: btrcc ## Measure BTRSmith's bucket-1 budgets (choose scenarios/frontend/mode in BUDGET_BENCH_ARGS)
+	$(NIX) $(BUDGET_BENCH) $(BUDGET_BENCH_OPTIONS) --out "$(BUDGET_BENCH_OUT)" $(BUDGET_BENCH_ARGS)
+
+# One program's cold build through both compilers, by phase and peak memory,
+# then the native build of the result (tools/perf.py; used by perf-self).
 PERF := python3 -m tools.perf
 PERF_ARGS ?=
 PERF_OPTIONS := --btrcc "$(abspath $(BTRCC_NATIVE))" --cc "$(HOST_CC)" $(PERF_ARGS)
-BTRSMITH ?= ../btrsmith
-perf-btrsmith: btrcc ## Measure the BTRSmith application build (both compilers, phases, RSS, cc)
-	$(NIX) $(PERF) "$(BTRSMITH)/src/BTRSmith.btrc" --json build/perf/btrsmith.json $(PERF_OPTIONS)
+perf-btrsmith: btrcc ## BTRSmith cold dev and release builds on both frontends (tools/budget_bench.py)
+	$(NIX) $(BUDGET_BENCH) $(BUDGET_BENCH_OPTIONS) --frontend selfhost --scenarios cold,release --out build/perf/btrsmith-selfhost $(BUDGET_BENCH_ARGS)
+	$(NIX) $(BUDGET_BENCH) $(BUDGET_BENCH_OPTIONS) --frontend reference --scenarios cold,release --out build/perf/btrsmith-reference $(BUDGET_BENCH_ARGS)
 
-perf-self: btrcc ## The same measurement on the self-hosted compiler: similar output size, a third of the classes
+perf-self: btrcc ## Profile the self-hosted compiler's own cold build through both compilers, by phase and peak memory
 	$(NIX) $(PERF) src/compiler/btrc/BtrccMain.btrc --json build/perf/self.json $(PERF_OPTIONS)
 
 # ─── VSCode Extension ───────────────────────────────────────────────────────

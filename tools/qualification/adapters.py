@@ -5,7 +5,8 @@ that is missing evidence still counts the slot (as unrecorded) instead of
 shrinking the denominator:
 
 - `BudgetBenchAdapter`: a ``tools.budget_bench`` ``report.json``, against
-  ``budget_bench.SCENARIOS``, with the host and compiler the run measured.
+  ``budget_bench.REPORTED_SCENARIOS``, with the host and compiler the run
+  measured.
 - `JUnitAdapter`: a pytest ``--junitxml`` run, against its collected cases.
 - `SkipReportAdapter`: a gate's ``build/skip-report*.json``, against every
   test the session collected, with each skip's coverage.
@@ -24,7 +25,7 @@ import re
 import shlex
 import subprocess
 import xml.etree.ElementTree as ElementTree
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, ClassVar
@@ -58,9 +59,10 @@ RUNNER_PLATFORMS = {
 class HostProvenance:
     """Describe this machine for a record, without private identifiers.
 
-    `tools.budget_bench` embeds ``detect(workspace=..., compiler=...)`` in its
-    report, so a run carries the host, BTRSmith revision and compiler digest
-    it measured instead of whatever machine later ingests it.
+    A report that embeds ``detect(workspace=..., compiler=...)`` carries the
+    host, BTRSmith revision and compiler digest it measured instead of
+    whatever machine later ingests it. `tools.budget_bench`'s schema-2 report
+    records its own provenance, which `BudgetBenchAdapter` translates.
     """
 
     def __init__(self, repo: Path = REPO) -> None:
@@ -178,21 +180,31 @@ class HostProvenance:
 
 
 class BudgetBenchAdapter:
-    """One scenario record per declared budget_bench scenario.
+    """One scenario record per scenario budget_bench can report.
 
-    A report is the scenario table itself or ``{"provenance": {...},
-    "scenarios": {...}}``, where ``provenance`` is the bench's own record of
-    the host, checkouts and compiler it measured. Provenance layers from the
-    ingesting command's detection (``--this-host``), through the report's
-    own, to explicit flags; an explicit frontend that contradicts the
-    report's is an error rather than a relabel. A scenario summary may add
-    ``failures`` (samples that failed and are not in ``samples``) with one
+    A report is what ``tools.budget_bench`` writes -- schema 2, ``{"schema":
+    2, "configuration": {...}, "provenance": {...}, "scenarios": {...}, ...}``
+    -- or a ledger-form one: the scenario table itself, or ``{"provenance":
+    {...}, "scenarios": {...}}`` with a ledger provenance. A schema-2 run's
+    provenance is translated: its btrc revision, frontend, mode, native
+    target and btrcc digest, never its host name. A schema-2 run that failed
+    or was a dry run is never accepted. Provenance layers from the ingesting
+    command's detection (``--this-host``), through the report's own, to
+    explicit flags; an explicit frontend that contradicts the report's is an
+    error rather than a relabel. A scenario summary may add ``failures``
+    (samples that failed and are not in ``samples``) with one
     ``failure_reasons`` entry each, and ``rebuilt_units`` (one count per
-    sample).
+    sample). A ``compile_native`` pair may be null where a build through
+    BTRSmith's make has no compile/native split.
     """
 
     COLD_MINIMUM = 5
     INCREMENTAL_MINIMUM = 20
+    BENCH_SCHEMA = 2
+    BENCH_FIELDS = frozenset(
+        {"schema", "tool", "dry_run", "started", "finished", "failure", "configuration", "provenance", "scenarios"}
+    )
+    BUILD_MODES: ClassVar[dict[str, str]] = {"dev": "debug", "release": "release"}
     _PEAK = re.compile(r"peak footprint (-?\d+) bytes")
     _AGGREGATE = re.compile(r"aggregate RSS peak (\d+) bytes")
     _INSTRUCTIONS = re.compile(r"instructions retired ([\d,]+)")
@@ -217,9 +229,15 @@ class BudgetBenchAdapter:
 
     @staticmethod
     def declared() -> tuple[str, ...]:
-        from tools.budget_bench import SCENARIOS
+        from tools.budget_bench import REPORTED_SCENARIOS
 
-        return SCENARIOS
+        return REPORTED_SCENARIOS
+
+    @staticmethod
+    def incrementally_sampled() -> tuple[str, ...]:
+        from tools.budget_bench import INCREMENTALLY_SAMPLED
+
+        return INCREMENTALLY_SAMPLED
 
     def provenance(self, embedded: Provenance | None, where: str) -> Provenance:
         measured, claimed = (embedded.frontend if embedded else None), self.explicit.frontend
@@ -237,21 +255,25 @@ class BudgetBenchAdapter:
         if not isinstance(report, Mapping):
             raise LedgerSchemaError(f"{where}: expected a table")
         embedded = None
-        if report.get("provenance") is not None:
-            embedded = Provenance.from_mapping(report["provenance"], f"{where}.provenance")
-        if "scenarios" in report:
-            unknown = sorted(set(report) - {"provenance", "scenarios"})
-            if unknown:
-                raise LedgerSchemaError(f"{where}: unknown field(s) {', '.join(unknown)}")
-            scenarios = report["scenarios"]
-            if not isinstance(scenarios, Mapping):
-                raise LedgerSchemaError(f"{where}.scenarios: expected a table")
+        run_reasons: list[str] = []
+        if "schema" in report:
+            scenarios, embedded, run_reasons = self.bench_report(report, where)
         else:
-            scenarios = {name: summary for name, summary in report.items() if name != "provenance"}
+            if report.get("provenance") is not None:
+                embedded = Provenance.from_mapping(report["provenance"], f"{where}.provenance")
+            if "scenarios" in report:
+                unknown = sorted(set(report) - {"provenance", "scenarios"})
+                if unknown:
+                    raise LedgerSchemaError(f"{where}: unknown field(s) {', '.join(unknown)}")
+                scenarios = report["scenarios"]
+                if not isinstance(scenarios, Mapping):
+                    raise LedgerSchemaError(f"{where}.scenarios: expected a table")
+            else:
+                scenarios = {name: summary for name, summary in report.items() if name != "provenance"}
         declared = self.declared()
         unknown = sorted(set(scenarios) - set(declared))
         if unknown:
-            raise LedgerSchemaError(f"{where}: scenario(s) {', '.join(unknown)} are not budget_bench SCENARIOS")
+            raise LedgerSchemaError(f"{where}: scenario(s) {', '.join(unknown)} are not scenarios budget_bench reports")
         unknown_budgets = sorted(set(self.budgets) - set(declared))
         if unknown_budgets:
             raise LedgerSchemaError(f"budgets name unknown scenario(s) {', '.join(unknown_budgets)}")
@@ -268,10 +290,62 @@ class BudgetBenchAdapter:
             )
             for name in declared
         }
-        return [self.record(subjects[name], scenarios.get(name), f"{where}.{name}", provenance) for name in declared]
+        return [
+            self.record(subjects[name], scenarios.get(name), f"{where}.{name}", provenance, run_reasons)
+            for name in declared
+        ]
+
+    def bench_report(self, report: Mapping[str, Any], where: str) -> tuple[Mapping[str, Any], Provenance, list[str]]:
+        """A schema-2 report's scenarios, its translated provenance, and why none of it may pass."""
+
+        if report.get("schema") != self.BENCH_SCHEMA:
+            raise LedgerSchemaError(f"{where}.schema: {report.get('schema')!r} is not {self.BENCH_SCHEMA}")
+        unknown = sorted(set(report) - self.BENCH_FIELDS)
+        if unknown:
+            raise LedgerSchemaError(f"{where}: unknown field(s) {', '.join(unknown)}")
+        scenarios = report.get("scenarios")
+        if not isinstance(scenarios, Mapping):
+            raise LedgerSchemaError(f"{where}.scenarios: expected a table")
+        tables = {}
+        for name in ("configuration", "provenance"):
+            table = report.get(name) or {}
+            if not isinstance(table, Mapping):
+                raise LedgerSchemaError(f"{where}.{name}: expected a table")
+            tables[name] = table
+        configuration, measured = tables["configuration"], tables["provenance"]
+        btrcc = measured.get("btrcc") or {}
+        environment = measured.get("environment") or {}
+        if not isinstance(btrcc, Mapping) or not isinstance(environment, Mapping):
+            raise LedgerSchemaError(f"{where}.provenance: btrcc and environment must be tables")
+        mode = configuration.get("mode")
+        translated = {
+            "recorded_at": report.get("finished") or report.get("started"),
+            "btrc_revision": measured.get("compiler_revision"),
+            "frontend": configuration.get("frontend"),
+            "build_mode": self.BUILD_MODES.get(mode, mode) if isinstance(mode, str) else mode,
+            "target_triple": environment.get("BTRC_NATIVE_TARGET"),
+            "compiler_digest": f"sha256:{btrcc['sha256']}" if btrcc.get("sha256") else None,
+        }
+        embedded = Provenance.from_mapping(
+            {name: value for name, value in translated.items() if value is not None}, f"{where}.provenance"
+        )
+        reasons = []
+        failure = report.get("failure")
+        if failure is not None:
+            if not isinstance(failure, str) or not failure.strip():
+                raise LedgerSchemaError(f"{where}.failure: expected text or null")
+            reasons.append(f"the run failed: {failure.strip().splitlines()[0]}")
+        if report.get("dry_run"):
+            reasons.append("a dry run")
+        return scenarios, embedded, reasons
 
     def record(
-        self, subject: Subject, summary: Mapping[str, Any] | None, where: str, provenance: Provenance
+        self,
+        subject: Subject,
+        summary: Mapping[str, Any] | None,
+        where: str,
+        provenance: Provenance,
+        run_reasons: Sequence[str] = (),
     ) -> LedgerRecord:
         if summary is None:
             return LedgerRecord(subject=subject, provenance=provenance)
@@ -287,7 +361,7 @@ class BudgetBenchAdapter:
                 artifact=self.artifact,
             )
             return LedgerRecord(subject=subject, evidence=evidence, provenance=provenance)
-        shortfalls = LedgerRecord.acceptance_shortfalls(subject, measurement, provenance)
+        shortfalls = [*LedgerRecord.acceptance_shortfalls(subject, measurement, provenance), *run_reasons]
         evidence = Evidence(
             status=EvidenceStatus.IMPLEMENTED_UNVERIFIED if shortfalls else EvidenceStatus.PASSED,
             observed="measured",
@@ -312,7 +386,7 @@ class BudgetBenchAdapter:
 
     def measurement(self, name: str, summary: Mapping[str, Any], failures: int, where: str) -> Measurement | None:
         if name == "memory":
-            return self._memory(summary)
+            return self._memory(summary, where)
         samples = summary.get("samples") or []
         if not samples and not failures:
             return None
@@ -325,7 +399,10 @@ class BudgetBenchAdapter:
                 reported = summary.get(field)
                 if reported is None or not math.isclose(reported, value, abs_tol=1e-3):
                     raise LedgerSchemaError(f"{where}.{field}: reported {reported}, its samples give {value:.3f}")
-        components = {"compile": tuple(part[0] for part in parts), "native": tuple(part[1] for part in parts)}
+        split = [part for part in parts if part is not None]
+        components = {}
+        if len(split) == len(parts):
+            components = {"compile": tuple(part[0] for part in split), "native": tuple(part[1] for part in split)}
         rebuilt = summary.get("rebuilt_units")
         if rebuilt is not None:
             if not isinstance(rebuilt, list) or len(rebuilt) != len(samples):
@@ -338,25 +415,42 @@ class BudgetBenchAdapter:
             unit="s",
             samples=tuple(samples),
             failures=failures,
-            minimum_samples=self.COLD_MINIMUM if name.startswith("cold-") else self.INCREMENTAL_MINIMUM,
+            minimum_samples=self.INCREMENTAL_MINIMUM if name in self.incrementally_sampled() else self.COLD_MINIMUM,
             components=components,
             budgets=self.budgets.get(name, ()),
         )
 
-    def _memory(self, summary: Mapping[str, Any]) -> Measurement | None:
-        notes = " ".join(summary.get("notes") or [])
-        peak = self._PEAK.search(notes)
-        if peak is None or int(peak.group(1)) < 0:
-            return None
-        components = {}
-        if aggregate := self._AGGREGATE.search(notes):
-            components["aggregate-rss"] = (int(aggregate.group(1)),)
-        if instructions := self._INSTRUCTIONS.search(notes):
-            components["instructions-retired"] = (int(instructions.group(1).replace(",", "")),)
+    def _memory(self, summary: Mapping[str, Any], where: str) -> Measurement | None:
+        """The compiler's peak, from a schema-2 scenario's facts or else an older report's notes."""
+
+        facts = summary.get("facts") or {}
+        if not isinstance(facts, Mapping):
+            raise LedgerSchemaError(f"{where}.facts: expected a table")
+        measured = {
+            "peak": facts.get("compiler_peak_footprint_bytes") or facts.get("compiler_max_rss_bytes"),
+            "aggregate-rss": facts.get("build_tree_rss_bytes"),
+            "instructions-retired": facts.get("compiler_instructions_retired"),
+        }
+        for name, value in measured.items():
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+                raise LedgerSchemaError(f"{where}.facts: {name} must be a non-negative integer")
+        if measured["peak"] is None:
+            notes = " ".join(summary.get("notes") or [])
+            peak = self._PEAK.search(notes)
+            if peak is None or int(peak.group(1)) < 0:
+                return None
+            aggregate = self._AGGREGATE.search(notes)
+            instructions = self._INSTRUCTIONS.search(notes)
+            measured = {
+                "peak": int(peak.group(1)),
+                "aggregate-rss": int(aggregate.group(1)) if aggregate else None,
+                "instructions-retired": int(instructions.group(1).replace(",", "")) if instructions else None,
+            }
+        components = {name: (value,) for name, value in measured.items() if name != "peak" and value is not None}
         return Measurement(
             metric="peak-footprint",
             unit="bytes",
-            samples=(int(peak.group(1)),),
+            samples=(measured["peak"],),
             minimum_samples=1,
             components=components,
             budgets=self.budgets.get("memory", ()),

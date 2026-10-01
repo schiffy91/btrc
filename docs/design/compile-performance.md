@@ -200,15 +200,32 @@ on both frontends.
 
 ## Harness (M0, subsequently extended)
 
-`python3 -m tools.perf <program.btrc>` (Makefile: `perf-btrsmith`, `perf-self`)
-runs both compilers under `BTRC_TIMING=1` in a fresh measuring process.
-The original harness reported wall, CPU, peak RSS, phases and single-unit C
-compilation. The current harness builds all emitted/native/adapter units and
-links through the production native-plan builder, in dev and release modes;
-see the full-build checkpoint below. Historical tables retain their original
-scope and are not retroactively qualified by the new harness.
+`python3 -m tools.perf <program.btrc>` (Makefile: `perf-self`) profiles one
+program: it runs both compilers under `BTRC_TIMING=1` in a fresh measuring
+process. The original harness reported wall, CPU, peak RSS, phases and
+single-unit C compilation. The current harness builds all emitted/native/adapter
+units and links through the production native-plan builder, in dev and release
+modes; see the full-build checkpoint below. Historical tables retain their
+original scope and are not retroactively qualified by the new harness.
 Both compilers now print the same one-line `<name> timing: phase=NNNus …`
 form; btrcpy's `--profile` is also switched on by `BTRC_TIMING`.
+
+BTRSmith's budgets are no longer measured with `tools/perf.py`.
+`python3 -m tools.budget_bench` (Makefile: `perf-budget`) times what a
+developer runs on either frontend, in dev or release mode, directly or through
+BTRSmith's own make: the cold, edit, instance-edit, interface-edit, noop,
+touch, memory, release, batch, workers, self-compile and corpus scenarios of
+PLAN.md's "Numeric acceptance budgets". `perf-btrsmith` runs its cold and
+release scenarios on both frontends. A run writes `report.json` in schema 2:
+`configuration`, `provenance` (btrc revision, btrcc digest, host, C compiler,
+native environment) and a `scenarios` table whose entries hold every sample,
+the median, nearest-rank p95 and maximum, per-sample metrics, facts and
+notes. A table writer reads `report["scenarios"]`, not the top-level map the
+schema-1 report had. `python3 -m tools.qualification ingest --budget-bench
+<out>/report.json` records a run in the qualification ledger, and refuses to
+accept a dry run or a failed one. `tools/bench/btrsmith-batch.json` lists the
+batch scenario's ten entry points (PLAN.md D10), and `tools/bench/scripts/`
+holds the scripts that drive the harness from a measurement clone.
 
 ### Baseline: the compiler compiling itself (`perf-self`, 2026-09-19)
 

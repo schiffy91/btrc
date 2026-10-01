@@ -474,7 +474,7 @@ def test_jsonl_and_json_documents_round_trip_and_name_the_bad_line(tmp_path: Pat
 
 
 def test_budget_bench_reports_through_the_shared_nearest_rank_statistics():
-    from tools.budget_bench import SCENARIOS, Scenario
+    from tools.budget_bench import INCREMENTALLY_SAMPLED, REPORTED_SCENARIOS, Scenario
 
     scenario = Scenario("edit-navigation", samples=[float(value) for value in range(1, 21)])
 
@@ -482,16 +482,29 @@ def test_budget_bench_reports_through_the_shared_nearest_rank_statistics():
     assert scenario.summary()["p95"] == 19.0
     assert scenario.summary()["max"] == 20.0
     assert Scenario("noop").summary()["p95"] is None
-    assert SCENARIOS == (
+    assert REPORTED_SCENARIOS == (
         "cold-transpile",
         "cold-dev",
+        "cold-release",
+        "release-whole",
+        "release-module",
         "edit-navigation",
         "edit-ui-controller",
         "edit-audio-preparation",
+        "instance-edit",
+        "interface-edit",
         "noop",
         "touch",
         "memory",
+        "workers-1",
+        "workers-2",
+        "workers-4",
+        "workers-8",
+        "batch",
+        "self-compile",
+        "corpus",
     )
+    assert set(INCREMENTALLY_SAMPLED) < set(REPORTED_SCENARIOS)
 
 
 def _bench_summary(samples: list[float]) -> dict:
@@ -555,9 +568,11 @@ def _bench_records(budgets=None, report=None, **options):
 
 
 def test_the_bench_adapter_counts_against_every_declared_scenario():
+    from tools.budget_bench import REPORTED_SCENARIOS
+
     records = {record.subject.id: record for record in _bench_records()}
 
-    assert len(records) == 8
+    assert tuple(records) == REPORTED_SCENARIOS
     assert records["cold-dev"].evidence is None
     # No budget, and the ingesting command knew nothing of the measured host: nothing passes.
     assert {record.evidence.status for record in records.values() if record.evidence} == {
@@ -679,8 +694,8 @@ def test_the_bench_adapter_rejects_reports_it_cannot_vouch_for():
     from tools.qualification.schema import Provenance
 
     adapter = BudgetBenchAdapter(Provenance())
-    with pytest.raises(LedgerSchemaError, match="interface-edit are not budget_bench SCENARIOS"):
-        adapter.records({"interface-edit": _bench_summary([1.0])})
+    with pytest.raises(LedgerSchemaError, match="workers-3 are not scenarios budget_bench reports"):
+        adapter.records({"workers-3": _bench_summary([1.0])})
     with pytest.raises(LedgerSchemaError, match="unknown field"):
         adapter.records({"scenarios": {}, "host": {}})
     with pytest.raises(LedgerSchemaError, match=r"provenance\.recorded_at: must carry a UTC offset"):
@@ -688,6 +703,106 @@ def test_the_bench_adapter_rejects_reports_it_cannot_vouch_for():
     tampered = {"noop": {**_bench_summary([1.0, 2.0, 3.0]), "p95": 2.0}}
     with pytest.raises(LedgerSchemaError, match=r"noop\.p95: reported 2\.0, its samples give 3\.000"):
         adapter.records(tampered)
+
+
+def _schema_two_report(**changes) -> dict:
+    """A report as tools.budget_bench writes it (schema 2), from the bench's own Scenario summaries."""
+
+    from tools.budget_bench import Scenario
+
+    edits = Scenario("edit-navigation")
+    for index in range(20):
+        edits.add(9.0 + index / 100, compile_s=8.0, native_s=1.0 + index / 100, metrics={"native_compiled_units": 1})
+    interface = Scenario("interface-edit")
+    for index in range(5):
+        interface.add(20.0 + index, compile_s=18.0 + index, native_s=2.0, metrics={"ratio_to_clean": 0.5})
+    through_make = Scenario("cold-dev")
+    for index in range(5):
+        through_make.add(60.0 + index)
+    memory = Scenario("memory")
+    memory.facts.update(
+        compile_s=41.2,
+        compiler_max_rss_bytes=3184183936,
+        compiler_peak_footprint_bytes=3100000000,
+        compiler_instructions_retired=1234567890,
+        build_tree_rss_bytes=4000000000,
+    )
+    memory.note("selfhost module-unit compile --jobs 1 peak 3100000000 bytes (2.887 GiB)")
+    report = {
+        "schema": 2,
+        "tool": "tools/budget_bench.py",
+        "dry_run": False,
+        "started": "2026-10-01T08:00:00+00:00",
+        "finished": "2026-10-01T09:30:00+00:00",
+        "failure": None,
+        "configuration": {"frontend": "selfhost", "mode": "dev", "units": "module", "entry": "direct"},
+        "provenance": {
+            "compiler_revision": "65057cb",
+            "compiler_dirty": False,
+            "host": {"system": "Darwin", "node": "private-host-name", "release": "27.0.0", "machine": "arm64"},
+            "cpu_count": 10,
+            "environment": {"BTRC_NATIVE_TARGET": "arm64-apple-macosx15.0"},
+            "btrcc": {"path": "/Users/someone/btrcc", "sha256": "0" * 64, "bytes": 20700000},
+        },
+        "scenarios": {scenario.name: scenario.summary() for scenario in (through_make, edits, interface, memory)},
+    }
+    report.update(changes)
+    return report
+
+
+def test_the_bench_adapter_reads_the_schema_two_report_budget_bench_writes():
+    from tools.budget_bench import REPORTED_SCENARIOS
+    from tools.qualification.schema import Budget, Provenance
+
+    host = Provenance(**{name: P6_HOST[name] for name in ("os_build", "device_class", "cpu", "memory", "c_compiler")})
+    budgets = {"edit-navigation": (Budget(Statistic.MEDIAN, 10.0),), "interface-edit": (Budget(Statistic.MAX, 30.0),)}
+    records = {record.subject.id: record for record in _bench_records(budgets, _schema_two_report(), explicit=host)}
+
+    assert tuple(records) == REPORTED_SCENARIOS
+    provenance = records["edit-navigation"].provenance
+    assert (provenance.btrc_revision, provenance.frontend.value, provenance.build_mode) == (
+        "65057cb",
+        "selfhost",
+        "debug",
+    )
+    assert provenance.compiler_digest == "sha256:" + "0" * 64
+    assert provenance.target_triple == "arm64-apple-macosx15.0"
+    assert provenance.recorded_at == "2026-10-01T09:30:00+00:00"
+    assert "private-host-name" not in json.dumps(provenance.to_mapping())
+    assert records["edit-navigation"].evidence.status is EvidenceStatus.PASSED
+    assert records["edit-navigation"].measurement.components["native"][0] == 1.0
+    # Interface edits take --cold-samples, so five are enough.
+    assert records["interface-edit"].evidence.status is EvidenceStatus.PASSED
+    assert records["interface-edit"].measurement.minimum_samples == 5
+    # A build through BTRSmith's make has no compile/native split.
+    assert records["cold-dev"].measurement.components == {}
+    memory = records["memory"].measurement
+    assert (memory.metric, memory.samples) == ("peak-footprint", (3100000000,))
+    assert memory.components == {"aggregate-rss": (4000000000,), "instructions-retired": (1234567890,)}
+    assert records["batch"].evidence is None
+
+
+def test_a_failed_or_dry_bench_run_is_never_accepted():
+    from tools.qualification.adapters import BudgetBenchAdapter
+    from tools.qualification.schema import Budget, Provenance
+
+    host = Provenance(**{name: P6_HOST[name] for name in ("os_build", "device_class", "cpu", "memory", "c_compiler")})
+    budgets = {"edit-navigation": (Budget(Statistic.MEDIAN, 10.0),)}
+    failed = _schema_two_report(failure="noop: incremental build differs from a clean build\ndetail")
+    evidence = {r.subject.id: r for r in _bench_records(budgets, failed, explicit=host)}["edit-navigation"].evidence
+    assert evidence.status is EvidenceStatus.IMPLEMENTED_UNVERIFIED
+    assert evidence.reason == "the run failed: noop: incremental build differs from a clean build"
+    dry = _schema_two_report(dry_run=True)
+    evidence = {r.subject.id: r for r in _bench_records(budgets, dry, explicit=host)}["edit-navigation"].evidence
+    assert (evidence.status, evidence.reason) == (EvidenceStatus.IMPLEMENTED_UNVERIFIED, "a dry run")
+
+    adapter = BudgetBenchAdapter(Provenance())
+    with pytest.raises(LedgerSchemaError, match="schema: 3 is not 2"):
+        adapter.records(_schema_two_report(schema=3))
+    with pytest.raises(LedgerSchemaError, match="unknown field"):
+        adapter.records(_schema_two_report(host={}))
+    with pytest.raises(LedgerSchemaError, match="workers-3 are not scenarios budget_bench reports"):
+        adapter.records(_schema_two_report(scenarios={"workers-3": _bench_summary([1.0])}))
 
 
 # --- JUnit, skip reports and boundary reports ------------------------------
@@ -840,12 +955,12 @@ def test_the_report_renders_four_outcome_counts_with_stable_denominators(tmp_pat
         "platform": "macos",
         "frontend": "selfhost",
         "variant": None,
-        "slots": 8,
+        "slots": 20,
         "passed": 3,
         "implemented-unverified": 1,
         "source-only": 0,
         "unavailable": 0,
-        "unrecorded": 4,
+        "unrecorded": 16,
         "failed": 0,
     }
     assert rows["test"]["slots"] == 7
@@ -856,14 +971,14 @@ def test_the_report_renders_four_outcome_counts_with_stable_denominators(tmp_pat
         "| kind | platform | frontend | variant | slots | passed | implemented-unverified | source-only | unavailable |"
         in markdown
     )
-    assert "| scenario | macos | selfhost | - | 8 | 3 | 1 | 0 | 0 | 4 | 0 |" in markdown
+    assert "| scenario | macos | selfhost | - | 20 | 3 | 1 | 0 | 0 | 16 | 0 |" in markdown
     assert (
         "| edit-navigation | macos | selfhost | - | wall-time | s | 20 | 9.095 | 9.180 | 9.190 | 9.190 | 9.190 | 0 "
         "| passed | - | compile 8.095; native 1.000 | P1 |" in markdown
     )
     assert "| memory | macos | selfhost | - | peak-footprint | bytes | 1 | 3184183936 |" in markdown
     assert "instructions-retired 1234567890" in markdown
-    assert json.loads(report.render_json())["slots"] == 15
+    assert json.loads(report.render_json())["slots"] == 27
 
 
 def test_every_measurement_names_the_host_that_measured_it():
@@ -1219,13 +1334,13 @@ def test_ingest_keeps_raw_inputs_and_report_reads_every_ledger(tmp_path: Path, c
     assert kept == ["junit.xml", "report.json"]
     ledger = store.ledger_path("r1")
     records = LedgerDocument.load(ledger)
-    assert len(records) == 15
+    assert len(records) == 27
     assert all(record.evidence is None or record.evidence.artifact.startswith(str(store.root)) for record in records)
     capsys.readouterr()
 
     assert QualificationCommand(store).run(["report", "--all-ledgers", "--format", "json"]) == 0
     rendered = json.loads(capsys.readouterr().out)
-    assert {row["kind"]: row["slots"] for row in rendered["evidence"]} == {"scenario": 8, "test": 7}
+    assert {row["kind"]: row["slots"] for row in rendered["evidence"]} == {"scenario": 20, "test": 7}
     with pytest.raises(QualificationStoreError, match="run id"):
         store.ledger_path("../escape")
     assert QualificationCommand(store).run(["report", "--budget", "noop:p50<=3", "--budget-bench", str(bench)]) == 2

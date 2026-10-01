@@ -1,47 +1,29 @@
 {
   "schema": 1,
-  "status": "placeholder",
-  "note": "Provisional picks from BTRSmith's MVP source-check tests so the batch scenario can dry-run. The integrator replaces them with the ten entry points the Stage 3 reviewer proposes and sets status to final; tools/budget_bench.py refuses a placeholder outside --dry-run. Each entry: name (the executable), source (relative to the BTRSmith workspace), optional arguments and environment for the test run.",
+  "status": "final",
+  "note": "PLAN.md D10's warm test batch: ten of BTRSmith's 178 integration programs (chosen at BTRSmith adb3276f), one per subsystem: library, player visuals, UI routing, tablature, commands and transport, agent surface, settings and durable state, practice, catalog persistence, and audio and tone. Of the 41,568 lines in the union of their BTRSmith-owned closures, 65% are used by two or more entries. CatalogSongPagingParity is the only one that links a native package (sqlite through pkg-config sqlite3). Each entry: name (the executable), source (relative to the BTRSmith workspace), and optional arguments and environment for the test run; none needs either.",
   "entries": [
     {
-      "name": "NavigationHistory",
-      "source": "tests/integration/NavigationHistory.btrc",
+      "name": "UiLibraryScan",
+      "source": "tests/integration/UiLibraryScan.btrc",
       "arguments": [],
       "environment": {}
     },
     {
-      "name": "PlayerCommandOwner",
-      "source": "tests/integration/PlayerCommandOwner.btrc",
+      "name": "NativeVisualCoordinator",
+      "source": "tests/integration/NativeVisualCoordinator.btrc",
       "arguments": [],
       "environment": {}
     },
     {
-      "name": "SemanticState",
-      "source": "tests/integration/SemanticState.btrc",
+      "name": "UiApplicationRouter",
+      "source": "tests/integration/UiApplicationRouter.btrc",
       "arguments": [],
       "environment": {}
     },
     {
-      "name": "UiSnapshot",
-      "source": "tests/integration/UiSnapshot.btrc",
-      "arguments": [],
-      "environment": {}
-    },
-    {
-      "name": "McpProtocol",
-      "source": "tests/integration/McpProtocol.btrc",
-      "arguments": [],
-      "environment": {}
-    },
-    {
-      "name": "CoreNamedLoops",
-      "source": "tests/integration/CoreNamedLoops.btrc",
-      "arguments": [],
-      "environment": {}
-    },
-    {
-      "name": "PlayerPreferences",
-      "source": "tests/integration/PlayerPreferences.btrc",
+      "name": "TablatureTimeScale",
+      "source": "tests/integration/TablatureTimeScale.btrc",
       "arguments": [],
       "environment": {}
     },
@@ -52,14 +34,32 @@
       "environment": {}
     },
     {
-      "name": "RuntimeSettings",
-      "source": "tests/integration/RuntimeSettings.btrc",
+      "name": "McpProtocol",
+      "source": "tests/integration/McpProtocol.btrc",
       "arguments": [],
       "environment": {}
     },
     {
-      "name": "CommandAdapters",
-      "source": "tests/integration/CommandAdapters.btrc",
+      "name": "CoreSettingsApplicationHost",
+      "source": "tests/integration/CoreSettingsApplicationHost.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "PracticeVisualFeedback",
+      "source": "tests/integration/PracticeVisualFeedback.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "CatalogSongPagingParity",
+      "source": "tests/integration/CatalogSongPagingParity.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "PlayerAudioGraph",
+      "source": "tests/integration/PlayerAudioGraph.btrc",
       "arguments": [],
       "environment": {}
     }

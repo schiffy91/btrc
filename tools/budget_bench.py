@@ -29,7 +29,9 @@ spells it. Cold scenarios take --cold-samples (5) and incremental ones
 --incremental-samples (20); every sample is reported with the median, the
 nearest-rank p95 and the maximum, as PLAN's "Numeric acceptance budgets"
 requires; tools.qualification.statistics computes them. --dry-run takes one
-sample of each and marks the report.
+sample of each and marks the report. ``python3 -m tools.qualification ingest
+--budget-bench <out>/report.json`` records a run in the qualification ledger
+against REPORTED_SCENARIOS.
 
 Scenarios (--scenarios, comma-separated, or `all`):
 
@@ -98,7 +100,6 @@ from pathlib import Path, PurePosixPath
 from typing import ClassVar, TypeVar
 
 from src.compiler.python.frontend.packages import PackageTarget
-
 from tools.qualification.statistics import SampleStatistics
 
 REPO = Path(__file__).resolve().parents[1]
@@ -551,6 +552,30 @@ INCREMENTAL_SCENARIOS = (
 DIRECT_ONLY_SCENARIOS = ("memory", "workers", "batch", "self-compile", "corpus")
 SCENARIOS = (*COLD_SCENARIOS, *INCREMENTAL_SCENARIOS, *DIRECT_ONLY_SCENARIOS)
 DEFAULT_SCENARIOS = "cold,edit,noop,touch,memory"
+DEFAULT_WORKERS = (1, 2, 4, 8)
+# Every name a report's "scenarios" table can hold, in report order, with the
+# default worker sweep: the denominator the qualification ledger counts a
+# run's evidence against. cold-<mode> follows --mode.
+REPORTED_SCENARIOS = (
+    "cold-transpile",
+    "cold-dev",
+    "cold-release",
+    "release-whole",
+    "release-module",
+    *(f"edit-{fixture.name}" for fixture in EDIT_FIXTURES),
+    "instance-edit",
+    "interface-edit",
+    "noop",
+    "touch",
+    "memory",
+    *(f"workers-{count}" for count in DEFAULT_WORKERS),
+    "batch",
+    "self-compile",
+    "corpus",
+)
+# The reported scenarios sampled --incremental-samples times. Every other
+# timed one takes --cold-samples; memory measures one compile.
+INCREMENTALLY_SAMPLED = (*(f"edit-{fixture.name}" for fixture in EDIT_FIXTURES), "instance-edit", "noop", "touch")
 
 
 @dataclass(frozen=True)
@@ -708,7 +733,11 @@ class BenchSettings:
             "--timing-cold", action="store_true", help="keep BTRC_TIMING owner/worker lines of cold builds"
         )
         parser.add_argument("--native-jobs", type=int, default=8)
-        parser.add_argument("--workers", default="1,2,4,8", help="compiler worker counts the workers sweep measures")
+        parser.add_argument(
+            "--workers",
+            default=",".join(str(count) for count in DEFAULT_WORKERS),
+            help="compiler worker counts the workers sweep measures",
+        )
         parser.add_argument("--corpus-jobs", type=int, default=1, help="corpus programs transpiled at once")
         parser.add_argument("--batch-manifest", default=str(DEFAULT_BATCH_MANIFEST))
         parser.add_argument("--self-compile-entry", help="default: this host's compiler entry")

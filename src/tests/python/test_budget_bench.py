@@ -177,11 +177,12 @@ def manifest_data(**changes):
     return data
 
 
-def test_shipped_batch_manifest_is_a_valid_placeholder_of_ten():
+def test_shipped_batch_manifest_is_the_final_ten():
     manifest = bench.BatchManifest.load(bench.DEFAULT_BATCH_MANIFEST)
-    assert manifest.placeholder
+    assert manifest.status == "final" and not manifest.placeholder
     assert len(manifest.entries) == bench.BatchManifest.SIZE == 10
     assert all(entry.source.startswith("tests/integration/") for entry in manifest.entries)
+    assert all(entry.name == Path(entry.source).stem for entry in manifest.entries)
 
 
 def test_batch_manifest_reads_arguments_and_environment():
@@ -335,7 +336,7 @@ def test_dry_run_takes_one_sample_of_every_scenario(workspace, tmp_path):
         (("--frontend", "reference", "--workers", "0"), "distinct counts"),
         (("--frontend", "reference", "--cold-samples", "0"), "must be positive"),
         (("--frontend", "reference", "--target", "plan9-mips"), "--target"),
-        (("--frontend", "reference", "--scenarios", "batch"), "is a placeholder"),
+        (("--frontend", "reference", "--scenarios", "batch"), "missing from"),
     ],
 )
 def test_invalid_runs_are_rejected_before_any_build(workspace, tmp_path, capsys, options, message):
@@ -360,15 +361,21 @@ def test_workspace_must_hold_the_product_entry(tmp_path, capsys):
 
 
 def test_batch_dry_run_accepts_the_placeholder_when_its_sources_exist(workspace, tmp_path, capsys):
-    manifest = bench.BatchManifest.load(bench.DEFAULT_BATCH_MANIFEST)
+    path = tmp_path / "placeholder.json"
+    path.write_text(json.dumps(manifest_data(status="placeholder")))
+    manifest = bench.BatchManifest.load(path)
+    options = ("--frontend", "reference", "--scenarios", "batch", "--batch-manifest", str(path))
     with pytest.raises(SystemExit):
-        settings(workspace, tmp_path / "out", "--frontend", "reference", "--scenarios", "batch", "--dry-run")
+        settings(workspace, tmp_path / "out", *options, "--dry-run")
     assert "missing from" in capsys.readouterr().err
     (workspace / "tests/integration").mkdir(parents=True)
     for entry in manifest.entries:
         (workspace / entry.source).write_text("")
-    configured = settings(workspace, tmp_path / "out", "--frontend", "reference", "--scenarios", "batch", "--dry-run")
+    configured = settings(workspace, tmp_path / "out", *options, "--dry-run")
     assert configured.scenarios == ("batch",)
+    with pytest.raises(SystemExit):
+        settings(workspace, tmp_path / "out", *options)
+    assert "is a placeholder" in capsys.readouterr().err
 
 
 def test_direct_commands_follow_mode_and_units(workspace, tmp_path, btrcc):
