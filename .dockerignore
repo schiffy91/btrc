@@ -16,6 +16,8 @@
 !src/compiler/python/**
 !src/devex/
 !src/devex/__init__.py
+!src/devex/formatter/
+!src/devex/formatter/**
 !src/devex/lsp/
 !src/devex/lsp/**
 !src/devex/vscode/

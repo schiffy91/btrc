@@ -2,7 +2,7 @@ import Library.Datetime;
 import Library.Strings;
 import Library.Vector;
 
-/* Opt-in phase timing for the self-hosted compiler: with BTRCC_TIMING set,
+/* Opt-in phase timing for the self-hosted compiler: with BTRC_TIMING set,
  * one line per compile reports each phase's wall time in microseconds on
  * stderr. A latency budget is only meetable when every phase's share is
  * visible, and a whole compile is now too short for a sampling profiler to
@@ -15,7 +15,7 @@ class BtrccPhaseTimer {
 	class Vector<string>? workers = null;
 
 	class void begin() {
-		BtrccPhaseTimer.enabled = getenv("BTRC_TIMING") != null || getenv("BTRCC_TIMING") != null;
+		BtrccPhaseTimer.enabled = getenv("BTRC_TIMING") != null;
 		BtrccPhaseTimer.restart();
 	}
 

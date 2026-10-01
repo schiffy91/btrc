@@ -35,7 +35,7 @@ Every product check (`tests/macos/*.btrc`, 37 targets × 2 frontends) imports
 the whole application and pays the full transpile again. That multiplier,
 not the single build, is what makes the suite take hours.
 
-### Phase split inside btrcc (`BTRCC_TIMING=1`)
+### Phase split inside btrcc (`BTRC_TIMING=1`)
 
 | Phase | Time |
 | --- | --- |

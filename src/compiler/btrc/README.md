@@ -20,8 +20,8 @@ orchestration, and `pipeline/Pipeline.btrc` owns ordered compilation.
 `BtrccOptions` defaults to strict imports before any of those owners can observe
 it.
 
-The destination contains exactly 91 `.btrc` files: 85 compiler/generated files
-and six explicit developer-tool files. `Compiler.btrc` and
+The destination contains exactly 97 `.btrc` files: 94 compiler/generated files
+and three stage-inspection tool files. `Compiler.btrc` and
 `BtrccMain.btrc` are the only `.btrc` files at this package root.
 
 Each stage exposes one manifest. The manifests record dependency direction and
@@ -55,10 +55,9 @@ paths use these same owners; specialization supplies views rather than a second
 lowering stack.
 
 The small `tools/LexMain.btrc`, `tools/ParseMain.btrc`, and
-`tools/FrontendMain.btrc` programs are stage-boundary inspection drivers.
-`tools/ast/Schema.btrc` owns the native ASDL model and parser;
-`tools/ast/DumpMain.btrc` and `tools/ast/GenerateMain.btrc` retain the dump
-and AST-generation commands.
+`tools/FrontendMain.btrc` programs are stage-boundary inspection drivers. The
+AST catalog `generated/ast/Node.btrc` comes from the one generator,
+`tools/compiler_codegen/ast.py`.
 
 Runtime C is shared with the Python compiler. `src/runtime/c/manifest.toml`
 describes helper metadata and stable order for the pre-authored `core.c`,

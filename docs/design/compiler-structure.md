@@ -4,7 +4,7 @@ Status: **active architecture contract**.
 
 This document records the ownership-driven destination shared by the Python
 reference compiler, the self-hosted compiler, and developer tooling. The
-normative inventory is exactly 88 production Python compiler files and 100
+normative inventory is exactly 88 production Python compiler files and 97
 self-hosted `.btrc` files. File size is a review signal, not a boundary:
 independent state, invariants, and change reasons justify a separate owner.
 
@@ -223,8 +223,8 @@ src/compiler/python/
 
 ## Exact self-hosted destination
 
-The self-hosted compiler contains exactly 100 `.btrc` files: 94
-compiler/generated files and six explicit developer-tool files. Only the
+The self-hosted compiler contains exactly 97 `.btrc` files: 94
+compiler/generated files and three stage-inspection tool files. Only the
 public compiler application object and thin process entry point remain at the
 package root:
 
@@ -368,10 +368,6 @@ src/compiler/btrc/
     FrontendMain.btrc             # frontend inspection executable
     LexMain.btrc                  # lexer inspection executable
     ParseMain.btrc                # parser inspection executable
-    ast/
-      Schema.btrc                  # ASDL schema model
-      DumpMain.btrc               # ASDL dump executable
-      GenerateMain.btrc           # AST generator executable
 ```
 
 `pipeline/Models.btrc` contains mutable option and result transports for one
@@ -587,3 +583,9 @@ Module units (PLAN.md M11a) add one owner to each compiler:
 per-group lowering, the shared declaration closure, cross-unit program facts
 and record reuse using the existing stage owners; neither implements a second
 semantic pipeline. The self-host inventory is therefore 100 files.
+
+The btrc ASDL schema owner and its dump and generation commands
+(`tools/ast/`) were removed in Stage 4 (btrc-D065), taking the inventory to 97.
+No test ran them, and the generator no longer reproduced `Node.btrc`'s lazy
+list storage; `tools/compiler_codegen/ast.py` is the one AST generator, and
+`compiler_codegen check` keeps both catalogs byte-identical to it.
