@@ -779,7 +779,11 @@ class ExpressionLowerer:
         else:
             callee = self.lower_expr(plan.callee, provenance)
 
-        call_effect = provenance.capture_call_effect(plan.source) if isinstance(plan.source, CallExpr) else None
+        call_effect = (
+            provenance.capture_call_effect(plan.source, plan.receiver_type)
+            if isinstance(plan.source, CallExpr)
+            else None
+        )
 
         receiver = (
             self.lower_expr(plan.receiver, provenance)

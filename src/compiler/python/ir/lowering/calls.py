@@ -1356,13 +1356,23 @@ class CallableProvenance:
         finally:
             self.restore(incoming)
 
-    def capture_call_effect(self, expression: CallExpr) -> CallableCallEffect:
-        """Freeze the callee ABI before any argument can mutate its binding."""
+    def capture_call_effect(
+        self,
+        expression: CallExpr,
+        planned_receiver_type: TypeExpr | None = None,
+    ) -> CallableCallEffect:
+        """Freeze the callee ABI before any argument can mutate its binding.
+
+        ``planned_receiver_type`` is the receiver type the call plan resolved.
+        It stands in only where analysis has no type for the receiver: a
+        call-valued receiver in a generic body, whose method is known to the
+        plan alone.
+        """
         return_abi = self.evaluated_return_abi(expression.callee)
         return CallableCallEffect(
             call_id=id(expression),
             return_abi=return_abi,
-            returns_owned=self._call_returns_owned(expression, return_abi),
+            returns_owned=self._call_returns_owned(expression, return_abi, planned_receiver_type),
         )
 
     def call_returns_owned(self, expression: CallExpr, effect: CallableCallEffect | None = None) -> bool:
@@ -1475,7 +1485,12 @@ class CallableProvenance:
         elif isinstance(target, UnaryExpr) and target.op == "*":
             self._evaluate_expression(target.operand, entries)
 
-    def _call_returns_owned(self, expression: CallExpr, return_abi: CallableReturnABI) -> bool:
+    def _call_returns_owned(
+        self,
+        expression: CallExpr,
+        return_abi: CallableReturnABI,
+        planned_receiver_type: TypeExpr | None = None,
+    ) -> bool:
         callee = expression.callee
         if isinstance(callee, Identifier) and id(expression) in self._analyzed.hosted_call_ids:
             return False
@@ -1504,6 +1519,8 @@ class CallableProvenance:
                 if static_method is not None:
                     return bool(static_method.body is not None or static_info.native_language)
         receiver_type = self._canonical(self.type_of(receiver))
+        if receiver_type is None:
+            receiver_type = self._canonical(planned_receiver_type)
         if receiver_type is None:
             return False
         if receiver_type.base == "Thread" and callee.field == "join":

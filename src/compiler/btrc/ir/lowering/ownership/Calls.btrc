@@ -456,9 +456,14 @@ class CallOwnershipLowerer {
 		bool operandEffect = self.operandsHaveEffect(result.operands, environment);
 		if (plannedReceiver != null) {
 			Node receiver = plannedReceiver;
-			result.receiverType = self.semantics.expressionType(receiver, environment);
-			result.receiverOwned = self.semantics.isManaged(result.receiverType, environment) && self.semantics.unconsumedOwnedResult(receiver, environment, callableFlow);
-			result.receiverPinned = self.semantics.isManaged(result.receiverType, environment) && !result.receiverOwned && receiver.kind != NK_SELF_EXPR && receiver.kind != NK_SUPER_EXPR && operandEffect;
+			/* The call target already resolved a receiver that inference cannot
+			 * type (a call-valued receiver in a generic body); the reference falls
+			 * back to plan.receiver_type and decides ownership from that type. */
+			Node? receiverType = self.semantics.expressionType(receiver, environment);
+			if (receiverType == null) { receiverType = result.target.receiverType; }
+			result.receiverType = receiverType;
+			result.receiverOwned = self.semantics.isManaged(receiverType, environment) && self.semantics.contextualUnconsumedOwnedResult(receiver, receiverType, environment, callableFlow);
+			result.receiverPinned = self.semantics.isManaged(receiverType, environment) && !result.receiverOwned && receiver.kind != NK_SELF_EXPR && receiver.kind != NK_SUPER_EXPR && operandEffect;
 		}
 		bool forceCandidate = result.target.resolved() || result.parameters.len > 0;
 		result.forceOrder = forceCandidate && self.requiresOrder(result.receiver, result.operands, environment) && result.operands.len + (result.receiver == null ? 0 : 1) > 1;
