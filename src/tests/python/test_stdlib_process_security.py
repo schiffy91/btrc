@@ -8,8 +8,7 @@ ROOT = Path(__file__).resolve().parents[3]
 PROCESS = ROOT / "src" / "stdlib" / "Process.btrc"
 HTTP_CLIENT = ROOT / "src" / "stdlib" / "HTTP" / "HTTPClient.btrc"
 FILESYSTEM = ROOT / "src" / "stdlib" / "FileSystem" / "FileSystem.btrc"
-PASSWORD_EXCHANGE = ROOT / "src" / "stdlib" / "Terminal" / "TerminalPasswordExchange.btrc"
-TERMINAL = ROOT / "src" / "stdlib" / "Terminal" / "Terminal.btrc"
+FILESYSTEM_HANDLES = ROOT / "src" / "stdlib" / "FileSystem" / "FileSystemHandles.btrc"
 PROCESS_HELPERS = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("process")}
 PROCESS_RUNTIME = "\n".join(helper.c_source for helper in PROCESS_HELPERS.values())
 
@@ -48,7 +47,6 @@ def test_process_descriptor_bound_is_computed_before_fork() -> None:
     child = parent.split("if (child == (pid_t)0) {", 1)[1]
 
     assert "__btrc_descriptor_close_bound()" in source
-    assert "__btrc_descriptor_close_bound()" in TERMINAL.read_text()
     assert parent.index("descriptorCloseBound()") < parent.index("fork()")
     assert "closeDescriptorsForExec(descriptorBound)" in child
 
@@ -297,7 +295,6 @@ def test_process_uses_platform_fast_paths_without_weakening_fallback() -> None:
     assert "POSIX_SPAWN_SETPGROUP" in PROCESS_RUNTIME
     assert "SYS_close_range" in PROCESS_RUNTIME
     assert "__btrc_close_descriptors_from(bound)" in source
-    assert "__btrc_close_descriptors_from(bound)" in TERMINAL.read_text()
 
 
 def test_descriptor_execution_uses_the_shared_child_engine() -> None:
@@ -407,28 +404,8 @@ def test_environment_snapshot_allocates_one_owned_copy_per_inherited_entry() -> 
     assert "ChildProcessEnvironment.copyEntry(inherited)" in build
 
 
-def test_password_writer_uses_only_ephemeral_read_borrows() -> None:
-    source = PASSWORD_EXCHANGE.read_text()
-    writer = source.split("class bool writeResponseUntil", 1)[1]
-    writer = writer.split("/* Consume exactly", 1)[0]
-    assert writer.count("writeBytesUntil(") == 2
-    assert "malloc(" not in writer
-    assert "free(" not in writer
-
-
-def test_passwd_argv_uses_a_canonical_non_option_account_name() -> None:
-    source = TERMINAL.read_text()
-    change = source.split("class bool change", 1)[1]
-
-    assert "safeAccountArgument(user)" in change
-    assert "pw->pw_name" in change
-    assert "canonicalAccountArgument(" in change
-    assert "childArgumentValues.push(passwdAccount)" in change
-    assert "childArgumentValues.push(user)" not in change
-
-
 def test_http_client_is_direct_and_protocol_restricted() -> None:
-    source = HTTP_CLIENT.read_text().split("class Browser", 1)[0]
+    source = HTTP_CLIENT.read_text()
     assert '"--proto", "=http,https"' in source
     assert '"--proto-redir", "=http,https"' in source
     assert 'arguments.push("--");' in source
@@ -439,17 +416,28 @@ def test_http_client_is_direct_and_protocol_restricted() -> None:
 
 def test_recursive_delete_is_descriptor_relative_and_nofollow() -> None:
     source = FILESYSTEM.read_text()
-    assert "openDirectoryNoFollow" in source
+    remove = source.split("class int removeRecursive(string path)", 1)[1].split("\n\tclass ", 1)[0]
+    assert "openDirectoryNoFollow(deletionParent)" in remove
+    assert "DirectoryTreeRemoval.removeAt(parentDescriptor, name, null)" in remove
     assert "O_NOFOLLOW" in source
-    assert "AT_SYMLINK_NOFOLLOW" in source
-    assert "fdopendir" in source
-    assert "unlinkat" in source
+
+    # One removal owner serves FileSystem.removeRecursive and TemporaryDirectory.
+    handles = FILESYSTEM_HANDLES.read_text()
+    owner = handles.split("class DirectoryTreeRemoval {", 1)[1].split("\nclass ", 1)[0]
+    assert "AT_SYMLINK_NOFOLLOW" in owner
+    assert "O_NOFOLLOW" in owner
+    assert "fdopendir" in owner
+    assert "unlinkat" in owner
+    assert "(mode_t)S_IWUSR | (mode_t)S_IXUSR" in owner
+    assert handles.count("AT_REMOVEDIR") == owner.count("AT_REMOVEDIR") == 1
+    assert "DirectoryTreeRemoval.removeAt(parentDescriptor, name, self._lease.openedSnapshot())" in handles
+    assert "fdopendir" not in source
 
 
 def test_windows_recursive_directory_delete_fails_closed() -> None:
     source = FILESYSTEM.read_text()
     windows = source.split("class int removeRecursivePath", 1)[1]
-    windows = windows.split("class int removeRecursiveAt", 1)[0]
+    windows = windows.split("\n\tclass ", 1)[0]
 
     assert "status.isSymlink() || status.isFile()" in windows
     assert "return unlink(path);" in windows

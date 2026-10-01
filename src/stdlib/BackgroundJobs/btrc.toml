@@ -2,10 +2,20 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_backgroundjobs"
-exports = ["BackgroundJobs", "ProcessWorkers", "WorkerPools"]
+exports = ["BackgroundJobExecutor", "BackgroundJobs", "HostWorkerPools", "WorkerPools"]
+
+[[package.providers]]
+module = "HostWorkerPools"
+implementation = "Unix.WorkerPoolProvider"
+os = ["linux", "macos"]
+
+[[package.providers]]
+module = "HostWorkerPools"
+implementation = "WorkerPoolProvider"
+os = ["windows"]
 
 [[native.bindings]]
-module = "BackgroundJobs"
+module = "BackgroundJobExecutor"
 header = "NativeThreads.h"
 language = "c"
 standard = "c11"

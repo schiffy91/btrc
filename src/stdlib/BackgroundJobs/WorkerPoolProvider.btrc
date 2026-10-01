@@ -1,0 +1,12 @@
+/* HostWorkerPools' windows provider. Without fork, the only worker is the
+ * owner itself: one InlineWorkerPool, and only when one worker is asked for. */
+import Library.BackgroundJobs.WorkerPools;
+
+class WorkerPoolProvider {
+	class IWorkerPool? open(int workers, IWorkerRequestHandler handler) {
+		if (workers != 1) { return null; }
+		return InlineWorkerPool(handler);
+	}
+
+	class int suggestedWorkers() { return 1; }
+}

@@ -1,4 +1,5 @@
-/* Random capability and liveness-handshake protocol for daemon control. */
+/* Random capability and liveness-handshake protocol for daemon control.
+ * Exported beneath DaemonController (Library.Daemon); see DaemonControl.btrc. */
 
 import Library.Daemon.DaemonControl;
 import Library.Daemon.DaemonControlFiles;

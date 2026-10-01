@@ -27,13 +27,6 @@ class HTTPSocket {
 		return statusFlags >= 0 && fcntl(descriptor, F_SETFL, statusFlags | O_NONBLOCK) == 0;
 	}
 
-	/* Linux and Darwin both expose per-send SIGPIPE suppression through
-     * MSG_NOSIGNAL.  Keeping the platform detail behind this seam avoids the
-     * process-global signal mutation that a reusable socket library must never
-     * perform. MSG_NOSIGNAL is not generic POSIX; adding another Unix target
-     * requires extending this single compatibility seam. */
-	class long long sendNoSignal(int descriptor, char* data, size_t length) { return (long long)send(descriptor, data, length, MSG_NOSIGNAL); }
-
 	class long long nowMilliseconds() {
 		struct timespec now;
 		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
@@ -199,23 +192,28 @@ class HTTPSocket {
 		return HTTPSocket.emptyBytes();
 	}
 
-	/* Sends every byte of data before the deadline; the length is the buffer's own. */
-	class bool sendBytesUntil(int descriptor, Bytes data, long long deadline) {
-		if (descriptor < 0 || data == null) { return false; }
-		if (data.len <= 0) { return true; }
+	/* Sends `length` bytes from `data` before the deadline. The one send loop
+	 * behind the Bytes and string entry points, and the one place a send
+	 * suppresses SIGPIPE.
+	 *
+	 * Linux and Darwin both expose per-send SIGPIPE suppression through
+	 * MSG_NOSIGNAL. Keeping the platform detail behind this seam avoids the
+	 * process-global signal mutation that a reusable socket library must never
+	 * perform. MSG_NOSIGNAL is not generic POSIX; adding another Unix target
+	 * requires extending this single compatibility seam. */
+	class bool sendRawUntil(int descriptor, char* data, size_t length, long long deadline) {
+		if (descriptor < 0 || data == NULL) { return false; }
+		if (length == (size_t)0) { return true; }
 		if (!HTTPSocket.configureDescriptor(descriptor, true)) { return false; }
-		size_t total = (size_t)data.len;
 		size_t sent = 0;
-		while (sent < total) {
+		while (sent < length) {
 			if (!HTTPSocket.waitFor(descriptor, POLLOUT, deadline)) {
 				return false;
 			}
-			long long count = HTTPSocket.sendNoSignal(descriptor, data.data + sent, total - sent);
+			long long count = (long long)send(descriptor, data + sent, length - sent, MSG_NOSIGNAL);
 			if (count > 0LL) {
 				sent = sent + (size_t)count;
-			} else if (count < 0LL && errno == EINTR) {
-				continue;
-			} else if (count < 0LL && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			} else if (count < 0LL && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
 				continue;
 			} else {
 				return false;
@@ -224,27 +222,16 @@ class HTTPSocket {
 		return true;
 	}
 
+	/* Sends every byte of data before the deadline; the length is the buffer's own. */
+	class bool sendBytesUntil(int descriptor, Bytes data, long long deadline) {
+		if (descriptor < 0 || data == null) { return false; }
+		if (data.len <= 0) { return true; }
+		return HTTPSocket.sendRawUntil(descriptor, data.data, (size_t)data.len, deadline);
+	}
+
 	class bool sendAllUntil(int descriptor, string data, long long deadline) {
 		if (descriptor < 0 || data == null) { return false; }
-		if (!HTTPSocket.configureDescriptor(descriptor, true)) { return false; }
-		size_t total = strlen(data);
-		size_t sent = 0;
-		while (sent < total) {
-			if (!HTTPSocket.waitFor(descriptor, POLLOUT, deadline)) {
-				return false;
-			}
-			long long count = HTTPSocket.sendNoSignal(descriptor, (char*)data + sent, total - sent);
-			if (count > 0LL) {
-				sent = sent + (size_t)count;
-			} else if (count < 0LL && errno == EINTR) {
-				continue;
-			} else if (count < 0LL && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-				continue;
-			} else {
-				return false;
-			}
-		}
-		return true;
+		return HTTPSocket.sendRawUntil(descriptor, (char*)data, strlen(data), deadline);
 	}
 
 	class bool sendAll(int descriptor, string data, int timeoutSecs) { return HTTPSocket.sendAllUntil(descriptor, data, HTTPSocket.deadlineAfter(timeoutSecs)); }

@@ -71,31 +71,6 @@ class FileRevisionBuilder {
 	public FileRevision revision() { return FileRevision((long long)(self._hash & 0x7fffffffffffffffULL)); }
 }
 
-/* Validate both a held object and the path that originally selected it. */
-class ExactFileSnapshot {
-	class FileSystemError? validate(FileSnapshot expected, FileSnapshotOutcome held, string path, string operation) {
-		if (expected == null || held == null || path == null || path.isEmpty() || operation == null || operation.isEmpty()) {
-			return FileSystemError.invalid(operation, path);
-		}
-		if (!held.ok()) { return held.error(); }
-		if (!expected.sameVersion(held.snapshot())) {
-			return FileSystemError.changed(operation, path);
-		}
-		FileSnapshotOutcome named = FileHandle.inspectExact(path);
-		if (!named.ok()) {
-			FileSystemError error = named.error();
-			if (error.kind() == FS_NOT_FOUND || error.kind() == FS_SYMLINK || error.kind() == FS_WRONG_TYPE) {
-				return FileSystemError.changed(operation, path, error.nativeCode());
-			}
-			return error;
-		}
-		if (!expected.sameVersion(named.snapshot())) {
-			return FileSystemError.changed(operation, path);
-		}
-		return null;
-	}
-}
-
 class FileTreeLimits {
 	private int _maximumDepth;
 	private int _maximumEntries;

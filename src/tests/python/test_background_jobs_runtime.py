@@ -15,6 +15,8 @@ RUNTIME = ROOT / "src" / "stdlib" / "BackgroundJobs"
 FIXTURE = ROOT / "src" / "tests" / "native" / "background_jobs"
 CONFORMANCE = FIXTURE / "BackgroundJobsConformance.btrc"
 EXPECTED = FIXTURE / "background_jobs_conformance.expected"
+WORKER_POOLS = FIXTURE / "HostWorkerPools.btrc"
+WORKER_POOLS_EXPECTED = FIXTURE / "host_worker_pools.expected"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
 
@@ -41,6 +43,8 @@ def _transpile(
     output: Path,
     request: pytest.FixtureRequest,
     source: Path = CONFORMANCE,
+    *,
+    threads: bool = True,
 ) -> None:
     target = PackageTarget.parse(None)
     target_text = f"{target.operating_system}-{target.architecture}"
@@ -83,7 +87,8 @@ def _transpile(
         if result.returncode == 0:
             output.write_text(result.stdout)
     assert result.returncode == 0 and output.is_file(), result.stderr
-    assert str(RUNTIME / "NativeThreads.h") in output.read_text()
+    if threads:
+        assert str(RUNTIME / "NativeThreads.h") in output.read_text()
 
 
 def _compile(
@@ -168,6 +173,27 @@ def test_bounded_background_jobs_on_both_frontends_and_c_compilers(
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == EXPECTED.read_text()
+    assert result.stderr == ""
+
+
+@pytest.mark.skipif(sys.platform not in {"darwin", "linux"}, reason="HostWorkerPools forks only on linux and macOS")
+def test_host_worker_pools_on_both_frontends(compiler, tmp_path, request):
+    """HostWorkerPools selects its provider by target, so this program needs
+    --target and cannot run in the target-less corpus runner."""
+    generated = tmp_path / f"host-worker-pools-{compiler}.c"
+    executable = tmp_path / f"host-worker-pools-{compiler}"
+    _transpile(compiler, generated, request, WORKER_POOLS, threads=False)
+    flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors", "-O2"]
+    built = subprocess.run(
+        ["cc", *flags, str(generated), "-o", str(executable), "-lm", "-pthread"],
+        capture_output=True,
+        text=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    assert built.returncode == 0, built.stderr
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == WORKER_POOLS_EXPECTED.read_text()
     assert result.stderr == ""
 
 

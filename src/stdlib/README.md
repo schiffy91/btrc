@@ -21,14 +21,18 @@ the API surface, so the layout follows a few fixed rules.
   after their primary class, so a module path reads folder then class.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
   `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`, `Image/Linux`,
-  `Tray/Linux`, `Tray/MacOS`) and implements the group's portable
+  `Tray/Linux`, `Tray/MacOS`, and `BackgroundJobs/Unix` for code shared by
+  linux and macOS) and implements the group's portable
   contract: `GUI/MacOS/MacOSDirectoryPicker` implements `GUI/IDirectoryPicker`,
   `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
   (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/CoreAudioDevice`
   implements `Audio/AudioDevice`'s provider contract. A Linux or Windows
   provider is the sibling folder (`GUI/Linux/LinuxDirectoryPicker`) selected by
   the same `[[package.providers]]` entry in `btrc.toml`; consumers never name a
-  platform module.
+  platform module. Selection follows the compilation target, so a program
+  transpiled on one host for another must pass `--target` or compose its host
+  capabilities explicitly; the self-hosted compiler's Windows entry therefore
+  passes no worker-pool factory (see `BackgroundJobs/README.md`).
 - **`btrc.symbols` is generated, not edited.** It maps every canonical root
   symbol to its owning module so strict import visibility does not have to
   parse the root stdlib on every compile. `make compiler-codegen-generate`
@@ -43,6 +47,11 @@ the API surface, so the layout follows a few fixed rules.
   (`MacOS.MacOSWindow`). The root `btrc.toml` names `btrc_stdlib_runtime`,
   exports the prelude and depends on every group by path; both compilers
   resolve that graph, and ordinary export visibility applies between groups.
+  A group that imports another group (`Daemon` imports `FileSystem`, `Tray`
+  imports `GUI`) does not list it under `[dependencies]`: every group is
+  already a dependency of the root package, so `import Library.<Group>...`
+  resolves through the stdlib tree and the root `btrc.lock` covers the whole
+  graph. A group folder therefore never carries its own `btrc.lock`.
   `Windows/` is the toolchain compatibility layer, not a module group.
 - **Interfaces are `I`-prefixed** (`IView`, `IWindow`, `IDirectoryPicker`,
   `IEncodedImageDecoder`); providers are `<Platform><Capability>`; facades keep

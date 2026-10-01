@@ -2,9 +2,10 @@
  * POSIX implementation with an object-oriented API.
  */
 
-import Library.IO;
+import Library.Bytes;
 import Library.FileSystem.FileSystemHandles;
 import Library.FileSystem.FileTree;
+import Library.IO;
 import Library.Platform;
 import Library.Process;
 import Library.Strings;
@@ -67,7 +68,8 @@ class FileStatus {
 /* One directory read as a stream of names.  Callers that only need to inspect
  * or filter entries never have to materialize a whole listing, so traversal
  * cost scales with what the caller keeps rather than with directory size.
- * `close()` must be called explicitly, exactly like File. */
+ * `close()` reports whether reading or closing failed; a stream dropped
+ * without it is closed by its destructor, so the DIR* never leaks. */
 class DirectoryStream {
 	private DIR* handle;
 	private string current;
@@ -118,6 +120,8 @@ class DirectoryStream {
 		}
 		return !self.ioFailed;
 	}
+
+	public void __del__() { self.close(); }
 }
 
 class Directory {
@@ -150,354 +154,6 @@ class Directory {
 
 	/* Iterate this directory without materializing its listing. */
 	public DirectoryStream stream() { return DirectoryStream(self.path); }
-}
-
-/* An open directory lease prevents inode reuse while a caller retains it.
- * Matching and removal are descriptor-relative, but POSIX has no unlink-by-fd
- * primitive: callers must still serialize concurrent renames in the parent. */
-class DirectoryLease {
-	private int descriptor;
-	private dev_t device;
-	private ino_t inode;
-
-	public DirectoryLease() {
-		self.descriptor = -1;
-		self.device = (dev_t)0;
-		self.inode = (ino_t)0;
-	}
-
-	class bool validEntry(int parentDescriptor, string name) { return parentDescriptor >= 0 && name != null && !name.isEmpty() && !name.equals(".") && !name.equals("..") && !name.contains("/"); }
-
-	class DirectoryLease captureAt(int parentDescriptor, string name) {
-		DirectoryLease lease = DirectoryLease();
-		if (!DirectoryLease.validEntry(parentDescriptor, name)) {
-			return lease;
-		}
-		int descriptor = openat(parentDescriptor, name, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
-		if (descriptor < 0) { return lease; }
-		struct stat opened;
-		struct stat current;
-		if (fstat(descriptor, &opened) != 0 || !S_ISDIR(opened.st_mode) || fstatat(parentDescriptor, name, &current, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISDIR(current.st_mode) || current.st_dev != opened.st_dev || current.st_ino != opened.st_ino) {
-			close(descriptor);
-			return lease;
-		}
-		lease.descriptor = descriptor;
-		lease.device = opened.st_dev;
-		lease.inode = opened.st_ino;
-		return lease;
-	}
-
-	public bool valid() {
-		if (self.descriptor < 0) { return false; }
-		struct stat opened;
-		return fstat(self.descriptor, &opened) == 0 && S_ISDIR(opened.st_mode) && opened.st_dev == self.device && opened.st_ino == self.inode;
-	}
-
-	public bool matchesAt(int parentDescriptor, string name) {
-		if (!self.valid() || !DirectoryLease.validEntry(parentDescriptor, name)) {
-			return false;
-		}
-		struct stat current;
-		return fstatat(parentDescriptor, name, &current, AT_SYMLINK_NOFOLLOW) == 0 && S_ISDIR(current.st_mode) && current.st_dev == self.device && current.st_ino == self.inode;
-	}
-
-	public int removeMatching(int parentDescriptor, string name) {
-		if (!self.matchesAt(parentDescriptor, name)) {
-			return -1;
-		}
-		struct stat inspected;
-		if (fstat(self.descriptor, &inspected) != 0) { return -1; }
-		return UnixFileSystem.removeRecursiveAtInspected(parentDescriptor, name, &inspected);
-	}
-
-	public int closeLease() {
-		if (self.descriptor < 0) { return 0; }
-		int descriptor = self.descriptor;
-		self.descriptor = -1;
-		self.device = (dev_t)0;
-		self.inode = (ino_t)0;
-		return close(descriptor);
-	}
-}
-
-class UnixFileSystem {
-	class int chmodPath(string path, int mode) {
-		if (path == null) { return -1; }
-		return chmod(path, (mode_t)mode);
-	}
-
-	class int mkdirPath(string path, int mode) {
-		if (path == null) { return -1; }
-		return mkdir(path, (mode_t)mode);
-	}
-
-	class int mkdirOne(string path, int mode) {
-		if (path == null) { return -1; }
-		if (path.isEmpty() || FileSystem.isDir(path)) { return 0; }
-		if (FileSystem.exists(path)) { return -1; }
-		int created = UnixFileSystem.mkdirPath(path, mode);
-		if (created == 0 || FileSystem.isDir(path)) { return 0; }
-		return created;
-	}
-
-	class int mkdirp(string path) {
-		if (path == null || path.isEmpty()) { return -1; }
-		if (FileSystem.isDir(path)) { return 0; }
-		int mode = 493;
-		for (int i = 1; i < path.len(); i++) {
-			if (path[i] == '/') {
-				string parent = path.substring(0, i);
-				if (!parent.isEmpty() && UnixFileSystem.mkdirOne(parent, mode) != 0) {
-					return -1;
-				}
-			}
-		}
-		return UnixFileSystem.mkdirOne(path, mode);
-	}
-
-	class bool isCanonicalRoot(string path) {
-		string canonical = UnixFileSystem.realPath(path);
-		if (canonical.isEmpty()) { return false; }
-		bool windows = Platform.isWindows();
-		int rootLength = PathTools.rootLengthFor(canonical, windows);
-		if (rootLength == 0) { return false; }
-		int end = canonical.len() - 1;
-		while (end >= rootLength && PathTools.isSeparatorFor(canonical[end], windows)) {
-			end--;
-		}
-		return end < rootLength;
-	}
-
-	/* Windows cannot provide the POSIX descriptor-relative *at operations.
-     * Deleting an ordinary directory through a path-based walker would leave
-     * an ancestor-junction race, so recursive directory deletion fails closed
-     * until a handle-relative NT backend exists. Files and final reparse points
-     * remain supported as single-name unlink operations; no directory target
-     * is enumerated. */
-	class int removeRecursivePath(string path) {
-		FileStatus status = FileStatus(path);
-		if (!status.exists() && !status.isSymlink()) {
-			return status.isMissing() ? 0 : -1;
-		}
-		if (status.isSymlink() || status.isFile()) {
-			return unlink(path);
-		}
-		return -1;
-	}
-
-	/* Traverse one already-inspected name relative to an open directory.
-     * The no-follow open rejects a replacement observed before traversal. A
-     * caller requiring stronger concurrent-rename semantics must serialize
-     * mutations in the parent because POSIX cannot unlink a directory by fd. */
-	class int removeRecursiveAtInspected(int parentDescriptor, string name, struct stat* inspected) {
-		if (!S_ISDIR(inspected->st_mode)) {
-			return unlinkat(parentDescriptor, name, 0);
-		}
-
-		int descriptor = openat(parentDescriptor, name, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
-		if (descriptor < 0) { return -1; }
-		struct stat opened;
-		struct stat root;
-		if (fstat(descriptor, &opened) != 0 || stat("/", &root) != 0 || opened.st_dev != inspected->st_dev || opened.st_ino != inspected->st_ino || (opened.st_dev == root.st_dev && opened.st_ino == root.st_ino)) {
-			close(descriptor);
-			return -1;
-		}
-		mode_t directoryMode = opened.st_mode;
-		if ((directoryMode & (mode_t)S_IWUSR) == (mode_t)0) {
-			fchmod(descriptor, directoryMode | (mode_t)S_IWUSR);
-			struct stat writable;
-			if (fstat(descriptor, &writable) != 0) {
-				close(descriptor);
-				return -1;
-			}
-			mode_t writableMode = writable.st_mode;
-			if ((writableMode & (mode_t)S_IWUSR) == (mode_t)0) {
-				close(descriptor);
-				return -1;
-			}
-		}
-
-		DIR* directory = fdopendir(descriptor);
-		if (directory == NULL) {
-			close(descriptor);
-			return -1;
-		}
-		int result = 0;
-		errno = 0;
-		struct dirent* entry = readdir(directory);
-		while (entry != NULL) {
-			string childName = entry->d_name;
-			if (!childName.equals(".") && !childName.equals("..")) {
-				result = UnixFileSystem.removeRecursiveAt(dirfd(directory), childName);
-				if (result != 0) { break; }
-			}
-			errno = 0;
-			entry = readdir(directory);
-		}
-		if (result == 0 && errno != 0) { result = -1; }
-		if (closedir(directory) != 0 && result == 0) { result = -1; }
-		if (result != 0) { return result; }
-
-		struct stat finalStatus;
-		if (fstatat(parentDescriptor, name, &finalStatus, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISDIR(finalStatus.st_mode) || finalStatus.st_dev != inspected->st_dev || finalStatus.st_ino != inspected->st_ino) {
-			return -1;
-		}
-		return unlinkat(parentDescriptor, name, AT_REMOVEDIR);
-	}
-
-	class DirectoryLease leaseDirectoryAt(int parentDescriptor, string name) { return DirectoryLease.captureAt(parentDescriptor, name); }
-
-	/* Remove one leased directory when the named entry still matches it.
-     * The open lease prevents inode reuse; the caller owns and closes it. */
-	class int removeRecursiveAtLease(int parentDescriptor, string name, DirectoryLease lease) {
-		if (lease == null) { return -1; }
-		return lease.removeMatching(parentDescriptor, name);
-	}
-
-	/* Delete one name relative to an already-open directory. Each directory is
-     * opened without following its final component and checked before
-     * traversal. Callers serialize hostile concurrent renames in the parent. */
-	class int removeRecursiveAt(int parentDescriptor, string name) {
-		struct stat inspected;
-		if (fstatat(parentDescriptor, name, &inspected, AT_SYMLINK_NOFOLLOW) != 0) {
-			return errno == ENOENT ? 0 : -1;
-		}
-		return UnixFileSystem.removeRecursiveAtInspected(parentDescriptor, name, &inspected);
-	}
-
-	class int openDirectoryNoFollow(string path) {
-		if (path == null || path.isEmpty()) { return -1; }
-		bool absolute = path[0] == '/';
-		int descriptor = open(absolute ? "/" : ".", (int)O_RDONLY | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
-		if (descriptor < 0) { return -1; }
-		Vector<string> components = Strings.split(path, "/");
-		for component in components {
-			if (component.isEmpty() || component.equals(".")) { continue; }
-			/* A caller can canonicalize an intentional parent traversal first;
-             * the destructive primitive itself never crosses one implicitly. */
-			if (component.equals("..")) {
-				close(descriptor);
-				return -1;
-			}
-			int next = openat(descriptor, component, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
-			close(descriptor);
-			if (next < 0) { return -1; }
-			descriptor = next;
-		}
-		return descriptor;
-	}
-
-	/* macOS exposes its system temporary directory through the root-owned
-     * /tmp -> /private/tmp alias. Resolve only that conventional first
-     * component; arbitrary symlink ancestors below it must still fail the
-     * component-by-component O_NOFOLLOW walk. */
-	class string deletionParentPath(string parent) {
-		if (!parent.equals("/tmp") && !parent.startsWith("/tmp/")) {
-			return parent;
-		}
-		string canonicalTemp = UnixFileSystem.realPath("/tmp");
-		if (canonicalTemp.isEmpty() || UnixFileSystem.isCanonicalRoot(canonicalTemp)) {
-			return "";
-		}
-		return canonicalTemp + parent.substring(4, parent.len() - 4);
-	}
-
-	class int removeRecursive(string path) {
-		if (path == null || path.isEmpty()) { return -1; }
-		FileStatus status = FileStatus(path);
-		if (!status.exists() && !status.isSymlink()) {
-			return status.isMissing() ? 0 : -1;
-		}
-		if (status.isDir() && !status.isSymlink() && UnixFileSystem.isCanonicalRoot(path)) { return -1; }
-		if (Platform.isWindows()) {
-			return UnixFileSystem.removeRecursivePath(path);
-		}
-
-		string parent = PathTools.dirname(path);
-		string name = PathTools.basename(path);
-		if (name.isEmpty() || name.equals(".") || name.equals("..")) {
-			return -1;
-		}
-		string deletionParent = UnixFileSystem.deletionParentPath(parent);
-		if (deletionParent.isEmpty()) { return -1; }
-		int parentDescriptor = UnixFileSystem.openDirectoryNoFollow(deletionParent);
-		if (parentDescriptor < 0) { return -1; }
-		int result = UnixFileSystem.removeRecursiveAt(parentDescriptor, name);
-		close(parentDescriptor);
-		return result;
-	}
-
-	class int symlinkPath(string target, string linkPath) {
-		if (target == null || linkPath == null) { return -1; }
-		return symlink(target, linkPath);
-	}
-
-	class string readLink(string path) {
-		if (path == null) { return ""; }
-		int capacity = 256;
-		char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)capacity + (size_t)1);
-		while (true) {
-			ssize_t length = readlink(path, buffer, (size_t)capacity);
-			if (length < (ssize_t)0) {
-				free(buffer);
-				return "";
-			}
-			if (length < (ssize_t)capacity) {
-				buffer[(int)length] = '\0';
-				return __btrc_string_adopt(buffer);
-			}
-			if (capacity > 1073741823) {
-				free(buffer);
-				return "";
-			}
-			capacity = capacity * 2;
-			buffer = (char*)__btrc_safe_realloc(buffer, (size_t)capacity + (size_t)1);
-		}
-		return "";
-	}
-
-	class string currentDirectory() {
-		int capacity = 256;
-		char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)capacity);
-		while ((char*)getcwd(buffer, (size_t)capacity) == NULL) {
-			if (errno != ERANGE || capacity > 1073741823) {
-				free(buffer);
-				return "";
-			}
-			capacity = capacity * 2;
-			buffer = (char*)__btrc_safe_realloc(buffer, (size_t)capacity);
-		}
-		return __btrc_string_adopt(buffer);
-	}
-
-	class string realPath(string path) {
-		if (path == null) { return ""; }
-		char* result = realpath(path, NULL);
-		return result == NULL ? "" : __btrc_string_adopt(result);
-	}
-
-	class string tempDir(string prefix) {
-		if (prefix == null || prefix.isEmpty() || prefix.equals(".") || prefix.equals("..")) {
-			return "";
-		}
-		for ch in prefix {
-			if (ch == '/' || ch == '\\' || ch == ':') { return ""; }
-		}
-		var base = Environment.get("TMPDIR", "/tmp");
-		var templatePath = PathTools.join(base, prefix + ".XXXXXX");
-		size_t rawLength = strlen(templatePath);
-		char* raw = (char*)malloc(rawLength + (size_t)1);
-		if (raw == NULL) { return ""; }
-		memcpy(raw, templatePath, rawLength + (size_t)1);
-		if (mkdtemp(raw) == NULL) {
-			free(raw);
-			return "";
-		}
-		string canonical = UnixFileSystem.realPath(raw);
-		string result = canonical.isEmpty() ? Strings.copy(raw) : canonical;
-		free(raw);
-		return result;
-	}
 }
 
 class PathTools {
@@ -638,11 +294,11 @@ class PathTools {
 
 	class string absolute(string path) {
 		if (path == null) { return ""; }
-		string resolved = UnixFileSystem.realPath(path);
+		string resolved = FileSystem.realPath(path);
 		if (!resolved.isEmpty()) { return resolved; }
-		if (path.isEmpty()) { return UnixFileSystem.currentDirectory(); }
+		if (path.isEmpty()) { return FileSystem.currentDirectory(); }
 		if (PathTools.isAbsolute(path)) { return Strings.copy(path); }
-		string current = UnixFileSystem.currentDirectory();
+		string current = FileSystem.currentDirectory();
 		if (current.isEmpty()) { return ""; }
 		return PathTools.join(current, path);
 	}
@@ -691,23 +347,195 @@ class FileSystem {
 		return result;
 	}
 
-	class int chmod(string path, int mode) { return UnixFileSystem.chmodPath(path, mode); }
+	class int chmod(string path, int mode) {
+		if (path == null) { return -1; }
+		return chmod(path, (mode_t)mode);
+	}
 
-	class int mkdir(string path, int mode) { return UnixFileSystem.mkdirPath(path, mode); }
+	class int mkdir(string path, int mode) {
+		if (path == null) { return -1; }
+		return mkdir(path, (mode_t)mode);
+	}
 
-	class int mkdirp(string path) { return UnixFileSystem.mkdirp(path); }
+	/* Create one directory unless it already exists as one. */
+	class int mkdirOne(string path, int mode) {
+		if (path == null) { return -1; }
+		if (path.isEmpty() || FileSystem.isDir(path)) { return 0; }
+		if (FileSystem.exists(path)) { return -1; }
+		int created = FileSystem.mkdir(path, mode);
+		if (created == 0 || FileSystem.isDir(path)) { return 0; }
+		return created;
+	}
 
-	class int removeRecursive(string path) { return UnixFileSystem.removeRecursive(path); }
+	class int mkdirp(string path) {
+		if (path == null || path.isEmpty()) { return -1; }
+		if (FileSystem.isDir(path)) { return 0; }
+		int mode = 493;
+		for (int i = 1; i < path.len(); i++) {
+			if (path[i] == '/') {
+				string parent = path.substring(0, i);
+				if (!parent.isEmpty() && FileSystem.mkdirOne(parent, mode) != 0) {
+					return -1;
+				}
+			}
+		}
+		return FileSystem.mkdirOne(path, mode);
+	}
 
-	class int symlink(string target, string linkPath) { return UnixFileSystem.symlinkPath(target, linkPath); }
+	class bool isCanonicalRoot(string path) {
+		string canonical = FileSystem.realPath(path);
+		if (canonical.isEmpty()) { return false; }
+		bool windows = Platform.isWindows();
+		int rootLength = PathTools.rootLengthFor(canonical, windows);
+		if (rootLength == 0) { return false; }
+		int end = canonical.len() - 1;
+		while (end >= rootLength && PathTools.isSeparatorFor(canonical[end], windows)) {
+			end--;
+		}
+		return end < rootLength;
+	}
 
-	class string readLink(string path) { return UnixFileSystem.readLink(path); }
+	/* Windows cannot provide the POSIX descriptor-relative *at operations.
+     * Deleting an ordinary directory through a path-based walker would leave
+     * an ancestor-junction race, so recursive directory deletion fails closed
+     * until a handle-relative NT backend exists. Files and final reparse points
+     * remain supported as single-name unlink operations; no directory target
+     * is enumerated. */
+	class int removeRecursivePath(string path) {
+		FileStatus status = FileStatus(path);
+		if (!status.exists() && !status.isSymlink()) {
+			return status.isMissing() ? 0 : -1;
+		}
+		if (status.isSymlink() || status.isFile()) {
+			return unlink(path);
+		}
+		return -1;
+	}
 
-	class string currentDirectory() { return UnixFileSystem.currentDirectory(); }
+	/* Open `path` one component at a time without following any symlink. */
+	class int openDirectoryNoFollow(string path) {
+		if (path == null || path.isEmpty()) { return -1; }
+		bool absolute = path[0] == '/';
+		int descriptor = open(absolute ? "/" : ".", (int)O_RDONLY | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+		if (descriptor < 0) { return -1; }
+		Vector<string> components = Strings.split(path, "/");
+		for component in components {
+			if (component.isEmpty() || component.equals(".")) { continue; }
+			/* A caller can canonicalize an intentional parent traversal first;
+             * the destructive primitive itself never crosses one implicitly. */
+			if (component.equals("..")) {
+				close(descriptor);
+				return -1;
+			}
+			int next = openat(descriptor, component, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+			close(descriptor);
+			if (next < 0) { return -1; }
+			descriptor = next;
+		}
+		return descriptor;
+	}
+
+	/* macOS exposes its system temporary directory through the root-owned
+     * /tmp -> /private/tmp alias. Resolve only that conventional first
+     * component; arbitrary symlink ancestors below it must still fail the
+     * component-by-component O_NOFOLLOW walk. */
+	class string deletionParentPath(string parent) {
+		if (!parent.equals("/tmp") && !parent.startsWith("/tmp/")) {
+			return parent;
+		}
+		string canonicalTemp = FileSystem.realPath("/tmp");
+		if (canonicalTemp.isEmpty() || FileSystem.isCanonicalRoot(canonicalTemp)) {
+			return "";
+		}
+		return canonicalTemp + parent.substring(4, parent.len() - 4);
+	}
+
+	/* Delete a file, symlink or directory tree. The parent is reached without
+	 * following symlinks and the tree is removed descriptor-relative by
+	 * DirectoryTreeRemoval, the same owner TemporaryDirectory uses. */
+	class int removeRecursive(string path) {
+		if (path == null || path.isEmpty()) { return -1; }
+		FileStatus status = FileStatus(path);
+		if (!status.exists() && !status.isSymlink()) {
+			return status.isMissing() ? 0 : -1;
+		}
+		if (status.isDir() && !status.isSymlink() && FileSystem.isCanonicalRoot(path)) { return -1; }
+		if (Platform.isWindows()) {
+			return FileSystem.removeRecursivePath(path);
+		}
+
+		string parent = PathTools.dirname(path);
+		string name = PathTools.basename(path);
+		if (name.isEmpty() || name.equals(".") || name.equals("..")) {
+			return -1;
+		}
+		string deletionParent = FileSystem.deletionParentPath(parent);
+		if (deletionParent.isEmpty()) { return -1; }
+		int parentDescriptor = FileSystem.openDirectoryNoFollow(deletionParent);
+		if (parentDescriptor < 0) { return -1; }
+		int result = DirectoryTreeRemoval.removeAt(parentDescriptor, name, null);
+		close(parentDescriptor);
+		return result == 0 ? 0 : -1;
+	}
+
+	class int symlink(string target, string linkPath) {
+		if (target == null || linkPath == null) { return -1; }
+		return symlink(target, linkPath);
+	}
+
+	class string readLink(string path) {
+		if (path == null) { return ""; }
+		int capacity = 256;
+		char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)capacity + (size_t)1);
+		while (true) {
+			ssize_t length = readlink(path, buffer, (size_t)capacity);
+			if (length < (ssize_t)0) {
+				free(buffer);
+				return "";
+			}
+			if (length < (ssize_t)capacity) {
+				buffer[(int)length] = '\0';
+				return __btrc_string_adopt(buffer);
+			}
+			if (capacity > 1073741823) {
+				free(buffer);
+				return "";
+			}
+			capacity = capacity * 2;
+			buffer = (char*)__btrc_safe_realloc(buffer, (size_t)capacity + (size_t)1);
+		}
+		return "";
+	}
+
+	class string currentDirectory() {
+		int capacity = 256;
+		char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)capacity);
+		while ((char*)getcwd(buffer, (size_t)capacity) == NULL) {
+			if (errno != ERANGE || capacity > 1073741823) {
+				free(buffer);
+				return "";
+			}
+			capacity = capacity * 2;
+			buffer = (char*)__btrc_safe_realloc(buffer, (size_t)capacity);
+		}
+		return __btrc_string_adopt(buffer);
+	}
+
+	class string realPath(string path) {
+		if (path == null) { return ""; }
+		char* result = realpath(path, NULL);
+		return result == NULL ? "" : __btrc_string_adopt(result);
+	}
 
 	class string absolutePath(string path) { return PathTools.absolute(path); }
 
-	class string tempDir(string prefix) { return UnixFileSystem.tempDir(prefix); }
+	/* A new directory under TMPDIR that the caller owns and removes. It is
+	 * created and canonicalized exactly like TemporaryDirectory's; empty on
+	 * failure. */
+	class string tempDir(string prefix) {
+		if (!TemporaryDirectory.validPrefix(prefix)) { return ""; }
+		return TemporaryDirectory.reservePath(TemporaryDirectory.templatePath(prefix));
+	}
 
 	class Vector<string> listDir(string path) {
 		Directory dir = Directory(path);

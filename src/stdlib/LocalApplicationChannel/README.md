@@ -13,10 +13,18 @@ delete a colliding file. Interrupted nonblocking I/O yields to the event loop.
 
 The wire format is a four-byte big-endian length followed by bounded payload
 bytes; empty and binary messages are valid. macOS/Linux use private-directory
-Unix sockets and verify peer credentials. `Socket.h` contains SDK declarations
-and a small Darwin/Linux credential-layout adapter only. Linux's `_GNU_SOURCE`
-requirement belongs to the package build plan. No handwritten C implementation,
-hosted channel ABI, or channel archive remains.
+Unix sockets and verify peer credentials through `LocalPeerCredentials`, whose
+`[[package.providers]]` select `MacOS/LocalPeerCredentialsProvider`
+(`getpeereid`) or `Linux/LocalPeerCredentialsProvider` (`SO_PEERCRED`).
+`Socket.h` holds only SDK includes and the `LocalSocketAddress` typedef. The
+typed binding imports `socket`, `listen`, `getsockopt`, `recv`, `send`,
+`shutdown` and `close`; `connect`, `bind` and `accept` (glibc declares their
+address argument as a transparent union), the variadic `fcntl` and `poll`
+(whose `struct pollfd` collides with the hosted declaration) still arrive
+through hosted includes until the native reader lowers those shapes. Linux's
+`_GNU_SOURCE` requirement belongs to the package build plan. No handwritten C
+implementation, hosted channel ABI, or channel archive remains. Windows has no
+provider yet; its open and request outcomes are added with one.
 
 Both macOS frontends pass process exchange, partial/oversized/empty frames,
 timeouts, stale requests, late responses, bind collisions, endpoint replacement

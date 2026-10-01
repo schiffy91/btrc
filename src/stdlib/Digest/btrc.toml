@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_digest"
-exports = ["Digest", "NativeSHA256", "SHA256"]
+exports = ["Digest", "Fnv1a32", "NativeSHA256", "SHA256"]
 
 [[package.providers]]
 module = "NativeSHA256"

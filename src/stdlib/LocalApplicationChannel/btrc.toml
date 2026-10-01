@@ -2,18 +2,28 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_localapplicationchannel"
-exports = ["LocalApplicationChannel"]
+exports = ["LocalApplicationChannel", "LocalPeerCredentials"]
+
+[[package.providers]]
+module = "LocalPeerCredentials"
+implementation = "MacOS.LocalPeerCredentialsProvider"
+os = ["macos"]
+
+[[package.providers]]
+module = "LocalPeerCredentials"
+implementation = "Linux.LocalPeerCredentialsProvider"
+os = ["linux"]
 
 [[native.bindings]]
 module = "LocalApplicationChannel"
 header = "Socket.h"
 language = "c"
 standard = "c11"
-symbols = ["LocalSocketAddress", "socket", "getsockopt", "recv", "send", "shutdown", "close", "localSocketPeerUser"]
+symbols = ["LocalSocketAddress", "socket", "listen", "getsockopt", "recv", "send", "shutdown", "close"]
 os = ["linux", "macos"]
 
 [[native.defines]]
 name = "_GNU_SOURCE"
 value = "1"
-modules = ["LocalApplicationChannel"]
+modules = ["LocalApplicationChannel", "Linux.LocalPeerCredentialsProvider"]
 os = ["linux"]

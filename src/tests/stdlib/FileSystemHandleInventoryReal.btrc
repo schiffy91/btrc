@@ -29,6 +29,25 @@ int main() {
 	assert(directory.close().kind() == FS_ALREADY_CLOSED);
 	assert(FileSystem.ownedHandleInventory().sameAs(withTemporary));
 
+	/* A private directory and its exclusive lease each count once. */
+	PrivateDirectoryOpenOutcome privateOpen = FileSystem.openPrivateDirectory(root.path() + "/private");
+	assert(privateOpen.ok());
+	PrivateDirectory privateDirectory = privateOpen.directory();
+	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 2);
+	ExclusiveFileLeaseOpenOutcome leaseOpen = privateDirectory.acquireExclusiveLease("state.lock");
+	assert(leaseOpen.ok());
+	ExclusiveFileLease lease = leaseOpen.lease();
+	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 3);
+	assert(lease.close().ok());
+	assert(lease.close().kind() == FS_ALREADY_CLOSED);
+	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 2);
+	assert(privateDirectory.close().ok());
+	assert(FileSystem.ownedHandleInventory().sameAs(withTemporary));
+	PrivateDirectoryOpenOutcome closedChild = privateDirectory.openChildDirectory("child");
+	assert(!closedChild.ok());
+	assert(closedChild.error().kind() == FS_CLOSED);
+	assert(FileSystem.removeRecursive(root.path() + "/private") == 0);
+
 	assert(root.close().ok());
 	assert(root.close().kind() == FS_ALREADY_CLOSED);
 	assert(FileSystem.ownedHandleInventory().sameAs(initial));

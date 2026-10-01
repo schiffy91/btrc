@@ -1,4 +1,4 @@
-/* HTTPS-capable curl client and platform browser launcher. */
+/* HTTPS-capable curl client. */
 import Library.HTTP.HTTPFraming;
 import Library.Process;
 import Library.Strings;
@@ -140,19 +140,4 @@ class HTTPClient {
 	public HTTPClientResponse post(string url, Vector<string> headers, string body) { return self.request("POST", url, headers, body); }
 
 	public HTTPClientResponse get(string url, Vector<string> headers) { return self.request("GET", url, headers, ""); }
-}
-
-class Browser {
-	class void open(string url) {
-		if (url == null || url.isEmpty()) { return; }
-		var u = UnixShell().run("uname -s", logFailure=false);
-		var kernel = u.stdout().trim();
-		var opener = "xdg-open";
-		if (kernel.equals("Darwin")) { opener = "open"; }
-		if (kernel.contains("MINGW") || kernel.contains("MSYS") || kernel.contains("CYGWIN")) {
-			opener = "start";
-		}
-		var command = Command(opener).arg(url);
-		UnixShell().run(command, stdout=COMMAND_OUTPUT_STREAM, stderr=COMMAND_OUTPUT_STREAM, logFailure=false);
-	}
 }

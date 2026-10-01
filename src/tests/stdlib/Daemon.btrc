@@ -83,6 +83,14 @@ int main() {
 	string privateHome = FileSystem.tempDir("btrc_daemon_home");
 	assert(FileSystem.chmod(privateHome, 448) == 0);
 	assert(setenv("HOME", privateHome, 1) == 0);
+	// status and stop only inspect: they create no state hierarchy and leave
+	// the caller's spec as written.
+	DaemonSpec inspectOnly = DaemonSpec("inspect-only", Command("true"));
+	string inspectOnlyPid = inspectOnly.pidFile;
+	assert(controller.status(inspectOnly).code == 1);
+	assert(controller.stop(inspectOnly).code == 1);
+	assert(inspectOnly.pidFile.equals(inspectOnlyPid));
+	assert(!FileSystem.exists(PathTools.join(privateHome, ".btrc")));
 	DaemonSpec defaultLive = DaemonSpec("default-live", Command("sleep").arg("60"));
 	ExecResult defaultStart = controller.start(defaultLive);
 	if (!defaultStart.ok()) {
