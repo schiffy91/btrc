@@ -6172,7 +6172,11 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
         assert completed.returncode == 0, (arguments, completed.stdout, completed.stderr)
         assert expected in completed.stdout
         if fixture_name == "NativeGUI":
-            assert f"Factory retained fields: {native_retained_fields}\n" in completed.stdout
+            # AppKit may keep the first key text field past teardown until a
+            # later run-loop turn (macOS 15 does in the direct baseline, which
+            # never spins the loop). The factory may retain no more than that.
+            factory_retained_fields = int(completed.stdout.split("Factory retained fields: ", 1)[1].split("\n", 1)[0])
+            assert 0 <= factory_retained_fields <= native_retained_fields
     if fixture_name == "NativeContainers":
         failed_shutdown = subprocess.run(
             [str(executable), "--shutdown-failure"],
