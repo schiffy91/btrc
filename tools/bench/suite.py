@@ -21,18 +21,15 @@ CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
 LIBS = ["-lm", "-lpthread"]
 TIME = Path("/usr/bin/time")
 FOOTPRINT = re.compile(r"(\d+)\s+peak memory footprint")
-# Linux carries the replaced image's high-water mark across exec, so a child
-# forked from this process reports at least this process's resident set. A
-# fresh interpreter forks the measured command instead and reports its wait4.
-MAXRSS = re.compile(r"^bench maxrss: (\d+)$", re.MULTILINE)
-MAXRSS_LAUNCHER = (
-    "import os, subprocess, sys\n"
-    "process = subprocess.Popen(sys.argv[1:])\n"
-    "_, status, usage = os.wait4(process.pid, 0)\n"
-    "print(f'\\nbench maxrss: {usage.ru_maxrss}', file=sys.stderr)\n"
-    "sys.exit(os.waitstatus_to_exitcode(status))\n"
-)
 TIMING_VARIABLES = ("BTRC_TIMING", "BTRCC_TIMING")
+# Runs argv[1:] with standard output discarded and prints the child's own
+# maximum resident set and exit code. measure_peak spawns workloads through it.
+MAXRSS_REPORTER = (
+    "import os, subprocess, sys\n"
+    "child = subprocess.Popen(sys.argv[1:], stdout=subprocess.DEVNULL)\n"
+    "_, status, usage = os.wait4(child.pid, 0)\n"
+    "print(usage.ru_maxrss, os.waitstatus_to_exitcode(status))\n"
+)
 
 
 @dataclass(frozen=True)
@@ -116,8 +113,11 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
     On macOS it is the peak footprint `/usr/bin/time -l` reports, the number the
     M11 budget is written in. Elsewhere it is the child's own maximum resident
     set from wait4 (KiB on Linux), which a reaped sibling cannot inflate the way
-    RUSAGE_CHILDREN's running maximum would, read by a fresh interpreter that
-    forks it (MAXRSS_LAUNCHER). Standard output is discarded.
+    RUSAGE_CHILDREN's running maximum would. The child is spawned by a small
+    reporter process rather than by this one: Linux folds the address space a
+    process execs from into its maximum resident set, and a forked or vforked
+    child execs from its parent's, so a child of a 180 MiB pytest worker would
+    report at least 180 MiB. Standard output is discarded.
     """
 
     if peak_counter() == "footprint":
@@ -137,17 +137,21 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
             raise RuntimeError(f"{TIME} -l reported no peak memory footprint:\n{completed.stderr[-2000:]}")
         return Peak(int(found.group(1)), "footprint")
     with tempfile.TemporaryFile() as errors:
-        launcher = [sys.executable, "-c", MAXRSS_LAUNCHER, *command]
-        process = subprocess.Popen(launcher, cwd=cwd, env=env, stdout=subprocess.DEVNULL, stderr=errors)
-        process.wait()
-        errors.seek(0)
-        detail = errors.read().decode(errors="replace")
-        if process.returncode != 0:
-            raise RuntimeError(f"{' '.join(command)} failed ({process.returncode}):\n{detail[-2000:]}")
-    found = MAXRSS.findall(detail)
-    if not found:
-        raise RuntimeError(f"{' '.join(command)} reported no maximum resident set:\n{detail[-2000:]}")
-    return Peak(int(found[-1]) * (1 if sys.platform == "darwin" else 1024), "maxrss")
+        reporter = subprocess.run(
+            [sys.executable, "-c", MAXRSS_REPORTER, *command],
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            text=True,
+        )
+        fields = reporter.stdout.split()
+        returncode = int(fields[1]) if reporter.returncode == 0 and len(fields) == 2 else reporter.returncode
+        if returncode != 0:
+            errors.seek(0)
+            detail = errors.read().decode(errors="replace")[-2000:]
+            raise RuntimeError(f"{' '.join(command)} failed ({returncode}):\n{detail}")
+    return Peak(int(fields[0]) * (1 if sys.platform == "darwin" else 1024), "maxrss")
 
 
 def peak_counter() -> str:
