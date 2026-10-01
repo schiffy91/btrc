@@ -335,6 +335,10 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     assert re.search(r"grep[^\n]*PASS", job) is None
     assert job.count("src/tests/strings/expected/BracesInCodeGen.stdout") >= 2
     assert "src/tests/stdlib/expected/PathWindowsLexical.stdout" in job
+    # The bootstrap imports src.tests; as a script beside the installed wheel
+    # it cannot, so it runs as a module from the checkout.
+    assert "python -m src.tests.btrc.test_bootstrap -v" in _code(job)
+    assert "python src/tests/btrc/test_bootstrap.py" not in _code(job)
     # Logical-line equality tolerates Git's platform EOL checkout while still
     # rejecting any extra, missing, or otherwise changed output line.
     assert job.count(".splitlines()") >= 4
