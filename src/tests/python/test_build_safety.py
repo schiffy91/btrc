@@ -280,7 +280,28 @@ def test_clean_covers_generated_and_runtime_build_directories():
     assert "-name '*.o'" in output
     assert "make -C tray clean" in output
     assert "find . -type" not in output
-    assert "find src examples bench -type" in output
+    assert "find src examples tools -type" in output
+    # A find root that does not exist exits nonzero and stops make before the
+    # examples clean; every root must name a tracked directory.
+    for line in output.splitlines():
+        if line.startswith("find "):
+            roots = line.split(" -type", 1)[0].split()[1:]
+            assert all((REPO_ROOT / root).is_dir() for root in roots), line
+    assert "-C bench" not in output
+    assert "test_*.c" not in output
+
+
+def test_linux_ci_script_defaults_to_the_makefile_targets_as_separate_words():
+    script = (REPO_ROOT / "tools" / "linux-ci.sh").read_text()
+    default = next(line for line in MAKEFILE.read_text().splitlines() if line.startswith("LINUX_CI_TARGETS ?="))
+    targets = default.split("?=", 1)[1].split()
+
+    # "${@:-a b}" expands to the single word "a b", which make takes as one
+    # target name.
+    assert '"${@:-' not in script
+    assert f"  set -- {' '.join(targets)}\n" in script
+    assert script.rstrip().endswith('"$@"')
+    assert "Three things differ" in script
 
 
 def test_ast_generation_is_validated_before_atomic_replacement():

@@ -5,7 +5,7 @@
 #   tools/linux-ci.sh                  # the CI test job
 #   tools/linux-ci.sh lint format-check
 #
-# Two things differ from `podman run -v "$PWD:/workspace"`:
+# Three things differ from `podman run -v "$PWD:/workspace"`:
 #
 #   * build/ subdirectories and dist/ may be symlinks into a cache outside
 #     the workspace, because this repository can live in synced storage and
@@ -21,15 +21,23 @@
 #     filenames are host paths it cannot read. Everything that inspects a
 #     source, including the self-host fingerprint, then fails at import.
 #
-# Both budgets are larger than CI's because this runs in a VM: the self-hosted
-# compiler is rebuilt from scratch against a cold cache, and the corpus's
-# heaviest program does not finish inside the default run budget at -O0.
+# Both budgets are set explicitly, as CI sets them. The run budget matches
+# CI's 60 s, which the corpus's heaviest program needs at -O0. Only the
+# transpile budget exceeds CI's 600 s: this runs in a VM, where the self-hosted
+# compiler is rebuilt from scratch against a cold cache.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 private="${BTRC_LINUX_BUILD:-${XDG_CACHE_HOME:-$HOME/.cache}/btrc/linux-ci}"
 image="${BTRC_LINUX_IMAGE:-btrc-devcontainer:latest}"
 cd "$repo"
+
+# With no arguments, run the Makefile's LINUX_CI_TARGETS default: the CI test
+# job. Each target is its own argument; make would read one quoted string as a
+# single target name.
+if (($# == 0)); then
+  set -- gpu-required test
+fi
 
 if ! podman image exists "$image"; then
   echo "$image is missing; run: make devcontainer" >&2
@@ -63,4 +71,4 @@ exec podman run --rm --init "${mounts[@]}" \
   make NIX= "PYTEST_WORKERS=$workers" \
   "BTRC_TEST_TRANSPILE_TIMEOUT=${BTRC_TEST_TRANSPILE_TIMEOUT:-1800}" \
   "BTRC_TEST_RUN_TIMEOUT=${BTRC_TEST_RUN_TIMEOUT:-60}" \
-  "${@:-gpu-required test}"
+  "$@"

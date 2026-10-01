@@ -51,13 +51,6 @@ src/devex/lsp/.venv/
 # VS Code extension build artifacts
 /build/devex/vscode/
 
-# Benchmark generated C + binaries
-bench/*.c
-bench/fib
-bench/loop
-bench/vector
-bench/strings
-
 # GUI example binary
 examples/gui/gui_demo
 examples/gui/gui_declarative

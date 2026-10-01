@@ -460,12 +460,10 @@ clean: ## Remove all build artifacts
 	rm -rf .pytest_cache/ .ruff_cache/ htmlcov/ .coverage .coverage.* coverage.json coverage.xml
 	rm -rf build/generated/ build/devex/vscode/ build/stdlib/ build/out/ build/lib/ build/bdist.*/ build/btrcc/ build/test-btrcc/ build/temp.*/
 	rm -rf btrc.egg-info/ src/btrc.egg-info/
-	find src examples bench -type d \( -name __pycache__ -o -name .pytest_cache \) -prune -exec rm -rf {} +
-	find src examples bench -type d -name '*.dSYM' -prune -exec rm -rf {} +
-	find src examples bench -type f \( -name '*.pyc' -o -name '*.o' \) -delete
-	find src/tests -type f -name 'test_*.c' -delete
+	find src examples tools -type d \( -name __pycache__ -o -name .pytest_cache \) -prune -exec rm -rf {} +
+	find src examples tools -type d -name '*.dSYM' -prune -exec rm -rf {} +
+	find src examples tools -type f \( -name '*.pyc' -o -name '*.o' \) -delete
 	$(MAKE) -C examples clean 2>/dev/null || true
-	$(MAKE) -C bench clean 2>/dev/null || true
 
 help:
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
