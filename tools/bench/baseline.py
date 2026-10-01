@@ -71,7 +71,7 @@ class Finding:
     name: str
     baseline: float | None
     current: float
-    status: str  # "ok" | "regression" | "improvement" | "new"
+    status: str  # "ok" | "regression" | "slower" | "improvement" | "new"
 
     @property
     def ratio(self) -> float | None:
@@ -85,12 +85,20 @@ def compare(
     baseline: dict[str, float] | None,
     tolerance_ms: float | None = None,
     tolerance_peak: float | None = None,
+    *,
+    gate_timings: bool = True,
 ) -> list[Finding]:
     """Compare one run against a platform baseline metric by metric.
 
     A peak's slack is its relative tolerance or PEAK_FLOOR bytes, whichever is
     larger, in both directions: a peak that falls past it is an improvement, so
     the baseline gets re-recorded and the guard does not drift loose.
+
+    Without `gate_timings`, a timing past its slack is "slower", reported but
+    not a regression. A pool of hosted runners is not one machine: GitHub's
+    ubuntu-latest runs of the same tree differed by up to 2.15x on one timing
+    and 1.45x across most of them, while sizes, lines, parity and peaks
+    repeated exactly.
     """
 
     findings: list[Finding] = []
@@ -117,7 +125,7 @@ def compare(
             slack = max(reference * tolerance, PEAK_FLOOR)
             status = "regression" if value > reference + slack else "improvement" if value < reference - slack else "ok"
         elif value > reference * (1.0 + tolerance):
-            status = "regression"
+            status = "regression" if gate_timings or kind != "ms" else "slower"
         elif kind == "ms" and value < reference * (1.0 - IMPROVEMENT_NOTE):
             status = "improvement"
         else:
@@ -195,7 +203,7 @@ def store(
 def render(findings: list[Finding]) -> str:
     """A fixed-width table, worst news first."""
 
-    order = {"regression": 0, "improvement": 1, "new": 2, "ok": 3}
+    order = {"regression": 0, "slower": 1, "improvement": 2, "new": 3, "ok": 4}
     rows = sorted(findings, key=lambda finding: (order[finding.status], finding.name))
     width = max((len(finding.name) for finding in rows), default=10)
     lines = [f"{'metric':<{width}}  {'baseline':>12}  {'current':>12}  {'ratio':>6}  status"]

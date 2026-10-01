@@ -6,8 +6,11 @@ reference compiler transpiles in-process, how large the emitted C is and how
 long the system C compiler needs for it (the cost every test in the corpus
 pays), how fast a compiled program starts, and how fast the generated code
 runs on fixed workloads. Every number is recorded to JSON and compared with a
-tracked per-platform baseline so a regression in any of them fails CI and is
-just as visible on a developer machine.
+tracked per-platform baseline, so a regression fails ``check`` on a developer
+machine. A platform without a baseline passes unless ``--strict``, and CI's
+runner (linux-x86_64) has none yet: its job uploads ``results.json``, from
+which ``baseline --results`` records one. ``--timings report`` compares
+timings without failing on them, for a pool of unlike hosted runners.
 
 Peak memory is guarded too: each program's compile peak, and with
 ``--peak-workload <workspace>`` the cold ``--jobs 1`` module-unit compile of a
