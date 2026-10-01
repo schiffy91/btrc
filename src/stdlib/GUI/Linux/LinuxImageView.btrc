@@ -1,5 +1,4 @@
 import Library.Callback;
-import Library.Math;
 import Library.App;
 import Library.Image;
 import Library.GUI.IImageView;

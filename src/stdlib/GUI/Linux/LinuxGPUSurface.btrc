@@ -1,5 +1,4 @@
 import Library.Math;
-import Library.Strings;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.WebGPUSurface;
 

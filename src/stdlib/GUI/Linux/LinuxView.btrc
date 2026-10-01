@@ -4,41 +4,19 @@ import Library.Vector;
 import Library.App;
 import Library.GUI.IView;
 import Library.GUI.Linux.LinuxContext;
-import Library.GUI.Linux.LinuxFonts;
 import Library.GUI.Linux.LinuxPainter;
-import Library.GUI.Linux.LinuxActionQueue;
 import Library.GUI.Linux.SDL;
 import Library.GPU.Device;
 import Library.GPU.WebGPU;
 
-/* Application-wide services every drawn view shares. Views retain it; it
- * retains no view. */
-class LinuxContext {
-	public LinuxFonts fonts;
-	public LinuxInvalidation invalidation;
-	public LinuxIds ids;
-	public LinuxActionQueue actions;
-	public LinuxTheme darkTheme;
-	public LinuxTheme lightTheme;
-
-	public LinuxContext(int workCapacity) {
-		self.fonts = LinuxFonts();
-		self.invalidation = LinuxInvalidation();
-		self.ids = LinuxIds();
-		self.actions = LinuxActionQueue(workCapacity);
-		self.darkTheme = LinuxTheme.darkTheme();
-		self.lightTheme = LinuxTheme.lightTheme();
-	}
-}
-
-/* What an attached subtree learns from its window: the native window for
- * text input, the device for GPU children, focus and the backing scale.
- * Owned by the window, referenced by attached nodes, referencing no view. */
 /* The window behind a host: advances its asynchronous device request on demand. */
 interface ILinuxDevicePoller {
 	bool pollDevice();
 }
 
+/* What an attached subtree learns from its window: the native window for
+ * text input, the device for GPU children, focus and the backing scale.
+ * Owned by the window, referenced by attached nodes, referencing no view. */
 class LinuxViewHost {
 	public SDL_Window* window;
 	public LinuxContext context;
@@ -53,7 +31,6 @@ class LinuxViewHost {
 	public double textInputY = 0.0;
 	public double textInputWidth = 0.0;
 	public double textInputHeight = 0.0;
-	public int cursorRequest = 0;
 	public int overlayId = 0;
 	public double width = 0.0;
 	public double height = 0.0;
@@ -249,8 +226,6 @@ class LinuxViewNode {
 		self.visible = visible;
 		self.invalidate();
 	}
-
-	public bool isFocused() { var host = self.host; return host != null && host.focusedId == self.id; }
 
 	public void requestFocus() { var host = self.host; if (host != null) { host.requestFocus(self.id); } }
 

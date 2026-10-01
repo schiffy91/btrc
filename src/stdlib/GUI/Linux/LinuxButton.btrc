@@ -1,6 +1,5 @@
 import Library.Callback;
 import Library.Math;
-import Library.Vector;
 import Library.App;
 import Library.Image;
 import Library.GUI.IButton;

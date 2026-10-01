@@ -1,5 +1,7 @@
 import Library.Math;
 import Library.Image;
+import Library.GUI.Linux.LinuxFonts;
+import Library.GUI.Linux.LinuxActionQueue;
 
 /* A monotonically increasing revision that windows compare against their last
  * frame. Views bump it on every visible mutation; nothing retains the views. */
@@ -103,4 +105,24 @@ class LinuxMetrics {
 	class double levelWidth() { return 100.0; }
 
 	class double spinnerSize() { return 24.0; }
+}
+
+/* Application-wide services every drawn view shares. Views retain it; it
+ * retains no view. */
+class LinuxContext {
+	public LinuxFonts fonts;
+	public LinuxInvalidation invalidation;
+	public LinuxIds ids;
+	public LinuxActionQueue actions;
+	public LinuxTheme darkTheme;
+	public LinuxTheme lightTheme;
+
+	public LinuxContext(int workCapacity) {
+		self.fonts = LinuxFonts();
+		self.invalidation = LinuxInvalidation();
+		self.ids = LinuxIds();
+		self.actions = LinuxActionQueue(workCapacity);
+		self.darkTheme = LinuxTheme.darkTheme();
+		self.lightTheme = LinuxTheme.lightTheme();
+	}
 }

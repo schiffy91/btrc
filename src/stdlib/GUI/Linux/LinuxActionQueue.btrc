@@ -15,8 +15,6 @@ class LinuxAction {
 
 	public bool accepts(int generation) { return self._open && self._generation == generation; }
 
-	public bool hasReceiver() { return self._open && self._handler != null; }
-
 	/* Called by the button on a completed click. */
 	public void invoke() { if (self._open) { self._mailbox.enqueue(self, self._generation); } }
 

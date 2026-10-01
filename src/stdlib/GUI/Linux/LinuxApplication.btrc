@@ -1,8 +1,6 @@
 import Library.Callback;
 import Library.Console;
-import Library.Datetime;
 import Library.Math;
-import Library.Strings;
 import Library.Vector;
 import Library.Image;
 import Library.GUI.IApplication;
@@ -92,8 +90,6 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 	}
 
 	public LinuxContext context() { return self._context; }
-
-	public bool quitRequested() { return self._quitRequested; }
 
 	private void requireIdle() {
 		if (self._dispatching) { throw "Native event dispatch is already active"; }

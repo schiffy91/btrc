@@ -3,7 +3,6 @@ import Library.Math;
 import Library.Strings;
 import Library.Bytes;
 import Library.App;
-import Library.Image;
 import Library.GUI.ITextField;
 import Library.GUI.IView;
 import Library.GUI.Linux.LinuxView;

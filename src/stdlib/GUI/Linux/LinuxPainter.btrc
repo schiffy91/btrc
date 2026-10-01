@@ -378,14 +378,6 @@ class LinuxPainter {
 		if (self._uniform == null) { throw "Cannot allocate native painter uniform"; }
 	}
 
-	public GPUDevice device() { return self._device; }
-
-	public WGPUTextureFormat nativeFormat() { return self._format; }
-
-	public LinuxFonts fonts() { return self._fonts; }
-
-	public double scale() { return self._scale; }
-
 	/* Wrap an external view (a GPU view's offscreen target) for sampling. */
 	public LinuxTexture borrowTexture(WGPUTextureView view, int width, int height) { return LinuxTexture.borrow(self._device, view, width, height, self._layout, self._sampler, self._uniform, 16ULL); }
 
@@ -400,8 +392,6 @@ class LinuxPainter {
 		self._images.put(identity, texture);
 		return texture;
 	}
-
-	public bool hasImageTexture(int identity) { return self._images.has(identity); }
 
 	public void forgetImageTexture(int identity) {
 		if (!self._images.has(identity)) { return; }
@@ -453,8 +443,6 @@ class LinuxPainter {
 	}
 
 	public void popClip() { if (self._clips.len > 1) { self._clips.pop(); } }
-
-	public LinuxClip clip() { return self._clips.last(); }
 
 	private LinuxDrawRun run(LinuxTexture texture) {
 		var clip = self._clips.last();
@@ -620,8 +608,6 @@ class LinuxPainter {
 		self.text(value, textX, textY, size, bold, color);
 		self.popClip();
 	}
-
-	public int vertexCount() { return self._vertexCount; }
 
 	/* Replay the recorded stream into the renderer's active pass. */
 	public void render(GPUSurfaceRenderer renderer) {

@@ -176,8 +176,6 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 
 	public unsigned int nativeId() { return self._id; }
 
-	public LinuxViewHost host() { return self._host; }
-
 	public SDL_Window* nativeWindow() { self.requireOpen(); return self._window; }
 
 	public bool owns(int viewId) { return self.locate(viewId) != null; }
@@ -331,11 +329,6 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	private AppPointerEvent localEvent(AppPointerAction action, AppPointerButton button, int clicks, double originX, double originY) { return AppPointerEvent(action, button, self._pointerX - originX, self._pointerY - originY, self._modifiers, clicks); }
-
-	private bool onPath(Vector<LinuxHit> path, int id) {
-		for hit in path { if (hit.view.node().id == id) { return true; } }
-		return false;
-	}
 
 	/* Enter/exit bookkeeping for subscriptions and controls along the path. */
 	private void updateHover(Vector<LinuxHit> path) {

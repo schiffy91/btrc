@@ -1,7 +1,6 @@
 import Library.Map;
 import Library.Math;
 import Library.Strings;
-import Library.GUI.Font;
 import Library.GUI.FontFace;
 import Library.GUI.FreeType.FreeTypeFace;
 
@@ -58,18 +57,16 @@ class LinuxGlyph {
 class LinuxFace {
 	public int key;
 	public int pixelSize;
-	public bool bold;
 	public double ascent;
 	public double descent;
 	public double lineHeight;
 	private FreeTypeFace _face;
 	private Map<int, LinuxGlyph> _glyphs;
 
-	public LinuxFace(int key, string path, int pixelSize, bool bold) {
+	public LinuxFace(int key, string path, int pixelSize) {
 		self._glyphs = new Map<int, LinuxGlyph>();
 		self.key = key;
 		self.pixelSize = pixelSize;
-		self.bold = bold;
 		self._face = FreeTypeFace(path, pixelSize);
 		var metrics = self._face.metrics();
 		self.ascent = (double)metrics.ascenderFixed() / 64.0;
@@ -145,7 +142,7 @@ class LinuxFonts {
 		int key = pixelSize * 2 + (bold ? 1 : 0);
 		if (self._faces.has(key)) { return self._faces.get(key); }
 		if (self._faces.size() > 48) { self._faces.clear(); }
-		var face = LinuxFace(key, bold ? self._boldPath : self._regularPath, pixelSize, bold);
+		var face = LinuxFace(key, bold ? self._boldPath : self._regularPath, pixelSize);
 		self._faces.put(key, face);
 		return face;
 	}
@@ -154,6 +151,4 @@ class LinuxFonts {
 	public double textWidth(string text, double points, bool bold) { return self.face(points, bold).advance(text) / self._scale; }
 
 	public double lineHeight(double points, bool bold) { return self.face(points, bold).lineHeight / self._scale; }
-
-	public double ascent(double points, bool bold) { return self.face(points, bold).ascent / self._scale; }
 }

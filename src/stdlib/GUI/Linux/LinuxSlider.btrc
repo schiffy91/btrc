@@ -1,7 +1,6 @@
 import Library.Callback;
 import Library.Math;
 import Library.App;
-import Library.Image;
 import Library.GUI.ISlider;
 import Library.GUI.IView;
 import Library.GUI.Linux.LinuxView;

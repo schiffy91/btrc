@@ -1,7 +1,6 @@
 import Library.Callback;
 import Library.Console;
 import Library.Math;
-import Library.Vector;
 import Library.App;
 import Library.GUI.IStack;
 import Library.GUI.IView;

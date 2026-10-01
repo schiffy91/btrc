@@ -9,7 +9,6 @@ import Library.GUI.Capture;
 import Library.GUI.TextRun;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxApplication;
-import Library.GUI.Linux.LinuxWindow;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxImageView;
 import Library.GUI.Linux.LinuxDirectoryPicker;
