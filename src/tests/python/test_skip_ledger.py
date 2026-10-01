@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from src.tests import runner_capabilities as capabilities
+from src.tests.process_limits import TRANSPILE_TIMEOUT
 from tools.qualification.skips import (
     MANIFEST_ROOT,
     RUNNERS,
@@ -497,7 +498,13 @@ def _dry_run(*args: str) -> list[str]:
         if key not in {"PYTEST_WORKERS", "PYTEST_ARGS", "PYTEST_SERIAL_ARGS", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES"}
     }
     output = subprocess.run(
-        ["make", "--dry-run", *args], cwd=REPO, env=environment, check=True, capture_output=True, text=True
+        ["make", "--dry-run", *args],
+        cwd=REPO,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=TRANSPILE_TIMEOUT,
     ).stdout
     return [line.strip() for line in output.replace("\\\n", " ").splitlines()]
 

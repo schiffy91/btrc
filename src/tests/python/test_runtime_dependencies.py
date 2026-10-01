@@ -1,6 +1,5 @@
 """Structured freestanding-runtime dependency contracts."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -15,8 +14,8 @@ from src.compiler.python.ir.nodes import IRInclude, IRModule
 from src.compiler.python.ir.verifier import IRVerifier
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 STDLIB = Path(__file__).parents[2] / "stdlib"
 
 
@@ -165,8 +164,8 @@ def test_try_runtime_selects_target_owned_setjmp_type():
     assert "#define BTRC_RT_NEEDS_SETJMP 1" in emitted
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     ("source", "header_macro", "include_dir"),
     (

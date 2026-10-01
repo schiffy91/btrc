@@ -15,7 +15,6 @@ import contextlib
 import hashlib
 import inspect
 import os
-import shlex
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -23,7 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.runner import default_c_compiler
+from src.tests.c_toolchains import configured_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.skip_ledger import SkipLedger
 
 REPO = Path(__file__).resolve().parents[2]
@@ -184,10 +184,7 @@ def _btrcc_fingerprint(compiler: list[str]) -> str:
             digest.update(source.read_bytes())
     digest.update(b"\0".join(part.encode() for part in compiler))
     version = subprocess.run(
-        [compiler[0], "--version"],
-        capture_output=True,
-        text=True,
-        check=False,
+        [compiler[0], "--version"], capture_output=True, text=True, check=False, timeout=C_COMPILE_TIMEOUT
     )
     digest.update(version.stdout.encode())
     digest.update(inspect.getsource(_build_immutable_btrcc).encode())
@@ -225,7 +222,7 @@ def immutable_btrcc(_selfhost_runtime_data) -> Path:
     configured = _configured_test_btrcc()
     if configured is not None:
         return configured
-    compiler = shlex.split(os.environ.get("BTRC_CC", default_c_compiler()))
+    compiler = configured_c_compiler()
     if not compiler:
         raise ValueError("BTRC_CC must name a C compiler")
     output = REPO / "build" / "test-btrcc" / _btrcc_fingerprint(compiler)
@@ -305,7 +302,7 @@ def selfhost_driver(_selfhost_runtime_data):
     worker, and every later run over unchanged sources.
     """
 
-    compiler = shlex.split(os.environ.get("BTRC_CC", default_c_compiler()))
+    compiler = configured_c_compiler()
     if not compiler:
         raise ValueError("BTRC_CC must name a C compiler")
     revision = _btrcc_fingerprint(compiler)

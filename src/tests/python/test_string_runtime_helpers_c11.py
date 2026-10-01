@@ -1,6 +1,5 @@
 """Strict-C checks for minimal managed-string helper closures."""
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -8,12 +7,12 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 RUNTIME_CATALOG = RuntimeHelperCatalog()
 STRING_OWNERSHIP = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string_ownership")}
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
-NO_C11_COMPILER = not COMPILERS or sys.platform == "win32"
+NO_C11_COMPILER = not HOST_C_COMPILERS or sys.platform == "win32"
 
 HEADERS = """\
 #include <limits.h>
@@ -112,7 +111,7 @@ int main(void) {
 
 
 @pytest.mark.skipif(NO_C11_COMPILER, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("root", ROOT_PROGRAMS)
 def test_minimal_string_helper_root_is_warning_clean(tmp_path: Path, c_compiler: str, root: str):
     helpers = RUNTIME_CATALOG.definitions_for({root})

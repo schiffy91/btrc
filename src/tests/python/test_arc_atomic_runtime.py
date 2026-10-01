@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 ROOTS = {
     "__btrc_safe_calloc",
@@ -335,8 +336,6 @@ int main(void) {{
 }}
 """
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
-
 
 def _build_and_run(
     tmp_path: Path,
@@ -387,8 +386,8 @@ def _build_and_run(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a pthread C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda value: Path(value).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda value: Path(value).name)
 def test_atomic_arc_stress_is_strict_c11_clean(tmp_path: Path, c_compiler: str) -> None:
     run = _build_and_run(tmp_path, c_compiler)
     assert run.returncode == 0, run.stderr

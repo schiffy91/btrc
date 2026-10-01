@@ -1,15 +1,14 @@
 """Strict-C11 runtime coverage for generic type and symbol identities."""
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 RUNTIME_SOURCE = """
 #include <assert.h>
@@ -82,10 +81,10 @@ int main() {
 
 
 @pytest.mark.skipif(
-    not COMPILERS or sys.platform == "win32",
+    not HOST_C_COMPILERS or sys.platform == "win32",
     reason="requires a hosted C11 compiler",
 )
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_class_and_method_type_identities_compile_and_run_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -112,5 +111,6 @@ def test_class_and_method_type_identities_compile_and_run_strict_c11(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
-    subprocess.run([binary], check=True, capture_output=True, text=True)
+    subprocess.run([binary], check=True, capture_output=True, text=True, timeout=RUN_TIMEOUT)

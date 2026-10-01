@@ -1,7 +1,6 @@
 """Resolved-type and symbolic-expression contracts for structured IR."""
 
 import ast
-import shutil
 import subprocess
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -29,9 +28,10 @@ from src.compiler.python.ir.nodes import (
 from src.compiler.python.ir.verifier import IRVerifier
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
 IR_ROOT = Path(__file__).parents[2] / "compiler/python/ir"
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _self_attribute_chain(node: ast.AST) -> tuple[str, ...]:
@@ -258,8 +258,8 @@ def test_complex_function_pointer_member_calls_preserve_receiver_structure():
         assert factory_calls == [member.obj]
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_complex_function_pointer_member_calls_run_in_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -312,8 +312,9 @@ def test_complex_function_pointer_member_calls_run_in_strict_c11(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
-    subprocess.run([executable], check=True, capture_output=True, text=True)
+    subprocess.run([executable], check=True, capture_output=True, text=True, timeout=RUN_TIMEOUT)
 
 
 def test_unresolved_generic_constructor_never_guesses_a_registered_instance():

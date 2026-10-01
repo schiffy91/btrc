@@ -20,6 +20,7 @@ from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.sources import StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
+from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 REPO = Path(__file__).resolve().parents[3]
@@ -54,6 +55,7 @@ def native_project(tmp_path, monkeypatch):
         capture_output=True,
         text=True,
         check=True,
+        timeout=TOOL_TIMEOUT,
     ).stdout.strip()
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
     triple = f"{architecture}-apple-macosx14.0.0"
@@ -5431,6 +5433,7 @@ int main() {
         env=apple_environment(),
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert built.returncode == 0, built.stderr
 

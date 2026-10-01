@@ -1,7 +1,6 @@
 """Strict-C regression coverage for managed compound-update temporaries."""
 
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,11 +13,11 @@ from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitized_build_and_run
 from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import _tracked_strict_matrix
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "src/tests/classes/ClassCompoundAssignment.btrc"
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 CONVERTED_RHS_SOURCE = r"""
 #include <assert.h>
@@ -498,8 +497,8 @@ def test_arc_field_publication_keeps_a_protected_caller_reference(
     assert registration < publication < clearing < releasing
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires hosted C11 compilers")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_arc_field_publication_is_strict_c11_and_unwind_safe(
     tmp_path: Path,
     arc_field_publication_c: Path,
@@ -530,7 +529,7 @@ def test_arc_field_publication_is_strict_c11_and_unwind_safe(
     assert executed.returncode == 0, executed.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@requires_host_c_compiler
 def test_arc_field_publication_is_sanitizer_clean(
     tmp_path: Path,
     arc_field_publication_c: Path,
@@ -625,7 +624,7 @@ def test_generic_compound_overload_fails_closed_on_incompatible_concrete_paramet
         )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires hosted C11 compilers")
+@requires_host_c_compiler
 def test_generic_template_compound_materializes_concrete_string_conversion(tmp_path: Path) -> None:
     generated = tmp_path / "generic-template-compound-conversion.c"
     source = emit_c(GENERIC_TEMPLATE_CONVERSION_SOURCE)
@@ -633,7 +632,7 @@ def test_generic_template_compound_materializes_concrete_string_conversion(tmp_p
     assert re.search(r"static char\* btrc_Word_int_toString\(", source)
     assert "btrc_Word_int_toString(__btrc_call_operand_" in source
 
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         executable = tmp_path / f"generic-template-compound-conversion-{Path(compiler).name}"
         build = subprocess.run(
             [
@@ -659,7 +658,7 @@ def test_generic_template_compound_materializes_concrete_string_conversion(tmp_p
         assert run.returncode == 0, run.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires hosted C11 compilers")
+@requires_host_c_compiler
 def test_compound_overload_rhs_conversion_is_tracked_and_sanitized(tmp_path: Path) -> None:
     tracked = tmp_path / "compound-converted-rhs-tracked.c"
     tracked.write_text(emit_c(CONVERTED_RHS_SOURCE))
@@ -675,7 +674,7 @@ def test_compound_overload_rhs_conversion_is_tracked_and_sanitized(tmp_path: Pat
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="requires a Unix C runtime")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_class_compound_fixture_is_strict_c11_warning_clean(
     tmp_path: Path,
     compound_fixture_c: Path,

@@ -22,6 +22,7 @@ from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
 ARCHIVE_CODEC = ArchiveCodec()
 write_tar_gz = ARCHIVE_CODEC.write_tar_gz
 write_zip = ARCHIVE_CODEC.write_zip
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.test_btrcc_bundle import _fixture
 
 
@@ -178,6 +179,7 @@ def test_windows_junction_is_rejected_as_archive_entry_and_destination(
         capture_output=True,
         text=True,
         check=False,
+        timeout=TOOL_TIMEOUT,
     )
     if result.returncode:
         pytest.skip(f"cannot create a native junction: {result.stderr.strip()}")

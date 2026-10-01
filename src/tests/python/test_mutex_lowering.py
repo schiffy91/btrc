@@ -1,7 +1,6 @@
 """Focused typed-box, lifetime-domain, and helper-DCE Mutex contracts."""
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -9,9 +8,8 @@ import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _emit_with_stdlib(source: str) -> str:
@@ -71,8 +69,8 @@ def _compile_and_run_strict_c11(generated: str, tmp_path: Path, c_compiler: str,
     assert executed.returncode == 0, executed.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_language_mutex_constructor_executes_under_strict_c11(tmp_path: Path, c_compiler: str):
     generated = emit_c("""
         int main() {
@@ -116,8 +114,8 @@ def test_language_mutex_constructor_executes_under_strict_c11(tmp_path: Path, c_
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_mutex_destroy_consumes_only_its_slot_under_strict_c11(tmp_path: Path, c_compiler: str):
     generated = emit_c("""
         int main() {
@@ -171,8 +169,8 @@ def test_mutex_destroy_consumes_only_its_slot_under_strict_c11(tmp_path: Path, c
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_mutex_set_evaluates_receiver_before_value_under_strict_c11(tmp_path: Path, c_compiler: str):
     generated = emit_c("""
         #include <assert.h>
@@ -234,8 +232,8 @@ def test_mutex_set_evaluates_receiver_before_value_under_strict_c11(tmp_path: Pa
     assert executed.returncode == 0, executed.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_owned_temporary_mutex_set_and_get_release_receiver_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -283,8 +281,8 @@ def test_owned_temporary_mutex_set_and_get_release_receiver_under_strict_c11(
     _compile_and_run_strict_c11(generated, tmp_path, c_compiler, "mutex_owned_receiver")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_mutex_set_releases_owned_managed_rhs_under_strict_c11(tmp_path: Path, c_compiler: str):
     generated = emit_c("""
         #include <assert.h>
@@ -317,8 +315,8 @@ def test_mutex_set_releases_owned_managed_rhs_under_strict_c11(tmp_path: Path, c
     _compile_and_run_strict_c11(generated, tmp_path, c_compiler, "mutex_owned_rhs")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_mutex_set_contextually_types_builtin_collection_result_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -363,8 +361,8 @@ def test_new_managed_constructors_use_constructor_ownership() -> None:
     assert "__btrc_mutex_val_create(" in generated
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_new_mutex_constructor_shares_the_owned_call_boundary(tmp_path: Path, c_compiler: str):
     generated = emit_c("""
         #include <assert.h>
@@ -396,8 +394,8 @@ def test_new_mutex_constructor_shares_the_owned_call_boundary(tmp_path: Path, c_
     _compile_and_run_strict_c11(generated, tmp_path, c_compiler, "new_mutex_owned_boundary")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_new_mutex_constructor_is_single_evaluation_and_exception_safe(
     tmp_path: Path,
     c_compiler: str,
@@ -442,8 +440,8 @@ def test_new_mutex_constructor_is_single_evaluation_and_exception_safe(
     _compile_and_run_strict_c11(generated, tmp_path, c_compiler, "new_mutex_exception_boundary")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_owned_temporary_mutex_receiver_is_protected_before_throwing_rhs_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,

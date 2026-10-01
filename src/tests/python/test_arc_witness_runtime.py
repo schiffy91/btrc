@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,16 +10,17 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.test_arc_ownership_contracts import _asan_environment
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 # The sanitizer build also tries the Darwin system compiler, in the isolated
 # environment the other ASan contracts use: a Nix toolchain on Darwin may lack
 # a sanitizer runtime that links or runs.
-SANITIZER_COMPILERS = COMPILERS + tuple(
+SANITIZER_COMPILERS = HOST_C_COMPILERS + tuple(
     path
     for path in ("/usr/bin/clang",)
-    if sys.platform == "darwin" and os.access(path, os.X_OK) and path not in map(os.path.realpath, COMPILERS)
+    if sys.platform == "darwin" and os.access(path, os.X_OK) and path not in map(os.path.realpath, HOST_C_COMPILERS)
 )
 SANITIZE = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
 
@@ -401,7 +401,7 @@ int main(void) {
 
 
 @pytest.mark.skipif(
-    not COMPILERS or sys.platform == "win32",
+    not HOST_C_COMPILERS or sys.platform == "win32",
     reason="requires a strict C11 compiler",
 )
 @pytest.mark.parametrize("c_compiler", SANITIZER_COMPILERS, ids=lambda path: Path(path).name)
@@ -428,6 +428,7 @@ def test_witness_transitions_are_exact(tmp_path: Path, c_compiler: str, sanitize
         capture_output=True,
         text=True,
         env=environment,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert built.returncode == 0, built.stderr
     subprocess.run([str(binary)], check=True, timeout=15, env=environment)
@@ -444,6 +445,7 @@ def _require_sanitizers(tmp_path: Path, c_compiler: str, environment: dict[str, 
         capture_output=True,
         text=True,
         env=environment,
+        timeout=C_COMPILE_TIMEOUT,
     )
     if built.returncode != 0:
         pytest.skip(f"{name} cannot link ASan+UBSan here: {built.stderr.strip()[:120]}")

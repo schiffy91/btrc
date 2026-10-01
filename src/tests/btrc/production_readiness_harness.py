@@ -13,11 +13,12 @@ from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
     _compiler_environment,
     _tracked_strict_matrix,
 )
-from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO
+from src.tests.btrc.test_mutex_value_contract import REPO
 from src.tests.btrc.test_semantic_validation import (
     _compile_reference_source,
     _compile_source,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 CompiledPair = tuple[tuple[str, Path], tuple[str, Path]]
 OutputValidator = Callable[[str], None]
@@ -96,7 +97,7 @@ def run_strict_pair(
 ) -> None:
     """Build and execute both outputs with every strict hosted C compiler."""
     for frontend, generated in compiled:
-        for compiler in COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             compiler_name = Path(compiler).name
             executable = tmp_path / f"{frontend}-{compiler_name}-production"
             environment = _compiler_environment(compiler)

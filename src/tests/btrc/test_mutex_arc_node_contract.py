@@ -4,18 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import (
-    COMPILERS,
-    REPO,
-    _build_and_run,
-    _compile_pair,
-    _strict_matrix,
-)
+from src.tests.btrc.test_mutex_value_contract import REPO, _build_and_run, _compile_pair, _strict_matrix
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires a pthread C11 compiler",
 )
 
@@ -33,7 +28,7 @@ def test_selfhost_mutex_transport_storage_resolves_active_specialization() -> No
 
 
 def _optimization_matrix(compiled, tmp_path):
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         for level in range(4):
             output = tmp_path / (f"{compiled[0]}-{Path(compiler).name}-O{level}")
             _build_and_run(

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 ROOTS = {
@@ -33,7 +34,6 @@ ROOTS = {
 RUNTIME = "\n\n".join(helper.c_source for helper in RuntimeHelperCatalog().definitions_for(ROOTS))
 FIXTURE = Path(__file__).with_name("fixtures") / "arc_concurrency_regressions.c"
 MARKER = "/* BTRC_RUNTIME_HELPERS */"
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _compiler_environment(compiler: str) -> dict[str, str] | None:
@@ -92,8 +92,8 @@ def _build_and_run(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a pthread C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda value: Path(value).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda value: Path(value).name)
 def test_arc_concurrency_regressions_are_strict_c11_clean(
     tmp_path: Path,
     c_compiler: str,

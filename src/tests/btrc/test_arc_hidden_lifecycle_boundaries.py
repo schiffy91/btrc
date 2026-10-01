@@ -9,12 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import (
-    COMPILERS,
-    REPO,
-    _compile_pair,
-    _strict_matrix,
-)
+from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair, _strict_matrix
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -63,7 +59,7 @@ def _tracked_strict_matrix(
     extra_compile_args: tuple[str, ...] = (),
     extra_sources: tuple[Path, ...] = (),
 ) -> None:
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         output = tmp_path / f"{compiled[0]}-{Path(compiler).name}-tracked"
         environment = _compiler_environment(compiler)
         build = subprocess.run(

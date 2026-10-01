@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
+from src.tests.process_limits import RUN_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 
@@ -54,7 +55,7 @@ def project(monkeypatch):
 
 
 def execute(options):
-    return subprocess.check_output([str(options["output"])], text=True)
+    return subprocess.check_output([str(options["output"])], text=True, timeout=RUN_TIMEOUT)
 
 
 def test_real_build_reuses_receipts_objects_executable_and_debug_inputs(project):

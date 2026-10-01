@@ -23,6 +23,7 @@ from pathlib import Path
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -48,6 +49,7 @@ def _compile(tmp_path, source, run=False):
         capture_output=True,
         text=True,
         env={"BTRC_CACHE_DIR": str(tmp_path / "cache"), "PATH": "/usr/bin:/bin"},
+        timeout=TRANSPILE_TIMEOUT,
     )
     if not run:
         return r, out_c
@@ -58,9 +60,10 @@ def _compile(tmp_path, source, run=False):
         cwd=REPO,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert g.returncode == 0, g.stderr
-    run_res = subprocess.run([str(exe)], capture_output=True, text=True)
+    run_res = subprocess.run([str(exe)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
     return run_res, out_c
 
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 REPO = Path(__file__).resolve().parents[3]
@@ -57,7 +58,9 @@ def _reference(
     if plan is not None:
         command.extend(("--emit-link-plan", str(plan)))
     command.extend((str(source), "-o", str(generated)))
-    return subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=_environment())
+    return subprocess.run(
+        command, cwd=REPO, capture_output=True, text=True, env=_environment(), timeout=TRANSPILE_TIMEOUT
+    )
 
 
 def _selfhost(
@@ -71,7 +74,9 @@ def _selfhost(
     if plan is not None:
         command.extend(("--emit-link-plan", str(plan)))
     command.append(str(source))
-    return subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=_environment())
+    return subprocess.run(
+        command, cwd=REPO, capture_output=True, text=True, env=_environment(), timeout=TRANSPILE_TIMEOUT
+    )
 
 
 def _manifest(path: Path, name: str, dependencies: str = "", native: str = "") -> None:
@@ -480,7 +485,7 @@ def test_selfhost_plan_is_reference_exact_and_builds_native_package(
     assert (EXAMPLE / "btrc.lock").read_bytes() == lock_before
     executable = tmp_path / "native-package"
     NativePlanBuilder().build(plan_path=selfhost_plan, generated_c=selfhost_c, output=executable)
-    completed = subprocess.run([str(executable)], capture_output=True, check=True, text=True)
+    completed = subprocess.run([str(executable)], capture_output=True, check=True, text=True, timeout=RUN_TIMEOUT)
     assert completed.stdout == "PASS: native package graph\n"
 
 
@@ -741,6 +746,7 @@ def test_selfhost_versioned_manifest_requires_explicit_target(
         capture_output=True,
         text=True,
         env=_environment(),
+        timeout=TRANSPILE_TIMEOUT,
     )
 
     assert result.returncode != 0

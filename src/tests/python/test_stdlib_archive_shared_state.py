@@ -12,6 +12,7 @@ from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.ir.nodes import IRHelperDecl, IRModule
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.python.stdlib_archive_state_fixture import PROGRAM_SOURCE
 
 ARCHIVE = CompilationPipeline().stdlib_archive
@@ -21,7 +22,6 @@ CYCLES = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_categ
 STRING_OWNERSHIP = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string_ownership")}
 TRYCATCH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("trycatch")}
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 AR = shutil.which("ar")
 
 
@@ -365,7 +365,7 @@ static void __btrc_test_unlock_raw(void) {
 """
 
 
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_guarded_state_keeps_one_cross_tu_owner(tmp_path: Path, c_compiler: str):
     """A helper whose state sits behind #if still gets exactly one owner.
 
@@ -518,10 +518,10 @@ def _compile_object(
 
 
 @pytest.mark.skipif(
-    not COMPILERS or AR is None or sys.platform == "win32",
+    not HOST_C_COMPILERS or AR is None or sys.platform == "win32",
     reason="requires a hosted C11 compiler and archiver",
 )
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_shared_capacity_growth_and_reset_cross_archive_boundary(
     tmp_path: Path,
     c_compiler: str,

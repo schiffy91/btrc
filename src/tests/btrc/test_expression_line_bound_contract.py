@@ -15,7 +15,8 @@ from src.tests.btrc.string_coercion_harness import compile_pair
 from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
     _compiler_environment,
 )
-from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO
+from src.tests.btrc.test_mutex_value_contract import REPO
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -68,7 +69,7 @@ def _logical_lines(source: str) -> list[str]:
     return logical
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_deep_method_chain_has_bounded_strict_c11_output(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -81,7 +82,7 @@ def test_deep_method_chain_has_bounded_strict_c11_output(
     run_strict_pair(compiled, tmp_path)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_assert_argument_runs_once_under_ndebug_in_generic_methods(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -96,7 +97,7 @@ def test_assert_argument_runs_once_under_ndebug_in_generic_methods(
     for frontend, generated in compiled:
         source = generated.read_text()
         assert "bool __btrc_assert_condition_" in source
-        for compiler in COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"{frontend}-{Path(compiler).name}-ndebug"
             environment = _compiler_environment(compiler)
             build = subprocess.run(

@@ -1,6 +1,5 @@
 """Strict-C proof for helpers introduced by the optimizer boundary pass."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -22,8 +21,7 @@ from src.compiler.python.ir.nodes import (
     IRReturn,
 )
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 
 def _edge_only_module() -> IRModule:
@@ -75,8 +73,8 @@ def _edge_only_module() -> IRModule:
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_optimizer_added_flush_helper_is_dependency_safe_strict_c(
     tmp_path: Path,
     c_compiler: str,

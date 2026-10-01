@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,8 +10,7 @@ import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 STRING_SOURCE = r"""
 import Library.Console;
@@ -57,8 +55,8 @@ def _emit_string_runtime() -> str:
     return compiler.pipeline.emit(module)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_nullable_vector_join_and_console_are_strict_c11(
     tmp_path: Path,
     c_compiler: str,

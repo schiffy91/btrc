@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,8 +15,8 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRCall, IRInitializerList, IRNode, IRVarDecl
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 
 def _analyze(source: str):
@@ -68,6 +67,7 @@ def _strict_build_generated(
         capture_output=True,
         text=True,
         check=False,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert built.returncode == 0, built.stderr
     subprocess.run([str(executable)], check=True, timeout=10)
@@ -294,8 +294,8 @@ EFFECTFUL_INITIALIZER_SOURCE = """
 """
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     "source",
     (ORDERING_SOURCE, INITIALIZER_SOURCE, POINTER_SOURCE),
@@ -330,8 +330,8 @@ def test_inert_array_initializer_keeps_direct_c_brace_shape() -> None:
     assert "__btrc_call_operand" not in emitted
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_effectful_aggregate_initializers_run_once_in_source_order(
     c_compiler: str,
     tmp_path: Path,
@@ -339,8 +339,8 @@ def test_effectful_aggregate_initializers_run_once_in_source_order(
     _strict_build_and_run(EFFECTFUL_INITIALIZER_SOURCE, tmp_path, c_compiler)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_imported_c_enum_array_initializer_keeps_typed_source_order(
     c_compiler: str,
     tmp_path: Path,

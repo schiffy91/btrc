@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +14,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     sanitized_build_and_run,
 )
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -23,10 +23,9 @@ FIXTURES = Path(__file__).with_name("fixtures")
 ABI_RUNTIME = FIXTURES / "ThreadResultAbiRuntime.btrc"
 MANAGED_RUNTIME = FIXTURES / "ThreadManagedResultOwnershipRuntime.btrc"
 SCOPE_RUNTIME = FIXTURES / "ThreadScopeCleanupRuntime.btrc"
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires a pthread C11 compiler",
 )
 
@@ -107,7 +106,7 @@ def _run(output: Path):
 
 
 def _strict_matrix(compiled, tmp_path, support=None):
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         output = tmp_path / f"{compiled[0]}-{Path(compiler).name}"
         build = _build(compiled[1], output, compiler, support=support)
         assert build.returncode == 0, build.stderr
@@ -269,7 +268,7 @@ def test_direct_repeated_join_fails_deterministically(
         source,
         "repeated-join",
     )
-    compiler = COMPILERS[0]
+    compiler = HOST_C_COMPILERS[0]
     for name, generated in compiled:
         output = tmp_path / f"{name}-repeated-join"
         build = _build(generated, output, compiler)

@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
+from src.tests.process_limits import TRANSPILE_TIMEOUT
 from tools.compiler_codegen import GeneratedArtifact, GeneratedSourceError, format_generated_btrc
 from tools.compiler_codegen.verification import (
     GeneratedSourceSet,
@@ -93,6 +94,7 @@ def _dry_run(target: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     return result.stdout
 

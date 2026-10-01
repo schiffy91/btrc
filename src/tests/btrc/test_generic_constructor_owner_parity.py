@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -14,10 +13,9 @@ from src.tests.btrc.test_semantic_validation import (
     _compile_reference_source,
     _compile_source,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _compile_pair(semantic_btrcc: Path, tmp_path: Path, source: str):
@@ -128,7 +126,7 @@ def test_generic_constructor_owners_have_strict_runtime_parity(
     compiled = _compile_pair(semantic_btrcc, tmp_path, source)
     for frontend, result, generated in compiled:
         assert result.returncode == 0, result.stderr
-        for compiler in COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"{frontend}-{Path(compiler).name}"
             _strict_build_and_run(generated, executable, compiler)
 
@@ -151,7 +149,7 @@ int main() {{ return 0; }}
 """
     for frontend, result, generated in _compile_pair(semantic_btrcc, tmp_path, source):
         assert result.returncode == 0, result.stderr
-        for compiler in COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             _strict_build_and_run(generated, tmp_path / f"{frontend}-{Path(compiler).name}", compiler)
 
 

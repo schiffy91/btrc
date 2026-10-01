@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -26,8 +25,7 @@ from src.compiler.python.ir.nodes import (
 )
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 STATIC_INITIALIZER_SOURCE = """
 int values[5] = {20 + 1, 7 * 6, 126 / 3, 85 % 43, (9 > 3) ? 42 : 0};
@@ -151,8 +149,8 @@ def test_dynamic_or_zero_static_initializers_remain_rejected(source: str) -> Non
     assert any("requires a C constant/address initializer" in error for error in analyzed.errors)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_static_initializer_operators_are_strict_c11_and_runtime_correct(
     tmp_path: Path,
     c_compiler: str,

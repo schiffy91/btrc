@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.test_native_import_consumer import REPO, apple_environment
 from src.tests.python.test_native_import_consumer import native_compile as native_compile
 from src.tests.python.test_native_import_consumer import native_project as native_project
@@ -17,7 +18,10 @@ from tools.native_plan import NativePlanBuilder
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("snapshot", [False, True])
 def test_freetype_unique_setup(native_project, native_compile, sanitize, snapshot):
-    if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "freetype2"]).returncode:
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
         pytest.skip("requires the optional FreeType SDK through pkg-config")
     font = Path(os.environ.get("BTRC_TEST_FONT", "/System/Library/Fonts/Supplemental/Arial.ttf"))
     if not font.is_file():
@@ -149,7 +153,10 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("consumer", ["GuiFontConformance", "FontSmoke"])
 def test_optional_freetype_factory(native_project, native_compile, sanitize, consumer):
-    if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "freetype2"]).returncode:
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
         pytest.skip("requires the optional FreeType SDK through pkg-config")
     font = Path(os.environ.get("BTRC_TEST_FONT", "/System/Library/Fonts/Supplemental/Arial.ttf"))
     if consumer == "GuiFontConformance" and not font.is_file():

@@ -1,6 +1,5 @@
 """White-box coverage for typed IR declarations and their C ordering."""
 
-import shutil
 import subprocess
 from dataclasses import fields
 from pathlib import Path
@@ -41,8 +40,8 @@ from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.ir.verifier import IRVerifier
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
 
 def _generate(source: str, *, freestanding: bool = False):
@@ -300,8 +299,8 @@ def test_malformed_or_unsupported_directives_fail_closed(
         _generate(f"{directive}\nint main() {{ return 0; }}")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("freestanding", (False, True), ids=("hosted", "freestanding"))
 def test_local_include_keeps_quotes_and_compiles(
     tmp_path: Path,
@@ -352,8 +351,9 @@ def test_local_include_keeps_quotes_and_compiles(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_source_include_then_macro_order_is_preserved():
@@ -464,8 +464,8 @@ def test_callback_type_aliases_precede_source_aliases_and_payload_fields():
     assert emitted.index("struct Event {") < emitted.index("Event invoke(Event value);")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_typed_declaration_order_is_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -527,6 +527,7 @@ def test_typed_declaration_order_is_strict_c11(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
 
 
@@ -551,7 +552,7 @@ def test_local_storage_qualifiers_are_declaration_metadata():
     assert "extern int external;" in emitted
 
 
-@pytest.mark.parametrize("c_compiler", COMPILERS)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS)
 def test_unused_local_extern_has_portable_unevaluated_use(tmp_path, c_compiler):
     module = _generate("""
         void declareExternal() {
@@ -654,8 +655,8 @@ def test_generic_class_specialization_preserves_source_pack_metadata():
     assert packed.pack_alignment == 1
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_macros_and_pack_execute_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -690,13 +691,9 @@ def test_macros_and_pack_execute_under_strict_c11(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
-    subprocess.run(
-        [str(executable)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    subprocess.run([str(executable)], check=True, capture_output=True, text=True, timeout=RUN_TIMEOUT)
 
 
 def test_initializers_and_compound_literals_remain_structured():
@@ -715,8 +712,8 @@ def test_initializers_and_compound_literals_remain_structured():
     assert isinstance(declarations[1].init, IRCompoundLiteral)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_local_array_initializer_executes_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -746,5 +743,6 @@ def test_local_array_initializer_executes_under_strict_c11(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)

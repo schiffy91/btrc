@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO
+from src.tests.btrc.test_mutex_value_contract import REPO
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -162,7 +163,7 @@ def test_invalid_contract_diagnostics_are_exactly_equal(
     assert selfhost_identity == reference_identity
 
 
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda compiler: Path(compiler).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda compiler: Path(compiler).name)
 def test_valid_primitives_have_strict_c11_runtime_parity(
     semantic_btrcc: Path,
     tmp_path: Path,

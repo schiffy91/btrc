@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -15,10 +14,11 @@ from src.tests.btrc.test_semantic_validation import (
     _compile_reference_source,
     _strict_build_and_run,
 )
+from src.tests.c_toolchains import configured_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src" / "compiler" / "btrc"
-CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+CC = configured_c_compiler()
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 pytestmark = pytest.mark.skipif(

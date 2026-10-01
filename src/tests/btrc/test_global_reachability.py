@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,10 +11,10 @@ from src.tests.btrc.test_semantic_validation import (
     _compile_reference_source,
     _compile_source,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 DEAD_MODULE_SOURCE = """
     int abandonedState = 41;
@@ -120,8 +119,8 @@ def _strict_compile(source: Path, output: Path, c_compiler: str) -> None:
     assert build.returncode == 0, build.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_dead_module_globals_are_pruned_strictly(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -144,8 +143,8 @@ def test_dead_module_globals_are_pruned_strictly(
         )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     ("entryless_source", "dead_symbols"),
     (
@@ -177,8 +176,8 @@ def test_entryless_module_value_graph_is_pruned_strictly(
         )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_live_global_roots_and_external_linkage_are_preserved(
     semantic_btrcc: Path,
     tmp_path: Path,

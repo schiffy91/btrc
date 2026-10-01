@@ -16,6 +16,7 @@ from src.compiler.python.frontend.packages import (
     ResolvedPackages,
 )
 from src.compiler.python.frontend.stage import FrontendStage
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 
 @pytest.fixture(params=["reference", "selfhost"])
@@ -116,6 +117,7 @@ def test_source_provider_selection_uses_compilation_target(tmp_path, package_com
         ["cc", "-std=c11", "-pedantic-errors", str(generated), "-o", str(executable), "-lm", "-lpthread"],
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert built.returncode == 0, built.stderr
     run = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)

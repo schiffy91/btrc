@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from dataclasses import fields, is_dataclass
 from pathlib import Path
@@ -13,10 +12,11 @@ from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import Identifier
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.test_codegen import emit_c
 
 FIXTURE = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "TypedefMemberAliasRuntime.btrc"
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 TYPEDEF_OPERATOR_RUNTIME_SOURCE = r"""
 #include <assert.h>
@@ -191,8 +191,8 @@ def test_alias_operators_preserve_invalid_operation_checks(source: str, diagnost
     assert any(diagnostic in error for error in analyzed.errors), analyzed.errors
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_alias_member_runtime_is_strict_c11(tmp_path: Path, c_compiler: str):
     generated = tmp_path / "typedef_member_aliases.c"
     binary = tmp_path / "typedef_member_aliases"
@@ -215,12 +215,13 @@ def test_alias_member_runtime_is_strict_c11(tmp_path: Path, c_compiler: str):
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     subprocess.run([str(binary)], check=True, timeout=10)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_alias_operator_runtime_is_strict_c11(tmp_path: Path, c_compiler: str):
     generated = tmp_path / "typedef_operators.c"
     binary = tmp_path / "typedef_operators"
@@ -243,5 +244,6 @@ def test_alias_operator_runtime_is_strict_c11(tmp_path: Path, c_compiler: str):
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     subprocess.run([str(binary)], check=True, timeout=10)

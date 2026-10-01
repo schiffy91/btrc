@@ -1,6 +1,5 @@
 """SemanticAnalyzer and IR boundaries required for valid strict-C output."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,8 +11,8 @@ from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
 
 def _analyze(source: str):
@@ -59,9 +58,10 @@ def _compile_and_run(c_source: str, tmp_path: Path, compiler: str):
         capture_output=True,
         text=True,
         check=False,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert compiled.returncode == 0, compiled.stderr
-    ran = subprocess.run([str(binary_path)], capture_output=True, text=True, check=False)
+    ran = subprocess.run([str(binary_path)], capture_output=True, text=True, check=False, timeout=RUN_TIMEOUT)
     assert ran.returncode == 0, ran.stderr
     return ran
 
@@ -155,8 +155,8 @@ def test_exact_and_underfull_fixed_array_initializers_remain_valid():
     assert result.errors == []
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_empty_fixed_array_initializer_is_normalized_to_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -261,8 +261,8 @@ def test_rich_enum_tags_remain_integer_constants_outside_enum_initializers():
     assert result.errors == []
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_preserved_valid_boundaries_compile_as_strict_c11(tmp_path: Path, c_compiler: str):
     _, c_source = _emit("""
         typedef unsigned int UnsignedAlias;
@@ -287,8 +287,8 @@ def test_preserved_valid_boundaries_compile_as_strict_c11(tmp_path: Path, c_comp
     _compile_and_run(c_source, tmp_path, c_compiler)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_anonymous_enum_compiles_as_strict_c11(tmp_path: Path, c_compiler: str):
     _, c_source = _emit("""
         enum { A, B, C };

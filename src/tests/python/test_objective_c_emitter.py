@@ -39,6 +39,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder, NativePlanError
 
@@ -634,7 +635,12 @@ def test_foundation_adapter_lifetime_and_exception(emitter_probe, tmp_path, opti
         assert run.returncode == 0, run.stderr
         return
     sdk = subprocess.run(
-        ["/usr/bin/xcrun", "--show-sdk-path"], env=environment, capture_output=True, text=True, check=True
+        ["/usr/bin/xcrun", "--show-sdk-path"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TOOL_TIMEOUT,
     ).stdout.strip()
     instrumentation = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if optimization == "sanitize" else []
     common = [

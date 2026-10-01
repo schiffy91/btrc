@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import NativeLinkPlan, PackageTarget
+from src.tests.process_limits import RUN_TIMEOUT, TOOL_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 REPO = Path(__file__).resolve().parents[3]
@@ -95,7 +96,7 @@ def test_cli_reuses_objects_with_bounded_separate_workers(project):
         assert payload["compiled_units"] == compiled
         assert payload["reused_units"] == 4 - compiled
         assert payload["units"][0]["source"] == str(options["generated_c"])
-        assert subprocess.check_output([str(options["output"])], text=True) == "3\n"
+        assert subprocess.check_output([str(options["output"])], text=True, timeout=RUN_TIMEOUT) == "3\n"
 
 
 @pytest.mark.parametrize("failure", ["compiler", "worker"])
@@ -120,7 +121,7 @@ def test_failed_worker_preserves_executable_and_releases_build(project, failure)
     parts[1].write_text(original)
     crash.unlink(missing_ok=True)
     assert run()[1].returncode == 0
-    assert subprocess.check_output([str(output)], text=True) == "3\n"
+    assert subprocess.check_output([str(output)], text=True, timeout=RUN_TIMEOUT) == "3\n"
 
 
 def test_unguarded_embedding_keeps_in_process_callbacks(project):
@@ -171,7 +172,11 @@ def test_compile_workers_exit_when_their_cli_parent_is_killed(project):
             return None if fields[0] == "Z" else fields[19]
         return (
             subprocess.run(
-                ["ps", "-o", "lstart=,command=", "-p", str(pid)], capture_output=True, text=True, check=False
+                ["ps", "-o", "lstart=,command=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=TOOL_TIMEOUT,
             ).stdout
             or None
         )

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 ROOTS = {
@@ -26,7 +26,6 @@ CYCLES = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_categ
 RUNTIME = "\n\n".join(helper.c_source for helper in RUNTIME_CATALOG.definitions_for(ROOTS))
 FIXTURE = Path(__file__).with_name("fixtures") / "cycle_capacity_guards.c"
 MARKER = "/* BTRC_RUNTIME_HELPERS */"
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 FAILURE_CASES = {
     "cycle-capacity": "btrc: cycle capacity boundary\n",
     "cycle-bytes": "btrc: cycle byte boundary\n",
@@ -104,8 +103,8 @@ def test_selfhost_capacity_dependencies_match_checked_allocators() -> None:
         assert "__btrc_safe_realloc" in CYCLES[helper_name].depends_on
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cycle_capacity_boundaries_are_strict_c11(
     tmp_path: Path,
     c_compiler: str,

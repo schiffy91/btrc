@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import shlex
 import subprocess
 from pathlib import Path
 
@@ -11,6 +9,7 @@ import pytest
 
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.syntax.grammar import GrammarRepository
+from src.tests.c_toolchains import configured_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -33,7 +32,7 @@ def vocabulary_driver(request, selfhost_driver, immutable_btrcc: Path, tmp_path_
     assert transpile.returncode == 0, transpile.stderr
     built = subprocess.run(
         [
-            *shlex.split(os.environ.get("BTRC_CC", "cc")),
+            *configured_c_compiler(),
             "-std=c11",
             "-pedantic-errors",
             "-Wall",

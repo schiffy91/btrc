@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,9 +10,10 @@ import pytest
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.test_codegen import emit_c
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 FIXTURE = Path(__file__).parents[1] / "btrc" / "fixtures" / "OptionalCallContractsRuntime.btrc"
 
 
@@ -32,8 +32,8 @@ def test_optional_reference_result_is_inferred_nullable():
     assert result_type.is_nullable
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_optional_calls_are_lazy_typed_and_arc_balanced(
     tmp_path: Path,
     c_compiler: str,
@@ -59,6 +59,7 @@ def test_optional_calls_are_lazy_typed_and_arc_balanced(
         capture_output=True,
         text=True,
         check=False,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert compiled.returncode == 0, compiled.stderr
     subprocess.run([str(executable)], check=True, timeout=10)

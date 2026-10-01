@@ -1,6 +1,5 @@
 """Structured IR contracts for terminal deletion."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,9 +10,8 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRAddressOf, IRCall, IRFieldAccess, IRNode, IRVar
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 EFFECTFUL_EDGE_OWNER_SOURCE = r"""
 #include <assert.h>
@@ -186,8 +184,8 @@ def test_effectful_edge_owner_is_one_shared_ir_value_in_ordinary_and_generic_bod
         assert all(name.startswith("__btrc_storage_receiver_") for name in edge_owners)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_effectful_edge_owner_release_and_delete_run_once_in_ordinary_and_generic_bodies(
     tmp_path: Path,
     c_compiler: str,
@@ -200,8 +198,8 @@ def test_effectful_edge_owner_release_and_delete_run_once_in_ordinary_and_generi
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_indexed_delete_and_release_preserve_physical_slots(
     tmp_path: Path,
     c_compiler: str,
@@ -256,8 +254,8 @@ def test_indexed_delete_and_release_preserve_physical_slots(
     _strict_build_and_run(tmp_path, c_compiler, "physical-slots", generated)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_shared_delete_rejection_preserves_root_and_edge_slots(
     tmp_path: Path,
     c_compiler: str,

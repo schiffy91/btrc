@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import functools
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 STATIC_STRONG_SLOT_SOURCE = r"""
 #include <assert.h>
@@ -118,8 +116,8 @@ def test_static_managed_field_uses_a_strong_slot_without_an_arc_edge_owner() -> 
     assert "Globals->shared" not in generated
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     "name, source",
     (

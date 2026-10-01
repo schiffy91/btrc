@@ -26,6 +26,7 @@ from pathlib import Path
 from src.compiler.python.abi.hosted import HostedAbiRepository
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.syntax.tokens import TokenKind
+from src.tests.process_limits import TOOL_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
@@ -83,6 +84,7 @@ def _tracked(pattern: str) -> list[str]:
         check=True,
         cwd=REPO,
         text=True,
+        timeout=TOOL_TIMEOUT,
     ).stdout.split()
     assert listing, f"no tracked files match {pattern}"
     return listing

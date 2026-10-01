@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
+
 ROOT = Path(__file__).resolve().parents[3]
 WIN = ROOT / "src" / "runtime" / "windows"
 NATIVE_TESTS = ROOT / "src" / "tests" / "native"
@@ -12,11 +14,11 @@ NATIVE_TESTS = ROOT / "src" / "tests" / "native"
 
 def _run_windows_binary(executable: Path) -> None:
     if os.name == "nt":
-        subprocess.run([str(executable)], check=True)
+        subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
         return
     wine = shutil.which("wine64") or shutil.which("wine")
     if wine:
-        subprocess.run([wine, str(executable)], check=True)
+        subprocess.run([wine, str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_windows_filesystem_shims_never_follow_reparse_points() -> None:
@@ -104,6 +106,7 @@ def test_windows_compat_header_is_safe_across_translation_units(
             str(executable),
         ],
         check=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     _run_windows_binary(executable)
 
@@ -136,5 +139,6 @@ def test_windows_error_and_open_flag_seams_fail_closed(tmp_path: Path) -> None:
             str(executable),
         ],
         check=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     _run_windows_binary(executable)

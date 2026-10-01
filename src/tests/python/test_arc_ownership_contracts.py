@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -17,8 +16,8 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 OWNERSHIP_SOURCE = r"""
     #include <assert.h>
@@ -596,7 +595,7 @@ def _find_asan_compiler(tmp_path: Path) -> str:
     executable = tmp_path / "asan-probe"
     probe.write_text("int main(void) { return 0; }\n")
     failures = []
-    candidates = list(COMPILERS)
+    candidates = list(HOST_C_COMPILERS)
     if sys.platform == "darwin":
         system_clang = "/usr/bin/clang"
         if os.access(system_clang, os.X_OK):
@@ -624,6 +623,7 @@ def _find_asan_compiler(tmp_path: Path) -> str:
             text=True,
             check=False,
             env=environment,
+            timeout=C_COMPILE_TIMEOUT,
         )
         name = Path(compiler).name
         if result.returncode != 0:
@@ -647,8 +647,8 @@ def _find_asan_compiler(tmp_path: Path) -> str:
     pytest.skip("AddressSanitizer unavailable: " + "; ".join(failures))
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_arc_ownership_is_balanced_at_runtime(tmp_path: Path, c_compiler: str):
     source = tmp_path / f"ownership-{Path(c_compiler).name}.c"
     executable = source.with_suffix("")
@@ -671,13 +671,14 @@ def test_arc_ownership_is_balanced_at_runtime(tmp_path: Path, c_compiler: str):
         capture_output=True,
         text=True,
         check=False,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert compiled.returncode == 0, compiled.stderr
     subprocess.run([str(executable)], check=True, timeout=15)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_managed_local_and_instance_field_replacement_is_balanced(
     tmp_path: Path,
     c_compiler: str,
@@ -706,13 +707,14 @@ def test_managed_local_and_instance_field_replacement_is_balanced(
         capture_output=True,
         text=True,
         check=False,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert compiled.returncode == 0, compiled.stderr
     subprocess.run([str(executable)], check=True, timeout=15)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_managed_returns_and_owned_projections_are_balanced(
     tmp_path: Path,
     c_compiler: str,
@@ -738,6 +740,7 @@ def test_managed_returns_and_owned_projections_are_balanced(
         capture_output=True,
         text=True,
         check=False,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert compiled.returncode == 0, compiled.stderr
     subprocess.run([str(executable)], check=True, timeout=15)
@@ -909,7 +912,7 @@ def test_rich_enum_payload_rejects_owned_calls_and_conversions(source: str):
         _emit(source)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires an AddressSanitizer compiler")
+@requires_host_c_compiler
 @pytest.mark.parametrize(
     ("case", "source_text"),
     [
@@ -944,6 +947,7 @@ def test_managed_ownership_is_asan_clean(
         text=True,
         check=False,
         env=environment,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert compiled.returncode == 0, compiled.stderr
     result = subprocess.run(

@@ -36,7 +36,7 @@ def hunks(diff: str) -> list[tuple[str, str, str]]:
 
 
 def run(tree: Path, *command: str) -> str:
-    completed = subprocess.run(command, cwd=tree, capture_output=True, text=True)
+    completed = subprocess.run(command, cwd=tree, capture_output=True, text=True, timeout=1800)
     if completed.returncode:
         sys.exit(f"{command}: {completed.stdout}{completed.stderr}")
     return completed.stdout

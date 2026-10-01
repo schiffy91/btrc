@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.artifacts.archive import TargetCatalog
+from src.tests.c_toolchains import configured_c_compiler
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -61,7 +61,7 @@ def digest_driver(request, digest_frontend, tmp_path_factory):
     assert ("CC_SHA256(" in generated.read_text()) == native
     result = subprocess.run(
         [
-            *shlex.split(os.environ.get("BTRC_CC", "cc")),
+            *configured_c_compiler(),
             "-std=c11",
             "-O2",
             "-Wall",

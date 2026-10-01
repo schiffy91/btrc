@@ -12,7 +12,7 @@ from src.tests.btrc.production_readiness_harness import (
     run_strict_pair,
     run_tracked_fixture_pair,
 )
-from src.tests.btrc.test_mutex_value_contract import COMPILERS
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -47,7 +47,7 @@ def _validate_stdlib_string_output(stdout: str) -> None:
     assert stdout == "\n"
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_nullable_print_and_variadic_values_are_dual_compiler_portable(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -56,7 +56,7 @@ def test_nullable_print_and_variadic_values_are_dual_compiler_portable(
     run_strict_pair(compiled, tmp_path, validate_stdout=_validate_printf_output)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_builtin_printf_arguments_are_dual_compiler_source_ordered(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -73,7 +73,7 @@ def test_builtin_printf_arguments_are_dual_compiler_source_ordered(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_user_printf_shadowing_remains_dual_compiler_source_ordered(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -86,7 +86,7 @@ def test_user_printf_shadowing_remains_dual_compiler_source_ordered(
     run_strict_pair(compiled, tmp_path)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_string_receiver_is_stabilized_before_mutating_arguments(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -99,7 +99,7 @@ def test_string_receiver_is_stabilized_before_mutating_arguments(
     run_strict_pair(compiled, tmp_path)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_resolved_generic_fields_own_class_string_and_mutex_values(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -111,7 +111,7 @@ def test_resolved_generic_fields_own_class_string_and_mutex_values(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_rich_generic_defaults_initialize_and_release_in_both_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -123,7 +123,7 @@ def test_rich_generic_defaults_initialize_and_release_in_both_compilers(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_throwing_return_and_initialization_paths_reclaim_every_allocation(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -135,7 +135,7 @@ def test_throwing_return_and_initialization_paths_reclaim_every_allocation(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_nullable_stdlib_string_paths_are_dual_compiler_strict_c11(
     semantic_btrcc: Path,
     tmp_path: Path,

@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.python.test_arc_ownership_contracts import COMPILERS, _emit
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import C_COMPILE_TIMEOUT
+from src.tests.python.test_arc_ownership_contracts import _emit
 
 LEXICAL_BLOCK_SOURCE = r"""
     #include <assert.h>
@@ -41,8 +43,8 @@ def test_standalone_blocks_remain_structured_ir_scopes():
     assert "    {\n        int value = second;" in emitted
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_sibling_lexical_declarations_compile_and_run(
     tmp_path: Path,
     c_compiler: str,
@@ -68,6 +70,7 @@ def test_sibling_lexical_declarations_compile_and_run(
         capture_output=True,
         text=True,
         check=False,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert compiled.returncode == 0, compiled.stderr
     subprocess.run([str(executable)], check=True, timeout=15)

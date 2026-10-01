@@ -23,6 +23,7 @@ from src.compiler.python.frontend.packages import (
 )
 from src.compiler.python.frontend.sources import SourceDependencyGraph
 from src.compiler.python.main import main as compiler_main
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "native-package"
@@ -535,6 +536,7 @@ def _compile_plan(plan: dict, generated_c: Path, output: Path, temporary: Path) 
             str(generated_object),
         ],
         check=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     objects.append(generated_object)
     compilers = {"c": cc, "c++": cxx, "objective-c": cc, "objective-c++": cxx}
@@ -556,10 +558,13 @@ def _compile_plan(plan: dict, generated_c: Path, output: Path, temporary: Path) 
                 str(object_path),
             ],
             check=True,
+            timeout=C_COMPILE_TIMEOUT,
         )
         objects.append(object_path)
     linker = cxx if plan["linker-language"] == "c++" else cc
-    subprocess.run([linker, *(str(path) for path in objects), "-lm", "-o", str(output)], check=True)
+    subprocess.run(
+        [linker, *(str(path) for path in objects), "-lm", "-o", str(output)], check=True, timeout=C_COMPILE_TIMEOUT
+    )
 
 
 def test_recursive_aliases_lock_and_native_plan_are_canonical() -> None:
@@ -634,7 +639,7 @@ def test_reference_compiler_result_plan_compiles_links_and_runs(tmp_path: Path) 
     generated.write_text(result.c_source, encoding="utf-8")
     executable = tmp_path / "program"
     _compile_plan(result.native_plan.as_dict(), generated, executable, tmp_path)
-    completed = subprocess.run([str(executable)], capture_output=True, check=True, text=True)
+    completed = subprocess.run([str(executable)], capture_output=True, check=True, text=True, timeout=RUN_TIMEOUT)
     assert completed.stdout == "PASS: native package graph\n"
 
 

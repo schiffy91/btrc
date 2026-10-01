@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -14,9 +13,9 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRBinOp, IRCast, IRNode
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 COMPARISON_OPERATORS = {"==", "!=", "<", ">", "<=", ">="}
 
 RUNTIME_SOURCE = r"""
@@ -122,8 +121,8 @@ def test_abi_dependent_mixed_comparison_still_fails_closed():
     assert any("mixes ABI-dependent integer type" in error for error in analyzed.errors)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_mixed_comparison_runtime_is_warning_free_c11(
     tmp_path: Path,
     c_compiler: str,

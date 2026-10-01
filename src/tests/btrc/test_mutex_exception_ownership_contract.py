@@ -4,16 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import (
-    COMPILERS,
-    _compile_pair,
-    _strict_matrix,
-)
+from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires a pthread C11 compiler",
 )
 

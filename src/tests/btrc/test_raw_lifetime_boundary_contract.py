@@ -18,11 +18,12 @@ from src.tests.btrc.string_coercion_harness import compile_pair
 from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
     _compiler_environment,
 )
-from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO
+from src.tests.btrc.test_mutex_value_contract import REPO
 from src.tests.btrc.test_semantic_validation import (
     _compile_reference_source,
     _compile_source,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -343,7 +344,7 @@ def test_free_compatible_producers_and_exact_aliases_remain_valid(
     run_strict_pair(compiled, tmp_path)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_class_dot_lifecycle_is_dual_frontend_strict_c11(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -353,7 +354,7 @@ def test_class_dot_lifecycle_is_dual_frontend_strict_c11(
         source = generated.read_text()
         assert "__btrc_arc_destroy_slot" in source
         assert "free(b)" not in source
-        for compiler in COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             for optimization in ("-O0", "-O2"):
                 executable = tmp_path / (f"{frontend}-{Path(compiler).name}-{optimization[1:]}")
                 environment = _compiler_environment(compiler)

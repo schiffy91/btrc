@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -12,10 +11,11 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.sources import ResolvedSource
+from src.tests.c_toolchains import configured_c_compiler
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
-CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+CC = configured_c_compiler()
 
 
 def _run(command: list[str], *, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:

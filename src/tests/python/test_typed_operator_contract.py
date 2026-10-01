@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
-
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
@@ -15,7 +13,6 @@ from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.tests.python.test_codegen import emit_c
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 IDENTITY = TypeIdentity()
 OPERATORS = OperatorSemantics(IDENTITY)
 

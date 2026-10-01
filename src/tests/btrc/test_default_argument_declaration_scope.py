@@ -15,11 +15,8 @@ from src.tests.btrc.string_coercion_harness import compile_pair
 from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
     _compiler_environment,
 )
-from src.tests.btrc.test_mutex_value_contract import (
-    COMPILERS,
-    REPO,
-    _compile_pair,
-)
+from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -37,7 +34,7 @@ def _strict_optimization_matrix(
     extra_sources=(),
 ) -> None:
     frontend, generated = artifact
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         for optimization in optimizations:
             executable = tmp_path / (f"{frontend}-{Path(compiler).name}-{optimization[1:]}")
             environment = _compiler_environment(compiler)

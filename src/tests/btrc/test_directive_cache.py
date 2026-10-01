@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
-import shlex
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from src.tests.c_toolchains import configured_c_compiler
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -30,7 +30,7 @@ def directive_driver(request, selfhost_driver, immutable_btrcc, tmp_path_factory
     assert result.returncode == 0, result.stderr
     result = subprocess.run(
         [
-            *shlex.split(os.environ.get("BTRC_CC", "cc")),
+            *configured_c_compiler(),
             "-std=c11",
             "-pedantic-errors",
             "-Wall",

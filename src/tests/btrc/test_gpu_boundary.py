@@ -16,10 +16,12 @@ import pytest
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import configured_c_compiler
+from src.tests.process_limits import TRANSPILE_TIMEOUT
 from src.tests.python.test_codegen import emit_c
 
 REPO = Path(__file__).resolve().parents[3]
-CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+CC = configured_c_compiler()
 BTRCC_SOURCE = REPO / "src/compiler/btrc/BtrccMain.btrc"
 FIXTURES = REPO / "src/tests/btrc/fixtures"
 GPU_INCLUDE = REPO / "src/stdlib/GPU"
@@ -2006,6 +2008,7 @@ def test_selfhost_checked_shader_validates_with_naga(
         input=shader,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert validated.returncode == 0, validated.stderr
 
@@ -2018,10 +2021,7 @@ def test_selfhost_compound_assignment_shader_validates_with_naga(
     generated = _lower_source(
         btrcc_driver,
         tmp_path,
-        "@gpu void compound(int[] xs, bool toggle) { int i = gpu_id(); "
-        "int shift = 1; bool flag = toggle; xs[i] <<= shift; flag ^= true; "
-        "xs[i] /= 2; xs[i] %= 3; } int main() { int[] xs = {8}; "
-        "compound(xs, true); return 0; }",
+        (FIXTURES / "GpuCompoundSemantics.btrc").read_text(encoding="utf-8"),
     )
     match = re.search(r'static char\* compound_wgsl = ("(?:\\.|[^"])*");', generated)
     assert match is not None
@@ -2035,6 +2035,7 @@ def test_selfhost_compound_assignment_shader_validates_with_naga(
         input=shader,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert validated.returncode == 0, validated.stderr
 

@@ -1,15 +1,14 @@
 """Strict-C simulations for exception cleanup reentrancy."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_runtime_helpers_c11 import HEADERS
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 ROOTS = {
     "__btrc_register_direct_cleanup",
     "__btrc_throw",
@@ -140,8 +139,8 @@ def _compile(tmp_path: Path, compiler: str) -> Path:
     return executable
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cleanup_throw_preserves_primary_and_continues_once(
     tmp_path: Path,
     c_compiler: str,

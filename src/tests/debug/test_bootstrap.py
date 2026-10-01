@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.devex.debug.runtime import bootstrap
+from src.tests.process_limits import TOOL_TIMEOUT
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -167,12 +168,7 @@ def test_adapter_imports_with_apple_lldb_python():
     env = dict(os.environ)
     env.pop("DEVELOPER_DIR", None)
     env.pop("SDKROOT", None)
-    lldb_path = subprocess.run(
-        ["/usr/bin/lldb", "-P"],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    lldb_path = subprocess.run(["/usr/bin/lldb", "-P"], env=env, capture_output=True, text=True, timeout=TOOL_TIMEOUT)
     if lldb_path.returncode != 0:
         pytest.skip("Apple LLDB Python bridge is unavailable")
 
@@ -182,6 +178,7 @@ def test_adapter_imports_with_apple_lldb_python():
         env=env,
         capture_output=True,
         text=True,
+        timeout=TOOL_TIMEOUT,
     )
 
     assert imported.returncode == 0, imported.stderr
@@ -195,7 +192,12 @@ def test_bootstrap_finds_apple_lldb_under_a_build_shell_sdk(tmp_path):
     shell.update(DEVELOPER_DIR=str(tmp_path), SDKROOT=str(tmp_path / "MacOSX.sdk"))
     execve = _RecordedExecve()
     owner = bootstrap.LldbBootstrap(environment=shell, execve=execve, module_importer=_lldb_unimportable)
-    if subprocess.run(["/usr/bin/lldb", "-P"], env=owner.lldb_environment(), capture_output=True).returncode != 0:
+    if (
+        subprocess.run(
+            ["/usr/bin/lldb", "-P"], env=owner.lldb_environment(), capture_output=True, timeout=TOOL_TIMEOUT
+        ).returncode
+        != 0
+    ):
         pytest.skip("Apple LLDB Python bridge is unavailable")
 
     with pytest.raises(_Executed):
@@ -208,5 +210,6 @@ def test_bootstrap_finds_apple_lldb_under_a_build_shell_sdk(tmp_path):
         env=execve.call["environment"],
         capture_output=True,
         text=True,
+        timeout=TOOL_TIMEOUT,
     )
     assert imported.returncode == 0, imported.stderr

@@ -1,6 +1,5 @@
 """Tuple fields are typed, bounded, and valid strict-C update targets."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -9,9 +8,9 @@ import pytest
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _analyze(source: str):
@@ -44,8 +43,8 @@ def test_tuple_field_indices_are_typed_and_validated():
     assert "Tuple has no field '_00'" in messages
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_tuple_field_compound_updates_compile_and_run_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -79,5 +78,6 @@ def test_tuple_field_compound_updates_compile_and_run_strict_c11(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     subprocess.run([str(executable)], check=True, timeout=10)

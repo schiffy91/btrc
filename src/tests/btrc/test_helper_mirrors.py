@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -11,9 +9,11 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import configured_c_compiler
+
 REPO = Path(__file__).resolve().parents[3]
 BTRCC_SOURCE = REPO / "src/compiler/btrc/BtrccMain.btrc"
-CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+CC = configured_c_compiler()
 CLANG = shutil.which("clang")
 
 pytestmark = pytest.mark.skipif(

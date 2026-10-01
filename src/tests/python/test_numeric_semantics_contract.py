@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,13 +13,13 @@ from src.compiler.python.analyzer.types import CIntegerWidths, NumericLiteralSem
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import ParseError, Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 from src.tests.python.test_codegen import emit_c
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
-
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_native_integer_widths_match_c_compiler(tmp_path: Path, c_compiler: str):
     source = tmp_path / "widths.c"
     executable = tmp_path / "widths"
@@ -30,8 +29,12 @@ def test_native_integer_widths_match_c_compiler(tmp_path: Path, c_compiler: str)
         "sizeof(char) * CHAR_BIT, sizeof(short) * CHAR_BIT, sizeof(int) * CHAR_BIT, "
         "sizeof(long) * CHAR_BIT, sizeof(long long) * CHAR_BIT); return 0; }\n"
     )
-    subprocess.run([c_compiler, "-std=c11", "-pedantic-errors", str(source), "-o", str(executable)], check=True)
-    result = subprocess.run([str(executable)], capture_output=True, text=True, check=True)
+    subprocess.run(
+        [c_compiler, "-std=c11", "-pedantic-errors", str(source), "-o", str(executable)],
+        check=True,
+        timeout=C_COMPILE_TIMEOUT,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT)
     widths = CIntegerWidths.native()
     assert tuple(map(int, result.stdout.split())) == (
         widths.char,
@@ -115,6 +118,7 @@ def _strict_build_and_run(
         capture_output=True,
         text=True,
         check=False,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
     subprocess.run([str(executable)], check=True, timeout=10)
@@ -176,8 +180,8 @@ def test_same_abi_typedef_explicit_cast_and_floating_mix_remain_valid():
     assert analyzed.errors == []
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_abi_dependent_integer_increment_preserves_its_operand_type(
     tmp_path: Path,
     c_compiler: str,
@@ -261,8 +265,8 @@ def test_nonrepresentable_floating_literals_are_rejected(
         Parser(Lexer(f"int main() {{ var value = {literal}; }}", "<float-range>").tokenize()).parse()
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_constant_casts_and_greedy_hex_character_values_compile_strictly(
     tmp_path: Path,
     c_compiler: str,
@@ -286,8 +290,8 @@ def test_constant_casts_and_greedy_hex_character_values_compile_strictly(
     _strict_build_and_run(c_source, tmp_path, c_compiler)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_numeric_inference_program_compiles_strictly(
     tmp_path: Path,
     c_compiler: str,

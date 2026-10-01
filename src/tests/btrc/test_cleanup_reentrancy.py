@@ -1,17 +1,14 @@
 """Dual-compiler cleanup reentrancy regression coverage."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from src.tests.btrc.runtime_ownership_harness import compile_reference_source
 from src.tests.btrc.test_semantic_validation import REPO, _compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 FIXTURE = REPO / "src/tests/btrc/fixtures/CleanupReentrancyRuntime.btrc"
 UNHANDLED_FIXTURE = REPO / "src/tests/btrc/fixtures/CleanupUnhandledRuntime.btrc"
 
@@ -49,7 +46,7 @@ def _strict_build_and_run(source: Path, output: Path, compiler: str) -> None:
     assert executed.stdout == "PASS: cleanup reentrancy\n"
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@requires_host_c_compiler
 def test_throwing_cleanup_preserves_primary_in_both_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -72,7 +69,7 @@ def test_throwing_cleanup_preserves_primary_in_both_compilers(
         assert "__btrc_tls.cleanup_top = base - 1;" in emitted
         assert "char primary_error[sizeof __btrc_tls.error_msg];" in emitted
         assert "__btrc_run_cleanups(-1);" in emitted
-        for c_compiler in COMPILERS:
+        for c_compiler in HOST_C_COMPILERS:
             c_name = Path(c_compiler).name
             _strict_build_and_run(
                 generated,
@@ -81,7 +78,7 @@ def test_throwing_cleanup_preserves_primary_in_both_compilers(
             )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@requires_host_c_compiler
 def test_unhandled_throw_runs_level_minus_one_in_both_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -101,7 +98,7 @@ def test_unhandled_throw_runs_level_minus_one_in_both_compilers(
         ("selfhost", selfhost_c),
         ("reference", reference_c),
     ):
-        for c_compiler in COMPILERS:
+        for c_compiler in HOST_C_COMPILERS:
             c_name = Path(c_compiler).name
             executable = tmp_path / f"unhandled-{compiler_name}-{c_name}"
             compiled = subprocess.run(

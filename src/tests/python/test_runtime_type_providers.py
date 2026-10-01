@@ -1,6 +1,5 @@
 """Typed runtime-provider reachability and strict-C contracts."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -15,8 +14,8 @@ from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 TYPE_CASES = (
     ("Mutex", "__btrc_mutex_val_types", "__btrc_mutex_val_t"),
     ("Thread", "__btrc_thread_types", "__btrc_thread_t"),
@@ -125,8 +124,8 @@ def test_dead_extern_owned_mutex_does_not_pin_descriptor_provider() -> None:
     assert "__btrc_mutex_arc_descriptor" not in emitted
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_extern_owned_mutex_descriptor_compiles_strict_c11(tmp_path: Path, c_compiler: str) -> None:
     pipeline, module = _optimize(_lower(EXTERN_MUTEX_SOURCE))
     emitted = pipeline.emit(module)
@@ -155,8 +154,8 @@ def test_extern_owned_mutex_descriptor_compiles_strict_c11(tmp_path: Path, c_com
     assert compiled.returncode == 0, compiled.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("freestanding", (False, True), ids=("hosted", "freestanding"))
 @pytest.mark.parametrize(("base", "provider", "c_type"), TYPE_CASES)
 def test_type_only_sizeof_compiles_strict_c11(

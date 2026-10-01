@@ -1,6 +1,5 @@
 """Focused contracts for pthread wrapper lowering and runtime dependencies."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -21,9 +20,8 @@ from src.compiler.python.ir.nodes import (
 from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _generate_ir(source: str):
@@ -272,8 +270,8 @@ int main() {
 """
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a pthread C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     "source, support",
     [

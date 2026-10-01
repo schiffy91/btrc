@@ -1,15 +1,13 @@
 """Terminal throw operands remain owned until exception cleanup consumes them."""
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _compile_and_run(generated: str, tmp_path: Path, compiler: str, stem: str) -> None:
@@ -95,8 +93,8 @@ CASES = (
 )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("case_name,evaluated_symbol,source", CASES, ids=("fstring", "owned_call"))
 def test_owned_throw_operand_is_released_once_on_caught_unwind(
     tmp_path: Path,

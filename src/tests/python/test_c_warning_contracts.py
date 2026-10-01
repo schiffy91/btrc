@@ -1,6 +1,5 @@
 """Strict-C warning contracts for structured IR and archive emission."""
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -22,8 +21,8 @@ from src.compiler.python.ir.nodes import (
     IRVar,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 
 def test_parameter_discards_run_after_function_dce_and_are_idempotent():
@@ -87,8 +86,8 @@ def test_archive_exports_structured_callbacks_with_their_signatures():
     assert CEmitter().emit(module).count("void Node_visit(void);") == 1
 
 
-@pytest.mark.skipif(not COMPILERS or sys.platform == "win32", reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS or sys.platform == "win32", reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_stdlib_archive_is_warning_clean_under_strict_c11(tmp_path: Path, c_compiler: str):
     output = tmp_path / "stdlib"
     compiler = Compiler(CompilationPipeline(archive_repository=archive.StdlibArtifactRepository()))
@@ -110,4 +109,5 @@ def test_stdlib_archive_is_warning_clean_under_strict_c11(tmp_path: Path, c_comp
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )

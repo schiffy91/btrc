@@ -6,7 +6,6 @@ import hashlib
 import json
 import multiprocessing
 import os
-import shlex
 import subprocess
 import sys
 import threading
@@ -22,7 +21,7 @@ from src.compiler.python.artifacts.publication import (
     PublicationTarget,
     PublishedArtifact,
 )
-from src.tests.runner import default_c_compiler
+from src.tests.c_toolchains import configured_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
 NAME = "compiler-fixture"
@@ -52,7 +51,7 @@ def publication_driver(request, selfhost_driver, tmp_path_factory):
     assert result.returncode == 0, result.stderr
     result = subprocess.run(
         [
-            *shlex.split(os.environ.get("BTRC_CC", default_c_compiler())),
+            *configured_c_compiler(),
             "-std=c11",
             *flags,
             str(generated),

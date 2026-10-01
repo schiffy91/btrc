@@ -14,8 +14,8 @@ import pytest
 import src.compiler.python.artifacts.stdlib as archive
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.pipeline import CompilationPipeline
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 AR = shutil.which("ar")
 FIXTURES = Path(__file__).with_name("fixtures")
 ARCHIVE_TU = FIXTURES / "arc_archive_cross_tu_archive.c"
@@ -47,7 +47,7 @@ PROCESS_SYMBOLS = (
 )
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS or AR is None or sys.platform == "win32",
+    not HOST_C_COMPILERS or AR is None or sys.platform == "win32",
     reason="requires hosted strict C11 compilers and an archiver",
 )
 
@@ -139,7 +139,7 @@ def test_arc_mutable_state_is_extern_once(
         assert len(definitions) == 1, (symbol, definitions)
 
 
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cross_tu_hooks_share_fifo_and_first_error(
     stdlib_output: Path,
     tmp_path: Path,
@@ -194,7 +194,7 @@ def test_cross_tu_hooks_share_fifo_and_first_error(
     )
 
 
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cross_tu_worker_errors_finalize_and_transfer(
     stdlib_output: Path,
     tmp_path: Path,

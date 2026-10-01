@@ -27,6 +27,7 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import TypeExpr
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 
 def emit_c(source: str) -> str:
@@ -58,7 +59,10 @@ def compile_and_run(source: str) -> str:
         with open(c_path, "w") as f:
             f.write(c_code)
         build = subprocess.run(
-            ["gcc", "-std=c11", "-pedantic-errors", c_path, "-o", exe, "-lm"], capture_output=True, text=True
+            ["gcc", "-std=c11", "-pedantic-errors", c_path, "-o", exe, "-lm"],
+            capture_output=True,
+            text=True,
+            timeout=C_COMPILE_TIMEOUT,
         )
         assert build.returncode == 0, f"gcc failed:\n{build.stderr}\n{c_code}"
         run = subprocess.run([exe], capture_output=True, text=True, timeout=10)

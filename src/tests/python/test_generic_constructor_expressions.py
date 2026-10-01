@@ -1,15 +1,14 @@
 """Runtime coverage for generic constructors in expression positions."""
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 RUNTIME_SOURCE = """
 #include <assert.h>
@@ -58,10 +57,10 @@ int main() {
 
 
 @pytest.mark.skipif(
-    not COMPILERS or sys.platform == "win32",
+    not HOST_C_COMPILERS or sys.platform == "win32",
     reason="requires a hosted C11 compiler",
 )
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_generic_constructors_compile_and_run_in_all_expression_positions(
     tmp_path: Path,
     c_compiler: str,
@@ -88,6 +87,7 @@ def test_generic_constructors_compile_and_run_in_all_expression_positions(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     subprocess.run(
         [str(executable)],

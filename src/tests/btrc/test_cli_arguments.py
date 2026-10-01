@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import configured_c_compiler
+
 REPO = Path(__file__).resolve().parents[3]
 PROGRAM = REPO / "src/tests/basics/BoolToString.btrc"
 
@@ -765,9 +767,6 @@ def test_selfhost_preserves_output_symlink_and_permissions(immutable_btrcc, tmp_
 def test_staged_file_owner_preserves_destinations_and_unowned_replacements(
     selfhost_driver, request, tmp_path, frontend
 ):
-    import shlex
-
-    from src.tests.runner import default_c_compiler
 
     source = REPO / "src/tests/btrc/fixtures/StagedFileDriver.btrc"
     if frontend == "python":
@@ -778,7 +777,7 @@ def test_staged_file_owner_preserves_destinations_and_unowned_replacements(
         assert result.returncode == 0, result.stderr
         built = subprocess.run(
             [
-                *shlex.split(os.environ.get("BTRC_CC", default_c_compiler())),
+                *configured_c_compiler(),
                 "-std=c11",
                 "-pedantic",
                 str(generated),

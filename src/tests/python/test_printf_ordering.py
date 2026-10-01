@@ -1,15 +1,13 @@
 """Source-order contracts for raw printf calls."""
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _compile_and_run(tmp_path: Path, compiler: str, generated: str):
@@ -43,8 +41,8 @@ def _compile_and_run(tmp_path: Path, compiler: str, generated: str):
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_printf_arguments_are_stabilized_in_source_order(tmp_path, c_compiler):
     generated = emit_c(
         """
@@ -66,8 +64,8 @@ def test_printf_arguments_are_stabilized_in_source_order(tmp_path, c_compiler):
     assert result.stdout == "1 1\n"
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_generic_printf_uses_the_same_ordering_boundary(tmp_path, c_compiler):
     generated = emit_c(
         """
@@ -97,8 +95,8 @@ def test_generic_printf_uses_the_same_ordering_boundary(tmp_path, c_compiler):
     assert result.stdout == "1 1\n"
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_variadic_tail_preserves_named_default_order_and_c_promotions(tmp_path, c_compiler):
     generated = emit_c(
         """
@@ -138,8 +136,8 @@ def test_variadic_tail_preserves_named_default_order_and_c_promotions(tmp_path, 
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_user_printf_remains_a_normal_declared_call(tmp_path, c_compiler):
     generated = emit_c(
         """
@@ -157,8 +155,8 @@ def test_user_printf_remains_a_normal_declared_call(tmp_path, c_compiler):
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_hosted_constant_macro_operand_is_never_given_an_invented_type(tmp_path, c_compiler):
     """A macro's expansion is unknown, so nothing may spell a C type for it.
 

@@ -1,6 +1,5 @@
 """Lifetime contracts for raw projections into temporary owner storage."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,9 +10,8 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRCall, IRNode
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 PROJECTION_SOURCE = r"""
 #include <assert.h>
@@ -210,8 +208,8 @@ def test_borrowed_hosted_projection_keeps_guard_before_later_effect() -> None:
     assert "__btrc_string_retain" in body
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_temporary_projection_owner_survives_call_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -244,8 +242,8 @@ def test_temporary_projection_owner_survives_call_under_strict_c11(
     assert executed.returncode == 0, executed.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_deferred_projection_preserves_later_callable_ownership_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,
