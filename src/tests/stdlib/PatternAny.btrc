@@ -1,5 +1,5 @@
 /* Pattern.anyMatches(Vector<string>, text) and the single-pattern matches both
- * positive and negative, plus the UnixPattern '?' single-char wildcard. */
+ * positive and negative, plus the fnmatch '?' single-char wildcard. */
 import Library.Pattern;
 import Library.Vector;
 
@@ -23,9 +23,9 @@ int main() {
 	assert(!Pattern.matches("*.log", "server.txt"));
 
 	// '?' matches exactly one character.
-	assert(UnixPattern.matches("a?c", "abc"));
-	assert(!UnixPattern.matches("a?c", "ac"));
-	assert(!UnixPattern.matches("a?c", "abbc"));
+	assert(Pattern.matches("a?c", "abc"));
+	assert(!Pattern.matches("a?c", "ac"));
+	assert(!Pattern.matches("a?c", "abbc"));
 
 	print("PASS: test_stdlib_pattern_any");
 	return 0;

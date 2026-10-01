@@ -1,8 +1,7 @@
 /* btrc standard library — Process execution
- * Cross-platform API shape with UnixShell implemented first.
- *
- * UnixShell intentionally names the POSIX implementation. PowerShell is a
- * placeholder so callers can branch explicitly when Windows support arrives.
+ * ChildProcess runs an executable with a structured argv; UnixShell runs a
+ * POSIX shell command line through /bin/sh. Windows needs a native process
+ * provider, which does not exist yet.
  */
 
 import Library.Bytes;
@@ -36,50 +35,6 @@ class ProcessStatus {
 	}
 
 	public bool ok() { return self.code() == 0; }
-}
-
-class UnixPipe {
-	private FILE* handle;
-	public string command;
-
-	public UnixPipe(string command) {
-		self.command = command;
-		self.handle = popen(command, "r");
-	}
-
-	public bool ok() { return self.handle != NULL; }
-
-	public string readAll() {
-		if (!self.ok()) { return ""; }
-		Bytes bytes = Bytes();
-		char chunk[4096];
-		size_t count = fread(chunk, 1, 4096, self.handle);
-		while (count > (size_t)0) {
-			bytes.appendRaw(chunk, (int)count);
-			count = fread(chunk, 1, 4096, self.handle);
-		}
-		return bytes.toStringLossy();
-	}
-
-	public ProcessStatus close() {
-		if (!self.ok()) { return ProcessStatus(-1); }
-		int raw = pclose(self.handle);
-		self.handle = NULL;
-		return ProcessStatus(raw);
-	}
-
-	public void __del__() {
-		if (self.handle != NULL) {
-			pclose(self.handle);
-			self.handle = NULL;
-		}
-	}
-}
-
-class UnixProcess {
-	class ProcessStatus system(string command) { return ProcessStatus(system(command)); }
-
-	class UnixPipe pipe(string command) { return UnixPipe(command); }
 }
 
 class ShellWords {
@@ -1151,8 +1106,6 @@ class Command {
 		return self;
 	}
 
-	public string renderEnv(string item) { return ShellWords.envAssignment(item); }
-
 	public string render() {
 		Vector<string> parts = [];
 		parts.push(self.command);
@@ -1177,12 +1130,6 @@ class UnixShell {
 	class string quote(string raw) { return ShellWords.quote(raw); }
 
 	class string redactText(string text, string sensitive) { return ShellWords.redact(text, sensitive); }
-
-	class int statusCode(int rawStatus) {
-		ProcessStatus status = ProcessStatus(rawStatus);
-		int code = status.code();
-		return code;
-	}
 
 	class void logError(string message) { fprintf(stderr, "%s\n", __btrc_string_or_empty(message)); }
 
@@ -1244,10 +1191,4 @@ class UnixShell {
 		result.timedOut = child.timedOut;
 		return result;
 	}
-}
-
-class PowerShell {
-	public PowerShell() {}
-
-	public ExecResult run(string command, string stdout = CommandOutput.collect(), string stderr = CommandOutput.combine(), bool logCommand = false, bool logFailure = true, bool throwOnFailure = false, string redactSubstring = "", string stdin = "", string cwd = "", Vector<string> env = CommandEnvironment.empty(), bool sudo = false, string chroot = "", int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608) { return ExecResult(127, "", "PowerShell support is not implemented", command); }
 }

@@ -678,8 +678,8 @@ The everyday surfaces are intentionally practical:
 
 - `Strings` for object-oriented string helpers, conversion, splitting, joining,
   padding, and comparisons, plus `StringBuilder` for amortized text assembly
-- `Command`, `CommandOutput`, `UnixShell`, `PowerShell`, `ShellWords`,
-  `UnixPipe`, and `ChildProcess` for shell/process orchestration
+- `Command`, `CommandOutput`, `UnixShell`, `ShellWords`, and `ChildProcess`
+  for shell/process orchestration
 - `FileSystem`, `FileTree`, `ApplicationDirectories`, and `FileSystemHandles`
   for filesystem work, including identity-matched recursive removal
 - `JSONObject`, `JSONValue`, and `TOML` for declarative data, including
@@ -1767,7 +1767,7 @@ Import `Library.Error` to use `Error`, `ValueError`, `IOError`, `TypeError`,
 - `Library.TOML` -- manifest-grade TOML reading
 - `Library.Regex` / `Library.Pattern` -- compiled regular expressions and glob-style patterns
 - `Library.Bytes` -- byte buffers; `Library.Digest.SHA256` for hashing
-- `Library.Process` -- `Command`, `ChildProcess`, `UnixShell`, `PowerShell`, `ShellWords`, `UnixPipe`
+- `Library.Process` -- `Command`, `ChildProcess`, `UnixShell`, `ShellWords`
 - `Library.CLI` -- `CLIArgs`, `CLICommand`, `CLICommandLine`, `CLIHelp`
 - `Library.HTTP` -- client, server, framing, and typed response headers
 - `Library.Platform` -- `Platform` and `Environment` host integration

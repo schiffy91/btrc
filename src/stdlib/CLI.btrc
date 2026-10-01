@@ -1,7 +1,6 @@
 /* btrc standard library — CLI argument helpers */
 
 import Library.Console;
-import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
@@ -33,33 +32,6 @@ class CLIArgs {
 		if (self.values.len == 0) { return ""; }
 		return self.values.get(0);
 	}
-
-	public bool has(string flag) {
-		for value in self.values {
-			if (value.equals(flag)) { return true; }
-		}
-		return false;
-	}
-
-	public string valueAfter(string flag, string fallback) {
-		for (int i = 0; i < self.values.len - 1; i++) {
-			if (self.values.get(i).equals(flag)) {
-				return self.values.get(i + 1);
-			}
-		}
-		return fallback;
-	}
-
-	public bool commandIs(string name) { return self.command().equals(name); }
-
-	public string valueAfterPrefix(string prefix, string fallback) {
-		for value in self.values {
-			if (value.startsWith(prefix)) {
-				return value.substring(prefix.len(), value.len() - prefix.len());
-			}
-		}
-		return fallback;
-	}
 }
 
 class CLICommand {
@@ -84,14 +56,12 @@ class CLICommand {
 
 class CLICommandLine {
 	public Vector<string> operands;
-	public Map<string, string> options;
 	public Vector<string> optionNames;
 	public Vector<string> optionValues;
 	public Vector<string> errors;
 
 	public CLICommandLine() {
 		self.operands = [];
-		self.options = {};
 		self.optionNames = [];
 		self.optionValues = [];
 		self.errors = [];
@@ -183,7 +153,6 @@ class CLICommandLine {
 	}
 
 	public void addOption(string name, string value) {
-		self.options.put(name, value);
 		self.optionNames.push(name);
 		self.optionValues.push(value);
 	}
@@ -197,11 +166,23 @@ class CLICommandLine {
 		return self.operands.get(index);
 	}
 
-	public bool has(string name) { return self.options.has(name); }
+	/* The last occurrence wins, matching a repeated option overriding an
+	 * earlier one; values() returns every occurrence in order. */
+	private int lastOptionIndex(string name) {
+		for (int i = self.optionNames.len - 1; i >= 0; i--) {
+			if (self.optionNames.get(i).equals(name)) { return i; }
+		}
+		return -1;
+	}
 
-	public string option(string name, string fallback = "") { return self.options.getOrDefault(name, fallback); }
+	public bool has(string name) { return self.lastOptionIndex(name) >= 0; }
 
-	public bool flag(string name) { return self.options.getOrDefault(name, "false").equals("true"); }
+	public string option(string name, string fallback = "") {
+		int index = self.lastOptionIndex(name);
+		return index < 0 ? fallback : self.optionValues.get(index);
+	}
+
+	public bool flag(string name) { return self.option(name, "false").equals("true"); }
 
 	public Vector<string> values(string name) {
 		Vector<string> result = [];

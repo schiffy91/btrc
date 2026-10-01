@@ -12,12 +12,6 @@ import Library.Strings;
 #include <errno.h>
 #include <stdlib.h>
 
-class UnixPlatform {
-	class int pid() { return (int)getpid(); }
-
-	class int euid() { return (int)geteuid(); }
-}
-
 class Platform {
 	class bool isUnix() { return !Platform.isWindows(); }
 
@@ -55,9 +49,9 @@ class Platform {
 
 	class string pathSeparator() { return Platform.isWindows() ? "\\" : "/"; }
 
-	class int pid() { return UnixPlatform.pid(); }
+	class int pid() { return (int)getpid(); }
 
-	class int euid() { return UnixPlatform.euid(); }
+	class int euid() { return (int)geteuid(); }
 
 	class bool isRoot() {
 		/* Windows has no POSIX root identity; the compatibility getuid/euid

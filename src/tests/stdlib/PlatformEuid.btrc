@@ -1,5 +1,5 @@
-/* Platform euid / isRoot probes: Platform.euid() delegates to UnixPlatform.euid()
- * (geteuid), and isRoot() is exactly euid()==0. Pid is also non-negative.
+/* Platform euid / isRoot probes: Platform.euid() reads geteuid(), and
+ * isRoot() is exactly euid()==0. Pid is also non-negative.
  * Deterministic relationships only — never asserts a specific uid. */
 import Library.Platform;
 
@@ -9,16 +9,12 @@ int main() {
 	int euid = Platform.euid();
 	assert(euid >= 0);
 
-	// The Platform facade and the Unix backend agree.
-	assert(UnixPlatform.euid() == euid);
-
 	// isRoot() is precisely euid()==0.
 	assert(Platform.isRoot() == (euid == 0));
 
-	// pid is a positive process id and the facade matches the backend.
+	// pid is a positive process id.
 	int pid = Platform.pid();
 	assert(pid > 0);
-	assert(UnixPlatform.pid() == pid);
 
 	// Static platform facts.
 	assert(Platform.isUnix());

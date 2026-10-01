@@ -1,4 +1,4 @@
-btrc-symbols 1 b2910c0c-253255-27
+btrc-symbols 1 499e8819-250638-27
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
@@ -85,7 +85,6 @@ Path	IO.btrc
 Pattern	Pattern.btrc
 Pending	Callback.btrc
 Platform	Platform.btrc
-PowerShell	Process.btrc
 ProcessStatus	Process.btrc
 Random	Random.btrc
 Regex	Regex.btrc
@@ -111,10 +110,6 @@ Strings	Strings.btrc
 TOML	TOML.btrc
 Timer	Datetime.btrc
 TypeError	Error.btrc
-UnixPattern	Pattern.btrc
-UnixPipe	Process.btrc
-UnixPlatform	Platform.btrc
-UnixProcess	Process.btrc
 UnixShell	Process.btrc
 ValueError	Error.btrc
 Vector	Vector.btrc
@@ -125,7 +120,4 @@ callbackGateDrain	Callback.btrc
 callbackGateLeave	Callback.btrc
 callbackGateTryEnter	Callback.btrc
 environ	Process.btrc
-fileno	IO.btrc
 localeconv	JSON.btrc
-pclose	Process.btrc
-popen	Process.btrc

@@ -1,4 +1,4 @@
-/* CLIArgs flag/command/value lookup, CLICommand aliases, and CLIHelp rendering. */
+/* CLIArgs positional access, CLICommandLine option parsing, CLICommand aliases, and CLIHelp rendering. */
 import Library.CLI;
 
 #include <assert.h>
@@ -17,11 +17,6 @@ int main() {
 	assert(arguments.get(0).equals("build"));
 	assert(arguments.require(1, "missing").equals("--name"));
 	assert(arguments.command().equals("build"));
-	assert(arguments.commandIs("build") && !arguments.commandIs("run"));
-	assert(arguments.has("--name") && !arguments.has("--missing"));
-	assert(arguments.valueAfter("--name", "?").equals("lorem"));
-	assert(arguments.valueAfter("--missing", "def").equals("def"));
-	assert(arguments.valueAfterPrefix("--level=", "0").equals("3"));
 
 	var parsed = CLICommandLine.parse(arguments);
 	assert(parsed.ok());
@@ -54,6 +49,9 @@ int main() {
 	assert(repeatedCommandLine.operandCount() == 0);
 	assert(repeatedCommandLine.values("--arg").len == 2);
 	assert(repeatedCommandLine.values("--arg").get(1).equals("two=2"));
+	// A repeated option reads as its last occurrence.
+	assert(repeatedCommandLine.option("--arg").equals("two=2"));
+	assert(!repeatedCommandLine.has("--missing"));
 
 	var negative = CLIArgs(0, null);
 	negative.values.push("--limit");

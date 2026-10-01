@@ -830,16 +830,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("tryCopyBetween", "bool", "method", (("struct OwnedBufferStorage*", "destination"), ("size_t", "expectedValueSize"), ("size_t", "destinationIndex"), ("struct OwnedBufferStorage*", "source"), ("size_t", "sourceIndex"), ("size_t", "elementCount"),), "tryCopyBetween"),
         BuiltinMemberSpec("close", "void", "method", (("struct OwnedBufferStorage**", "owner"),), "close"),
     )),
-    ("UnixPattern", (
-        BuiltinMemberSpec("matches", "bool", "method", (("string", "pattern"), ("string", "text"),), "matches"),
-    )),
     ("Pattern", (
         BuiltinMemberSpec("matches", "bool", "method", (("string", "pattern"), ("string", "text"),), "matches"),
         BuiltinMemberSpec("anyMatches", "bool", "method", (("Vector<string>", "patterns"), ("string", "text"),), "anyMatches"),
-    )),
-    ("UnixPlatform", (
-        BuiltinMemberSpec("pid", "int", "method", (), "pid"),
-        BuiltinMemberSpec("euid", "int", "method", (), "euid"),
     )),
     ("Platform", (
         BuiltinMemberSpec("isUnix", "bool", "method", (), "isUnix"),
@@ -853,10 +846,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Environment", (
         BuiltinMemberSpec("get", "string", "method", (("string", "name"), ("string", "fallback"),), "get"),
         BuiltinMemberSpec("has", "bool", "method", (("string", "name"),), "has"),
-    )),
-    ("UnixProcess", (
-        BuiltinMemberSpec("system", "ProcessStatus", "method", (("string", "command"),), "system"),
-        BuiltinMemberSpec("pipe", "UnixPipe", "method", (("string", "command"),), "pipe"),
     )),
     ("ShellWords", (
         BuiltinMemberSpec("isEnvNameStart", "bool", "method", (("char", "c"),), "isEnvNameStart"),

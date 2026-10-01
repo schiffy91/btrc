@@ -58,9 +58,8 @@ int main() {
 	assert(conflictingEnvironmentRejected);
 	assert(sh.run("printf '  hi  '", logFailure=false).trimmed().equals("hi"));
 	assert(ProcessStatus(0).ok());
-	assert(UnixProcess.system("exit 7").code() == 7);
-	assert(!UnixProcess.system("exit 7").ok());
-	assert(UnixProcess.system("kill -TERM $$").code() == 143);
+	assert(ProcessStatus(7 << 8).code() == 7);
+	assert(!ProcessStatus(7 << 8).ok());
 	assert(Command("printf direct").render().equals("printf direct"));
 	string commandText = Command("printf direct");
 	assert(commandText.equals("printf direct"));

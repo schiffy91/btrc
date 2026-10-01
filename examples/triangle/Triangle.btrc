@@ -87,7 +87,8 @@ class Triangle implements IApplicationWork {
 
 int main(int argc, char** argv) {
 	var args = CLIArgs(argc, argv);
-	if (args.count() > 1 || (args.count() == 1 && !args.has("--verify"))) { print("Usage: triangle [--verify]"); return 1; }
+	bool verify = args.count() == 1 && args.get(0).equals("--verify");
+	if (args.count() > 0 && !verify) { print("Usage: triangle [--verify]"); return 1; }
 	GUI.initialize();
 	Triangle? triangle = null;
 	try {
@@ -95,10 +96,10 @@ int main(int argc, char** argv) {
 		var view = GUI.createGPUView();
 		window.attachRoot(view);
 		window.show();
-		triangle = Triangle(window, view, args.has("--verify"));
+		triangle = Triangle(window, view, verify);
 		GUI.post(triangle);
 		GUI.run();
-		if (args.has("--verify")) {
+		if (verify) {
 			if (triangle == null || !triangle.verified) { throw "Triangle verification ended before pixel readback"; }
 			print("PASS: native triangle pixels and shutdown");
 		}

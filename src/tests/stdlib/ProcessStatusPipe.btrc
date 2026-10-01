@@ -1,8 +1,9 @@
-/* ProcessStatus signal/error decoding and UnixPipe realloc growth:
- *   - ProcessStatus(-1).code() == 127 (popen/system failure sentinel);
+/* ProcessStatus signal/error decoding through ChildProcess, plus capture
+ * growth across several pipe reads:
+ *   - ProcessStatus(-1).code() == 127 (the wait failure sentinel);
+ *   - normal exits decode to their code;
  *   - a SIGTERM-killed process decodes to 128 + signal;
- *   - UnixPipe.readAll over >4096 bytes exercises the buffer-doubling realloc;
- *   - UnixPipe.close() returns an ok() status for a clean command. */
+ *   - 9000 bytes of stdout span more than one 4096-byte pipe read. */
 import Library.Process;
 
 #include <assert.h>
@@ -13,27 +14,20 @@ int main() {
 	assert(!ProcessStatus(-1).ok());
 
 	// A normal exit decodes to its code.
-	assert(UnixProcess.system("exit 0").code() == 0);
-	assert(UnixProcess.system("exit 5").code() == 5);
+	assert(ChildProcess.run("/bin/sh", ["-c", "exit 0"]).code == 0);
+	assert(ChildProcess.run("/bin/sh", ["-c", "exit 5"]).code == 5);
 
 	// A signal-terminated process: 128 + SIGTERM(15) == 143.
-	assert(UnixProcess.system("kill -TERM $$").code() == 143);
+	assert(ChildProcess.run("/bin/sh", ["-c", "kill -TERM $$"]).code == 143);
 
-	// UnixPipe.readAll across the 4096-byte realloc boundary: produce exactly
-	// 9000 bytes of output via head -c.
-	UnixPipe p = UnixProcess.pipe("yes x | head -c 9000");
-	assert(p.ok());
-	string out = p.readAll();
-	assert((int)strlen(out) == 9000);
-	// The pipe closes cleanly.
-	ProcessStatus st = p.close();
-	assert(st.ok());
+	// Capture across several 4096-byte reads: exactly 9000 bytes via head -c.
+	ExecResult large = ChildProcess.run("/bin/sh", ["-c", "yes x | head -c 9000"]);
+	assert(large.ok());
+	assert((int)strlen(large.stdout()) == 9000);
+	assert(large.capturedStdoutBytes == 9000);
 
-	// A tiny pipe still works (baseline for the same path).
-	UnixPipe small = UnixProcess.pipe("printf hello");
-	string s = small.readAll();
-	assert(s.equals("hello"));
-	small.close();
+	// A tiny capture still works (baseline for the same path).
+	assert(ChildProcess.run("printf", ["hello"]).stdout().equals("hello"));
 
 	print("PASS: test_stdlib_process_status_pipe");
 	return 0;
