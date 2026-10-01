@@ -213,7 +213,7 @@ class TranslationUnitLowerer:
         name, so its owner defines it with external linkage and every other
         unit sees a prototype or an extern global. Anything created outside a
         declaration (lambdas, cleanup adapters, default helpers, interface
-        dispatchers, enum names) is session-local and stays `static`.
+        dispatchers) is session-local and stays `static`.
         """
         module = self._session.module
         owners = self._session.definition_owners
@@ -363,7 +363,13 @@ class TranslationUnitLowerer:
                 )
 
     def _emit_enums(self):
-        self._declarations.emit_enum_decls()
+        """Emit every enum. In module-unit lowering an enum's group owns its
+        `_toString` and rich-enum functions, whose names are program-wide, so
+        that group defines them once with external linkage."""
+        for decl in self._analyzed.program.declarations:
+            if isinstance(decl, EnumDecl | RichEnumDecl):
+                with self._owning(decl):
+                    self._declarations.emit_enum_decl(decl)
 
     def _foreign(self, declaration) -> bool:
         """Whether module-unit lowering assigns `declaration` to another group."""
@@ -374,11 +380,10 @@ class TranslationUnitLowerer:
         )
 
     @contextmanager
-    def _stamping_sources(self, declaration) -> Iterator[None]:
-        """Functions appended while lowering `declaration` came from its .btrc
-        module; the emitter packs translation units along those boundaries.
-        In module-unit lowering they also belong to the declaration's group,
-        and a declaration another group owns is lowered without bodies."""
+    def _owning(self, declaration) -> Iterator[None]:
+        """In module-unit lowering, functions and globals appended while
+        lowering `declaration` belong to its group, and a declaration another
+        group owns is lowered without bodies. Elsewhere it does nothing."""
         functions = self._session.module.function_defs
         globals_ = self._session.module.global_decls
         before = len(functions)
@@ -397,6 +402,19 @@ class TranslationUnitLowerer:
                     self._session.definition_owners.setdefault(function.name, owner)
                 for global_declaration in globals_[globals_before:]:
                     self._session.definition_owners.setdefault(global_declaration.name, owner)
+
+    @contextmanager
+    def _stamping_sources(self, declaration) -> Iterator[None]:
+        """Functions appended while lowering `declaration` came from its .btrc
+        module; the emitter packs translation units along those boundaries.
+        In module-unit lowering they also belong to the declaration's group
+        (`_owning`)."""
+        functions = self._session.module.function_defs
+        before = len(functions)
+        try:
+            with self._owning(declaration):
+                yield
+        finally:
             line = getattr(declaration, "line", 0)
             mapped = self._session.source_map.combined(line) if self._session.source_map and line else None
             if mapped is not None:

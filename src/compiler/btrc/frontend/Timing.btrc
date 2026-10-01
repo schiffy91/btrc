@@ -11,11 +11,22 @@ class BtrccPhaseTimer {
 	class bool enabled = false;
 	class Timer? clock = null;
 	class Vector<string>? report = null;
+	/* Reports forked module-unit workers sent the owner, in worker order. */
+	class Vector<string>? workers = null;
 
 	class void begin() {
 		BtrccPhaseTimer.enabled = getenv("BTRC_TIMING") != null || getenv("BTRCC_TIMING") != null;
+		BtrccPhaseTimer.restart();
+	}
+
+	/* An empty report and a fresh clock, with `enabled` unchanged: a forked
+	 * worker starts its own report so it neither repeats the owner's marks
+	 * nor counts the owner's time before the fork. */
+	class void restart() {
 		Vector<string> empty = [];
 		BtrccPhaseTimer.report = empty;
+		Vector<string> none = [];
+		BtrccPhaseTimer.workers = none;
 		Timer clock = Timer();
 		clock.start();
 		BtrccPhaseTimer.clock = clock;
@@ -42,10 +53,31 @@ class BtrccPhaseTimer {
 		report.push(text);
 	}
 
+	/* The report so far as one space-separated line. */
+	class string rendered() {
+		Vector<string>? report = BtrccPhaseTimer.report;
+		if (report == null) { return ""; }
+		return Strings.join(report, " ");
+	}
+
+	/* The report worker `index` sent back; print() writes it on its own line
+	 * after the owner's, so no worker ever writes to stderr itself. */
+	class void worker(int index, string text) {
+		Vector<string>? workers = BtrccPhaseTimer.workers;
+		if (!BtrccPhaseTimer.enabled || workers == null) { return; }
+		workers.push(f"worker={index} {text}");
+	}
+
+	/* The owner's line first, then one line per forked worker. The worker
+	 * prefix differs from the owner's, so tools that sum the owner's phases
+	 * never count a worker's. */
 	class void print() {
 		Vector<string>? report = BtrccPhaseTimer.report;
 		if (!BtrccPhaseTimer.enabled || report == null) { return; }
-		string rendered = Strings.join(report, " ");
+		string rendered = BtrccPhaseTimer.rendered();
 		fprintf(stderr, "btrcc timing: %s\n", rendered);
+		Vector<string>? workers = BtrccPhaseTimer.workers;
+		if (workers == null) { return; }
+		for line in workers { fprintf(stderr, "btrcc worker timing: %s\n", line); }
 	}
 }

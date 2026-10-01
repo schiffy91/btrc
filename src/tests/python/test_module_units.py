@@ -702,6 +702,91 @@ def test_module_unit_link_plans_match_across_compilers(project: str, tmp_path, r
     assert plans["python"] == plans["btrc"]
 
 
+_ENUM_PROGRAM = {
+    "Kinds.btrc": (
+        "enum Shade { Light, Dark };\n\n"
+        "enum class Mark {\n\tHit(int points),\n\tMiss\n}\n\n"
+        "interface IShaded {\n\tShade shade();\n}\n"
+    ),
+    "Main.btrc": (
+        "import ./Kinds.btrc;\n\n"
+        "int main() {\n"
+        "\tShade value = Shade.Dark;\n"
+        "\tMark mark = Mark.Hit(3);\n"
+        "\tprint(value.toString());\n"
+        "\tprint(mark.toString());\n"
+        "\treturn 0;\n"
+        "}\n"
+    ),
+}
+
+
+def test_enum_functions_belong_to_the_enums_unit(tmp_path, request):
+    """An enum's `_toString` and variant constructors have program-wide names,
+    so the enum's group defines them once with external linkage and every
+    other unit declares them, in both compilers, even when only another
+    group calls them (the declaring group then keeps a unit of its own)."""
+    source = (tmp_path / "program").resolve()
+    source.mkdir()
+    for name, text in _ENUM_PROGRAM.items():
+        (source / name).write_text(text)
+    units: dict[str, dict[str, str]] = {}
+    for compiler in ("python", "btrc"):
+        output = tmp_path.resolve() / compiler
+        output.mkdir()
+        completed = subprocess.run(
+            [
+                *_native_command(compiler, request),
+                "Main.btrc",
+                "-o",
+                str(output / "p.c"),
+                "--emit-units",
+                str(output / "p"),
+                "--module-units",
+                "--jobs",
+                "1",
+            ],
+            cwd=source,
+            env={
+                **os.environ,
+                "BTRC_HOME": str(ROOT / "src"),
+                "PYTHONPATH": str(ROOT),
+                "BTRC_CACHE_DIR": str(output / "cache"),
+            },
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert completed.returncode == 0, completed.stderr
+        units[compiler] = {path.name: path.read_text() for path in sorted(output.glob("p*.c"))}
+    assert sorted(units["python"]) == sorted(units["btrc"])
+    kinds = ModuleUnitCompiler.unit_name(str(source / "Kinds.btrc"))
+    main = ModuleUnitCompiler.unit_name(str(source / "Main.btrc"))
+    for compiler, texts in units.items():
+        assert f"p.{kinds}.c" in texts, compiler
+        for symbol in ("Shade_toString", "Mark_toString", "Mark_Hit"):
+            definition = re.compile(rf"^(static )?[A-Za-z_][\w \t*]*\b{symbol}\([^;\n]*\)\s*\{{", re.M)
+            defining = [name for name, text in texts.items() if definition.search(text)]
+            assert defining == [f"p.{kinds}.c"], (compiler, symbol, defining)
+            assert not definition.search(texts[f"p.{kinds}.c"]).group(1), (compiler, symbol)
+            assert re.search(rf"^[^\n]*\b{symbol}\([^;\n]*\);$", texts[f"p.{main}.c"], re.M), (compiler, symbol)
+    if C_COMPILER is None:
+        return
+    for compiler in units:
+        output = tmp_path.resolve() / compiler
+        sources = sorted(str(path) for path in output.glob("p*.c"))
+        executable = output / "program"
+        subprocess.run(
+            [C_COMPILER, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", *sources, "-o", str(executable)]
+            + ["-lm", "-lpthread"],
+            check=True,
+            capture_output=True,
+            timeout=180,
+        )
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0 and ran.stdout == "Dark\nHit\n", (compiler, ran)
+
+
 def _cli_units(command: list[str], workspace: _Workspace, entry: str, output: Path, jobs: int) -> dict[str, str]:
     """Compile `entry` through a compiler CLI with `jobs` workers; return every emitted C file."""
     output.mkdir(parents=True, exist_ok=True)
@@ -744,6 +829,160 @@ def test_worker_counts_emit_identical_units(compiler: str, tmp_path, request):
     assert len(single) > 3
     # Debug-free output never names its directory, so the files compare directly.
     assert forked == single
+
+
+@dataclass
+class _TimedBuild:
+    """One CLI module-unit compile's owner pid, timing lines and units."""
+
+    pid: int
+    owner: list[str]
+    workers: list[str]
+    stderr: str
+    units: dict[str, str]
+
+
+def _timed_cli_build(
+    command: list[str],
+    workspace: _Workspace,
+    output: Path,
+    jobs: int,
+    *,
+    timing: bool = True,
+    cache: Path | None = None,
+) -> _TimedBuild:
+    """Compile CatalogMain through a compiler CLI, with BTRC_TIMING set or unset."""
+    output.mkdir(parents=True, exist_ok=True)
+    environment = {
+        **os.environ,
+        "BTRC_HOME": str(ROOT / "src"),
+        "PYTHONPATH": str(ROOT),
+        "BTRC_CACHE_DIR": str((cache or output / "cache").resolve()),
+    }
+    for name in ("BTRC_TIMING", "BTRCC_TIMING"):
+        environment.pop(name, None)
+    if timing:
+        environment["BTRC_TIMING"] = "1"
+    process = subprocess.Popen(
+        [
+            *command,
+            "CatalogMain.btrc",
+            "-o",
+            str(output / "program.c"),
+            "--emit-units",
+            str(output / "program"),
+            "--module-units",
+            "--jobs",
+            str(jobs),
+        ],
+        cwd=workspace.modules,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    _stdout, stderr = process.communicate(timeout=300)
+    assert process.returncode == 0, stderr
+    lines = stderr.splitlines()
+    return _TimedBuild(
+        process.pid,
+        [line for line in lines if re.match(r"^(btrcpy|btrcc) timing: ", line)],
+        [line for line in lines if re.match(r"^(btrcpy|btrcc) worker timing: ", line)],
+        stderr,
+        {path.name: path.read_text() for path in sorted(output.glob("program*.c"))},
+    )
+
+
+def _timing_command(compiler: str, request) -> list[str]:
+    if compiler == "python":
+        return [sys.executable, "-m", "src.compiler.python.main"]
+    return [str(request.getfixturevalue("immutable_btrcc"))]
+
+
+def _python_lowered_groups(workspace: _Workspace, output: Path) -> int:
+    """How many groups a cold module-unit build of CatalogMain lowers."""
+    path = workspace.modules / "CatalogMain.btrc"
+    result = Compiler(cache=CompilerCache()).compile(
+        path.read_text(),
+        str(path),
+        CompilerOptions(units_prefix=str(output / "program"), module_units=True, use_cache=False),
+    )
+    assert result.failure is None, result.failure
+    return len(result.module_units_lowered)
+
+
+def test_forked_workers_report_timing_through_the_owner(compiler: str, tmp_path, request):
+    """A forked pool's workers each send the owner a report it prints last.
+
+    The owner's line comes first and is unchanged, so `tools.perf` sums only
+    the owner's phases; every worker reports once, from its own process, with
+    no owner-only token, and together the workers lowered every group.
+    """
+    from tools import perf
+
+    workspace = _Workspace(tmp_path.resolve())
+    build = _timed_cli_build(_timing_command(compiler, request), workspace, workspace.root / "cold", 2)
+    assert len(build.owner) == 1
+    assert build.stderr.splitlines().index(build.owner[0]) < min(
+        build.stderr.splitlines().index(line) for line in build.workers
+    )
+    owner = build.owner[0]
+    if compiler == "python":
+        count = 2
+        lowered = _python_lowered_groups(workspace, workspace.root / "probe")
+    else:
+        count = int(re.search(r"\bmodule-unit-workers=(\d+)", owner).group(1))
+        lowered = int(re.search(r"\bmodule-units=lowered:(\d+)", owner).group(1))
+    assert count == 2
+    assert len(build.workers) == count
+    fields = [dict(item.partition("=")[::2] for item in line.split(": ", 1)[1].split()) for line in build.workers]
+    assert sorted(int(field["worker"]) for field in fields) == list(range(count))
+    pids = {int(field["pid"]) for field in fields}
+    assert len(pids) == count and build.pid not in pids
+    requests = [dict(entry.split(":") for entry in field["requests"].split(",")) for field in fields]
+    assert all(set(entry) == {"lower", "setjmp", "realtime", "finish"} for entry in requests)
+    assert sum(int(entry["lower"]) for entry in requests) == lowered
+    for line in build.workers:
+        assert "w-wait=" in line
+        for token in ("grammar=", "analyze=", "u-plan=", "module-units=", "a-records-stored(", "artifact-hit="):
+            assert token not in line
+        if compiler == "btrc":
+            assert "l-setup=" in line and "w-reply=" in line
+
+    # `phase_times` cannot yet read btrcc's `a-records-stored(...)=` counter,
+    # whose name holds an `=`; that token is the owner's either way.
+    def summable(text: str) -> str:
+        return re.sub(r"\S*\(\S*", "", text)
+
+    assert perf.phase_times(summable(build.stderr)) == perf.phase_times(summable(owner))
+    assert sorted(perf.worker_phase_times(build.stderr)) == list(range(count))
+
+
+def test_inline_and_incremental_builds_print_no_worker_timing(compiler: str, tmp_path, request):
+    """Where the owner is the only worker its time is already the owner's."""
+    command = _timing_command(compiler, request)
+    workspace = _Workspace(tmp_path.resolve())
+    inline = _timed_cli_build(command, workspace, workspace.root / "inline", 1)
+    assert len(inline.owner) == 1 and not inline.workers
+    assert not re.search(r"\bw-", inline.owner[0])
+    cache = workspace.root / "cache"
+    _timed_cli_build(command, workspace, workspace.root / "cold", 2, cache=cache)
+    warm = _timed_cli_build(command, workspace, workspace.root / "warm", 2, cache=cache)
+    assert len(warm.owner) == 1 and not warm.workers
+    workspace.edit("Catalog/Catalog.btrc", 'print(f"catalog skipped {error}");', 'print(f"catalog skip: {error}");')
+    edited = _timed_cli_build(command, workspace, workspace.root / "edited", 2, cache=cache)
+    assert len(edited.owner) == 1 and not edited.workers
+
+
+def test_worker_timing_never_changes_the_units(compiler: str, tmp_path, request):
+    """Without BTRC_TIMING nothing is reported, and the units are the same."""
+    command = _timing_command(compiler, request)
+    workspace = _Workspace(tmp_path.resolve())
+    quiet = _timed_cli_build(command, workspace, workspace.root / "quiet", 2, timing=False)
+    assert "timing:" not in quiet.stderr
+    timed = _timed_cli_build(command, workspace, workspace.root / "timed", 2)
+    assert timed.workers
+    assert quiet.units == timed.units
 
 
 def test_native_includes_are_include_once_blocks(compiler: str, tmp_path, request):

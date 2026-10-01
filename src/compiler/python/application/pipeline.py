@@ -794,6 +794,7 @@ class CompilationPipeline:
                 c_unit_names=build.unit_names,
                 module_units_lowered=build.lowered,
                 module_units_reused=build.reused,
+                worker_profiles=build.worker_profiles,
                 **common,
             )
 

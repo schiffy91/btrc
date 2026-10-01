@@ -34,7 +34,7 @@ from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
 from .results import CompilerOptions
 
-_RECORD_SCHEMA = 4
+_RECORD_SCHEMA = 5
 # The unit that defines every runtime helper of a module-unit program; a
 # group's unit is named for its path hash and so never takes this name.
 RUNTIME_UNIT_NAME = "unit-runtime"
@@ -42,6 +42,8 @@ RUNTIME_UNIT_NAME = "unit-runtime"
 _DECLARATIONS = "\0declarations"
 _UNHASHED_FIELDS = frozenset({"line", "col", "name_line", "name_col", "source_file"})
 # Words of a C type spelling that name nothing a binding header declares.
+# The worker operations a forked worker's timing report counts, in order.
+_TIMED_OPERATIONS = ("lower", "setjmp", "realtime", "finish")
 _C_TYPE_WORDS = frozenset(
     {"struct", "union", "enum", "const", "volatile", "restrict", "signed", "unsigned"}
     | {"char", "short", "int", "long", "float", "double", "void", "bool", "_Bool"}
@@ -226,6 +228,9 @@ class ModuleUnitBuild:
     unit_names: tuple[str, ...]
     lowered: tuple[str, ...]
     reused: tuple[str, ...]
+    # Under profiling, each forked worker's timing report, in worker order;
+    # empty when the owner was the only worker.
+    worker_profiles: tuple[str, ...] = ()
 
 
 @dataclass
@@ -939,7 +944,10 @@ class ModuleUnitCompiler:
                 )
                 store.store_module_unit(state.key, record.to_json(), input_path)
                 state.record = record
+            worker_profiles: tuple[str, ...] = ()
             if self._workers is not None:
+                if profile is not None and isinstance(self._workers, ForkedModuleUnitWorkers):
+                    worker_profiles = self._worker_profiles(self._workers)
                 self._workers.close()
                 self._workers = None
         finally:
@@ -969,6 +977,7 @@ class ModuleUnitCompiler:
             unit_names=tuple(name for name, _text in emitted),
             lowered=tuple(sorted(lowered)),
             reused=tuple(sorted(state.name for state in states if state.name not in lowered)),
+            worker_profiles=worker_profiles,
         )
 
     def _pool(self, local: ModuleUnitWorker, lowering: tuple, shared: SharedDeclarations, options, stale: int):
@@ -977,9 +986,19 @@ class ModuleUnitCompiler:
             count = min(options.module_jobs, stale)
             workers = None
             if count > 1:
-                workers = ForkedModuleUnitWorkers.start(count, ModuleUnitWorker(self, lowering, shared))
+                worker = ModuleUnitWorker(self, lowering, shared, profiled=options.profile)
+                workers = ForkedModuleUnitWorkers.start(count, worker)
             self._workers = workers or InlineModuleUnitWorkers(local)
         return self._workers
+
+    def _worker_profiles(self, workers: ForkedModuleUnitWorkers) -> tuple[str, ...]:
+        """Each forked worker's own timing report, in worker order.
+
+        Only the owner writes to stderr, so reports from several workers
+        never interleave.
+        """
+        replies = self._exchange(workers, [(worker, {"op": "timing"}) for worker in range(workers.size)])
+        return tuple(reply["timing"] for _worker, reply in replies)
 
     @staticmethod
     def _exchange(workers, requests: Sequence[tuple[int, dict]]) -> list[tuple[int, dict]]:
@@ -1424,7 +1443,9 @@ class ModuleUnitWorker:
     declarations, or in the owner itself.
     """
 
-    def __init__(self, compiler: ModuleUnitCompiler, lowering: tuple, shared: SharedDeclarations) -> None:
+    def __init__(
+        self, compiler: ModuleUnitCompiler, lowering: tuple, shared: SharedDeclarations, *, profiled: bool = False
+    ) -> None:
         self._compiler = compiler
         self._lowering = lowering
         self._shared = shared
@@ -1436,8 +1457,45 @@ class ModuleUnitWorker:
         # owner's current solve; a new solve starts both maps again.
         self._reported: dict[str, FunctionEffect] = {}
         self._solve_generation = -1
+        # A forked copy runs in another process and, when profiled, keeps its
+        # own report for the owner to print.
+        self._profiled = profiled
+        self._owner_process = os.getpid()
+        self._idle_since: float | None = None
+        self._waited = 0.0
+        self._requests = dict.fromkeys(_TIMED_OPERATIONS, 0)
+        self._busy = dict.fromkeys(_TIMED_OPERATIONS, 0.0)
 
     def __call__(self, request: dict) -> dict:
+        """Answer one request; a profiled forked worker also times it.
+
+        It counts the idle time before each request from its first one
+        (`w-wait`), and each operation's requests and busy time. The owner asks
+        for the report just before it closes the pool; an in-process worker's
+        time is the owner's own.
+        """
+        if not self._profiled or os.getpid() == self._owner_process:
+            return self._answer(request)
+        started = time.perf_counter()
+        if self._idle_since is not None:
+            self._waited += started - self._idle_since
+        operation = request["op"]
+        if operation == "timing":
+            return {"timing": self._timing_report()}
+        try:
+            return self._answer(request)
+        finally:
+            self._idle_since = time.perf_counter()
+            self._requests[operation] = self._requests.get(operation, 0) + 1
+            self._busy[operation] = self._busy.get(operation, 0.0) + self._idle_since - started
+
+    def _timing_report(self) -> str:
+        """`pid=<pid> requests=lower:n,... busy=lower:Nus,... w-wait=Nus`."""
+        requests = ",".join(f"{operation}:{self._requests[operation]}" for operation in _TIMED_OPERATIONS)
+        busy = ",".join(f"{operation}:{int(self._busy[operation] * 1_000_000)}us" for operation in _TIMED_OPERATIONS)
+        return f"pid={os.getpid()} requests={requests} busy={busy} w-wait={int(self._waited * 1_000_000)}us"
+
+    def _answer(self, request: dict) -> dict:
         operation = request["op"]
         group = request["group"]
         if operation == "lower":

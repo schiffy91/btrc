@@ -108,11 +108,26 @@ deletes anything there untouched for three days, and on 2026-09-28 it emptied
 the BTRSmith measurement copy. `~/.cache/btrc/` is safe.
 
 `BTRC_TIMING=1` prints a per-phase breakdown for a whole compile as one line
-from the owner process. Worker timing is not yet reported, in either compiler:
-a forked module-unit worker prints no timing line and its marks are lost at
-exit, so with forked workers the owner's later phases count time spent waiting
-for them. Under `--jobs 1` the inline worker's marks fold into the owner's line,
-which is enough to attribute a cold build without attaching a profiler.
+from the owner process (`btrcc timing:` or `btrcpy timing:`). When a
+module-unit build forks its worker pool, each worker sends its report to the
+owner just before the pool closes, and the owner prints one `btrcc worker
+timing:` (or `btrcpy worker timing:`) line per worker after its own, in worker
+order: `worker=<i> pid=<pid> requests=lower:n,setjmp:n,realtime:n,finish:n
+busy=<op>:Nus,...`, the idle time before requests as `w-wait`, and in btrcc the
+worker's own `u-*`/`l-*` marks and `w-reply`. The owner's later phases still
+count time spent waiting for its workers; the worker lines say where that time
+went. `tools/perf.py`'s `phase_times` sums the owner's line only and
+`worker_phase_times` reads the worker lines. An inline pool (`--jobs 1`, or
+fewer than two stale groups) prints no worker line: its work is the owner's,
+and its marks fold into the owner's line, which is enough to attribute a cold
+build without attaching a profiler. Per-worker resource usage is not reported
+yet.
+
+With forked workers, `/usr/bin/time -l` mixes scopes: instructions retired,
+cycles and peak memory footprint describe the owner process only, user and sys
+time are summed over the reaped workers, and maxrss is the largest single
+process. Compare forked builds on the owner's figures plus the worker lines, or
+measure with `--jobs 1`.
 
 ### Performance changes already measured and rejected
 

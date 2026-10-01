@@ -64,17 +64,12 @@ class DeclarationLowerer:
             )
         return None
 
-    def emit_enum_decls(self):
-        """Emit all enum declarations."""
-        for decl in self._analyzed.program.declarations:
-            if isinstance(decl, EnumDecl):
-                self._emit_enum(
-                    decl,
-                )
-            elif isinstance(decl, RichEnumDecl):
-                self._emit_rich_enum(
-                    decl,
-                )
+    def emit_enum_decl(self, decl: EnumDecl | RichEnumDecl) -> None:
+        """Emit one plain or rich enum declaration."""
+        if isinstance(decl, EnumDecl):
+            self._emit_enum(decl)
+        else:
+            self._emit_rich_enum(decl)
 
     def _emit_enum(self, decl: EnumDecl):
         """Emit a simple enum and, for named enums, its toString helper."""
