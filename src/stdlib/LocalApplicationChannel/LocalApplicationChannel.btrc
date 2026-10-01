@@ -8,7 +8,7 @@
  */
 import Library.OwnedBuffer;
 import Library.Bytes;
-import Library.FileSystem;
+import Library.LocalApplicationChannel.LocalPeerCredentials;
 import Library.Vector;
 
 #include <sys/socket.h>
@@ -24,7 +24,6 @@ import Library.Vector;
 enum LocalApplicationChannelOpenKind {
 	LOCAL_APPLICATION_CHANNEL_OPENED = 0,
 	LOCAL_APPLICATION_CHANNEL_OPEN_INVALID = 1,
-	LOCAL_APPLICATION_CHANNEL_OPEN_UNSUPPORTED = 2,
 	LOCAL_APPLICATION_CHANNEL_OPEN_INSECURE_PARENT = 3,
 	LOCAL_APPLICATION_CHANNEL_OPEN_PATH_CONFLICT = 4,
 	LOCAL_APPLICATION_CHANNEL_OPEN_ALREADY_RUNNING = 5,
@@ -52,7 +51,6 @@ enum LocalApplicationChannelResponseKind {
 enum LocalApplicationChannelRequestKind {
 	LOCAL_APPLICATION_CHANNEL_REQUEST_COMPLETED = 0,
 	LOCAL_APPLICATION_CHANNEL_REQUEST_INVALID = 1,
-	LOCAL_APPLICATION_CHANNEL_REQUEST_UNSUPPORTED = 2,
 	LOCAL_APPLICATION_CHANNEL_REQUEST_UNAVAILABLE = 3,
 	LOCAL_APPLICATION_CHANNEL_REQUEST_TIMED_OUT = 4,
 	LOCAL_APPLICATION_CHANNEL_REQUEST_PROTOCOL_FAILED = 5,
@@ -486,7 +484,10 @@ class LocalChannelSocket {
 
 	class bool privateParent(string path) {
 		if (!LocalChannelSocket.validPath(path)) { errno = EINVAL; return false; }
-		string parent = PathTools.dirname(path);
+		/* validPath guarantees an absolute path without a trailing slash, so
+		 * the parent is everything before the last separator. */
+		int separator = path.lastIndexOf("/");
+		string parent = separator == 0 ? "/" : path.substring(0, separator);
 		struct stat status;
 		if (lstat(parent, &status) != 0) { return false; }
 		if (!S_ISDIR(status.st_mode) || (unsigned long long)status.st_uid != (unsigned long long)geteuid() || (status.st_mode & (mode_t)0077) != (mode_t)0) { errno = EACCES; return false; }
@@ -538,7 +539,7 @@ class LocalChannelSocket {
 			if (error != 0) { errno = error; return false; }
 		}
 		uid_t user = 0;
-		if (localSocketPeerUser(self.descriptor, &user) != 0 || user != geteuid()) { errno = EACCES; return false; }
+		if (LocalPeerCredentials.peerUser(self.descriptor, &user) != 0 || user != geteuid()) { errno = EACCES; return false; }
 		return true;
 	}
 
@@ -574,7 +575,7 @@ class LocalChannelSocket {
 		var peer = LocalChannelSocket();
 		peer.descriptor = descriptor;
 		uid_t user = 0;
-		if (!peer.configure() || localSocketPeerUser(descriptor, &user) != 0 || user != geteuid()) {
+		if (!peer.configure() || LocalPeerCredentials.peerUser(descriptor, &user) != 0 || user != geteuid()) {
 			peer.close();
 			errno = 0;
 			return null;
