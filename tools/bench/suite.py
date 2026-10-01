@@ -21,6 +21,17 @@ CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
 LIBS = ["-lm", "-lpthread"]
 TIME = Path("/usr/bin/time")
 FOOTPRINT = re.compile(r"(\d+)\s+peak memory footprint")
+# Linux carries the replaced image's high-water mark across exec, so a child
+# forked from this process reports at least this process's resident set. A
+# fresh interpreter forks the measured command instead and reports its wait4.
+MAXRSS = re.compile(r"^bench maxrss: (\d+)$", re.MULTILINE)
+MAXRSS_LAUNCHER = (
+    "import os, subprocess, sys\n"
+    "process = subprocess.Popen(sys.argv[1:])\n"
+    "_, status, usage = os.wait4(process.pid, 0)\n"
+    "print(f'\\nbench maxrss: {usage.ru_maxrss}', file=sys.stderr)\n"
+    "sys.exit(os.waitstatus_to_exitcode(status))\n"
+)
 TIMING_VARIABLES = ("BTRC_TIMING", "BTRCC_TIMING")
 
 
@@ -105,7 +116,8 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
     On macOS it is the peak footprint `/usr/bin/time -l` reports, the number the
     M11 budget is written in. Elsewhere it is the child's own maximum resident
     set from wait4 (KiB on Linux), which a reaped sibling cannot inflate the way
-    RUSAGE_CHILDREN's running maximum would. Standard output is discarded.
+    RUSAGE_CHILDREN's running maximum would, read by a fresh interpreter that
+    forks it (MAXRSS_LAUNCHER). Standard output is discarded.
     """
 
     if peak_counter() == "footprint":
@@ -125,14 +137,17 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
             raise RuntimeError(f"{TIME} -l reported no peak memory footprint:\n{completed.stderr[-2000:]}")
         return Peak(int(found.group(1)), "footprint")
     with tempfile.TemporaryFile() as errors:
-        process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.DEVNULL, stderr=errors)
-        _, status, usage = os.wait4(process.pid, 0)
-        process.returncode = os.waitstatus_to_exitcode(status)
+        launcher = [sys.executable, "-c", MAXRSS_LAUNCHER, *command]
+        process = subprocess.Popen(launcher, cwd=cwd, env=env, stdout=subprocess.DEVNULL, stderr=errors)
+        process.wait()
+        errors.seek(0)
+        detail = errors.read().decode(errors="replace")
         if process.returncode != 0:
-            errors.seek(0)
-            detail = errors.read().decode(errors="replace")[-2000:]
-            raise RuntimeError(f"{' '.join(command)} failed ({process.returncode}):\n{detail}")
-    return Peak(usage.ru_maxrss * (1 if sys.platform == "darwin" else 1024), "maxrss")
+            raise RuntimeError(f"{' '.join(command)} failed ({process.returncode}):\n{detail[-2000:]}")
+    found = MAXRSS.findall(detail)
+    if not found:
+        raise RuntimeError(f"{' '.join(command)} reported no maximum resident set:\n{detail[-2000:]}")
+    return Peak(int(found[-1]) * (1 if sys.platform == "darwin" else 1024), "maxrss")
 
 
 def peak_counter() -> str:
