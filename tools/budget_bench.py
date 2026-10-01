@@ -10,7 +10,9 @@ runs, inside BTRSmith's dev shell (tools/bench/scripts/bsm_env.sh)::
 Run it where BTRSmith builds: PKG_CONFIG_PATH names its packages and
 BTRC_NATIVE_HEADER_READER, BTRC_NATIVE_TARGET and BTRC_NATIVE_SYSROOT name the
 native header reader. The workspace is copied, never edited in place; --out is
-replaced only when it is empty or an earlier run of this tool.
+replaced only when it is empty or an earlier run of this tool. Keep it short:
+the smoke binds <out>/smoke/state/agent.sock, and a Unix socket path over 103
+bytes leaves BTRSmith's agent channel closed in every smoke.
 
 A build is what a developer runs, timed in wall seconds from command entry
 until the artifact exists. --frontend selfhost runs --btrcc; reference runs
@@ -33,7 +35,10 @@ Scenarios (--scenarios, comma-separated, or `all`):
 
 - cold: cold-transpile, the compiler alone with empty btrc artifact caches,
   and cold-<mode>: empty caches, objects and output, executable included.
-  --timing-cold keeps every cold build's BTRC_TIMING owner and worker lines.
+  --timing-cold keeps every cold build's BTRC_TIMING owner and worker lines
+  (btrcc's incremental builds always keep theirs; the reference compiler
+  skips its whole-program artifact cache while it profiles, so it is timed
+  only on request, and only for cold builds).
 - edit, or edit-<fixture>: a real private-body change in a named product
   module; every sample writes source the run has not built before, so none is
   answered from the artifact cache. After a fixture's samples, a clean build
@@ -995,6 +1000,8 @@ class BudgetBench:
     """Drive one copied workspace through the selected budget scenarios."""
 
     SMOKE_RERUNS = 2
+    # sockaddr_un.sun_path holds 104 bytes on macOS and 108 on Linux, NUL included.
+    SOCKET_PATH_LIMIT = 104
 
     def __init__(self, settings: BenchSettings) -> None:
         self.settings = settings
@@ -1008,6 +1015,14 @@ class BudgetBench:
         self.results: dict[str, Scenario] = {}
         self.revisions: dict[str, int] = {}
         self.provenance = self.collect_provenance()
+        socket = self.out / "smoke/state/agent.sock"
+        self.provenance["smoke_agent_socket"] = {"path": str(socket), "bytes": len(os.fsencode(socket))}
+        if len(os.fsencode(socket)) >= self.SOCKET_PATH_LIMIT:
+            print(
+                f"warning: {socket} exceeds a Unix socket path; the smoke runs without BTRSmith's agent "
+                "channel (choose a shorter --out)",
+                flush=True,
+            )
         if settings.entry == "make":
             self.commands.wrappers.mkdir()
             for name, text in self.commands.wrapper_scripts().items():
@@ -1070,6 +1085,12 @@ class BudgetBench:
 
     def cold_label(self, name: str, index: int) -> str | None:
         return f"{name}-{index + 1}" if self.settings.timing_cold else None
+
+    def incremental_label(self, label: str) -> str | None:
+        """Incremental builds keep btrcc's phase timing. The reference compiler
+        bypasses its whole-program artifact cache while it profiles, so its
+        incremental builds run without BTRC_TIMING."""
+        return label if self.settings.frontend == "selfhost" else None
 
     @staticmethod
     def native_summary(path: Path) -> dict[str, object]:
@@ -1316,7 +1337,7 @@ class BudgetBench:
             scenario = self.scenario(name)
             for index in range(self.settings.incremental_samples):
                 self.advance(fixture)
-                self.record(scenario, self.build(warm, timing_label=f"{name}-{index + 1}"))
+                self.record(scenario, self.build(warm, timing_label=self.incremental_label(f"{name}-{index + 1}")))
             self.verify_against_clean(scenario, warm)
         if "instance-edit" in selected:
             self.run_instance_edit(warm)
@@ -1325,7 +1346,7 @@ class BudgetBench:
         if "noop" in selected:
             scenario = self.scenario("noop")
             for index in range(self.settings.incremental_samples):
-                self.record(scenario, self.build(warm, timing_label=f"noop-{index + 1}"))
+                self.record(scenario, self.build(warm, timing_label=self.incremental_label(f"noop-{index + 1}")))
         if "touch" in selected:
             scenario = self.scenario("touch")
             path = self.workspace / TOUCHED
@@ -1345,7 +1366,7 @@ class BudgetBench:
                 self.apply(fixture, 0)
                 self.build(warm)
             self.apply(fixture, index + 1)
-            run = self.build(warm, timing_label=f"instance-edit-{index + 1}")
+            run = self.build(warm, timing_label=self.incremental_label(f"instance-edit-{index + 1}"))
             added = SymbolSet.scan(self.product(warm).c_files(self.workspace)).added_since(baseline)
             if not added.structs:
                 raise RuntimeError("instance-edit: the edited build declares no new generic instance")
@@ -1361,7 +1382,7 @@ class BudgetBench:
         ratios: list[float] = []
         for index in range(self.settings.cold_samples):
             self.advance(INTERFACE_FIXTURE)
-            run = self.build(warm, timing_label=f"interface-edit-{index + 1}")
+            run = self.build(warm, timing_label=self.incremental_label(f"interface-edit-{index + 1}"))
             clean.reset(objects=True)
             clean_run = self.build(clean)
             self.compare(scenario, warm, clean)
@@ -1382,15 +1403,16 @@ class BudgetBench:
         state = self.state("memory")
         state.reset(objects=True)
         jobs = 1 if self.flavor.units == "module" else None
+        label = f"{self.settings.frontend} {self.flavor.units}-unit compile" + (" --jobs 1" if jobs else "")
         if TimeReport.available():
             run = self.compile(state, jobs=jobs, measure=True)
             usage = run.usage or TimeReport()
             scenario.facts.update(compile_s=round(run.total_s, 3), **usage.metrics("compiler_"))
             peak = usage.peak_footprint_bytes or usage.max_rss_bytes
             if peak is not None:
-                scenario.note(f"{self.settings.frontend} --jobs 1 peak {peak} bytes ({peak / 2**30:.3f} GiB)")
+                scenario.note(f"{label} peak {peak} bytes ({peak / 2**30:.3f} GiB)")
             if usage.instructions_retired is not None:
-                scenario.note(f"{self.settings.frontend} --jobs 1 instructions retired {usage.instructions_retired:,}")
+                scenario.note(f"{label} instructions retired {usage.instructions_retired:,}")
         else:
             scenario.note(f"{TimeReport.TOOL} is missing: no compiler peak")
         state.reset(objects=True)

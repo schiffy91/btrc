@@ -597,3 +597,13 @@ def test_clean_build_check_fails_a_reproducible_difference(tmp_path, workspace, 
     with pytest.raises(RuntimeError, match="differs from a clean build"):
         runner.compare(scenario, bench.State(tmp_path / "warm"), bench.State(tmp_path / "clean"))
     assert "smoke DIFFERS after 2 rerun(s)" in scenario.notes[0]
+
+
+@pytest.mark.parametrize("frontend,expected", [("selfhost", "noop-1"), ("reference", None)])
+def test_only_btrcc_keeps_incremental_phase_timing(workspace, tmp_path, btrcc, frontend, expected):
+    # The reference compiler skips its whole-program artifact cache while it
+    # profiles, so timing its no-op would time a full transpile instead.
+    runner = object.__new__(bench.BudgetBench)
+    runner.settings = settings(workspace, tmp_path / "out", "--frontend", frontend, btrcc=btrcc)
+    assert runner.incremental_label("noop-1") == expected
+    assert runner.cold_label("cold-dev", 0) is None
