@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "status": "placeholder",
+  "note": "Provisional picks from BTRSmith's MVP source-check tests so the batch scenario can dry-run. The integrator replaces them with the ten entry points the Stage 3 reviewer proposes and sets status to final; tools/budget_bench.py refuses a placeholder outside --dry-run. Each entry: name (the executable), source (relative to the BTRSmith workspace), optional arguments and environment for the test run.",
+  "entries": [
+    {
+      "name": "NavigationHistory",
+      "source": "tests/integration/NavigationHistory.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "PlayerCommandOwner",
+      "source": "tests/integration/PlayerCommandOwner.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "SemanticState",
+      "source": "tests/integration/SemanticState.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "UiSnapshot",
+      "source": "tests/integration/UiSnapshot.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "McpProtocol",
+      "source": "tests/integration/McpProtocol.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "CoreNamedLoops",
+      "source": "tests/integration/CoreNamedLoops.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "PlayerPreferences",
+      "source": "tests/integration/PlayerPreferences.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "TransportOwner",
+      "source": "tests/integration/TransportOwner.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "RuntimeSettings",
+      "source": "tests/integration/RuntimeSettings.btrc",
+      "arguments": [],
+      "environment": {}
+    },
+    {
+      "name": "CommandAdapters",
+      "source": "tests/integration/CommandAdapters.btrc",
+      "arguments": [],
+      "environment": {}
+    }
+  ]
+}
