@@ -3285,7 +3285,7 @@ class FeNativeHeaderCodec {
 
 	private Vector<JSONValue> array(JSONValue value) {
 		if (!value.isArray()) { self.fail("expected native array"); }
-		return value.arr;
+		return value.elements();
 	}
 
 	private string choice(JSONValue value, string choices) {

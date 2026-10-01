@@ -3,6 +3,7 @@
  * decoding through the shared JSON string parser. */
 import Library.JSON;
 import Library.Strings;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>
@@ -45,6 +46,12 @@ int main() {
 	assert(JSONValue.parse("[]").kind() == JSON_ARRAY);
 	assert(JSONValue.parse("{}").kind() == 5);
 	assert(JSONValue.parse("nope").kind() == JSON_ERROR);
+	JSONValue list = JSONValue.parse("[1,\"two\",3]");
+	Vector<JSONValue> elements = list.elements();
+	assert(elements.len == 3 && elements.get(1).asString().equals("two"));
+	elements.pop();
+	assert(list.size() == 3);
+	assert(JSONValue.makeObject().elements().len == 0);
 
 	// Wide objects: duplicate detection, lookup and replacement stay
 	// consistent past the point where an object switches to its key index.

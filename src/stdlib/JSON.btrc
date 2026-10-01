@@ -245,6 +245,17 @@ class JSONValue {
 
 	public bool has(string key) { return self.tag == JSON_OBJECT && self.keyPosition(key) >= 0; }
 
+	/* elements(): a fresh Vector of array elements (empty if not an array). */
+	public Vector<JSONValue> elements() {
+		Vector<JSONValue> result = [];
+		if (self.tag == JSON_ARRAY) {
+			for (int i = 0; i < self.arr.len; i++) {
+				result.push(self.arr.get(i));
+			}
+		}
+		return result;
+	}
+
 	/* keys(): a fresh Vector<string> of object keys (empty if not an object). */
 	public Vector<string> keys() {
 		Vector<string> result = [];
