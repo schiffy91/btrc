@@ -662,9 +662,7 @@ class AlsaPlatform implements AudioDevicePlatform {
 	public string name() { return "ALSA"; }
 
 	public AudioDeviceInventoryOutcome inventory() {
-		Vector<string> held = [];
-		if (self._stream != null) { held = self._stream.heldDeviceNames(); }
-		return self._inventory.refresh(held);
+		return self._inventory.refresh(self._stream != null ? self._stream.heldDeviceNames() : []);
 	}
 
 	public AudioSessionSetup prepare(DuplexAudioOpenRequest request, RealtimeAudioProgram program, AudioDeviceInventory inventory) {
