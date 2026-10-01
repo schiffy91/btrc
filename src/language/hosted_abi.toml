@@ -12,7 +12,6 @@ functions = [
   "GetFileAttributesA",
   "RemoveDirectoryA",
   "_Exit",
-  "__btrc_application_directories_platform",
   "__btrc_close_descriptors_except",
   "__btrc_close_descriptors_except_many",
   "__btrc_close_descriptors_from",
@@ -36,6 +35,7 @@ functions = [
   "__btrc_string_length",
   "__btrc_string_live_count",
   "__btrc_string_or_empty",
+  "__btrc_target_platform",
   "__btrc_terminal_adopt_foreground",
   "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
@@ -6538,7 +6538,6 @@ owned = [
   "_IOLBF",
   "_IONBF",
   "__bool_true_false_are_defined",
-  "__btrc_application_directories_platform",
   "__btrc_close_descriptors_except",
   "__btrc_close_descriptors_except_many",
   "__btrc_close_descriptors_from",
@@ -6562,6 +6561,7 @@ owned = [
   "__btrc_string_length",
   "__btrc_string_live_count",
   "__btrc_string_or_empty",
+  "__btrc_target_platform",
   "__btrc_terminal_adopt_foreground",
   "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
@@ -11410,17 +11410,6 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
-name = "__btrc_application_directories_platform"
-origin = "runtime"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = []
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-realtime_effect = "safe"
-
-[[functions]]
 name = "__btrc_close_descriptors_except"
 origin = "runtime"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -11719,6 +11708,17 @@ return_alias_parameter = 0
 return_alias_null_effect = "independent"
 raw_lifetime = false
 return_alias_shape = "exact"
+
+[[functions]]
+name = "__btrc_target_platform"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = []
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "safe"
 
 [[functions]]
 name = "__btrc_terminal_adopt_foreground"

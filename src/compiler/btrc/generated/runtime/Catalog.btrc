@@ -2821,9 +2821,9 @@ class GeneratedRuntimeCatalogData {
 			"unknown"));
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"runtime",
-			"__btrc_application_directories_platform",
+			"__btrc_target_platform",
 			[
-			"static inline int __btrc_application_directories_platform(void) {\n#if defined(BTRC_APPLICATION_DIRECTORIES_PLATFORM_OVERRIDE)\n    return BTRC_APPLICATION_DIRECTORIES_PLATFORM_OVERRIDE;\n#elif defined(__APPLE__)\n    return 1;\n#elif defined(__linux__)\n    return 2;\n#elif defined(_WIN32)\n    return 3;\n#else\n    return 0;\n#endif\n}",
+			"static inline int __btrc_target_platform(void) {\n#if defined(BTRC_TARGET_PLATFORM_OVERRIDE)\n    return BTRC_TARGET_PLATFORM_OVERRIDE;\n#elif defined(__APPLE__)\n    return 1;\n#elif defined(__linux__)\n    return 2;\n#elif defined(_WIN32)\n    return 3;\n#else\n    return 0;\n#endif\n}",
 		],
 			self.emptyStrings(),
 			self.emptyStrings(),

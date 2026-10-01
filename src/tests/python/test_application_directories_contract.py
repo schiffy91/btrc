@@ -77,7 +77,7 @@ def _build(
             "-Wextra",
             "-Werror",
             "-O2",
-            f"-DBTRC_APPLICATION_DIRECTORIES_PLATFORM_OVERRIDE={platform}",
+            f"-DBTRC_TARGET_PLATFORM_OVERRIDE={platform}",
             f"-I{ROOT / 'src' / 'stdlib'}",
             str(generated),
             "-pthread",

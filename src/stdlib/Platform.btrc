@@ -9,43 +9,14 @@
 import Library.Strings;
 
 #include <unistd.h>
-#include <errno.h>
 #include <stdlib.h>
 
 class Platform {
+	/* The C compiler's target, not the transpiling host: 0 = other, 1 = Apple,
+	 * 2 = Linux, 3 = Windows. Fixed at C compile time, so no probe or cache. */
+	class bool isWindows() { return __btrc_target_platform() == 3; }
+
 	class bool isUnix() { return !Platform.isWindows(); }
-
-	/* 0 = not probed, 1 = Unix, 2 = Windows. The probe reads the working
-	 * directory, a system call, and path helpers ask on every call. */
-	class int windowsProbe = 0;
-
-	class bool isWindows() {
-		if (Platform.windowsProbe != 0) { return Platform.windowsProbe == 2; }
-		bool windows = Platform.probeWindows();
-		Platform.windowsProbe = windows ? 2 : 1;
-		return windows;
-	}
-
-	class bool probeWindows() {
-		/* MinGW's getcwd() returns either a drive-rooted path (C:\\...) or
-         * a UNC path.  Detect that shape at runtime so cross-compiled programs
-         * do not bake the transpiler host's platform into their output. */
-		int capacity = 256;
-		char* cwd = (char*)__btrc_safe_realloc(NULL, (size_t)capacity);
-		while ((char*)getcwd(cwd, (size_t)capacity) == NULL) {
-			if (errno != ERANGE || capacity > 1073741823) {
-				free(cwd);
-				return false;
-			}
-			capacity = capacity * 2;
-			cwd = (char*)__btrc_safe_realloc(cwd, (size_t)capacity);
-		}
-		int length = Strings.checkedLength(cwd);
-		bool driveRooted = length >= 3 && ((cwd[0] >= 'A' && cwd[0] <= 'Z') || (cwd[0] >= 'a' && cwd[0] <= 'z')) && cwd[1] == ':' && (cwd[2] == '/' || cwd[2] == '\\');
-		bool uncRooted = length >= 2 && cwd[0] == '\\' && cwd[1] == '\\';
-		free(cwd);
-		return driveRooted || uncRooted;
-	}
 
 	class string pathSeparator() { return Platform.isWindows() ? "\\" : "/"; }
 

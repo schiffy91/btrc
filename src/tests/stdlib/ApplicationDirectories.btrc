@@ -14,7 +14,7 @@ int main() {
 	assert(!invalid.error().message().isEmpty());
 
 	ApplicationDirectoryRootsOutcome limited = ApplicationDirectories.resolve(ApplicationDirectoryLimits(1));
-	int platform = __btrc_application_directories_platform();
+	int platform = __btrc_target_platform();
 	if (platform == 1 || platform == 2) {
 		assert(!limited.ok());
 		assert(limited.error().kind() == APP_DIRECTORY_PATH_TOO_LONG);

@@ -95,7 +95,7 @@ class GeneratedHostedAbiData {
 	public GeneratedHostedAbiData() {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "4532bf0606ebc661949beff48b63e964ce2acfa14e35e820c1b981879ad90506";
+		self.fingerprint = "29e3db6762dc26d930ea58ff3f6d77b12851eb0e7b5d29d8c0614753e4f1034e";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -180,9 +180,6 @@ class GeneratedHostedAbiData {
 				"unknown");
 		}
 		if (index == 1) {
-			return GeneratedHostedFunctionRow("__btrc_application_directories_platform", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "safe");
-		}
-		if (index == 2) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_close_descriptors_except",
 				"runtime",
@@ -205,7 +202,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 3) {
+		if (index == 2) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_close_descriptors_except_many",
 				"runtime",
@@ -229,7 +226,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 4) {
+		if (index == 3) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_close_descriptors_from",
 				"runtime",
@@ -251,13 +248,13 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 5) {
+		if (index == 4) {
 			return GeneratedHostedFunctionRow("__btrc_controlling_terminal_descriptor", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 6) {
+		if (index == 5) {
 			return GeneratedHostedFunctionRow("__btrc_descriptor_close_bound", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 7) {
+		if (index == 6) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_enter_working_directory_descriptor",
 				"runtime",
@@ -279,7 +276,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 8) {
+		if (index == 7) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_exec_executable_descriptor",
 				"runtime",
@@ -303,7 +300,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 9) {
+		if (index == 8) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_exec_signal_guard_begin",
 				"runtime",
@@ -325,7 +322,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 10) {
+		if (index == 9) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_exec_signal_guard_child_end",
 				"runtime",
@@ -347,7 +344,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 11) {
+		if (index == 10) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_exec_signal_guard_parent_end",
 				"runtime",
@@ -369,7 +366,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 12) {
+		if (index == 11) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_move_descriptor_outside_stdio",
 				"runtime",
@@ -391,7 +388,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 13) {
+		if (index == 12) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_native_thread_invoke",
 				"runtime",
@@ -415,7 +412,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 14) {
+		if (index == 13) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_posix_spawn_cloexec",
 				"runtime",
@@ -447,10 +444,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 15) {
+		if (index == 14) {
 			return GeneratedHostedFunctionRow("__btrc_process_descriptors_supported", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 16) {
+		if (index == 15) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_safe_calloc",
 				"runtime",
@@ -473,7 +470,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 17) {
+		if (index == 16) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_safe_realloc",
 				"runtime",
@@ -496,7 +493,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 18) {
+		if (index == 17) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_str_track",
 				"runtime",
@@ -518,7 +515,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 19) {
+		if (index == 18) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_strdup",
 				"runtime",
@@ -540,7 +537,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 20) {
+		if (index == 19) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_string_adopt",
 				"runtime",
@@ -562,7 +559,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 21) {
+		if (index == 20) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_string_alloc",
 				"runtime",
@@ -584,7 +581,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 22) {
+		if (index == 21) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_string_length",
 				"runtime",
@@ -606,10 +603,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 23) {
+		if (index == 22) {
 			return GeneratedHostedFunctionRow("__btrc_string_live_count", "runtime", GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 24) {
+		if (index == 23) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_string_or_empty",
 				"runtime",
@@ -630,6 +627,9 @@ class GeneratedHostedAbiData {
 				"",
 				"",
 				"unknown");
+		}
+		if (index == 24) {
+			return GeneratedHostedFunctionRow("__btrc_target_platform", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "safe");
 		}
 		if (index == 25) {
 			return GeneratedHostedFunctionRow(
@@ -8132,30 +8132,30 @@ class GeneratedHostedAbiData {
 
 	private void indexFunctions0(Map<string, int> slots) {
 		slots.put("_Exit", 0);
-		slots.put("__btrc_application_directories_platform", 1);
-		slots.put("__btrc_close_descriptors_except", 2);
-		slots.put("__btrc_close_descriptors_except_many", 3);
-		slots.put("__btrc_close_descriptors_from", 4);
-		slots.put("__btrc_controlling_terminal_descriptor", 5);
-		slots.put("__btrc_descriptor_close_bound", 6);
-		slots.put("__btrc_enter_working_directory_descriptor", 7);
-		slots.put("__btrc_exec_executable_descriptor", 8);
-		slots.put("__btrc_exec_signal_guard_begin", 9);
-		slots.put("__btrc_exec_signal_guard_child_end", 10);
-		slots.put("__btrc_exec_signal_guard_parent_end", 11);
-		slots.put("__btrc_move_descriptor_outside_stdio", 12);
-		slots.put("__btrc_native_thread_invoke", 13);
-		slots.put("__btrc_posix_spawn_cloexec", 14);
-		slots.put("__btrc_process_descriptors_supported", 15);
-		slots.put("__btrc_safe_calloc", 16);
-		slots.put("__btrc_safe_realloc", 17);
-		slots.put("__btrc_str_track", 18);
-		slots.put("__btrc_strdup", 19);
-		slots.put("__btrc_string_adopt", 20);
-		slots.put("__btrc_string_alloc", 21);
-		slots.put("__btrc_string_length", 22);
-		slots.put("__btrc_string_live_count", 23);
-		slots.put("__btrc_string_or_empty", 24);
+		slots.put("__btrc_close_descriptors_except", 1);
+		slots.put("__btrc_close_descriptors_except_many", 2);
+		slots.put("__btrc_close_descriptors_from", 3);
+		slots.put("__btrc_controlling_terminal_descriptor", 4);
+		slots.put("__btrc_descriptor_close_bound", 5);
+		slots.put("__btrc_enter_working_directory_descriptor", 6);
+		slots.put("__btrc_exec_executable_descriptor", 7);
+		slots.put("__btrc_exec_signal_guard_begin", 8);
+		slots.put("__btrc_exec_signal_guard_child_end", 9);
+		slots.put("__btrc_exec_signal_guard_parent_end", 10);
+		slots.put("__btrc_move_descriptor_outside_stdio", 11);
+		slots.put("__btrc_native_thread_invoke", 12);
+		slots.put("__btrc_posix_spawn_cloexec", 13);
+		slots.put("__btrc_process_descriptors_supported", 14);
+		slots.put("__btrc_safe_calloc", 15);
+		slots.put("__btrc_safe_realloc", 16);
+		slots.put("__btrc_str_track", 17);
+		slots.put("__btrc_strdup", 18);
+		slots.put("__btrc_string_adopt", 19);
+		slots.put("__btrc_string_alloc", 20);
+		slots.put("__btrc_string_length", 21);
+		slots.put("__btrc_string_live_count", 22);
+		slots.put("__btrc_string_or_empty", 23);
+		slots.put("__btrc_target_platform", 24);
 		slots.put("__btrc_terminal_adopt_foreground", 25);
 		slots.put("__btrc_terminal_foreground_group", 26);
 		slots.put("__btrc_validate_executable_descriptor", 27);
@@ -8516,7 +8516,6 @@ class GeneratedHostedAbiData {
 		values.push("GetFileAttributesA");
 		values.push("RemoveDirectoryA");
 		values.push("_Exit");
-		values.push("__btrc_application_directories_platform");
 		values.push("__btrc_close_descriptors_except");
 		values.push("__btrc_close_descriptors_except_many");
 		values.push("__btrc_close_descriptors_from");
@@ -8540,6 +8539,7 @@ class GeneratedHostedAbiData {
 		values.push("__btrc_string_length");
 		values.push("__btrc_string_live_count");
 		values.push("__btrc_string_or_empty");
+		values.push("__btrc_target_platform");
 		values.push("__btrc_terminal_adopt_foreground");
 		values.push("__btrc_terminal_foreground_group");
 		values.push("__btrc_validate_executable_descriptor");
@@ -14810,7 +14810,6 @@ class GeneratedHostedAbiData {
 		values.push("_IOLBF");
 		values.push("_IONBF");
 		values.push("__bool_true_false_are_defined");
-		values.push("__btrc_application_directories_platform");
 		values.push("__btrc_close_descriptors_except");
 		values.push("__btrc_close_descriptors_except_many");
 		values.push("__btrc_close_descriptors_from");
@@ -14834,6 +14833,7 @@ class GeneratedHostedAbiData {
 		values.push("__btrc_string_length");
 		values.push("__btrc_string_live_count");
 		values.push("__btrc_string_or_empty");
+		values.push("__btrc_target_platform");
 		values.push("__btrc_terminal_adopt_foreground");
 		values.push("__btrc_terminal_foreground_group");
 		values.push("__btrc_validate_executable_descriptor");
