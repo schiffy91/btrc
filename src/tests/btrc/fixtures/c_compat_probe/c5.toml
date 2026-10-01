@@ -336,9 +336,9 @@ row = "23"
 construct = "int v[n] at block scope"
 intent = "positive"
 status = "accepted"
-revision = "cf28fe7"
-python = { exit = 0, stdout = "PASS: variable-length array\n" }
-btrcc = { exit = 0, stdout = "PASS: variable-length array\n" }
+revision = "8b0ec02"
+python = { exit = 0, stdout = "PASS: variable-length arrays\n" }
+btrcc = { exit = 0, stdout = "PASS: variable-length arrays\n" }
 corpus = "c_compat/VariableLengthArrays.btrc"
 
 [[probe]]

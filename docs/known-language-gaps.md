@@ -56,6 +56,43 @@ C-compatibility table in `docs/design/plan-reference.md`.
 | 22 | `return f();` in a `void` function | A `return` with an expression in a `void` function violates C11 6.8.6.4, so this refusal is conformance, not policy. Call `f();` and `return;`. | `Void function or method cannot return a value` |
 | 24 | `_Atomic int n;`, `_Atomic(int) n;`, `double _Complex z;` | Deferred: neither has a btrc type-system entry yet. For atomic storage use btrc's `Atomic<T>` (`docs/language/realtime-primitives.md`), which lowers to C11 `_Atomic(T)` with explicit memory orders and stable-storage rules; it is unaffected by this refusal. | `C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage` / `C11 '_Complex' is not supported; btrc has no complex types` |
 
+## Variable-length arrays (C row 23)
+
+A block-scope array whose bound is not a constant expression is a C
+variable-length array, and btrc keeps it
+(`c_compat/VariableLengthArrays.btrc`). Supported forms:
+
+- a local `T name[expr];` with an integral bound, including inside loop bodies,
+  where each iteration gets an array of its own extent;
+- `sizeof(name)`, evaluated at run time from the bound;
+- a parameter `T name[expr]` whose bound names an earlier parameter (C adjusts
+  it to `T*`);
+- `for item in name`, which iterates the declared length;
+- a lambda reading the array; the lambda's environment holds a pointer to the
+  caller's storage, so it borrows the array for its own lexical lifetime.
+
+The bound expression is evaluated exactly once, into a typed local, before the
+declaration. **btrc deviates from C on a bound that is zero or negative**: C
+leaves that undefined, while btrc gives the array one element of storage
+(`sizeof` reports one element) and iteration and GPU dispatch use the declared
+length, so they see no elements.
+
+These contexts refuse a runtime bound, with the same diagnostic in both
+compilers (`btrc/test_c_compatibility_refusals.py`):
+
+| Context | Diagnostic |
+|---------|------------|
+| a global, a `static` local, a class field or a struct field | `Array bound for … must be a constant expression` |
+| an initializer of any kind | `Variable 'v' is a variable-length array and cannot have an initializer` |
+| capture by `spawn` | `spawn cannot capture array storage through 'v'; copy it into a scalar-only struct or managed collection` |
+
+Like a fixed-size local array, a VLA of a managed element type (a class,
+`string` or collection) is shallow storage of borrowed references: storing a
+freshly owned value in it is refused (`caller-owned temporary cannot be stored
+in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
+20), so a jump into a VLA's scope cannot be written; Stage 20's negative
+fixtures must cover it.
+
 ## Closed gaps
 
 | # | Feature | Resolution | Regression test |

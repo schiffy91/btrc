@@ -1,6 +1,23 @@
-// Block-scope variable-length arrays (C row 23). btrc keeps C's runtime extent
-// but clamps a non-positive bound to one element instead of leaving it undefined.
+// Block-scope variable-length arrays (C row 23). btrc keeps C's runtime extent,
+// but clamps a bound that is zero or negative to one element, where C leaves
+// the program undefined. docs/known-language-gaps.md lists the supported forms.
 #include <assert.h>
+
+int boundCalls = 0;
+
+int nextBound(int value) {
+	boundCalls++;
+	return value;
+}
+
+// A VLA parameter: the bound names an earlier parameter.
+int sumParameter(int count, int values[count]) {
+	int total = 0;
+	for (int i = 0; i < count; i++) {
+		total += values[i];
+	}
+	return total;
+}
 
 int sum(int count) {
 	int values[count];
@@ -17,6 +34,44 @@ int sum(int count) {
 int main() {
 	assert(sum(5) == 10);
 	assert(sum(1) == 0);
-	print("PASS: variable-length array");
+
+	// sizeof is evaluated at run time from the bound.
+	int count = 4;
+	int values[count];
+	assert(sizeof(values) == (size_t)count * sizeof(int));
+
+	// A VLA in a loop body is re-sized on every iteration.
+	for (int round = 1; round <= 3; round++) {
+		int scratch[round * 2];
+		assert(sizeof(scratch) == (size_t)(round * 2) * sizeof(int));
+		scratch[round * 2 - 1] = round;
+		assert(scratch[round * 2 - 1] == round);
+	}
+
+	// The bound expression is evaluated once.
+	int once[nextBound(3)];
+	once[2] = 7;
+	assert(boundCalls == 1);
+	assert(sizeof(once) == (size_t)3 * sizeof(int));
+	assert(boundCalls == 1);
+
+	for (int i = 0; i < count; i++) {
+		values[i] = i + 1;
+	}
+	assert(sumParameter(count, values) == 10);
+
+	// A lambda borrows the array through a pointer in its environment.
+	var first = () => values[0];
+	assert(first() == 1);
+
+	// A zero or negative bound is clamped to one element.
+	int zero = 0;
+	int negative = -3;
+	int none[zero];
+	int below[negative];
+	assert(sizeof(none) == sizeof(int));
+	assert(sizeof(below) == sizeof(int));
+
+	print("PASS: variable-length arrays");
 	return 0;
 }

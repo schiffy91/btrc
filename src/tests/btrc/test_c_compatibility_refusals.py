@@ -149,7 +149,67 @@ REFUSALS = [
 ]
 
 
-@pytest.mark.parametrize(("source", "expected"), REFUSALS)
+# Row 23: block-scope VLAs are supported (src/tests/c_compat/VariableLengthArrays.btrc);
+# every context that would need a constant extent or an initializer refuses one.
+VLA_REFUSALS = [
+    pytest.param(
+        "int count = 3;\nint values[count];\nint main() { return 0; }",
+        ("Array bound for Global 'values' must be a constant expression", 2, 12),
+        id="r23-global",
+    ),
+    pytest.param(
+        "int main() { int count = 2; static int values[count]; return 0; }",
+        ("Array bound for Variable 'values' must be a constant expression", 1, 47),
+        id="r23-static-local",
+    ),
+    pytest.param(
+        "int count = 2;\nstruct Holder { int values[count]; };\nint main() { return 0; }",
+        ("Array bound for struct field 'Holder.values' must be a constant expression", 2, 28),
+        id="r23-struct-field",
+    ),
+    pytest.param(
+        "int count = 2;\nclass Holder { public int values[count]; }\nint main() { return 0; }",
+        ("Array bound for Field 'Holder.values' must be a constant expression", 2, 34),
+        id="r23-class-field",
+    ),
+    pytest.param(
+        "int main() { int count = 2; int values[count] = {1, 2}; return 0; }",
+        ("Variable 'values' is a variable-length array and cannot have an initializer", 1, 29),
+        id="r23-initializer",
+    ),
+]
+
+# Row 23 refusals where the compilers agree on the refusal but not on its
+# diagnostic. Each is pre-existing and shared with fixed-size arrays; the pair
+# is pinned so a change to either side is deliberate.
+VLA_DIVERGENT_REFUSALS = [
+    pytest.param(
+        "int main() { int count = 2; int values[count]; int copy[count] = values; return 0; }",
+        ("Initializer for 'copy' requires an array initializer", 1, 48),
+        ("Variable 'copy' is a variable-length array and cannot have an initializer", 1, 48),
+        id="r23-copy-initializer",
+    ),
+    pytest.param(
+        "int main() { int count = 2; int values[count]; values[0] = 1; "
+        "var worker = spawn(() => values[0]); return worker.join() - 1; }",
+        (
+            "spawn cannot capture array storage through 'values'; "
+            "copy it into a scalar-only struct or managed collection",
+            1,
+            76,
+        ),
+        (
+            "spawn cannot capture array storage through 'values'; "
+            "copy it into a scalar-only struct or managed collection",
+            1,
+            82,
+        ),
+        id="r23-spawn-capture",
+    ),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), REFUSALS + VLA_REFUSALS)
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -224,3 +284,32 @@ def test_accepted_neighbour_runs_strictly_in_both_compilers(
     name = request.node.callspec.id
     for artifact in _compile_pair(semantic_btrcc, tmp_path, source, name):
         _strict_matrix(artifact, tmp_path)
+
+
+@pytest.mark.parametrize(("source", "reference_expected", "selfhost_expected"), VLA_DIVERGENT_REFUSALS)
+def test_divergent_vla_refusal_is_pinned_per_compiler(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+    reference_expected: tuple[str, int, int],
+    selfhost_expected: tuple[str, int, int],
+) -> None:
+    selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
+
+    assert selfhost.returncode != 0 and reference.returncode != 0
+    assert _diagnostic_identity(reference.stderr) == reference_expected
+    assert _diagnostic_identity(selfhost.stderr) == selfhost_expected
+
+
+def test_managed_vla_elements_are_borrowed_storage(semantic_btrcc: Path, tmp_path: Path) -> None:
+    """A VLA of managed elements is a shallow aggregate, like a fixed array."""
+    source = 'int main() { int count = 2; string names[count]; names[0] = f"a{count}"; return 0; }'
+    selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
+    message = (
+        "caller-owned temporary cannot be stored in a shallow aggregate; "
+        "bind the owner to a local and store only its borrowed reference"
+    )
+    assert selfhost.returncode != 0 and reference.returncode != 0
+    # The reference raises this during lowering, where it has no source position.
+    assert reference.stderr.startswith(f"error: {message}\n")
+    assert _diagnostic_identity(selfhost.stderr) == (message, 1, 61)
