@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -17,8 +18,9 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "RealtimeClipTransportRuntime.btrc"
 PUBLIC_API = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport.btrc"
-RUNTIME = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport" / "Runtime.btrc"
-PRACTICE_RUNTIME = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport" / "PracticeRuntime.btrc"
+RUNTIME = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransportRuntime.btrc"
+PRACTICE_RUNTIME = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipPracticeRuntime.btrc"
+MANIFEST = REPOSITORY / "src" / "stdlib" / "Realtime" / "btrc.toml"
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
@@ -87,6 +89,24 @@ def test_runtime_is_product_neutral_and_keeps_callback_mechanics_private() -> No
     assert "@realtime static int btrcRealtimeClipTransportRenderRaw" in private_runtime
     assert "struct BtrcRealtimeClipTransportContext" in private_runtime
     assert "BTRSmith" not in public_api + private_runtime
+    exports = tomllib.loads(MANIFEST.read_text())["package"]["exports"]
+    assert exports == ["RealtimeClipPractice", "RealtimeClipTransport", "RealtimeClock"]
+
+
+@pytest.mark.parametrize("module", ["RealtimeClipTransportRuntime", "RealtimeClipPracticeRuntime"])
+def test_callback_mechanics_are_private_to_the_realtime_package(module: str, tmp_path: Path) -> None:
+    source = tmp_path / "Consumer.btrc"
+    source.write_text(f"import Library.Realtime.{module};\nint main() {{ return 0; }}\n")
+    compiled = subprocess.run(
+        [sys.executable, "-m", "src.compiler.python.main", str(source), "--no-cache", "-o", str(tmp_path / "Consumer.c")],
+        cwd=REPOSITORY,
+        env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")},
+        capture_output=True,
+        text=True,
+        timeout=BTRC_TRANSPILE_TIMEOUT,
+    )
+    assert compiled.returncode != 0
+    assert "is private to package 'btrc_stdlib_realtime'" in compiled.stderr
 
 
 @pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")

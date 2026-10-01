@@ -15,7 +15,32 @@ import Library.Audio.RealtimeAudio;
 import Library.Realtime.RealtimeClock;
 import Library.Realtime.RealtimeClipPractice;
 
-import ./RealtimeClipTransport/Runtime.btrc;
+import Library.Realtime.RealtimeClipTransportRuntime;
+
+enum RealtimeClipTransportStatus {
+	REALTIME_CLIP_TRANSPORT_OK,
+	REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT,
+	REALTIME_CLIP_TRANSPORT_WRONG_STATE,
+	REALTIME_CLIP_TRANSPORT_NOT_FOUND,
+	REALTIME_CLIP_TRANSPORT_CAPACITY_EXHAUSTED,
+	REALTIME_CLIP_TRANSPORT_LIMIT_EXCEEDED,
+	REALTIME_CLIP_TRANSPORT_OUT_OF_MEMORY,
+	REALTIME_CLIP_TRANSPORT_FAILED
+};
+
+enum RealtimeClipPlaybackState {
+	REALTIME_CLIP_STAGED,
+	REALTIME_CLIP_PAUSED,
+	REALTIME_CLIP_PLAYING,
+	REALTIME_CLIP_ENDED
+};
+
+enum RealtimeClipEventKind {
+	REALTIME_CLIP_ACTIVATED,
+	REALTIME_CLIP_REPLACED,
+	REALTIME_CLIP_CANCELLED,
+	REALTIME_CLIP_COMPLETED
+};
 
 class RealtimeClipTransportLimits {
 	private int _maximumBlockFrames;

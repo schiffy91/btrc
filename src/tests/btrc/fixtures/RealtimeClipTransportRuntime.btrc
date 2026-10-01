@@ -328,40 +328,39 @@ void proveSuspendClosesAdmission() {
 	assert(transport.close() == REALTIME_CLIP_TRANSPORT_OK);
 }
 
-/* Publishes snapshots whose every payload word carries one value while the
- * control side reads them; an accepted snapshot is never a mix of two. */
+/* A render thread drives the public composition seam while the control side
+ * reads telemetry. Every render of an idle transport is a silent block of the
+ * same length, so a snapshot read across a publication would pair one render
+ * count with another block's silent-frame total; the sequence lock never lets
+ * that mix through. */
 void proveSnapshotPublicationIsAtomic() {
 	RealtimeClipTransport transport = openTransport(RealtimeAudioFormat(1000, 1));
-	void* opaque = transport.realtimeProgram().context();
+	struct RealtimeClipTransportRenderer renderer = transport.renderer();
+	void* opaque = renderer.context;
 	Thread<int> publisher = spawn(() => {
-			struct BtrcRealtimeClipTransportContext* context = (struct BtrcRealtimeClipTransportContext*)opaque;
+			struct RealtimeClipTransportRenderer published = {opaque};
+			float block[16];
 			for (int round = 1; round <= 200000; round++) {
-				unsigned long long value = (unsigned long long)round * 4294967297ULL;
-				context->activeToken = value;
-				context->activeFrames = (long long)value;
-				context->loopStart = (long long)value;
-				context->loopEnd = (long long)value;
-				context->renderCalls = value;
-				context->renderedFrames = value;
-				context->silentFrames = value;
-				context->completedClips = value;
-				context->mappingGeneration = value;
-				btrcRealtimeClipTransportPublishSnapshot(context);
+				struct AudioBlockView view = {0, 1, 16, 0ULL, 0ULL, 1ULL, 0ULL, (uint)AUDIO_BLOCK_CONTINUOUS};
+				if (!RealtimeClipTransport.render(published, view, Span((const float*)null, (size_t)0), Span(block))) { return 1; }
 			}
 			return 0;
 		});
-	struct BtrcRealtimeClipTransportContext* context = (struct BtrcRealtimeClipTransportContext*)opaque;
+	/* Keep reading until the last publication is seen, so reads overlap the
+	 * whole publishing run rather than finishing before it starts. */
 	int accepted = 0;
-	for (int read = 0; read < 200000; read++) {
-		struct BtrcRealtimeClipTransportSnapshotValue observed = {0};
-		if (!btrcRealtimeClipTransportReadSnapshot(context, &observed)) { continue; }
-		unsigned long long value = observed.token;
-		assert((unsigned long long)observed.totalFrames == value && (unsigned long long)observed.loopStart == value && (unsigned long long)observed.loopEnd == value);
-		assert(observed.renderSequence == value && observed.renderedFrames == value && observed.silentFrames == value && observed.completedClips == value && observed.mappingGeneration == value);
+	unsigned long long seen = 0ULL;
+	for (int read = 0; read < 100000000 && seen < 200000ULL; read++) {
+		RealtimeClipTransportTelemetryOutcome observed = transport.telemetry();
+		if (!observed.succeeded()) { continue; }
+		RealtimeClipTransportTelemetry telemetry = observed.telemetry();
+		assert(telemetry.renderedFrames() == 0ULL);
+		assert(telemetry.silentFrames() == telemetry.renderCalls() * 16ULL);
+		seen = telemetry.renderCalls();
 		accepted++;
 	}
 	assert(publisher.join() == 0 && accepted > 0);
-	context->activeToken = 0ULL;
+	assert(transport.telemetry().telemetry().renderCalls() == 200000ULL);
 	assert(transport.suspend() == REALTIME_CLIP_TRANSPORT_OK && transport.close() == REALTIME_CLIP_TRANSPORT_OK);
 }
 
