@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import json
 import multiprocessing
@@ -10,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -558,40 +560,119 @@ def test_native_outputs_cannot_replace_publication_control_files(tmp_path, desti
         NativePlanBuilder(runner=never_run).build(plan_path=plan, generated_c=primary, **options)
 
 
-def test_standalone_native_plan_distribution_builds_with_shared_publication_module(tmp_path):
-    flake = (REPO / "flake.nix").read_text()
+def _native_plan_import_closure() -> set[str]:
+    """Every repository file that importing and running tools.native_plan executes.
+
+    Function-level imports count: the adapter imports the header reader's owner
+    only while it keys cached objects. Package initializers count because
+    importing a module runs each enclosing one. ``if TYPE_CHECKING:`` bodies
+    never run, so they do not.
+    """
+
+    def module_file(module: str) -> Path | None:
+        base = REPO.joinpath(*module.split("."))
+        for candidate in (base.with_name(f"{base.name}.py"), base / "__init__.py"):
+            if candidate.is_file():
+                return candidate
+        return None
+
+    def executed_imports(tree: ast.AST) -> Iterator[ast.Import | ast.ImportFrom]:
+        pending: list[ast.AST] = [tree]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, ast.If) and (
+                (isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING")
+                or (isinstance(node.test, ast.Attribute) and node.test.attr == "TYPE_CHECKING")
+            ):
+                pending.extend(node.orelse)
+                continue
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                yield node
+            pending.extend(ast.iter_child_nodes(node))
+
+    closure: set[str] = set()
+    visited: set[str] = set()
+    pending = ["tools.native_plan"]
+    while pending:
+        module = pending.pop()
+        if module in visited or module.split(".")[0] not in {"src", "tools"}:
+            continue
+        visited.add(module)
+        parts = module.split(".")
+        for depth in range(1, len(parts) + 1):
+            executed = module_file(".".join(parts[:depth]))
+            if executed is not None:
+                closure.add(executed.relative_to(REPO).as_posix())
+        source = module_file(module)
+        if source is None:
+            continue
+        package = parts if source.name == "__init__.py" else parts[:-1]
+        for node in executed_imports(ast.parse(source.read_text(), str(source))):
+            if isinstance(node, ast.Import):
+                pending.extend(alias.name for alias in node.names)
+                continue
+            anchor = package[: len(package) - node.level + 1] if node.level else []
+            base = ".".join([*anchor, *([node.module] if node.module else [])])
+            # ``from package import name`` imports name when it is a submodule.
+            pending.extend([base, *(f"{base}.{alias.name}" for alias in node.names)])
+    return closure
+
+
+def _flake_native_plan_files(flake: str) -> set[str]:
     source = flake.split("nativePlanSource = sourceSubset", 1)[1].split("formatterSource", 1)[0]
+    # Exact files only: a directory prefix would ship modules the adapter never imports.
+    assert "prefixes = [ ];" in source
+    listed = re.search(r"files = \[(.*?)\];", source, re.DOTALL)
+    assert listed is not None
+    return set(re.findall(r'"([^"\n]+)"', listed.group(1)))
+
+
+def test_standalone_native_plan_distribution_reuses_cached_objects(tmp_path):
+    """The packaged closure alone keys, builds and then reuses a cached object."""
     distribution = tmp_path / "distribution"
-    for relative in re.findall(r'"([^"\n]+\.py)"', source):
+    for relative in _flake_native_plan_files((REPO / "flake.nix").read_text()):
         target = distribution / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(REPO / relative, target)
-    primary = tmp_path / "main.c"
-    plan = tmp_path / "plan.json"
+    work = tmp_path / "work"
+    work.mkdir()
+    primary = work / "main.c"
+    plan = work / "plan.json"
     primary.write_text("int main(void) { return 0; }\n")
     plan.write_text(NativeLinkPlan.empty(PackageTarget.parse(None)).canonical_json())
-    output = tmp_path / "program"
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-P",
-            "-m",
-            "tools.native_plan",
-            "--plan",
-            str(plan),
-            "--generated-c",
-            str(primary),
-            "--output",
-            str(output),
-        ],
-        cwd=REPO,
-        env={**os.environ, "PYTHONPATH": str(distribution)},
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert completed.returncode == 0, completed.stderr
-    assert subprocess.run([str(output)], timeout=15).returncode == 0
+    output = work / "program"
+    reports = []
+    for run in (1, 2):
+        report = work / f"report-{run}.json"
+        # -P and a working directory outside the checkout: every import must
+        # resolve from the distribution, as it does from the Nix store.
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-P",
+                "-m",
+                "tools.native_plan",
+                "--plan",
+                str(plan),
+                "--generated-c",
+                str(primary),
+                "--output",
+                str(output),
+                "--object-cache",
+                str(work / "objects"),
+                "--report-json",
+                str(report),
+            ],
+            cwd=work,
+            env={**os.environ, "PYTHONPATH": str(distribution)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert subprocess.run([str(output)], timeout=15).returncode == 0
+        reports.append(json.loads(report.read_text()))
+    assert [(report["compiled_units"], report["reused_units"]) for report in reports] == [(1, 0), (0, 1)]
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="requires POSIX FIFO")
@@ -1012,15 +1093,32 @@ def test_flake_installs_adapter_and_runs_native_plan_check() -> None:
     flake = (REPO / "flake.nix").read_text()
 
     assert 'name = "btrc-native-plan";' in flake
-    native_source = flake.split("nativePlanSource = sourceSubset", 1)[1].split("formatterSource", 1)[0]
-    assert '"tools/native_plan.py"' in native_source
-    assert '"src/compiler/python/artifacts/publication.py"' in native_source
+    closure = _native_plan_import_closure()
+    # The lazily imported header reader owner is what the package once lacked.
+    assert "src/compiler/python/frontend/native_imports.py" in closure
+    assert _flake_native_plan_files(flake) == closure
+    # The devcontainer evaluates this flake from a copied subset of the tree.
+    copied = [
+        source
+        for line in (REPO / "nix" / "containerfile.nix").read_text().splitlines()
+        if line.strip().startswith("COPY ")
+        for source in line.split()[2:-1]
+    ]
+    assert not [
+        file
+        for file in closure
+        if not any(file == source or (source.endswith("/") and file.startswith(source)) for source in copied)
+    ]
     launcher = flake.split("nativePlan = pkgs.writeShellApplication", 1)[1].split("nativeHeaderReader", 1)[0]
     assert 'export PYTHONPATH="${nativePlanSource}"' in launcher
     assert "python3 -P -m tools.native_plan" in launcher
     assert "btrc = pkgs.symlinkJoin" in flake
     assert "native-package-plan = pkgs.runCommand" in flake
     assert "NATIVE_PLAN=${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan" in flake
+    check = flake.split("native-package-plan = pkgs.runCommand", 1)[1]
+    assert "--object-cache build/objects" in check
+    assert "for run in 1 2; do" in check
+    assert "jq -e '.compiled_units == 0 and .reused_units == (.units | length)'" in check
 
 
 def test_object_cache_skips_unchanged_compiles(tmp_path: Path) -> None:
