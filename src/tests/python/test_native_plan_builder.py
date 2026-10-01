@@ -1164,6 +1164,59 @@ def test_object_cache_skips_unchanged_compiles(tmp_path: Path) -> None:
     assert subprocess.run([str(output)], capture_output=True, check=True, text=True).stdout == "PASS: edited\n"
 
 
+def test_object_cache_reports_the_receipt_path_it_took(tmp_path: Path) -> None:
+    """Off Darwin the object cache stands on its dependency scan and every build relinks."""
+    project = tmp_path / "project"
+    shutil.copytree(EXAMPLE, project, ignore=shutil.ignore_patterns(".btrc-cache", "build"))
+    generated = tmp_path / "program.c"
+    plan = tmp_path / "program.link.json"
+    output = tmp_path / "program"
+    _emit_plan(project, generated, plan)
+    options = {"plan_path": plan, "generated_c": generated, "output": output, "object_cache": tmp_path / "objects"}
+    cold = NativePlanBuilder().build(**options)
+    warm = NativePlanBuilder().build(**options)
+    assert warm.as_dict()["compiled_units"] == 0 and warm.as_dict()["reused_units"] == len(warm.units)
+    if sys.platform == "darwin":
+        assert cold.preprocessing_provider != "none"
+    else:
+        for report in (cold, warm):
+            assert report.preprocessing_provider == "dependency-scan: host has no receipt provider"
+            assert report.link_cache_status == "host-unsupported" and report.links == 1
+            assert {unit.preprocessing_status for unit in report.units} == {"ordinary"}
+    assert NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=output).preprocessing_provider == (
+        "none"
+    )
+
+
+@pytest.mark.parametrize(
+    ("system", "runner", "drivers", "environment", "reason"),
+    [
+        ("linux", subprocess.run, ("/nix/store/x/bin/clang",), {}, "host has no receipt provider"),
+        ("darwin", subprocess.check_output, ("/nix/store/x/bin/clang",), {}, "injected runner"),
+        ("darwin", subprocess.run, ("/usr/bin/clang",), {}, "drivers outside the store"),
+        ("darwin", subprocess.run, (), {}, "drivers outside the store"),
+        (
+            "darwin",
+            subprocess.run,
+            ("/nix/store/x/bin/clang",),
+            {"BTRC_NATIVE_PREPROCESS_RECEIPTS": "0"},
+            "BTRC_NATIVE_PREPROCESS_RECEIPTS=0",
+        ),
+        ("darwin", subprocess.run, ("/nix/store/x/bin/clang",), {}, None),
+    ],
+)
+def test_preprocessing_receipts_name_why_a_build_cannot_use_them(
+    monkeypatch, system, runner, drivers, environment, reason
+):
+    from tools.native_plan import _PreprocessingReceipts
+
+    monkeypatch.delenv("BTRC_NATIVE_PREPROCESS_RECEIPTS", raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    found = _PreprocessingReceipts.unavailable(drivers, runner, system)
+    assert found == (None if reason is None else f"dependency-scan: {reason}")
+
+
 @pytest.fixture
 def cached_program(tmp_path):
     """Exercise the real build adapter and executable, retaining every tool invocation."""
