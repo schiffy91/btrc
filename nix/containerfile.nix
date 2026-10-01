@@ -55,6 +55,8 @@ in
         npm config set prefix ${home}/.local && \
         npm install -g @anthropic-ai/claude-code@${cfg.claudeCode.version}'
   '' + ''
+    # No sound card: a null default PCM lets the ALSA session tests run, here and in CI.
+    COPY nix/asound.conf /etc/asound.conf
     COPY --chown=${uid}:${uid} .devcontainer/bashrc ${home}/.bashrc
     WORKDIR ${cfg.workspace}
     CMD ["bash"]

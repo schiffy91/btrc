@@ -217,14 +217,15 @@
       ],
       "nodes": [
         "*::test_linux_image_decoding*",
-        "*::test_linux_audio_faults*"
+        "*::test_linux_audio_faults*",
+        "*::test_linux_audio_session*"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "Image decoding and audio fault injection need no display or PCM, so the devcontainer runs them."
+      "note": "Image decoding and audio fault injection need no display or PCM, and the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, so the devcontainer runs all three."
     },
     {
       "id": "linux-native-reader-uncovered",
@@ -236,13 +237,12 @@
       "category": "platform",
       "gating": {
         "capabilities": [
-          "native-audio",
           "native-display",
           "native-tray"
         ]
       },
       "covered_by": [],
-      "note": "Audio sessions, GUI controls and the tray also need a PCM, a display or a session bus, which the devcontainer lacks."
+      "note": "GUI controls and the tray also need a display or a session bus, which the devcontainer lacks."
     },
     {
       "id": "alsa-capability",
