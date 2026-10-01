@@ -93,7 +93,7 @@ int main() {
 	assert(setsockopt(blockedPair[0], (int)SOL_SOCKET, (int)SO_SNDBUF, &sendBuffer, sizeof(sendBuffer)) == 0);
 	Timer sendTimer = Timer();
 	sendTimer.start();
-	assert(!server.trySendAll(blockedPair[0], "x".repeat(1000000)));
+	assert(!HTTPSocket.sendAll(blockedPair[0], "x".repeat(1000000), server.timeoutSecs));
 	sendTimer.stop();
 	assert(sendTimer.elapsedMillis() >= 700.0f);
 	assert(sendTimer.elapsedMillis() < 5000.0f);
@@ -229,7 +229,7 @@ int main() {
 	response.addHeader("Transfer-Encoding: transfer-marker");
 	response.addHeader("Upgrade: upgrade-marker");
 	response.addHeader("Bad\r\nInjected: yes");
-	server.respond(responsePair[0], response);
+	assert(server.respond(responsePair[0], response));
 	int readerStatus = 0;
 	waitpid(reader, &readerStatus, 0);
 	assert(WIFEXITED(readerStatus) && WEXITSTATUS(readerStatus) == 0);
@@ -238,7 +238,8 @@ int main() {
 	/* Statuses that forbid payloads are emitted with a zero-length body. */
 	int emptyPair[2];
 	assert(socketpair((int)AF_UNIX, (int)SOCK_STREAM, 0, emptyPair) == 0);
-	server.respond(emptyPair[0], HTTPResponse(204, "text/plain", "must-not-send"));
+	assert(server.respond(emptyPair[0], HTTPResponse(204, "text/plain", "must-not-send")));
+	assert(!server.respond(-1, HTTPResponse(200, "text/plain", "unsent")));
 	Bytes emptyResponse = readToClose(emptyPair[1]);
 	string emptyText = emptyResponse.toStringLossy();
 	assert(emptyText.contains("HTTP/1.1 204 No Content\r\n"));

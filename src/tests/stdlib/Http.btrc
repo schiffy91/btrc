@@ -5,6 +5,8 @@
  * hermetically with local socket pairs in HttpSocketIo.btrc; the
  * curl client deliberately has no external-network test. */
 import Library.HTTP.HTTPClient;
+import Library.HTTP.HTTPFraming;
+import Library.HTTP.HTTPProtocol;
 import Library.HTTP.HTTPResponseHeaders;
 import Library.HTTP.HTTPServer;
 import Library.HTTP.HTTPTypes;
@@ -70,25 +72,25 @@ int main() {
 	assert(empty.method.equals("GET"));
 	assert(empty.path.equals("/"));
 
-	// --- Content-Length scan (static helper) ---
+	// --- Content-Length scan (HTTPFraming owns it) ---
 	string head = "GET / HTTP/1.1\r\nContent-Length: 42\r\n\r\n";
 	int he = Strings.find(head, "\r\n\r\n", 0);
-	assert(HTTPServer.headerContentLength(head, he) == 42);
+	assert(HTTPFraming.contentLength(head.substring(0, he)) == 42);
 	string headPrefixed = "GET / HTTP/1.1\r\nX-Content-Length: 999\r\nContent-Length: 7\r\n\r\n";
 	int prefixedEnd = Strings.find(headPrefixed, "\r\n\r\n", 0);
-	assert(HTTPServer.headerContentLength(headPrefixed, prefixedEnd) == 7);
-	// No Content-Length header -> 0.
+	assert(HTTPFraming.contentLength(headPrefixed.substring(0, prefixedEnd)) == 7);
+	// No Content-Length header -> -1.
 	string head2 = "GET / HTTP/1.1\r\nHost: a\r\n\r\n";
 	int he2 = Strings.find(head2, "\r\n\r\n", 0);
-	assert(HTTPServer.headerContentLength(head2, he2) == 0);
+	assert(HTTPFraming.contentLength(head2.substring(0, he2)) == -1);
 
 	// --- reason phrases ---
-	assert(parser.reason(200).equals("OK"));
-	assert(parser.reason(201).equals("Created"));
-	assert(parser.reason(404).equals("Not Found"));
-	assert(parser.reason(500).equals("Internal Server Error"));
-	assert(parser.reason(302).equals("Found"));          // 3xx no longer "OK"
-	assert(parser.reason(999).equals(""));               // unknown -> generic/empty
+	assert(HTTPStatus.reason(200).equals("OK"));
+	assert(HTTPStatus.reason(201).equals("Created"));
+	assert(HTTPStatus.reason(404).equals("Not Found"));
+	assert(HTTPStatus.reason(500).equals("Internal Server Error"));
+	assert(HTTPStatus.reason(302).equals("Found"));          // 3xx no longer "OK"
+	assert(HTTPStatus.reason(999).equals(""));               // unknown -> generic/empty
 
 	// --- HTTPClientResponse.ok() reflects 2xx ---
 	assert(HTTPClientResponse(200, "x", "").ok());

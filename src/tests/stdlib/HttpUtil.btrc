@@ -1,63 +1,72 @@
-/* HTTP stdlib pure helpers: urlDecode/urlEncode, reason() phrase table, and
+/* HTTP stdlib pure helpers: HTTPUrl decode/encode, the HTTPStatus phrase table, and
  * chunked transfer-encoding decoding.
  *
  * These are the deterministic, socket-free helpers. Local socket framing and
  * short-write coverage lives in HttpSocketIo.btrc. */
+import Library.Bytes;
+import Library.HTTP.HTTPFraming;
+import Library.HTTP.HTTPProtocol;
 import Library.HTTP.HTTPServer;
 import Library.HTTP.HTTPTypes;
 import Library.Map;
 
 #include <assert.h>
 
+/* Malformed or incomplete chunk streams decode to an empty string. */
+string decodeChunkedText(string body) {
+	Bytes encoded = Bytes.fromString(body);
+	return HTTPFraming.decodeChunked(encoded, encoded.len, 65536).toStringLossy();
+}
+
 int main() {
 	// --- urlDecode: %XX hex and '+' -> space ---
-	assert(HTTPServer.urlDecode("a%20b+c").equals("a b c"));
-	assert(HTTPServer.urlDecode("hello").equals("hello"));          // no escapes
-	assert(HTTPServer.urlDecode("100%25").equals("100%"));          // %25 -> '%'
-	assert(HTTPServer.urlDecode("%2Fpath%2Fto").equals("/path/to"));// %2F -> '/'
-	assert(HTTPServer.urlDecode("a%2gb").equals("a%2gb"));          // bad hex: verbatim
-	assert(HTTPServer.urlDecode("trail%").equals("trail%"));        // dangling %: verbatim
-	assert(HTTPServer.urlDecode("").equals(""));                    // empty
+	assert(HTTPUrl.decode("a%20b+c").equals("a b c"));
+	assert(HTTPUrl.decode("hello").equals("hello"));          // no escapes
+	assert(HTTPUrl.decode("100%25").equals("100%"));          // %25 -> '%'
+	assert(HTTPUrl.decode("%2Fpath%2Fto").equals("/path/to"));// %2F -> '/'
+	assert(HTTPUrl.decode("a%2gb").equals("a%2gb"));          // bad hex: verbatim
+	assert(HTTPUrl.decode("trail%").equals("trail%"));        // dangling %: verbatim
+	assert(HTTPUrl.decode("").equals(""));                    // empty
 
 	// --- urlEncode: unreserved pass through, everything else %XX, space -> %20 ---
-	assert(HTTPServer.urlEncode("a b c").equals("a%20b%20c"));
-	assert(HTTPServer.urlEncode("safe-_.~").equals("safe-_.~"));    // unreserved set
-	assert(HTTPServer.urlEncode("a/b?c=d").equals("a%2Fb%3Fc%3Dd"));// reserved encoded
+	assert(HTTPUrl.encode("a b c").equals("a%20b%20c"));
+	assert(HTTPUrl.encode("safe-_.~").equals("safe-_.~"));    // unreserved set
+	assert(HTTPUrl.encode("a/b?c=d").equals("a%2Fb%3Fc%3Dd"));// reserved encoded
 
 	// --- urlEncode -> urlDecode round-trips back to the original ---
 	string original = "name=Ann & Bob/100% done?";
-	string encoded = HTTPServer.urlEncode(original);
-	assert(HTTPServer.urlDecode(encoded).equals(original));
+	string encoded = HTTPUrl.encode(original);
+	assert(HTTPUrl.decode(encoded).equals(original));
 
 	// --- reason() phrase table ---
 	HTTPServer parser = HTTPServer(0);
-	assert(parser.reason(200).equals("OK"));
-	assert(parser.reason(201).equals("Created"));
-	assert(parser.reason(301).equals("Moved Permanently"));
-	assert(parser.reason(302).equals("Found"));                     // was buggy "OK"
-	assert(parser.reason(404).equals("Not Found"));
-	assert(parser.reason(500).equals("Internal Server Error"));
-	assert(parser.reason(503).equals("Service Unavailable"));
-	assert(parser.reason(418).equals("Client Error"));             // unknown 4xx -> generic
-	assert(parser.reason(999).equals(""));                         // out of range -> empty
+	assert(HTTPStatus.reason(200).equals("OK"));
+	assert(HTTPStatus.reason(201).equals("Created"));
+	assert(HTTPStatus.reason(301).equals("Moved Permanently"));
+	assert(HTTPStatus.reason(302).equals("Found"));                     // was buggy "OK"
+	assert(HTTPStatus.reason(404).equals("Not Found"));
+	assert(HTTPStatus.reason(500).equals("Internal Server Error"));
+	assert(HTTPStatus.reason(503).equals("Service Unavailable"));
+	assert(HTTPStatus.reason(418).equals("Client Error"));             // unknown 4xx -> generic
+	assert(HTTPStatus.reason(999).equals(""));                         // out of range -> empty
 
 	// --- decodeChunked: single chunk ---
 	// "5\r\nhello\r\n0\r\n\r\n" assembles to "hello".
 	string oneChunk = "5\r\nhello\r\n0\r\n\r\n";
-	assert(HTTPServer.decodeChunked(oneChunk).equals("hello"));
+	assert(decodeChunkedText(oneChunk).equals("hello"));
 
 	// --- decodeChunked: multiple chunks concatenate in order ---
 	// "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n" -> "Hello World".
 	string multi = "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";
-	assert(HTTPServer.decodeChunked(multi).equals("Hello World"));
+	assert(decodeChunkedText(multi).equals("Hello World"));
 
 	// --- decodeChunked: hex size > 9 and a chunk extension are handled ---
 	// 0x10 = 16 bytes "0123456789ABCDEF", with ";ext" after the size.
 	string hexSize = "10;name=val\r\n0123456789ABCDEF\r\n0\r\n\r\n";
-	assert(HTTPServer.decodeChunked(hexSize).equals("0123456789ABCDEF"));
+	assert(decodeChunkedText(hexSize).equals("0123456789ABCDEF"));
 
 	// --- decodeChunked: empty body / terminating chunk only -> "" ---
-	assert(HTTPServer.decodeChunked("0\r\n\r\n").equals(""));
+	assert(decodeChunkedText("0\r\n\r\n").equals(""));
 
 	// --- end-to-end: a chunked request parses to the assembled body ---
 	string chunkedReq = "POST /u HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";

@@ -1,6 +1,8 @@
 /* Hermetic HTTP/1.1 framing, validation, and binary-body regressions. */
 import Library.Bytes;
 import Library.HTTP.HTTPClient;
+import Library.HTTP.HTTPFraming;
+import Library.HTTP.HTTPProtocol;
 import Library.HTTP.HTTPServer;
 import Library.HTTP.HTTPTypes;
 import Library.Strings;
@@ -61,10 +63,10 @@ int main() {
 	server.maxBodyBytes = 2;
 	assert(!server.parse("POST / HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nabc").valid);
 
-	assert(HTTPServer.urlDecode("a%00b").equals("a%00b"));
+	assert(HTTPUrl.decode("a%00b").equals("a%00b"));
 	string fakeChunked = "GET / HTTP/1.1\r\nTransfer-Encoding: notchunked\r\n\r\n";
 	int fakeHeaderEnd = Strings.find(fakeChunked, "\r\n\r\n", 0);
-	assert(!HTTPServer.isChunked(fakeChunked, fakeHeaderEnd));
+	assert(HTTPFraming.transferEncoding(fakeChunked.substring(0, fakeHeaderEnd)) != 1);
 
 	HTTPClient client = HTTPClient().timeout(-10);
 	assert(client.timeoutSecs == 1);

@@ -49,20 +49,7 @@ class HTTPServer {
 
 	public void __del__() { self.stop(); }
 
-	class int headerContentLength(string head, int headerEnd) {
-		if (head == null || headerEnd < 0 || headerEnd > head.len()) { return 0; }
-		int value = HTTPFraming.contentLength(head.substring(0, headerEnd));
-		return value >= 0 ? value : 0;
-	}
-
 	public Bytes readRequestRawBytes(int c) { return HTTPSocket.readRequest(c, self.maxHeaderBytes, self.maxBodyBytes, self.maxRequestBytes, self.timeoutSecs); }
-
-	/* Text-only compatibility view; use bodyBytes for binary requests. */
-	public string readRequestRaw(int c) {
-		Bytes data = self.readRequestRawBytes(c);
-		string out = data.toStringLossy();
-		return out;
-	}
 
 	public HTTPRequest readRequest(int c) { return self.parseBytes(self.readRequestRawBytes(c)); }
 
@@ -190,42 +177,10 @@ class HTTPServer {
 		return self.parseBytes(Bytes.fromString(raw));
 	}
 
-	class bool isChunked(string head, int headerEnd) {
-		if (head == null || headerEnd < 0 || headerEnd > head.len()) { return false; }
-		return HTTPFraming.transferEncoding(head.substring(0, headerEnd)) == 1;
-	}
-
-	/* Malformed or incomplete chunk streams decode to an empty string. */
-	class string decodeChunked(string body) {
-		if (body == null) { return ""; }
-		Bytes encoded = Bytes.fromString(body);
-		Bytes decoded = HTTPFraming.decodeChunked(encoded, encoded.len, 65536);
-		return decoded.toStringLossy();
-	}
-
-	/* Map a hex digit char to its 0..15 value, or -1 if not hex. */
-	class int hexVal(char ch) { return HTTPFraming.hexVal(ch); }
-
-	/* Percent-decode an application/x-www-form-urlencoded token: "%XX" -> the
-     * byte XX, "+" -> space, everything else passes through. A "%" not followed
-     * by two hex digits is left verbatim (lenient, matches browsers). */
-	class string urlDecode(string s) { return HTTPUrl.decode(s); }
-
-	/* Percent-encode a string for use in a query value. Unreserved characters
-     * (RFC 3986: A-Z a-z 0-9 - _ . ~) pass through; everything else becomes
-     * "%XX" with upper-case hex. Space becomes "%20" (not "+"), so the result
-     * is valid in both query and path contexts. */
-	class string urlEncode(string s) { return HTTPUrl.encode(s); }
-
-	public string reason(int status) { return HTTPStatus.reason(status); }
-
-	public bool trySendAll(int c, string data) { return HTTPSocket.sendAll(c, data, self.timeoutSecs); }
-
-	/* Back-compatible fire-and-forget wrapper. */
-	public void sendAll(int c, string data) { self.trySendAll(c, data); }
-
-	public void respond(int c, HTTPResponse resp) {
-		if (c < 0) { return; }
+	/* Emit one final response and half-close the connection. False when the
+	 * descriptor is invalid or any byte missed the send deadline. */
+	public bool respond(int c, HTTPResponse resp) {
+		if (c < 0) { return false; }
 		HTTPResponse response = resp;
 		if (response == null) {
 			response = HTTPResponse.error(500, "Internal Server Error");
@@ -245,7 +200,7 @@ class HTTPServer {
 			contentType = "application/octet-stream";
 		}
 		long long bodyLength = bodyBytes != null ? (long long)bodyBytes.len : (long long)strlen(body);
-		string phrase = self.reason(status);
+		string phrase = HTTPStatus.reason(status);
 		string head = f"HTTP/1.1 {status} {phrase}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyLength}\r\nCache-Control: no-store\r\nConnection: close\r\n";
 		if (response.extraHeaders != null) {
 			for h in response.extraHeaders {
@@ -262,10 +217,11 @@ class HTTPServer {
 		long long deadline = HTTPSocket.deadlineAfter(self.timeoutSecs);
 		bool sent = HTTPSocket.sendAllUntil(c, head, deadline);
 		if (sent && bodyBytes != null) {
-			HTTPSocket.sendBytesUntil(c, bodyBytes, deadline);
+			sent = HTTPSocket.sendBytesUntil(c, bodyBytes, deadline);
 		} else if (sent && !body.isEmpty()) {
-			HTTPSocket.sendAllUntil(c, body, deadline);
+			sent = HTTPSocket.sendAllUntil(c, body, deadline);
 		}
 		shutdown(c, SHUT_WR);
+		return sent;
 	}
 }
