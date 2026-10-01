@@ -169,6 +169,24 @@ def test_devcontainer_context_excludes_repo_state_and_stages_lsp_runtime():
     assert "!src/compiler/**" not in ignored
 
 
+def test_devcontainer_stages_the_gpu_runtime_its_dev_shell_builds():
+    """The dev shell links btrc-gpu, built from gpuRuntimeSource inside the image's staged flake."""
+    flake = FLAKE.read_text()
+    containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
+    admitted = (REPO_ROOT / ".dockerignore").read_text().splitlines()
+    subset = re.search(r"gpuRuntimeSource = sourceSubset \{\s*prefixes = \[(.*?)\];", flake, re.S)
+    assert subset is not None
+    prefixes = re.findall(r'"([^"]+)"', subset.group(1))
+
+    assert prefixes
+    for prefix in prefixes:
+        assert f"COPY --chown=${{uid}}:${{uid}} {prefix} /tmp/flake/{prefix}" in containerfile
+        assert f"!{prefix}**" in admitted
+        parts = prefix.rstrip("/").split("/")
+        for depth in range(1, len(parts) + 1):
+            assert f"!{'/'.join(parts[:depth])}/" in admitted, prefix
+
+
 def test_devcontainer_installs_the_null_alsa_pcm():
     """CI's Linux shards run the ALSA session tests against this PCM; without it they would fail there."""
     containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
