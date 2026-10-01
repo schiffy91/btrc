@@ -533,6 +533,10 @@ def test_the_boundary_gate_writes_its_report_for_the_ledger():
 def test_the_c11_matrix_gates_each_configuration():
     makefile = (REPO / "Makefile").read_text()
     recipe = makefile.split("\ntest-c11:", 1)[1].split("\n\n", 1)[0]
+    one = makefile.split("\ntest-c11-one:", 1)[1].split("\n\n", 1)[0]
 
-    assert "--skip-report=build/skip-report-c11-$$cc-$$opt.json" in recipe
-    assert "$(SKIP_GATE) build/skip-report-c11-$$cc-$$opt.json || exit 1" in recipe
+    # The local matrix runs each CI configuration's own target, which gates
+    # the report it writes.
+    assert "$(MAKE) --no-print-directory test-c11-one C11_CC=$$cc C11_OPT=$$opt || exit 1" in recipe
+    assert "--skip-report=build/skip-report-c11-$(C11_CC)-$(C11_OPT).json" in one
+    assert "$(SKIP_GATE) build/skip-report-c11-$(C11_CC)-$(C11_OPT).json" in one

@@ -75,7 +75,8 @@ def test_production_test_targets_require_gpu_and_cover_both_compilers() -> None:
 
     assert "gpu-required" in test_rule
     assert "gpu-required" in c11_rule and "btrcc" in c11_rule
-    assert 'BTRC_TEST_BTRCC="$(abspath bin/btrcc)"' in c11_recipe
+    assert 'SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"' in makefile
+    assert "test-c11-one C11_CC=$$cc C11_OPT=$$opt" in c11_recipe and "$(SHARD_BTRCC)" in c11_recipe
     assert "--compilers=python,btrc" in c11_recipe
     assert "PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}" in ci
     for shard in ("test-shard-corpus-btrc", "test-shard-bootstrap", "test-c11-one C11_CC=clang C11_OPT=O3"):
