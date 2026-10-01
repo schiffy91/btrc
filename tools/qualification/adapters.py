@@ -92,11 +92,7 @@ class HostProvenance:
             model = self._run(["sysctl", "-n", "hw.model"])
             chip = self._run(["sysctl", "-n", "machdep.cpu.brand_string"])
             detected["device_class"] = f"{model} ({chip})" if model and chip else model
-            detected["cpu"] = self.cpu(
-                self._run(["sysctl", "-n", "hw.perflevel0.physicalcpu"]),
-                self._run(["sysctl", "-n", "hw.perflevel1.physicalcpu"]),
-                self._run(["sysctl", "-n", "hw.physicalcpu"]),
-            )
+            detected["cpu"] = self.darwin_cpu()
             detected["memory"] = self.memory(self._run(["sysctl", "-n", "hw.memsize"]))
             detected["thermal"] = self.thermal(self._run(["pmset", "-g", "therm"]))
             detected["power"] = self.power(self._run(["pmset", "-g", "batt"]))
@@ -112,6 +108,54 @@ class HostProvenance:
         if isinstance(detected.get("frontend"), str):
             detected["frontend"] = Frontend(detected["frontend"])
         return Provenance(**{name: value for name, value in detected.items() if value})
+
+    def summary(self) -> str:
+        """The one-line host string manifests and bench reports record.
+
+        Four fields -- chip, cores, memory, OS -- so the acceptance Mac reads
+        exactly ``Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0`` (AGENTS.md), and any
+        other host records what it is in the same shape.
+        """
+
+        if host_platform.system() == "Darwin":
+            version = self._run(["sw_vers", "-productVersion"])
+            fields = (
+                self._run(["sysctl", "-n", "machdep.cpu.brand_string"]),
+                self.darwin_cpu(),
+                self.memory(self._run(["sysctl", "-n", "hw.memsize"])),
+                f"macOS {version}" if version else None,
+            )
+        else:
+            logical = os.cpu_count()
+            fields = (
+                self.cpuinfo_model(),
+                f"{logical} logical CPUs" if logical else None,
+                self.memory(self.meminfo_bytes()),
+                f"{host_platform.system()} {host_platform.release()}",
+            )
+        chip, *rest = fields
+        return ", ".join([chip or host_platform.machine() or "unknown CPU", *(field or "unknown" for field in rest)])
+
+    def darwin_cpu(self) -> str | None:
+        return self.cpu(
+            self._run(["sysctl", "-n", "hw.perflevel0.physicalcpu"]),
+            self._run(["sysctl", "-n", "hw.perflevel1.physicalcpu"]),
+            self._run(["sysctl", "-n", "hw.physicalcpu"]),
+        )
+
+    @staticmethod
+    def cpuinfo_model(path: Path = Path("/proc/cpuinfo")) -> str | None:
+        """The first ``model name`` (x86) or ``Model`` (arm) line of /proc/cpuinfo."""
+
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            return None
+        for line in text.splitlines():
+            key, separator, value = line.partition(":")
+            if separator and key.strip() in {"model name", "Model"} and value.strip():
+                return value.strip()
+        return None
 
     @staticmethod
     def cpu(performance: str | None, efficiency: str | None, physical: str | None) -> str | None:

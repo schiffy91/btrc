@@ -85,7 +85,6 @@ starts itself, so they require --entry direct.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import datetime
 import functools
 import hashlib
@@ -108,6 +107,7 @@ from pathlib import Path, PurePosixPath
 from typing import ClassVar, TypeVar
 
 from src.compiler.python.frontend.packages import PackageTarget
+from tools.qualification.adapters import HostProvenance
 from tools.qualification.statistics import SampleStatistics
 
 REPO = Path(__file__).resolve().parents[1]
@@ -751,50 +751,18 @@ class HostTarget:
 
 
 class HostSummary:
-    """The one-line host provenance a manifest records: CPU, cores, memory, OS.
+    """The one-line host provenance a manifest records: chip, cores, memory, OS.
 
-    CLAUDE.md asks the Mac's runs to carry its exact string; any other host
-    records what it is, read from the host, so its numbers are never mistaken
-    for the acceptance host's.
+    AGENTS.md asks the Mac's runs to carry its exact string, ``Apple M1 Max,
+    8P+2E, 64 GiB, macOS 27.0``; `HostProvenance.summary` composes it from the
+    same sysctl and sw_vers facts the qualification records use, and any other
+    host records what it is in the same four fields, so its numbers are never
+    mistaken for the acceptance host's.
     """
 
     @classmethod
-    def describe(cls, system: str | None = None) -> str:
-        system = system or platform.system()
-        cpu = memory = release = None
-        if system == "Darwin":
-            cpu = cls._output("sysctl", "-n", "machdep.cpu.brand_string")
-            size = cls._output("sysctl", "-n", "hw.memsize")
-            memory = int(size) if size and size.isdigit() else None
-            version = cls._output("sw_vers", "-productVersion")
-            release = f"macOS {version}" if version else None
-        elif system == "Linux":
-            with contextlib.suppress(OSError):
-                for line in Path("/proc/cpuinfo").read_text(errors="replace").splitlines():
-                    if line.split(":")[0].strip() in {"model name", "Model"}:
-                        cpu = line.split(":", 1)[1].strip()
-                        break
-            with contextlib.suppress(OSError, ValueError):
-                for line in Path("/proc/meminfo").read_text().splitlines():
-                    if line.startswith("MemTotal:"):
-                        memory = int(line.split()[1]) * 1024
-            release = f"Linux {platform.release()}"
-        parts = [
-            cpu or platform.processor() or platform.machine(),
-            f"{os.cpu_count()} CPUs",
-            f"{memory / 2**30:.0f} GiB" if memory else "memory unknown",
-            release or f"{system} {platform.release()}",
-            platform.machine(),
-        ]
-        return ", ".join(parts)
-
-    @staticmethod
-    def _output(*command: str) -> str | None:
-        try:
-            completed = subprocess.run(command, capture_output=True, text=True, timeout=10)
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        return completed.stdout.strip() or None if completed.returncode == 0 else None
+    def describe(cls) -> str:
+        return HostProvenance().summary()
 
 
 class StandInWorkspace:

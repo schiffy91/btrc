@@ -154,9 +154,39 @@ def test_instruction_counter_names_why_it_is_unavailable(monkeypatch):
 
 def test_host_summary_records_this_host_not_the_acceptance_mac():
     summary = bench.HostSummary.describe()
-    assert f"{bench.os.cpu_count()} CPUs" in summary
+    assert len(summary.split(", ")) == 4
     if sys.platform.startswith("linux"):
-        assert "Linux " in summary and "GiB" in summary and "M1 Max" not in summary
+        assert f"{bench.os.cpu_count()} logical CPUs" in summary
+        assert summary.endswith(f"Linux {bench.platform.release()}") and "GiB" in summary
+        assert "M1 Max" not in summary
+
+
+def test_host_summary_on_the_acceptance_mac_is_its_exact_provenance_string(monkeypatch):
+    """The sysctl and sw_vers facts of the M1 Max yield AGENTS.md's string verbatim."""
+    from tools.qualification import adapters
+
+    facts = {
+        ("sw_vers", "-productVersion"): "27.0",
+        ("sysctl", "-n", "machdep.cpu.brand_string"): "Apple M1 Max",
+        ("sysctl", "-n", "hw.perflevel0.physicalcpu"): "8",
+        ("sysctl", "-n", "hw.perflevel1.physicalcpu"): "2",
+        ("sysctl", "-n", "hw.physicalcpu"): "10",
+        ("sysctl", "-n", "hw.memsize"): str(64 * 2**30),
+    }
+    monkeypatch.setattr(adapters.host_platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        adapters.HostProvenance, "_run", staticmethod(lambda command, cwd=None: facts.get(tuple(command)))
+    )
+    assert bench.HostSummary.describe() == "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0"
+
+
+def test_host_summary_reads_the_linux_cpu_model(tmp_path):
+    from tools.qualification.adapters import HostProvenance
+
+    cpuinfo = tmp_path / "cpuinfo"
+    cpuinfo.write_text("processor\t: 0\nvendor_id\t: AuthenticAMD\nmodel name\t: AMD EPYC 7763 64-Core Processor\n")
+    assert HostProvenance.cpuinfo_model(cpuinfo) == "AMD EPYC 7763 64-Core Processor"
+    assert HostProvenance.cpuinfo_model(tmp_path / "missing") is None
 
 
 TIMING = Path(__file__).resolve().parents[1] / "fixtures" / "benchmarks" / "timing"
