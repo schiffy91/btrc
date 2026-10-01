@@ -558,10 +558,17 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("subtract", "int", "method", (("int", "left"), ("int", "right"),), "subtract"),
         BuiltinMemberSpec("multiply", "int", "method", (("int", "left"), ("int", "right"),), "multiply"),
     )),
+    ("ButtonTypography", (
+        BuiltinMemberSpec("borderedMaximumSize", "double", "method", (), "borderedMaximumSize"),
+        BuiltinMemberSpec("maximumSize", "double", "method", (), "maximumSize"),
+    )),
     ("DirectoryPickerOutcome", (
         BuiltinMemberSpec("selected", "DirectoryPickerOutcome", "method", (("string", "directory"),), "selected"),
         BuiltinMemberSpec("cancelled", "DirectoryPickerOutcome", "method", (), "cancelled"),
         BuiltinMemberSpec("failed", "DirectoryPickerOutcome", "method", (("AppError", "error"),), "failed"),
+    )),
+    ("SelectTypography", (
+        BuiltinMemberSpec("maximumSize", "double", "method", (), "maximumSize"),
     )),
     ("LinuxComposite", (
         BuiltinMemberSpec("projection", "ILinuxView", "method", (("IView", "view"),), "projection"),
@@ -589,8 +596,8 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("wrap", "Vector<string>", "method", (("LinuxFonts", "fonts"), ("string", "text"), ("double", "size"), ("bool", "bold"), ("double", "width"),), "wrap"),
     )),
     ("LinuxSymbols", (
-        BuiltinMemberSpec("known", "bool", "method", (("string", "name"),), "known"),
-        BuiltinMemberSpec("paint", "void", "method", (("LinuxPainter", "painter"), ("string", "name"), ("double", "x"), ("double", "y"), ("double", "size"), ("RGBA", "color"),), "paint"),
+        BuiltinMemberSpec("symbol", "int", "method", (("string", "name"),), "symbol"),
+        BuiltinMemberSpec("paint", "void", "method", (("LinuxPainter", "painter"), ("int", "symbol"), ("double", "x"), ("double", "y"), ("double", "size"), ("RGBA", "color"),), "paint"),
         BuiltinMemberSpec("arc", "void", "method", (("LinuxPainter", "painter"), ("double", "cx"), ("double", "cy"), ("double", "radius"), ("double", "from"), ("double", "to"), ("double", "stroke"), ("RGBA", "color"),), "arc"),
     )),
     ("LinuxSystemText", (
