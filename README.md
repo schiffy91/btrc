@@ -1174,7 +1174,7 @@ int sum = nums.reduce(0, int function(int acc, int x) { return acc + x; });
 nums.free();
 ```
 
-Also available: `.insert()`, `.remove()`, `.removeAt()`, `.removeAll()`,
+Also available: `.insert()`, `.remove()`, `.removeAll()`,
 `.indexOf()`, `.lastIndexOf()`, `.swap()`, `.fill()`, `.clear()`, `.first()`,
 `.last()`, `.min()`, `.max()`, `.count()`, `.distinct()`, `.take()`, `.drop()`,
 `.copy()`, `.extend()`, `.all()`, `.findIndex()`, `.join()`,

@@ -30,18 +30,20 @@ enum SPSCQueueCursor {
 	SPSC_QUEUE_CURSOR_COUNT = 2
 };
 
-@realtime static uint btrcSpscNextCursor(uint cursor, uint slotCount) {
-	cursor++;
-	return cursor == slotCount ? 0u : cursor;
-}
-
-@realtime static void btrcSpscCopy(unsigned char* destination, const unsigned char* source, size_t count) {
-	for (size_t index = 0; index < count; index++) {
-		destination[index] = source[index];
-	}
-}
-
 class SPSCQueues {
+	/* The ring position after cursor, wrapping at slotCount. */
+	class @realtime uint nextCursor(uint cursor, uint slotCount) {
+		cursor++;
+		return cursor == slotCount ? 0u : cursor;
+	}
+
+	/* A bounded byte copy that never calls into libc from the realtime thread. */
+	class @realtime void copyBytes(unsigned char* destination, const unsigned char* source, size_t count) {
+		for (size_t index = 0; index < count; index++) {
+			destination[index] = source[index];
+		}
+	}
+
 	class SPSCQueueOpenKind tryOpen(uint capacity, size_t valueSize, struct SPSCQueueStorage** output) {
 		if (output == null) { return SPSC_QUEUE_INVALID_ARGUMENT; }
 		*output = null;
@@ -79,10 +81,10 @@ class SPSCQueues {
 	class @realtime bool tryPushBorrowed(struct SPSCQueueStorage* queue, const void* value) {
 		if (queue == null || value == null) { return false; }
 		uint write = queue->cursors[SPSC_QUEUE_WRITE_CURSOR].load(MemoryOrder.RELAXED);
-		uint nextWrite = btrcSpscNextCursor(write, queue->slotCount);
+		uint nextWrite = SPSCQueues.nextCursor(write, queue->slotCount);
 		uint read = queue->cursors[SPSC_QUEUE_READ_CURSOR].load(MemoryOrder.ACQUIRE);
 		if (nextWrite == read) { return false; }
-		btrcSpscCopy(queue->values + (size_t)write * queue->valueSize, (const unsigned char*)value, queue->valueSize);
+		SPSCQueues.copyBytes(queue->values + (size_t)write * queue->valueSize, (const unsigned char*)value, queue->valueSize);
 		queue->cursors[SPSC_QUEUE_WRITE_CURSOR].store(nextWrite, MemoryOrder.RELEASE);
 		return true;
 	}
@@ -92,8 +94,8 @@ class SPSCQueues {
 		uint read = queue->cursors[SPSC_QUEUE_READ_CURSOR].load(MemoryOrder.RELAXED);
 		uint write = queue->cursors[SPSC_QUEUE_WRITE_CURSOR].load(MemoryOrder.ACQUIRE);
 		if (read == write) { return false; }
-		btrcSpscCopy((unsigned char*)output, queue->values + (size_t)read * queue->valueSize, queue->valueSize);
-		queue->cursors[SPSC_QUEUE_READ_CURSOR].store(btrcSpscNextCursor(read, queue->slotCount), MemoryOrder.RELEASE);
+		SPSCQueues.copyBytes((unsigned char*)output, queue->values + (size_t)read * queue->valueSize, queue->valueSize);
+		queue->cursors[SPSC_QUEUE_READ_CURSOR].store(SPSCQueues.nextCursor(read, queue->slotCount), MemoryOrder.RELEASE);
 		return true;
 	}
 

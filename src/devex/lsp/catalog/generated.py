@@ -341,7 +341,6 @@ VECTOR_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("all", "bool", "method", (("__fn_ptr<bool, T>", "pred"),), "all"),
     BuiltinMemberSpec("reduce", "T", "method", (("T", "init"), ("__fn_ptr<T, T, T>", "fn"),), "reduce"),
     BuiltinMemberSpec("copy", "Vector<T>", "method", (), "copy"),
-    BuiltinMemberSpec("removeAt", "void", "method", (("int", "idx"),), "removeAt"),
     BuiltinMemberSpec("iterLen", "int", "method", (), "iterLen"),
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "i"),), "iterGet"),
 )
@@ -878,6 +877,8 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("subst", "string", "method", (("string", "pattern"), ("string", "text"), ("string", "replacement"), ("bool", "all"),), "subst"),
     )),
     ("SPSCQueues", (
+        BuiltinMemberSpec("nextCursor", "uint", "method", (("uint", "cursor"), ("uint", "slotCount"),), "nextCursor"),
+        BuiltinMemberSpec("copyBytes", "void", "method", (("unsigned char*", "destination"), ("unsigned char*", "source"), ("size_t", "count"),), "copyBytes"),
         BuiltinMemberSpec("tryOpen", "SPSCQueueOpenKind", "method", (("uint", "capacity"), ("size_t", "valueSize"), ("struct SPSCQueueStorage**", "output"),), "tryOpen"),
         BuiltinMemberSpec("tryPushBorrowed", "bool", "method", (("struct SPSCQueueStorage*", "queue"), ("void*", "value"),), "tryPushBorrowed"),
         BuiltinMemberSpec("tryPopBorrowed", "bool", "method", (("struct SPSCQueueStorage*", "queue"), ("void*", "output"),), "tryPopBorrowed"),

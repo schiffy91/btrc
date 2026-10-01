@@ -71,7 +71,7 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
         assert "for (" not in body
         assert "%" not in body
         assert "/" not in body
-    copy_body = _body(generated, "btrcSpscCopy")
+    copy_body = _body(generated, "SPSCQueues_copyBytes")
     assert copy_body.count("for (") == 1
     assert not forbidden.search(copy_body)
     assert "while (" not in copy_body
@@ -84,8 +84,8 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
     assert "memory_order_relaxed" in pop
     assert "memory_order_acquire" in pop
     assert "memory_order_release" in pop
-    assert "btrcSpscNextCursor" in push
-    assert "btrcSpscNextCursor" in pop
+    assert "SPSCQueues_nextCursor" in push
+    assert "SPSCQueues_nextCursor" in pop
     assert "const void* value" in generated
     assert "struct SPSCQueueStorage* queue" in generated
 
