@@ -112,12 +112,6 @@ ARRAY_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "i"),), "iterGet"),
 )
 
-# Generated from src/stdlib/borrowedclosure.btrc
-BORROWEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
-    BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
-    BuiltinMemberSpec("context", "void*", "method", (), "context"),
-)
-
 # Generated from src/stdlib/ownedclosure.btrc
 OWNEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
@@ -357,7 +351,6 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Atomic", ATOMIC_MEMBERS),
     ("Span", SPAN_MEMBERS),
     ("Array", ARRAY_MEMBERS),
-    ("BorrowedClosure", BORROWEDCLOSURE_MEMBERS),
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
     ("CallbackToken", CALLBACKTOKEN_MEMBERS),
     ("CallbackContext", CALLBACKCONTEXT_MEMBERS),

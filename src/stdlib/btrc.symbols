@@ -1,8 +1,7 @@
-btrc-symbols 1 3a54bfcf-253870-27
+btrc-symbols 1 d50e13bf-254607-27
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
-BorrowedClosure	Callback.btrc
 Bytes	Bytes.btrc
 CLIArgs	CLI.btrc
 CLICommand	CLI.btrc
@@ -120,6 +119,7 @@ ValueError	Error.btrc
 Vector	Vector.btrc
 btrcSpscCopy	SPSC.btrc
 btrcSpscNextCursor	SPSC.btrc
+callbackBackoff	Callback.btrc
 callbackGateCloseAdmission	Callback.btrc
 callbackGateDrain	Callback.btrc
 callbackGateLeave	Callback.btrc
