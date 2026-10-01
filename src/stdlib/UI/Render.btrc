@@ -732,7 +732,7 @@ class UIResolvedStyle {
 	}
 
 	/* Precedence: kind defaults, then the sheet's kind rule, then the class
-	 * rule, then the element's inline style; later declarations Windows. */
+	 * rule, then the element's inline style; later declarations win. */
 	class UIResolvedStyle from(UIElement element, UIStyleSheet sheet) {
 		UIResolvedStyle style = UIResolvedStyle(element.kind());
 		style.apply(sheet.kindCssFor(element.kind()));

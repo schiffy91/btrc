@@ -3,11 +3,20 @@ import Library.GPU.SurfaceRenderer;
 import Library.GPU.Program;
 import Library.GPU.Readback;
 
-/* A native child owning its WebGPU device, frame renderer and asynchronous
- * programs/readbacks. UI-thread poll() advances preparation without blocking.
- * beginFrame refreshes backing dimensions and skips hidden/empty views.
- * Renderer aliases are borrowed capabilities: the view closes them on shutdown.
- * Create asynchronous work here so subtree teardown retains it until drained. */
+/* A WebGPU child view. It owns its frame renderer and the asynchronous
+ * programs/readbacks created through it; where the device comes from is the
+ * provider's choice (macOS gives each view its own device and surface, Linux
+ * renders into an offscreen target on the window's device and the window
+ * composites it). UI-thread poll() advances preparation without blocking and
+ * returns false until the view is ready (on Linux, until it is attached under
+ * a window whose device is ready); error() names a preparation failure.
+ * beginFrame refreshes backing dimensions after layout and skips hidden or
+ * empty views. Renderer aliases are borrowed capabilities: the view closes
+ * them on shutdown. Create programs and readbacks here so subtree teardown
+ * retains them until drained. On a surface-backed view (macOS) readback()
+ * needs a capturable frame: capture=true keeps every frame capturable and
+ * requestCapture() makes the next one so. Offscreen-backed views (Linux)
+ * are always capturable. */
 interface IGPUView extends IView {
 	bool poll();
 	string error();
@@ -18,6 +27,6 @@ interface IGPUView extends IView {
 	GPUFrameAvailability beginFrame(double red, double green, double blue, double alpha = 1.0);
 	GPUProgram createProgram(string source, int uniformFloatCount, bool textured = true, bool sourceOver = true, string vertexEntry = "vs_main", string fragmentEntry = "fs_main");
 	GPUReadback readback(int maximumPixels = 16777216);
-	/* Make the next frame readable by readback(); frames are framebuffer-only otherwise. */
+	/* Make the next frame capturable by readback(); see capture above. */
 	void requestCapture();
 }

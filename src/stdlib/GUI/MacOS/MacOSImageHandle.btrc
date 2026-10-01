@@ -1,16 +1,16 @@
 import Library.Image;
 import Library.GUI.IImageHandle;
 
-/* NSImage built from decoded pixels on whichever thread decoded them, so the
- * conversion never runs on the UI thread. NSImage creation off the main thread
- * is permitted; drawing it into a view still happens on the main thread
- * through the image view. */
 /* Platform side of a handle: the image an AppKit image view can present.
  * Views query it through this interface rather than downcasting to the class. */
 interface IMacOSImageHandle {
 	NSImage nativeImage();
 }
 
+/* NSImage built from decoded pixels on whichever thread decoded them, so the
+ * conversion never runs on the UI thread. NSImage creation off the main thread
+ * is permitted; drawing it into a view still happens on the main thread
+ * through the image view. */
 class MacOSImageHandle implements IImageHandle, IMacOSImageHandle {
 	private NSImage? _image;
 	private int _width;

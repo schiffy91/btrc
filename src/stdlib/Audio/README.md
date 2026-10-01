@@ -4,10 +4,16 @@ Portable device discovery/negotiation/lifecycle lives in `AudioDevice.btrc`;
 callback contracts and routing live in `RealtimeAudio.btrc` and
 `RealtimeAudioRouter.btrc`. Import them as `Library.Audio.AudioDevice`, etc.
 
-`MacOS/CoreAudioDevice.btrc` implements `AudioDeviceProvider` using the real
-CoreAudio SDK declared by `MacOS/Hardware.h`. Select it only at the application
-composition boundary; application policy and processors consume portable types.
-Its native binding/framework requirements are declared in the stdlib manifest.
+Applications open the target's device provider with `Audio.createDevice()`
+(`import Library.Audio;`). The facade calls the private `AudioProvider` module,
+which the `[[package.providers]]` entries in this group's `btrc.toml` select per
+compilation target: `MacOS.AudioProvider` (CoreAudio, through
+`MacOS/CoreAudioDevice.btrc` and the SDK declared by `MacOS/Hardware.h`) for
+`macos`, and `Linux.AudioProvider` (ALSA, through `Linux/AlsaDevice.btrc` and
+`Linux/Alsa.h`) for `linux`. Application policy and processors consume the
+portable types and never name a platform module. Each platform's native
+bindings, frameworks and pkg-config entries are declared in the same
+`btrc.toml`.
 
 Both providers share one provider shell in `AudioDevice.btrc`:
 `PlatformAudioDeviceProvider` owns the session lease, the retained failed
@@ -58,7 +64,7 @@ does not qualify that AudioUnit lifetime boundary.
 Preparation initializes the audio unit without publishing a render callback.
 Start installs the callback immediately before starting output, so failed
 initialization cannot leave a published callback. The actual HAL ordering test
-(`src/tests/native/core_audio_device/CallbackInstallation.c`) exercises silent
+(`src/tests/native/audio/CallbackInstallation.c`) exercises silent
 output across repeated installation/start/stop cycles, including stop before
 the first start and repeated stop. This qualifies the ordering on the tested
 native backend; it does not infer an asynchronous entry barrier from a status

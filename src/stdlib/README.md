@@ -22,24 +22,35 @@ the API surface, so the layout follows a few fixed rules.
   facade only imports: `Image/Image.btrc` imports `Image/Pixels.btrc` (the
   `Image` pixel class and fixture codecs), `EncodedImage` and
   `DDSEncodedImageDecoder`, and `UI/UI.btrc` imports the six UI modules.
-  Two groups are documented exceptions. `GPU` has no facade: every module
+  Three groups are documented exceptions. `GPU` has no facade: every module
   binds the native WebGPU SDK, so a consumer imports only the owners it uses
   (`Library.GPU.Device`, `Library.GPU.SurfaceRenderer`, ...) rather than
-  linking all of them through one import. `App` is a folder holding one
+  linking all of them through one import. `Realtime` has no facade either:
+  each of its modules is a separate realtime contract a consumer takes on only
+  when it needs it (see `Realtime/README.md`). `App` is a folder holding one
   module, like `Graph`: its application event and window-description
   values belong beside the GUI groups, not in the closed prelude and its
   prebuilt core archive.
+- **A module with private parts may own a subfolder named after it.**
+  `Realtime/RealtimeClipTransport/` holds the callback-side `Runtime` and
+  `PracticeRuntime` mechanics of `Realtime/RealtimeClipTransport.btrc`; it is
+  not a platform folder.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
-  `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`, `Image/Linux`,
-  `Tray/Linux`, `Tray/MacOS`, and `BackgroundJobs/Unix` for code shared by
-  linux and macOS) and implements the group's portable
-  contract: `GUI/MacOS/MacOSDirectoryPicker` implements `GUI/IDirectoryPicker`,
+  `Audio/Linux`, `Digest/MacOS`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`,
+  `Image/Linux`, `LocalApplicationChannel/MacOS`,
+  `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`, and
+  `BackgroundJobs/Unix` for code shared by Linux and macOS) and implements the
+  group's portable contract: `GUI/MacOS/MacOSDirectoryPicker` and
+  `GUI/Linux/LinuxDirectoryPicker` implement `GUI/IDirectoryPicker`,
   `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
-  (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/CoreAudioDevice`
-  implements `Audio/AudioDevice`'s provider contract. A Linux or Windows
-  provider is the sibling folder (`GUI/Linux/LinuxDirectoryPicker`) selected by
-  the same `[[package.providers]]` entry in `btrc.toml`; consumers never name a
-  platform module. Selection follows the compilation target, so a program
+  (declared in `Image/EncodedImage.btrc`), and `Audio/MacOS/CoreAudioDevice`
+  and `Audio/Linux/AlsaDevice` each supply an `AudioDevicePlatform` to the
+  shared provider in `Audio/AudioDevice.btrc`. A `[[package.providers]]`
+  entry in the group's `btrc.toml` maps one portable module to its
+  implementation per target OS (`GUI` to `MacOS.GUIProvider` or
+  `Linux.GUIProvider`, `Audio` to `MacOS.AudioProvider` or
+  `Linux.AudioProvider`); consumers import the portable module and never name
+  a platform module. Selection follows the compilation target, so a program
   transpiled on one host for another must pass `--target` or compose its host
   capabilities explicitly; the self-hosted compiler's Windows entry therefore
   passes no worker-pool factory (see `BackgroundJobs/README.md`).
@@ -62,11 +73,16 @@ the API surface, so the layout follows a few fixed rules.
   already a dependency of the root package, so `import Library.<Group>...`
   resolves through the stdlib tree and the root `btrc.lock` covers the whole
   graph. A group folder therefore never carries its own `btrc.lock`.
-  `Windows/` is the toolchain compatibility layer, not a module group.
+- **The Windows POSIX header overlays are not stdlib modules.** They live in
+  `src/runtime/windows/` (see its `README.md`) and are added only to Windows
+  builds through the Makefile's `WIN_COMPAT` flags.
 - **Interfaces are `I`-prefixed** (`IView`, `IWindow`, `IDirectoryPicker`,
   `IEncodedImageDecoder`); providers are `<Platform><Capability>`; facades keep
   the group name. Value types carry no platform prefix.
 
-Current groups: `App`, `Audio`, `BackgroundJobs`, `Daemon`, `Digest`,
-`FileSystem`, `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`), `HTTP`, `Image`
-(`Linux/`, `MacOS/`), `LocalApplicationChannel`, `Realtime`, `Terminal`, `Tray` (`Linux/`, `MacOS/`), `UI`. Each group with behavior worth explaining has its own `README.md`.
+Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
+(`Unix/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`, `GPU`, `Graph`, `GUI`
+(`FreeType/`, `Linux/`, `MacOS/`), `HTTP`, `Image` (`Linux/`, `MacOS/`),
+`LocalApplicationChannel` (`Linux/`, `MacOS/`), `Realtime`
+(`RealtimeClipTransport/`), `Terminal`, `Tray` (`Linux/`, `MacOS/`), `UI`.
+Each group with behavior worth explaining has its own `README.md`.
