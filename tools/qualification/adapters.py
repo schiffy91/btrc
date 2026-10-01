@@ -337,6 +337,8 @@ class BudgetBenchAdapter:
             reasons.append(f"the run failed: {failure.strip().splitlines()[0]}")
         if report.get("dry_run"):
             reasons.append("a dry run")
+        if configuration.get("stand_in"):
+            reasons.append("a stand-in workspace, not BTRSmith")
         return scenarios, embedded, reasons
 
     def record(
