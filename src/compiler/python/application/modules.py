@@ -34,7 +34,7 @@ from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
 from .results import CompilerOptions
 
-_RECORD_SCHEMA = 3
+_RECORD_SCHEMA = 4
 # The unit that defines every runtime helper of a module-unit program; a
 # group's unit is named for its path hash and so never takes this name.
 RUNTIME_UNIT_NAME = "unit-runtime"
@@ -94,7 +94,6 @@ class ModuleUnitRecord:
     # proof has checked, the calls that proof left for the program to resolve.
     realtime_roots: tuple[str, ...]
     realtime_proofs: Mapping[str, tuple[str, ...]]
-    native_units: tuple[tuple[str, str, str], ...] = ()
 
     @staticmethod
     def _effect_json(effect: FunctionEffect) -> dict:
@@ -149,7 +148,6 @@ class ModuleUnitRecord:
                 "helpers": list(self.helpers),
                 "realtime-roots": list(self.realtime_roots),
                 "realtime-proofs": {name: sorted(callees) for name, callees in self.realtime_proofs.items()},
-                "native-units": [list(unit) for unit in self.native_units],
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -177,7 +175,6 @@ class ModuleUnitRecord:
                 "helpers",
                 "realtime-roots",
                 "realtime-proofs",
-                "native-units",
             }
             if not isinstance(value, dict) or set(value) != expected or value["schema"] != _RECORD_SCHEMA:
                 return None
@@ -194,12 +191,6 @@ class ModuleUnitRecord:
                 return None
             names = value["helpers"], value["realtime-roots"], value["exports"], *proofs.values()
             if any(not isinstance(items, list) or not all(isinstance(item, str) for item in items) for items in names):
-                return None
-            native_units = value["native-units"]
-            if not isinstance(native_units, list) or not all(
-                isinstance(unit, list) and len(unit) == 3 and all(isinstance(part, str) for part in unit)
-                for unit in native_units
-            ):
                 return None
             return cls(
                 group=group,
@@ -220,7 +211,6 @@ class ModuleUnitRecord:
                 helpers=tuple(value["helpers"]),
                 realtime_roots=tuple(value["realtime-roots"]),
                 realtime_proofs={name: tuple(callees) for name, callees in proofs.items()},
-                native_units=tuple(tuple(unit) for unit in native_units),
             )
         except (ValueError, RecursionError):
             return None
@@ -234,7 +224,6 @@ class ModuleUnitBuild:
     primary: str
     units: tuple[str, ...]
     unit_names: tuple[str, ...]
-    native_units: tuple[tuple[str, str, str], ...]
     lowered: tuple[str, ...]
     reused: tuple[str, ...]
 
@@ -973,15 +962,11 @@ class ModuleUnitCompiler:
             emitted.insert(0, (RUNTIME_UNIT_NAME, CEmitter().emit_runtime_unit(shared.runtime_module(program_unit))))
         primary = CEmitter().emit_module_unit(program_unit)
         timed(profile, "emit", start)
-        native_units = tuple(
-            (name, unit.language, CEmitter().emit(unit)) for name, unit in sorted(program_unit.native_units.items())
-        )
         return ModuleUnitBuild(
             program=program_unit,
             primary=primary,
             units=tuple(text for _name, text in emitted),
             unit_names=tuple(name for name, _text in emitted),
-            native_units=native_units,
             lowered=tuple(sorted(lowered)),
             reused=tuple(sorted(state.name for state in states if state.name not in lowered)),
         )
@@ -1474,6 +1459,12 @@ class ModuleUnitWorker:
     def _lower(self, group: str) -> dict:
         analyzed, filename, options, source_map, groups, facts = self._lowering
         unit = self._compiler.lower_group(analyzed, filename, options, source_map, groups, group, facts)
+        # Only the program unit's adapter units reach the link plan; one a
+        # group lowered would be dropped and fail the link.
+        if unit.native_units:
+            raise CodegenError(
+                f"native adapters belong to the program unit; group {group!r} lowered {sorted(unit.native_units)}"
+            )
         self._shared.merge_into(unit)
         setjmp_functions = self._compiler.setjmp_functions(unit)
         self._units[group] = (unit, setjmp_functions)

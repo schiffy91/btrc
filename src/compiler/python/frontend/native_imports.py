@@ -616,6 +616,17 @@ class NativeCallContract:
         )
 
 
+class NativeGeneratedSource(str):
+    """The binding module of a class the native importer writes for it.
+
+    Record inputs and outputs, snapshots, initializer outcomes and copied
+    results are ordinary btrc classes: they are visible as part of the binding
+    module and lowered like any other class. No line of that module declares
+    them, so module-unit lowering gives them to the program unit, as btrcc
+    does for every declaration without a source line.
+    """
+
+
 class NativeHeaderSource(str):
     """Module provenance plus the SDK header that owns the native declaration."""
 
@@ -2380,7 +2391,7 @@ class NativeDeclarationImporter:
         self._input_classes.append(
             ast.ClassDecl(
                 name=name,
-                source_file=str(self._origin),
+                source_file=NativeGeneratedSource(self._origin),
                 members=[ast.FieldDecl(access="public", name=field.name, type=field.value_type) for field in fields],
             )
         )
@@ -2823,7 +2834,9 @@ class NativeDeclarationImporter:
             )
             if byte_field:
                 members.append(ast.FieldDecl(access="public", name=byte_field, type=ast.TypeExpr(base="Bytes")))
-            self._input_classes.append(ast.ClassDecl(name=selected.result, members=members, source_file=binding.module))
+            self._input_classes.append(
+                ast.ClassDecl(name=selected.result, members=members, source_file=NativeGeneratedSource(binding.module))
+            )
             parameters = [ast.Param(name="owner", type=ast.TypeExpr(base=selected.owner))]
             if byte_field or strings:
                 parameters.append(ast.Param(name="maximumBytes", type=ast.TypeExpr(base="int")))
@@ -2891,7 +2904,7 @@ class NativeDeclarationImporter:
                             ast.FieldDecl(access="public", name=field.name, type=field.value_type)
                             for field in projection.fields
                         ],
-                        source_file=binding.module,
+                        source_file=NativeGeneratedSource(binding.module),
                     )
                 )
             by_function = {}
@@ -3034,7 +3047,7 @@ class NativeDeclarationImporter:
                         members=[
                             ast.FieldDecl(access="public", name=field.name, type=field.value_type) for field in fields
                         ],
-                        source_file=binding.module,
+                        source_file=NativeGeneratedSource(binding.module),
                     )
                 )
             del declaration.params[index]
@@ -3738,7 +3751,7 @@ class NativeDeclarationImporter:
                         else []
                     ),
                 ],
-                source_file=str(self._origin),
+                source_file=NativeGeneratedSource(self._origin),
             )
         )
         self._owned_outputs.pop(key)
@@ -3839,7 +3852,7 @@ class NativeDeclarationImporter:
                         type=ast.TypeExpr(base=binding.resource, is_nullable=True, pointer_depth=1),
                     ),
                 ],
-                source_file=str(self._origin),
+                source_file=NativeGeneratedSource(self._origin),
             )
         )
         self._initializers.pop(declaration.name)
@@ -3984,7 +3997,7 @@ class NativeDeclarationImporter:
                         type=ast.TypeExpr(base=resource, is_nullable=True, pointer_depth=1),
                     ),
                 ],
-                source_file=str(self._origin),
+                source_file=NativeGeneratedSource(self._origin),
             )
         )
         output = NativeOwnedOutput(

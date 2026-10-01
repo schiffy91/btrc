@@ -568,9 +568,12 @@ the scheduler are the same in Stage B.
 A group is a strongly connected component of the resolved source graph, with
 import edges directed and textual include edges treated as reciprocal (the
 same rule `SourceDependencyGraph.visibility_reachable` uses). A declaration
-belongs to the group of its stamped `source_file`. Native-header declarations
-and anything without a source file belong to the **program unit**, which also
-gathers every runtime helper any unit selected. The **runtime unit**
+belongs to the group of its stamped `source_file`. Native-header declarations,
+the classes the native importer writes for a binding (record inputs and
+outputs, snapshots, initializer outcomes, copied results) and anything without
+a source file belong to the **program unit**, which also carries the generated
+Objective-C and C++ adapter units into the link plan and gathers every runtime
+helper any unit selected. The **runtime unit**
 (`unit-runtime`) defines those helpers and their process-unique state once,
 with external linkage; every other unit, the program unit included, keeps the
 helpers' types and macros and declares their functions and state. The runtime
@@ -714,7 +717,11 @@ next refinement (per-group consulted facts).
   changes), byte-identical clean rebuild in a fresh cache, interface edit and
   corrupted records; the same private-edit sequence through btrcc; and the
   CoreAudio unit conformance program built from units in both compilers,
-  whose realtime proof crosses into another unit's native callback adapter.
+  whose realtime proof crosses into another unit's native callback adapter;
+  and Objective-C bindings split across three modules and pugixml's C++
+  owners, whose module-unit link plans carry the same generated adapter units
+  and linker as a whole-program build, match between the two compilers, and
+  link and run.
 
 ## Stage A in the self-hosted compiler
 
