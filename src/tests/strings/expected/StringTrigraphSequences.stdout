@@ -4,3 +4,4 @@ a??'b
 x??'y
 1??'2
 ?
+PASS: string_trigraph_sequences

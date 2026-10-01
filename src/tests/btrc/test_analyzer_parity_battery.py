@@ -174,7 +174,7 @@ INVALID_PROBES = (
     ),
     ParityProbe(
         "fstring-expression-position",
-        "int main() {\n    int a = 1;\n\n    string s = f\"x {a} {a + nope}\";\n    return 0;\n}\n",
+        'int main() {\n    int a = 1;\n\n    string s = f"x {a} {a + nope}";\n    return 0;\n}\n',
         GpuDiagnostic("Unresolved identifier 'nope' used as a value", 4, 29),
     ),
     ParityProbe(
@@ -190,9 +190,7 @@ VALID_PROBES = (
         "bool-bitwise-var",
         _main("bool b = true; bool flag = false; var c = b & flag | b; bool d = c; return d ? 0 : 1;"),
     ),
-    ParityProbe(
-        "bool-compound", _main("bool b = true; bool flag = false; b ^= flag; b &= true; return b ? 0 : 1;")
-    ),
+    ParityProbe("bool-compound", _main("bool b = true; bool flag = false; b ^= flag; b &= true; return b ? 0 : 1;")),
     ParityProbe("float-literal-double", _main("var x = 1.5; double* p = &x; return 0;")),
     ParityProbe("float-arithmetic-widens", _main("float f = 1.5; var y = f * 2.0; double* p = &y; return 0;")),
     ParityProbe("source-standard-include", "#include <assert.h>\n" + _main("assert(1 == 1); return 0;")),

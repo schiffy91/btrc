@@ -9,5 +9,6 @@ int main() {
 	print(f"{1}??'{2}");
 	char question = '?';
 	print(f"{question}");
+	print("PASS: string_trigraph_sequences");
 	return 0;
 }
