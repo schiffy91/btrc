@@ -263,7 +263,7 @@ the `always()` upload keeps every report from a red run.
 | Runner | Classified from | Skips | Covered elsewhere | Uncovered |
 | --- | --- | --- | --- | --- |
 | `linux-devcontainer` | CI 36898564273: unit 3,108, btrc 34; the corpus, bootstrap and eight strict-C11 shards skip none | 3,142 | 3,007 (macOS 3,002, Windows 5) | 135 |
-| `windows` | Windows 36898564289, plus each selected file's `os.name` skips | 1 | 1 (macOS and Linux) | 0 |
+| `windows` | Windows 36898564289, plus each selected file's `os.name` skips; confirmed by the gated dispatch 36911100193 (artifacts 2, compat 0, bootstrap harness 1, all expected) | 3 | 3 (macOS and Linux) | 0 |
 | `macos` | macOS 36898564246's unit shard: `pugixml-sdk` now also covers `test_module_units.py`'s three C++ owner cases, which would have failed the gate once the GUI failures are fixed; `windows-junctions` is now covered by Windows | 160 | 25 | 135 |
 
 The 135 uncovered Linux skips are: `native-compiler-provider` (88) and
@@ -330,6 +330,12 @@ location defect itself remains open with the parser owner.
 every gate's self-hosted compiler, now fails on any analyzer warning, just as
 its C build already uses `-Werror`. `windows.yml`'s bundle step does the same
 for `cli/WindowsMain.btrc`.
+
+**Proof runs.** Both dispatches ran on `84b4619`. CI 36911095136 passed
+16 of 16 jobs, with every shard's enforced gate clean (unit: 3,108 skips,
+0 unexpected) and 0 warnings in the release job's `BtrccMain.btrc`
+transpile. Windows 36911100193 passed with three gated pytest steps and a
+warning-free `WindowsMain.btrc` transpile.
 
 ### CI failures on `cf28fe7`
 
