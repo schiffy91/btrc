@@ -226,6 +226,7 @@ class LinuxSelect implements ISelect, ILinuxView {
 	public void setFont(double size) {
 		self._node.requireOpen();
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native selection font size"; }
+		if (size > SelectTypography.maximumSize()) { throw "Native selections support font sizes up to 20 points"; }
 		self._size = size;
 		self._node.invalidate();
 	}

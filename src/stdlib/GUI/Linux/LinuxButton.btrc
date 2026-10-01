@@ -24,7 +24,7 @@ class LinuxButton implements IButton, ILinuxView {
 	private bool _selected = false;
 	private bool _transparent = false;
 	private bool _bordered = true;
-	private string _symbol = "";
+	private int _symbol = -1;
 	private bool _hovered = false;
 	private bool _pressed = false;
 
@@ -58,7 +58,7 @@ class LinuxButton implements IButton, ILinuxView {
 			painter.fillRect(x, y, width, height, RGBA(theme.text.red, theme.text.green, theme.text.blue, alpha), radius);
 		}
 		RGBA color = !self._enabled ? theme.disabledText : (active && self._bordered ? theme.accentText : theme.text);
-		double symbol = self._symbol.isEmpty() ? 0.0 : self.symbolSize();
+		double symbol = self._symbol < 0 ? 0.0 : self.symbolSize();
 		double titleWidth = self._title.isEmpty() ? 0.0 : painter.textWidth(self._title, self._size, false);
 		double gap = symbol > 0.0 && titleWidth > 0.0 ? 6.0 : 0.0;
 		double contentWidth = symbol + gap + titleWidth;
@@ -106,7 +106,7 @@ class LinuxButton implements IButton, ILinuxView {
 
 	public double fittingWidth() {
 		self._node.requireOpen();
-		double symbol = self._symbol.isEmpty() ? 0.0 : self.symbolSize();
+		double symbol = self._symbol < 0 ? 0.0 : self.symbolSize();
 		double titleWidth = self._title.isEmpty() ? 0.0 : self._node.context.fonts.textWidth(self._title, self._size, false);
 		double gap = symbol > 0.0 && titleWidth > 0.0 ? 6.0 : 0.0;
 		double padding = self._bordered ? LinuxMetrics.horizontalPadding() : 6.0;
@@ -147,7 +147,8 @@ class LinuxButton implements IButton, ILinuxView {
 
 	public void setFont(double size) {
 		self._node.requireOpen();
-		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native button font size"; }
+		if (!Math.isFinite(size) || size <= 0.0 || size > ButtonTypography.maximumSize()) { throw "Invalid native button font size"; }
+		if (self._bordered && size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
 		self._size = size;
 		self._node.invalidate();
 	}
@@ -156,8 +157,9 @@ class LinuxButton implements IButton, ILinuxView {
 
 	public void setSystemSymbol(string name) {
 		self._node.requireOpen();
-		if (name == null || name.isEmpty()) { throw "Native button system symbol is unavailable"; }
-		self._symbol = name;
+		int symbol = LinuxSymbols.symbol(name);
+		if (symbol < 0) { throw "Native button system symbol is unavailable"; }
+		self._symbol = symbol;
 		self._node.invalidate();
 	}
 
@@ -177,7 +179,12 @@ class LinuxButton implements IButton, ILinuxView {
 
 	public void setTransparent(bool transparent) { self._node.requireOpen(); self._transparent = transparent; self._node.invalidate(); }
 
-	public void setBordered(bool bordered) { self._node.requireOpen(); self._bordered = bordered; self._node.invalidate(); }
+	public void setBordered(bool bordered) {
+		self._node.requireOpen();
+		if (bordered && self._size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
+		self._bordered = bordered;
+		self._node.invalidate();
+	}
 
 	public void cancelPendingActions() { self._node.requireOpen(); var action = self._action; if (action != null) { action.discard(); } }
 

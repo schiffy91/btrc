@@ -4,6 +4,7 @@
 import Library.GUI.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IButton;
+import Library.GUI.ISelect;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.IImageHandle;
 import Library.GUI.IImageView;
@@ -207,6 +208,25 @@ int main() {
 	root.onPointer(rootPointer, scope);
 	assert(button.fittingWidth() > 40.0 && button.fittingHeight() > 20.0);
 	assert(select.fittingWidth() > 60.0);
+	/* Portable contracts: the symbol vocabulary and typography limits. */
+	var symbols = GUI.createButton("");
+	string symbolError = "";
+	try { symbols.setSystemSymbol("no.such.symbol"); } catch (string error) { symbolError = error; }
+	assert(symbolError.equals("Native button system symbol is unavailable"));
+	symbols.setSystemSymbol("tuningfork");
+	symbols.setSystemSymbol("quote.bubble");
+	assert(symbols.fittingWidth() > 0.0);
+	string fontError = "";
+	try { symbols.setFont(ButtonTypography.borderedMaximumSize() + 1.0); } catch (string error) { fontError = error; }
+	assert(fontError.equals("Native bordered buttons support font sizes up to 20 points"));
+	symbols.setBordered(false);
+	symbols.setFont(24.0);
+	fontError = "";
+	try { symbols.setBordered(true); } catch (string error) { fontError = error; }
+	assert(fontError.equals("Native bordered buttons support font sizes up to 20 points"));
+	fontError = "";
+	try { select.setFont(SelectTypography.maximumSize() + 1.0); } catch (string error) { fontError = error; }
+	assert(fontError.equals("Native selections support font sizes up to 20 points"));
 	window.show();
 	unsigned int windowId = native == null ? 0u : native.nativeId();
 	var journey = Journey(windowId, root, button, field, select, slider, scroll, card, counter, cardPointer, rootPointer, picker, imageView, artwork);
