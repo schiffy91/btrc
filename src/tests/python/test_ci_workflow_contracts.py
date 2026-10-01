@@ -9,6 +9,7 @@ REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS = REPO / ".github/workflows"
 UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 SETUP_NODE = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"
+SHARD_ROW = r"- \{ shard: ([a-zA-Z0-9-]+), target: ([^}]+?) \}"
 SKIP_REPORTS = "build/skip-report*.json"
 
 
@@ -57,6 +58,12 @@ def _steps(job: str) -> list[str]:
     lines = job.splitlines()
     starts = [index for index, line in enumerate(lines) if line.startswith("      - ")]
     return ["\n".join(lines[start:end]) for start, end in zip(starts, [*starts[1:], len(lines)], strict=True)]
+
+
+def _makefile_recipe(makefile: str, rule: str) -> str:
+    match = re.search(rf"(?ms)^{re.escape(rule)}:.*?(?=^\S|\Z)", makefile)
+    assert match is not None, f"Makefile has no {rule!r} rule"
+    return match.group()
 
 
 def _assert_archive_upload(job: str, archive: str) -> None:
@@ -117,6 +124,7 @@ def test_every_workflow_runs_on_main_and_on_manual_dispatch() -> None:
 def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
     expected = {
         ("ci.yml", "tests"): "skip-report-linux-${{ matrix.shard }}",
+        ("macos.yml", "tests"): "skip-report-macos-${{ matrix.shard }}",
         ("windows.yml", "windows"): "skip-report-windows",
     }
     test_jobs = {
@@ -159,7 +167,7 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
     makefile = (REPO / "Makefile").read_text(encoding="utf-8")
 
     assert "fail-fast: false" in job
-    shards = re.findall(r"- \{ shard: ([a-zA-Z0-9-]+), target: ([^}]+?) \}", job)
+    shards = re.findall(SHARD_ROW, job)
     assert [shard for shard, _ in shards] == [
         "unit",
         "btrc",
@@ -218,6 +226,55 @@ def test_macos_ci_matrix_runs_and_uploads_both_archived_bundles() -> None:
     assert 'test "$actual_stdlib" = "$expected_stdlib"' in job
     assert 'cmp "$run/program.stdout" "$expected"' in job
     _assert_archive_upload(job, "dist/btrcc-${{ matrix.target }}.tar.gz")
+
+
+def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
+    job = _job(_workflow("macos.yml"), "tests")
+    linux = dict(re.findall(SHARD_ROW, _job(_workflow("ci.yml"), "tests")))
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+
+    assert "runs-on: macos-15" in job
+    assert "fail-fast: false" in job
+    shards = re.findall(SHARD_ROW, job)
+    assert [shard for shard, _ in shards] == [
+        "unit",
+        "btrc",
+        "corpus-python",
+        "corpus-btrc",
+        "bootstrap",
+        "c11-clang-O0",
+        "c11-clang-O2",
+    ]
+    # The shards reuse Linux CI's Makefile targets. Only the bootstrap row
+    # differs: test_bootstrap.py compiles with `cc`, which is GCC in the dev
+    # shell, not through default_c_compiler(), so the macOS row names clang.
+    targets = dict(shards)
+    for shard, target in targets.items():
+        assert f"\n{target.split()[0]}:" in makefile, target
+        if shard == "bootstrap":
+            assert target == f"{linux[shard]} BTRC_CC=clang"
+        else:
+            assert target == linux[shard], shard
+    # The unit shard is where src/tests/debug runs, so it alone needs lldb.
+    unit = _makefile_recipe(makefile, "test-shard-unit")
+    assert "src/tests/ " in unit and "--ignore=src/tests/debug" not in unit
+
+    reader = _step_containing(job, "nix build .#btrc-native-header")
+    assert 'test "$(uname -s)" = Darwin' in reader
+    assert 'test "$(uname -m)" = arm64' in reader
+    assert "exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)" in reader
+    assert 'test "$exported" = "$reader"' in reader
+    clang = _step_containing(job, "from src.tests.runner import default_c_compiler")
+    assert 'test "$selected" = clang' in clang
+    debugger = _step_containing(job, "sudo /usr/sbin/DevToolsSecurity -enable")
+    assert "if: matrix.shard == 'unit'" in debugger
+    assert _code(debugger).rstrip().endswith('/usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"')
+    suite = _step_containing(job, "make NIX=")
+    assert _code(suite).strip() == (
+        "- run: nix develop --command make NIX= PYTEST_WORKERS=3 "
+        "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}"
+    )
+    assert "podman" not in job
 
 
 def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:

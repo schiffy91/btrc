@@ -93,3 +93,75 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  # The suite on native macOS, sharded like Linux CI's `tests` job through the
+  # same Makefile targets, with two of its eight strict-C11 configurations.
+  # Linux skips about 3,000 cases that only macOS can run (native imports, the
+  # Objective-C emitter, CoreAudio, ImageIO, debug artifacts, link reuse);
+  # these shards run them. They compile with clang: default_c_compiler()
+  # selects it on Darwin, and the bootstrap and test-c11 shards name it. Cases
+  # that need a CoreAudio device or a real GPU adapter skip by capability on
+  # hosted runners and stay with the self-hosted Mac tier.
+  tests:
+    runs-on: macos-15
+    # Hosted macOS runners have three cores, and the unit shard carries the
+    # native-interop cases Linux skips.
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shard: unit, target: test-shard-unit }
+          - { shard: btrc, target: test-shard-btrc }
+          - { shard: corpus-python, target: test-shard-corpus-python }
+          - { shard: corpus-btrc, target: test-shard-corpus-btrc }
+          - { shard: bootstrap, target: test-shard-bootstrap BTRC_CC=clang }
+          - { shard: c11-clang-O0, target: test-c11-one C11_CC=clang C11_OPT=O0 }
+          - { shard: c11-clang-O2, target: test-c11-one C11_CC=clang C11_OPT=O2 }
+    name: tests (${{ matrix.shard }})
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      # Without its reader the dev shell would quietly skip every native
+      # import case, so build it as its own step and require the shell to
+      # export exactly that build.
+      - name: Build the native header reader
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          reader="$(nix build .#btrc-native-header --no-link --print-out-paths --print-build-logs)/bin/btrc-native-header"
+          test -x "$reader"
+          exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
+          test "$exported" = "$reader"
+
+      - name: Require clang from default_c_compiler()
+        run: |
+          nix develop --command clang --version
+          selected=$(nix develop --command python3 -c 'from src.tests.runner import default_c_compiler; print(default_c_compiler())')
+          test "$selected" = clang
+
+      # The unit shard runs src/tests/debug, whose DAP session launches an
+      # inferior under lldb. macOS refuses that without developer mode.
+      - name: Allow lldb to debug test inferiors
+        if: matrix.shard == 'unit'
+        run: |
+          if ! /usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"; then
+            sudo /usr/sbin/DevToolsSecurity -enable
+          fi
+          /usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"
+
+      - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+
+      # Every pytest session classifies its skips in build/skip-report*.json.
+      # Keep the report even from a failed shard, so a red run's coverage is
+      # as visible as a green one's.
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-macos-${{ matrix.shard }}
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
