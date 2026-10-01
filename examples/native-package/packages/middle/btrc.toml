@@ -48,3 +48,10 @@ os = ["macos"]
 name = "native-package-proof"
 modules = ["Api"]
 os = ["windows"]
+
+[[native.bindings]]
+module = "Api"
+header = "native/middle.h"
+language = "c"
+standard = "c11"
+symbols = ["middle_scale"]

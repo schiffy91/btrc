@@ -512,6 +512,8 @@
           # The sandbox's HOME is read-only; both compilers publish generations
           # through a state directory, as the btrcc derivation does.
           export BTRC_STATE_DIR="$TMPDIR/btrc-state"
+          # The packages import leaf_value/middle_scale through native bindings.
+          export BTRC_NATIVE_HEADER_READER=${self.packages.${system}.btrc-native-header}/bin/btrc-native-header
           export BTRC_CACHE_DIR="$TMPDIR/btrc-cache"
           mkdir source
           cp -R ${./examples/native-package}/. source/
