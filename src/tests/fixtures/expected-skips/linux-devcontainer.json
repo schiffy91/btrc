@@ -2,7 +2,7 @@
   "schema": "btrc.expected-skips/1",
   "runner": "linux-devcontainer",
   "enforce": true,
-  "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, sqlite, BTRC_NATIVE_PROVIDER_CC/CXX). Every covered_by macos claim was checked against macOS run 36898564246's unit and btrc reports.",
+  "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, sqlite, BTRC_NATIVE_PROVIDER_CC/CXX). Every covered_by macos claim was checked against macOS run 36898564246's unit and btrc reports. Every shard runs under tools/virtual-display.sh (Xvfb and Mesa lavapipe), so the Linux GUI and GPU compute-adapter tests run and their skips are no longer expected.",
   "rules": [
     {
       "id": "macos-only-pugixml-uncovered",
@@ -196,23 +196,6 @@
       "note": "Only the macOS reader/runtime is admitted as an immutable persistent-cache provider; BTRC_NATIVE_CACHE_REQUIRED=1 turns this skip into a failure where one is required."
     },
     {
-      "id": "native-gpu-adapter",
-      "files": [
-        "src/tests/python/test_native_gpu_runtime.py"
-      ],
-      "reason": "^no native compute adapter is available$",
-      "category": "capability",
-      "gating": {
-        "capabilities": [
-          "gpu-adapter"
-        ]
-      },
-      "covered_by": [
-        "macos"
-      ],
-      "note": "The devcontainer has no GPU; the harness exits 77 when no compute adapter is found. The Mac runs these on Metal."
-    },
-    {
       "id": "apple-lldb",
       "files": [
         "src/tests/debug/test_bootstrap.py"
@@ -294,25 +277,6 @@
       },
       "covered_by": [],
       "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX. Delete this rule once stage4/tools-ci exports them from the dev shell."
-    },
-    {
-      "id": "linux-gui-display",
-      "files": [
-        "src/tests/python/test_native_linux_providers.py"
-      ],
-      "reason": "^native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY$",
-      "category": "capability",
-      "gating": {
-        "env": [
-          "WAYLAND_DISPLAY",
-          "DISPLAY"
-        ],
-        "capabilities": [
-          "native-display"
-        ]
-      },
-      "covered_by": [],
-      "note": "The devcontainer has no display server, and no other runner runs the Linux GTK backend."
     },
     {
       "id": "linux-tray-session-bus",

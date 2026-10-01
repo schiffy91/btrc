@@ -5,6 +5,9 @@
 #   tools/linux-ci.sh                  # the CI test job
 #   tools/linux-ci.sh lint format-check
 #
+# As in CI, tools/virtual-display.sh gives the container an X display and
+# Mesa's software Vulkan driver, so the GUI and GPU adapter tests run.
+#
 # Three things differ from `podman run -v "$PWD:/workspace"`:
 #
 #   * build/ subdirectories and dist/ may be symlinks into a cache outside
@@ -76,7 +79,7 @@ workers="${PYTEST_WORKERS:-$(podman info --format '{{.Host.CPUs}}' 2>/dev/null |
 
 exec podman run --rm --init "${mounts[@]}" \
   -e PYTHONPYCACHEPREFIX=/tmp/btrc-pycache "$image" \
-  make NIX= "PYTEST_WORKERS=$workers" \
+  tools/virtual-display.sh make NIX= "PYTEST_WORKERS=$workers" \
   "BTRC_TEST_TRANSPILE_TIMEOUT=${BTRC_TEST_TRANSPILE_TIMEOUT:-1800}" \
   "BTRC_TEST_RUN_TIMEOUT=${BTRC_TEST_RUN_TIMEOUT:-60}" \
   "$@"

@@ -111,7 +111,10 @@ jobs:
       # runner within its real CPU/memory envelope and allow one slow
       # self-host transpile to make progress under shared load. The init owner
       # reaps daemon-test grandchildren after process-group termination.
-      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+      # The runner has no display or GPU: tools/virtual-display.sh starts Xvfb
+      # and selects Mesa's software Vulkan (lavapipe), so the Linux GUI and
+      # WebGPU adapter tests run here instead of skipping.
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
       # Every pytest session classifies its skips in build/skip-report*.json.
       # Keep the report even from a failed shard, so a red run's coverage is
       # as visible as a green one's.

@@ -134,7 +134,15 @@ def test_the_macos_manifest_explains_the_recorded_skips_and_names_their_coverage
     assert rules[MACOS_SKIPS[4][0]].covered_by == ("linux-devcontainer",)
     assert rules[MACOS_SKIPS[5][0]].covered_by == ("windows",)
     assert rules[MACOS_SKIPS[7][0]].id == "linux-native-reader-covered"
-    assert rules[MACOS_SKIPS[8][0]].id == "linux-native-reader-uncovered"
+    # CI's Linux shards run the GUI windows under Xvfb, so only the tray stays uncovered.
+    assert rules[MACOS_SKIPS[8][0]].id == "linux-native-reader-covered"
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_tray_runtime.py::test_x",
+            "requires Linux and the explicitly built native header reader",
+        ).id
+        == "linux-native-reader-uncovered"
+    )
     assert rules[MACOS_SKIPS[9][0]].id == "pugixml-sdk"
     assert rules[MACOS_SKIPS[10][0]].id == "linux-native-reader-covered"
     # The dev shell provides naga (stage2/nix, e74a3cc), so a naga skip is unexpected again.
@@ -207,10 +215,6 @@ LINUX_SKIPS = {
         "requires the actual macOS CoreFoundation SDK",
     ),
     "core-audio-runtime": ("src/tests/python/test_module_units.py::test_x", "CoreAudio is available only on macOS"),
-    "native-gpu-adapter": (
-        "src/tests/python/test_native_gpu_runtime.py::test_x",
-        "no native compute adapter is available",
-    ),
     "lldb-missing": (
         "src/tests/debug/test_dap_session.py::test_stop_on_entry",
         "needs lldb (with Python scripting): btrc debug adapter: cannot locate lldb "
@@ -219,10 +223,6 @@ LINUX_SKIPS = {
     "native-compiler-provider": (
         "src/tests/python/test_native_preprocess_receipts.py::test_x",
         "build native reader and configure its native compiler provider",
-    ),
-    "linux-gui-display": (
-        "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]",
-        "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY",
     ),
     "windows-junctions": (
         "src/tests/python/test_artifact_reparse.py::test_windows_junction_is_rejected_as_archive_entry_and_destination",
@@ -278,7 +278,6 @@ def test_the_linux_manifest_names_coverage_and_its_expiring_tool_rules():
         "pugixml-sdk",
         "native-compiler-provider",
         "native-receipt-provider",
-        "linux-gui-display",
         "linux-tray-session-bus",
     }
     expiring = {rule_id for rule_id, rule in rules.items() if "stage4/tools-ci" in rule.note}
@@ -290,6 +289,23 @@ def test_the_linux_manifest_names_coverage_and_its_expiring_tool_rules():
         "native-compiler-provider",
         "native-receipt-provider",
     }
+    # CI runs every shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe),
+    # so a missing display or compute adapter is a broken runner, not an expected skip.
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json")
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]",
+            "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY",
+        )
+        is None
+    )
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_gpu_runtime.py::test_x",
+            "no native compute adapter is available",
+        )
+        is None
+    )
     # A macOS-only C++ owner proof that macOS also skips is not claimed as covered.
     cxx = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json").classify(
         "src/tests/python/test_native_cxx_owners.py::test_x",
