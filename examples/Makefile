@@ -7,7 +7,7 @@
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: all cpu gpu callback realtime-primitives todo game triangle sgd sgd-render gui native-ui native-package clean
+.PHONY: all cpu gpu callback realtime-primitives todo tray game triangle sgd sgd-render gui native-ui native-package clean
 
 GPU_LIB := ../build/stdlib/GPU/libbtrc_gpu.a
 
@@ -21,11 +21,15 @@ callback: ## Build the owned callback closure example
 	@echo "=== callback ==="
 	@$(MAKE) -C callback
 
+tray: ## Build and run the native tray example (macOS or Linux session bus)
+	@echo "=== tray ==="
+	@$(MAKE) -C tray
+
 todo: ## Build the todo example
 	@echo "=== todo ==="
 	@$(MAKE) -C todo
 
-realtime-primitives: ## Build and run the bounded primitive example
+realtime-primitives: ## Build and run the bounded primitive and @realtime gain examples
 	@echo "=== realtime-primitives ==="
 	@$(MAKE) -C realtime-primitives
 

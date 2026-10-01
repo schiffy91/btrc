@@ -30,6 +30,12 @@ examples/game/game
 examples/triangle/triangle
 examples/sgd/sgd
 examples/tray/tray_demo
+examples/callback/callback
+examples/realtime-primitives/realtime-primitives
+examples/realtime-primitives/realtime-gain
+examples/*/*.link.json
+# Output-publication locks the compilers leave beside generated files
+examples/**/.btrc-*.lock
 examples/native-package/build/
 
 # macOS

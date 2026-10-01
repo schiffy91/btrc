@@ -8,10 +8,7 @@
 #   make build  Transpile + build only (don't run)
 #   make clean
 
-BTRC := python3 -m src.compiler.python.main
-ROOT := ../..
-CC ?= cc
-CXX ?= c++
+include ../Example.mk
 
 .PHONY: all build run clean
 
@@ -21,8 +18,9 @@ run: build
 	./tray_demo
 
 build:
-	cd $(ROOT) && $(BTRC) examples/tray/Main.btrc -o examples/tray/main.c --emit-link-plan examples/tray/main.link.json
-	cd $(ROOT) && python3 -m tools.native_plan --plan examples/tray/main.link.json --generated-c examples/tray/main.c --output examples/tray/tray_demo --cc $(CC) --cxx $(CXX)
+	cd $(BTRC_ROOT) && $(BTRC) $(EXAMPLE)/Main.btrc -o $(EXAMPLE)/main.c --emit-link-plan $(EXAMPLE)/main.link.json
+	cd $(BTRC_ROOT) && $(NATIVE_PLAN) --plan $(EXAMPLE)/main.link.json --generated-c $(EXAMPLE)/main.c \
+		--output $(EXAMPLE)/tray_demo --cc "$(NATIVE_CC)" --cxx "$(NATIVE_CXX)" --pkg-config "$(PKG_CONFIG)"
 
 clean:
 	rm -f main.c main.link.json tray_demo

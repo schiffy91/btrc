@@ -1,5 +1,5 @@
 import Library.CLI;
-import Library.Callback;
+import Library.Datetime;
 import Library.GUI.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
@@ -18,16 +18,20 @@ class Triangle implements IApplicationWork {
 	private GPUUniformBuffer? _uniform;
 	private GPUReadback? _readback;
 	private bool _verify;
+	private Timer _clock;
 	public bool verified = false;
 
 	public Triangle(IWindow window, IGPUView view, bool verify) {
 		self._window = window;
 		self._view = view;
 		self._verify = verify;
+		self._clock = Timer();
+		self._clock.start();
 	}
 
 	public void run() {
 		if (!self._window.isOpen()) { self.close(); GUI.requestQuit(); return; }
+		if (self._verify && self._clock.elapsed() > 20.0f) { throw "Triangle verification timed out"; }
 		bool ready = self._view.poll();
 		if (!self._view.error().isEmpty()) { throw self._view.error(); }
 		if (ready) {
