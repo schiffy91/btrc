@@ -26,6 +26,13 @@
             ps.pytest ps.pytest-xdist ps.pytest-cov ps.pygls ps.lsprotocol
           ]))
             ruff gcc clang zig gnumake git jq gh nodejs_22 nixd wgpu-native freetype
+            # naga validates generated WGSL in the GPU tests. wgpu-utils builds
+            # the whole wgpu workspace; expose only its naga CLI, so its example
+            # and xtask binaries stay off PATH and out of the container's bin.
+            (runCommand "naga-${wgpu-utils.version}" { meta.mainProgram = "naga"; } ''
+              mkdir -p "$out/bin"
+              ln -s ${wgpu-utils}/bin/naga "$out/bin/naga"
+            '')
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
