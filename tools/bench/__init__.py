@@ -9,6 +9,18 @@ runs on fixed workloads. Every number is recorded to JSON and compared with a
 tracked per-platform baseline so a regression in any of them fails CI and is
 just as visible on a developer machine.
 
+Peak memory is guarded too: each program's compile peak, and with
+``--peak-workload <workspace>`` the cold ``--jobs 1`` module-unit compile of a
+pinned whole program, the workload the M11 peak budget is written for. A peak
+more than 2% over its baseline fails the check. ``--peak-only`` skips every
+timing and ``--no-peaks`` the programs, so the M11 guard alone is::
+
+    python3 -m tools.bench check --peak-only --no-peaks --peak-workload ~/.cache/btrc/bsm-measure
+    python3 -m tools.bench baseline --merge --peak-only --no-peaks --peak-workload ~/.cache/btrc/bsm-measure
+
+Run it where the workload builds (BTRSmith's dev shell, as tools/budget_bench.py
+documents), and not beside a gate: the compile peaks near 3 GiB.
+
 Run it from the repository root::
 
     make bench                # table + build/bench/results.json

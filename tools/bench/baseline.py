@@ -13,9 +13,24 @@ SCHEMA_VERSION = 1
 
 # Relative slack per metric kind. Timings are compared as best-of-N wall or CPU
 # time and still move with the host, so they get room; sizes are exact and
-# parity is a boolean contract.
-TOLERANCES: dict[str, float] = {"ms": 0.35, "bytes": 0.03, "lines": 0.03, "parity": 0.0, "count": 0.0, "info": 0.0}
+# parity is a boolean contract. A peak is a compile's peak memory in bytes: its
+# footprint on macOS, its maximum resident set elsewhere. The self-host
+# `--jobs 1` peak sits 35 MiB under its 3 GiB M11 budget, so growth past 2% is a
+# regression; that workload repeats to within 0.7% however loaded the host is.
+# Identical small compiles still differ by a few hundred KiB of allocator
+# regions and 16 KiB pages (a 4 MiB compile by up to 9%), so a peak's slack is
+# never under PEAK_FLOOR bytes.
+TOLERANCES: dict[str, float] = {
+    "ms": 0.35,
+    "bytes": 0.03,
+    "lines": 0.03,
+    "parity": 0.0,
+    "count": 0.0,
+    "peak": 0.02,
+    "info": 0.0,
+}
 IMPROVEMENT_NOTE = 0.20
+PEAK_FLOOR = 1 << 20
 
 
 def platform_key() -> str:
@@ -45,7 +60,7 @@ def metric_kind(name: str) -> str:
     tail = name.rsplit(".", 1)[-1]
     if tail.endswith("_ms"):
         return "ms"
-    for kind in ("bytes", "lines", "parity", "count"):
+    for kind in ("bytes", "lines", "parity", "count", "peak"):
         if tail == kind or tail.endswith("_" + kind):
             return kind
     raise ValueError(f"metric {name!r} does not end in a known kind")
@@ -66,9 +81,17 @@ class Finding:
 
 
 def compare(
-    current: dict[str, float], baseline: dict[str, float] | None, tolerance_ms: float | None = None
+    current: dict[str, float],
+    baseline: dict[str, float] | None,
+    tolerance_ms: float | None = None,
+    tolerance_peak: float | None = None,
 ) -> list[Finding]:
-    """Compare one run against a platform baseline metric by metric."""
+    """Compare one run against a platform baseline metric by metric.
+
+    A peak's slack is its relative tolerance or PEAK_FLOOR bytes, whichever is
+    larger, in both directions: a peak that falls past it is an improvement, so
+    the baseline gets re-recorded and the guard does not drift loose.
+    """
 
     findings: list[Finding] = []
     for name in sorted(current):
@@ -82,12 +105,17 @@ def compare(
         tolerance = TOLERANCES[kind]
         if kind == "ms" and tolerance_ms is not None:
             tolerance = tolerance_ms
+        if kind == "peak" and tolerance_peak is not None:
+            tolerance = tolerance_peak
         if kind == "info":
             status = "ok"
         elif kind in {"parity", "count"}:
             status = "ok" if value == reference else "regression"
         elif reference == 0:
             status = "ok" if value == 0 else "regression"
+        elif kind == "peak":
+            slack = max(reference * tolerance, PEAK_FLOOR)
+            status = "regression" if value > reference + slack else "improvement" if value < reference - slack else "ok"
         elif value > reference * (1.0 + tolerance):
             status = "regression"
         elif kind == "ms" and value < reference * (1.0 - IMPROVEMENT_NOTE):
@@ -112,11 +140,34 @@ def platform_metrics(document: dict, key: str) -> dict[str, float] | None:
     return None if entry is None else dict(entry["metrics"])
 
 
-def store(document: dict, key: str, metrics: dict[str, float], meta: dict, path: Path = BASELINE_PATH) -> None:
-    """Record metrics for one platform, keeping every other platform as it is."""
+def store(
+    document: dict,
+    key: str,
+    metrics: dict[str, float],
+    meta: dict,
+    path: Path = BASELINE_PATH,
+    *,
+    merge: bool = False,
+) -> None:
+    """Record metrics for one platform, keeping every other platform as it is.
+
+    `merge` keeps the platform's metrics this run did not measure, so a
+    peak-only run refreshes the peaks without re-recording every timing. The
+    platform's original `recorded` stays, and each merge appends its own
+    metadata, with the names it measured, to `updates`.
+    """
 
     platforms = dict(document.get("platforms", {}))
-    platforms[key] = {"recorded": meta, "metrics": {name: metrics[name] for name in sorted(metrics)}}
+    previous = platforms.get(key) if merge else None
+    if previous is None:
+        platforms[key] = {"recorded": meta, "metrics": {name: metrics[name] for name in sorted(metrics)}}
+    else:
+        merged = {**previous["metrics"], **metrics}
+        platforms[key] = {
+            "recorded": previous["recorded"],
+            "updates": [*previous.get("updates", []), {**meta, "metrics": sorted(metrics)}],
+            "metrics": {name: merged[name] for name in sorted(merged)},
+        }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"schema": SCHEMA_VERSION, "platforms": dict(sorted(platforms.items()))}, indent=2, sort_keys=False)

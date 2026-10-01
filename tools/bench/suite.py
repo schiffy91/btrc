@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import os
+import platform
+import re
 import resource
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +19,9 @@ REPO = Path(__file__).resolve().parents[2]
 PROGRAMS = REPO / "src" / "tests" / "benchmarks"
 CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
 LIBS = ["-lm", "-lpthread"]
+TIME = Path("/usr/bin/time")
+FOOTPRINT = re.compile(r"(\d+)\s+peak memory footprint")
+TIMING_VARIABLES = ("BTRC_TIMING", "BTRCC_TIMING")
 
 
 @dataclass(frozen=True)
@@ -85,6 +91,104 @@ def best(command: list[str], env: dict[str, str], cwd: Path, repeat: int) -> tup
     return Timing(fastest.wall_ms, min(sample.cpu_ms for sample in samples), fastest.stdout, fastest.stderr), samples
 
 
+@dataclass(frozen=True)
+class Peak:
+    """One process's peak memory in bytes, and which counter reported it."""
+
+    bytes: int
+    source: str  # "footprint" or "maxrss"
+
+
+def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
+    """The peak memory of one run of `command`, which must succeed.
+
+    On macOS it is the peak footprint `/usr/bin/time -l` reports, the number the
+    M11 budget is written in. Elsewhere it is the child's own maximum resident
+    set from wait4 (KiB on Linux), which a reaped sibling cannot inflate the way
+    RUSAGE_CHILDREN's running maximum would. Standard output is discarded.
+    """
+
+    if peak_counter() == "footprint":
+        completed = subprocess.run(
+            [str(TIME), "-l", *command],
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(f"{' '.join(command)} failed ({completed.returncode}):\n{completed.stderr[-2000:]}")
+        found = FOOTPRINT.search(completed.stderr)
+        if found is None:
+            raise RuntimeError(f"{TIME} -l reported no peak memory footprint:\n{completed.stderr[-2000:]}")
+        return Peak(int(found.group(1)), "footprint")
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.DEVNULL, stderr=errors)
+        _, status, usage = os.wait4(process.pid, 0)
+        process.returncode = os.waitstatus_to_exitcode(status)
+        if process.returncode != 0:
+            errors.seek(0)
+            detail = errors.read().decode(errors="replace")[-2000:]
+            raise RuntimeError(f"{' '.join(command)} failed ({process.returncode}):\n{detail}")
+    return Peak(usage.ru_maxrss * (1 if sys.platform == "darwin" else 1024), "maxrss")
+
+
+def peak_counter() -> str:
+    """Which counter measure_peak reads on this host."""
+
+    return "footprint" if sys.platform == "darwin" and TIME.is_file() else "maxrss"
+
+
+def host_target() -> str | None:
+    """btrcc's `--target` name for this host, when it has one."""
+
+    system = {"darwin": "macos", "linux": "linux"}.get(sys.platform)
+    machine = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x64", "amd64": "x64"}.get(platform.machine().lower())
+    return f"{system}-{machine}" if system and machine else None
+
+
+@dataclass(frozen=True)
+class Workload:
+    """A pinned whole program whose cold `--jobs 1` compile peak is guarded.
+
+    The command is tools/budget_bench.py's memory scenario, the compile the M11
+    peak budget is written for: module units with debug info and one worker,
+    into empty artifact caches. The workspace is read, never written; caches
+    and outputs go under the suite's scratch directory.
+    """
+
+    workspace: Path
+    entry: str = "src/BTRSmith.btrc"
+    target: str | None = None
+
+    @property
+    def name(self) -> str:
+        return Path(self.entry).stem
+
+    @property
+    def metric(self) -> str:
+        return f"btrcc.workload.{self.name}_peak"
+
+    def command(self, btrcc: Path, build: Path) -> list[str]:
+        command = [str(btrcc), "--jobs", "1", "--strict-imports"]
+        if self.target:
+            command += ["--target", self.target]
+        return [
+            *command,
+            "--debug",
+            "--emit-link-plan",
+            str(build / "p.json"),
+            "--emit-units",
+            str(build / "p"),
+            "--module-units",
+            self.entry,
+            "-o",
+            str(build / "p.c"),
+        ]
+
+
 def phase_times(stderr: str) -> dict[str, float]:
     """Sum the self-host's BTRCC_TIMING marks per phase, in milliseconds."""
 
@@ -106,6 +210,10 @@ class Suite:
     repeat: int
     out_dir: Path
     reference: bool = True
+    peaks: bool = True
+    peak_only: bool = False
+    workloads: list[Workload] = field(default_factory=list)
+    workload_samples: int = 1
     metrics: dict[str, float] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
@@ -115,14 +223,52 @@ class Suite:
         env["BTRCC_TIMING"] = "1"
         return env
 
+    def peak_environment(self) -> dict[str, str]:
+        """As a developer compiles: no phase timing report held in memory."""
+
+        env = {name: value for name, value in os.environ.items() if name not in TIMING_VARIABLES}
+        env["BTRC_HOME"] = str(REPO / "src")
+        return env
+
     def run(self, programs: list[Program]) -> dict[str, float]:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         env = self.environment()
-        startup, _ = best([str(self.btrcc), "--stdlib-dir"], env, REPO, max(self.repeat, 10))
-        self.metrics["btrcc.startup_ms"] = round(startup.wall_ms, 3)
+        if not self.peak_only:
+            startup, _ = best([str(self.btrcc), "--stdlib-dir"], env, REPO, max(self.repeat, 10))
+            self.metrics["btrcc.startup_ms"] = round(startup.wall_ms, 3)
         for program in programs:
-            self._program(program, env)
+            if not self.peak_only:
+                self._program(program, env)
+            if self.peaks:
+                self._program_peak(program)
+        for workload in self.workloads:
+            self._workload_peak(workload)
         return self.metrics
+
+    def _program_peak(self, program: Program) -> None:
+        """The compile's peak memory, the lowest of up to three samples."""
+
+        command = [str(self.btrcc), str(program.path)]
+        samples = [measure_peak(command, self.peak_environment(), REPO) for _ in range(max(1, min(self.repeat, 3)))]
+        self.metrics[f"btrcc.compile.{program.name}_peak"] = min(sample.bytes for sample in samples)
+
+    def _workload_peak(self, workload: Workload) -> None:
+        """The workload's cold compile peak, the lowest of its samples."""
+
+        scratch = self.out_dir / "workloads" / workload.name
+        samples: list[Peak] = []
+        for _ in range(max(1, self.workload_samples)):
+            shutil.rmtree(scratch, ignore_errors=True)
+            (scratch / "cache").mkdir(parents=True)
+            (scratch / "build").mkdir()
+            env = {**self.peak_environment(), "BTRC_CACHE_DIR": str(scratch / "cache")}
+            samples.append(measure_peak(workload.command(self.btrcc, scratch / "build"), env, workload.workspace))
+        shutil.rmtree(scratch, ignore_errors=True)
+        lowest = min(samples, key=lambda sample: sample.bytes)
+        self.metrics[workload.metric] = lowest.bytes
+        self.notes.append(
+            f"{workload.name}: cold --jobs 1 peak {lowest.source} {lowest.bytes} bytes ({lowest.bytes / 2**30:.3f} GiB)"
+        )
 
     def _program(self, program: Program, env: dict[str, str]) -> None:
         name = program.name
