@@ -1,23 +1,21 @@
 import Library.Bytes;
-import Library.Image;
 import Library.Image.EncodedImage;
-import Library.Image.DDSEncodedImageDecoder;
+import Library.Image.EncodedImageDispatch;
+import Library.Image.Pixels;
 
-/* Bounded, synchronous decoding through libpng and libjpeg-turbo. The SDK
- * owns its decoders; this module owns decode policy and every handle's
- * lifetime. DDS stays in BTRC. */
-class LinuxEncodedImageDecoder implements IEncodedImageDecoder {
+/* Bounded, synchronous decoding through libpng and libjpeg-turbo: the portable
+ * PNG/JPEG set. The SDK owns its decoders; this module owns the codec calls
+ * and every handle's lifetime. EncodedImageDispatch owns admission, sniffing
+ * and DDS; GIF and TIFF are a macOS extension and stay UNSUPPORTED here. */
+class LinuxEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFormatDecoder {
 	public LinuxEncodedImageDecoder() {}
 
-	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) {
-		int inputBytes = encoded == null ? 0 : encoded.length();
-		if (encoded == null || encoded.isEmpty() || limits == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_INVALID_ARGUMENT, inputBytes); }
-		if (!limits.allowsInput(inputBytes)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
-		if (DDSEncodedImageDecoder.recognizes(encoded)) { return DDSEncodedImageDecoder().decode(encoded, limits); }
-		int length = encoded.length();
-		if (length >= 8 && memcmp(encoded.data, "\x89PNG\r\n\x1a\n", 8) == 0) { return self.decodePng(encoded, limits); }
-		if (length >= 2 && encoded.get(0) == 255 && encoded.get(1) == 216) { return self.decodeJpeg(encoded, limits); }
-		return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, inputBytes);
+	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return EncodedImageDispatch.decode(encoded, limits, self); }
+
+	public EncodedImageDecodeOutcome decodeFormat(EncodedImageFormat format, Bytes encoded, EncodedImageDecodeLimits limits) {
+		if (format == ENCODED_IMAGE_FORMAT_PNG) { return self.decodePng(encoded, limits); }
+		if (format == ENCODED_IMAGE_FORMAT_JPEG) { return self.decodeJpeg(encoded, limits); }
+		return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, encoded.length());
 	}
 
 	private EncodedImageDecodeOutcome decodePng(Bytes encoded, EncodedImageDecodeLimits limits) {
@@ -31,6 +29,10 @@ class LinuxEncodedImageDecoder implements IEncodedImageDecoder {
 		return EncodedImageDecodeOutcome.decoded(image, encoded.length());
 	}
 
+	/* tjhandle is `void*`, which the importer cannot declare as a resource
+	 * (native-interop.md, "Unmanaged void-pointer handles"), so this one
+	 * handle is released by hand: every path below reaches the single
+	 * tj3Destroy, and nothing between init and destroy can throw. */
 	private EncodedImageDecodeOutcome decodeJpeg(Bytes encoded, EncodedImageDecodeLimits limits) {
 		var handle = tj3Init(TJINIT_DECOMPRESS);
 		if (handle == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }

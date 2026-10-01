@@ -703,6 +703,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("readAll", "string", "method", (("string", "path"),), "readAll"),
         BuiltinMemberSpec("writeAll", "bool", "method", (("string", "path"), ("string", "content"),), "writeAll"),
     )),
+    ("EncodedImageSignature", (
+        BuiltinMemberSpec("sniff", "EncodedImageFormat", "method", (("Bytes", "encoded"),), "sniff"),
+        BuiltinMemberSpec("portable", "bool", "method", (("EncodedImageFormat", "format"),), "portable"),
+    )),
+    ("EncodedImageDispatch", (
+        BuiltinMemberSpec("decode", "EncodedImageDecodeOutcome", "method", (("Bytes", "encoded"), ("EncodedImageDecodeLimits", "limits"), ("IEncodedImageFormatDecoder", "codec"),), "decode"),
+    )),
     ("ImageBinary", (
         BuiltinMemberSpec("has", "bool", "method", (("Bytes", "bytes"), ("long long", "offset"), ("long long", "count"),), "has"),
         BuiltinMemberSpec("u16", "int", "method", (("Bytes", "bytes"), ("int", "offset"),), "u16"),

@@ -439,6 +439,15 @@ Clang recommends [LibTooling for full AST access](https://clang.llvm.org/docs/To
 | C++ | Resolve overloads and explicitly requested template instantiations with Clang. Preserve constructor/destructor, move/copy and borrowed-reference semantics. Catch exceptions in adapters and translate to a declared BTRC error; no foreign unwinding through generated C. |
 | Callbacks | Reuse exact `CFunction`, owned closures and registration/drain barriers. Distinguish call-only versus retained callbacks and thread affinity. Foreign declarations cannot manufacture `RealtimeFunction` proof. |
 
+Named importer exceptions, where a native handle is still released by hand
+because the importer cannot declare it as a resource:
+
+- **Unmanaged void-pointer handles.** A resource must be a record-pointer
+  typedef, so libjpeg-turbo's `tjhandle` (`typedef void*`) cannot carry
+  `tj3Destroy` as its release. `LinuxEncodedImageDecoder.decodeJpeg` keeps one
+  handle per call on a single exit path that cannot throw before
+  `tj3Destroy`.
+
 Raw ABI access remains an explicitly unsafe boundary, not the normal application API. Generated adapters may perform ABI/lifetime operations; filesystem, decoder, window and audio policy belongs in BTRC owners.
 
 ## Output checkpoints
@@ -473,7 +482,7 @@ Initial tracked-file inventory (2026-09-09), not a completed semantic audit: BTR
 
 BTRSmith's 14 production adapter files under `packages/{miniz,pugixml,sqlite,vgmstream,yaml,zlib}/native/` are also in scope; their nine native release probes/fixtures require individual review. Preserve pinned upstream implementations. Move our resource management, parser/decoder orchestration and error mapping into the package's BTRC objects, then delete superseded adapters after parity and real-content tests. Any remaining native file must have a specific documented purpose; migration is not complete with these bridges merely hidden behind new wrappers.
 
-`MacOSEncodedImageDecoder` owns content recognition, bounds and format checks; its private decode transaction retains input and pixels while SDK handles borrow them. `__del__` releases the native resources before managed fields. `Image.tryCreate` makes pixel-allocation failure recoverable; CoreGraphics draws directly into the final buffer, followed by in-place BTRC alpha conversion. No resource or borrowed SDK value escapes through the public API. This is a verified concrete owner, not general compiler-checked native ownership.
+`EncodedImageDispatch` owns admission and content recognition (`EncodedImageSignature`) for every system decoder, and `MacOSEncodedImageDecoder` owns the ImageIO format checks; its private decode transaction retains input and pixels while SDK handles borrow them. `__del__` releases the native resources before managed fields. `Image.tryCreate` makes pixel-allocation failure recoverable; CoreGraphics draws directly into the final buffer, followed by in-place BTRC alpha conversion. No resource or borrowed SDK value escapes through the public API. This is a verified concrete owner, not general compiler-checked native ownership.
 
 The retired C implementation/header, fake decoder and old C smoke test are removed, together with obsolete hosted-ABI registrations. Retained C test code has two specific purposes: independently encode a multi-frame TIFF with the SDK, and intercept actual SDK calls to inject failures/count resource releases. Neither implements a decoder. Regression coverage includes actual PNG/JPEG/GIF/TIFF, portable DDS, limits/corrupt input, first-frame selection, all 65,536 channel/alpha combinations and 16 partial-failure paths. Actual generated providers execute under strict C11 and Apple ASan/UBSan.
 

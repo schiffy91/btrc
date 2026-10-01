@@ -1,27 +1,30 @@
 /* Bounded, synchronous ImageIO decoding. Apple headers own ABI declarations;
- * this module owns decode policy and the lifetime of each SDK resource. */
+ * this module owns the ImageIO calls and the lifetime of each SDK resource.
+ * EncodedImageDispatch owns admission, sniffing and DDS. Beyond the portable
+ * PNG/JPEG set, ImageIO also decodes GIF and TIFF: a documented macOS
+ * extension (view captures arrive as TIFF). */
 
-import Library.Image.DDSEncodedImageDecoder;
+import Library.Bytes;
+import Library.Image.EncodedImage;
+import Library.Image.EncodedImageDispatch;
+import Library.Image.Pixels;
 
-class MacOSEncodedImageDecoder implements IEncodedImageDecoder {
+class MacOSEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFormatDecoder {
 	public MacOSEncodedImageDecoder() {}
 
-	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) {
-		int inputBytes = encoded == null ? 0 : encoded.length();
-		if (encoded == null || encoded.isEmpty() || limits == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_INVALID_ARGUMENT, inputBytes); }
-		if (!limits.allowsInput(inputBytes)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, inputBytes); }
-		if (DDSEncodedImageDecoder.recognizes(encoded)) { return DDSEncodedImageDecoder().decode(encoded, limits); }
-		string format = self.contentType(encoded);
-		if (format == "") { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, inputBytes); }
-		return ImageIODecodeSession.run(encoded, format, limits);
+	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return EncodedImageDispatch.decode(encoded, limits, self); }
+
+	public EncodedImageDecodeOutcome decodeFormat(EncodedImageFormat format, Bytes encoded, EncodedImageDecodeLimits limits) {
+		string type = MacOSEncodedImageDecoder.contentType(format);
+		if (type == "") { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, encoded.length()); }
+		return ImageIODecodeSession.run(encoded, type, limits);
 	}
 
-	private string contentType(Bytes encoded) {
-		int length = encoded.length();
-		if (length >= 8 && memcmp(encoded.data, "\x89PNG\r\n\x1a\n", 8) == 0) { return "public.png"; }
-		if (length >= 2 && encoded.get(0) == 255 && encoded.get(1) == 216) { return "public.jpeg"; }
-		if (length >= 6 && (memcmp(encoded.data, "GIF87a", 6) == 0 || memcmp(encoded.data, "GIF89a", 6) == 0)) { return "com.compuserve.gif"; }
-		if (length >= 4 && (memcmp(encoded.data, "II\x2a\x00", 4) == 0 || memcmp(encoded.data, "MM\x00\x2a", 4) == 0)) { return "public.tiff"; }
+	class string contentType(EncodedImageFormat format) {
+		if (format == ENCODED_IMAGE_FORMAT_PNG) { return "public.png"; }
+		if (format == ENCODED_IMAGE_FORMAT_JPEG) { return "public.jpeg"; }
+		if (format == ENCODED_IMAGE_FORMAT_GIF) { return "com.compuserve.gif"; }
+		if (format == ENCODED_IMAGE_FORMAT_TIFF) { return "public.tiff"; }
 		return "";
 	}
 }

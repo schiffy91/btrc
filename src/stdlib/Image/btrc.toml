@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_image"
-exports = ["DDSEncodedImageDecoder", "EncodedImage", "Image", "MacOS.MacOSEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
+exports = ["DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "MacOS.MacOSEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
 
 [[package.providers]]
 module = "SystemImageDecoder"
