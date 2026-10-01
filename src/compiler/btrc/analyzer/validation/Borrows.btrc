@@ -499,6 +499,8 @@ class BorrowValidator {
 			}
 		} else if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && callee.obj != null && callee.obj.kind == NK_SELF_EXPR && owner != "") {
 			target = self.state.analyzed.classMethod(owner, callee.field);
+		} else if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && callee.obj != null && callee.obj.kind == NK_IDENTIFIER && self.state.analyzed.classTable.has(callee.obj.name)) {
+			target = self.state.analyzed.classMethod(callee.obj.name, callee.field);
 		}
 		int argumentIndex = 0;
 		while (argumentIndex < call.args().len) {
