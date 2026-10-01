@@ -136,7 +136,7 @@ Two rows changed state in the same merge batch that added this document:
 | `arc-worker-entry-race` | product defect; intermittent | `ci.yml` `tests (btrc)`: 2 of 41<br>`ci.yml` `tests (btrc)`, per binary: 2 of 160 fixture runs in CI | 2026-09-15 – 2026-09-18<br>— | yes: reproduced at 1fc2fc5 on macOS, 19/1600 runs (gcc 11/800, clang 8/800) of ThreadWorkerEntryErrorRuntime.btrc via the reference compiler<br>yes: CI 2/160 binary runs (1.25%); local 19/1600 (1.19%) at 1fc2fc5: 15 'Unhandled exception: final drain failure', 1 'Unhandled exception: capture cleanup failure', 3 allocation-delta assertion failures in the implicit-free scenario | ARC/threads runtime lane (src/runtime/c threads.c/cycles.c; this lane may not edit runtime)<br>ARC/threads runtime lane (src/runtime/c) |
 | `daemon-deadline` | product defect; intermittent | `ci.yml` `tests (c11-clang-O3)`: 1 of 41<br>`ci.yml` `tests (c11-gcc-O0)`: 1 of 41<br>`ci.yml` `tests (c11-gcc-O1)`: 1 of 41<br>`ci.yml` `tests (corpus-btrc)`: 1 of 41<br>`ci.yml` the corpus shards, per test: 4 of 718 corpus executions | 2026-09-16<br>2026-09-28<br>2026-09-22<br>2026-09-18<br>— | yes on main: waitForRemoval check-then-read race; fix on stage2/daemon-deadline, unmerged<br>yes on main until stage2/daemon-deadline merges; btrc frontend 4/359 (1.1%), python frontend 0/359 | daemon-deadline lane -> integrator merge<br>daemon-deadline lane |
 | `missing-import` | product defect; deterministic | `ci.yml` `tests (unit)`: 1 of 41 | 2026-09-15 | no: fixed in the next push | none (resolved) |
-| `linux-audio` | product defect or environment (owned elsewhere); deterministic | `ci.yml` `tests (unit)`: 11 of 41 | 2026-09-19 – 2026-09-22 | masked: since a544d5f the CI container has no openable ALSA PCM, so the tests skip instead of failing | Linux audio lane (after the container rebuild) |
+| `linux-audio` | environment: the CI container has no ALSA PCM, and the test assumed one; deterministic | `ci.yml` `tests (unit)`: 11 of 41 | 2026-09-19 – 2026-09-22 | masked on main: since a544d5f the tests skip instead of failing. Fixed on stage2/linuxaudio, unmerged: the image installs a null default PCM (`nix/asound.conf`), the four sessions pass, and a missing PCM in the devcontainer fails the test instead of skipping it | integrator merge, then `make devcontainer` |
 | `cache-check-then-lock` | product defect; intermittent | `ci.yml` `tests (unit)`: 1 of 41 | 2026-09-22 | no: CompilerCache.load_artifacts now checks existence under the publication lock, with a deterministic regression test (a544d5f) | none (resolved) |
 | `windows-selfhost-compile` | product defect; deterministic | `windows.yml` `windows`: 11 of 314 | 2026-09-01 – 2026-09-28 | no at HEAD 1fc2fc5: Python transpile of cli/WindowsMain.btrc plus zig 0.16.0 cc -target x86_64-windows-gnu -std=c11 -O2 -Wall -Wextra -Werror -pedantic with the win compat layer exits 0 (22 MB btrcc.exe); the last hit (btrc_open missing from IWorkerPoolFactory, 2026-09-28) was gone by 7b266e7 | Windows lane / integrator |
 | `windows-tooling` | product defect; deterministic | `windows.yml` `windows`: 3 of 314 | 2026-09-01 | no: Windows filesystem/bundle seams fixed 2026-09-01 | none (resolved) |
@@ -207,11 +207,19 @@ each one:
    compiler. **Owner:** the ARC/threads runtime lane. The CI-health lane did
    not edit the runtime.
 2. **The Linux audio-session assertions** (`test_linux_audio_session`). They
-   failed 11 `tests (unit)` runs between 2026-09-19 and 2026-09-22. Since
-   `a544d5f` the CI container has no ALSA PCM it can open, so they skip
-   instead of failing, which hides them rather than fixing them. `PLAN.md`
-   Stage 2 requires them reproduced and fixed. **Owner:** the Linux audio
-   lane, after the container rebuild.
+   failed 11 `tests (unit)` runs between 2026-09-19 and 2026-09-22, all four
+   cases at the program's first assertion, `opened.succeeded()`: the
+   container has no sound card, so `Audio.createDevice()` found no PCM to
+   open. Running the tests in the pre-fix image with the pre-`a544d5f` gate
+   reproduces exactly that. Since `a544d5f` they skip instead, which hides
+   them. On `stage2/linuxaudio` the image installs `nix/asound.conf` as
+   `/etc/asound.conf`, alsa-lib's null plugin as the default PCM, and all
+   four cases pass on both frontends, optimized and sanitized. In the
+   devcontainer a missing PCM now fails the test rather than skipping it.
+   The null plugin is not paced by a clock, so realtime pacing and xrun
+   recovery still need a real device. **Owner:** the integrator, to merge
+   and rebuild the image; the ALSA lifecycle findings are Stage 4
+   (btrc-D009, btrc-D010).
 3. **The FlakeHub and magic-nix-cache errors.** `nix-cache` (HTTP 418,
    throttling and disabled-substituter errors) failed 36 jobs across
    `ci.yml` and `macos.yml`, most recently on 2026-09-20, and the FlakeHub
