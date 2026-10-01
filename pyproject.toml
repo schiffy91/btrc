@@ -43,9 +43,12 @@ namespaces = true
 # Grammar, ASDL, stdlib, and native-runtime sources are runtime inputs, not
 # incidental repository files.  Each data-bearing directory is discovered as
 # a namespace package, so these per-package globs include the complete source
-# payload without admitting build products such as .o/.a files.
+# payload without admitting build products such as .o/.a files. The stdlib's
+# lock files and its symbol table are named exactly; `make wheel` checks them.
 [tool.setuptools.package-data]
 "*" = [
+    "btrc.lock",
+    "btrc.symbols",
     "*.asdl",
     "*.btrc",
     "*.c",
@@ -68,7 +71,7 @@ addopts = ["--import-mode=importlib"]
 # `runner.py` holds the parametrized language-corpus tests but doesn't match the
 # default `test_*.py` glob, so directory collection (`pytest src/tests/`, which
 # `make test` runs) silently skipped the entire language corpus. Collect it too.
-python_files = ["test_*.py", "*_test.py", "runner.py"]
+python_files = ["test_*.py", "runner.py"]
 
 [tool.ruff]
 target-version = "py313"

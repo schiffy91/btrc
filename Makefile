@@ -5,7 +5,7 @@
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
-        devcontainer clean \
+        devcontainer linux-ci clean \
 	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
@@ -63,15 +63,26 @@ build: generated-check ## Create bin/btrcpy wrapper script
 	@chmod +x bin/btrcpy
 	@echo "Built bin/btrcpy"
 
+# Runtime inputs whose names no extension glob in pyproject's package-data
+# covers. A wheel without them installs a compiler that cannot resolve stdlib
+# packages, so both packaging targets open the wheel they built and check.
+WHEEL_REQUIRED := src/language/grammar.ebnf src/stdlib/btrc.lock src/stdlib/btrc.symbols \
+	src/stdlib/LocalApplicationChannel/btrc.lock
+WHEEL_CHECK := python3 -c 'import sys, zipfile; names = set(zipfile.ZipFile(sys.argv[1]).namelist()); \
+	missing = [path for path in sys.argv[2:] if path not in names]; \
+	sys.exit(f"{sys.argv[1]} lacks {missing}" if missing else 0)'
+
 package: generated-check ## Build the Python sdist, then verify it by building its wheel -> dist/
 	rm -rf build/lib/ build/bdist.*/ btrc.egg-info/ src/btrc.egg-info/
 	rm -f dist/btrc-*.whl dist/btrc-*.tar.gz
 	$(NIX) python3 -m build --no-isolation
+	$(NIX) $(WHEEL_CHECK) dist/btrc-*.whl $(WHEEL_REQUIRED)
 
 wheel: generated-check ## Build the installable Python wheel -> dist/
 	rm -rf build/lib/ build/bdist.*/ btrc.egg-info/ src/btrc.egg-info/
 	rm -f dist/btrc-*.whl dist/btrc-*.tar.gz
 	$(NIX) python3 -m build --wheel --no-isolation
+	$(NIX) $(WHEEL_CHECK) dist/btrc-*.whl $(WHEEL_REQUIRED)
 
 # --- Self-hosted compiler (btrcc) native + cross builds ----------------------
 # btrcc is btrc source -> transpiled to C by btrcpy -> compiled by a C toolchain.
@@ -106,8 +117,8 @@ BTRCC_INPUTS := $(BTRCC_BOOTSTRAP_SOURCES) $(BTRCC_SELFHOST_SOURCES) \
 # Windows-only compat layer (POSIX builds never see it): shim headers for the
 # handful of POSIX includes MinGW-w64 omits (found via -I) plus a force-included
 # header that supplies the few missing symbols and safe filesystem seams. See
-# src/runtime/windows/README.md. Real Win32 backends for terminal/process/socket are
-# a Milestone-2 follow-up; today these orphan APIs are DCE'd out of btrcc.
+# src/runtime/windows/README.md. Terminal, process and socket APIs have no Win32
+# backend yet; the optimizer removes them from btrcc as unreachable.
 WIN_COMPAT := -I src/runtime/windows -include src/runtime/windows/btrc_win_compat.h
 
 $(BTRCC_C): $(BTRCC_INPUTS) | generated-check
@@ -260,19 +271,15 @@ bootstrap: generated-check ## Prove the self-hosted compiler reproduces itself b
 	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py -v --skip-report=build/skip-report-bootstrap.json $(PYTEST_SERIAL_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-bootstrap.json
 
+C11_COMPILERS := gcc clang
+C11_LEVELS := O0 O1 O2 O3
 test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with gcc + clang at -O0 through -O3
-	@$(NIX) bash -c '\
-		for cc in gcc clang; do \
-			for opt in O0 O1 O2 O3; do \
-				echo "=== $$cc -std=c11 -$$opt ===" && \
-				BTRC_TEST_BTRCC="$(abspath bin/btrcc)" BTRC_CC=$$cc \
-					BTRC_CFLAGS="-std=c11 -pedantic-errors -Wall -Wextra -Werror -$$opt" \
-					$(PYTEST) src/tests/runner.py --compilers=python,btrc \
-					--skip-report=build/skip-report-c11-$$cc-$$opt.json $(PYTEST_ARGS) || exit 1; \
-				$(SKIP_GATE) build/skip-report-c11-$$cc-$$opt.json || exit 1; \
-			done; \
-		done && \
-		echo "All C11 compliance tests passed (gcc + clang, -O0 through -O3)."'
+	@for cc in $(C11_COMPILERS); do \
+		for opt in $(C11_LEVELS); do \
+			$(MAKE) --no-print-directory test-c11-one C11_CC=$$cc C11_OPT=$$opt || exit 1; \
+		done; \
+	done
+	@echo "All C11 compliance tests passed (gcc + clang, -O0 through -O3)."
 
 # ─── CI shards ──────────────────────────────────────────────────────────────
 # One parallel CI job each; together they cover exactly what `test` and
@@ -439,10 +446,12 @@ extension-install: extension ## Install VSCode extension (dev)
 linux-ci: ## Run LINUX_CI_TARGETS in the devcontainer, the way Linux CI does
 	@tools/linux-ci.sh $(LINUX_CI_TARGETS)
 
-devcontainer: ## Generate .devcontainer/ and build image
+# CI (GitHub sets CI=true) builds the image without Claude Code.
+DEVCONTAINER_OUTPUT ?= $(if $(CI),devcontainer-ci,devcontainer)
+devcontainer: ## Generate .devcontainer/ and build image (DEVCONTAINER_OUTPUT=devcontainer-ci omits Claude Code)
 	@set -e; \
 	mkdir -p .devcontainer; \
-	nix build .#devcontainer --out-link .devcontainer/.result; \
+	nix build .#$(DEVCONTAINER_OUTPUT) --out-link .devcontainer/.result; \
 	install -m 644 .devcontainer/.result/devcontainer.json .devcontainer/devcontainer.json; \
 	install -m 644 .devcontainer/.result/Containerfile .devcontainer/Containerfile; \
 	install -m 644 .devcontainer/.result/bashrc .devcontainer/bashrc; \

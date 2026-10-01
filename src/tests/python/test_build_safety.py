@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import platform
-import subprocess
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -111,7 +112,6 @@ def test_main_gate_runs_portable_boundaries_and_keeps_observed_proof_explicit():
     )
 
 
-def test_container_builds_never_prune_global_podman_state():
 def test_podman_machine_matches_the_documented_host_capacity():
     agents = (REPO_ROOT / "AGENTS.md").read_text()
     row = next(line for line in agents.splitlines() if "`podman-machine-default`" in line)
@@ -121,6 +121,7 @@ def test_podman_machine_matches_the_documented_host_capacity():
     assert "test_*.c" not in (REPO_ROOT / ".gitignore").read_text()
 
 
+def test_container_builds_never_prune_global_podman_state():
     build_sources = MAKEFILE.read_text() + (DEVCONTAINER_CONFIG / "host.nix").read_text()
 
     assert "image prune" not in build_sources
@@ -203,7 +204,66 @@ def test_optional_native_backends_only_skip_missing_dependencies():
     assert '|| echo "GPU runtime skipped' not in makefile
     assert '|| echo "GUI window backend skipped' not in makefile
     assert '|| echo "GUI font backend skipped' not in makefile
-    assert "-I${pkgs.freetype.dev}/include/freetype2" in flake
+    # Fonts resolve through pkg-config's freetype2 module (src/stdlib/GUI/btrc.toml),
+    # not through shell variables nothing reads.
+    assert " freetype" in flake
+    assert "FONT_CFLAGS" not in flake and "FONT_LDFLAGS" not in flake
+
+
+def test_macos_shell_supplies_the_native_provider_and_proof_sdks():
+    """The reader implements a compiler provider only on Apple hosts (tools/NativeHeaderReader.cpp)."""
+    flake = FLAKE.read_text()
+    shell = flake.split("devShells = ", 1)[1].split("packages = eachSystem", 1)[0]
+    darwin_packages = flake.split("pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [", 1)[1].split("]", 1)[0]
+    darwin_environment = shell.split("lib.optionalAttrs isDarwin {", 1)[1].split("} //", 1)[0]
+
+    assert "pugixml sqlite.dev" in darwin_packages
+    assert 'BTRC_NATIVE_PROVIDER_CC = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang";' in darwin_environment
+    assert 'BTRC_NATIVE_PROVIDER_CXX = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang++";' in darwin_environment
+    # The reader is built against the same drivers it accepts as a provider.
+    assert "-DBTRC_NATIVE_CLANG_DRIVER='\"${pkgs.llvmPackages_21.stdenv.cc}/bin/clang\"'" in flake
+    assert flake.count("BTRC_NATIVE_PROVIDER_CC") == 1
+
+
+def test_dev_shell_links_the_patched_webgpu_library_once():
+    flake = FLAKE.read_text()
+    shell = flake.split("devShells = ", 1)[1].split("packages = eachSystem", 1)[0]
+
+    assert "nixd wgpu-native" not in flake
+    assert "self.packages.${system}.wgpu-native" in shell
+    assert 'GPU_LDFLAGS = "-L${self.packages.${system}.wgpu-native}/lib' in shell
+    assert "${pkgs.wgpu-native}/lib" not in shell
+
+
+def test_flake_exports_no_alias_outputs_or_unused_ports():
+    flake = FLAKE.read_text()
+    devcontainer = (DEVCONTAINER_CONFIG / "devcontainer.nix").read_text()
+
+    assert "btrcpy = self.apps" not in flake
+    assert "inherit btrcpy btrcc btrc-format btrc-lsp;" in flake
+    assert "btrc-vscode-extension = btrc-vscode;" in flake
+    assert "ports = [" not in flake and "forwardPorts" not in devcontainer
+
+
+def test_ci_devcontainer_omits_claude_code():
+    flake = FLAKE.read_text()
+    containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
+
+    assert "claudeCode = cfg.claudeCode // { enable = false; };" in flake
+    assert "share = cfg.share // { claude = false; };" in flake
+    assert 'devcontainer-ci = devcontainerFiles "${cfg.name}-devcontainer-ci" ciFiles;' in flake
+    assert "lib.optionalString cfg.claudeCode.enable" in containerfile
+    assert "nix build .#devcontainer-ci" in _make_dry_run("devcontainer", "CI=true")
+    assert "nix build .#devcontainer " in _make_dry_run("devcontainer", "CI=")
+
+
+def test_devcontainer_stages_the_packaged_formatter_source():
+    """The shell's btrc-format is built from the staged flake, not the bind-mounted checkout."""
+    containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
+    admitted = (REPO_ROOT / ".dockerignore").read_text().splitlines()
+
+    assert "COPY --chown=${uid}:${uid} src/devex/formatter/ /tmp/flake/src/devex/formatter/" in containerfile
+    assert "!src/devex/formatter/**" in admitted
 
 
 def test_btrcc_c_rebuilds_for_every_input_category():
@@ -355,8 +415,24 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     assert "src*" in discovery["include"]
     assert "src.tests*" in discovery["exclude"]
     assert "src.devex.vscode*" in discovery["exclude"]
-    assert {"*.asdl", "*.btrc", "*.ebnf"} <= set(package_data)
+    assert {"*.asdl", "*.btrc", "*.ebnf", "btrc.lock", "btrc.symbols"} <= set(package_data)
     assert "exclude-package-data" not in setuptools
+    # Every tracked runtime input under a packaged directory reaches the wheel.
+    tracked = subprocess.run(
+        ["git", "ls-files", "src"], cwd=REPO_ROOT, check=True, capture_output=True, text=True
+    ).stdout.split()
+    unpackaged = [
+        path
+        for path in tracked
+        if not path.startswith(("src/tests/", "src/devex/vscode/"))
+        and not path.endswith(".py")
+        and not any(fnmatch.fnmatch(path.rsplit("/", 1)[-1], pattern) for pattern in package_data)
+    ]
+    assert unpackaged == []
+    for target in ("wheel", "package"):
+        output = _make_dry_run(target, "NIX=")
+        check = next(line for line in output.splitlines() if "zipfile.ZipFile" in line)
+        assert "src/stdlib/btrc.symbols src/stdlib/LocalApplicationChannel/btrc.lock" in check.replace("\\", "")
     hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/Tables.btrc"
     assert hosted_tables.is_file()
     hosted_source = hosted_tables.read_text()
@@ -397,14 +473,26 @@ def test_package_target_builds_wheel_from_sdist():
 
 
 def test_strict_c11_target_treats_extensions_as_errors():
-    flags = "-std=c11 -pedantic-errors -Wall -Wextra -Werror -$$opt"
+    flags = "-std=c11 -pedantic-errors -Wall -Wextra -Werror -$(C11_OPT)"
     assert flags in MAKEFILE.read_text()
+
+
+def test_c11_gate_runs_each_ci_configuration_through_the_shard_target():
+    """make test-c11 is the eight CI c11 shards in order, not a second copy of their recipe."""
+    output = _make_dry_run("test-c11", "NIX=")
+
+    assert "make --no-print-directory test-c11-one C11_CC=$cc C11_OPT=$opt" in output
+    reports = re.findall(r"--skip-report=build/skip-report-c11-([a-z]+)-(O[0-3])\.json", output)
+    assert reports == [(cc, opt) for cc in ("gcc", "clang") for opt in ("O0", "O1", "O2", "O3")]
+    assert MAKEFILE.read_text().count("-std=c11 -pedantic-errors -Wall -Wextra -Werror") == 1
 
 
 def test_plain_pytest_includes_debug_adapter_tests():
     config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
 
     assert "src/tests" in config["tool"]["pytest"]["ini_options"]["testpaths"]
+    # No test module is named *_test.py; the glob only widened collection.
+    assert config["tool"]["pytest"]["ini_options"]["python_files"] == ["test_*.py", "runner.py"]
     assert "src/devex/debug/tests" not in config["tool"]["pytest"]["ini_options"]["testpaths"]
 
 
@@ -417,6 +505,12 @@ def test_ci_builds_installable_artifacts_and_pins_external_actions():
         "nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package "
         ".#checks.x86_64-linux.native-package-plan --no-link"
     ) in ci
+    # After the release builds, the generator's own check and a clean tree
+    # stand in for a hand-kept list of generated paths that went stale.
+    verify = ci.split("Verify release builds did not mutate", 1)[1].split("\n\n", 1)[0]
+    assert "nix develop --command make NIX= generated-check" in verify
+    assert 'test -z "$(git status --porcelain --untracked-files=all)"' in verify
+    assert "paths=(" not in verify
     assert "@main" not in ci + windows
     assert "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in ci
     assert "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in windows
@@ -426,9 +520,3 @@ def test_ci_builds_installable_artifacts_and_pins_external_actions():
     assert '$ver = "0.16.0"' in windows
     assert "68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e" in windows
     assert "Get-FileHash -Algorithm SHA256 zig.zip" in windows
-    # After the release builds, the generator's own check and a clean tree
-    # stand in for a hand-kept list of generated paths that went stale.
-    verify = ci.split("Verify release builds did not mutate", 1)[1].split("\n\n", 1)[0]
-    assert "nix develop --command make NIX= generated-check" in verify
-    assert 'test -z "$(git status --porcelain --untracked-files=all)"' in verify
-    assert "paths=(" not in verify

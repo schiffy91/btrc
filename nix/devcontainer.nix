@@ -8,7 +8,6 @@ in
   remoteUser = cfg.user.name;
   workspaceMount = "source=\${localWorkspaceFolder},target=${cfg.workspace},type=bind,consistency=delegated";
   workspaceFolder = cfg.workspace;
-  forwardPorts = cfg.ports;
   customizations.vscode = {
     inherit (cfg) extensions;
     settings = {

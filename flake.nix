@@ -14,7 +14,6 @@
         machine = { memory = 24576; cpus = 6; disk = 40; };   # AGENTS.md host capacity: podman-machine-default
         workspace = "/workspace";
         user = { name = "dev"; uid = 1000; };
-        ports = [ 3000 ];
         extensions = [ "anthropic.claude-code" "ms-python.python" "jnoortheen.nix-ide" ];
         share = { ssh = true; git = true; gh = true; claude = true; };
         paths = { ssh = ".ssh"; gitconfig = ".gitconfig"; gh = ".config/gh"; claude = ".claude"; };
@@ -25,7 +24,7 @@
             ps.build ps.setuptools
             ps.pytest ps.pytest-xdist ps.pytest-cov ps.pygls ps.lsprotocol
           ]))
-            ruff gcc clang zig gnumake git jq gh nodejs_22 nixd wgpu-native freetype
+            ruff gcc clang zig gnumake git jq gh nodejs_22 nixd freetype
             # naga validates generated WGSL in the GPU tests. wgpu-utils builds
             # the whole wgpu workspace; expose only its naga CLI, so its example
             # and xtask binaries stay off PATH and out of the container's bin.
@@ -33,6 +32,11 @@
               mkdir -p "$out/bin"
               ln -s ${wgpu-utils}/bin/naga "$out/bin/naga"
             '')
+          ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+            # Real SDKs the macOS-only native-interop proofs link through
+            # pkg-config: the C++ owner proof (pugixml) and the owned-output
+            # proof (sqlite3). Both suites skip off macOS before probing them.
+            pugixml sqlite.dev
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
@@ -40,6 +44,16 @@
           ];
       };
       files = import ./nix { inherit cfg lib; };
+      # CI's image: the same toolchain without Claude Code or its host
+      # credential mirror, which no CI job uses.
+      ciFiles = import ./nix {
+        inherit lib;
+        cfg = cfg // {
+          claudeCode = cfg.claudeCode // { enable = false; };
+          share = cfg.share // { claude = false; };
+          extensions = lib.remove "anthropic.claude-code" cfg.extensions;
+        };
+      };
       systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
       eachSystem = fn: nixpkgs.lib.genAttrs systems (system: fn (import nixpkgs { inherit system; }));
       nativeHeaderEnvironment = pkgs: let
@@ -66,7 +80,6 @@
           type = "app";
           program = "${self.packages.${system}.btrcpy}/bin/btrcpy";
         };
-        btrcpy = self.apps.${system}.btrc;
         btrcc = {
           type = "app";
           program = "${self.packages.${system}.btrcc}/bin/btrcc";
@@ -97,6 +110,8 @@
           hardeningDisable = [ "fortify" "fortify3" ];
           # btrc-lsp on PATH: the VSCode extension launches the language server
           # via `nix develop <workspace> --command btrc-lsp`.
+          # The flake's wgpu-native carries the driver runpath and a pkg-config
+          # file; the bare nixpkgs library lacks both, so it is not added too.
           packages = cfg.packages pkgs ++ [
             pkgs.pkg-config
             self.packages.${system}.wgpu-native
@@ -105,11 +120,18 @@
             self.packages.${system}.btrc-lsp
           ];
           GPU_CFLAGS = "-I${pkgs.wgpu-native.dev}/include/webgpu";
-          GPU_LDFLAGS = "-L${pkgs.wgpu-native}/lib -lwgpu_native -pthread"
+          GPU_LDFLAGS = "-L${self.packages.${system}.wgpu-native}/lib -lwgpu_native -pthread"
             + lib.optionalString isDarwin
               " -framework Metal -framework QuartzCore -framework Foundation";
-          FONT_CFLAGS = "-I${pkgs.freetype.dev}/include/freetype2";
-          FONT_LDFLAGS = "-L${pkgs.freetype}/lib -lfreetype";
+        } // lib.optionalAttrs isDarwin {
+          # The native compiler provider that the reader's preprocessing
+          # receipts and compiler-context requests name: the LLVM 21 clang
+          # drivers the header reader is built against. The reader implements a
+          # provider only on Apple hosts and refuses one elsewhere, so a Linux
+          # shell leaves these unset and those suites skip. Only the test suites
+          # read them, so the packaged compilers' wrappers do not carry them.
+          BTRC_NATIVE_PROVIDER_CC = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang";
+          BTRC_NATIVE_PROVIDER_CXX = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang++";
         } // nativeHeaderEnvironment pkgs);
       });
       packages = eachSystem (pkgs: let
@@ -408,6 +430,15 @@
           name = "btrc-tools";
           paths = [ btrcpy btrcc btrc-format nativePlan ];
         };
+        devcontainerFiles = name: generated: pkgs.linkFarm name
+          (lib.mapAttrsToList (name: content: {
+            inherit name;
+            path = pkgs.writeTextFile {
+              inherit name;
+              text = content;
+              executable = lib.hasSuffix ".sh" name;
+            };
+          }) generated);
         btrc-vscode = pkgs.buildNpmPackage {
           pname = "vscode-extension-btrc";
           version = extensionVersion;
@@ -443,7 +474,7 @@
           };
         };
       in {
-        inherit btrcpy btrcc btrc-format btrc-lsp btrc-vscode;
+        inherit btrcpy btrcc btrc-format btrc-lsp;
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
         btrc-native-header = nativeHeaderReader;
@@ -451,15 +482,9 @@
         btrc-vscode-extension = btrc-vscode;
         inherit btrc;
         default = btrc;
-        devcontainer = pkgs.linkFarm "${cfg.name}-devcontainer" # nix build .#devcontainer — generates .devcontainer/ files
-          (lib.mapAttrsToList (name: content: {
-            inherit name;
-            path = pkgs.writeTextFile {
-              inherit name;
-              text = content;
-              executable = lib.hasSuffix ".sh" name;
-            };
-          }) files);
+        # nix build .#devcontainer (or .#devcontainer-ci) generates .devcontainer/.
+        devcontainer = devcontainerFiles "${cfg.name}-devcontainer" files;
+        devcontainer-ci = devcontainerFiles "${cfg.name}-devcontainer-ci" ciFiles;
       });
       checks = eachSystem (pkgs: let
         system = pkgs.stdenv.hostPlatform.system;
