@@ -4,6 +4,8 @@ import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 import ../syntax/Identity.btrc;
+import ../syntax/Literals.btrc;
+import ../syntax/Types.btrc;
 import ./Expressions.btrc;
 import ./HostedAbi.btrc;
 import ./Models.btrc;
@@ -128,6 +130,12 @@ class GpuSemantics {
 
 	private Node? contextualExprTypeUnmemoized(Node? expression, Map<string, Node> varTypes) {
 		if (expression == null) { return null; }
+		if (expression.kind == NK_TERNARY_EXPR) {
+			/* A ternary over whole buffers keeps the array type, so the kernel
+			 * contract can reject it instead of typing it as one element. */
+			Node? whenTrue = self.contextualExprTypeUnmemoized(expression.trueExpr, varTypes);
+			if (whenTrue != null && whenTrue.isArray) { return whenTrue; }
+		}
 		bool contextual = expression.kind == NK_FLOAT_LITERAL || expression.kind == NK_INT_LITERAL || expression.kind == NK_BOOL_LITERAL || expression.kind == NK_BINARY_EXPR || expression.kind == NK_UNARY_EXPR || expression.kind == NK_TERNARY_EXPR || expression.kind == NK_CAST_EXPR;
 		if (expression.kind == NK_CALL_EXPR && expression.callee != null && expression.callee.kind == NK_IDENTIFIER) {
 			contextual = self.callResolvesToIntrinsic(expression, varTypes);
@@ -140,4 +148,537 @@ class GpuSemantics {
 	}
 
 	public Node? contextualExprType(Node? expression, Map<string, Node> varTypes) { return self.contextualExprTypeUnmemoized(expression, varTypes); }
+}
+
+/* One lexical binding a kernel body introduced, with the type it shadowed. */
+
+class GpuKernelBinding {
+	public string name;
+	public Node previousType;
+	public bool hadType;
+
+	public GpuKernelBinding(string name) {
+		self.name = name;
+		self.previousType = null;
+		self.hadType = false;
+	}
+}
+
+/* The complete WGSL kernel contract, checked in the analyzer stage for every
+ * @gpu declaration whether or not a dispatch reaches it.  Each rule and
+ * diagnostic mirrors the Python compiler's GpuKernelValidator. */
+
+class GpuKernelValidator {
+	private Analyzed analyzed;
+	private GpuSemantics semantics;
+	private string functionName;
+	private Map<string, bool> scalarParams;
+	private Map<string, bool> arrayParams;
+	private Map<string, bool> locals;
+	private Map<string, Node> varTypes;
+	private Vector<GpuKernelBinding> bindings;
+	private Vector<int> scopeStarts;
+
+	public GpuKernelValidator(Analyzed analyzed, GpuSemantics semantics) {
+		self.analyzed = analyzed;
+		self.semantics = semantics;
+		self.functionName = "";
+		self.scalarParams = {};
+		self.arrayParams = {};
+		self.locals = {};
+		self.varTypes = {};
+		self.bindings = [];
+		self.scopeStarts = [];
+	}
+
+	class void fail(string message, Node site) {
+		fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
+		exit(1);
+	}
+
+	private void error(string message, Node site) { GpuKernelValidator.fail("@gpu function '" + self.functionName + "': " + message, site); }
+
+	/* Validate one analyzed kernel.  `variables` holds the globals and the
+	 * parameters as the body binds them; it is copied, never mutated. */
+	public void validate(Node kernel, Map<string, Node> variables) {
+		self.functionName = kernel.name;
+		self.scalarParams = {};
+		self.arrayParams = {};
+		self.locals = {};
+		self.varTypes = {};
+		self.varTypes.merge(variables);
+		self.bindings = [];
+		self.scopeStarts = [];
+		for parameter in kernel.params() {
+			self.validateType(parameter.type, "parameter '" + parameter.name + "'", kernel, true);
+			if (parameter.type.isArray) {
+				self.arrayParams.put(parameter.name, true);
+			} else {
+				self.scalarParams.put(parameter.name, true);
+			}
+		}
+		Node? returnType = kernel.returnType;
+		bool voidResult = returnType != null && returnType.base == "void" && returnType.pointerDepth == 0 && !returnType.isArray && returnType.genericArgs().len == 0;
+		if (returnType != null && !voidResult) {
+			if (!returnType.isArray) {
+				self.error("return type must be void, int[], or float[], got '" + returnType.base + "'", kernel);
+			} else if (returnType.base != "int" && returnType.base != "float") {
+				self.error("return type must be void, int[], or float[], got '" + returnType.base + "[]'", kernel);
+			}
+		}
+		if (kernel.bodyNode == null) {
+			self.error("GPU kernels require a body", kernel);
+		}
+		self.validateBlock(kernel.bodyNode);
+	}
+
+	private void pushScope() { self.scopeStarts.push(self.bindings.len); }
+
+	private void popScope() {
+		int start = self.scopeStarts.pop();
+		while (self.bindings.len > start) {
+			GpuKernelBinding binding = self.bindings.pop();
+			self.locals.remove(binding.name);
+			if (binding.hadType) {
+				self.varTypes.put(binding.name, binding.previousType);
+			} else {
+				self.varTypes.remove(binding.name);
+			}
+		}
+		int index = 0;
+		while (index < self.bindings.len) {
+			self.locals.put(self.bindings.get(index).name, true);
+			index = index + 1;
+		}
+	}
+
+	private void declare(string name, Node? type) {
+		GpuKernelBinding binding = GpuKernelBinding(name);
+		if (self.varTypes.has(name)) {
+			binding.hadType = true;
+			binding.previousType = self.varTypes.get(name);
+		}
+		self.bindings.push(binding);
+		self.locals.put(name, true);
+		if (type != null) {
+			self.varTypes.put(name, type);
+		} else {
+			self.varTypes.remove(name);
+		}
+	}
+
+	private bool knows(string name) { return self.scalarParams.has(name) || self.arrayParams.has(name) || self.locals.has(name); }
+
+	private Node? typeOf(Node? expression) { return self.semantics.contextualExprType(expression, self.varTypes); }
+
+	private string formatType(Node type) {
+		string result = type.base;
+		if (type.genericArgs().len > 0) {
+			result = result + "<";
+			int index = 0;
+			while (index < type.genericArgs().len) {
+				if (index > 0) { result = result + ", "; }
+				result = result + self.formatType(type.genericArgs().get(index));
+				index = index + 1;
+			}
+			result = result + ">";
+		}
+		int depth = 0;
+		while (depth < type.pointerDepth) {
+			result = result + "*";
+			depth = depth + 1;
+		}
+		if (type.isArray) { result = result + "[]"; }
+		return result;
+	}
+
+	private void validateType(Node? type, string subject, Node site, bool allowArray) {
+		if (type == null) { return; }
+		Node resolved = type;
+		if (resolved.isNullable) {
+			self.error("nullable types not allowed in " + subject, site);
+		}
+		if (resolved.pointerDepth > 0) {
+			self.error("pointer types not allowed in " + subject, site);
+		}
+		if (resolved.isArray && allowArray) {
+			if (resolved.isConst || resolved.isVolatile) {
+				self.error("GPU array buffers are read-write and cannot be const- or volatile-qualified in " + subject, site);
+			}
+			if (resolved.base != "int" && resolved.base != "float") {
+				self.error("array element type must be int or float in " + subject + ", got '" + resolved.base + "'", site);
+			}
+			return;
+		}
+		if (resolved.isArray) {
+			self.error("array types not allowed in " + subject, site);
+		}
+		if (resolved.genericArgs().len > 0) {
+			self.error("generic types not allowed in " + subject, site);
+		}
+		if (resolved.base != "int" && resolved.base != "float" && resolved.base != "bool") {
+			self.error("type '" + resolved.base + "' not allowed in " + subject + " (use int, float, or bool)", site);
+		}
+	}
+
+	private void validateBlock(Node? block) {
+		if (block == null) { return; }
+		self.pushScope();
+		for statement in block.statements() {
+			self.validateStatement(statement);
+		}
+		self.popScope();
+	}
+
+	private string statementLabel(Node statement) {
+		if (statement.kind == NK_BLOCK) { return "nested block"; }
+		if (statement.kind == NK_DO_WHILE_STMT) { return "do-while"; }
+		if (statement.kind == NK_FOR_IN_STMT) { return "for-in"; }
+		if (statement.kind == NK_PARALLEL_FOR_STMT) { return "parallel for"; }
+		if (statement.kind == NK_SWITCH_STMT) { return "switch"; }
+		if (statement.kind == NK_DELETE_STMT) { return "delete"; }
+		if (statement.kind == NK_TRY_CATCH_STMT) { return "try/catch"; }
+		if (statement.kind == NK_THROW_STMT) { return "throw"; }
+		if (statement.kind == NK_KEEP_STMT) { return "keep"; }
+		if (statement.kind == NK_RELEASE_STMT) { return "release"; }
+		return "this";
+	}
+
+	private void validateStatement(Node statement) {
+		if (statement.kind == NK_VAR_DECL_STMT) {
+			if (statement.initializer != null) {
+				self.validateExpression(statement.initializer, false);
+			}
+			Node? localType = statement.type;
+			if (localType == null) { localType = self.inferredLocalType(statement.initializer); }
+			self.validateType(localType, "variable '" + statement.name + "'", statement, false);
+			self.declare(statement.name, localType);
+			return;
+		}
+		if (statement.kind == NK_RETURN_STMT) {
+			if (statement.valueNode != null) { self.validateExpression(statement.valueNode, false); }
+			return;
+		}
+		if (statement.kind == NK_IF_STMT) {
+			self.validateExpression(statement.condition, false);
+			self.validateCondition(statement.condition);
+			self.validateBlock(statement.thenBlock);
+			if (statement.elseBlock != null && statement.elseBlock.kind == NK_ELSE_BLOCK) {
+				self.validateBlock(statement.elseBlock.bodyNode);
+			} else if (statement.elseBlock != null && statement.elseBlock.kind == NK_ELSE_IF) {
+				self.validateStatement(statement.elseBlock.ifStmt);
+			}
+			return;
+		}
+		if (statement.kind == NK_WHILE_STMT) {
+			self.validateExpression(statement.condition, false);
+			self.validateCondition(statement.condition);
+			self.validateBlock(statement.bodyNode);
+			return;
+		}
+		if (statement.kind == NK_C_FOR_STMT) {
+			self.pushScope();
+			if (statement.init != null && statement.init.kind == NK_FOR_INIT_VAR) {
+				self.validateStatement(statement.init.varDecl);
+			} else if (statement.init != null && statement.init.kind == NK_FOR_INIT_EXPR) {
+				self.validateUpdate(statement.init.expression);
+			}
+			if (statement.condition != null) {
+				self.validateExpression(statement.condition, false);
+				self.validateCondition(statement.condition);
+			}
+			if (statement.update != null) { self.validateUpdate(statement.update); }
+			self.validateBlock(statement.bodyNode);
+			self.popScope();
+			return;
+		}
+		if (statement.kind == NK_EXPR_STMT) {
+			if (!self.isExpressionStatement(statement.expr)) {
+				self.error("expression statement must be an assignment, increment, decrement, or WGSL built-in call", statement.expr);
+			}
+			self.validateExpression(statement.expr, self.isUpdateStatement(statement.expr));
+			return;
+		}
+		if (statement.kind == NK_BREAK_STMT || statement.kind == NK_CONTINUE_STMT) { return; }
+		self.error(self.statementLabel(statement) + " statement is not allowed in GPU functions", statement);
+	}
+
+	/* `var alias = buffer` binds a pointer to the buffer, as it does in host
+	 * code; only an aggregate literal infers array storage. */
+	private Node? inferredLocalType(Node? initializer) {
+		Node? inferred = self.typeOf(initializer);
+		if (inferred == null || !inferred.isArray || initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL) {
+			return inferred;
+		}
+		return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(inferred));
+	}
+
+	private void validateUpdate(Node expression) {
+		bool update = self.isUpdateStatement(expression);
+		if (!update) {
+			self.error("for-loop initializer/update must update a variable or buffer element", expression);
+		}
+		self.validateExpression(expression, update);
+	}
+
+	private void validateCondition(Node? expression) {
+		Node? type = self.typeOf(expression);
+		if (expression != null && type != null && type.base != "bool") {
+			self.error("control-flow condition must be bool, got '" + type.base + "'", expression);
+		}
+	}
+
+	private bool isUpdateStatement(Node? expression) { return expression != null && (expression.kind == NK_ASSIGN_EXPR || (expression.kind == NK_UNARY_EXPR && (expression.op == "++" || expression.op == "--"))); }
+
+	private bool isExpressionStatement(Node? expression) { return self.isUpdateStatement(expression) || (expression != null && expression.kind == NK_CALL_EXPR); }
+
+	private string expressionLabel(Node expression) {
+		if (expression.kind == NK_STRING_LITERAL) { return "string literal"; }
+		if (expression.kind == NK_CHAR_LITERAL) { return "character literal"; }
+		if (expression.kind == NK_SELF_EXPR) { return "self"; }
+		if (expression.kind == NK_SUPER_EXPR) { return "super"; }
+		if (expression.kind == NK_SIZEOF_EXPR) { return "sizeof"; }
+		if (expression.kind == NK_LIST_LITERAL) { return "list literal"; }
+		if (expression.kind == NK_MAP_LITERAL) { return "map literal"; }
+		if (expression.kind == NK_BRACE_INITIALIZER) { return "brace initializer"; }
+		if (expression.kind == NK_F_STRING_LITERAL) { return "f-string"; }
+		if (expression.kind == NK_NEW_EXPR) { return "new expression"; }
+		if (expression.kind == NK_TUPLE_LITERAL) { return "tuple literal"; }
+		if (expression.kind == NK_LAMBDA_EXPR) { return "lambda"; }
+		if (expression.kind == NK_SPAWN_EXPR) { return "spawn"; }
+		return "expression";
+	}
+
+	private void validateExpression(Node? expression, bool update) {
+		if (expression == null) { return; }
+		if (expression.kind == NK_INT_LITERAL) {
+			IntegerLiteral literal = IntegerLiteral(expression.raw);
+			if (literal.details().magnitude > 2147483647ULL) {
+				self.error("integer literal is outside the WGSL i32 range", expression);
+			}
+			if (literal.typeName() != "int") {
+				self.error("integer literal must be int, got '" + literal.typeName() + "'", expression);
+			}
+			return;
+		}
+		if (expression.kind == NK_FLOAT_LITERAL) {
+			FloatLiteral literal = FloatLiteral(expression.raw);
+			if (literal.narrowingProblem(literal.doubleValue()) != "") {
+				self.error("floating literal is outside the WGSL f32 range", expression);
+			}
+			return;
+		}
+		if (expression.kind == NK_BOOL_LITERAL) { return; }
+		if (expression.kind == NK_NULL_LITERAL) {
+			self.error("null has no WGSL value representation", expression);
+		}
+		if (expression.kind == NK_IDENTIFIER) {
+			if (!self.knows(expression.name)) {
+				self.error("identifier '" + expression.name + "' is not a GPU parameter or local", expression);
+			}
+			return;
+		}
+		if (expression.kind == NK_BINARY_EXPR) { self.validateBinary(expression); return; }
+		if (expression.kind == NK_UNARY_EXPR) { self.validateUnary(expression, update); return; }
+		if (expression.kind == NK_CALL_EXPR) { self.validateCall(expression); return; }
+		if (expression.kind == NK_INDEX_EXPR) {
+			self.validateExpression(expression.obj, false);
+			self.validateExpression(expression.index, false);
+			self.requireExactType(expression.index, "int", "", "array index");
+			Node? objectType = self.typeOf(expression.obj);
+			if (objectType != null && !objectType.isArray) {
+				self.error("only GPU array parameters may be indexed", expression.obj);
+			}
+			return;
+		}
+		if (expression.kind == NK_ASSIGN_EXPR) {
+			if (!update) {
+				self.error("assignment is only supported as a standalone update statement", expression);
+			}
+			self.validateUpdateTarget(expression.target);
+			self.validateExpression(expression.valueNode, false);
+			if (expression.op != "=") { self.validateCompoundAssignment(expression); }
+			return;
+		}
+		if (expression.kind == NK_TERNARY_EXPR) { self.validateTernary(expression); return; }
+		if (expression.kind == NK_CAST_EXPR) {
+			self.validateExpression(expression.expr, false);
+			Node target = expression.targetType;
+			if (!GpuKernelValidator.gpuScalar(target, "int", "float", "bool")) {
+				self.error("cast target '" + self.formatType(target) + "' has no WGSL scalar representation", expression);
+			}
+			return;
+		}
+		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+			self.error("field and method access has no WGSL lowering", expression);
+		}
+		self.error(self.expressionLabel(expression) + " has no WGSL lowering", expression);
+	}
+
+	private void validateBinary(Node expression) {
+		self.validateExpression(expression.left, false);
+		self.validateExpression(expression.right, false);
+		string op = expression.op;
+		bool known = op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=" || op == "&&" || op == "||" || op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>";
+		if (!known) {
+			self.error("operator '" + op + "' has no WGSL lowering", expression);
+		}
+		if (op == "%") {
+			self.requireExactType(expression.left, "int", "", "remainder operand");
+			self.requireExactType(expression.right, "int", "", "remainder operand");
+		} else if (op == "<<" || op == ">>") {
+			self.requireExactType(expression.left, "int", "", "shift operand");
+			self.requireExactType(expression.right, "int", "", "shift count");
+		} else if (op == "&" || op == "|" || op == "^") {
+			Node? left = self.typeOf(expression.left);
+			Node? right = self.typeOf(expression.right);
+			if (left != null && right != null && ((left.base != "int" && left.base != "bool") || right.base != left.base)) {
+				self.error("bitwise operands must have the same int or bool GPU type", expression);
+			}
+		}
+	}
+
+	private void validateUnary(Node expression, bool update) {
+		string op = expression.op;
+		if (op == "++" || op == "--") {
+			if (!update) {
+				self.error("'" + op + "' is only supported as a standalone update statement", expression);
+			}
+			self.validateUpdateTarget(expression.operand);
+			self.requireExactType(expression.operand, "float", "int", "increment/decrement target");
+			return;
+		}
+		bool minimumLiteral = op == "-" && expression.operand != null && expression.operand.kind == NK_INT_LITERAL && IntegerLiteral(expression.operand.raw).details().magnitude == 2147483648ULL;
+		if (!minimumLiteral) {
+			self.validateExpression(expression.operand, false);
+		}
+		if (op == "!") {
+			self.requireExactType(expression.operand, "bool", "", "logical-not operand");
+		} else if (op == "~") {
+			self.requireExactType(expression.operand, "int", "", "bitwise-not operand");
+		} else if (op == "+" || op == "-") {
+			if (!minimumLiteral) { self.requireExactType(expression.operand, "float", "int", "unary numeric operand"); }
+		} else {
+			self.error("unary operator '" + op + "' has no WGSL lowering", expression);
+		}
+	}
+
+	private void validateCall(Node call) {
+		for argument in call.args() {
+			self.validateExpression(argument, false);
+		}
+		bool named = false;
+		for argumentName in call.argNames() {
+			if (argumentName != "") { named = true; }
+		}
+		if (named) {
+			self.error("WGSL built-ins do not accept named arguments", call);
+		}
+		if (call.callee == null || call.callee.kind != NK_IDENTIFIER) {
+			self.error("indirect and method calls have no WGSL definition", call.callee == null ? call : call.callee);
+		}
+		string name = call.callee.name;
+		if (self.knows(name) || self.semantics.callResolvesToSourceSymbol(call, self.varTypes)) {
+			self.error("call to '" + name + "' has no WGSL definition because it resolves to a source symbol", call);
+		}
+		if (name == "gpu_id") {
+			if (call.args().len != 0) { self.error("gpu_id() takes no arguments", call); }
+			return;
+		}
+		if (!self.semantics.builtin(name)) {
+			self.error("call to '" + name + "' has no WGSL definition; only gpu_id() and WGSL built-ins are allowed", call);
+		}
+		int expected = self.semantics.builtinArity(name);
+		if (call.args().len != expected) {
+			self.error(name + "() expects " + Strings.fromInt(expected) + " argument(s), got " + Strings.fromInt(call.args().len), call);
+		}
+		string firstBase = "";
+		for argument in call.args() {
+			Node? actual = self.typeOf(argument);
+			if (actual == null) { continue; }
+			if (self.semantics.floatBuiltin(name) && !GpuKernelValidator.gpuScalar(actual, "float", "", "")) {
+				self.error(name + "() requires float arguments in GPU functions", call);
+			}
+			if (self.semantics.sameTypeBuiltin(name)) {
+				if (!GpuKernelValidator.gpuScalar(actual, "float", "int", "")) {
+					self.error(name + "() requires int or float arguments in GPU functions", call);
+				}
+				if (firstBase == "") {
+					firstBase = actual.base;
+				} else if (actual.base != firstBase) {
+					self.error(name + "() arguments must have the same GPU scalar type", call);
+				}
+			}
+		}
+	}
+
+	private void validateTernary(Node expression) {
+		self.validateExpression(expression.condition, false);
+		Node? condition = self.typeOf(expression.condition);
+		if (condition != null && condition.base != "bool") {
+			self.error("ternary condition must be bool, got '" + condition.base + "'", expression.condition);
+		}
+		self.validateExpression(expression.trueExpr, false);
+		self.validateExpression(expression.falseExpr, false);
+		Node? result = self.typeOf(expression);
+		if (result != null && result.isArray) {
+			self.error("ternary expressions cannot select whole GPU arrays", expression);
+		}
+	}
+
+	private void validateCompoundAssignment(Node expression) {
+		string op = expression.op;
+		if (op == "%=") {
+			self.requireExactType(expression.target, "int", "", "remainder assignment target");
+			self.requireExactType(expression.valueNode, "int", "", "remainder assignment operand");
+		} else if (op == "+=" || op == "-=" || op == "*=" || op == "/=") {
+			self.requireExactType(expression.target, "float", "int", "arithmetic compound-assignment operand");
+			self.requireExactType(expression.valueNode, "float", "int", "arithmetic compound-assignment operand");
+		} else if (op == "&=" || op == "|=" || op == "^=") {
+			self.requireExactType(expression.target, "bool", "int", "bitwise compound-assignment operand");
+			self.requireExactType(expression.valueNode, "bool", "int", "bitwise compound-assignment operand");
+		} else if (op == "<<=" || op == ">>=") {
+			self.requireExactType(expression.target, "int", "", "shift assignment target");
+			self.requireExactType(expression.valueNode, "int", "", "shift assignment count");
+		} else {
+			self.error("compound operator '" + op + "' has no WGSL lowering", expression);
+		}
+		Node? target = self.typeOf(expression.target);
+		Node? value = self.typeOf(expression.valueNode);
+		if (target != null && value != null && target.base != value.base) {
+			self.error("compound assignment operands must have the same GPU scalar type", expression);
+		}
+	}
+
+	private void validateUpdateTarget(Node? target) {
+		if (target != null && target.kind == NK_IDENTIFIER) {
+			self.validateExpression(target, false);
+			Node? type = self.typeOf(target);
+			if (self.scalarParams.has(target.name)) {
+				self.error("scalar parameter '" + target.name + "' is a read-only uniform", target);
+			} else if (type != null && type.isArray) {
+				self.error("whole GPU arrays cannot be assigned or incremented", target);
+			}
+			return;
+		}
+		if (target != null && target.kind == NK_INDEX_EXPR) {
+			self.validateExpression(target, false);
+			return;
+		}
+		self.error("update target must be a local scalar or an indexed GPU buffer", target);
+	}
+
+	/* `first` and `second` name the allowed bases in sorted order, so the
+	 * diagnostic reads exactly as the Python compiler sorts its allowed set. */
+	private void requireExactType(Node? expression, string first, string second, string role) {
+		Node? type = self.typeOf(expression);
+		if (expression == null || type == null || GpuKernelValidator.gpuScalar(type, first, second, "")) { return; }
+		string expected = second == "" ? first : first + " or " + second;
+		self.error(role + " must be " + expected + ", got '" + type.base + "'", expression);
+	}
+
+	class bool gpuScalar(Node type, string first, string second, string third) {
+		bool allowed = type.base == first || (second != "" && type.base == second) || (third != "" && type.base == third);
+		return allowed && !type.isArray && type.pointerDepth == 0 && type.genericArgs().len == 0 && !type.isNullable;
+	}
 }

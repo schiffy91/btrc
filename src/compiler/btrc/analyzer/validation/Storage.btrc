@@ -706,14 +706,6 @@ class StorageValidator {
 		return expected != null && actual != null && TypeIdentity.shapeKey(expected) == TypeIdentity.shapeKey(actual);
 	}
 
-	public void validateGpuArrayParameter(Node callable, Node parameter) {
-		if (!callable.isGpu) { return; }
-		Node? typeExpr = self.types.resolveAliases(parameter.type);
-		if (typeExpr != null && typeExpr.isArray && (typeExpr.isConst || typeExpr.isVolatile)) {
-			TypeValidator.fail("@gpu function '" + callable.name + "': GPU array buffers are read-write and cannot be const- or " + "volatile-qualified in parameter '" + parameter.name + "'", parameter);
-		}
-	}
-
 	public bool gpuInputHasCompatibleStorage(Node? expression, Node? expectedType, Node? actualType, Map<string, Node> vars) {
 		Node? actual = self.types.resolveAliases(actualType);
 		Node? element = self.gpuBufferElementType(actual);

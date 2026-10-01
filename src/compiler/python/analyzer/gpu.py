@@ -15,28 +15,44 @@ from src.compiler.python.syntax.ast.generated import (
     BinaryExpr,
     Block,
     BoolLiteral,
+    BraceInitializer,
     BreakStmt,
     CallExpr,
     CastExpr,
     CForStmt,
+    CharLiteral,
     ContinueStmt,
     DeleteStmt,
+    DoWhileStmt,
     ExprStmt,
     FieldAccessExpr,
     FloatLiteral,
     ForInStmt,
+    FStringLiteral,
     FunctionDecl,
     Identifier,
     IfStmt,
     IndexExpr,
     IntLiteral,
     KeepStmt,
+    LambdaExpr,
+    ListLiteral,
+    MapLiteral,
+    NewExpr,
     NullLiteral,
+    ParallelForStmt,
     ReleaseStmt,
     ReturnStmt,
+    SelfExpr,
+    SizeofExpr,
+    SpawnExpr,
+    StringLiteral,
+    SuperExpr,
+    SwitchStmt,
     TernaryExpr,
     ThrowStmt,
     TryCatchStmt,
+    TupleLiteral,
     TypeExpr,
     UnaryExpr,
     VarDeclStmt,
@@ -90,17 +106,13 @@ class GpuKernelValidator:
                 prior_array_params.add(parameter.name)
         return_type = function.return_type
         if return_type and (not self._types.is_void_value(return_type)):
-            if return_type.is_array:
-                if return_type.base not in _GPU_ARRAY_ELEM_TYPES:
-                    self._context.error(
-                        f"@gpu function '{name}' return type must be void or a typed array (int[] or float[]), got '{return_type.base}[]'",
-                        line,
-                        col,
-                    )
-            else:
+            if not return_type.is_array or return_type.base not in _GPU_ARRAY_ELEM_TYPES:
+                spelled = f"{return_type.base}[]" if return_type.is_array else return_type.base
                 self._context.error(
-                    f"@gpu function '{name}' must return void or a typed array, got '{return_type.base}'", line, col
+                    f"@gpu function '{name}': return type must be void, int[], or float[], got '{spelled}'", line, col
                 )
+        if function.body is None:
+            self._context.error(f"@gpu function '{name}': GPU kernels require a body", line, col)
         validation = GpuKernelValidation(
             self._context,
             self._index.typedef_table,
@@ -135,7 +147,8 @@ class GpuKernelValidator:
         if type_expr.is_nullable:
             self._context.error(f"@gpu function '{function_name}': nullable types not allowed in {subject}", line, col)
             return
-        if type_expr.pointer_depth > 0:
+        implicit_pointer = 1 if getattr(type_expr, "auto_upgraded", False) else 0
+        if type_expr.pointer_depth > implicit_pointer:
             self._context.error(f"@gpu function '{function_name}': pointer types not allowed in {subject}", line, col)
             return
         if type_expr.is_array and allow_array:
@@ -180,10 +193,9 @@ class GpuKernelValidator:
         line = getattr(statement, "line", 0)
         col = getattr(statement, "col", 0)
         if isinstance(statement, VarDeclStmt):
-            if statement.type:
-                self._validate_type(statement.type, f"variable '{statement.name}'", validation.function_name, line, col)
             if statement.initializer:
                 self._expressions.validate(validation, statement.initializer)
+            self._validate_type(statement.type, f"variable '{statement.name}'", validation.function_name, line, col)
             validation.declare(statement.name)
             return
         if isinstance(statement, ReturnStmt):
@@ -236,16 +248,8 @@ class GpuKernelValidator:
             return
         if isinstance(statement, (BreakStmt, ContinueStmt)):
             return
-        if isinstance(statement, (ForInStmt, TryCatchStmt, ThrowStmt, DeleteStmt, KeepStmt, ReleaseStmt)):
-            self._context.error(
-                f"@gpu function '{validation.function_name}': '{type(statement).__name__}' not allowed in GPU functions",
-                line,
-                col,
-            )
-            return
-        self._context.error(
-            f"@gpu function '{validation.function_name}': unsupported statement '{type(statement).__name__}'", line, col
-        )
+        label = _STATEMENT_LABELS.get(type(statement), "this")
+        validation.error(f"{label} statement is not allowed in GPU functions", statement)
 
     def _validate_update(self, validation: GpuKernelValidation, expression) -> None:
         update = self._expressions.is_update_statement(expression)
@@ -435,9 +439,10 @@ class GpuExpressionValidator:
         if expression is None:
             return
         if isinstance(expression, IntLiteral):
-            self._require_exact_type(validation, expression, {"int"}, "integer literal")
             if expression.value > 2147483647:
                 validation.error("integer literal is outside the WGSL i32 range", expression)
+            else:
+                self._require_exact_type(validation, expression, {"int"}, "integer literal")
             return
         if isinstance(expression, FloatLiteral):
             if LiteralDecoder.float32_problem(expression.raw, expression.value):
@@ -490,7 +495,7 @@ class GpuExpressionValidator:
         if isinstance(expression, FieldAccessExpr):
             validation.error("field and method access has no WGSL lowering", expression)
             return
-        validation.error(f"'{type(expression).__name__}' has no WGSL lowering", expression)
+        validation.error(f"{_EXPRESSION_LABELS.get(type(expression), 'expression')} has no WGSL lowering", expression)
 
     def is_update_statement(self, expression) -> bool:
         return isinstance(expression, AssignExpr) or (
@@ -752,6 +757,33 @@ class GpuIntrinsicResolver:
         )
 
 
+_STATEMENT_LABELS = {
+    Block: "nested block",
+    DoWhileStmt: "do-while",
+    ForInStmt: "for-in",
+    ParallelForStmt: "parallel for",
+    SwitchStmt: "switch",
+    DeleteStmt: "delete",
+    TryCatchStmt: "try/catch",
+    ThrowStmt: "throw",
+    KeepStmt: "keep",
+    ReleaseStmt: "release",
+}
+_EXPRESSION_LABELS = {
+    StringLiteral: "string literal",
+    CharLiteral: "character literal",
+    SelfExpr: "self",
+    SuperExpr: "super",
+    SizeofExpr: "sizeof",
+    ListLiteral: "list literal",
+    MapLiteral: "map literal",
+    BraceInitializer: "brace initializer",
+    FStringLiteral: "f-string",
+    NewExpr: "new expression",
+    TupleLiteral: "tuple literal",
+    LambdaExpr: "lambda",
+    SpawnExpr: "spawn",
+}
 _GPU_SCALAR_TYPES = frozenset({"int", "float", "bool"})
 _GPU_ARRAY_ELEM_TYPES = frozenset({"int", "float"})
 GPU_ARRAY_RESULT_CONTEXT_DIAGNOSTIC = (
