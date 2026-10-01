@@ -89,9 +89,16 @@ The provider's `IMacOSView` interface lives with `MacOSView`. A checked
 `(IMacOSView?)view` query projects the existing native owner for composition;
 an incompatible implementation returns null. Portable signatures still expose
 no SDK objects. This is a provider integration boundary, not a product API or
-a substitute for the portable API. Existing provider modules remain exported
-for migration; the factory's `GUIProvider` and `ApplicationSlot` modules are private, including
-named references through transitive imports.
+a substitute for the portable API. The factory's `GUIProvider` and
+`ApplicationSlot` modules are private, including named references through
+transitive imports.
+
+Export policy: consumers import `Library.GUI` and the portable `I*` contracts,
+never a platform module. Two provider modules stay exported on purpose as the
+AppKit seam for `Library.Tray`: `MacOS.AppKitText` and `MacOS.MacOSRunLoop`.
+The other `MacOS.*` exports remain only until the macOS native fixtures that
+still mount provider classes directly move to the factory with
+attach/arrange; they are not API, and new code must not import them.
 
 `MacOSContainer` implements `IContainer` with real native children. `attach`
 transfers subtree lifecycle responsibility; `detach` returns the same open child.
