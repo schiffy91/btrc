@@ -2,7 +2,7 @@
  *
  * Surface owns pixels, resizing, fills and readback in BTRC, including
  * scalable text drawn from owned font glyph snapshots. Native windows and
- * controls use Library.GUI.GUI; painted widget trees use Library.UI. Raster
+ * controls use Library.GUI; painted widget trees use Library.UI. Raster
  * surfaces remain independent offscreen image buffers.
  *
  * NOT auto-included. Use: import Library.GUI.Raster;

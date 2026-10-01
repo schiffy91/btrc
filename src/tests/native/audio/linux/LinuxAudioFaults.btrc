@@ -4,7 +4,7 @@
  * is reported by drain(), a stalled device never hangs suspend or drain, a
  * fixed-channel device opens a narrower selection, and an open session's PCM
  * stays in the inventory without being probed. */
-import Library.Audio.Audio;
+import Library.Audio;
 import Library.Audio.AudioDevice;
 import Library.Audio.RealtimeAudio;
 import Library.Datetime;

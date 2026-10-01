@@ -2,7 +2,7 @@ import Library.App;
 import Library.Callback;
 import Library.CLI;
 import Library.Math;
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GPU.Readback;
 import Library.Image;

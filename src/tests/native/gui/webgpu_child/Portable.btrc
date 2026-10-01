@@ -1,4 +1,4 @@
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IGPUView;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;

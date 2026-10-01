@@ -1,5 +1,5 @@
 import Library.Callback;
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IWindow;
 import Library.GUI.IGPUView;
 import Library.GPU.Readback;

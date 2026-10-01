@@ -1,7 +1,7 @@
 /* A subtree that never finishes closing cannot hang quit: run() drains it
  * for one deadline, then throws while the pending owners stay retained, and a
  * later close completes once the subtree can drain. */
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
 import Library.GUI.IWindow;

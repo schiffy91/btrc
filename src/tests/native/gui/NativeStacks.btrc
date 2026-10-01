@@ -1,4 +1,4 @@
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IStack;
 import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSViewCapture;

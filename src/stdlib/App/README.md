@@ -2,7 +2,7 @@
 
 This module contains portable application event, error and window-description
 values. The directory-picker contract lives in `Library.GUI.IDirectoryPicker`. It does not create windows or own a native event
-loop. Use `Library.GUI.GUI` and the portable `IWindow`/`IView` interfaces for
+loop. Use `Library.GUI` and the portable `IWindow`/`IView` interfaces for
 application lifecycle and native controls.
 
 The obsolete `Application`, `ApplicationWindow`, and
@@ -15,7 +15,7 @@ scopes close with that subtree. See [GUI lifecycle and rendering](../GUI/README.
 Directory selection remains an explicit provider operation:
 
 ```btrc
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IDirectoryPicker;
 
 // Run from the application's main-thread action handler.

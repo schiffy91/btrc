@@ -1,5 +1,5 @@
 /* Portable application event and directory-picker values. Native application
- * lifecycle and windows are owned by Library.GUI.GUI. */
+ * lifecycle and windows are owned by Library.GUI. */
 
 import Library.Strings;
 

@@ -1,4 +1,4 @@
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSWindow;
 import Library.GUI.MacOS.MacOSView;

@@ -2,7 +2,7 @@
 
 Realtime clip playback, practice audio and the clocks that map between them.
 Import each module by its own path; the group deliberately has **no facade
-module**. Unlike `Library.Audio.Audio`, there is no platform choice to hide
+module**. Unlike `Library.Audio`, there is no platform choice to hide
 behind one entry point: every module here is portable, and each is a separate
 contract a consumer takes on only when it needs it. A facade would only re-export
 these modules and widen every importer's visibility to all of them.

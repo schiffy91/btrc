@@ -259,7 +259,7 @@ does not yet constitute the portable declarative layout API.
 The APIs documented below are the offscreen raster surface. `Surface` owns its
 pixel buffer, resizing, fills, bitmap text, blending and readback in BTRC.
 Optional FreeType loading uses checked SDK owners and copied glyph snapshots.
-Native windows and product controls use `Library.GUI.GUI`; painted widget
+Native windows and product controls use `Library.GUI`; painted widget
 trees use `Library.UI`. The legacy immediate-mode widgets (`RasterGUI`,
 `GUIApp`, `Theme`, `GUIInput`, `Color`) and the declarative `View` tree were
 removed: they duplicated `Library.UI` and `Library.Image` inside the

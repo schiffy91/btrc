@@ -1,6 +1,6 @@
 import Library.CLI;
 import Library.Datetime;
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.IGPUView;
