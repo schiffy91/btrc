@@ -1,4 +1,4 @@
-// Case / alphanumeric string predicates: isUpper, isLower, isAlnum, isAlnumStr.
+// Case / alphanumeric string predicates: isUpper, isLower, isAlnum.
 #include <assert.h>
 
 int main() {
@@ -8,11 +8,9 @@ int main() {
 	assert("abc".isLower());
 	assert(!"abC".isLower());
 
-	// isAlnum and its alias isAlnumStr (same helper, both names compile)
+	// isAlnum
 	assert("abc123".isAlnum());
 	assert(!"abc 1".isAlnum());
-	assert("abc123".isAlnumStr());
-	assert(!"abc 1".isAlnumStr());
 
 	// Empty string is false for every predicate here.
 	assert("".isUpper() == false);

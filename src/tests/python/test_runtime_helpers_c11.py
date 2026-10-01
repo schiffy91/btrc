@@ -14,7 +14,6 @@ ALLOC = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_catego
 CYCLES = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("cycles")}
 DIVMOD = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("divmod")}
 HASH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("hash")}
-MATH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("math")}
 THREADS = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("threads")}
 TRYCATCH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("trycatch")}
 
@@ -35,7 +34,6 @@ HEADERS = """\
 HELPER_ORDER = (
     *((ALLOC, name) for name in ALLOC),
     *((DIVMOD, name) for name in DIVMOD),
-    *((MATH, name) for name in MATH),
     *((HASH, name) for name in HASH),
     (TRYCATCH, "__btrc_try_level"),
     (TRYCATCH, "__btrc_trycatch_globals"),
@@ -302,14 +300,6 @@ int main(void) {
     if (__btrc_mod(7.9, 2.0) != 1) return 21;
     if (__btrc_hash_real(0.0L) != __btrc_hash_real(-0.0L)) return 22;
     if (__btrc_hash_real(INFINITY) != __btrc_hash_real(INFINITY)) return 23;
-    if (__btrc_math_gcd(-42, 56) != 14) return 2;
-    if (__btrc_math_lcm(-21, 6) != 42) return 3;
-    if (__btrc_math_fibonacci(46) != 1836311903) return 4;
-    if (!__btrc_math_isPrime(INT_MAX)) return 5;
-    int ints[] = {INT_MAX, -INT_MAX, 7};
-    float floats[] = {1.0f, 2.5f};
-    if (__btrc_math_sum_int(ints, 3) != 7) return 6;
-    if (__btrc_math_fsum(floats, 2) != 3.5f) return 7;
     if (__btrc_hash_str(NULL) != 0) return 8;
 
     void* zero = __btrc_safe_calloc(0, SIZE_MAX);
@@ -394,10 +384,7 @@ int main(int argc, char** argv) {
     if (strcmp(argv[1], "calloc") == 0) {
         (void)__btrc_safe_calloc(SIZE_MAX, 2); return 0;
     }
-    if (strcmp(argv[1], "fib") == 0) return __btrc_math_fibonacci(47);
-    if (strcmp(argv[1], "lcm") == 0) return __btrc_math_lcm(INT_MAX, 2);
-    int values[] = {INT_MAX, 1};
-    return __btrc_math_sum_int(values, 2);
+    return 0;
 }
 """
     binary = None
@@ -416,9 +403,6 @@ int main(int argc, char** argv) {
         "mod_zero": "Modulo by zero",
         "mod_real": "Floating modulo conversion out of range",
         "calloc": "calloc size overflow",
-        "fib": "fibonacci result overflow",
-        "lcm": "lcm result overflow",
-        "sum": "sum result overflow",
     }
     for case, message in expected.items():
         result = subprocess.run([binary, case], capture_output=True, text=True, timeout=15)

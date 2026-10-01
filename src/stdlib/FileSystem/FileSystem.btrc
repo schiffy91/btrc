@@ -444,7 +444,7 @@ class UnixFileSystem {
 			}
 			if (length < (ssize_t)capacity) {
 				buffer[(int)length] = '\0';
-				return __btrc_str_track(buffer);
+				return __btrc_string_adopt(buffer);
 			}
 			if (capacity > 1073741823) {
 				free(buffer);
@@ -467,13 +467,13 @@ class UnixFileSystem {
 			capacity = capacity * 2;
 			buffer = (char*)__btrc_safe_realloc(buffer, (size_t)capacity);
 		}
-		return __btrc_str_track(buffer);
+		return __btrc_string_adopt(buffer);
 	}
 
 	class string realPath(string path) {
 		if (path == null) { return ""; }
 		char* result = realpath(path, NULL);
-		return result == NULL ? "" : __btrc_str_track(result);
+		return result == NULL ? "" : __btrc_string_adopt(result);
 	}
 
 	class string tempDir(string prefix) {
@@ -567,7 +567,7 @@ class PathTools {
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)outLen + (size_t)1);
 		memcpy(result, (char*)path + start, (size_t)outLen);
 		result[outLen] = '\0';
-		return __btrc_str_track(result);
+		return __btrc_string_adopt(result);
 	}
 
 	class string dirname(string path) {
@@ -589,7 +589,7 @@ class PathTools {
 		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)end + (size_t)1);
 		memcpy(result, path, (size_t)end);
 		result[end] = '\0';
-		return __btrc_str_track(result);
+		return __btrc_string_adopt(result);
 	}
 
 	class string joinFor(string left, string right, bool windows) {

@@ -879,7 +879,7 @@ class FeFrontendResolver {
 		int fileIndex = 0;
 		while (fileIndex < snapshot.count()) {
 			string content = snapshot.sourceAt(fileIndex);
-			if (self.stdlib.relaxedCompositionPath(snapshot.pathAt(fileIndex)) && !self.namesIntersect(self.definedTypeNames(content), userNames)) {
+			if (!self.namesIntersect(self.definedTypeNames(content), userNames)) {
 				Vector<string> fileLines = self.sourceWithoutImports(content);
 				int lineIndex = 0;
 				while (lineIndex < fileLines.len) {

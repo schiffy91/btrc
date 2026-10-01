@@ -43,7 +43,6 @@ The runtime exposes these small operations:
 | `__btrc_string_retain(value)` | Increment a registered value and return it; borrowed values are unchanged. |
 | `__btrc_string_release(value)` | Decrement a registered value and free at zero; borrowed values are unchanged. |
 | `__btrc_string_release_cleanup(value)` | Exception-cleanup adapter with the existing `void (*)(void*)` ABI. |
-| `__btrc_str_track(value)` | Compatibility spelling for adoption, not a temporary pool. |
 
 The side table must use a C11 process-wide synchronization primitive, perform
 overflow and underflow checks, and remove the last table allocation when the
@@ -51,6 +50,10 @@ last managed string dies so leak sanitizers observe a clean process. It must not
 depend on pthreads. As with ordinary ARC, retaining a value after its last owner
 has concurrently released it is invalid; synchronization protects registry
 integrity, not unsynchronized application aliases.
+
+Adoption has exactly one spelling. The former `__btrc_str_track` forwarder
+and the no-op `__btrc_str_flush` were removed; compiler-emitted adoption, the
+stdlib, and the hosted ABI all call `__btrc_string_adopt` directly.
 
 ## Compiler ownership domains
 

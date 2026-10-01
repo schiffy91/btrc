@@ -1115,7 +1115,7 @@ class TemporaryDirectory {
 			free(raw);
 			return TemporaryDirectoryOpenOutcome.failed(FileSystemError.fromNative("canonicalize temporary directory", templatePath, nativeCode));
 		}
-		string path = __btrc_str_track(canonical);
+		string path = __btrc_string_adopt(canonical);
 		free(raw);
 		DirectoryOpenOutcome opened = DirectoryHandle.openExact(path);
 		if (!opened.ok()) {

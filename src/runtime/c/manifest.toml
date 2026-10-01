@@ -311,31 +311,13 @@ source_visible = true
 order = { python = 20, btrc = 19 }
 
 [[helpers]]
-name = "__btrc_str_track"
-category = "string_pool"
-asset = "strings.c"
-dependencies = ["__btrc_string_adopt"]
-headers = []
-source_visible = true
-order = { python = 21, btrc = 20 }
-
-[[helpers]]
-name = "__btrc_str_flush"
-category = "string_pool"
-asset = "strings.c"
-dependencies = []
-headers = []
-source_visible = false
-order = { python = 22, btrc = 21 }
-
-[[helpers]]
 name = "__btrc_string_or_empty"
 category = "string"
 asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = true
-order = { python = 23, btrc = 22 }
+order = { python = 21, btrc = 20 }
 
 [[helpers]]
 name = "__btrc_string_length"
@@ -344,7 +326,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_registry_slot", "__btrc_string_registry_lock"]
 headers = []
 source_visible = true
-order = { python = 24, btrc = 23 }
+order = { python = 22, btrc = 21 }
 
 [[helpers]]
 name = "__btrc_string_alloc"
@@ -353,7 +335,7 @@ asset = "strings.c"
 dependencies = ["__btrc_safe_realloc", "__btrc_string_adopt"]
 headers = []
 source_visible = true
-order = { python = 25, btrc = 24 }
+order = { python = 23, btrc = 22 }
 
 [[helpers]]
 name = "__btrc_ascii_upper"
@@ -362,7 +344,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 26, btrc = 25 }
+order = { python = 24, btrc = 23 }
 
 [[helpers]]
 name = "__btrc_ascii_lower"
@@ -371,7 +353,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 27, btrc = 26 }
+order = { python = 25, btrc = 24 }
 
 [[helpers]]
 name = "__btrc_ascii_space"
@@ -380,7 +362,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 28, btrc = 27 }
+order = { python = 26, btrc = 25 }
 
 [[helpers]]
 name = "__btrc_substring"
@@ -389,7 +371,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 29, btrc = 28 }
+order = { python = 27, btrc = 26 }
 
 [[helpers]]
 name = "__btrc_trim"
@@ -398,7 +380,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"]
 headers = []
 source_visible = false
-order = { python = 30, btrc = 29 }
+order = { python = 28, btrc = 27 }
 
 [[helpers]]
 name = "__btrc_toUpper"
@@ -407,7 +389,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_upper"]
 headers = []
 source_visible = false
-order = { python = 31, btrc = 30 }
+order = { python = 29, btrc = 28 }
 
 [[helpers]]
 name = "__btrc_toLower"
@@ -416,7 +398,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_lower"]
 headers = []
 source_visible = false
-order = { python = 32, btrc = 31 }
+order = { python = 30, btrc = 29 }
 
 [[helpers]]
 name = "__btrc_replace"
@@ -425,7 +407,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"]
 headers = []
 source_visible = false
-order = { python = 33, btrc = 32 }
+order = { python = 31, btrc = 30 }
 
 [[helpers]]
 name = "__btrc_split"
@@ -434,7 +416,7 @@ asset = "strings.c"
 dependencies = ["__btrc_safe_realloc", "__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 34, btrc = 33 }
+order = { python = 32, btrc = 31 }
 
 [[helpers]]
 name = "__btrc_repeat"
@@ -443,7 +425,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 35, btrc = 34 }
+order = { python = 33, btrc = 32 }
 
 [[helpers]]
 name = "__btrc_reverse"
@@ -452,7 +434,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 36, btrc = 35 }
+order = { python = 34, btrc = 33 }
 
 [[helpers]]
 name = "__btrc_removePrefix"
@@ -461,7 +443,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"]
 headers = []
 source_visible = false
-order = { python = 37, btrc = 36 }
+order = { python = 35, btrc = 34 }
 
 [[helpers]]
 name = "__btrc_removeSuffix"
@@ -470,7 +452,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"]
 headers = []
 source_visible = false
-order = { python = 38, btrc = 37 }
+order = { python = 36, btrc = 35 }
 
 [[helpers]]
 name = "__btrc_capitalize"
@@ -484,7 +466,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 39, btrc = 38 }
+order = { python = 37, btrc = 36 }
 
 [[helpers]]
 name = "__btrc_title"
@@ -499,7 +481,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 40, btrc = 39 }
+order = { python = 38, btrc = 37 }
 
 [[helpers]]
 name = "__btrc_swapCase"
@@ -513,7 +495,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 41, btrc = 40 }
+order = { python = 39, btrc = 38 }
 
 [[helpers]]
 name = "__btrc_padLeft"
@@ -522,7 +504,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 42, btrc = 41 }
+order = { python = 40, btrc = 39 }
 
 [[helpers]]
 name = "__btrc_padRight"
@@ -531,7 +513,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 43, btrc = 42 }
+order = { python = 41, btrc = 40 }
 
 [[helpers]]
 name = "__btrc_center"
@@ -540,7 +522,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 44, btrc = 43 }
+order = { python = 42, btrc = 41 }
 
 [[helpers]]
 name = "__btrc_lstrip"
@@ -549,7 +531,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"]
 headers = []
 source_visible = false
-order = { python = 45, btrc = 44 }
+order = { python = 43, btrc = 42 }
 
 [[helpers]]
 name = "__btrc_rstrip"
@@ -558,7 +540,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"]
 headers = []
 source_visible = false
-order = { python = 46, btrc = 45 }
+order = { python = 44, btrc = 43 }
 
 [[helpers]]
 name = "__btrc_zfill"
@@ -567,7 +549,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 47, btrc = 46 }
+order = { python = 45, btrc = 44 }
 
 [[helpers]]
 name = "__btrc_strcat"
@@ -576,7 +558,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"]
 headers = []
 source_visible = false
-order = { python = 48, btrc = 47 }
+order = { python = 46, btrc = 45 }
 
 [[helpers]]
 name = "__btrc_join"
@@ -585,7 +567,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 49, btrc = 48 }
+order = { python = 47, btrc = 46 }
 
 [[helpers]]
 name = "__btrc_charAt"
@@ -594,7 +576,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 50, btrc = 49 }
+order = { python = 48, btrc = 47 }
 
 [[helpers]]
 name = "__btrc_indexOf"
@@ -603,7 +585,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 51, btrc = 50 }
+order = { python = 49, btrc = 48 }
 
 [[helpers]]
 name = "__btrc_lastIndexOf"
@@ -612,7 +594,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 52, btrc = 51 }
+order = { python = 50, btrc = 49 }
 
 [[helpers]]
 name = "__btrc_isEmpty"
@@ -621,7 +603,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 53, btrc = 52 }
+order = { python = 51, btrc = 50 }
 
 [[helpers]]
 name = "__btrc_startsWith"
@@ -630,7 +612,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 54, btrc = 53 }
+order = { python = 52, btrc = 51 }
 
 [[helpers]]
 name = "__btrc_endsWith"
@@ -639,7 +621,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 55, btrc = 54 }
+order = { python = 53, btrc = 52 }
 
 [[helpers]]
 name = "__btrc_strContains"
@@ -648,7 +630,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 56, btrc = 55 }
+order = { python = 54, btrc = 53 }
 
 [[helpers]]
 name = "__btrc_count"
@@ -657,7 +639,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 57, btrc = 56 }
+order = { python = 55, btrc = 54 }
 
 [[helpers]]
 name = "__btrc_find"
@@ -666,7 +648,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 58, btrc = 57 }
+order = { python = 56, btrc = 55 }
 
 [[helpers]]
 name = "__btrc_isDigitStr"
@@ -675,7 +657,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 59, btrc = 58 }
+order = { python = 57, btrc = 56 }
 
 [[helpers]]
 name = "__btrc_isAlphaStr"
@@ -684,7 +666,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 60, btrc = 59 }
+order = { python = 58, btrc = 57 }
 
 [[helpers]]
 name = "__btrc_isBlank"
@@ -693,7 +675,7 @@ asset = "strings.c"
 dependencies = ["__btrc_ascii_space"]
 headers = []
 source_visible = false
-order = { python = 61, btrc = 60 }
+order = { python = 59, btrc = 58 }
 
 [[helpers]]
 name = "__btrc_isUpper"
@@ -702,7 +684,7 @@ asset = "strings.c"
 dependencies = ["__btrc_ascii_space"]
 headers = []
 source_visible = false
-order = { python = 62, btrc = 61 }
+order = { python = 60, btrc = 59 }
 
 [[helpers]]
 name = "__btrc_isLower"
@@ -711,7 +693,7 @@ asset = "strings.c"
 dependencies = ["__btrc_ascii_space"]
 headers = []
 source_visible = false
-order = { python = 63, btrc = 62 }
+order = { python = 61, btrc = 60 }
 
 [[helpers]]
 name = "__btrc_isAlnumStr"
@@ -720,7 +702,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 64, btrc = 63 }
+order = { python = 62, btrc = 61 }
 
 [[helpers]]
 name = "__btrc_utf8_charlen"
@@ -729,7 +711,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_length"]
 headers = []
 source_visible = false
-order = { python = 65, btrc = 64 }
+order = { python = 63, btrc = 62 }
 
 [[helpers]]
 name = "__btrc_charLen"
@@ -738,7 +720,7 @@ asset = "strings.c"
 dependencies = ["__btrc_utf8_charlen"]
 headers = []
 source_visible = false
-order = { python = 66, btrc = 65 }
+order = { python = 64, btrc = 63 }
 
 [[helpers]]
 name = "__btrc_parseLong"
@@ -747,7 +729,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 67, btrc = 66 }
+order = { python = 65, btrc = 64 }
 
 [[helpers]]
 name = "__btrc_parseInt"
@@ -756,7 +738,7 @@ asset = "strings.c"
 dependencies = ["__btrc_parseLong"]
 headers = []
 source_visible = false
-order = { python = 68, btrc = 67 }
+order = { python = 66, btrc = 65 }
 
 [[helpers]]
 name = "__btrc_parseBool"
@@ -765,7 +747,7 @@ asset = "strings.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 69, btrc = 68 }
+order = { python = 67, btrc = 66 }
 
 [[helpers]]
 name = "__btrc_intToString"
@@ -774,7 +756,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 70, btrc = 69 }
+order = { python = 68, btrc = 67 }
 
 [[helpers]]
 name = "__btrc_longToString"
@@ -783,7 +765,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 71, btrc = 70 }
+order = { python = 69, btrc = 68 }
 
 [[helpers]]
 name = "__btrc_longLongToString"
@@ -792,7 +774,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 72, btrc = 71 }
+order = { python = 70, btrc = 69 }
 
 [[helpers]]
 name = "__btrc_uintToString"
@@ -801,7 +783,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 73, btrc = 72 }
+order = { python = 71, btrc = 70 }
 
 [[helpers]]
 name = "__btrc_ulongToString"
@@ -810,7 +792,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 74, btrc = 73 }
+order = { python = 72, btrc = 71 }
 
 [[helpers]]
 name = "__btrc_ulongLongToString"
@@ -819,7 +801,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 75, btrc = 74 }
+order = { python = 73, btrc = 72 }
 
 [[helpers]]
 name = "__btrc_floatToString"
@@ -828,7 +810,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 76, btrc = 75 }
+order = { python = 74, btrc = 73 }
 
 [[helpers]]
 name = "__btrc_doubleToString"
@@ -837,7 +819,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 77, btrc = 76 }
+order = { python = 75, btrc = 74 }
 
 [[helpers]]
 name = "__btrc_longDoubleToString"
@@ -846,7 +828,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 78, btrc = 77 }
+order = { python = 76, btrc = 75 }
 
 [[helpers]]
 name = "__btrc_charToString"
@@ -855,7 +837,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 79, btrc = 78 }
+order = { python = 77, btrc = 76 }
 
 [[helpers]]
 name = "__btrc_fromInt"
@@ -864,7 +846,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 80, btrc = 79 }
+order = { python = 78, btrc = 77 }
 
 [[helpers]]
 name = "__btrc_fromFloat"
@@ -873,70 +855,7 @@ asset = "strings.c"
 dependencies = ["__btrc_string_alloc"]
 headers = []
 source_visible = false
-order = { python = 81, btrc = 80 }
-
-[[helpers]]
-name = "__btrc_math_factorial"
-category = "math"
-asset = "core.c"
-dependencies = []
-headers = []
-source_visible = false
-order = { python = 82, btrc = 81 }
-
-[[helpers]]
-name = "__btrc_math_gcd"
-category = "math"
-asset = "core.c"
-dependencies = []
-headers = []
-source_visible = false
-order = { python = 83, btrc = 82 }
-
-[[helpers]]
-name = "__btrc_math_lcm"
-category = "math"
-asset = "core.c"
-dependencies = ["__btrc_math_gcd"]
-headers = []
-source_visible = false
-order = { python = 84, btrc = 83 }
-
-[[helpers]]
-name = "__btrc_math_fibonacci"
-category = "math"
-asset = "core.c"
-dependencies = []
-headers = []
-source_visible = false
-order = { python = 85, btrc = 84 }
-
-[[helpers]]
-name = "__btrc_math_isPrime"
-category = "math"
-asset = "core.c"
-dependencies = []
-headers = []
-source_visible = false
-order = { python = 86, btrc = 85 }
-
-[[helpers]]
-name = "__btrc_math_sum_int"
-category = "math"
-asset = "core.c"
-dependencies = []
-headers = []
-source_visible = false
-order = { python = 87, btrc = 86 }
-
-[[helpers]]
-name = "__btrc_math_fsum"
-category = "math"
-asset = "core.c"
-dependencies = []
-headers = []
-source_visible = false
-order = { python = 88, btrc = 87 }
+order = { python = 79, btrc = 78 }
 
 [[helpers]]
 name = "__btrc_tls_state"
@@ -945,7 +864,7 @@ asset = "trycatch.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 89, btrc = 88 }
+order = { python = 80, btrc = 79 }
 
 [[helpers]]
 name = "__btrc_try_level"
@@ -954,7 +873,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 90, btrc = 89 }
+order = { python = 81, btrc = 80 }
 
 [[helpers]]
 name = "__btrc_trycatch_globals"
@@ -963,7 +882,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_tls_state", "__btrc_try_level"]
 headers = ["setjmp.h"]
 source_visible = false
-order = { python = 91, btrc = 90 }
+order = { python = 82, btrc = 81 }
 
 [[helpers]]
 name = "__btrc_copy_error_message"
@@ -972,7 +891,7 @@ asset = "trycatch.c"
 dependencies = []
 headers = ["string.h"]
 source_visible = false
-order = { python = 92, btrc = 91 }
+order = { python = 83, btrc = 82 }
 
 [[helpers]]
 name = "__btrc_try_capacity"
@@ -981,7 +900,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 93, btrc = 92 }
+order = { python = 84, btrc = 83 }
 
 [[helpers]]
 name = "__btrc_launder_state"
@@ -990,7 +909,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 94, btrc = 94 }
+order = { python = 85, btrc = 85 }
 
 [[helpers]]
 name = "__btrc_launder"
@@ -999,7 +918,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_launder_state"]
 headers = []
 source_visible = false
-order = { python = 95, btrc = 95 }
+order = { python = 86, btrc = 86 }
 
 [[helpers]]
 name = "__btrc_push_try"
@@ -1008,7 +927,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_trycatch_globals", "__btrc_try_capacity", "__btrc_safe_realloc"]
 headers = []
 source_visible = false
-order = { python = 96, btrc = 96 }
+order = { python = 87, btrc = 87 }
 
 [[helpers]]
 name = "__btrc_cleanup_types"
@@ -1017,7 +936,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_tls_state", "__btrc_try_level", "__btrc_arc_callback_types"]
 headers = []
 source_visible = false
-order = { python = 97, btrc = 160 }
+order = { python = 88, btrc = 151 }
 
 [[helpers]]
 name = "__btrc_cleanup_capacity"
@@ -1026,7 +945,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 98, btrc = 93 }
+order = { python = 89, btrc = 84 }
 
 [[helpers]]
 name = "__btrc_register_cleanup_kind"
@@ -1035,7 +954,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_cleanup_types", "__btrc_cleanup_capacity", "__btrc_safe_realloc"]
 headers = []
 source_visible = false
-order = { python = 99, btrc = 161 }
+order = { python = 90, btrc = 152 }
 
 [[helpers]]
 name = "__btrc_register_cleanup"
@@ -1044,7 +963,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_register_cleanup_kind"]
 headers = []
 source_visible = false
-order = { python = 100, btrc = 162 }
+order = { python = 91, btrc = 153 }
 
 [[helpers]]
 name = "__btrc_register_direct_cleanup"
@@ -1053,7 +972,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_register_cleanup_kind"]
 headers = []
 source_visible = false
-order = { python = 101, btrc = 163 }
+order = { python = 92, btrc = 154 }
 
 [[helpers]]
 name = "__btrc_run_cleanup_guarded"
@@ -1062,7 +981,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_cleanup_types", "__btrc_push_try", "__btrc_arc_release"]
 headers = []
 source_visible = false
-order = { python = 102, btrc = 169 }
+order = { python = 93, btrc = 160 }
 
 [[helpers]]
 name = "__btrc_arc_guard_hook"
@@ -1071,7 +990,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_arc_callback_types", "__btrc_push_try", "__btrc_copy_error_message"]
 headers = []
 source_visible = false
-order = { python = 103, btrc = 167 }
+order = { python = 94, btrc = 158 }
 
 [[helpers]]
 name = "__btrc_raise_captured"
@@ -1080,7 +999,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_arc_callback_types"]
 headers = ["stdio.h", "stdlib.h"]
 source_visible = false
-order = { python = 104, btrc = 168 }
+order = { python = 95, btrc = 159 }
 
 [[helpers]]
 name = "__btrc_flush_cycles_guarded"
@@ -1089,7 +1008,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_push_try", "__btrc_flush_cycles"]
 headers = []
 source_visible = false
-order = { python = 105, btrc = 170 }
+order = { python = 96, btrc = 161 }
 
 [[helpers]]
 name = "__btrc_run_cleanups"
@@ -1105,7 +1024,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 106, btrc = 171 }
+order = { python = 97, btrc = 162 }
 
 [[helpers]]
 name = "__btrc_discard_cleanups"
@@ -1114,7 +1033,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_cleanup_types"]
 headers = []
 source_visible = false
-order = { python = 107, btrc = 164 }
+order = { python = 98, btrc = 155 }
 
 [[helpers]]
 name = "__btrc_cleanup_mark"
@@ -1123,7 +1042,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_cleanup_types"]
 headers = []
 source_visible = false
-order = { python = 108, btrc = 165 }
+order = { python = 99, btrc = 156 }
 
 [[helpers]]
 name = "__btrc_discard_cleanups_to"
@@ -1132,7 +1051,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_cleanup_types"]
 headers = []
 source_visible = false
-order = { python = 109, btrc = 166 }
+order = { python = 100, btrc = 157 }
 
 [[helpers]]
 name = "__btrc_throw"
@@ -1141,7 +1060,7 @@ asset = "trycatch.c"
 dependencies = ["__btrc_trycatch_globals", "__btrc_copy_error_message", "__btrc_run_cleanups"]
 headers = []
 source_visible = false
-order = { python = 110, btrc = 172 }
+order = { python = 101, btrc = 163 }
 
 [[helpers]]
 name = "__btrc_try_state_cleanup"
@@ -1156,7 +1075,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 111, btrc = 173 }
+order = { python = 102, btrc = 164 }
 
 [[helpers]]
 name = "__btrc_hash_real"
@@ -1165,7 +1084,7 @@ asset = "core.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 112, btrc = 97 }
+order = { python = 103, btrc = 88 }
 
 [[helpers]]
 name = "__btrc_hash_str"
@@ -1174,7 +1093,7 @@ asset = "core.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 113, btrc = 98 }
+order = { python = 104, btrc = 89 }
 
 [[helpers]]
 name = "List_forEach"
@@ -1183,7 +1102,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 114 }
+order = { python = 105 }
 
 [[helpers]]
 name = "List_filter"
@@ -1192,7 +1111,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 115 }
+order = { python = 106 }
 
 [[helpers]]
 name = "List_any"
@@ -1201,7 +1120,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 116 }
+order = { python = 107 }
 
 [[helpers]]
 name = "List_all"
@@ -1210,7 +1129,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 117 }
+order = { python = 108 }
 
 [[helpers]]
 name = "List_findIndex"
@@ -1219,7 +1138,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 118 }
+order = { python = 109 }
 
 [[helpers]]
 name = "List_map"
@@ -1228,7 +1147,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 119 }
+order = { python = 110 }
 
 [[helpers]]
 name = "List_reduce"
@@ -1237,7 +1156,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 120 }
+order = { python = 111 }
 
 [[helpers]]
 name = "Map_forEach"
@@ -1246,7 +1165,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 121 }
+order = { python = 112 }
 
 [[helpers]]
 name = "Map_containsValue"
@@ -1255,7 +1174,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 122 }
+order = { python = 113 }
 
 [[helpers]]
 name = "Set_forEach"
@@ -1264,7 +1183,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 123 }
+order = { python = 114 }
 
 [[helpers]]
 name = "Set_filter"
@@ -1273,7 +1192,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 124 }
+order = { python = 115 }
 
 [[helpers]]
 name = "Set_any"
@@ -1282,7 +1201,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 125 }
+order = { python = 116 }
 
 [[helpers]]
 name = "Set_all"
@@ -1291,7 +1210,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 126 }
+order = { python = 117 }
 
 [[helpers]]
 name = "Set_findIndex"
@@ -1300,7 +1219,7 @@ asset = "collections.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 127 }
+order = { python = 118 }
 
 [[helpers]]
 name = "__btrc_arc_callback_types"
@@ -1324,7 +1243,7 @@ provided_types = [
   "__btrc_raise_fn",
 ]
 source_visible = false
-order = { python = 128, btrc = 99 }
+order = { python = 119, btrc = 90 }
 
 [[helpers]]
 name = "__btrc_arc_header_of"
@@ -1333,7 +1252,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_callback_types"]
 headers = []
 source_visible = false
-order = { python = 129, btrc = 100 }
+order = { python = 120, btrc = 91 }
 
 [[helpers]]
 name = "__btrc_arc_type_of"
@@ -1342,7 +1261,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_header_of"]
 headers = []
 source_visible = false
-order = { python = 130, btrc = 101 }
+order = { python = 121, btrc = 92 }
 
 [[helpers]]
 name = "__btrc_interface_try_methods"
@@ -1351,7 +1270,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_type_of"]
 headers = ["string.h"]
 source_visible = false
-order = { python = 230, btrc = 215 }
+order = { python = 221, btrc = 206 }
 
 [[helpers]]
 name = "__btrc_interface_methods"
@@ -1360,7 +1279,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_interface_try_methods"]
 headers = ["string.h", "stdio.h", "stdlib.h"]
 source_visible = false
-order = { python = 231, btrc = 216 }
+order = { python = 222, btrc = 207 }
 
 [[helpers]]
 name = "__btrc_arc_validate"
@@ -1369,7 +1288,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_header_of"]
 headers = []
 source_visible = false
-order = { python = 131, btrc = 102 }
+order = { python = 122, btrc = 93 }
 
 [[helpers]]
 name = "__btrc_destroyed_tracking"
@@ -1378,7 +1297,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 132, btrc = 103 }
+order = { python = 123, btrc = 94 }
 
 [[helpers]]
 name = "__btrc_destroyed_tracking_scope"
@@ -1391,7 +1310,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 133, btrc = 113 }
+order = { python = 124, btrc = 104 }
 
 [[helpers]]
 name = "__btrc_is_destroyed"
@@ -1400,7 +1319,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_destroyed_tracking", "__btrc_arc_mutation_lock"]
 headers = []
 source_visible = false
-order = { python = 134, btrc = 114 }
+order = { python = 125, btrc = 105 }
 
 [[helpers]]
 name = "__btrc_destroyed_capacity"
@@ -1409,7 +1328,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 135, btrc = 115 }
+order = { python = 126, btrc = 106 }
 
 [[helpers]]
 name = "__btrc_mark_destroyed"
@@ -1423,7 +1342,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 136, btrc = 116 }
+order = { python = 127, btrc = 107 }
 
 [[helpers]]
 name = "__btrc_suspect_state"
@@ -1432,7 +1351,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_callback_types"]
 headers = []
 source_visible = false
-order = { python = 137, btrc = 117 }
+order = { python = 128, btrc = 108 }
 
 [[helpers]]
 name = "__btrc_suspect_capacity"
@@ -1441,7 +1360,7 @@ asset = "cycles.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 138, btrc = 118 }
+order = { python = 129, btrc = 109 }
 
 [[helpers]]
 name = "__btrc_ptr_hash"
@@ -1450,7 +1369,7 @@ asset = "cycles.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 139, btrc = 119 }
+order = { python = 130, btrc = 110 }
 
 [[helpers]]
 name = "__btrc_suspect_locked"
@@ -1467,7 +1386,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 140, btrc = 120 }
+order = { python = 131, btrc = 111 }
 
 [[helpers]]
 name = "__btrc_suspect"
@@ -1476,7 +1395,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_suspect_locked", "__btrc_arc_mutation_lock"]
 headers = []
 source_visible = false
-order = { python = 141, btrc = 121 }
+order = { python = 132, btrc = 112 }
 
 [[helpers]]
 name = "__btrc_arc_lock_state"
@@ -1485,7 +1404,7 @@ asset = "cycles.c"
 dependencies = []
 headers = ["stdatomic.h"]
 source_visible = false
-order = { python = 142, btrc = 104 }
+order = { python = 133, btrc = 95 }
 
 [[helpers]]
 name = "__btrc_arc_shutdown_state"
@@ -1494,7 +1413,7 @@ asset = "cycles.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 143, btrc = 109 }
+order = { python = 134, btrc = 100 }
 
 [[helpers]]
 name = "__btrc_arc_active_drains_state"
@@ -1503,7 +1422,7 @@ asset = "cycles.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 144, btrc = 110 }
+order = { python = 135, btrc = 101 }
 
 [[helpers]]
 name = "__btrc_arc_active_unwinds_state"
@@ -1512,7 +1431,7 @@ asset = "cycles.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 145, btrc = 111 }
+order = { python = 136, btrc = 102 }
 
 [[helpers]]
 name = "__btrc_arc_snapshot_state"
@@ -1521,7 +1440,7 @@ asset = "cycles.c"
 dependencies = []
 headers = ["stdatomic.h"]
 source_visible = false
-order = { python = 146, btrc = 105 }
+order = { python = 137, btrc = 96 }
 
 [[helpers]]
 name = "__btrc_arc_mutation_lock"
@@ -1534,7 +1453,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 147, btrc = 112 }
+order = { python = 138, btrc = 103 }
 
 [[helpers]]
 name = "__btrc_arc_topology_state"
@@ -1543,7 +1462,7 @@ asset = "cycles.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 148, btrc = 122 }
+order = { python = 139, btrc = 113 }
 
 [[helpers]]
 name = "__btrc_arc_topology_depth_state"
@@ -1552,7 +1471,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 149, btrc = 123 }
+order = { python = 140, btrc = 114 }
 
 [[helpers]]
 name = "__btrc_arc_topology_begin"
@@ -1568,7 +1487,7 @@ dependencies = [
 ]
 headers = ["limits.h", "stdio.h", "stdlib.h"]
 source_visible = false
-order = { python = 150, btrc = 125 }
+order = { python = 141, btrc = 116 }
 
 [[helpers]]
 name = "__btrc_arc_topology_leave"
@@ -1582,7 +1501,7 @@ dependencies = [
 ]
 headers = ["stdio.h", "stdlib.h"]
 source_visible = false
-order = { python = 151, btrc = 126 }
+order = { python = 142, btrc = 117 }
 
 [[helpers]]
 name = "__btrc_arc_topology_cleanup"
@@ -1596,7 +1515,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 152, btrc = 137 }
+order = { python = 143, btrc = 128 }
 
 [[helpers]]
 name = "__btrc_arc_topology_complete"
@@ -1610,7 +1529,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 153, btrc = 138 }
+order = { python = 144, btrc = 129 }
 
 [[helpers]]
 name = "__btrc_arc_deferred_state"
@@ -1619,7 +1538,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_tls_state", "__btrc_arc_callback_types", "__btrc_arc_header_of"]
 headers = ["stdio.h", "stdlib.h"]
 source_visible = false
-order = { python = 154, btrc = 127 }
+order = { python = 145, btrc = 118 }
 
 [[helpers]]
 name = "__btrc_arc_snapshot_gate_state"
@@ -1628,7 +1547,7 @@ asset = "cycles.c"
 dependencies = []
 headers = ["stdatomic.h"]
 source_visible = false
-order = { python = 155, btrc = 106 }
+order = { python = 146, btrc = 97 }
 
 [[helpers]]
 name = "__btrc_arc_exclusive_snapshot"
@@ -1644,7 +1563,7 @@ dependencies = [
 ]
 headers = ["limits.h", "stdio.h", "stdlib.h"]
 source_visible = false
-order = { python = 156, btrc = 124 }
+order = { python = 147, btrc = 115 }
 
 [[helpers]]
 name = "__btrc_arc_reverse_state"
@@ -1653,7 +1572,7 @@ asset = "cycles.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 157, btrc = 139 }
+order = { python = 148, btrc = 130 }
 
 [[helpers]]
 name = "__btrc_arc_register_incoming"
@@ -1662,7 +1581,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_header_of", "__btrc_safe_realloc"]
 headers = []
 source_visible = false
-order = { python = 158, btrc = 140 }
+order = { python = 149, btrc = 131 }
 
 [[helpers]]
 name = "__btrc_arc_unregister_incoming"
@@ -1671,7 +1590,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_header_of"]
 headers = []
 source_visible = false
-order = { python = 159, btrc = 130 }
+order = { python = 150, btrc = 121 }
 
 [[helpers]]
 name = "__btrc_arc_incoming_teardown_pending"
@@ -1680,7 +1599,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_validate"]
 headers = []
 source_visible = false
-order = { python = 160, btrc = 141 }
+order = { python = 151, btrc = 132 }
 
 [[helpers]]
 name = "__btrc_arc_reverse_proves_live"
@@ -1695,7 +1614,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 161, btrc = 142 }
+order = { python = 152, btrc = 133 }
 
 [[helpers]]
 name = "__btrc_arc_retain"
@@ -1708,7 +1627,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 162, btrc = 143 }
+order = { python = 153, btrc = 134 }
 
 [[helpers]]
 name = "__btrc_arc_retain_edge"
@@ -1722,7 +1641,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 163, btrc = 144 }
+order = { python = 154, btrc = 135 }
 
 [[helpers]]
 name = "__btrc_arc_adopt_edge"
@@ -1736,7 +1655,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 164, btrc = 145 }
+order = { python = 155, btrc = 136 }
 
 [[helpers]]
 name = "__btrc_arc_unlink_edge"
@@ -1750,7 +1669,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 165, btrc = 146 }
+order = { python = 156, btrc = 137 }
 
 [[helpers]]
 name = "__btrc_forget_suspect"
@@ -1759,7 +1678,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_suspect_state", "__btrc_ptr_hash"]
 headers = []
 source_visible = false
-order = { python = 166, btrc = 131 }
+order = { python = 157, btrc = 122 }
 
 [[helpers]]
 name = "__btrc_arc_release_impl"
@@ -1774,7 +1693,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 167, btrc = 147 }
+order = { python = 158, btrc = 138 }
 
 [[helpers]]
 name = "__btrc_arc_replace_edge"
@@ -1789,7 +1708,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 168, btrc = 148 }
+order = { python = 159, btrc = 139 }
 
 [[helpers]]
 name = "__btrc_arc_release"
@@ -1798,7 +1717,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_release_impl", "__btrc_arc_mutation_lock", "__btrc_arc_drain"]
 headers = []
 source_visible = false
-order = { python = 169, btrc = 149 }
+order = { python = 160, btrc = 140 }
 
 [[helpers]]
 name = "__btrc_arc_release_edge"
@@ -1807,7 +1726,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_release_impl", "__btrc_arc_mutation_lock", "__btrc_arc_drain"]
 headers = []
 source_visible = false
-order = { python = 170, btrc = 150 }
+order = { python = 161, btrc = 141 }
 
 [[helpers]]
 name = "__btrc_arc_release_acyclic"
@@ -1821,7 +1740,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 171, btrc = 151 }
+order = { python = 162, btrc = 142 }
 
 [[helpers]]
 name = "__btrc_arc_invalidate"
@@ -1830,7 +1749,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_validate", "__btrc_arc_mutation_lock"]
 headers = []
 source_visible = false
-order = { python = 172, btrc = 152 }
+order = { python = 163, btrc = 143 }
 
 [[helpers]]
 name = "__btrc_arc_destroy_slot"
@@ -1846,7 +1765,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 173, btrc = 153 }
+order = { python = 164, btrc = 144 }
 
 [[helpers]]
 name = "__btrc_arc_destroy_edge"
@@ -1863,7 +1782,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 174, btrc = 154 }
+order = { python = 165, btrc = 145 }
 
 [[helpers]]
 name = "__btrc_cycle_collector_state"
@@ -1872,7 +1791,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_callback_types"]
 headers = []
 source_visible = false
-order = { python = 175, btrc = 128 }
+order = { python = 166, btrc = 119 }
 
 [[helpers]]
 name = "__btrc_arc_graph_primitives"
@@ -1888,7 +1807,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 176, btrc = 129 }
+order = { python = 167, btrc = 120 }
 
 [[helpers]]
 name = "__btrc_arc_abandon_graph"
@@ -1904,7 +1823,7 @@ dependencies = [
 ]
 headers = ["stdlib.h"]
 source_visible = false
-order = { python = 177, btrc = 134 }
+order = { python = 168, btrc = 125 }
 
 [[helpers]]
 name = "__btrc_arc_abandon_callback_state"
@@ -1913,7 +1832,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 178, btrc = 107 }
+order = { python = 169, btrc = 98 }
 
 [[helpers]]
 name = "__btrc_arc_abandon_queue_state"
@@ -1922,7 +1841,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_tls_state", "__btrc_arc_abandon_callback_state"]
 headers = []
 source_visible = false
-order = { python = 179, btrc = 108 }
+order = { python = 170, btrc = 99 }
 
 [[helpers]]
 name = "__btrc_arc_abandon_queue_drain"
@@ -1931,7 +1850,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_abandon_callback_state"]
 headers = []
 source_visible = false
-order = { python = 180, btrc = 136 }
+order = { python = 171, btrc = 127 }
 
 [[helpers]]
 name = "__btrc_arc_abandon"
@@ -1952,7 +1871,7 @@ headers = [
   "stdlib.h",
 ]
 source_visible = false
-order = { python = 181, btrc = 155 }
+order = { python = 172, btrc = 146 }
 
 [[helpers]]
 name = "__btrc_collect_cycles_once"
@@ -1976,7 +1895,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 182, btrc = 132 }
+order = { python = 173, btrc = 123 }
 
 [[helpers]]
 name = "__btrc_arc_drain"
@@ -1998,7 +1917,7 @@ headers = [
   "string.h",
 ]
 source_visible = false
-order = { python = 183, btrc = 133 }
+order = { python = 174, btrc = 124 }
 
 [[helpers]]
 name = "__btrc_collect_cycles"
@@ -2007,7 +1926,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_drain"]
 headers = []
 source_visible = false
-order = { python = 184, btrc = 156 }
+order = { python = 175, btrc = 147 }
 
 [[helpers]]
 name = "__btrc_poll_cycles"
@@ -2016,7 +1935,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_drain", "__btrc_arc_mutation_lock"]
 headers = []
 source_visible = false
-order = { python = 185, btrc = 157 }
+order = { python = 176, btrc = 148 }
 
 [[helpers]]
 name = "__btrc_flush_cycles"
@@ -2025,7 +1944,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_drain"]
 headers = []
 source_visible = false
-order = { python = 186, btrc = 135 }
+order = { python = 177, btrc = 126 }
 
 [[helpers]]
 name = "__btrc_arc_thread_state_cleanup"
@@ -2043,7 +1962,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 187, btrc = 158 }
+order = { python = 178, btrc = 149 }
 
 [[helpers]]
 name = "__btrc_cycle_state_cleanup"
@@ -2068,7 +1987,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 188, btrc = 159 }
+order = { python = 179, btrc = 150 }
 
 [[helpers]]
 name = "__btrc_descriptor_close_bound"
@@ -2077,7 +1996,7 @@ asset = "process.c"
 dependencies = []
 headers = ["stdint.h", "sys/resource.h"]
 source_visible = true
-order = { python = 189, btrc = 174 }
+order = { python = 180, btrc = 165 }
 
 [[helpers]]
 name = "__btrc_close_descriptors_from"
@@ -2086,7 +2005,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "unistd.h"]
 source_visible = true
-order = { python = 190, btrc = 175 }
+order = { python = 181, btrc = 166 }
 
 [[helpers]]
 name = "__btrc_close_descriptors_except"
@@ -2095,7 +2014,7 @@ asset = "process.c"
 dependencies = ["__btrc_close_descriptors_from"]
 headers = []
 source_visible = true
-order = { python = 191, btrc = 176 }
+order = { python = 182, btrc = 167 }
 
 [[helpers]]
 name = "__btrc_close_descriptors_except_many"
@@ -2104,7 +2023,7 @@ asset = "process.c"
 dependencies = ["__btrc_close_descriptors_from"]
 headers = ["errno.h"]
 source_visible = true
-order = { python = 192, btrc = 177 }
+order = { python = 183, btrc = 168 }
 
 [[helpers]]
 name = "__btrc_move_descriptor_outside_stdio"
@@ -2113,7 +2032,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "fcntl.h", "unistd.h"]
 source_visible = true
-order = { python = 193, btrc = 178 }
+order = { python = 184, btrc = 169 }
 
 [[helpers]]
 name = "__btrc_posix_spawn_cloexec"
@@ -2122,7 +2041,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "sys/types.h", "unistd.h"]
 source_visible = true
-order = { python = 194, btrc = 179 }
+order = { python = 185, btrc = 170 }
 
 [[helpers]]
 name = "__btrc_process_descriptors_supported"
@@ -2131,7 +2050,7 @@ asset = "process.c"
 dependencies = []
 headers = []
 source_visible = true
-order = { python = 195, btrc = 180 }
+order = { python = 186, btrc = 171 }
 
 [[helpers]]
 name = "__btrc_validate_executable_descriptor"
@@ -2140,7 +2059,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "sys/stat.h", "unistd.h"]
 source_visible = true
-order = { python = 196, btrc = 181 }
+order = { python = 187, btrc = 172 }
 
 [[helpers]]
 name = "__btrc_validate_working_directory_descriptor"
@@ -2149,7 +2068,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "sys/stat.h", "unistd.h"]
 source_visible = true
-order = { python = 197, btrc = 182 }
+order = { python = 188, btrc = 173 }
 
 [[helpers]]
 name = "__btrc_enter_working_directory_descriptor"
@@ -2158,7 +2077,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "unistd.h"]
 source_visible = true
-order = { python = 198, btrc = 183 }
+order = { python = 189, btrc = 174 }
 
 [[helpers]]
 name = "__btrc_exec_signal_guard_begin"
@@ -2167,7 +2086,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "pthread.h", "signal.h"]
 source_visible = true
-order = { python = 199, btrc = 184 }
+order = { python = 190, btrc = 175 }
 
 [[helpers]]
 name = "__btrc_exec_signal_guard_parent_end"
@@ -2176,7 +2095,7 @@ asset = "process.c"
 dependencies = ["__btrc_exec_signal_guard_begin"]
 headers = ["errno.h", "pthread.h", "signal.h"]
 source_visible = true
-order = { python = 200, btrc = 185 }
+order = { python = 191, btrc = 176 }
 
 [[helpers]]
 name = "__btrc_exec_signal_guard_child_end"
@@ -2190,7 +2109,7 @@ headers = [
   "string.h",
 ]
 source_visible = true
-order = { python = 201, btrc = 186 }
+order = { python = 192, btrc = 177 }
 
 [[helpers]]
 name = "__btrc_exec_executable_descriptor"
@@ -2199,7 +2118,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "unistd.h"]
 source_visible = true
-order = { python = 202, btrc = 187 }
+order = { python = 193, btrc = 178 }
 
 [[helpers]]
 name = "__btrc_controlling_terminal_descriptor"
@@ -2208,7 +2127,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "stddef.h", "unistd.h"]
 source_visible = true
-order = { python = 225, btrc = 210 }
+order = { python = 216, btrc = 201 }
 
 [[helpers]]
 name = "__btrc_terminal_foreground_group"
@@ -2217,7 +2136,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "unistd.h"]
 source_visible = true
-order = { python = 226, btrc = 211 }
+order = { python = 217, btrc = 202 }
 
 [[helpers]]
 name = "__btrc_terminal_adopt_foreground"
@@ -2226,7 +2145,7 @@ asset = "process.c"
 dependencies = []
 headers = ["errno.h", "signal.h", "string.h", "unistd.h"]
 source_visible = true
-order = { python = 227, btrc = 212 }
+order = { python = 218, btrc = 203 }
 
 [[helpers]]
 name = "__btrc_thread_types"
@@ -2240,7 +2159,7 @@ provided_types = [
   "__btrc_thread_t",
 ]
 source_visible = false
-order = { python = 203, btrc = 188 }
+order = { python = 194, btrc = 179 }
 
 [[helpers]]
 name = "__btrc_thread_spawn"
@@ -2256,7 +2175,7 @@ dependencies = [
 ]
 headers = ["pthread.h", "string.h"]
 source_visible = false
-order = { python = 204, btrc = 189 }
+order = { python = 195, btrc = 180 }
 
 [[helpers]]
 name = "__btrc_thread_finish"
@@ -2265,7 +2184,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn"]
 headers = []
 source_visible = false
-order = { python = 205, btrc = 190 }
+order = { python = 196, btrc = 181 }
 
 [[helpers]]
 name = "__btrc_thread_destroy_handle"
@@ -2274,7 +2193,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn"]
 headers = []
 source_visible = false
-order = { python = 206, btrc = 191 }
+order = { python = 197, btrc = 182 }
 
 [[helpers]]
 name = "__btrc_thread_box_dispose"
@@ -2283,7 +2202,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn"]
 headers = []
 source_visible = false
-order = { python = 207, btrc = 192 }
+order = { python = 198, btrc = 183 }
 
 [[helpers]]
 name = "__btrc_thread_arc_dispose"
@@ -2292,7 +2211,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn", "__btrc_arc_release", "__btrc_flush_cycles"]
 headers = []
 source_visible = false
-order = { python = 208, btrc = 193 }
+order = { python = 199, btrc = 184 }
 
 [[helpers]]
 name = "__btrc_thread_string_dispose"
@@ -2301,7 +2220,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn", "__btrc_string_release"]
 headers = []
 source_visible = false
-order = { python = 209, btrc = 194 }
+order = { python = 200, btrc = 185 }
 
 [[helpers]]
 name = "__btrc_thread_dispose_guarded"
@@ -2310,7 +2229,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn", "__btrc_arc_guard_hook"]
 headers = []
 source_visible = false
-order = { python = 210, btrc = 195 }
+order = { python = 201, btrc = 186 }
 
 [[helpers]]
 name = "__btrc_thread_join"
@@ -2324,7 +2243,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 211, btrc = 196 }
+order = { python = 202, btrc = 187 }
 
 [[helpers]]
 name = "__btrc_thread_free"
@@ -2338,7 +2257,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 212, btrc = 197 }
+order = { python = 203, btrc = 188 }
 
 [[helpers]]
 name = "__btrc_mutex_val_types"
@@ -2353,7 +2272,7 @@ provided_types = [
   "__btrc_mutex_val_t",
 ]
 source_visible = false
-order = { python = 213, btrc = 198 }
+order = { python = 204, btrc = 189 }
 
 [[helpers]]
 name = "__btrc_mutex_value_callback_guard"
@@ -2362,7 +2281,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_arc_guard_hook"]
 headers = []
 source_visible = false
-order = { python = 214, btrc = 199 }
+order = { python = 205, btrc = 190 }
 
 [[helpers]]
 name = "__btrc_mutex_finalize_callback_guard"
@@ -2371,7 +2290,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_arc_guard_hook"]
 headers = []
 source_visible = false
-order = { python = 215, btrc = 200 }
+order = { python = 206, btrc = 191 }
 
 [[helpers]]
 name = "__btrc_mutex_val_create"
@@ -2385,7 +2304,7 @@ dependencies = [
 ]
 headers = ["string.h"]
 source_visible = false
-order = { python = 216, btrc = 207 }
+order = { python = 207, btrc = 198 }
 
 [[helpers]]
 name = "__btrc_mutex_arc_retain"
@@ -2394,7 +2313,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_arc_retain", "__btrc_arc_retain_edge"]
 headers = []
 source_visible = false
-order = { python = 217, btrc = 201 }
+order = { python = 208, btrc = 192 }
 
 [[helpers]]
 name = "__btrc_mutex_arc_release"
@@ -2408,7 +2327,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 218, btrc = 202 }
+order = { python = 209, btrc = 193 }
 
 [[helpers]]
 name = "__btrc_mutex_arc_finalize"
@@ -2417,7 +2336,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_flush_cycles"]
 headers = []
 source_visible = false
-order = { python = 219, btrc = 203 }
+order = { python = 210, btrc = 194 }
 
 [[helpers]]
 name = "__btrc_mutex_string_retain"
@@ -2426,7 +2345,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_string_retain"]
 headers = []
 source_visible = false
-order = { python = 220, btrc = 204 }
+order = { python = 211, btrc = 195 }
 
 [[helpers]]
 name = "__btrc_mutex_string_release"
@@ -2435,7 +2354,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_string_release"]
 headers = []
 source_visible = false
-order = { python = 221, btrc = 205 }
+order = { python = 212, btrc = 196 }
 
 [[helpers]]
 name = "__btrc_mutex_arc_type"
@@ -2451,7 +2370,7 @@ dependencies = [
 headers = ["stdio.h", "stdlib.h"]
 provided_objects = ["__btrc_mutex_arc_descriptor"]
 source_visible = false
-order = { python = 222, btrc = 206 }
+order = { python = 213, btrc = 197 }
 
 [[helpers]]
 name = "__btrc_mutex_val_get"
@@ -2467,7 +2386,7 @@ dependencies = [
 ]
 headers = ["string.h"]
 source_visible = false
-order = { python = 223, btrc = 208 }
+order = { python = 214, btrc = 199 }
 
 [[helpers]]
 name = "__btrc_mutex_val_set"
@@ -2482,7 +2401,7 @@ dependencies = [
 ]
 headers = ["string.h"]
 source_visible = false
-order = { python = 224, btrc = 209 }
+order = { python = 215, btrc = 200 }
 
 [[helpers]]
 name = "__btrc_application_directories_platform"
@@ -2492,7 +2411,7 @@ dependencies = []
 headers = []
 source_visible = true
 realtime_effect = "safe"
-order = { python = 228, btrc = 213 }
+order = { python = 219, btrc = 204 }
 
 [[helpers]]
 name = "__btrc_native_thread_invoke"
@@ -2501,4 +2420,4 @@ asset = "threads.c"
 dependencies = ["__btrc_arc_guard_hook", "__btrc_arc_thread_state_cleanup", "__btrc_try_state_cleanup"]
 headers = []
 source_visible = true
-order = { python = 229, btrc = 214 }
+order = { python = 220, btrc = 205 }

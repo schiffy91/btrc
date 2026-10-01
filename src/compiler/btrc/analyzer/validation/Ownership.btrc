@@ -647,7 +647,7 @@ class OwnershipValidator {
 		Node callee = call.callee;
 		if (callee == null) { return false; }
 		if (callee.kind == NK_IDENTIFIER) {
-			return callee.name == "__btrc_str_track" || callee.name == "__btrc_string_adopt" || callee.name == "__btrc_string_alloc";
+			return callee.name == "__btrc_string_adopt" || callee.name == "__btrc_string_alloc";
 		}
 		if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
 		Node? receiver = self.types.inferType(callee.obj,  vars);

@@ -109,10 +109,8 @@ class StdlibReachability {
 			built.put("invoke", true);
 			built.put("isAlnum", true);
 			built.put("isAlpha", true);
-			built.put("isAlphaStr", true);
 			built.put("isBlank", true);
 			built.put("isDigit", true);
-			built.put("isDigitStr", true);
 			built.put("isEmpty", true);
 			built.put("isOpen", true);
 			built.put("isValid", true);

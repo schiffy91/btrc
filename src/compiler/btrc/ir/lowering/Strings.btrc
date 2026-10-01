@@ -218,10 +218,10 @@ class StringLowerer {
 			copyArguments.push(value);
 			value = IRNode.call("__btrc_strdup", copyArguments);
 		}
-		self.context.referenceHelper("__btrc_str_track");
+		self.context.referenceHelper("__btrc_string_adopt");
 		Vector<IRNode> trackArguments = [];
 		trackArguments.push(value);
-		return IRNode.call("__btrc_str_track", trackArguments);
+		return IRNode.call("__btrc_string_adopt", trackArguments);
 	}
 
 	public IRNode lowerRequestedHostedStringResult(Node expression, IRNode lowered) {
@@ -334,7 +334,7 @@ class StringLowerer {
 			a.push(obj);
 			return IRNode.call("__btrc_parseBool", a);
 		}
-		/* Helper-backed methods: helper(obj, args...), wrapped in __btrc_str_track
+		/* Helper-backed methods: helper(obj, args...), wrapped in __btrc_string_adopt
          * when the result is a new heap string. */
 		string helper = self.stringMethodHelper(method);
 		if (helper == "") { return null; }
@@ -345,10 +345,10 @@ class StringLowerer {
 		while (j < args.len) { hargs.push(args.get(j)); j = j + 1; }
 		IRNode call = IRNode.call(helper, hargs);
 		if (SemanticTypeSystem.stringResultIsTracked(method)) {
-			self.context.referenceHelper("__btrc_str_track");
+			self.context.referenceHelper("__btrc_string_adopt");
 			Vector<IRNode> targs = [];
 			targs.push(call);
-			return IRNode.call("__btrc_str_track", targs);
+			return IRNode.call("__btrc_string_adopt", targs);
 		}
 		return call;
 	}
@@ -382,13 +382,13 @@ class StringLowerer {
 		else if (base == "long double") { helper = "__btrc_longDoubleToString"; }
 		else if (base == "char") { helper = "__btrc_charToString"; }
 		self.context.referenceHelper(helper);
-		self.context.referenceHelper("__btrc_str_track");
+		self.context.referenceHelper("__btrc_string_adopt");
 		Vector<IRNode> a = [];
 		a.push(obj);
 		IRNode call = IRNode.call(helper, a);
 		Vector<IRNode> t = [];
 		t.push(call);
-		return IRNode.call("__btrc_str_track", t);
+		return IRNode.call("__btrc_string_adopt", t);
 	}
 
 	/* new X(args) -> X_new(args) (mirrors methods.lower_new_expr, class subset).
@@ -431,9 +431,9 @@ class StringLowerer {
 		if (method == "isBlank") { return "__btrc_isBlank"; }
 		if (method == "isUpper") { return "__btrc_isUpper"; }
 		if (method == "isLower") { return "__btrc_isLower"; }
-		if (method == "isAlnum" || method == "isAlnumStr") { return "__btrc_isAlnumStr"; }
-		if (method == "isDigit" || method == "isDigitStr") { return "__btrc_isDigitStr"; }
-		if (method == "isAlpha" || method == "isAlphaStr") { return "__btrc_isAlphaStr"; }
+		if (method == "isAlnum") { return "__btrc_isAlnumStr"; }
+		if (method == "isDigit") { return "__btrc_isDigitStr"; }
+		if (method == "isAlpha") { return "__btrc_isAlphaStr"; }
 		if (method == "trim") { return "__btrc_trim"; }
 		if (method == "lstrip") { return "__btrc_lstrip"; }
 		if (method == "rstrip") { return "__btrc_rstrip"; }

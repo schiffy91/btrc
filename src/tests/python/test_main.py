@@ -584,13 +584,11 @@ def test_native_adapters_live_outside_relaxed_composition():
         "HTTP.btrc",
     )
     discovered = STDLIB.discover_files()
-    relaxed = STDLIB.relaxed_composition_files()
 
     for module in grouped_modules:
         assert module not in discovered
-        assert module not in relaxed
         assert STDLIB.find_file(module) is not None
-    assert "Vector.btrc" in relaxed
+    assert "Vector.btrc" in discovered
 
     source = STDLIB.source("")
     assert "class BackgroundJobExecutor" not in source

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-string makeOwned() { return __btrc_str_track(strdup("abc")); }
+string makeOwned() { return __btrc_string_adopt(strdup("abc")); }
 
 int borrowLength(string value) { return (int)strlen(value); }
 

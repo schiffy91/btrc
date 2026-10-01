@@ -1123,12 +1123,12 @@ class StatementLowerer {
 				self.context.activateSourceName(node.catchVar, self.lexicalBindingCName(node.catchVar));
 				catchCName = self.context.sourceCName(node.catchVar);
 				self.context.referenceHelper("__btrc_strdup");
-				self.context.referenceHelper("__btrc_str_track");
+				self.context.referenceHelper("__btrc_string_adopt");
 				Vector<IRNode> copyArgs = [];
 				copyArgs.push(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false));
 				Vector<IRNode> trackArgs = [];
 				trackArgs.push(IRNode.call("__btrc_strdup", copyArgs));
-				catchBindings.push(IRNode.variableDeclaration("char*", catchCName, IRNode.call("__btrc_str_track", trackArgs)));
+				catchBindings.push(IRNode.variableDeclaration("char*", catchCName, IRNode.call("__btrc_string_adopt", trackArgs)));
 				catchSourceNames.push(node.catchVar);
 				catchTypes.push(ctype);
 				catchOwned.push(true);

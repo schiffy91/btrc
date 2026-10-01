@@ -183,10 +183,6 @@ static inline void __btrc_string_release(const char* value) {
     free(retired_buckets);
 }
 
-static inline char* __btrc_str_track(char* s) {
-    return __btrc_string_adopt(s);
-}
-
 static inline const char* __btrc_string_or_empty(const char* s) {
     return s ? s : "";
 }
@@ -262,7 +258,7 @@ int main(void) {
     char* __btrc_call_operand_1;
     char* __btrc_released_operand_2;
     char* __btrc_call_result_3;
-    char* result = ((__btrc_call_operand_1 = __btrc_str_track(__btrc_substring(text, 1, 2))), (__btrc_call_result_3 = __btrc_str_track(__btrc_toUpper(__btrc_call_operand_1))), (__btrc_released_operand_2 = __btrc_call_operand_1), (__btrc_call_operand_1 = NULL), __btrc_string_release(__btrc_released_operand_2), __btrc_call_result_3);
+    char* result = ((__btrc_call_operand_1 = __btrc_string_adopt(__btrc_substring(text, 1, 2))), (__btrc_call_result_3 = __btrc_string_adopt(__btrc_toUpper(__btrc_call_operand_1))), (__btrc_released_operand_2 = __btrc_call_operand_1), (__btrc_call_operand_1 = NULL), __btrc_string_release(__btrc_released_operand_2), __btrc_call_result_3);
     bool __btrc_assert_condition_4 = (strcmp(result, "EL") == 0);
     (void)(((void)__btrc_assert_condition_4));
     (void)(assert(__btrc_assert_condition_4));

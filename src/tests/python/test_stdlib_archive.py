@@ -507,10 +507,9 @@ def test_relaxed_composition_never_drops_a_module_it_composes() -> None:
     nested_import = re.compile(r"^import\s+\./([A-Za-z0-9_./-]+\.btrc);", re.MULTILINE)
     dropped = {
         name: sorted(found)
-        for name in sorted(repository.relaxed_composition_files())
+        for name in sorted(repository.discover_files())
         if (found := nested_import.findall((directory / name).read_text(encoding="utf-8")))
     }
     assert not dropped, (
-        "relaxed stdlib composition strips these dependencies; each importer "
-        f"belongs in _EXPLICIT_STDLIB_MODULES: {dropped}"
+        f"relaxed stdlib composition strips these dependencies; move each importer into a group folder: {dropped}"
     )

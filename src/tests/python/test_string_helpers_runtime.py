@@ -14,7 +14,6 @@ from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 RUNTIME_CATALOG = RuntimeHelperCatalog()
 ALLOC = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("alloc")}
 STRING_OWNERSHIP = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string_ownership")}
-STRING_POOL = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string_pool")}
 STRING = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string")}
 
 CLANG = shutil.which("clang")
@@ -34,9 +33,7 @@ _HEADERS = """\
 
 
 def _runtime_source(main: str) -> str:
-    helpers = "\n\n".join(
-        helper.c_source for group in (ALLOC, STRING_OWNERSHIP, STRING_POOL, STRING) for helper in group.values()
-    )
+    helpers = "\n\n".join(helper.c_source for group in (ALLOC, STRING_OWNERSHIP, STRING) for helper in group.values())
     return f"{_HEADERS}\n{helpers}\n\n{main}\n"
 
 
@@ -84,10 +81,9 @@ static void* exercise_pool(void* ignored) {
     for (int i = 0; i < 600; i++) {
         char* item = __btrc_string_alloc(1);
         item[0] = 'x';
-        __btrc_str_track(item);
+        __btrc_string_adopt(item);
         __btrc_string_release(item);
     }
-    __btrc_str_flush();
     return NULL;
 }
 
@@ -164,7 +160,7 @@ int main(void) {
     CHECK(pthread_create(&second, NULL, exercise_pool, NULL) == 0);
     CHECK(pthread_join(first, NULL) == 0);
     CHECK(pthread_join(second, NULL) == 0);
-    CHECK(__btrc_str_track(NULL) == NULL);
+    CHECK(__btrc_string_adopt(NULL) == NULL);
     char* borrowed_literal = (char*)"literal";
     CHECK(__btrc_string_retain(borrowed_literal) == borrowed_literal);
     __btrc_string_release(borrowed_literal);

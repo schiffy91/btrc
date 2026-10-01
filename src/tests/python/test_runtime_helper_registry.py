@@ -221,7 +221,6 @@ def test_btrc_catalog_order_is_unique_and_dependency_topological() -> None:
 def test_required_runtime_dependency_edges_live_in_the_manifest() -> None:
     rows = {row.name: row for row in RUNTIME_HELPER_ROWS}
     required_edges = {
-        "__btrc_math_lcm": "__btrc_math_gcd",
         "__btrc_push_try": "__btrc_safe_realloc",
         "__btrc_register_cleanup_kind": "__btrc_safe_realloc",
         "__btrc_register_cleanup": "__btrc_register_cleanup_kind",

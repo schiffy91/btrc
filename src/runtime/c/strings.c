@@ -177,16 +177,6 @@ static inline size_t __btrc_string_live_count(void) {
     return result;
 }
 /* btrc-runtime-helper:end __btrc_string_live_count */
-/* btrc-runtime-helper:begin __btrc_str_track */
-static inline char* __btrc_str_track(char* s) {
-    return __btrc_string_adopt(s);
-}
-/* btrc-runtime-helper:end __btrc_str_track */
-/* btrc-runtime-helper:begin __btrc_str_flush */
-static inline void __btrc_str_flush(void) {
-    /* Retained for source compatibility; ownership is explicit. */
-}
-/* btrc-runtime-helper:end __btrc_str_flush */
 /* btrc-runtime-helper:begin __btrc_string_or_empty */
 static inline const char* __btrc_string_or_empty(const char* s) {
     return s ? s : "";
