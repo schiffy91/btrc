@@ -6,7 +6,6 @@
  */
 
 import Library.Bytes;
-import Library.IO;
 import Library.Platform;
 import Library.Strings;
 import Library.Vector;
@@ -22,8 +21,6 @@ import Library.Vector;
 #include <time.h>
 #include <unistd.h>
 
-extern FILE* popen(const char* command, const char* mode);
-extern int pclose(FILE* stream);
 extern char** environ;
 
 class ProcessStatus {
