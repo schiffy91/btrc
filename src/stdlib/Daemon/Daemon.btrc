@@ -150,7 +150,10 @@ class DaemonController {
 		}
 		string stop = DaemonControlPaths.stop(spec.pidFile, record.token);
 		if (!DaemonControlFiles.absent(stop)) {
-			if (!DaemonControlFiles.read(stop).equals(record.token + "\n")) {
+			/* An earlier stop's request is reused. The supervisor deletes it as
+			 * it exits, so a request that vanished during the read is a stop
+			 * already under way, not a forged one. */
+			if (!DaemonControlFiles.read(stop).equals(record.token + "\n") && !DaemonControlFiles.absent(stop)) {
 				return self.result(125, "unsafe daemon stop capability", operation);
 			}
 		} else if (!DaemonControlFiles.create(stop, record.token + "\n")) {

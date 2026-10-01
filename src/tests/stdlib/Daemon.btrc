@@ -142,6 +142,26 @@ int main() {
 	assert(pausedTimer.elapsedMillis() < 5000.0f);
 	assert(!FileSystem.exists(paused.pidFile));
 
+	// A stopped supervisor cannot remove its record, so the deadline path is
+	// deterministic here: stop reports 124 and leaves its token-bound request
+	// pending. A retry reuses that request rather than rejecting it as forged,
+	// and the resumed supervisor honors it.
+	DaemonSpec frozen = DaemonSpec("frozen", Command("sleep").arg("60")).pid(PathTools.join(dir, "frozen.control")).log(PathTools.join(dir, "frozen.log"));
+	assert(controller.start(frozen).ok());
+	DaemonControlRecord frozenRecord = DaemonControlProtocol.record(frozen.pidFile);
+	assert(frozenRecord.valid);
+	string frozenRequest = DaemonControlPaths.stop(frozen.pidFile, frozenRecord.token);
+	assert(kill((pid_t)frozenRecord.supervisorPid, SIGSTOP) == 0);
+	ExecResult frozenStop = controller.stop(frozen, timeoutMilliseconds=100);
+	bool frozenRequestPending = FileSystem.exists(frozenRequest);
+	ExecResult frozenRetry = controller.stop(frozen, timeoutMilliseconds=100);
+	assert(kill((pid_t)frozenRecord.supervisorPid, SIGCONT) == 0);
+	assert(frozenStop.code == 124);
+	assert(frozenRequestPending);
+	assert(frozenRetry.code == 124);
+	assert(DaemonControlProtocol.waitForRemoval(frozen.pidFile, frozenRecord, 7500));
+	assert(!FileSystem.exists(frozenRequest));
+
 	// autoRestart is implemented by the local supervisor, not just retained
 	// as metadata for external service managers.
 	string restartCount = PathTools.join(dir, "restart-count");
