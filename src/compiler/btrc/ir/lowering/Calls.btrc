@@ -187,6 +187,19 @@ class CallTargetResolver {
 		return self.bodyType(result);
 	}
 
+	/* A call-valued receiver in a generic body can have no inferred type: locals
+	 * and parameters keep their source spelling (`EndpointT?`), so inference
+	 * cannot find the inner call's method. The inner call's own target still
+	 * names one exact result under the active specialization. Mirrors
+	 * CallLowerer._resolved_receiver_type in the reference compiler. */
+	private Node? resolvedReceiverType(Node receiver, Map<string, Node> variableTypes, CallableBoundaryContext boundary) {
+		Node? receiverType = self.expressionType(receiver, variableTypes);
+		if (receiverType != null || receiver.kind != NK_CALL_EXPR) { return receiverType; }
+		Node? result = self.resolve(receiver, variableTypes, boundary).signature.returnType;
+		if (result == null) { return null; }
+		return self.bodyType(SemanticTypeSystem.resolveOuterTypedefType(result, self.analyzed.typedefTable));
+	}
+
 	private Node resolvedParameter(Node source, Map<string, Node> substitutions) {
 		Node parameter = Node();
 		parameter.kind = NK_PARAM;
@@ -584,7 +597,7 @@ class CallTargetResolver {
 				}
 			}
 		}
-		Node? receiverType = self.expressionType(receiver, variableTypes);
+		Node? receiverType = self.resolvedReceiverType(receiver, variableTypes, boundary);
 		if (receiverType != null) {
 			if (self.analyzed.isInterface(receiverType.base)) {
 				Node? requirement = self.analyzed.interfaceMethod(receiverType.base, callee.field);

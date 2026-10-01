@@ -1,0 +1,66 @@
+#include <assert.h>
+
+int outcomesAlive = 0;
+
+class Outcome {
+	private int _value;
+
+	public Outcome(int value) {
+		self._value = value;
+		outcomesAlive++;
+	}
+
+	public void __del__() { outcomesAlive--; }
+
+	public int value() { return self._value; }
+
+	public Outcome advance() { return Outcome(self._value + 1); }
+
+	public string document() { return f"outcome:{self._value}"; }
+}
+
+class Endpoint {
+	public Endpoint() {}
+
+	public Outcome handle(int input) { return Outcome(input); }
+}
+
+class Runner<EndpointT> {
+	private EndpointT? _endpoint;
+
+	public Runner(EndpointT endpoint) { self._endpoint = endpoint; }
+
+	public int narrowedLocal() {
+		EndpointT? optionalEndpoint = self._endpoint;
+		if (optionalEndpoint == null) { return -1; }
+		return optionalEndpoint.handle(3).value();
+	}
+
+	public int parameterChain(EndpointT endpoint) { return endpoint.handle(5).advance().value(); }
+
+	public string assignedDocument() {
+		EndpointT? optionalEndpoint = self._endpoint;
+		if (optionalEndpoint == null) { return ""; }
+		string response;
+		response = optionalEndpoint.handle(7).document();
+		return response;
+	}
+}
+
+int main() {
+	Endpoint endpoint = new Endpoint();
+	Runner<Endpoint> runner = new Runner<Endpoint>(endpoint);
+	int narrowed = runner.narrowedLocal();
+	assert(narrowed == 3);
+	assert(outcomesAlive == 0);
+	int chained = runner.parameterChain(endpoint);
+	assert(chained == 6);
+	assert(outcomesAlive == 0);
+	string document = runner.assignedDocument();
+	assert(document == "outcome:7");
+	assert(outcomesAlive == 0);
+	delete runner;
+	delete endpoint;
+	print("PASS: generic type-parameter chained receiver");
+	return 0;
+}

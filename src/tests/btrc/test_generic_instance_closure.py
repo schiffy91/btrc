@@ -91,6 +91,10 @@ def _compile_reference(tmp_path: Path, fixture: Path) -> tuple[subprocess.Comple
             ("btrc_Controller_Transport_p1",),
         ),
         (
+            "GenericTypeParameterChainedReceiverRuntime.btrc",
+            ("btrc_Runner_Endpoint_p1",),
+        ),
+        (
             "GenericTypedefConstructorRuntime.btrc",
             ("btrc_Box_int",),
         ),
@@ -127,6 +131,17 @@ def test_transitive_generic_instances_match_and_run_strictly(
         for emitted in (selfhost_source.read_text(), reference_source.read_text()):
             assert "ConfigureOutcome_succeeded(" in emitted
             assert ".succeeded()" not in emitted
+            assert "__btrc_arc_release" in emitted
+
+    if fixture_name == "GenericTypeParameterChainedReceiverRuntime.btrc":
+        # A call on a type-parameter local or parameter has no analyzed type, so
+        # the chained receiver's method comes from the inner call's target. The
+        # fixture's live-object count proves each owned receiver is released.
+        for emitted in (selfhost_source.read_text(), reference_source.read_text()):
+            assert "Outcome_value(" in emitted
+            assert "Outcome_advance(" in emitted
+            assert "Outcome_document(" in emitted
+            assert ".value()" not in emitted
             assert "__btrc_arc_release" in emitted
 
     if fixture_name == "GenericTypedefConstructorRuntime.btrc":
