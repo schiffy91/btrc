@@ -14,7 +14,7 @@ from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
-GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "GPU"
+GPU_INCLUDE = Path(__file__).resolve().parents[2] / "runtime" / "gpu"
 
 _GPU_DECLS = r"""
 #include <stdbool.h>
@@ -29,9 +29,8 @@ void* btrc_gpu_init_compute(void);
 void* btrc_gpu_acquire_compute(void);
 void btrc_gpu_destroy(void*);
 void* btrc_gpu_create_buffer(void*, int, int);
-void btrc_gpu_write_buffer(void*, void*, void*, int);
+bool btrc_gpu_write_buffer(void*, void*, void*, int);
 bool btrc_gpu_read_buffer_checked(void*, void*, void*, int);
-void btrc_gpu_read_buffer(void*, void*, void*, int);
 void btrc_gpu_buffer_destroy(void*);
 void* btrc_gpu_create_shader(void*, char*);
 void btrc_gpu_shader_destroy(void*);
@@ -91,8 +90,11 @@ void* btrc_gpu_create_buffer(void* gpu, int size, int usage) {
     if (STUB_FAIL_SECOND_BUFFER && call == 2) { return NULL; }
     return &stub_buffer;
 }
-void btrc_gpu_write_buffer(void* gpu, void* buffer, void* data, int size) {
+bool btrc_gpu_write_buffer(void* gpu, void* buffer, void* data, int size) {
     (void)gpu; (void)buffer; (void)data; (void)size;
+    static atomic_int write_calls;
+    int call = atomic_fetch_add(&write_calls, 1) + 1;
+    return STUB_FAIL_WRITE_AT == 0 || call != STUB_FAIL_WRITE_AT;
 }
 bool btrc_gpu_read_buffer_checked(void* gpu, void* buffer, void* data, int size) {
     (void)gpu; (void)buffer;
@@ -107,9 +109,6 @@ bool btrc_gpu_read_buffer_checked(void* gpu, void* buffer, void* data, int size)
         ((int*)data)[0] = 41;
     }
     return true;
-}
-void btrc_gpu_read_buffer(void* gpu, void* buffer, void* data, int size) {
-    (void)btrc_gpu_read_buffer_checked(gpu, buffer, data, size);
 }
 void btrc_gpu_buffer_destroy(void* buffer) {
     if (buffer) { atomic_fetch_add(&stub_destroyed_buffers, 1); }
@@ -152,6 +151,7 @@ def _compile_with_gpu_stubs(
     fail_readback_at: int = 0,
     mutate_readback_at: int = 0,
     fail_dispatch_at: int = 0,
+    fail_write_at: int = 0,
     init_barrier_count: int = 0,
     compiler: str | None = None,
 ) -> Path:
@@ -167,6 +167,7 @@ def _compile_with_gpu_stubs(
         + f"#define STUB_FAIL_READBACK_AT {1 if fail_readback else fail_readback_at}\n"
         + f"#define STUB_MUTATE_READBACK_AT {mutate_readback_at}\n"
         + f"#define STUB_FAIL_DISPATCH_AT {fail_dispatch_at}\n"
+        + f"#define STUB_FAIL_WRITE_AT {fail_write_at}\n"
         + f"#define STUB_INIT_BARRIER_COUNT {init_barrier_count}\n"
         + emit_c(source)
         + _GPU_STUBS
@@ -275,6 +276,25 @@ def test_void_dispatch_falls_back_when_first_submission_is_rejected(
         fail_dispatch_at=1,
     )
     subprocess.run([str(executable)], check=True)
+
+
+@pytest.mark.parametrize("fail_write_at", [1, 2])
+def test_void_dispatch_falls_back_when_an_upload_is_rejected(tmp_path: Path, fail_write_at: int) -> None:
+    """A rejected input or uniform upload fails setup; nothing dispatches on stale data."""
+    executable = _compile_with_gpu_stubs(
+        tmp_path,
+        "@gpu void scale(int[] xs) { int i = gpu_id(); xs[i] *= 2; } "
+        "int main() { int[] xs = {2}; scale(xs); return xs[0] == 4 ? 0 : 1; }",
+        available=True,
+        fail_second_buffer=False,
+        fail_write_at=fail_write_at,
+    )
+    subprocess.run([str(executable)], check=True)
+    c_source = emit_c(
+        "@gpu void scale(int[] xs) { int i = gpu_id(); xs[i] *= 2; } int main() { int[] xs = {2}; scale(xs); return 0; }"
+    )
+    assert "btrc_gpu_write_buffer(" in c_source
+    assert not re.search(r"^\s*btrc_gpu_write_buffer\(", c_source, re.MULTILINE)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")

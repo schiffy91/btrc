@@ -1264,8 +1264,8 @@ class GpuLowerer:
         loop_body = IRBlock(
             stmts=[
                 IRAssign(target=IRFieldAccess(obj=IRVar(name=names.uniforms), field="__gpu_off"), value=offset),
-                GpuLowerer._call_stmt(
-                    "btrc_gpu_write_buffer",
+                GpuLowerer.checked_write(
+                    names.ok,
                     IRVar(name=names.gpu),
                     IRVar(name=names.uniform_buffer),
                     IRAddressOf(expr=IRVar(name=names.uniforms)),
@@ -1290,19 +1290,32 @@ class GpuLowerer:
                     ),
                 ),
                 IRIf(
-                    condition=IRCall(
-                        callee="btrc_gpu_dispatch",
-                        args=[
-                            IRVar(name=names.gpu),
-                            IRVar(name=names.pipeline),
-                            IRVar(name=names.bind_group),
-                            IRVar(name=names.workgroups),
-                        ],
-                    ),
+                    condition=IRVar(name=names.ok),
                     then_block=IRBlock(
-                        stmts=[IRAssign(target=IRVar(name=names.dispatch_started), value=IRLiteral(text="true"))]
+                        stmts=[
+                            IRIf(
+                                condition=IRCall(
+                                    callee="btrc_gpu_dispatch",
+                                    args=[
+                                        IRVar(name=names.gpu),
+                                        IRVar(name=names.pipeline),
+                                        IRVar(name=names.bind_group),
+                                        IRVar(name=names.workgroups),
+                                    ],
+                                ),
+                                then_block=IRBlock(
+                                    stmts=[
+                                        IRAssign(
+                                            target=IRVar(name=names.dispatch_started), value=IRLiteral(text="true")
+                                        )
+                                    ]
+                                ),
+                                else_block=IRBlock(
+                                    stmts=[IRAssign(target=IRVar(name=names.ok), value=IRLiteral(text="false"))]
+                                ),
+                            )
+                        ]
                     ),
-                    else_block=IRBlock(stmts=[IRAssign(target=IRVar(name=names.ok), value=IRLiteral(text="false"))]),
                 ),
             ]
         )
@@ -1640,7 +1653,7 @@ class GpuLowerer:
             IRIf(
                 condition=IRVar(name=names.ok),
                 then_block=IRBlock(
-                    stmts=[GpuLowerer.call_stmt("btrc_gpu_write_buffer", IRVar(name=names.gpu), handle, source, size)]
+                    stmts=[GpuLowerer.checked_write(names.ok, IRVar(name=names.gpu), handle, source, size)]
                 ),
             ),
         ]
@@ -1688,6 +1701,16 @@ class GpuLowerer:
         )
 
     @staticmethod
+    def checked_write(ok_name, gpu, buffer, source, size) -> IRIf:
+        """Upload, failing the dispatch rather than running on stale data."""
+        return IRIf(
+            condition=IRUnaryOp(
+                op="!", operand=IRCall(callee="btrc_gpu_write_buffer", args=[gpu, buffer, source, size])
+            ),
+            then_block=IRBlock(stmts=[IRAssign(target=IRVar(name=ok_name), value=IRLiteral(text="false"))]),
+        )
+
+    @staticmethod
     def call_stmt(callee, *args):
         return IRExprStmt(expr=IRCall(callee=callee, args=list(args)))
 
@@ -1728,8 +1751,8 @@ class GpuLowerer:
                 condition=IRVar(name=names.ok),
                 then_block=IRBlock(
                     stmts=[
-                        GpuLowerer._call_stmt(
-                            "btrc_gpu_write_buffer",
+                        GpuLowerer.checked_write(
+                            names.ok,
                             IRVar(name=names.gpu),
                             status_buffer,
                             IRAddressOf(expr=IRVar(name=names.status_code)),

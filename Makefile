@@ -198,7 +198,7 @@ test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run samp
 
 gpu: ## Build the compiler's headless @gpu compute runtime (skips if WebGPU is missing)
 	@$(NIX) bash -c '\
-		D=src/stdlib/GPU && O=build/stdlib/GPU && mkdir -p "$$O" && \
+		D=src/runtime/gpu && O=build/stdlib/GPU && mkdir -p "$$O" && \
 		archive="$$O/libbtrc_gpu.a" && rm -f "$$archive" && \
 		trap "rm -f \"$$archive\"" EXIT && \
 		for source in btrc_gpu.c btrc_gpu_async.c; do \

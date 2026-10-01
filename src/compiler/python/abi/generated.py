@@ -1277,23 +1277,6 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
-        name='btrc_gpu_read_buffer',
-        origin='native_gpu',
-        result=GeneratedAbiTypeRow('void', 0, False, ()),
-        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'read', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('int', 0, False, ()), 'value', None),),
-        variadic=False,
-        semantic_result=None,
-        return_effect='value',
-        return_alias_parameter=None,
-        return_alias_null_effect=None,
-        raw_lifetime=False,
-        return_deallocator=None,
-        return_alias_shape=None,
-        consume_deallocator=None,
-        return_alias_null_deallocator=None,
-        realtime_effect='unknown',
-    ),
-    GeneratedHostedFunctionRow(
         name='btrc_gpu_read_buffer_checked',
         origin='native_gpu',
         result=GeneratedAbiTypeRow('bool', 0, False, ()),
@@ -1330,7 +1313,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
     GeneratedHostedFunctionRow(
         name='btrc_gpu_write_buffer',
         origin='native_gpu',
-        result=GeneratedAbiTypeRow('void', 0, False, ()),
+        result=GeneratedAbiTypeRow('bool', 0, False, ()),
         parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('void', 1, False, ()), 'read', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('int', 0, False, ()), 'value', None),),
         variadic=False,
         semantic_result=None,
@@ -6316,7 +6299,6 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     'btrc_gpu_dispatch',
     'btrc_gpu_init_compute',
     'btrc_gpu_publish_compute_candidate',
-    'btrc_gpu_read_buffer',
     'btrc_gpu_read_buffer_checked',
     'btrc_gpu_shader_destroy',
     'btrc_gpu_write_buffer',
@@ -12924,7 +12906,6 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     'btrc_gpu_dispatch',
     'btrc_gpu_init_compute',
     'btrc_gpu_publish_compute_candidate',
-    'btrc_gpu_read_buffer',
     'btrc_gpu_read_buffer_checked',
     'btrc_gpu_shader_destroy',
     'btrc_gpu_write_buffer',
@@ -14302,7 +14283,6 @@ HOSTED_NATIVE_INTERNAL_NAMES: tuple[str, ...] = (
     'btrc_gpu_pending_list_take_all',
     'btrc_gpu_pending_list_unlock',
     'btrc_gpu_publish_compute_candidate',
-    'btrc_gpu_read_buffer',
     'btrc_gpu_read_buffer_checked',
     'btrc_gpu_shader_destroy',
     'btrc_gpu_write_buffer',
@@ -14360,7 +14340,6 @@ HOSTED_PLATFORM_FUNCTION_NAMES: tuple[str, ...] = (
     'btrc_gpu_dispatch',
     'btrc_gpu_init_compute',
     'btrc_gpu_publish_compute_candidate',
-    'btrc_gpu_read_buffer',
     'btrc_gpu_read_buffer_checked',
     'btrc_gpu_shader_destroy',
     'btrc_gpu_write_buffer',
@@ -17610,4 +17589,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '4532bf0606ebc661949beff48b63e964ce2acfa14e35e820c1b981879ad90506'
+HOSTED_ABI_FINGERPRINT = 'dedc36bc0d5fa64f116b0538e7e5a8f09693372a943a77a75b5e0c621c62805e'

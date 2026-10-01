@@ -10,7 +10,7 @@ import pytest
 from src.tests.python.test_codegen import emit_c
 
 ROOT = Path(__file__).resolve().parents[3]
-GPU = ROOT / "src" / "stdlib" / "GPU"
+GPU = ROOT / "src" / "runtime" / "gpu"
 HARNESS = ROOT / "src" / "tests" / "native" / "gpu_runtime_invalid.c"
 SHADER_VALIDATION_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_shader_validation.c"
 SINGLETON_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_compute_singleton.c"

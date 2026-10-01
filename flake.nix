@@ -167,7 +167,7 @@
         };
         gpuRuntimeSource = sourceSubset {
           prefixes = [
-            "src/stdlib/GPU/"
+            "src/runtime/gpu/"
           ];
           excludedPrefixes = [ ];
         };
@@ -301,8 +301,8 @@
               btrc_gpu_async.c; do
               $CC -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
                 -pthread ${gpuCompileFlags} \
-                -Isrc/stdlib/GPU \
-                -c "src/stdlib/GPU/$source" -o "''${source%.c}.o"
+                -Isrc/runtime/gpu \
+                -c "src/runtime/gpu/$source" -o "''${source%.c}.o"
             done
             $AR rcs libbtrc_gpu.a btrc_gpu.o btrc_gpu_async.o
             runHook postBuild
@@ -315,7 +315,7 @@
               "$out/lib/pkgconfig" \
               "$licenseRoot/third-party/wgpu-native" \
               "$licenseRoot/third-party/webgpu-headers"
-            install -m 0644 src/stdlib/GPU/btrc_gpu_compute_internal.h "$out/include/"
+            install -m 0644 src/runtime/gpu/btrc_gpu_compute_internal.h "$out/include/"
             install -m 0644 libbtrc_gpu.a "$out/lib/"
             install -m 0644 ${./LICENSE} "$licenseRoot/LICENSE"
             install -m 0644 ${pkgs.wgpu-native.src}/LICENSE.APACHE \

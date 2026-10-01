@@ -116,7 +116,6 @@ functions = [
   "btrc_gpu_dispatch",
   "btrc_gpu_init_compute",
   "btrc_gpu_publish_compute_candidate",
-  "btrc_gpu_read_buffer",
   "btrc_gpu_read_buffer_checked",
   "btrc_gpu_shader_destroy",
   "btrc_gpu_write_buffer",
@@ -6719,7 +6718,6 @@ owned = [
   "btrc_gpu_dispatch",
   "btrc_gpu_init_compute",
   "btrc_gpu_publish_compute_candidate",
-  "btrc_gpu_read_buffer",
   "btrc_gpu_read_buffer_checked",
   "btrc_gpu_shader_destroy",
   "btrc_gpu_write_buffer",
@@ -8095,7 +8093,6 @@ native_internal = [
   "btrc_gpu_pending_list_take_all",
   "btrc_gpu_pending_list_unlock",
   "btrc_gpu_publish_compute_candidate",
-  "btrc_gpu_read_buffer",
   "btrc_gpu_read_buffer_checked",
   "btrc_gpu_shader_destroy",
   "btrc_gpu_write_buffer",
@@ -8153,7 +8150,6 @@ functions = [
   "btrc_gpu_dispatch",
   "btrc_gpu_init_compute",
   "btrc_gpu_publish_compute_candidate",
-  "btrc_gpu_read_buffer",
   "btrc_gpu_read_buffer_checked",
   "btrc_gpu_shader_destroy",
   "btrc_gpu_write_buffer",
@@ -12331,21 +12327,6 @@ raw_lifetime = false
 return_deallocator = "btrc_gpu_destroy"
 
 [[functions]]
-name = "btrc_gpu_read_buffer"
-origin = "native_gpu"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
 name = "btrc_gpu_read_buffer_checked"
 origin = "native_gpu"
 result = { base = "bool", pointer_depth = 0, is_const = false }
@@ -12376,7 +12357,7 @@ consume_deallocator = "btrc_gpu_shader_destroy"
 [[functions]]
 name = "btrc_gpu_write_buffer"
 origin = "native_gpu"
-result = { base = "void", pointer_depth = 0, is_const = false }
+result = { base = "bool", pointer_depth = 0, is_const = false }
 parameters_known = true
 parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },

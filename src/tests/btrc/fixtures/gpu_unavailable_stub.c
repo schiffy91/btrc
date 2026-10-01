@@ -7,11 +7,8 @@ void* btrc_gpu_init_compute(void) { return NULL; }
 void* btrc_gpu_create_buffer(void* gpu, int size, int usage) {
     (void)gpu; (void)size; (void)usage; return NULL;
 }
-void btrc_gpu_write_buffer(void* gpu, void* buffer, void* data, int size) {
-    (void)gpu; (void)buffer; (void)data; (void)size;
-}
-void btrc_gpu_read_buffer(void* gpu, void* buffer, void* data, int size) {
-    (void)gpu; (void)buffer; (void)data; (void)size;
+bool btrc_gpu_write_buffer(void* gpu, void* buffer, void* data, int size) {
+    (void)gpu; (void)buffer; (void)data; (void)size; return false;
 }
 bool btrc_gpu_read_buffer_checked(void* gpu, void* buffer,
         void* data, int size) {
