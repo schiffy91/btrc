@@ -1,4 +1,4 @@
-/* JSONValue and legacy JSONText safety boundaries: malformed control bytes,
+/* JSONValue safety boundaries: malformed control bytes,
  * recursion limits, numeric overflow, defined int conversion, and full escape
  * decoding through the shared JSON string parser. */
 import Library.JSON;
@@ -21,16 +21,12 @@ int main() {
 	assert(JSONValue.parse("2147483648").asInt() == 0);
 	assert(JSONValue.parse("-2147483649").asInt() == 0);
 
-	JSONObject legacyNumber = JSONObject.parse("{\"n\":2147483648}");
-	assert(legacyNumber.getInt("n", -17) == -17);
-	assert(JSONText.intField("{\"n\":-2147483649}", "n", -19) == -19);
+	JSONValue escaped = JSONValue.parse("{\"u\":\"\\u00e9\",\"controls\":\"\\b\\f\"}");
+	assert(strcmp(escaped.get("u").asString(), "\xc3\xa9") == 0);
+	assert(strcmp(escaped.get("controls").asString(), "\b\f") == 0);
 
-	JSONObject escaped = JSONObject.parse("{\"u\":\"\\u00e9\",\"controls\":\"\\b\\f\"}");
-	assert(strcmp(escaped.getString("u", ""), "\xc3\xa9") == 0);
-	assert(strcmp(escaped.getString("controls", ""), "\b\f") == 0);
-
-	JSONObject controlKey = JSONObject();
-	controlKey.setString("b\b", "value");
+	JSONValue controlKey = JSONValue.makeObject();
+	controlKey.set("b\b", JSONValue.makeString("value"));
 	string controlKeyText = controlKey.stringify();
 	assert(controlKeyText.contains("\"b\\b\""));
 	assert(!JSONValue.parse(controlKeyText).isError());
@@ -51,10 +47,6 @@ int main() {
 		builtDeep = parent;
 	}
 	assert(!JSONValue.parse(builtDeep.stringify()).isError());
-
-	assert(JSONText.slice("abc", -4, 2).equals("ab"));
-	assert(JSONText.slice("abc", 3, 2).equals(""));
-	assert(JSONText.skipSpaces("  x", -9) == 2);
 
 	double infinity = strtod("1e9999", NULL);
 	JSONValue invalidFloat = JSONValue.makeFloat(infinity);

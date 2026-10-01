@@ -1,4 +1,4 @@
-btrc-symbols 1 499e8819-250638-27
+btrc-symbols 1 9017ca2f-235849-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
@@ -59,11 +59,8 @@ ICallbackRegistration	Callback.btrc
 IOError	Error.btrc
 IndexError	Error.btrc
 Iterable	Iterable.btrc
-JSON	JSONX.btrc
 JSONNum	JSON.btrc
-JSONObject	JSON.btrc
 JSONParser	JSON.btrc
-JSONText	JSON.btrc
 JSONValue	JSON.btrc
 KeyError	Error.btrc
 List	List.btrc

@@ -161,7 +161,7 @@ def test_resolve_std_brace(tmp_path):
     src = "import Library.{Strings, JSON}\nint main() { return 0; }"
     resolved = RESOLVER.resolve_includes(src, write(tmp_path / "m.btrc", src))
     assert "class Strings" in resolved
-    assert "class JSONObject" in resolved
+    assert "class JSONValue" in resolved
     assert "import std" not in resolved
 
 

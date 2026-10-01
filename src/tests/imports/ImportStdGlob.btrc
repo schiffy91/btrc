@@ -7,9 +7,9 @@ import Library.*
 int main() {
 	assert(Math.abs(-4) == 4);
 
-	var json = JSONObject();
-	json.setString("k", "v");
-	assert(json.getString("k", "").equals("v"));
+	var json = JSONValue.makeObject();
+	json.set("k", JSONValue.makeString("v"));
+	assert(json.get("k").asString().equals("v"));
 
 	print("PASS: test_import_std_glob");
 	return 0;

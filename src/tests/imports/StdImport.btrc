@@ -1,9 +1,9 @@
 import Library.{JSON, TOML}
 
 int main() {
-	var json = JSONObject();
-	json.setString("format", "json");
-	assert(json.getString("format", "").equals("json"));
+	var json = JSONValue.makeObject();
+	json.set("format", JSONValue.makeString("json"));
+	assert(json.get("format").asString().equals("json"));
 	assert(TOML.value("name = \"btrc\"").equals("btrc"));
 	print("PASS: test_std_import");
 	return 0;

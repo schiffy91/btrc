@@ -1,6 +1,6 @@
 /* btrc standard library — graph-based execution helpers
  *
- * This module keeps the graph mechanics generic: JSON graph parsing, CLI
+ * This module keeps the graph mechanics generic: JSONValue graph parsing, CLI
  * target/arg parsing, status listing, and dependency traversal. Callers keep
  * domain-specific readiness checks and node execution in their own runners.
  */
@@ -12,6 +12,7 @@ import Library.FileSystem;
 import Library.JSON;
 import Library.Map;
 import Library.Set;
+import Library.Strings;
 import Library.Vector;
 
 class GraphNode {
@@ -90,11 +91,15 @@ class ExecutionGraph {
 }
 
 class GraphCLI {
+	/* Each --arg must be key=value with a non-empty key. A malformed pair is
+	 * user input, so it throws a catchable message instead of exiting. */
 	class Map<string, string> args(CLIArgs args, int startIndex) {
 		Map<string, string> result = {};
 		CLICommandLine parsed = CLICommandLine.parseFrom(args, startIndex);
 		for value in parsed.values("--arg") {
-			JSONText.putArgPair(result, value);
+			int split = Strings.find(value, "=", 0);
+			if (split <= 0) { throw f"Expected --arg key=value, got: {value}"; }
+			result.put(value.substring(0, split), value.substring(split + 1, value.len() - split - 1));
 		}
 		return result;
 	}
@@ -116,22 +121,33 @@ class GraphReport {
 
 class GraphTraversal {
 	public ExecutionGraph graph;
-	public Vector<string> done;
-	public Vector<string> visiting;
+	public Set<string> done;
+	public Set<string> visiting;
 	public Vector<string> ordered;
 	public string error;
+	private Map<string, GraphNode> index;
 
 	public GraphTraversal(ExecutionGraph graph) {
 		self.graph = graph;
-		self.done = [];
-		self.visiting = [];
+		self.done = {};
+		self.visiting = {};
 		self.ordered = [];
 		self.error = "";
+		self.index = {};
+	}
+
+	/* One id -> node index per order() call keeps traversal O(V + E). The
+	 * first node with an id wins, matching ExecutionGraph.node(). */
+	private void indexNodes() {
+		self.index = {};
+		for node in self.graph.nodes {
+			if (!self.index.has(node.id)) { self.index.put(node.id, node); }
+		}
 	}
 
 	public int visit(string id) {
-		if (self.done.contains(id)) { return 0; }
-		if (!self.graph.hasNode(id)) {
+		if (id != null && self.done.contains(id)) { return 0; }
+		if (id == null || !self.index.has(id)) {
 			self.error = "Unknown graph node: " + (id == null ? "" : id);
 			return 1;
 		}
@@ -143,27 +159,18 @@ class GraphTraversal {
 		Vector<int> nextParent = [];
 		stack.push(id);
 		nextParent.push(0);
+		self.visiting.add(id);
 
 		while (!stack.isEmpty()) {
 			int top = stack.len - 1;
 			string current = stack.get(top);
-			if (self.done.contains(current)) {
-				self.visiting.removeAll(current);
-				stack.pop();
-				nextParent.pop();
-				continue;
-			}
-			if (!self.visiting.contains(current)) {
-				self.visiting.push(current);
-			}
-
-			GraphNode node = self.graph.node(current);
-			int index = nextParent.get(top);
-			if (index < node.after.len) {
-				string parent = node.after.get(index);
-				nextParent.set(top, index + 1);
+			GraphNode node = self.index.get(current);
+			int position = nextParent.get(top);
+			if (position < node.after.len) {
+				string parent = node.after.get(position);
+				nextParent.set(top, position + 1);
 				if (self.done.contains(parent)) { continue; }
-				if (!self.graph.hasNode(parent)) {
+				if (!self.index.has(parent)) {
 					self.error = "Unknown graph node: " + parent;
 					return 1;
 				}
@@ -171,14 +178,15 @@ class GraphTraversal {
 					self.error = "Cycle in graph at " + parent;
 					return 1;
 				}
+				self.visiting.add(parent);
 				stack.push(parent);
 				nextParent.push(0);
 				continue;
 			}
 
-			self.done.push(current);
+			self.done.add(current);
 			self.ordered.push(current);
-			self.visiting.removeAll(current);
+			self.visiting.remove(current);
 			stack.pop();
 			nextParent.pop();
 		}
@@ -186,10 +194,11 @@ class GraphTraversal {
 	}
 
 	public Vector<string> order(Vector<string> targets) {
-		self.done = [];
-		self.visiting = [];
+		self.done = {};
+		self.visiting = {};
 		self.ordered = [];
 		self.error = "";
+		self.indexNodes();
 		Vector<string> selected = targets.isEmpty() ? self.graph.defaultTargets() : targets;
 		for id in selected {
 			int result = self.visit(id);
@@ -243,12 +252,47 @@ class GraphValidation {
 }
 
 class GraphParser {
-	class GraphNode node(string objectText) {
+	class string stringField(JSONValue object, string key, string fallback) {
+		JSONValue value = object.get(key);
+		if (value.isNull()) { return fallback; }
+		if (!value.isString()) { throw f"Graph field {key} must be a string"; }
+		return value.asString();
+	}
+
+	class Vector<string> stringArray(JSONValue object, string key) {
+		Vector<string> result = [];
+		JSONValue value = object.get(key);
+		if (value.isNull()) { return result; }
+		if (!value.isArray()) { throw f"Graph field {key} must be an array of strings"; }
+		for (int i = 0; i < value.size(); i++) {
+			JSONValue item = value.at(i);
+			if (!item.isString()) { throw f"Graph field {key} must be an array of strings"; }
+			result.push(item.asString());
+		}
+		return result;
+	}
+
+	/* args values are template text: strings are used as decoded, and any
+	 * other JSON value as its compact JSON text. */
+	class Map<string, string> args(JSONValue object) {
+		Map<string, string> result = {};
+		JSONValue value = object.get("args");
+		if (value.isNull()) { return result; }
+		if (!value.isObject()) { throw "Graph field args must be an object"; }
+		for key in value.keys() {
+			JSONValue item = value.get(key);
+			result.put(key, item.isString() ? item.asString() : item.stringify());
+		}
+		return result;
+	}
+
+	class GraphNode node(JSONValue object) {
+		if (!object.isObject()) { throw "Graph node must be an object"; }
 		var node = GraphNode();
-		node.id = JSONText.field(objectText, "id", "");
-		node.specPath = JSONText.field(objectText, "spec", "");
-		node.after = JSONText.stringArray(objectText, "after");
-		node.args = JSONText.argsObject(objectText);
+		node.id = GraphParser.stringField(object, "id", "");
+		node.specPath = GraphParser.stringField(object, "spec", "");
+		node.after = GraphParser.stringArray(object, "after");
+		node.args = GraphParser.args(object);
 		/* Missing id/spec is a DATA error in the source JSON, not an internal
          * invariant — throw a catchable message instead of aborting. (readFile
          * also surfaces these via the recoverable validationError() path.) */
@@ -261,17 +305,21 @@ class GraphParser {
 		return node;
 	}
 
-	class ExecutionGraph readFile(string path) {
-		var text = Path.readAll(path);
+	class ExecutionGraph parse(string text, string path) {
+		JSONValue document = JSONValue.parse(text);
+		if (document.isError()) { throw f"Graph file is not valid JSON: {path}"; }
+		if (!document.isObject()) { throw f"Graph file must hold a JSON object: {path}"; }
 		var graph = ExecutionGraph();
 		graph.path = path;
 		graph.baseDir = PathTools.dirname(path);
-		graph.name = JSONText.field(text, "name", graph.name);
-		graph.workspaceRoot = JSONText.field(text, "workspaceRoot", graph.workspaceRoot);
-		graph.defaults = JSONText.stringArray(text, "default");
-		graph.required = JSONText.stringArray(text, "required");
-		for objectText in JSONText.objectArray(text, "nodes") {
-			graph.nodes.push(GraphParser.node(objectText));
+		graph.name = GraphParser.stringField(document, "name", graph.name);
+		graph.workspaceRoot = GraphParser.stringField(document, "workspaceRoot", graph.workspaceRoot);
+		graph.defaults = GraphParser.stringArray(document, "default");
+		graph.required = GraphParser.stringArray(document, "required");
+		JSONValue nodes = document.get("nodes");
+		if (!nodes.isNull() && !nodes.isArray()) { throw "Graph field nodes must be an array"; }
+		for (int i = 0; i < nodes.size(); i++) {
+			graph.nodes.push(GraphParser.node(nodes.at(i)));
 		}
 		/* Validation failures are DATA errors (bad graph JSON), so throw a
          * catchable message rather than aborting the process. Callers that want
@@ -282,5 +330,16 @@ class GraphParser {
 			throw error;
 		}
 		return graph;
+	}
+
+	/* An unreadable file is an I/O error, reported as such rather than as an
+	 * empty graph. */
+	class ExecutionGraph readFile(string path) {
+		var file = File(path, "r");
+		if (!file.ok()) { throw f"Cannot open graph file: {path}"; }
+		string text = file.read();
+		bool closed = file.close();
+		if (file.failed() || !closed) { throw f"Cannot read graph file: {path}"; }
+		return GraphParser.parse(text, path);
 	}
 }

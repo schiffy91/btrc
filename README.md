@@ -641,11 +641,11 @@ layout is part of the API. The complete rules are in
 - **The root is a closed prelude.** Each root file is one self-contained
   primitive imported as `Library.<Name>`, and a root module imports only other
   root modules. Nothing with a native binding or a nested source graph lives
-  here. The 27 root modules are `Array`, `BitPattern`, `Bytes`, `CLI`,
+  here. The 26 root modules are `Array`, `BitPattern`, `Bytes`, `CLI`,
   `Callback`, `Console`, `Datetime`, `Error`, `IO`, `Iterable`, `JSON`,
-  `JSONX`, `List`, `Map`, `Math`, `OwnedBuffer`, `Pattern`, `Platform`,
-  `Process`, `Random`, `Regex`, `Result`, `SPSC`, `Set`, `Strings`, `TOML`,
-  and `Vector`.
+  `List`, `Map`, `Math`, `OwnedBuffer`, `Pattern`, `Platform`, `Process`,
+  `Random`, `Regex`, `Result`, `SPSC`, `Set`, `Strings`, `TOML`, and
+  `Vector`.
 - **A group with more than one module is a folder** with a same-named facade
   inside it, so `import Library.HTTP;` selects the facade and the group's other
   modules are addressed by path (`Library.HTTP.HTTPClient`,
@@ -682,7 +682,7 @@ The everyday surfaces are intentionally practical:
   for shell/process orchestration
 - `FileSystem`, `FileTree`, `ApplicationDirectories`, and `FileSystemHandles`
   for filesystem work, including identity-matched recursive removal
-- `JSONObject`, `JSONValue`, and `TOML` for declarative data, including
+- `JSONValue` and `TOML` for declarative data, including
   compact, pretty, and canonical newline-terminated JSON serialization
 - `CLIArgs`, `CLICommand`, `CLICommandLine`, and `CLIHelp` for simple CLIs
 - `Platform`, `Environment`, and `Terminal` for OS/runtime integration
@@ -1763,7 +1763,7 @@ Import `Library.Error` to use `Error`, `ValueError`, `IOError`, `TypeError`,
 
 #### Data, text, and processes
 
-- `Library.JSON` -- `JSONObject`, `JSONValue`, `JSONParser`, with compact, pretty, and canonical serialization
+- `Library.JSON` -- `JSONValue`, `JSONParser`, with compact, pretty, and canonical serialization
 - `Library.TOML` -- manifest-grade TOML reading
 - `Library.Regex` / `Library.Pattern` -- compiled regular expressions and glob-style patterns
 - `Library.Bytes` -- byte buffers; `Library.Digest.SHA256` for hashing
@@ -1936,7 +1936,7 @@ src/
     README.md                  # Normative layout rules for the library
     Vector.btrc Map.btrc Set.btrc List.btrc Array.btrc Iterable.btrc
     Strings.btrc Bytes.btrc Math.btrc Random.btrc Datetime.btrc
-    JSON.btrc JSONX.btrc TOML.btrc Regex.btrc Pattern.btrc BitPattern.btrc
+    JSON.btrc TOML.btrc Regex.btrc Pattern.btrc BitPattern.btrc
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
     Result.btrc Error.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
     App/ Audio/ BackgroundJobs/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
