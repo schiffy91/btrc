@@ -23,6 +23,7 @@ import pytest
 from src.tests.btrc.test_gpu_diagnostics_parity import REFERENCE_DIAGNOSTIC, SELFHOST_DIAGNOSTIC, GpuDiagnostic
 
 REPO = Path(__file__).resolve().parents[3]
+INCLUDE = re.compile(r"^#include [<\"]([^>\"]+)[>\"]$", re.MULTILINE)
 FUNCTION = re.compile(r"^static void (k__gpu(?:item|cpu))\([^)]*\) \{\n.*?^\}$", re.MULTILINE | re.DOTALL)
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires the POSIX self-host driver")
@@ -194,6 +195,7 @@ VALID_PROBES = (
     ),
     ParityProbe("float-literal-double", _main("var x = 1.5; double* p = &x; return 0;")),
     ParityProbe("float-arithmetic-widens", _main("float f = 1.5; var y = f * 2.0; double* p = &y; return 0;")),
+    ParityProbe("source-standard-include", "#include <assert.h>\n" + _main("assert(1 == 1); return 0;")),
 )
 
 
@@ -263,6 +265,16 @@ def test_valid_probe_compiles_in_both_compilers(harness: ParityHarness, probe: P
 
     assert (reference.returncode, reference.diagnostic) == (0, None)
     assert (selfhost.returncode, selfhost.diagnostic) == (0, None)
+
+
+def test_source_include_of_a_standard_header_is_emitted_once(harness: ParityHarness) -> None:
+    probe = next(probe for probe in VALID_PROBES if probe.name == "source-standard-include")
+    reference, selfhost = harness.compile_probe(probe)
+
+    for outcome in (reference, selfhost):
+        headers = INCLUDE.findall(outcome.generated)
+        assert headers.count("assert.h") == 1, headers
+        assert len(headers) == len(set(headers)), headers
 
 
 def test_gpu_float_division_cpu_fallback_matches_between_compilers(harness: ParityHarness) -> None:

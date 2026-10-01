@@ -879,7 +879,10 @@ class TranslationUnitLowerer:
                 # An imported C source defines symbols: only its importing
                 # group's unit includes it, and others call its declarations.
                 return
-            self._session.module.preprocessor_decls.append(include)
+            # Includes are deduplicated at production, as in the self-hosted
+            # lowerer, so a source include of a standard header is not repeated.
+            if include not in self._session.module.preprocessor_decls:
+                self._session.module.preprocessor_decls.append(include)
         elif directive == "define":
             self._session.module.preprocessor_decls.append(self._parse_define(payload, text))
         elif directive == "pragma":
