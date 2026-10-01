@@ -432,8 +432,12 @@ backing scale, so measurement and drawing agree at fractional scales.
   device request, so a child polled before the first loop turn still becomes
   ready. `GUI.capture` paints the whole window into an offscreen target and
   reads it back, so a window captures before it is shown and presentation is
-  never reconfigured; the layers argument is accepted for parity because the
-  frame already composes every GPU child.
+  never reconfigured. It fails at once if the window's device is not ready
+  yet rather than waiting on the UI thread, and it checks that every layer
+  names a GPU view inside the capture root; the layer pixels are unused
+  because the frame already composes every GPU child.
+- Every provider and application entry point except `createImageHandle`
+  requires SDL's main thread, the one that called `GUI.initialize`.
 - `ISelect` opens a window overlay that receives pointer and keyboard input
   first; `IWindow.showAlert` is SDL's message box; `GUI.chooseDirectory` is
   the desktop folder dialog (portal or zenity) pumped like a modal.

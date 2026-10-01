@@ -91,7 +91,11 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	public LinuxContext context() { return self._context; }
 
+	/* SDL's main thread is the one GUI.initialize ran SDL_Init on. */
+	private void requireUIThread() { if (!SDL_IsMainThread()) { throw "Native application dispatch requires the main thread"; } }
+
 	private void requireIdle() {
+		self.requireUIThread();
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
 	}
@@ -101,11 +105,12 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 		if (self._quitRequested) { throw "Application quit has been requested"; }
 	}
 
-	public bool isRunning() { return self._running; }
+	public bool isRunning() { self.requireUIThread(); return self._running; }
 
 	public bool isDispatching() { return self._dispatching; }
 
 	public void requestQuit() {
+		self.requireUIThread();
 		if (self._closed || self._quitRequested) { return; }
 		self._quitRequested = true;
 		btrcSdlPushWake();
@@ -117,6 +122,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 	}
 
 	public void post(IApplicationWork work) {
+		self.requireUIThread();
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
 		if (work == null) { throw "Application work is required"; }
 		if (self._quitRequested) { throw "Application quit has been requested"; }
@@ -130,6 +136,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 	private void pruneDelayed() { for (int index = self._delayed.len - 1; index >= 0; index--) { if (!self._delayed.get(index).isOpen()) { self._delayed.remove(index); } } }
 
 	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
+		self.requireUIThread();
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
 		if (work == null || !Math.isFinite(delaySeconds) || delaySeconds < 0.0) { throw "Delayed work requires a finite nonnegative delay and a receiver"; }
 		if (self._quitRequested) { throw "Application quit has been requested"; }
@@ -278,6 +285,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	/* One loop turn: wait for events or the next deadline, then service everything. */
 	public void pumpOnce(int timeoutMilliseconds) {
+		self.requireUIThread();
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		self._dispatching = true;
 		try {
@@ -291,6 +299,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 	}
 
 	public void run() {
+		self.requireUIThread();
 		if (self._running || self._dispatching) { throw "Native application loop is already active"; }
 		if (self._closed) { throw "Application shutdown has completed"; }
 		self._running = true;
@@ -351,6 +360,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	public CallbackCancellation close() {
 		if (self._closed) { return CallbackCancellation.Complete; }
+		self.requireUIThread();
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		if (self._running) { throw "Request application quit before closing a running application"; }

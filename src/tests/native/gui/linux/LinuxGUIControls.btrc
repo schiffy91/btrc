@@ -8,6 +8,8 @@ import Library.GUI.IDirectoryPicker;
 import Library.GUI.IImageHandle;
 import Library.GUI.IImageView;
 import Library.GUI.IView;
+import Library.GUI.IGPUView;
+import Library.GUI.Capture;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxWindow;
@@ -117,6 +119,12 @@ class Journey implements IApplicationWork {
 			assert(self._cardPointer.presses == 1 && self._rootPointer.presses == self._rootBefore);
 			assert(self._cardPointer.entered >= 1);
 			assert(self._picker.error.equals("Native event dispatch is already active"));
+			/* Layers must name GPU views inside the capture root. */
+			var stray = GUI.createGPUView();
+			Vector<GUICaptureLayer> strayLayers = [GUICaptureLayer(stray, Image(1, 1))];
+			string layerError = "";
+			try { GUI.capture(self._root, strayLayers); } catch (string error) { layerError = error; }
+			assert(layerError.equals("Capture layer is outside the capture root"));
 			var image = GUI.capture(self._root, new Vector<GUICaptureLayer>());
 			assert(image.width > 0 && image.height > 0);
 			var pixel = image.pixel(image.width / 8, image.height * 3 / 4);
@@ -149,6 +157,12 @@ int main() {
 	try { GUI.createImageHandle(pixels, 4); } catch (string error) { oversized = error.equals("Native artwork exceeds image limits"); }
 	assert(oversized);
 	GUI.initialize(64);
+	/* Everything but image handles belongs to the UI thread. */
+	Thread<string> stranger = spawn(() => {
+		try { GUI.requestQuit(); } catch (string error) { return error; }
+		return "";
+	});
+	assert(stranger.join().equals("GUI requires the main thread"));
 	var window = GUI.createWindow("BTRC Linux controls", 480.0, 320.0);
 	ILinuxWindow? native = (ILinuxWindow?)window;
 	assert(native != null);
