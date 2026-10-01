@@ -1,4 +1,4 @@
-btrc-symbols 1 4274716d-234766-25
+btrc-symbols 1 6d43dc0e-234756-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
@@ -34,7 +34,7 @@ CommandOutput	Process.btrc
 CompiledRegex	Regex.btrc
 Complete	Callback.btrc
 Console	Console.btrc
-DateTime	Datetime.btrc
+DateTime	DateTime.btrc
 Environment	Platform.btrc
 ExecResult	Process.btrc
 FILE_DIRECTORY	IO.btrc
@@ -113,7 +113,7 @@ ShellWords	Process.btrc
 StringBuilder	Strings.btrc
 Strings	Strings.btrc
 TOML	TOML.btrc
-Timer	Datetime.btrc
+Timer	Timer.btrc
 UnixShell	Process.btrc
 Vector	Vector.btrc
 btrcSpscCopy	SPSC.btrc

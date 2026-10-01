@@ -1,8 +1,8 @@
 /* Unix conversions remain exact outside the signed 32-bit epoch range. */
-import Library.Datetime;
+import Library.DateTime;
 
 #include <assert.h>
-#include "../../stdlib/Datetime.btrc"
+#include "../../stdlib/DateTime.btrc"
 
 int main() {
 	DateTime rollover = DateTime.fromUnix(2147483648LL);

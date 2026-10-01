@@ -9,7 +9,7 @@ import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.Callback;
 import Library.Console;
-import Library.Datetime;
+import Library.Timer;
 
 #include <assert.h>
 

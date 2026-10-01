@@ -1,8 +1,10 @@
-/* Test stdlib datetime: DateTime, Timer */
-import Library.Datetime;
+/* Test stdlib DateTime and Timer */
+import Library.DateTime;
+import Library.Timer;
 
 #include <assert.h>
-#include "../../stdlib/Datetime.btrc"
+#include "../../stdlib/DateTime.btrc"
+#include "../../stdlib/Timer.btrc"
 
 int main() {
 	// DateTime construction

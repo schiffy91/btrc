@@ -1,6 +1,6 @@
 import Library.Math;
 import Library.Console;
-import Library.Datetime;
+import Library.Timer;
 import Library.Callback;
 import Library.Vector;
 import Library.GUI.IApplication;

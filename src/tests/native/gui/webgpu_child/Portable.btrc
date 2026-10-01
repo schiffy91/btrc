@@ -5,7 +5,7 @@ import Library.GUI.IWindow;
 import Library.GUI.IContainer;
 import Library.GPU.Readback;
 import Library.GPU.Program;
-import Library.Datetime;
+import Library.Timer;
 import Library.Callback;
 
 import ./CompletionProbe.btrc;

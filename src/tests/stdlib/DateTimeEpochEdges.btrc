@@ -1,10 +1,10 @@
 /* DateTime.toUnix / fromUnix across hard branches of the Hinnant civil-from-days
  * algorithm: the epoch itself, a pre-1970 (negative) timestamp, a leap day, and
  * round-tripping through both directions. */
-import Library.Datetime;
+import Library.DateTime;
 
 #include <assert.h>
-#include "../../stdlib/Datetime.btrc"
+#include "../../stdlib/DateTime.btrc"
 
 int main() {
 	// The epoch: 1970-01-01 00:00:00 UTC == 0 seconds.

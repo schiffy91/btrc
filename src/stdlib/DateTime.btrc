@@ -6,12 +6,9 @@
  * DST handling — round-tripping now() through toUnix()/fromUnix() shifts by your
  * local UTC offset. Convert deliberately if you mix the two.
  */
-import Library.Math;
 import Library.Strings;
 
-#include <errno.h>
 #include <limits.h>
-#include <stdint.h>
 #include <time.h>
 
 class DateTime {
@@ -90,8 +87,6 @@ class DateTime {
 		return DateTime((int)year, (int)month, (int)day, (int)(remaining / 3600LL), (int)((remaining % 3600LL) / 60LL), (int)(remaining % 60LL));
 	}
 
-	public void display() { printf("%04d-%02d-%02d %02d:%02d:%02d", self.year, self.month, self.day, self.hour, self.minute, self.second); }
-
 	public string format() {
 		char buf[64];
 		snprintf(buf, 64, "%04d-%02d-%02d %02d:%02d:%02d", self.year, self.month, self.day, self.hour, self.minute, self.second);
@@ -108,113 +103,5 @@ class DateTime {
 		char buf[32];
 		snprintf(buf, 32, "%02d:%02d:%02d", self.hour, self.minute, self.second);
 		return Strings.copy(buf);
-	}
-}
-
-/* A monotonic wall-clock stopwatch.
- *
- * Backed by CLOCK_MONOTONIC (POSIX) rather than clock(): clock() measures CPU
- * time, so timing anything that sleeps or blocks on I/O reported near-zero.
- * start/end are stored as monotonic nanoseconds in a fixed-width-capable
- * `long long`; C `long` is only 32 bits on LLP64 and many 32-bit targets. */
-class Timer {
-	private long long startTime;
-	private long long endTime;
-	private bool running;
-
-	public Timer() {
-		self.startTime = 0;
-		self.endTime = 0;
-		self.running = false;
-	}
-
-	/* Current monotonic clock value, in nanoseconds. */
-	private long long monoNanos() {
-		struct timespec ts;
-		if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-			throw "failed to read monotonic clock";
-		}
-		if (ts.tv_sec < (time_t)0) {
-			throw "monotonic clock returned a negative value";
-		}
-		uintmax_t seconds = (uintmax_t)ts.tv_sec;
-		if (seconds > (uintmax_t)(LLONG_MAX / 1000000000LL)) {
-			throw "monotonic clock is outside Timer's supported range";
-		}
-		if (ts.tv_nsec < 0L || ts.tv_nsec >= 1000000000L) {
-			throw "monotonic clock returned an invalid nanosecond value";
-		}
-		long long nanoseconds = (long long)seconds * 1000000000LL;
-		if (nanoseconds > (long long)LLONG_MAX - (long long)ts.tv_nsec) {
-			throw "monotonic clock is outside Timer's supported range";
-		}
-		return nanoseconds + (long long)ts.tv_nsec;
-	}
-
-	public void start() {
-		self.startTime = self.monoNanos();
-		self.running = true;
-	}
-
-	public void stop() {
-		self.endTime = self.monoNanos();
-		self.running = false;
-	}
-
-	/* Elapsed wall time in seconds. */
-	public float elapsed() {
-		long long end = self.running ? self.monoNanos() : self.endTime;
-		if (end < self.startTime) {
-			throw "monotonic clock moved backwards";
-		}
-		return (float)(end - self.startTime) / 1000000000.0f;
-	}
-
-	/* Elapsed wall time in milliseconds. */
-	public float elapsedMillis() {
-		long long end = self.running ? self.monoNanos() : self.endTime;
-		if (end < self.startTime) {
-			throw "monotonic clock moved backwards";
-		}
-		return (float)(end - self.startTime) / 1000000.0f;
-	}
-
-	public void reset() {
-		self.startTime = 0;
-		self.endTime = 0;
-		self.running = false;
-	}
-
-	/* Suspend the calling thread for the given number of seconds (fractional
-     * seconds allowed), using nanosleep (POSIX). */
-	class void sleep(double seconds) {
-		/* Converting NaN/infinity or an out-of-range floating value to time_t
-         * is undefined in C.  Keep the established non-positive no-op contract
-         * and fail closed for values that are not portable to signed 32-bit
-         * time_t implementations. */
-		if (!Math.isFinite(seconds) || seconds <= 0.0 || seconds >= 2147483647.0) {
-			return;
-		}
-		struct timespec req;
-		req.tv_sec = (time_t)seconds;
-		double frac = seconds - (double)((time_t)seconds);
-		req.tv_nsec = (long)(frac * 1000000000.0);
-		if (req.tv_nsec < 0L || req.tv_nsec >= 1000000000L) {
-			return;
-		}
-		while (nanosleep(&req, &req) == -1 && errno == EINTR) {
-		}
-	}
-
-	/* Suspend the calling thread for the given number of milliseconds. */
-	class void sleepMillis(int ms) {
-		if (ms <= 0) {
-			return;
-		}
-		struct timespec req;
-		req.tv_sec = ms / 1000;
-		req.tv_nsec = (long)(ms % 1000) * 1000000L;
-		while (nanosleep(&req, &req) == -1 && errno == EINTR) {
-		}
 	}
 }
