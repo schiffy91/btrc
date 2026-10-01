@@ -7,6 +7,7 @@ import Library.Vector;
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
+import ../GPU.btrc;
 import ../HostedAbi.btrc;
 import ../Models.btrc;
 import ../Operators.btrc;
@@ -30,8 +31,9 @@ class DeclarationValidator {
 	private OwnershipValidator ownership;
 	private ExpressionValidator expressions;
 	private ControlFlowValidator controlFlow;
+	private GpuKernelValidator kernels;
 
-	public DeclarationValidator(SemanticValidationState state, HostedAbiRepository hostedAbi, OperatorSemantics operators, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, ExpressionValidator expressions, ControlFlowValidator controlFlow) {
+	public DeclarationValidator(SemanticValidationState state, HostedAbiRepository hostedAbi, OperatorSemantics operators, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, ExpressionValidator expressions, ControlFlowValidator controlFlow, GpuKernelValidator kernels) {
 		self.state = state;
 		self.hostedAbi = hostedAbi;
 		self.operators = operators;
@@ -42,6 +44,7 @@ class DeclarationValidator {
 		self.ownership = ownership;
 		self.expressions = expressions;
 		self.controlFlow = controlFlow;
+		self.kernels = kernels;
 	}
 
 	public string hostedNormalizedBase(string base) {
@@ -696,6 +699,8 @@ class DeclarationValidator {
 	public void validateCallableBody(Node callable, Node? classDeclaration) {
 		if (classDeclaration == null) {
 			self.validateHostedBodylessDeclaration(callable);
+		} else if (callable.isGpu && !callable.isConstructor) {
+			TypeValidator.fail("@gpu is only supported on top-level functions; methods have no WGSL dispatch lowering", callable);
 		}
 		Map<string, bool> signaturePreviousParams = self.types.cloneFlags(self.state.typeParams);
 		Vector<string> signatureClassParams = [];
@@ -731,7 +736,6 @@ class DeclarationValidator {
 			Node parameter = callable.params().get(typeIndex);
 			if (!self.state.analyzed.isNativeDeclaration(callable)) { self.names.validateGeneratedLexicalBindingName(parameter.name, "Parameter", parameter); }
 			self.types.validateDeclaredType(parameter.type, "Parameter '" + parameter.name + "'", "parameter", parameter);
-			self.storage.validateGpuArrayParameter(callable, parameter);
 			self.types.rejectRuntimeInterfaceType(parameter.type, parameter);
 			typeIndex = typeIndex + 1;
 		}
@@ -784,10 +788,14 @@ class DeclarationValidator {
 			self.names.validateDirectLocalNames(callable.bodyNode, parameterNames);
 		}
 		self.validateParameterDefaults(callable.params(), vars, callable);
+		Map<string, Node> kernelVars = TypeValidator.cloneTypes(vars);
 		if (callable.bodyNode != null) {
 			bool ownsMemo = self.expressions.beginBodyMemo();
 			self.controlFlow.validateBlock(callable.bodyNode,  vars);
 			self.expressions.endBodyMemo(ownsMemo);
+		}
+		if (callable.isGpu && classDeclaration == null) {
+			self.kernels.validate(callable, kernelVars);
 		}
 		bool nonVoid = self.state.returnType != null && !TypeValidator.scalarVoid(self.state.returnType);
 		if (callable.bodyNode != null && nonVoid && !ControlFlowValidator.blockTerminates(callable.bodyNode)) {

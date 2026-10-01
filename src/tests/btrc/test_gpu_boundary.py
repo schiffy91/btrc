@@ -2047,4 +2047,6 @@ def test_float_remainder_assignment_fails_closed(
     source.write_text("@gpu void invalid(float[] xs) { int i = gpu_id(); xs[i] %= 2.0; } int main() { return 0; }")
     result = _run([str(btrcc_driver), "--no-stdlib", str(source)], timeout=120)
     assert result.returncode == 1
-    assert "GPU remainder assignment requires integer operands" in result.stderr
+    assert (
+        "error: @gpu function 'invalid': remainder assignment target must be int, got 'float' at 1:51" in result.stderr
+    )

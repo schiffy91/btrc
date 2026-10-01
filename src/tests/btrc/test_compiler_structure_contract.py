@@ -699,10 +699,12 @@ def test_gpu_call_classification_has_one_semantic_owner() -> None:
     contextual = semantics[semantics.index("public string contextualExprBase(") :]
     assert contextual.count("callResolvesToIntrinsic(") == 2
     assert "callResolvesToBuiltin(" not in contextual
+    kernels = semantics[semantics.index("class GpuKernelValidator {") :]
     assert calls.count("self.gpu.callResolvesToIntrinsic(") == 2
-    assert calls.count("self.gpu.callResolvesToSourceSymbol(") == 1
+    assert "callResolvesToSourceSymbol(" not in calls
     assert "self.state.gpuCallable && !self.state.inParameterDefault" in " ".join(calls.split())
-    assert wgsl.count("self.semantics.callResolvesToSourceSymbol(") == 1
+    assert kernels.count("self.semantics.callResolvesToSourceSymbol(") == 1
+    assert "callResolvesToSourceSymbol(" not in wgsl
     assert "callResolvesToBuiltin(" not in calls
     assert "callResolvesToBuiltin(" not in wgsl
 

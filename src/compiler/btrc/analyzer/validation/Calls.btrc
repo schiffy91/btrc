@@ -494,50 +494,13 @@ class CallValidator {
 			}
 			return false;
 		}
-		if (self.gpu.callResolvesToSourceSymbol(call, vars)) {
-			TypeValidator.fail("call to '" + name + "' has no WGSL definition because it resolves to a source symbol", call);
-		}
 		if (!self.gpu.callResolvesToIntrinsic(call, vars)) {
 			return false;
 		}
-		int namedIndex = 0;
-		while (namedIndex < call.argNames().len) {
-			if (call.argNames().get(namedIndex) != "") {
-				TypeValidator.fail("WGSL built-ins do not accept named arguments", call);
-			}
-			namedIndex = namedIndex + 1;
-		}
-		if (name == "gpu_id") {
-			if (call.args().len != 0) {
-				TypeValidator.fail("gpu_id() takes no arguments", call);
-			}
-			return true;
-		}
-		int expected = self.gpu.builtinArity(name);
-		if (call.args().len != expected) {
-			TypeValidator.fail(name + "() expects " + Strings.fromInt(expected) + " argument(s), got " + Strings.fromInt(call.args().len), call);
-		}
-		string firstBase = "";
-		int index = 0;
-		while (index < call.args().len) {
-			Node argument = call.args().get(index);
-			Node? actual = self.gpu.contextualExprType(argument, vars);
-			if (actual != null) {
-				string base = actual.base;
-				if (self.gpu.floatBuiltin(name) && base != "float") {
-					TypeValidator.fail(name + "() requires float arguments in GPU functions", argument);
-				}
-				if (self.gpu.sameTypeBuiltin(name)) {
-					if (base != "int" && base != "float") {
-						TypeValidator.fail(name + "() requires int or float arguments in GPU functions", argument);
-					}
-					if (firstBase == "") { firstBase = base; }
-					else if (base != firstBase) {
-						TypeValidator.fail(name + "() arguments must have the same GPU scalar type", argument);
-					}
-				}
-			}
-			index = index + 1;
+		/* Named arguments, arity and argument types belong to the analyzer's
+		 * GpuKernelValidator, which checks every kernel after its body. */
+		if (name == "gpu_id" && call.args().len != 0) {
+			TypeValidator.fail("gpu_id() takes no arguments", call);
 		}
 		if (self.state.analyzed.funcTable.has(name)) {
 			/* A canonical bodyless hosted prototype is superseded by the GPU

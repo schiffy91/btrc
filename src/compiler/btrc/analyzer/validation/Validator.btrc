@@ -53,7 +53,7 @@ class SemanticValidator {
 		self.names = NameValidator(self.state, hostedAbi, cycles, sourceRuntimeSymbols, self.types, self.storage, self.calls);
 		self.expressions = ExpressionValidator(self.state, operators, sourceMacros, sourceRuntimeSymbols, expressionTypes, self.types, self.names, self.storage, self.ownership, self.borrows, self.calls);
 		self.controlFlow = ControlFlowValidator(self.state, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.borrows, self.expressions);
-		self.declarations = DeclarationValidator(self.state, hostedAbi, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.expressions, self.controlFlow);
+		self.declarations = DeclarationValidator(self.state, hostedAbi, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.expressions, self.controlFlow, GpuKernelValidator(analyzed, gpu));
 	}
 
 	public void validate() {
