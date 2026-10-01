@@ -1,7 +1,340 @@
 {
   "schema": "btrc.expected-skips/1",
   "runner": "linux-devcontainer",
-  "enforce": false,
-  "description": "Placeholder: the Linux manifest lane classifies the devcontainer's skips (CI's unit shard skips 3,070, about 3,000 of them macOS native-interop tests) and then sets enforce to true. Until then the gate reports every skip here without failing.",
-  "rules": []
+  "enforce": true,
+  "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, BTRC_NATIVE_PROVIDER_CC/CXX).",
+  "rules": [
+    {
+      "id": "native-reader-macos-only",
+      "files": [
+        "src/tests/python/test_native_*.py",
+        "src/tests/python/test_module_units.py",
+        "src/tests/btrc/test_artifact_cache.py"
+      ],
+      "reason": "^requires macOS and the explicitly built native header reader$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Native imports of Apple SDK headers (AppKit, Foundation, CoreFoundation, Objective-C and C++ owners, callbacks, realtime, resources) need macOS and its SDK; the macOS unit and btrc shards build the reader and run these."
+    },
+    {
+      "id": "native-digest-macos-only",
+      "files": [
+        "src/tests/btrc/test_native_digest.py"
+      ],
+      "reason": "^native SHA requires macOS and the configured SDK reader$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "The SDK-backed artifact digest provider is composed only by cli/MacOSMain.btrc; macos.yml's btrc shard runs it."
+    },
+    {
+      "id": "apple-sdk-headers",
+      "files": [
+        "src/tests/python/test_native_header_reader.py"
+      ],
+      "reason": "^requires the (Apple (AppKit|Foundation) SDK|actual macOS CoreFoundation SDK)$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Reads the real Apple SDK headers, which exist only on macOS."
+    },
+    {
+      "id": "objective-c-runtime",
+      "files": [
+        "src/tests/python/test_objective_c_emitter.py"
+      ],
+      "reason": "^requires the Apple Foundation runtime$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Links and runs emitted Objective-C against Foundation."
+    },
+    {
+      "id": "appkit-runtime",
+      "files": [
+        "src/tests/python/test_native_app_runtime.py"
+      ],
+      "reason": "^requires real AppKit$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Runs a real AppKit application loop."
+    },
+    {
+      "id": "core-audio-runtime",
+      "files": [
+        "src/tests/python/test_core_audio_device_runtime.py",
+        "src/tests/python/test_module_units.py"
+      ],
+      "reason": "^CoreAudio is available only on macOS$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "CoreAudio exists only on macOS; Linux audio runs through the ALSA cases of test_native_linux_providers.py."
+    },
+    {
+      "id": "imageio-runtime",
+      "files": [
+        "src/tests/python/test_macos_encoded_image_decoder_runtime.py"
+      ],
+      "reason": "^ImageIO is available only on macOS$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "ImageIO exists only on macOS; Linux image decoding runs in test_native_linux_providers.py."
+    },
+    {
+      "id": "sdk-compiler-qualification",
+      "files": [
+        "src/tests/python/test_cpp_emitter.py"
+      ],
+      "reason": "^actual SDK compiler qualification runs on macOS$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Compiles emitted C++ with the Apple SDK compiler."
+    },
+    {
+      "id": "darwin-debug-maps",
+      "files": [
+        "src/tests/python/test_native_debug_artifacts.py"
+      ],
+      "reason": "^Darwin executable debug maps reference object files$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Mach-O debug maps; ELF executables embed their DWARF instead."
+    },
+    {
+      "id": "darwin-link-receipts",
+      "files": [
+        "src/tests/python/test_native_link_reuse.py"
+      ],
+      "reason": "^Darwin dependency-info link receipts$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "ld64's -dependency_info receipts have no GNU ld equivalent."
+    },
+    {
+      "id": "macho-spawn-interposition",
+      "files": [
+        "src/tests/python/test_native_header_cache.py"
+      ],
+      "reason": "^Mach-O spawn interposition$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Interposes posix_spawn through Mach-O dyld."
+    },
+    {
+      "id": "native-cache-provider",
+      "files": [
+        "src/tests/python/test_native_header_cache.py"
+      ],
+      "reason": "^this reader/runtime has no qualified persistent-cache provider$",
+      "category": "capability",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Only the macOS reader/runtime is admitted as an immutable persistent-cache provider; BTRC_NATIVE_CACHE_REQUIRED=1 turns this skip into a failure where one is required."
+    },
+    {
+      "id": "native-gpu-adapter",
+      "files": [
+        "src/tests/python/test_native_gpu_runtime.py"
+      ],
+      "reason": "^no native compute adapter is available$",
+      "category": "capability",
+      "gating": {
+        "capabilities": [
+          "gpu-adapter"
+        ]
+      },
+      "covered_by": [
+        "macos"
+      ],
+      "note": "The devcontainer has no GPU; the harness exits 77 when no compute adapter is found. The Mac runs these on Metal."
+    },
+    {
+      "id": "apple-lldb",
+      "files": [
+        "src/tests/debug/test_bootstrap.py"
+      ],
+      "reason": "^requires Apple LLDB$",
+      "category": "platform",
+      "covered_by": [
+        "macos"
+      ],
+      "note": "Resolves Apple's lldb through xcrun."
+    },
+    {
+      "id": "lldb-missing",
+      "files": [
+        "src/tests/debug/test_dap_session.py"
+      ],
+      "reason": "^needs lldb \\(with Python scripting\\)",
+      "category": "missing-tool",
+      "gating": {
+        "tools": [
+          "lldb"
+        ]
+      },
+      "covered_by": [
+        "macos"
+      ],
+      "note": "The dev shell carries no lldb on Linux. Delete this rule once stage4/tools-ci adds lldb to the Linux dev shell; the four DAP sessions then run here too. macos.yml's unit shard enables developer mode and runs them."
+    },
+    {
+      "id": "pugixml-sdk",
+      "files": [
+        "src/tests/python/test_native_header_reader.py",
+        "src/tests/python/test_native_cxx_owners.py"
+      ],
+      "reason": "pugixml SDK",
+      "category": "missing-sdk",
+      "gating": {
+        "env": [
+          "PKG_CONFIG_PATH"
+        ],
+        "tools": [
+          "pkg-config"
+        ]
+      },
+      "covered_by": [],
+      "note": "No btrc dev shell carries pugixml. Delete this rule once stage4/tools-ci adds pugixml to the dev shell."
+    },
+    {
+      "id": "native-compiler-provider",
+      "files": [
+        "src/tests/python/test_native_compiler_context.py",
+        "src/tests/python/test_native_preprocess_receipts.py"
+      ],
+      "reason": "^build native reader and configure its native compiler provider$",
+      "category": "provider-configuration",
+      "gating": {
+        "env": [
+          "BTRC_NATIVE_HEADER_READER",
+          "BTRC_NATIVE_PROVIDER_CC",
+          "BTRC_NATIVE_PROVIDER_CXX"
+        ]
+      },
+      "covered_by": [],
+      "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX. Delete this rule once stage4/tools-ci exports them from the dev shell."
+    },
+    {
+      "id": "native-receipt-provider",
+      "files": [
+        "src/tests/python/test_native_preprocess_consumer.py"
+      ],
+      "reason": "^configure the packaged receipt provider and its C/C\\+\\+ toolchain$",
+      "category": "provider-configuration",
+      "gating": {
+        "env": [
+          "BTRC_NATIVE_HEADER_READER",
+          "BTRC_NATIVE_PROVIDER_CC",
+          "BTRC_NATIVE_PROVIDER_CXX"
+        ]
+      },
+      "covered_by": [],
+      "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX. Delete this rule once stage4/tools-ci exports them from the dev shell."
+    },
+    {
+      "id": "linux-gui-display",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "reason": "^native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY$",
+      "category": "capability",
+      "gating": {
+        "env": [
+          "WAYLAND_DISPLAY",
+          "DISPLAY"
+        ],
+        "capabilities": [
+          "native-display"
+        ]
+      },
+      "covered_by": [],
+      "note": "The devcontainer has no display server, and no other runner runs the Linux GTK backend."
+    },
+    {
+      "id": "linux-tray-session-bus",
+      "files": [
+        "src/tests/python/test_native_tray_runtime.py"
+      ],
+      "reason": "^native tray backend is unavailable: no session bus",
+      "category": "capability",
+      "gating": {
+        "env": [
+          "DBUS_SESSION_BUS_ADDRESS"
+        ],
+        "capabilities": [
+          "native-tray"
+        ]
+      },
+      "covered_by": [],
+      "note": "The devcontainer has no D-Bus session bus, and no other runner runs the Linux tray backend."
+    },
+    {
+      "id": "windows-artifact-storage",
+      "files": [
+        "src/tests/python/test_artifact_storage.py"
+      ],
+      "reason": "^requires the native Windows (CRT|handle API)$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml runs test_artifact_storage.py on a native Windows host."
+    },
+    {
+      "id": "windows-bundle-staging-modes",
+      "files": [
+        "src/tests/python/test_btrcc_bundle_publication.py"
+      ],
+      "reason": "^requires native Windows stat modes$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml runs test_generation_validator_matches_native_windows_staging_modes."
+    },
+    {
+      "id": "windows-executable-release",
+      "files": [
+        "src/tests/btrc/test_bootstrap_harness.py"
+      ],
+      "reason": "^native Windows executable-release contract$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml runs test_bootstrap_harness.py before its native bootstrap."
+    },
+    {
+      "id": "windows-junctions",
+      "files": [
+        "src/tests/python/test_artifact_reparse.py"
+      ],
+      "reason": "^native junctions require Windows$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml runs test_artifact_reparse.py beside test_artifact_storage.py."
+    }
+  ]
 }

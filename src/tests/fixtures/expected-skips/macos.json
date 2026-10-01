@@ -74,8 +74,10 @@
       ],
       "reason": "^native junctions require Windows$",
       "category": "platform",
-      "covered_by": [],
-      "note": "No runner executes test_artifact_reparse.py on Windows: windows.yml selects other files."
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml runs test_artifact_reparse.py beside test_artifact_storage.py."
     },
     {
       "id": "xdg-cache-off-macos",
