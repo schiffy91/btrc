@@ -1,4 +1,5 @@
-/* Owner-only filesystem boundary for daemon control capabilities. */
+/* Owner-only filesystem boundary for daemon control capabilities. Exported
+ * beneath DaemonController (Library.Daemon); see DaemonControl.btrc. */
 
 import Library.Daemon.DaemonControl;
 import Library.FileSystem;

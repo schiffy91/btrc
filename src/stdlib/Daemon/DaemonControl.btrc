@@ -1,7 +1,10 @@
-/* Internal daemon-control value types.
+/* Daemon-control value types: the control record, clock and paths.
  *
- * DaemonController is the public API. A PID in a control record is
- * informational only: controller code never signals it.
+ * Applications use DaemonController (Library.Daemon). This module, with
+ * DaemonControlFiles and DaemonControlProtocol, is the exported lower layer
+ * that the controller is built from and that conformance tests drive
+ * directly. A PID in a control record is informational only: controller code
+ * never signals it.
  */
 
 import Library.FileSystem;

@@ -43,6 +43,11 @@ the API surface, so the layout follows a few fixed rules.
   (`MacOS.MacOSWindow`). The root `btrc.toml` names `btrc_stdlib_runtime`,
   exports the prelude and depends on every group by path; both compilers
   resolve that graph, and ordinary export visibility applies between groups.
+  A group that imports another group (`Daemon` imports `FileSystem`, `Tray`
+  imports `GUI`) does not list it under `[dependencies]`: every group is
+  already a dependency of the root package, so `import Library.<Group>...`
+  resolves through the stdlib tree and the root `btrc.lock` covers the whole
+  graph. A group folder therefore never carries its own `btrc.lock`.
   `Windows/` is the toolchain compatibility layer, not a module group.
 - **Interfaces are `I`-prefixed** (`IView`, `IWindow`, `IDirectoryPicker`,
   `IEncodedImageDecoder`); providers are `<Platform><Capability>`; facades keep

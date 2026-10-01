@@ -56,3 +56,14 @@ def test_unreached_stdlib_packages_are_not_finished_but_reached_ones_are(tmp_pat
     by_name = {package.name: package for package in packages}
     assert by_name["btrc_stdlib_gui"].bindings, "the reached GUI package finishes its bindings"
     assert all(not package.bindings for name, package in by_name.items() if name != "btrc_stdlib_gui")
+
+
+def test_only_the_stdlib_root_carries_a_lock() -> None:
+    """Group packages resolve through the root graph, so one lock covers them all.
+
+    A lock beside a group manifest is a stray from resolving that group alone;
+    it duplicates the root lock and silently drifts from it.
+    """
+
+    locks = sorted(path.relative_to(STDLIB).as_posix() for path in STDLIB.rglob("btrc.lock"))
+    assert locks == ["btrc.lock"], locks
