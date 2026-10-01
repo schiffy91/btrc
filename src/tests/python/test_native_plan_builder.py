@@ -1116,6 +1116,8 @@ def test_flake_installs_adapter_and_runs_native_plan_check() -> None:
     assert "native-package-plan = pkgs.runCommand" in flake
     assert "NATIVE_PLAN=${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan" in flake
     check = flake.split("native-package-plan = pkgs.runCommand", 1)[1]
+    # The sandbox HOME is read-only, and both compilers publish through state.
+    assert 'export BTRC_STATE_DIR="$TMPDIR/btrc-state"' in check
     assert "--object-cache build/objects" in check
     assert "for run in 1 2; do" in check
     assert "jq -e '.compiled_units == 0 and .reused_units == (.units | length)'" in check

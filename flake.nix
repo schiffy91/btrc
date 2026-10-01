@@ -509,6 +509,10 @@
             self.packages.${system}.btrc-native-plan
           ];
         } ''
+          # The sandbox's HOME is read-only; both compilers publish generations
+          # through a state directory, as the btrcc derivation does.
+          export BTRC_STATE_DIR="$TMPDIR/btrc-state"
+          export BTRC_CACHE_DIR="$TMPDIR/btrc-cache"
           mkdir source
           cp -R ${./examples/native-package}/. source/
           chmod -R u+w source
