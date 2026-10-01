@@ -260,6 +260,8 @@ def test_the_linux_manifest_names_coverage_and_its_expiring_tool_rules():
     assert rules["windows-junctions"].covered_by == ("windows",)
     uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
     assert uncovered == {
+        "macos-only-pugixml-uncovered",
+        "macos-only-sqlite-uncovered",
         "pugixml-sdk",
         "native-compiler-provider",
         "native-receipt-provider",
@@ -267,7 +269,20 @@ def test_the_linux_manifest_names_coverage_and_its_expiring_tool_rules():
         "linux-tray-session-bus",
     }
     expiring = {rule_id for rule_id, rule in rules.items() if "stage4/tools-ci" in rule.note}
-    assert expiring == {"lldb-missing", "pugixml-sdk", "native-compiler-provider", "native-receipt-provider"}
+    assert expiring == {
+        "macos-only-pugixml-uncovered",
+        "macos-only-sqlite-uncovered",
+        "lldb-missing",
+        "pugixml-sdk",
+        "native-compiler-provider",
+        "native-receipt-provider",
+    }
+    # A macOS-only C++ owner proof that macOS also skips is not claimed as covered.
+    cxx = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json").classify(
+        "src/tests/python/test_native_cxx_owners.py::test_x",
+        "requires macOS and the explicitly built native header reader",
+    )
+    assert cxx.id == "macos-only-pugixml-uncovered" and cxx.covered_by == ()
 
 
 @pytest.mark.parametrize("runner", sorted(EXPECTED_BY_RUNNER))

@@ -2,8 +2,52 @@
   "schema": "btrc.expected-skips/1",
   "runner": "linux-devcontainer",
   "enforce": true,
-  "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, BTRC_NATIVE_PROVIDER_CC/CXX).",
+  "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, sqlite, BTRC_NATIVE_PROVIDER_CC/CXX). Every covered_by macos claim was checked against macOS run 36898564246's unit and btrc reports.",
   "rules": [
+    {
+      "id": "macos-only-pugixml-uncovered",
+      "files": [
+        "src/tests/python/test_native_cxx_owners.py",
+        "src/tests/python/test_module_units.py"
+      ],
+      "nodes": [
+        "src/tests/python/test_native_cxx_owners.py::*",
+        "src/tests/python/test_module_units.py::*cxx_units_project*"
+      ],
+      "reason": "^requires macOS and the explicitly built native header reader$",
+      "category": "platform",
+      "gating": {
+        "env": [
+          "PKG_CONFIG_PATH"
+        ],
+        "tools": [
+          "pkg-config"
+        ]
+      },
+      "covered_by": [],
+      "note": "macOS-only C++ owner proofs, and macOS skips them too because no dev shell carries pugixml (macOS run 36898564246). Once stage4/tools-ci adds pugixml, move these back under native-reader-macos-only by deleting this rule."
+    },
+    {
+      "id": "macos-only-sqlite-uncovered",
+      "files": [
+        "src/tests/python/test_native_unique_resources.py"
+      ],
+      "nodes": [
+        "src/tests/python/test_native_unique_resources.py::test_unique_owned_output_actual_sqlite_open*"
+      ],
+      "reason": "^requires macOS and the explicitly built native header reader$",
+      "category": "platform",
+      "gating": {
+        "env": [
+          "PKG_CONFIG_PATH"
+        ],
+        "tools": [
+          "pkg-config"
+        ]
+      },
+      "covered_by": [],
+      "note": "The actual SQLite proof is macOS-only, and macOS skips it too: the dev shell exposes no sqlite3.pc (macOS rule sqlite-sdk). Delete this rule once stage4/tools-ci adds sqlite to the dev shell."
+    },
     {
       "id": "native-reader-macos-only",
       "files": [

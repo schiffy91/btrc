@@ -262,19 +262,25 @@ the `always()` upload keeps every report from a red run.
 
 | Runner | Classified from | Skips | Covered elsewhere | Uncovered |
 | --- | --- | --- | --- | --- |
-| `linux-devcontainer` | CI 36898564273: unit 3,108, btrc 34; the corpus, bootstrap and eight strict-C11 shards skip none | 3,142 | 3,035 (macOS 3,030, Windows 5) | 107 |
+| `linux-devcontainer` | CI 36898564273: unit 3,108, btrc 34; the corpus, bootstrap and eight strict-C11 shards skip none | 3,142 | 3,007 (macOS 3,002, Windows 5) | 135 |
 | `windows` | Windows 36898564289, plus each selected file's `os.name` skips | 1 | 1 (macOS and Linux) | 0 |
-| `macos` | unchanged; `windows-junctions` is now covered | — | — | — |
+| `macos` | macOS 36898564246's unit shard: `pugixml-sdk` now also covers `test_module_units.py`'s three C++ owner cases, which would have failed the gate once the GUI failures are fixed; `windows-junctions` is now covered by Windows | 160 | 25 | 135 |
 
-The 107 uncovered Linux skips are: `native-compiler-provider` (88) and
+The 135 uncovered Linux skips are: `native-compiler-provider` (88) and
 `native-receipt-provider` (11), because no runner sets
-`BTRC_NATIVE_PROVIDER_CC`/`CXX`; `pugixml-sdk` (2); `linux-gui-display` (4),
+`BTRC_NATIVE_PROVIDER_CC`/`CXX`; `pugixml-sdk` (2); the macOS-only C++
+owner proofs (24) and actual-SQLite proofs (4), which macOS skips as well
+for the same missing SDKs;  `linux-gui-display` (4),
 with no display server in the devcontainer; and `linux-tray-session-bus` (2),
 with no D-Bus session bus. No runner exercises the Linux GTK or tray backends.
 
-Four Linux rules expire when `stage4/tools-ci` puts its tools in the dev
+Six Linux rules expire when `stage4/tools-ci` puts its tools in the dev
 shell, and their notes say so: `lldb-missing` (4 DAP sessions), `pugixml-sdk`,
-`native-compiler-provider` and `native-receipt-provider`. Delete each rule
+`macos-only-pugixml-uncovered`, `macos-only-sqlite-uncovered`,
+`native-compiler-provider` and `native-receipt-provider`. Every Linux
+`covered_by: macos` claim was checked against macOS run 36898564246: 2,994
+confirmed passed; the 8 that failed there are the GUI-lane failures below,
+and the 28 that macOS also skipped moved to the two uncovered rules. Delete each rule
 when its tool lands; the gate will then fail if the tests still skip.
 
 `windows.yml` now also runs `test_artifact_reparse.py`, so the native
@@ -331,6 +337,7 @@ for `cli/WindowsMain.btrc`.
 | --- | --- | --- | --- | --- |
 | CI 36898564273 | `tests (unit)` | `test_bench_baseline.py`: `measure_peak` returned 189,808,640 bytes for both a 16 MiB and an 80 MiB child, and missed the injected regression. Linux carries a process's resident high-water mark across fork and exec, so a child of a large pytest worker reports the worker's RSS as its own `ru_maxrss`. Reproduced locally by holding 200 MiB in the caller: 16 and 80 MiB children both measured 217 MiB. | Stage 3 (`tools/bench`) | fixed on `main` by `dc44a85` (`MAXRSS_REPORTER`). This lane's equivalent fix was reverted in its favour. The existing tests catch the defect only when the pytest worker is large; a test that holds ballast in the caller would catch it on any host. |
 | Windows 36898564289 | `windows` | green; 126 warnings, as above | this lane | fixed |
+| macOS 36898564246 | `tests (unit)` | 8 `test_native_import_consumer.py::test_macos_panel_and_progress_controls` cases (NativeGUI "Factory retained fields", NativeLabels `Panel.c` assertion), both compilers, both modes. Behind them sat a skip-gate failure the red run hid: 3 pugixml skips in `test_module_units.py` that `macos.json` did not expect | `stage4/gui-core-macos` (GUI); this lane (manifest) | GUI open; manifest fixed |
 
 ## Appendix: per-job evidence
 

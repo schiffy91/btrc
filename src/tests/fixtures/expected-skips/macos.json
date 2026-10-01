@@ -144,7 +144,8 @@
       "id": "pugixml-sdk",
       "files": [
         "src/tests/python/test_native_header_reader.py",
-        "src/tests/python/test_native_cxx_owners.py"
+        "src/tests/python/test_native_cxx_owners.py",
+        "src/tests/python/test_module_units.py"
       ],
       "reason": "pugixml SDK",
       "category": "missing-sdk",
@@ -157,7 +158,7 @@
         ]
       },
       "covered_by": [],
-      "note": "Neither dev shell carries pugixml; BTRSmith's shell does, but no btrc runner uses it."
+      "note": "Neither dev shell carries pugixml; BTRSmith's shell does, but no btrc runner uses it. test_module_units.py's three C++ owner link-plan cases skip on it too (macOS run 36898564246). Delete this rule once stage4/tools-ci adds pugixml to the dev shell."
     },
     {
       "id": "sqlite-sdk",
