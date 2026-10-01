@@ -36,11 +36,8 @@ class GUIProvider {
 		return application;
 	}
 
-	class IImageHandle createImageHandle(Image pixels, int maximumPixels) {
-		var application = GUIProvider.active;
-		if (application == null) { throw "Initialize GUI before creating image handles"; }
-		return LinuxImageHandle.create(application.context().ids, pixels, maximumPixels);
-	}
+	/* Worker-safe and independent of initialization: never reads `active`. */
+	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return LinuxImageHandle.create(pixels, maximumPixels); }
 
 	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
 		var application = GUIProvider.application();

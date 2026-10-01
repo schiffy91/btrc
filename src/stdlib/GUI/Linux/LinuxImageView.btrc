@@ -8,6 +8,11 @@ import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
 
+/* Image identities come from one process-wide counter, so any thread creates
+ * a handle without reaching the application. Static Atomic<T> storage is
+ * zero-initialized before program entry. */
+static Atomic<int> linuxImageIdentities;
+
 /* Decoded pixels with a stable identity. Any thread may create one; painters
  * upload it to their device on first use and cache by identity. */
 interface ILinuxImageHandle extends IImageHandle {
@@ -28,12 +33,18 @@ class LinuxImageHandle implements ILinuxImageHandle {
 		self._height = pixels.height;
 	}
 
-	class LinuxImageHandle create(LinuxIds ids, Image pixels, int maximumPixels = 16777216) {
+	class LinuxImageHandle create(Image pixels, int maximumPixels = 16777216) {
 		if (pixels == null || pixels.isEmpty() || pixels.data == null) { throw "Native image handle requires decoded pixels"; }
 		if (maximumPixels <= 0 || maximumPixels > 16777216 || (long long)pixels.width * (long long)pixels.height > (long long)maximumPixels) { throw "Native artwork exceeds image limits"; }
 		var copy = Image(pixels.width, pixels.height);
 		memcpy(copy.data, pixels.data, (size_t)pixels.width * (size_t)pixels.height * (size_t)4);
-		return LinuxImageHandle(ids.next(), copy);
+		return LinuxImageHandle(LinuxImageHandle.nextIdentity(), copy);
+	}
+
+	class int nextIdentity() {
+		int id = linuxImageIdentities.fetchAdd(1, MemoryOrder.RELAXED) + 1;
+		if (id <= 0 || id == 2147483647) { throw "Native image identities are exhausted"; }
+		return id;
 	}
 
 	public int identity() { return self._identity; }
@@ -100,7 +111,7 @@ class LinuxImageView implements IImageView, ILinuxView {
 	public void setImage(Image? pixels, int maximumPixels = 16777216) {
 		self._node.requireOpen();
 		if (pixels == null) { self._handle = null; self._node.invalidate(); return; }
-		self._handle = LinuxImageHandle.create(self._node.context.ids, pixels, maximumPixels);
+		self._handle = LinuxImageHandle.create(pixels, maximumPixels);
 		self._node.invalidate();
 	}
 

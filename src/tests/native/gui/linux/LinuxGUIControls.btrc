@@ -5,6 +5,8 @@ import Library.GUI.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IButton;
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.IImageHandle;
+import Library.GUI.IImageView;
 import Library.GUI.IView;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.SDL;
@@ -61,11 +63,15 @@ class Journey implements IApplicationWork {
 	private Pointer _cardPointer;
 	private Pointer _rootPointer;
 	private PickerProbe _picker;
+	private IImageView _image;
+	private IImageHandle _artwork;
 	private int _rootBefore = 0;
 	public bool passed = false;
 
-	public Journey(unsigned int window, IView root, IButton button, ITextField field, ISelect select, ISlider slider, IScrollView scroll, IPanel card, Counter counter, Pointer cardPointer, Pointer rootPointer, PickerProbe picker) {
+	public Journey(unsigned int window, IView root, IButton button, ITextField field, ISelect select, ISlider slider, IScrollView scroll, IPanel card, Counter counter, Pointer cardPointer, Pointer rootPointer, PickerProbe picker, IImageView image, IImageHandle artwork) {
 		self._picker = picker;
+		self._image = image;
+		self._artwork = artwork;
 		self._window = window; self._root = root; self._button = button; self._field = field; self._select = select; self._slider = slider; self._scroll = scroll; self._card = card; self._counter = counter; self._cardPointer = cardPointer; self._rootPointer = rootPointer;
 	}
 
@@ -115,6 +121,15 @@ class Journey implements IApplicationWork {
 			assert(image.width > 0 && image.height > 0);
 			var pixel = image.pixel(image.width / 8, image.height * 3 / 4);
 			assert(pixel.red > 150 && pixel.green < 100 && pixel.blue < 100);
+			/* The worker-made handle is presented, then a closed handle draws nothing. */
+			var artwork = image.pixel(image.width * 220 / 480, image.height * 220 / 320);
+			assert(artwork.green > 150 && artwork.red < 100 && artwork.blue < 100);
+			self._artwork.close();
+			assert(!self._artwork.isOpen());
+			var closed = GUI.capture(self._root, new Vector<GUICaptureLayer>()).pixel(image.width * 220 / 480, image.height * 220 / 320);
+			assert(closed.green < 100);
+			self._image.setImageHandle(null);
+			assert(self._image.fittingWidth() == 0.0);
 			self.passed = true;
 			GUI.requestQuit();
 			return;
@@ -124,6 +139,15 @@ class Journey implements IApplicationWork {
 }
 
 int main() {
+	/* Image handles are worker-safe and need no initialized application. */
+	var pixels = Image(4, 2);
+	for (int index = 0; index < 8; index++) { pixels.data[index * 4] = 0; pixels.data[index * 4 + 1] = 200; pixels.data[index * 4 + 2] = 0; pixels.data[index * 4 + 3] = 255; }
+	Thread<IImageHandle> worker = spawn(() => { return GUI.createImageHandle(pixels, 64); });
+	var artwork = worker.join();
+	assert(artwork.isOpen() && artwork.width() == 4 && artwork.height() == 2);
+	bool oversized = false;
+	try { GUI.createImageHandle(pixels, 4); } catch (string error) { oversized = error.equals("Native artwork exceeds image limits"); }
+	assert(oversized);
 	GUI.initialize(64);
 	var window = GUI.createWindow("BTRC Linux controls", 480.0, 320.0);
 	ILinuxWindow? native = (ILinuxWindow?)window;
@@ -146,12 +170,15 @@ int main() {
 	content.arrange(0.0, 0.0, 160.0, 480.0);
 	scroll.setContentSize(160.0, 480.0);
 	var card = GUI.createPanel(RGBA(220, 60, 60, 255), 8.0);
+	var imageView = GUI.createImageView();
+	imageView.setImageHandle(artwork);
+	assert(imageView.fittingWidth() == 4.0);
 	var counter = Counter();
 	var scope = CallbackScope();
 	button.onAction(counter, scope);
 	var cardPointer = Pointer(true);
 	var rootPointer = Pointer(false);
-	root.attach(button); root.attach(field); root.attach(select); root.attach(slider); root.attach(scroll); root.attach(card);
+	root.attach(button); root.attach(field); root.attach(select); root.attach(slider); root.attach(scroll); root.attach(card); root.attach(imageView);
 	window.attachRoot(root);
 	button.arrange(20.0, 16.0, 80.0, button.fittingHeight());
 	field.arrange(120.0, 16.0, 160.0, field.fittingHeight());
@@ -159,6 +186,7 @@ int main() {
 	slider.arrange(20.0, 80.0, 120.0, slider.fittingHeight());
 	scroll.arrange(320.0, 120.0, 140.0, 160.0);
 	card.arrange(20.0, 160.0, 120.0, 120.0);
+	imageView.arrange(180.0, 200.0, 80.0, 40.0);
 	var picker = PickerProbe();
 	card.onPointer(picker, scope);
 	card.onPointer(cardPointer, scope);
@@ -167,7 +195,7 @@ int main() {
 	assert(select.fittingWidth() > 60.0);
 	window.show();
 	unsigned int windowId = native == null ? 0u : native.nativeId();
-	var journey = Journey(windowId, root, button, field, select, slider, scroll, card, counter, cardPointer, rootPointer, picker);
+	var journey = Journey(windowId, root, button, field, select, slider, scroll, card, counter, cardPointer, rootPointer, picker, imageView, artwork);
 	GUI.post(journey);
 	GUI.run();
 	assert(journey.passed);
