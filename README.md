@@ -309,9 +309,8 @@ public void bind(AlbumCellView cell, bool opensSection, AlbumLibraryNativeLayout
 The cell's controls are created once (`GUI.createPanel`, `GUI.createImageView`,
 `GUI.createLabel`) and live in the card for the life of the grid; the same
 source produces the AppKit screen on macOS and the drawn screen above on Linux.
-[`examples/gui`](examples/gui/) has both toolkit paths side by side,
-[`examples/native-ui`](examples/native-ui/) is a small headless library browser,
-and [`examples/tray`](examples/tray/) puts an app in the system tray.
+[`examples/gui`](examples/gui/) holds the portable native example and a font
+smoke test, and [`examples/tray`](examples/tray/) puts an app in the system tray.
 
 ### Wrapping a C library
 
@@ -1973,8 +1972,7 @@ examples/
   callback/                    # Owned callback closures over raw C contexts
   realtime-primitives/         # Standalone @realtime raw-buffer kernel
   todo/                        # Todo board -- classes, generics, collections
-  gui/                         # Declarative and native GUI, font smoke test
-  native-ui/                   # Library browser UI, rendered headless to a GIF
+  gui/                         # Portable native GUI, font smoke test
   tray/                        # System tray application
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
     engine/                    # Camera, Light, Material, Ground, Sky, Scene,
@@ -2039,7 +2037,7 @@ make ast-generate           # Regenerate both AST catalogs through the unified o
 make extension              # Package VS Code extension (.vsix)
 make extension-install      # Install VS Code extension (dev)
 make examples               # Build and run the example set (callback, realtime-primitives,
-                            #   todo, gui, native-ui, game, triangle, sgd, sgd-render)
+                            #   todo, gui, game, triangle, sgd, sgd-render)
 make examples-native-package TARGET=linux-x64   # Build the recursive native package
 make gpu                    # Build compiler-only WebGPU compute runtime
 make gpu-required           # Require WebGPU compute dependencies and build runtime

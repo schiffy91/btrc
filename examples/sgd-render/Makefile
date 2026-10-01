@@ -6,13 +6,12 @@
 
 BTRC_ROOT := ../..
 BTRC      := python3 -m src.compiler.python.main
-GUI_DIR   := $(BTRC_ROOT)/src/stdlib/GUI
 GPU_DIR   := $(BTRC_ROOT)/src/stdlib/GPU
 GPU_BUILD := $(BTRC_ROOT)/build/stdlib/GPU
 
 CC      := cc
 GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)
-CFLAGS  := -std=c11 -I$(GUI_DIR) -I$(GPU_DIR) $(GPU_CFLAGS) -O2
+CFLAGS  := -std=c11 -I$(GPU_DIR) $(GPU_CFLAGS) -O2
 LDFLAGS := -L$(GPU_BUILD) -lbtrc_gpu $(GPU_LDFLAGS) -lm $(GPU_THREAD_FLAGS)
 
 .PHONY: all run gif clean

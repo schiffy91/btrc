@@ -111,25 +111,25 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
     assert executed.returncode == 0, executed.stderr
     assert executed.stdout == "relocated-compiler\n"
 
-    gui_source = tmp_path / "gui-header-program.btrc"
-    gui_generated = tmp_path / "gui-header-program.c"
-    gui_object = tmp_path / "gui-header-program.o"
-    gui_source.write_text(
-        '#include "GUI/Raster.btrc"\n'
+    header_source = tmp_path / "native-header-program.btrc"
+    header_generated = tmp_path / "native-header-program.c"
+    header_object = tmp_path / "native-header-program.o"
+    header_source.write_text(
+        "import Library.BackgroundJobs;\n"
         "int main() {\n"
-        "    Surface surface = Surface(2, 2);\n"
-        "    return surface.width() == 2 ? 0 : 1;\n"
+        "    BackgroundJobCancellation cancellation = BackgroundJobCancellation();\n"
+        "    return cancellation.requested() ? 1 : 0;\n"
         "}\n",
         encoding="utf-8",
     )
     # Native header bindings need an explicit target on the self-hosted
     # compiler even without a project manifest.
-    gui_compiled = _run([str(compiler), "--target", target, str(gui_source)], cwd=unrelated, env=environment)
-    assert gui_compiled.returncode == 0, gui_compiled.stderr
-    # The Raster binding header is included from the bundle's own data root,
-    # so the generated C compiles without any repository checkout present.
-    assert f'#include "{data_root.resolve() / "stdlib/GUI/btrc_gui.h"}"' in gui_compiled.stdout
-    gui_generated.write_text(gui_compiled.stdout, encoding="utf-8", newline="\n")
+    header_compiled = _run([str(compiler), "--target", target, str(header_source)], cwd=unrelated, env=environment)
+    assert header_compiled.returncode == 0, header_compiled.stderr
+    # The BackgroundJobs binding header is included from the bundle's own data
+    # root, so the generated C compiles without any repository checkout present.
+    assert f'#include "{data_root.resolve() / "stdlib/BackgroundJobs/NativeThreads.h"}"' in header_compiled.stdout
+    header_generated.write_text(header_compiled.stdout, encoding="utf-8", newline="\n")
     header_check = _run(
         [
             *CC,
@@ -139,14 +139,14 @@ def test_actual_bundle_compiles_and_runs_stdlib_program_from_unrelated_cwd(
             "-Wextra",
             "-Werror",
             "-I",
-            str(data_root / "stdlib/GUI"),
+            str(data_root / "stdlib/BackgroundJobs"),
             "-c",
-            str(gui_generated),
+            str(header_generated),
             "-o",
-            str(gui_object),
+            str(header_object),
         ],
         cwd=unrelated,
         timeout=300,
     )
     assert header_check.returncode == 0, header_check.stderr
-    assert gui_object.is_file()
+    assert header_object.is_file()
