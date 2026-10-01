@@ -30,6 +30,7 @@ def test_suite_measures_hello_and_checks_against_a_fresh_baseline(immutable_btrc
     assert metrics["btrcc.startup_ms"] > 0 and metrics["btrcc.compile.BenchHello_ms"] > 0
     assert metrics["c.BenchHello.bytes"] > 0 and metrics["binary.BenchHello.bytes"] > 0
     assert "btrcc.phase.BenchHello.lower_ms" in metrics and "run.BenchHello_ms" in metrics
+    assert metrics["btrcc.compile.BenchHello_peak"] > 1 << 20  # the compile's own peak memory, in bytes
     assert main(["check", "--results", str(results), "--baseline", str(recorded)]) == 0
     # A metric that leaves its slack is a failure; a missing platform is only one under --strict.
     metrics["c.BenchHello.bytes"] = metrics["c.BenchHello.bytes"] * 2

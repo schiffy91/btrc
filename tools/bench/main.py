@@ -11,7 +11,12 @@ import sys
 from pathlib import Path
 
 from . import baseline as _baseline
-from .suite import REPO, Suite, default_cc, discover
+from .suite import REPO, Suite, Workload, default_cc, discover, host_target, peak_counter
+
+
+def _workloads(args: argparse.Namespace) -> list[Workload]:
+    target = args.peak_target or host_target()
+    return [Workload(Path(path).resolve(), args.peak_entry, target) for path in args.peak_workload or []]
 
 
 def _meta(args: argparse.Namespace) -> dict:
@@ -24,6 +29,11 @@ def _meta(args: argparse.Namespace) -> dict:
         "btrcc": str(args.btrcc),
         "cc": args.cc,
         "repeat": args.repeat,
+        "peak_counter": peak_counter(),
+        "peak_workloads": [
+            {"workspace": str(workload.workspace), "entry": workload.entry, "target": workload.target}
+            for workload in _workloads(args)
+        ],
         "revision": revision,
         "recorded_at": _datetime.datetime.now(_datetime.UTC).replace(microsecond=0).isoformat(),
     }
@@ -37,6 +47,10 @@ def _run(args: argparse.Namespace) -> tuple[dict[str, float], dict]:
         repeat=args.repeat,
         out_dir=Path(args.out_dir).resolve(),
         reference=not args.no_reference,
+        peaks=not args.no_peaks,
+        peak_only=args.peak_only,
+        workloads=_workloads(args),
+        workload_samples=args.peak_samples,
     )
     metrics = suite.run(programs)
     meta = _meta(args)
@@ -72,6 +86,19 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--out-dir", default=str(REPO / "build" / "bench"), help="scratch directory")
         command.add_argument("--no-reference", action="store_true", help="skip the in-process reference transpile")
         command.add_argument("--results", help="reuse results JSON from an earlier run instead of measuring")
+        command.add_argument("--no-peaks", action="store_true", help="skip each program's compile peak memory")
+        command.add_argument(
+            "--peak-only", action="store_true", help="measure peak memory only: no timings, sizes or runs"
+        )
+        command.add_argument(
+            "--peak-workload",
+            action="append",
+            metavar="WORKSPACE",
+            help="also guard the cold --jobs 1 module-unit compile peak of this pinned workspace (repeatable)",
+        )
+        command.add_argument("--peak-entry", default="src/BTRSmith.btrc", help="workload entry, relative to it")
+        command.add_argument("--peak-target", help="workload --target (default: this host's)")
+        command.add_argument("--peak-samples", type=int, default=1, help="workload compiles per peak (lowest wins)")
 
     run = sub.add_parser("run", help="measure and print a table")
     common(run)
@@ -79,10 +106,12 @@ def main(argv: list[str] | None = None) -> int:
     common(check)
     check.add_argument("--baseline", default=str(REPO / _baseline.BASELINE_PATH))
     check.add_argument("--tolerance", type=float, help="relative slack for timings (default 0.35)")
+    check.add_argument("--peak-tolerance", type=float, help="relative slack for peak memory (default 0.02)")
     check.add_argument("--strict", action="store_true", help="fail when this platform has no baseline")
     record = sub.add_parser("baseline", help="measure and record this platform's baseline")
     common(record)
     record.add_argument("--baseline", default=str(REPO / _baseline.BASELINE_PATH))
+    record.add_argument("--merge", action="store_true", help="keep this platform's metrics the run did not measure")
     args = parser.parse_args(argv)
 
     metrics, meta = _load_results(args.results) if args.results else _run(args)
@@ -93,13 +122,20 @@ def main(argv: list[str] | None = None) -> int:
     path = Path(args.baseline)
     document = _baseline.load(path)
     if args.command == "baseline":
-        _baseline.store(document, key, metrics, meta, path)
+        _baseline.store(document, key, metrics, meta, path, merge=args.merge)
         print(f"recorded {len(metrics)} metrics for {key} in {path}")
         return 0
     recorded = _baseline.platform_metrics(document, key)
-    findings = _baseline.compare(metrics, recorded, args.tolerance)
+    findings = _baseline.compare(metrics, recorded, args.tolerance, args.peak_tolerance)
     print(_baseline.render(findings))
     regressions = [finding for finding in findings if finding.status == "regression"]
+    lower = [f.name for f in findings if f.status == "improvement" and _baseline.metric_kind(f.name) == "peak"]
+    if lower:
+        print(
+            f"\npeak memory fell past its slack ({', '.join(lower)}); record it again with "
+            "`baseline --merge --peak-only` so the guard stays tight",
+            file=sys.stderr,
+        )
     if recorded is None:
         print(f"\nno baseline for {key}; record one with `make bench-baseline`", file=sys.stderr)
         return 1 if args.strict else 0
