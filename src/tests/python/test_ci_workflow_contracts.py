@@ -15,6 +15,15 @@ def _workflow(name: str) -> str:
     return (WORKFLOWS / name).read_text(encoding="utf-8")
 
 
+def _workflow_paths() -> list[Path]:
+    return sorted((*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")))
+
+
+def _code(text: str) -> str:
+    """Drop YAML comment lines, so prose about a command never counts as one."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
 def _job(workflow: str, name: str) -> str:
     match = re.search(
         rf"(?ms)^  {re.escape(name)}:\s*$.*?(?=^  [a-zA-Z0-9_-]+:\s*$|\Z)",
@@ -72,6 +81,25 @@ def test_every_workflow_action_reference_is_pinned_to_a_commit() -> None:
                 workflow.name,
                 reference,
             )
+
+
+def test_every_workflow_runs_on_main_and_on_manual_dispatch() -> None:
+    # PLAN.md D4: the main session pushes main after each green batch gate and
+    # there are no ci/** branches. Manual dispatch is how the hosted Windows,
+    # Arm and macOS runners qualify a commit again without another push.
+    names = [path.name for path in _workflow_paths()]
+    assert {"ci.yml", "macos.yml", "windows.yml"} <= set(names)
+    for name in names:
+        match = re.search(r"(?ms)^on:\s*$\n(.*?)(?=^\S|\Z)", _workflow(name))
+        assert match is not None, f"{name} has no top-level on: block"
+        triggers = [line.rstrip() for line in _code(match.group(1)).splitlines() if line.strip()]
+        assert triggers == [
+            "  push:",
+            "    branches: [main]",
+            "  pull_request:",
+            "    branches: [main]",
+            "  workflow_dispatch:",
+        ], name
 
 
 def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
