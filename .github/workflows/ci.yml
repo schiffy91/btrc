@@ -8,11 +8,12 @@ on:
   # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push.
   workflow_dispatch:
 
+# There is no binary-cache account (PLAN.md D26), so every magic-nix-cache
+# step sets use-flakehub: false and uses the GitHub Actions cache alone. At
+# its default the action tries FlakeHub first, and the failed login was the
+# first error in every Nix job's log. No step needs an OIDC token.
 permissions:
   contents: read
-  # The Determinate Systems actions exchange this OIDC token for FlakeHub
-  # cache credentials. Without it every run logs an authentication failure.
-  id-token: write
 
 jobs:
   release:
@@ -22,6 +23,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
 
       - run: nix flake check --no-build
       - run: nix develop --command make NIX= generated-check
@@ -107,6 +110,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
       - run: make devcontainer
       - run: chmod -R a+w .
       # Each pytest worker also runs native compilers. Keep the four-core
@@ -133,6 +138,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
       - run: make devcontainer
       - run: chmod -R a+w .
       # The suite measures compile time, startup, emitted-C size, cc time and
@@ -153,6 +160,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
 
       - name: Build and run the native Linux arm64 release archive
         run: |

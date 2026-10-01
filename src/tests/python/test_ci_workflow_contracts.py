@@ -102,6 +102,22 @@ def test_every_workflow_action_reference_is_pinned_to_a_commit() -> None:
             )
 
 
+def test_every_nix_cache_step_keeps_flakehub_off() -> None:
+    # PLAN.md D26: there is no binary-cache account. At its default the action
+    # tries FlakeHub first, and the failed login was the first error in every
+    # Nix job's log (flakehub-auth-warning in docs/design/ci-health.md).
+    steps = [
+        _code(step)
+        for path in _workflow_paths()
+        for job in _jobs(path.read_text(encoding="utf-8")).values()
+        for step in _steps(job)
+        if "DeterminateSystems/magic-nix-cache-action@" in step
+    ]
+    assert steps
+    for step in steps:
+        assert re.search(r"(?m)^        with:\n(?:          .*\n)*?          use-flakehub: false$", step), step
+
+
 def test_every_workflow_runs_on_main_and_on_manual_dispatch() -> None:
     # PLAN.md D4: the main session pushes main after each green batch gate and
     # there are no ci/** branches. Manual dispatch is how the hosted Windows,

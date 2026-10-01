@@ -181,7 +181,11 @@ bumped by hand.
 `flakehub-auth-warning` never failed a job, but it is the first `##[error]`
 line in every Nix job's log, green or red, which makes real failures harder
 to find. `magic-nix-cache-action` tries FlakeHub first and then falls back
-to the GitHub Actions cache.
+to the GitHub Actions cache. A later merge batch sets `use-flakehub: false`
+on every `magic-nix-cache-action` step in `ci.yml` and `macos.yml` and drops
+the `id-token: write` permission that only the FlakeHub login used;
+`test_ci_workflow_contracts.py` keeps it off. The row keeps the lane's
+wording until a CI run confirms the annotation is gone.
 
 ### Unclassified
 
@@ -212,9 +216,10 @@ each one:
    throttling and disabled-substituter errors) failed 36 jobs across
    `ci.yml` and `macos.yml`, most recently on 2026-09-20, and the FlakeHub
    authentication error appears in every Nix job. **Owner:** the CI lane with
-   the nix owner. Set `use-flakehub: false` on `magic-nix-cache-action`, or
-   drop the action for `actions/cache` keyed on `flake.lock` (`PLAN.md` D26:
-   no binary-cache account).
+   the nix owner. FlakeHub is now off (`use-flakehub: false`, see
+   `flakehub-auth-warning`); the `nix-cache` errors remain open, and the
+   option left is to drop the action for `actions/cache` keyed on
+   `flake.lock` (`PLAN.md` D26: no binary-cache account).
 4. **The 122 "Non-optional access" warnings in the self-host Windows
    build.** The Python transpile of `src/compiler/btrc/cli/WindowsMain.btrc`
    emits them: 63 in `ir/lowering/Declarations.btrc`, 37 in
