@@ -1,10 +1,10 @@
 # BTRC handoff
 
-**Checkpoint:** 2026-09-13, work is on `main`.
+**Checkpoint:** 2026-09-30, work is on `main`. [`PLAN.md`](../PLAN.md) is the sequential roadmap for everything that remains, with every decision resolved.
 
 Read [`AGENTS.md`](../AGENTS.md) completely first. For product context, read
 the sibling repository's [`docs/Handoff.md`](../../btrsmith/docs/Handoff.md)
-and `GOAL.md`. The native contract is specified here and in
+and its MVP epic (schiffy91/btrsmith issue #15, which replaced `GOAL.md`). The native contract is specified here and in
 [`design/native-interop.md`](design/native-interop.md) plus
 [`../src/language/package-manifest.md`](../src/language/package-manifest.md).
 
@@ -13,8 +13,8 @@ and `GOAL.md`. The native contract is specified here and in
 The typed C/Objective-C/C++ import model, generated ABI adapters, ownership
 primitives, native GUI/GPU surfaces, callback scopes, and realtime checks are
 landed incrementally. Native-provider migration and final self-host
-qualification are not complete. macOS providers are the active target;
-Linux/Windows are future provider boundaries.
+qualification are not complete. macOS and Linux providers are implemented;
+Windows, iOS/iPadOS and Android are sequenced by `PLAN.md` buckets 3–5.
 
 ## Next sequence
 
@@ -38,7 +38,8 @@ Linux/Windows are future provider boundaries.
    `with_stdlib`/`includeStdlib` in both compilers); then every other BTRC
    directory (tests, tools, examples, nix files, docs) is reviewed against the
    same standard. The exact order is BTRSmith's `docs/NativePlatformPlan.md`.
-4. Re-run real consumers on the final tree, then delete any superseded bridge
+   Done 2026-09-14; it has drifted since, and `PLAN.md` Stage 4 repeats it.
+4. From here `PLAN.md` governs the order. Re-run real consumers on the final tree, then delete any superseded bridge
    and its build wiring. Keep no silent legacy fallback.
 5. Hand the resulting provider revisions to BTRSmith for product integration
    and its visual/physical-audio gates.
