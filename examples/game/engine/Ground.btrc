@@ -1,4 +1,4 @@
-import Library.GPU.UniformBuffer;
+import Library.GPU.GPUUniformBuffer;
 
 /* btrc 3D Engine -- Ground
  *

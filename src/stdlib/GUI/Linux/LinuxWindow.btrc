@@ -14,10 +14,10 @@ import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxContainer;
 import Library.GUI.Linux.LinuxGPUSurface;
 import Library.GUI.Linux.LinuxPainter;
-import Library.GPU.Device;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.OffscreenTarget;
-import Library.GPU.Readback;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUOffscreenTarget;
+import Library.GPU.GPUReadback;
 
 /* One synchronous key subscription; the window and the caller's scope share
  * its cancellation, so late cancellation never reaches a closed handler. */

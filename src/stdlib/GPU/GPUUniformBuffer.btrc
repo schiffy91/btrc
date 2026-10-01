@@ -1,6 +1,6 @@
 import Library.Array;
-import Library.GPU.Device;
-import Library.GPU.SurfaceRenderer;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUSurfaceRenderer;
 import Library.GPU.WebGPU;
 
 /* Mutable CPU parameters, immutable to each submitted frame. Separate draws

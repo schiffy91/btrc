@@ -1,6 +1,6 @@
 import Library.Image;
-import Library.GPU.Device;
-import Library.GPU.SurfaceRenderer;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUSurfaceRenderer;
 import Library.GPU.WebGPU;
 
 /* One uploaded RGBA image. Native view/sampler handles are borrowed by draws. */

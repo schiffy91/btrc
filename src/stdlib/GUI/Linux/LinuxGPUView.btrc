@@ -7,11 +7,11 @@ import Library.GUI.IView;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
-import Library.GPU.Device;
-import Library.GPU.OffscreenTarget;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.Program;
-import Library.GPU.Readback;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUOffscreenTarget;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUReadback;
 
 /* A GPU child rendered into an offscreen target on the window's device and
  * composited by the window's painter. The device belongs to the window, so

@@ -1,4 +1,4 @@
-import Library.GPU.UniformBuffer;
+import Library.GPU.GPUUniformBuffer;
 
 import ./Gameobject.btrc;
 

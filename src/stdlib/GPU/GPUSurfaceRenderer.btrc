@@ -1,6 +1,6 @@
 import Library.Math;
-import Library.GPU.Device;
-import Library.GPU.OffscreenTarget;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUOffscreenTarget;
 import Library.GPU.WebGPU;
 
 enum GPUFrameAvailability {

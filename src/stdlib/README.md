@@ -24,7 +24,7 @@ the API surface, so the layout follows a few fixed rules.
   `DDSEncodedImageDecoder`, and `UI/UI.btrc` imports the six UI modules.
   Two groups are documented exceptions. `GPU` has no facade: every module
   binds the native WebGPU SDK, so a consumer imports only the owners it uses
-  (`Library.GPU.Device`, `Library.GPU.SurfaceRenderer`, ...) rather than
+  (`Library.GPU.GPUDevice`, `Library.GPU.GPUSurfaceRenderer`, ...) rather than
   linking all of them through one import. `App` is a folder holding one
   module, like `Graph`: its application event and window-description
   values belong beside the GUI groups, not in the closed prelude and its

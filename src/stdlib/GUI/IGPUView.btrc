@@ -1,7 +1,7 @@
 import Library.GUI.IView;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.Program;
-import Library.GPU.Readback;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUReadback;
 
 /* A native child owning its WebGPU device, frame renderer and asynchronous
  * programs/readbacks. UI-thread poll() advances preparation without blocking.

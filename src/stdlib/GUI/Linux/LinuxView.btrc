@@ -6,7 +6,7 @@ import Library.GUI.IView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
 import Library.GUI.Linux.SDL;
-import Library.GPU.Device;
+import Library.GPU.GPUDevice;
 import Library.GPU.WebGPU;
 
 /* SDL's monotonic clock in nanoseconds. Delays are clamped to a billion

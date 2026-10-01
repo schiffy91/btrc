@@ -3,8 +3,8 @@ import Library.GUI.IGPUView;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.IContainer;
-import Library.GPU.Readback;
-import Library.GPU.Program;
+import Library.GPU.GPUReadback;
+import Library.GPU.GPUProgram;
 import Library.Timer;
 import Library.Callback;
 

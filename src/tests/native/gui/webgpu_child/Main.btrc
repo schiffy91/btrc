@@ -11,12 +11,12 @@ import Library.IO;
 import Library.Vector;
 import Library.Image.MacOS.MacOSEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSComposedCapture;
-import Library.GPU.Device;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.Program;
-import Library.GPU.Readback;
-import Library.GPU.UniformBuffer;
-import Library.GPU.ImageTexture;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUReadback;
+import Library.GPU.GPUUniformBuffer;
+import Library.GPU.GPUImageTexture;
 import Library.Timer;
 import Library.Callback;
 

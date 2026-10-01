@@ -1,9 +1,9 @@
 import Library.Callback;
-import Library.GPU.CompletionPump;
-import Library.GPU.Device;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.UniformBuffer;
-import Library.GPU.ImageTexture;
+import Library.GPU.GPUCompletionPump;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUUniformBuffer;
+import Library.GPU.GPUImageTexture;
 import Library.GPU.WebGPU;
 import Library.OwnedBuffer;
 

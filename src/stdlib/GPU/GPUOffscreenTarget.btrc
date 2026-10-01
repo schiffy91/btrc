@@ -1,4 +1,4 @@
-import Library.GPU.Device;
+import Library.GPU.GPUDevice;
 import Library.GPU.WebGPU;
 
 /* An owned render-attachment texture standing in for a native swapchain. A
