@@ -1,3885 +1,1417 @@
-# PLAN: compile performance, platform parity and native UI
-
-**Priority: optimization → C compatibility → platform foundations → native UI → release qualification.**
-Current work is **bucket 1 / edit and cold-build acceleration**. The unchanged-build
-latency objective is closed at the user-approved **≤5 s** target. Native UI
-implementation stays queued until bucket 4.
-
-Goal: make a BTRSmith body edit build to an executable in **10 seconds or
-less**, an unchanged build in **5 seconds or less**, and a cold self-hosted
-development build at the new working target of **13 seconds**, including native
-compilation and linking. Edit and cold builds must improve by at least 10×
-against the repeated baseline. Keep both compilers, strict C11, ownership safety,
-and bootstrap qualification. Section 1 defines intermediate targets and
-exactly what is timed. These are proposed acceptance budgets, not forecasts.
-
-Latest September 22 actual-Make comparison on macOS: **97.427 s cold** and
-**92.095 s navigation body edit**, medians of two alternating baseline/current
-pairs. The lexical type-map copy cut saves **3.35% cold / 2.26% edit** versus
-its matched previous compiler (100.803/94.224 s). The earlier filename-reuse
-and setjmp cuts saved 13.7%/13.3% and 4.6%/5.4% in their own comparisons.
-These are diagnostic pairs, not qualifying 5-cold/20-edit distributions.
-M0–M6 landed; unchanged latency is closed at 5 s, and M7 is partially complete.
-The working design budgets remain **13 s cold / 10 s edit**, with final ≥10×
-acceptance against a frozen repeated baseline on each required host. The revised
-priority is **M11a module reuse with M10 concurrency contracts**, then bounded
-parallel module compilation. Remaining M7/M8a work follows demonstrated
-prerequisites or measured bottlenecks rather than blocking that delivery.
-Historical measurements live in
-[`docs/design/compile-performance.md`](docs/design/compile-performance.md).
-
-**September 23 progress (bucket 1, M11a + M10).** Module units are
-implemented in both compilers (`--emit-units PREFIX --module-units [--jobs N]`):
-one C unit per import SCC, reused by content key, with setjmp summaries,
-realtime proofs and generic-instance demand combined across units, and stale
-groups lowered, solved, optimized and emitted by worker processes forked after
-analysis (stdlib `BackgroundJobs.WorkerPools`/`ProcessWorkers`; the owner
-answers in-process where it cannot fork). Units are byte-identical for every
-worker count; the language corpus passes in module-unit mode through both
-compilers and the bootstrap stays at its fixed point. On BTRSmith (macOS
-self-host, single samples) a one-line private edit takes 40.5 s against
-97.8 s whole-program, and a cold build 88.2 s with the default two workers
-(66.7 s with four) against 96.6 s. Thread workers were measured and rejected (the ARC lock serializes
-them). Memory: system-wide anonymous growth is 4.83 GiB in-process and 5.93 GiB
-with the default two workers (four: 6.85 GiB) against the 6 GiB ceiling.
-The reference compiler's cold module build is now 205.2 s against 209.5 s
-whole-program (98%, from 142%). Both compilers' module units emit the same
-function bodies as their whole-program builds on BTRSmith.
-Open for M11a: product integration, and Stage B (per-group analysis
-summaries), which the ≤10 s edit budget needs because whole-program front end
-and analysis alone take about 28 s. Details:
-[`docs/design/separate-compilation.md`](docs/design/separate-compilation.md).
-
-**September 25: Stage B slice 1 landed in the self-hosted compiler.** An
-unchanged group replays its body-validation record instead of being
-validated again. On a BTRSmith one-string edit, 1,687 declarations replay
-and one validates live, and the emitted units are byte-identical to a clean
-build. The edit build retires 16.9% fewer instructions (about 6 s at normal
-clock). The verify gate passes on BTRSmith and on all 964 corpus programs.
-Design and measurements:
-[`docs/design/separate-compilation.md`](docs/design/separate-compilation.md)
-("Slice 1 as implemented"). Slice 2 then replays each declaration's generic
-demand (discovery's method scan and the closure's declaration scan). Slice 3
-replays realtime scans. Three scope copies now use the slot-copying
-`Map.merge`. Module-unit keys reuse the records' interface digest. The same
-edit build retires 50.3% fewer instructions than without records (215.8
-against 433.9 billion). Per-instance closure records contribute part of
-that. Cold builds are about 2% cheaper (439.6 against 448.3).
-
-*Wall clock, September 26* (BTRSmith through `make/Product.mk`, module
-units, two workers; compile, native compile and link):
-
-| Scenario | September 24 | September 26 | Budget |
-| --- | ---: | ---: | ---: |
-| Edit, three fixtures | 44 s (compiler 37, native 6) | 25.0–26.3 s (compiler 17.9–19.3, native 6.4–6.5) | ≤10 s |
-| No-op | 8.5 s | 9.1 s (compiler 3.2, native 5.2) | ≤5 s |
-| Cold | 165 s | 164 s (compiler 80.5, native 82.9) | ≤80 s compiler |
-
-The native link receipt now remembers file identities and toolchain queries
-within one link. It computes its context three times around the qualifying
-links, and each time re-launched the driver, `ld -v` and `clang --version`
-and re-hashed every object. Link validation fell from 1.62 s to 0.74 s.
-
-| Scenario | With the link receipt change |
-| --- | ---: |
-| Edit | 22.4–23.8 s (compiler 16.6–18.0, native 5.3) |
-| No-op | 7.4 s |
-| Cold | 150 s |
-
-Every module unit had included every native binding header of the
-program: CoreAudio, CoreText, WebGPU, sqlite and others. One unit
-preprocessed 50,352 lines from 622 headers; without the unused bindings it
-needs 6,993 lines from 189. A group unit is now emitted once without its
-binding includes, and only the headers that declare a name its C mentions
-are restored. The rest stay out: `Hardware.h` reaches 6 of 405 units instead
-of all of them.
-
-| Scenario | With trimmed native includes |
-| --- | ---: |
-| Edit | 21.1–22.5 s (compiler 16.1–17.4, native 4.5–4.6) |
-| No-op | 6.8 s |
-| Cold | 134.6 s (native 55.0 s; summed dependency scans 468 → 318 s) |
-
-Two more native-plan changes:
-- **One qualifying link.** A relink whose linker reports exactly the last
-  receipt's input inventory, snapshotted unchanged before and after the
-  link, needs no second link. Edits link once: 20.8–21.6 s end to end,
-  native 4.0–4.2 s.
-- **Scratch directories.** Object-cache keys, link receipts and
-  preprocessing identities hashed the whole environment, and every `nix
-  develop` shell draws new `TMPDIR`, `TMP`, `TEMP`, `TEMPDIR` and
-  `NIX_BUILD_TOP` values, so each new shell recompiled all 408 native units.
-  Those five variables no longer decide cache identities. The first build in
-  a new shell falls from 60.5 s to 9.4 s. Both compilers now also run the
-  native header reader without them. The reader keys its SDK responses by
-  its environment, so the first compile in each new shell had spent 3.8 s,
-  instead of 1.0 s, importing native declarations.
-
-A no-op build still relinks (about 1 s: link, link validation and
-re-signing).
-- **The cause is signing, not debug objects.** Debug generations are
-  content-addressed and keep their paths, so the link context matches
-  exactly. BTRSmith's `LINK_BTRC` code-signs the executable after the
-  native plan when a local signing identity exists. The receipt records
-  the unsigned executable, so the next build sees a changed output and
-  relinks and signs again.
-- **The fix spans both repositories.** The native plan would accept an
-  attested post-link identity. For example, BTRSmith would run
-  `native_plan --attest-output` after `SIGN_CODE`, and the receipt would
-  then accept the signed executable. The signing keychain stays with the
-  product's Makefile.
-September 26, later: module-unit records became a line format; replayed
-realtime callables skip their variable tables; each file's package manifest
-is looked up once (visibility 0.80 → 0.39 s); the stdlib reachability
-closure indexes reached classes' methods by name, so a newly mentioned name
-visits only its own classes (lowering setup 0.91 → 0.48 s, both compilers);
-and an empty list or map literal lowers to a plain constructor call with no
-temporary or cleanup registration, in both compilers (the ARC cleanup stack
-was a tenth of the compile). The edit compile retires 184.0 billion
-instructions, down from 213.1; the cold compile 412 billion, down from 434.
-End to end through make/Product.mk: an edit takes 18.5–20.1 s (compiler
-14.0–15.5, native about 4.1), a cold build 134.9 s.
-
-**September 26, worker-count sweep (cold module-unit compile of
-`src/BTRSmith.btrc`, compiler only, M1 Max 8P+2E, inside BTRSmith's dev
-shell).** Wall clock and peak system-wide anonymous growth over a pre-build
-baseline, sampled once a second:
-
-| Compiler | Jobs | Wall | Peak anonymous growth |
-| --- | ---: | ---: | ---: |
-| pre-Stage-B (`vmark`) | 2 | 78.6 s | 6.06 GiB |
-| pre-Stage-B (`vmark`) | 4 | 64.3 s | 6.61 GiB |
-| Stage B (`nmark`) | 2 | 80.6 s | 6.42 GiB |
-| Stage B (`nmark`) | 4 | 63.3 s | 6.85 GiB |
-| Stage B (`nmark`) | 6 | 61.2 s | 7.28 GiB |
-| Stage B (`nmark`) | 8 | 60.2 s | 7.84 GiB |
-
-Three things follow, and two of them constrain the plan.
-
-- **Worker parallelism is saturated at four.** Four to eight workers buys
-  3.1 s of 63.3 s, about 5%, for a further 1.0 GiB. The serial remainder —
-  whole-program analysis, the interface digest, the setjmp and realtime
-  program solves — sets a floor near 60 s that no worker count reaches past.
-  Bounded ready-group parallelism is therefore **not** the path from here to
-  the ≤20 s cold budget; a 3× gap remains at eight workers. Treat four as the
-  default ceiling and spend the next cold work on the serial remainder.
-- **The 6 GiB aggregate ceiling is already exceeded, and was before Stage B.**
-  Two workers reach 6.06 GiB on the pre-Stage-B compiler and 6.42 GiB on this
-  one; the earlier 5.93 GiB figure for two workers is consistent with the
-  former. Every measured configuration is over budget, so the ceiling needs
-  either a documented revision or real allocation work. This is a KPI gap, not
-  a rounding error, and no worker count fixes it.
-- **Stage B is cold-neutral and costs about 0.3 GiB.** Its wall clock moves
-  −1.0 s at four workers and +2.0 s at two, mixed and inside run-to-run noise;
-  its peak grows 0.36 GiB at two workers and 0.24 GiB at four. That is the
-  expected shape: records and journals are an edit-build optimization, so a
-  cold build pays to write them and has nothing to replay. The edit win
-  (433.9 → 184.0 billion instructions) is unaffected by this.
-
-Measured with `scratchpad/measure_anon.sh`; the compiler-only figure is not the
-end-to-end cold build, which also runs native compilation and the link.
-
-**Where the peak actually sits.** Two workers already reach 6.06 GiB on the
-pre-Stage-B compiler, and each further worker adds only about 0.21 GiB, so the
-owner's own footprint is roughly 5.6 GiB of the peak and the workers are a
-minor term. Cutting peak memory means cutting what the owner holds, which is
-M8a's subject rather than a scheduling change.
-
-`Node()` initializes **21 vectors for every AST node**, whatever its kind: an
-identifier allocates twenty-one empty vectors it never reads. Two cheap-looking
-repairs do not survive inspection:
-
-- **One shared immutable empty vector as every field's default.** Unsafe. The
-  self-hosted compiler pushes directly onto these fields in 259 places
-  (`params` 152, `fields` 47, `declarations` 23, `members` 16, `methods` 8,
-  `genericParams` 6, `values` 4, `interfaces` 3), so the first push would
-  publish its element into every other node sharing that default.
-- **Per-kind initialization, leaving a kind's unused fields null.** The
-  generator knows each constructor's fields, so this is mechanical, but fat
-  tagged nodes are read by code that does not always check `kind` first, and a
-  null vector turns a harmless empty read into a compiler crash. It needs an
-  audit of every read site, not just the 259 writes.
-
-What remains is an accessor migration — reads through a method that answers a
-shared empty, writes through a method that allocates on demand — across both
-the generated node and its consumers. That is a real M8a slice, not an
-afternoon's edit, and it should be measured against the 5.6 GiB owner footprint
-before it is started.
-
-**September 26, where the serial floor actually is.** The compiler already
-carries a dense phase timer (`BTRC_TIMING`), so the cold build's composition is
-readable directly rather than inferred. At four workers on BTRSmith the owner's
-own phase marks account for 61.2 s of a 62.3 s wall, and they split cleanly:
-
-| part | seconds | what it is |
-| --- | ---: | --- |
-| parallel wait (`u-lowered`, `u-solve`, `u-optimize`) | 29.6 | the owner blocked on forked workers |
-| serial remainder | 31.6 | everything the owner does itself |
-
-Against a one-worker run, the parallelized work scales unevenly: lowering
-2.83x, optimization 3.37x, but the **setjmp solve only 1.84x**. Its note reads
-`setjmp-analyses=858/439, rounds=5, levels=15`: nearly every group is analyzed
-twice, and the solve's `while (changed)` x per-level loop is a barrier per
-level, so most waves hold few groups. The level assignment itself is a correct
-Tarjan condensation, so the extra rounds come from cyclic components iterating,
-not from mis-ordering. Flattening those barriers is the one scheduling change
-still worth making; it is worth at most a few seconds of the 29.6.
-
-The serial 31.6 s is the real obstacle, and no worker count touches it. Its
-largest terms are `v-bodies` 5.17 s, `g-transitive` 5.02 s, `n-bindings`
-2.66 s, `r-scan` 2.30 s, `a-records` 2.26 s and `c-declarations` 2.15 s. A
-20 s cold build therefore needs the serial front end and analysis moved
-per-group, which is Stage B's destination, not more workers.
-
-*One phase attributed and one hypothesis refuted.* `g-transitive` looked like a
-redundant fixed point: `registerTransitiveGenericInstances` wrapped its
-instance walk in `while (changed)` although the walk re-reads `.len` each step
-and so already processes the instances it appends. That outer loop was indeed
-dead work, and removing it is provably equivalent — instances are only
-appended, and what an instance implies depends on its own arguments and the
-static generic class table, never on which others are registered. Every one of
-the 403 emitted units is byte-identical before and after. But it was worth only
-about 0.2 s: a new `g-members` mark shows the member walk costs **0.10 s**, and
-the whole 8.8 s of that phase is `closeGenericInstanceGraph`. A counter
-(`instance-closure`) puts the shape beyond doubt: **274 class instances, no
-method instances, about 32 ms per instance**, all in the first of its three
-calls. Per-instance template-body scanning under substitution is the cost, and
-it is the phase to attack — not the loop that surrounded it.
-
-*What the phase is actually made of, and why the obvious slice is the wrong
-one.* A sample taken across the closure window on a clang build attributes
-7,851 samples:
-
-| bucket | share |
-| --- | ---: |
-| ARC bookkeeping (`__btrc_arc_*`, cleanup registration, reverse edges) | 24.5% |
-| malloc / free | 19.9% |
-| `Map<Node, …>` inserts and lookups | 13.1% |
-| thread-local access (`_tlv_get_addr`) | 9.4% |
-| Stage B record codec (`ValidationNodeIndex`, `AstStructure`) | 8.2% |
-| string operations | 6.0% |
-| **expression type inference** | **1.9%** |
-
-Allocation and ARC together are **44.4%** of the phase, and the inference the
-phase exists to perform is **1.9%**. The first instinct was to scan each
-template once symbolically and substitute per instance — the 274 instances
-cover only **19 distinct generic class templates**, so that promised roughly
-fourteenfold on the phase. It would help, because avoiding the walks avoids
-their allocations, but it aims at the 1.9% and carries a real correctness risk:
-instances also arise from types *inferred* under the substitution rather than
-written in the template, so a symbolic pass is a cache that must be proven
-equal to the live walk rather than assumed. It is no longer the first thing to
-do.
-
-**The lever is M8a, and it is a time lever, not only a memory one.** Every
-`Node()` eagerly constructs 21 vectors. `Vector()` allocates no buffer, so the
-cost is not 21 buffers — it is **21 ARC-managed heap objects per node**, paid
-again for every temporary type node that `resolveGenericType` mints per
-instance, per member, per parameter. That is the same allocation pressure the
-memory measurement already pointed at from the other direction: each worker
-adds only about 0.21 GiB, so roughly 5.6 GiB of the peak is the owner. One
-change therefore addresses both the peak and a double-digit share of the serial
-time, and it applies to every phase rather than to one.
-
-M8a's shape is unchanged from the triage above — a shared immutable empty
-default is unsafe against the 259 direct pushes, and per-kind null fields risk
-null dereferences — so it remains an accessor migration across the generated
-node and its consumers, in both compilers. It is a multi-session slice and
-should be started deliberately, with the allocation count measured first so the
-payoff is known before the migration rather than after.
-
-*M8a's prize, measured.* Two numbers settle the priority. A counter in
-`Node()` reports **3,860,337 nodes** allocated on one cold BTRSmith build, and
-per-phase deltas show where they come from: `l-generic-classes` 1,418,488
-(36.7%), `l-declarations` 988,174 (25.6%), `parse` 535,364 (13.9%), `v-bodies`
-286,231, `g-transitive` 244,839, `r-scan` 146,341, `c-declarations` 142,888. So
-the parsed AST is only about **535 k nodes and 86% of the total are temporaries
-minted while lowering** — largely the type nodes `resolveGenericType` mints per
-instance, per member, per parameter. At four workers the owner allocates
-1,528,236 of them and the workers the rest.
-
-The cost of the 21 eager vectors was then measured symmetrically, by adding 21
-more per node and reading the delta, because a shared-empty spike cannot run to
-completion to be timed:
-
-| `Node()` allocates | cold wall | peak anonymous growth |
-| --- | ---: | ---: |
-| 21 vectors (today) | 67.2 s, 67.2 s | 6.85 / 7.76 GiB |
-| 42 vectors | 76.2 s, 81.4 s | 7.71 / 8.34 GiB |
-
-Twenty-one per-node vector allocations cost **9.0 to 14.2 s of a 67 s cold
-build** and about **0.6 to 0.9 GiB in the owner**, with the same saving again in
-each worker. Removing them need not be exactly symmetric with adding them, but
-it is the same order: **13 to 21% of cold time**, against 7% for removing the
-generic closure entirely. This is the largest measured lever in the campaign and
-it applies to every phase. *(Superseded by measurement: converting thirteen
-fields saved 3.0 s where this predicted 5.6–8.7 s, so the experiment overstated
-the prize two- to threefold; see "What landed" below.)*
-
-*The cheap subset.* The migration does not have to be all 21 fields at once.
-Reads outnumber mutations heavily — 3,235 references against 356 mutations — and
-the mutations are concentrated: `params` 156, `fields` 48, `statements` 40,
-`declarations` 26, `genericArgs` 22, `members` 16. The other **13 fields carry
-only 33 mutations between them** (`captures` 0, `cases` 1, `bodyNodeList` 1,
-`argNames` 1, `segments` 2, `variants` 2, `args` 2, `interfaces` 3, `entries` 3,
-`parts` 3, `values` 4, `names` 5, `genericParams` 6). Converting just those
-removes 13 of the 21 allocations — about 62% of the win — for 33 edited call
-sites rather than 356.
-
-*The shape, and the question to settle first.* Make each field nullable and
-initialized to null; keep the 3,235 read sites untouched by having reads answer
-a shared immutable empty when the field is null; route every mutation through an
-accessor that allocates on demand. A missed mutation site would otherwise
-silently publish into the shared empty, so assert at the end of each compile
-that the shared empties are still empty — cheap, and it makes any miss fail
-loudly in all 1,930 corpus programs and the bootstrap rather than corrupting an
-AST quietly. What must be decided before writing any of it: a lazily allocating
-accessor is behavior, and `generated/ast/Node.btrc` is required to hold
-data and schema declarations only, so either the generator is permitted to emit
-these accessors or they belong to a handwritten owner that the generator feeds.
-That is an architecture decision, not a coding detail, and it gates the slice.
-
-*The shared-empty design was built, measured and rejected — with a root cause
-that constrains every later attempt.* The generator was taught to give the 13
-low-mutation fields one shared empty list per element type, created on first
-use, with a `…Mut()` accessor that swaps an empty field for a fresh list before
-any mutation, and an invariant check in `Node()` that a shared empty is still
-empty. The 24 mutation sites, all in `Parser.btrc`, were moved onto the
-accessors.
-
-It is **correct** — all 403 emitted BTRSmith units are byte-identical — and
-**two to three times slower**: 119.2 s and 216.1 s against a 64–65 s baseline,
-with the variance itself a symptom. The cause is in the ownership runtime.
-`__btrc_arc_unregister_incoming` finds an owner by walking a singly linked
-incoming-edge list:
-
-```c
-__btrc_arc_incoming** link = &header->incoming;
-while (*link && (*link)->owner != owner) link = &(*link)->next;
-```
-
-A shared empty stored into 13 fields of 3.86 M nodes accumulates about 50
-million incoming edges, so every release of a node walks that list. Sharing one
-*managed* object among millions of holders is quadratic under this ARC
-implementation, which no amount of accessor discipline changes.
-
-A sample of the slow build puts **10,188 of 10,202 samples inside
-`__btrc_arc_replace_edge`**, which is where that scan is inlined, so the
-attribution is measured rather than read off the source.
-
-The second finding is the one that settles the design, and it is not about the
-scan at all. `Node_init` in the generated C contains 21 `_new(` calls and **58
-`__btrc_arc_replace_edge` calls**, and `__btrc_arc_register_incoming` mallocs an
-`__btrc_arc_incoming` record for every managed edge it publishes. A node
-therefore pays for roughly 21 vectors *and* an edge record per field edge. The
-shared empty removes the 13 vector allocations but still publishes 13 managed
-edges, so it trades vector allocations for edge-record allocations: even with
-O(1) removal it would save about 13 of some 42 allocations rather than 13 of 21.
-
-That makes the choice clear rather than open. **Only a null field captures the
-whole win**, because null publishes no edge and allocates nothing — no vector
-and no edge record. The shared sentinel is handicapped twice over, by the
-quadratic removal and by the edge records it still allocates, and excluding it
-from ARC's edges (a header flag that `__btrc_arc_register_incoming` and
-`__btrc_arc_unregister_incoming` honour) would only recover the smaller half of
-the prize while extending the ownership model, a canonical boundary. So the
-route for M8a is the nullable-field migration and its 3,235 read sites, which is
-large but is the only design that removes both allocations. The
-invariant check earned its place either way: it caught a genuinely missed
-mutation site — on `NativeNode`, which this same emitter generates and whose
-lists a reader writes directly — in 3.1 s instead of corrupting an AST silently.
-
-*What landed: thirteen fields, 60.2 s to 57.2 s.* The nullable route is
-implemented for `segments`, `captures`, `cases`, `bodyNodeList`, `variants`,
-`args`, `entries`, `parts`, `values`, `argNames`, `interfaces`, `names` and
-`genericParams`. Each carries `<field>Storage` typed `Vector<X>?` and null until
-written, a `<field>()` reader that answers one shared empty while the field is
-unwritten, and a `<field>Mut()` that allocates on first write. The reader is
-safe where the shared-empty *field* was not: a reference answered to a local is
-a reference count, since `__btrc_arc_unregister_incoming` returns immediately
-for a null owner, so it neither allocates nor lengthens an incoming-edge list.
-
-Cold BTRSmith falls from **60.2 s to 57.2 s**, both reproduced in alternating
-pairs, with all 403 emitted units byte-identical, the 1,930-program corpus green
-through the changed compiler, and the bootstrap at its fixed point. That is
-5.0% for thirteen of the 21 fields, and that corrects the estimate above.
-Scaled linearly, the symmetric experiment predicted 5.6–8.7 s for thirteen
-fields; the measured saving is 3.0 s, so adding allocations to an
-already-pressured allocator overstated what removing them returns by two to
-three times. The "13 to 21% of cold time" figure and "the largest measured
-lever in the campaign" should be read in that light: all 21 fields are more
-plausibly worth about 8%, and the eight heavy fields about 2 s more. Why the
-shortfall is so large is not measured; the accessor call and null test each
-read now pays are one candidate, allocator nonlinearity another.
-
-*Why this needed a call-site audit rather than a regex.* Of 1,169 textual
-references to those thirteen names only **637 are the source AST node**;
-`IRNode.args`, `IREnumDef.values`, `IRTaggedUnionDef.variants`, `NativeNode`,
-`CallableLambdaPlan.captures` and several enclosing-class fields carry the rest,
-and rewriting one of those breaks the build as surely as missing a real site.
-Renaming the backing field is what makes the migration safe, because every
-unconverted read becomes a compile error. Three traps were found that no
-call-site search would have surfaced, and all three are now handled:
-
-- `src/tests/btrc/test_ast_structure_contract.py` greps `Node.btrc` for
-  Node-valued field declarations and compares them **in order** against
-  `AstStructure.children()`. Nullable storage names would have silently dropped
-  out of that comparison; it now strips the suffix and accepts a nullable list.
-  The `segments` pilot passed only because a `Vector<string>` is invisible to
-  that test.
-- The generated constructor must emit `= null`. Applying the whole-assign rule
-  literally yields `self.capturesStorage = [];`, which compiles and keeps
-  exactly the allocation the change exists to remove.
-- `Node.captures` is never written by this compiler — capture names are
-  recomputed in `CallableValueSemantics` — so its mutator was dead code and
-  `test_only_explicit_external_probes_are_definition_only` flagged it. The
-  generator no longer emits a mutator for a read-only lazy field.
-
-The remaining eight fields (`params` 633 references, `genericArgs` 506, `fields`
-346, `declarations` 251, `members` 159, `elements` 112, `statements` 99,
-`methods` 92) hold the other eight allocations and are the next slice, on the
-same machinery. A field passed as a bare `Vector<Node>` argument to a callee that
-**mutates** it would fill the single shared empty for every node with an
-unwritten field, and no syntactic `.push(` marks the site. For the thirteen
-converted fields every receiving callee was checked — 26 direct callees and one
-forwarding chain, all read-only — and each generated reader now checks that the
-shared empty is still empty before answering it, so a future violation stops
-the compiler with an internal error instead of corrupting an AST.
-`src/tests/btrc/test_lazy_node_lists.py` drives that guard through a fixture
-that mutates a reader's answer. The shared empty is a process-global static
-created lazily and without a lock; that is safe because the first read happens
-while parsing on one thread, and the only threads the compiler starts, in
-`NativeHeaderProcess`, never touch an AST node.
-
-*Fifteen fields (September 28).* `elements` and `statements`, the first of the
-eight heavy fields, now carry lazy storage too. Wall clock could not resolve
-the change -- six alternating rounds differed by a median 0.77 s with
-per-round differences from -7.5 to +7.6 s -- so it was measured on a
-single-process compile instead: 1,368.1 and 1,367.3 billion instructions
-retired against 1,377.8 and 1,381.9 (about 0.8% fewer), and peak footprint
-4.446 and 4.440 GB against 4.529 and 4.527 GB (84 MB less), with all 409
-emitted units byte-identical. The remaining six heavy fields (`params`,
-`genericArgs`, `fields`, `declarations`, `members`, `methods`) still need
-their receivers audited.
-
-*All 21 fields (September 28).* The last six heavy fields (`methods`,
-`params`, `genericArgs`, `fields`, `declarations`, `members`) now carry lazy
-storage, so `Node()` allocates no lists at all. They were converted with the
-compiler as the oracle: with each reader temporarily renamed, every remaining
-AST-node access is a compile error, so rewriting flagged lines until the build
-is clean proves none is left, and the same diagnostics named the eight
-same-named fields on other classes a multi-match line had over-converted.
-
-The heavy six are a trade, not a speed win. On a single-process cold compile
-of BTRSmith, peak footprint falls from 4.451 to 4.181 GB (**270 MB, 6.1%**),
-but instructions retired rise from 1,365.0 to 1,400.2 billion (**2.6%**), and
-wall clock is flat (98.2–99.0 s against 98.4–99.5 s); all 409 emitted units
-are byte-identical. The generated C shows why: every reader call, even on its
-fast path, pays an ARC retain, a cleanup-stack registration and its discard,
-and hands the caller a reference to release -- traffic the old direct field
-read never paid, now multiplied by the most frequently read fields in the
-compiler. Recovering it needs a borrowed return from the accessor, a
-language/runtime capability rather than a change to this code. The memory
-side serves the 6 GiB aggregate ceiling, which two workers exceeded at
-6.42 GiB.
-
-*On the ≤20 s cold budget.* It is worth stating plainly what the measurements
-imply. Compiler-only cold is 62 s on a clang build, 29.6 s of it waiting on
-workers and 31.6 s serial. Removing the generic closure entirely (4.9 s) and
-halving the setjmp solve (3.9 s) would reach about 53 s. The budget is not
-reachable by further increments of this kind: it needs the serial front end and
-analysis moved per-group, which is Stage B's destination and not yet built, and
-the allocation work above. Either that architecture lands, or the budget wants
-revising against measurement rather than intent — this plan already records
-these as proposed acceptance budgets, not forecasts, and that is the decision
-now due.
-
-**September 26, the gcc/clang gap on btrcc, measured.** The repository already
-knows this one: `default_c_compiler()` in `src/tests/runner.py` prefers Apple
-clang on Darwin precisely because nix's `cc` is gcc, which emulates
-thread-local storage through pthread keys. The whole harness routes through it,
-the bootstrap included, and `C11_CC ?= gcc` is deliberate coverage of the
-generated C under both compilers rather than an oversight. What was missing was
-a number for the real workload. Two builds of one identical generated
-`btrcc.c`, same flags, alternating on the same cold compile:
-
-| btrcc built by | cold wall | `g-transitive` | `c-declarations` | `v-bodies` | `parse` |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| gcc 15.2 (nix's `cc`) | 74.9 s | 8.77 s | 3.34 s | 6.54 s | 1.98 s |
-| Apple clang 21 | 62.3 s | 4.90 s | 2.17 s | 5.20 s | 1.64 s |
-
-So the gcc build takes **20% longer overall, and 79% longer on the
-generic-instance closure** — the phases
-heaviest in thread-local and ARC traffic. A sample of the gcc build confirms
-the mechanism: `__emutls_get_address` and `pthread_getspecific` together take
-about 3,800 of its leaf samples. This refines the claim in that docstring,
-which says gcc "roughly halves the speed of every compiled btrc program": on
-this workload the whole-compile penalty is 20%, not the doubling that halving
-the speed would mean, though one phase comes close to it.
-
-Two practical consequences. First, **every cold or edit figure in this plan
-must name the C compiler that built the measured `btrcc`**, because 20% dwarfs
-most of the individual cuts recorded here — the lexical type-map copy cut was
-3.35%. Measuring by hand inside a nix dev shell silently gets the gcc build,
-which is how the first pass of this comparison went wrong; the quick tell is
-binary size, about 20.7 MB from clang against 13.0 MB from gcc for the same
-`.c`. The worker-count sweep above used a clang build and stands. Second, the
-thread-local consolidation recorded as rejected in `AGENTS.md` was measured on
-clang, where a thread-local is a cheap TLV read, so that result says nothing
-about gcc builds — but since every gate that builds `btrcc` already selects
-clang, the question is academic rather than load-bearing.
-
-The native plan then batched its cold path. The shared preparation had only
-validated existing receipts. On a cold build every unit missed and started
-its own driver expansion and reader session, and after compiling it started
-another pair, 816 in all (summed scan 333 s). The shared preparation now
-captures missing receipts in its chunked sessions. After every compile, one
-more batch revalidates the compiled units, and an object is published only
-under an unchanged key. Cold native falls from 56–58 s to 22–23 s, and an
-edit's native step from 4.1 s to 3.65 s. End to end, an edit takes
-18.05–19.65 s, and a cold build is about 101 s (a 78 s compile plus 23 s
-native).
-
-The no-op build takes 6.6–6.9 s, over the ≤5 s guard:
-- **Compiler, 2.4–2.9 s.** Source graph 0.5 s, native import 1.0 s (the
-  reader's session validation 0.57 s, then cached-response decoding 0.44 s),
-  and the artifact-cache hit 0.23 s.
-- **Native plan, 3.2–3.7 s.** Preprocessing receipt validation takes 1.75 s:
-  one reader call over 408 units' receipts, which already shares
-  observations across units. The relink and re-signing take 1.3 s, and the
-  native compiler context 0.65 s.
-- **What would close the gap needs a decision.** One option is the
-  cross-repository signing attestation above (about 1.3 s). The other is a
-  whole-build fast path keyed by the stat identities (including ctime) of
-  every observed input. That relaxes the reader's content-hash trust model,
-  so it is not taken unilaterally.
-
-Units stay byte-identical, and the verify gate passes on BTRSmith and all 965
-corpus programs. Next:
-- cheaper realtime record decoding (about 1 s);
-- per-declaration stdlib reachability names (about 0.8 s);
-- the lowering declarations session (about 3 s);
-- front-end caching;
-- the reference compiler's records.
-
-**September 24 status and plan revision (bucket 1, M11).** M11a module
-reuse is committed as `c955059`, with `4bb4694` fixing a realtime
-diagnostic; neither is pushed.
-
-*KPI gap.* All figures are compiler-only, single samples on macOS: no
-native compile or link, and not the required distributions on the
-acceptance host.
-
-| Scenario | Baseline | Latest | M11 budget | Confidence |
-| --- | ---: | ---: | ---: | --- |
-| Self-host body edit | 98 s | 40.5 s (module units) | ≤10 s | moderate: Stage B plus front-end caching are both needed |
-| Self-host cold | 76 s historical transpile | 96.6 s whole / 88.2 s module units (`--debug`) | ≤55 s transpile, ≤80 s dev build | moderate–high; four workers reach 66.7 s but exceed the memory ceiling |
-| Reference cold transpile | 259 s | 209.5 s whole / 205.2 s module units | ≤180 s | moderate |
-| Reference body edit | unmeasured | 80.9 s, before the September 23 cold fixes | ≤15 s | low: front end and analysis alone are about 35 s |
-| Self-host memory | 5.4 GB | 4.2 GB whole; 5.93 GiB with two workers | ≤3 GiB | low without M8a allocation work |
-
-The final objectives (≤5 s edit, ≤20 s cold) need per-group parallel
-analysis and allocation work beyond the current slices.
-
-*Defects found while preparing Stage B.* Each fix has a regression test.
-Fixes 3–6 are uncommitted and waiting on the gates. The C11 matrix fails
-only on the timing-sensitive `stdlib/Daemon.btrc` daemon-stop deadline,
-twice while other jobs loaded the machine; a quiet rerun is pending.
-
-1. The reference realtime analyzer captured global names before
-   registration.
-2. The reference compiler's module units emitted `NULL` cycle visitors for
-   specializations another unit owns.
-3. The reference analyzer accepted an unproven raw borrow when the callee
-   followed its caller, because the proof read node types not yet recorded.
-   The proofs are now settled after the body loop.
-4. The self-hosted compiler rejected a generic class method calling a
-   generic method with the class's parameter. Template-level and
-   per-instance call arguments are now kept apart.
-5. Both compilers computed `Span(array)` length with `sizeof` of a
-   sequenced pointer temporary, which was wrong code: a field reached
-   through a retained receiver gave 2 instead of 4. The length now comes
-   from the constant bound.
-6. Constant array bounds were order-dependent in both compilers: field
-   bounds in the self-hosted compiler, global bounds in the reference.
-   Declaration bounds are now validated before bodies.
-
-*Plan changes from mapping both analyzers and surveying prior work* (rustc,
-Salsa, Zig, Swift, Kotlin, TypeScript, Carbon, clangd; Zwaan et al. OOPSLA
-2022, Leino and Wüstholz CAV 2015, Infer, Nominal Adapton, Scope States
-ECOOP 2021, Build Systems à la Carte). Details are in the design document.
-
-- Stage B records key facts by declaration path plus local index, not
-  group position.
-- Each declaration carries an interface hash and a body hash. Each group
-  logs its lookups and their answers, and re-validates only when its body
-  or a recorded answer changes. This replaces the program-wide interface
-  digest.
-- Effect summaries are keyed by own body plus consulted summaries, with
-  early cutoff.
-- The stdlib and native headers form a durable tier, and native header
-  import gets a content-keyed cache.
-- An edit-sequence equivalence harness and a fall back to full analysis
-  gate Stage B.
-- No general query engine.
-- Allocation is measured before any node-layout redesign: first a faster
-  general allocator, then per-group arenas. Parallel body validation over
-  the import DAG's layers is the other cold-build lever.
-
-*Step 1 result: end-to-end dev builds.* These are BTRSmith product Make
-builds with native compile, link and signing. They are diagnostic samples on
-macOS; the details are in `docs/design/compile-performance.md`.
-
-| Scenario | Whole program | Module units |
-| --- | ---: | ---: |
-| Body edit | 97–101 s | **44 s** (compiler 37 + native 6) |
-| No-op | 6.0 s | 8.5 s |
-| Cold | 109 s | 169 s |
-
-- **Native defects fixed** (uncommitted: signing is blocked): unchanged
-  outputs are no longer rewritten; receipt requests are chunked and
-  validated in parallel; units with the same flags share one driver
-  expansion. Before these fixes the module-unit edit took 83 s.
-- **No-op guard:** module units still break the ≤5 s no-op guard, at 8.5 s.
-- **Native floor:** 408 native units leave a 6 s floor. Before Stage B, M11
-  needs either fewer native units or shared header validation in the receipt
-  reader.
-- **Compiler floor:** the edit's remaining compiler time is 37 s, of which
-  front end plus analysis is about 28 s. That is Stage B's target.
-
-*Step 2 result: reference compiler*, BTRSmith, compiler only, dev mode.
-
-| Scenario | Seconds |
-| --- | ---: |
-| Cold, whole program | 228 |
-| Cold, module units | 202 |
-| Module-unit edit (three fixtures) | 88–89 |
-| Whole-program edit | 227 |
-
-- **Where the edit's time goes:** front end and analysis account for 37 s:
-  resolve 3.0, lex 2.3, parse 10.7 and analyze 20.9. Lowering the edited
-  group and program unit takes 11.5 s. About 39 s of wall time lies outside
-  the profiled phases; it is not yet attributed, and native header import and
-  package resolution are the likely owners.
-- **Unmeasured repeat:** a timed repeat cannot hit the artifact cache, because
-  profiling disables it by design, so no-op numbers need an untimed run.
-- **The ≤15 s reference edit budget** needs everything the self-hosted
-  compiler needs, plus that unattributed time.
-
-*Step 3 result: where a self-hosted module-unit edit compile spends its time*
-(37.2 s, BTRSmith, from `BTRC_TIMING`):
-
-| Area | Seconds | Removed by |
-| --- | ---: | --- |
-| Analysis: validation 9.8 (program-level passes 3.1, bodies 6.7), generic discovery 4.3, realtime 3.1, generic closure 3.0 | 20.1 | Stage B slices 1–3 remove the body shares; program-level passes stay |
-| Module-unit bookkeeping: interface digest 2.8, record parse/load 1.6, setjmp solve 0.7, other 0.6 | 5.6 | Stage B slice 4 (per-group digest), cheaper records |
-| Lowering: declarations session 2.4, generic classes 1.3, setup 1.0, finalize 0.3 | 5.0 | caching the declarations session per program interface |
-| Front end: parse 1.7, native headers 1.1, visibility 0.9, graph 0.6, lex 0.5 | 5.0 | per-file parse and header caches |
-
-- **Program-level validation, split:** the native-invocation check was
-  2.79 s of the 3.1 s. It is a whole-program AST search for capability type
-  nodes, and it rebuilt a child vector per node. Walking iteratively over
-  `AstStructure.children` brought it to 0.55 s, and total validation
-  from 9.8 s to 6.8 s. The reference analyzer's walk, made
-  iterative with each node type's fields reflected once, went from 0.74 s to
-  0.58 s on BTRSmith; it was never that compiler's bottleneck.
-- **Body validation, sampled:** about 22% of it was copying scope maps.
-  Every body cloned the whole global variable-type map, and every block
-  cloned its scope, by reinserting each entry. `Map.merge` into an empty map
-  now adopts the source's slot layout, with no rehashing, probing or growth.
-  A whole-program BTRSmith compile retires 3.1% fewer instructions
-  (1,076.3 to 1,042.8 billion, about 2.9 s), and peak memory is unchanged.
-  Instructions were compared because this Mac throttles background work
-  while idle, which made wall-clock A/B runs unusable.
-- **After Stage B:** program-level validation (now about 0.9 s) stays, so
-  its best case leaves about 18 s of compiler time. Slice 1 alone saves at
-  most 6.7 s.
-- **Compiler near 10 s:** also needs slice 4, cheaper records and a cached
-  declarations session.
-- **End to end:** the 10 s budget further requires the native step
-  (6 s at 408 units) to fall to about 3 s. The two options are fewer,
-  larger native units and shared header validation in the receipt reader.
-  That work is now as important as Stage B.
-
-*Step 7 result: can analysis facts be given structural keys?* Every
-identity-keyed fact the reference analyzer records was keyed by
-(source file, declaration ordinal, pre-order index within the
-declaration):
-
-| Program | Node types | Hosted calls | Constant bounds | Realtime bounded loops |
-| --- | ---: | ---: | ---: | ---: |
-| Self-hosted compiler source | 310,947 | 1,055 | 20 | 0 |
-| BTRSmith | 304,410 | 942 | 29 | 261 |
-
-- **Result:** every fact resolved to exactly one node. None was
-  unreachable or shared.
-- **Remaining identity risk:** the fact values. Node types can alias
-  another declaration's type node, so values must be serialized, not
-  referenced.
-- **Self-hosted analyzer:** it needs a structural walk of its fat `Node`
-  first.
-
-*Step 6 result: a faster general allocator.* The same self-hosted compiler
-binary, with mimalloc 3.4.5 injected through `DYLD_INSERT_LIBRARIES`,
-compiled BTRSmith with module units in two alternating pairs:
-
-| Build | System allocator | mimalloc |
-| --- | ---: | ---: |
-| Cold | 81.2 / 81.5 s | 75.1 / 75.4 s |
-| Edit | 37.0 / 36.9 s | 33.9 / 33.7 s |
-
-- **Gain:** 7–9% with no code change.
-- **Meaning:** a real but modest win, consistent with the survey. Most
-  allocation gains come from arenas and fewer allocations, which is M8a
-  work, not from a faster general allocator.
-- **Option:** linking mimalloc into compiler builds is a cheap follow-up
-  once its memory effect is measured.
-- **Priority:** it does not change the order. Stage B, the declarations
-  session and front-end caches remain the larger levers for the edit.
-
-*Next action: a measurement round before Stage B code.* Each step decides
-an ordering question.
-
-1. End-to-end dev edit and cold builds including native compile and link:
-   the three edit fixtures, repeated, on a quiet machine.
-2. The reference compiler's edit profile after the September 23 fixes.
-3. A throwaway run that skips reused groups' body analysis unsafely, to
-   find Stage B's floor and the time that remains.
-4. Parse, AST-decode and native-header cache costs.
-5. The share of analysis time spent in stdlib groups.
-6. Allocator experiments: a faster general allocator, then per-group arenas.
-7. Node-key round-trip counts across the corpus and BTRSmith, which is also
-   Stage B groundwork.
-8. Baselines in the Linux container, pending a decision on the x86 NixOS
-   acceptance host.
-
-Then re-budget section 1 per phase, and order Stage B, front-end caching
-and M8a by measured payoff.
-
-Implementation was paused at the user's September 22 quota checkpoint. The full
-unit rerun records **7,638 passed / 49 skipped / 1 intermittent warm-link cache
-assertion failure**. The affected modules subsequently pass 42 tests, and ten
-diagnostic repetitions pass; this does not close the failed full-suite gate.
-That is historical test evidence: the subsequent CI repair fixed a concurrent
-cache-read race and passed the full Linux suite and bootstrap; required-host
-and GitHub qualification remain separate. The user's subsequent planning
-discussion brings module reuse and parallelism forward together. This plan
-revision does not itself restart implementation. On resume, continue bucket 1
-with M11a and the M10 contracts below. Conditional
-experiments still require their stated evidence; proposed budgets are not
-measured results. Section 1 records evidence and budgets; section 2 defines
-verification; section 3 preserves the implementation history; section 4
-specifies the remaining performance work; section 5 contains the separate
-C-compatibility proposals; section 6 adds iOS, Android and Windows parity;
-section 7 inventories native UI across all five platforms; section 8 defines
-the required execution order and milestone gates.
-
-## Execution order: five buckets
-
-User-directed sequence, 2026-09-21; performance priorities revised 2026-09-22.
-**Work one bucket at a time, in this order.** The active bucket is **1 — compiler
-performance**, now focused on **10× faster edit-to-executable and cold self-host
-BTRSmith builds**. The unchanged-build latency campaign is closed: the user
-raised its target to **≤5 s**, and all ten current qualified macOS samples are
-below it (medians 4.180/4.732 s; maxima 4.213/4.794 s). This replaces the earlier
-2 s target and associated 3 s p95 gate. Keep ≤5 s as a regression guard; do not
-spend further optimization work closing the retired 2 s gap. Required-host and
-full-tree correctness evidence remain open and must not be described as passed.
-The user explicitly authorizes moving on from this latency gate; residual M6a
-qualification is not a reason to keep optimizing no-op paths. The platform
-and UI inventories are planning artifacts; they do not authorize starting those
-implementations ahead of this sequence. This overrides earlier recommendations
-to develop platform/UI work alongside optimization.
-
-**The five big chunks, in order:**
-
-1. **Optimize the compiler and builds.** Finish reliable incremental builds,
-   measured compiler optimizations and separate compilation; prove BTRSmith's
-   numeric build-time and memory goals.
-2. **Complete C compatibility.** Close the planned language and interop gaps
-   through both compilers, with explicit supported and rejected cases.
-3. **Establish cross-platform foundations.** Bring Windows, iOS and Android
-   build, runtime, library and packaging support to the required parity.
-4. **Complete native UI.** Implement the inventoried toolkit and BTRSmith UI
-   across macOS, Linux, Windows, iOS and Android.
-5. **Qualify the product and releases.** Prove installed workflows, physical
-   device/audio behavior, performance budgets and release gates on every target.
-
-**Current assignment:** the initial cold/body-edit diagnostic checkpoint is
-complete. Prove M11a's module reuse with M10's ownership and concurrency contracts,
-then deliver bounded parallel module compilation and full M11. Extend the
-stdlib's concurrency primitives where the real compiler workload demonstrates
-a missing contract. M7/M8a cuts remain available for proven prerequisites and
-remaining bottlenecks. Seek **at least 10×** improvement
-against the frozen baseline in both self-host scenarios. Budgets are
-**≤min(10 s, edit baseline / 10)** for body edits and
-**≤min(20 s, cold baseline / 10)** for cold dev executables; the existing
-long-term ≤5 s body-edit objective remains. Do not turn this into another
-no-op micro-optimization campaign. Buckets 2–5 stay queued.
-
-**Before choosing the next task:** identify the first unfinished milestone in
-the active bucket and its next unmet exit criterion. Work on that criterion or
-a demonstrated prerequisite. Native UI is bucket 4; its inventory is retained
-for later execution, not a reason to switch away from optimization. Status
-updates must lead with the active milestone, measured KPI gap and next action.
-
-| Order | Bucket | Milestones / scope | State and exit requirement |
-| --- | --- | --- | --- |
-| 1 | Compiler performance and reliable incremental builds | M11a with M10 concurrency contracts → bounded parallel module compilation/full M11; M7/M8a cuts where justified, conditional M8b/M9 | **Active: M11. M11a module reuse and M10 workers landed (`c955059`); next is the September 24 measurement round, then Stage B groundwork (see above).** M6a unchanged latency is closed at ≤5 s by user direction. Prove section 1's remaining build/compile/memory KPIs on the actual BTRSmith workload and required hosts, with applicable compiler gates. Headline goals: ≤5 s no-op regression guard, ≥10× self-host edit/cold acceleration, ≤10 s edit build at M11, ultimately ≤20 s cold self-host dev build and ≤5 s self-host body edit. |
-| 2 | C compatibility | C1 → C2 → C3 → C4 → C5, with a reproducible baseline before changing behavior | **Queued.** Both frontends pass the specified compatibility/negative corpus; deliberate refusals are documented and applicable compiler gates pass. |
-| 3 | Cross-platform build and runtime foundations | P0 → P1 → P2/P3/P4; W1 and the non-UI target, runtime, storage, audio/GPU and packaging foundations of W2/I1/I2/A1/A2 | **Queued.** Required Windows/iOS/Android targets, ABI/runtime/library/package contracts and test hosts work through both frontends. UI-dependent product exits remain assigned to buckets 4/5. |
-| 4 | Native UI across all five platforms | UI0 → UI1 → UI2/UI3 → UI4–UI9 → UI10/UI11, including the UI portions of W2/I1/I2/A1/A2 | **Queued; inventory only so far.** Implement and qualify the full native UI contracts, platform providers, BTRSmith screens and UI budgets; retain all extended toolkit scope. Accessibility and ownership are acceptance criteria for each control. |
-| 5 | Complete product and release qualification | P5 → P6 → P7; final W2/I2/A2 installed-product exits and cross-track regression matrix | **Queued.** Installed BTRSmith journeys, physical audio/device checks, numeric budgets, packaging/signing, upgrades and CI/release gates pass on the final revision. |
-
-Do not move to the next bucket until the current exit requirements are proven
-or the user explicitly changes the order/scope. Conditional performance
-experiments retain their existing evidence requirements; unnecessary machinery
-is not a deliverable. Detailed operating rules and the immediate next checkpoint
-are in [section 8](#8-execution-order-and-milestone-gates).
-
-### Performance research plan, steps 1-5 (September 28-29)
-
-The September 28 research plan orders five steps, each measured before and
-after in the same machine state, gated on `make test`, `make bootstrap`,
-`make test-c11`, `make lint` and `make format-check`, and committed alone.
-Native compile CPU is `~/.cache/btrc/perf/native_build.py` on the BTRSmith
-measurement copy (aeeca0fd): every unit of a `--module-units` build compiled
-at 8 jobs under `/usr/bin/time -l`. Compiler cost is instructions retired and
-peak footprint of one cold `--jobs 1` compile, clang -O2 btrcc.
-
-| Step | Target | Before | After | Met | Commit |
-|---|---|---|---|---|---|
-| 1. Runtime compiled once | native CPU <= 86.8 s | 82.4-82.8 s | 63.4-63.5 s (-23%) | yes | db57cda |
-| 2. Emitted C trimmed | native CPU -10% vs step 1, test-debug passes | 68.1-68.4 s | 57.9-58.6 s (-14 to -15%) | yes | 07ca1f6, c4f7f57 |
-| 3. No needless ARC/cleanup work | instructions -25% | 1,366.5 G | 1,216.9 G (-10.9%) | no | 9e30c2d |
-| 4. Compact IR nodes (AST premise wrong) | peak <= 3 GiB, instructions <= step 3 | 3.95 GB, 1,216.9 G | 2.92 GiB, 1,188.5 G | yes (metric) | 6b22121 |
-| 5. Per-group interfaces | edit rebuild <= 10 s end to end | 14.7 s | not implemented | no | -- |
-
-**Step 1 -- the runtime unit.** Every module unit carried a static copy of
-each runtime helper it reached: BTRSmith's 408 units compiled the ARC,
-try-stack and string helpers about 400 times, and 24% of the emitted lines
-were those copies. A module-unit program now emits `unit-runtime`, which
-defines every helper any unit selected, and their state, once with external
-linkage; each group's unit keeps the helpers' types and macros and declares
-the rest. Emitted C fell from 2.45M to 1.80M lines. The 108.5 s the target was
-set from came from an older harness run in a different machine state; the
-same-state baseline measured 82.4-82.8 s. Gates on 2fad95e: lint and
-format-check pass; `make test` 12,417 passed, 142 skipped, bootstrap passed;
-`make bootstrap` passed; `make test-c11` 8 x 1,930 passed (a first run lost
-`stdlib/Daemon.btrc` to its wall-clock deadline on a saturated machine, as the
-handoff notes warn, and passed on rerun). 2fad95e also makes 18 tests that
-failed only inside the Nix shell run their host tools correctly: the debug
-artifact tests call the host lldb/dsymutil without the shell's
-DEVELOPER_DIR, and the ARC witness sanitizer build probes each compiler and
-also tries the system clang. Cross-unit calls into the runtime no longer
-inline tiny helpers at -O2; dev builds are -O0, and release builds of a
-module-unit program would want LTO.
-
-**Step 2 -- trimmed C and precompiled preludes.** The harness now uses the
-product's exact compile command (`-x c -std=c11 -pedantic-errors -Wall
--Wextra -Werror -g <pkg-config cflags> -O0`); the step-1 harness added every
-package root as `-I` and `-w`, so step 2 compares against step 1 re-measured
-this way. A debug build leaves out `#line` directives that restate the next
-line's mapping and names a file only when it changes: every one of 1,217,822
-content lines keeps its btrc location and the emitted C falls from 129.8 MB
-to 73.8 MB, but Clang reads directives cheaply and this alone is about 1%.
-The measured waste was preprocessing, most of the native compile, because
-nearly every unit parses the same 28 system headers: the native plan
-builder now precompiles each prologue at least sixteen units share and
-compiles each unit with the longest one that prefixes its own leading lines,
-and module units emit native includes in include-once blocks so a prelude
-may contain an unguarded package header. The prelude only accelerates;
-cache keys and receipts use the unaltered command. Debug-info knobs were
-measured and rejected: `-fno-standalone-debug` saved nothing and
-`-gno-column-info` about 2%; `-g0` would save 10% but loses source-level
-debugging. Gates on c4f7f57: lint and format-check pass; `make test` 12,423
-passed, 142 skipped, bootstrap passed; `make bootstrap` passed; `make
-test-c11` 8 x 1,930 passed.
-
-**Step 3 -- references that cannot need an unwind cleanup.** A profile of a
-cold `--jobs 1` compile put 22.7% of samples under the ARC drain and a sixth
-under cleanup registration and its thread-local lookups. Three kinds of
-registration protected nothing and are gone: a returned reference
-registered and discarded on the next line when no local's release ran first
-(1,094 of btrcc's 2,136 return registrations, `Vector<T>.get` among them);
-63 null stores in the generated AST node constructor and 20 in `IRNode()`,
-each a retained, registered, released null and an edge replacement on a
-freshly zeroed object; and the reference compiler's pinned null store to an
-ARC field. Instructions retired 1,366.5 G -> 1,216.9 G (-10.9%), peak 4.00 ->
-3.95 GB. **Not met (-25%).** The step's premise, borrowed (+0) returns for
-readers and accessors, is not implemented: the borrowed return ABI exists
-for hosted calls (`CallableReturnABI.BORROWED`, `current_return_owned`), but
-treating a call to a field-returning accessor as a field read touches call,
-index, property-getter and iteration ownership in both compilers, receiver
-lifetime for temporary receivers, and the module-unit facts digest. A
-runtime fast path for `__btrc_flush_cycles` saved another 1.5% and was
-reverted: the frozen boundary pins the runtime source (`cycles.c`), and the
-plan forbids editing frozen fixtures.
-Gates on 9e30c2d: lint and format-check pass; `make bootstrap` passed; `make
-test-c11` 8 x 1,930 passed; `make test` 12,423 passed, 142 skipped, bootstrap
-passed. The first `make test` in the Google Drive checkout failed one test,
-`test_candidate_capture_is_build_only_complete_and_non_mutating`, with
-"source input changed after read": the file provider touches files written
-under `build/`. The same commit passes from a worktree outside Drive, where
-the gates for later steps run.
-
-**Step 4 -- IR nodes, not AST nodes.** A heap census of the 3.7 GB peak
-contradicted the step's premise: the AST is 567k nodes of 768 bytes, 12% of
-it. The IR is the rest: 2.8M nodes in the 448-byte class, 11.8M 64-byte
-vectors and 28M 16-byte edge records. Every IR node allocated `args`,
-`fieldNames` and `stmts`, though only calls, compound literals and blocks use
-them. They are now null until written, read through `args()`/`fieldNames()`/
-`stmts()` (one shared empty, guarded like the AST's lazy lists, with a
-driver test) and written through `argsMut()`/`stmtsMut()`; `IRNode` declares
-its scalars after its pointers (416 -> ~360 bytes, one size class down);
-every lazy reader reads the field and the shared static in place instead of
-through a retained, registered local; and a string slot store no longer
-registers for unwinding, since a string's release cannot throw. Peak
-footprint 3.95 GB -> 3,136,146,048 bytes (2.92 GiB); instructions 1,216.9 G
--> 1,188.5 G. **Met on the metric; the AST is neither arena-allocated nor
-compacted** -- the census showed that would not reach 3 GiB on its own.
-Gates on 6b22121, run from a worktree outside Google Drive: lint and
-format-check pass; `make test` 12,425 passed, 142 skipped, bootstrap passed;
-`make bootstrap` passed; `make test-c11` 8 x 1,930 passed. Two earlier C11
-runs each lost `stdlib/Daemon.btrc` to its 5 s daemon-stop deadline while
-eight workers saturated the machine; it passes 10 of 10 alone on this tree.
-
-**Step 5 -- per-group interfaces. Not implemented; not met.** Quiet
-end-to-end BTRSmith dev rebuilds on 6b22121 (`--module-units --debug`,
-default workers; native plan with object cache at -O0 -g, 8 jobs;
-`~/.cache/btrc/perf/edit_e2e.sh`): cold 64.7 s compile + 18.6 s native =
-83.3 s; a private-body edit to `InstrumentCamera.btrc` 12.2 + 3.5 = 15.7 s
-and a second edit 11.3 + 3.4 = 14.7 s; no-op 2.3 + 2.5 = 4.8 s. A
-steady-state edit compile is 5.5 s of whole-program front end, 4.3 s of
-lowering and module-unit machinery (0.96 s declarations-only session, 0.70 s
-loading 443 records, 0.55 s setjmp solve) and 1.0 s of native bindings; the
-native side is 1.5 s of preprocessing receipts for 410 unchanged units,
-object restores and a 0.34 s link. Reaching 10 s needs the front end and
-declaration lowering to run for the edited group alone -- Stage B in
-`separate-compilation.md`, which by its own estimate still leaves parsing,
-header import, visibility and the declarations session -- so per-file parse
-and header caches are needed too. The native header reader keys its cache on
-the whole process environment, so the first compile in a new `nix develop`
-session misses it (+2.4 s).
-
-### M11 budget campaign (September 29-30)
-
-Measured with `tools/budget_bench.py` on the pinned BTRSmith copy
-(`~/.cache/btrc/bsm-measure`, aeeca0fd) in BTRSmith's dev shell: `btrcc
---module-units --debug`, then `tools/native_plan` at `-O0 --debug-info` with
-the object cache and 8 native jobs, executable included. Cold scenarios take
-5 samples, incremental ones 20; medians and nearest-rank p95 over every
-printed sample. Each edit sample writes source no earlier build of the run
-has seen (navigation `AlbumGrid`, UI `UiPlayerTransport`, audio-adjacent
-`PlaybackPreparation`), and after a fixture's samples a clean build must emit
-the same function bodies and print the same smoke output.
-
-**6b2bf5e -- harness, and four btrcc workers by default.** The worker cap of
-two left the cold transpile at 65.6 s; one worker per CPU, at most four:
-
-| Target | Budget | Median | p95 | Met |
-|---|---|---|---|---|
-| cold transpile, empty caches | <= 55 s | 52.07 s | 52.30 s | yes |
-| cold dev build, executable | <= 80 s | 69.49 s | 69.91 s | yes |
-| btrcc peak footprint, `--jobs 1` | <= 3 GiB | 2.919 GiB | | yes |
-| sampled aggregate build RSS, 8 native jobs | <= 6 GiB | 5.03 GiB | | yes |
-
-Gates on 5008fae (6b2bf5e on main), from a worktree outside Google Drive:
-lint and format-check pass; `make test` 12,425 passed, 142 skipped;
-`make bootstrap` passed; `make test-c11` 8 x 1,930 passed after one rerun
-(the first run lost `stdlib/Daemon.btrc` to its wall-clock deadline).
-
-**Edit-path changes (perf-m11, landed on main as 79f225c..35b51de).** Each measured
-before/after on the private-body edit fixtures at `--jobs 1` (instructions
-retired, `/usr/bin/time -l`, the reader built from the same tree), or on the
-native plan's own phases:
-
-| Commit | Change | Measured |
+# PLAN: sequential roadmap for the remaining btrc and BTRSmith work
+
+This plan replaces the previous PLAN.md, which is archived verbatim, with its line numbering intact, as [`docs/design/plan-reference.md`](docs/design/plan-reference.md). `ref:N` cites line N of that frozen reference. The reference keeps the detailed numeric budgets, ground rules, measurement rules and milestone specifications; this plan sequences the remaining work, keeps the reference's bucket order, and has one integrator run every gate. The status below was verified read-only against both repositories on 2026-09-30.
+
+This plan contains no effort or calendar estimates (ref:1822): order is by dependency and payoff only.
+
+## Status (2026-09-30)
+
+**Checked today:**
+- **btrc repository**
+  - `main` = `429d2e0`, clean. `origin/main` = `7b266e7`, 53 commits behind.
+  - The repository is **public**. BTRSmith is **private**.
+- **CI triggers**
+  - The three workflows (`ci.yml`, `macos.yml`, `windows.yml`) trigger only on pushes to `main` and on PRs to `main`. None has `workflow_dispatch`.
+  - `ci.yml` already runs a 13-shard Linux matrix covering `make test` and `make test-c11`.
+- **BTRSmith**
+  - At `7f69459b`, with 18 uncommitted files. They include `src/application/runtime/GUIApplication.btrc`, `tests/macos/SharedGPUComposition.btrc`, and the vgmstream and sqlite package sources.
+  - Its flake pins btrc as `github:schiffy91/btrc` rev `05ec9cb744`.
+- **Branches and worktrees**
+  - Unmerged btrc branches: `native-ui-row` (4 commits), `native-ui-chrome` (4) and `btrsmith-macos-menu` (1). Their worktrees sit under `/private/tmp`.
+  - The existing worktrees under `~/.cache/btrc/wt` keep their git metadata inside the Drive-synced `.git`.
+- **Host**
+  - Apple M1 Max (8 performance + 2 efficiency cores), 64 GiB, macOS 27.0, Xcode 27.0 (27A266a).
+  - Disk: 54 GB free (99% used).
+  - The podman machine is a 99 GB raw disk with 10 CPUs and 24 GiB. The applehv provider also holds unrelated `semu-*` VMs.
+  - Google Drive sync and Spotlight indexing are running. `FRACTAL-NORTH.local` (in `~/.ssh/config`) did not resolve.
+- **Commit signing.** Commits are unsigned (1Password SSH agent). The standing directive is to commit unsigned rather than stall, and not to push.
+- **The reference** (the previous PLAN.md) is 3,885 lines. 21 of the 35 `~/.cache/btrc` paths cited in it and in the docs are already gone. Among them are `perf/setjmp-builds-2026-09-22`, `scope-copy-builds-2026-09-22` and `emission-builds-2026-09-22`.
+
+| | |
+|---|---|
+| **Done** | **M11 self-host budget numbers met on Apple Silicon at `65057cb`:**<br>• edit medians 9.62 / 9.69 / 9.31 s<br>• cold transpile 43.57 s, cold dev 59.76 s<br>• no-op 2.92 s, touch 2.91 s<br>• peak 2.966 GiB (35 MiB under the 3 GiB budget), aggregate 4.828 GiB<br><br>**M11 itself is not closed.** Its acceptance counter (exactly one changed source group analyzed and lowered per body edit, ref:2915–2918) is unmet, because every edit still analyzes the whole program (ref:1104).<br><br>Recorded gates:<br>• `make test`: 12,431 passed / 142 skipped on `65057cb`; 12,439 / 172 on `1cadaf4`<br>• `make test-c11`: 8 × 1,934<br>• Boundary manifest: 309 records (`test_boundary_manifest.py:645`)<br><br>Native receipts are keyed on the environment, and debug generations are per output (`ab1f68f`, `1cadaf4`). BTRSmith's structure-first pass was done 2026-09-14 but has drifted since. |
+| **Open, bucket 1 (M11)** | • Stage B skip-unchanged, which is required by the M11 acceptance counter<br>• M11 acceptance matrix<br>• 10-executable batch: ≤60 s self-host, ≤120 s reference<br>• Cold release ≤90 s<br>• Reference M11 budgets. Last reference numbers (Sept 24, compiler only): 202 s cold with module units, 228 s cold whole-program, 88–89 s module-unit edit. None taken since the M11 campaign.<br>• BTRSmith dev builds still don't use module units<br>• The required x86_64 NixOS host, where nothing has been measured |
+| **Open, bucket 1 (M8a, M10, finals)** | • **M8a** (ref:2720–2724): ≥50% fewer empty child-container allocations, peak ≤3 GiB, cold transpile ≤40 s (now 43.57 s)<br>• **M10** (ref:3042–3071): a 1/2/4/8-worker table with peak RSS; ≥1.5× wall speedup at 4 workers (4 workers became the default in `6b2bf5e` with no recorded evidence); lock wait/hold counts; TSan; real-thread qualification of the stdlib concurrency contracts<br>• **Self-host finals** (ref:1740–1751):<br>  – transpile ≤10 s<br>  – cold dev ≥10× and ≤min(20 s, baseline/10), working budget 13 s<br>  – cold release ≤30 s<br>  – edit ≤5 s (p95 ≤8 s)<br>  – batch ≤30 s<br>  – peak ≤1.5 GiB<br>• **Reference finals:** transpile ≤60 s; cold dev ≤75 s; edit ≤10 s (p95 ≤15 s); batch ≤60 s; peak ≤1.5 GiB<br>• **≥10× against a frozen, repeated baseline on each required host** (ref:11–12, 23–25, 815–817)<br>• **Self-compile and full-corpus scaling workloads** (ref:1792–1794): baseline not yet recorded; no median wall/RSS regression >5% allowed |
+| **Open, buckets 2–5** | • **Bucket 2:** all of C1–C5. The probe battery was never committed. There is one silent divergence: the reference compiler lowers `int d[];` to `int* d;`. There is also one misleading diagnostic: `{[2]=7}` fails with "Assignment target is not assignable".<br>• **Bucket 3:** all of P0–P4, W1, and the non-UI parts of W2/I1/I2/A1/A2. There are six target vocabularies, and none can express iOS or Android.<br>• **Bucket 4:** UI0–UI11. Windows, iOS and Android have 0 of 60 capability families.<br>• **Bucket 5:** all of P5–P7. BTRSmith has no CI. |
+| **Stale** | • The reference's bucket row (ref:828) still says "next is the September 24 measurement round". Its header (ref:4–30) and KPI table (ref:1333–1339) still show 92 s edits.<br>• The reference's M11 record says "met" while its own acceptance counter (ref:2915–2918) is unmet.<br>• Its header says a 13 s working cold-dev budget; ref:1102 says ≤13.5 s.<br>• The P6 tables differ in the no-op row (ref:3351 vs platform-parity.md:498). The reference private-body edit row (≤15/≤20/≤30 s, platform-parity.md:501) is missing from ref:3347–3353.<br>• CLAUDE.md lines 14–40 still call the structure-first review "next" and point at BTRSmith GOAL.md, which is now issue #15. They also quote 7,274 passed / 20 skipped, and 301/277 boundary records with "twenty skips".<br>• The 21 missing cited evidence paths are not recorded as lost. |
+
+**Unverified assumptions (marked ⚠ where they are used):**
+- FRACTAL-NORTH (the 2026-09-18 x86_64 KDE/NVIDIA/PipeWire host) still exists and meets ≥16 logical CPUs and ≥16 GiB.
+- `wgpu-utils-29.0.1` in the pinned nixpkgs ships a `naga` binary. There is no `naga`/`naga-cli` attribute.
+- An iOS 17 simulator runtime can be installed under Xcode 27. The iOS 17 *deployment target* is confirmed supported: the SDK minimum is 15.0.
+- `windows-11-arm` hosted runners are available to this repository.
+- windows-aarch64 builds of wgpu-native exist for MinGW.
+- The Quad Cortex is class-compliant on iPad and Android and has a WASAPI driver.
+- The duration of the reference's §2 batch gate including the BTRSmith checks. It is unmeasured; Stage 2 measures it.
+
+**Machine limits that shape this plan:**
+- One Mac (M1 Max, 8P+2E, 64 GiB, 54 GB free disk).
+- The batch gate saturates the machine. `make bootstrap` must never run beside the parallel suite.
+- `stdlib/StdlibDaemon.btrc` asserts a wall-clock deadline. It already failed `test-c11` on `5008fae` under load, so agent builds beside a gate risk a full gate rerun.
+- Wall-clock benchmarks need an otherwise idle machine. Only you can pause Drive, Spotlight and Time Machine.
+
+## Decisions needed from you
+
+### Now (these block Stages 1–5)
+
+| # | Decision | Recommendation | Needed by |
+|---|---|---|---|
+| D1 | **Bucket order** | **Keep the reference's bucket order**, which is what this plan does.<br><br>The runner-up was UI-first: close bucket 1 at M11, then start the shells. It reaches native UI sooner. It also overrides ref:787–793, the reference's §8, platform-parity.md:582–583 (no platform implementation beside the active compiler milestone) and your Sept 21 direction. If you choose it anyway, Stages 6–9 must still run first, because skip-unchanged is part of M11. | Stage 1 |
+| D2 | **Disk reclaim (allowlist, not wholesale)** | **Approve this sequence:**<br>1. **Preserve first.** Copy the measurement tooling to `~/.cache/btrc/tools` (and commit it into `tools/bench` in Stage 3): from `perf/`, `gates.sh`, `bench.sh`, `build_btrcc.sh`, `edit_instr.py`, `cmp_units.py`, `instr.sh`, `sample_*.py`, `bsm_env.sh`, `native_build.py` and `edit_e2e.sh`; plus `m12/split.py`.<br>2. **Keep** every cited path that still resolves:<br>  – in `perf/`: `edit-cold-2026-09-22`, `e2e-2026-09-24` and the A/B binary `btrcc-65057cb`<br>  – `bench/final-*`, `bsm-measure`, `checkpoints/2026-09-22-*` and `gcroots`<br>3. **Delete only:**<br>  – the `btrcc-m11*`/`btrcc-m12*` binaries and their build logs<br>  – the `step*` directories<br>  – uncited `perf/` workspaces<br>  – `build/test-btrcc` fingerprints beyond the newest 20 plus pinned ones<br>4. **BTRSmith:** after a citation check, clean the regenerable test outputs in `~/.cache/btrsmith/build/tests` (30 GB), and `perf` (5.8 GB) only if nothing cites it. Keep `build/evidence` (for example `StructureFirst.md`) and `signing`.<br>5. **Podman:** first run `podman machine list` and touch no `semu-*` VM. Then recreate the btrc machine with about a 40 GB disk and 6 CPUs; the container image is rebuilt in Stage 2.<br><br>Expected ⚠: about 55–70 GB from the allowlist and about 60 GB from the podman shrink. 150 GB free is not reachable without the shrink or an external SSD. | Stage 1 |
+| D3 | **Work in progress that blocks agents** | **Blocking.**<br>(a) The owner commits or stashes BTRSmith's 18 files before Stage 4 wave 1. Reserving those paths cannot work, because the renames ripple through them.<br>(b) Decide what happens to `native-ui-row`, `native-ui-chrome` and `btrsmith-macos-menu` (merge or archive; the menu commit adds Q, [ and ] keys) before `git worktree prune`. Their `/private/tmp` worktrees are cleaned after 3 days. | Stage 1 |
+| D4 | **Pushes and CI triggers** | Today nothing can start a CI run without a push. `workflow_dispatch` works only from a workflow on the default branch, and none has it.<br><br>**Recommendation: you approve each push batch explicitly.**<br>• The first push is a `ci/<batch>` branch that adds `'ci/**'` to `push.branches` in all three workflows. A push event reads the workflow from the pushed commit, so GitHub's `main` stays untouched. The alternative is that you push `main` once with `workflow_dispatch` added.<br>• **Every push publishes all unpushed history (53 commits today) to the public repository** and overrides your standing "don't push" note.<br>• The same push, or a `pin/<sha>` branch, makes a btrc commit fetchable for BTRSmith's flake. Local overrides cannot qualify a packaged build (HWW.md).<br>• If you decline, the following are **blocked on push**: Windows verification (Stages 2, 23, 27), every BTRSmith pin bump (Stages 4, 9, 21, 28) and D5's CI offload. Their exits are marked that way. | Stage 2 |
+| D5 | **Gate cadence (amends the reference's gating)** | **One batch gate per merge batch of 2–4 commits.**<br><br>**What it changes.** This explicitly relaxes the reference's per-step gating: ref:842–844 and §5 "Order and gates" (ref:3269–3271), where every step runs `make test`, bootstrap and test-c11. If you approve, Stage 1 records that amendment in this plan.<br><br>**What the batch gate is.** The reference's §2 never-regress list: `make test`, `bootstrap`, `test-c11`, `lint`, `format-check`, `generated-check`, `extension`, structure/hygiene and `git diff --check`, plus BTRSmith `application-frontend-check` and the library smoke on both frontends. Stage 2 measures its duration on the Mac.<br><br>**With D4 pushes.** Linux CI runs the `make test` and `test-c11` shards. The Mac runs `make test`, `bootstrap`, the cheap checks and the BTRSmith checks. The Mac runs its own `test-c11` only at bucket exits. Two batches can be in flight as a merge queue.<br><br>**On a red batch.** The integrator reverts one lane commit at a time on a scratch branch with the failing tests, finds the culprit, re-gates without it, and returns it to its lane. | Stage 2 |
+| D6 | **Agent use where incorporated documents forbid it** | (a) BTRSmith HWW.md:18 and :67 forbid sub-agents and worktrees.<br>(b) BTRSmith NativePlatformPlan.md:17 records your direction for the structure-first review: one owner, no agents, no tooling expansion. It also extends the review to btrc's tests, tools, examples, nix files and docs.<br>(c) platform-parity.md:587–588 says its lanes are dependency lanes, not instructions to spawn agents, and to work one bounded contract at a time. The native-ui-parity review-checkpoint wording says the same.<br><br>**Recommendation:**<br>• (a) Allow clones made from a hub outside Drive.<br>• (b) Allow **read-only** auditors; one owner still applies the changes.<br>• (c) Amend platform-parity.md:587 to allow parallel platform lanes in buckets 3–4, with one contract owner.<br><br>If you decline (c), one bounded contract stays in flight at a time, only read-only work and tests run in parallel, and Stages 29, 31, 34 and 35 run one platform at a time. | (a)(b) Stage 4; (c) Stage 22 |
+| D7 | **x86_64 NixOS acceptance host** (ref:1724) | **First step:** power on or confirm FRACTAL-NORTH. A read-only `nproc`/`free -g`/`lscpu` probe then checks ≥16 logical CPUs and ≥16 GiB.<br><br>Only if it is gone or too small: buy a desktop with ≥16 threads, a GPU, HiDPI and audio. It doubles as the Linux desktop and audio host, the native Windows x64 dual-boot, and a KVM emulator host. Alternatives: rent a cloud host (covers bucket 1 only), or amend PLAN so Apple Silicon is primary. | Now (lead time) |
+| D8 | **Devices, accounts, licences, disk** | **Start procurement now:**<br>• An iPhone and an iPad (one floor, one current, one with ProMotion)<br>• Two Android vendors, one supporting 16 KiB pages<br>• Windows 11 x64 hardware (or the D7 dual-boot) and ARM64<br>• The Apple Developer Program, Windows code signing and an Android upload keystore<br><br>**Also yours:**<br>• Accept the Android SDK licences.<br>• Before Stage 23, provide **≥150 GB free or an external SSD**. iOS runtimes are about 8 GB each, the Android SDK/NDK/AVDs about 25–40 GB, a Windows 11 ARM VM about 64 GB, plus the cross-builds.<br>• Confirm the Quad Cortex works on iPad, Android and WASAPI ⚠.<br><br>Creating accounts and accepting agreements are yours to do. | Now; needed by Stage 23 |
+| D9 | **Measurement copy and BTRSmith Makefiles** | Re-pin the copy from `aeeca0fd` to the post-Stage-4 BTRSmith. Stage 5 measures **both** pins. Any M11 budget the new pin misses is recorded as a finding before Stage 6.<br><br>Allow dev builds to pass `--module-units`, and allow attestation after `SIGN_CODE`. | Stage 5 |
+| D10 | **Batch manifest** | Approve the 10 entry points an agent proposes in Stage 3, picked from the 178 integration tests. | Stage 3 |
+
+### Later
+
+| # | Decision | Recommendation | Needed by |
+|---|---|---|---|
+| D11 | **Does bucket 1 close at M11?** | **Bounded push.** Set a timebox for Stages 11–12. Then, for each final row, either meet it or revise it formally with evidence. The rows are:<br>• Self-host: transpile ≤10 s; cold dev ≥10× and ≤min(20 s, baseline/10); cold release ≤30 s; edit ≤5 s (p95 ≤8 s); batch ≤30 s; peak ≤1.5 GiB<br>• Reference: transpile ≤60 s; cold dev ≤75 s; edit ≤10 s (p95 ≤15 s); batch ≤60 s; peak ≤1.5 GiB<br>• M8a's ≤40 s<br>• ≥10× on each required host<br><br>The alternative closes at M11. That still includes Stage 9's skip-unchanged, the NixOS host and the reference M11 budgets, and moves the final rows to the backlog with recorded revisions. | After Stage 6 |
+| D12 | **Resident compiler process** | Approve only if the floor experiment shows per-file caches cannot bring btrcc to about 3 s. Either both compilers get it, or you record a parity exception. | After Stage 6 |
+| D13 | **Reference compiler budgets** | Make the M11 budgets binding: ≤15 s edit (p95 ≤20 s), ≤180 s cold transpile, ≤210 s cold dev, ≤2 GiB peak, ≤120 s batch. Keep the finals listed in D11 as open rows, and revisit them after Stage 8 with the cProfile evidence. | Stage 8 |
+| D14 | **Frozen runtime source** (`shared.runtime-source`) | Approve re-captures one at a time, each with a recorded reason. They are needed for borrowed returns, M9 and the ARC fast path, and later for the P2 probes and the P3 launch seam. | Stage 12 / 25 |
+| D15 | **mimalloc, release mode, prebuilt stdlib** | • **mimalloc:** adopt only if a quiet-window run shows it is still ≥5% faster cold.<br>• **Release builds:** stay whole-program until Stage 7 qualifies separate mode, then allow module units plus LTO.<br>• **Prebuilt stdlib counting as "installed toolchain":** keep **no**. | Stage 7 / 9 |
+| D16 | **BTRSmith default dev frontend** | After Stage 9, switch the default from the reference compiler to selfhost. The reference compiler's module-unit edits were 88–89 s on Sept 24 (compiler only); selfhost's are about 9.6 s. | Stage 9 |
+| D17 | **M8b (per-kind nodes)** | Defer unless the Stage 12 profile shows the fat Node layout dominating. If approved, it must finish before Stage 15 (ref:3268–3270). | Stage 12 |
+| D18 | **C-compatibility order** | Use §5's order (ref:3265): C5 → C1 → C4 → C2 → C3. C4 runs **after** C1 integrates, never alongside it. If C4 is approved, fold its ASDL needs into Stage 15's schema commit. The reference's bucket table and §8 list another order; this plan follows §5. D5 applies to the C track. | Stage 14 |
+| D19 | **Constructs with no current consumer** | ref:3266–3267 says additions are selected by demonstrated consumer need.<br>• **Flexible array members: yes.** This is for correctness, because the reference compiler silently lowers `int d[];` to `int* d;`.<br>• **Designated initializers** (r10): yes. They also replace the misleading `{[2]=7}` diagnostic.<br>• **Variadic definitions and bitfields: refuse and document** unless you name a consumer.<br>• **goto, multi-dimensional arrays and C4 `#if`:** refuse with documentation for now. | Stage 14 |
+| D20 | **C semantic policies** | Settle these in one review:<br>• `_Bool`, `auto`, and `inline` under split compilation<br>• exact-fit char arrays<br>• how suffixes bind across multiple declarators<br>• function-pointer disambiguation<br>• `_Static_assert` on `sizeof`<br>• adjacent macros or f-strings<br>• undefined `#if` identifiers<br><br>Pick the strict C11-legal option when unsure. | Stage 15 |
+| D21 | **Platform choices** | • **Floors:** iOS 17 (deployment target confirmed; simulator runtime ⚠), API 29, Windows 11.<br>• **Toolchain:** the matrix pins the Xcode build number (27A266a), not nix. MinGW first; add MSVC only if the arm64 wgpu-native build forces it ⚠.<br>• **Target spec:** a new `src/language` spec file generated into the *existing* generated modules, so the 88/100 file inventories don't change.<br>• **wgpu-native:** pinned prebuilt archives. | Stages 22–24 |
+| D22 | **Interop and service choices** | • **iOS:** generated Objective-C delegate adapters, which UIKit and macOS both need.<br>• **Android:** a class-file reader over `android.jar` for JNI.<br>• **HTTP:** per-platform transports using the OS trust stores.<br>• **Windows regex:** a vendored POSIX regex. | Stages 26–29 |
+| D23 | **Linux toolkit** | **Fund the GTK4 spike.** Its result decides how much of Linux UI4–UI8 is native rather than custom-drawn. The fallback is SDL plus an AT-SPI bridge. | Stage 31 |
+| D24 | **UI API choices** | • Host-owned event loop: yes.<br>• Reuse `UIEventKind` / `UISemantics`.<br>• Keep a shim for index-based `ISelect` until BTRSmith re-pins.<br>• Reproductions land with their fix, with no xfail. A reproduction written before its fix stays on a branch and is recorded as failing in the catalog.<br>• Directory name: `GUI/IOS`.<br>• Classify `Raster`/`View` as legacy.<br>• Allow a versioned change to `ui.snapshot`. | Stages 30–32 |
+| D25 | **Product scope** | This plan's buckets 4–5 govern btrc. Decide:<br>• whether BTRSmith PRD.md:159/161 should change to match (accessibility, Linux and Windows)<br>• the Player reference for issue #6<br>• issue #13 (full-screen practice mode): **post-MVP** (my recommendation) or PRD scope | Stage 30 |
+| D26 | **Bucket-5 budgets, formats and CI cost** | • **P6 no-op:** adopt ref:3351's ≤5 s, which matches the M6a closure. Add platform-parity's reference private-body edit row to this plan's P6 budgets.<br>• **Linux:** ship via Nix first.<br>• **Android:** APK and AAB.<br>• **BTRSmith CI** (private, so macOS minutes bill at 10×, and every run builds btrcc through nix for about 502 s because no binary cache exists): run it on Linux hosted runners plus a self-hosted runner on the D7 host, which is safe because the repository is private. Run macOS BTRSmith CI only for tagged releases. Set a monthly minutes budget from the measured cost per run. A binary cache is an account you would create. | Stage 38 |
+
+## Phase overview
+
+| Stages | Bucket |
+|---|---|
+| 1–13 | 1 Compiler performance |
+| 14–21 | 2 C compatibility |
+| 22–29 | 3 Platform foundations (hardware-bound) |
+| 30–37 | 4 Native UI (Stages 34–36 are pipelined) |
+| 38–43 | 5 Qualification |
+
+**What bounds progress:**
+- the serial schema and interop chains
+- your approvals (pushes, contracts, budget revisions)
+- procurement
+- quiet measurement windows
+- integration throughput: merges, regeneration, boundary re-captures and bisects across 10–20 agents
+
+**Where more lanes help.** Implementation-bound stages (16–19, 25, 28, 34–36) do get shorter with more lanes. Each stage therefore has **one integrator sub-agent** running the scripted merge-batch procedure below. The main session stays coordinator and gate runner.
+
+Stages are numbered in the order they start. Stage 10 and Stages 34–36 overlap other stages on purpose. Read-only planning work may start one bucket early (see Stages 22, 27 and 30).
+
+---
+
+## Bucket 1: compiler performance
+
+### Stage 1: Pre-flight (disk, capacity rules, hub clones, accurate docs, work in progress)
+- **Goal.** Prepare the machine, the repositories and the documents for a long multi-agent campaign without losing evidence.
+- **Items.**
+  - `tooling-disk-reclaim`
+  - `tooling-host-capacity-policy`
+  - `btrsmith-wip-reconcile`
+  - `perf-plan-refresh`
+  - `qualification-plan-doc-reconcile`
+  - `btrsmith-docs-reconcile`
+- **Steps (serial, main session):**
+  1. **Inventory.**
+     - List the podman machines.
+     - List the 35 cited `~/.cache` paths and mark which resolve.
+     - List the unmerged branches and the `/private/tmp` worktrees.
+  2. **Preserve, then delete** per the D2 allowlist.
+  3. **Recreate the podman machine** (D2), after `podman machine list`.
+  4. **Hub clones outside Drive.**
+     - Create `~/.cache/btrc/hub.git` and `~/.cache/btrsmith/hub.git`.
+     - Every agent worktree or clone is made from a hub. The integrator fetches finished batches into the Drive checkouts.
+     - Apply the D3(b) branch dispositions, then run `git worktree prune`.
+  5. **Locks and capacity rules.** Create `~/.cache/btrc/locks/{gate,bench,linux-ci,guest,gui-capture,signing}` plus a counting `btrcc-build` semaphore with N=2. Use `lockf`, or util-linux `flock` from nix, because macOS has no `flock`. The capacity policy goes into CLAUDE.md:
+     - a RAM table
+     - the load rules
+     - an LRU prune of `build/test-btrcc` (keep the newest 20 plus pinned), run before every agent wave
+     - BTRSmith clone caps
+     - a free-disk check at the start of every stage
+     - host provenance recorded as "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0" in manifests and bench JSON
+  6. **Docs, one commit** (the reference stays frozen; corrections go here):
+     - **PLAN.md**, a "Corrections to the reference" section:
+       - the M11 status: "budgets met; acceptance counter open"
+       - 13 vs 13.5 s settled, with the final cold objective stated in this plan's terms
+       - the P6 tables reconciled row by row with platform-parity.md (no-op and reference private-body edit)
+       - the lost-evidence list for the 21 missing paths
+       - the D5 gating amendment if approved
+     - **CLAUDE.md** lines 14–40: the structure-first "next" claim, the GOAL.md pointer, 12,439/172, 309 boundary records, and the skip bullet.
+  7. **BTRSmith docs** in the same pass.
+- **Exit and gates.**
+  - No currently-resolving cited path was removed, and the 21 already-missing paths are recorded in this plan as lost.
+  - The measurement scripts exist outside `perf/`.
+  - Free disk is recorded:
+    - ≥80 GB is needed to continue.
+    - ≥150 GB, or an SSD, is a Stage 23 prerequisite.
+    - BTRSmith clones are capped at 1 until the podman shrink is done, and at 2 afterwards.
+  - Hub clones and locks exist, and the capacity policy is in CLAUDE.md.
+  - BTRSmith is clean (D3a), and the branch dispositions are recorded (D3b).
+  - This plan, CLAUDE.md and platform-parity agree.
+  - `git diff --check` and the hygiene check pass. This stage is docs-only, so no batch gate.
+- **Depends on.** Your decisions D2, D3 and D5.
+- **Parallelization: SERIAL in the main session.** It edits files the main session must read anyway, so two agents would cost more than they save.
+
+### Stage 2: Baselines, CI health, evidence and skip ledgers
+- **Goal.** Know exactly what is green before changing anything. Make gate results trustworthy, and make every skip visible, before the batched gates rely on them.
+- **Items.**
+  - `tooling-devshell-missing-tools`: naga, plus the lldb probe
+  - `tooling-linux-container-refresh`
+  - `tooling-ci-dispatch-policy`: now the `ci/**` push trigger
+  - `qualification-ci-health`: includes deriving `source_count` in `test_corpus_strict_imports.py:177` instead of hard-coding 1246
+  - `btrsmith-baseline`
+  - `qualification-evidence-ledger`: one record format that also carries UI-catalog shard rows and P0 inventory rows
+  - `qualification-skip-ledger`: local parts
+  - **Only with D4 pushes:** pull `qualification-ci-macos-native-suite` forward from Stage 38. btrc is public, so its minutes are free.
+- **Exit and gates.**
+  - **Baseline.**
+    - The code baseline is the `1cadaf4` record: `make test` 12,439 passed / 172 skipped, `test-c11` 8 × 1,934. `git diff 1cadaf4..429d2e0` is confirmed docs-only.
+    - A fresh `make test-boundaries` log gives the record count (309 expected) and how many are checked inside nix.
+    - No fresh baseline matrix is run. That slot goes to flake-rate reruns.
+  - **Container and dev shell.**
+    - `make linux-ci` is green on gcc 15.2 in the resized container, or its failures are filed.
+    - `naga` runs in the dev shell, either from `wgpu-utils` (verified first ⚠) or from a new naga derivation, and the skips it caused are gone.
+  - **BTRSmith.**
+    - A table covers 2 frontends × {`05ec9cb` pinned (**qualifying**), `429d2e0` through a local override (**diagnostic only**)}.
+    - One clone's disk footprint is measured.
+  - **Flake rates and known failures.**
+    - A flake-rate table built from `gh run list` history plus targeted repeats of suspect tests.
+    - The daemon-deadline and Linux-audio failures are reproduced and fixed.
+    - Windows failures are **blocked on push** until D4.
+  - **Skip ledger.**
+    - Ledger schema and statistics tests pass.
+    - Every gate writes a skip report that classifies all 172 skips and records the environment variables gating each one (for example `BTRC_NATIVE_PROVIDER_CC`/`CXX`).
+    - An injected unexpected skip fails the gate.
+  - **Final gate.** One batch gate (D5 list) is green on the merged fixes, and its measured duration is recorded.
+- **Depends on.** Stage 1, D4 (Windows and CI parts), D5.
+- **Parallelization: WORKFLOW, in order.**
+  0. **Serial first: 1 nix agent.** It owns `flake.nix`, `flake.lock` and `nix/*` until Stage 23, covering naga, the lldb probe, the container on gcc 15.2 and the devcontainer image. It lands before the fan-out, because a lock change changes the toolchain and invalidates every worktree's btrcc key. The container is the only heavy job while the VM is up.
+  1. **Ledger agent.** Sole owner of `conftest.py`. It publishes the ledger schema first, then builds the skip collector.
+  2. **Fan-out, each writer in its own worktree from the hub:**
+     - the daemon-deadline agent
+     - the Linux-audio agent, which queues for the container
+     - the trigger agent: `ci/**` triggers plus a contract test
+     - the Windows CI-health agent, which starts only after the first approved push
+     - 2 manifest agents (Linux, macOS), which start after the ledger schema
+     - 1 read-only reviewer, who checks that the format carries P0 and UI-catalog rows
+     - the Makefile has one owner for this batch (the ledger agent)
+  3. **BTRSmith baseline agent.** One clone. Reference and selfhost `source-check` run as 2 background jobs. `release-check` then runs serially: one window server, one GPU.
+  4. **Load rule.** Until the daemon-deadline fix lands, only read-only agents run while any gate runs.
+  5. **Integration.** The integrator runs the merge-batch procedure, then the main session runs the gate. Stage 4 wave-1 auditors may use this stage's gate windows.
+
+### Stage 3: Measurement harness, peak guard, Linux-portable bench
+- **Goal.** Make every open bucket-1 scenario measurable on both frontends, including the scaling workloads and worker sweeps, and guard the 35 MiB of peak headroom.
+- **Items.**
+  - `perf-harness`: also commits the preserved scripts into `tools/bench`
+  - `perf-peak-guard`
+  - `perf-linux-bench`
+- **Exit and gates.**
+  - `test_budget_bench.py` passes.
+  - A dry run per scenario × frontend writes `report.json`. Scenarios:
+    - interface-edit and instance-edit
+    - batch and release
+    - `--entry make` and `--timing-cold`
+    - self-compile and the full corpus (ref:1792–1794)
+    - a 1/2/4/8-worker sweep at fixed native jobs, with peak RSS (M10)
+  - The peak guard trips on an injected allocation, and a census of retained bytes is in compile-performance.md (written by the integrator from JSON).
+  - The container completes one scenario set with clean-build equivalence.
+  - D10 is approved.
+  - 1 batch gate, shareable with Stage 2's if both are ready.
+- **Depends on.** Stage 1. It **overlaps Stage 2**, because the files are disjoint. Only the Linux rehearsal waits for the container.
+- **Parallelization: WORKFLOW, 3 agents.**
+  - **H:** sole owner of `tools/budget_bench.py`, in `wt/harness`. Does the harness, then the Linux bench.
+  - **P:** the peak guard in `tools/bench`. Footprint measurements tolerate load, but never run them during a gate.
+  - **R:** read-only. Proposes the 10 batch entry points.
+  - The integrator merges, and the main session gates.
+
+### Stage 4: Structure-first drift review, native-migration audit, BTRSmith pin bump
+- **Goal.** Close the structure-first step CLAUDE.md calls load-bearing, and BTRSmith issue #20 (the remaining-native-code audit). Then re-pin BTRSmith, so the measured workload is final and measured only once.
+- **Items.**
+  - `btrsmith-structure-stdlib`
+  - `btrsmith-structure-repo` (including #20)
+  - `btrsmith-pin-bump`
+- **Exit and gates.**
+  - **Findings file.** The consolidator's ranked findings are tracked in a "Drift findings" section of BTRSmith `docs/NativePlatformPlan.md` and in `src/stdlib/README.md`. Every finding is closed or has a documented exception.
+  - **stdlib.** Each of the 16 stdlib groups plus the root manifest (17 manifests) has a facade and a manifest, or a documented exception (GPU, Realtime). Naming and LSP-catalog tests pass.
+  - **BTRSmith.**
+    - native-source-check covers `*.swift`.
+    - The #20 evidence is posted; you close the issue.
+    - BTRSmith is pinned to the Stage-4 btrc commit, with byte-identical link plans and no new release-check failures against Stage 2's qualifying column. This pin is **blocked on push (D4)**.
+  - **Gates.** btrc batch gates and a BTRSmith requalification.
+- **Depends on.** Stages 2–3, D3 (blocking), D4 (for the pin), D6 (a)(b).
+- **Parallelization: WORKFLOW.**
+  - **Wave 1: read-only, about 23 agents in waves of at most 10, no worktrees.** Run during Stage 2/3 gate windows, never during a quiet round.
+    - **9 btrc stdlib auditors, balanced by size:**
+      - GUI portable plus FreeType
+      - GUI/MacOS
+      - GUI/Linux
+      - root ×2 (27 files, about 8k lines)
+      - UI + Tray + App
+      - Audio + Realtime
+      - FileSystem + BackgroundJobs + Daemon + LocalApplicationChannel
+      - HTTP + Image + GPU + Digest + Graph + Terminal
+    - **4 btrc repository auditors:** tests; tools; examples; nix plus docs.
+    - **8 BTRSmith-area auditors.** One covers the remaining native code for #20.
+    - **1 consolidating reviewer.** Removes duplicates, ranks findings and writes the findings file.
+  - **Wave 2: serial.**
+    - 1 btrc apply agent in its own worktree. Both compilers must resolve the changes. The integrator regenerates derived files, then 1 gate.
+    - 1 BTRSmith apply agent in one clone. Renames ripple through imports and Make targets, so this cannot be split.
+    - After the push: the pin bump and requalification. The 2 frontends run concurrently; GUI checks run serially.
+
+### Stage 5: Quiet baseline measurement round
+- **Goal.** Record every open bucket-1 scenario on an idle Mac on the final workload.
+- **Items.** `perf-baseline-round`.
+- **Before each quiet round (your checklist):**
+  - pause Google Drive sync
+  - disable Spotlight indexing on the volume
+  - skip Time Machine
+  - keep podman stopped
+
+  The agent only verifies this state with `mdutil -s /`, `pgrep` and `podman machine list`. It changes no system settings.
+- **Exit.**
+  - 5 cold or 20 incremental samples per scenario, with median, p95 and max.
+  - Raw logs under `~/.cache/btrc/bench/<run>`, naming the clang `-O2` btrcc, the SHAs and the host provenance.
+  - **Both pins measured:** `aeeca0fd`, for continuity with the `65057cb` record, and the post-Stage-4 pin. Any M11 budget the new pin misses is a recorded finding before Stage 6.
+  - Coverage:
+    - the owner/worker split
+    - cold release on both frontends
+    - all reference scenarios
+    - interface and instance edits
+    - the product-Make no-op
+    - the module-unit build at ≤110% of whole-program
+    - **self-compile and full-corpus wall/RSS baselines**
+    - **the 1/2/4/8-worker sweep with peak RSS**
+  - The gap table in this plan's status section is updated.
+- **Depends on.** Stage 4 wave 2 **and its pin bump** (so D4), and D9. The measurement itself runs overnight on the quiet machine.
+
+  An overnight run before Stage 4 is allowed only as a labelled **pre-Stage-4 diagnostic**. It does not satisfy this stage.
+- **Parallelization: SERIAL.**
+  - Main session only. No agents of any kind, no gate, no guest. The NixOS remote agent also pauses its local activity.
+  - After capture, a WORKFLOW of 4 read-only analysts attributes the logs: self-host cold, release, reference, and edits plus workers.
+
+### Stage 6: Edit-floor spikes, Stage B key and journal spec, reference attribution, native track I
+- **Goal.**
+  - Find the real per-file-cache floor, which decides the resident-compiler question.
+  - Specify the consulted-fact reuse keys **and the skip-unchanged journal** before Stage 9 implements them.
+  - Attribute the reference compiler's unaccounted edit time.
+  - Remove the relink and re-sign on product no-ops.
+- **Items.**
+  - `perf-floor-spikes`
+  - `perf-ref-attribution`
+  - `perf-signing-attest`
+  - `perf-native-receipts`
+  - The written key spec and journal spec for `perf-stageb-slice4` and `perf-stageb-skip-unchanged`
+- **Exit and gates.**
+  - **Spikes.** A table of per-lever instruction deltas, written as JSON; the integrator writes the separate-compilation.md table. It gives either a deliberately composed combined floor from one quiet wall-clock run, or the per-lever deltas reported as a non-additive estimate. It ends with a go/no-go on the resident compiler.
+  - **Key and journal spec.** Reviewed. Every suspected unsound reuse is filed as a Stage 7 invalidation row.
+  - **Reference.** At least 90% of reference time is attributed.
+  - **Native.**
+    - The product no-op does 0 links and 0 signings.
+    - The native edit step is ≤1.4 s.
+  - **Gate.** 1 batch gate.
+- **Depends on.** Stage 5. **Then decide D11 and D12.**
+- **Parallelization: WORKFLOW, about 13 agents.**
+  - **5 spike agents**, in `wt/spike-{decl,parse,instances,records,visibility}`.
+    - Each builds an uncommitted btrcc variant under the `btrcc-build` semaphore (N=2).
+    - Each compares instructions retired at `--jobs 1`. That metric is valid here because these are single-thread algorithmic cuts.
+    - Each saves a **patch**, never a commit.
+  - **1 key/journal designer** (read-only) plus **4 read-only pass-family auditors**, who list every lookup each pass consults.
+  - **2 adversarial reviewers**, who try to construct edits the spec would reuse unsoundly.
+  - **1 Python agent** in `wt/ref-attr`.
+  - **1 native-track agent**, sole owner of `native_plan.py`. Attestation first, then receipts and the natives spike, which is folded in here.
+  - **Main session:** one quiet wall-clock run of the composed spike, then 1 gate.
+
+### Stage 7: Correctness nets, M10 pool qualification, first cold-path cuts
+- **Goal.**
+  - Prove M11 correctness, including the new key-spec rows.
+  - Give BTRSmith a regression oracle before dev mode switches to module units.
+  - Qualify the worker pool against M10.
+  - Land the first cold-path cuts toward M8a.
+- **Items.**
+  - `perf-m11-acceptance`
+  - `btrsmith-portable-coverage`
+  - `perf-setjmp-barriers`: **paired**, one commit
+  - `perf-generic-temporaries`: **btrc-internal**. No observable output change; btrcc's emitted units are byte-identical to its own previous output. Precedent: `fcdbd6d`.
+  - `perf-mimalloc`: btrc-internal
+  - `perf-m10-pool-qualification`: added
+- **Exit and gates.**
+  - **M11 acceptance.**
+    - Every acceptance row passes in both compilers.
+    - The edit-sequence harness is green.
+  - **Determinism matrix** (1/2/4/8 workers, 10 shuffled schedules, module-unit self-compile byte-stable). It lives in an **opt-in tier** like bootstrap, runs at batch and bucket exits, and is not part of `make test`.
+  - **BTRSmith.** Every PortableCoverage.md row is covered on both frontends.
+  - **setjmp.** `u-solve` is at least 40% faster at 4 workers.
+  - **M8a, as ref:2720–2724 states it.**
+    - At least 50% fewer empty child-container allocations.
+    - Self-host peak ≤3 GiB.
+    - Cold transpile ≤40 s on the BTRSmith workload.
+    - Any miss is recorded as an explicit budget revision with evidence, and the remaining levers move to Stage 12.
+  - **mimalloc.** An instruction table now; wall time and RSS from the quiet-window queue; then D15.
+  - **M10 (ref:3042–3071).**
+    - The worker table with peak RSS.
+    - Either ≥1.5× wall speedup at 4 workers on the cold BTRSmith compile, or a revised pool default.
+    - Hot-lock wait/hold counts and time.
+    - A TSan run, or a recorded unavailability.
+    - Real-thread stress of the stdlib concurrency contracts (contention, producer/consumer races, full/empty queues, shutdown while blocked, worker failure, exactly-once completion with managed payload destruction), composed in the M11a compiler fixture.
+- **Depends on.** Stage 6.
+- **Parallelization: WORKFLOW, about 19 agents, at most 5 writer worktrees.**
+  - **Lane T, tests:**
+    - 6 test authors share `wt/m11-tests` and one pinned `BTRC_TEST_BTRCC`. That is sound because they add test modules and fixtures only. Each owns one module: invalidation; corruption and interruption; concurrency and directories; native and sanitizer; dev/release switching; determinism tier.
+    - **1 fixer** in its own worktree, serial per owning file.
+    - **1 adversarial determinism reviewer.**
+    - The integrator owns the `source_count` and fixture-list updates.
+  - **Lane A, setjmp barriers.** First in the `ModuleUnits.btrc`/`modules.py` queue. A btrc agent and a Python agent work from one spec and land one commit.
+  - **Lane D, generic temporaries.** 3 read-only caller-mutation auditors, then 1 btrc implementer.
+  - **Lane M10.** 1 agent for the counters, TSan and stdlib stress. BackgroundJobs is a compiler import, so this lane builds its own btrcc and needs a bootstrap. The wall-clock sweep goes on the quiet queue.
+  - **Lane B, BTRSmith.** 3 authors (PlayerPan; SharedGPUComposition; Library/Journey/Hover) in at most 1 clone before the podman shrink, 2 after. Runs share one serialized GUI queue and never run during a btrc gate.
+  - **mimalloc.** 1 agent.
+  - **Load rules.** At most one agent build beside `make test`, none beside `test-c11` or bootstrap.
+
+### Stage 8: Reference compiler M11 budgets (Python track)
+- **Goal.** Bring the reference compiler to its binding M11 budgets (D13), and record its distance from the finals.
+- **Items.**
+  - `perf-ref-frontend-cache`
+  - `perf-ref-stageb`
+  - `perf-ref-cold`, which includes the reference side's own generic-allocation work as a separate reference-budget item (not a "half" of Stage 7)
+- **Exit and gates.**
+  - Reference lex plus parse ≤3 s per edit, with identical canonical renders.
+  - Verify mode passes on all 965 corpus programs and on BTRSmith. Units are byte-identical to the reference compiler's own pre-change output.
+  - Edit ≤15 s median, ≤20 s p95.
+  - Cold transpile ≤180 s and cold dev ≤210 s, with peak ≤2 GiB.
+  - A table for 1/2/4 workers.
+  - Distances to the reference finals recorded.
+  - Gates: slices gated in pairs under D5.
+- **Depends on.** Stage 6. It overlaps Stage 7, except on `modules.py`, where the setjmp Python half lands first.
+- **Parallelization: WORKFLOW, about 12 agents.**
+  1. In parallel: **F** (frontend cache, `wt/ref-fe`) and **S0** (shared positions and codec, serial).
+  2. **3 slice agents** in `wt/ref-{validation,generics,realtime}`.
+     - They write **only** codecs and replay in the owning analyzer modules (for example `analyzer/generics.py`, `analyzer/realtime.py` and the validation owner).
+     - **One `modules.py` owner** wires all the slices, in order.
+     - Each slice gets 2 adversarial reviewers: one runs verify mode and diffs against clean builds; one cross-reads btrcc's `ValidationRecordCodec`.
+  3. One serial cProfile, then 2–3 agents on the reference cold path, one per hotspot module.
+
+### Stage 9: Stage B completion and M11 closure on the Mac
+- **Goal.** Finish what M11 itself requires: consulted-fact keys, **skipping analysis and lowering of unchanged groups**, the batch, cold release and product integration.
+- **Items.**
+  - **9a:**
+    - `perf-stageb-slice4`
+    - `perf-stageb-skip-unchanged`, moved here from Stage 11 because ref:2846–2848 and ref:2915–2918 make it an M11 acceptance requirement
+  - **9b:**
+    - `perf-batch-10`
+    - `btrsmith-test-batch`
+    - `perf-cold-release`
+    - `perf-product-integration`
+    - `btrsmith-dev-mode`
+- **Exit and gates.**
+  - **The Stage B counter.** For each fixed body-edit fixture, in both compilers:
+    - exactly **one** changed source group is analyzed and lowered
+    - **no** unchanged group is re-lowered
+    - only dependency-justified native compiles happen, plus one link
+    - shared specialization or registration changes are counted and explained
+  - **Fall-back.** It goes to full analysis when a journal is missing or incomplete, is visible in the counters, and is green in the edit-sequence harness.
+  - **Edits.** An instance edit relowers only the edited and template groups. An interface edit costs ≤110% of a clean build.
+  - **Batch.** ≤60 s self-host and ≤120 s reference, with shared reuse proven by counters.
+  - **Cold release.** ≤90 s, within the runtime guardrail.
+  - **Product.**
+    - Product-Make medians are within 5% of `budget_bench`.
+    - Dev and release suites pass without a clean between them.
+    - Evidence is posted on issue #1; you close it.
+    - The BTRSmith dev-mode pin is **blocked on push (D4)**.
+  - **Every M11 KPI row and the acceptance counter are met on the Mac.**
+  - **Gates.** Batch gates plus a BTRSmith requalification.
+- **Depends on.** Stages 7–8, D15. Then decide D16.
+- **Parallelization: WORKFLOW, about 12 agents. All Stage B work is paired, one commit per step.**
+  1. **Slice 4.** A btrc agent and a Python agent implement the Stage 6 key spec. 2 adversarial reviewers re-run the invalidation table.
+  2. **Skip-unchanged.** The same pair implements the Stage 6 journal, with the edit-sequence harness and the fall-back. 2 adversarial reviewers try to break it. The journal spec is **frozen** here. Any later memo cache (Stage 12) must extend it.
+  3. **Batch, after slice 4 merges.** 3 agents: btrc emitter and keys; Python emitter and keys; manifest. The BTRSmith Make-graph owner does `btrsmith-test-batch` in parallel.
+  4. **Cold release.** 2 agents: the emitter pair; LTO by the native owner.
+  5. **Finally.** 1 cross-repository agent does product integration and then dev mode, serially.
+
+### Stage 10: x86_64 NixOS acceptance host (remote lane, starts whenever the host exists)
+- **Items.**
+  - `tooling-x86-acceptance-host`
+  - `qualification-acceptance-hosts`
+  - `perf-nixos-acceptance`
+- **Exit.**
+  - The FRACTAL-NORTH probe (or the replacement hardware) meets the spec.
+  - Host and Mac manifests are committed and embedded in `budget_bench` JSON.
+  - An early baseline at the Stage-5 SHA.
+  - **The frozen baseline compiler is re-measured on the host with repeats**, so the ≥10× ratio can be computed there.
+  - A separate Linux table.
+  - **Stdlib concurrency contracts are qualified with real threads on the host** (M10).
+  - Gates are green on the host at the bucket-1 exit.
+- **Depends on.** D7, Stage 3. Measurement continues across the rest of bucket 1.
+- **Parallelization: 1 remote agent over ssh.**
+  - This is real machine-level parallelism.
+  - Measurements on the host are serial.
+  - During Mac quiet windows the local agent process pauses, while the host keeps measuring on its own.
+  - It repeats at Stages 9 and 13.
+  - A btrc self-hosted runner needs your explicit approval and runs only on push events, because btrc is public. A BTRSmith runner is safe (Stage 38).
+
+### Stage 11: Bounded final push A, the edit path (only if D11 chooses the push)
+- **Items.** Final ≤5 s edit and cold-dev objective:
+  - `perf-records-pack` (paired)
+  - `perf-frontend-durable` (paired)
+  - `perf-decl-session-cache` (paired)
+  - `perf-parse-cache` (btrc-internal; the Python equivalent is Stage 8's frontend cache)
+  - `perf-native-link` and `perf-cold-native` (shared `native_plan.py`, one commit)
+  - `perf-resident-compiler`: only if D12 says go; paired or a recorded parity exception
+- **Exit and gates.**
+  - Records plus `g-transitive` ≤0.4 s (from 1.42 s).
+  - Visibility plus `n-import` ≤0.15 s, and no-op ≤1.0 s.
+  - Declarations session ≤0.2 s, verified against live lowering.
+  - Lex plus parse ≤0.3 s, or a recorded no-go.
+  - All `a-*`/`g-*`/`v-*`/`c-*`/`r-*` phases ≤0.5 s.
+  - Edit link ≤0.2 s, with `test-debug` passing.
+  - Cold native ≤8 s.
+  - Each compiler's units byte-identical to its own output, verify gates passing, and the bootstrap fixed point holding.
+  - A quiet re-measure after each batch.
+- **Parallelization: WORKFLOW, about 12 agents, at most 4 writer worktrees (6 after the podman shrink).**
+  - **Lane Q, the serial queue on `ModuleUnits.btrc` and `modules.py`.**
+    1. Records pack.
+    2. Declaration-session cache: 2 codec agents from one schema note, then 1 wiring agent.
+    - Before each is implemented, 2 adversarial reviewers add invalidation rows.
+  - **Lane F, front end.**
+    - First, serially, a durable cache-store API (`frontend/Models.btrc`, `cli/Driver.btrc`, `artifacts/cache.py`, `BTRC_CACHE_DIR`).
+    - Then 2 agents: Visibility with `imports.py`; NativeImports with `native_imports.py`.
+    - Then a parse-cache decoder prototype (go/no-go), then 2 agents.
+  - **Lane N, native.** Link, then cold native.
+  - **Resident compiler** (if approved). 1 design agent, then a serial core plus 1 protocol-and-tests agent. Its wall clock is measured on the quiet queue.
+
+### Stage 12: Bounded final push B, cold path and memory (conditional tiers)
+- **Items.**
+  - `perf-decl-lowering-hotspots`
+  - `perf-parallel-analysis`: changes observable build behavior, so it is **paired**, or you record a parity exception
+  - Only on evidence and your approval: `perf-borrowed-returns`, `perf-m9-arena`, `perf-arc-thread-confined`, `perf-m8b`
+- **Exit.**
+  - Each hotspot cut saves at least 1% and is **recorded in the frozen Stage 9 journal**. Rejected cuts are recorded with numbers.
+  - Cold transpile ≤25 s at 4 workers (wall clock, quiet window), aggregate memory ≤6 GiB, and identical output across workers and shuffles.
+  - M8a is closed if Stage 7 left it open.
+  - Each conditional tier meets its own exit, or is declined with your sign-off.
+  - **M8b finishes or is declined before Stage 15.**
+- **Parallelization: WORKFLOW. Implementation fans out; measurement is serial on the quiet queue.**
+  - **Hotspots.** They land after Stage 9 froze the journal, never interleaved with journal work. 1 serial profile, then 4 agents with exact paths:
+    - `ir/lowering/Calls.btrc` (`CallTargetResolver.resolve`)
+    - `ir/lowering/CallableFlow.btrc` (`CallableFlowState.applyEvaluation`)
+    - `ir/lowering/Callables.btrc` (`CallableValueSemantics.expressionAbi`)
+    - `analyzer/ownership/Cycles.btrc` (`CycleSemantics.reaches`)
+    - plus the Python `ir/lowering/calls.py` (`_binding_conflicts_with_type`)
+
+    Every memo needs an adversarial reviewer's sign-off that its lookups are journaled.
+  - **Parallel analysis**, after Lane Q drains:
+    - a serial protocol core
+    - 3–4 read-only journal-completeness auditors
+    - 2 test authors sharing one worktree
+    - the btrc and Python halves landing in one commit
+  - **Each conditional tier.** 1 design agent, then 4 read-only auditors, then serial implementation by a btrc/Python pair. `runtime/c` has a single owner. Allocator, arena, ARC and parallelism effects are measured only in quiet windows.
+  - **M8b only.** After a serial vertical slice, 4 agents work by package directory, using renamed readers as the compile-error oracle, and merge serially.
+
+### Stage 13: Bucket-1 exit qualification
+- **Items.** `perf-final-qualification`.
+- **Exit.**
+  - **This plan's bucket-1 row is marked done.** The Mac and NixOS tables cite **each** row as met or explicitly revised with evidence:
+    - all self-host and reference final rows listed in D11
+    - M8a, and the M10 table
+    - the ≥10× ratio against the frozen baseline on each required host
+    - self-compile and full-corpus median wall/RSS within 5% of Stage 5's baselines, or an explained tradeoff
+  - **Full gates on the final SHA.** The full D5 list, including the Mac's own `test-c11` and the determinism tier.
+  - **BTRSmith.** `application-frontend-check` and the library smoke pass on both frontends.
+- **Parallelization: SERIAL.**
+  - The Mac gate chain runs strictly in sequence.
+  - The NixOS agent runs on its own machine.
+  - 1 docs agent drafts tables from JSON while the gates run.
+
+## Bucket 2: C compatibility
+
+D5 amends §5's every-step gating for this bucket. Both compilers still land in one commit per construct, and the boundary fixtures for `surface.python.tokens`/`surface.python.ast` are reviewed in every batch.
+
+### Stage 14: C5 inventory first (probe battery, deliberate refusals, VLA audit)
+- **Items.**
+  - `ccompat-c5-baseline`
+  - `ccompat-refusal-policy`
+  - `ccompat-r23-vla-audit`
+- **Exit.**
+  - **Inventory test.** `test_c_compatibility_inventory.py` passes through both the Python compiler and the cached btrcc.
+    - Every row and every extra gap has a positive and a negative program.
+    - Known divergences are explicit: the flexible-array lowering, and the misleading designated-initializer diagnostic.
+  - **Refusals.** Rows 20, 22 and 24 give identical targeted diagnostics in both compilers. The constructs D19 refuses get the same treatment.
+  - **VLA.** VLA forms are pinned and documented.
+- **Depends on.** Stage 13, D18, D19.
+- **Parallelization: WORKFLOW, 7 agents.**
+  - 4 authors share `wt/ccompat-inventory`, each owning one manifest (c1, c2, c3_c4, c5). They use in-process Python probes plus the pinned btrcc and make no compiler edits.
+  - 1 assembler writes the pytest driver.
+  - 1 refusal agent changes diagnostic paths only and merges before any C1 parser lane.
+  - 1 VLA agent writes tests and docs.
+  - The integrator owns the count and fixture-list updates.
+
+### Stage 15: C1 schema commit
+- **Items.** `ccompat-c1-schema`, plus C4's ASDL needs if D18 approves C4.
+- **Exit.**
+  - The generated-source check is clean.
+  - Boundary records are accepted with reasons.
+  - The BTRSmith self-host peak and instruction delta is ≤0.3%, or you explicitly accept more. If the peak guard trips, land M8b first (if approved) or record a budget revision.
+  - 1 gate.
+- **Depends on.** Stage 14, D17, D20.
+- **Parallelization: SERIAL.**
+  - The main session is the only owner of `ast.asdl`, the generated files, the `Identity.btrc` renderer, `AstJsonCodec` and the boundary records.
+  - Beforehand, 2 read-only adversarial design reviewers critique options (a) through (f).
+
+### Stage 16: C1 constructs, then C4 if approved
+- **Items.**
+  - `ccompat-r02-braceless-bodies` and `ccompat-r06-empty-statement` (first)
+  - `ccompat-r01-void-unnamed-params`
+  - `ccompat-r05-adjacent-strings`
+  - `ccompat-r04-char-array-string-init`
+  - `ccompat-r03-multi-declarators`
+  - `ccompat-r19-comma-operator` (moved here from Stage 21)
+  - `ccompat-r07-function-pointer-declarators`
+  - `ccompat-c1-integrate`
+  - `ccompat-r18-preprocessor-conditionals` (C4, only if approved; after C1 integrates)
+- **Exit.**
+  - Every C1 row is PASS in both compilers.
+  - Raw IR is identical for braced and braceless bodies.
+  - ARC behavior is proven per declarator.
+  - Negative diagnostics match.
+  - Strict C11 holds under gcc and clang at `-O0` to `-O3` (by the gate).
+  - Batch gates, plus a BTRSmith rerun.
+  - **If C4 is in:**
+    - live branch selection per target is identical in both compilers
+    - a dead-branch import adds no edge
+    - cache keys invalidate correctly
+    - a quiet M11 re-measure shows no regression
+- **Depends on.** Stage 15. C4 follows only if approved (D18, D19).
+- **Parallelization: WORKFLOW, a serial first step, then 3 lanes.**
+  1. **Serial.** r02 and r06 land as one shared `_parse_body` helper used by `_parse_for_stmt`, `_parse_if_stmt` and `_parse_while_stmt`, in both compilers.
+  2. **Lanes.** Each does Python first, then the btrc port by the same agent in the same commit. Each lane builds its own btrcc under the semaphore.
+     - `wt/c1-decl`: r01, then r03, then r19, then r07, plus 1 read-only agent mining C headers.
+     - `wt/c1-lit`: r05.
+     - `wt/c1-sem`: r04.
+  3. **Merge order:** refusal, r02/r06, r01, r05, r04, r03, r19, r07.
+  4. **1 parity reviewer per construct** (semantics, diagnostics, ARC witnesses), reusing the lane's btrcc. C11 strictness is left to the gate.
+  5. **C4 (if approved), after `ccompat-c1-integrate`:**
+     - spec and codegen, the only writer of the hosted-ABI generator
+     - the Python evaluator
+     - the btrc port
+     - cache fingerprints plus a quiet re-measure
+
+     iOS and Android macros are deferred to Stage 24.
+
+### Stage 17: C2 aggregates
+- **Items.**
+  - `ccompat-c2-schema`
+  - `ccompat-r09-union-declarations`
+  - `ccompat-r08-typedef-struct-anonymous-members`
+  - `ccompat-r10-designated-init-compound-literals`
+  - `ccompat-r13-flexible-array-members`
+  - `ccompat-x-enum-tag-spelling`
+  - `ccompat-r12-bitfields` (only if D19 names a consumer; otherwise a documented refusal)
+  - `ccompat-c2-integrate`
+- **Exit.**
+  - Approved C2 rows are PASS.
+  - `sizeof` and `offsetof` match gcc and clang.
+  - The flexible-array divergence and the misleading `{[2]=7}` diagnostic are gone.
+  - If bitfields land, no `&` is ever taken of one.
+  - The memory delta is recorded.
+- **Parallelization: WORKFLOW.**
+  - 3 read-only spec drafters: unions, anonymous members and designators; flexible arrays; bitfields (if approved).
+  - Then the serial schema commit, with 2 reviewers.
+  - Then 2 lanes, because they share `ir/lowering/Aggregates.btrc`, Types and struct parsing:
+    - **L1:** r09, then r08, then r10.
+    - **L2:** r13, then the enum-tag fix, then r12 if approved.
+  - Merge order: r09, r08, r13, enum, r10, r12.
+  - 1 parity reviewer per construct.
+
+### Stage 18: Multi-dimensional arrays, alone (only if approved)
+- **Items.** `ccompat-r17-multidimensional-arrays`.
+- **Exit.**
+  - A 2D corpus passes through both compilers under strict C11, and the pinned rejection tests are inverted.
+  - If declined: a documented refusal is added in Stage 21.
+- **Parallelization: SERIAL first, then 2 lanes.**
+  - The type representation and analyzer, then storage lowering, run serially on one branch.
+  - After the representation lands, the GPU and the collections/iteration steps run in parallel, because their files are disjoint.
+  - 2 reviewers.
+
+### Stage 19: C3 vocabulary and specifier lanes
+- **Items.**
+  - `ccompat-c3-schema-vocabulary`
+  - `ccompat-r15a-qualifiers-storage-classes`
+  - `ccompat-r15b-inline-noreturn`
+  - `ccompat-r15c-static-assert`
+  - `ccompat-r15d-alignment`
+  - `ccompat-r16-wide-literals-long-double`
+  - `ccompat-x-expression-stragglers`
+  - `ccompat-r14-variadic-definitions` (only if D19 names a consumer)
+  - `ccompat-c3-integrate`
+- **Exit.**
+  - Token vocabulary validates in both compilers, and the extension and LSP tests pass.
+  - Approved rows are PASS.
+  - `static inline` works under `--module-units`.
+- **Parallelization: WORKFLOW.**
+  - **Serial vocabulary commit first.** 1 owner for the grammar's lexical section, ASDL, `hosted_abi.toml`, `intrinsic_effects.toml` (the `va_*` intrinsics) and the VS Code grammar. Plus 1 read-only pre-drafter and 2 reviewers.
+  - **Then lanes, at most 4 writers:**
+    - r15b
+    - r15c, plus a constant-evaluator parity reviewer
+    - r15d
+    - r16 then the stragglers, by one agent (shared lexer)
+    - r15a in the declarator lane
+    - r14 if approved
+  - **Merge order:** r15b, r15c, r15d, r16, stragglers, r15a, then r14 as its own batch.
+
+### Stage 20: goto and labels, alone (only if approved)
+- **Items.** `ccompat-r11-goto-labels`. `goto` is already a keyword (grammar.ebnf:38).
+- **Exit.**
+  - Every unsafe-path negative test gives identical diagnostics.
+  - Positive cleanup programs are clean under the ARC witness.
+  - If declined: a documented refusal in Stage 21.
+- **Overlap.** It may **overlap Stage 19's r15c/r15d/r16 lanes**, rebasing after r15b (`_Noreturn` flow).
+- **Parallelization: SERIAL implementation.**
+  - 2 read-only agents first: one gathers unsafe-path fixtures, reusing Stage 14's VLA cases; one drafts the Python contract.
+  - Then 1 implementer, Python first and then btrc.
+  - 2 adversarial reviewers: ARC, and setjmp.
+
+### Stage 21: C5 close-out
+- **Items.**
+  - `ccompat-c5-docs-final`
+  - `btrsmith-c-compat-regression`. It also runs in the background after Stages 16, 17, 19 and 20. Each pin is **blocked on push**.
+- **Exit.**
+  - Every row is PASS or deliberately refused, with a test in both compilers. No known divergence remains.
+  - The final bucket-2 matrix is green, including the Mac's `test-c11`.
+  - This plan and MEMORY are updated.
+- **Parallelization: Mostly SERIAL.** 1 docs agent drafts while the main session runs the exit gate.
+
+## Bucket 3: cross-platform foundations
+
+Lane parallelism in this bucket depends on D6(c). Without it, one bounded contract is in flight at a time.
+
+### Stage 22: P0 entry, parity inventory, adaptations, toolchain matrix, device registry
+- **Items.**
+  - `platforms-p0-entry-baseline`
+  - `platforms-p0-inventory`
+  - `btrsmith-p0-inventory`
+  - `platforms-p0-adaptations`
+  - `platforms-p0-matrix-pin` and `tooling-p0-toolchain-matrix`, done as one unit
+  - `qualification-device-lab`
+- **Exit.**
+  - The entry gate log is recorded.
+  - The inventory TOML covers 100% of rows × 6 slices, in the Stage 2 ledger format, and its verifier is in `make test`.
+  - Adaptations are approved.
+  - The toolchain matrix is pinned with sources. Xcode is pinned by build number.
+  - Every physical gate maps to a named device or to "unavailable".
+- **Overlap.** The read-only inventory work, a planning artifact, **may start during bucket 2's gate windows**.
+- **Parallelization: SERIAL entry gate, then a read-only WORKFLOW of about 23 agents in waves of at most 10.**
+  - 9 stdlib auditors, using Stage 4's balanced split (16 groups plus the root, 17 manifests).
+  - 1 runtime-manifest agent, 2 corpus-topic agents, 6 BTRSmith product-area agents.
+  - 3 toolchain-research agents (Apple, Android, Windows) and 1 device-registry drafter.
+  - 3 adaptation drafters, one per platform; you review them.
+  - 1 integrator writes the TOML and the verifier.
+
+### Stage 23: P1 provisioning (toolchains, simulators, SDK, VM, signing, devices)
+- **Items.**
+  - `platforms-p1-toolchains`
+  - `tooling-ios-simulator-runtimes`
+  - `tooling-android-sdk-ndk`
+  - `tooling-windows-vm`
+  - `tooling-windows-ci-arm64-llvm`
+  - `tooling-apple-signing`
+  - `qualification-signing-accounts`
+  - `tooling-ios-physical-devices`
+  - `tooling-android-physical-devices`
+- **Prerequisites (D8).**
+  - ≥150 GB free or an external SSD.
+  - Android SDK licences accepted by you.
+  - Re-check free disk before each download.
+- **Exit.**
+  - The pinned NDK (29.0.14206865), SDK, a JDK and zig 0.16.0 are available in `nix develop`. There is no JDK or adb today.
+  - The iOS SDK comes from host Xcode 27A266a, recorded in the matrix.
+  - API 29, current and 16 KiB AVDs boot.
+  - The current iOS simulator runtime launches a C11 app. The iOS 17 runtime launches one too, or is recorded as uninstallable under Xcode 27 ⚠.
+  - `ssh winvm` runs a cross-built btrcc on the **ARM64** VM. Under Prism, x64 is not native evidence. Native x64 evidence comes only from CI or the D7 dual-boot.
+  - Pushed `ci/**` Windows x64 and ARM64 bootstraps pass. This is **blocked on push (D4)**.
+  - Signing identities and paired devices are listed, or recorded as unavailable.
+- **Bound by** your purchases and licence acceptance. Non-code provisioning may begin during bucket 2 if the disk allows.
+- **Parallelization: WORKFLOW, 5 agents.**
+  - 1 nix owner (flake files).
+  - 3 background provisioning agents (iOS runtimes, Android SDK and AVDs, Windows 11 ARM VM), running concurrently only with ≥60 GB of headroom.
+  - 1 workflow agent (arm64 job plus LLVM).
+  - **RAM rule.** At most the 8 GiB VM plus one 4 GiB emulator at once, and none during bootstrap.
+  - After this stage, each device has one device-owner agent and one queue.
+
+### Stage 24: P1 shared target contract
+- **Items.**
+  - `platforms-p1-target-spec`
+  - `platforms-p1-hosted-abi-targets`
+  - `platforms-p1-native-import-targets`
+  - `platforms-p1-native-plan-toolchain`
+  - `platforms-p1-provider-filters`
+  - `platforms-p1-cache-identity`
+  - `platforms-p1-abi-fixture`
+- **Exit.**
+  - Both frontends accept and reject the same target set, proven by a parity test.
+  - Existing spellings still round-trip.
+  - Real header extraction works for 5 new triples.
+  - Link-plan schema v5 output is byte-identical across frontends.
+  - The provider matrix shows zero foreign SDK imports.
+  - The cache-poisoning matrix is green, and a quiet M11 re-measure shows no regression.
+  - C4's iOS and Android rows are added if C4 landed.
+- **Depends on.** D21.
+- **Parallelization: SERIAL spec, then a WORKFLOW of about 14 agents, at most 4 writers.**
+  - **Spec.** 1 design agent plus 2 adversarial reviewers (Python/btrc parity including host inference; per-platform triple and sysroot rules).
+  - **Fan-out:**
+    - 2 consumer writers (Python, btrc) and 1 parity-test author
+    - 3 read-only extractors (iOS SDK, NDK bionic, MinGW) and 1 integrator, the only writer of `hosted_abi.toml`
+    - an importer pair (Python, btrc)
+    - the native-plan owner plus 1 test agent working against the frozen v5 schema
+    - 1 provider-filter writer
+    - 1 ABI-fixture author
+  - **Last.** Cache identity, by a single owner, then the quiet re-measure.
+  - **Gates by sub-batch:** spec; ABI names; importers plus native plan; filters plus cache.
+
+### Stage 25: P1 test hosts and P2 runtime parity
+- **Items.**
+  - `platforms-p1-host-windows`, `platforms-p1-host-ios`, `platforms-p1-host-android`
+  - `platforms-p2-target-probes`, `platforms-p2-target-runner`, `platforms-p2-runtime-semantics`, `platforms-p2-portable-corpus`, `platforms-p2-ci-lanes`
+  - `tooling-android-ci-emulator`
+- **Exit.**
+  - The ABI fixture runs on every host.
+  - Probes are correct regardless of working directory, and the macOS/Linux goldens are unchanged.
+  - The runtime boundary re-capture is approved (D14).
+  - Per-target pass/restricted/missing counts are reported.
+  - 100% of the applicable corpus passes on each target.
+  - CI lanes are green (blocked on push for Windows).
+- **Parallelization: WORKFLOW, about 22 agents.**
+  - **Host lanes.** 3, each owning its own `tools/` subdirectory.
+  - **Probes.** Serial, because `runtime/c` and its manifest have a single owner. The runner core is serial, then 3 executor adapters.
+  - **Execution, separate from triage.** One runner per target runs the whole applicable corpus once, serially on its device queue, and writes logs. Then the read-only triage agents fan out over those logs, by target × topic, in waves of 10.
+  - **Runtime triage.** 3 read-mostly agents. Every runtime fix goes through the single owner.
+  - **Fixes.** 3 worktrees split by owner (`runtime/c`; stdlib; compiler with both halves), merged serially.
+  - **CI.** 3 agents.
+  - At most 1 emulator during a gate.
+
+### Stage 26: P3 OS services
+- **Items.**
+  - `platforms-p3-windows-launch-seam`
+  - `platforms-p3-fs-windows`
+  - `platforms-p3-process-terminal`
+  - `platforms-p3-sockets-http`
+  - `platforms-p3-regex-glob`
+  - `platforms-p3-fs-mobile`
+  - `platforms-p3-jobs-ipc`
+- **Exit.**
+  - Windows argv, timeout and tree-kill tests pass.
+  - Junction-swap, long-path and UNC-path tests pass.
+  - The HTTP corpus passes with no `curl` on PATH.
+  - Regex behaves the same on all slices.
+  - Channel and job tests pass on Windows; mobile has tests or declared restrictions.
+- **Depends on.** D22.
+- **Parallelization: SERIAL launch seam, then a WORKFLOW of 4 writers.**
+  - The `runtime/c` owner does the launch seam first.
+  - Then 4 writers on disjoint stdlib files: Windows filesystem; process/terminal; sockets/HTTP (after its interface freezes, 3 sub-agents for WinHTTP, NSURLSession and Android); regex/glob.
+  - **FileSystem, Process and BackgroundJobs are compiler imports.** Those lanes build their own btrcc and need a bootstrap. The other lanes pin the integrator's btrcc.
+  - Then the mobile filesystem, after the `FileSystem.btrc` merge.
+  - Then 2 agents for jobs and IPC.
+  - Windows evidence is batched on the VM or in CI.
+
+### Stage 27: W1 Windows host and interop lane I (one ownership design, function tables, early Objective-C and JNI slices, then COM)
+- **Items.**
+  - `platforms-interop-function-table-calls`
+  - `platforms-w1-win32-com-imports`
+  - `platforms-w1-sdk-reader-provider`
+  - `platforms-w1-worker-pools`
+  - `platforms-w1-unicode-host`
+  - `platforms-w1-ci-and-bundle`
+  - `qualification-ci-windows-matrix`
+  - The **first slices** of `platforms-i1-objc-protocol-adapters` and `platforms-a1-checked-jni`, both still mapped to Stage 29
+- **Why this order.** platform-parity §8 orders P2/P3/P4 → W1. This stage starts W1 before P4, because W1's listed dependencies are only P1–P3 and the interop lane is the long pole. platform-parity.md:590–593 also requires the mobile bridges to be proven early.
+- **Exit.**
+  - The vtable fixture passes at `-O2` and under sanitizers.
+  - A **checked** Objective-C delegate makes one round trip on macOS and the iOS simulator test host.
+  - A **checked** JNI call makes one round trip on the emulator test host.
+  - A real COM round trip shows exact release counts.
+  - A native Windows btrcc imports Win32 headers.
+  - Parallel and serial builds produce identical output.
+  - A PowerShell build works from a non-ASCII path with spaces.
+  - 10 consecutive green Windows runs on x64 and ARM64, including bootstrap. This is **blocked on push**.
+  - A bootstrap for each interop feature.
+  - **W1 stays open** until Stage 28's ABI-route decision.
+- **Depends on.** D4, D6(c).
+- **Parallelization: a WORKFLOW design step, then a SERIAL interop lane.**
+  - **Design step 0.** Read-only; may run during bucket 2 gate windows.
+    - 5 agents, one per foreign ownership model: C function tables, COM, Objective-C protocols and blocks, JNI references, GObject floating references.
+    - 1 designer writes a single `native_abi.asdl` extension plan.
+    - 2 adversarial reviewers, then your approval.
+    - Stages 29 and 31 implement this same plan.
+  - **Interop lane.** 1 owner for the ASDL, both importers and lowering. Order: function tables, then the Objective-C slice, then the JNI slice, then COM. A mirror agent ports each feature to btrc, and 1 fixture author supports.
+  - **In parallel:**
+    - SDK-reader and worker-pool agents; the integrator merges `WindowsMain.btrc`
+    - the Unicode-host agent, after Stage 26's Windows filesystem work
+    - 3 CI agents, each in its own reusable workflow file
+
+### Stage 28: P4 dependency closure and library artifacts (W1 exit)
+- **Items.**
+  - `platforms-p4-dependency-crossbuild` and `btrsmith-package-closure`, as one unit
+  - `tooling-cross-gpu-deps`
+  - `platforms-w1-toolchain-abi-route`
+  - `platforms-p4-library-artifacts`
+  - `platforms-p4-assets-streams-plugins`
+  - `platforms-p4-package-contracts`
+  - `btrsmith-cross-target-build`
+- **Exit.**
+  - A manifest with hash and licence per dependency × ABI, and every library links into the fixture.
+  - The ABI-route decision is recorded, which **closes W1**.
+  - A library artifact rebuilds incrementally.
+  - Package suites pass per ABI on both frontends.
+  - A BTRSmith launch artifact exists for every target, with host builds byte-identical to before. The pin is blocked on push.
+- **Parallelization: WORKFLOW, about 25 agents, at most 4 builders at once (disk).**
+  - **Dependencies.** 1 agent per dependency (about 10), each building all 6 slices in `~/.cache/btrc/xbuild/<dep>`. `psarc` and `sloppak` start after `zlib`, `miniz` and `yaml`.
+  - **GPU dependencies.** 3 per-target agents, then the nix owner merges.
+  - **ABI route.** 1 research agent.
+  - **Library artifacts.** Serial, by the `native_plan` owner.
+  - **Assets.** 2 agents.
+  - **Package contracts.** 8 agents, one per package.
+  - **BTRSmith.** The `Config.mk` abstraction is serial, then 3 per-target packaging agents.
+  - Lock-file merges are serial, by the integrator.
+
+### Stage 29: Non-UI platform tracks and interop lane II (Objective-C protocols, then JNI)
+- **Items.**
+  - **W2:** `platforms-w2-arm64`, `platforms-w2-wasapi`, `platforms-w2-gpu-image-font`, `platforms-w2-packaging`
+  - **I1:** `platforms-i1-objc-protocol-adapters`, `platforms-i1-app-lifecycle`, `platforms-i1-sandbox-storage`
+  - **I2:** `platforms-i2-audio`, `platforms-i2-gpu`, `platforms-i2-app-packaging`
+  - **A1:** `platforms-a1-checked-jni`, `platforms-a1-activity-lifecycle`, `platforms-a1-storage-permissions`
+  - **A2:** `platforms-a2-aaudio`, `platforms-a2-gpu`, `platforms-a2-packaging-16k`
+  - **BTRSmith:** `btrsmith-storage-resources`, `btrsmith-audio-adaptation`, `btrsmith-gpu-portability`
+  - **CI:** `qualification-ci-ios`, `qualification-ci-android`
+- **Exit.**
+  - Every provider suite passes through both frontends on its simulator, emulator, VM or device. Physical evidence is recorded where a device exists, otherwise marked "unavailable".
+  - 100 lifecycle cycles without leaks.
+  - MSIX, xcarchive and AAB validate, with every `.so` 16 KiB-aligned.
+  - BTRSmith fault journeys and pixel readback pass per backend.
+  - **Bucket-3 exit.**
+- **Bound by** hardware availability.
+- **Parallelization: WORKFLOW, rescoped around the interop dependencies, about 12 agents.**
+  - **Windows lane.** Fully parallel, because COM landed in Stage 27.
+  - **iOS lane.** Starts with packaging and simulator plumbing. **Blocked** until interop delivers the full Objective-C adapters: `UIApplicationDelegate`, `AVAudioSession`, CAMetalLayer hosting, and the I1 lifecycle.
+  - **Android lane.** Starts with AAudio, NDK GPU and 16 KiB packaging (plain C). **Blocked** until interop delivers full checked JNI: activity lifecycle, storage, permissions.
+  - **Interop lane.** A single owner does Objective-C first (unblocks I1/I2), then JNI (unblocks A1), following the Stage 27 plan. 1 separate agent builds the Java metadata reader.
+  - **Lifecycle check.** Before the I1/A1 lifecycle owners land, 1 read-only agent checks them against a draft of UI2's host-owned loop and executor shape.
+  - **`btrc.toml` changes** go through the integrator as fragments.
+  - **BTRSmith.** Storage is serial, then 2–3 fixture agents. Audio policy is serial, then 3 port agents. GPU runs as 3 lanes, one per backend.
+  - **2 CI agents.** One device owner and one queue per device.
+
+## Bucket 4: native UI
+
+UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final retrofit (native-ui-parity.md:1108–1109, 1263–1265; ref:3691). Bridges start in UI1, and every UI4–UI7 landing carries its own UI8/UI9 acceptance on every provider. E46/E47 follow ref:3424–3428.
+
+### Stage 30: UI0 catalog, journeys and evidence hosts
+- **Items.**
+  - `ui-0-focused-gate`
+  - `ui-0-catalog-schema`
+  - `ui-0-operation-map`
+  - `ui-0-broader-surface`
+  - `ui-0-product-journeys` and `btrsmith-ui0-callers`, as one unit
+  - `ui-0-host-matrix`
+  - `ui-0-doc-reconcile`
+  - `qualification-p5-journey-catalog`
+  - `tooling-linux-headless-gui`
+  - `tooling-linux-desktop-host`
+- **Exit.**
+  - The drift test reports 19 files, 24 interfaces and 162 declarations, and fails when a dummy method is added.
+  - All 1,620 operation slots and 470 case slots are classified, in the ledger format.
+  - 100% of BTRSmith callers are mapped.
+  - The journey catalog is frozen.
+  - Linux GUI tests run under both Wayland and X11.
+  - 1 gate plus linux-ci.
+- **Depends on.** D24, D25. Read-only mapping may start during bucket 3's gate windows.
+- **Parallelization: SERIAL first, then a read-only WORKFLOW of about 15 agents in waves of at most 10.**
+  - **Serial first:** the focused gate and the catalog schema.
+  - **Read-only fan-out:**
+    - 4 operation-map agents and 3 broader-surface agents
+    - 5 BTRSmith mappers, each writing the journey shard and the caller inventory in one pass
+    - 1 journey drafter, plus 1 auditor checking against PRD and issue #15
+  - **In parallel:** the nix owner adds weston, Xvfb, lavapipe, GTK4 and at-spi.
+  - Doc reconciliation has a single writer.
+
+### Stage 31: UI1 shells on all five platforms and the toolkit decision
+- **Items.**
+  - `ui-1-shell-fixture`
+  - `ui-1-macos`
+  - `ui-1-linux-sdl-baseline`
+  - `ui-1-linux-gobject-binding`
+  - `ui-1-linux-gtk-spike`
+  - `ui-1-windows-shell`
+  - `ui-1-ios-shell`
+  - `ui-1-android-shell`
+  - `ui-1-feasibility-review`
+  - `qualification-ci-linux-gui-audio`
+- **Exit.**
+  - **Shell harness.** It passes on every provider × frontend × sanitizer, with accessibility bridges and tree artifacts from the start, and 0 leaked handles over 100 cycles.
+  - **E46.** A Save/Discard/Cancel transaction, with 100 cycles per applicable entry path and zero lost drafts or duplicate saves.
+  - **E47.** 100 fresh-process restores, with zero replayed side effects or cross-scene swaps.
+  - **E40.** The reproduction is written and recorded as failing in the catalog. It stays on a branch (D24) until Stage 32's repair.
+  - **GObject.** Binding parity holds and the bootstrap is byte-stable.
+  - **Toolkit.** The GTK feasibility record exists, D23 is recorded, and the Linux GUI shard is green.
+- **Parallelization: WORKFLOW, 11 agents** (one platform at a time without D6(c)).
+  - **Serial first:** the fixture and the harness.
+  - **6 provider agents** in separate worktrees:
+    - macOS
+    - Linux SDL, in the container and never during a gate
+    - GTK, after the GObject binding
+    - Windows: compile-only via zig, runtime on the ARM64 VM or in CI
+    - iOS on the simulator
+    - Android on the emulator
+  - **Manifests.** Provider agents submit `GUI/btrc.toml` fragments; the integrator owns the file. They pin the integrator's btrcc, because GUI is not a compiler import.
+  - **GObject.** 1 agent implements the Stage 27 plan, serially against other compiler work, with a bootstrap.
+  - **Toolkit.** 2 adversarial reviewers argue GTK4 versus SDL plus AT-SPI.
+  - **CI.** 2 agents.
+  - Then your decision.
+
+### Stage 32: UI2 contracts (events, executor, lifecycle) and the Library.UI split
+- **Items.**
+  - `ui-2-contract-control-events`
+  - `ui-2-contract-executor`
+  - `ui-2-contract-lifecycle`
+  - `ui-2-contract-review`
+  - `ui-2-macos`
+  - `ui-2-linux`
+  - `ui-2-btrsmith-subscriptions`
+  - `btrsmith-libraryui-split`
+- **Exit.**
+  - You approve the interface diff.
+  - E01–E04, E29, E31, E35, E39, E40 and E46 pass on macOS and Linux with sanitizers.
+  - **The E40 repair lands with its Stage 31 reproduction:** 0 lost events across bursts of 4,095, 4,096, 4,097 and 8,193 events, with progress for input, rendering and close.
+  - BTRSmith idle wakeups are measured before and after.
+  - Library.UI is limited to the musical surfaces.
+- **Parallelization: WORKFLOW, about 12 agents.**
+  - **Drafting.** 3 drafters on disjoint files: control events; executor; lifecycle, which is the only IView writer.
+  - **Review.** 2 feasibility reviewers using the real Stage 31 shells, plus 1 reconciler. Then your approval.
+  - **Providers.** macOS and Linux agents start from the approved draft.
+  - **Atomic landing.** The contract, macOS and Linux land in one commit. The Windows, iOS and Android shells keep compiling by throwing a typed "unsupported" error, recorded as "missing" in the catalog.
+  - **BTRSmith.** Then 1 subscriptions agent.
+  - **Library.UI split.** A serial view-model design (you approve the `ui.snapshot` change), then 4 surface agents in at most 2 clones at a time. ApplicationSession merges are serial. Code signing runs behind `locks/signing`.
+
+### Stage 33: UI3 input, focus and commands, then the tray
+- **Items.**
+  - `ui-3-contract-input`
+  - `ui-3-macos`
+  - `ui-3-linux`
+  - `ui-11-tray`
+- **Exit.**
+  - E05–E07, E13, E14, E25, E27, E44 and E45 pass on macOS and Linux.
+  - **E46** Save/Discard/Cancel holds over 100 cycles per UI3 entry path.
+  - The tray passes 100 cycles with exactly one typed command per activation.
+  - Your IME trials are recorded.
+- **Parallelization: WORKFLOW.**
+  - 1 serial contract writer, the only writer of IView, IWindow and `App.btrc`, plus 2 feasibility reviewers.
+  - macOS and Linux agents, then an atomic landing.
+  - **The tray agent starts after that landing**, because it needs UI3's typed commands. Its accessibility rows are completed with Stage 34's UI8 work.
+  - Meanwhile, 2–3 read-only agents pre-draft the UI4–UI9 contract notes against the five shells.
+
+### Stage 34: UI4–UI9 contract packet and macOS/Linux reference providers
+- **Items.**
+  - **UI4:** `ui-4-contract-controls`, `ui-4-macos`, `ui-4-linux`
+  - **UI5:** `ui-5-contract-layout`, `ui-5-macos`, `ui-5-linux`
+  - **UI6:** `ui-6-contract-collections`, `ui-6-stress-fixture`, `ui-6-macos`, `ui-6-linux`
+  - **UI7:** `ui-7-contract-services`, `ui-7-macos`, `ui-7-linux`
+  - **UI8:** `ui-8-contract-a11y`, `ui-8-macos`, `ui-8-linux`
+  - **UI9:** `ui-9-contract-gpu`, `ui-9-macos`, `ui-9-linux`
+  - `qualification-catalog-fixtures` (`ui-6-stress-fixture` is its btrc half)
+  - `qualification-p6-runtime-probes`
+- **Exit, per UI4–UI7 landing, on both frontends:**
+  - **Functional:**
+    - UI4: 12 of 12 control families.
+    - UI5: a layout matrix that clips nothing. **E46** transactions, and **E47** 100 fresh-process restores.
+    - UI6: the 100,000-row collection budget, with recycled-collection identity exposed to accessibility.
+    - UI7: 8 of 8 service families, with **E46** transactions.
+  - **UI8, in the same landing:**
+    - correct names, roles, states, actions and focus for that family's actionable controls
+    - **keyboard-only journeys**
+    - **VoiceOver journeys on macOS and Orca journeys on Linux**
+
+    A semantic snapshot alone does not count.
+  - **UI9, in the same landing:** GPU-backed content of that family is qualified, including virtual GPU content in the accessibility tree.
+  - **Overall:** E36, E38, E42 and E43 pass; a static idle screen uses ≤1% CPU; fixtures produce stable content hashes. At the end, 100% of core actionable controls are covered by UI8. Each landing is atomic with a gate, about 12 gates in total.
+- **Parallelization: WORKFLOW.**
+  - **Step 0, the packet.**
+    - Drafts for UI4 (3 sub-drafters plus a reconciler), UI6, UI7 (2 drafters) and UI9 run concurrently.
+    - One IView writer drafts UI5 and the UI8 bridge contract.
+    - Reviewed by 5 platform reviewers plus 1 adversary looking for AppKit-shaped APIs, then **one approval from you**.
+  - **Then milestone by milestone, UI4 to UI7.** macOS and Linux agents, each optionally split into 2 by family, each carrying the family's accessibility and GPU work. The integrator merges `btrc.toml` fragments and lands the contract plus providers atomically.
+  - **Fixtures.** 2 agents, one per repository.
+  - **Probes.** A serial contract with a proof that realtime paths do not allocate, then 1 agent per provider.
+  - GUI captures and screen-reader sessions are serialized on the `gui-capture` lock.
+
+### Stage 35: Windows, iOS and Android UI tracks (one milestone behind Stage 34)
+- **Items.**
+  - **Windows:** `ui-win-core`, `ui-win-controls-layout`, `ui-win-collections-services`, `ui-win-a11y-gpu`
+  - **iOS:** `ui-ios-core`, `ui-ios-controls-layout`, `ui-ios-collections-services`, `ui-ios-a11y-gpu`
+  - **Android:** `ui-android-core`, `ui-android-controls-layout`, `ui-android-collections-services`, `ui-android-a11y-gpu`
+- **Exit.**
+  - Each platform passes the same E-cases (including E46/E47 where applicable) and family fixtures as macOS and Linux.
+  - Each family ships with its UIA, XCUITest or UiAutomator trees, and Narrator, VoiceOver or TalkBack journeys, at the time it lands.
+  - The `*-a11y-gpu` items close the remaining platform bridge work and GPU qualification.
+  - Mobile artwork stays ≤64 MiB.
+- **Overlap.** It overlaps Stage 34.
+- **Parallelization: WORKFLOW, 3 long-lived agents (up to 6), subject to D6(c).**
+  - Each agent owns one provider directory, `GUI/{Windows,IOS,Android}`, and submits `btrc.toml` fragments to the integrator.
+  - Each moves through core, then controls and layout, then collections and services, with accessibility and GPU inside every step.
+  - Contract defects go back to the single contract owner.
+  - At most 3 builds and 2 guests at once. One device queue per guest.
+
+### Stage 36: BTRSmith screen migration slices (one milestone behind Stage 34)
+- **Items.**
+  - `btrsmith-ui-event-loop`
+  - `btrsmith-ui-slice1-search-filters`
+  - `btrsmith-ui-slice2-settings` with `ui-4-btrsmith-settings`
+  - `btrsmith-ui-adaptive-layout` with `ui-5-btrsmith-adaptive`
+  - `btrsmith-ui-slice3-library` with `ui-6-btrsmith-library` and `ui-7-btrsmith-import`
+  - `btrsmith-ui-slice4-player` with `ui-9-btrsmith-player`
+  - `btrsmith-ui-accessibility`
+- **Exit.**
+  - Each slice's E-cases pass on every available provider, with that screen's screen-reader journey.
+  - No polling remains.
+  - Search p95 ≤100 ms.
+  - Static idle uses ≤1% CPU.
+  - Player shows 0 app-induced xruns over 30 minutes, with frame p95 ≤16.7 ms.
+- **Overlap.** It interleaves with Stages 34–35.
+- **Parallelization: WORKFLOW, at most 2 BTRSmith clones.**
+  - 1 integrator owns ApplicationSession, ApplicationView and GUIApplication. The event-loop change is serial.
+  - Per-slice agents work on disjoint frontend files: Library 2 (grid, picker), Settings 1, Player 2, accessibility 1 per screen.
+  - Each duplicate pair counts as one unit of work.
+
+### Stage 37: UI10 automation and mobile restoration; UI11 long tail
+- **Items.**
+  - `ui-10-automation-diagnostics` and `qualification-p5-journey-drivers`, as one unit
+  - `ui-10-btrsmith-mobile` and `btrsmith-ui-slice5-mobile-restoration`, as one unit
+  - `ui-10-qualification`
+  - `ui-11-pickers-n51-n52`, `ui-11-rich-web-n53-n54`, `ui-11-print-media-n55-n57`, `ui-11-data-docs-help-n58-n60`
+- **Exit.**
+  - Drivers pass the seed journeys on the installed app.
+  - 100 fresh-process restores (E47), with 0 replayed side effects.
+  - The catalog resolves 470 of 470 case slots and 1,620 of 1,620 operation slots, and 50 of 50 core families.
+  - UI11 families are dispositioned.
+  - A full gate.
+  - **Deferred UI10 parts** (native-ui-parity.md:1142–1147): "all numeric goals on the named matrix" closes in Stage 41, and "minimum/current OS and SDK-update evidence" closes in Stage 42. The UI10 row stays open until Stage 42.
+- **Parallelization: WORKFLOW.**
+  - A serial script schema, then 5 per-platform driver agents.
+  - BTRSmith mobile: a serial checkpoint format, then 2 device agents.
+  - UI11: 1 agent per family, then 1 per provider.
+  - Evidence collection fans out per host. Aggregation and the gate are serial.
+
+## Bucket 5: product and release qualification
+
+### Stage 38: CI tiers, macOS native suite, BTRSmith CI, cross-target benchmarks
+- **Items.**
+  - `qualification-ci-macos-native-suite` (unless done in Stage 2)
+  - `qualification-ci-btrsmith` and `btrsmith-q-ci`, as one unit
+  - `qualification-ci-tiering`
+  - `qualification-p6-build-bench-targets`
+- **Exit.**
+  - The macOS shards skip only hardware-tier cases.
+  - BTRSmith CI is green on both frontends: on Linux hosted runners plus the self-hosted D7 runner per push, and on macOS for tagged releases. The cost per run is recorded against D26's budget.
+  - One release dispatch produces one ledger bundle.
+  - Benchmark adapters emit valid records.
+- **Depends on.** D4, D26.
+- **Parallelization: WORKFLOW, about 6 agents.**
+  - 1 macOS agent and 1 BTRSmith-CI agent.
+  - Tiering is serial, done afterwards by 1 agent.
+  - Benchmarks: the core is serial, then 3 adapters.
+
+### Stage 39: P5 journeys on installed products and the macOS MVP closure
+- **Items.**
+  - `btrsmith-macos-mvp-automatable`
+  - `btrsmith-q-selfhost-matrix`
+  - `qualification-p5-runs-macos-linux`, `qualification-p5-runs-windows`, `qualification-p5-runs-ios`, `qualification-p5-runs-android`
+  - `tooling-windows-physical`
+- **Exit.**
+  - Captures are posted on issues #2, #3, #6, #7 and #16–#19; you close them.
+  - The self-host matrix is green.
+  - Every journey slot is passed, or adapted with review, with 0 missing core journeys.
+- **Parallelization: WORKFLOW across machines.**
+  - **MVP.** 3 agents, one per screen, plus 1 reviewer with you for #6. GUI capture is serialized.
+  - **Runners.** 1 runner agent per host or device.
+    - Only the NixOS host, Windows x64 hardware and CI are separate machines.
+    - The iPhone, iPad, Android devices and the ARM64 VM are driven through this Mac (devicectl, adb), so they count against its CPU and GUI queue: **at most two at a time**, serial within each device.
+
+### Stage 40: Physical instrument, listening and latency sessions
+- **Items.**
+  - `qualification-p5-physical-audio-visual`
+  - `btrsmith-macos-mvp-physical`
+  - `tooling-audio-loopback-rig` and `qualification-p6-audio-latency-rig`, as one unit
+- **Exit.**
+  - Signed-off listening, route and visual records per platform.
+  - Evidence posted on issues #4, #5, #21 and #22; you close them.
+  - At least 100 round-trip latency samples: p95 ≤20 ms on Windows and iOS, ≤30 ms on Android.
+  - A 2-hour soak.
+- **Bound by** your availability for the sessions.
+- **Parallelization: SERIAL.**
+  - One rig, with you in the loop.
+  - 1 agent writes the latency program. 1 prepares checklists and the next platform's scripts.
+
+### Stage 41: P6 numeric acceptance
+- **Items.**
+  - `qualification-p6-build-measure`
+  - `qualification-p6-runtime-runs`
+  - Also closes UI10's numeric goals on the named matrix.
+- **Exit.**
+  - Raw sample distributions per host and device for every build and runtime budget, using the reconciled P6 table (including the reference private-body edit row), with any misses stated.
+  - UI10 numeric rows met or revised.
+- **Parallelization: WORKFLOW across machines only.**
+  - 1 measuring agent per quiet host or device.
+  - Never two measurements on the same host.
+  - The Mac runs your quiet checklist.
+
+### Stage 42: P7 release engineering
+- **Items.**
+  - `qualification-p7-sanitizers`
+  - `qualification-p7-devtools-targets`, containing `tooling-target-debuggers`
+  - `qualification-p7-release-artifacts`
+  - `qualification-p7-macos-notarization`
+  - `tooling-release-signing-mobile-store`
+  - `qualification-p7-install-upgrade`
+  - `qualification-p7-stress-faults`
+  - `qualification-p7-os-version-matrix`, which also closes UI10's minimum/current OS and SDK-update evidence
+- **Exit.**
+  - A sanitizer omissions table.
+  - A `.btrc` breakpoint works and a crash symbolicates on every target.
+  - Unsigned builds are reproducible byte for byte.
+  - `spctl` accepts the stapled app.
+  - Mobile release packages validate, or are recorded as declined.
+  - Upgrades lose no state.
+  - Every fault class passes 100 cycles.
+  - Minimum and current OS versions pass, and **the UI10 row closes**.
+- **Parallelization: WORKFLOW in waves.**
+  - 4 sanitizer agents.
+  - Devtools: the interface is serial, then 4 agents.
+  - Artifacts: 4 agents, plus a serial Makefile and Packaging.mk integrator.
+  - Notarization is serial, and you approve every submission.
+  - 5 install/upgrade agents, 4 stress agents, 1 OS-matrix agent per platform.
+  - Sanitizers never run alongside bootstrap.
+
+### Stage 43: Final platform exits and the release candidate
+- **Items.**
+  - `qualification-final-w2-exit`, `qualification-final-i2-exit`, `qualification-final-a2-exit`
+  - `btrsmith-q-platform-release`
+  - `qualification-p7-release-candidate-run`
+- **Exit.**
+  - One ledger bundle with every required gate on the same frozen SHAs and package set.
+  - A coverage report of equivalent, adapted, restricted and missing items.
+  - Bucket 5 marked done.
+- **Parallelization: SERIAL coordinator.**
+  - The Mac gate chain runs strictly in order.
+  - CI tiers run remotely.
+  - Device agents run across devices, within the Mac's two-at-a-time limit.
+  - Any fix restarts the run.
+
+---
+
+## Where sub-agents help and where they do not
+
+| Helps | Rule |
+|---|---|
+| Read-only swarms (audits, inventories, attribution, triage over logs) | No worktree. Waves of at most 10. Run them during gate windows, never during quiet rounds. Inventories of the next bucket may run early. |
+| Throwaway experiments | Instructions retired at `--jobs 1` (repeatable within about 0.3% under load) are valid **only for single-thread algorithmic cuts**. Allocator swaps, parallel analysis, arenas, ARC contention and the resident compiler go on a **quiet-window queue** (nightly, with your checklist). Save patches, never commits. |
+| Test authoring | Authors write new, disjoint test modules and may share one worktree with a pinned `BTRC_TEST_BTRCC`. A fixer always gets its own worktree. Expensive matrices go in opt-in tiers. |
+| Implementation lanes | Disjoint files only. **Every writer has its own worktree from the hub clone.** Lanes deliver unsigned branch commits, and never commit derived artifacts. |
+| Python/btrc halves | Each perf or language item is labelled one of two ways:<br>• **"paired, one commit"**: both halves from one written spec<br>• **"single-compiler internal"**: no observable output change; that compiler's emitted units are byte-identical to its own previous output; precedent `fcdbd6d`<br>Anything that changes observable behavior is paired, or you record a parity exception. |
+| Adversarial reviewers | Use them on schema commits, reuse-key, journal and memo designs, the interop plan, UI contract packets, and C constructs (one parity reviewer each). Their output is new invalidation rows or tests, and they reuse the lane's btrcc. |
+| Remote hosts | One agent per machine. The NixOS host and CI are the only truly separate machines. |
+
+| Does not help | Rule |
+|---|---|
+| Gates | The batch gate is the reference's §2 list (see D5). Only the main session runs it, one at a time. `make bootstrap` never runs beside the suite or a guest.<br>**Load rules:**<br>• Before Stage 2's daemon-deadline fix, only read-only agents run during any gate.<br>• After it, at most one agent build beside `make test`, and none beside `test-c11` or bootstrap. |
+| Wall-clock measurements | Quiet machine: your checklist, no agents, no guest. The remote agent pauses locally. |
+| Shared specs | `grammar.ebnf`; `ast.asdl` plus generated code; `native_abi.asdl`; `hosted_abi.toml` plus generated code; `intrinsic_effects.toml` (owned by the Stage 19 vocabulary owner); `src/runtime/c` plus manifest; the boundary manifest. One owner per schema commit. |
+| **Derived artifacts** | No lane commits any of these: `src/stdlib/btrc.symbols`, `src/stdlib/btrc.lock`, `src/devex/lsp/catalog/generated.py`, boundary re-captures, the `source_count` and `INCLUDE_FIXTURES` updates, or `GUI/btrc.toml` and other `btrc.toml` exports. Lanes submit manifest fragments. |
+| Hotspot files (one owner at a time) | • **Compiler:** `pipeline/ModuleUnits.btrc` with `application/modules.py`; `cli/Driver.btrc`; `pipeline/Pipeline.btrc`; `ir/Emitter.btrc`; `backend/c_emitter.py`; `syntax/Identity.btrc`; `tools/compiler_codegen/ast.py` with generated `Node.btrc`<br>• **Tools:** `tools/native_plan.py`; `tools/budget_bench.py`; `Makefile`; `conftest.py`; `flake.nix`, `flake.lock` and `nix/*`<br>• **The 100-file inventory:** `test_compiler_structure_contract.py`, `docs/design/compiler-structure.md`, AGENTS.md<br>• **Docs:** `docs/design/compile-performance.md`, `separate-compilation.md`, PLAN.md, CLAUDE.md. Lanes write JSON; the integrator writes the tables.<br>• **UI:** IView, IWindow and `App.btrc`<br>• **BTRSmith:** ApplicationSession, ApplicationView, GUIApplication and the Make graph |
+| Parsers | `Parser.btrc` and `parser.py` are touched by every C lane, so they are not single-owner. Shared body parsing lands first, as `_parse_body`, then lanes merge in a set order and rebase. |
+| Google Drive | Agents never work in the Drive checkouts or in worktrees whose gitdir lives in Drive. They work from `~/.cache/btrc/hub.git` and `~/.cache/btrsmith/hub.git`. The integrator fetches batches into Drive. Gates never run from Drive. Check `git status` at the start of every stage. |
+| Disk and RAM | • **Free disk** re-checked at every stage start.<br>• **`build/test-btrcc`:** LRU prune before every wave.<br>• **btrcc builds:** the `btrcc-build` semaphore allows N=2. The integrator builds one btrcc per base SHA, and lanes pin it. That is sound unless a lane edits a compiler stdlib import (the root prelude, FileSystem, Digest, BackgroundJobs, Process, Platform, IO, JSON, TOML, Datetime, Console); such a lane builds its own and runs bootstrap.<br>• **Writer worktrees:** at most 4 before the podman shrink, 6 after.<br>• **BTRSmith clones:** 1 before the shrink, 2 after. Clean test outputs after each run, and sign behind `locks/signing`.<br>• **Guests:** podman 24 GiB, Windows VM 8 GiB, emulator 4 GiB. At most one beside a gate, none during bootstrap or a quiet round. Never put caches in `/tmp`. |
+| GUI capture and devices | One queue per window server and per device. Devices driven through the Mac count against it, at most two at a time. Human-in-the-loop sessions are serial. |
+| Authority | Agents never push (D4: you approve each batch), never close issues (they post evidence; you close), never change system settings (Spotlight, Time Machine), never enter credentials, and never accept agreements. Signing: agents commit unsigned, and the integrator signs when the 1Password agent is available, otherwise commits unsigned rather than stall. |
+| Duplicate items | Each pair runs as one unit:<br>• `platforms-p0-matrix-pin` and `tooling-p0-toolchain-matrix`<br>• `ui-0-product-journeys` and `btrsmith-ui0-callers`<br>• `ui-4/5/6/7/9-btrsmith-*` and the matching `btrsmith-ui-slice*`<br>• `ui-10-btrsmith-mobile` and `slice5`<br>• `ui-10-automation-diagnostics` and `qualification-p5-journey-drivers`<br>• `ui-6-stress-fixture` and `qualification-catalog-fixtures`<br>• `qualification-ci-btrsmith` and `btrsmith-q-ci`<br>• `tooling-audio-loopback-rig` and `qualification-p6-audio-latency-rig`<br>• `tooling-target-debuggers` inside `qualification-p7-devtools-targets`<br>• `platforms-p4-dependency-crossbuild` and `btrsmith-package-closure` |
+
+**Merge-batch procedure (one integrator sub-agent per stage):**
+1. Fetch the lanes' unsigned branches from the hub, and rebase them in the stage's merge order.
+2. Apply the `btrc.toml` fragments. Run `make compiler-codegen-generate`, re-resolve the stdlib lock, and regenerate `btrc.symbols` and the LSP catalog.
+3. Re-capture boundary records with reasons, and update `source_count` and the fixture lists. Write the docs tables from the lanes' JSON. All of this goes in one merge commit.
+4. Build one btrcc for the new base SHA, so the next wave can pin it. Prune `test-btrcc`.
+5. Hand the batch to the main session for the D5 gate, and push `ci/<batch>` only with your OK.
+6. If the gate is green, fetch into the Drive checkout. If it is red, run D5's revert-bisect and send the culprit back to its lane.
+
+## Ultracode recommendation
+
+**Yes, at the named fan-out points, after a measured pilot.**
+
+Progress is bounded by:
+- the serial gate and schema/interop chains
+- quiet measurement windows
+- your approvals and procurement
+- one window server and GPU
+- disk
+- integration throughput
+
+Agent count is not the limit. Ultracode pays off where work is token-bound, read-only, or confined to disjoint files. It also shortens the implementation-bound stages (16–19, 25, 28, 34–36). Each Workflow stage gets one integrator sub-agent running the merge-batch procedure, so the main session stays coordinator and gate runner.
+
+| Use a Workflow | Shape | Fan-out width (agents) |
 |---|---|---|
-| 79f225c | instance records keyed by each section's own dependencies | navigation instance closure 192+85r -> 1+276r, g-transitive 3.69 s -> 2.35 s |
-| 7a60afe | Fibonacci-mixed reference hash (both compilers) | cold 1,189.6 G -> 1,158.6 G; navigation g-transitive 2.31 s -> 1.16 s |
-| 270d4d8 | stable merge sort in `Vector` | edits -7% (audio 151.6 G -> 140.8 G); cold +1.6% |
-| aaa3b8e | reader traces directories by identity | n-bindings after a store write 3.05 s -> 0.45 s |
-| 330d7fd | reader runs without `BTRC_TIMING` | timing on/off no longer misses 3.7-4.0 s of headers |
-| 1803d55 | reader proves session-wide facts once | one receipt session 4.90 s -> 2.79 s |
-| 331ca12 | image digest in identities, slim receipts | receipts 164 KB -> 14.7 KB; one session 3.0 s -> 2.4 s |
-| 411a952 | artifact entries opened beside a kept root | audio 139.9 G -> 136.2 G |
-| 8ae7a69 | realtime events kept to the first effect | r-index 0.47-0.70 s -> 0.08-0.28 s |
-| d3262fe | preprocessor scan bounded by cached length | lex 0.46 s -> 0.37-0.40 s |
-| 641f612 | one realpath per directory in validation | audio 136.2 G -> 126.0 G (with the two above) |
-| 01bdd7e | no global seed for foreign bodies | l-declarations 0.92 s -> 0.70-0.78 s; audio 126.0 G -> 122.2 G |
-| 4204182 | same for foreign generic-instance methods | audio 122.2 G -> 120.3 G |
-| 8a2f458 | AST walks read lazy list storage | l-setup 0.49-0.60 s -> 0.17 s; audio 120.3 G -> 112.5 G |
-| 95e3722 | whole-tree walks skip unset fields | visibility 0.44 s -> 0.32 s; audio 112.5 G -> 109.7 G |
-| aa09eb1 | directive cache beside a kept root | audio 109.7 G -> 109.2 G |
-| cf0b494 | reader trusts immutable store objects | native receipts 1.40-1.50 s -> 1.04-1.16 s; n-prepare 0.57 s -> 0.42-0.46 s |
-| 2d15f17 | link toolchain queried beside receipts | link context 0.51 s -> 0.30 s |
-| 2bf5b31 | inline worker takes setjmp summaries as values | u-solve 0.80-0.99 s -> 0.42-0.61 s; audio 109.2 G -> 106.3 G |
-| 6a16645 | objects restored by link, hashed once | debug inventory 0.075 s -> 0.044 s |
-| 60273a4 | group source lines digested once | u-sources 0.21 s -> 0.05 s; audio 106.3 G -> 104.6 G |
-| 35b51de | native declarations imported only when compiling | no-op compile 1.92-1.96 s -> 1.54-1.57 s; edits unchanged |
-
-Net on the audio edit at `--jobs 1`: 151.6 G -> 104.6 G instructions (-31%).
-Rejected after measuring (reverted): a first-byte scan in `Strings.split`
-(no change, 109.7 G vs 110.4 G) and a compiled hex pattern in the native
-plan's receipt reads (1.13 s either way).
-
-**First batch on main: 35b51de.** Full run, all scenarios:
-
-| Target | Budget | Median | p95 | Met |
-|---|---|---|---|---|
-| private-body edit, navigation | median <= 10 s, p95 <= 15 s | 11.08 s | 11.23 s | median no |
-| private-body edit, UI controller | median <= 10 s, p95 <= 15 s | 11.15 s | 11.25 s | median no |
-| private-body edit, audio-adjacent | median <= 10 s, p95 <= 15 s | 10.70 s | 10.94 s | median no |
-| cold transpile, empty caches | <= 55 s | 44.45 s | 46.03 s | yes |
-| cold dev build, executable | <= 80 s | 60.83 s | 61.36 s | yes |
-| no-op | <= 5 s | 3.24 s | 3.27 s | yes |
-| byte-identical touch | <= 5 s | 3.27 s | 3.32 s | yes |
-| btrcc peak footprint, `--jobs 1` | <= 3 GiB | 2.944 GiB | | yes |
-| sampled aggregate build RSS, 8 native jobs | <= 6 GiB | 4.975 GiB | | yes |
-
-Every clean-build check matched (18,012 function bodies, same smoke output).
-Gates on 35b51de: lint and format-check pass; `make test` 12,430 passed, 142
-skipped; `make bootstrap` passed; `make test-c11` 8 x 1,934 passed.
-
-**Second edit-path batch (3033598..65057cb).** Measured like the first, each
-binary compiling the same stdlib input from primed snapshots (instructions at
-`--jobs 1`), or, for the native plan, alternating fresh audio edits:
-
-| Commit | Change | Measured |
-|---|---|---|
-| 3033598 | type-node misses skip the full node index | navigation g-transitive 0.85 s -> 0.79 s; UI c-declarations 0.43 s -> 0.34 s |
-| fcdbd6d | type identity keys built in one builder | g-transitive 0.50 s -> 0.33 s on every fixture; navigation 106.9 G -> 102.7 G |
-| f82e03e, 57aeb63, 5397c50 | split scans with strcspn; group digests streamed; one realpath per output directory (measured together) | navigation 102.7 G -> 101.2 G, UI 107.4 G -> 106.0 G, audio 100.0 G -> 98.3 G |
-| de43e8b | package policy asked only about referenced owners | visibility 0.32-0.34 s -> 0.26 s |
-| 3390d43 | Bytes scanned eight ASCII bytes at a time | u-record-load 0.37 s -> 0.29 s; navigation 101.1 G -> 99.9 G |
-| 3cd4764 | an edit's publication reads unchanged outputs once | navigation 99.9 G -> 98.7 G, UI 104.3 G -> 103.7 G |
-| ecf6774 | a stored generation references stored module units (schema 2) | navigation 98.7 G -> 98.0 G, UI 103.7 G -> 102.6 G; 407 of 410 payloads referenced; no-op compile 1.40 s -> 1.44 s |
-| d6ee6c8 | declarations-only lowering shares only foreign signatures | l-declarations 0.73 s -> 0.58 s; navigation 98.0 G -> 94.8 G; peak 1.06 -> 0.98 GiB; every emitted unit byte-identical |
-| af2d5ee | source content digested with the host's SHA-256 | r-graph 0.49 s -> 0.43 s; navigation 94.8 G -> 93.5 G |
-| 1a5530d | declaration symbols claimed once per program | navigation 93.5 G -> 93.0 G, UI 98.4 G -> 97.7 G |
-| fc581ee | the Python compiler API resolves on first use | `import tools.native_plan` 0.20 s -> 0.05 s |
-| 63b11aa | deferred objects validated beside debug retention and link expansion | native edit 2.73 s -> 2.44 s median of 4 alternating pairs, with fc581ee |
-| 65057cb | retention shares verified object identities with the link receipt | link context 0.10 s -> 0.05 s |
-
-Net at `--jobs 1` since 35b51de: navigation 107.7 G -> 93.0 G, UI 112.5 G ->
-97.7 G, audio 103.9 G -> 90.2 G (-13%). Rejected after measuring: indexing
-declarations lazily for codec lookups (101.2 G -> 101.5 G: lookups mostly miss
-and walk everything anyway) and 4, 6 or 12 receipt sessions instead of 8
-(1.08 / 1.05 / 1.30 s against 0.99 s).
-
-**Every M11 target met: 65057cb.** Full run, all scenarios, same harness
-(`tools/budget_bench.py`), btrcc built by clang `-O2` from the same tree:
-
-| Target | Budget | 35b51de median | Median | p95 | Max | Met |
-|---|---|---|---|---|---|---|
-| private-body edit, navigation (20) | median <= 10 s, p95 <= 15 s | 11.08 s | 9.62 s | 9.79 s | 10.09 s | yes |
-| private-body edit, UI controller (20) | median <= 10 s, p95 <= 15 s | 11.15 s | 9.69 s | 9.80 s | 9.89 s | yes |
-| private-body edit, audio-adjacent (20) | median <= 10 s, p95 <= 15 s | 10.70 s | 9.31 s | 9.57 s | 9.73 s | yes |
-| cold transpile, empty caches (5) | <= 55 s | 44.45 s | 43.57 s | 45.88 s | 45.88 s | yes |
-| cold dev build, executable (5) | <= 80 s | 60.83 s | 59.76 s | 60.10 s | 60.10 s | yes |
-| no-op (20) | <= 5 s | 3.24 s | 2.92 s | 2.96 s | 2.97 s | yes |
-| byte-identical touch (20) | <= 5 s | 3.27 s | 2.91 s | 2.96 s | 2.98 s | yes |
-| btrcc peak footprint, `--jobs 1` | <= 3 GiB | 2.944 GiB | 2.966 GiB | | | yes |
-| sampled aggregate build RSS, 8 native jobs | <= 6 GiB | 4.975 GiB | 4.828 GiB | | | yes |
-
-After each fixture's samples a clean build emitted the same 18,012 function
-bodies and printed the same smoke output. The cold `--jobs 1` compile retired
-1,084.7 G instructions (1,124.8 G on 35b51de). Gates on 65057cb, from a
-worktree outside Google Drive: lint and format-check pass; `make test`
-12,431 passed, 142 skipped; `make bootstrap` passed; `make test-c11`
-8 x 1,934 passed.
-
-**Where an edit goes now** (navigation medians): btrcc 7.32 s, of which the
-phases account for 6.86 s -- whole-program parse and lex 0.95 s, instance
-replay 0.63 s (0.33 s without a fresh instance), declarations-only lowering
-0.84 s with generic classes, source resolution 0.39 s, native header import
-0.66 s, record parsing 0.34 s, validation records 0.32 s, visibility 0.26 s --
-and publication with process start and exit the rest; the native plan 2.32 s,
-of which about 0.9 s is receipt validation of the 410 unchanged units and
-0.54 s the link.
-
-**The final targets remain open.** Edit <= 5 s, cold dev build <= 13.5 s,
-transpile <= 10 s and a 1.5 GiB compiler peak are not met: every edit still
-parses, resolves and analyzes the whole program and lowers every declaration
-once, and the native step alone costs 2.3 s. Closing them needs Stage B's
-remaining step (skip analysis and lowering of unchanged groups), a per-file
-parse cache and receipts that do not revalidate unchanged units one session
-at a time. The `--jobs 1` peak is 35 MiB under its M11 budget.
-
-Found on the way, and fixed the same day: every debug edit left a new 46 MB
-`.btrc-debug-v1-*` object generation beside the executable (18 after a bench
-run) -- each output now keeps only the two it needs (1cadaf4) -- and native
-identities hashed the whole process environment, so a build from a shell
-with one different variable re-read every header and rebuilt every unit once;
-they now key only on the variables the tools read (ab1f68f). Both are
-described in `docs/design/compile-performance.md`.
-
-### Bucket 1 KPI checkpoint
-
-The **unchanged-build latency objective is closed** under the September 22
-user-approved ≤5 s target on the measured macOS workload. Edit/cold and broader
-qualification targets remain open. The chronology below retains earlier
-measurements and superseded 2 s goals; it does not override the current scope. The September 21
-actual `make btrsmith-native` runs use BTRSmith `5549c261` plus the product Make
-repairs and working-tree compiler on macOS. Both frontends now pass the real
-dev-to-release and native-option invalidation probes. The earlier Make shortcut
-failed preserved-timestamp edits, removed sources and byte-identical touches.
-The entry point now delegates validation to both tools on every invocation;
-real compiler/native fixtures pass those cases under system and GNU Make.
-The earlier fast unchanged-build timings therefore do not qualify the no-op KPI. See the
-[actual-make evidence](docs/design/compile-performance.md#actual-product-make-baseline-september-21).
-
-Before SDK dispatch, Darwin link reuse measured **10.293 s self-host /
-9.810 s reference warm medians** at the actual Make entry point, five repeats
-each after a seed.
-Every warm invocation hits the compiler artifact cache, reuses all native
-objects (17 self-host / 39 reference) and performs **zero links**. Executable
-bytes/inodes/mtimes and emitted-generation/ownership metadata remain unchanged;
-both executables retain complete debug maps.
-
-Bounded SDK dispatch is now qualified on the actual Make entry point:
-**9.222 s self-host / 9.043 s reference warm medians**, five repeats each.
-All ten warm builds retain the complete emitted generation and executable,
-hit compiler/object caches, and perform zero compiles and zero links. Both
-debug maps remain valid, and production/product/test inputs stay unchanged.
-At that checkpoint, the two-second KPI was unmet by **7.222 s / 7.043 s**. These sequential
-measurements do not isolate the SDK component's contribution. Separate 50 ms
-full-process-tree diagnostics sample peaks of **714.2 / 686.1 MiB**; they are
-lower bounds on true peak, not required-host memory acceptance. See the
-[SDK dispatch product evidence](docs/design/compile-performance.md#bounded-sdk-dispatch-product-measurement-2026-09-21).
-Five alternating native-only pairs measure 2.617 → 2.631 s self-host and
-4.663 → 4.732 s reference: validation replaces approximately the same amount
-of work as linking, so no elapsed-time improvement is established. Native
-process peak RSS falls from about 175/183 MiB to 92/94 MiB respectively; this
-is not aggregate full-build memory. Supported receipt admission requires two
-links, so cold/miss cost must also be included in future acceptance runs.
-
-Owned digest reuse now improves the actual self-host Make command from
-**9.035 s → 8.341 s median** in five alternating baseline/current pairs:
-**0.694 s (7.7%)** saved. The reference control measures **9.169 s median**
-over five warm runs; its compiler implementation is unchanged by this step.
-All 15 warm runs retain outputs, hit compiler/object caches and perform zero
-compiles/links. Both debug maps pass; source, test, tool and product inputs are
-unchanged. At that checkpoint, the no-op gaps were **6.341 s self-host / 7.169 s reference**.
-Separate sampled process-tree peaks are **708.7 / 689.2 MiB**, lower bounds on
-true peaks. Six system/GNU Make check invocations pass on the new compiler.
-CLI/structure/frontend-I/O coverage passes 156 tests with two platform skips;
-GCC digest/corruption/publication coverage passes 11 tests without skips.
-Generated-source, lint and Python formatting checks pass. The full final-tree
-and required-host matrix remains open. See the
-[alternating actual-Make comparison](docs/design/compile-performance.md#owned-digest-reuse-actual-make-comparison-2026-09-21).
-
-SDK-cache integration in both frontends now measures **8.285 → 7.021 s
-self-host medians** in five alternating baseline/current pairs, saving
-**1.264 s (15.3%)**. The reference measures **7.748 s** across five current warm
-runs. All 15 warm builds hit compiler/object caches, retain outputs and perform
-zero native compiles/links. The current SDK receipts remain unchanged throughout
-each warm series; both debug maps pass and all 1,314 recorded inputs remain
-unchanged. At that checkpoint, the no-op gaps were **5.021 s self-host / 5.748 s reference**.
-Separate sampled process-tree peaks are **713.6 / 683.7 MiB**. Empty-SDK-cache
-runs with warm compiler/native artifacts retain outputs and sample
-**713.2 / 688.5 MiB**; their instrumented 10.096 / 11.119 s wall observations
-are diagnostics, not headline KPI samples. All are lower bounds on true peak.
-The combined reader/cache, lifecycle, frontend-I/O and structure run passes
-268 tests with one `/dev/full` skip; frontend integration passes another 47.
-Six system/GNU Make check runs pass. See the
-[SDK-cache actual-Make comparison](docs/design/compile-performance.md#sdk-cache-actual-make-comparison-2026-09-21).
-
-Worker-failure and cleanup qualification now passes through the actual Make
-entry point at **7.053 s self-host / 7.697 s reference**, five warm samples each.
-All ten retain outputs and SDK receipts, reuse all objects and perform zero
-compiles/links; debug maps pass and all 1,317 recorded inputs stay unchanged.
-These are current measurements, not a paired speedup claim for cleanup. Current
-no-op gaps are **5.053 / 5.697 s**. Separate sampled process-tree peaks are
-**711.4 / 684.4 MiB**, lower bounds rather than memory acceptance. The final
-reader/cache suite passes **215 tests** and frontend integration **47**, with
-no skips. Launch failure falls back, crashes remain failures, live child/writer
-leases prevent premature collection, and abandoned captures/partial publications
-are collected without changing prior entries. See the
-[cleanup checkpoint](docs/design/compile-performance.md#sdk-worker-failure-and-interruption-cleanup-2026-09-21).
-
-Native physical-header identity is now repaired on the POSIX Clang path, and
-its decoder/reconciliation work is optimized. The actual Make recheck measures
-**6.720 s self-host / 7.407 s reference**, five warm samples each, leaving
-**4.720 / 5.407 s** to the two-second goal. All ten retain outputs and SDK
-receipts, reuse all 17/39 objects, perform zero compiles/links and pass debug-map
-checks; all 1,319 recorded inputs remain unchanged. This is a current checkpoint,
-not a paired estimate of the repair's speedup. The 185 existing native build,
-link, debug and performance tests and 15 new final identity regressions pass;
-12 GCC cache checks also pass. See the
-[physical-header repair](docs/design/compile-performance.md#native-physical-header-identity-repair-2026-09-21).
-
-The preceding native process-worker checkpoint measured **7.079 → 7.027 s self-host /
-7.766 → 6.814 s reference** in five alternating actual-Make pairs per frontend.
-Self-host is effectively flat; reference saves **0.952 s (12.3%)**. All 20 warm
-runs retain outputs and SDK receipts, reuse all objects and perform zero
-compiles/links. Debug maps pass and all **1,324 recorded inputs** remain
-unchanged. Separate process-tree samples rise from **709.8 → 1,066.0 MiB
-self-host / 677.1 → 1,000.4 MiB reference**. This is an explicit memory-for-time
-tradeoff, not a memory optimization or required-host acceptance. The existing
-200 native cases, six final process-boundary cases and four packaged CLI cases
-pass; the latter use Python 3.14, separately from Python 3.13 product timing.
-See the [process-worker comparison](docs/design/compile-performance.md#bounded-native-process-workers-2026-09-21).
-
-Earlier single cold samples were **127.646 s self-host / 349.113 s reference**,
-from before debug retention and link reuse; a qualifying cold distribution is
-still outstanding.
-These are local macOS diagnostics with working-tree overrides, not installed,
-pinned or required-host qualification. Inputs stayed unchanged during all
-24 native and 12 actual Make runs. The native-builder/debugger/performance
-selection passes 185 tests without skips; both Make versions pass product
-checks. See the [earlier evidence](docs/design/compile-performance.md#darwin-executable-reuse-2026-09-21).
-
-**Latest: integrated native preprocessing receipts.** Five alternating
-actual-Make pairs per frontend measure **6.596 → 6.245 s self-host** and
-**6.314 → 5.794 s reference**, savings of **0.352 s (5.3%) / 0.520 s (8.2%)**.
-Both variants use the same final reader, so this comparison isolates the
-consumer integration; it does not separately measure the shared platform-hash
-change against the earlier checkpoint. All 20 warm runs retain outputs and SDK
-receipts, hit every object, and perform zero compiles/links. The current path
-hits all 17/39 preprocessing receipts. All **1,330 recorded inputs** remain
-unchanged and debug maps pass. Separate sampled process-tree RSS falls from
-**1,065.0 → 304.3 MiB self-host / 1,030.0 → 551.9 MiB reference**; these are
-sampling lower bounds, not peak-memory guarantees. See the
-[consumer evidence](docs/design/compile-performance.md#native-preprocessing-consumer-integration-2026-09-21).
-
-Structured trace sharing now measures **6.408 → 6.139 s self-host /
-6.044 → 5.612 s reference** in five alternating actual-Make pairs
-per frontend. All 20 warm builds hit compiler/native caches, retain outputs and
-SDK receipts, and perform zero compiles/links; debug maps pass and all
-**1,330 recorded inputs** remain unchanged. The helper passes **293 tests**
-without skips and all **56 product parity units**. Native-only warm medians
-improve 2.000 → 1.884 / 2.996 → 2.630 s; cold medians are effectively unchanged.
-Separate process-tree RSS samples are **302.2 → 303.6 MiB self-host /
-551.8 → 552.6 MiB reference**, lower bounds on true peaks. The initial
-Make attempt lost unrooted Nix helpers; it is preserved and excluded from this
-complete rerun. Both helpers now have GC roots. See the
-[structured-trace evidence](docs/design/compile-performance.md#structured-filesystem-trace-sharing-2026-09-21).
-
-Grammar-derived operator lookup now measures **5.902 → 5.467 s self-host**
-in five alternating actual-Make pairs: **0.435 s (7.4%)** saved.
-The unchanged reference control measures **5.306 s** over five warm runs.
-Baseline and candidate binaries used the same Apple Clang build recipe; the candidate reaches a
-byte-stable self-host fixed point. All 15 timed builds hit compiler/native caches,
-retain outputs and SDK receipts, and perform zero compiles/links. The final
-compiler passes **74 focused tests**. The source-graph phase falls from
-**1.230 → 0.832 s**; this is a diagnostic
-phase comparison, not an additional wall-time saving. Separate 50 ms process-tree
-RSS initially sampled **307.4 → 353.3 MiB self-host**. Three subsequent
-alternating pairs measured median **304.1 → 308.5 MiB** (+4.3 MiB / 1.4%);
-the 353 MiB observation did not recur. All are sampling lower bounds, with
-true peak-memory qualification still open. See the
-[operator-lookup evidence](docs/design/compile-performance.md#grammar-derived-operator-lookup-2026-09-21).
-
-Native macOS artifact hashing now measures **5.763 → 4.910 s self-host**
-in five alternating actual-Make pairs: **0.854 s (14.8%)** saved.
-The unchanged reference control measures **5.977 s** over five warm runs.
-Both variants use matching Apple Clang builds and current source inputs. All
-15 timed builds retain outputs/SDK receipts and perform zero compiles/links.
-The native compiler reaches a byte-stable self-host fixed point and passes
-**410 focused tests**, with one Windows-only skip. Its artifact-hit phase falls
-**1.277 → 0.420 s**.
-This optional managed provider uses the checked SDK binding; ordinary SHA256
-and portable compiler entries retain their SDK-independent implementation.
-See the [native digest evidence](docs/design/compile-performance.md#native-artifact-digest-2026-09-21).
-
-The Make checkpoint precedes a subsequent Python startup repair: host integer
-widths now use native-size `struct` instead of loading `ctypes`, whose Nix
-libffi dependency aborts on this host. The numeric suite passes 27 checks;
-the native Nix package now builds, and a compiler rebuilt from it reaches a
-byte-stable fixed point and passes 152 focused checks (one Windows-only skip).
-Keep final-tree performance/host qualification open.
-
-The subsequent directive-cache comparison measures **4.673 → 4.526 s self-host**
-in five alternating actual-Make pairs: **0.147 s (3.1%)** saved. The unchanged
-reference control measures **5.586 s** over five warm runs. All 15 timed builds
-retain outputs/SDK receipts and perform zero compiles/links; all 444 self-host
-directive entries retain their bytes and metadata. The source graph falls from
-**0.840 → 0.707 s**. The formatted compiler reaches a byte-stable fixed point and
-passes **375 focused checks**, with one `/dev/full` skip on macOS. Separate
-50 ms tree-RSS observations are **307.2 → 302.4 MiB self-host / 551.2 MiB reference**,
-all sampling lower bounds. Compare against this run's paired baseline; differences
-from earlier checkpoints do not isolate an optimization. See the
-[directive-cache evidence](docs/design/compile-performance.md#directive-cache-candidate-and-interface-prerequisite).
-
-Vocabulary identity reuse now measures **4.703 → 4.611 s self-host** in five
-alternating actual-Make pairs, saving **0.091 s (1.9%)**. The unchanged reference
-control is **5.567 s**. All 15 timed runs retain outputs and SDK receipts with
-zero compiles/links; all 1,350 input fingerprints stay unchanged. The source
-graph falls **0.743 → 0.643 s**. The candidate reaches a byte-stable self-host
-fixed point and passes **213 focused checks without skips**. See the
-[vocabulary identity evidence](docs/design/compile-performance.md#vocabulary-identity-reuse).
-
-Absolute-path trace keys subsequently measure **4.388 → 4.248 s self-host /
-5.283 → 5.062 s reference** in five alternating pairs per frontend, saving
-**0.140 s (3.2%) / 0.221 s (4.2%)**. Both use the same freshly qualified compiler;
-only the native helper differs. All 20 timed runs retain outputs and receipts,
-hit all 17/39 preprocessing entries and perform zero compiles/links. All 1,357
-input fingerprints stay unchanged. The two-second gaps are **2.248 / 3.062 s**.
-The candidate passes 445 focused checks without skips; its interface-generic
-prerequisite reaches a raw byte-stable fixed point. These local warm results
-do not close full final-tree, cold/edit, package or required-host qualification.
-
-Production shared trace fragments now measure **4.249 → 4.180 s self-host /
-4.995 → 4.732 s reference** in five alternating pairs per frontend, saving
-**0.070 s (1.6%) / 0.263 s (5.3%)**. All ten pairs favor the candidate; all
-20 timed builds retain outputs, SDK/native receipts and fragment files, hit
-all 17/39 preprocessing entries, and perform zero compiles/links. All 1,362
-input fingerprints remain unchanged. The new format passes **463 focused
-checks without skips**. Five paired cold-helper samples per frontend add
-0.113/0.156 s to capture/publication; full product cold qualification stays open.
-
-| KPI | Delivery goal | Latest recorded evidence | Remaining proof |
-| --- | --- | --- | --- |
-| No-op build, either frontend | **≤5 s; latency objective closed by user** | Actual Make: self-host 4.180 s / reference 4.732 s medians; all 10 current samples <5 s, full hits and zero compiles/links | Retain regression guard; required-host evidence remains separate. No further no-op optimization campaign. |
-| Self-host body edit | ≤10 s at M11; final ≤5 s median / ≤8 s p95 | 92.095 s navigation edit median in two matched pairs; other two fixtures retain their earlier single-sample diagnostics | Separate compilation and real edit workloads on the required hosts |
-| Cold self-host dev executable | ≥10×; working 13 s budget, ≤min(20 s, frozen baseline / 10) | 97.427 s actual-Make median in two matched pairs; 3.35% faster than their 100.803 s baseline | Actual entry point, pinned product/toolchain, 5 cold samples and final gates |
-| Cold self-host compiler command | M7 ≤55 s; final ≤10 s | 88.750 s cold compiler median in the matched pairs, including artifact storage/output publication | Repeated phase/wall/RSS evidence; separate pipeline and publication costs |
-| Cold reference dev executable | Final ≤75 s median | 349.113 s in one actual-Make diagnostic before debug-input retention | Pinned product/toolchain, 5 cold samples and final gates |
-
-The historical 101 s cold build, September 20 direct CLI diagnostics and these
-actual-make runs use different conditions; do not label their differences a
-speedup or regression. Publication repairs have correctness evidence, not a
-demonstrated improvement in these KPIs. The settings repair has correctness
-evidence; preserve the remaining invalidation/qualification gaps.
-
----
-
-## M6a: historical path from nine seconds toward the retired two-second target
-
-**Superseded September 22:** the user closed unchanged-build latency at ≤5 s.
-The analysis and allocations below are historical evidence, not active gates or
-assignments. The unfinished SDK preparation/projection change is shelved as a
-verified patch; production sources retain the previously qualified behavior.
-The active assignment is the cold/edit campaign in section 8.
-
-**Nine seconds is not close to the two-second goal.** The latest paired
-actual-Make checkpoint measures **4.180 s self-host / 4.732 s reference**.
-Self-host still needs **2.180 s removed (52.2%, or 2.09× faster)**;
-reference needs **2.732 s removed (57.7%, or 2.37× faster)**.
-Shared trace fragments save 0.070/0.263 s against their paired baselines.
-Earlier vocabulary reuse, directive reuse and native artifact hashing were
-qualified in separate comparisons; do not attribute differences between those
-runs to this change. Both warm builds already perform zero native compiles and
-zero links. The remaining problem is the cost of proving cached results valid.
-
-Use these proposed component budgets to direct M6a experiments. They total
-**2.0 s** and are engineering allocations, not achieved results or forecasts.
-Phase medians and instrumented profiles are diagnostic; they do not add up to
-an exact wall-time decomposition. End-to-end Make measurements decide success.
-
-| Component | Current evidence | Proposed warm budget | Required change / proof |
-| --- | --- | --- | --- |
-| Source and configuration resolution | Self-host source graph: 0.611 s at fragment qualification | 0.3 s | Remaining reads/path work stays open; prioritize the larger native receipt cost before further cache-lifetime changes. Retain every alias binding and original-read validation. Preserve import removal, search order, package changes and edits with preserved timestamps. |
-| Native SDK validation | Self-host SDK phase: 1.020 → 0.986 s with shared trace fragments | 0.4 s | Reduce remaining preparation/validation/consumption cost while retaining complete tool, SDK, options, dependency and search-path identity. Old dependency lists alone cannot detect newly shadowing headers; do not admit an unsound cache. |
-| Emitted artifacts and publication | Self-host identity/load: 0.403 s, plus publication outside that timer; optional native hashing qualified locally | 0.4 s | Measure remaining file reads, parsing and publication work. Retain current-file corruption checks, locking, atomic recovery and output metadata. |
-| Native object and executable validation | Native command medians: 1.346 s self-host / 1.802 s reference; initial receipt batch alone 0.955/1.374 s | 0.7 s | Profile duplicated receipt metadata, per-unit runtime/context preparation, fresh driver expansion and blob consumption. Share verified inputs only within proven ownership/lifetime boundaries. Preserve header shadowing, native options, tool replacement, library identities and debug inputs. Another hash-only memo is unjustified without new evidence. |
-| Make/process startup and remaining overhead | Not separately isolated yet | 0.2 s | Measure the residual after the above changes and remove redundant orchestration; include startup and teardown in the real Make timing. |
-
-**Implementation order within M6a:** warm receipt sharing, indexed operator
-lookup, native macOS artifact hashing, directive-range reuse, vocabulary
-identity reuse, absolute-path trace keys and shared trace fragments are
-qualified locally for warm builds. Fragment publication adds a measured
-0.113/0.156 s to cold helper work. Current v2 actual-Make owner profiling now
-separates runtime/provider setup, driver expansion and fresh filesystem checks.
-Follow-up self-host caller attribution now justifies testing deferred SDK
-semantic projection on artifact hits, with bounded retention and diagnostic
-ordering preserved.
-See the immediate checkpoint in section 8 for the measured breakdown and next
-proof. Reduce the dominant work before returning to source/path costs. Preserve negative observations, directory contexts, header shadowing,
-aliases, tool/options identity and content changes with preserved timestamps.
-Reprofile after each accepted change; these component budgets remain
-allocations, not guaranteed savings.
-
-The following checkpoints preserve the experiment history; the current Make
-results and component evidence above supersede their earlier KPI snapshots.
-
-The digest experiment processes the actual 197,096,694-byte emitted C payload.
-Through both frontends, two Clang-built SHA passes take about **1.83 s** and
-owned digest reuse about **0.92 s**; GCC takes about **2.68–2.74 s → 1.35–1.37 s**.
-That established roughly **0.9 s of component savings under Clang**. The subsequent
-alternating actual Make comparison now proves **0.694 s** saved on this local
-workload, bringing self-host to **8.341 s**, with **6.341 s** left to remove. The production
-composition has been implemented and rebuilt through two strict-C11 self-host
-stages. Cache/publication coverage passes 182 cases across the main run and an
-explicitly configured rerun of its one SDK skip. Broader final-tree qualification
-remains open; the subsequent focused CLI/structure/frontend-I/O selection passes
-156 tests with two platform skips, and GCC digest coverage passes 11 tests.
-This local measurement does not prove required-host or p95 acceptance.
-
-SDK validation now has an isolated feasibility result: replaying the actual
-16 reader groups under production capture limits takes **1.937 s**; a compact
-filesystem-witness verifier with cwd and opened-file checks takes **0.346 s**
-to recheck the recorded operations and hash **24,768,454 bytes**. These are
-separate component experiments, not an
-integrated cache or a new Make KPI. The product remains **8.341 / 9.169 s**.
-Fresh preprocessing alone takes **1.331 s** and is insufficient: equal hashes
-can conceal changed ABI layout or declaration columns. Do not use that shortcut.
-
-The next SDK implementation must bind semantic documents to the complete
-request/tool/environment identity and validate consumed bytes, negative lookups
-and path resolution. The revised diagnostic fixes cwd-sensitive deduplication,
-records each handle's opening cwd/mode, checks metadata around its buffer read,
-and preserves remapping behavior while disabling reuse for that unsupported
-case. Ten contract probes, four real-filesystem fixtures and an ASan/UBSan run
-over all 16 SDK groups pass. Byte-identical touches still conservatively miss.
-
-**Share validation across requests in one compiler invocation.** The revised
-verifier takes **0.870 s** as 16 processes under the current waves, rechecking
-**70,575,443 bytes / 33,333 operations**, versus **24,768,454 bytes / 9,901
-operations** in the shared validator. Compacting each group's JSON does not
-close the gap (**0.880 s** in a follow-up series). Keep selection authority
-and existing response limits per group; share filesystem validation only.
-Resolve tool/runtime identity, volatile macros, unsupported VFS/module/PCH
-behavior, private cache publication and concurrency before enabling reuse.
-Then qualify both frontends and actual Make timing before counting any saving. See
-[SDK validation feasibility](docs/design/compile-performance.md#sdk-validation-feasibility-2026-09-21).
-
-Input-contract follow-up: an isolated reader now captures Clang's effective
-invocation and its actual working directory before parsing, ordered selections,
-and a canonical digest of the complete environment. Used date/time macros,
-PCH, modules, plugins and virtual inputs reject reuse in the tested cases.
-The macOS runtime prototype also identifies loaded libraries: immutable Nix
-store and identified system shared-cache images qualify; mutable images do not.
-The input/runtime probes preserve all 16 actual SDK responses, with stable
-identities across repeats, and pass Apple ASan/UBSan qualification. Five groups
-emit `#pragma once in main file` warnings and are excluded by the conservative
-input predicate; implement faithful diagnostic retention/replay for them.
-This is still **not cache admission**: finish the external-input/side-effect audit
-(including serialized AST/module inputs and requested diagnostic/dependency
-outputs), implement other required runtime providers, then compose private
-storage and the shared validation session. The Make KPI is unchanged.
-
-The diagnostic tee experiment preserves semantics and emitted stderr for all
-five warning-producing groups, but its capture omits Clang's final warning
-summary in every case. It is not sufficient for faithful replay. Capture the
-complete bounded worker response in the session design; do not reconstruct the
-missing summary or suppress warnings to make these groups eligible.
-
-The next composition uses the expanded input guards and owned-buffer recorder:
-23 real-reader cases cover additional serialized/module inputs, API notes,
-external instrumentation/layout files and requested diagnostic/dependency/stats
-outputs. Six requested files are recreated by fresh extraction. Shared
-validation publishes successful observations only after a group passes and
-restores cwd on both success and failure; ten isolation cases and all 16 fresh
-SDK traces pass, including under ASan/UBSan. Recorded source buffers now own
-the bytes later parsed, independent of mutable VFS storage. These are isolated
-prerequisite implementations, not an enabled cache or a new build-time result.
-They are now composed in an experimental native-reader session and private
-cache. Its immutable Nix package gets **16/16 warm hits**, including all five
-warning-producing groups, with exact stdout/stderr retention and one shared
-package-resolution query. One warm lookup measures **0.766 s**; this is a
-component diagnostic, not a new Make result or the proposed 0.4 s SDK budget.
-Twenty-five cache contracts and five dependency/driver identity cases pass.
-Concurrent publishers/readers and an interruption after temporary-file creation
-retain valid prior entries. Receipt checksums, content-addressed response blobs,
-ownership/no-follow checks and filesystem validation reject corrupted or stale
-entries. See the [session/cache evidence](docs/design/compile-performance.md#native-sdk-session-and-persistent-cache-prototype-2026-09-21).
-
-The provider and session protocol now live in `tools/NativeHeaderReader.cpp`.
-Normal extraction creates no filesystem recorder, input/runtime digest owner or
-macro observers; cache publication opts into those costs. The installed Nix
-package preserves fresh stdout/stderr on all 16 recorded product groups and gets
-16/16 warm hits. Tracked cache regressions cover stale content, negative header
-lookups, corruption, warnings, unsupported inputs and concurrent publication.
-The initial full reader/cache suite passes **200 tests**, including semantic
-decoding through both compilers.
-
-Both frontends now prepare one shared SDK session per compilation, consume
-responses in binding order and recheck response sizes and SHA digests. Cache
-misses use private worker stages with complete stdout/stderr capture and normal
-cleanup; unsupported or unsafe storage uses fresh extraction. `--no-cache`
-disables this path. Compact control replies preserve per-group capture limits,
-and an immutable configured launcher must match the session's launcher identity.
-The focused frontend run passes **47 tests**, including both compilers' actual
-SDK cold/warm, preserved-timestamp invalidation and cache-disabled paths. The
-updated self-host compiler reaches a two-stage byte-identical C fixed point and
-builds under strict C11/O2. Six new cache/worker cases bring that suite to **30**. The broader
-reader/cache, process lifecycle, frontend I/O and compiler structure run passes
-**268 tests**, with one `/dev/full` case unavailable on macOS.
-
-The integrated path now also passes real launch-failure, parent/child-death and
-mid-payload publication tests. Bounded collection uses live leases and private
-worker namespaces; it preserves active children, writers and caller-owned stages.
-The final tool passes 215 reader/cache and 47 frontend tests plus the actual-Make
-recheck above. Other runtime hosts, broader storage/eviction qualification and
-full cold/miss distributions stay open. The proposed 0.4 s SDK allocation is not
-met by the 1.365 s SDK phase.
-
-Native dependency identity is now repaired for POSIX Clang. Physical-header
-reports recover paths lost by Make escaping, while the Make rule retains
-existence-only and other additional dependencies. Real DWARF-5 and native-builder
-regressions prove correct hits and invalidation for colliding paths, tabs,
-forced/system headers and preserved timestamps. The final decoder and physical
-name reconciliation take **0.306 s versus 1.104 s** before parser optimization
-across the 39 actual reference units, in five alternating isolated passes.
-That baseline already includes the correctness repair; it is not the former
-0.384 s Make-only parser and does not establish a product speedup. Other compiler
-providers retain their existing dependency mechanism and remain subject to
-required-host qualification.
-
-Native validation now uses bounded spawned workers at the guarded CLI entry
-point; embedded/custom-capability callers keep their existing execution model.
-Actual native command medians are **2.249 / 3.380 s**, still far above the
-**0.7 s** allocation. The profile finds **17/39 compiler-version subprocesses**
-and **9,411/20,257 file hashes** per self-host/reference build. The process pool
-reduces contention but does not remove that repeated work. Its higher sampled
-memory is recorded above; adding workers is not the next optimization.
-
-The repeated-version experiment is now deferred: five alternating native-only
-pairs measure **2.117 → 2.107 s self-host / 3.148 → 2.967 s reference**. Even
-this fixed-tool best case saves only 0.010/0.181 s, before adding general
-identity admission. The prototype was not promoted.
-
-An isolated native preprocessing-receipt prototype reuses the SDK filesystem
-trace and verification owners. All **56 actual product units** reproduce the
-real compiler's preprocessed bytes, dependency files, physical-header reports
-and diagnostics. Fourteen final fixtures cover content/comment edits with
-preserved timestamps, shadowing, negative lookups, removal, symlink retargeting,
-physical-name collisions, diagnostic behavior and volatile-macro refusals.
-No production source changed in this experiment.
-
-Under a proven fixed working directory, identical observations can be stored
-once: **52,817/115,143 observations become 9,763/9,851**, preserving every
-distinct check. Validation still hashes **222/347 MB of current input bytes**.
-Five alternating pairs using the platform SHA-256 provider instead of LLVM's
-implementation measure **0.976 → 0.419 s self-host / 1.359 → 0.477 s reference**
-for compact-witness validation. Including fresh driver expansion for every unit
-at eight jobs measures **0.624 / 0.867 s** over five passes. These exclude
-complete tool/runtime admission, object/executable checks and cache publication;
-they are not actual native-build or Make timings. Existing link-receipt
-validation alone is about 0.33/0.34 s, so the **0.7 s native allocation remains
-unproven**. See the [receipt prototype evidence](docs/design/compile-performance.md#native-preprocessing-witness-prototype-2026-09-21).
-
-**Production prerequisite completed:** the packaged reader now exposes a bounded
-compiler-context protocol for its configured Nix Clang provider on macOS. It
-binds the selected immutable drivers, environment and actual loaded Clang/LLVM
-images to the helper runtime, using the existing private worker capture owner.
-Unsupported drivers, mutable helpers, dynamic shell/loader settings and unsafe
-storage refuse admission. **235 targeted tests pass** (20 context, 39 cache,
-176 reader). At that prerequisite checkpoint, receipt consumption was not yet integrated
-and there was no new actual-Make speedup claim. See the
-[compiler-binding evidence](docs/design/compile-performance.md#native-compiler-runtime-binding-2026-09-21).
-
-**Receipt-owner checkpoint, before consumer integration:** capture and reuse
-were implemented in the existing reader/cache owners. Fresh capture and cache hits match ordinary preprocessing, dependency
-files, physical-header reports and diagnostics for all **56 product units**.
-The endpoint binds C and C++ compiler executables independently: the actual Nix
-`clang++` binary differs from `clang`. Tests cover content/search invalidation,
-corruption, diagnostics and cleanup after killing Clang during temporary-output
-creation. The final package passes 28 new and 235 existing cases in separate
-runs, with no skips. Native-plan did not yet consume these receipts. Single warm endpoint
-observations are **1.892 / 3.166 s**, excluding fresh driver expansion, native
-object/link work and Make; they are neither KPI results nor a speedup claim.
-That endpoint still used LLVM SHA-256. See the
-[receipt integration evidence](docs/design/compile-performance.md#native-preprocessing-receipt-owner-2026-09-21).
-
-**Consumer integration is implemented and locally qualified; M6a remains open.**
-NativePlanBuilder batches receipt lookups after fresh driver expansion, checks
-the bound compiler, launcher and returned blobs, and includes invocation/context
-and current source/header content in object keys. Missing receipts are captured
-in bounded workers. Real compiles retain a fresh post-compile validation before
-object publication; unsupported tools and invalid responses use ordinary
-preprocessing. The reader now uses the measured platform SHA-256 provider on
-macOS. Directory identity retains inode, ownership and permissions while child
-lookups capture relevant changes; unrelated build outputs no longer invalidate
-every receipt solely by changing directory size or modification time.
-
-All **56 product units** match ordinary preprocessing and diagnostics on the
-new helper, with **17/17 self-host and 39/39 reference** receipt hits on reuse.
-Targeted coverage totals **487 distinct passing cases across split toolchain
-runs**, with no skips counted as passes. The actual-Make comparison above shows
-modest warm savings and lower sampled memory. Native-only empty-cache samples
-expose a cost: **7.533 → 9.619 s self-host / 11.364 → 14.255 s reference**.
-These are single observations; repeat and profile them before accepting the
-tradeoff. Missing-object checks rebuild exactly one unit and preserve executable
-bytes, keys and receipt hits.
-
-**Cold-capture follow-up:** owned structured records now go directly to the
-existing cache publisher. Profiling showed avoidable serialization/rereading;
-runtime preparation was comparatively small. A reproduced publication race is
-also repaired: identical blobs preserve their inode, so active readers are not
-invalidated by another publisher. Corrupt blobs still receive checked repairs.
-The final helper passes **288 targeted tests** and all **56 product parity
-units**. Three alternating native-only pairs per frontend, against a baseline
-with the same race repair, improve cold medians **9.779 → 9.134 s self-host /
-14.087 → 13.681 s reference**; warm timings are essentially unchanged. All 24
-cold/warm builds meet their expected operation counts, every receipt is usable,
-and outputs/keys remain stable on reuse. No full-Make or memory gain is claimed
-for this follow-up. See the
-[owned-capture evidence](docs/design/compile-performance.md#owned-preprocessing-capture-and-stable-blobs-2026-09-21).
-
-**Warm-trace follow-up:** the measured serialization cost is reduced by grouping
-observations by CWD/operation/path and checking complete structured values.
-All content, metadata, negative-lookup and runtime proofs remain in place; CWD
-transitions are ordered and failed groups share nothing. The latest full-Make
-and memory results appear in the KPI checkpoint above.
-
-**Directive reuse implemented and measured; source resolution remains over budget.**
-The preceding five warm diagnostic compiler runs measured a **0.829 s** graph: **444 directive
-scans / 0.388 s**, including **0.290 s** in the lexer, and **1,307 source reads /
-0.219 s**. Nested times overlap; these are not new Make KPIs. The reference
-compiler already stores content/toolchain-keyed directive ranges and reparses
-their source fragments. The self-host candidate adds a frontend-owned optional
-cache capability with bounded atomic storage owned by the CLI. It binds source
-bytes, compiler identity and grammar; it keeps resolved paths,
-wildcard membership, target providers and package access fresh. Invalid ranges,
-comment-context dependence and cache failures must fall back to a full scan;
-malformed source must not become a cached empty success, and speculative
-fragment parsing must not terminate compilation. The no-cache path is retained.
-
-The typed cache exposed a self-host prerequisite: interface declarations did
-not normalize nested class arguments as implementing methods do. The existing
-generic normalization pass now covers interface return and parameter types;
-a valid owned `Vector<Part>` interface regression failed before the repair.
-The formatted compiler reaches a byte-stable self-host fixed point and passes
-**375 focused checks**, with one macOS `/dev/full` skip. The structural audit now
-resolves declared interface implementations rather than relying on globally
-unique method names. Five paired actual Make runs measure **4.673 → 4.526 s**;
-the unchanged reference control is **5.586 s**. Full cold/edit, release and host
-gates are still separate from this focused warm-build qualification.
-
-The old **0.388 s scanning cost** was an upper bound before lookup overhead.
-The cached-path profile subsequently found **0.102 s** repeatedly serializing
-the unchanged vocabulary. TokenVocabulary now owns a memo invalidated by every
-keyword/operator/annotation mutation. Source identity, cache admission and
-fresh file validation are unchanged. The actual-Make comparison above saves
-**0.091 s**, with source-graph time now **0.643 s**. Private-cache opening cost
-about **0.085 s** in the profile; defer more lifetime machinery while native
-receipt preparation still costs **1.204 / 1.939 s**.
-
-Do not move the duplicate-import guard before source validation: distinct
-aliases must retain their own path bindings, and later reads must not bless a
-changed original input. Required cold/edit workloads, host distributions and
-full final-tree gates remain open. The next experiment profiles the existing
-native receipt path before changing JSON, driver expansion, validation or blob
-consumption. Runtime preparation alone has not justified a snapshot memo.
-See the [source-resolution evidence](docs/design/compile-performance.md#source-resolution-costs-2026-09-21).
-
-The preceding no-op experiment history is retained for provenance. Its old
-2 s/3 s gates and next-action proposals are superseded by the September 22
-user decision. Preserve correctness and the ≤5 s regression guard while
-prioritizing cold and edit work. Required-host and full-tree gates still apply
-to final qualification.
-
-## 1. Handoff state (2026-09-20)
-
-- Reviewed btrc tree: **4e5c98239868e805586524b4ee06424bf4556130**.
-  The previous handoff reported gates green at **0823f8c1**:
-  `make test` 8608 passed, `make bootstrap`,
-  `make test-c11` on gcc and clang -O0..-O3, `make lint`, `make format-check`.
-  BTRSmith's inspected remote `main` is **5549c261**, with units,
-  object cache and `BUILD=dev` in
-  `make/Config.mk`, `make/Toolchain.mk`, `tools/LinkPlanParity.btrc`, and
-  its btrc flake input repinned to 0823f8c1 (`nix build .` of btrsmith
-  passed against that pin, 502 s including the store btrcc build).
-- The clean local BTRSmith checkout was fast-forwarded from **292deaff** to
-  **5549c261** on September 21. Earlier diagnostic numbers still describe
-  292deaff. M6a product integration now removes the make macros' destructive
-  pre-compile deletion; failed-command regressions preserve both frontends'
-  prior output generations. Actual-make timings are recorded above. Do not
-  confuse the pinned compiler with the working-tree compiler under test.
-- The initial review updated documents only. Implementation now includes native
-  object-cache validation, adapter retention, timing-accounting repairs and
-  verified reference-compiler artifact generations for non-SDK builds.
-  M6a remains open: SDK dependency identity, self-host generation parity,
-  transactional user outputs, link identity, product integration and no-op
-  acceptance still need implementation/qualification. Preserve normal
-  signing configuration; the full plan is not complete.
-- Historical numbers (BTRSmith, x86_64 NixOS, quiet machine; exact host and
-  repeated-run distribution still need recapture):
-
-  | | wall | phases |
-  | --- | --- | --- |
-  | btrcc | **76 s** (was 542 s) | lex+parse 2.7, analyze 12 (generics 3.1, validate 4.8, close-generics 1.9, realtime 2.1), lower 28 (l-generic-classes 12.3, l-declarations 14.8), optimize 16.5 (o-setjmp 12.0, o-dce 2.8), emit 2.8 |
-  | btrcpy | **259 s** (was 742 s) | analyze 16, lower 140, optimize 57, emit 7 |
-  | clang + link, 15 units | **~8 s** (was 85 s) | |
-  | `make btrsmith-native` cold / edit one module | 101 s / 98 s | edit recompiles 1 of 15 units |
-
-### Code-review findings that determine the order
-
-| Observed code | Consequence / recommendation |
-| --- | --- |
-| `tools/native_plan.py::_ObjectCache.key` hashes compiler path/version, flags and source bytes, but not included header contents. A temporary native-C probe changed only a header: the cache key stayed identical while freshly compiled objects differed. | Fix dependency validation before extending caching. This is a reproduced correctness gap, not a performance hypothesis. Existing `test_native_plan_builder.py` covers warm hits, flags and source edits, but needs header-edit coverage. |
-| `application/compiler.py::Compiler.compile` still bypasses the reference output cache for native bindings. Verified generations now support non-SDK split/debug builds; profiling still runs the pipeline. | Removing `--no-cache` will not fix BTRSmith no-op builds. Finish native semantic dependency identity and self-host parity before enabling product artifact reuse. |
-| `CEmitter._unit_starts` and `CEmitter.unitStarts` in the two backends pack source runs by generated line count; prologues still contain program-wide declarations. | The measured one-unit edit is one example, not a stability guarantee. Crossing a packing boundary or changing a shared declaration can invalidate many units. Use stable module identity and measured dependency closures. |
-| `CompilationPipeline.compile_resolved` analyzes, lowers and optimizes before `StdlibArchiveAdapter.consume`. | The stdlib archive demonstrates publication and shared-runtime linkage, not front-end separate compilation. Reuse those mechanisms without assuming analysis is already modular. |
-| `SourceDependencyGraph` stores import/include edges and visibility, not a ready-made topological module schedule. | Define compilation groups, include semantics and import-cycle behavior before summary scheduling. |
-| `ast.asdl` already names fields per constructor; Python AST/IR are per-kind classes. Python IR `_TRAVERSAL_FIELDS` is derived from dataclass metadata. | M8 changes self-host representation and generator output. Do not create a second field schema or migrate Python to solve a self-host-only layout problem. |
-| The ASDL generator also generates native ABI nodes through the shared node generator. | An AST representation change needs explicit scope for `NativeNode`, renderer completeness checks and bootstrap compatibility. |
-| `SetjmpPointerFlowResult` copies/deduplicates vectors; existing alias snapshots share until mutation. | M7 should preserve snapshot isolation and first-record ordering while measuring whether interning beats copying. |
-| ARC `retain_edge`, `replace_edge`, adoption and release maintain both target and owner state. | M9 needs a mixed arena/ARC edge contract; checking only the allocated object's header is insufficient design. |
-| The original `tools/perf.py` timed one emitted C unit without linking, misattributed self-host stage slices to frontend time, and mislabeled Darwin RSS. `BtrccPhaseTimer.mark` resets its stopwatch after each mark. | The harness now groups sequential stage slices, normalizes RSS and runs complete strict native-plan builds for both frontends and dev/release. Per-unit scans/cache/compile, linking, raw logs and provenance are recorded. Actual product no-op/edit scenarios, aggregate RSS and final product qualification remain open. |
-| BTRSmith remote `make/Config.mk` defaults to the reference frontend and release mode; its toolchain stamp records executable paths. | Always name frontend/mode. Include flags and compiler content identity in build state; changing `BUILD`, an override, or a binary in place must invalidate the right artifacts. |
-| BTRSmith `make/Application.mk::application-frontend-check` generates C/link plans and runs plan parity; it does not build the application executables. | Run explicit native builds and product checks for each frontend/mode as well; plan parity alone cannot qualify the emitted units. |
-
-### Numeric acceptance budgets
-
-Primary workload: the pinned BTRSmith application, including its resolved
-stdlib/native packages. Count and record files, bytes, classes, generic
-instances and native bindings; the historical fixture was 361 product
-files / 72k product lines plus 21 packages. Do not silently shrink it.
-
-The main acceptance host is a recorded, quiet x86_64 NixOS machine with at
-least 16 logical CPUs and 16 GiB RAM; fix native compilation at **8 jobs**
-for comparisons. Record CPU model, physical/logical cores, RAM and toolchain.
-Rebaseline there: the old notes alternately describe 16 and 32 cores.
-Also run on Apple Silicon macOS with a fixed job count and publish a
-separate table; do not present Linux measurements as Mac results.
-
-All absolute times below are **median wall seconds**, from build-command
-entry until the requested artifact exists. Incremental/no-op p95 budgets
-are shown explicitly. Repeat cold scenarios 5 times, incremental/no-op
-scenarios 20 times; report every sample, median, p95, maximum and failures.
-Use nearest-rank p95; with five cold samples it is the maximum. A correctness
-failure fails acceptance regardless of the timing distribution.
-
-| BTRSmith scenario | Historical evidence | Next delivery: M6a + M7 | Separate compilation delivery: M11 | Final objective after measured M8–M10 work |
-| --- | --- | --- | --- | --- |
-| Self-host transpile, empty btrc artifact caches | 76 s | ≤55 s | ≤55 s | ≤10 s |
-| Self-host cold dev build, executable included | 134.608 s fresh diagnostic; repeat for acceptance | ≤80 s | ≤80 s intermediate | ≥10×; ≤min(20 s, baseline / 10); working budget 13 s |
-| Self-host cold release build | 101 s; recapture exact flags | ≤90 s | ≤90 s | ≤30 s |
-| Self-host private body edit, dev executable | 98 s; original mode must be recaptured | ≤80 s | ≤10 s; p95 ≤15 s | ≤5 s; p95 ≤8 s |
-| No-op dev build, either frontend | Current 4.180/4.732 s macOS medians | **≤5 s; closed by user** | Regression guard | Regression guard |
-| Touch an input without changing bytes, either frontend | Correct invalidation/retention proven locally; fresh timing distribution pending | ≤5 s regression guard | Same | Same |
-| Reference cold transpile | 259 s | ≤180 s | ≤180 s | ≤60 s |
-| Reference cold dev build | Unmeasured | ≤210 s | ≤210 s | ≤75 s |
-| Reference private body edit, dev executable | Unmeasured | ≤210 s | ≤15 s; p95 ≤20 s | ≤10 s; p95 ≤15 s |
-| 10 distinct product test executables, self-host, common app cache primed | Unmeasured | Establish baseline | ≤60 s total | ≤30 s total |
-| Same 10 executables, reference | Unmeasured | Establish baseline | ≤120 s total | ≤60 s total |
-| Compiler process peak RSS, self-host / reference | 5.4 / 1.7 GB at M1–M3, not a new M7 measurement | No increase >5% from recaptured baseline | ≤3 / ≤2 GiB | ≤1.5 / ≤1.5 GiB |
-
-These are delivery goals, not promises that a particular optimization yields
-a fixed speedup. Report misses; revise budgets explicitly with evidence.
-For the second host, the near-term regression limit is **5%** versus its own
-baseline; the final developer-experience objectives are the same, with any
-miss stated separately. Do not claim cross-platform acceptance before both
-hosts have results.
-
-Definitions and scope:
-
-- **Cold project build:** delete only the benchmark's generated artifacts,
-  summaries, object cache and output executable. Compiler binaries, Nix
-  dependencies and fetched packages are already installed; OS page cache is
-  uncontrolled and recorded. Time Nix provisioning/compiler bootstrap
-  separately; the historical 502 s `nix build` is not a project-build target.
-- **Body edit:** a real implementation change in a named product module
-  (including the body of a public method), with unchanged exported facts,
-  ABI, generic requests, ownership/effect
-  summaries and source locations of unrelated modules. Use at least three
-  fixtures: navigation/model, UI controller, and an audio-adjacent non-RT
-  implementation. An invalid edit does not count as a fast rebuild.
-- **Interface edit:** deliberately changes a public signature or layout.
-  Require correct dependent rebuilding and wall time no worse than **110%**
-  of a clean build of the changed tree. The 10-second budget does not apply
-  when the change genuinely affects the whole application.
-- **No-op:** no transpile, C compile or link invocation. A byte-identical
-  touch likewise must not trigger those operations after dependency checking.
-- **Warm test batch:** store the exact 10 entry points in the benchmark
-  manifest; prime only their shared application dependencies, not the ten
-  final binaries or entry-point objects. Record build and test execution
-  separately. Additionally report the entire current product frontend suite;
-  do not assume the historical 37 × 2 count is still current.
-- **Memory:** report compiler peak RSS and sampled concurrent build-process
-  RSS separately. Final aggregate build objective: **≤6 GiB** at 8 native
-  jobs. `RUSAGE_CHILDREN` alone does not measure concurrent aggregate RSS.
-- **Runtime guardrail:** existing native, ownership, realtime and product
-  acceptance stays mandatory. Compare the same release runtime benchmarks;
-  investigate any median slowdown >5% or executable-size increase >10%.
-  Build-speed gains do not qualify physical audio or visual fidelity.
-
-The self-compile and full corpus remain additional scaling workloads. Record
-their baseline now; no median wall/RSS regression >5% is acceptable without
-an explained tradeoff. Do not optimize only the BTRSmith fixture.
-
----
-
-## 2. Ground rules and the commands
-
-### Rules
-
-- Both compilers change together: the reference compiler
-  (`src/compiler/python`, "btrcpy") and the self-hosted one
-  (`src/compiler/btrc`, "btrcc") land in the same commit, and BTRSmith's
-  `application-frontend-check` (reference and self-hosted link plans
-  equivalent) is part of the gate. That target does not build the binaries;
-  native builds and execution through both frontends are separate required
-  steps. Representation/performance changes need equivalent semantics, not
-  artificial source symmetry where one compiler already has the right shape.
-- "Byte-identical" means each compiler against **its own** output before the
-  change. The two compilers do not emit identical C (957 of 960 corpus
-  programs differ between them, by design); the bootstrap fixed point is
-  btrcc against btrcc.
-- Gates that never regress: `make test`, `make bootstrap`, `make test-c11`,
-  `make lint`, `make format-check`, `make generated-check`, `make extension`,
-  repository structure/hygiene checks and `git diff --check`; in `../btrsmith`,
-  `application-frontend-check` and the library smoke on both frontends.
-- Every milestone records its numbers in
-  `docs/design/compile-performance.md` (the `BTRC_TIMING=1` phase line and
-  wall time on BTRSmith) so the next milestone starts from measured, not
-  remembered.
-- No effort estimates. Order is by dependency and payoff only.
-- The initial document review ran document checks and bounded reproductions.
-  Every implementation milestone must run the
-  full matrix on its final frozen source tree. Record skips, unavailable
-  platforms/tools and observed-boundary coverage separately from passes.
-- Never bypass signing to complete a checkpoint. Inspect `git status` and
-  HEAD before editing or committing; this checkout is synchronized.
-
-### Building the compilers
-
-```sh
-cd /path/to/btrc                 # use this checkout, not a remembered machine path
-nix develop                     # dev shell: python, ruff, clang, gcc, pkg-config
-make btrcc                      # bin/btrcc from dist/btrcc.c (btrcpy transpiles BtrccMain.btrc, cc -O2 compiles it; ~5 min)
-export BTRC_HOME=$PWD/src       # both compilers find the stdlib here
-python3 -m src.compiler.python.main --no-cache --strict-imports --target linux-x86_64 P.btrc -o P.c   # btrcpy
-bin/btrcc --strict-imports --target linux-x86_64 P.btrc -o P.c                                          # btrcc
-```
-
-`make btrcc` runs `compiler-codegen-check` first (regenerate with
-`make compiler-codegen-generate` after touching `src/runtime/c/*` or
-`src/runtime/c/manifest.toml`; it rewrites
-`src/compiler/python/runtime/generated.py` and
-`src/compiler/btrc/generated/runtime/Catalog.btrc`, which are committed).
-
-**Never run `make btrcc` while `make test` is running**: it replaces
-`bin/btrcc` under the suite. **Never edit Python sources while `make test`
-runs**: a mid-run import error produced 332 bogus failures once.
-`make test` with `BTRC_TEST_BTRCC=$PWD/bin/btrcc` exported skips the
-suite's own content-addressed btrcc build.
-
-### Measuring
-
-```sh
-BTRC_TIMING=1 bin/btrcc ... 2>&1 >/dev/null | grep 'btrcc timing:'      # phase and sub-phase marks (a-*, l-*, o-*)
-BTRC_TIMING=1 python3 -m src.compiler.python.main ... 2>&1 | grep 'btrcpy timing:'
-python3 -m tools.perf ../btrsmith/src/BTRSmith.btrc --samples 5 --warm-native-runs 4 --json build/perf/btrsmith.json   # both frontends, dev/release, all units and link
-nix develop ../btrsmith -c make NIX= perf-btrsmith                                    # same, from BTRSmith's dev shell (its packages)
-```
-
-BTRSmith needs its packages' headers: run btrcc/btrcpy on it inside
-`nix develop /path/to/btrsmith` (which puts pkg-config paths and the
-native header reader in the environment), or export that shell's
-`PKG_CONFIG_PATH`. Phase marks are added with `BtrccPhaseTimer.mark("name")`
-(`src/compiler/btrc/frontend/Timing.btrc`) and `self._timed(profile, "name", start)`
-in `src/compiler/python/application/pipeline.py`.
-
-gprof works on btrcc: `cc -std=c11 -O2 -pg -w dist/btrcc.c -o btrcc-pg -lm -lpthread`,
-run it on BTRSmith, `gprof -b -p btrcc-pg gmon.out` (flat) and `-q` (graph).
-Self time under `-pg` is dominated by the ARC runtime; read the **call
-counts** and the call graph's inclusive column, not the self column. For
-btrcpy use `python3 -m cProfile -o out.prof -m src.compiler.python.main ...`.
-
-These `gprof` instructions describe the measured Linux toolchain; use an
-available native profiler on macOS. Do not transfer instrumented absolute
-times into acceptance tables. Capture uninstrumented wall time separately.
-
-`tools/perf.py` now runs the production native-plan builder, including every
-generated/native/adapter unit and the linker with strict warnings. It defaults
-to the current host target and both frontends in dev (`--debug`, `-O0 -g`) and
-release (`-O2`) modes. Each sample has fresh generated files and an empty object
-cache. Native-header, package and OS caches are uncontrolled and reported as
-such; this is not yet proof of every cold-project condition above.
-
-Warm-native repeats reuse the emitted plan, validate the object cache and link
-again. They **exclude retranspilation and are not product no-op measurements**.
-Each report retains exact commands, per-unit scan/cache/compile/publication
-durations, cache outcomes, unit counts, link time and source/tool provenance.
-Per-unit sums overlap when jobs run concurrently. Before/after snapshots reject
-observed source/tool changes; they do not prove absence of transient edits or
-capture the complete external SDK dependency closure. Keep the tree frozen.
-
-Darwin RSS is normalized to KiB; `RUSAGE_CHILDREN.ru_maxrss` is not simultaneous
-aggregate build memory. Self-host sequential `a-*`, `l-*`, `o-*` marks join their
-respective stage remainder exactly once, while raw marks and unattributed wall
-time remain available. Still add analyzed/lowered-module counts, summary-merge
-timing when that stage exists, aggregate memory measurement, and BTRSmith's real
-make no-op/touch/edit scenarios before accepting the corresponding budgets.
-
-Each report must contain both repository SHAs, compiler binary/source
-fingerprints, lockfile hash, target/SDK, exact argv/environment inputs,
-worker counts, hardware, cache state and input sizes. Count analyzed/lowered
-modules, emitted/compiled/reused units, cache misses by reason and links.
-Keep raw samples in `build/perf/`; commit a compact result table and workload
-manifest, with durable CI/artifact references when available. A deleted
-`/tmp` profile is not sufficient evidence for a completed milestone.
-
-### Byte-identity gate
-
-Emit the whole corpus with each compiler into a fresh directory, once
-before and once after, and compare the complete inventories and bytes.
-The gate must exit nonzero on any failed compile, missing/extra output or
-changed output. Retain stderr; do not turn compiler failures into an `echo`
-and then continue to a successful exit. Example for one compiler/capture:
-
-```sh
-python3 - <<'PY'
-from pathlib import Path
-import subprocess
-from src.tests.corpus_files import language_test_files
-
-output = Path('build/verification/perf-after-btrcc')
-output.mkdir(parents=True, exist_ok=False)  # stale captures must not pass
-for relative in language_test_files('src/tests'):
-    source = Path('src/tests') / relative
-    target = (output / relative).with_suffix('.c')
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with target.with_suffix('.stderr').open('w') as errors:
-        subprocess.run(['bin/btrcc', '--strict-imports', '--target',
-                        'linux-x86_64', str(source), '-o', str(target)],
-                       stderr=errors, check=True)
-PY
-```
-
-Capture with a source-frozen before compiler and after compiler, separately
-for btrcpy and btrcc; use the selected host target, not Linux on a Mac.
-The comparison runner must check both file sets before comparing bytes.
-Implement it in the existing verification tooling rather than relying on a
-shell loop that silently ignores newly added outputs.
-
-Three programs embed absolute include paths
-(`basics/InteropCEnumBaseType`, `basics/InteropUnionBaseType`,
-`imports/ImportCSourceFile`): compare them modulo the checkout path. For
-BTRSmith, `cmp` the single-unit output (no `--emit-units`). Milestones
-that intentionally change emitted shape (M4–M6, M11, any M8 change to the
-compiler's own representation) require behavioral, ownership, strict-C11
-and bootstrap gates. Keep byte identity for programs whose output should
-be unchanged. A stable new bootstrap fixed point does not require the new
-compiler to emit its own old implementation byte-for-byte.
-
-### Frozen compiler boundaries
-
-`src/tests/fixtures/compiler_boundaries/manifest.toml` freezes IR dumps,
-generated C and the runtime catalog. After an intentional change:
-
-1. `python3 -m tools.compiler_codegen.main boundary-capture` writes
-   candidates to `build/verification/compiler-boundaries/candidate/records/<id>.bin`.
-2. Inspect every differing record against the intended contract. For an
-   intentional, explained portable change only, copy its candidate under
-   `src/tests/fixtures/compiler_boundaries/artifacts/accepted/<id>.bin` and set
-   `accepted_path`, `accepted_sha256`, `reason`, `regressions` on the
-   record by editing the TOML (no tool does this). Do not accept every
-   difference automatically. Observed capabilities (`*.behavior-gcc`,
-   `*.behavior-clang`) require their compatible host/toolchain; skipped
-   Linux observations do not authorize changing the macOS baselines.
-3. `python3 -m tools.compiler_codegen.main boundary-check`.
-4. A new runtime helper needs a new `helper.<name>` channel on
-   `shared.runtime-metadata` and a record whose baseline file contains
-   `null`; `src/tests/python/test_boundary_manifest.py` hardcodes the
-   record count (309).
-
-### BTRSmith
-
-```sh
-cd /path/to/btrsmith && nix develop              # initially uses the pinned compiler
-make BTRC_FRONTEND=selfhost BUILD=dev btrsmith-native
-make BTRC_FRONTEND=reference BUILD=dev btrsmith-native
-make BTRC_FRONTEND=selfhost BUILD=release btrsmith-native
-make BTRC_FRONTEND=reference BUILD=release btrsmith-native
-make BTRC_FRONTEND=selfhost macos-btrsmith-library-smoke
-make BTRC_FRONTEND=reference macos-btrsmith-library-smoke
-make -f make/Product.mk application-frontend-check
-```
-
-Until M6a fixes mode identity, these commands must use separate disposable
-build directories or force regeneration between modes; invoking them in
-sequence alone does not prove that make rebuilt with new flags. The smoke
-target also runs on Linux despite its name; satisfy its native dependencies.
-
-To use a locally built compiler, pass absolute `BTRCC`/`BTRC` paths for the
-self-host run. For the reference run use the checkout's wrapper or a wrapper
-that sets its absolute `PYTHONPATH` and runs `src.compiler.python.main`.
-Use the same checkout's native-plan tool and export `BTRC_HOME` to its `src`;
-keep the product dev shell's SDK/pkg-config inputs. Verify the effective
-commands and tool fingerprints in the report before timing. Knobs:
-`BTRC_UNITS=` (one unit),
-`BTRC_UNIT_LINES` (unit size, default 40000), `BTRC_OBJECT_CACHE=`
-(disable), `BUILD=dev|release`.
-
----
-
-## 3. What landed (M0–M6 and part of M7)
-
-### M0 — Measurement harness (b27a1acb)
-
-`tools/perf.py` (`make perf-btrsmith`, `make perf-self`), `BTRC_TIMING=1`
-phase timing in both compilers with the same phase names, baseline tables
-in the design doc. Test: `src/tests/python/test_perf_tool.py`.
-
-### M1–M3 — Algorithmic cuts (154093de, b1c9816a, 4ae64cda)
-
-- Subclass/ancestor index in `Analyzed`
-  (`src/compiler/btrc/analyzer/Models.btrc`: `ancestorsOf`, `subclassesOf`,
-  `refreshInheritanceIndex`); `CycleSemantics` iterates `subclassesOf`.
-  Python mirror in `ir/lowering/ownership.py` (`_ancestors`, `_subclasses_of`).
-- Environments shared instead of copied per expression
-  (`ir/lowering/ownership/Operands.btrc` `variables()`/`typeArguments()`;
-  `generics.py` `TypeSubstitution` caches decoded tables and hands out
-  copies on read — a9b4d215).
-- Native-declaration indexes, DCE membership sets, setjmp fixed point
-  driven by "consulted" summaries (`ir/optimization/setjmp/Analysis.btrc`,
-  `exceptions.py`), iterative IR walker in `ir/nodes.py`.
-- The compiler `keep`s its analysis and IR graphs at exit
-  (`pipeline/Pipeline.btrc`, `analyzer/Analyzer.btrc`): releasing them
-  cost 200 s of ARC reverse-edge proofs.
-
-### M4 — Translation units (62d69404, reworked in 598bc161)
-
-`--emit-units PREFIX` in both compilers writes `PREFIX.unit-<k>.c`; the
-link plan now uses schema 4 with ordered absolute `emitted-units` paths
-(the builder also reads legacy schema-3 counts); `btrc-native-plan --jobs`
-compiles units in parallel. Every unit carries the prologue, types,
-helpers and prototypes; functions and globals lose `static`; the primary
-unit defines globals and kernels, secondaries declare them. Runtime
-file-scope state stays written as plain `static` in `src/runtime/c/*.c`
-(the stdlib archive parses that text to derive its `extern` header); the
-unit emitters reshape it per unit through
-`src/compiler/python/backend/runtime_state.py` and
-`src/compiler/btrc/ir/RuntimeState.btrc` (primary drops `static`, others
-declare `extern`). Emitters: `c_emitter.py` `emit_units`/`_emit_unit`,
-`ir/Emitter.btrc` `emitUnits`/`emitUnit`. Tests:
-`src/tests/python/test_emitted_units.py`, `test_native_plan_builder.py`.
-
-### M5 — Source mapping and dev builds (d7f24d73, f7000dcd)
-
-btrcc `--debug` lowers `IRK_LINE_MARKER` statements
-(`ir/lowering/Statements.btrc` `lowerStmtInto`) and the emitter stamps
-`#line` before every content line of a function body
-(`ir/Emitter.btrc` `emitLineDirective`, `fixGeneratedLineResets`);
-`-o PATH` (options may follow the input); `btrc-native-plan --debug-info`;
-BTRSmith `BUILD=dev`. Tests: `src/tests/btrc/test_cli_arguments.py`,
-`test_emitted_units.py::test_debug_split_units_map_lines_and_run`.
-
-### M6 — Incremental rebuilds (1d285e55)
-
-Every lowered function records its `.btrc` module (`IRFunction.sourceFile`,
-`IRFunctionDef.source_file`, stamped by
-`LoweringContext.stampFunctionSources` per top-level declaration and per
-generic instantiation, and by `TranslationUnit._stamping_sources`);
-`--emit-units` packs consecutive same-module runs to the line target
-(`Emitter.unitStarts`, `CEmitter._unit_starts`); the recorded edit changed
-one unit. `btrc-native-plan --object-cache DIR` (`tools/native_plan.py`
-`_ObjectCache`) keys objects on compiler identity, flags and source bytes.
-Per-module parse caching was dropped for cause: the front end is 3 s of 76.
-
-The one-unit result was observed for one NavigationHistory edit. Packing
-thresholds, generated naming, shared declarations and debug source locations
-can change other units. M6a below makes cache correctness/no-op behavior an
-explicit milestone. Prologue trimming requires transitive typed dependencies
-(types, initializers, helpers, callbacks and native declarations), not only
-names found in function bodies; measure the gain instead of assuming clang
-time halves.
-
-### M7 — Profile-driven cuts (9f7d7328, 5d9562be; in progress)
-
-Parallel lowering is off the table as the plan first stated it: every ARC
-retain and release takes the global spinlock `__btrc_arc_lock_mutation`
-(`src/runtime/c/cycles.c`), so threads inside btrcc would serialise on it,
-and `Analyzed`'s lazily filled caches are not thread-safe. This is evidence
-against immediate parallel lowering; it does not establish that arenas are
-the only possible solution. Re-profile after allocation and incremental work.
-
-Landed, all byte-identical: cleanup-adapter name index
-(`ir/optimization/Cleanup.btrc`), `TypeIdentity.utf8Hex` through a
-`StringBuilder` (`syntax/Identity.btrc`), memoised setjmp body scans
-(`setjmp/Safety.btrc` `bodyContainsSetjmp`), copy-on-write alias states
-and one shared empty origin set (`setjmp/Analysis.btrc` `shareSlot`,
-`ownOrigins`, `noOrigins`), `CallableBoundaryContext.variables()` returns
-the live table (`ir/lowering/Callables.btrc`). Sub-phase marks `l-*` and
-`o-*` in `Lowerer.btrc`, `Optimizer.btrc`, `Pipeline.btrc`.
-
----
-
-## 4. Open milestones
-
-### M6a — Correct dependency caching and make no-op builds cheap
-
-**September 22 scope decision:** unchanged latency is closed at ≤5 s. Remaining
-correctness/host qualification stays recorded, but no longer blocks starting
-the user-directed edit/cold acceleration campaign. Below is implementation history.
-
-Self-host artifact checkpoint (2026-09-21): named-output invocations now resolve
-source/package/native inputs afresh, then reuse a checksummed complete emitted
-generation before lexing and analysis. Both cache hits and misses use the
-existing output publication owner. The package resolver records the published
-lock after validating/replacing derived lock state, so the first build is
-immediately reusable. All **12 focused cache regressions** pass on a fresh
-self-compiled strict C11/-O2 compiler, including actual native-header changes,
-include shadowing, reader replacement and malformed generations; **23 structure
-checks** and generated-source checks pass. Broader integration passes **361
-checks / 5 platform skips**; the final formatted compiler passes **114 cache/CLI
-checks**. A complete BTRSmith direct compiler/native diagnostic now proves
-artifact and 17/17 native-object reuse at **13.687 s warm median** over five
-repeats, still above the 2 s no-op budget. Product Make now invokes both owners
-for input validation on every build, with reference artifact caching enabled;
-22 process-boundary, four publication-preservation and six actual compiler/native
-cases pass with each of system Make 3.81 and GNU Make 4.4.1. Complete product
-Make warm medians are 12.855 s self-host / 10.892 s reference (five repeats each),
-with complete compiler/object reuse and one link per build. This does not
-close M6a: output write/link elision, cheaper lookups, concurrent configuration
-binding, eviction, Windows storage and required-host KPI evidence remain open.
-
-Measured native scheduling follow-up: emitted C, package sources and generated
-adapters now share the existing bounded worker pool. Five alternating warm
-native-only pairs retain identical object keys and complete reuse; median native
-wall falls 3.090 → 2.567 s for self-host output and 5.102 → 4.613 s for reference
-output. The 147 native-builder/performance-tool checks pass, as do the product Make
-checks under both Make versions. Complete Make follow-up medians are 12.855 s
-self-host / 10.892 s reference (five warm runs each); neither meets the 2 s goal.
-Required-host acceptance remains open.
-
-Output-retention follow-up: both generation owners now verify the complete
-owned output set under the publication locks before skipping payload staging.
-Source/path guards, recovery, ownership/layout, actual bytes and modes still
-apply; missing, changed or unowned files take the existing publication path.
-Warm and unchanged-touch tests preserve output and ownership-manifest inodes
-and timestamps through both real compilers and both Make versions, including
-`--no-cache` compiler invocations. The final tree passes 504 focused checks,
-23 architecture checks, and 23 optimized publication scenarios per frontend
-under each of GCC/Clang. Fresh actual Make timing passes the full-generation
-byte and inode/mtime/mode checks: five warm samples per frontend have medians
-12.915 s self-host / 10.608 s reference. Neither meets the 2 s goal; no retention
-speedup is established. Link elision remains open.
-
-SDK reader follow-up: one shared declaration index per translation unit replaces
-repeated indexing for each selection. Five alternating component pairs reduce
-the reader median 3.227 → 2.759 s (14.5%), with all 41 product selections retaining
-identical decoded semantics. The final native reader/consumer suite passes
-2,512 tests with zero skips on the packaged reader and fresh self-host compiler.
-Actual Make cold/warm measurement now passes all 12 runs and input-stability
-checks: warm medians are 11.887 s self-host / 9.695 s reference, with retained
-outputs, complete cache hits, zero native recompiles and one link each. Single
-cold samples are 131.744 / 346.838 s. The no-op KPI remains open; these sequential
-whole-build results do not isolate the component's contribution. See the
-[qualification evidence](docs/design/compile-performance.md#shared-native-declaration-index-2026-09-21).
-
-Hashing follow-up: both call-boundary owners now avoid forcing volatile result
-storage when no cleanup suffix follows, retaining typed values, managed cleanup
-protection and setjmp planning. Isolated SHA-256 elapsed time falls 46.2% with
-Clang / 36.5% with GCC across five alternating pairs. The fresh self-host passes
-six smoke checks, 276 call/ownership/setjmp checks, 46 additional Clang checks
-and both-frontends SHA vectors under GCC/Clang, with no skips. Its next
-self-compilation emits byte-identical C. Actual Make timing passes all 12 builds
-and source/tool-stability checks: warm medians are 10.377 / 9.649 s, with complete
-cache hits, retained outputs, no native recompiles and one link each. Single
-cold builds are 127.646 / 349.113 s. The 2 s no-op target remains unmet.
-See the [bounded experiment and qualification](docs/design/compile-performance.md#boundary-result-volatility-experiment-2026-09-21).
-
-Link-reuse prerequisite: the Darwin development executable's debug map referred
-to deleted temporary objects (17 in self-host BTRSmith, 39 in reference output).
-The native builder now retains immutable debug-object generations beside the
-executable, independently of the optional object cache. Debug adapter sources
-also survive uncached and fallback builds. All 165 focused native-builder,
-performance-tool and debugger checks pass, including both frontends' split
-source maps, corruption, cache deletion and concurrent builds. Both Make
-versions pass the product checks. All 12 actual Make runs pass with stable
-inputs, complete cache hits and retained generated/debug artifacts; five warm
-samples per frontend measure 10.141 / 9.796 s medians. Real BTRSmith source
-lookup succeeds in LLDB through both frontends. This repair is not link elision
-or evidence that the no-op budget has been met. See the
-[debug lifetime evidence](docs/design/compile-performance.md#native-debug-input-lifetime-2026-09-21).
-
-Darwin executable-reuse follow-up: the native builder now validates the real
-expanded link command, toolchain and loaded libraries, ordered objects,
-selected libraries, missing search candidates, path bindings and executable
-contents before retaining the output. A discovery link plus a verification
-link qualifies a receipt; unchanged builds perform zero links. Unknown argument
-languages/wrappers take ordinary linking. Output publication uses the existing
-parent lock. All 185 focused tests and both product Make check sets pass.
-All 12 actual Make builds retain expected compiler/native cache behavior, with
-zero links on five warm repeats per frontend: 10.293 / 9.810 s medians.
-Alternating native-only measurements show no elapsed-time gain; validation
-costs about as much as the avoided link. The no-op KPI and other-host coverage
-remain open. See the [receipt qualification](docs/design/compile-performance.md#darwin-executable-reuse-2026-09-21).
-
-Implementation checkpoint (2026-09-20): compiler preprocessing/dependency
-rescans, transitive/system-header content fingerprints, source-path and driver
-identity, versioned object manifests/checksums, atomic cache publication and
-post-compile validation are implemented in `tools/native_plan.py`. Executable
-regressions reproduce the original stale-header/source-path behavior and cover
-include shadowing, corruption and concurrent callers. This is a correctness
-slice, not completed M6a: follow the remaining steps and full qualification
-below. Measurement evidence belongs in `docs/design/compile-performance.md`.
-
-The full native-plan measurement path now exposes real product work: a single
-macOS diagnostic on local BTRSmith `292deaff` took **173.619 s** for self-host dev
-and **5.204 s** for a native-only warm repeat. The repeat reused 15 emitted
-objects but rebuilt 2 generated adapters from changing temporary source paths
-and linked again. This does not satisfy the no-op goal or qualify current
-remote product `5549c261`; it establishes adapter identity, scan cost and link
-elision as concrete remaining work. See the evidence document for toolchain,
-environment workaround, sample limits and complete stage/operation counts.
-
-Follow-up implementation: `NativePlanBuilder` now atomically retains verified
-adapter source generations beside the native output when object caching is
-enabled. Real source paths and parent-relative includes remain observable and
-validated. Both-frontends pugixml ownership and AppKit text/scroll fixtures pass
-after warm object reuse. Missing, corrupt or inaccessible generations fall back
-to private compilation; shared generations remain intact until build-directory
-cleanup. This closes the observed adapter-path miss, while whole-compiler
-artifact generations, cheaper validated lookups and link caching remain open.
-On the same emitted BTRSmith plan, five warm native repeats now reuse **17/17
-objects**, with **0 compiles**; median native-only time improved from **5.001 s
-to 3.297 s**. Linking and validation still run, and retranspilation is excluded.
-The product no-op budget therefore remains unachieved.
-
-Reference artifact checkpoint: `CompilerCache` now publishes checksum-verified
-generations containing the primary C, every secondary and the canonical link
-plan, using the existing `ArtifactPublisher` transaction and recovery owner.
-Debug source maps remain in the emitted C. Cache keys distinguish debug paths,
-unit prefixes/packing, DCE, parse/source-map modes and source provenance; the
-toolchain fingerprint also covers runtime source inputs. Resolver validation
-still runs on every lookup. Partial, corrupt, linked or interrupted generations
-are misses, and output files can be recreated from a valid generation.
-
-Reference split/debug reuse now includes native SDK bindings when resolution
-supplies a verified semantic identity. Each lookup reruns the actual native
-reader and package resolution, hashing the validated response, complete binding
-contracts, reader executable/arguments and environment. Missing or changing
-reader identity bypasses reuse. Generated adapters are restored only after
-canonical plan validation. Successful warnings and their source mapping are
-stored in the checksummed generation and reproduced on a hit. Profiling,
-freestanding and prebuilt-stdlib cases remain uncached.
-
-The old C-text cache port is replaced, and old `.c` entries are ignored. A real
-BTRSmith split/debug build exposed a 326,726,292-byte emitted generation above
-the initial 256 MiB cache limit. The default aggregate bound is now 512 MiB,
-with a real-file regression across the old boundary and smaller explicit
-budgets still enforced. This fixes admission of that workload; it is not a
-claim that cache capacity or compiler memory scaling is solved generally.
-Self-host artifact reuse, cheaper validated resolution, atomic publication to
-the requested output paths, cache eviction and product no-op qualification
-remain open. The cache directory transaction does not make the CLI's individual
-output writes transactional.
-
-Actual SDK product reuse is now measured on local BTRSmith `292deaff`: the
-unprofiled reference dev build took **394.519 s cold** (376.048 s compiler,
-18.471 s native). Five complete warm repeats had a **23.912 s median**,
-including **18.803 s compiler** and **5.040 s native** stage medians. Every warm
-run hit the generation cache, reproduced artifacts and warnings, reused **39/39
-objects**, performed **0 compiles** and still linked once. Inputs/tool identities
-were stable. This is direct CLI/native-plan evidence, not real `make`, installed
-product or remote-main qualification; the **≤2 s no-op** and cold reference
-budgets remain unmet. The discarded profiled probes cannot establish reuse.
-
-A separate instrumented resolution diagnostic points to native-reader process
-work and import scanning, not key hashing, as the next lookup costs: **42
-subprocess calls** and **444 source scans**; semantic-key construction was
-0.750 s under cProfile. Preserve live resolution correctness while caching
-validated per-file scans and reducing repeated SDK process work. See the
-evidence document for the instrumented timings and their limits.
-
-Reference directive-scan reuse is now implemented through the existing cache
-owner and an explicit frontend port. Entries key complete normalized source
-content and compiler/grammar identity, store checksummed line spans, and reparse
-the actual directive fragments with the ordinary lexer/parser. Paths, package
-visibility, glob membership, imported source contents and SDK bindings are
-still resolved on each invocation. Corrupt/unavailable entries and fragments
-requiring surrounding comment context fall back to full scanning; malformed
-lexical input is never persisted as a successful empty scan. `--no-cache` and
-`--profile` bypass this storage.
-
-On BTRSmith's same 444-file graph, three alternating baseline/warm resolution
-pairs preserve source/provenance/native identities. Median import discovery
-fell **2.863 s → 0.587 s**, with **4,688,012 → 56,615 characters lexed**. Complete
-resolution still includes fresh native-reader work; this measurement is not a
-full build or a ≤2 s no-op result. Native SDK process/semantic resolution,
-self-host reuse, link elision and transactional output remain open.
-
-Full-build follow-up on that directive-cache tree: one cold build took
-**394.575 s**; five warm compiler/native pairs had a **24.299 s median**
-(18.650 s compiler and 5.568 s native stage medians). All five hit the compiler
-cache, reproduced emitted artifacts and warnings, reused **39/39 objects**,
-performed **0 compiles** and linked once. Inputs/tools remained unchanged.
-The separate-run result does not establish a full-build speedup over 23.912 s;
-only the avoided import-scan work is established. The ≤2 s goal remains open.
-
-SDK batch-reader foundation: the current selected product plan has **41
-bindings across 16 header/language/standard groups**, including **24 bindings
-to the same AppKit wrapper**. The shared reader now supports `--batch=FILE`
-or stdin with a versioned request/response envelope. One fresh Clang parse
-serves independent selections; each result retains its own declarations,
-layouts, receiver interfaces and errors. C++ owner selection in one request
-cannot authorize another. Standalone extraction remains available, and both
-compiler semantic decoders accept the inner documents.
-
-An isolated diagnostic grouped the actual 41 product requests by **all identical
-non-selection arguments**, not only their headers. Three alternating pairs
-reduced median extraction **15.182 s → 3.442 s** with **41 → 16 processes**;
-all 41 semantic documents matched standalone extraction on every run. Inputs
-and tools were stable. This is a shared-reader result, not a full-build timing.
-
-Both frontend native-import owners now use strict grouping and envelope
-validation while retaining original binding order, ownership and diagnostics.
-Reference cache identities use validated typed semantics so batch formatting
-does not invalidate equivalent generations. Self-host batches preserve each
-member's 8 MiB/60 s allowance and partition groups above 255 for the process
-API's capture limit. The 9 MiB response regression exposed repeated whole-string
-length scans in self-host validation; that scan now caches the length and checks
-escape bytes without substring allocation. The final rebuild passes **38 batch
-consumer/codec checks**, including the 9 MiB and 256-binding cases. Broader SDK,
-C++ owner and AppKit checks pass after correcting an Apple test-helper toolchain
-mismatch; detailed counts and scope are in the performance evidence document.
-
-An integrated reference-resolution diagnostic on the same 444-file product
-graph preserves source/native-plan/cache identities over three alternating
-pairs: median resolution **16.548 s → 4.405 s**, with **41 → 16 reader processes**.
-This includes real frontend import and semantic work, but excludes later
-compiler/native-build stages; a self-host rebuild overlapped the measurement.
-The complete direct compiler/native diagnostic now measures **353.565 s cold
-reference** (334.533 s compiler + 19.032 s native) and a **10.404 s median** over
-five warm pairs (5.331 s compiler and 5.080 s native stage medians), compared
-with the earlier 24.299 s warm median. Every warm run hit the artifact cache,
-reproduced emitted files/warnings, reused **39/39 objects**, performed **0
-compiles** and linked once. The cold self-host build also succeeds: **137.455 s**
-(123.826 s compiler + 13.629 s native), with 17 compiled units. Inputs and tools
-remained stable. These are local-product diagnostic builds, not make/installed
-product or remote-main qualification; cold timing differences across separate
-runs cannot all be attributed to batching. The ≤2 s goal remains unmet.
-
-Next, profile the remaining validated lookup costs before choosing another
-optimization: an inspected warm native build spends 0.286 s linking out of
-5.012 s internal build wall time. Dependency scanning and cache validation
-dominate that stage; their per-unit times overlap and must not be added as
-wall time. Preserve the header-shadowing and compiler-replacement invalidation
-contracts while improving reuse. Never union binding permissions or reuse
-headers by timestamp.
-
-The native-only follow-up measured **20,296 digest reads**, **39 fresh
-preprocessors** and **39 compiler-version probes** per warm build. An experiment
-sharing read-only Nix store hashes cut reads to 2,924 but moved median native
-wall only **5.140 s → 5.124 s**. It was removed; reducing an isolated operation
-count did not produce a useful build improvement. Preserve this rejected
-experiment in the performance record before choosing further lookup work.
-
-The native transport audit also reproduced acceptance of a valid JSON prefix
-followed by a raw NUL and trailing bytes in the self-host compiler, in both
-standalone and batch mode. `ExecResult` now retains captured byte counts through
-`ChildProcess` and `UnixShell`; the native process provider rejects a successful
-selected stream whose string length omits captured bytes. This is separate from
-the codec's escaped-NUL check. The rebuilt compiler passes **40 consumer cases**,
-including standalone/batch rejection through both frontends. Seven self-host
-process corpus cases, six real C++/AppKit cases and 62 structure/ABI/naming checks
-also pass; the reference process/descriptor suite passes 31 cases. This is
-targeted qualification, not the final repository or product matrix.
-
-Recommendation: establish this before M11; it fixes an existing correctness
-gap and preserves the current **≤5 s unchanged / byte-identical-touch**
-regression budgets without requiring modular semantic analysis. The earlier
-2 s / 3 s latency goals were retired by the user on September 22.
-
-1. **Native cache correctness.** Extend `tools/native_plan.py` and
-   `src/tests/python/test_native_plan_builder.py`. The object identity must
-   cover the actual toolchain/target, compile flags, source identity where
-   observable, and transitive inputs including generated/system headers.
-   Use a compiler-supported dependency/preprocessing scan as the initial
-   correctness oracle, with versioned manifests. Missing, changed or
-   unreadable dependencies are misses. Test a header-only constant/layout
-   edit with an executable that changes behavior, not only a hash assertion.
-2. **Resolution changes.** Rehashing last build's depfile alone misses a new
-   header earlier on an include search path. Model search roots, negative
-   lookups and relevant environment, or rescan preprocessing. Immutable Nix
-   store paths can support a cheaper identity; mutable SDK/include trees
-   need validation. Measure scan cost against the no-op budget. Do not trade
-   correctness for an incomplete cheap key.
-3. **Whole-build artifact cache.** Persist the primary C, all secondaries,
-   native adapter units, link plan, source maps and dependency identities
-   as one verified generation. Reference split/debug generations and fresh SDK
-   semantic identity are implemented, including warning/source-map preservation.
-   Measure actual product reuse and resolution cost; retain fresh native/header
-   validation while improving lookup. The self-host path needs equivalent
-   inputs and behavior through the existing artifact owners.
-4. **Separate compile and link identity.** Hash link inputs, actual native
-   libraries/toolchain and ordered flags. A changed library may require
-   relinking without transpiling; unchanged build inputs require neither.
-   Include `BUILD`, frontend, target, optimization/debug flags, selected
-   compiler fingerprint and unit layout in build state. Replacing a compiler
-   in place must invalidate, and dev/release outputs must not be confused.
-5. **Publication/failure semantics.** Stage a generation in a private
-   directory and publish the manifest only after every file is complete.
-   Cache publication must tolerate parallel callers and process interruption;
-   do not delete the last good generation before compiling its replacement.
-   Reference CLI output preflight now rejects aliases among primary/secondary
-   C, the link plan and freestanding seam, and protects resolved sources,
-   declared native inputs and package metadata (including hard-link aliases).
-   Reference CLI publication now stages the primary C, every secondary and the
-   link plan before replacing any of those outputs; the plan is published last.
-   Injected primary/secondary staging failures previously left mixed output,
-   and now preserve all prior files. Cross-directory staging, encoding and
-   missing-parent failures are covered; the focused CLI/artifact suite passes
-   122 cases with four Linux-only cases unavailable on the macOS runner.
-   Stage-all alone did not make replacements transactional or close the
-   filesystem race between validation and publication. The regular-file CLI
-   transaction integration below now supplies recovery and rollback; the
-   separately created freestanding seam remains open. Whole-generation publication also
-   includes the product macros that currently remove secondary C first.
-   The shared `ArtifactPublisher` recovery audit reproduced loss of the last
-   good backup when a post-restore flush failed. Recovery now retains that
-   restored artifact and its pending journal for retry. Regressions cover
-   directories, payloads and validators, plus actual process exit during
-   backup, replacement, validator publication, commit and cleanup. CLI
-   transaction integration must reuse this owner. It now supports outputs in
-   multiple directories with ordered directory locks, destination-local staging
-   and backups, and participant recovery markers. Concurrent publishers with
-   different coordinators serialize, and a writer touching only a participant
-   directory rejects interrupted work until recovery finishes. Recovery now
-   accepts an independently authorized prior inventory alongside the requested
-   layout and holds the union of their directory locks throughout. Before any
-   recovery mutation, all surviving journals must match one of those supplied
-   layouts, including when an earlier retry had already started the new one.
-   Variable-count tests cover 0/1/4 replacement units and changed directories.
-   A 260-artifact regression also proves that
-   journal validation grows with the caller's known inventory instead of imposing
-   the former fixed 64 KiB read ceiling. CLI integration uses this shared
-   foundation rather than inventing another journal.
-   Explicit obsolete-file retirement is now part of the shared transaction:
-   `PublishedArtifact(None, path, expected_digest=prior_sha256)` removes only an
-   unchanged regular file. The digest must come from an owned prior generation,
-   not a fresh hash of whatever happens to occupy the path. A modified file
-   rejects publication; a file recreated after retirement is preserved as a
-   recovery conflict. Omitted prior paths are never implicitly deleted. Removal
-   uses the existing backup/commit/rollback path, with the anchor and final
-   validator retained as replacements. Recovery schema 3 records explicit
-   absence; existing write-only recovery schemas 1/2 remain supported.
-   The reference artifact layer now has `CompilerGenerationPublisher`: a
-   persistent prepared inventory plus a committed ownership record containing
-   primary/secondary/link-plan/freestanding roles, SHA-256 hashes and modes.
-   The committed record is the existing transaction's final validator, so
-   rollback and commit also choose the matching ownership set. A retry recovers
-   the recorded attempt before preparing another layout; it does not infer
-   authority from arbitrary output journals. Retirement uses committed hashes.
-   The state root must be private and durable, separate from evictable caches;
-   missing or malformed recovery authority fails closed. A strict directory
-   flush precedes publication. The reference CLI now composes this owner through
-   an application port for regular primary/secondary/link-plan outputs, even
-   with `--no-cache`. It freezes path resolution and captures source identities;
-   guards run before recovery, before preparing the next intent and within the
-   publication policy, covering old outputs selected for retirement as well as
-   current outputs and separately reserved outputs such as an existing
-   freestanding header. An ownership-role change cannot retire that header and
-   silently convert create-if-absent to replacement. Symlink retargets and changed
-   output-directory identities reject publication. A default private per-user state root is provisioned
-   lazily, independently of the compile cache, with `BTRC_STATE_DIR` as an
-   absolute override. Existing output symlinks and permissions remain supported.
-   Freestanding headers still use separate create-if-absent publication, and
-   requests containing devices retain their direct I/O path. Fully coordinated
-   seam/device handling, final path-race closure, existing Windows ACL validation
-   and native qualification, self-host parity and product
-   integration remain open.
-   The native-plan builder now participates in the directory-lock protocol:
-   hold primary/plan locks to discover the inventory, release and reacquire the
-   complete sorted directory set, and reread if a replacement moved secondary
-   units. Generated primary/secondary/plan symlinks now participate through
-   both requested and resolved parent directories. Re-resolve bindings after
-   each lock-set expansion, with eight bounded attempts; preserve requested C
-   filenames for relative includes. Package sources and SDK headers retain
-   their no-follow validation. Keep locks through compilation, cache probes
-   and linking. Pending journals reject the build before tools; recovery stays
-   with the independently authorized generation owner. Read-side locking does not make
-   self-host/direct writes transactional or freeze arbitrary native headers.
-   The initial reader checkpoint records **97 native-builder**, **233 boundary** and
-   **98 architecture/API passes**, with one native-Windows skip. The installed
-   Nix adapter also builds/runs split C and rejects an interrupted generation;
-   its isolated import path prevents checkout modules from shadowing the
-   packaged reader. The subsequent generated-alias checkpoint passes **116
-   native-builder cases**, within **337 passes / 4 Linux-only skips** across the
-   native builder, emitted units, native packages, performance harness and
-   self-host CLI. Both frontends emit aliased outputs that build/run and reuse
-   cached objects; the rebuilt installed adapter passes the same alias/include
-   smoke and interrupted-target rejection. See the performance roadmap for
-   exact artifacts. These are consistency checks, not performance completion.
-   Directory-sharing builds serialize while their inputs are in use; read-only
-   generated-output distributions still need an explicit coordination policy.
-   Shared-publication qualification passes 225 tests (including 58 durability
-   cases) with one native-Windows stat-mode skip, plus 92 architecture checks;
-   exact records are in the performance roadmap.
-   The subsequent ownership implementation passes 245 integration tests
-   (including 78 durability cases), the same visible Windows skip, and 92
-   architecture checks. Subsequent reference CLI tests now cover actual compiler
-   process crashes, a third unit-prefix layout, replacement rollback, shrinking
-   to one output, current-input retirement/recovery conflicts and custom seams.
-   Full cross-frontend publication parity and adoption by remaining direct
-   consumers remain required.
-   Final CLI integration qualification records 282 source/CLI/cache passes,
-   235 emitted/native/build passes on a fresh self-host compiler, and 175
-   architecture/artifact passes, with six visible platform-specific skips.
-   Exact records and remaining release gates are in the performance roadmap;
-   these checks do not establish a build-speed improvement.
-   The next output-inventory repair makes both compilers emit schema-4 plans
-   containing ordered absolute secondary paths. The reproduced separate-prefix
-   build failure came from schema 3 deriving them from the primary C filename.
-   The builder now consumes explicit paths and still reads legacy schema-3
-   counts. Cache restoration validates the requested paths and order; debug
-   resets name the actual secondary files. Resolve the destination directory
-   without following the final output, preserving filename-prefix semantics
-   and stable plans before/after files exist, including symlinked directories.
-   Consumers must update their plan reader with the compiler. This inventory
-   alone does not authenticate a complete generation or retire obsolete units;
-   the reference CLI now adds ownership and retirement through the transaction
-   owner described above. The following self-host checkpoints record that
-   integration and its remaining qualification.
-   Self-host preflight inventories successful source/metadata reads and declared
-   native/package inputs before writing any primary, secondary or plan output.
-   It preserves output symlinks and modes while rejecting input/output aliases,
-   nonregular targets and publication-control names. Earlier staging and owner
-   coordination checkpoints qualified **217 focused integration/corpus tests**
-   plus **29 architecture/naming checks**; those checks alone did not provide
-   recovery or committed ownership.
-
-   The regular-file generation transaction is now implemented in the self-host
-   CLI on POSIX. It uses the reference schema-1 ownership/intent records and
-   schema-1/2/3 publication journals, with owner-first locking and the sorted
-   union of interrupted/current output directories. Recovery reads only the
-   independently authorized inventory, restores the old validator last, and
-   removes the coordinator marker before participant markers. Ownership is
-   reloaded after recovery before choosing retirements. Durable intent precedes
-   public replacements; the new committed manifest is published last. All
-   prepared bytes/modes and retirement digests are rechecked before journaling.
-   A bounded read comparison avoids another whole-output buffer for payload
-   validation. The private filesystem lease now supports durable, no-follow
-   removal of retired authority, including retry after an uncertain flush.
-
-   Qualification includes actual process death in either implementation,
-   cross-frontend recovery, participant/coordinator crash boundaries, a changed
-   layout, malformed journals, modified retirements, current-input conflicts,
-   large inventories and failed flushing after restoration. Tests also cover
-   corruption of staged bytes/modes and editing a retirement during preparation.
-   Final evidence is recorded in the performance roadmap. Keep the full M6a
-   gate open: source identity at read time and remaining path races need
-   qualification, native Windows private state/locking is missing, and the
-   installed product/full release matrix has not been established by these
-   focused fixtures. Retirement hashing now uses incremental SHA-256 over one
-   immutable snapshot in 64 KiB reads. Native writers built through both frontends have
-   retired a **2 GiB + 65-byte** file with a Python-matched digest and about
-   **3 MiB peak RSS** each. The old whole-file byte-buffer ceiling no longer applies
-   to that path. The owner also revalidates newly resolved output destinations
-   after lock contention, before persisting intent, preventing a rejected
-   private-state redirection from poisoning the next build. The follow-up
-   qualification and measurements are recorded in the performance roadmap.
-   Earlier focused qualification on a fresh self-host compiler passes **192
-   transaction/CLI/filesystem cases**, **116 native-builder cases**, **78
-   reference publication regressions**, and **29 architecture/naming checks**,
-   with no skips in those selections. Lint, formatting, generated sources and
-   whitespace checks pass. The performance roadmap records exact XML artifacts
-   and input/compiler hashes. These results qualify the tested transaction
-   paths; they do not establish full M6a completion or a build-speed improvement.
-   The subsequent lock-rebinding/streaming-digest checkpoint passes **222
-   transaction/CLI/digest/filesystem cases**, **116 native-builder cases**, and
-   **107 reference publication/architecture/naming checks** on fresh compiler
-   `d6c34f6344fa2a7b2ca2d1921a980601`, with no skips. Both frontends' digest
-   corpus also passes GCC/Clang at **-O0 through -O3** and address/undefined
-   sanitizers. The performance roadmap distinguishes digest microbenchmarks
-   from the still-required end-to-end BTRSmith integration proof: the 128 MiB
-   text digest trial improves from **2.6454 s to 1.4203 s median** (five samples),
-   with peak RSS reduced from **385.84 MiB to 129.67 MiB**. This qualifies the
-   digest improvement, not the product's build-time acceptance budgets.
-   The cleanup-error follow-up now propagates snapshot-close and lock-release
-   failures, preserves the original failure alongside cleanup diagnostics, and
-   stops recovery on journal I/O failure. Both authorized inventories determine
-   journal read bounds. Fresh compiler `20e450e924c5a1169a4118d25f5a1554` passes
-   **477 focused checks with no skips**; all 16 new scenarios also pass as
-   strict C11/-O2 executables generated by both frontends and built by GCC/Clang.
-   See the performance roadmap for artifacts and fault coverage. A cleanup
-   error after commit may leave the complete new generation installed; it must
-   still produce an unsuccessful command result.
-
-   Read-time identity now travels with CLI root/import/relaxed-stdlib source
-   text in the reference compiler and with reads made by the POSIX self-host
-   `FeSourceFileReader`. Capture comes from the actual open stream, with checks
-   after reading and inside publication guards after lock contention. Inputs
-   renamed into an output cannot be replaced merely because a different file
-   now occupies the original input name. Source reads still run to EOF, and
-   copied metadata does not retain open descriptors throughout compilation.
-   `Library.IO` owns the shared immutable `FileSnapshot`/`FileKind` values and
-   the stream-inspection outcome; exact filesystem handles reuse those values.
-   Explicit consumers import IO, preserving the closed root prelude and the
-   existing filesystem snapshot constructor/cache-token format. Fresh compiler
-   `a26a8832357525806c6d3a26fe0a341d` passes **742 focused checks / 6 platform
-   skips**, plus **26 corpus** and **149 reference CLI/source/archive checks**.
-   Reusable readers keep the original publication identity while allowing later
-   repository snapshots; the reuse and optimized GCC/Clang fixture evidence is
-   recorded in the performance roadmap. Reference package/SDK/binary-reader identity, remaining external
-   path races, native Windows publication and product build budgets remain open.
-6. **Integration proof.** Invoke BTRSmith's real make entry point twice,
-   touch an input without changing bytes, edit a transitive native header,
-   replace a compiler at the same path, and switch dev/release/frontend.
-   Assert operation counts and behavior against clean builds. Keep the
-   source resolver/dependency validation active even on a cache hit.
-
-Use the existing native-plan tests, emitted-unit tests, artifact tests and
-product make tests as homes for these regressions. Do not introduce a second
-build engine just to bypass broad mtime dependencies. Scope invalidation to
-the actual entry point's closure, including glob membership and packages.
-
-### M7 (remainder) — finish the profile-driven cuts
-
-Target: btrcc **≤55 s**, btrcpy **≤180 s** cold transpile on BTRSmith,
-byte-identical for unchanged output contracts. Measure each step with
-`BTRC_TIMING=1`, uninstrumented wall/RSS, and the complete corpus comparison.
-
-The September 22 phase evidence changes the order *within M7*: attribute and
-remove repeated emission work first (item 4), then setjmp origin-set churn,
-generic substitution and the remaining declaration/analysis costs. This stays
-inside the existing milestone. Use one bounded owner-attribution experiment
-before the first emission change, not another open-ended profiling campaign. The
-filename-reuse cut is now implemented and measured: emission falls from about
-26.4 s to 10.0 s; cold/edit walls improve 13.7%/13.3% in two matched pairs.
-The first item 1 cut now saves a further 4.6% cold / 5.4% edit in its matched
-comparison, with compiler peak RSS about 8% lower. Continue with item 2 and the
-remaining lowering costs; revisit origin representation only if residual
-profiles justify it.
-
-1. **Remove setjmp origin-set churn before choosing interning.** The bounded
-   September 22 full-product counter run finds **31,734,770 origin vectors**,
-   **20,591,611 expression visits**, and **16,354,702 null visits**. Its 711,530
-   literal and 344,042 function-reference visits unnecessarily traverse fifteen
-   absent children each: **15,833,580 avoidable null visits**. Copies are
-   overwhelmingly empty or singleton (3,653,551 / 909,036 versus 157 larger).
-   First short-circuit childless leaves and omit empty per-node origin facts in
-   both compilers. Missing facts already mean empty; preserve independent
-   mutable return values, accumulated nonempty facts and write-record ordering.
-   This cut passes 137 focused tests and a byte-identical self-host bootstrap;
-   two actual-Make pairs now save 4.6% cold / 5.4% edit. The post-change diagnostic reduces origin
-   vectors **59.8%** (31.7 M → 12.8 M) and null visits **96.8%**, preserving
-   nonempty-operation counts. The counter run proves output identity for all
-   fifteen C units, but its instrumented wall time is not a build KPI.
-
-   Re-measure residual allocation/time before selecting a new representation.
-   If copying remains dominant, compare empty/singleton value representations
-   with full per-function interning keyed by exact
-   `storage.identity/depth/sourceExposed` triples. Prefer compact IDs or
-   structural keys over joined strings. Interning and alias-slot ownership
-   changes must earn their place with measured end-to-end improvement.
-   Audit `src/compiler/python/ir/lowering/exceptions.py` separately: function
-   effects use `frozenset`, while pointer origins and alias states are mutable
-   sets. Do not infer immutability from the function-effect model. Preserve
-   first-record order where output depends on it; canonical membership must
-   not reorder emitted summaries. Test branch snapshot isolation, loops/fixed
-   points, captures, unknown pointers and setjmp cleanup. Report allocation
-   counts and bytes, peak lifetime, and unique sets/hits/misses if interning is
-   tried. Gate: full matrix plus output identity and actual-build measurement.
-2. **Generic instantiation allocation** (`l-generic-classes` 12 s).
-   `SemanticTypeSystem.resolveGenericType` and
-   `TypeShape.copyWithArguments` (`src/compiler/btrc/analyzer/Types.btrc`,
-   `syntax/Types.btrc`) create ~1.6 M type nodes per compile;
-   `SemanticTypeSystem.namedClass` another 1.15 M. Memoise substitution
-   per (type identity, type-map identity) within one instantiation
-   (`DeclarationLowerer.emitGenericInstance`, `ir/lowering/Declarations.btrc`),
-   return the input when no parameter is reached (the M1 shape in
-   `resolveTypedefType`), and audit `namedClass` callers for mutation
-   before sharing its result. A mutable map's object identity alone is not a
-   valid substitution-cache key: use an immutable substitution context or
-   generation and include every semantic option. Bound cache lifetime to the
-   instantiation/analysis session, not a global address-keyed cache.
-3. **Declaration lowering** (`l-declarations` 15 s). Re-profile after 1–2.
-   The September 21 interrupted reference cold profile additionally records
-   944,478,612 iterations in `_binding_conflicts_with_type`'s generic-parameter
-   scan (`src/compiler/python/ir/lowering/calls.py`). Audit declaration-table
-   mutation and name-collision semantics before replacing repeated full scans
-   with a compilation-scoped membership index. Preserve generic and hosted-type
-   collisions and qualify emitted-name identity. This is an M7 lead from an
-   incomplete instrumented run, not a new priority or a measured speedup.
-   Inclusive-time candidates from the last graph:
-   `CallTargetResolver.resolve` (300k calls, 4.7 s), `resolveField`
-   (219k), `CallableValueSemantics.expressionAbi` (620k, 4.8 s),
-   `CallableFlowState.applyEvaluation` (240k, 4.8 s),
-   `CycleSemantics.reaches` (2.2k calls at 1.8 ms each — memoise per
-   (type, target) or precompute reachability once per class graph).
-4. **Repeated C emission and debug formatting**, added after the September 22
-   actual-Make cold diagnostic: `emit` now costs **27.750 s** and the 15 C
-   units total **182.535 MB**. These differ in host/mode/workload from the old
-   2.8 s profile; do not attribute the difference to one regression without
-   a controlled comparison. `CEmitter.emitUnits` renders each function to
-   count its lines, discards that text, then renders it again. Each unit also
-   renders all helpers, types, aliases and function prototypes. In debug mode,
-   `emitLineDirective` repeatedly escapes the same filename character by
-   character; `spliceLines` copies the entire line vector before joining it.
-   Attribute these costs with bounded owner timers/counters, then remove the
-   dominant repetition within the emitter's formatting responsibility.
-   Compare a count-only traversal with reuse of bounded rendered fragments;
-   retained text must earn its memory cost. Reuse escaped filenames by exact
-   string value within an emission, never by an unsafe raw pointer key.
-   Preserve exact split boundaries, linkage, directive filenames/line numbers,
-   deterministic output and repeated calls on the same emitter. Do not omit
-   debug information to meet a dev-build KPI. The cold sample also has **9.844 s**
-   between total phase marks and complete compiler wall time. Attribute artifact
-   serialization/publication and graph teardown separately before assigning that
-   residual; do not label it all filesystem time. Dependency-selective headers
-   and helper ownership belong to M11's typed unit planning, not C text scans.
-5. Port each cut to btrcpy where the same shape exists; record the numbers.
-   Do not assume matching source edits produce matching benefits: keep each
-   frontend's algorithm idiomatic and profile its actual dominant costs.
-   Persist rejected experiments and their evidence, as AGENTS.md already
-   does for substring/TLS optimizations. Phase targets are diagnostic;
-   end-to-end budgets decide whether the milestone is complete.
-
-### M8a — Reduce node allocation before changing representation
-
-Recommendation: do this bounded experiment before a full AST migration.
-Target: **at least 50% fewer empty child-container allocations**, self-host
-peak RSS **≤3 GiB**, and cold transpile **≤40 s** on the reference BTRSmith
-workload. Count node objects, child containers, backing buffers and bytes
-separately. Smaller nodes do not imply fewer logical AST nodes.
-
-1. Instrument construction by node kind in a profiling build. Distinguish
-   parse nodes from temporary type nodes and IR nodes; confirm what survives
-   until process exit. Keep instrumentation out of acceptance timings.
-2. Prototype lazy child containers for a frequently constructed kind, with
-   explicit read versus mutation paths. A read may observe an immutable empty
-   view; a write must allocate private storage. Never return a globally shared
-   mutable `Vector` that callers can push into. Audit cloning and aliasing.
-3. Keep `src/language/ast.asdl` authoritative. The generator already knows
-   constructor fields. Generated output remains data/schema; behavior stays
-   with an intentional handwritten owner. Python is already per-kind and
-   should not acquire a redundant wrapper API.
-4. Measure on BTRSmith, self-compile and small/large corpus programs. Keep the
-   experiment only if memory or wall time improves without semantic drift.
-   If nullable-container checks erase the gain, record it and stop; do not
-   force the representation migration to justify the experiment.
-
-### M8b — Per-kind self-hosted AST and IR, conditional
-
-Target: self-host cold transpile **≤30 s**, compiler peak RSS **≤1.5 GiB**.
-This is a larger architectural option if M8a leaves node layout dominant;
-it is **not a prerequisite for the M11 prototype**.
-
-- First prove a small heterogeneous node tree with kind-specific payloads,
-  identity, traversal, mutation and safe access using current language
-  facilities. The generator still says fat nodes avoid dispatch/downcast;
-  verify today's support instead of assuming either the comment or a proposed
-  base-class design is correct. Do not introduce unchecked casts.
-- Generate storage/field metadata from ASDL. Preserve line/column, source
-  provenance and identity used by analysis memoization. Decide how existing
-  mutable analyzer annotations are represented without a universal property
-  bag that recreates the fat node.
-- Prove parser → analyzer → IR → emitter for a small vertical slice before
-  migrating all kinds. Transitional accessors must have a removal endpoint;
-  wrong-kind writes should fail, not disappear into an empty container.
-- Cover the generator's native ABI consumer explicitly: preserve its old
-  representation until deliberately migrated, or migrate and qualify it in
-  the same change. Keep renderer/schema completeness checks and normative
-  repository inventories current.
-- AST first, IR second. The IR has its own typed model and runtime references;
-  do not pretend AST ASDL describes IR. Reuse Python's dataclass traversal
-  metadata and define a reviewed self-host IR traversal source of truth.
-- Corpus output should remain identical where behavior/shape is unchanged.
-  Rebuild every bootstrap stage after compiler representation changes; prove
-  the new fixed point. Intentional fixture changes need individual reasons
-  and regressions, not a blanket recapture.
-
-### M11 — Separate compilation, with explicit dependency contracts
-
-**September 24 revision:** M11a landed. Stage B's design now follows the
-analyzer mapping and the survey of prior work recorded in the status section
-at the top of this plan and in `docs/design/separate-compilation.md`. The
-measurement round listed there decides the order of Stage B, front-end
-caching and M8a allocation work.
-
-**September 22 priority revision:** design reuse and parallel execution together.
-The dependency graph determines both which cached groups remain valid after an
-edit and which groups can execute concurrently on a cold build. M11a is now the
-next implementation slice; M10's shared-state and stdlib contracts are part of
-its design, rather than a retrofit after serial separate compilation. Prove the
-slice with one worker, then multiple workers before broad product integration.
-
-This is the main developer-loop delivery: **≤10 s self-host / ≤15 s
-reference** for the body-edit scenario in section 1. Preserve release
-whole-program compilation until separate mode is fully qualified. A cold
-separate dev build must meet the table and be **≤110%** of the same tree's
-whole-program dev build; adding caching must not make a cold build much worse.
-
-#### M11a: prove the smallest complete module build
-
-Build a repeatable fixture with a library module, two consumers, and two
-entry points. It must contain a generic, an inherited managed type, a native
-header dependency and a cross-module call with effects. Start with functions
-and add those mechanisms before declaring the prototype representative.
-
-Exercise the real compiler CLI, native compiler, cache and linker. Build
-clean, edit, rebuild incrementally, then rebuild clean in a second output
-directory. Compare diagnostics, runtime behavior and canonical semantic/link
-artifacts; same-mode deterministic C should also match. Whole-program and
-separate mode need behavioral/ABI equivalence, not identical C text.
-Use the same scheduling and publication contracts with one and multiple workers.
-Show that independent ready groups overlap, a dependent waits for the facts it
-needs, and an unchanged group stays cached after a private body edit. Include
-worker failure and cancellation without deadlock or partial cache publication.
-
-#### Module artifacts and owners
-
-A compilation group is a source module plus package context and any
-inseparable textual includes. Preserve current import visibility. If accepted
-imports form cycles, compute strongly connected groups and analyze the group
-together; if a cycle is invalid today, preserve the diagnostic. Do not invent
-an import order or silently turn textual inclusion into module import.
-
-Store artifacts under `build/` or the configured cache, never next to source:
-
-| Artifact | Contract | Existing owner to extend |
-| --- | --- | --- |
-| Module interface summary | Versioned deterministic declarations, resolved types/layouts, hierarchy, ABI, native/call/ownership/realtime contracts; no process addresses | Frontend and analyzer models, persisted through artifact owners |
-| Generic implementation payload | Typed, canonical template AST or portable IR plus defining scope and provenance; versioned separately from public interface | Generic analyzer/specializer and AST codec |
-| Local analysis result | Body facts and consulted external fact identities; diagnostic/source-map provenance | Analyzer result model |
-| Program facts | Reachability, runtime type/cycle facts, dispatch sets, generic demand and helper/native requirements | Optimizer/ownership/realtime owners |
-| Lowered module | Structured IR, definition ownership and transitive declaration/helper dependencies | IR lowering and optimizer |
-| Native artifact set | C units, required headers/adapters, link plan, dependency manifest and content hashes published together | Artifact publication and native-plan builder |
-
-Use one versioned schema understood by both frontends, with round-trip and
-parity tests; internal representations may differ. Follow the existing
-archive/publication owners instead of adding a second cache framework.
-The current stdlib archive is a linkage/publication precedent only: its
-consumer runs after whole-program lowering and optimization.
-
-#### Distinguish rebuild keys from exported semantic hashes
-
-The artifact key includes compiler/schema/runtime identity, source and include
-content, target/ABI/SDK, package/lock context, native bindings, options and
-consulted dependency facts. The **public semantic hash excludes irrelevant
-private body bytes**. Changing a private implementation must not automatically
-change every importer's public hash. Diagnostics and debug locations still
-need correct independent provenance.
-
-A cached lowering records the specific program facts it read. A new subclass
-may alter cycle handling or dispatch in an unchanged module; rerun the global
-summary fixed point and invalidate those consumers. A conservative whole-
-program invalidation is acceptable during the prototype, but must be visible
-in counters and cannot pass the localized-edit acceptance budget.
-
-| Change | Required invalidation / proof |
-| --- | --- |
-| Private body, unchanged exported effects/ABI/generic demand | Its group, its unit and final link; unrelated analyzed/lowered groups stay cached |
-| Body changes release/capture/realtime effects | Recompute summaries to a fixed point; revisit affected callers even when signatures match |
-| Public layout, signature, default argument or exported constant | All consumers of the changed fact, transitively where their own summaries change |
-| Add/remove subclass or interface implementation | Recompute dispatch/cycle facts; invalidate lowering and validation that consulted them |
-| Generic body or demanded type arguments change | Rebuild affected instantiations and their definition units; update transitive demand |
-| Native header, binding contract, SDK, compiler flags or package lock changes | Invalidate dependent semantic and/or native artifacts, including transitive headers |
-| Add/delete/rename source, change glob membership or include search resolution | Re-resolve the graph; remove stale definitions/units from the link manifest |
-| Change frontend, target, mode, compiler binary or runtime | Select a different validated artifact identity; never reuse by path alone |
-
-Do not hash the entire changing program summary into every unit as the final
-solution: that is correct but destroys incremental behavior. Conservative
-facts may over-approximate safely in dev mode; explain the resulting runtime
-cost and preserve all ownership and realtime rejection rules.
-
-#### Generics and program facts
-
-Recommend **definition-owned specialization units**, deterministically keyed
-by package/module/symbol identity, normalized type arguments, compiler target
-and generic payload hash. Consumers request instances from the defining
-owner; that owner reads its implementation payload and emits each definition
-once. Fixed-point demand discovery handles generics that request other
-instances. Start with one stable specialization unit per defining module;
-split further only if rebuilding it prevents the acceptance target.
-
-Interface summaries alone cannot instantiate an arbitrary generic body.
-Never reopen and reanalyze all imported sources under the name of summary
-loading. Persist a checked implementation payload or explicitly schedule the
-defining module. Include private dependencies, recursive instances, imported
-methods, visibility and source diagnostics in the fixture.
-
-Do not use weak-linkage extensions for duplicate definitions: generated C
-must remain strict C11. Keep temporary names, generated symbols and ownership
-stable across entry points and rebuild order. A specialization shared by two
-executables has one object implementation per cache identity and one linked
-definition in each executable.
-
-Whole-program merging consumes sufficient per-symbol dependency/effect facts,
-not signatures alone. Preserve address-taken callbacks, indirect dispatch,
-global initialization, native adapters, GPU kernels and runtime helper roots.
-Unsafe/unknown effects must remain conservative, never become empty summaries.
-Realtime and call-effect recursion requires a fixed point over the call graph.
-
-#### Stable emission and build integration
-
-- Emit stable module/group units plus deterministic specialization, runtime
-  and necessary registration units. Separate unrelated declarations into
-  headers by actual dependency closure; one all-program header causes every
-  object to miss when any layout changes. Keep one definition of shared
-  runtime state across C/Objective-C/C++ adapters.
-- Lowering/optimizer plan typed unit dependencies. Emitters render them;
-  do not move semantic dependency discovery into C text scans or the emitter.
-  Handle complete-type ordering, forward declarations, initializer edges,
-  helper dependencies, native declarations and callback tables.
-- A driver orchestrates existing frontend/analyzer/lowering/artifact owners;
-  it does not implement a second semantic pipeline. Proposed CLI:
-  `btrcc --module PATH --summary-dir DIR` with equivalent reference support,
-  and a build entry point beside `tools/native_plan.py`. Final API follows
-  the vertical-slice proof, not the provisional flag spelling.
-- BTRSmith mode/frontend/target outputs must be distinguishable. Build
-  identity includes the actual selected compiler and all flags, not just
-  `command -v` output. Preserve generated files' mtimes when bytes are equal;
-  validate content regardless of source mtimes. Publish a complete generation
-  atomically and retain the previous usable generation on failure.
-- Record cache-hit reasons and counts. For the fixed body-edit fixtures,
-  require exactly one changed source group analyzed/lowered, no unchanged
-  group re-lowered, and only dependency-justified native compiles plus one
-  link. Shared specialization/registration changes count and must be explained.
-
-#### Cold-build scheduling and work reduction
-
-M11 must address cold work as well as edit reuse. The September 22 cold
-diagnostic spends 124.340 of 134.608 s in btrcc. Even eliminating the entire
-9.304 s native stage would improve that build only about 1.07×; object-cache
-work alone cannot establish the requested 10×. Even deleting all measured emission
-and setjmp time would leave about **90.9 s** end to end. The remaining compiler
-work, allocation and module-level critical path must also change; no single
-local cut is being presented as the 10× solution.
-
-- First measure source-group SCC sizes, work per group and the longest
-  dependency chain. An effectively whole-program SCC limits parallelism;
-  report it instead of assuming eight independent compiler jobs exist.
-- After summaries and specialization ownership are proven, schedule ready
-  groups with bounded workers. Share immutable facts or load bounded artifacts;
-  do not clone the full mutable program per worker. Global effect/generic
-  fixed points and deterministic definition ownership remain explicit barriers.
-- Budget compiler and native workers together against the **≤6 GiB aggregate**
-  ceiling. Measure one versus bounded workers on the same empty-cache tree;
-  count repeated parsing, analysis, generic work and bytes read/written.
-  Summed CPU time is not critical-path wall time. Avoid oversubscription and
-  retain the existing sequential memory-intensive bootstrap gate.
-- Reduce emitted dependency closure and shared runtime duplication through
-  structured IR planning. Measure native preprocessing/compile/link wall after
-  smaller units; moving all declarations into one shared header alone does not
-  reduce each compiler's parsing work or prevent broad invalidation.
-- Keep compiler/SDK/object/output caches empty for the cold comparison, with
-  installed toolchains/packages reported explicitly. Prebuilt application or
-  stdlib artifacts are a different scenario, never a hidden cold-build win.
-
-Initial end-to-end design envelopes are **≤7 s compiler + ≤5 s native + ≤1 s
-outer driver** for cold dev builds, and **≤4.5 s compiler + ≤4.5 s native +
-≤1 s outer driver** for edits. These are proposed budgets, not a demonstrated
-speedup or predicted allocation. Replace them with measured allocations as
-M11/M10 and justified M7/M8a cuts land; keep the end-to-end 10× requirement.
-If remaining serial work exceeds the envelope, identify its owner and require
-new evidence before conditional M8b/M9 or finer-grained M10 experiments.
-Caching cannot close a cold serial floor.
-
-#### Acceptance before enabling BTRSmith dev mode
-
-Run the invalidation table through both compilers. Include clean/warm cache,
-corrupt/missing artifacts, interrupted publication, concurrent builds to the
-same cache, changed include search order, new shadowing headers, and rebuilds
-in different directories. Cache misses can rebuild; cache corruption must
-never silently produce a successful stale binary.
-
-Verify cross-module ARC destruction/cycles, exceptions and cleanup, generic
-identity, function pointers/interfaces, native callbacks, globals and debug
-source locations through the real native executable. Run sanitizer ownership
-cases as well as stdout goldens. Exercise dev → release → dev without manual
-cleaning. Preserve release bootstrap and add a separate-mode self-compile
-check before declaring the new compiler build mode broadly supported.
-
-Only then run the complete BTRSmith frontend/native suite in both modes and
-measure every scenario in section 1. A fast library fixture alone does not
-complete M11.
-
-### M9 — Arena allocation, only after ownership and allocation evidence
-
-A possible route toward the **≤10 s final self-host transpile** objective;
-not a commitment to add a general language feature for a compiler benchmark.
-Re-profile after M7/M8/M11. If allocation/ARC remains dominant, first compare
-bounded graph-lifetime storage with an arena prototype and record total
-allocated/retained bytes, ARC operations and lock time.
-
-Before implementing, specify:
-
-1. **Scope/lifetime:** process-lifetime arenas initially never free storage.
-   Do not call them reclaimable regions. A public region-lifetime feature
-   requires a separate escape/lifetime design. The CLI can tolerate retained
-   graphs; repeated use of the `Compiler` API must have an explicit policy and
-   a many-compilations RSS test, not accidental unbounded growth.
-2. **Mixed edges:** define ordinary→ordinary, ordinary→arena, arena→ordinary
-   and arena→arena behavior for construction, assignment, replacement,
-   adoption and destruction. Arena→ordinary values need real ownership;
-   process lifetime alone does not retain their targets. State how reverse
-   reachability, witnesses and cycle collection treat mixed graphs.
-3. **Storage propagation:** decide separately how node payloads, vector/map
-   containers, backing buffers, strings and temporary analysis data allocate.
-   An arena node containing ordinary containers still pays ordinary ARC.
-   Measure which allocations become arena-owned; emitter strings can stay ARC.
-4. **Observable behavior:** constructors, destructors, native resource
-   owners, weak/non-owning views, exceptions and allocation failure retain
-   defined behavior. Restrict unsupported arena payloads explicitly; don't
-   silently suppress a destructor that closes a native resource.
-5. **Concurrency:** lifetime does not imply immutability or thread safety.
-   Define arena allocation ownership and publication before M10. Cover
-   `replace_edge`, adoption, cleanup and collector paths, not only retain/
-   release fast paths.
-
-Use existing analyzer/ownership/runtime owners and shared grammar/ASDL if
-syntax is needed. No generated-C patching or alternate compiler ownership
-system. Run mixed-edge stress, ASan/UBSan, failure-path and repeated-compilation
-tests, then the full matrix. Track lock time directly: disappearing from the
-top twenty profile entries alone is not an acceptance criterion.
-
-### M10 — Parallel compilation and reusable stdlib concurrency
-
-**September 22 user direction:** parallelism is a compiler design principle and
-a real consumer of the stdlib's concurrency facilities. Bring its contracts
-forward with M11a. Coarse module scheduling is part of the planned delivery;
-finer-grained parallel analysis/lowering and default worker counts still require
-measured benefit. This changes the earlier sequence that deferred all M10 work
-until after M7/M8a/M11.
-
-#### Compiler and stdlib ownership
-
-- The compiler owns dependency/SCC scheduling, semantic barriers, specialization
-  ownership and deterministic merging of diagnostics and artifacts. The stdlib
-  owns reusable synchronization, bounded work delivery and worker lifecycle.
-  Audit existing owners first; extend them instead of building compiler-private
-  mutex, queue or pool implementations.
-- Prefer immutable shared summaries and worker-owned mutable analysis/IR state.
-  Specify transfer/publication and ARC/collector safety across worker boundaries;
-  a mutex around a map does not make the mutable graph stored in it thread-safe.
-  Avoid a global compiler lock or an unbounded whole-program copy per worker.
-- Define the needed mutex, wait/notification and bounded-queue contracts from
-  the actual workload: predicate rechecking, visibility after publication,
-  backpressure, close/drain, cancellation, error propagation and joined shutdown.
-  Decide container synchronization from access patterns; a concurrent map or
-  lock-free implementation is not automatically required.
-- Prove those stdlib contracts with real threads: contention, producer/consumer
-  races, full/empty queues, shutdown while blocked, worker failure and exactly-once
-  task completion with managed payload destruction. Compose them in the real
-  M11a compiler fixture and retain that path as regression coverage. Qualify
-  native providers on the supported hosts; do not claim portability from a
-  single-platform thread test.
-
-Final objectives remain those in section 1. **3–5 s cold transpile is a
-stretch target**, not a result implied by having 16 cores. Record the serial
-fraction of the one-worker baseline before predicting parallel speedup.
-
-1. Inventory writes reachable from each proposed work item: analyzer caches,
-   generic registries, runtime/helper selection, native adapters, diagnostic
-   storage, generated symbol counters and ownership state. Freeze shared
-   tables after their fixed point; make remaining writes local or merge them
-   deterministically. A shallow `freeze()` on `Analyzed` is insufficient.
-2. Begin with dependency-ready M11a groups; inspect per-function setjmp work
-   as a finer-grained candidate when measurements justify it. Move body lowering
-   and validation only after demonstrating their dependencies. Per-worker
-   contexts own temporary names and allocation; stable declaration identities
-   determine ordering, names and diagnostics. Cross-function fixed points stay
-   explicit. `BTRC_JOBS=1` is the same scheduler with one worker.
-3. Measure **1, 2, 4 and 8 workers** at fixed native jobs, including peak RSS.
-   Require **≥1.5×** wall speedup at four workers on the qualifying cold
-   BTRSmith compile to justify enabling the pool by default, with aggregate
-   memory inside budget. Record actual hot-lock wait/hold counts and time.
-4. Compare output/diagnostics at every worker count and across at least ten
-   repeated shuffled schedules. Use TSan where the runtime/toolchain supports
-   it, plus stress fixtures; report unavailable coverage. ASan/UBSan and the
-   full normal matrix remain required.
-5. For Python, benchmark process workers on coarse independent modules once
-   M11a's dependency contracts are proven. Include serialization, process startup and duplicated RSS in
-   wall/memory results; do not mirror a thread implementation mechanically.
-
-Keep parallel-ready ownership and the qualified stdlib contracts even when a
-small workload runs best with one worker. Stop adding finer-grained scheduling
-or concurrent containers when measured cold-build benefit does not justify them.
-
----
-
-## 5. C compatibility proposals (separate scope)
-
-### Why, and how much
-
-btrc does not need C source inside `.btrc` files to use C: `#include "x.h"`
-pulls native declarations through the header reader, a `.c` file compiles
-and links through the package link plan (`src/tests/imports/ImportCSourceFile.btrc`),
-and every Linux provider (SDL, ALSA, FreeType, WebGPU) is imported that way.
-So the gaps below never block building software. They matter for two
-reasons: the README's "C, but better" reads as "C is a subset", and the
-first C habits a newcomer types (`int main(void)`, a braceless `if`,
-`int a, b;`) fail today; and C programmers write btrc with the same habits.
-The goal of this track is therefore **ordinary C11 parses as btrc, and the
-things btrc refuses are refused on purpose and documented**, not "rename
-`.c` to `.btrc` and it compiles".
-
-### Compatibility inventory: reported probe, not yet a reproducible gate
-
-The earlier handoff reported 100 one-construct programs on 2026-09-20,
-but did not commit the battery. Treat the table as hypotheses except where
-existing regressions verify the behavior. Start C5 by preserving the actual
-programs, compiler revision, diagnostics and native results.
-
-Reported method: one tiny C11 program per construct, compiled with
-`python3 -m src.compiler.python.main --no-cache --strict-imports --target linux-x86_64 P.btrc -o P.c`,
-then `cc -std=c11 P.c && ./a.out`; a construct "passes" when the binary
-exits 0. Replace that weak oracle with explicit semantic assertions, strict
-C11 builds and both frontends. Include negative cases and interactions, not
-only one syntax example per row. Do not recreate supposed historical evidence
-from a table and label it as the original measurement.
-
-Reported successes to reproduce: pointers, pointer-to-pointer, pointer arithmetic (`p = p + 2`),
-arrays and decay, casts including `void*`, `static` functions and locals,
-`extern`, globals with initialisers, enums with values, function-like
-macros, `_Generic`, `do`/`while`, `switch` with fallthrough, nested struct
-initialisers, literal suffixes (`LL`, `UL`, `f`), hex, octal, escapes,
-`volatile`, `printf`, prototypes with named parameters,
-`int main(int argc, char** argv)`, assignment in a condition, `if (i)` on an int.
-
-| # | Construct | Symptom today | Class |
-| --- | --- | --- | --- |
-| 1 | `int f(void)`; unnamed prototype parameters `int f(int);` | "Expected parameter name" | parser gap |
-| 2 | braceless bodies after `if`/`else`/`for`/`while` | "Expected LBRACE" | parser gap |
-| 3 | multiple declarators `int a = 1, b = 2;`, `int x, y;` in structs | "Expected SEMICOLON, got COMMA" | parser gap |
-| 4 | `char s[] = "abc"`, `char s[4] = "abc"` | "requires an array initializer" | parser gap |
-| 5 | adjacent string literals `"a" "b"` | parse error | lexer gap |
-| 6 | empty statement `;` (`for (...);`) | "Expected LBRACE" | parser gap |
-| 7 | function-pointer declarators `int (*f)(int)`, `typedef int (*Op)(int,int)`, arrays of them, as parameters | parse error; btrc spells these `CFunction<...>` | parser gap (sugar) |
-| 8 | `typedef struct { } T;`, `typedef struct P { } P;`, anonymous struct/union members | "Expected struct name" / "Expected typedef alias" | parser gap |
-| 9 | `union U { };` as a declaration | only `union IDENT` as an interop base type (grammar line 30) | parser gap with an ownership rule |
-| 10 | designated initialisers `{.b = 2}`, `{[2] = 7}`; compound literals `(struct S){5}` | "Unexpected token" | parser + IR gap |
-| 11 | `goto` / labels | no syntax by design (grammar line 27) | parser + lowering rule |
-| 12 | bitfields `unsigned a:3` | "Expected SEMICOLON, got COLON" | struct model gap |
-| 13 | flexible array member `int d[];` | rejected | struct model gap |
-| 14 | variadic definitions `int f(int n, ...)`, `va_list` | "Expected parameter name, got DOT" | parser + intrinsics |
-| 15 | `inline`, `restrict`, `register`, `auto`, `_Noreturn`, `_Thread_local`, `_Alignas`, `_Static_assert` | "Expected name" | keyword pass-through |
-| 16 | `long double` literal `1.5L`, `wchar_t`, `L'x'` | "Invalid numeric literal" / parse error | lexer + type gap |
-| 17 | multi-dimensional arrays `int m[2][3]` | explicit diagnostic: needs an AST/IR representation per dimension | known gap |
-| 18 | `#if`/`#else`/`#ifndef`/`#if 0` | directives pass through; the analyzer sees every branch ("Duplicate definition", "unsupported directive") | preprocessor gap |
-| 19 | comma operator `(1, 2)` | parsed as a tuple literal | **conflict**: tuples |
-| 20 | identifiers named `in`, `string`, `keep`, `self`, `class`, `interface`, `spawn`, `new`, `var`, `null`, `true`, `false` | keywords | **conflict**: reserved words |
-| 21 | `strlen(s) == 2` (`size_t` vs `int`) | "mixes ABI-dependent integer type" | **on purpose**: strict integer mixing |
-| 22 | `_Bool b = 1`; `return a();` in a void function | type errors | **on purpose** |
-| 23 | VLAs `int v[n]` | already supported in checked contexts; initializers and some views have restrictions | **preserve existing behavior**; audit exact supported forms |
-| 24 | `_Atomic`, `_Complex` | rejected | **deferred**: need type-system entries |
-
-### C1 — The ergonomic set (rows 1–7)
-
-Recommended ergonomic additions after the inventory is reproducible. Each
-needs grammar, analyzer/lowering and diagnostic coverage as appropriate;
-parser convenience does not make its semantic cost zero.
-
-1. `(void)` as an empty parameter list; unnamed parameters in prototypes
-   and in function-pointer types.
-2. A single statement as the body of `if`, `else`, `for`, `while`; lower
-   with braces. `;` as an empty statement.
-3. Multiple declarators per declaration, locals and struct fields,
-   preserving each declarator's pointer/array shape and initializer. Test
-   `int *p, value;`, declaration order, scope and side effects. Choose a
-   faithful AST form; semantic lowering stays in IR generation.
-4. String literal as the initialiser of a `char` array, sized or not;
-   enforce inferred/fixed extent and terminator rules in the appropriate
-   semantic owner. Adjacent literal concatenation must agree with macro
-   expansion, prefixes and source diagnostics, not merely join token text.
-5. C function-pointer declarator syntax parsed into the existing
-   `CFunction` type (the parser maps this public spelling to `__fn_ptr`),
-   including `typedef` and arrays of pointers. Add the declarator grammar
-   explicitly; there is no existing `function_pointer` grammar rule to reuse.
-
-Files: `src/language/grammar.ebnf` (the spec; change it first),
-`src/compiler/python/parser/parser.py`, `src/compiler/btrc/parser/Parser.btrc`,
-`src/compiler/python/lexer/`, `src/compiler/btrc/lexer/`. Any new AST node
-goes through `src/language/ast.asdl` and `make compiler-codegen-generate`.
-
-### C2 — Declarations (rows 8–10, 12–13, 17)
-
-1. Anonymous struct and union members; `typedef struct { } T` and
-   `typedef struct P { } P` (synthesize the tag; both analyzers key structs
-   by name).
-2. `union` declarations for plain C members. Rule: a union member may not
-   be ARC-managed (class, `string`, collection) — the runtime cannot know
-   which member is live; the analyzer rejects it with a diagnostic, in
-   both compilers.
-3. Designated initialisers and compound literals: represent field/index
-   designators with checked types, storage lifetime and managed
-   ownership. IR already has initializer-list/compound-literal forms; extend
-   those owners instead of assuming a new raw-C escape is needed.
-4. Bitfields: represent field width in ASDL and the analyzer's storage/type
-   model, then structured IR. Specify legal access, layout and address-taking
-   restrictions. Keep existing native-binding restrictions until separately
-   qualified; source syntax support does not establish native ABI support.
-5. Flexible array members: specify layout, allocation extent, indexing and
-   which copy forms btrc permits before implementation. Test actual target
-   layout against the native compiler; do not hide a semantic rule in emission.
-6. Multi-dimensional arrays (row 17): define each dimension in AST/type/IR,
-   array-to-pointer conversions, indexing, `sizeof` and parameter forms.
-   Preserve supported one-dimensional VLAs; this row was previously omitted
-   from the implementation sequence.
-
-### C3 — Control flow and calls (rows 11, 14–16)
-
-1. `goto` and labels. btrc scopes carry ARC releases and cleanup slots, so
-   the lowering must reject a jump that enters a scope past an owned
-   variable's initialiser or leaves an unsupported `try` frame. Same-scope
-   jumps can also skip initialization or repeat it: analyze forward and
-   backward edges, definite assignment, VLA lifetime and cleanup state.
-   Use an explicit control-flow contract in both analyzers/lowerers; emit
-   releases only after that proof. First add negative fixtures for the
-   unsafe paths, then positive cases for the supported subset.
-2. Variadic definitions: `...` as the last parameter, `va_list`,
-   `va_start`, `va_arg`, `va_end` as opaque intrinsics in
-   `src/language/intrinsic_effects.toml`; realtime analysis treats them
-   as non-allocating only after their ABI, promotions, argument ownership,
-   `va_copy`/cleanup and escape behavior have explicit checked contracts.
-3. Declaration semantics for `inline`, `restrict`, `register`, `auto`,
-   `_Noreturn`, `_Thread_local`, `_Alignas`, `_Static_assert`: give each a
-   grammar/type/flow/storage rule as applicable. These are not interchangeable
-   keyword pass-through attributes. Specify static assertions, alignment,
-   aliasing, TLS initialization/cleanup and nonreturning control flow; prove
-   linkage across split units. Do not delegate semantic checks to emitted C.
-4. `long double` literals with `L`, `wchar_t` and `L'x'`/`L"x"` literals.
-
-### C4 — Preprocessor conditionals (row 18)
-
-Directives are passed through to C today, so the analyzer sees every
-branch. Evaluate `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif` in the
-front end over a source-ordered macro environment plus the target's
-predefined macros (`__linux__`, `__APPLE__`, `__x86_64__`, from
-`src/language/hosted_abi.toml`'s target table), drop the dead branches
-before parsing, and keep emitting the live branch's directives so the C
-compiler agrees. `#if` on a macro the front end cannot evaluate (a system
-header's) stays an error with a diagnostic naming the macro. This is a
-documented restricted subset, not a complete C preprocessor. Define
-`#undef`, nesting, undefined identifiers, include order, macro expansion and
-source maps. Discarded branches must not introduce imports/native bindings
-into the dependency graph. Front-end and C-compiler configurations must
-agree; do not leave directives that can select a different live branch.
-Fingerprint all preprocessing inputs in M6a/M11 artifacts.
-
-### C5 — Spec, corpus and the documented refusals (rows 19–24)
-
-1. Preserve the probe as tests in existing topic suites, or add a cohesive
-   C-compatibility corpus if it improves discovery. Cover every row,
-   each printing `PASS: <construct>` with a golden
-   (`src/tests/generate_expected.py`), run through both compilers by the
-   existing runner. Use diagnostics tests only for actual refusals; row 23
-   needs positive VLA regressions and negative unsupported contexts. Existing
-   `test_gpu_boundary.py::test_gpu_vla_capacity_does_not_replay_the_declared_bound`
-   already verifies single evaluation through both frontends, and
-   `test_aggregate_evaluation_order_parity.py` verifies VLA initializer rejection.
-2. A section in `src/language/grammar.ebnf`'s preamble and in
-   `docs/known-language-gaps.md`: "C that btrc rejects on purpose" —
-   the comma operator outside `for` headers (tuple literals win; support
-   it only in `for` init/update), the reserved-word list, strict integer
-   mixing, int-to-bool assignment and returning a void expression, after
-   confirming each policy. Document supported VLA forms and their restrictions
-   separately. Distinguish deferred C `_Atomic`/`_Complex` syntax from existing
-   btrc atomic primitives; do not add tests rejecting working language features.
-3. README wording: "C's syntax and semantics where they are safe, the rest
-   reachable through `#include`", linking to that section.
-
-### Order and gates
-
-C5 inventory/regressions → C1 → C4 → C2 → C3, with C5 docs/tests
-updated at each step. Select additions by demonstrated consumer need; a
-README slogan is not by itself a reason to add `goto` or variadic definitions.
-The track shares AST/schema owners with M8: land overlapping C-track parser
-work either before M8b starts or after it lands, never interleaved. Every
-step: both compilers in one commit, `make test`, `make bootstrap`,
-`make test-c11`, and the boundary fixtures for `surface.python.tokens`/
-`surface.python.ast` reviewed for intentional changes (section 2).
-
----
-
-## 6. Existing-feature parity: iOS, Android and Windows
-
-Goal: build and ship existing BTRC functionality and BTRSmith workflows on
-all three platform families, preserving both compilers, strict C11, native
-ownership and the existing macOS/Linux contracts. Treat the gaps as explicit
-implementation milestones; a hello-world app or a successfully linked binary
-does not complete a platform.
-
-The code audit, API inventory scope, native-provider recommendations, dependency
-contracts, physical-device gates and primary platform references are in
-[the detailed platform-parity roadmap](docs/design/platform-parity.md). That
-file is part of this plan; it holds the implementation detail so the performance
-milestones remain readable. All platform milestones below are **proposed/open**.
-
-### Scope and current gaps
-
-- **Target support:** both target parsers admit only Linux/macOS/Windows;
-  native extraction is limited to macOS/Linux GNU triples, and native plans
-  lack full mobile SDK/environment/deployment/artifact identity. Add iOS
-  device/simulator and Android explicitly, not as aliases for desktop targets.
-- **Windows:** keep the existing x64 compiler bundle, native CI, portable
-  runtime subset and GPU Windows branches. Finish native SDK scanning,
-  Unicode/process/terminal/network/Regex/filesystem gaps, native providers,
-  ARM64 qualification and the installed product.
-- **iOS/iPadOS:** add UIKit application/scene lifecycle, checked Objective-C
-  providers, scoped document storage, a real iOS audio session/I/O backend,
-  mobile GPU surfaces, signed apps and physical iPhone/iPad verification.
-- **Android:** add NDK target/build support, a checked JNI and Activity boundary,
-  platform GUI/storage/permission behavior, audio/GPU providers and validated
-  APK/AAB packaging, including every native library's 16 KiB compatibility.
-- **Full parity:** inventory every public stdlib operation and existing product
-  journey. Report equivalent, adapted, OS-restricted and missing counts
-  separately. Mobile document access or background execution can require a
-  different interaction; feasible missing features remain open work.
-
-Proposed initial matrix: Windows 11 x64 then native ARM64; iOS/iPadOS 17+
-arm64 devices plus supported simulator slices; Android API 29+ arm64 devices
-and x86_64 emulator. P0 validates the floors and pins exact SDK/OS/toolchain
-versions. Desktop compilers generate mobile apps; running a compiler on a phone
-is not a prerequisite. Windows compiler-host parity includes native bootstrap.
-
-### Milestones and exit evidence
-
-| Milestone | Deliverable | Required exit evidence |
-| --- | --- | --- |
-| P0 — Inventory and support matrix | Every existing public API and product journey mapped per platform; exact host/target/SDK/device matrix | 100% classified, stable denominator, tests/owners identified; no silent exclusions |
-| P1 — Target/ABI/build artifacts | Shared target contracts; native SDK extraction; executable/static/shared outputs; correct target-specific cache identities | Both frontends run ABI/callback fixtures in minimal apps on Windows, iOS device/simulator and Android device/emulator |
-| P2 — Hosted runtime/language | ARC/cycles, exceptions, TLS, threads/atomics, pure stdlib and target test hosts | 100% applicable portable corpus through both frontends; ownership/cleanup stress and available sanitizers |
-| P3 — OS library contracts | Real filesystem, Unicode, process/terminal, HTTP/sockets, Regex, jobs/IPC providers and mobile capability adaptations | Negative/failure tests and actual operations; no curl-shell assumption or unsafe path fallback |
-| P4 — Native package closure | Cross-built database/archive/media/font/image/GPU dependencies and generated bindings | Existing package contracts pass on each required ABI; formats/codecs remain in the inventory |
-| W1 — Windows development host | Real SDK-reader process provider, Win32/COM contracts, Unicode tooling, relocatable compiler | Native self-host fixed point, SDK imports/callbacks and corpus; installed compiler works outside the checkout |
-| W2 — Windows product | Native GUI/input/tray, WASAPI audio, GPU/image/font providers and installer | Complete BTRSmith journeys on native x64 and ARM64; install/update and physical audio/GPU qualification |
-| I1 — iOS shell and providers | UIKit lifecycle/GUI, scoped document import and durable state | Both-frontends signed app runs Library/Settings/import/restoration on a physical device |
-| I2 — iOS complete product | Audio session/I/O, Metal-backed GPU path, assets, signing/distribution archive | BTRSmith on iPhone and iPad; interruptions, route changes, suspension, physical audio and package validation |
-| A1 — Android shell and providers | Checked JNI, Activity/GUI/input, content-URI storage and permission lifecycle | Both-frontends APK on emulator and physical device; Activity recreation/process-death recovery |
-| A2 — Android complete product | AAudio/qualified audio backend, GPU, native libraries and APK/AAB distribution | Two physical vendors, 4/16 KiB qualification, actual audio/GPU, lifecycle and package validation |
-| P5 — Product journey parity | Library/import/search/settings/playback/practice/rendering/input/persistence and supported automation | 100% inventoried journeys passed or explicit OS restriction with reviewed replacement; zero missing core journeys |
-| P6 — Numeric acceptance | End-to-end builds, responsiveness, audio latency, memory and lifecycle budgets | Repeated measurements on named hosts/devices, with raw results and failures |
-| P7 — Release qualification | CI matrix, source-level diagnostics/debugging, signed artifacts, upgrade tests and coverage report | Same revision and package set passes every required gate; unavailable device evidence stays unfinished |
-
-Detailed substeps and dependency boundaries live in the roadmap. Carry its
-implementation owners through both compilers and the existing provider system;
-do not introduce per-product native wrappers or a second ownership model.
-
-### Numeric goals for BTRSmith on the new targets
-
-These are final self-host build goals after M6a/M11, not measured current
-support. Cold means dependencies/toolchains already installed and project
-artifacts cold. Times include native compile/link and development packaging/
-signing, with local credentials ready. Record provisioning separately.
-
-| Build scenario | Windows | iOS/iPadOS | Android |
-| --- | --- | --- | --- |
-| Cold dev package, one architecture | ≤30 s | ≤45 s | ≤60 s |
-| Private body edit to installable artifact, median / p95 | ≤10 / 15 s | ≤15 / 20 s | ≤20 / 30 s |
-| No-op through the real build driver | ≤5 s | ≤5 s | ≤5 s |
-| Incremental install/relaunch on ready local target | ≤5 s | ≤15 s | ≤15 s |
-| Cold reference-frontend dev package | ≤90 s | ≤120 s | ≤150 s |
-
-Use the same 10,000-song/1,000-album fixture (or a larger existing acceptance
-fixture) across platforms. Proposed runtime goals: interactive cold Library
-p95 ≤3 s desktop / ≤4 s mobile, search/filter p95 ≤100 ms, 60 Hz frame-time
-p95 ≤16.7 ms, zero app-induced audio xruns in a controlled 30-minute soak,
-100 lifecycle/route-change cycles without leaked native owners, and settled
-memory growth ≤5% after warmup. The roadmap defines device classes, memory
-budgets, p99 callback deadlines and physical wired audio-latency gates.
-Existing stricter product budgets take precedence.
-
-Cross-builds, emulators and simulators prove different properties from native
-hardware. Windows x64/ARM64, iPhone/iPad, and two Android vendors need actual
-execution before final parity. OS limitations must remain explicit, and missing
-implementations must not be renamed limitations to make the table green.
-
----
-
-## 7. Native UI across macOS, Linux, Windows, iOS and Android
-
-Goal: a complete native application UI with platform controls, native editing,
-focus, accessibility and OS integration, composed with custom GPU musical
-views. The [native UI inventory and roadmap](docs/design/native-ui-parity.md)
-is part of this plan. It records **60 capability families**, concrete source
-evidence, provider recommendations, behavioral contracts and qualification
-criteria. All UI milestones are **proposed/open**.
-
-Start review with the roadmap's [decision checkpoint](docs/design/native-ui-parity.md#review-checkpoint):
-it separates the first editor/focus slice, provider feasibility, collection
-reuse, product migration and completion criteria. Review the native-shell
-proof before expanding a new provider, then the shared event/focus contract
-before migrating every screen.
-
-The source inventory also maps **19 public interface files, 24 interfaces and
-135 directly declared methods**, plus **27 GUI factory/service methods**, to
-specific missing contracts. These are source counts, not coverage percentages.
-The [individual API checklist](docs/design/native-ui-api-inventory.md) lists
-all **162 current interface/facade declarations** with stable operation IDs,
-source links, inheritance and starting milestone/case mappings. UI0 must record
-**1,620 operation mapping slots** (162 × 5 platforms × 2 frontends), checking
-inherited behavior at concrete controls and linking actual assertions. These
-overlap the behavioral cases below; they are not an extra test-pass count.
-Other exported types/modules and product callers remain to be inventoried.
-Nine explicit contract increments cover events, focus, dispatch, scenes,
-layout, collections, async services, accessibility and GPU presentation.
-The detailed roadmap adds five ordered BTRSmith migration slices and native
-binding/OS-update gates so the capability list leads to reviewable changes.
-It also separates platform readiness from shared API gaps and defines **47
-initial operation-level acceptance cases**, with concrete owners and expected
-results for editor events, selection, dispatch, focus, commands, restoration,
-resource pickers, accessibility and GPU composition. Design-resource work
-includes semantic appearance roles, localized/pluralized text and packaged
-assets alongside native theme and text-size changes.
-
-The follow-up source audit adds keyboard-only controls, native undo, large-text
-adaptation, independent windows/scenes, external open requests, mobile keyboard
-and Back behavior, secure input, live theme/locale changes, accessible virtual
-collections, drag/drop cancellation, nested presentation and queue pressure.
-Track **470 case-result slots** (47 cases × 5 providers × 2 frontends), then
-expand by OS/device configuration; this is planned coverage, not a pass count.
-The detailed document maps these cases to existing owners and UI milestones.
-
-The family matrix now also has a numerical source baseline: macOS has **33
-partial / 27 missing** families; Linux has **15 partial / 15 custom / 30 missing**;
-Windows, iOS/iPadOS and Android each have **60 missing GUI integration families**.
-**27 families are missing everywhere.** These counts describe available source
-foundations, not implementation effort or passed behavior.
-
-E46/E47 expand lifecycle coverage: dirty-window/Back dismissal during asynchronous
-save, and versioned scene restoration after actual process death. The macOS
-close delegate currently always permits close; Linux closes on the recorded
-request, and the shared interfaces have no portable decision hook. UI1/UI3/UI5/UI7
-must add an owned Save/Discard/Cancel transaction, with **100 cycles per applicable
-entry path and zero lost drafts or duplicate saves**. UI1/UI5/UI10 must qualify
-**100 fresh-process restores**, schema upgrades, corrupt checkpoints, missing
-resources and concurrent activation, with **zero replayed side effects or
-cross-scene swaps**. Use a proposed **64 KiB scene-metadata fixture budget** and
-keep durable document data separate; **20 launch samples** must meet the existing
-**p95 ≤3 s desktop / ≤4 s mobile** Library goal. Details and native platform
-references are in the roadmap's [dismissal and restoration contracts](docs/design/native-ui-parity.md#dismissal-transactions-and-durable-scene-restoration).
-
-The source inventory also adds E25–E32: full shortcut/key identity, constrained
-measurement and RTL alignment, coordinate/anchor conversion, accessible
-operations and text limits, failed tree updates, suspension/deadline semantics,
-final-release ownership and comparable input-to-presentation timing. These
-extend the 60 families rather than inflating the toolkit count. In particular,
-the present keyboard enum has only 24 named non-unknown values, view fitting
-methods accept no size constraint, and semantic text values have a 512-byte
-limit. UI3/UI5/UI8 must resolve those contracts before wider provider rollout.
-
-E33–E34 add large/dynamic selectors and changing numeric ranges. The Linux
-selector has no keyboard opening path and consumes wheel events without popup
-scrolling; its popup paints all options. Both slider providers fix the range at
-construction and cap discrete intervals at 1,000. Qualify **0/1/100/10,000-option**
-selectors, disabled/loading/unselected states, and **999/1,000/1,001-step** range
-updates without replacing focused owners. Keep exact 64-bit product timeline
-values separate from native floating-point presentation, including tests around
-**2^53**, and retain the 100-cycle cancellation/refresh gate. These are core
-UI2–UI4/UI7/UI8 work within the existing families.
-
-E35–E37 add image lifetime, bounded artwork resources and text shaping. The
-image providers differ in whether a view still paints after a published handle
-is explicitly closed; establish a shared retained-presentation contract and
-test **100 shared-handle/replace/close cycles**. Linux artwork eviction currently
-depends on rendered frames and has no aggregate byte budget. Qualify catalog
-artwork at **≤128 MiB desktop / ≤64 MiB mobile**, including decoded/native/GPU
-and in-flight allocations, with **≤2 concurrent decode/conversion jobs** and
-eligible cache release **within 1 s of explicit trim without repainting**.
-These limits sit inside the existing product memory budgets. Linux measurement,
-paint and system-text raster paths also operate on individual scalars rather
-than shaped runs; UI5/UI9 need native layout, fallback fonts, cluster mapping
-and matching ink bounds, including Arabic/Indic/bidi/emoji fixtures. Widget
-migration alone does not repair the custom GPU text path. These findings are
-source observations and proposed gates, not reproduced live failures.
-
-E38 adds a capture contract needed for trustworthy visual regression evidence.
-macOS captures the requested subtree and validates supplied GPU layers; Linux
-captures the owning window, ignores the layers and can wait up to **5 s** for
-GPU readiness on the UI thread. UI9/UI10 must align subtree scope, backing scale,
-frame identity, layer validation and explicit readiness/cancellation outcomes.
-Qualify **100 capture/resize/cancel/close cycles** at **100/150/200% scale**, with
-no UI-thread GPU wait and bounded temporary allocations. Offscreen composition
-does not establish that a frame was presented or that native input works.
-
-E39 adds effective visibility and interaction state. Linux hiding currently
-changes a paint flag while focus/capture lookup still traverses hidden
-ancestors. UI2/UI3/UI5/UI8 must define hiding or disabling a subtree during
-composition, dragging, popup presentation and queued command delivery. Preserve
-local enabled preferences and distinguish hidden, disabled and merely clipped
-content in input and accessibility. Qualify **100 hide/show/disable/restore
-cycles**, with **0 stale commits, duplicate completions or trapped focus paths**.
-This is a source-observed contract gap; native runtime behavior remains to be
-tested through both frontends.
-
-E40 adds lossless event batching and fair executor progress. Linux dispatches
-at most 4,096 native events per turn but polls one more before checking the
-limit, potentially discarding event 4,097. Reproduce this in a native fixture
-before repair; test **4,095/4,096/4,097/8,193 events** for **100 bursts**, with
-release, commit and close events at the edge and **0 unexplained event losses**.
-UI2/UI3/UI9 must also bound queued/delayed dispatch so continuous work cannot
-starve input, other windows or rendering. Under a declared **10-minute** load
-with short nonblocking handlers, target command delivery p95 **≤100 ms**,
-runnable work-class service gaps **≤250 ms**, and shutdown initiation **≤250 ms**.
-Record queue rejection, coalescing and cancellation separately from delivery;
-these scheduling goals supplement the existing frame and audio budgets.
-
-E41–E43 add nested scrolling, window exposure and presentation recovery. Linux
-currently consumes wheel events at an overflowing viewport's boundary, reports
-no precise/phase metadata, ignores hidden/minimized notifications for its stored
-frame-eligibility flag, and escalates repeated unavailable frames to an exception
-that can close the application. These source findings need native reproductions.
-UI1/UI3/UI5/UI6/UI9 must define scroll units and remaining-motion handoff, observed
-exposure versus requested visibility, and bounded GPU recovery that preserves
-native editors and healthy windows. Qualify **100 gestures per input class** and
-**100 exposure/recovery cycles**, with **0 duplicated motion**, **0 presentation
-attempts while settled and known non-presentable**, and **0 unintended closes of
-healthy windows**. Proposed recovery limits are **≤10 retries/s**, an explicit
-failure outcome within **5 s** of continuous retryable failure, and a current
-frame within **1 s** after replacement resources are ready. Hidden/zero-size
-surfaces wait for exposure; they do not consume a failure retry budget.
-
-E44–E45 add clipboard failure safety and bounded editing. Linux cut currently
-ignores clipboard-write failure before deleting the selection; paste does not
-distinguish a failed empty clipboard read from valid replacement text. UI3/UI7
-must prove **100 success/failure/retry cycles per operation**, with **0 lost
-selections, failed-operation mutations or late deliveries**. UI3/UI4/UI7 must
-also define consistent text validation and admission across setters, typing,
-composition and transfer. Qualify **64 KiB single-line / 1 MiB multiline fixture
-limits**, **L−1/L/L+1-byte boundaries**, and **100 interaction samples** at the
-admitted size with **p95 ≤100 ms**. These are configurable test limits, not global
-product restrictions. Preserve native editor/undo ownership, Unicode range
-semantics and secure-input policy. The roadmap records the exact source
-findings and SDK error semantics; runtime reproductions remain open.
-
-### Complete platform inventory for review
-
-The roadmap now includes a [60-family × five-platform source matrix](docs/design/native-ui-parity.md#complete-family-by-platform-source-inventory):
-**300 explicitly classified cells**, distinguishing partial providers, custom
-controls and missing native integrations. This completes the family-level
-source inventory; UI0's operation-level catalog and all runtime qualification
-remain open. The existing **47 cases / 470 frontend-provider result slots** are
-planned evidence, not successful tests.
-
-The inventory also preserves existing **macOS and Linux native tray providers**
-under N56. Their shell-string actions and synchronous command execution need
-integration with UI2/UI3's typed application commands and owned background work.
-UI11 must prove **100 tray lifecycle cycles**, exactly one command per accepted
-activation, zero late actions after close and zero leaked registrations or
-connections. Notifications, badges and missing platform providers remain
-separate work within that family; existing tray menus do not complete the
-application/context-menu contract.
-
-### Findings that change the implementation scope
-
-- **macOS is the strongest starting point:** existing AppKit controls and
-  native/GPU composition should be extended. Their presence does not qualify
-  every focus, IME, accessibility or multi-window journey.
-- **Linux still has a native-widget gap:** the current provider draws controls
-  through SDL/WebGPU. Evaluate GTK4 controls, input and accessibility, with a
-  real WebGPU embedding proof on Wayland and X11 before choosing migration.
-- **Portable events are incomplete:** text fields, selects and sliders have
-  getters/setters but no corresponding portable edit/change/commit callbacks.
-  Add scoped events and stable selection identities, then migrate product
-  polling while preserving native editor state.
-- **Worker delivery needs an explicit boundary:** `GUI.post`/`postAfter` are
-  UI-thread-only. Connect background completions to a bounded native-loop
-  wakeup with cancellation, generation checks and teardown ownership; permanent
-  polling is not the completion target.
-- **Accessibility needs OS bridges:** custom `UI` semantics and activation
-  exist, but the audited GUI/UI sources contain no bridge to the five native
-  accessibility systems. Include native controls and virtual GPU children,
-  with screen-reader journeys and focus continuity.
-- **Collections and layout need shared contracts:** BTRSmith already owns a
-  recycled album pool; preserve that work while adding native list/table/tree
-  abstractions. Its application view currently rejects widths below 480;
-  mobile requires adaptive layout, safe areas, keyboard insets and navigation.
-- **The missing surface is broader than widgets:** focus/commands, IME and
-  grapheme-safe editing, typed control events, async dialogs/pickers, clipboard,
-  drag/drop, themes, text scaling, RTL, touch, lifecycle and GPU scheduling all
-  have explicit inventory rows and acceptance requirements.
-- **Native bindings and OS updates are core work:** qualify GObject ownership,
-  Windows COM/message callbacks, Apple delegates and Android JNI lifetimes.
-  Track build SDK, minimum OS and runtime capabilities separately, and verify
-  installed artifacts on minimum/current OS versions. Keep adaptations in the
-  provider so ordinary OS changes do not force product-screen rewrites.
-- **Existing controls have concrete behavioral limits:** Linux button, slider
-  and scroll handlers lack keyboard behavior; window key subscribers run before
-  the focused editor, and the Linux editor key handler has no undo/redo branch.
-  MacOS bordered buttons/selects reject fonts above 20 pt. Add behavioral
-  regressions for these gaps in UI3–UI5, including native large-text adaptation.
-- **Scene and presentation ownership need explicit rules:** current pickers
-  block or pump nested events. UI1/UI7 must cover asynchronous parent-owned
-  presentation, independent windows, external activation and non-path resource
-  selections. Run the named lifecycle/transfer/queue cases for 100 cycles with
-  zero wrong-owner deliveries, duplicate completions or stale mutations.
-
-Retain the existing GUI factory, provider owners, checked native adapters,
-`CallbackScope` and close/drain model. Reuse useful custom-renderer semantics
-without treating a painted control as a native widget. Platform adaptations
-should preserve the task and interaction semantics rather than desktop chrome.
-The detailed roadmap cites the native accessibility/input contracts behind
-these recommendations and leaves toolkit feasibility decisions reviewable.
-
-### Native UI milestones
-
-Recommended first reviewable increment: a native shell on each platform with
-one editor, one button, a scrolling list and a GPU child. It must demonstrate
-real focus traversal, one text commit, an inspectable accessibility tree and
-clean teardown through both frontends. This exposes binding and composition
-risks before a large widget rollout. Then migrate BTRSmith in order: search and
-filters; Settings; Library browse/import; Player controls; mobile restoration.
-Develop accessibility and ownership with each slice. Keep extended toolkit
-families in UI11, promoting any used by an existing product journey into UI10.
-
-| Milestone | Deliverable | Required exit evidence |
-| --- | --- | --- |
-| UI0 — Inventory and acceptance catalog | 60 families × 5 platforms; operation/test/owner mapping and documentation reconciliation | 300 classified planning cells, 100% public GUI operations and product journeys inventoried; missing/unverified distinct |
-| UI1 — Native shell proofs | AppKit, proposed GTK4, Win32, UIKit and Android Views fixtures with text, scroll, GPU and accessibility | Both frontends on each platform, genuine native controls, interop proof and 100 lifecycle cycles |
-| UI2 — Events and ownership | Scoped control/lifecycle/scroll events, stable identities, bounded dispatch and polling migration | Exactly one product command per commit; no setter-generated user action, late callback or editor replacement |
-| UI3 — Input, focus and commands | Focus scopes, native command routing, keyboard/IME/undo, pointer/touch/pen contracts | Complete input matrix; zero lost commits, focus traps or playback shortcuts consuming text editing |
-| UI4 — Controls and forms | Buttons/toggles, labels, text/search/password/multiline, numeric/range/select, images, progress and validation | 12 core control families qualified per platform with real input and accessibility |
-| UI5 — Layout and adaptation | Intrinsic layout, navigation/splits, mobile insets, typography/RTL/themes/text scaling | Small phone through desktop layout matrix; zero clipped essential actions; state survives 100 layout/lifecycle changes |
-| UI6 — Virtual collections | Native lists, tables, trees, selection, stable recycling and scroll anchors | 100,000-row stress fixture plus BTRSmith catalog; bounded cells/binds and preserved focus/selection |
-| UI7 — Native services | Menus, popovers, async dialogs/pickers, clipboard, drag/drop, share/open and undo integration | All eight families qualified or genuinely OS-adapted; cancellation and parent-close behavior proven |
-| UI8 — Accessibility | Native OS bridges, virtual GPU children, accessible collections and input alternatives | All core actions named/operable; core journeys pass keyboard and platform screen reader |
-| UI9 — GPU and scheduling | Native/GPU clipping/overlays, display pacing, invalidation, assets and resource recovery | Frame/idle/memory budgets with playback; no unnecessary static redraw or per-frame accessibility flood |
-| UI10 — Product qualification | Installed BTRSmith using the common native contracts, native automation and diagnostics | 50 core families passed/adapted, zero missing core journeys, all five platforms and both frontends qualified |
-| UI11 — Extended toolkit | Date/color/font pickers, rich text, WebView, printing, notifications/tray, media integration, advanced data/document/help surfaces | Ten extended families retained and qualified where supported; product-used capabilities promoted before UI10 |
-
-UI1 uses the host/binding prerequisites from P1/W1/I1/A1. Early platform shell
-slices do not wait for complete UI10; final P5–P7 product qualification includes
-it. Develop accessibility with each control and GPU surface. UI11 is explicit
-remaining toolkit scope, not a reason to postpone the first usable product.
-
-### Numeric UI acceptance goals
-
-Use P6's named devices and 10,000-song / 1,000-album catalog. These are proposed
-goals, with stricter existing product requirements retained:
-
-- User action and catalog search/filter p95 **≤100 ms**, with I/O and debounce
-  reported separately; 60 Hz frame p95 **≤16.7 ms**, p99 **≤33.3 ms** over
-  10 minutes. Report 120 Hz results separately.
-- Native cell pool **≤3× viewport capacity + 2 pinned editor/focus cells**,
-  using maximum viewport capacity during the run; unchanged presentation has
-  **0 cell rebinds**. Qualify with **100,000 rows** and actual product data.
-- Settled static UI, with no animation/caret/work pending: **0 application
-  layout/paint passes**, mean CPU **≤1% of one core over 60 s**.
-- **100 lifecycle cycles**, **0 leaked owned handles/registrations**, settled
-  memory growth **≤5%**; retain P6's **512 MiB desktop / 384 MiB mobile** budgets.
-- Within those totals, catalog artwork uses **≤128 MiB desktop / ≤64 MiB
-  mobile**, including in-flight resources, with **≤2 decode/conversion jobs**;
-  explicit idle trim releases eligible cache entries within **1 s** without
-  generating redraw work.
-- **100% core actions and journeys** accessible via keyboard and the platform
-  screen reader; **0** lost/duplicate text commits or inaccessible modal exits.
-- Cover desktop scale **100/150/200%**, text scaling through **200%** and mobile
-  accessibility text categories, RTL, IME, phone widths starting at **320 logical
-  units**, tablet/split-screen and multi-monitor desktop layouts.
-
-The detailed roadmap defines measurement conditions, exact input and device
-matrices, resource ownership tests, and core versus extended completion. Live
-native input, assistive technology and installed-product evidence are required;
-screenshots and programmatic activation alone cannot complete native UI parity.
-
----
-
-## 8. Execution order and milestone gates
-
-The five-bucket table at the start of this plan is the execution schedule.
-Preserve all detailed requirements above; the grouping changes order, not scope.
-Work sequentially within the active bucket. A named platform milestone can
-span foundation, UI and final product evidence; record those portions explicitly
-and keep the overall milestone open until its last required gate passes.
-
-1. **Compiler performance and reliable incremental builds.** The user closed
-   unchanged latency at ≤5 s. Initial actual-Make cold/edit diagnostics are
-   recorded. Bring M11a module reuse and M10 concurrency contracts forward
-   together, prove one-worker and bounded parallel execution, then integrate
-   full M11. Use M7/M8a cuts for demonstrated prerequisites and bottlenecks.
-   Deliver at least 10× improvement in self-host
-   edit-to-executable and cold dev builds, with the stricter absolute budgets
-   stated in the current assignment. Profile again before conditional M8b/M9
-   or finer-grained M10 work. Preserve the ≤5 s unchanged regression guard and all correctness,
-   reference, memory and required-host qualification. Do not revive the retired
-   2 s no-op target or the shelved SDK projection work without new scope/evidence.
-2. **C compatibility.** Freeze the reproducible audit/negative cases, then
-   complete C1–C5 in order. Preserve the six-stage architecture and strict C11;
-   update grammar, generated schemas, both frontends and incremental identities
-   together where required. Qualify interactions and document intended refusals
-   before starting new platform implementations.
-3. **Cross-platform foundations.** Run P0/P1 first, then P2/P3/P4 and W1.
-   Implement the target, ABI, runtime, OS service, native package, audio/GPU
-   and packaging prerequisites in the Windows/iOS/Android tracks. Platform
-   launch/ABI fixtures belong here; full native controls and product screens
-   belong to bucket 4. Do not claim W2/I1/I2/A1/A2 complete while their UI or
-   installed-product requirements are pending.
-4. **Native UI.** Use the existing inventory, prove UI1's native shells and
-   finish UI2/UI3's ownership/event/input contracts before widening controls.
-   Complete UI4–UI9 with accessibility and GPU qualification in each slice,
-   then UI10/UI11, preserving all 60 families and extended scope. Migrate
-   BTRSmith screens using the existing native owners and shared provider model.
-   This work starts after bucket 3, not alongside compiler optimization.
-5. **Product and release qualification.** Finish P5–P7 and every outstanding
-   W2/I2/A2 installed-product exit. Run the same final revision through complete
-   journeys, physical-device/audio checks, performance/memory/lifecycle budgets,
-   signed packaging, install/update and the full regression/CI matrix. Missing
-   evidence remains open; focused checks cannot stand in for a full release.
-
-### Focus rules
-
-- Every implementation change names the **active bucket and milestone**, the
-  requirement it advances, and the evidence that will close it. Keep one
-  current checkpoint rather than switching tracks after an individual fix.
-- Every handoff starts with the active bucket/milestone, its outstanding exit
-  criteria and the next action toward those criteria. A detailed inventory in
-  a later bucket is backlog, not a reason to change the current priority.
-- Correctness repairs needed by that milestone are part of its work. Reproduce
-  the failure, repair the owning contract, run the relevant gates, then return
-  to the milestone's product/KPI acceptance. Do not expand a repair into a new
-  subsystem or an unbounded hardening campaign without a demonstrated need.
-- Record non-blocking discoveries and later-bucket ideas in the backlog; do
-  not implement them ahead of sequence. Updating an inventory is not progress
-  on its implementation milestone.
-- Each performance checkpoint reports **goal, latest actual measurement,
-  workload/revision, sample count and remaining gap**. Separate component
-  benchmarks from real build-command timings. A higher test count or faster
-  microbenchmark does not establish movement in BTRSmith's build KPIs.
-- Do not claim a milestone complete because an experiment finished or tests
-  passed. Its specified behavior and numeric goals need matching evidence.
-  Reordering or reducing a bucket's exit requirements needs an explicit user
-  decision; elapsed time and a difficult gate are not that decision.
-
-**Immediate checkpoint, revised by the user September 22:** unchanged-build
-latency is **closed at ≤5 s** on the measured macOS workload. Current qualified
-medians are **4.180 s self-host / 4.732 s reference**, with all ten samples below
-5 s. This is not a claim that the full host/correctness matrix is complete.
-The unfinished SDK prepare/project implementation is backed up outside the
-working tree and removed from production sources. Do not resume it as the
-active assignment.
-
-**Fresh diagnostic checkpoint:** actual `make btrsmith-native`, self-host dev
-`-O0` with debug information and eight native jobs, in an isolated complete
-copy of the 830 tracked current BTRSmith files. Compiler/SDK/object/output
-caches start empty for the cold sample; installed toolchains/packages remain
-available and OS page cache is uncontrolled. Compiler bootstrap is separate.
-
-| Scenario | Actual Make wall | btrcc wall | Native wall | Compiled / reused units |
-| --- | ---: | ---: | ---: | ---: |
-| cold | 134.608 s | 124.340 s | 9.304 s | 17 / 0 |
-| edit-navigation | 126.747 s | 119.000 s | 7.308 s | 1 / 16 |
-| edit-ui-live | 112.325 s | 107.080 s | 4.935 s | 1 / 16 |
-| edit-audio-adjacent | 113.142 s | 106.980 s | 5.843 s | 1 / 16 |
-
-Each accepted body edit changes exactly one emitted C unit and the executable;
-the other 16 native objects are reused. Each cold/changed build performs two
-links for the existing receipt-admission protocol. The navigation/UI/audio
-fixtures change only implementation literals, preserving signatures, layouts,
-generic requests, call/effect shape and unrelated line counts. The original
-UI fixture edited a dead toolbar method: compilation succeeded but output was
-identical. It is retained as a rejected diagnostic, not counted as a body-edit
-KPI. Its replacement edits the live library-screen title. All source/tool
-hashes match afterward, and both the original product and isolated sources
-are restored. These four timings are diagnostics, not medians/p95 or runtime
-qualification; collect the required 5 cold / 20 edit distributions for acceptance.
-
-**What must change:** the cold compiler accounts for 124.340 of 134.608 s.
-Measured sequential phase marks attribute 37.213 s to lowering, 27.750 s to
-emission, 21.570 s to analysis and 19.125 s to optimization (15.916 s setjmp).
-Other phase marks total 8.838 s; 9.844 s of compiler wall remains outside those
-marks and requires attribution. The 15 emitted C units total 182.535 MB.
-Object reuse alone is already proven and leaves nearly the entire compiler
-running after an edit. Whole-program artifact caching cannot reuse a changed
-program's typed analysis or lowered bodies.
-
-**M7 emission implementation checkpoint:** an isolated owner profile attributes
-14.677 s to 507,509 filename escapes, for only 420 distinct encoded paths
-(51,845 value bytes, excluding keys/map overhead). Both emitters now reuse
-escaped filenames by exact value within one emission. Debug text, source maps
-and unit partitioning are preserved. A fresh compiler reaches a raw byte-stable
-self-host fixed point; expanded coverage passes **245 tests / four Linux-only
-skips**. This is correctness evidence, not an end-to-end speedup claim.
-
-**M7 measured emission result:** both alternating pairs improve. Cold Make
-medians are **121.676 → 105.035 s**, saving **16.641 s / 13.7%**; navigation edit
-medians are **115.059 → 99.706 s**, saving **15.353 s / 13.3%**. Emission falls
-from **26.372 → 9.994 s cold** and **26.505 → 10.003 s after the edit**. Native
-wall is effectively unchanged. All four unchanged controls pass the 5 s guard
-(current median 4.094 s versus baseline 4.029 s); no no-op gain is claimed.
-Both edits per variant rebuild one native unit and reuse 16; all four cold
-runs compile all 17. All 30 final C units match after mapping only their exact
-generated-output filenames in line directives. Source/tool/product hashes pass,
-and the isolated product sources are restored. This completes qualification of
-this performance cut at the stated scope, not M7 or the final acceptance matrix.
-Reference performance and peak memory remain unmeasured for this cut.
-
-**M7 measured setjmp result:** leaf short-circuits and sparse empty node facts
-reduce origin-vector allocations **31.7 M → 12.8 M (59.8%)** and null visits
-**16.35 M → 0.52 M (96.8%)**. Both compilers retain independent mutable results,
-nonempty fact accumulation and write-record ordering. Baseline coverage passes
-136 tests; the expanded suite passes **137 without skips**, using a fresh
-strict-C11/O2 compiler with a raw byte-stable self-host fixed point.
-
-Two alternating actual-Make pairs measure **104.836 → 99.975 s cold** and
-**99.341 → 93.962 s navigation edit**, saving **4.861 s / 4.6%** and
-**5.379 s / 5.4%**. Cold compiler wall is **91.390 s**; its setjmp phase falls
-13.847 → 10.252 s. Compiler peak RSS falls about 8%, **4.57 → 4.20 GiB**;
-this is not aggregate full-build memory. All 30 C units match under only exact
-generated-output line-filename mapping, all input/restoration checks pass,
-and all four unchanged controls stay below 5 s (current median **4.004 s**).
-Cold builds compile 17 units; edits compile one, reuse 16 and change the
-executable. These are diagnostic pairs, not full acceptance distributions.
-Evidence: `~/.cache/btrc/perf/setjmp-builds-2026-09-22/{results,summary}.json`;
-allocation, bootstrap and output proofs are in `setjmp-origin-2026-09-22/`.
-
-**Type-owner checkpoint:** 221 generic/type baseline tests pass without skips.
-The bounded product profile puts generic substitution at 2.535 s, generic C-type
-rendering at 0.191 s, and all AST construction at 6.858 s (3.63 M nodes).
-Nested owner times overlap; the instrumented wall is not a KPI. All fifteen
-product C units match and input hashes pass. Substitution results can be mutated
-by callers, so caching shared results requires an ownership redesign. Defer
-that cache. The follow-up owner profile puts body lowering at **28.363 s**,
-expression lowering at **17.705 s**, specialization inference at **4.477 s**,
-and call-target resolution at **3.415 s** (nested times overlap). AST
-construction/destruction is 6.421/2.349 s; IR construction/destruction is
-1.557/0.431 s. Constructor cost alone cannot explain the remaining gap. Both
-profiles preserve all fifteen C units. Evidence is in the performance document.
-
-**M7 lexical type-map copying: implemented and measured.** A full-product
-owner probe measures **6.561 s across 91,506 `TypeValidator.cloneTypes` calls**.
-Callable snapshots/restores cost only 0.396/0.162 s, and source/borrowed-binding
-and GPU-capacity snapshots/restores each cost less than 0.05 s. Keep their
-isolation contracts; do not introduce shared flow snapshots to save that time.
-The implementation uses the existing `Map.merge` operation to copy lexical
-type bindings in bucket order, removing the temporary key vector and repeated
-source lookups while retaining independently mutable maps. The candidate passes a strict-C11/O2
-byte-identical bootstrap and 1,001 focused tests with no skips. Two alternating
-actual-Make pairs measure **100.803 → 97.427 s cold** and
-**94.224 → 92.095 s edit**, saving **3.35% / 2.26%**. All thirty output-unit
-comparisons and source checks pass; compiler peak RSS is effectively flat.
-All unchanged controls remain below 5 s with no compiles or links.
-Evidence: `~/.cache/btrc/perf/scope-copy-builds-2026-09-22/{results,summary}.json`.
-This qualifies the cut at that scope; M7 and final acceptance remain open.
-The baseline passed 945 call, closure, ownership, default-argument and scope
-tests. The profile preserves all
-fifteen product C units and input hashes.
-
-**Retained M7 leads, after the module/concurrency slice unless prerequisites.**
-Cold analysis/lowering now measure 18.343/31.281 s. The preceding owner profile measured
-call-target resolution at 3.475 s / 298,932 calls; closure-escape checking
-is 2.901 s / 118,656 calls, with nested time overlapping. Some apparent repeats
-have different flow state. Calls with no explicit arguments can still have
-default callback arguments requiring validation; do not skip those checks.
-Preserve statement evaluation, defaults, ownership, generic and flow identity
-when revisiting call resolution. Measure
-repeated substitution and type-node allocation inside the remaining dominant
-lowering phases. The code already reuses unbound leaf types; inspect compound
-no-change resolution and repeated resolving/rendering of the same signature.
-Use resolved types once where possible before introducing an interning table.
-Any cache must have immutable substitution context or revision-aware identity,
-with a caller-mutation audit; a mutable map address is not sufficient. Preserve
-qualifiers, nullable/array shape, source coordinates, callback registration and
-deterministic specialization ownership. Reference behavior, generic/ownership
-regressions, fresh bootstrap and actual-product output/timing remain the gates.
-Do not pursue more setjmp micro-optimizations without evidence that the residual
-cost warrants them. Full final-tree and required-host gates remain open.
-
-The completed comparison lives in
-`~/.cache/btrc/perf/emission-builds-2026-09-22/{results,summary}.json`;
-`build/plan-emission-builds.py` and its summary driver reproduce it. The prior
-owner profile puts artifact storage/publication at only 0.181/0.281 s. The
-remaining unmarked compiler lifetime is not all filesystem work, and the
-pipeline explicitly retains major graphs, so teardown needs actual attribution.
-
-**Remaining sequence, revised September 22:** prove M11a's module-contract slice
-with M10's ownership and stdlib concurrency contracts, first through the same
-scheduler at one worker and then with bounded parallel ready groups. Integrate
-full M11; apply remaining M7/M8a work to demonstrated prerequisites or measured
-bottlenecks rather than requiring those milestones to finish first.
-For edits, reuse validated analyzed/lowered groups and stable C units, rebuild
-only the changed group and consumers of genuinely changed semantic facts.
-For cold builds, reduce repeated work/bytes and use bounded ready-group
-parallelism only after dependency ownership is proven. Preserve the 6 GiB
-aggregate memory ceiling and empty-cache definition. M7's 55 s and M8a's 40 s
-compiler goals are intermediate; neither meets 10×. Conditional representation
-or allocation changes require a new profile of the remaining serial floor.
-The detailed contracts and 13 s cold / 10 s edit design envelopes are in M7
-and M11; these are targets, not measured gains.
-
-Evidence: `~/.cache/btrc/perf/edit-cold-2026-09-22/summary.json`,
-`continued-results.json`, original failed-fixture `results.json`, raw logs and
-native reports. The reproduction drivers are `build/plan-edit-cold-*`.
-Full final-tree, reference, required-host, memory and runtime gates remain open.
-Buckets 2–5 stay queued.
+| 2 | Nix agent first, then ledger schema, CI health, trigger, manifests | 8–9 |
+| 3 | Harness, peak guard, batch proposal (overlapping 2) | 3 |
+| 4 | Structure and native-migration audit (waves ≤10), then serial apply | 23 + 2 |
+| 6 | Floor spikes (patches), key/journal spec with reviewers, attribution, native | 13 |
+| 7 | Acceptance-test authors, setjmp pair, generics audit, M10 lane, BTRSmith net | 19 (≤5 worktrees) |
+| 8, 9, 11, 12 | Python Stage B slices, Stage B completion, edit-path lanes, hotspot cuts, conditional audits | 10–14 each |
+| 14, 16, 17, 19 | C inventory authors, construct lanes, 1 parity reviewer per construct | 7–15 each |
+| 22, 25, 28 | P0 swarm, corpus triage over runner logs, dependency cross-builds | 22–25 each |
+| 24, 26, 27, 29 | Paired consumers, P3 slices, ownership design plus serial interop, platform lanes (D6c) | 10–20 each |
+| 30–37 | UI0 swarm, five shells, contract drafters and reviewers, per-platform tracks, BTRSmith slices | 10–15 each |
+| 39, 41–43 | One runner per host or device | 6–8 |
+
+**Do not use a Workflow for:**
+- Stages 1, 5, 13, 15, 18 (first half), 20, 21, 40 and 43
+- gates, wall-clock measurements, schema or runtime commits, or physical sessions
+
+**Starting sequence:**
+- **Your decisions first:** D1–D10, especially D2, D3, D4 and D6.
+- **Stage 1**, serially in the main session.
+- **Stages 2 and 3 overlapped:** the nix agent first, then the fan-outs.
+- **Stage 4 wave 1:** the read-only audit, inside Stage 2/3 gate windows.
+- **Pilot before fanning out:** run one builder agent (the daemon-deadline fix) and one auditor, measure their token use from the session usage report, and size the next fan-outs from those numbers.
+- **Stretch:** Stage 4's btrc-side apply plus its gate.
+- **Waits:** the BTRSmith pin bump waits on a D4 push; Stage 5 waits on the pin bump, D9 and your quiet-machine checklist. An overnight pre-Stage-4 diagnostic is fine, but it does not satisfy Stage 5.
+
+**Usage rules:**
+- Read-only auditors are much cheaper than builder agents; size builder fan-outs from the pilot's measured cost.
+- Check the session usage report after every stage.
+- If the remaining weekly budget runs low, stop at a commit boundary and save state.
+- More tokens shorten the implementation-bound stages, but not the serial chains, quiet windows, approvals or hardware lead times.
+
+## Appendix: every mapped item → stage (286 items)
+
+**Compiler performance (37)**
+
+| Stage | Items |
+|---|---|
+| 1 | `perf-plan-refresh` |
+| 3 | `perf-harness`, `perf-peak-guard`, `perf-linux-bench` |
+| 5 | `perf-baseline-round` |
+| 6 | `perf-floor-spikes`, `perf-ref-attribution`, `perf-signing-attest`, `perf-native-receipts` |
+| 7 | `perf-m11-acceptance`, `perf-setjmp-barriers`, `perf-generic-temporaries` (btrc-internal; reference-side work is in `perf-ref-cold`), `perf-mimalloc`, `perf-m10-pool-qualification` (added) |
+| 8 | `perf-ref-frontend-cache`, `perf-ref-stageb`, `perf-ref-cold` |
+| 9 | `perf-stageb-slice4`, `perf-stageb-skip-unchanged` (moved from 11; M11 acceptance), `perf-batch-10`, `perf-cold-release`, `perf-product-integration` |
+| 10 | `perf-nixos-acceptance` |
+| 11 | `perf-records-pack`, `perf-frontend-durable`, `perf-decl-session-cache`, `perf-parse-cache`, `perf-native-link`, `perf-cold-native`, `perf-resident-compiler` |
+| 12 | `perf-decl-lowering-hotspots`, `perf-parallel-analysis`, `perf-borrowed-returns`, `perf-m9-arena`, `perf-arc-thread-confined`, `perf-m8b` |
+| 13 | `perf-final-qualification` |
+
+**C compatibility (34)**
+
+| Stage | Items |
+|---|---|
+| 14 | `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` |
+| 15 | `ccompat-c1-schema` |
+| 16 | `ccompat-r02-braceless-bodies`, `ccompat-r06-empty-statement`, `ccompat-r01-void-unnamed-params`, `ccompat-r05-adjacent-strings`, `ccompat-r04-char-array-string-init`, `ccompat-r03-multi-declarators`, `ccompat-r19-comma-operator` (moved from 21), `ccompat-r07-function-pointer-declarators`, `ccompat-c1-integrate`, `ccompat-r18-preprocessor-conditionals` (if approved, after C1; otherwise refused in 21) |
+| 17 | `ccompat-c2-schema`, `ccompat-r09-union-declarations`, `ccompat-r08-typedef-struct-anonymous-members`, `ccompat-r10-designated-init-compound-literals`, `ccompat-r12-bitfields` (only with a named consumer; otherwise refused), `ccompat-r13-flexible-array-members`, `ccompat-x-enum-tag-spelling`, `ccompat-c2-integrate` |
+| 18 | `ccompat-r17-multidimensional-arrays` |
+| 19 | `ccompat-c3-schema-vocabulary`, `ccompat-r15a-qualifiers-storage-classes`, `ccompat-r15b-inline-noreturn`, `ccompat-r15c-static-assert`, `ccompat-r15d-alignment`, `ccompat-r16-wide-literals-long-double`, `ccompat-x-expression-stragglers`, `ccompat-r14-variadic-definitions` (only with a named consumer), `ccompat-c3-integrate` |
+| 20 | `ccompat-r11-goto-labels` |
+| 21 | `ccompat-c5-docs-final` |
+
+**Platform foundations (54)**
+
+| Stage | Items |
+|---|---|
+| 22 | `platforms-p0-entry-baseline`, `platforms-p0-inventory`, `platforms-p0-adaptations`, `platforms-p0-matrix-pin` |
+| 23 | `platforms-p1-toolchains` |
+| 24 | `platforms-p1-target-spec`, `platforms-p1-hosted-abi-targets`, `platforms-p1-native-import-targets`, `platforms-p1-native-plan-toolchain`, `platforms-p1-provider-filters`, `platforms-p1-cache-identity`, `platforms-p1-abi-fixture` |
+| 25 | `platforms-p1-host-windows`, `platforms-p1-host-ios`, `platforms-p1-host-android`, `platforms-p2-target-probes`, `platforms-p2-target-runner`, `platforms-p2-runtime-semantics`, `platforms-p2-portable-corpus`, `platforms-p2-ci-lanes` |
+| 26 | `platforms-p3-windows-launch-seam`, `platforms-p3-fs-windows`, `platforms-p3-process-terminal`, `platforms-p3-sockets-http`, `platforms-p3-regex-glob`, `platforms-p3-fs-mobile`, `platforms-p3-jobs-ipc` |
+| 27 | `platforms-interop-function-table-calls`, `platforms-w1-win32-com-imports`, `platforms-w1-sdk-reader-provider`, `platforms-w1-worker-pools`, `platforms-w1-unicode-host`, `platforms-w1-ci-and-bundle` (plus the first slices of the I1 Objective-C and A1 JNI items, which are mapped to 29) |
+| 28 | `platforms-p4-dependency-crossbuild`, `platforms-w1-toolchain-abi-route` (closes W1), `platforms-p4-library-artifacts`, `platforms-p4-assets-streams-plugins`, `platforms-p4-package-contracts` |
+| 29 | `platforms-w2-arm64`, `platforms-w2-wasapi`, `platforms-w2-gpu-image-font`, `platforms-w2-packaging`, `platforms-i1-objc-protocol-adapters`, `platforms-i1-app-lifecycle`, `platforms-i1-sandbox-storage`, `platforms-i2-audio`, `platforms-i2-gpu`, `platforms-i2-app-packaging`, `platforms-a1-checked-jni`, `platforms-a1-activity-lifecycle`, `platforms-a1-storage-permissions`, `platforms-a2-aaudio`, `platforms-a2-gpu`, `platforms-a2-packaging-16k` |
+
+**Native UI (70)**
+
+| Stage | Items |
+|---|---|
+| 30 | `ui-0-focused-gate`, `ui-0-catalog-schema`, `ui-0-operation-map`, `ui-0-broader-surface`, `ui-0-product-journeys`, `ui-0-host-matrix`, `ui-0-doc-reconcile` |
+| 31 | `ui-1-shell-fixture`, `ui-1-macos`, `ui-1-linux-sdl-baseline`, `ui-1-linux-gobject-binding`, `ui-1-linux-gtk-spike`, `ui-1-windows-shell`, `ui-1-ios-shell`, `ui-1-android-shell`, `ui-1-feasibility-review` |
+| 32 | `ui-2-contract-control-events`, `ui-2-contract-executor`, `ui-2-contract-lifecycle`, `ui-2-contract-review`, `ui-2-macos`, `ui-2-linux`, `ui-2-btrsmith-subscriptions` |
+| 33 | `ui-3-contract-input`, `ui-3-macos`, `ui-3-linux`, `ui-11-tray` (after the UI3 landing) |
+| 34 | `ui-4-contract-controls`, `ui-4-macos`, `ui-4-linux`, `ui-5-contract-layout`, `ui-5-macos`, `ui-5-linux`, `ui-6-contract-collections`, `ui-6-stress-fixture`, `ui-6-macos`, `ui-6-linux`, `ui-7-contract-services`, `ui-7-macos`, `ui-7-linux`, `ui-8-contract-a11y`, `ui-8-macos`, `ui-8-linux`, `ui-9-contract-gpu`, `ui-9-macos`, `ui-9-linux` (UI8/UI9 acceptance carried in each UI4–UI7 landing) |
+| 35 | `ui-win-core`, `ui-win-controls-layout`, `ui-win-collections-services`, `ui-win-a11y-gpu`, `ui-ios-core`, `ui-ios-controls-layout`, `ui-ios-collections-services`, `ui-ios-a11y-gpu`, `ui-android-core`, `ui-android-controls-layout`, `ui-android-collections-services`, `ui-android-a11y-gpu` |
+| 36 | `ui-4-btrsmith-settings`, `ui-5-btrsmith-adaptive`, `ui-6-btrsmith-library`, `ui-7-btrsmith-import`, `ui-9-btrsmith-player` |
+| 37 | `ui-10-automation-diagnostics`, `ui-10-btrsmith-mobile`, `ui-10-qualification` (numeric goals close in 41, OS evidence in 42), `ui-11-pickers-n51-n52`, `ui-11-rich-web-n53-n54`, `ui-11-print-media-n55-n57`, `ui-11-data-docs-help-n58-n60` |
+
+**BTRSmith (31)**
+
+| Stage | Items |
+|---|---|
+| 1 | `btrsmith-wip-reconcile`, `btrsmith-docs-reconcile` |
+| 2 | `btrsmith-baseline` |
+| 4 | `btrsmith-structure-stdlib`, `btrsmith-structure-repo` (includes issue #20), `btrsmith-pin-bump` (blocked on push) |
+| 7 | `btrsmith-portable-coverage` |
+| 9 | `btrsmith-test-batch`, `btrsmith-dev-mode` |
+| 21 | `btrsmith-c-compat-regression` (also reruns after 16, 17, 19 and 20) |
+| 22 | `btrsmith-p0-inventory` |
+| 28 | `btrsmith-cross-target-build`, `btrsmith-package-closure` |
+| 29 | `btrsmith-storage-resources`, `btrsmith-audio-adaptation`, `btrsmith-gpu-portability` |
+| 30 | `btrsmith-ui0-callers` |
+| 32 | `btrsmith-libraryui-split` |
+| 36 | `btrsmith-ui-event-loop`, `btrsmith-ui-slice1-search-filters`, `btrsmith-ui-slice2-settings`, `btrsmith-ui-adaptive-layout`, `btrsmith-ui-slice3-library`, `btrsmith-ui-slice4-player`, `btrsmith-ui-accessibility` |
+| 37 | `btrsmith-ui-slice5-mobile-restoration` |
+| 38 | `btrsmith-q-ci` |
+| 39 | `btrsmith-macos-mvp-automatable`, `btrsmith-q-selfhost-matrix` |
+| 40 | `btrsmith-macos-mvp-physical` |
+| 43 | `btrsmith-q-platform-release` |
+
+BTRSmith issues outside the item list: issue #13 (full-screen practice mode) is dispositioned in D25, with post-MVP recommended. Issue #20 is in Stage 4.
+
+**Tooling (22)**
+
+| Stage | Items |
+|---|---|
+| 1 | `tooling-disk-reclaim`, `tooling-host-capacity-policy` |
+| 2 | `tooling-devshell-missing-tools`, `tooling-linux-container-refresh`, `tooling-ci-dispatch-policy` |
+| 10 | `tooling-x86-acceptance-host` (decision D7 now) |
+| 22 | `tooling-p0-toolchain-matrix` |
+| 23 | `tooling-ios-simulator-runtimes`, `tooling-android-sdk-ndk`, `tooling-windows-vm`, `tooling-windows-ci-arm64-llvm`, `tooling-apple-signing`, `tooling-ios-physical-devices`, `tooling-android-physical-devices` |
+| 25 | `tooling-android-ci-emulator` |
+| 28 | `tooling-cross-gpu-deps` |
+| 30 | `tooling-linux-headless-gui`, `tooling-linux-desktop-host` |
+| 39 | `tooling-windows-physical` |
+| 40 | `tooling-audio-loopback-rig` |
+| 42 | `tooling-target-debuggers`, `tooling-release-signing-mobile-store` |
+
+**Qualification (38)**
+
+| Stage | Items |
+|---|---|
+| 1 | `qualification-plan-doc-reconcile` |
+| 2 | `qualification-ci-health`, `qualification-evidence-ledger`, `qualification-skip-ledger` |
+| 10 | `qualification-acceptance-hosts` |
+| 22 | `qualification-device-lab` (procurement decision D8 now) |
+| 23 | `qualification-signing-accounts` |
+| 27 | `qualification-ci-windows-matrix` |
+| 29 | `qualification-ci-ios`, `qualification-ci-android` |
+| 30 | `qualification-p5-journey-catalog` |
+| 31 | `qualification-ci-linux-gui-audio` |
+| 34 | `qualification-catalog-fixtures`, `qualification-p6-runtime-probes` |
+| 37 | `qualification-p5-journey-drivers` |
+| 38 | `qualification-ci-macos-native-suite` (moves to 2 if pushes are allowed), `qualification-ci-btrsmith`, `qualification-ci-tiering`, `qualification-p6-build-bench-targets` |
+| 39 | `qualification-p5-runs-macos-linux`, `qualification-p5-runs-windows`, `qualification-p5-runs-ios`, `qualification-p5-runs-android` |
+| 40 | `qualification-p5-physical-audio-visual`, `qualification-p6-audio-latency-rig` |
+| 41 | `qualification-p6-build-measure`, `qualification-p6-runtime-runs` |
+| 42 | `qualification-p7-sanitizers`, `qualification-p7-devtools-targets`, `qualification-p7-release-artifacts`, `qualification-p7-macos-notarization`, `qualification-p7-install-upgrade`, `qualification-p7-stress-faults`, `qualification-p7-os-version-matrix` |
+| 43 | `qualification-final-w2-exit`, `qualification-final-i2-exit`, `qualification-final-a2-exit`, `qualification-p7-release-candidate-run` |
+
+**Totals:** 37 + 34 + 54 + 70 + 31 + 22 + 38 = **286**. Every item is assigned to exactly one stage.

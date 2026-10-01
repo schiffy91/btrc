@@ -15,7 +15,7 @@ them into operation-level acceptance cases with a stable denominator.
 
 UI implementation is **bucket 4**, queued behind compiler performance,
 C compatibility and platform foundations under
-[PLAN.md's sequential execution order](../../PLAN.md#execution-order-five-buckets).
+[PLAN.md's sequential execution order](../../PLAN.md#phase-overview).
 This inventory does not authorize early UI work. Once bucket 4 begins, start
 with native-shell feasibility and an editor-and-focus slice using the existing
 GUI owners, before expanding controls. The dependency order below applies

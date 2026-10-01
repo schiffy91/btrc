@@ -576,7 +576,7 @@ complete declared matrix passes on the same source revision and package set.
 ## 8. Execution order and completion rule
 
 Platform foundations are **bucket 3**, after compiler performance and
-C compatibility, under [PLAN.md's sequential execution order](../../PLAN.md#execution-order-five-buckets).
+C compatibility, under [PLAN.md's sequential execution order](../../PLAN.md#phase-overview).
 The UI portions of the platform milestones run in bucket 4; final installed
 product qualification runs in bucket 5. Do not start a platform implementation
 as a parallel track beside the active compiler-performance milestone. The

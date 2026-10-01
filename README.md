@@ -770,7 +770,7 @@ and `--btrcc PATH` to select the self-host compiler. `--samples 5
 warm samples per frontend/mode. Warm-native samples reuse the emitted plan;
 qualified macOS builds can also retain the executable. These are not
 whole-product no-op measurements. Raw evidence is retained
-under `build/perf/`; see [the measurement plan](PLAN.md#measuring) for acceptance
+under `build/perf/`; see [the measurement plan](docs/design/plan-reference.md#measuring) for acceptance
 conditions and remaining measurement gaps.
 
 With `--object-cache` or `--debug-info`, generated native adapters retain verified source files
