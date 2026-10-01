@@ -28,7 +28,7 @@ jobs:
 
       - run: nix flake check --no-build
       - run: nix develop --command make NIX= generated-check
-      - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package --no-link
+      - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package .#checks.x86_64-linux.native-package-plan --no-link
       - run: make devcontainer
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= lint format-check
@@ -66,20 +66,13 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
-      - name: Verify release builds did not mutate generated sources
+      # The generator's own check names every generated source, so a new one
+      # needs no list here; a clean tree rules out any other tracked mutation.
+      - name: Verify release builds did not mutate tracked or generated sources
         run: |
-          paths=(
-            src/compiler/python/runtime/generated.py
-            src/compiler/btrc/generated/runtime/Catalog.btrc
-            src/compiler/python/syntax/ast/generated.py
-            src/compiler/btrc/generated/ast/Node.btrc
-            src/compiler/python/abi/generated.py
-            src/compiler/btrc/generated/hosted_abi/Tables.btrc
-            src/devex/lsp/catalog/generated.py
-            src/stdlib/btrc.symbols
-          )
-          git diff --exit-code -- "${paths[@]}"
-          test -z "$(git status --porcelain --untracked-files=all -- "${paths[@]}")"
+          nix develop --command make NIX= generated-check
+          git status --porcelain --untracked-files=all
+          test -z "$(git status --porcelain --untracked-files=all)"
 
   # The suite is split into independent shards that run as parallel jobs on
   # four-core runners; each builds the devcontainer from the Nix cache (about

@@ -405,7 +405,8 @@ def test_ci_builds_installable_artifacts_and_pins_external_actions():
 
     assert "make NIX= package extension" in ci
     assert (
-        "nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package --no-link"
+        "nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package "
+        ".#checks.x86_64-linux.native-package-plan --no-link"
     ) in ci
     assert "@main" not in ci + windows
     assert "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in ci
@@ -416,3 +417,9 @@ def test_ci_builds_installable_artifacts_and_pins_external_actions():
     assert '$ver = "0.16.0"' in windows
     assert "68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e" in windows
     assert "Get-FileHash -Algorithm SHA256 zig.zip" in windows
+    # After the release builds, the generator's own check and a clean tree
+    # stand in for a hand-kept list of generated paths that went stale.
+    verify = ci.split("Verify release builds did not mutate", 1)[1].split("\n\n", 1)[0]
+    assert "nix develop --command make NIX= generated-check" in verify
+    assert 'test -z "$(git status --porcelain --untracked-files=all)"' in verify
+    assert "paths=(" not in verify
