@@ -87,14 +87,20 @@ class Journey implements IApplicationWork {
 	public void run() {
 		self._step++;
 		int step = self._step;
-		if (step == 2) { self.click(60.0, 30.0); }
+		if (step == 2) {
+			/* Synthetic text waits in a bounded ring: overflow and oversize pushes are rejected. */
+			for (int index = 0; index < 16; index++) { assert(btrcSdlPushText(self._window, "z") == 1); }
+			assert(btrcSdlPushText(self._window, "z") == 0);
+			assert(btrcSdlPushText(self._window, "0123456789012345678901234567890123456789012345678901234567890123") == 0);
+			self.click(60.0, 30.0);
+		}
 		else if (step == 4) {
 			assert(self._counter.count == 1);
 			self.click(200.0, 30.0);
-			btrcSdlPushText(self._window, "hello");
+			assert(btrcSdlPushText(self._window, "hello") == 1);
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_LEFT, (unsigned int)SDLK_LEFT, 0u, 1, 0);
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_LEFT, (unsigned int)SDLK_LEFT, 0u, 0, 0);
-			btrcSdlPushText(self._window, "X");
+			assert(btrcSdlPushText(self._window, "X") == 1);
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_BACKSPACE, (unsigned int)SDLK_BACKSPACE, 0u, 1, 0);
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_BACKSPACE, (unsigned int)SDLK_BACKSPACE, 0u, 0, 0);
 		} else if (step == 6) {
@@ -185,6 +191,10 @@ int main() {
 	content.arrange(0.0, 0.0, 160.0, 480.0);
 	scroll.setContentSize(160.0, 480.0);
 	var card = GUI.createPanel(RGBA(220, 60, 60, 255), 8.0);
+	/* More large glyphs than the window's atlas holds: the frame drops the
+	 * rest instead of resetting texels it already recorded. */
+	var giant = GUI.createLabel("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+	giant.setFont(500.0);
 	var imageView = GUI.createImageView();
 	imageView.setImageHandle(artwork);
 	assert(imageView.fittingWidth() == 4.0);
@@ -193,7 +203,7 @@ int main() {
 	button.onAction(counter, scope);
 	var cardPointer = Pointer(true);
 	var rootPointer = Pointer(false);
-	root.attach(button); root.attach(field); root.attach(select); root.attach(slider); root.attach(scroll); root.attach(card); root.attach(imageView);
+	root.attach(button); root.attach(field); root.attach(select); root.attach(slider); root.attach(scroll); root.attach(card); root.attach(imageView); root.attach(giant);
 	window.attachRoot(root);
 	button.arrange(20.0, 16.0, 80.0, button.fittingHeight());
 	field.arrange(120.0, 16.0, 160.0, field.fittingHeight());
@@ -202,6 +212,7 @@ int main() {
 	scroll.arrange(320.0, 120.0, 140.0, 160.0);
 	card.arrange(20.0, 160.0, 120.0, 120.0);
 	imageView.arrange(180.0, 200.0, 80.0, 40.0);
+	giant.arrange(470.0, 310.0, 10.0, 10.0);
 	var picker = PickerProbe();
 	card.onPointer(picker, scope);
 	card.onPointer(cardPointer, scope);

@@ -107,7 +107,7 @@ class LinuxButton implements IButton, ILinuxView {
 	public double fittingWidth() {
 		self._node.requireOpen();
 		double symbol = self._symbol < 0 ? 0.0 : self.symbolSize();
-		double titleWidth = self._title.isEmpty() ? 0.0 : self._node.context.fonts.textWidth(self._title, self._size, false);
+		double titleWidth = self._title.isEmpty() ? 0.0 : self._node.context.fonts.textWidth(self._title, self._size, self._node.scale(), false);
 		double gap = symbol > 0.0 && titleWidth > 0.0 ? 6.0 : 0.0;
 		double padding = self._bordered ? LinuxMetrics.horizontalPadding() : 6.0;
 		return Math.ceilDouble(symbol + gap + titleWidth + padding * 2.0);

@@ -12,7 +12,7 @@ import Library.GUI.Linux.LinuxPainter;
 
 /* Greedy word wrapping over logical points using the shared font metrics. */
 class LinuxTextLines {
-	class Vector<string> wrap(LinuxFonts fonts, string text, double size, bool bold, double width) {
+	class Vector<string> wrap(LinuxFonts fonts, string text, double size, double scale, bool bold, double width) {
 		Vector<string> lines = [];
 		if (text.isEmpty()) { lines.push(""); return lines; }
 		for paragraph in Strings.split(text, "\n") {
@@ -20,7 +20,7 @@ class LinuxTextLines {
 			string line = "";
 			for word in Strings.split(paragraph, " ") {
 				string candidate = line.isEmpty() ? word : line + " " + word;
-				if (!line.isEmpty() && fonts.textWidth(candidate, size, bold) > width) { lines.push(line); line = word; }
+				if (!line.isEmpty() && fonts.textWidth(candidate, size, scale, bold) > width) { lines.push(line); line = word; }
 				else { line = candidate; }
 			}
 			lines.push(line);
@@ -52,7 +52,7 @@ class LinuxLabel implements ILabel, ILinuxView {
 		double lineHeight = painter.lineHeight(self._size, self._bold);
 		painter.pushClip(x, y, self._node.width, self._node.height);
 		if (self._wrapping) {
-			var lines = LinuxTextLines.wrap(self.fonts(), self._text, self._size, self._bold, self._node.width);
+			var lines = LinuxTextLines.wrap(self.fonts(), self._text, self._size, self._node.scale(), self._bold, self._node.width);
 			double top = y;
 			for line in lines {
 				double lineWidth = painter.textWidth(line, self._size, self._bold);
@@ -82,15 +82,15 @@ class LinuxLabel implements ILabel, ILinuxView {
 	public double fittingWidth() {
 		self._node.requireOpen();
 		double widest = 0.0;
-		for line in Strings.split(self._text, "\n") { widest = Math.maxDouble(widest, self.fonts().textWidth(line, self._size, self._bold)); }
+		for line in Strings.split(self._text, "\n") { widest = Math.maxDouble(widest, self.fonts().textWidth(line, self._size, self._node.scale(), self._bold)); }
 		return Math.ceilDouble(widest) + 4.0;
 	}
 
 	public double fittingHeight() {
 		self._node.requireOpen();
-		double lineHeight = self.fonts().lineHeight(self._size, self._bold);
+		double lineHeight = self.fonts().lineHeight(self._size, self._node.scale(), self._bold);
 		int lines = 1;
-		if (self._wrapping) { lines = LinuxTextLines.wrap(self.fonts(), self._text, self._size, self._bold, self._node.width).len; }
+		if (self._wrapping) { lines = LinuxTextLines.wrap(self.fonts(), self._text, self._size, self._node.scale(), self._bold, self._node.width).len; }
 		else { lines = Strings.split(self._text, "\n").len; }
 		return Math.ceilDouble(lineHeight * (double)(lines < 1 ? 1 : lines)) + 2.0;
 	}

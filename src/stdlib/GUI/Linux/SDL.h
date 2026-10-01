@@ -24,6 +24,11 @@ typedef struct BtrcSdlEvent {
 	const char* text;
 } BtrcSdlEvent;
 
+/* Synthetic text events point into this ring (see btrcSdlPushText). */
+static char btrcSdlTextRing[16][64];
+static unsigned int btrcSdlTextRingPushed = 0u;
+static unsigned int btrcSdlTextRingTaken = 0u;
+
 static inline void btrcSdlFlatten(const SDL_Event* source, BtrcSdlEvent* out) {
 	memset(out, 0, sizeof(*out));
 	out->type = source->type;
@@ -60,6 +65,7 @@ static inline void btrcSdlFlatten(const SDL_Event* source, BtrcSdlEvent* out) {
 	} else if (source->type == SDL_EVENT_TEXT_INPUT) {
 		out->window = source->text.windowID;
 		out->text = source->text.text;
+		for (int slot = 0; slot < 16; slot++) { if (source->text.text == btrcSdlTextRing[slot]) { btrcSdlTextRingTaken++; break; } }
 	}
 }
 
@@ -210,22 +216,21 @@ static inline void btrcSdlPushKey(unsigned int window, unsigned int scancode, un
 	SDL_PushEvent(&event);
 }
 
-/* Pushed text lives in a small ring the next few pumps will have consumed;
- * at most 63 bytes reach the window per event. */
-static char btrcSdlTextRing[16][64];
-static unsigned int btrcSdlTextRingIndex = 0u;
-
-static inline void btrcSdlPushText(unsigned int window, const char* text) {
-	SDL_Event event;
-	memset(&event, 0, sizeof(event));
-	char* slot = btrcSdlTextRing[btrcSdlTextRingIndex % 16u];
-	btrcSdlTextRingIndex++;
+/* Pushed text lives in a small ring until the pump flattens its event: at
+ * most 16 pushes may be pending and at most 63 bytes each. A push that would
+ * overwrite pending text or truncate this one is rejected and returns 0. */
+static inline int btrcSdlPushText(unsigned int window, const char* text) {
 	size_t length = strlen(text);
-	if (length > 63) { length = 63; }
+	if (length > 63u || btrcSdlTextRingPushed - btrcSdlTextRingTaken >= 16u) { return 0; }
+	char* slot = btrcSdlTextRing[btrcSdlTextRingPushed % 16u];
 	memcpy(slot, text, length);
 	slot[length] = '\0';
+	SDL_Event event;
+	memset(&event, 0, sizeof(event));
 	event.type = SDL_EVENT_TEXT_INPUT;
 	event.text.windowID = window;
 	event.text.text = slot;
-	SDL_PushEvent(&event);
+	if (!SDL_PushEvent(&event)) { return 0; }
+	btrcSdlTextRingPushed++;
+	return 1;
 }

@@ -3,8 +3,8 @@ import Library.Image;
 import Library.GUI.Linux.LinuxFonts;
 import Library.GUI.Linux.LinuxActionQueue;
 
-/* A monotonically increasing revision that windows compare against their last
- * frame. Views bump it on every visible mutation; nothing retains the views. */
+/* A monotonically increasing revision a window compares against its last
+ * frame. Its views bump it on every visible mutation; nothing retains them. */
 class LinuxInvalidation {
 	private unsigned long long _revision = 1ULL;
 
@@ -109,7 +109,6 @@ class LinuxMetrics {
  * retains no view. */
 class LinuxContext {
 	public LinuxFonts fonts;
-	public LinuxInvalidation invalidation;
 	public LinuxIds ids;
 	public LinuxActionQueue actions;
 	public LinuxTheme darkTheme;
@@ -117,7 +116,6 @@ class LinuxContext {
 
 	public LinuxContext(int workCapacity) {
 		self.fonts = LinuxFonts();
-		self.invalidation = LinuxInvalidation();
 		self.ids = LinuxIds();
 		self.actions = LinuxActionQueue(workCapacity);
 		self.darkTheme = LinuxTheme.darkTheme();

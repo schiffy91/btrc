@@ -80,17 +80,18 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 		return index;
 	}
 
-	private double advanceTo(int offset) { return self._node.context.fonts.textWidth(self._text.substring(0, offset), self._size, false); }
+	private double advanceTo(int offset) { return self._node.context.fonts.textWidth(self._text.substring(0, offset), self._size, self._node.scale(), false); }
 
 	private int offsetAt(double localX) {
 		double x = localX - self.padding() + self._scroll;
 		int offset = 0;
 		int length = self._text.len();
 		var fonts = self._node.context.fonts;
+		double scale = self._node.scale();
 		while (offset < length) {
 			int next = self.nextBoundary(offset);
-			double left = fonts.textWidth(self._text.substring(0, offset), self._size, false);
-			double right = fonts.textWidth(self._text.substring(0, next), self._size, false);
+			double left = fonts.textWidth(self._text.substring(0, offset), self._size, scale, false);
+			double right = fonts.textWidth(self._text.substring(0, next), self._size, scale, false);
 			if (x < (left + right) * 0.5) { return offset; }
 			offset = next;
 		}
@@ -244,13 +245,13 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 
 	/* Where the input method should place its composition window. */
 	public void textInputArea(LinuxViewHost host, double x, double y) {
-		double lineHeight = self._node.context.fonts.lineHeight(self._size, false);
+		double lineHeight = self._node.context.fonts.lineHeight(self._size, self._node.scale(), false);
 		host.requestTextInput(true, x + self.padding() - self._scroll + self.advanceTo(self._caret), y + (self._node.height - lineHeight) * 0.5, 2.0, lineHeight);
 	}
 
 	public bool isOpen() { return self._node.isOpen(); }
 
-	public double fittingWidth() { self._node.requireOpen(); return Math.maxDouble(96.0, Math.ceilDouble(self._node.context.fonts.textWidth(self._text.isEmpty() ? self._placeholder : self._text, self._size, false)) + self.padding() * 2.0); }
+	public double fittingWidth() { self._node.requireOpen(); return Math.maxDouble(96.0, Math.ceilDouble(self._node.context.fonts.textWidth(self._text.isEmpty() ? self._placeholder : self._text, self._size, self._node.scale(), false)) + self.padding() * 2.0); }
 
 	public double fittingHeight() { self._node.requireOpen(); return LinuxMetrics.controlHeight(self._size); }
 

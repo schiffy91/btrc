@@ -99,12 +99,12 @@ class LinuxFace {
 }
 
 /* Application-wide font resolution and measurement. Sizes are logical points;
- * the backing scale chooses the FreeType pixel size so measurement matches
- * what the atlas later draws. fontconfig supplies the system sans face. */
+ * each caller passes the backing scale of the window it measures or draws
+ * for, which chooses the FreeType pixel size so measurement matches what that
+ * window's atlas later draws. fontconfig supplies the system sans face. */
 class LinuxFonts {
 	private string _regularPath = "";
 	private string _boldPath = "";
-	private double _scale = 1.0;
 	private Map<int, LinuxFace> _faces;
 
 	public LinuxFonts() {
@@ -123,20 +123,16 @@ class LinuxFonts {
 		return path;
 	}
 
-	public double scale() { return self._scale; }
+	/* An unusable scale measures at one point per pixel. */
+	class double backing(double scale) { return Math.isFinite(scale) && scale > 0.0 ? scale : 1.0; }
 
-	/* Faces are keyed by pixel size, so a scale change simply selects new ones. */
-	public void setScale(double scale) {
-		if (!Math.isFinite(scale) || scale <= 0.0) { return; }
-		self._scale = scale;
-	}
-
-	public int pixelSize(double points) {
-		int size = (int)Math.round((float)(points * self._scale));
+	/* Faces are keyed by pixel size, so windows of different density select different ones. */
+	public int pixelSize(double points, double scale) {
+		int size = (int)Math.round((float)(points * LinuxFonts.backing(scale)));
 		return size < 4 ? 4 : (size > 512 ? 512 : size);
 	}
 
-	public LinuxFace face(double points, bool bold) { return self.faceForPixels(self.pixelSize(points), bold); }
+	public LinuxFace face(double points, double scale, bool bold) { return self.faceForPixels(self.pixelSize(points, scale), bold); }
 
 	public LinuxFace faceForPixels(int pixelSize, bool bold) {
 		int key = pixelSize * 2 + (bold ? 1 : 0);
@@ -147,8 +143,8 @@ class LinuxFonts {
 		return face;
 	}
 
-	/* Measured in logical points. */
-	public double textWidth(string text, double points, bool bold) { return self.face(points, bold).advance(text) / self._scale; }
+	/* Measured in logical points at the given backing scale. */
+	public double textWidth(string text, double points, double scale, bool bold) { return self.face(points, scale, bold).advance(text) / LinuxFonts.backing(scale); }
 
-	public double lineHeight(double points, bool bold) { return self.face(points, bold).lineHeight / self._scale; }
+	public double lineHeight(double points, double scale, bool bold) { return self.face(points, scale, bold).lineHeight / LinuxFonts.backing(scale); }
 }

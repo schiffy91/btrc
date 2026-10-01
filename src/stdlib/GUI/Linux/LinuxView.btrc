@@ -9,17 +9,32 @@ import Library.GUI.Linux.SDL;
 import Library.GPU.Device;
 import Library.GPU.WebGPU;
 
+/* SDL's monotonic clock in nanoseconds. Delays are clamped to a billion
+ * seconds so the conversion and the deadline sum stay in range; a longer
+ * delay never fires either way. */
+class LinuxClock {
+	class unsigned long long nanoseconds(double seconds) {
+		if (!Math.isFinite(seconds) || seconds <= 0.0) { return 0ULL; }
+		if (seconds >= 1000000000.0) { return 1000000000000000000ULL; }
+		return (unsigned long long)(seconds * 1000000000.0);
+	}
+
+	class unsigned long long after(double seconds) { return SDL_GetTicksNS() + LinuxClock.nanoseconds(seconds); }
+}
+
 /* The window behind a host: advances its asynchronous device request on demand. */
 interface ILinuxDevicePoller {
 	bool pollDevice();
 }
 
 /* What an attached subtree learns from its window: the native window for
- * text input, the device for GPU children, focus and the backing scale.
+ * text input, the device for GPU children, focus, the backing scale and the
+ * window's own invalidation, so a change repaints only its window.
  * Owned by the window, referenced by attached nodes, referencing no view. */
 class LinuxViewHost {
 	public SDL_Window* window;
 	public LinuxContext context;
+	public LinuxInvalidation invalidation;
 	public ILinuxDevicePoller? poller = null;
 	public GPUDevice? device = null;
 	public WGPUTextureFormat format;
@@ -36,7 +51,7 @@ class LinuxViewHost {
 	public double height = 0.0;
 	public double wakeSeconds = -1.0;
 
-	public LinuxViewHost(SDL_Window* window, LinuxContext context) { self.window = window; self.context = context; }
+	public LinuxViewHost(SDL_Window* window, LinuxContext context) { self.window = window; self.context = context; self.invalidation = LinuxInvalidation(); }
 
 	/* Ask the window to repaint after at most `seconds`, for blinking or spinning. */
 	public void requestWake(double seconds) {
@@ -55,7 +70,7 @@ class LinuxViewHost {
 		return device != null && device.state() == GPU_DEVICE_READY;
 	}
 
-	public void requestFocus(int id) { self.focusRequest = id; self.context.invalidation.mark(); }
+	public void requestFocus(int id) { self.focusRequest = id; self.invalidation.mark(); }
 
 	public void requestTextInput(bool wanted, double x, double y, double width, double height) {
 		self.textInputWanted = wanted;
@@ -205,7 +220,11 @@ class LinuxViewNode {
 
 	public bool isOpen() { return !self.closing && !self.closed; }
 
-	public void invalidate() { self.context.invalidation.mark(); }
+	/* A detached subtree has nothing to repaint; attaching it invalidates its new window. */
+	public void invalidate() { var host = self.host; if (host != null) { host.invalidation.mark(); } }
+
+	/* The backing scale of the window this view measures for; one when detached. */
+	public double scale() { var host = self.host; return host == null ? 1.0 : host.scale; }
 
 	public void requireDetached() { if (self.attached) { throw "Detach the view from its container before closing it"; } }
 

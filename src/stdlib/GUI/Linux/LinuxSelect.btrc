@@ -108,7 +108,7 @@ class LinuxSelect implements ISelect, ILinuxView {
 
 	private double widestTitle() {
 		double widest = 0.0;
-		for title in self._titles { widest = Math.maxDouble(widest, self._node.context.fonts.textWidth(title, self._size, false)); }
+		for title in self._titles { widest = Math.maxDouble(widest, self._node.context.fonts.textWidth(title, self._size, self._node.scale(), false)); }
 		return widest;
 	}
 

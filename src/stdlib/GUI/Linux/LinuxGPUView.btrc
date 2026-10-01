@@ -8,6 +8,7 @@ import Library.GUI.IView;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
+import Library.GPU.Device;
 import Library.GPU.OffscreenTarget;
 import Library.GPU.SurfaceRenderer;
 import Library.GPU.Program;
@@ -20,6 +21,7 @@ import Library.GPU.Readback;
 class LinuxGPUView implements IGPUView, ILinuxView {
 	private LinuxViewNode _node;
 	private GPUOffscreenTarget? _target = null;
+	private GPUDevice? _targetDevice = null;
 	private GPUSurfaceRenderer? _renderer = null;
 	private LinuxTexture? _sampled = null;
 	private unsigned long long _sampledGeneration = 0ULL;
@@ -39,7 +41,7 @@ class LinuxGPUView implements IGPUView, ILinuxView {
 		self._node.setHost(host);
 	}
 
-	private double scale() { var host = self._node.host; return host == null ? self._node.context.fonts.scale() : host.scale; }
+	private double scale() { return self._node.scale(); }
 
 	private bool exposed() {
 		if (!self._node.visible) { return false; }
@@ -107,7 +109,9 @@ class LinuxGPUView implements IGPUView, ILinuxView {
 		var device = host.device;
 		if (device == null) { return false; }
 		try {
-			if (self._target == null) { self._target = GPUOffscreenTarget(device, host.format); }
+			/* Reparented under another window: its device owns the target now. */
+			if (self._target != null && self._targetDevice != device) { self.releaseTarget(); }
+			if (self._target == null) { self._target = GPUOffscreenTarget(device, host.format); self._targetDevice = device; }
 			var target = self._target;
 			if (target == null) { throw "GPU offscreen target construction returned no owner"; }
 			if (self._renderer == null) {
@@ -117,6 +121,17 @@ class LinuxGPUView implements IGPUView, ILinuxView {
 			}
 		} catch (string error) { self._error = error; return false; }
 		return true;
+	}
+
+	private void releaseTarget() {
+		var renderer = self._renderer;
+		self._renderer = null;
+		self._sampled = null;
+		if (renderer != null) { renderer.close(); }
+		var target = self._target;
+		self._target = null;
+		self._targetDevice = null;
+		if (target != null) { target.close(); }
 	}
 
 	public GPUSurfaceRenderer frameRenderer() {
@@ -175,6 +190,7 @@ class LinuxGPUView implements IGPUView, ILinuxView {
 			var target = self._target;
 			if (target != null) { target.close(); }
 			self._target = null;
+			self._targetDevice = null;
 			var view = self._node.close();
 			if (view != CallbackCancellation.Complete) { return view; }
 		} catch (string error) { self._error = error; self._closeFailed = true; return CallbackCancellation.Failed; }

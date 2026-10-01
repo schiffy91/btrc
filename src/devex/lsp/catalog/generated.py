@@ -593,7 +593,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("decode", "LinuxScalar", "method", (("string", "text"), ("int", "offset"),), "decode"),
     )),
     ("LinuxTextLines", (
-        BuiltinMemberSpec("wrap", "Vector<string>", "method", (("LinuxFonts", "fonts"), ("string", "text"), ("double", "size"), ("bool", "bold"), ("double", "width"),), "wrap"),
+        BuiltinMemberSpec("wrap", "Vector<string>", "method", (("LinuxFonts", "fonts"), ("string", "text"), ("double", "size"), ("double", "scale"), ("bool", "bold"), ("double", "width"),), "wrap"),
     )),
     ("LinuxSymbols", (
         BuiltinMemberSpec("symbol", "int", "method", (("string", "name"),), "symbol"),
@@ -603,6 +603,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("LinuxSystemText", (
         BuiltinMemberSpec("rasterize", "void", "method", (("LinuxFonts", "fonts"), ("TextRasterization", "request"),), "rasterize"),
         BuiltinMemberSpec("raster", "Image", "method", (("LinuxFonts", "fonts"), ("TextRun", "run"),), "raster"),
+    )),
+    ("LinuxClock", (
+        BuiltinMemberSpec("nanoseconds", "unsigned long long", "method", (("double", "seconds"),), "nanoseconds"),
+        BuiltinMemberSpec("after", "unsigned long long", "method", (("double", "seconds"),), "after"),
     )),
     ("LinuxKeys", (
         BuiltinMemberSpec("keyCode", "AppKeyCode", "method", (("unsigned int", "key"), ("unsigned int", "scancode"),), "keyCode"),
