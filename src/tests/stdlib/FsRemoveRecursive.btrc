@@ -1,0 +1,74 @@
+/* FileSystem.removeRecursive and TemporaryDirectory share one
+ * descriptor-relative delete. A directory that denies its owner write or
+ * search permission is still removed, a symlink entry is unlinked rather than
+ * followed, and a substituted temporary directory is refused. */
+import Library.FileSystem;
+
+#include <assert.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main() {
+	string root = FileSystem.tempDir("btrc_fs_remove_recursive");
+	string outside = FileSystem.tempDir("btrc_fs_remove_outside");
+	assert(!root.isEmpty() && !outside.isEmpty());
+	assert(FileSystem.realPath(root).equals(root));
+	assert(FileSystem.tempDir("bad/prefix").isEmpty());
+
+	/* r-x directories: owner write is missing. */
+	string readOnly = PathTools.join(root, "read-only");
+	string readOnlyDirectory = PathTools.join(readOnly, "nested");
+	string readOnlyFile = PathTools.join(readOnlyDirectory, "child.txt");
+	assert(FileSystem.mkdirp(readOnlyDirectory) == 0);
+	assert(FileSystem.writeText(readOnlyFile, "remove me"));
+	assert(FileSystem.chmod(readOnlyFile, 292) == 0);
+	assert(FileSystem.chmod(readOnlyDirectory, 365) == 0);
+	assert(FileSystem.chmod(readOnly, 365) == 0);
+	assert(FileSystem.removeRecursive(readOnly) == 0);
+	assert(!FileSystem.exists(readOnly));
+
+	/* rw- directories: owner search is missing, so their entries cannot be
+	 * unlinked until the delete grants it. */
+	string unsearchable = PathTools.join(root, "unsearchable");
+	string unsearchableDirectory = PathTools.join(unsearchable, "nested");
+	assert(FileSystem.mkdirp(unsearchableDirectory) == 0);
+	assert(FileSystem.writeText(PathTools.join(unsearchableDirectory, "child.txt"), "remove me"));
+	assert(FileSystem.chmod(unsearchableDirectory, 384) == 0);
+	assert(FileSystem.chmod(unsearchable, 384) == 0);
+	assert(FileSystem.removeRecursive(unsearchable) == 0);
+	assert(!FileSystem.exists(unsearchable));
+
+	/* A symlink inside the tree is unlinked; its target survives. */
+	string linked = PathTools.join(root, "linked");
+	assert(FileSystem.mkdirp(linked) == 0);
+	string outsideMarker = PathTools.join(outside, "must-survive");
+	assert(FileSystem.writeText(outsideMarker, "safe"));
+	assert(FileSystem.symlink(outside, PathTools.join(linked, "escape")) == 0);
+	assert(FileSystem.removeRecursive(linked) == 0);
+	assert(!FileSystem.exists(linked));
+	assert(FileSystem.readText(outsideMarker).equals("safe"));
+
+	/* A temporary directory swapped for another directory is not removed. */
+	TemporaryDirectoryOpenOutcome created = FileSystem.createTemporaryDirectory("btrc_fs_remove_swapped");
+	assert(created.ok());
+	TemporaryDirectory temporary = created.directory();
+	string temporaryPath = temporary.path();
+	string moved = PathTools.join(root, "moved-original");
+	assert(rename(temporaryPath, moved) == 0);
+	assert(FileSystem.mkdirp(temporaryPath) == 0);
+	string replacementMarker = PathTools.join(temporaryPath, "replacement");
+	assert(FileSystem.writeText(replacementMarker, "preserved"));
+	FileSystemCloseOutcome closed = temporary.close();
+	assert(!closed.ok());
+	assert(closed.error().kind() == FS_CHANGED);
+	assert(FileSystem.readText(replacementMarker).equals("preserved"));
+	assert(FileSystem.removeRecursive(temporaryPath) == 0);
+
+	assert(FileSystem.removeRecursive("/") != 0);
+	assert(FileSystem.removeRecursive(root) == 0);
+	assert(FileSystem.removeRecursive(outside) == 0);
+	assert(!FileSystem.exists(root));
+
+	print("PASS: test_stdlib_fs_remove_recursive");
+	return 0;
+}

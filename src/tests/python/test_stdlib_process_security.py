@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[3]
 PROCESS = ROOT / "src" / "stdlib" / "Process.btrc"
 HTTP_CLIENT = ROOT / "src" / "stdlib" / "HTTP" / "HTTPClient.btrc"
 FILESYSTEM = ROOT / "src" / "stdlib" / "FileSystem" / "FileSystem.btrc"
+FILESYSTEM_HANDLES = ROOT / "src" / "stdlib" / "FileSystem" / "FileSystemHandles.btrc"
 PROCESS_HELPERS = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("process")}
 PROCESS_RUNTIME = "\n".join(helper.c_source for helper in PROCESS_HELPERS.values())
 
@@ -410,17 +411,28 @@ def test_http_client_is_direct_and_protocol_restricted() -> None:
 
 def test_recursive_delete_is_descriptor_relative_and_nofollow() -> None:
     source = FILESYSTEM.read_text()
-    assert "openDirectoryNoFollow" in source
+    remove = source.split("class int removeRecursive(string path)", 1)[1].split("\n\tclass ", 1)[0]
+    assert "openDirectoryNoFollow(deletionParent)" in remove
+    assert "DirectoryTreeRemoval.removeAt(parentDescriptor, name, null)" in remove
     assert "O_NOFOLLOW" in source
-    assert "AT_SYMLINK_NOFOLLOW" in source
-    assert "fdopendir" in source
-    assert "unlinkat" in source
+
+    # One removal owner serves FileSystem.removeRecursive and TemporaryDirectory.
+    handles = FILESYSTEM_HANDLES.read_text()
+    owner = handles.split("class DirectoryTreeRemoval {", 1)[1].split("\nclass ", 1)[0]
+    assert "AT_SYMLINK_NOFOLLOW" in owner
+    assert "O_NOFOLLOW" in owner
+    assert "fdopendir" in owner
+    assert "unlinkat" in owner
+    assert "(mode_t)S_IWUSR | (mode_t)S_IXUSR" in owner
+    assert handles.count("AT_REMOVEDIR") == owner.count("AT_REMOVEDIR") == 1
+    assert "DirectoryTreeRemoval.removeAt(parentDescriptor, name, self._lease.openedSnapshot())" in handles
+    assert "fdopendir" not in source
 
 
 def test_windows_recursive_directory_delete_fails_closed() -> None:
     source = FILESYSTEM.read_text()
     windows = source.split("class int removeRecursivePath", 1)[1]
-    windows = windows.split("class int removeRecursiveAt", 1)[0]
+    windows = windows.split("\n\tclass ", 1)[0]
 
     assert "status.isSymlink() || status.isFile()" in windows
     assert "return unlink(path);" in windows

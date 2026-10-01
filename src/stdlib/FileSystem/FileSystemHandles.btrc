@@ -22,8 +22,6 @@ import Library.Strings;
 #include <time.h>
 #include <unistd.h>
 
-extern char* mkdtemp(char* templatePath);
-
 /* Counts only the long-lived exact filesystem handle capabilities
  * owned by this generated program. It never probes native descriptor tables,
  * so the diagnostic has identical semantics on every supported platform.
@@ -139,6 +137,15 @@ class FileSystemError {
 			kind = FS_UNSUPPORTED;
 		}
 		return FileSystemError(kind, operation, path, nativeCode, Strings.copy(strerror(nativeCode)));
+	}
+
+	/* A target that vanished, became a symlink or changed type while an
+	 * operation held its earlier identity is a change, not an absence. */
+	public FileSystemError asChange(string operation, string path) {
+		if (self._kind == FS_NOT_FOUND || self._kind == FS_SYMLINK || self._kind == FS_WRONG_TYPE) {
+			return FileSystemError.changed(operation, path, self._nativeCode);
+		}
+		return self;
 	}
 
 	public FileSystemErrorKind kind() { return self._kind; }
@@ -464,10 +471,12 @@ class FileSystemCloseOutcome {
 }
 
 /* An immutable process-local diagnostic value for the exact file and
- * directory handles owned by BTRC's typed filesystem API. Wrappers such as
- * TemporaryDirectory and RegularFileSnapshot are represented by the exact
- * DirectoryHandle or FileHandle they own. Native descriptors used transiently
- * inside an operation and resources owned by unrelated libraries are excluded.
+ * directory handles owned by BTRC's typed filesystem API: each open
+ * FileHandle, DirectoryHandle, PrivateDirectory, ExclusiveFileLease and
+ * AdvisoryFileLock counts once. Wrappers such as TemporaryDirectory and
+ * RegularFileSnapshot are represented by the exact DirectoryHandle or
+ * FileHandle they own. Native descriptors used transiently inside an
+ * operation and resources owned by unrelated libraries are excluded.
  */
 class FileSystemHandleInventory {
 	private int _openCount;
@@ -653,6 +662,25 @@ class FileHandle {
  * in the POSIX backend, is correlated with both the pinned descriptor and the
  * named path before and after I/O. Native descriptors never cross this API.
  */
+/* Validate both a held object and the path that originally selected it. */
+class ExactFileSnapshot {
+	class FileSystemError? validate(FileSnapshot expected, FileSnapshotOutcome held, string path, string operation) {
+		if (expected == null || held == null || path == null || path.isEmpty() || operation == null || operation.isEmpty()) {
+			return FileSystemError.invalid(operation, path);
+		}
+		if (!held.ok()) { return held.error(); }
+		if (!expected.sameVersion(held.snapshot())) {
+			return FileSystemError.changed(operation, path);
+		}
+		FileSnapshotOutcome named = FileHandle.inspectExact(path);
+		if (!named.ok()) { return named.error().asChange(operation, path); }
+		if (!expected.sameVersion(named.snapshot())) {
+			return FileSystemError.changed(operation, path);
+		}
+		return null;
+	}
+}
+
 class RegularFileSnapshot {
 	private FileHandle? _file;
 	private FileSnapshot? _revision;
@@ -723,24 +751,7 @@ class RegularFileSnapshot {
 		if (!self.isOpen() || self._file == null || self._revision == null) {
 			return FileSystemError.closed(operation, self._path);
 		}
-		FileSnapshotOutcome pinned = self._file.snapshot();
-		if (!pinned.ok()) { return pinned.error(); }
-		FileSnapshot expected = self.revision();
-		if (!expected.sameVersion(pinned.snapshot())) {
-			return FileSystemError.changed(operation, self._path);
-		}
-		FileSnapshotOutcome named = FileHandle.inspectExact(self._path);
-		if (!named.ok()) {
-			FileSystemError namedError = named.error();
-			if (namedError.kind() == FS_NOT_FOUND || namedError.kind() == FS_SYMLINK || namedError.kind() == FS_WRONG_TYPE) {
-				return FileSystemError.changed(operation, self._path, namedError.nativeCode());
-			}
-			return namedError;
-		}
-		if (!expected.sameVersion(named.snapshot())) {
-			return FileSystemError.changed(operation, self._path);
-		}
-		return null;
+		return ExactFileSnapshot.validate(self.revision(), self._file.snapshot(), self._path, operation);
 	}
 
 	public ExactFileReadOutcome readExactAt(long long offset, int byteCount) {
@@ -977,11 +988,7 @@ class DirectoryHandle {
 		string childPath = self.entryPath(entry);
 		FileOpenOutcome opened = FileHandle.openExact(childPath);
 		if (!opened.ok()) {
-			FileSystemError error = opened.error();
-			if (error.kind() == FS_NOT_FOUND || error.kind() == FS_SYMLINK || error.kind() == FS_WRONG_TYPE) {
-				return FileOpenOutcome.failed(FileSystemError.changed("open directory file", childPath, error.nativeCode()));
-			}
-			return opened;
+			return FileOpenOutcome.failed(opened.error().asChange("open directory file", childPath));
 		}
 		FileHandle file = opened.file();
 		if (!file.openedSnapshot().sameVersion(entry.snapshot())) {
@@ -1008,11 +1015,7 @@ class DirectoryHandle {
 		string childPath = self.entryPath(entry);
 		DirectoryOpenOutcome opened = DirectoryHandle.openExact(childPath);
 		if (!opened.ok()) {
-			FileSystemError error = opened.error();
-			if (error.kind() == FS_NOT_FOUND || error.kind() == FS_SYMLINK || error.kind() == FS_WRONG_TYPE) {
-				return DirectoryOpenOutcome.failed(FileSystemError.changed("open child directory", childPath, error.nativeCode()));
-			}
-			return opened;
+			return DirectoryOpenOutcome.failed(opened.error().asChange("open child directory", childPath));
 		}
 		DirectoryHandle directory = opened.directory();
 		if (!directory.openedSnapshot().sameVersion(entry.snapshot())) {
@@ -1078,75 +1081,19 @@ class TemporaryDirectoryOpenOutcome {
 	}
 }
 
-class TemporaryDirectory {
-	private string _path;
-	private bool _open;
-	private DirectoryHandle _lease;
-
-	private TemporaryDirectory(string path, DirectoryHandle lease) {
-		self._path = path;
-		self._open = true;
-		self._lease = lease;
-	}
-
-	class TemporaryDirectoryOpenOutcome create(string prefix) {
-		if (prefix == null || prefix.isEmpty() || prefix.equals(".") || prefix.equals("..") || prefix.contains("/") || prefix.contains("\\") || prefix.contains(":")) {
-			return TemporaryDirectoryOpenOutcome.failed(FileSystemError.invalid("create temporary directory", prefix));
-		}
-		string base = Environment.get("TMPDIR", "/tmp");
-		string templatePath = base.endsWith("/") ? base + prefix + ".XXXXXX" : base + "/" + prefix + ".XXXXXX";
-		size_t length = strlen(templatePath);
-		char* raw = (char*)malloc(length + (size_t)1);
-		if (raw == null) {
-			return TemporaryDirectoryOpenOutcome.failed(FileSystemError(FS_RESOURCE_EXHAUSTED, "create temporary directory", templatePath, ENOMEM, "temporary directory template allocation failed"));
-		}
-		memcpy(raw, templatePath, length + (size_t)1);
-		errno = 0;
-		if (mkdtemp(raw) == null) {
-			int nativeCode = errno;
-			free(raw);
-			return TemporaryDirectoryOpenOutcome.failed(FileSystemError.fromNative("create temporary directory", templatePath, nativeCode));
-		}
-		errno = 0;
-		char* canonical = realpath(raw, null);
-		if (canonical == null) {
-			int nativeCode = errno;
-			rmdir(raw);
-			free(raw);
-			return TemporaryDirectoryOpenOutcome.failed(FileSystemError.fromNative("canonicalize temporary directory", templatePath, nativeCode));
-		}
-		string path = __btrc_str_track(canonical);
-		free(raw);
-		DirectoryOpenOutcome opened = DirectoryHandle.openExact(path);
-		if (!opened.ok()) {
-			rmdir(path);
-			return TemporaryDirectoryOpenOutcome.failed(opened.error());
-		}
-		return TemporaryDirectoryOpenOutcome.opened(TemporaryDirectory(path, opened.directory()));
-	}
-
-	public bool isOpen() { return self._open; }
-
-	public string path() { return self._path; }
-
-	private string parentPath() {
-		int separator = self._path.lastIndexOf("/");
-		if (separator < 0) { return "."; }
-		if (separator == 0) { return "/"; }
-		return self._path.substring(0, separator);
-	}
-
-	private string baseName() {
-		int separator = self._path.lastIndexOf("/");
-		if (separator < 0) { return Strings.copy(self._path); }
-		return self._path.substring(separator + 1, self._path.len() - separator - 1);
-	}
-
-	/* POSIX has no unlink-by-descriptor operation. Each directory is opened
-     * without following its final component and its identity is revalidated
-     * immediately before unlinkat(). Holding the root lease prevents inode
-     * reuse; callers must still serialize concurrent renames in the parent. */
-	private int removeAt(int parentDescriptor, string name, FileSnapshot? expected) {
+/* The one descriptor-relative recursive delete behind both
+ * TemporaryDirectory.close() and FileSystem.removeRecursive(). POSIX has no
+ * unlink-by-descriptor operation, so a caller that needs stronger
+ * concurrent-rename guarantees serializes mutations in the parent; a caller
+ * holding an open lease on the root additionally prevents inode reuse. */
+class DirectoryTreeRemoval {
+	/* Remove `name` below an open directory: 0 when it is gone (or was never
+	 * there), -2 when it is not `expected` or changed during removal, -1 on
+	 * any other failure. Each directory is opened without following its final
+	 * component, its root identity is refused, and it gains owner write and
+	 * search permission so its own entries can be unlinked. Its identity is
+	 * revalidated immediately before unlinkat(). */
+	class int removeAt(int parentDescriptor, string name, FileSnapshot? expected) {
 		struct stat named;
 		errno = 0;
 		if (fstatat(parentDescriptor, name, &named, AT_SYMLINK_NOFOLLOW) != 0) {
@@ -1193,7 +1140,7 @@ class TemporaryDirectory {
 				continue;
 			}
 			string childName = Strings.copy(borrowedName);
-			result = self.removeAt(dirfd(directory), childName, null);
+			result = DirectoryTreeRemoval.removeAt(dirfd(directory), childName, null);
 			if (result != 0) { break; }
 		}
 		if (closedir(directory) != 0 && result == 0) { result = -1; }
@@ -1204,6 +1151,93 @@ class TemporaryDirectory {
 			return -2;
 		}
 		return unlinkat(parentDescriptor, name, AT_REMOVEDIR) == 0 ? 0 : -1;
+	}
+}
+
+class TemporaryDirectory {
+	private string _path;
+	private bool _open;
+	private DirectoryHandle _lease;
+
+	private TemporaryDirectory(string path, DirectoryHandle lease) {
+		self._path = path;
+		self._open = true;
+		self._lease = lease;
+	}
+
+	/* A prefix names one leaf: never empty, a dot entry or a separator. */
+	class bool validPrefix(string prefix) { return prefix != null && !prefix.isEmpty() && !prefix.equals(".") && !prefix.equals("..") && !prefix.contains("/") && !prefix.contains("\\") && !prefix.contains(":"); }
+
+	class string templatePath(string prefix) {
+		string base = Environment.get("TMPDIR", "/tmp");
+		return base.endsWith("/") ? base + prefix + ".XXXXXX" : base + "/" + prefix + ".XXXXXX";
+	}
+
+	/* Create a fresh private directory from a mkdtemp template and return its
+	 * canonical path. On failure nothing is left behind, errno holds the
+	 * cause and the result is empty. FileSystem.tempDir uses this too, so both
+	 * creators fail the same way when the new directory cannot be resolved. */
+	class string reservePath(string templatePath) {
+		size_t length = strlen(templatePath);
+		char* raw = (char*)malloc(length + (size_t)1);
+		if (raw == null) {
+			errno = ENOMEM;
+			return "";
+		}
+		memcpy(raw, templatePath, length + (size_t)1);
+		errno = 0;
+		if (mkdtemp(raw) == null) {
+			int nativeCode = errno;
+			free(raw);
+			errno = nativeCode;
+			return "";
+		}
+		errno = 0;
+		char* canonical = realpath(raw, null);
+		if (canonical == null) {
+			int nativeCode = errno;
+			rmdir(raw);
+			free(raw);
+			errno = nativeCode;
+			return "";
+		}
+		free(raw);
+		return __btrc_str_track(canonical);
+	}
+
+	class TemporaryDirectoryOpenOutcome create(string prefix) {
+		if (!TemporaryDirectory.validPrefix(prefix)) {
+			return TemporaryDirectoryOpenOutcome.failed(FileSystemError.invalid("create temporary directory", prefix));
+		}
+		string templatePath = TemporaryDirectory.templatePath(prefix);
+		string path = TemporaryDirectory.reservePath(templatePath);
+		if (path.isEmpty()) {
+			int nativeCode = errno;
+			return TemporaryDirectoryOpenOutcome.failed(FileSystemError.fromNative("create temporary directory", templatePath, nativeCode));
+		}
+		DirectoryOpenOutcome opened = DirectoryHandle.openExact(path);
+		if (!opened.ok()) {
+			rmdir(path);
+			return TemporaryDirectoryOpenOutcome.failed(opened.error());
+		}
+		return TemporaryDirectoryOpenOutcome.opened(TemporaryDirectory(path, opened.directory()));
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public string path() { return self._path; }
+
+	private string parentPath() {
+		int separator = self._path.lastIndexOf("/");
+		if (separator < 0) { return "."; }
+		if (separator == 0) { return "/"; }
+		return self._path.substring(0, separator);
+	}
+
+	private string baseName() {
+		int separator = self._path.lastIndexOf("/");
+		if (separator < 0) { return Strings.copy(self._path); }
+		return self._path.substring(separator + 1, self._path.len() - separator - 1);
 	}
 
 	public FileSystemCloseOutcome close() {
@@ -1234,7 +1268,7 @@ class TemporaryDirectory {
 			self._lease.close();
 			return FileSystemCloseOutcome.failed(FileSystemError.fromNative("open temporary directory parent", parent, nativeCode));
 		}
-		int removed = self.removeAt(parentDescriptor, name, self._lease.openedSnapshot());
+		int removed = DirectoryTreeRemoval.removeAt(parentDescriptor, name, self._lease.openedSnapshot());
 		int nativeCode = errno;
 		close(parentDescriptor);
 		FileSystemCloseOutcome leaseClose = self._lease.close();
@@ -1418,6 +1452,7 @@ class PrivateDirectory {
 		self._leaseGeneration = 0;
 		self._leaseName = "";
 		self._path = path;
+		btrcOwnExactFileSystemHandle();
 	}
 
 	/* The last component of `absolutePath`, named `component` inside the open
@@ -1613,7 +1648,7 @@ class PrivateDirectory {
 			return PrivateDirectoryOpenOutcome.failed(FileSystemError.invalid("open private directory", path));
 		}
 		if (!self.isOpen()) {
-			return PrivateDirectoryOpenOutcome.failed(FileSystemError.invalid("open private directory", path));
+			return PrivateDirectoryOpenOutcome.failed(FileSystemError.closed("open private directory", path));
 		}
 		return PrivateDirectory.openLeafAt(self._descriptor, name, path, false);
 	}
@@ -1795,6 +1830,7 @@ class PrivateDirectory {
 		self._leaseDirectoryDescriptor = directoryDescriptor;
 		self._leaseLockDescriptor = lockDescriptor;
 		self._leaseName = Strings.copy(childName);
+		btrcOwnExactFileSystemHandle();
 		return ExclusiveFileLeaseOpenOutcome.opened(ExclusiveFileLease(self, self._leaseGeneration, Strings.copy(childName)));
 	}
 
@@ -1807,6 +1843,7 @@ class PrivateDirectory {
 		}
 		int descriptor = self._descriptor;
 		self._descriptor = -1;
+		btrcReleaseExactFileSystemHandle();
 		errno = 0;
 		if (close(descriptor) != 0) {
 			int nativeCode = errno;
@@ -2113,6 +2150,7 @@ class PrivateDirectory {
 		self._leaseDirectoryDescriptor = -1;
 		self._leaseLockDescriptor = -1;
 		self._leaseName = "";
+		btrcReleaseExactFileSystemHandle();
 		int firstError = 0;
 		int unlockResult = -1;
 		do {

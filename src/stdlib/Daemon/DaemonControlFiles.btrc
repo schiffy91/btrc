@@ -13,10 +13,13 @@ import Library.Strings;
 #include <unistd.h>
 
 class DaemonControlFiles {
-	class bool canonicalPrivateDirectory(string path) {
+	/* A real directory owned by this user whose permission bits, masked by
+	 * `mask`, equal `required`, reached without a symlink at any level. lstat
+	 * already rules out a final symlink, so S_ISDIR is the whole type check. */
+	class bool ownedDirectory(string path, mode_t mask, mode_t required) {
 		if (!DaemonControlPaths.absolute(path)) { return false; }
 		struct stat status;
-		if (lstat(path, &status) != 0 || !S_ISDIR(status.st_mode) || S_ISLNK(status.st_mode) || (uid_t)status.st_uid != geteuid() || (status.st_mode & (mode_t)0777) != (mode_t)0700) {
+		if (lstat(path, &status) != 0 || !S_ISDIR(status.st_mode) || (uid_t)status.st_uid != geteuid() || (status.st_mode & mask) != required) {
 			return false;
 		}
 		char* canonical = realpath(path, NULL);
@@ -27,19 +30,10 @@ class DaemonControlFiles {
 		return matches;
 	}
 
-	class bool ownedHome(string path) {
-		if (!DaemonControlPaths.absolute(path)) { return false; }
-		struct stat status;
-		if (lstat(path, &status) != 0 || !S_ISDIR(status.st_mode) || S_ISLNK(status.st_mode) || (uid_t)status.st_uid != geteuid() || (status.st_mode & (mode_t)0022) != (mode_t)0) {
-			return false;
-		}
-		char* canonical = realpath(path, NULL);
-		if (canonical == NULL) { return false; }
-		struct stat resolved;
-		bool matches = stat(canonical, &resolved) == 0 && resolved.st_dev == status.st_dev && resolved.st_ino == status.st_ino;
-		free(canonical);
-		return matches;
-	}
+	class bool canonicalPrivateDirectory(string path) { return DaemonControlFiles.ownedDirectory(path, (mode_t)0777, (mode_t)0700); }
+
+	/* HOME may be group- or world-readable but never writable by others. */
+	class bool ownedHome(string path) { return DaemonControlFiles.ownedDirectory(path, (mode_t)0022, (mode_t)0); }
 
 	class bool createPrivateDirectory(string path) {
 		if (mkdir(path, (mode_t)0700) != 0 && errno != EEXIST) {
@@ -61,13 +55,21 @@ class DaemonControlFiles {
 		return DaemonControlFiles.createPrivateDirectory(root);
 	}
 
+	/* Whether `path`'s parent is a private directory. Never creates anything,
+	 * so status and stop leave the filesystem as they found it. */
 	class bool secureParent(string path) {
 		if (!DaemonControlPaths.absolute(path)) { return false; }
-		string parent = PathTools.dirname(path);
-		if (parent.equals(DaemonControlPaths.defaultDirectory()) && !DaemonControlFiles.ensureDefaultDirectory()) {
+		return DaemonControlFiles.canonicalPrivateDirectory(PathTools.dirname(path));
+	}
+
+	/* Start's preparation: create the default state hierarchy when `path`
+	 * lives in it, then require a private parent. */
+	class bool prepareParent(string path) {
+		if (!DaemonControlPaths.absolute(path)) { return false; }
+		if (PathTools.dirname(path).equals(DaemonControlPaths.defaultDirectory()) && !DaemonControlFiles.ensureDefaultDirectory()) {
 			return false;
 		}
-		return DaemonControlFiles.canonicalPrivateDirectory(parent);
+		return DaemonControlFiles.secureParent(path);
 	}
 
 	/* Canonicalize ancestor aliases once at the controller boundary. The
@@ -89,7 +91,7 @@ class DaemonControlFiles {
 
 	class bool secureMetadata(string path, struct stat* status) {
 		struct stat inspected;
-		if (!DaemonControlFiles.secureParent(path) || lstat(path, &inspected) != 0 || !S_ISREG(inspected.st_mode) || S_ISLNK(inspected.st_mode) || (uid_t)inspected.st_uid != geteuid() || inspected.st_nlink != (nlink_t)1 || (inspected.st_mode & (mode_t)0777) != (mode_t)0600) {
+		if (!DaemonControlFiles.secureParent(path) || lstat(path, &inspected) != 0 || !S_ISREG(inspected.st_mode) || (uid_t)inspected.st_uid != geteuid() || inspected.st_nlink != (nlink_t)1 || (inspected.st_mode & (mode_t)0777) != (mode_t)0600) {
 			return false;
 		}
 		*status = inspected;

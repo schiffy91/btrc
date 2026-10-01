@@ -1,5 +1,5 @@
 /* FileSystem.mkdir (single, non-recursive), FileSystem.chmod, Directory.entries
- * over a populated dir (excluding '.'/'..'), and UnixFileSystem.realPath of a
+ * over a populated dir (excluding '.'/'..'), and FileSystem.realPath of a
  * created file. Hermetic: everything under a fresh temp dir, removed at the end. */
 import Library.FileSystem;
 import Library.Vector;
@@ -33,7 +33,7 @@ int main() {
 
 	// realPath of the created file resolves to an absolute path ending in the
 	// file name (the temp dir may itself be a symlink, so only check the tail).
-	string real = UnixFileSystem.realPath(filePath);
+	string real = FileSystem.realPath(filePath);
 	assert(!real.isEmpty());
 	assert(real[0] == '/');
 	assert(real.endsWith("data.txt"));
