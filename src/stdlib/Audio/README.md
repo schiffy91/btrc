@@ -58,4 +58,12 @@ so that failure is indeterminate and the stream is never touched again, the
 same disposal contract the CoreAudio provider exposes. The fault suite
 (`src/tests/native/audio/linux/AlsaFaults.h`, `LinuxAudioFaults.btrc`) stands
 in for alsa-lib with one fake `default` PCM and drives every failure point
-without hardware. Windows remains unimplemented; do not add fake-success stubs.
+without hardware. The session test (`LinuxAudioSession.btrc`) needs a PCM the
+real alsa-lib can open. The devcontainer has no sound card, so its image
+installs `nix/asound.conf` as `/etc/asound.conf`: a null default PCM that
+discards playback and captures silence. CI's Linux shards therefore run the
+session on both frontends, optimized and sanitized, and a missing PCM there is
+a test failure, not a skip. The null plugin does not advance on a clock, so
+those runs cover the provider's ALSA calls, lifecycle and frame accounting but
+not realtime pacing or xrun recovery; that still needs a real device.
+Windows remains unimplemented; do not add fake-success stubs.

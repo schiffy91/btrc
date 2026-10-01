@@ -154,6 +154,18 @@ def test_devcontainer_context_excludes_repo_state_and_stages_lsp_runtime():
     assert "!src/compiler/**" not in ignored
 
 
+def test_devcontainer_installs_the_null_alsa_pcm():
+    """CI's Linux shards run the ALSA session tests against this PCM; without it they would fail there."""
+    containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
+    admitted = (REPO_ROOT / ".dockerignore").read_text().splitlines()
+    config = (DEVCONTAINER_CONFIG / "asound.conf").read_text()
+
+    assert "COPY nix/asound.conf /etc/asound.conf" in containerfile
+    assert "!nix/asound.conf" in admitted
+    assert "pcm.!default {" in config
+    assert "type null" in config
+
+
 def test_devcontainer_external_tools_are_version_and_digest_pinned():
     flake = (REPO_ROOT / "flake.nix").read_text()
     containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()

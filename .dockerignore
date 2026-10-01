@@ -3,6 +3,7 @@
 !.devcontainer/bashrc
 !nix/
 !nix/*.nix
+!nix/asound.conf
 !flake.lock
 !flake.nix
 !LICENSE

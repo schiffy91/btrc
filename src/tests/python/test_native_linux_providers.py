@@ -3,7 +3,9 @@ WebGPU, libpng/libjpeg-turbo decoding, and ALSA duplex sessions.
 
 Each program compiles through both frontends against the Linux target, links
 through the native plan, and runs optimized and under ASan/UBSan. Display and
-audio cases skip where the session offers neither."""
+audio cases skip where the session offers neither, except that the devcontainer
+always offers a PCM: its image installs nix/asound.conf, a null default PCM, so
+CI's Linux shards run the audio sessions without hardware."""
 
 import os
 import platform
@@ -18,11 +20,26 @@ from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 TARGET = "linux-x86_64" if platform.machine() in ("x86_64", "AMD64") else "linux-aarch64"
+# The devcontainer image installs this as /etc/asound.conf.
+DEVCONTAINER_ALSA_CONFIG = ROOT / "nix/asound.conf"
 
 
 def _require_linux_reader():
     if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         pytest.skip("requires Linux and the explicitly built native header reader")
+
+
+def _require_audio_backend():
+    """Skip without a PCM, except in the devcontainer, whose image provides one:
+    there a missing PCM is a broken image, not an absent capability."""
+    error = linux_audio_backend_error()
+    if error is None:
+        return
+    if os.environ.get("DEVCONTAINER") == "true" and not os.environ.get("BTRC_SKIP_AUDIO_TESTS"):
+        pytest.fail(
+            f"the devcontainer image installs nix/asound.conf as /etc/asound.conf; run make devcontainer: {error}"
+        )
+    pytest.skip(error)
 
 
 def _transpile(source: Path, generated: Path, plan: Path, frontend: str, request) -> None:
@@ -140,8 +157,7 @@ def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_audio_session(tmp_path, request, frontend, sanitized):
     _require_linux_reader()
-    if error := linux_audio_backend_error():
-        pytest.skip(error)
+    _require_audio_backend()
     _build_and_run(
         ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc",
         tmp_path,
@@ -155,10 +171,12 @@ def test_linux_audio_session(tmp_path, request, frontend, sanitized):
 @pytest.mark.skipif(sys.platform != "linux", reason="requires ALSA")
 @pytest.mark.parametrize("available", [True, False])
 def test_audio_capability_opens_the_configured_pcm(tmp_path, monkeypatch, available):
+    """The devcontainer's own configuration opens a default PCM; an empty one does not."""
     if subprocess.run(["pkg-config", "--exists", "alsa"], capture_output=True).returncode:
         pytest.skip("requires ALSA development files")
-    config = tmp_path / "asound.conf"
-    config.write_text("pcm.!default { type null }\n" if available else "")
+    config = DEVCONTAINER_ALSA_CONFIG if available else tmp_path / "asound.conf"
+    if not available:
+        config.write_text("")
     monkeypatch.setenv("ALSA_CONFIG_PATH", str(config))
     monkeypatch.delenv("BTRC_SKIP_AUDIO_TESTS", raising=False)
     error = linux_audio_backend_error()

@@ -25,6 +25,8 @@ struct BlockLog { unsigned long long blocks; unsigned long long lastOutputFrame;
 
 int main() {
 	var opened = Audio.createDevice();
+	/* Name the provider's reason; CI saw only an anonymous assertion here when its container had no PCM. */
+	if (!opened.succeeded()) { Console.error("audio provider: " + opened.message()); }
 	assert(opened.succeeded());
 	var provider = opened.provider();
 	var inventoried = provider.inventory();
@@ -40,6 +42,7 @@ int main() {
 	var stream = AudioStreamRequest(48000, 128);
 	var request = input == null ? DuplexAudioOpenRequest.outputOnly(inventory.generation(), output.id(), AudioChannelSelection.leading(2), stream) : DuplexAudioOpenRequest.duplex(inventory.generation(), input.id(), AudioChannelSelection.leading(1), output.id(), AudioChannelSelection.leading(2), stream);
 	var session = provider.openDuplex(request, program);
+	if (!session.succeeded()) { Console.error("audio session: " + session.message()); }
 	assert(session.succeeded());
 	var duplex = session.session();
 	assert(duplex.format().bufferFrames() == 128);
