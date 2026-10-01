@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gpu"
-exports = ["Device", "ImageTexture", "OffscreenTarget", "Program", "Readback", "SurfaceRenderer", "UniformBuffer", "WebGPU"]
+exports = ["CompletionPump", "Device", "ImageTexture", "OffscreenTarget", "Program", "Readback", "SurfaceRenderer", "UniformBuffer", "WebGPU"]
 
 [[native.pkg-config]]
 name = "wgpu-native"

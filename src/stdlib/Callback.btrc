@@ -352,7 +352,7 @@ class CallbackScope implements ICallbackRegistration {
 
 	public CallbackScope() { self._executor = pthread_self(); }
 
-	private void requireExecutor() {
+	public void requireExecutor() {
 		if (pthread_equal(self._executor, pthread_self()) == 0) { throw "Callback scope requires its creating thread"; }
 	}
 

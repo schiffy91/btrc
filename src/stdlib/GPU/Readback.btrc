@@ -1,4 +1,5 @@
 import Library.Callback;
+import Library.GPU.CompletionPump;
 import Library.Image;
 import Library.GPU.Device;
 import Library.GPU.SurfaceRenderer;
@@ -40,8 +41,7 @@ class GPUReadback implements ICallbackRegistration {
 	private unsigned long long _byteCount;
 	private bool _bgra;
 	private WGPUBuffer _buffer = null;
-	private CallbackScope _scope;
-	private WGPUInstance? _instance;
+	private GPUCompletionPump _pump;
 	private GPUReadbackCompletion? _completion;
 	private bool _mapping = false;
 	private GPUReadbackState _state = GPU_READBACK_ENCODED;
@@ -50,8 +50,7 @@ class GPUReadback implements ICallbackRegistration {
 	private GPUReadback(GPUSurfaceRenderer surface, int maximumPixels) {
 		self._surface = surface;
 		self._device = surface.device();
-		self._scope = CallbackScope();
-		self._instance = self._device.nativeInstance();
+		self._pump = GPUCompletionPump(self._device.nativeInstance());
 		self._frame = surface.frameNumber();
 		self._width = surface.width();
 		self._height = surface.height();
@@ -91,7 +90,7 @@ class GPUReadback implements ICallbackRegistration {
 		wgpuCommandEncoderCopyTextureToBuffer(self._surface.nativeEncoder(), &source, &destination, &extent);
 	}
 
-	private void requireExecutor() { self._scope.isOpen(); }
+	private void requireExecutor() { self._pump.requireExecutor(); }
 
 	public bool submit() {
 		self.requireExecutor();
@@ -102,7 +101,7 @@ class GPUReadback implements ICallbackRegistration {
 		var callback = WGPUBufferMapCallbackInfoInput();
 		callback.mode = WGPUCallbackMode_AllowProcessEvents;
 		callback.callback = self._completion;
-		wgpuBufferMapAsync(self._buffer, WGPUMapMode_Read, (size_t)0, (size_t)self._byteCount, callback, self._scope);
+		wgpuBufferMapAsync(self._buffer, WGPUMapMode_Read, (size_t)0, (size_t)self._byteCount, callback, self._pump.scope());
 		self._mapping = true;
 		self._state = GPU_READBACK_MAPPING;
 		return true;
@@ -110,14 +109,14 @@ class GPUReadback implements ICallbackRegistration {
 
 	public GPUReadbackState state() { self.requireExecutor(); return self._state; }
 
-	public bool isOpen() { self.requireExecutor(); return self._scope.isOpen(); }
+	public bool isOpen() { return self._pump.isOpen(); }
 
 	public CallbackCancellation cancel() { return self.close(); }
 
 	public CallbackCancellation pollCompletion() {
 		if (self.isOpen()) { return CallbackCancellation.NotRequested; }
 		self.poll();
-		return self._scope.pendingCount() == 0 ? CallbackCancellation.Complete : CallbackCancellation.Pending;
+		return self._pump.completion();
 	}
 
 	public string error() { self.requireExecutor(); return self._error; }
@@ -125,11 +124,10 @@ class GPUReadback implements ICallbackRegistration {
 	public GPUReadbackState poll() {
 		self.requireExecutor();
 		if (self._state == GPU_READBACK_CLOSED || self._state == GPU_READBACK_READY || self._state == GPU_READBACK_ENCODED) { return self._state; }
-		if (self._instance != null) { wgpuInstanceProcessEvents(self._instance); }
-		self._scope.pollCompletion();
+		self._pump.pump();
 		if (self._state == GPU_READBACK_CLOSING || self._state == GPU_READBACK_FAILED) {
-			if (self._scope.pendingCount() == 0) {
-				self.releaseResources();
+			if (self._pump.drained()) {
+				self.releaseBuffer();
 				if (self._state == GPU_READBACK_CLOSING) { self._state = GPU_READBACK_CLOSED; }
 			}
 			return self._state;
@@ -156,7 +154,9 @@ class GPUReadback implements ICallbackRegistration {
 	private Image copyPixels() {
 		const unsigned char* pixels = (const unsigned char*)wgpuBufferGetConstMappedRange(self._buffer, (size_t)0, (size_t)self._byteCount);
 		if (pixels == null) { self.fail("GPU readback returned no mapped pixels"); throw self._error; }
-		var image = Image(self._width, self._height);
+		Image? allocated = Image.tryCreate(self._width, self._height);
+		if (allocated == null) { self.fail("Cannot allocate GPU readback pixels"); throw self._error; }
+		Image image = allocated;
 		for (int y = 0; y < self._height; y++) {
 			for (int x = 0; x < self._width; x++) {
 				size_t source = (size_t)y * (size_t)self._stride + (size_t)x * (size_t)4;
@@ -172,17 +172,14 @@ class GPUReadback implements ICallbackRegistration {
 
 	private void fail(string error) { self.close(); self._error = error; self._state = GPU_READBACK_FAILED; }
 
-	private void releaseResources() {
-		if (self._buffer != null) { wgpuBufferRelease(self._buffer); self._buffer = null; }
-		self._instance = null;
-	}
+	private void releaseBuffer() { if (self._buffer != null) { wgpuBufferRelease(self._buffer); self._buffer = null; } }
 
 	public CallbackCancellation close() {
-		var result = self._scope == null ? CallbackCancellation.Complete : self._scope.cancel();
+		var result = self._pump == null ? CallbackCancellation.Complete : self._pump.cancel();
 		self._completion = null;
 		if (self._mapping && self._buffer != null) { wgpuBufferUnmap(self._buffer); self._mapping = false; }
 		self._state = result == CallbackCancellation.Complete ? GPU_READBACK_CLOSED : GPU_READBACK_CLOSING;
-		if (result == CallbackCancellation.Complete) { self.releaseResources(); }
+		if (result == CallbackCancellation.Complete) { self.releaseBuffer(); }
 		return result;
 	}
 

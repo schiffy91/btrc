@@ -1,4 +1,5 @@
 import Library.Callback;
+import Library.GPU.CompletionPump;
 import Library.GPU.Device;
 import Library.GPU.SurfaceRenderer;
 import Library.GPU.UniformBuffer;
@@ -44,8 +45,7 @@ class GPUProgram implements ICallbackRegistration {
 	private WGPUBindGroupLayout _layout = null;
 	private WGPUPipelineLayout _pipelineLayout = null;
 	private WGPURenderPipeline _pipeline = null;
-	private CallbackScope _scope;
-	private WGPUInstance? _instance;
+	private GPUCompletionPump _pump;
 	private GPUValidationCompletion? _completion;
 	private GPUProgramState _state = GPU_PROGRAM_SHADER;
 	private string _error = "";
@@ -53,8 +53,7 @@ class GPUProgram implements ICallbackRegistration {
 	private GPUProgram(GPUDevice device, WGPUTextureFormat format, string source, int uniformFloatCount, bool textured, bool sourceOver, string vertexEntry, string fragmentEntry) {
 		if (source.isEmpty() || vertexEntry.isEmpty() || fragmentEntry.isEmpty() || uniformFloatCount <= 0) { throw "GPU program requires shader source, entry points and uniform size"; }
 		self._device = device;
-		self._scope = CallbackScope();
-		self._instance = device.nativeInstance();
+		self._pump = GPUCompletionPump(device.nativeInstance());
 		self._format = format;
 		self._uniformBytes = ((unsigned long long)uniformFloatCount + 3ULL) / 4ULL * 16ULL;
 		self._textured = textured;
@@ -79,7 +78,7 @@ class GPUProgram implements ICallbackRegistration {
 		return callback;
 	}
 
-	private void endValidation(WGPUPopErrorScopeCallbackInfoInput callback) { wgpuDevicePopErrorScope(self._device.nativeDevice(), callback, self._scope); }
+	private void endValidation(WGPUPopErrorScopeCallbackInfoInput callback) { wgpuDevicePopErrorScope(self._device.nativeDevice(), callback, self._pump.scope()); }
 
 	private void createShader(string source) {
 		var device = self._device.nativeDevice();
@@ -164,18 +163,18 @@ class GPUProgram implements ICallbackRegistration {
 		self._pipeline = wgpuDeviceCreateRenderPipeline(device, &descriptor);
 	}
 
-	private void requireExecutor() { self._scope.isOpen(); }
+	private void requireExecutor() { self._pump.requireExecutor(); }
 
 	public GPUProgramState state() { self.requireExecutor(); return self._state; }
 
-	public bool isOpen() { self.requireExecutor(); return self._scope.isOpen(); }
+	public bool isOpen() { return self._pump.isOpen(); }
 
 	public CallbackCancellation cancel() { return self.close(); }
 
 	public CallbackCancellation pollCompletion() {
 		if (self.isOpen()) { return CallbackCancellation.NotRequested; }
 		self.poll();
-		return self._scope.pendingCount() == 0 ? CallbackCancellation.Complete : CallbackCancellation.Pending;
+		return self._pump.completion();
 	}
 
 	class OwnedBuffer<char> nativeText(string value) {
@@ -190,13 +189,9 @@ class GPUProgram implements ICallbackRegistration {
 	public GPUProgramState poll() {
 		self.requireExecutor();
 		if (self._state == GPU_PROGRAM_CLOSED || self._state == GPU_PROGRAM_READY) { return self._state; }
-		if (self._instance != null) { wgpuInstanceProcessEvents(self._instance); }
-		self._scope.pollCompletion();
+		self._pump.pump();
 		if (self._state == GPU_PROGRAM_CLOSING || self._state == GPU_PROGRAM_FAILED) {
-			if (self._scope.pendingCount() == 0) {
-				self._instance = null;
-				if (self._state == GPU_PROGRAM_CLOSING) { self._state = GPU_PROGRAM_CLOSED; }
-			}
+			if (self._pump.drained() && self._state == GPU_PROGRAM_CLOSING) { self._state = GPU_PROGRAM_CLOSED; }
 			return self._state;
 		}
 		if (self._device.state() != GPU_DEVICE_READY) { self.fail("GPU device closed during validation"); return self._state; }
@@ -250,14 +245,13 @@ class GPUProgram implements ICallbackRegistration {
 	private void fail(string error) { self.close(); self._error = error; self._state = GPU_PROGRAM_FAILED; }
 
 	public CallbackCancellation close() {
-		var result = self._scope == null ? CallbackCancellation.Complete : self._scope.cancel();
+		var result = self._pump == null ? CallbackCancellation.Complete : self._pump.cancel();
 		self._completion = null;
 		if (self._pipeline != null) { wgpuRenderPipelineRelease(self._pipeline); self._pipeline = null; }
 		if (self._pipelineLayout != null) { wgpuPipelineLayoutRelease(self._pipelineLayout); self._pipelineLayout = null; }
 		if (self._layout != null) { wgpuBindGroupLayoutRelease(self._layout); self._layout = null; }
 		if (self._shader != null) { wgpuShaderModuleRelease(self._shader); self._shader = null; }
 		self._state = result == CallbackCancellation.Complete ? GPU_PROGRAM_CLOSED : GPU_PROGRAM_CLOSING;
-		if (result == CallbackCancellation.Complete) { self._instance = null; }
 		return result;
 	}
 
