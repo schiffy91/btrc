@@ -1,0 +1,461 @@
+# C2, declarations: rows 8-10, 12, 13 and 17, plus typedef enum/union and enum tags (Stages 17-18).
+# Generated outcome records for test_c_compatibility_inventory.py; see its
+# docstring for the schema. A stage that changes a row updates its entry.
+
+[[probe]]
+id = "r08-typedef-anonymous-struct"
+row = "8"
+construct = "typedef struct { } T;"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected struct name, got LBRACE '{' at 2:16" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:16" }
+source = '''
+#include <assert.h>
+typedef struct { int x; int y; } Point;
+int main() {
+	Point point = {1, 2};
+	assert(point.x + point.y == 3);
+	print("PASS: typedef anonymous struct");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r08-typedef-tagged-struct"
+row = "8"
+construct = "typedef struct P { } P;"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected typedef alias, got LBRACE '{' at 2:21" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:21" }
+source = '''
+#include <assert.h>
+typedef struct Pair { int left; int right; } Pair;
+int main() {
+	Pair pair = {3, 4};
+	struct Pair other = pair;
+	assert(other.left * other.right == 12);
+	print("PASS: typedef tagged struct");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r08-anonymous-members"
+row = "8"
+construct = "anonymous struct/union members"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected union name, got LBRACE '{' at 4:8" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 4:8" }
+source = '''
+#include <assert.h>
+struct Value {
+	int kind;
+	union { int integer; float real; };
+};
+int main() {
+	struct Value value;
+	value.kind = 1;
+	value.integer = 7;
+	assert(value.integer == 7);
+	print("PASS: anonymous members");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r08-anonymous-member-collision"
+row = "8"
+construct = "an anonymous member repeating a field name"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected union name, got LBRACE '{' at 3:8" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 3:8" }
+source = '''
+struct Value {
+	int integer;
+	union { int integer; float real; };
+};
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r09-union-declaration"
+row = "9"
+construct = "union U { int i; float f; };"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected name, got LBRACE '{' at 2:14" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:14" }
+source = '''
+#include <assert.h>
+union Number { int integer; float real; };
+int main() {
+	union Number number;
+	number.integer = 5;
+	assert(number.integer == 5);
+	assert(sizeof(union Number) >= sizeof(float));
+	print("PASS: union declaration");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r09-union-managed-member"
+row = "9"
+construct = "a managed union member (ownership rule refuses)"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected name, got LBRACE '{' at 1:14" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 1:14" }
+source = '''
+union Holder { string text; int value; };
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r10-designated-field-initializer"
+row = "10"
+construct = "struct P p = {.y = 2, .x = 1};"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token '.' in expression at 4:24" }
+btrcc = { diagnostic = "Expected expression, got DOT '.' at 4:24" }
+source = '''
+#include <assert.h>
+struct Point { int x; int y; };
+int main() {
+	struct Point point = {.y = 2, .x = 1};
+	assert(point.x == 1 && point.y == 2);
+	print("PASS: designated field initializer");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r10-designated-index-initializer"
+row = "10"
+construct = "int a[4] = {[2] = 7};"
+intent = "positive"
+status = "known-divergence"
+revision = "cf28fe7"
+python = { diagnostic = "Assignment target is not assignable at 3:19" }
+btrcc = { diagnostic = "Assignment target is not assignable at 3:19" }
+source = '''
+#include <assert.h>
+int main() {
+	int values[4] = {[2] = 7};
+	assert(values[0] == 0 && values[2] == 7);
+	print("PASS: designated index initializer");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r10-compound-literal"
+row = "10"
+construct = "(struct S){5, 6}"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'struct' in expression at 4:24" }
+btrcc = { diagnostic = "Expected expression, got STRUCT 'struct' at 4:24" }
+source = '''
+#include <assert.h>
+struct Point { int x; int y; };
+int main() {
+	struct Point point = (struct Point){5, 6};
+	assert(point.x + point.y == 11);
+	print("PASS: compound literal");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r10-duplicate-designator"
+row = "10"
+construct = "{.x = 1, .x = 2} overrides an initializer"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token '.' in expression at 3:24" }
+btrcc = { diagnostic = "Expected expression, got DOT '.' at 3:24" }
+source = '''
+struct Point { int x; int y; };
+int main() {
+	struct Point point = {.x = 1, .x = 2};
+	return point.x;
+}
+'''
+
+[[probe]]
+id = "r10-unknown-field-designator"
+row = "10"
+construct = "{.z = 1} names no field"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token '.' in expression at 3:24" }
+btrcc = { diagnostic = "Expected expression, got DOT '.' at 3:24" }
+source = '''
+struct Point { int x; int y; };
+int main() {
+	struct Point point = {.z = 1};
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r12-bitfields"
+row = "12"
+construct = "unsigned a : 3;"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got COLON ':' at 2:34" }
+btrcc = { diagnostic = "Expected SEMICOLON, got COLON ':' at 2:34" }
+source = '''
+#include <assert.h>
+struct Flags { unsigned int mode : 3; unsigned int ready : 1; };
+int main() {
+	struct Flags flags;
+	flags.mode = 5u;
+	flags.ready = 1u;
+	assert(flags.mode == 5u && flags.ready == 1u);
+	print("PASS: bitfields");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r12-bitfield-address"
+row = "12"
+construct = "&flags.mode takes a bitfield's address"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got COLON ':' at 1:34" }
+btrcc = { diagnostic = "Expected SEMICOLON, got COLON ':' at 1:34" }
+source = '''
+struct Flags { unsigned int mode : 3; };
+int main() {
+	struct Flags flags;
+	unsigned int* mode = &flags.mode;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r13-flexible-array-member"
+row = "13"
+construct = "int data[]; flexible array member"
+intent = "positive"
+status = "known-divergence"
+revision = "cf28fe7"
+python = { exit = 1, stdout = "FAIL: flexible array member has pointer layout\n" }
+btrcc = { exit = 1, stdout = "FAIL: flexible array member has pointer layout\n" }
+source = '''
+struct Buffer { int count; int data[]; };
+int main() {
+	if (sizeof(struct Buffer) != sizeof(int)) {
+		print("FAIL: flexible array member has pointer layout");
+		return 1;
+	}
+	struct Buffer* buffer = (struct Buffer*)malloc(sizeof(struct Buffer) + (size_t)4 * sizeof(int));
+	buffer->count = 4;
+	for (int i = 0; i < buffer->count; i++) {
+		buffer->data[i] = i * i;
+	}
+	int last = buffer->data[3];
+	free(buffer);
+	if (last != 9) { return 2; }
+	print("PASS: flexible array member");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r13-flexible-array-not-last"
+row = "13"
+construct = "a flexible array member that is not last"
+intent = "negative"
+status = "known-divergence"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "" }
+btrcc = { exit = 0, stdout = "" }
+source = '''
+struct Buffer { int data[]; int count; };
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r17-two-dimensional-array"
+row = "17"
+construct = "int m[2][3]"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Multi-dimensional arrays require an AST/IR representation for every dimension at 3:13" }
+btrcc = { diagnostic = "Expected one array dimension (AST/IR cannot represent another), got LBRACKET '[' at 3:13" }
+source = '''
+#include <assert.h>
+int main() {
+	int grid[2][3];
+	for (int row = 0; row < 2; row++) {
+		for (int column = 0; column < 3; column++) {
+			grid[row][column] = row * 3 + column;
+		}
+	}
+	assert(grid[1][2] == 5);
+	assert(sizeof(grid) == 6 * sizeof(int));
+	print("PASS: two-dimensional array");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r17-unsized-inner-dimension"
+row = "17"
+construct = "int m[][] has no inner extent"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Multi-dimensional arrays require an AST/IR representation for every dimension at 2:12" }
+btrcc = { diagnostic = "Expected one array dimension (AST/IR cannot represent another), got LBRACKET '[' at 2:12" }
+source = '''
+int main() {
+	int grid[][] = {{1}};
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-typedef-enum"
+row = "x-typedef-enum"
+construct = "typedef enum { } T;"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected enum name, got LBRACE '{' at 2:14" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:14" }
+source = '''
+#include <assert.h>
+typedef enum { RED, GREEN, BLUE } Color;
+int main() {
+	Color color = GREEN;
+	assert((int)color == 1);
+	print("PASS: typedef enum");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-typedef-enum-duplicate-enumerator"
+row = "x-typedef-enum"
+construct = "a repeated enumerator"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected enum name, got LBRACE '{' at 1:14" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 1:14" }
+source = '''
+typedef enum { RED, RED } Color;
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "x-typedef-union"
+row = "x-typedef-union"
+construct = "typedef union { } T;"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected union name, got LBRACE '{' at 2:15" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:15" }
+source = '''
+#include <assert.h>
+typedef union { int integer; float real; } Number;
+int main() {
+	Number number;
+	number.integer = 3;
+	assert(number.integer == 3);
+	print("PASS: typedef union");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-typedef-union-managed-member"
+row = "x-typedef-union"
+construct = "a managed member in a typedef union"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected union name, got LBRACE '{' at 1:15" }
+btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 1:15" }
+source = '''
+typedef union { string text; int integer; } Holder;
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "x-enum-tag-btrc-enum"
+row = "x-enum-tag"
+construct = "enum Color c for a btrc enum"
+intent = "positive"
+status = "known-divergence"
+revision = "cf28fe7"
+divergence = "outcome"
+python = { diagnostic = "Cannot assign 'Color' to variable 'color' of type 'enum Color' at 4:2" }
+btrcc = { c = "rejected" }
+source = '''
+#include <assert.h>
+enum Color { RED, GREEN, BLUE };
+int main() {
+	enum Color color = BLUE;
+	assert((int)color == 2);
+	print("PASS: enum tag spelling");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-enum-tag-unknown"
+row = "x-enum-tag"
+construct = "enum Missing names no enum"
+intent = "negative"
+status = "known-divergence"
+revision = "cf28fe7"
+python = { c = "rejected" }
+btrcc = { c = "rejected" }
+source = '''
+int main() {
+	enum Missing value = 0;
+	return 0;
+}
+'''

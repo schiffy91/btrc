@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
     BinaryExpr,
@@ -142,9 +144,24 @@ class Parser:
     def _expect(self, token_type: TokenKind, msg: str = "") -> Token:
         tok = self._peek()
         if tok.type == token_type:
+            if token_type == TokenKind.IDENT:
+                self._refuse_deferred_c_specifier(tok)
             return self._advance()
+        if token_type == TokenKind.IDENT and self._is_reserved_name(self.pos):
+            raise ParseError(f"'{tok.value}' is a reserved word and cannot be used as a name", tok.line, tok.col)
         expected = msg or token_type.name
         raise ParseError(f"Expected {expected}, got {tok.type.name} '{tok.value}'", tok.line, tok.col)
+
+    def _is_reserved_name(self, position: int) -> bool:
+        """Whether a grammar keyword sits where a declarator name belongs."""
+        token = self.tokens[position] if position < len(self.tokens) else self.tokens[-1]
+        if TokenVocabulary.canonical().keywords.get(token.value) != token.type:
+            return False
+        return self._token_kind_at(position + 1) in self._DECLARATOR_NAME_FOLLOWERS
+
+    def _refuse_deferred_c_specifier(self, token: Token) -> None:
+        if token.type == TokenKind.IDENT and token.value in self._DEFERRED_C_SPECIFIERS:
+            raise ParseError(self._DEFERRED_C_SPECIFIERS[token.value], token.line, token.col)
 
     def _error(self, msg: str) -> ParseError:
         tok = self._peek()
@@ -217,6 +234,25 @@ class Parser:
             TokenKind.BOOL,
             TokenKind.STRING,
             TokenKind.IDENT,
+        }
+    )
+    # A keyword followed by one of these was written as a declarator name.
+    _DECLARATOR_NAME_FOLLOWERS = frozenset(
+        {
+            TokenKind.EQ,
+            TokenKind.SEMICOLON,
+            TokenKind.LBRACKET,
+            TokenKind.COMMA,
+            TokenKind.RPAREN,
+            TokenKind.LPAREN,
+        }
+    )
+    # C11 type specifiers btrc defers (C row 24). They lex as identifiers, so
+    # each is refused where a type, name or expression would begin.
+    _DEFERRED_C_SPECIFIERS = MappingProxyType(
+        {
+            "_Atomic": "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage",
+            "_Complex": "C11 '_Complex' is not supported; btrc has no complex types",
         }
     )
     _GENERIC_FOLLOWS = frozenset(
@@ -408,6 +444,7 @@ class Parser:
             base = "Tuple"
             generic_args = self._parse_tuple_type_args()
         else:
+            self._refuse_deferred_c_specifier(self._peek())
             base_tok = self._advance()
             base = base_tok.value
 
@@ -418,6 +455,9 @@ class Parser:
             base = "__fn_ptr"
         elif base == "RealtimeFunction":
             base = "__realtime_fn_ptr"
+        elif base == "_Bool":
+            # C11's spelling of the boolean type (D20); int-to-bool stays refused.
+            base = "bool"
 
         # Generic arguments
         if self._check(TokenKind.LT) and self._is_generic_start():
@@ -1228,8 +1268,18 @@ class Parser:
     def _lookahead_is_var_decl(self) -> bool:
         """Recognize a complete type, name, and declaration boundary."""
         type_end = self._scan_type_expr(self.pos)
-        if type_end is None or type_end >= len(self.tokens) or self.tokens[type_end].type != TokenKind.IDENT:
+        if type_end is None or type_end >= len(self.tokens):
             return False
+        if self.tokens[type_end].type != TokenKind.IDENT:
+            # `int string = 0;` is a declaration the name check refuses;
+            # `int function(...)` stays a verbose lambda.
+            return self._is_reserved_name(type_end) and self._token_kind_at(type_end + 1) in (
+                TokenKind.EQ,
+                TokenKind.SEMICOLON,
+                TokenKind.LBRACKET,
+            )
+        if self.tokens[type_end].value in self._DEFERRED_C_SPECIFIERS:
+            return True
         after_name = type_end + 1
         if after_name >= len(self.tokens):
             return False
@@ -1839,6 +1889,7 @@ class Parser:
             return self._parse_map_or_brace_initializer()
 
         if tok.type == TokenKind.IDENT:
+            self._refuse_deferred_c_specifier(tok)
             self._advance()
             return Identifier(name=tok.value, line=tok.line, col=tok.col)
 

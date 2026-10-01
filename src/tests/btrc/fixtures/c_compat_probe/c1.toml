@@ -1,0 +1,510 @@
+# C1, the ergonomic set: rows 1-7 (Stage 16).
+# Generated outcome records for test_c_compatibility_inventory.py; see its
+# docstring for the schema. A stage that changes a row updates its entry.
+
+[[probe]]
+id = "r01-void-parameter-list"
+row = "1"
+construct = "int f(void)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected parameter name, got RPAREN ')' at 2:16" }
+btrcc = { diagnostic = "Expected IDENT, got RPAREN ')' at 2:16" }
+source = '''
+#include <assert.h>
+int answer(void) { return 42; }
+int main(void) {
+	assert(answer() == 42);
+	print("PASS: void parameter list");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r01-unnamed-prototype-parameter"
+row = "1"
+construct = "int f(int); unnamed prototype parameter"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected parameter name, got RPAREN ')' at 2:14" }
+btrcc = { diagnostic = "Expected IDENT, got RPAREN ')' at 2:14" }
+source = '''
+#include <assert.h>
+int twice(int);
+int twice(int value) { return value * 2; }
+int main() {
+	assert(twice(21) == 42);
+	print("PASS: unnamed prototype parameter");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r01-void-beside-parameter"
+row = "1"
+construct = "int f(void, int) is invalid C"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected parameter name, got COMMA ',' at 1:16" }
+btrcc = { diagnostic = "Expected IDENT, got COMMA ',' at 1:16" }
+source = '''
+int broken(void, int value) { return value; }
+int main() { return broken(0); }
+'''
+
+[[probe]]
+id = "r02-braceless-if-else"
+row = "2"
+construct = "braceless if/else bodies"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LBRACE, got RETURN 'return' at 4:3" }
+btrcc = { diagnostic = "Expected LBRACE, got RETURN 'return' at 4:3" }
+source = '''
+#include <assert.h>
+int sign(int value) {
+	if (value < 0)
+		return -1;
+	else if (value == 0)
+		return 0;
+	else
+		return 1;
+}
+int main() {
+	assert(sign(-5) == -1);
+	assert(sign(0) == 0);
+	assert(sign(9) == 1);
+	print("PASS: braceless if/else");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r02-braceless-loops"
+row = "2"
+construct = "braceless for/while bodies"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LBRACE, got IDENT 'total' at 5:3" }
+btrcc = { diagnostic = "Expected LBRACE, got IDENT 'total' at 5:3" }
+source = '''
+#include <assert.h>
+int main() {
+	int total = 0;
+	for (int i = 0; i < 4; i++)
+		total += i;
+	while (total < 10)
+		total++;
+	assert(total == 10);
+	print("PASS: braceless loops");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r02-dangling-else"
+row = "2"
+construct = "dangling else binds to the nearest if"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LBRACE, got IF 'if' at 5:3" }
+btrcc = { diagnostic = "Expected LBRACE, got IF 'if' at 5:3" }
+source = '''
+#include <assert.h>
+int classify(int a, int b) {
+	int result = 0;
+	if (a)
+		if (b)
+			result = 1;
+		else
+			result = 2;
+	return result;
+}
+int main() {
+	assert(classify(1, 1) == 1);
+	assert(classify(1, 0) == 2);
+	assert(classify(0, 0) == 0);
+	print("PASS: dangling else");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r02-declaration-as-body"
+row = "2"
+construct = "a declaration is not a statement body"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LBRACE, got INT 'int' at 4:3" }
+btrcc = { diagnostic = "Expected LBRACE, got INT 'int' at 4:3" }
+source = '''
+int main() {
+	int flag = 1;
+	if (flag)
+		int hidden = 2;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r03-multiple-local-declarators"
+row = "3"
+construct = "int a = 1, b = 2;"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 3:15" }
+btrcc = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 3:15" }
+source = '''
+#include <assert.h>
+int main() {
+	int first = 1, second = first + 1;
+	int x, y;
+	x = 3;
+	y = 4;
+	assert(first == 1 && second == 2);
+	assert(x + y == 7);
+	print("PASS: multiple local declarators");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r03-pointer-declarator-binding"
+row = "3"
+construct = "int *p, value; binds * per declarator"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 3:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 3:2" }
+source = '''
+#include <assert.h>
+int main() {
+	int *pointer, value;
+	value = 5;
+	pointer = &value;
+	*pointer = 6;
+	assert(value == 6);
+	assert(sizeof(value) == sizeof(int));
+	print("PASS: pointer declarator binding");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r03-multiple-field-declarators"
+row = "3"
+construct = "int x, y; in a struct"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 2:21" }
+btrcc = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 2:21" }
+source = '''
+#include <assert.h>
+struct Point { int x, y; };
+int main() {
+	struct Point point = {1, 2};
+	assert(point.x + point.y == 3);
+	print("PASS: multiple field declarators");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r03-missing-declarator"
+row = "3"
+construct = "int a, ; is invalid C"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 2:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 2:2" }
+source = '''
+int main() {
+	int first, ;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r04-char-array-unsized"
+row = "4"
+construct = "char s[] = \"abc\""
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic position"
+python = { diagnostic = "Initializer for 'text' requires an array initializer at 4:2" }
+btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 4:16" }
+source = '''
+#include <assert.h>
+#include <string.h>
+int main() {
+	char text[] = "abc";
+	assert(sizeof(text) == 4);
+	assert(strcmp(text, "abc") == 0);
+	print("PASS: unsized char array");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r04-char-array-sized"
+row = "4"
+construct = "char s[4] = \"abc\""
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic position"
+python = { diagnostic = "Initializer for 'text' requires an array initializer at 4:2" }
+btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 4:17" }
+source = '''
+#include <assert.h>
+#include <string.h>
+int main() {
+	char text[8] = "abc";
+	assert(sizeof(text) == 8);
+	assert(text[3] == '\0');
+	assert(strlen(text) == (size_t)3);
+	print("PASS: sized char array");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r04-char-array-exact-fit"
+row = "4"
+construct = "char s[3] = \"abc\" drops the terminator (D20 refuses)"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic position"
+python = { diagnostic = "Initializer for 'text' requires an array initializer at 2:2" }
+btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 2:17" }
+source = '''
+int main() {
+	char text[3] = "abc";
+	return text[0] == 'a' ? 0 : 1;
+}
+'''
+
+[[probe]]
+id = "r04-char-array-overflow"
+row = "4"
+construct = "char s[2] = \"abc\" overflows"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic position"
+python = { diagnostic = "Initializer for 'text' requires an array initializer at 2:2" }
+btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 2:17" }
+source = '''
+int main() {
+	char text[2] = "abc";
+	return text[0] == 'a' ? 0 : 1;
+}
+'''
+
+[[probe]]
+id = "r05-adjacent-string-literals"
+row = "5"
+construct = "\"a\" \"b\" concatenation"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"cat\"' at 4:23" }
+btrcc = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"cat\"' at 4:23" }
+source = '''
+#include <assert.h>
+#include <string.h>
+int main() {
+	char* joined = "con" "cat" "enated";
+	assert(strcmp(joined, "concatenated") == 0);
+	print("PASS: adjacent string literals");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r05-adjacent-fstring"
+row = "5"
+construct = "an f-string beside a literal (D20 refuses)"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\" tail\"' at 3:33" }
+btrcc = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\" tail\"' at 3:33" }
+source = '''
+int main() {
+	int value = 1;
+	string text = f"value={value}" " tail";
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r06-empty-statement"
+row = "6"
+construct = "empty statement ; and for (...);"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LBRACE, got SEMICOLON ';' at 4:25" }
+btrcc = { diagnostic = "Expected LBRACE, got SEMICOLON ';' at 4:25" }
+source = '''
+#include <assert.h>
+int main() {
+	int i;
+	for (i = 0; i < 5; i++);
+	;
+	while (i > 10);
+	assert(i == 5);
+	print("PASS: empty statement");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r06-file-scope-stray-semicolon"
+row = "6"
+construct = "a stray ; at file scope is not ISO C"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording and position"
+python = { diagnostic = "Unexpected token ';' at top level at 2:1" }
+btrcc = { diagnostic = "Expected IDENT, got EOF '' at 3:1" }
+source = '''
+int main() { return 0; }
+;
+'''
+
+[[probe]]
+id = "r07-function-pointer-local"
+row = "7"
+construct = "int (*op)(int, int) = add;"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 4:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 4:2" }
+source = '''
+#include <assert.h>
+int add(int a, int b) { return a + b; }
+int main() {
+	int (*operation)(int, int) = add;
+	assert(operation(2, 3) == 5);
+	print("PASS: function pointer local");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r07-function-pointer-typedef"
+row = "7"
+construct = "typedef int (*BinaryOp)(int, int);"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected typedef alias, got LPAREN '(' at 2:13" }
+btrcc = { diagnostic = "Expected IDENT, got LPAREN '(' at 2:13" }
+source = '''
+#include <assert.h>
+typedef int (*BinaryOp)(int, int);
+int multiply(int a, int b) { return a * b; }
+int main() {
+	BinaryOp operation = multiply;
+	assert(operation(6, 7) == 42);
+	print("PASS: function pointer typedef");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r07-function-pointer-parameter"
+row = "7"
+construct = "int apply(int (*op)(int, int), ...)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected parameter name, got LPAREN '(' at 3:15" }
+btrcc = { diagnostic = "Expected IDENT, got LPAREN '(' at 3:15" }
+source = '''
+#include <assert.h>
+int subtract(int a, int b) { return a - b; }
+int apply(int (*operation)(int, int), int a, int b) { return operation(a, b); }
+int main() {
+	assert(apply(subtract, 9, 4) == 5);
+	print("PASS: function pointer parameter");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r07-function-pointer-array"
+row = "7"
+construct = "int (*ops[2])(int, int)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 5:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 5:2" }
+source = '''
+#include <assert.h>
+int add(int a, int b) { return a + b; }
+int subtract(int a, int b) { return a - b; }
+int main() {
+	int (*operations[2])(int, int) = {add, subtract};
+	assert(operations[0](4, 2) == 6);
+	assert(operations[1](4, 2) == 2);
+	print("PASS: function pointer array");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r07-function-pointer-mismatch"
+row = "7"
+construct = "a function pointer of the wrong signature"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 3:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 3:2" }
+source = '''
+int add(int a, int b) { return a + b; }
+int main() {
+	int (*unary)(int) = add;
+	return unary(1);
+}
+'''
+
+[[probe]]
+id = "r07-cfunction-spelling"
+row = "7"
+construct = "CFunction<int, const void*, const void*> (btrc spelling)"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_interop_qsort_callback\n" }
+btrcc = { exit = 0, stdout = "PASS: test_interop_qsort_callback\n" }
+corpus = "basics/InteropQsortCallback.btrc"

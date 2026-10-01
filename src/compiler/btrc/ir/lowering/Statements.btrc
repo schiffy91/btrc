@@ -404,11 +404,23 @@ class StatementLowerer {
 					baseC = self.cTypes.lowerGeneric(baseType, self.context.activeTypeMap);
 				}
 				IRNode? localArraySize = null;
+				IRNode? logicalArrayLength = null;
 				if (node.type.arraySize != null) {
 					if (node.type.isStatic) {
 						localArraySize = self.expressions.lowerStaticInitializer(node.type.arraySize, null, varTypes, callableFlow);
 					} else {
 						localArraySize = self.expressions.lowerExpr(node.type.arraySize, varTypes, callableFlow);
+						if (!self.analyzed.constantArrayBoundKeys.has(AstIdentity.key(node.type.arraySize))) {
+							/* Evaluate a runtime bound once into a typed local, then
+							 * clamp only the C storage extent: a VLA of zero or
+							 * negative length is undefined in C. Iteration and GPU
+							 * dispatch read the unclamped logical length. */
+							string boundName = self.context.freshTemporary("__btrc_array_bound");
+							out.push(IRNode.variableDeclaration(self.arrayBoundCType(node.type.arraySize, varTypes), boundName, localArraySize));
+							IRNode logicalBound = IRNode.variable(boundName);
+							logicalArrayLength = logicalBound;
+							localArraySize = IRNode.ternary(IRNode.binary(logicalBound, ">", IRNode.literal("0")), logicalBound, IRNode.literal("1"));
+						}
 					}
 				}
 				IRNode? ainit = null;
@@ -445,7 +457,9 @@ class StatementLowerer {
 					concretePlan.emitAfter(out);
 				}
 				IRNode arrayLength = null;
-				if (node.type.arraySize != null || (node.initializer != null && (node.initializer.kind == NK_LIST_LITERAL || node.initializer.kind == NK_BRACE_INITIALIZER))) {
+				if (logicalArrayLength != null) {
+					arrayLength = logicalArrayLength;
+				} else if (node.type.arraySize != null || (node.initializer != null && (node.initializer.kind == NK_LIST_LITERAL || node.initializer.kind == NK_BRACE_INITIALIZER))) {
 					arrayLength = self.gpuPipeline.bareArrayCapacity(IRNode.variable(self.context.sourceCName(node.name)));
 				}
 				if (arrayLength != null) {
@@ -1427,6 +1441,14 @@ class StatementLowerer {
 	/* Build a loop body block with `prefix` statements prepended to the lowered
      * body (the binding decls), mirroring body_block.stmts.insert(0, ...). */
 	public IRNode loopBodyWithPrefix(Node bodyNode, Map<string, Node> varTypes, Vector<IRNode> prefix, Vector<string> sourceNames, Vector<Node> types, Vector<bool> owned, CallableFlowState callableFlow) { return self.lowerLoopBodyWithBindings(bodyNode, varTypes, prefix, sourceNames, types, owned, callableFlow); }
+
+	/* The declared bound's own scalar C type, so binding it truncates nothing
+     * (mirrors StorageLowerer._array_bound_c_type). */
+	public string arrayBoundCType(Node bound, Map<string, Node> varTypes) {
+		Node? boundType = self.expressions.resolvedExpressionType(bound, varTypes);
+		if (boundType == null || boundType.pointerDepth > 0 || boundType.isArray) { return "int"; }
+		return self.cTypes.lower(boundType);
+	}
 
 	/* Iterable-value C type for a generic arg: class values are reference types,
      * so append a pointer if not already a pointer (mirrors _iter_value_c). */

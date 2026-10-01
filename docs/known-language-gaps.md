@@ -38,6 +38,61 @@ Exceptions carry string messages. A catch may be untyped or bind `string`; a
 different catch annotation is rejected explicitly. The stdlib error classes
 are ordinary values and do not introduce typed exception payloads.
 
+## C that btrc rejects on purpose
+
+btrc accepts most C11 as written (the battery in
+`btrc/test_c_compatibility_inventory.py` records which constructs, through
+both compilers). The refusals below are deliberate: each keeps a btrc rule
+that C does not have, and each gives the same diagnostic in both compilers
+(`btrc/test_c_compatibility_refusals.py`). Row numbers refer to the
+C-compatibility table in `docs/design/plan-reference.md`.
+
+| Row | C source | btrc's rule | Diagnostic |
+|-----|----------|-------------|------------|
+| 19 | `int x = (1, 2);` — the comma operator | A parenthesized comma list is a tuple literal, so `(1, 2)` is a `Tuple<int, int>`. Only `for` headers will accept comma-separated expressions (PLAN.md Stage 16). | `Cannot assign 'Tuple<int, int>' to variable 'x' of type 'int'` |
+| 20 | `int string = 0;`, `int f(int self)`, `struct S { int new; };` | Every word in `src/language/grammar.ebnf`'s `@keywords` is reserved, including the btrc words C programs commonly use as names: `in`, `string`, `keep`, `self`, `class`, `interface`, `spawn`, `new`, `var`, `null`, `true`, `false`. There is no quoting syntax for identifiers. | `'string' is a reserved word and cannot be used as a name` |
+| 21 | `strlen(s) == 2` | An ABI-dependent integer (`size_t`, `ptrdiff_t`, `intptr_t`, …) never mixes implicitly with a built-in integer type whose width can differ from it; write the conversion: `(int)strlen(s) == 2` or `strlen(s) == (size_t)2`. Covered by `python/test_numeric_comparison_c11.py`, `python/test_numeric_semantics_contract.py` and their `btrc/` counterparts. | `Operator '==' mixes ABI-dependent integer type 'size_t' with 'int'; cast explicitly to a fixed-width or built-in integer type` |
+| 22 | `_Bool b = 1;`, `bool b = 1;` | `_Bool` is accepted as a spelling of `bool`, but an integer never converts to `bool` implicitly; write `b = n != 0` or a `true`/`false` literal. | `Cannot assign 'int' to variable 'b' of type 'bool'` |
+| 22 | `return f();` in a `void` function | A `return` with an expression in a `void` function violates C11 6.8.6.4, so this refusal is conformance, not policy. Call `f();` and `return;`. | `Void function or method cannot return a value` |
+| 24 | `_Atomic int n;`, `_Atomic(int) n;`, `double _Complex z;` | Deferred: neither has a btrc type-system entry yet. For atomic storage use btrc's `Atomic<T>` (`docs/language/realtime-primitives.md`), which lowers to C11 `_Atomic(T)` with explicit memory orders and stable-storage rules; it is unaffected by this refusal. | `C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage` / `C11 '_Complex' is not supported; btrc has no complex types` |
+
+## Variable-length arrays (C row 23)
+
+A block-scope array whose bound is not a constant expression is a C
+variable-length array, and btrc keeps it
+(`c_compat/VariableLengthArrays.btrc`). Supported forms:
+
+- a local `T name[expr];` with an integral bound, including inside loop bodies,
+  where each iteration gets an array of its own extent;
+- `sizeof(name)`, evaluated at run time from the bound;
+- a parameter `T name[expr]` whose bound names an earlier parameter (C adjusts
+  it to `T*`);
+- `for item in name`, which iterates the declared length;
+- a lambda reading the array; the lambda's environment holds a pointer to the
+  caller's storage, so it borrows the array for its own lexical lifetime.
+
+The bound expression is evaluated exactly once, into a typed local, before the
+declaration. **btrc deviates from C on a bound that is zero or negative**: C
+leaves that undefined, while btrc gives the array one element of storage
+(`sizeof` reports one element) and iteration and GPU dispatch use the declared
+length, so they see no elements.
+
+These contexts refuse a runtime bound, with the same diagnostic in both
+compilers (`btrc/test_c_compatibility_refusals.py`):
+
+| Context | Diagnostic |
+|---------|------------|
+| a global, a `static` local, a class field or a struct field | `Array bound for … must be a constant expression` |
+| an initializer of any kind | `Variable 'v' is a variable-length array and cannot have an initializer` |
+| capture by `spawn` | `spawn cannot capture array storage through 'v'; copy it into a scalar-only struct or managed collection` |
+
+Like a fixed-size local array, a VLA of a managed element type (a class,
+`string` or collection) is shallow storage of borrowed references: storing a
+freshly owned value in it is refused (`caller-owned temporary cannot be stored
+in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
+20), so a jump into a VLA's scope cannot be written; Stage 20's negative
+fixtures must cover it.
+
 ## Closed gaps
 
 | # | Feature | Resolution | Regression test |

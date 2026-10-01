@@ -1,0 +1,16 @@
+// C11 _Generic selects an expression by the static type of its controlling
+// operand. btrc passes the selection through to C unchanged.
+#include <assert.h>
+
+#define KIND(value) _Generic((value), int: 1, double: 2, default: 0)
+
+int main() {
+	int whole = 3;
+	double real = 2.5;
+	char letter = 'a';
+	assert(KIND(whole) == 1);
+	assert(KIND(real) == 2);
+	assert(KIND(letter) == 0);
+	print("PASS: _Generic selection");
+	return 0;
+}

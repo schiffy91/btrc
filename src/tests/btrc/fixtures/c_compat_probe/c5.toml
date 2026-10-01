@@ -1,0 +1,617 @@
+# C5, the documented refusals (rows 19-24) and the reported successes (row 0) (Stages 14, 21).
+# Generated outcome records for test_c_compatibility_inventory.py; see its
+# docstring for the schema. A stage that changes a row updates its entry.
+
+[[probe]]
+id = "r19-comma-in-for-header"
+row = "19"
+construct = "for (i = 0, j = 9; i < j; i++, j--)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 6:12" }
+btrcc = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 6:12" }
+source = '''
+#include <assert.h>
+int main() {
+	int i;
+	int j;
+	int steps = 0;
+	for (i = 0, j = 9; i < j; i++, j--) { steps++; }
+	assert(steps == 5);
+	print("PASS: comma in for header");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r19-comma-operator-expression"
+row = "19"
+construct = "int x = (1, 2); comma operator outside for"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "cf28fe7"
+python = { diagnostic = "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int' at 2:2" }
+btrcc = { diagnostic = "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int' at 2:2" }
+source = '''
+int main() {
+	int value = (1, 2);
+	return value == 2 ? 0 : 1;
+}
+'''
+
+[[probe]]
+id = "r20-reserved-word-string"
+row = "20"
+construct = "int string = 0;"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "'string' is a reserved word and cannot be used as a name at 2:6" }
+btrcc = { diagnostic = "'string' is a reserved word and cannot be used as a name at 2:6" }
+source = '''
+int main() {
+	int string = 0;
+	return string;
+}
+'''
+
+[[probe]]
+id = "r20-reserved-word-in"
+row = "20"
+construct = "int in = 0;"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "'in' is a reserved word and cannot be used as a name at 2:6" }
+btrcc = { diagnostic = "'in' is a reserved word and cannot be used as a name at 2:6" }
+source = '''
+int main() {
+	int in = 0;
+	return in;
+}
+'''
+
+[[probe]]
+id = "r20-reserved-word-parameter"
+row = "20"
+construct = "int f(int self)"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "'self' is a reserved word and cannot be used as a name at 1:18" }
+btrcc = { diagnostic = "'self' is a reserved word and cannot be used as a name at 1:18" }
+source = '''
+int identity(int self) { return self; }
+int main() { return identity(0); }
+'''
+
+[[probe]]
+id = "r20-reserved-word-field"
+row = "20"
+construct = "struct S { int new; };"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "'new' is a reserved word and cannot be used as a name at 1:21" }
+btrcc = { diagnostic = "'new' is a reserved word and cannot be used as a name at 1:21" }
+source = '''
+struct Record { int new; };
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r21-size-t-int-comparison"
+row = "21"
+construct = "strlen(s) == 2 mixes size_t and int"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "cf28fe7"
+python = { diagnostic = "Operator '==' mixes ABI-dependent integer type 'size_t' with 'int'; cast explicitly to a fixed-width or built-in integer type at 4:9" }
+btrcc = { diagnostic = "Operator '==' mixes ABI-dependent integer type 'size_t' with 'int'; cast explicitly to a fixed-width or built-in integer type at 4:9" }
+source = '''
+#include <string.h>
+int main() {
+	char* text = "ab";
+	return strlen(text) == 2 ? 0 : 1;
+}
+'''
+
+[[probe]]
+id = "r22-bool-from-int"
+row = "22"
+construct = "_Bool b = 1; implicit int-to-bool"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "Cannot assign 'int' to variable 'ready' of type 'bool' at 2:2" }
+btrcc = { diagnostic = "Cannot assign 'int' to variable 'ready' of type 'bool' at 2:2" }
+source = '''
+int main() {
+	_Bool ready = 1;
+	return ready ? 0 : 1;
+}
+'''
+
+[[probe]]
+id = "r22-bool-keyword-from-int"
+row = "22"
+construct = "bool b = 1; implicit int-to-bool"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "cf28fe7"
+python = { diagnostic = "Cannot assign 'int' to variable 'ready' of type 'bool' at 2:2" }
+btrcc = { diagnostic = "Cannot assign 'int' to variable 'ready' of type 'bool' at 2:2" }
+source = '''
+int main() {
+	bool ready = 1;
+	return ready ? 0 : 1;
+}
+'''
+
+[[probe]]
+id = "r22-return-void-expression"
+row = "22"
+construct = "return a(); in a void function"
+intent = "negative"
+status = "refused-on-purpose"
+revision = "cf28fe7"
+python = { diagnostic = "Void function or method cannot return a value at 2:17" }
+btrcc = { diagnostic = "Void function or method cannot return a value at 2:17" }
+source = '''
+void first() {}
+void second() { return first(); }
+int main() { second(); return 0; }
+'''
+
+[[probe]]
+id = "r23-global-vla"
+row = "23"
+construct = "a file-scope VLA"
+intent = "negative"
+status = "refused-on-purpose"
+revision = "cf28fe7"
+python = { diagnostic = "Array bound for Global 'values' must be a constant expression at 2:12" }
+btrcc = { diagnostic = "Array bound for Global 'values' must be a constant expression at 2:12" }
+source = '''
+int count = 3;
+int values[count];
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r24-atomic-qualifier"
+row = "24"
+construct = "_Atomic int counter;"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 2:2" }
+btrcc = { diagnostic = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 2:2" }
+source = '''
+int main() {
+	_Atomic int counter = 0;
+	return counter;
+}
+'''
+
+[[probe]]
+id = "r24-atomic-specifier"
+row = "24"
+construct = "_Atomic(int) counter;"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 2:2" }
+btrcc = { diagnostic = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage at 2:2" }
+source = '''
+int main() {
+	_Atomic(int) counter = 0;
+	return counter;
+}
+'''
+
+[[probe]]
+id = "r24-complex"
+row = "24"
+construct = "double _Complex z;"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:9" }
+btrcc = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:9" }
+source = '''
+int main() {
+	double _Complex value;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r24-complex-leading"
+row = "24"
+construct = "_Complex double z;"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:2" }
+btrcc = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:2" }
+source = '''
+int main() {
+	_Complex double value;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r19-declaration-in-for-update"
+row = "19"
+construct = "for (int i = 0, int j = 0; ...) repeats a specifier"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 2:16" }
+btrcc = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 2:16" }
+source = '''
+int main() {
+	for (int i = 0, int j = 0; i < 2; i++) {}
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r20-c-keyword-as-name"
+row = "20"
+construct = "int while = 0; uses a C keyword"
+intent = "negative"
+status = "rejected"
+revision = "828f3a2"
+python = { diagnostic = "'while' is a reserved word and cannot be used as a name at 2:6" }
+btrcc = { diagnostic = "'while' is a reserved word and cannot be used as a name at 2:6" }
+source = '''
+int main() {
+	int while = 0;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r21-pointer-integer-comparison"
+row = "21"
+construct = "char* == int compares a pointer with an integer"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "cannot compare incompatible reference operands ('char*' and 'int') at 3:9" }
+btrcc = { diagnostic = "operator '==' is not defined for 'char*' and 'int' at 3:9" }
+source = '''
+int main() {
+	char* text = "ab";
+	return text == 2 ? 1 : 0;
+}
+'''
+
+[[probe]]
+id = "r24-complex-integer"
+row = "24"
+construct = "_Complex int is not ISO C"
+intent = "negative"
+status = "rejected"
+revision = "828f3a2"
+python = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:2" }
+btrcc = { diagnostic = "C11 '_Complex' is not supported; btrc has no complex types at 2:2" }
+source = '''
+int main() {
+	_Complex int value;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r21-explicit-conversion"
+row = "21"
+construct = "(int)strlen(s) == 2 states the conversion"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: explicit integer conversion\n" }
+btrcc = { exit = 0, stdout = "PASS: explicit integer conversion\n" }
+corpus = "c_compat/ExplicitIntegerConversion.btrc"
+
+[[probe]]
+id = "r22-bool-spelling"
+row = "22"
+construct = "_Bool b = true; (D20: a spelling of bool)"
+intent = "positive"
+status = "accepted"
+revision = "828f3a2"
+python = { exit = 0, stdout = "PASS: _Bool spelling\n" }
+btrcc = { exit = 0, stdout = "PASS: _Bool spelling\n" }
+corpus = "c_compat/BoolSpelling.btrc"
+
+[[probe]]
+id = "r23-variable-length-array"
+row = "23"
+construct = "int v[n] at block scope"
+intent = "positive"
+status = "accepted"
+revision = "8b0ec02"
+python = { exit = 0, stdout = "PASS: variable-length arrays\n" }
+btrcc = { exit = 0, stdout = "PASS: variable-length arrays\n" }
+corpus = "c_compat/VariableLengthArrays.btrc"
+
+[[probe]]
+id = "r24-btrc-atomic"
+row = "24"
+construct = "btrc Atomic<T> (the supported atomic primitive)"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS atomic\n" }
+btrcc = { exit = 0, stdout = "PASS atomic\n" }
+corpus = "threads/Atomic.btrc"
+
+[[probe]]
+id = "s-pure-c"
+row = "0"
+construct = "structs, recursion, arrays, malloc/free"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_pure_c\n" }
+btrcc = { exit = 0, stdout = "PASS: test_pure_c\n" }
+corpus = "basics/PureC.btrc"
+
+[[probe]]
+id = "s-pointer-to-pointer"
+row = "0"
+construct = "pointer to pointer"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_pointer_to_pointer\n" }
+btrcc = { exit = 0, stdout = "PASS: test_pointer_to_pointer\n" }
+corpus = "basics/PointerToPointer.btrc"
+
+[[probe]]
+id = "s-pointer-arithmetic"
+row = "0"
+construct = "pointer arithmetic p = p + 2"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: pointer arithmetic\n" }
+btrcc = { exit = 0, stdout = "PASS: pointer arithmetic\n" }
+corpus = "c_compat/PointerArithmetic.btrc"
+
+[[probe]]
+id = "s-arrays-and-decay"
+row = "0"
+construct = "fixed arrays and decay"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_fixed_array\n" }
+btrcc = { exit = 0, stdout = "PASS: test_fixed_array\n" }
+corpus = "basics/FixedArray.btrc"
+
+[[probe]]
+id = "s-pointer-casts"
+row = "0"
+construct = "casts including void*"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_pointer_cast\n" }
+btrcc = { exit = 0, stdout = "PASS: test_pointer_cast\n" }
+corpus = "basics/PointerCast.btrc"
+
+[[probe]]
+id = "s-static-globals"
+row = "0"
+construct = "static functions and globals"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_static_global_qualifier\n" }
+btrcc = { exit = 0, stdout = "PASS: test_static_global_qualifier\n" }
+corpus = "basics/StaticGlobalQualifier.btrc"
+
+[[probe]]
+id = "s-local-storage-qualifiers"
+row = "0"
+construct = "static, extern and volatile locals"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_local_storage_qualifiers\n" }
+btrcc = { exit = 0, stdout = "PASS: test_local_storage_qualifiers\n" }
+corpus = "basics/LocalStorageQualifiers.btrc"
+
+[[probe]]
+id = "s-extern"
+row = "0"
+construct = "extern declarations"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_extern_qualifier\n" }
+btrcc = { exit = 0, stdout = "PASS: test_extern_qualifier\n" }
+corpus = "basics/ExternQualifier.btrc"
+
+[[probe]]
+id = "s-global-initializers"
+row = "0"
+construct = "globals with initializers"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_global_fixed_array\n" }
+btrcc = { exit = 0, stdout = "PASS: test_global_fixed_array\n" }
+corpus = "basics/GlobalFixedArray.btrc"
+
+[[probe]]
+id = "s-enum-values"
+row = "0"
+construct = "enums with explicit values"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_enum_partial_explicit_values\n" }
+btrcc = { exit = 0, stdout = "PASS: test_enum_partial_explicit_values\n" }
+corpus = "enums/EnumPartialExplicitValues.btrc"
+
+[[probe]]
+id = "s-function-like-macros"
+row = "0"
+construct = "object-like and function-like macros"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_interop_define_macro\n" }
+btrcc = { exit = 0, stdout = "PASS: test_interop_define_macro\n" }
+corpus = "basics/InteropDefineMacro.btrc"
+
+[[probe]]
+id = "s-generic-selection"
+row = "0"
+construct = "_Generic"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: _Generic selection\n" }
+btrcc = { exit = 0, stdout = "PASS: _Generic selection\n" }
+corpus = "c_compat/GenericSelection.btrc"
+
+[[probe]]
+id = "s-do-while"
+row = "0"
+construct = "do/while"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "5\nPASS: test_do_while\n" }
+btrcc = { exit = 0, stdout = "5\nPASS: test_do_while\n" }
+corpus = "control_flow/DoWhileBasic.btrc"
+
+[[probe]]
+id = "s-switch-fallthrough"
+row = "0"
+construct = "switch with fallthrough"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_switch_fallthrough\n" }
+btrcc = { exit = 0, stdout = "PASS: test_switch_fallthrough\n" }
+corpus = "control_flow/SwitchFallthrough.btrc"
+
+[[probe]]
+id = "s-nested-struct-initializers"
+row = "0"
+construct = "nested struct initializers"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: nested struct initializers\n" }
+btrcc = { exit = 0, stdout = "PASS: nested struct initializers\n" }
+corpus = "c_compat/NestedStructInitializers.btrc"
+
+[[probe]]
+id = "s-literal-suffixes"
+row = "0"
+construct = "literal suffixes LL, UL, f and hex"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_int_suffixes\n" }
+btrcc = { exit = 0, stdout = "PASS: test_int_suffixes\n" }
+corpus = "basics/IntSuffixes.btrc"
+
+[[probe]]
+id = "s-octal"
+row = "0"
+construct = "octal literals"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_octal\n" }
+btrcc = { exit = 0, stdout = "PASS: test_octal\n" }
+corpus = "basics/Octal.btrc"
+
+[[probe]]
+id = "s-escapes"
+row = "0"
+construct = "character escapes"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_char_escapes\n" }
+btrcc = { exit = 0, stdout = "PASS: test_char_escapes\n" }
+corpus = "basics/CharEscapes.btrc"
+
+[[probe]]
+id = "s-volatile"
+row = "0"
+construct = "volatile"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_volatile_qualifier\n" }
+btrcc = { exit = 0, stdout = "PASS: test_volatile_qualifier\n" }
+corpus = "basics/VolatileQualifier.btrc"
+
+[[probe]]
+id = "s-printf"
+row = "0"
+construct = "printf"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "240\nPASS: test_bitwise_xor\n" }
+btrcc = { exit = 0, stdout = "240\nPASS: test_bitwise_xor\n" }
+corpus = "basics/BitwiseXor.btrc"
+
+[[probe]]
+id = "s-prototypes"
+row = "0"
+construct = "prototypes with named parameters"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_forward_decl\n" }
+btrcc = { exit = 0, stdout = "PASS: test_forward_decl\n" }
+corpus = "functions/ForwardDecl.btrc"
+
+[[probe]]
+id = "s-main-argument-vector"
+row = "0"
+construct = "int main(int argc, char** argv)"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: main(int argc, char** argv)\n" }
+btrcc = { exit = 0, stdout = "PASS: main(int argc, char** argv)\n" }
+corpus = "c_compat/MainArgumentVector.btrc"
+
+[[probe]]
+id = "s-assignment-in-condition"
+row = "0"
+construct = "assignment in a condition"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: assignment in condition\n" }
+btrcc = { exit = 0, stdout = "PASS: assignment in condition\n" }
+corpus = "c_compat/AssignmentInCondition.btrc"
+
+[[probe]]
+id = "s-int-truthiness"
+row = "0"
+construct = "if (i) on an int"
+intent = "positive"
+status = "accepted"
+revision = "cf28fe7"
+python = { exit = 0, stdout = "PASS: test_int_truthiness\n" }
+btrcc = { exit = 0, stdout = "PASS: test_int_truthiness\n" }
+corpus = "control_flow/IntTruthiness.btrc"

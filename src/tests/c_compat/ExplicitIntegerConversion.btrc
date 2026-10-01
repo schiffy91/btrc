@@ -1,0 +1,15 @@
+// btrc refuses to mix an ABI-dependent integer such as size_t with int
+// implicitly (C row 21). Stating the conversion compiles and keeps the value.
+#include <assert.h>
+#include <string.h>
+
+int main() {
+	char* text = "ab";
+	assert((int)strlen(text) == 2);
+	assert(strlen(text) == (size_t)2);
+	size_t length = strlen(text);
+	int narrowed = (int)length;
+	assert(narrowed + 1 == 3);
+	print("PASS: explicit integer conversion");
+	return 0;
+}

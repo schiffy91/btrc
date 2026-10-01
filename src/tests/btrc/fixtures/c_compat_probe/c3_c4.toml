@@ -1,0 +1,766 @@
+# C3 control flow, calls and vocabulary (rows 11, 14-16) and C4 conditionals (row 18), plus the expression stragglers (Stages 16, 19-20).
+# Generated outcome records for test_c_compatibility_inventory.py; see its
+# docstring for the schema. A stage that changes a row updates its entry.
+
+[[probe]]
+id = "r11-goto-forward-label"
+row = "11"
+construct = "goto cleanup; cleanup:"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'goto' in expression at 4:14" }
+btrcc = { diagnostic = "Expected expression, got GOTO 'goto' at 4:14" }
+source = '''
+#include <assert.h>
+int run(int fail) {
+	int status = 0;
+	if (fail) { goto cleanup; }
+	status = 1;
+cleanup:
+	return status;
+}
+int main() {
+	assert(run(1) == 0);
+	assert(run(0) == 1);
+	print("PASS: goto forward label");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r11-goto-undefined-label"
+row = "11"
+construct = "goto a label that does not exist"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'goto' in expression at 2:2" }
+btrcc = { diagnostic = "Expected expression, got GOTO 'goto' at 2:2" }
+source = '''
+int main() {
+	goto missing;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r14-variadic-definition"
+row = "14"
+construct = "int f(int n, ...) with va_list"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected parameter name, got DOT '.' at 3:21" }
+btrcc = { diagnostic = "Expected IDENT, got DOT '.' at 3:21" }
+source = '''
+#include <assert.h>
+#include <stdarg.h>
+int sum(int count, ...) {
+	va_list arguments;
+	va_start(arguments, count);
+	int total = 0;
+	for (int i = 0; i < count; i++) { total += va_arg(arguments, int); }
+	va_end(arguments);
+	return total;
+}
+int main() {
+	assert(sum(3, 1, 2, 3) == 6);
+	print("PASS: variadic definition");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r14-variadic-without-named-parameter"
+row = "14"
+construct = "int f(...) has no named parameter"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected parameter name, got DOT '.' at 1:10" }
+btrcc = { diagnostic = "Expected IDENT, got DOT '.' at 1:10" }
+source = '''
+int any(...) { return 0; }
+int main() { return any(); }
+'''
+
+[[probe]]
+id = "r15-inline"
+row = "15"
+construct = "static inline function"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected name, got INT 'int' at 2:15" }
+btrcc = { diagnostic = "Expected IDENT, got INT 'int' at 2:15" }
+source = '''
+#include <assert.h>
+static inline int square(int value) { return value * value; }
+int main() {
+	assert(square(4) == 16);
+	print("PASS: static inline");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r15-restrict"
+row = "15"
+construct = "restrict-qualified pointer parameters"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected RPAREN, got IDENT 'target' at 2:25" }
+btrcc = { diagnostic = "Expected RPAREN, got IDENT 'target' at 2:25" }
+source = '''
+#include <assert.h>
+void copy(int* restrict target, const int* restrict source, int count) {
+	for (int i = 0; i < count; i++) { target[i] = source[i]; }
+}
+int main() {
+	int source[3] = {1, 2, 3};
+	int target[3] = {0, 0, 0};
+	copy(target, source, 3);
+	assert(target[2] == 3);
+	print("PASS: restrict");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r15-register"
+row = "15"
+construct = "register storage class"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'register' in expression at 3:2" }
+btrcc = { diagnostic = "Expected expression, got REGISTER 'register' at 3:2" }
+source = '''
+#include <assert.h>
+int main() {
+	register int counter = 0;
+	for (int i = 0; i < 3; i++) { counter += i; }
+	assert(counter == 3);
+	print("PASS: register");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r15-register-address"
+row = "15"
+construct = "&r of a register object"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'register' in expression at 2:2" }
+btrcc = { diagnostic = "Expected expression, got REGISTER 'register' at 2:2" }
+source = '''
+int main() {
+	register int counter = 0;
+	int* address = &counter;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r15-auto-block-scope"
+row = "15"
+construct = "auto int at block scope (C11 storage class)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'auto' in expression at 3:2" }
+btrcc = { diagnostic = "Expected expression, got AUTO 'auto' at 3:2" }
+source = '''
+#include <assert.h>
+int main() {
+	auto int value = 3;
+	assert(value == 3);
+	print("PASS: auto storage class");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r15-auto-file-scope"
+row = "15"
+construct = "auto at file scope (D20 refuses)"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording and position"
+python = { diagnostic = "Unexpected token 'auto' at top level at 1:1" }
+btrcc = { diagnostic = "Expected IDENT, got INT 'int' at 1:6" }
+source = '''
+auto int counter = 0;
+int main() { return counter; }
+'''
+
+[[probe]]
+id = "r15-noreturn"
+row = "15"
+construct = "_Noreturn void fail(void)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected name, got VOID 'void' at 3:11" }
+btrcc = { diagnostic = "Expected IDENT, got VOID 'void' at 3:11" }
+source = '''
+#include <assert.h>
+#include <stdlib.h>
+_Noreturn void stop(int code) { exit(code); }
+int main() {
+	print("PASS: _Noreturn");
+	stop(0);
+}
+'''
+
+[[probe]]
+id = "r15-thread-local"
+row = "15"
+construct = "_Thread_local storage"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected name, got INT 'int' at 2:15" }
+btrcc = { diagnostic = "Expected IDENT, got INT 'int' at 2:15" }
+source = '''
+#include <assert.h>
+_Thread_local int counter = 0;
+int main() {
+	counter += 2;
+	assert(counter == 2);
+	print("PASS: _Thread_local");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r15-alignas"
+row = "15"
+construct = "_Alignas(16)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got CHAR 'char' at 4:15" }
+btrcc = { diagnostic = "Expected SEMICOLON, got CHAR 'char' at 4:15" }
+source = '''
+#include <assert.h>
+#include <stdint.h>
+int main() {
+	_Alignas(16) char buffer[16];
+	assert(((uintptr_t)buffer % (uintptr_t)16) == (uintptr_t)0);
+	print("PASS: _Alignas");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r15-static-assert"
+row = "15"
+construct = "_Static_assert(sizeof(int) >= 2, ...)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected name, got LPAREN '(' at 1:15" }
+btrcc = { diagnostic = "Expected IDENT, got LPAREN '(' at 1:15" }
+source = '''
+_Static_assert(sizeof(int) >= 2, "int is at least 16 bits");
+int main() {
+	print("PASS: _Static_assert");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r15-static-assert-false"
+row = "15"
+construct = "a false _Static_assert"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected name, got LPAREN '(' at 1:15" }
+btrcc = { diagnostic = "Expected IDENT, got LPAREN '(' at 1:15" }
+source = '''
+_Static_assert(1 == 2, "never");
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r16-long-double-literal"
+row = "16"
+construct = "long double x = 1.5L;"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Invalid numeric literal '1.5L' at 3:22" }
+btrcc = { diagnostic = "Invalid numeric literal '1.5L' at 3:22" }
+source = '''
+#include <assert.h>
+int main() {
+	long double value = 1.5L;
+	assert(value * 2.0L == 3.0L);
+	print("PASS: long double literal");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r16-wide-character-literal"
+row = "16"
+construct = "wchar_t c = L'x';"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected SEMICOLON, got CHAR_LIT ''x'' at 4:20" }
+btrcc = { diagnostic = "Expected SEMICOLON, got CHAR_LIT \"'x'\" at 4:20" }
+source = '''
+#include <assert.h>
+#include <wchar.h>
+int main() {
+	wchar_t letter = L'x';
+	assert(letter == (wchar_t)120);
+	print("PASS: wide character literal");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r16-wide-string-literal"
+row = "16"
+construct = "L\"ab\""
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"ab\"' at 4:19" }
+btrcc = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"ab\"' at 4:19" }
+source = '''
+#include <assert.h>
+#include <wchar.h>
+int main() {
+	wchar_t* text = L"ab";
+	assert(wcslen(text) == (size_t)2);
+	print("PASS: wide string literal");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r16-invalid-literal-suffix"
+row = "16"
+construct = "1.5LL is not a C literal"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Invalid numeric literal '1.5LL' at 2:22" }
+btrcc = { diagnostic = "Invalid numeric literal '1.5LL' at 2:22" }
+source = '''
+int main() {
+	long double value = 1.5LL;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r18-if-zero"
+row = "18"
+construct = "#if 0 hides a duplicate definition"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Duplicate function name 'value': duplicate definition at 4:1" }
+btrcc = { diagnostic = "Duplicate top-level declaration 'value' at 4:1" }
+source = '''
+#if 0
+int value() { return 1; }
+#endif
+int value() { return 2; }
+int main() {
+	if (value() != 2) { return 1; }
+	print("PASS: #if 0");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r18-ifdef-else"
+row = "18"
+construct = "#ifdef / #else select one definition"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Duplicate function name 'speed': duplicate definition at 5:1" }
+btrcc = { diagnostic = "Duplicate top-level declaration 'speed' at 5:1" }
+source = '''
+#define USE_FAST 1
+#ifdef USE_FAST
+int speed() { return 2; }
+#else
+int speed() { return 1; }
+#endif
+int main() {
+	if (speed() != 2) { return 1; }
+	print("PASS: #ifdef/#else");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r18-undefined-identifier-in-if"
+row = "18"
+construct = "#if UNDEFINED (D20 refuses, not silent 0)"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "unsupported preprocessor directive '#if'" }
+btrcc = { diagnostic = "unsupported preprocessor directive '#if'" }
+source = '''
+#if NOT_DEFINED_ANYWHERE
+int value() { return 1; }
+#endif
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "x-sizeof-without-parentheses"
+row = "x-sizeof-expression"
+construct = "sizeof x"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LPAREN, got IDENT 'value' at 4:16" }
+btrcc = { diagnostic = "Expected LPAREN, got IDENT 'value' at 4:16" }
+source = '''
+#include <assert.h>
+int main() {
+	int value = 0;
+	assert(sizeof value == sizeof(int));
+	print("PASS: sizeof without parentheses");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-sizeof-type-without-parentheses"
+row = "x-sizeof-expression"
+construct = "sizeof int is invalid C"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LPAREN, got INT 'int' at 2:23" }
+btrcc = { diagnostic = "Expected LPAREN, got INT 'int' at 2:23" }
+source = '''
+int main() {
+	size_t size = sizeof int;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-hex-float-literal"
+row = "x-hex-float"
+construct = "0x1.8p1"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Invalid numeric literal '8p1' at 3:21" }
+btrcc = { diagnostic = "Invalid numeric literal '8p1' at 3:21" }
+source = '''
+#include <assert.h>
+int main() {
+	double value = 0x1.8p1;
+	assert(value == 3.0);
+	print("PASS: hex float literal");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-hex-float-without-exponent"
+row = "x-hex-float"
+construct = "0x1.8 needs a binary exponent"
+intent = "negative"
+status = "known-divergence"
+revision = "cf28fe7"
+python = { c = "rejected" }
+btrcc = { c = "rejected" }
+source = '''
+int main() {
+	double value = 0x1.8;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-utf8-string-literal"
+row = "x-utf8-string"
+construct = "u8\"text\""
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"text\"' at 4:17" }
+btrcc = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"text\"' at 4:17" }
+source = '''
+#include <assert.h>
+#include <string.h>
+int main() {
+	char* text = u8"text";
+	assert(strlen(text) == (size_t)4);
+	print("PASS: u8 string literal");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-utf8-character-literal"
+row = "x-utf8-string"
+construct = "u8'c' is C2x, not C11"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Expected SEMICOLON, got CHAR_LIT ''c'' at 2:18" }
+btrcc = { diagnostic = "Expected SEMICOLON, got CHAR_LIT \"'c'\" at 2:18" }
+source = '''
+int main() {
+	char letter = u8'c';
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-pointer-to-array"
+row = "x-pointer-to-array"
+construct = "int (*p)[3]"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 4:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 4:2" }
+source = '''
+#include <assert.h>
+int main() {
+	int values[3] = {1, 2, 3};
+	int (*row)[3] = &values;
+	assert((*row)[2] == 3);
+	print("PASS: pointer to array");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-pointer-to-array-extent-mismatch"
+row = "x-pointer-to-array"
+construct = "int (*p)[3] = &int[4]"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 3:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 3:2" }
+source = '''
+int main() {
+	int values[4] = {1, 2, 3, 4};
+	int (*row)[3] = &values;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-braceless-do"
+row = "x-braceless-do"
+construct = "do statement; while (cond);"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LBRACE, got IDENT 'count' at 4:5" }
+btrcc = { diagnostic = "Expected LBRACE, got IDENT 'count' at 4:5" }
+source = '''
+#include <assert.h>
+int main() {
+	int count = 0;
+	do count++; while (count < 3);
+	assert(count == 3);
+	print("PASS: braceless do");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-braceless-do-missing-while"
+row = "x-braceless-do"
+construct = "do without while"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+python = { diagnostic = "Expected LBRACE, got IDENT 'count' at 3:5" }
+btrcc = { diagnostic = "Expected LBRACE, got IDENT 'count' at 3:5" }
+source = '''
+int main() {
+	int count = 0;
+	do count++;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-const-pointer"
+row = "x-const-pointer"
+construct = "int* const p"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 4:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 4:2" }
+source = '''
+#include <assert.h>
+int main() {
+	int value = 1;
+	int* const pointer = &value;
+	*pointer = 2;
+	assert(value == 2);
+	print("PASS: const pointer");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-const-pointer-reassigned"
+row = "x-const-pointer"
+construct = "assigning to an int* const"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 4:2" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 4:2" }
+source = '''
+int main() {
+	int first = 1;
+	int second = 2;
+	int* const pointer = &first;
+	pointer = &second;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-alignof"
+row = "x-alignof"
+construct = "_Alignof(int)"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'int' in expression at 3:18" }
+btrcc = { diagnostic = "Expected expression, got INT 'int' at 3:18" }
+source = '''
+#include <assert.h>
+int main() {
+	assert(_Alignof(int) >= (size_t)1);
+	print("PASS: _Alignof");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-alignof-expression"
+row = "x-alignof"
+construct = "_Alignof applied to an expression (not C11)"
+intent = "negative"
+status = "known-divergence"
+revision = "cf28fe7"
+python = { c = "rejected" }
+btrcc = { c = "rejected" }
+source = '''
+int main() {
+	int value = 0;
+	size_t alignment = _Alignof(value);
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-pointer-compound-assignment"
+row = "x-pointer-compound-assignment"
+construct = "p += 2; p -= 1; on a pointer"
+intent = "positive"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Operator '+=' is not defined for 'int*' and 'int' at 5:2" }
+btrcc = { diagnostic = "operator '+=' is not defined for 'int*' and 'int' at 5:2" }
+source = '''
+#include <assert.h>
+int main() {
+	int values[4] = {1, 2, 3, 4};
+	int* cursor = values;
+	cursor += 3;
+	cursor -= 1;
+	assert(*cursor == 3);
+	print("PASS: pointer compound assignment");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "x-pointer-multiply-assignment"
+row = "x-pointer-compound-assignment"
+construct = "p *= 2 on a pointer is invalid C"
+intent = "negative"
+status = "rejected"
+revision = "cf28fe7"
+divergence = "diagnostic wording"
+python = { diagnostic = "Operator '*=' is not defined for 'int*' and 'int' at 4:2" }
+btrcc = { diagnostic = "operator '*=' is not defined for 'int*' and 'int' at 4:2" }
+source = '''
+int main() {
+	int values[2] = {1, 2};
+	int* cursor = values;
+	cursor *= 2;
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r11-goto-into-vla-scope"
+row = "11"
+construct = "goto past a VLA declaration into its scope (C11 6.8.6.1 forbids)"
+intent = "negative"
+status = "rejected"
+revision = "8b0ec02"
+divergence = "diagnostic wording"
+python = { diagnostic = "Unexpected token 'goto' in expression at 3:2" }
+btrcc = { diagnostic = "Expected expression, got GOTO 'goto' at 3:2" }
+source = '''
+int main() {
+	int count = 2;
+	goto inside;
+	{
+		int values[count];
+	inside:
+		values[0] = 1;
+	}
+	return 0;
+}
+'''
