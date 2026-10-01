@@ -1348,8 +1348,7 @@ class BudgetBench:
             "BTRC_CACHE_DIR": str(state.cache),
             "PYTHONPATH": str(REPO),
         }
-        for name in ("BTRC_TIMING", "BTRCC_TIMING"):
-            environment.pop(name, None)
+        environment.pop("BTRC_TIMING", None)
         if timing:
             environment["BTRC_TIMING"] = "1"
         return environment

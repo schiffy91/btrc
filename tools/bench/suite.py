@@ -15,6 +15,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tools.perf import PHASE_MARK
+
 REPO = Path(__file__).resolve().parents[2]
 PROGRAMS = REPO / "src" / "tests" / "benchmarks"
 CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
@@ -23,7 +25,7 @@ LIBS = ["-lm", "-lpthread"]
 COMMAND_TIMEOUT = 1800.0
 TIME = Path("/usr/bin/time")
 FOOTPRINT = re.compile(r"(\d+)\s+peak memory footprint")
-TIMING_VARIABLES = ("BTRC_TIMING", "BTRCC_TIMING")
+TIMING_VARIABLE = "BTRC_TIMING"
 # Runs argv[1:] with standard output discarded and prints the child's own
 # maximum resident set and exit code. measure_peak spawns workloads through it.
 MAXRSS_REPORTER = (
@@ -147,6 +149,7 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
             stdout=subprocess.PIPE,
             stderr=errors,
             text=True,
+            timeout=COMMAND_TIMEOUT,
         )
         fields = reporter.stdout.split()
         returncode = int(fields[1]) if reporter.returncode == 0 and len(fields) == 2 else reporter.returncode
@@ -212,16 +215,19 @@ class Workload:
 
 
 def phase_times(stderr: str) -> dict[str, float]:
-    """Sum the self-host's BTRCC_TIMING marks per phase, in milliseconds."""
+    """Sum the self-host's BTRC_TIMING marks per phase, in milliseconds.
+
+    Marks are read as `tools.perf` reads them; counter tokens are skipped.
+    """
 
     phases: dict[str, float] = {}
     for line in stderr.splitlines():
         if not line.startswith("btrcc timing: "):
             continue
         for item in line[len("btrcc timing: ") :].split():
-            name, _, value = item.partition("=")
-            if value.endswith("us"):
-                phases[name] = phases.get(name, 0.0) + int(value[:-2]) / 1000.0
+            if mark := PHASE_MARK.match(item):
+                name = mark.group("name")
+                phases[name] = phases.get(name, 0.0) + int(mark.group("micros")) / 1000.0
     return phases
 
 
@@ -242,13 +248,13 @@ class Suite:
     def environment(self) -> dict[str, str]:
         env = dict(os.environ)
         env["BTRC_HOME"] = str(REPO / "src")
-        env["BTRC_TIMING"] = "1"
+        env[TIMING_VARIABLE] = "1"
         return env
 
     def peak_environment(self) -> dict[str, str]:
         """As a developer compiles: no phase timing report held in memory."""
 
-        env = {name: value for name, value in os.environ.items() if name not in TIMING_VARIABLES}
+        env = {name: value for name, value in os.environ.items() if name != TIMING_VARIABLE}
         env["BTRC_HOME"] = str(REPO / "src")
         return env
 

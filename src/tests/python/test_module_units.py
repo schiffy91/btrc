@@ -860,8 +860,7 @@ def _timed_cli_build(
         "PYTHONPATH": str(ROOT),
         "BTRC_CACHE_DIR": str((cache or output / "cache").resolve()),
     }
-    for name in ("BTRC_TIMING", "BTRCC_TIMING"):
-        environment.pop(name, None)
+    environment.pop("BTRC_TIMING", None)
     if timing:
         environment["BTRC_TIMING"] = "1"
     process = subprocess.Popen(
