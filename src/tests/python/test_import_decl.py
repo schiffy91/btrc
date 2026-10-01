@@ -60,7 +60,9 @@ def test_std_module_no_semicolon():
 
 
 def test_nested_library_modules():
-    assert _spec("import Library.Audio.MacOS.MacOSAudioDevice;") == LibraryModules(names=["Audio.MacOS.MacOSAudioDevice"])
+    assert _spec("import Library.Audio.MacOS.MacOSAudioDevice;") == LibraryModules(
+        names=["Audio.MacOS.MacOSAudioDevice"]
+    )
     assert _spec("import Library.{Audio.AudioDevice, Audio.RealtimeAudio,};") == LibraryModules(
         names=["Audio.AudioDevice", "Audio.RealtimeAudio"]
     )

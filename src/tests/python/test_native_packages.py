@@ -35,7 +35,10 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
     assert plan.with_stdlib(str(library), [str(library / "Strings.btrc")]) == plan
     selected = plan.with_stdlib(
         str(library),
-        [str(library / "Audio/MacOS/MacOSAudioDevice.btrc"), str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc")],
+        [
+            str(library / "Audio/MacOS/MacOSAudioDevice.btrc"),
+            str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc"),
+        ],
     )
     payload = selected.as_dict()
     assert payload["units"] == []

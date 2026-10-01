@@ -55,7 +55,9 @@ def test_import_insert_for_stdlib_name():
     # Shadow stdlib JSONParser so JSON.btrc is filtered out of the
     # composition; the sibling stdlib class JSONValue is then unresolved and
     # the import action offers 'import Library.JSON;'.
-    src = "class JSONParser {\n    public int y;\n}\nint main() {\n    var t = JSONValue.makeNull();\n    return 0;\n}\n"
+    src = (
+        "class JSONParser {\n    public int y;\n}\nint main() {\n    var t = JSONValue.makeNull();\n    return 0;\n}\n"
+    )
     uri = "file:///stdimp.btrc"
     r = compute_diagnostics(uri, src)
     assert not (r.analyzed and "JSONValue" in r.analyzed.class_table)

@@ -96,11 +96,9 @@ class UITextMetrics {
 }
 
 class UITypography {
-	private Map<string, UITextMetrics> measurements;
+	private Map<string, UITextMetrics> measurements = {};
 	private Vector<string> measurementKeys = [];
 	private int nextMeasurementEviction = 0;
-
-	public UITypography() { self.measurements = new Map<string, UITextMetrics>(); }
 
 	private int lineBreak(string text, int fontSize, int lineHeight, int fontWeight, int width) {
 		/* The deterministic font has one cell per scalar, not linguistic

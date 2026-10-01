@@ -98,7 +98,15 @@ def test_callback_mechanics_are_private_to_the_realtime_package(module: str, tmp
     source = tmp_path / "Consumer.btrc"
     source.write_text(f"import Library.Realtime.{module};\nint main() {{ return 0; }}\n")
     compiled = subprocess.run(
-        [sys.executable, "-m", "src.compiler.python.main", str(source), "--no-cache", "-o", str(tmp_path / "Consumer.c")],
+        [
+            sys.executable,
+            "-m",
+            "src.compiler.python.main",
+            str(source),
+            "--no-cache",
+            "-o",
+            str(tmp_path / "Consumer.c"),
+        ],
         cwd=REPOSITORY,
         env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")},
         capture_output=True,
