@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import datetime
+import json
 import sys
 from pathlib import Path
 
@@ -14,6 +16,8 @@ from .intrinsic_effects import IntrinsicEffectManifest
 from .runtime import RuntimeCatalogGenerator, RuntimeManifest
 from .stdlib_symbols import StdlibSymbolIndexGenerator
 from .verification import (
+    BoundaryCheckReport,
+    BoundaryManifest,
     CompilerBoundaryVerifier,
     CompilerVerificationError,
     GeneratedSourceSet,
@@ -44,7 +48,14 @@ class CompilerCodegenCommand:
         parser.add_argument("--candidate", type=Path)
         parser.add_argument("--revision")
         parser.add_argument("--require-observed", action="store_true")
+        parser.add_argument(
+            "--report",
+            type=Path,
+            help="boundary-check: write which records this host checked (btrc.boundary-check/1 JSON)",
+        )
         arguments = parser.parse_args(argv)
+        if arguments.report is not None and arguments.operation != "boundary-check":
+            parser.error(f"{arguments.operation} does not accept --report")
         try:
             verifier = CompilerBoundaryVerifier(self._repository_root)
             if arguments.operation == "verify-ast":
@@ -85,6 +96,10 @@ class CompilerCodegenCommand:
                 print(f"checked {report.checked_records} frozen boundary records")
                 for capability in report.skipped_capabilities:
                     print(f"skipped incompatible observed capability: {capability}")
+                unchecked = len(manifest.records) - report.checked_records
+                print(f"unchecked {unchecked} of {len(manifest.records)} frozen boundary records on this host")
+                if arguments.report is not None:
+                    self._write_boundary_report(arguments.report, manifest, report)
                 return 0
             if arguments.manifest is not None or arguments.candidate is not None:
                 parser.error(f"{arguments.operation} does not accept boundary paths")
@@ -101,6 +116,41 @@ class CompilerCodegenCommand:
             sys.stderr.write(f"compiler-codegen: {error}\n")
             return 1
         return 0
+
+    @staticmethod
+    def _write_boundary_report(path: Path, manifest: BoundaryManifest, report: BoundaryCheckReport) -> None:
+        """Record every frozen boundary record and whether this host checked it.
+
+        The count checked inside the dev shell is lower than outside it, because
+        observed-behavior capabilities whose recorded compiler output differs on
+        this host are skipped as incompatible. The qualification report renders
+        that delta from this file.
+        """
+
+        skipped = {tuple(reversed(item.split("@", 1))) for item in report.skipped_capabilities}
+        records = [
+            {
+                "id": record.id,
+                "fixture": record.fixture,
+                "capability": record.capability,
+                "checked": (record.fixture, record.capability) not in skipped,
+            }
+            for record in manifest.records
+        ]
+        document = {
+            "schema": "btrc.boundary-check/1",
+            "created_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+            "total_records": len(records),
+            "checked_records": report.checked_records,
+            "skipped_capabilities": list(report.skipped_capabilities),
+            "records": records,
+        }
+        if sum(1 for record in records if record["checked"]) != report.checked_records:
+            raise CompilerVerificationError("boundary report disagrees with the records the check counted")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        staged = path.with_name(f".{path.name}.partial")
+        staged.write_text(json.dumps(document, indent=1) + "\n", encoding="utf-8")
+        staged.replace(path)
 
     def _sources(self) -> GeneratedSourceSet:
         runtime = RuntimeManifest.load(self._repository_root / "src/runtime/c/manifest.toml")
