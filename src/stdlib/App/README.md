@@ -1,12 +1,18 @@
 # `Library.App`
 
-This module contains portable application event, error and window-description
-values. The directory-picker contract lives in `Library.GUI.IDirectoryPicker`. It does not create windows or own a native event
+This module contains portable input-event values (`AppPointerEvent`,
+`AppScrollEvent`, `AppKeyboardEvent` and their modifiers and codes) and the
+`AppError` a provider reports. The directory-picker contract lives in `Library.GUI.IDirectoryPicker`. It does not create windows or own a native event
 loop. Use `Library.GUI` and the portable `IWindow`/`IView` interfaces for
 application lifecycle and native controls.
 
 The obsolete `Application`, `ApplicationWindow`, and
-`AppSurfaceAttachment` receipt APIs and their native runtime have been removed.
+`AppSurfaceAttachment` receipt APIs and their native runtime have been removed,
+along with the window-event, window-descriptor, surface-metrics, titlebar and
+clipboard values that only they used. `AppErrorCode` keeps the four codes a
+provider still reports: `APP_ERROR_INVALID_ARGUMENT`,
+`APP_ERROR_NOT_MAIN_THREAD`, `APP_ERROR_BACKEND_UNAVAILABLE` and
+`APP_ERROR_INTERNAL`.
 Windows now own their attached view subtrees; GPU views and their callback
 scopes close with that subtree. See [GUI lifecycle and rendering](../GUI/README.md).
 

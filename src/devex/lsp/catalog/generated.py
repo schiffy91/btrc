@@ -1020,8 +1020,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("maximumBytes", "int", "method", (), "maximumBytes"),
         BuiltinMemberSpec("bounded", "string", "method", (("string", "value"),), "bounded"),
         BuiltinMemberSpec("tint", "void", "method", (("Image", "image"), ("UIColor", "color"),), "tint"),
-        BuiltinMemberSpec("tryPlatformRasterize", "Image*", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "tryPlatformRasterize"),
-        BuiltinMemberSpec("deterministic", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "deterministic"),
         BuiltinMemberSpec("rasterize", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "rasterize"),
         BuiltinMemberSpec("blit", "void", "method", (("Image", "target"), ("Image", "source"), ("int", "left"), ("int", "top"),), "blit"),
     )),

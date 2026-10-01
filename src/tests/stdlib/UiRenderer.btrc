@@ -5,21 +5,6 @@ import Library.Vector;
 
 #include <assert.h>
 
-int typographyMeasurementCalls = 0;
-
-int platformTypographyMeasure(unsigned long long provider, string value, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut) {
-	typographyMeasurementCalls++;
-	assert(provider == 42ULL);
-	assert(value == "System");
-	assert(fontSize == 20 && lineHeight == 26 && fontWeight == 600);
-	widthOut[0] = 71;
-	heightOut[0] = 26;
-	ascentOut[0] = 18;
-	descentOut[0] = 5;
-	advanceOut[0] = 15;
-	return 1;
-}
-
 UIElement deepVirtualGrid() {
 	UIElement grid = UIElement.virtualGrid("albums", UIVirtualGrid(2000, 4, 40, 1984)).className("album-grid");
 	for (int index = 1984; index < 2000; index++) {
@@ -247,7 +232,6 @@ void assertTextRaster() {
 	Image scaled = UITextRaster.rasterize(typography, "Ab", 16, 20, 600, ink, 2.0f);
 	assert(scaled.width == 2 * typography.advance(32) && scaled.height == 40);
 	assert(UITextRaster.rasterize(typography, "", 16, 20, 400, ink).isEmpty());
-	assert(UITextRaster.tryPlatformRasterize(typography, "Ab", 16, 20, 400, ink) == null);
 	Image translucent = UITextRaster.rasterize(typography, "A", 16, 20, 400, UIColor(0, 0, 255, 128));
 	bool sawHalf = false;
 	for (int i = 0; i < translucent.width * translucent.height; i++) {
@@ -279,7 +263,7 @@ void assertTextRaster() {
 	malformed = malformed + "\xff";
 	for (int i = 0; i < 200; i++) { malformed = malformed + "a"; }
 	assert(UITextRaster.bounded(malformed).len() == 4000);
-	Image wide = UITextRaster.deterministic(typography, "Verse", 14, 20, 400, ink, 1.0f);
+	Image wide = UITextRaster.rasterize(typography, "Verse", 14, 20, 400, ink, 1.0f);
 	assert(wide.width == 5 * typography.advance(14) && wide.height == 20);
 }
 
@@ -642,34 +626,26 @@ void assertGradients() {
 	assert(clipped.ok() && clipped.image.pixel(10, 0).equals(frame.image.pixel(10, 10)));
 }
 
-int proportionalTypographyMeasure(unsigned long long provider, string value, int fontSize, int lineHeight, int fontWeight, int* widthOut, int* heightOut, int* ascentOut, int* descentOut, int* advanceOut) {
-	assert(provider == 43ULL && fontSize == 14 && fontWeight == 400);
-	int width = 0;
-	for (int offset = 0; offset < value.len(); offset = UIText.nextBoundary(value, offset)) { width += value[offset] == 'i' ? 2 : (value[offset] == 'W' ? 14 : 8); }
-	widthOut[0] = width;
-	heightOut[0] = lineHeight;
-	ascentOut[0] = 12;
-	descentOut[0] = 3;
-	advanceOut[0] = 8;
-	return 1;
-}
-
+/* The deterministic font advances 12 pixels per scalar at 14px, and the
+ * ellipsis is one scalar, so a fitted run keeps (width / 12) - 1 scalars. */
 void assertEllipsis() {
-	UITypography typography = UITypography.platform(43ULL, proportionalTypographyMeasure);
-	assert(typography.ellipsize("iiiiWW", 14, 20, 400, 36).lineAt(0).text() == "iiiiWW");
-	assert(typography.ellipsize("iiiiWW", 14, 20, 400, 30).lineAt(0).text() == "iiiiW…");
-	assert(typography.ellipsize("WWiiii", 14, 20, 400, 30).lineAt(0).text() == "W…");
-	assert(typography.ellipsize("é🎸WW", 14, 20, 400, 24).lineAt(0).text() == "é🎸…");
-	assert(typography.ellipsize("WW", 14, 20, 400, 8).lineAt(0).text() == "…");
-	assert(typography.ellipsize("WW", 14, 20, 400, 7).lineAt(0).text() == "");
+	UITypography typography = UITypography();
+	assert(typography.advance(14) == 12);
+	assert(typography.ellipsize("iiiiWW", 14, 20, 400, 72).lineAt(0).text() == "iiiiWW");
+	assert(typography.ellipsize("iiiiWW", 14, 20, 400, 71).lineAt(0).text() == "iiii…");
+	assert(typography.ellipsize("WWiiii", 14, 20, 400, 35).lineAt(0).text() == "W…");
+	assert(typography.ellipsize("WWiiii", 14, 20, 400, 36).lineAt(0).text() == "WW…");
+	assert(typography.ellipsize("é🎸WW", 14, 20, 400, 36).lineAt(0).text() == "é🎸…");
+	assert(typography.ellipsize("WW", 14, 20, 400, 12).lineAt(0).text() == "…");
+	assert(typography.ellipsize("WW", 14, 20, 400, 11).lineAt(0).text() == "");
 	assert(typography.ellipsize("", 14, 20, 400, 0).lineAt(0).text() == "");
 	bool rejected = false;
 	try { typography.ellipsize("WW", 14, 20, 400, -1); } catch (string error) { rejected = !error.isEmpty(); }
 	assert(rejected);
 	string longText = "";
 	for (int index = 0; index < 4096; index++) { longText += "W"; }
-	UITextLayout bounded = typography.ellipsize(longText, 14, 20, 400, 57343);
-	assert(bounded.lineAt(0).text().len() <= 4096 && bounded.width() <= 57343 && bounded.lineAt(0).text().endsWith("…"));
+	UITextLayout bounded = typography.ellipsize(longText, 14, 20, 400, 49151);
+	assert(bounded.lineAt(0).text().len() <= 4096 && bounded.width() <= 49151 && bounded.lineAt(0).text().endsWith("…"));
 	assert(UIStyle.validate("text-overflow: ellipsis").ok() && UIStyle.validate("text-overflow: clip").ok());
 	assert(!UIStyle.validate("text-overflow: fade").ok());
 	UIResolvedStyle style = UIResolvedStyle(UI_BUTTON);
@@ -681,14 +657,14 @@ void assertEllipsis() {
 		UIElement label = kind == 0 ? UIElement.text("fitted", "iiiiWW") : UIElement.button("fitted", "iiiiWW");
 		label.style("text-overflow: ellipsis; padding: 4px; font-size: 14px; line-height: 20px; font-weight: 400");
 		UIRenderer renderer = UIRenderer(null, null, typography);
-		UIFrame first = renderer.layoutImmutable(label, 38, 60);
-		assert(first.ok() && first.boxFor("fitted").displayText() == "iiiiW…");
+		UIFrame first = renderer.layoutImmutable(label, 68, 60);
+		assert(first.ok() && first.boxFor("fitted").displayText() == "iiii…");
 		assert(first.boxFor("fitted").element.contentText() == "iiiiWW");
 		UITextLayout retained = first.boxFor("fitted").textLayout();
-		assert(renderer.layoutImmutable(label, 38, 60).boxFor("fitted").textLayout() == retained && renderer.measuredNodeCount() == 0);
-		UIFrame wide = renderer.layoutImmutable(label, 80, 60);
-		assert(wide.ok() && wide.boxFor("fitted").displayText() == "iiiiWW" && retained.lineAt(0).text() == "iiiiW…");
-		assert(renderer.render(label, 38, 60).ok());
+		assert(renderer.layoutImmutable(label, 68, 60).boxFor("fitted").textLayout() == retained && renderer.measuredNodeCount() == 0);
+		UIFrame wide = renderer.layoutImmutable(label, 90, 60);
+		assert(wide.ok() && wide.boxFor("fitted").displayText() == "iiiiWW" && retained.lineAt(0).text() == "iiii…");
+		assert(renderer.render(label, 68, 60).ok());
 	}
 }
 
@@ -1024,12 +1000,10 @@ int main() {
 	UITypography typography = UITypography();
 	UITextMetrics headingMetrics = typography.measure("AB", 28, 34);
 	assert(headingMetrics.width() == 48 && headingMetrics.height() == 34 && headingMetrics.advance() == 24);
-	assert(!typography.platformBacked());
-	UITypography platformTypography = UITypography.platform(42ULL, platformTypographyMeasure);
-	UITextMetrics platformMetrics = platformTypography.measure("System", 20, 26, 600);
-	assert(platformTypography.measure("System", 20, 26, 600) == platformMetrics && typographyMeasurementCalls == 1);
-	assert(platformTypography.platformBacked());
-	assert(platformMetrics.width() == 71 && platformMetrics.height() == 26 && platformMetrics.ascent() == 18 && platformMetrics.descent() == 5 && platformMetrics.advance() == 15);
+	int cachedBefore = typography.cachedMeasurementCount();
+	UITextMetrics systemMetrics = typography.measure("System", 20, 26, 600);
+	assert(typography.measure("System", 20, 26, 600) == systemMetrics && typography.cachedMeasurementCount() == cachedBefore + 1);
+	assert(systemMetrics.width() == 6 * typography.advance(20) && systemMetrics.height() == 26 && systemMetrics.ascent() == 16 && systemMetrics.descent() == 4 && systemMetrics.advance() == 17);
 	assert(typography.alignedX(10, 100, 8, 48, UI_TEXT_ALIGN_LEFT) == 18);
 	assert(typography.alignedX(10, 100, 8, 48, UI_TEXT_ALIGN_CENTER) == 36);
 	assert(typography.alignedX(10, 100, 8, 48, UI_TEXT_ALIGN_RIGHT) == 54);

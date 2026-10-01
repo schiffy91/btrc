@@ -1776,9 +1776,7 @@ class UIRaster {
 						if (textY >= image.height || textY + metrics.height() <= 0) { continue; }
 						int textX = typography.alignedX(x + style.paddingLeft(), box.bounds.width - style.horizontalPadding(), 0, metrics.width(), style.textAlignment());
 						UIColor color = style.hasForeground() ? style.foreground() : theme.text;
-						Image? platform = typography.platformRasterizes() ? typography.tintedPlatformRaster(value, style.fontSize(), style.lineHeight(), style.fontWeight(), color.rgba()) : null;
-						if (platform != null) { image.compositeImage(platform, textX, textY); }
-						else { UIRaster.text(image, textX, textY, value, color, style, typography); }
+						UIRaster.text(image, textX, textY, value, color, style, typography);
 					}
 				} else if (box.element.kind() == UI_IMAGE) {
 					Image? optionalImage = box.element.contentImage();
