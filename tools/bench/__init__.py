@@ -12,10 +12,12 @@ just as visible on a developer machine.
 Peak memory is guarded too: each program's compile peak, and with
 ``--peak-workload <workspace>`` the cold ``--jobs 1`` module-unit compile of a
 pinned whole program, the workload the M11 peak budget is written for. A peak
-more than 2% over its baseline fails the check. ``--peak-only`` skips every
-timing and ``--no-peaks`` the programs, so the M11 guard alone is::
+more than 2% (and at least 1 MiB) over its baseline fails the check, and
+``--peak-budget-gib`` fails a workload over an absolute budget whatever its
+baseline says. ``--peak-only`` skips every timing and ``--no-peaks`` the
+programs, so the M11 guard alone is::
 
-    python3 -m tools.bench check --peak-only --no-peaks --peak-workload ~/.cache/btrc/bsm-measure
+    python3 -m tools.bench check --peak-only --no-peaks --peak-budget-gib 3 --peak-workload ~/.cache/btrc/bsm-measure
     python3 -m tools.bench baseline --merge --peak-only --no-peaks --peak-workload ~/.cache/btrc/bsm-measure
 
 Run it where the workload builds (BTRSmith's dev shell, as tools/budget_bench.py

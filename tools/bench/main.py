@@ -108,6 +108,11 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--tolerance", type=float, help="relative slack for timings (default 0.35)")
     check.add_argument("--peak-tolerance", type=float, help="relative slack for peak memory (default 0.02)")
     check.add_argument("--strict", action="store_true", help="fail when this platform has no baseline")
+    check.add_argument(
+        "--peak-budget-gib",
+        type=float,
+        help="also fail when a workload's peak exceeds this many GiB (the M11 budget is 3), baseline or not",
+    )
     record = sub.add_parser("baseline", help="measure and record this platform's baseline")
     common(record)
     record.add_argument("--baseline", default=str(REPO / _baseline.BASELINE_PATH))
@@ -136,11 +141,18 @@ def main(argv: list[str] | None = None) -> int:
             "`baseline --merge --peak-only` so the guard stays tight",
             file=sys.stderr,
         )
+    over = _baseline.over_budget(metrics, args.peak_budget_gib)
+    for name in over:
+        print(
+            f"\n{name} is {metrics[name] / 2**30:.3f} GiB, over its {args.peak_budget_gib:g} GiB budget",
+            file=sys.stderr,
+        )
     if recorded is None:
         print(f"\nno baseline for {key}; record one with `make bench-baseline`", file=sys.stderr)
-        return 1 if args.strict else 0
+        return 1 if args.strict or over else 0
     if regressions:
         print(f"\n{len(regressions)} regression(s) against the {key} baseline", file=sys.stderr)
+    if regressions or over:
         return 1
     print(f"\nno regressions against the {key} baseline ({len(findings)} metrics)")
     return 0
