@@ -1,6 +1,13 @@
-"""Measure complete strict native-plan builds from both BTRC frontends.
+"""Measure complete strict native-plan builds of one program from both BTRC frontends.
 
-    python3 -m tools.perf ../btrsmith/src/BTRSmith.btrc --json build/perf/btrsmith.json
+    python3 -m tools.perf src/compiler/btrc/BtrccMain.btrc --json build/perf/self.json
+
+BTRSmith's bucket-1 budgets (cold, body, instance and interface edits, no-op,
+touch, batch, release, memory, worker sweeps, and the self-compile and corpus
+scaling workloads, on either frontend) belong to tools/budget_bench.py, which
+samples and verifies them as PLAN.md's acceptance tables require. This tool
+profiles one program's cold build: phase attribution, C statistics and
+input provenance.
 
 Use the program's development environment for SDKs and packages. Every sample
 transpiles into split units and builds all emitted/native/adapter units, then
