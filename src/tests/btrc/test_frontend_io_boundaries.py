@@ -798,7 +798,7 @@ def test_store_source_identity_survives_deduplicating_relinks(tmp_path: Path) ->
         f"    storeFiles.readRequired({json.dumps(str(stored))});\n"
         "    FeSourceFileReader localFiles = FeSourceFileReader();\n"
         f"    localFiles.readRequired({json.dumps(str(local))});\n"
-        f'    if (link({json.dumps(str(stored))}, {json.dumps(str(tmp_path / "links-entry"))}) != 0) {{ return 10; }}\n'
+        f"    if (link({json.dumps(str(stored))}, {json.dumps(str(tmp_path / 'links-entry'))}) != 0) {{ return 10; }}\n"
         "    if (!storeFiles.validateInputs().isEmpty()) { return 1; }\n"
         f"    if (rename({json.dumps(str(twins[0]))}, {json.dumps(str(stored))}) != 0) {{ return 11; }}\n"
         "    if (!storeFiles.validateInputs().isEmpty()) { return 2; }\n"
@@ -814,7 +814,19 @@ def test_store_source_identity_survives_deduplicating_relinks(tmp_path: Path) ->
     transpile = _reference(program, generated, timeout=300)
     assert transpile.returncode == 0, transpile.stderr
     native = subprocess.run(
-        [*CC, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", str(generated), "-o", str(executable), "-lm", "-lpthread"],
+        [
+            *CC,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(generated),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
         cwd=REPO,
         capture_output=True,
         text=True,
