@@ -415,7 +415,7 @@ class CallValidator {
 			substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, receiver);
 		} else if (self.state.interfaces.has(receiver.base)) {
 			method = self.interfaceMethod( receiver.base, methodName);
-			if (method == null) { TypeValidator.fail("Interface '" + receiver.base + "' has no method '" + methodName + "'", call); }
+			if (method == null) { TypeValidator.fail("Interface '" + receiver.base + "' has no method '" + methodName + "'", call); return; }
 			self.validateSignature(receiver.base + "." + methodName, method.params(), call, substitutions, false, vars);
 			self.borrows.validateOpaqueCallArguments(method, method.params(), call, receiver.base + "." + methodName, substitutions, false, vars);
 			self.ownership.validateTransferredArguments(method, call, vars);

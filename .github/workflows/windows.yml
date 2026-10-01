@@ -105,7 +105,13 @@ jobs:
         run: |
           python -m tools.compiler_codegen.main check
           mkdir -p dist build/btrcc/windows-x64
-          python -m src.compiler.python.main src/compiler/btrc/cli/WindowsMain.btrc --no-cache -o dist/btrcc-windows.c
+          # The compiler's own sources must analyze without a warning.
+          python -m src.compiler.python.main src/compiler/btrc/cli/WindowsMain.btrc --no-cache -o dist/btrcc-windows.c 2> build/btrcc-windows.stderr || { cat build/btrcc-windows.stderr; exit 1; }
+          cat build/btrcc-windows.stderr
+          if grep -q "^warning:" build/btrcc-windows.stderr; then
+            echo "::error::the Windows self-host transpile emitted $(grep -c '^warning:' build/btrcc-windows.stderr) analyzer warnings"
+            exit 1
+          fi
           zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/runtime/windows -include "$WIN_COMPAT_HEADER" dist/btrcc-windows.c -o build/btrcc/windows-x64/btrcc.exe -lm
           python -m src.compiler.python.main bundle --binary build/btrcc/windows-x64/btrcc.exe --target windows-x64 --output-dir dist --source-root .
           test -f dist/btrcc-windows-x64/bin/btrcc.exe
