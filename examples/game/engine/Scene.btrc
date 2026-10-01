@@ -9,7 +9,7 @@ import ./Light.btrc;
 import ./Material.btrc;
 import ./Ground.btrc;
 import ./Sky.btrc;
-import ./Gameobject.btrc;
+import ./GameObject.btrc;
 
 /* btrc 3D Engine -- Scene
  *

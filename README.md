@@ -1972,7 +1972,7 @@ examples/
   tray/                        # System tray application
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
     engine/                    # Camera, Light, Material, Ground, Sky, Scene,
-                               #   Input, Time, Gameobject, Renderer, Engine
+                               #   Input, Time, GameObject, Vector3, Renderer, Engine
     Game.btrc                  # The ball game (WASD + space to jump)
   sgd/                         # GPU-accelerated SGD -- @gpu, classes, Vector
   sgd-render/                  # The same training loop, drawn frame by frame

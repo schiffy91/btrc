@@ -1,6 +1,6 @@
 import Library.GPU.GPUUniformBuffer;
 
-import ./Gameobject.btrc;
+import ./Vector3.btrc;
 
 /* btrc 3D Engine -- Light
  *

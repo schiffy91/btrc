@@ -6,7 +6,7 @@ import Library.GPU.GPUReadback;
 
 import ./Input.btrc;
 import ./Time.btrc;
-import ./Gameobject.btrc;
+import ./GameObject.btrc;
 import ./Scene.btrc;
 
 /* The native application owns the window, GPU child and asynchronous programs.

@@ -1,14 +1,10 @@
 /* btrc 3D Engine — GameObject
  *
- * Unity-inspired game object with Vector3 position & velocity.
+ * Unity-inspired game object with Vector3 position & velocity (Vector3.btrc).
  * Gravity pulls down, ground plane at y=0 stops the fall.
  */
 
-struct Vector3 {
-	float x;
-	float y;
-	float z;
-};
+import ./Vector3.btrc;
 
 float GRAVITY = 20.0;
 float BALL_RADIUS = 0.5;
