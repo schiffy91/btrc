@@ -8,17 +8,28 @@ import Library.Vector;
 
 extern struct lconv* localeconv();
 
+enum JSONKind {
+	JSON_NULL = 0,
+	JSON_BOOL = 1,
+	JSON_NUMBER = 2,
+	JSON_STRING = 3,
+	JSON_ARRAY = 4,
+	JSON_OBJECT = 5,
+	JSON_ERROR = 6
+};
+
 /* ---------------------------------------------------------------------------
  * JSONValue: a real recursive JSON tree.
  *
  * A JSONValue is exactly one of: null, bool, number, string, array, object.
- * The active variant is recorded by `tag`:
- *     0 NULL   1 BOOL   2 NUMBER   3 STRING   4 ARRAY   5 OBJECT   6 ERROR
+ * The active variant is kind(), a JSONKind:
+ *     JSON_NULL JSON_BOOL JSON_NUMBER JSON_STRING JSON_ARRAY JSON_OBJECT JSON_ERROR
+ * whose values are 0 through 6, so comparisons against those integers hold.
  * ERROR is the sentinel returned by parse() on malformed input; it answers
  * true to isNull() (so callers that only check isNull stay safe) but can be
  * distinguished with isError().
  *
- * Payload fields (only the ones relevant to `tag` are meaningful):
+ * Private payload fields (only the ones relevant to the kind are meaningful):
  *     boolVal   : BOOL
  *     numVal    : NUMBER, stored as a C double; numIsInt records whether the
  *                 source token had no fraction/exponent (so isInt()/asInt()
@@ -27,6 +38,8 @@ extern struct lconv* localeconv();
  *     arr       : ARRAY elements, in order
  *     objKeys   : OBJECT keys, in insertion order (decoded)
  *     objVals   : OBJECT values, parallel to objKeys
+ *     keyIndex  : OBJECT key -> position, built once an object outgrows a
+ *                 short linear scan, so lookups and parsing stay linear
  *
  * ARC: arr / objVals are Vector<JSONValue> fields, so when a JSONValue is
  * destroyed the framework releases the vectors, which release every child
@@ -35,17 +48,18 @@ extern struct lconv* localeconv();
  * well-defined regardless of tag.
  * --------------------------------------------------------------------------- */
 class JSONValue {
-	public int tag;
-	public bool boolVal;
-	public double numVal;
-	public bool numIsInt;
-	public string strVal;
-	public Vector<JSONValue> arr;
-	public Vector<string> objKeys;
-	public Vector<JSONValue> objVals;
+	private JSONKind tag;
+	private bool boolVal;
+	private double numVal;
+	private bool numIsInt;
+	private string strVal;
+	private Vector<JSONValue> arr;
+	private Vector<string> objKeys;
+	private Vector<JSONValue> objVals;
+	private Map<string, int>? keyIndex;
 
 	public JSONValue() {
-		self.tag = 0;
+		self.tag = JSON_NULL;
 		self.boolVal = false;
 		self.numVal = 0.0;
 		self.numIsInt = true;
@@ -53,6 +67,7 @@ class JSONValue {
 		self.arr = [];
 		self.objKeys = [];
 		self.objVals = [];
+		self.keyIndex = null;
 	}
 
 	public void __del__() {
@@ -63,26 +78,26 @@ class JSONValue {
 
 	class JSONValue makeNull() {
 		var v = JSONValue();
-		v.tag = 0;
+		v.tag = JSON_NULL;
 		return v;
 	}
 
 	class JSONValue makeError() {
 		var v = JSONValue();
-		v.tag = 6;
+		v.tag = JSON_ERROR;
 		return v;
 	}
 
 	class JSONValue makeBool(bool b) {
 		var v = JSONValue();
-		v.tag = 1;
+		v.tag = JSON_BOOL;
 		v.boolVal = b;
 		return v;
 	}
 
 	class JSONValue makeInt(int n) {
 		var v = JSONValue();
-		v.tag = 2;
+		v.tag = JSON_NUMBER;
 		v.numVal = (double)n;
 		v.numIsInt = true;
 		return v;
@@ -91,28 +106,38 @@ class JSONValue {
 	class JSONValue makeFloat(double d) {
 		if (!Math.isFinite(d)) { return JSONValue.makeError(); }
 		var v = JSONValue();
-		v.tag = 2;
+		v.tag = JSON_NUMBER;
 		v.numVal = d;
 		v.numIsInt = false;
 		return v;
 	}
 
+	/* An integral number outside int's range, kept exactly as a double. */
+	class JSONValue makeIntegral(double d) {
+		if (!Math.isFinite(d)) { return JSONValue.makeError(); }
+		var v = JSONValue();
+		v.tag = JSON_NUMBER;
+		v.numVal = d;
+		v.numIsInt = true;
+		return v;
+	}
+
 	class JSONValue makeString(string s) {
 		var v = JSONValue();
-		v.tag = 3;
+		v.tag = JSON_STRING;
 		v.strVal = (s == null) ? "" : s;
 		return v;
 	}
 
 	class JSONValue makeArray() {
 		var v = JSONValue();
-		v.tag = 4;
+		v.tag = JSON_ARRAY;
 		return v;
 	}
 
 	class JSONValue makeObject() {
 		var v = JSONValue();
-		v.tag = 5;
+		v.tag = JSON_OBJECT;
 		return v;
 	}
 
@@ -121,70 +146,89 @@ class JSONValue {
 	public void push(JSONValue child) { self.arr.push(child); }
 
 	public void set(string key, JSONValue value) {
-		for (int i = 0; i < self.objKeys.len; i++) {
-			if (self.objKeys.get(i).equals(key)) {
-				self.objVals.set(i, value);
-				return;
-			}
+		int position = self.keyPosition(key);
+		if (position >= 0) {
+			self.objVals.set(position, value);
+			return;
 		}
 		self.objKeys.push(key);
 		self.objVals.push(value);
+		if (self.keyIndex != null) {
+			self.keyIndex.put(key, self.objKeys.len - 1);
+		} else if (self.objKeys.len > 8) {
+			Map<string, int> index = {};
+			for (int i = 0; i < self.objKeys.len; i++) {
+				index.put(self.objKeys.get(i), i);
+			}
+			self.keyIndex = index;
+		}
+	}
+
+	/* Position of key among objKeys, or -1. Small objects scan; larger ones
+	 * consult keyIndex. */
+	private int keyPosition(string key) {
+		if (key == null) { return -1; }
+		if (self.keyIndex != null) { return self.keyIndex.getOrDefault(key, -1); }
+		for (int i = 0; i < self.objKeys.len; i++) {
+			if (self.objKeys.get(i).equals(key)) { return i; }
+		}
+		return -1;
 	}
 
 	/* ---- Kind predicates ---------------------------------------------- */
 
-	public int kind() { return self.tag; }
+	public JSONKind kind() { return self.tag; }
 
-	public bool isNull() { return self.tag == 0 || self.tag == 6; }
+	public bool isNull() { return self.tag == JSON_NULL || self.tag == JSON_ERROR; }
 
-	public bool isError() { return self.tag == 6; }
+	public bool isError() { return self.tag == JSON_ERROR; }
 
-	public bool isBool() { return self.tag == 1; }
+	public bool isBool() { return self.tag == JSON_BOOL; }
 
-	public bool isNumber() { return self.tag == 2; }
+	public bool isNumber() { return self.tag == JSON_NUMBER; }
 
-	public bool isString() { return self.tag == 3; }
+	public bool isString() { return self.tag == JSON_STRING; }
 
-	public bool isArray() { return self.tag == 4; }
+	public bool isArray() { return self.tag == JSON_ARRAY; }
 
-	public bool isObject() { return self.tag == 5; }
+	public bool isObject() { return self.tag == JSON_OBJECT; }
 
-	public bool isInt() { return self.tag == 2 && self.numIsInt; }
+	public bool isInt() { return self.tag == JSON_NUMBER && self.numIsInt; }
 
 	/* ---- Accessors with safe defaults --------------------------------- */
 
 	public bool asBool() {
-		if (self.tag == 1) { return self.boolVal; }
+		if (self.tag == JSON_BOOL) { return self.boolVal; }
 		return false;
 	}
 
 	public int asInt() {
-		if (self.tag == 2 && self.numVal >= -2147483648.0 && self.numVal < 2147483648.0) {
+		if (self.tag == JSON_NUMBER && self.numVal >= -2147483648.0 && self.numVal < 2147483648.0) {
 			return (int)self.numVal;
 		}
 		return 0;
 	}
 
 	public double asFloat() {
-		if (self.tag == 2) { return self.numVal; }
+		if (self.tag == JSON_NUMBER) { return self.numVal; }
 		return 0.0;
 	}
 
 	public string asString() {
-		if (self.tag == 3) { return self.strVal; }
+		if (self.tag == JSON_STRING) { return self.strVal; }
 		return "";
 	}
 
 	/* size(): element count for arrays, key count for objects, else 0. */
 	public int size() {
-		if (self.tag == 4) { return self.arr.len; }
-		if (self.tag == 5) { return self.objKeys.len; }
+		if (self.tag == JSON_ARRAY) { return self.arr.len; }
+		if (self.tag == JSON_OBJECT) { return self.objKeys.len; }
 		return 0;
 	}
 
 	/* at(i): array element, or a null JSONValue if out of range / not array. */
 	public JSONValue at(int i) {
-		if (self.tag == 4 && i >= 0 && i < self.arr.len) {
+		if (self.tag == JSON_ARRAY && i >= 0 && i < self.arr.len) {
 			return self.arr.get(i);
 		}
 		return JSONValue.makeNull();
@@ -192,28 +236,19 @@ class JSONValue {
 
 	/* get(key): object member, or a null JSONValue if absent / not object. */
 	public JSONValue get(string key) {
-		if (self.tag == 5) {
-			for (int i = 0; i < self.objKeys.len; i++) {
-				if (self.objKeys.get(i).equals(key)) {
-					return self.objVals.get(i);
-				}
-			}
+		if (self.tag == JSON_OBJECT) {
+			int position = self.keyPosition(key);
+			if (position >= 0) { return self.objVals.get(position); }
 		}
 		return JSONValue.makeNull();
 	}
 
-	public bool has(string key) {
-		if (self.tag != 5) { return false; }
-		for (int i = 0; i < self.objKeys.len; i++) {
-			if (self.objKeys.get(i).equals(key)) { return true; }
-		}
-		return false;
-	}
+	public bool has(string key) { return self.tag == JSON_OBJECT && self.keyPosition(key) >= 0; }
 
 	/* keys(): a fresh Vector<string> of object keys (empty if not an object). */
 	public Vector<string> keys() {
 		Vector<string> result = [];
-		if (self.tag == 5) {
+		if (self.tag == JSON_OBJECT) {
 			for (int i = 0; i < self.objKeys.len; i++) {
 				result.push(self.objKeys.get(i));
 			}
@@ -267,36 +302,34 @@ class JSONValue {
 		if (depth <= 0 || indentWidth <= 0) { return; }
 		long long count = (long long)depth * (long long)indentWidth;
 		if (count > 2147483646LL) {
-			fprintf(stderr, "JSON indentation overflow\n");
-			exit(1);
+			throw "JSON indentation overflow";
 		}
 		output.appendRepeat(' ', (int)count);
 	}
 
 	private void writeJson(StringBuilder output, int depth, bool pretty, int indentWidth) {
-		if (depth >= 512 && (self.tag == 4 || self.tag == 5)) {
+		if (depth >= 512 && (self.tag == JSON_ARRAY || self.tag == JSON_OBJECT)) {
+			throw "JSON nesting exceeds 512 levels";
+		}
+		if (self.tag == JSON_NULL || self.tag == JSON_ERROR) {
 			output.append("null");
 			return;
 		}
-		if (self.tag == 0 || self.tag == 6) {
-			output.append("null");
-			return;
-		}
-		if (self.tag == 1) {
+		if (self.tag == JSON_BOOL) {
 			output.append(self.boolVal ? "true" : "false");
 			return;
 		}
-		if (self.tag == 2) {
+		if (self.tag == JSON_NUMBER) {
 			output.append(JSONNum.format(self.numVal, self.numIsInt));
 			return;
 		}
-		if (self.tag == 3) {
+		if (self.tag == JSON_STRING) {
 			output.appendChar((char)34);
 			JSONValue.appendEncodedString(output, self.strVal);
 			output.appendChar((char)34);
 			return;
 		}
-		if (self.tag == 4) {
+		if (self.tag == JSON_ARRAY) {
 			output.appendChar('[');
 			if (self.arr.len == 0) {
 				output.appendChar(']');
@@ -320,7 +353,7 @@ class JSONValue {
 			output.appendChar(']');
 			return;
 		}
-		if (self.tag == 5) {
+		if (self.tag == JSON_OBJECT) {
 			output.appendChar('{');
 			if (self.objKeys.len == 0) {
 				output.appendChar('}');
@@ -578,22 +611,25 @@ class JSONParser {
 					if (!self.ok) { return output.toString(); }
 					/* High surrogate: combine with a following \uXXXX low
                      * surrogate into one code point (BMP-pair → astral). */
-					if (cp >= 0xD800 && cp <= 0xDBFF) {
-						if (self.pos + 2 < self.len && self.text[self.pos + 1] == '\\' && self.text[self.pos + 2] == 'u') {
-							self.pos += 2;
-							var lo = self.readHex4();
-							if (!self.ok) { return output.toString(); }
-							if (lo >= 0xDC00 && lo <= 0xDFFF) {
-								cp = 0x10000 + ((cp - 0xD800) * 0x400) + (lo - 0xDC00);
-							} else {
-								/* Unpaired: emit U+FFFD for both. */
-								output.append(JSONNum.utf8(0xFFFD));
-								cp = lo;
-							}
-						} else {
+					/* A high surrogate not followed by a low one is replaced
+                     * alone; the escape after it gets its own chance to start
+                     * a pair, so a high surrogate before a valid pair is U+FFFD and the pair. */
+					while (cp >= 0xD800 && cp <= 0xDBFF) {
+						if (!(self.pos + 2 < self.len && self.text[self.pos + 1] == '\\' && self.text[self.pos + 2] == 'u')) {
 							cp = 0xFFFD;  /* lone high surrogate */
+							break;
 						}
-					} else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+						self.pos += 2;
+						var lo = self.readHex4();
+						if (!self.ok) { return output.toString(); }
+						if (lo >= 0xDC00 && lo <= 0xDFFF) {
+							cp = 0x10000 + ((cp - 0xD800) * 0x400) + (lo - 0xDC00);
+						} else {
+							output.append(JSONNum.utf8(0xFFFD));
+							cp = lo;
+						}
+					}
+					if (cp >= 0xDC00 && cp <= 0xDFFF) {
 						cp = 0xFFFD;  /* lone low surrogate */
 					}
 					output.append(JSONNum.utf8(cp));
@@ -701,10 +737,7 @@ class JSONParser {
 			return JSONValue.makeError();
 		}
 		if (isFloat) { return JSONValue.makeFloat(d); }
-		var v = JSONValue.makeInt(0);
-		v.numVal = d;
-		v.numIsInt = true;
-		return v;
+		return JSONValue.makeIntegral(d);
 	}
 }
 
