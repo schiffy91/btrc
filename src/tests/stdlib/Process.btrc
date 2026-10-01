@@ -10,12 +10,41 @@ string rendered(Command command) { return command; }
 int main() {
 	UnixShell sh = UnixShell();
 	Vector<string> emptyArguments = [];
+	// A malformed request throws; it is never reported as a child failure.
 	Vector<string> invalidArguments = [];
 	invalidArguments.len = -1;
-	assert(!ChildProcess.run("/bin/true", invalidArguments).ok());
+	bool invalidArgumentsRejected = false;
+	try {
+		ChildProcess.run("/bin/true", invalidArguments);
+	} catch (string error) {
+		invalidArgumentsRejected = error.contains("valid vector");
+	}
+	assert(invalidArgumentsRejected);
 	Vector<string> invalidEnvironment = [];
 	invalidEnvironment.len = -1;
-	assert(!ChildProcess.run("/bin/true", emptyArguments, environment=invalidEnvironment).ok());
+	bool invalidEnvironmentRejected = false;
+	try {
+		ChildProcess.run("/bin/true", emptyArguments, environment=invalidEnvironment);
+	} catch (string error) {
+		invalidEnvironmentRejected = error.contains("valid vectors");
+	}
+	assert(invalidEnvironmentRejected);
+	invalidArguments.len = 0;
+	invalidEnvironment.len = 0;
+	bool emptyExecutableRejected = false;
+	try {
+		ChildProcess.run("", emptyArguments);
+	} catch (string error) {
+		emptyExecutableRejected = error.contains("executable cannot be empty");
+	}
+	assert(emptyExecutableRejected);
+	bool inheritedDataRejected = false;
+	try {
+		ChildProcess.run("/bin/cat", emptyArguments, stdinData="x", stdinMode=CHILD_STDIN_INHERIT);
+	} catch (string error) {
+		inheritedDataRejected = error.contains("CHILD_STDIN_INHERIT");
+	}
+	assert(inheritedDataRejected);
 	string? missing = null;
 	Vector<string> nullArguments = [];
 	nullArguments.push(missing);
@@ -44,7 +73,7 @@ int main() {
 	assert(nullUnsetRejected);
 	bool nullModeRejected = false;
 	try {
-		ChildProcess.run("/bin/true", emptyArguments, stdout=missing);
+		ChildProcess.run("/bin/true", emptyArguments, stdout=COMMAND_OUTPUT_COMBINE);
 	} catch (string error) {
 		nullModeRejected = error.contains("invalid child output mode");
 	}
@@ -60,19 +89,22 @@ int main() {
 	assert(ProcessStatus(0).ok());
 	assert(ProcessStatus(7 << 8).code() == 7);
 	assert(!ProcessStatus(7 << 8).ok());
-	assert(Command("printf direct").render().equals("printf direct"));
-	string commandText = Command("printf direct");
+	// Command.command is argv[0]: it is quoted like every argument.
+	assert(Command("printf").arg("direct").render().equals("printf direct"));
+	assert(Command("my tool").arg("a b").render().equals("'my tool' 'a b'"));
+	string commandText = Command("printf").arg("direct");
 	assert(commandText.equals("printf direct"));
-	assert(rendered(Command("printf direct")).equals("printf direct"));
-	assert(f"{Command("printf direct")}".equals("printf direct"));
-	assert(sh.run(Command("printf direct")).trimmed().equals("direct"));
+	assert(rendered(Command("printf").arg("direct")).equals("printf direct"));
+	assert(f"{Command("printf").arg("direct")}".equals("printf direct"));
+	assert(sh.run(Command("printf").arg("direct")).trimmed().equals("direct"));
+	assert(sh.run(Command("printf direct"), logFailure=false).code == 127);
 	assert(sh.run(Command("printf").arg("world")).trimmed().equals("world"));
 	assert(sh.run("printf 'x'").trimmed().equals("x"));
 	assert(sh.run("false", logFailure=false).code == 1);
 	assert(sh.run("exit 7", logFailure=false).code == 7);
 	assert(sh.run("kill -TERM $$", logFailure=false).code == 143);
-	assert(sh.run("printf 'quiet'", stdout=CommandOutput.stream(), stderr=CommandOutput.stream()).code == 0);
-	assert(sh.run("printf 'err' >&2", stderr=CommandOutput.collect()).stderr().equals("err"));
+	assert(sh.run("printf 'quiet'", stdout=COMMAND_OUTPUT_STREAM, stderr=COMMAND_OUTPUT_STREAM).code == 0);
+	assert(sh.run("printf 'err' >&2", stderr=COMMAND_OUTPUT_COLLECT).stderr().equals("err"));
 	assert(sh.run("printf 'raw'", logFailure=true).trimmed().equals("raw"));
 	assert(sh.run("cat", stdin="secret input").stdout().equals("secret input"));
 	assert(sh.run("cat", stdin="line\n").stdout().equals("line\n"));

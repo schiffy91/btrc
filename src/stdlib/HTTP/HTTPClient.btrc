@@ -153,6 +153,6 @@ class Browser {
 			opener = "start";
 		}
 		var command = Command(opener).arg(url);
-		UnixShell().run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
+		UnixShell().run(command, stdout=COMMAND_OUTPUT_STREAM, stderr=COMMAND_OUTPUT_STREAM, logFailure=false);
 	}
 }

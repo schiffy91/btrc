@@ -59,7 +59,7 @@ class TrayCommands implements IAppKitRunLoopEvents {
 				self._head = (self._head + 1) % 256;
 				self._count--;
 				if (command.equals("__quit__")) { self.quit(); }
-				else { self._shell.run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false); self.refresh(); }
+				else { self._shell.run(command, stdout=COMMAND_OUTPUT_STREAM, stderr=COMMAND_OUTPUT_STREAM, logFailure=false); self.refresh(); }
 			}
 		} catch (string error) { self.failure = error; self.quit(); }
 		finally { self._dispatching = false; }

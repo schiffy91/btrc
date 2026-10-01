@@ -91,7 +91,7 @@ int childProbe(int argc, char** argv) {
 	return 64;
 }
 
-ExecResult mappedRun(string executable, int executableDescriptor, int sourceDescriptor, int childDescriptor, Vector<string> arguments, string stdout = CommandOutput.collect(), string stderr = CommandOutput.collect(), int timeoutMilliseconds = 2000) {
+ExecResult mappedRun(string executable, int executableDescriptor, int sourceDescriptor, int childDescriptor, Vector<string> arguments, CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COLLECT, int timeoutMilliseconds = 2000) {
 	Vector<ChildDescriptorMapping> mappings = [
 		ChildDescriptorMapping(sourceDescriptor, childDescriptor)
 	];
@@ -100,9 +100,13 @@ ExecResult mappedRun(string executable, int executableDescriptor, int sourceDesc
 
 void assertRejected(string executable, Vector<ChildDescriptorMapping> mappings, string expected) {
 	Vector<string> arguments = [];
-	ExecResult result = ChildProcess.run(executable, arguments, descriptorMappings=mappings);
-	assert(result.code == 127);
-	assert(result.stderr().contains(expected));
+	bool rejected = false;
+	try {
+		ChildProcess.run(executable, arguments, descriptorMappings=mappings);
+	} catch (string error) {
+		rejected = error.contains(expected);
+	}
+	assert(rejected);
 }
 
 int main(int argc, char** argv) {
@@ -150,7 +154,7 @@ int main(int argc, char** argv) {
 		assert(working.stderr().contains("require native Linux"));
 		assert(close(directoryDescriptor) == 0);
 
-		ExecResult streamed = ChildProcess.run(executable, ["--plain-stream-probe"], stdout=CommandOutput.suppress(), stderr=CommandOutput.stream());
+		ExecResult streamed = ChildProcess.run(executable, ["--plain-stream-probe"], stdout=COMMAND_OUTPUT_SUPPRESS, stderr=COMMAND_OUTPUT_STREAM);
 		assert(streamed.ok());
 		assert(streamed.stdout().isEmpty());
 		assert(streamed.stderr().isEmpty());
@@ -208,15 +212,19 @@ int main(int argc, char** argv) {
 		assertRejected(executable, duplicateTargets, "duplicate child descriptor target");
 
 		Vector<string> noArguments = [];
-		ExecResult conflictingCwd = ChildProcess.run(executable, noArguments, cwd=root, workingDirectoryDescriptor=cwdDescriptor);
-		assert(conflictingCwd.code == 127);
-		assert(conflictingCwd.stderr().contains("cannot both be set"));
+		bool conflictingCwdRejected = false;
+		try {
+			ChildProcess.run(executable, noArguments, cwd=root, workingDirectoryDescriptor=cwdDescriptor);
+		} catch (string error) {
+			conflictingCwdRejected = error.contains("cannot both be set");
+		}
+		assert(conflictingCwdRejected);
 		ExecResult invalidCwd = ChildProcess.run(executable, noArguments, workingDirectoryDescriptor=sourceDescriptor);
 		assert(invalidCwd.code == 127);
 		assert(invalidCwd.stderr().contains("working directory descriptor is invalid"));
 
 		assert(lseek(sourceDescriptor, (off_t)0, SEEK_SET) == (off_t)0);
-		ExecResult streamed = mappedRun(executable, executableDescriptor, sourceDescriptor, 42, ["--stream-probe", "42", expected], stdout=CommandOutput.suppress(), stderr=CommandOutput.stream());
+		ExecResult streamed = mappedRun(executable, executableDescriptor, sourceDescriptor, 42, ["--stream-probe", "42", expected], stdout=COMMAND_OUTPUT_SUPPRESS, stderr=COMMAND_OUTPUT_STREAM);
 		assert(streamed.ok());
 		assert(streamed.stdout().isEmpty());
 		assert(streamed.stderr().isEmpty());

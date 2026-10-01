@@ -826,20 +826,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("isSafeArg", "bool", "method", (("string", "raw"),), "isSafeArg"),
         BuiltinMemberSpec("quote", "string", "method", (("string", "raw"),), "quote"),
         BuiltinMemberSpec("redact", "string", "method", (("string", "text"), ("string", "sensitive"),), "redact"),
-        BuiltinMemberSpec("envAssignment", "string", "method", (("string", "item"),), "envAssignment"),
-    )),
-    ("CommandOutput", (
-        BuiltinMemberSpec("collect", "string", "method", (), "collect"),
-        BuiltinMemberSpec("stream", "string", "method", (), "stream"),
-        BuiltinMemberSpec("combine", "string", "method", (), "combine"),
-        BuiltinMemberSpec("suppress", "string", "method", (), "suppress"),
-        BuiltinMemberSpec("valid", "bool", "method", (("string", "mode"),), "valid"),
-    )),
-    ("CommandEnvironment", (
-        BuiltinMemberSpec("empty", "Vector<string>", "method", (), "empty"),
-    )),
-    ("ChildDescriptorMappings", (
-        BuiltinMemberSpec("empty", "Vector<ChildDescriptorMapping>", "method", (), "empty"),
     )),
     ("ChildProcessClock", (
         BuiltinMemberSpec("millisecondsFrom", "long long", "method", (("uintmax_t", "seconds"), ("long", "nanoseconds"),), "millisecondsFrom"),
@@ -877,8 +863,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("closePipe", "void", "method", (("int*", "descriptors"),), "closePipe"),
         BuiltinMemberSpec("openPipe", "int", "method", (("int*", "descriptors"),), "openPipe"),
         BuiltinMemberSpec("failure", "ExecResult", "method", (("string", "command"), ("string", "message"),), "failure"),
+        BuiltinMemberSpec("validOutputs", "bool", "method", (("CommandOutput", "stdout"), ("CommandOutput", "stderr"),), "validOutputs"),
+        BuiltinMemberSpec("validateDescriptorMappings", "int", "method", (("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "descriptorBound"),), "validateDescriptorMappings"),
         BuiltinMemberSpec("render", "string", "method", (("string", "executable"), ("Vector<string>", "arguments"),), "render"),
-        BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"),), "run"),
+        BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("CommandOutput", "stdout"), ("CommandOutput", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"), ("ChildStdin", "stdinMode"),), "run"),
     )),
     ("Regex", (
         BuiltinMemberSpec("checkedLength", "int", "method", (("string", "text"),), "checkedLength"),

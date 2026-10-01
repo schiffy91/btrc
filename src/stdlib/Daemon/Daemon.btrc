@@ -48,14 +48,6 @@ class DaemonSpec {
 		return self;
 	}
 
-	private string renderedCommand() {
-		Vector<string> parts = [ShellWords.quote(self.command.command)];
-		for argument in self.command.arguments {
-			parts.push(ShellWords.quote(argument));
-		}
-		return parts.join(" ");
-	}
-
 	private string supervisorScript() {
 		/* Noninteractive Linux shells may accept `set -m` while leaving children
 		 * in the supervisor's process group. Prefer setsid where available and
@@ -86,7 +78,7 @@ class DaemonSpec {
 		string stop = DaemonControlPaths.stop(self.pidFile, token);
 		string probePrefix = DaemonControlPaths.probePrefix(self.pidFile, token);
 		string restart = self.autoRestart ? "1" : "0";
-		return "umask 077; nohup /bin/sh -c " + ShellWords.quote(self.supervisorScript()) + " btrc-daemon-supervisor " + ShellWords.quote(token) + " " + ShellWords.quote(self.renderedCommand()) + " " + ShellWords.quote(self.pidFile) + " " + ShellWords.quote(stop) + " " + ShellWords.quote(probePrefix) + " " + restart + " " + ShellWords.quote(self.workingDirectory) + " </dev/null >> " + ShellWords.quote(self.logFile) + " 2>&1 &";
+		return "umask 077; nohup /bin/sh -c " + ShellWords.quote(self.supervisorScript()) + " btrc-daemon-supervisor " + ShellWords.quote(token) + " " + ShellWords.quote(self.command.render()) + " " + ShellWords.quote(self.pidFile) + " " + ShellWords.quote(stop) + " " + ShellWords.quote(probePrefix) + " " + restart + " " + ShellWords.quote(self.workingDirectory) + " </dev/null >> " + ShellWords.quote(self.logFile) + " 2>&1 &";
 	}
 }
 

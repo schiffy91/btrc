@@ -1,13 +1,19 @@
-btrc-symbols 1 9017ca2f-235849-26
+btrc-symbols 1 dc74b3df-239664-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
 BorrowedClosure	Callback.btrc
 Bytes	Bytes.btrc
+CHILD_STDIN_INHERIT	Process.btrc
+CHILD_STDIN_NULL	Process.btrc
 CLIArgs	CLI.btrc
 CLICommand	CLI.btrc
 CLICommandLine	CLI.btrc
 CLIHelp	CLI.btrc
+COMMAND_OUTPUT_COLLECT	Process.btrc
+COMMAND_OUTPUT_COMBINE	Process.btrc
+COMMAND_OUTPUT_STREAM	Process.btrc
+COMMAND_OUTPUT_SUPPRESS	Process.btrc
 CallbackCancellation	Callback.btrc
 CallbackContext	Callback.btrc
 CallbackRegistration	Callback.btrc
@@ -17,15 +23,14 @@ CallbackScope	Callback.btrc
 CallbackState	Callback.btrc
 CallbackToken	Callback.btrc
 ChildDescriptorMapping	Process.btrc
-ChildDescriptorMappings	Process.btrc
 ChildProcess	Process.btrc
 ChildProcessArguments	Process.btrc
 ChildProcessCapture	Process.btrc
 ChildProcessClock	Process.btrc
 ChildProcessEnvironment	Process.btrc
 ChildProcessExecutable	Process.btrc
+ChildStdin	Process.btrc
 Command	Process.btrc
-CommandEnvironment	Process.btrc
 CommandOutput	Process.btrc
 CompiledRegex	Regex.btrc
 Complete	Callback.btrc
@@ -59,9 +64,17 @@ ICallbackRegistration	Callback.btrc
 IOError	Error.btrc
 IndexError	Error.btrc
 Iterable	Iterable.btrc
+JSONKind	JSON.btrc
 JSONNum	JSON.btrc
 JSONParser	JSON.btrc
 JSONValue	JSON.btrc
+JSON_ARRAY	JSON.btrc
+JSON_BOOL	JSON.btrc
+JSON_ERROR	JSON.btrc
+JSON_NULL	JSON.btrc
+JSON_NUMBER	JSON.btrc
+JSON_OBJECT	JSON.btrc
+JSON_STRING	JSON.btrc
 KeyError	Error.btrc
 List	List.btrc
 ListNode	List.btrc
