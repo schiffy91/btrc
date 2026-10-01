@@ -135,11 +135,11 @@ class DaemonControlPaths {
 		return PathTools.join(temporary, f"btrc-daemons-{Platform.euid()}");
 	}
 
-	class string stop(string pidFile, string token) { return f"{pidFile}.{token}.stop"; }
+	class string stop(string controlFile, string token) { return f"{controlFile}.{token}.stop"; }
 
-	class string probePrefix(string pidFile, string token) { return f"{pidFile}.{token}.probe"; }
+	class string probePrefix(string controlFile, string token) { return f"{controlFile}.{token}.probe"; }
 
-	class string probe(string pidFile, string token, string challenge) { return f"{DaemonControlPaths.probePrefix(pidFile, token)}.{challenge}"; }
+	class string probe(string controlFile, string token, string challenge) { return f"{DaemonControlPaths.probePrefix(controlFile, token)}.{challenge}"; }
 
 	class string acknowledgement(string probe) { return probe + ".ack"; }
 }

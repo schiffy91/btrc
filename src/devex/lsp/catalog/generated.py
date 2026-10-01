@@ -415,9 +415,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("validDaemonName", "bool", "method", (("string", "name"),), "validDaemonName"),
         BuiltinMemberSpec("absolute", "bool", "method", (("string", "path"),), "absolute"),
         BuiltinMemberSpec("defaultDirectory", "string", "method", (), "defaultDirectory"),
-        BuiltinMemberSpec("stop", "string", "method", (("string", "pidFile"), ("string", "token"),), "stop"),
-        BuiltinMemberSpec("probePrefix", "string", "method", (("string", "pidFile"), ("string", "token"),), "probePrefix"),
-        BuiltinMemberSpec("probe", "string", "method", (("string", "pidFile"), ("string", "token"), ("string", "challenge"),), "probe"),
+        BuiltinMemberSpec("stop", "string", "method", (("string", "controlFile"), ("string", "token"),), "stop"),
+        BuiltinMemberSpec("probePrefix", "string", "method", (("string", "controlFile"), ("string", "token"),), "probePrefix"),
+        BuiltinMemberSpec("probe", "string", "method", (("string", "controlFile"), ("string", "token"), ("string", "challenge"),), "probe"),
         BuiltinMemberSpec("acknowledgement", "string", "method", (("string", "probe"),), "acknowledgement"),
     )),
     ("DaemonControlFiles", (
@@ -440,10 +440,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("DaemonControlProtocol", (
         BuiltinMemberSpec("pauseBeforeRetry", "bool", "method", (("long long", "deadline"),), "pauseBeforeRetry"),
         BuiltinMemberSpec("randomToken", "string", "method", (), "randomToken"),
-        BuiltinMemberSpec("record", "DaemonControlRecord", "method", (("string", "pidFile"),), "record"),
-        BuiltinMemberSpec("probe", "bool", "method", (("string", "pidFile"), ("DaemonControlRecord", "record"), ("int", "timeoutMilliseconds"),), "probe"),
-        BuiltinMemberSpec("waitForRecord", "bool", "method", (("string", "pidFile"), ("int", "timeoutMilliseconds"),), "waitForRecord"),
-        BuiltinMemberSpec("waitForRemoval", "bool", "method", (("string", "pidFile"), ("DaemonControlRecord", "original"), ("int", "timeoutMilliseconds"),), "waitForRemoval"),
+        BuiltinMemberSpec("record", "DaemonControlRecord", "method", (("string", "controlFile"),), "record"),
+        BuiltinMemberSpec("probe", "bool", "method", (("string", "controlFile"), ("DaemonControlRecord", "record"), ("int", "timeoutMilliseconds"),), "probe"),
+        BuiltinMemberSpec("waitForRecord", "bool", "method", (("string", "controlFile"), ("int", "timeoutMilliseconds"),), "waitForRecord"),
+        BuiltinMemberSpec("waitForRemoval", "bool", "method", (("string", "controlFile"), ("DaemonControlRecord", "original"), ("int", "timeoutMilliseconds"),), "waitForRemoval"),
     )),
     ("ApplicationDirectories", (
         BuiltinMemberSpec("resolve", "ApplicationDirectoryRootsOutcome", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
