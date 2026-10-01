@@ -69,6 +69,13 @@ Each stage records its exit evidence here as it closes; measurements and commit 
 - **Locks.** `~/.cache/btrc/locks/{gate,bench,linux-ci,guest,gui-capture,signing}` plus the two-slot `btrcc-build` semaphore, taken through `~/.cache/btrc/tools/withlock.sh` (macOS `lockf`).
 - **Docs.** CLAUDE.md's current-state section and host capacity rules; this plan's Corrections section; the P6 table made identical in `platform-parity.md`.
 
+### Stage 2: baselines, CI health, evidence and skip ledgers (started 2026-09-30)
+- **Pilot (sizing the fan-outs).** One builder and one read-only auditor, run together (workflow `wf_86fc7278-dbe`):
+  - **Builder, the daemon-deadline fix** (`c110056` on `stage2/daemon-deadline`): 129 turns, 68k output tokens, 17.4M cache-read tokens, about 27 minutes including a cold btrcc build. It found the real cause: not a tight deadline but a check-then-read race in `DaemonControlProtocol.waitForRemoval` (and the same ordering in `stop()`'s reuse of a pending request). A record the exiting supervisor deleted between `absent()` and `record()` read as "replaced", so a daemon that had stopped returned 124 within 0.15–2.1 s of 5–7.5 s budgets. Under CPU load: 3 of 376 runs failed before, 0 of 256 after; with a 5 ms window injected, 12 of 16 before and 0 of 16 after. No deadline changed; a new deterministic SIGSTOP case covers the deadline path.
+  - **Auditor, stdlib FileSystem/BackgroundJobs/Daemon/LocalApplicationChannel**: 129 turns, 75k output tokens, 24.3M cache-read tokens; 32 concrete findings, fed into Stage 4 wave 1.
+  - **Sizing.** The weekly meter moved about one point for both together, so a builder or an auditor costs roughly half a point. Builder fan-outs are sized at up to 8 concurrent lanes and auditor waves at up to 20 agents, with the usage meter checked after every stage.
+- **Docs-only since the last green code record.** `git diff 1cadaf4..main` touches only `.md` files, so the `1cadaf4` record (12,439 passed / 172 skipped; test-c11 8 × 1,934) is the code baseline.
+
 ## Decisions (all resolved 2026-09-30)
 
 Every decision below is settled. Where stage text further down still says "you approve", "you close", "if approved", "your checklist" or "blocked on push", the resolution in this section and the standing approvals after it govern. No stage waits on a decision.
