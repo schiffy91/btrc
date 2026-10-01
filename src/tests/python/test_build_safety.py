@@ -164,7 +164,7 @@ def test_devcontainer_context_excludes_repo_state_and_stages_lsp_runtime():
         "**/.DS_Store",
     ):
         assert local_state in ignored
-    for source in ("src/compiler/python/", "src/devex/lsp/", "src/language/", "src/stdlib/"):
+    for source in ("src/compiler/python/", "src/devex/lsp/", "src/language/", "src/stdlib/", "src/runtime/gpu/"):
         assert f"COPY --chown=${{uid}}:${{uid}} {source}" in containerfile
     assert "!src/compiler/**" not in ignored
 
