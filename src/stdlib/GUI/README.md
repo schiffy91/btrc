@@ -453,5 +453,9 @@ backing scale, so measurement and drawing agree at fractional scales.
   bound.
 
 `src/tests/native/gui/linux/LinuxGUIControls.btrc` is the live regression:
-clicks, typing, a select choice, a slider drag, wheel scrolling, subscription
-capture and a readback pixel check on a real window.
+clicks, typing, clipboard paste, a select choice, a slider drag, wheel
+scrolling, subscription capture, worker-made image handles, contract errors
+and readback pixel checks on a real window. `LinuxGUIShutdown.btrc` proves a
+subtree that never finishes closing fails `run()` after the drain deadline.
+Linux CI offers no display, so both skip there; locally they run under Xvfb
+with Mesa's lavapipe Vulkan driver.
