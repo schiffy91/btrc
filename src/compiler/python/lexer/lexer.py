@@ -622,6 +622,12 @@ class Lexer:
         self._literal_scanner = LiteralScanner(self)
         self._complete = False
 
+    def start_at(self, line: int, col: int) -> Lexer:
+        """Position an embedded source, such as an f-string interpolation, in its file."""
+        self.line = line
+        self.col = col
+        return self
+
     def tokenize(self) -> list[Token]:
         if self._failure is not None:
             raise self._failure

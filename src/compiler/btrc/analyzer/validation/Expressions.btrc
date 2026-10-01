@@ -472,7 +472,7 @@ class ExpressionValidator {
 		return method != null && method.kind == NK_METHOD_DECL;
 	}
 
-	public void operatorFailure(Node expression, Node left, Node right) { TypeValidator.fail("operator '" + expression.op + "' is not defined for '" + self.types.formatType(left) + "' and '" + self.types.formatType(right) + "'", expression); }
+	public void operatorFailure(Node expression, Node left, Node right) { TypeValidator.fail("Operator '" + expression.op + "' is not defined for '" + self.types.formatType(left) + "' and '" + self.types.formatType(right) + "'", expression); }
 
 	public void validatePortableNumericMix(Node site, Node left, Node right, string context) {
 		if (NumericSemantics.isType(left, self.state.analyzed) && NumericSemantics.isType(right, self.state.analyzed) && !NumericSemantics.integerMixIsPortable(left, right)) {
@@ -495,13 +495,20 @@ class ExpressionValidator {
 		if (op == "??") {
 			bool optionalScalar = self.operators.isOptionalValueCoalesce(expression.left, left, right);
 			valid = optionalScalar || (self.operators.isReferenceType(left) && (self.types.assignmentCompatible(left, right) || self.types.assignmentCompatible(right, left)));
+			if (!valid && self.operators.isOptionalValueExpression(expression.left) && !self.operators.isReferenceType(left)) {
+				TypeValidator.fail("null-coalescing optional value and fallback are incompatible: '" + self.types.formatType(left) + "' and '" + self.types.formatType(right) + "'", expression);
+			}
+			if (!valid) {
+				TypeValidator.fail("left operand of '??' must be a reference or optional-chain value; got '" + self.types.formatType(left) + "' and '" + self.types.formatType(right) + "'", expression);
+			}
 		} else if (op == "&&" || op == "||") {
 			valid = self.types.scalarConditionType(left) && self.types.scalarConditionType(right);
 		} else if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
 			valid = self.types.integralType(left, self.state.analyzed) && self.types.integralType(right, self.state.analyzed);
 		} else if (op == "+" || op == "-") {
 			valid = (NumericSemantics.isType(left, self.state.analyzed)
-				&& NumericSemantics.isType(right, self.state.analyzed))
+				&& NumericSemantics.isType(right, self.state.analyzed)
+				&& left.base != "bool" && right.base != "bool")
 				|| (op == "+" && TypeComposition.isSemanticScalarString(left)
 				&& TypeComposition.isSemanticScalarString(right))
 				|| (self.rawPointer(left, self.state.analyzed)
@@ -630,9 +637,11 @@ class ExpressionValidator {
 			}
 			self.validateExpr(expression.valueNode,  vars);
 			self.ownership.rejectShallowStore(expression, vars);
+			/* The assignment's own type rules report a mismatched value before
+			 * the representation rule for what it would store. */
+			self.storage.validateAssignment(expression,  vars);
 			Node? assignmentTarget = self.types.inferType(expression.target, vars);
 			self.borrows.validateOpaqueBorrowStorage(assignmentTarget, expression.valueNode, "Assignment", vars);
-			self.storage.validateAssignment(expression,  vars);
 		} else if (expression.kind == NK_CALL_EXPR) {
 			self.contextualizeCallGenericConstructors(expression,  vars);
 			/* An unresolved direct identifier call is the deliberate C-interop

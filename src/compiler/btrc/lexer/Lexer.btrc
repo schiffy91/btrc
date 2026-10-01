@@ -31,6 +31,12 @@ class Lexer {
 		self.diagnostic = "";
 	}
 
+	/* Position an embedded source, such as an f-string interpolation, in its file. */
+	public void startAt(int line, int col) {
+		self.line = line;
+		self.col = col;
+	}
+
 	public Vector<Token> tokenize() {
 		if (self.complete) { return self.tokens; }
 		while (!self.atEnd() && !self.failed) {

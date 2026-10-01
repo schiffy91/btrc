@@ -125,6 +125,11 @@ INVALID_PROBES = (
         GpuDiagnostic("@gpu function 'k': type 'double' not allowed in parameter 'd' (use int, float, or bool)", 1, 6),
     ),
     GpuProbe(
+        "var-double-cast",
+        "@gpu void k(float[] fs) {\nint i = gpu_id();\nvar s = (double)1;\nfs[i] = 1.0;\n}\nint main() { return 0; }\n",
+        GpuDiagnostic("@gpu function 'k': cast target 'double' has no WGSL scalar representation", 3, 9),
+    ),
+    GpuProbe(
         "return-int",
         "@gpu int k(int[] xs) {\nreturn 1;\n}\nint main() { return 0; }\n",
         GpuDiagnostic("@gpu function 'k': return type must be void, int[], or float[], got 'int'", 1, 6),
@@ -660,6 +665,11 @@ VALID_PROBES = (
     GpuProbe(
         "valid-early-return",
         "@gpu void k(int[] xs) {\nint i = gpu_id();\nif (i >= 2) { return; }\nxs[i] = 0;\n}\nint main() { int[] xs = {1, 2, 3, 4}; k(xs); return 0; }\n",
+        kernels=("k",),
+    ),
+    GpuProbe(
+        "valid-var-float-literal",
+        "@gpu void k(float[] fs, int[] xs) {\nint i = gpu_id();\nvar a = 0.5 * 2;\nvar b = xs[i] > 1 ? 1 : 2.5;\nvar c = sqrt(fs[i]);\nfs[i] = a + b + c;\n}\nint main() { float[] fs = {4.0}; int[] xs = {2}; k(fs, xs); return 0; }\n",
         kernels=("k",),
     ),
     GpuProbe(

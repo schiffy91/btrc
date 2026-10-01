@@ -583,7 +583,7 @@ def test_unrelated_unknown_values_fail_before_derivative_inference(
 ) -> None:
     selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
     assert selfhost.returncode != 0
-    assert f"Unknown identifier '{symbol}'" in selfhost.stderr
+    assert f"Unresolved identifier '{symbol}' used as a value" in selfhost.stderr
     assert "Cannot infer type" not in selfhost.stderr
     assert "Cannot infer lambda expression return type" not in selfhost.stderr
     assert reference.returncode != 0

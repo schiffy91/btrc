@@ -336,7 +336,8 @@ class CallValidator {
 		/* Resolve only the outer alias: flattening the parameter aliases would
          * move a `const` written on an aliased pointee onto the wrong
          * declarator layer, and the argument checks resolve aliases themselves. */
-		Node? calleeType = SemanticTypeSystem.directFunctionPointerSpecialization(self.types.inferType(callee, vars), self.state.analyzed);
+		Node? rawCalleeType = self.types.inferType(callee, vars);
+		Node? calleeType = SemanticTypeSystem.directFunctionPointerSpecialization(rawCalleeType, self.state.analyzed);
 		if (calleeType != null) {
 			Vector<Node> callableParams = [];
 			int callableIndex = 1;
@@ -353,8 +354,8 @@ class CallValidator {
 			return;
 		}
 		if (callee.kind != NK_FIELD_ACCESS_EXPR) {
-			if (calleeType != null) {
-				TypeValidator.fail("Expression is not callable", call);
+			if (rawCalleeType != null) {
+				TypeValidator.fail("Expression of type '" + self.types.formatType(rawCalleeType) + "' is not callable", call);
 			}
 			return;
 		}
@@ -466,7 +467,7 @@ class CallValidator {
 		if (!vars.has(name)) { return false; }
 		Node? resolvedCallable = SemanticTypeSystem.directFunctionPointerSpecialization(vars.get(name), self.state.analyzed);
 		if (resolvedCallable == null) {
-			TypeValidator.fail("Value '" + name + "' is not callable", call);
+			TypeValidator.fail("Resolved value '" + name + "' of type '" + self.types.formatType(vars.get(name)) + "' is not callable", call.callee);
 		}
 		Node callable = resolvedCallable;
 		Vector<Node> params = [];

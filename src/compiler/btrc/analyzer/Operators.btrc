@@ -399,7 +399,7 @@ class OperatorSemantics {
 		return null;
 	}
 
-	private bool isOptionalValueExpression(Node? expression) {
+	public bool isOptionalValueExpression(Node? expression) {
 		if (expression == null) { return false; }
 		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
 			return expression.optional;

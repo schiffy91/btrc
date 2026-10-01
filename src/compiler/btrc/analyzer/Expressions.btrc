@@ -225,10 +225,19 @@ class ExpressionTypeResolver {
 	/* On-demand type inference for an expression node, given a map of in-scope
      * variable name -> declared TypeExpr node. Returns a TypeExpr Node, or null if
      * the type is unknown (mirrors Python's node_types.get returning None). */
+	private bool boolScalar(Node? typeExpr, Analyzed analyzed) {
+		Node? resolved = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, analyzed.typedefTable);
+		return resolved != null && resolved.base == "bool" && NumericSemantics.isScalar(resolved);
+	}
+
 	private Node? binaryTypeFromOperands(Node expression, Node? leftType, Node? rightType, Analyzed analyzed, OperatorSemantics operators) {
 		Node? overloaded = operators.overloadReturnType(leftType, expression.op, false);
 		if (overloaded != null) { return overloaded; }
 		if (SemanticTypeSystem.isComparisonOperator(expression.op)) {
+			return SemanticTypeSystem.primitive("bool");
+		}
+		/* Bitwise operators over two bools are non-short-circuit logic and stay bool. */
+		if ((expression.op == "&" || expression.op == "|" || expression.op == "^") && self.boolScalar(leftType, analyzed) && self.boolScalar(rightType, analyzed)) {
 			return SemanticTypeSystem.primitive("bool");
 		}
 		Node? pointerType = operators.pointerArithmeticType(leftType, rightType, expression.op);

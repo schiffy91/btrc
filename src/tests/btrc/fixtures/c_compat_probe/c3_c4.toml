@@ -383,10 +383,9 @@ row = "18"
 construct = "#if 0 hides a duplicate definition"
 intent = "positive"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Duplicate function name 'value': duplicate definition at 4:1" }
-btrcc = { diagnostic = "Duplicate top-level declaration 'value' at 4:1" }
+revision = "b5749e6"
+python = { diagnostic = "Duplicate definition of function 'value' at 4:1" }
+btrcc = { diagnostic = "Duplicate definition of function 'value' at 4:1" }
 source = '''
 #if 0
 int value() { return 1; }
@@ -405,10 +404,9 @@ row = "18"
 construct = "#ifdef / #else select one definition"
 intent = "positive"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Duplicate function name 'speed': duplicate definition at 5:1" }
-btrcc = { diagnostic = "Duplicate top-level declaration 'speed' at 5:1" }
+revision = "b5749e6"
+python = { diagnostic = "Duplicate definition of function 'speed' at 5:1" }
+btrcc = { diagnostic = "Duplicate definition of function 'speed' at 5:1" }
 source = '''
 #define USE_FAST 1
 #ifdef USE_FAST
@@ -706,10 +704,9 @@ row = "x-pointer-compound-assignment"
 construct = "p += 2; p -= 1; on a pointer"
 intent = "positive"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
+revision = "b5749e6"
 python = { diagnostic = "Operator '+=' is not defined for 'int*' and 'int' at 5:2" }
-btrcc = { diagnostic = "operator '+=' is not defined for 'int*' and 'int' at 5:2" }
+btrcc = { diagnostic = "Operator '+=' is not defined for 'int*' and 'int' at 5:2" }
 source = '''
 #include <assert.h>
 int main() {
@@ -729,10 +726,9 @@ row = "x-pointer-compound-assignment"
 construct = "p *= 2 on a pointer is invalid C"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
+revision = "b5749e6"
 python = { diagnostic = "Operator '*=' is not defined for 'int*' and 'int' at 4:2" }
-btrcc = { diagnostic = "operator '*=' is not defined for 'int*' and 'int' at 4:2" }
+btrcc = { diagnostic = "Operator '*=' is not defined for 'int*' and 'int' at 4:2" }
 source = '''
 int main() {
 	int values[2] = {1, 2};

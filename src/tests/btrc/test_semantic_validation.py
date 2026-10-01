@@ -119,7 +119,7 @@ def _strict_build_and_run(
         ('int main() { return "oops"; }', "Return type mismatch"),
         ('int main() { int x = "oops"; return 0; }', "Cannot assign"),
         ("int main() { bool x = 3; return 0; }", "Cannot assign"),
-        ('int main() { return 1 + "x"; }', "operator '+'"),
+        ('int main() { return 1 + "x"; }', "Operator '+'"),
         (
             'int f(int x) { return x; } int main() { return f("x"); }',
             "expects 'int'",
@@ -511,7 +511,7 @@ def test_type_name_shadowing_uses_instance_member_lookup(
         ),
         (
             "int value() { return 1; } int value() { return 2; } int main() { return 0; }",
-            "Duplicate top-level declaration 'value'",
+            "Duplicate definition of function 'value'",
         ),
         (
             "class A { public int value; public int value; } int main() { return 0; }",
