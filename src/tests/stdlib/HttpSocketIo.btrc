@@ -105,7 +105,9 @@ int main() {
 	int closedPair[2];
 	assert(socketpair((int)AF_UNIX, (int)SOCK_STREAM, 0, closedPair) == 0);
 	close(closedPair[1]);
-	assert(HTTPSocket.sendNoSignal(closedPair[0], (char*)"x", (size_t)1) < 0LL);
+	char single[1];
+	single[0] = 'x';
+	assert(!HTTPSocket.sendRawUntil(closedPair[0], single, (size_t)1, HTTPSocket.deadlineAfter(1)));
 	assert((int)pipeSignals == 1);
 	close(closedPair[0]);
 	server.timeoutSecs = 15;

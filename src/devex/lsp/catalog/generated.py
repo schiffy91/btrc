@@ -666,7 +666,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("HTTPSocket", (
         BuiltinMemberSpec("configureDescriptor", "bool", "method", (("int", "descriptor"), ("bool", "nonblocking"),), "configureDescriptor"),
-        BuiltinMemberSpec("sendNoSignal", "long long", "method", (("int", "descriptor"), ("char*", "data"), ("size_t", "length"),), "sendNoSignal"),
         BuiltinMemberSpec("nowMilliseconds", "long long", "method", (), "nowMilliseconds"),
         BuiltinMemberSpec("deadlineAfter", "long long", "method", (("int", "timeoutSecs"),), "deadlineAfter"),
         BuiltinMemberSpec("waitFor", "bool", "method", (("int", "descriptor"), ("short", "events"), ("long long", "deadline"),), "waitFor"),

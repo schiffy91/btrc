@@ -27,13 +27,6 @@ class HTTPSocket {
 		return statusFlags >= 0 && fcntl(descriptor, F_SETFL, statusFlags | O_NONBLOCK) == 0;
 	}
 
-	/* Linux and Darwin both expose per-send SIGPIPE suppression through
-     * MSG_NOSIGNAL.  Keeping the platform detail behind this seam avoids the
-     * process-global signal mutation that a reusable socket library must never
-     * perform. MSG_NOSIGNAL is not generic POSIX; adding another Unix target
-     * requires extending this single compatibility seam. */
-	class long long sendNoSignal(int descriptor, char* data, size_t length) { return (long long)send(descriptor, data, length, MSG_NOSIGNAL); }
-
 	class long long nowMilliseconds() {
 		struct timespec now;
 		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
@@ -200,7 +193,14 @@ class HTTPSocket {
 	}
 
 	/* Sends `length` bytes from `data` before the deadline. The one send loop
-	 * behind the Bytes and string entry points. */
+	 * behind the Bytes and string entry points, and the one place a send
+	 * suppresses SIGPIPE.
+	 *
+	 * Linux and Darwin both expose per-send SIGPIPE suppression through
+	 * MSG_NOSIGNAL. Keeping the platform detail behind this seam avoids the
+	 * process-global signal mutation that a reusable socket library must never
+	 * perform. MSG_NOSIGNAL is not generic POSIX; adding another Unix target
+	 * requires extending this single compatibility seam. */
 	class bool sendRawUntil(int descriptor, char* data, size_t length, long long deadline) {
 		if (descriptor < 0 || data == NULL) { return false; }
 		if (length == (size_t)0) { return true; }
@@ -210,7 +210,7 @@ class HTTPSocket {
 			if (!HTTPSocket.waitFor(descriptor, POLLOUT, deadline)) {
 				return false;
 			}
-			long long count = HTTPSocket.sendNoSignal(descriptor, data + sent, length - sent);
+			long long count = (long long)send(descriptor, data + sent, length - sent, MSG_NOSIGNAL);
 			if (count > 0LL) {
 				sent = sent + (size_t)count;
 			} else if (count < 0LL && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
