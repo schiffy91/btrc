@@ -29,7 +29,10 @@ the API surface, so the layout follows a few fixed rules.
   implements `Audio/AudioDevice`'s provider contract. A Linux or Windows
   provider is the sibling folder (`GUI/Linux/LinuxDirectoryPicker`) selected by
   the same `[[package.providers]]` entry in `btrc.toml`; consumers never name a
-  platform module.
+  platform module. Selection follows the compilation target, so a program
+  transpiled on one host for another must pass `--target` or compose its host
+  capabilities explicitly; the self-hosted compiler's Windows entry therefore
+  passes no worker-pool factory (see `BackgroundJobs/README.md`).
 - **`btrc.symbols` is generated, not edited.** It maps every canonical root
   symbol to its owning module so strict import visibility does not have to
   parse the root stdlib on every compile. `make compiler-codegen-generate`

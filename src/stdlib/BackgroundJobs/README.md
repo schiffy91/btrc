@@ -74,6 +74,14 @@ for the target: `Unix/WorkerPoolProvider` forks workers on linux and macOS,
 and the root `WorkerPoolProvider` opens a single `InlineWorkerPool` on
 windows. Consumers never name a provider.
 
+One documented exception: the self-hosted compiler's `cli/WindowsMain.btrc`
+passes no factory. Its C (`dist/btrcc-windows.c`) is transpiled on the build
+host, so provider selection would choose the host's fork provider, whose
+POSIX calls the Windows cross build cannot link. Without a factory,
+`ModuleUnitCompiler` uses `InlineWorkerPool` directly, which is what the
+windows provider would open. The Unix entries (`BtrccMain`, `MacOSMain`) pass
+`HostWorkerPools`.
+
 The Unix provider starts each worker as a copy of the owner at `open()`, so
 it shares everything the owner had built copy-on-write and keeps what it
 builds itself between requests. Owner and worker share one `AF_UNIX` socket
