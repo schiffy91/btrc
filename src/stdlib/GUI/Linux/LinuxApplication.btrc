@@ -109,6 +109,9 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	public bool isDispatching() { return self._dispatching; }
 
+	/* How long run() drains a closing subtree before reporting it stalled. */
+	class double shutdownSeconds() { return 10.0; }
+
 	public void requestQuit() {
 		self.requireUIThread();
 		if (self._closed || self._quitRequested) { return; }
@@ -142,9 +145,17 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 		if (self._quitRequested) { throw "Application quit has been requested"; }
 		self.pruneDelayed();
 		if (self._pendingWork + self._delayed.len >= self._workCapacity) { throw "Application work capacity exceeded"; }
-		var registration = LinuxDelayedWork(work, SDL_GetTicksNS() + (unsigned long long)(delaySeconds * 1000000000.0));
+		var registration = LinuxDelayedWork(work, SDL_GetTicksNS() + LinuxApplication.delayNanoseconds(delaySeconds));
 		self._delayed.push(registration);
 		return registration;
+	}
+
+	/* Seconds to SDL ticks, clamped to a billion seconds so the conversion and
+	 * the deadline sum stay in range; a longer delay never fires either way. */
+	class unsigned long long delayNanoseconds(double seconds) {
+		if (!Math.isFinite(seconds) || seconds <= 0.0) { return 0ULL; }
+		if (seconds >= 1000000000.0) { return 1000000000000000000ULL; }
+		return (unsigned long long)(seconds * 1000000000.0);
 	}
 
 	/* Windows and roots created here stay owned until they close. */
@@ -270,7 +281,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 				window.render(false);
 				double wake = window.wakeSeconds();
 				if (wake >= 0.0) {
-					unsigned long long deadline = SDL_GetTicksNS() + (unsigned long long)(wake * 1000000000.0);
+					unsigned long long deadline = SDL_GetTicksNS() + LinuxApplication.delayNanoseconds(wake);
 					if (self._wakeDeadline == 0ULL || deadline < self._wakeDeadline) { self._wakeDeadline = deadline; }
 				}
 			}
@@ -311,8 +322,12 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 		} catch (string error) { self._running = false; self.close(); throw error; }
 		self._running = false;
 		self.requestQuit();
+		/* A subtree that never drains (a GPU device that never reaches CLOSED)
+		 * fails the run after one deadline; its pending owners stay retained. */
 		var result = self.close();
+		unsigned long long deadline = SDL_GetTicksNS() + LinuxApplication.delayNanoseconds(LinuxApplication.shutdownSeconds());
 		while (result == CallbackCancellation.Pending) {
+			if (SDL_GetTicksNS() >= deadline) { throw "Native subtree shutdown did not complete"; }
 			self.pumpOnce(10);
 			result = self.pollClose();
 		}

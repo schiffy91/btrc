@@ -1,0 +1,101 @@
+/* A subtree that never finishes closing cannot hang quit: run() drains it
+ * for one deadline, then throws while the pending owners stay retained, and a
+ * later close completes once the subtree can drain. */
+import Library.GUI.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+import Library.App;
+import Library.Callback;
+import Library.Console;
+import Library.Datetime;
+
+#include <assert.h>
+
+/* A drawn view whose shutdown stays Pending until the test releases it, like
+ * a GPU device that never reports CLOSED. */
+class StuckView implements ILinuxView {
+	private LinuxViewNode _node;
+	public bool released = false;
+	public int polls = 0;
+
+	public StuckView(LinuxContext context) { self._node = LinuxViewNode(context); }
+
+	public LinuxViewNode node() { return self._node; }
+
+	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxPainter painter, double x, double y) {}
+
+	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { return 0.0; }
+
+	public double fittingHeight() { return 0.0; }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public CallbackCancellation close() { self._node.close(); return self.pollClose(); }
+
+	public CallbackCancellation pollClose() {
+		self.polls++;
+		return self.released ? self._node.pollClose() : CallbackCancellation.Pending;
+	}
+}
+
+class Quit implements IApplicationWork {
+	public void run() { GUI.requestQuit(); }
+}
+
+int main() {
+	GUI.initialize(8);
+	var window = GUI.createWindow("BTRC Linux shutdown", 200.0, 120.0);
+	var root = GUI.createContainer();
+	ILinuxView? native = (ILinuxView?)root;
+	assert(native != null);
+	var stuck = StuckView(native == null ? null : native.node().context);
+	root.attach(stuck);
+	window.attachRoot(root);
+	GUI.post(Quit());
+	var clock = Timer();
+	clock.start();
+	string failure = "";
+	try { GUI.run(); } catch (string error) { failure = error; }
+	assert(failure.equals("Native subtree shutdown did not complete"));
+	assert(clock.elapsedMillis() >= 9000.0f);
+	assert(stuck.polls > 1);
+	/* The stalled owners are retained, so releasing the subtree lets close finish. */
+	stuck.released = true;
+	var result = GUI.close();
+	while (result == CallbackCancellation.Pending && clock.elapsedMillis() < 30000.0f) {
+		Timer.sleepMillis(1);
+		result = GUI.close();
+	}
+	assert(result == CallbackCancellation.Complete);
+	assert(!root.isOpen() && !stuck.isOpen());
+	Console.log("PASS: linux gui shutdown deadline");
+	return 0;
+}

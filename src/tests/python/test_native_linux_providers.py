@@ -233,6 +233,24 @@ def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
     )
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
+    """A subtree that never finishes closing fails run() after one deadline instead of hanging quit."""
+    _require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    _build_and_run(
+        ROOT / "src/tests/native/gui/linux/LinuxGUIShutdown.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        "PASS: linux gui shutdown deadline",
+        timeout=180,
+    )
+
+
 @pytest.mark.parametrize("target", ["windows-x86_64"])
 def test_linux_gui_unsupported_target(target, tmp_path):
     result = subprocess.run(
