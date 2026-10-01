@@ -18,7 +18,17 @@ the API surface, so the layout follows a few fixed rules.
   `import Library.HTTP;` still selects the facade; the group's other modules
   are addressed by their folder path (`Library.HTTP.HTTPClient`,
   `Library.FileSystem.FileTree`, `Library.Digest.SHA256`). Files are named
-  after their primary class, so a module path reads folder then class.
+  after their primary class, so a module path reads folder then class. A
+  facade only imports: `Image/Image.btrc` imports `Image/Pixels.btrc` (the
+  `Image` pixel class and fixture codecs), `EncodedImage` and
+  `DDSEncodedImageDecoder`, and `UI/UI.btrc` imports the six UI modules.
+  Two groups are documented exceptions. `GPU` has no facade: every module
+  binds the native WebGPU SDK, so a consumer imports only the owners it uses
+  (`Library.GPU.Device`, `Library.GPU.SurfaceRenderer`, ...) rather than
+  linking all of them through one import. `App` is a folder holding one
+  module, like `Graph`: its application event and window-description
+  values belong beside the GUI groups, not in the closed prelude and its
+  prebuilt core archive.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
   `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`, `Image/Linux`,
   `Tray/Linux`, `Tray/MacOS`) and implements the group's portable
