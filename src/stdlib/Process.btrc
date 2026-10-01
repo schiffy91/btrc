@@ -253,7 +253,6 @@ class CStringArray {
 /* Build the complete envp in the parent from independent raw copies. No
  * allocator, string helper, or environment mutation runs after fork. */
 class ChildProcessEnvironment {
-
 	class bool assignmentHasName(string assignment, string name) {
 		int nameLength = Strings.checkedLength(name);
 		int assignmentLength = Strings.checkedLength(assignment);
@@ -345,7 +344,6 @@ class ChildProcessArguments {
 		result[arguments.len + 1] = NULL;
 		return result;
 	}
-
 }
 
 class ChildProcessExecutable {
