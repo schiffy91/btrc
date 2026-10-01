@@ -1,5 +1,7 @@
 /* Bounded socket I/O for the HTTP server. */
 import Library.Bytes;
+import Library.Datetime;
+import Library.IO;
 import Library.HTTP.HTTPFraming;
 
 #include <sys/types.h>
@@ -17,46 +19,16 @@ import Library.HTTP.HTTPFraming;
 #include <time.h>
 
 class HTTPSocket {
-	class bool configureDescriptor(int descriptor, bool nonblocking) {
-		int descriptorFlags = fcntl(descriptor, F_GETFD, 0);
-		if (descriptorFlags < 0 || fcntl(descriptor, F_SETFD, descriptorFlags | FD_CLOEXEC) < 0) {
-			return false;
-		}
-		if (!nonblocking) { return true; }
-		int statusFlags = fcntl(descriptor, F_GETFL, 0);
-		return statusFlags >= 0 && fcntl(descriptor, F_SETFL, statusFlags | O_NONBLOCK) == 0;
-	}
-
-	class long long nowMilliseconds() {
-		struct timespec now;
-		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-			/* Never mix wall and monotonic clock domains across successive
-             * deadline samples.  Saturation makes every pending wait fail
-             * closed if the monotonic clock is unavailable. */
-			return LLONG_MAX;
-		}
-		if (now.tv_sec < (time_t)0 || now.tv_nsec < 0L || now.tv_nsec >= 1000000000L) { return LLONG_MAX; }
-		if ((uintmax_t)now.tv_sec > (uintmax_t)(LLONG_MAX / 1000LL)) {
-			return LLONG_MAX;
-		}
-		long long milliseconds = (long long)now.tv_sec * 1000LL;
-		long long fraction = (long long)now.tv_nsec / 1000000LL;
-		return milliseconds > (long long)LLONG_MAX - fraction ? LLONG_MAX : milliseconds + fraction;
-	}
-
 	class long long deadlineAfter(int timeoutSecs) {
 		int bounded = timeoutSecs > 0 ? timeoutSecs : 1;
 		if (bounded > 86400) { bounded = 86400; }
-		long long now = HTTPSocket.nowMilliseconds();
-		long long duration = (long long)bounded * 1000LL;
-		return now > (long long)LLONG_MAX - duration ? LLONG_MAX : now + duration;
+		return MonotonicClock.deadlineAfter((long long)bounded * 1000LL);
 	}
 
 	class bool waitFor(int descriptor, short events, long long deadline) {
 		while (true) {
-			long long now = HTTPSocket.nowMilliseconds();
-			if (deadline <= now) { return false; }
-			long long remaining = deadline - now;
+			long long remaining = MonotonicClock.remaining(deadline);
+			if (remaining <= 0LL) { return false; }
 			struct pollfd pending;
 			pending.fd = descriptor;
 			pending.events = events;
@@ -73,7 +45,7 @@ class HTTPSocket {
 		if (port < 0 || port > 65535) { return -1; }
 		int descriptor = socket(AF_INET, SOCK_STREAM, 0);
 		if (descriptor < 0) { return -1; }
-		if (!HTTPSocket.configureDescriptor(descriptor, true)) {
+		if (!DescriptorFlags.configure(descriptor, true)) {
 			close(descriptor);
 			return -1;
 		}
@@ -106,7 +78,7 @@ class HTTPSocket {
 			descriptor = accept(listener, (struct sockaddr*)&client, &clientLength);
 			if (descriptor < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) { return -1; }
 		}
-		if (!HTTPSocket.configureDescriptor(descriptor, true)) {
+		if (!DescriptorFlags.configure(descriptor, true)) {
 			close(descriptor);
 			return -1;
 		}
@@ -136,7 +108,7 @@ class HTTPSocket {
 		}
 		/* Deadlines require every syscall after poll() to remain nonblocking;
          * callers may supply a socket that did not come from acceptConnection. */
-		if (!HTTPSocket.configureDescriptor(descriptor, true)) {
+		if (!DescriptorFlags.configure(descriptor, true)) {
 			return HTTPSocket.emptyBytes();
 		}
 		int headerEnd = -1;
@@ -204,7 +176,7 @@ class HTTPSocket {
 	class bool sendRawUntil(int descriptor, char* data, size_t length, long long deadline) {
 		if (descriptor < 0 || data == NULL) { return false; }
 		if (length == (size_t)0) { return true; }
-		if (!HTTPSocket.configureDescriptor(descriptor, true)) { return false; }
+		if (!DescriptorFlags.configure(descriptor, true)) { return false; }
 		size_t sent = 0;
 		while (sent < length) {
 			if (!HTTPSocket.waitFor(descriptor, POLLOUT, deadline)) {

@@ -1,6 +1,7 @@
 /* Filesystem: PathTools path math + a real temp-dir write/read/exists/cleanup
  * round-trip through the FileSystem facade. */
 import Library.FileSystem;
+import Library.Platform;
 
 #include <assert.h>
 #include <string.h>
@@ -11,9 +12,9 @@ int main() {
 	assert(PathTools.dirname("/a/b/c.txt").equals("/a/b"));
 	assert(PathTools.join("/a", "b").equals("/a/b"));
 	assert(PathTools.join("/a/", "b").equals("/a/b"));   /* no double slash */
-	assert(FileSystem.currentDirectory().startsWith("/"));
-	assert(PathTools.absolute(".").equals(FileSystem.currentDirectory()));
-	assert(FileSystem.absolutePath(".").equals(FileSystem.currentDirectory()));
+	assert(Platform.currentDirectory().startsWith("/"));
+	assert(PathTools.absolute(".").equals(Platform.currentDirectory()));
+	assert(FileSystem.absolutePath(".").equals(Platform.currentDirectory()));
 
 	/* status of well-known paths */
 	assert(FileSystem.exists("/"));

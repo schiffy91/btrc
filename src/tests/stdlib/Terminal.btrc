@@ -1,7 +1,6 @@
 import Library.FileSystem;
 import Library.IO;
 import Library.Terminal;
-import Library.Terminal.TerminalClock;
 import Library.Terminal.TerminalPassword;
 
 #include <assert.h>
@@ -104,11 +103,6 @@ int main() {
 	assert(TerminalPasswordInput.maxPasswordBytes() == 4096);
 	assert(Terminal.promptPassword("long secret: ").isEmpty());
 	assert(Terminal.promptPassword("short secret: ").equals("short"));
-	/* The shared monotonic clock saturates instead of overflowing. */
-	long long clockNow = TerminalClock.milliseconds();
-	assert(clockNow >= 0LL && clockNow < LLONG_MAX);
-	assert(TerminalClock.deadlineAfter(-1) >= clockNow);
-	assert(TerminalClock.deadlineAfter(1000) >= clockNow + 1000LL);
 
 	FileSystem.removeRecursive(dir);
 

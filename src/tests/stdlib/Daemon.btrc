@@ -173,7 +173,7 @@ int main() {
 	// autoRestart is implemented by the local supervisor, not just retained
 	// as metadata for external service managers.
 	string restartCount = PathTools.join(dir, "restart-count");
-	string restartScript = f"printf x >> {UnixShell.quote(restartCount)}";
+	string restartScript = f"printf x >> {ShellWords.quote(restartCount)}";
 	DaemonSpec restarting = DaemonSpec("restart", Command("/bin/sh").arg("-c").arg(restartScript)).pid(PathTools.join(dir, "restart.control")).log(PathTools.join(dir, "restart.log")).restart(true);
 	assert(controller.start(restarting).ok());
 	assert(waitForTextLength(restartCount, 2, 3000));
@@ -188,7 +188,7 @@ int main() {
 	// record disappears only after the entire group is confirmed gone.
 	string stubbornPid = PathTools.join(dir, "stubborn.control");
 	string descendantFile = PathTools.join(dir, "stubborn-descendant");
-	string stubbornScript = "trap '' TERM; sleep 60 & echo $! > " + UnixShell.quote(descendantFile) + "; wait";
+	string stubbornScript = "trap '' TERM; sleep 60 & echo $! > " + ShellWords.quote(descendantFile) + "; wait";
 	DaemonSpec stubborn = DaemonSpec("stubborn", Command("/bin/sh").arg("-c").arg(stubbornScript)).pid(stubbornPid).log(PathTools.join(dir, "stubborn.log"));
 	assert(controller.start(stubborn).ok());
 	assert(waitForTextLength(descendantFile, 1, 2000));

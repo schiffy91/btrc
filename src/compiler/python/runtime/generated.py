@@ -948,34 +948,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='string',
-        name='__btrc_join',
-        c_source=(
-            'static inline char* __btrc_join(char** items, int count, const char* sep'
-            ') {\n    if (count <= 0 || !items) return __btrc_string_alloc(0);\n    if '
-            '(!sep) sep = "";\n    int separator_len = __btrc_string_length(sep);\n    '
-            'long long total = (long long)separator_len * (long long)(count - 1);\n   '
-            ' if (total > INT_MAX) {\n        fprintf(stderr, "btrc: string join overf'
-            'low\\n"); exit(1);\n    }\n    for (int i = 0; i < count; i++) {\n        in'
-            't item_len = __btrc_string_length(items[i]);\n        if (item_len > INT_'
-            'MAX - (int)total) {\n            fprintf(stderr, "btrc: string join overf'
-            'low\\n"); exit(1);\n        }\n        total += item_len;\n    }\n    char* r'
-            'esult = __btrc_string_alloc((int)total);\n    int position = 0;\n    for ('
-            'int i = 0; i < count; i++) {\n        if (i > 0) {\n            memcpy(res'
-            'ult + position, sep, (size_t)separator_len);\n            position += sep'
-            'arator_len;\n        }\n        const char* item = items[i] ? items[i] : "'
-            '";\n        int item_len = __btrc_string_length(item);\n        memcpy(res'
-            'ult + position, item, (size_t)item_len);\n        position += item_len;\n '
-            '   }\n    return result;\n}'
-        ),
-        depends_on=('__btrc_string_length', '__btrc_string_alloc'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='string',
         name='__btrc_charAt',
         c_source=(
             'static inline char __btrc_charAt(const char* s, int idx) {\n    if (!s) {'

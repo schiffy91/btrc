@@ -14,6 +14,7 @@
  */
 
 import Library.OwnedBuffer;
+import Library.Strings;
 import Library.Image;
 import Library.GUI.Font;
 import Library.GUI.FontFace;
@@ -95,30 +96,6 @@ class GUIRaster {
 		}
 	}
 
-	class int nextCodepoint(string text, int length, int* offset) {
-		int start = *offset;
-		if (start >= length) { return -1; }
-		*offset = start + 1;
-		int first = (int)(unsigned char)text[start];
-		if (first < 128) { return first; }
-		int count = 0;
-		int minimum = 0;
-		int codepoint = 0;
-		if ((first & 224) == 192) { count = 2; minimum = 128; codepoint = first & 31; }
-		else if ((first & 240) == 224) { count = 3; minimum = 2048; codepoint = first & 15; }
-		else if ((first & 248) == 240) { count = 4; minimum = 65536; codepoint = first & 7; }
-		else { return 65533; }
-		if (count > length - start) { return 65533; }
-		for (int index = 1; index < count; index++) {
-			int next = (int)(unsigned char)text[start + index];
-			if ((next & 192) != 128) { return 65533; }
-			codepoint = (codepoint << 6) | (next & 63);
-		}
-		if (codepoint < minimum || codepoint > 1114111 || (codepoint >= 55296 && codepoint <= 57343)) { return 65533; }
-		*offset = start + count;
-		return codepoint;
-	}
-
 	class unsigned int packed(RGBA color) { return ((unsigned int)color.red << 24) | ((unsigned int)color.green << 16) | ((unsigned int)color.blue << 8) | (unsigned int)color.alpha; }
 
 	class long long advance(long long position, long long distance) { return position > 9223372036854775807LL - distance ? 9223372036854775807LL : position + distance; }
@@ -168,7 +145,7 @@ class GUIRaster {
 		long long penY = (long long)y;
 		long long advance = 8LL * (long long)scale;
 		while (offset < length) {
-			int codepoint = GUIRaster.nextCodepoint(text, length, &offset);
+			int codepoint = UTF8.decode(text, length, &offset);
 			if (codepoint == 10) { penX = (long long)x; penY = GUIRaster.advance(penY, advance); continue; }
 			unsigned long long glyph = GUIRaster.glyph(codepoint);
 			for (int row = 0; row < 8; row++) {
@@ -191,7 +168,7 @@ class GUIRaster {
 		int current = 0;
 		int maximum = 0;
 		while (offset < length) {
-			int codepoint = GUIRaster.nextCodepoint(text, length, &offset);
+			int codepoint = UTF8.decode(text, length, &offset);
 			if (codepoint == 10) { if (current > maximum) { maximum = current; } current = 0; }
 			else { current = GUIInt.clamp((long long)current + 8LL * (long long)scale); }
 		}
@@ -215,7 +192,7 @@ class GUIRaster {
 		int current = 0;
 		int maximum = 0;
 		while (offset < length) {
-			int codepoint = GUIRaster.nextCodepoint(text, length, &offset);
+			int codepoint = UTF8.decode(text, length, &offset);
 			if (codepoint == 10) { if (current > maximum) { maximum = current; } current = 0; continue; }
 			var glyph = font.glyph(codepoint, false);
 			if (glyph == null) { continue; }
@@ -233,7 +210,7 @@ class GUIRaster {
 		int offset = 0;
 		int length = text.len();
 		while (offset < length) {
-			int codepoint = GUIRaster.nextCodepoint(text, length, &offset);
+			int codepoint = UTF8.decode(text, length, &offset);
 			if (codepoint == 10) { penX = (long long)x; baseline = GUIRaster.signedAdvance(baseline, (long long)lineHeight); continue; }
 			var glyph = font.glyph(codepoint, true);
 			if (glyph == null) { continue; }
