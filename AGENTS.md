@@ -107,9 +107,12 @@ Keep measurement workspaces and inputs out of `/tmp`: macOS's daily cleanup
 deletes anything there untouched for three days, and on 2026-09-28 it emptied
 the BTRSmith measurement copy. `~/.cache/btrc/` is safe.
 
-`BTRC_TIMING=1` prints a per-phase breakdown for a whole compile, owner and
-each forked worker on their own lines, which is enough to attribute a cold
-build without attaching a profiler.
+`BTRC_TIMING=1` prints a per-phase breakdown for a whole compile as one line
+from the owner process. Worker timing is not yet reported, in either compiler:
+a forked module-unit worker prints no timing line and its marks are lost at
+exit, so with forked workers the owner's later phases count time spent waiting
+for them. Under `--jobs 1` the inline worker's marks fold into the owner's line,
+which is enough to attribute a cold build without attaching a profiler.
 
 ### Performance changes already measured and rejected
 
