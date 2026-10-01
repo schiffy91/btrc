@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push.
+  workflow_dispatch:
 
 permissions:
   contents: read
