@@ -1,1 +1,1 @@
-/* leaf_value is imported from native/leaf.h through the binding in btrc.toml. */
+extern int leaf_value();
