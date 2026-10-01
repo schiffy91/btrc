@@ -78,7 +78,7 @@ int main() {
 	assert(UIStyle.validate("color: " + teal.css()).ok());
 	assert(UITheme.dark().equals(UITheme.dark()));
 	assert(!UITheme.dark().equals(UITheme.light()));
-	assert(!UITheme.light().equals(UITheme.nativeDefault()));
+	assert(!UITheme.light().equals(UITheme.standard()));
 	assert(UITheme.light().background.equals(UIColor(242, 242, 244)));
 	assert(UITheme.dark().text.equals(UIColor(236, 236, 238)));
 	assert(!UIElement.text("small-type", "bad").style("font-size: 7px").styleError().ok());
@@ -137,6 +137,6 @@ int main() {
 	assert(changed.elementId() == "library-query");
 	assert(changed.value() == "new query");
 
-	print("PASS: native UI values");
+	print("PASS: UI values");
 	return 0;
 }

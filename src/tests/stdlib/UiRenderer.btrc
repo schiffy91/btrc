@@ -88,8 +88,8 @@ void assertSelectChevron() {
 	assert(painted > 10 && painted < 60 && softened > 0);
 	assert(!UISelectIndicator.covers(1.0f, 1.0f, 3, 3, false));
 	UIFrame disabled = UIRenderer().render(select.enabled(false), 120, 100);
-	UIColor disabledColor = UISelectIndicator.color(disabled.boxFor("chevron"), UITheme.nativeDefault());
-	assert(disabledColor.red == UITheme.nativeDefault().mutedText.red);
+	UIColor disabledColor = UISelectIndicator.color(disabled.boxFor("chevron"), UITheme.standard());
+	assert(disabledColor.red == UITheme.standard().mutedText.red);
 }
 
 void assertCompositeButtonLayout() {
@@ -269,7 +269,7 @@ void assertTextRaster() {
 
 void assertFrozenStyleRejectsMutation(UIResolvedStyle style) {
 	bool rejected = false;
-	try { style.apply("padding: 99px"); } catch (string error) { rejected = error == "cannot edit a frozen native UI style; copy it first"; }
+	try { style.apply("padding: 99px"); } catch (string error) { rejected = error == "cannot edit a frozen UI style; copy it first"; }
 	assert(rejected && style.isFrozen());
 }
 
@@ -285,8 +285,8 @@ string applyError(string css) {
  * error, never an out-of-bounds read or a silently skipped declaration. */
 void assertStyleDeclarationErrors() {
 	assert(applyError("color: red") == "color requires #RRGGBB or #RRGGBBAA");
-	assert(applyError("bogus") == "invalid native UI style declaration: bogus");
-	assert(applyError("font-size: 20px; shadow: 1px") == "unsupported native UI style property: shadow");
+	assert(applyError("bogus") == "invalid UI style declaration: bogus");
+	assert(applyError("font-size: 20px; shadow: 1px") == "unsupported UI style property: shadow");
 	assert(UIStyle.validate("color: red").code() == UI_STYLE_INVALID_VALUE);
 	assert(UIStyle.parse("gap: 4px; ; color: #010203").count() == 2);
 	assert(UIColor.hexDigit('g') == -1 && UIColor.hexDigit('F') == 15 && !UIColor.validHex("#12345g"));
@@ -732,7 +732,7 @@ void assertVerticalScrollbar() {
 	assert(menus.highlightedSelectIndex() == 1);
 	RGBA left = highlighted.frame.image.pixel(row.x + 4, row.y + 4);
 	RGBA right = highlighted.frame.image.pixel(row.x + row.width - 4, row.y + 4);
-	assert(left.equals(right) && left.red == UITheme.nativeDefault().accent.red);
+	assert(left.equals(right) && left.red == UITheme.standard().accent.red);
 	menus.dismiss();
 	narrow.style("padding: 24px; width: 62px; height: 108px; border-radius: 0px; font-size: 17px; line-height: 60px");
 	menus.render(narrow, 400, 300);
@@ -770,7 +770,7 @@ void assertVerticalScrollbar() {
 	UIScrollbar bar = renderer.verticalScrollbar();
 	assert(bar.visible() && bar.thumb().height == 28 && bar.travel() == 164);
 	assert(initial.boxCount() == 19 && initial.contentHeight > 20000);
-	UIColor color = bar.color(UITheme.nativeDefault());
+	UIColor color = bar.color(UITheme.standard());
 	var painted = initial.image.pixel(bar.thumb().x + 4, bar.thumb().y + 14);
 	assert(painted.red == color.red && painted.green == color.green && painted.blue == color.blue);
 	int x = bar.thumb().x + 4;
@@ -843,13 +843,13 @@ void assertPinnedScrollbar() {
 	renderer.pointerMoved(150, 100);
 	assert(!renderer.tickScrollbar(100.0));
 	assert(renderer.tickScrollbar(200.0));
-	assert(renderer.verticalScrollbar().color(UITheme.nativeDefault()).alpha == 128);
+	assert(renderer.verticalScrollbar().color(UITheme.standard()).alpha == 128);
 	assert(renderer.tickScrollbar(300.0) && !renderer.verticalScrollbar().visible());
 	assert(!renderer.tickScrollbar(400.0));
 	renderer.pointerMoved(310, 90);
 	assert(renderer.verticalScrollbar().visible());
 	renderer.tickScrollbar(1000.0);
-	assert(renderer.verticalScrollbar().color(UITheme.nativeDefault()).alpha == 255);
+	assert(renderer.verticalScrollbar().color(UITheme.standard()).alpha == 255);
 	bar = renderer.verticalScrollbar();
 	renderer.pointerPressed(310, bar.thumb().y + 10);
 	renderer.pointerMoved(310, 190);
@@ -893,7 +893,7 @@ void assertLeadingInputIcon() {
 	renderer.pointerReleased(20, 17);
 	assert(renderer.focusedId() == "search" && renderer.focusedCaret() == 0);
 	UIFrame focused = renderer.currentFrame();
-	assert(focused.image.pixel(90, 0).blue == UITheme.nativeDefault().accent.blue);
+	assert(focused.image.pixel(90, 0).blue == UITheme.standard().accent.blue);
 	assert(focused.image.pixel(39, 2).blue == 37);
 	renderer.selectAllText();
 	assert(renderer.textEntered("Bowie").eventAt(0).value() == "Bowie");
@@ -1520,6 +1520,6 @@ int main() {
 	assert(UITextInput.selectionWordStart("a,  b", 3) == 2 && UITextInput.selectionWordEnd("a,  b", 3) == 4);
 	assert(UITextInput.selectionWordStart("", 0) == 0 && UITextInput.selectionWordEnd("", 0) == 0);
 	assert(UITextInput.selectionWordStart("last", 4) == 0 && UITextInput.selectionWordEnd("last", 4) == 4);
-	print("PASS: native UI layout, virtual scroll, and input");
+	print("PASS: UI layout, virtual scroll, and input");
 	return 0;
 }

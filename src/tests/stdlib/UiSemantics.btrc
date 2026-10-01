@@ -167,6 +167,6 @@ int main() {
 	assert(!semanticCss.ok());
 	assert(semanticCss.status == UI_FRAME_INVALID_STYLE);
 
-	print("PASS: typed native UI semantics and disabled interaction");
+	print("PASS: typed UI semantics and disabled interaction");
 	return 0;
 }

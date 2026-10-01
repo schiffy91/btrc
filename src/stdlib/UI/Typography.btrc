@@ -76,7 +76,7 @@ class UITextMetrics {
 	private int advanceValue;
 
 	public UITextMetrics(int width, int height, int ascent, int descent, int advance) {
-		if (width < 0 || width > 1000000000 || height < 1 || height > 4096 || ascent < 1 || ascent > height || descent < 0 || descent > height || ascent + descent > height || advance < 1 || advance > 4096) { throw "invalid native UI text metrics"; }
+		if (width < 0 || width > 1000000000 || height < 1 || height > 4096 || ascent < 1 || ascent > height || descent < 0 || descent > height || ascent + descent > height || advance < 1 || advance > 4096) { throw "invalid UI text metrics"; }
 		self.widthValue = width;
 		self.heightValue = height;
 		self.ascentValue = ascent;
@@ -121,9 +121,9 @@ class UITypography {
 	}
 
 	public UITextLayout wrap(string value, int fontSize, int lineHeight, int fontWeight, int width) {
-		if (value == null || value.len() > 4096 || width < 1 || width > 1000000000) { throw "invalid native UI wrapped text bounds"; }
+		if (value == null || value.len() > 4096 || width < 1 || width > 1000000000) { throw "invalid UI wrapped text bounds"; }
 		self.measure("", fontSize, lineHeight, fontWeight);
-		if (!UIText.valid(value)) { throw "invalid native UI wrapped UTF-8"; }
+		if (!UIText.valid(value)) { throw "invalid UI wrapped UTF-8"; }
 		Vector<UITextLine> lines = [];
 		int start = 0;
 		int top = 0;
@@ -146,7 +146,7 @@ class UITypography {
 	/* End ellipsis is measured with the same font provider as the displayed run.
 	 * Keep the original element text; this is only its width-dependent layout. */
 	public UITextLayout ellipsize(string value, int fontSize, int lineHeight, int fontWeight, int width) {
-		if (value == null || value.len() > 4096 || width < 0 || width > 1000000000) { throw "invalid native UI ellipsis bounds"; }
+		if (value == null || value.len() > 4096 || width < 0 || width > 1000000000) { throw "invalid UI ellipsis bounds"; }
 		UITextMetrics full = self.measure(value, fontSize, lineHeight, fontWeight);
 		if (full.width() <= width) { return UITextLayout([UITextLine(value, full, 0)]); }
 		string suffix = "…";
@@ -198,11 +198,11 @@ class UITypography {
 	}
 
 	private UITextMetrics measureUncached(string value, int fontSize, int lineHeight, int fontWeight) {
-		if (value == null || fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || (fontWeight != 400 && fontWeight != 500 && fontWeight != 600 && fontWeight != 700) || !UIText.valid(value)) { throw "invalid native UI text measurement"; }
+		if (value == null || fontSize < 8 || fontSize > 256 || lineHeight < fontSize || lineHeight > 512 || (fontWeight != 400 && fontWeight != 500 && fontWeight != 600 && fontWeight != 700) || !UIText.valid(value)) { throw "invalid UI text measurement"; }
 		int scalarCount = UIText.scalarCount(value, value.len());
 		int advance = self.advance(fontSize);
 		long long width = (long long)scalarCount * (long long)advance;
-		if (width > 1000000000LL) { throw "native UI text measurement exceeds its bound"; }
+		if (width > 1000000000LL) { throw "UI text measurement exceeds its bound"; }
 		int ascent = fontSize * 4 / 5;
 		if (ascent < 1) { ascent = 1; }
 		int descent = fontSize - ascent;
