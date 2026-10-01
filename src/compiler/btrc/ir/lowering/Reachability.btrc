@@ -434,7 +434,6 @@ class StdlibReachability {
 		StdlibReachability.pushChild(node.catchBlock, stack);
 		StdlibReachability.pushChild(node.finallyBlock, stack);
 		StdlibReachability.pushChild(node.ifStmt, stack);
-		StdlibReachability.pushChild(node.varDecl, stack);
 		StdlibReachability.pushChild(node.expression, stack);
 		StdlibReachability.pushChild(node.left, stack);
 		StdlibReachability.pushChild(node.right, stack);

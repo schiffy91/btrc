@@ -310,11 +310,11 @@ class LexicalScopeIndex:
         elif isinstance(stmt, CForStmt):
             end = LexicalScopeIndex._block_end(tokens, stmt.body, block_end)
             if isinstance(stmt.init, ForInitVar):
-                var_decl = stmt.init.var_decl
-                if isinstance(var_decl, VarDeclStmt) and var_decl.name and var_decl.line:
-                    LexicalScopeIndex._add_var(
-                        var_defs, tokens, var_decl.name, var_decl, (var_decl.line, end), "cfor", var_decl
-                    )
+                for var_decl in stmt.init.declarations:
+                    if isinstance(var_decl, VarDeclStmt) and var_decl.name and var_decl.line:
+                        LexicalScopeIndex._add_var(
+                            var_defs, tokens, var_decl.name, var_decl, (var_decl.line, end), "cfor", var_decl
+                        )
             if stmt.body:
                 LexicalScopeIndex._collect_block(var_defs, stmt.body, tokens, end)
         elif isinstance(stmt, TryCatchStmt):

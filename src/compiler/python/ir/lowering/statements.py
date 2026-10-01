@@ -536,13 +536,14 @@ class StatementLowerer:
             return self._lower_for_in(node, provenance)
         if isinstance(node, CForStmt):
             with self._iteration.c_for_scope(node, provenance) as plan:
-                if plan.initializer is not None:
-                    plan.prefix.extend(
-                        self.lower_declaration(
-                            plan.initializer,
-                            provenance,
+                if plan.declarations:
+                    for declaration in plan.declarations:
+                        plan.prefix.extend(
+                            self.lower_declaration(
+                                declaration,
+                                provenance,
+                            )
                         )
-                    )
                 elif isinstance(node.init, ForInitExpr):
                     plan.init = IRExprStmt(
                         expr=self._expressions.lower_expr(

@@ -85,7 +85,7 @@ class CForPlan:
     """Bounded state for one C-style loop lexical transaction."""
 
     source: CForStmt
-    initializer: VarDeclStmt | None
+    declarations: tuple[VarDeclStmt, ...]
     prefix: list[IRStmt]
     init: IRStmt | None
     condition: IRExpr | None = None
@@ -263,8 +263,8 @@ class IterationLowerer:
     def c_for_scope(self, node: CForStmt, provenance: CallableProvenance):
         """Own the lexical lifetime around one C-style loop transaction."""
         enclosing = provenance.begin_scope()
-        initializer = node.init.var_decl if isinstance(node.init, ForInitVar) else None
-        plan = CForPlan(source=node, initializer=initializer, prefix=[], init=None)
+        declarations = tuple(node.init.declarations) if isinstance(node.init, ForInitVar) else ()
+        plan = CForPlan(source=node, declarations=declarations, prefix=[], init=None)
         try:
             if isinstance(node.init, ForInitVar):
                 plan.cleanup_marker = self._cleanup_scope.push()
