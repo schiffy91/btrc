@@ -54,12 +54,18 @@ This plan contains no effort or calendar estimates (ref:1822): order is by depen
 
 Each stage records its exit evidence here as it closes; measurements and commit hashes go with it.
 
-### Stage 1: pre-flight (2026-09-30, in progress)
+### Stage 1: pre-flight (closed 2026-09-30)
 - **Disk.** 54 GB free → 212 GB free. Measurement tooling preserved in `~/.cache/btrc/tools` (48 scripts, including every D2-listed one). Deleted: the `btrcc-m11*`/`btrcc-m12*` binaries and logs, `step1`–`step4`, every uncited `perf/` workspace (kept `edit-cold-2026-09-22`, `e2e-2026-09-24`, `btrcc-65057cb`), `build/test-btrcc` pruned from 828 to 20 fingerprints, and BTRSmith's `build/tests` and `build/perf` (see the lost-evidence note under Corrections). Every cited path that resolved before still resolves except those BTRSmith test outputs.
 - **Podman.** `podman machine list` showed only `podman-machine-default`; it was recreated at 6 CPUs / 24 GiB / 40 GB. The 13 `semu-*` files in the applehv directory are untouched.
 - **Hubs.** `~/.cache/btrc/hub.git` and `~/.cache/btrsmith/hub.git` (bare), added as remote `hub` in both Drive checkouts.
 - **D3(b).** `archive/native-ui-row` tags `1e4cb30`; `native-ui-row`, `native-ui-chrome` and `btrsmith-macos-menu` deleted; `git worktree prune` removed 4 stale entries. Other sessions' worktrees untouched.
-- **D3(a).** BTRSmith's 18 files committed as `5a840ba6` on `wip/2026-09-28-snapshot` (working tree unchanged); its check runs from `~/.cache/btrsmith/clones/d3a`.
+- **D3(a).** BTRSmith's 18 files committed as `5a840ba6` on `wip/2026-09-28-snapshot` without touching the working tree, and checked from `~/.cache/btrsmith/clones/d3a` at pin `05ec9cb`:
+  - `application-frontend-check` fails in `tests/packaging/BuildArtifacts.py` (`test_import_content_touch_edit_and_removal`, a warm rebuild links once instead of 0 times, both frontends). It fails identically on `7f69459b` without the snapshot, so it predates the snapshot; Stage 2's BTRSmith baseline tracks it (the pin lacks `ab1f68f`'s tool-environment receipt keys, the likely cause).
+  - `btrsmith-library-smoke` printed nothing and failed on both frontends while two agents and a nix build loaded the machine (load average 21), then passed on both frontends on rerun (`albums=1/1 cells=1 frames=600`). Recorded as a load flake for Stage 2's flake table.
+  - The snapshot adds no failure, so BTRSmith `main` was fast-forwarded to it, the docs commit `adb3276f` landed on top, and `main` was pushed to GitHub (D4). The Drive checkout is clean.
+- **Secret scan (D4).** gitleaks 8.30.1 over the 57 unpushed btrc commits: no leaks. The unpushed diff adds no home-directory paths (the four in `compile-performance.md` were already public).
+- **BTRSmith docs** (`adb3276f`): HWW, NativePlatformPlan (dated 2026-09-13/14 notes moved verbatim to a history section), DD, Handoff (pin now `05ec9cb`) and the PRD's post-MVP release section record D6 and D25.
+- **Exit.** Met: tools preserved outside `perf/`; free disk 212 GB (≥80 GB to continue; ≥100 GB for Stage 23 already met); hubs, locks and the capacity policy in CLAUDE.md exist; BTRSmith clean with D3(a)/(b) recorded; PLAN.md, CLAUDE.md and platform-parity agree; `git diff --check` clean. **Not met as written:** "no currently-resolving cited path was removed" holds for every btrc citation but not for BTRSmith's evidence notes, whose cited test outputs were deleted (see Corrections). The 23 already-missing btrc paths, not 21, are recorded as lost.
 - **Locks.** `~/.cache/btrc/locks/{gate,bench,linux-ci,guest,gui-capture,signing}` plus the two-slot `btrcc-build` semaphore, taken through `~/.cache/btrc/tools/withlock.sh` (macOS `lockf`).
 - **Docs.** CLAUDE.md's current-state section and host capacity rules; this plan's Corrections section; the P6 table made identical in `platform-parity.md`.
 

@@ -9,39 +9,73 @@ Read this ENTIRE file before writing any code.
 
 This project is too large for a single context window. You WILL run out of memory.
 
-### Current state (2026-09-13 handoff)
+### Current state (2026-09-30)
 
-Work happens directly on `main`; every prior campaign branch was merged and
-deleted. The core architecture is established, but native-provider migration
-and final self-host qualification are still in flight; what follows records
-the state a change has to preserve.
+Work happens directly on `main`. [`PLAN.md`](PLAN.md) is the sequential
+43-stage roadmap for everything that remains, with every decision resolved;
+the previous plan is frozen verbatim in `docs/design/plan-reference.md` and
+cited as `ref:N`. Never edit the frozen reference.
 
-For a cross-repository handoff, read BTRSmith's `GOAL.md`, `docs/HWW.md`,
-`docs/DD.md`, and `docs/NativePlatformPlan.md` after this file. CoreAudio realtime
-registration, the vgmstream callback-table owner and pugixml's opaque C++
-owner (generated `extern "C"` adapter units in both compilers) are qualified on
-fresh self-host compilers (2026-09-13); the next load-bearing order is the
-structure-first review recorded in BTRSmith's `docs/NativePlatformPlan.md`
-(stdlib group manifests, then every directory of both repositories), then
-the final self-host product matrix and BTRSmith's visual/physical gates. Consumers may continue against approved interfaces while
-compiler repairs land; do not invent a second wrapper or ownership model.
+For a cross-repository handoff, read BTRSmith's MVP epic (schiffy91/btrsmith
+issue #15, which replaced `GOAL.md`), `docs/HWW.md`, `docs/DD.md` and
+`docs/NativePlatformPlan.md` after this file. The structure-first review was
+done on 2026-09-14 and has drifted since; PLAN.md Stage 4 repeats it. Consumers
+may continue against approved interfaces while compiler repairs land; do not
+invent a second wrapper or ownership model.
 
-The architecture destination and frozen-boundary infrastructure are complete.
-The frontend resource-ceiling removal, the Python VLA bound single-evaluation
-fix, and the empty managed slot defect have landed with their regressions.
+The verification matrix last recorded green on `1cadaf4`: `make test` at
+12,439 passed and 172 skipped, `make test-c11` at 8 × 1,934, and `make
+bootstrap` reaching its byte-stable fixed point. Caveats when you read a green
+run:
 
-The verification matrix runs: `make test` at 7,274 passed and 20 skipped, and
-`make bootstrap` reaching its byte-stable fixed point. Two caveats matter when
-you read a green run:
-
-- The boundary gate checks **301** records outside the nix shell but **277**
-  inside it, because four observed-behavior capabilities are skipped there as
-  incompatible. Twenty-four records go unchecked under that toolchain.
-- The twenty skips are missing tools — `naga`, `lldb`, `pkg-config`, and
-  platform-specific paths — not product defects. They are still coverage the
-  run did not get, and a green result looks identical either way.
+- The boundary manifest holds **309** records (`test_boundary_manifest.py`).
+  Some observed-behavior capabilities are skipped inside the nix shell as
+  incompatible; PLAN.md Stage 2 records how many are checked there.
+- The skips are missing tools and environment-gated providers — `naga`,
+  `lldb`, `pkg-config`, `BTRC_NATIVE_PROVIDER_CC`/`CXX`, and platform-specific
+  paths — not product defects. They are still coverage the run did not get, and
+  a green result looks identical either way; PLAN.md Stage 2's skip ledger
+  classifies every one.
 - `stdlib/StdlibDaemon.btrc` asserts a wall-clock daemon-stop deadline,
   so it can fail on a saturated machine and pass on a quiet one.
+
+### Host capacity and agent rules
+
+One Mac carries every gate, guest and agent: Apple M1 Max, 8P+2E, 64 GiB,
+macOS 27.0. Record exactly that host provenance string in manifests and bench
+JSON.
+
+| Resident load | Memory |
+| --- | --- |
+| `make test` (8 xdist workers) | most of the machine; nothing heavy beside it |
+| `make bootstrap` (431k-line TU at `-O2`) | memory risk; runs alone |
+| podman `linux-ci` machine (`podman-machine-default`) | 24 GiB, 6 CPUs, 40 GB disk |
+| Android emulator | about 4 GiB each |
+| iOS simulator | about 2–3 GiB each |
+| BTRSmith self-host compile at `--jobs 1` / cold dev aggregate | 3.0 / 4.8 GiB |
+
+- **Gates** run from a clone outside Google Drive, one at a time, holding
+  `~/.cache/btrc/locks/gate`. `make bootstrap` never runs beside the parallel
+  suite, another build or a guest.
+- **Load rules.** Until the daemon-deadline fix lands, only read-only agents run
+  while any gate runs. After it, at most one agent build beside `make test`,
+  and none beside `make test-c11` or `make bootstrap`. At most one guest beside
+  a gate, none during bootstrap or a measurement.
+- **Measurements** need the automated quiet check (PLAN.md standing
+  approvals), every guest stopped, and a workspace under
+  `~/.cache/btrc/bench.noindex/`. Agents never change system settings.
+- **Locks** live in `~/.cache/btrc/locks/` (`gate`, `bench`, `linux-ci`,
+  `guest`, `gui-capture`, `signing`, and the two-slot `btrcc-build`
+  semaphore). Take them with `~/.cache/btrc/tools/withlock.sh <name> <cmd>`;
+  macOS has `lockf`, not `flock`.
+- **Hubs.** Agents clone from `~/.cache/btrc/hub.git` and
+  `~/.cache/btrsmith/hub.git`, never from a Drive checkout or a worktree whose
+  gitdir lives in Drive. At most 6 writer clones at a time, and at most 2
+  BTRSmith clones; clean BTRSmith test outputs after each run.
+- **Disk.** Check free space at the start of every stage: at least 80 GB to
+  continue, 100 GB before PLAN.md Stage 23. Before every agent wave, prune
+  `build/test-btrcc` to the newest 20 fingerprints plus any pinned by
+  `BTRC_TEST_BTRCC`.
 
 Do not claim completion until `make test`, `make bootstrap`, `make test-c11`,
 lint, format, generated-source, extension, and repository-hygiene gates all pass
