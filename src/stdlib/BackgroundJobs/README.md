@@ -35,8 +35,9 @@ normalized to `BACKGROUND_JOB_FAILED` before it can cross the C ABI; actions
 must eventually return after cancellation.
 
 Queueing, cancellation, completion publication and worker ownership live in
-`BackgroundJobs.btrc`. The package imports pthread declarations through
-`BackgroundJobs/NativeThreads.h`; it does not link a separate background-jobs C
+`BackgroundJobExecutor.btrc`; `BackgroundJobs.btrc` is the group facade, which
+also re-exports the worker-pool contracts. The package imports pthread
+declarations through `BackgroundJobs/NativeThreads.h`; it does not link a separate background-jobs C
 runtime. The worker entrypoint still uses an explicit native context and the
 runtime's foreign-thread boundary. That boundary has not yet migrated to the
 checked callback-binding contract.
