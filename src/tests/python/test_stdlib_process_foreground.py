@@ -27,7 +27,7 @@ PROGRAM = r"""
     int main() {
         ExecResult background = ChildProcess.run("/bin/sh", ["-c", "read line; printf 'bg:%s' \"$line\""], stdinMode=CHILD_STDIN_INHERIT, timeoutMilliseconds=1000);
         print(f"BACKGROUND|{background.code}|{background.stdout()}");
-        ExecResult foreground = ChildProcess.run("/bin/sh", ["-c", "read line; printf 'fg:%s' \"$line\""], stdinMode=CHILD_STDIN_INHERIT, foreground=true, timeoutMilliseconds=20000);
+        ExecResult foreground = ChildProcess.run("/bin/sh", ["-c", "read line; printf 'fg:%s' \"$line\""], foreground=true, timeoutMilliseconds=20000);
         print(f"FOREGROUND|{foreground.code}|{foreground.stdout()}");
         char line[64];
         if (fgets(line, 64, stdin) == NULL) {

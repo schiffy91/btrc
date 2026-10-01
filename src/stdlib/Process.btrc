@@ -116,7 +116,9 @@ enum CommandOutput {
 
 /* What a child reads when no stdinData is supplied: /dev/null, or the
  * parent's own stdin. Supplied stdinData always wins, and supplying it
- * together with CHILD_STDIN_INHERIT is a caller error. */
+ * together with CHILD_STDIN_INHERIT is a caller error. A foreground child
+ * without stdinData always inherits stdin, since the terminal handoff it
+ * exists for is interactive. */
 enum ChildStdin {
 	CHILD_STDIN_NULL = 0,
 	CHILD_STDIN_INHERIT = 1
@@ -594,7 +596,8 @@ class ChildProcess {
 	/* Malformed requests throw: an empty executable, null or invalid vectors,
 	 * negative descriptors, conflicting cwd sources, bad output modes, bad
 	 * environment entries, bad descriptor mappings and stdinData combined
-	 * with CHILD_STDIN_INHERIT. Conditions met while starting the child --
+	 * with CHILD_STDIN_INHERIT. A foreground run without stdinData inherits
+	 * the caller's stdin. Conditions met while starting the child --
 	 * an unsupported platform capability, a resource or exec failure --
 	 * return code 127 with the reason in err. */
 	class ExecResult run(string executable, Vector<string> arguments, string cwd = "", Vector<string> environment = [], Vector<string> unsetEnvironment = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, string stdinData = "", CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COLLECT, int executableDescriptor = -1, Vector<ChildDescriptorMapping> descriptorMappings = [], int workingDirectoryDescriptor = -1, bool foreground = false, ChildStdin stdinMode = CHILD_STDIN_NULL) {
@@ -631,6 +634,7 @@ class ChildProcess {
 		if (hasStdinData && stdinMode == CHILD_STDIN_INHERIT) {
 			throw "stdinData cannot be combined with CHILD_STDIN_INHERIT";
 		}
+		if (foreground && !hasStdinData) { stdinMode = CHILD_STDIN_INHERIT; }
 		ChildProcess.validateEnvironment(environment, unsetEnvironment);
 		string command = ChildProcess.render(executable, arguments);
 		int descriptorBound = -1;
