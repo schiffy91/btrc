@@ -2,6 +2,9 @@ import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
 import Library.GUI.IButton;
+import Library.GUI.IImageHandle;
+import Library.GUI.Capture;
+import Library.Image;
 import Library.Callback;
 import Library.Vector;
 
@@ -191,6 +194,73 @@ void verifyActions() {
 	}
 }
 
+/* An IView no provider created. Capture must reject it as a foreign root. */
+class ForeignView implements IView {
+	public bool isOpen() { return true; }
+
+	public double fittingWidth() { return 0.0; }
+
+	public double fittingHeight() { return 0.0; }
+
+	public void arrange(double x, double y, double width, double height) {}
+
+	public bool isVisible() { return true; }
+
+	public void setVisible(bool visible) {}
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { throw "Foreign views take no input"; }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { throw "Foreign views take no input"; }
+
+	public CallbackCancellation close() { return CallbackCancellation.Complete; }
+
+	public CallbackCancellation pollClose() { return CallbackCancellation.Complete; }
+}
+
+/* GUI.capture projects a provider root to backing pixels and rejects roots
+ * another provider owns. */
+void verifyCapture() {
+	GUI.initialize(4);
+	var window = GUI.createWindow("Portable capture", 240.0, 120.0);
+	var root = GUI.createContainer();
+	var button = GUI.createButton("Captured");
+	root.attach(button);
+	window.attachRoot(root);
+	button.arrange(16.0, 16.0, button.fittingWidth(), button.fittingHeight());
+	window.show();
+	Vector<GUICaptureLayer> layers = [];
+	var image = GUI.capture(root, layers);
+	assert(image.width >= 240 && image.height >= 120 && image.width % 240 == 0 && image.width / 240 == image.height / 120);
+	bool rejected = false;
+	try { GUI.capture(ForeignView(), layers); } catch (string error) { rejected = error.equals("Capture root belongs to another GUI provider"); }
+	assert(rejected);
+	window.close();
+	assert(GUI.close() == CallbackCancellation.Complete);
+}
+
+/* Image handles convert on a worker, present on the UI thread, and stay
+ * presentable after the handle closes. */
+void verifyImageHandles() {
+	GUI.initialize(4);
+	var artwork = Image(8, 4);
+	Thread<IImageHandle> worker = spawn(() => GUI.createImageHandle(artwork));
+	var handle = worker.join();
+	assert(handle.isOpen() && handle.width() == 8 && handle.height() == 4);
+	bool rejected = false;
+	try { GUI.createImageHandle(artwork, 16); } catch (string error) { rejected = error.equals("Native artwork exceeds image limits"); }
+	assert(rejected);
+	var view = GUI.createImageView();
+	view.setImageHandle(handle);
+	handle.close();
+	handle.close();
+	assert(!handle.isOpen());
+	rejected = false;
+	try { view.setImageHandle(handle); } catch (string error) { rejected = error.equals("Native image handle is closed"); }
+	assert(rejected);
+	view.setImageHandle(null);
+	assert(GUI.close() == CallbackCancellation.Complete && !view.isOpen());
+}
+
 int main(int argc, char** argv) {
 	if (argc > 1) {
 		GUI.initialize();
@@ -212,6 +282,8 @@ int main(int argc, char** argv) {
 	GUI.close();
 	assert(!button.isOpen());
 	verifyActions();
+	verifyCapture();
+	verifyImageHandles();
 	print("PASS: portable native GUI factory, application ownership and teardown");
 	return 0;
 }
