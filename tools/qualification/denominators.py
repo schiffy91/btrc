@@ -1,0 +1,203 @@
+"""Frozen inventory denominators: the slots a complete report counts against.
+
+platform-parity.md requires "immutable inventory denominators for each
+release". A denominator that is whatever rows a ledger happens to hold
+shrinks the moment a row is deleted, so each entry of ``denominators.toml``
+freezes one inventory kind: the release it was frozen for, where its ids are
+declared, the platform families and frontends every id is qualified on, and
+the id count, slot count and digest it was frozen with. Loading a manifest
+re-reads every source, and a source that now yields other ids -- a deleted
+row, a renamed one -- is drift until the entry is deliberately re-frozen
+under a new release. `QualificationReport` counts every declared slot that
+has no record as missing, and every inventory record outside the declared
+slots as undeclared, and the report fails on either.
+
+Manifest::
+
+    schema = "btrc.qualification.denominators/1"
+
+    [[denominators]]
+    kind = "ui-case"
+    release = "ui0-source-inventory-2026-09-21"
+    platforms = ["macos", "linux", "windows", "ios", "android"]
+    frontends = ["reference", "selfhost"]   # [] when not frontend-specific
+    ids = 47                                # the frozen id count
+    slots = 470                             # ids x platforms x frontends
+    sha256 = "..."                          # of the sorted ids, one per line
+    source = { document = "docs/design/native-ui-parity.md", pattern = '^\\| (E\\d{2}) —' }
+
+A source is ``{document, pattern}`` (the first group of every matching line of
+a tracked document), ``{ledger}`` (the ids of this kind in a checked inventory
+ledger, such as P0's compact inventory) or ``{list}`` (the ids themselves).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import tomllib
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+
+from tools.qualification.schema import (
+    INVENTORY_KINDS,
+    FieldReader,
+    Frontend,
+    LedgerDocument,
+    LedgerSchemaError,
+    Platform,
+    Subject,
+    SubjectKind,
+)
+
+SCHEMA = "btrc.qualification.denominators/1"
+REPO = Path(__file__).resolve().parents[2]
+MANIFEST = Path(__file__).resolve().with_name("denominators.toml")
+
+
+@dataclass(frozen=True, slots=True)
+class Denominator:
+    """One frozen inventory kind, with the ids its source yields today."""
+
+    kind: SubjectKind
+    release: str
+    platforms: tuple[Platform, ...]
+    frontends: tuple[Frontend, ...]
+    frozen_ids: int
+    frozen_slots: int
+    frozen_digest: str
+    source: str
+    ids: tuple[str, ...]
+
+    FIELDS = ("kind", "release", "platforms", "frontends", "ids", "slots", "sha256", "source")
+
+    @staticmethod
+    def digest(ids: Iterable[str]) -> str:
+        return hashlib.sha256("".join(f"{identifier}\n" for identifier in sorted(ids)).encode()).hexdigest()
+
+    def slot_keys(self) -> set[tuple[str, str, str, str, str]]:
+        """Every slot the frozen release declares, keyed as `Subject.key` keys a record."""
+
+        return {
+            Subject(kind=self.kind, id=identifier, platform=platform, frontend=frontend).key
+            for identifier in self.ids
+            for platform in self.platforms
+            for frontend in self.frontends or (None,)
+        }
+
+    def drift(self) -> list[str]:
+        """How the source has moved away from the frozen release; empty when it has not."""
+
+        where = f"{self.kind.value} denominator (release {self.release})"
+        problems = []
+        if len(self.ids) != self.frozen_ids:
+            problems.append(f"{where}: its source yields {len(self.ids)} ids, frozen at {self.frozen_ids}")
+        elif self.digest(self.ids) != self.frozen_digest:
+            problems.append(f"{where}: its source yields different ids than the frozen sha256")
+        expected_slots = self.frozen_ids * len(self.platforms) * max(1, len(self.frontends))
+        if self.frozen_slots != expected_slots:
+            problems.append(f"{where}: slots = {self.frozen_slots}, but ids x platforms x frontends = {expected_slots}")
+        return problems
+
+
+class DenominatorManifest:
+    """Read ``denominators.toml`` and resolve every source against a checkout."""
+
+    def __init__(self, denominators: Sequence[Denominator]) -> None:
+        self.denominators = tuple(denominators)
+
+    @classmethod
+    def load(cls, path: Path = MANIFEST, repo: Path = REPO) -> DenominatorManifest:
+        try:
+            document = tomllib.loads(path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as error:
+            raise LedgerSchemaError(f"{path}: {error}") from None
+        fields = FieldReader(document, str(path), ("schema", "denominators"))
+        if fields.text("schema", required=True) != SCHEMA:
+            raise LedgerSchemaError(f"{path}.schema: expected {SCHEMA!r}")
+        entries = fields.data.get("denominators") or []
+        if not isinstance(entries, Sequence) or isinstance(entries, str):
+            raise LedgerSchemaError(f"{path}.denominators: expected a list of tables")
+        denominators = [cls.entry(entry, f"{path}.denominators[{index}]", repo) for index, entry in enumerate(entries)]
+        kinds = [denominator.kind for denominator in denominators]
+        if len(set(kinds)) != len(kinds):
+            raise LedgerSchemaError(f"{path}: one denominator per kind")
+        return cls(denominators)
+
+    @classmethod
+    def entry(cls, data: object, where: str, repo: Path) -> Denominator:
+        fields = FieldReader(data, where, Denominator.FIELDS)
+        kind = fields.choice("kind", SubjectKind, required=True)
+        if kind not in INVENTORY_KINDS:
+            raise LedgerSchemaError(f"{where}.kind: only inventory kinds have frozen denominators")
+        platforms = tuple(cls.members(fields, "platforms", Platform))
+        if not platforms:
+            raise LedgerSchemaError(f"{where}.platforms: name at least one platform family")
+        if Platform.IPADOS in platforms:
+            raise LedgerSchemaError(f"{where}.platforms: iOS/iPadOS is one family, ios")
+        sha256 = fields.text("sha256", required=True)
+        if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            raise LedgerSchemaError(f"{where}.sha256: expected 64 lowercase hex digits")
+        source, ids = cls.resolve(fields.data.get("source"), f"{where}.source", kind, repo)
+        return Denominator(
+            kind=kind,
+            release=fields.text("release", required=True),
+            platforms=platforms,
+            frontends=tuple(cls.members(fields, "frontends", Frontend)),
+            frozen_ids=cls.count(fields, "ids"),
+            frozen_slots=cls.count(fields, "slots"),
+            frozen_digest=sha256,
+            source=source,
+            ids=ids,
+        )
+
+    @staticmethod
+    def members[E: (Platform, Frontend)](fields: FieldReader, name: str, enum: type[E]) -> list[E]:
+        values = fields.texts(name) or ()
+        try:
+            return [enum(value) for value in values]
+        except ValueError as error:
+            raise LedgerSchemaError(f"{fields.where}.{name}: {error}") from None
+
+    @staticmethod
+    def count(fields: FieldReader, name: str) -> int:
+        value = fields.integer(name, minimum=1)
+        if value is None:
+            raise LedgerSchemaError(f"{fields.where}.{name}: required")
+        return value
+
+    @staticmethod
+    def resolve(data: object, where: str, kind: SubjectKind, repo: Path) -> tuple[str, tuple[str, ...]]:
+        """A description of the source and the ids it declares today, in declaration order."""
+
+        fields = FieldReader(data, where, ("document", "pattern", "ledger", "list"))
+        if fields.present("list"):
+            return "inline list", fields.texts("list") or ()
+        if fields.present("ledger"):
+            path = repo / fields.text("ledger")
+            ids = dict.fromkeys(
+                record.subject.id for record in LedgerDocument.load(path) if record.subject.kind is kind
+            )
+            return fields.text("ledger"), tuple(ids)
+        document = fields.text("document", required=True)
+        try:
+            pattern = re.compile(fields.text("pattern", required=True))
+        except re.error as error:
+            raise LedgerSchemaError(f"{where}.pattern: {error}") from None
+        if pattern.groups < 1:
+            raise LedgerSchemaError(f"{where}.pattern: capture the id in a group")
+        ids = [
+            match.group(1)
+            for line in (repo / document).read_text(encoding="utf-8").splitlines()
+            if (match := pattern.search(line))
+        ]
+        if len(set(ids)) != len(ids):
+            raise LedgerSchemaError(f"{where}: {document} declares an id twice")
+        return document, tuple(ids)
+
+    def drift(self) -> list[str]:
+        return [problem for denominator in self.denominators for problem in denominator.drift()]
+
+    def by_kind(self) -> Mapping[SubjectKind, Denominator]:
+        return {denominator.kind: denominator for denominator in self.denominators}

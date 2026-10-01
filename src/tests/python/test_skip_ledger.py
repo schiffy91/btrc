@@ -118,10 +118,27 @@ def test_the_macos_manifest_explains_the_recorded_skips_and_names_their_coverage
     assert rules[MACOS_SKIPS[5][0]].covered_by == ("windows",)
     assert rules[MACOS_SKIPS[7][0]].id == "linux-native-reader-covered"
     assert rules[MACOS_SKIPS[8][0]].id == "linux-native-reader-uncovered"
-    # The dev shell provides naga, so a naga skip is unexpected again.
+    # The dev shell provides naga (stage2/nix, e74a3cc), so a naga skip is unexpected again.
     assert (
         manifest.classify("src/tests/python/test_wgsl_semantics.py::test_x", "naga WGSL validator is not installed")
         is None
+    )
+
+
+def test_no_macos_rule_expects_a_naga_gated_skip():
+    """Every naga-gated test runs in the dev shell, so the macOS manifest must not explain one away."""
+
+    gated = re.compile(r'@pytest\.mark\.skipif\(NAGA is None, reason="([^"]+)"\)\s*\ndef (test_\w+)')
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "macos.json")
+    skips = [
+        (f"{path.relative_to(REPO).as_posix()}::{name}", reason)
+        for path in sorted((REPO / "src/tests").rglob("test_*.py"))
+        for reason, name in gated.findall(path.read_text(encoding="utf-8"))
+    ]
+
+    assert len(skips) >= 5, skips
+    assert {nodeid: manifest.classify(nodeid, reason) for nodeid, reason in skips} == dict.fromkeys(
+        (nodeid for nodeid, _ in skips), None
     )
 
 
