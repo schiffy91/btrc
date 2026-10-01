@@ -1,0 +1,260 @@
+{
+  "schema": "btrc.expected-skips/1",
+  "runner": "macos",
+  "enforce": true,
+  "description": "The Mac's `make test` inside `nix develop`, classified from the 1cadaf4 record (172 skips) on 2026-09-30. naga has no rule: the dev shell provides it from stage2/nix (e74a3cc), so a naga skip is unexpected again.",
+  "rules": [
+    {
+      "id": "dap-session-lldb-python",
+      "files": [
+        "src/tests/debug/test_dap_session.py"
+      ],
+      "reason": "^needs lldb \\(with Python scripting\\) and a C compiler$",
+      "category": "missing-tool",
+      "gating": {
+        "tools": [
+          "lldb"
+        ]
+      },
+      "covered_by": [],
+      "note": "The dev shell's lldb cannot import its Python bridge, and the devcontainer skips the same four DAP sessions."
+    },
+    {
+      "id": "arc-witness-sanitizer-runtime",
+      "files": [
+        "src/tests/python/test_arc_witness_runtime.py"
+      ],
+      "reason": "ASan\\+UBSan",
+      "category": "runtime-probe",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "Nix gcc on macOS has no libasan, and clang's ASan+UBSan runtime does not start under the dev shell; the devcontainer runs both witnesses."
+    },
+    {
+      "id": "windows-artifact-storage",
+      "files": [
+        "src/tests/python/test_artifact_storage.py"
+      ],
+      "reason": "requires the native Windows (CRT|handle API)$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml runs test_artifact_storage.py on a native Windows host."
+    },
+    {
+      "id": "windows-bundle-staging-modes",
+      "files": [
+        "src/tests/python/test_btrcc_bundle_publication.py"
+      ],
+      "reason": "^requires native Windows stat modes$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml runs test_generation_validator_matches_native_windows_staging_modes."
+    },
+    {
+      "id": "windows-executable-release",
+      "files": [
+        "src/tests/btrc/test_bootstrap_harness.py"
+      ],
+      "reason": "^native Windows executable-release contract$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml runs test_bootstrap_harness.py before its native bootstrap."
+    },
+    {
+      "id": "windows-junctions",
+      "files": [
+        "src/tests/python/test_artifact_reparse.py"
+      ],
+      "reason": "^native junctions require Windows$",
+      "category": "platform",
+      "covered_by": [],
+      "note": "No runner executes test_artifact_reparse.py on Windows: windows.yml selects other files."
+    },
+    {
+      "id": "xdg-cache-off-macos",
+      "files": [
+        "src/tests/python/test_cache_invalidation.py"
+      ],
+      "reason": "^XDG only used off-macOS$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "macOS resolves the cache under ~/Library/Caches; the XDG branch is Linux behavior."
+    },
+    {
+      "id": "dev-full",
+      "files": [
+        "src/tests/btrc/test_frontend_io_boundaries.py",
+        "src/tests/btrc/test_parser_diagnostics.py"
+      ],
+      "reason": "^requires /dev/full$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "macOS has no /dev/full device."
+    },
+    {
+      "id": "emitted-units-linux-toolchain",
+      "files": [
+        "src/tests/python/test_emitted_units.py"
+      ],
+      "reason": "^needs a Linux C toolchain$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "These cases link ELF objects with the Linux toolchain."
+    },
+    {
+      "id": "freestanding-ubsan-runtime",
+      "files": [
+        "src/tests/python/test_freestanding_reference.py"
+      ],
+      "reason": "^compiler wrapper does not provide its UBSan runtime$",
+      "category": "runtime-probe",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The macOS compiler wrapper ships no UBSan runtime."
+    },
+    {
+      "id": "gpu-async-thread-sanitizer",
+      "files": [
+        "src/tests/python/test_gpu_async_runtime.py"
+      ],
+      "reason": "ThreadSanitizer",
+      "category": "runtime-probe",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "ThreadSanitizer crashes on an independent exact-flags probe on this host."
+    },
+    {
+      "id": "pugixml-sdk",
+      "files": [
+        "src/tests/python/test_native_header_reader.py",
+        "src/tests/python/test_native_cxx_owners.py"
+      ],
+      "reason": "pugixml SDK",
+      "category": "missing-sdk",
+      "gating": {
+        "env": [
+          "PKG_CONFIG_PATH"
+        ],
+        "tools": [
+          "pkg-config"
+        ]
+      },
+      "covered_by": [],
+      "note": "Neither dev shell carries pugixml; BTRSmith's shell does, but no btrc runner uses it."
+    },
+    {
+      "id": "sqlite-sdk",
+      "files": [
+        "src/tests/python/test_native_unique_resources.py"
+      ],
+      "reason": "^actual SQLite SDK proof requires (sqlite3\\.pc in PKG_CONFIG_PATH|pkg-config)$",
+      "category": "missing-sdk",
+      "gating": {
+        "env": [
+          "PKG_CONFIG_PATH"
+        ],
+        "tools": [
+          "pkg-config"
+        ]
+      },
+      "covered_by": [],
+      "note": "The dev shell exposes no sqlite3.pc; the devcontainer skips the whole file as macOS-only."
+    },
+    {
+      "id": "native-compiler-provider",
+      "files": [
+        "src/tests/python/test_native_compiler_context.py",
+        "src/tests/python/test_native_preprocess_receipts.py"
+      ],
+      "reason": "^build native reader and configure its native compiler provider$",
+      "category": "provider-configuration",
+      "gating": {
+        "env": [
+          "BTRC_NATIVE_HEADER_READER",
+          "BTRC_NATIVE_PROVIDER_CC",
+          "BTRC_NATIVE_PROVIDER_CXX"
+        ]
+      },
+      "covered_by": [],
+      "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX; the dev shell sets only BTRC_NATIVE_HEADER_READER."
+    },
+    {
+      "id": "native-receipt-provider",
+      "files": [
+        "src/tests/python/test_native_preprocess_consumer.py"
+      ],
+      "reason": "^configure the packaged receipt provider and its C/C\\+\\+ toolchain$",
+      "category": "provider-configuration",
+      "gating": {
+        "env": [
+          "BTRC_NATIVE_HEADER_READER",
+          "BTRC_NATIVE_PROVIDER_CC",
+          "BTRC_NATIVE_PROVIDER_CXX"
+        ]
+      },
+      "covered_by": [],
+      "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX."
+    },
+    {
+      "id": "linux-native-reader-covered",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "nodes": [
+        "*::test_linux_image_decoding*",
+        "*::test_linux_audio_faults*"
+      ],
+      "reason": "^requires Linux and the explicitly built native header reader$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "Image decoding and audio fault injection need no display or PCM, so the devcontainer runs them."
+    },
+    {
+      "id": "linux-native-reader-uncovered",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py",
+        "src/tests/python/test_native_tray_runtime.py"
+      ],
+      "reason": "^requires Linux and the explicitly built native header reader$",
+      "category": "platform",
+      "gating": {
+        "capabilities": [
+          "native-audio",
+          "native-display",
+          "native-tray"
+        ]
+      },
+      "covered_by": [],
+      "note": "Audio sessions, GUI controls and the tray also need a PCM, a display or a session bus, which the devcontainer lacks."
+    },
+    {
+      "id": "alsa-capability",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "reason": "^requires ALSA$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The configured-PCM capability cases run wherever ALSA headers exist."
+    }
+  ]
+}

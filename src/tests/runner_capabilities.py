@@ -1,17 +1,43 @@
-"""Host-capability probes for the shared language-corpus runner."""
+"""Host- and target-capability probes for the test suites.
+
+A corpus source declares what it needs with ``BTRC_TEST_REQUIRES:``. Host
+capabilities are probed. Target capabilities name an executor's facilities --
+a simulator, an emulator, a display server, an audio loopback, a physical
+device -- and are absent until the runner grants them through
+``BTRC_TEST_CAPABILITIES`` and their host precondition holds, so a test that
+needs one skips with a reason naming that variable. Every probe records its
+verdict in `CapabilityGateLog`, which the skip ledger reports.
+"""
 
 from __future__ import annotations
 
+import functools
 import os
 import shlex
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any, ClassVar
 
 CAPABILITY_DIRECTIVE = "BTRC_TEST_REQUIRES:"
-KNOWN_CAPABILITIES = frozenset({"loopback-listener", "native-tray"})
+HOST_CAPABILITIES = frozenset({"loopback-listener", "native-tray"})
+TARGET_CAPABILITIES = frozenset(
+    {
+        "android-emulator",
+        "audio-loopback",
+        "ios-simulator",
+        "physical-device",
+        "wayland",
+        "windows-native",
+        "x11",
+    }
+)
+KNOWN_CAPABILITIES = HOST_CAPABILITIES | TARGET_CAPABILITIES
+GRANTED_CAPABILITIES_VARIABLE = "BTRC_TEST_CAPABILITIES"
 
 _TRAY_PROBE_MARKER = "BTRC_TRAY_BACKEND_READY"
 _TRAY_PROBE_SOURCE = f"""
@@ -27,6 +53,92 @@ int main(void) {{
     return 0;
 }}
 """
+
+
+class CapabilityGateLog:
+    """Every capability verdict reached in this process, until the skip ledger drains it."""
+
+    _pending: ClassVar[list[dict[str, Any]]] = []
+
+    @classmethod
+    def record(cls, capability: str, error: str | None) -> str | None:
+        """Note one verdict against the running test, and return `error` unchanged."""
+
+        current = os.environ.get("PYTEST_CURRENT_TEST", "")
+        cls._pending.append(
+            {
+                "capability": capability,
+                "available": error is None,
+                "reason": error,
+                "nodeid": current.rsplit(" (", 1)[0] if current else None,
+            }
+        )
+        return error
+
+    @classmethod
+    def drain(cls) -> list[dict[str, Any]]:
+        drained = list(cls._pending)
+        cls._pending.clear()
+        return drained
+
+    @classmethod
+    def gate[**P, R](cls, capability: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
+        """Record a probe's verdict: its result is an error string, or a (value, error) pair."""
+
+        def decorate(probe: Callable[P, R]) -> Callable[P, R]:
+            @functools.wraps(probe)
+            def evaluate(*args: P.args, **kwargs: P.kwargs) -> R:
+                result = probe(*args, **kwargs)
+                cls.record(capability, result[1] if isinstance(result, tuple) else result)
+                return result
+
+            return evaluate
+
+        return decorate
+
+
+class TargetCapabilities:
+    """Executor facilities a test may require; each is absent until a runner grants it."""
+
+    def __init__(self, environ: Mapping[str, str] | None = None, host: str | None = None) -> None:
+        self.environ = os.environ if environ is None else environ
+        self.host = sys.platform if host is None else host
+
+    def granted(self) -> frozenset[str]:
+        raw = self.environ.get(GRANTED_CAPABILITIES_VARIABLE, "")
+        return frozenset(name.strip() for name in raw.split(",") if name.strip())
+
+    def error(self, capability: str) -> str | None:
+        """Return why `capability` is unavailable to this runner, or None."""
+
+        if capability not in TARGET_CAPABILITIES:
+            raise ValueError(f"unknown target capability: {capability}")
+        if capability not in self.granted():
+            return (
+                f"{capability} is not granted to this runner: an executor that provides it "
+                f"sets {GRANTED_CAPABILITIES_VARIABLE}={capability}"
+            )
+        if problem := self.precondition_error(capability):
+            return f"{capability} is granted but unavailable: {problem}"
+        return None
+
+    def precondition_error(self, capability: str) -> str | None:
+        """The host-side fact a granted capability still depends on."""
+
+        if capability == "windows-native" and self.host not in {"win32", "cygwin"}:
+            return "the host is not Windows"
+        if capability == "ios-simulator" and self.host != "darwin":
+            return "iOS simulators run only on a macOS host"
+        if capability == "wayland" and not self.environ.get("WAYLAND_DISPLAY"):
+            return "WAYLAND_DISPLAY is unset"
+        if capability == "x11" and not self.environ.get("DISPLAY"):
+            return "DISPLAY is unset"
+        return None
+
+
+def target_capability_error(capability: str) -> str | None:
+    """Return why a target capability is absent for this process, recording the verdict."""
+    return CapabilityGateLog.record(capability, TargetCapabilities().error(capability))
 
 
 class CapabilityProbeBuildError(RuntimeError):
@@ -53,6 +165,7 @@ def declared_capabilities(source_path: str | Path) -> frozenset[str]:
     return frozenset(required)
 
 
+@CapabilityGateLog.gate("loopback-listener")
 def loopback_listener_error() -> str | None:
     """Return why an ephemeral IPv4 loopback listener cannot be created."""
     try:
@@ -77,6 +190,7 @@ def _socket_error(operation: str, error: OSError) -> str:
     return f"IPv4 loopback listeners are unavailable: {operation} failed: {detail}{errno}"
 
 
+@CapabilityGateLog.gate("webgpu-toolchain")
 def darwin_gpu_flags() -> tuple[list[str], str | None]:
     """Resolve Homebrew compute-only WebGPU flags without assuming brew exists."""
     brew = shutil.which("brew")
@@ -111,6 +225,7 @@ def darwin_gpu_flags() -> tuple[list[str], str | None]:
     ], None
 
 
+@CapabilityGateLog.gate("native-tray")
 def darwin_tray_backend_error(
     compiler: tuple[str, ...],
     cflags: tuple[str, ...],
@@ -154,6 +269,7 @@ def darwin_tray_backend_error(
 _TRAY_WATCHER_NAME = "org.kde.StatusNotifierWatcher"
 
 
+@CapabilityGateLog.gate("native-tray")
 def linux_tray_backend_error() -> str | None:
     """Return why a StatusNotifierItem cannot be hosted on this session bus."""
     if subprocess.run(["pkg-config", "--exists", "dbus-1"], capture_output=True).returncode != 0:
@@ -182,6 +298,7 @@ def linux_tray_backend_error() -> str | None:
     return None
 
 
+@CapabilityGateLog.gate("native-display")
 def linux_display_error() -> str | None:
     """Return why a Wayland or X11 window cannot be opened from this session."""
     if subprocess.run(["pkg-config", "--exists", "sdl3"], capture_output=True).returncode != 0:
@@ -191,6 +308,7 @@ def linux_display_error() -> str | None:
     return None
 
 
+@CapabilityGateLog.gate("native-audio")
 def linux_audio_backend_error() -> str | None:
     """Return why no ALSA PCM can be opened from this session."""
     if os.environ.get("BTRC_SKIP_AUDIO_TESTS"):

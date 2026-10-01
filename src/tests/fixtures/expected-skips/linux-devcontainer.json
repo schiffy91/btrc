@@ -1,0 +1,7 @@
+{
+  "schema": "btrc.expected-skips/1",
+  "runner": "linux-devcontainer",
+  "enforce": false,
+  "description": "Placeholder: the Linux manifest lane classifies the devcontainer's skips (CI's unit shard skips 3,070, about 3,000 of them macOS native-interop tests) and then sets enforce to true. Until then the gate reports every skip here without failing.",
+  "rules": []
+}
