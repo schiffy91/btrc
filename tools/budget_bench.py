@@ -369,40 +369,36 @@ class TimingLine:
 
 
 class PhaseTiming:
-    """Both compilers print `<name> timing: phase=NNNus ... fact ...` once per process."""
+    """Both compilers print `<name> timing: phase=NNNus ... fact ...` once per compile.
 
-    LINE = re.compile(r"^(btrcc|btrcpy) timing: (.*)$")
-    # The owner records how many module-unit workers it started, after they
-    # forked; a worker's line never carries it. Without a pool the owner's is
-    # the only line.
-    OWNER_FACT = "module-unit-workers="
+    A forked module-unit worker's report follows on a line of its own,
+    `<name> worker timing: worker=<i> pid=<pid> requests=... busy=...
+    phase=NNNus ...`, so a line's prefix names its role. Every `name=NNNus`
+    token is a phase; everything else -- the owner's counters, a worker's
+    `worker=`, `pid=`, `requests=`, `busy=` and `usage=` fields -- is kept as
+    a fact, so `busy=` (a sum of the worker's own marks) never counts twice.
+    """
+
+    LINE = re.compile(r"^(btrcc|btrcpy)( worker)? timing: (.*)$")
 
     @classmethod
     def parse(cls, stderr: str) -> list[TimingLine]:
-        raw: list[tuple[str, dict[str, float], tuple[str, ...]]] = []
+        lines: list[TimingLine] = []
         for line in stderr.splitlines():
             match = cls.LINE.match(line.strip())
             if not match:
                 continue
             phases: dict[str, float] = {}
             facts: list[str] = []
-            for item in match.group(2).split():
+            for item in match.group(3).split():
                 name, separator, value = item.rpartition("=")
                 if separator and value.endswith("us") and value[:-2].isdigit():
                     phases[name] = phases.get(name, 0.0) + int(value[:-2]) / 1_000_000
                 else:
                     facts.append(item)
-            raw.append((match.group(1), phases, tuple(facts)))
-        if not raw:
-            return []
-        owner = next(
-            (index for index, (_, _, facts) in enumerate(raw) if any(f.startswith(cls.OWNER_FACT) for f in facts)),
-            len(raw) - 1,
-        )
-        return [
-            TimingLine(compiler, "owner" if index == owner else "worker", phases, facts)
-            for index, (compiler, phases, facts) in enumerate(raw)
-        ]
+            role = "worker" if match.group(2) else "owner"
+            lines.append(TimingLine(match.group(1), role, phases, tuple(facts)))
+        return lines
 
 
 class ProcessTreeSampler:
