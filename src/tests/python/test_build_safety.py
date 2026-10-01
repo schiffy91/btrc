@@ -392,7 +392,18 @@ def test_linux_ci_script_defaults_to_the_makefile_targets_as_separate_words():
     assert '"${@:-' not in script
     assert f"  set -- {' '.join(targets)}\n" in script
     assert script.rstrip().endswith('"$@"')
-    assert "Three things differ" in script
+    assert "Four things differ" in script
+
+
+def test_linux_ci_script_keeps_the_containers_bin_off_the_host_checkout():
+    """A Linux bin/btrcc built in the container never replaces the host's (a Mach-O on the Mac)."""
+    script = (REPO_ROOT / "tools" / "linux-ci.sh").read_text()
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+
+    assert 'mkdir -p "$private/bin"' in code
+    assert 'mounts+=(-v "$private/bin:/workspace/bin")' in code
+    # The private bin/ is mounted over the workspace, so it follows it.
+    assert code.index('mounts=(-v "$repo:/workspace")') < code.index('"$private/bin:/workspace/bin"')
 
 
 def test_ast_generation_is_validated_before_atomic_replacement():
