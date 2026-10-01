@@ -201,7 +201,7 @@ class Visitor implements IVisitor {
 	public Visitor(CallbackScope scope) { self.scope = scope; }
 	public void invoke(int value) {
 		deliveries += value;
-		if (value == 1) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (value == 1) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	}
 	public void __del__() { destroyed++; }
 }
@@ -214,7 +214,7 @@ void exercise(int mode) {
 		try { var registration = NativeSubscription.listen(mode, Visitor(scope), scope); }
 		catch (string error) { failed = true; }
 		assert(failed && NativeSubscription.live() == 0);
-		assert(scope.cancel() == CallbackCancellation.Complete);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(destroyed == before + 1 && NativeSubscription.cancelled() == cancelled);
 		return;
 	}
@@ -229,8 +229,8 @@ void exercise(int mode) {
 		NativeSubscription.fire(1);
 		assert(!registration.isOpen());
 	}
-	assert(scope.cancel() == CallbackCancellation.Complete);
-	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(NativeSubscription.live() == 0 && destroyed == before + 1);
 	assert(NativeSubscription.cancelled() == cancelled + 1);
 	NativeSubscription.fire(1000);
@@ -337,7 +337,7 @@ class Delegate implements IDelegate {
 	private CallbackScope scope;
 	public Delegate(CallbackScope scope) { self.scope = scope; }
 	public bool shouldClose(NativeOwner owner) { queries++; return true; }
-	public void didClose(NativeOwner owner) { notifications++; assert(self.scope.cancel() == CallbackCancellation.Pending); }
+	public void didClose(NativeOwner owner) { notifications++; assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	public void __del__() { destroyed++; }
 }
 void exercise() {
@@ -355,15 +355,15 @@ void exercise() {
 	try { var other = owner.setDelegate(Delegate(otherScope), otherScope); }
 	catch (string error) { rejected = true; }
 	assert(rejected && destroyed == 1 && registration.isOpen());
-	assert(otherScope.cancel() == CallbackCancellation.Complete);
+	assert(otherScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(owner.requestClose());
 """,
             "replaced": '\towner.replaceDelegate();\n\tscope.cancel();\n\tfprintf(stderr, "unexpected delegate cancellation success\\n");\n\tassert(false);\n',
             "throw": '\tfprintf(stderr, "unexpected delegate publication success\\n");\n\tassert(false);\n',
         }[scenario]
         + f"""
-	assert(scope.cancel() == CallbackCancellation.Complete);
-	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(queries == 1 && notifications == 1 && destroyed == {2 if scenario == "occupied" else 1});
 	assert(!owner.requestClose());
 }}
@@ -487,8 +487,8 @@ void exercise() {
 	events.allowClose = true;
 	window.performClose(null);
 	assert(events.queries == 2 && events.closed == 1);
-	assert(scope.cancel() == CallbackCancellation.Complete);
-	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 }
 int main() { exercise(); assert(destroyed == 1); return 0; }
 """)
@@ -957,7 +957,7 @@ class Action implements IAction {
 	public void invoke() {
 		calls++;
 		if (self.mode == 14) { throw "Action callback failed"; }
-		if (self.mode == 11 || self.mode == 16) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (self.mode == 11 || self.mode == 16) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	}
 	public void __del__() { destroyed++; }
 }
@@ -969,15 +969,15 @@ void exercise(int mode) {
 		try { source.setTarget(Action(scope, mode), scope); }
 		catch (string error) { rejected = true; }
 		assert(rejected && destroyed == 1 && calls == 0 && source.untouched());
-		assert(scope.cancel() == CallbackCancellation.Complete);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		return;
 	}
 	ICallbackRegistration registration = source.setTarget(Action(scope, mode), scope);
 	if (mode == 7) { source.replaceTarget(); }
 	else if (mode == 8) { source.replaceAction(); }
 	else if (mode != 11) { source.fire(); }
-	assert(scope.cancel() == CallbackCancellation.Complete);
-	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(calls == 1 && destroyed == 1);
 	assert(source.slotsCleared());
 	source.fire();
@@ -1122,7 +1122,7 @@ int main() {
 	button.performClick(null);
 	button.performClick(null);
 	assert(calls == 2 && destroyed == 0);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(destroyed == 1);
 	button.performClick(null);
 	assert(calls == 2);
@@ -1178,7 +1178,7 @@ class TimerCallback implements ITimerCallback {
 		assert(timer.isValid());
 		observed = timer;
 		deliveries++;
-		assert(self.scope.cancel() == CallbackCancellation.Pending);
+		assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 		assert(!timer.isValid());
 	}
 	public void __del__() { destroyed++; }
@@ -1191,7 +1191,7 @@ int main() {
 		for (int attempt = 0; attempt < 100 && observed == null; attempt++) { loop.runUntilDate(NSDate.dateWithTimeIntervalSinceNow(0.01)); }
 		assert(observed != null && !observed.isValid());
 		assert(!subscription.isOpen() && deliveries == index + 1);
-		assert(scope.pollCompletion() == CallbackCancellation.Complete);
+		assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(destroyed == index + 1);
 		observed = null;
 	}
@@ -1263,7 +1263,7 @@ class NotificationCallback implements INotificationCallback {
 	public void invoke(NSNotification notification) {
 		observed = notification;
 		deliveries++;
-		assert(self.scope.cancel() == CallbackCancellation.Pending);
+		assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 	}
 	public void __del__() { destroyed++; }
 }
@@ -1276,7 +1276,7 @@ int main() {
 		NSNotificationCenter.defaultCenter().postNotificationName(name, null);
 		assert(observed != null && observed.name().length() == name.length());
 		assert(!subscription.isOpen() && deliveries == index + 1);
-		assert(scope.pollCompletion() == CallbackCancellation.Complete);
+		assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(destroyed == index + 1);
 		NSNotificationCenter.defaultCenter().postNotificationName(name, null);
 		assert(deliveries == index + 1);
@@ -1701,7 +1701,7 @@ int main() {
 	release adapterInfo;
 	for (int poll = 0; poll < 1000000 && !adapter.delivered; poll++) { wgpuInstanceProcessEvents(instance); }
 	assert(adapter.delivered && adapter.value != null);
-	assert(adapterRequest.request.pollCompletion() == CallbackCancellation.Complete);
+	assert(adapterRequest.request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	var device = DeviceCompletion();
 	var deviceInfo = WGPURequestDeviceCallbackInfoInput();
 	deviceInfo.mode = WGPUCallbackMode_AllowProcessEvents; deviceInfo.callback = device;
@@ -1709,7 +1709,7 @@ int main() {
 	release deviceInfo;
 	for (int poll = 0; poll < 1000000 && !device.delivered; poll++) { wgpuInstanceProcessEvents(instance); }
 	assert(device.delivered && device.value != null);
-	assert(deviceRequest.request.pollCompletion() == CallbackCancellation.Complete);
+	assert(deviceRequest.request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	var queue = wgpuDeviceGetQueue(device.value); assert(queue != null);
 	var frame = ProbeTexture(device.value);
 	assert(frame.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal && frame.texture != null);
@@ -1726,7 +1726,7 @@ int main() {
 	release vertex;
 	var pipeline = wgpuDeviceCreateRenderPipeline(device.value, pipelineInfo); assert(pipeline != null);
 	release pipelineInfo; release pipeline;
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	release queue; device.value = null; adapter.value = null;
 	print("PASS: real WebGPU adapter/device completion through managed bindings");
 	return 0;
@@ -4321,7 +4321,7 @@ class Receiver implements ICompletion {
     public void invoke(int value) {
         assert(value == 7); delivered++;
         if (self.fail) { throw "C completion receiver failed"; }
-        if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+        if (self.scope != null) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
     }
     public void __del__() { destroyed++; }
 }
@@ -4333,14 +4333,14 @@ void verify(bool inlineCall, bool cancel) {
     var request = inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope);
     receiver = null;
     if (!inlineCall) {
-        if (cancel) { assert(scope.cancel() == CallbackCancellation.Pending); }
+        if (cancel) { assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
         assert(destroyed == freed);
         Drain();
     }
-    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     assert(delivered == before + ((!inlineCall && cancel) ? 0 : 1));
     assert(destroyed == freed + 1);
-    assert(scope.cancel() == CallbackCancellation.Complete);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 int main() {
     verify(true, false); verify(false, false); verify(false, true);
@@ -4348,17 +4348,17 @@ int main() {
     int before = delivered;
     var abandoned = CallbackScope();
     FinishLater(7, Receiver(), abandoned);
-    assert(abandoned.cancel() == CallbackCancellation.Pending);
+    assert(abandoned.cancel() == CALLBACK_CANCELLATION_PENDING);
     assert(destroyed == freed);
     Drain();
     assert(destroyed == freed + 1 && delivered == before);
-    assert(abandoned.pollCompletion() == CallbackCancellation.Complete);
+    assert(abandoned.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     var scope = CallbackScope();
     var receiver = Receiver();
     receiver.scope = scope;
     var request = FinishNow(7, receiver, scope);
     receiver = null;
-    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     assert(destroyed == freed + 2 && delivered == before + 1);
     var cancelled = CallbackScope();
     cancelled.cancel();
@@ -4584,9 +4584,9 @@ def test_c_record_completion_snapshots_reused_input(
         f"\trelease info; assert(freed == 0 && mask == 0); {cancellation} Drain();\n"
         f"\tassert(freed == 2 && mask == {0 if cancel else 3});\n"
         f"\t{check_future}\n"
-        f"\tassert(first{request}.pollCompletion() == CallbackCancellation.Complete);\n"
-        f"\tassert(second{request}.pollCompletion() == CallbackCancellation.Complete);\n"
-        "\tassert(scope.cancel() == CallbackCancellation.Complete); return 0;\n}\n"
+        f"\tassert(first{request}.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);\n"
+        f"\tassert(second{request}.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);\n"
+        "\tassert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); return 0;\n}\n"
     )
     plan = root / "Program.link.json"
     result = native_compile(source, plan_path=plan)
@@ -4826,7 +4826,7 @@ class Receiver implements ICompletion {
         delivered++;
         if (value != null) { assert(WidgetRead(value) == 7); }
         self.saved = value;
-        if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+        if (self.scope != null) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
     }
 }
 void verify(bool inlineCall, bool abandon, bool selfCancel) {
@@ -4837,16 +4837,16 @@ void verify(bool inlineCall, bool abandon, bool selfCancel) {
     var request = inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope);
     if (!inlineCall) {
         assert(LiveWidgets() == 0);
-        if (abandon) { assert(scope.cancel() == CallbackCancellation.Pending); }
+        if (abandon) { assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
         Drain();
     }
-    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     assert(delivered == before + (abandon ? 0 : 1));
     assert(LiveWidgets() == (abandon ? 0 : 1));
     if (!abandon) { assert(receiver.saved != null && WidgetRead(receiver.saved) == 7); }
     receiver.saved = null;
     assert(LiveWidgets() == 0);
-    assert(scope.cancel() == CallbackCancellation.Complete);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 int main() {
     verify(true, false, false); verify(false, false, false);
@@ -4855,11 +4855,11 @@ int main() {
     var receiver = Receiver();
     var request = FinishNow(0, receiver, scope);
     assert(receiver.saved == null && LiveWidgets() == 0);
-    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     FinishLater(7, Receiver(), scope);
     Drain();
     assert(LiveWidgets() == 0);
-    assert(scope.cancel() == CallbackCancellation.Complete);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
     print("PASS: claimed and abandoned native resource completions");
     return 0;
 }
@@ -5132,8 +5132,8 @@ def test_c_completion_copies_borrowed_string(
         f"\t\tvar schedule = Schedule; var request = schedule(info, scope); release info; {cancel} Complete({mode});\n"
         f"\t\tassert(receiver.saved == {json.dumps(expected, ensure_ascii=False)});\n"
         f"\t\tassert(delivered == {'0' if canceled else 'index + 1'});\n"
-        "\t\tassert(request.pollCompletion() == CallbackCancellation.Complete);\n"
-        '\t\tassert(scope.cancel() == CallbackCancellation.Complete); receiver.saved = "";\n'
+        "\t\tassert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);\n"
+        '\t\tassert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); receiver.saved = "";\n'
         "\t\tassert(__btrc_string_live_count() == baseline);\n\t}\n\treturn 0;\n}\n"
     )
     plan = root / "Text.link.json"
@@ -5406,7 +5406,7 @@ void throwAfterCompletion() {
 	var scope = CallbackScope(); var receiver = Receiver();
 	var started = FinishNow(7, receiver, scope);
 	assert(started.value.id == 4294967303ULL);
-	assert(started.request.pollCompletion() == CallbackCancellation.Complete);
+	assert(started.request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	throw "expected";
 }
 void exerciseExceptions() {
@@ -5582,7 +5582,7 @@ class Work implements IWork {
 	public CallbackScope? scope;
 	public void invoke() {
 		delivered++;
-		if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (self.scope != null) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	}
 	public void __del__() { destroyed++; }
 }
@@ -5595,17 +5595,17 @@ void run(bool inlineWork, bool cancelled) {
 	var request = inlineWork ? OneShotProbe.inlineWork(work, scope) : NSRunLoop.currentRunLoop().performBlock(work, scope);
 	work = null;
 	if (inlineWork) {
-		assert(request.pollCompletion() == CallbackCancellation.Complete);
+		assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(delivered == before + 1);
 	} else {
 		assert(delivered == before && destroyed == beforeDestroyed);
-		if (cancelled) { assert(scope.cancel() == CallbackCancellation.Pending); }
+		if (cancelled) { assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 		OneShotProbe.drain();
-		assert(request.pollCompletion() == CallbackCancellation.Complete);
+		assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(delivered == before + (cancelled ? 0 : 1));
 	}
 	assert(destroyed == beforeDestroyed + 1);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.pendingCount() == 0);
 }
 int main() {
@@ -5715,7 +5715,7 @@ def test_one_shot_native_failure_boundaries(one_shot_project, native_compile, sa
     callback = 'throw "expected one-shot error";' if scenario == "callback-throw" else "delivered++;"
     verification = (
         f"assert(caught && destroyed == 1 && delivered == {int(scenario == 'inline-unpublished-throw')}); "
-        "assert(scope.cancel() == CallbackCancellation.Complete); return 0;"
+        "assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); return 0;"
         if recoverable
         else "return 99;"
     )
@@ -5838,10 +5838,10 @@ void run(bool cancelled) {
 	var receiver = Work();
 	var request = OneShotProbe.objectWork(receiver, scope);
 	assert(OneShotProbe.liveObjects() == 1);
-	if (cancelled) { assert(scope.cancel() == CallbackCancellation.Pending); }
+	if (cancelled) { assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	OneShotProbe.drain();
-	assert(request.pollCompletion() == CallbackCancellation.Complete);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert((receiver.value == null) == cancelled);
 	assert(OneShotProbe.liveObjects() == (cancelled ? 0 : 1));
 	receiver.value = null;
@@ -6992,8 +6992,8 @@ def test_native_record_input_object_survives_reentrant_mutation(
     )
     invoke = (
         "var scope = CallbackScope(); var started = action(input, change, scope); var result = started.value; "
-        "if (started.request.pollCompletion() != CallbackCancellation.Complete) { return 5; } "
-        "if (scope.cancel() != CallbackCancellation.Complete) { return 6; }"
+        "if (started.request.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { return 5; } "
+        "if (scope.cancel() != CALLBACK_CANCELLATION_COMPLETE) { return 6; }"
         if one_shot
         else "var result = action(input, change);"
     )
@@ -8122,16 +8122,16 @@ void exercise(bool inlineCancel) {
 	int before = NativeToken.cancelled();
 	IReceiver? receiver = context.enter();
 	assert(receiver != null && receiver.invoke() == 42);
-	if (inlineCancel) { assert(context.cancel() == CallbackCancellation.Pending); }
+	if (inlineCancel) { assert(context.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	context.publish(NativeToken.make());
 	assert(NativeToken.live() == 1);
-	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 	assert(NativeToken.cancelled() == before + 1);
 	assert(NativeToken.live() == 1);
 	context.leave(); receiver = null;
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(NativeToken.live() == 0);
-	assert(context.cancel() == CallbackCancellation.Complete);
+	assert(context.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(NativeToken.cancelled() == before + 1);
 }
 int main() {

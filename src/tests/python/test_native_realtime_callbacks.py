@@ -217,7 +217,7 @@ int main() {
     var registration = installRender(owner, 1u, receiver, silence, scope);
     assert(registration.isOpen());
     // MODE
-    assert(scope.cancel() == CallbackCancellation.Complete);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
     assert(scope.pendingCount() == 0);
     owner.close();
     assert(WidgetLive() == 0);
@@ -228,7 +228,7 @@ int main() {
     if mode == "indeterminate":
         program = (
             program.split("// MODE", 1)[0]
-            + "FailStop(); assert(scope.cancel() == CallbackCancellation.Failed); assert(scope.pollCompletion() == CallbackCancellation.Failed); VerifyLateSilence(); return 0; }"
+            + "FailStop(); assert(scope.cancel() == CALLBACK_CANCELLATION_FAILED); assert(scope.pollCompletion() == CALLBACK_CANCELLATION_FAILED); VerifyLateSilence(); return 0; }"
         )
         expected = "Callback scope released before cancellation completed"
     elif mode == "active-close":
@@ -239,9 +239,9 @@ int main() {
     elif mode == "in-flight":
         program = program.replace(
             "// MODE",
-            "StartAsyncRender(); assert(scope.cancel() == CallbackCancellation.Pending); "
+            "StartAsyncRender(); assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); "
             "assert(WidgetLive() == 1); ReleaseAsyncRender(); "
-            "assert(scope.pollCompletion() == CallbackCancellation.Complete);",
+            "assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);",
         )
     source.write_text(program)
     result = native_compile(source)
@@ -320,7 +320,7 @@ int main() {
     assert(unitRegistrations() == 1 && unitStart(unit) == 0);
     unitDeliver(1, 1, 0);
     assert(unitOutput(0) == 0.25f && unitOutput(2) == 2.25f);
-    assert(scope.cancel() == CallbackCancellation.Complete);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
     assert(unitUninitialize(unit) == 0 && unit.close() == 0 && unitDisposals() == 1);
     return 0;
 }

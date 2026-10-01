@@ -115,5 +115,5 @@ class LinuxStack extends LinuxContainerView implements IStack {
 
 	public void layout() { self.node().requireOpen(); self.relayout(); }
 
-	public void __del__() { if (self.node() != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
 }

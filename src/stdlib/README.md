@@ -69,6 +69,10 @@ the API surface, so the layout follows a few fixed rules.
   types carry no platform prefix. The one exemption is the root `Iterable<T>`:
   it is the language's for-in protocol, named for the loop it enables, not a
   stdlib capability.
+- **Enum members are prefixed constants** (`AUDIO_DEVICE_BUSY`,
+  `STACK_ALIGN_START`, `CALLBACK_CANCELLATION_PENDING`): upper snake case
+  carrying their enum's stem, named unqualified. A bare `Pending` or `Start`
+  would claim a root symbol every importer sees.
 
 Current groups: `App`, `Audio`, `BackgroundJobs`, `Daemon`, `Digest`,
 `FileSystem`, `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`), `HTTP`, `Image`

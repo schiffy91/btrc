@@ -43,12 +43,12 @@ class GPUCompletionPump {
 
 	public CallbackCancellation cancel() {
 		var result = self._scope.cancel();
-		if (result == CallbackCancellation.Complete) { self._instance = null; }
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._instance = null; }
 		return result;
 	}
 
 	/* ICallbackRegistration.pollCompletion for an owner a parent scope tracks:
 	 * an open owner has nothing to report; a cancelled one reports drainage
 	 * after its own poll has pumped. */
-	public CallbackCancellation completion() { return self._scope.pendingCount() == 0 ? CallbackCancellation.Complete : CallbackCancellation.Pending; }
+	public CallbackCancellation completion() { return self._scope.pendingCount() == 0 ? CALLBACK_CANCELLATION_COMPLETE : CALLBACK_CANCELLATION_PENDING; }
 }

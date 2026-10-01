@@ -106,7 +106,7 @@ class ButtonAction implements IButtonAction {
 	public void invoke() {
 		assert(!self._log.activating);
 		self._log.values.push(self._value);
-		if (self._log.cancellation != null) { assert(self._log.cancellation.cancel() == CallbackCancellation.Pending); }
+		if (self._log.cancellation != null) { assert(self._log.cancellation.cancel() == CALLBACK_CANCELLATION_PENDING); }
 		if (self._log.closing != null) { self._log.closing.close(); }
 		if (self._log.fail) { throw "button work failed"; }
 		if (self._log.values.len == self._log.limit) { GUI.requestQuit(); }
@@ -141,7 +141,7 @@ void verifyActions() {
 	activateButton(first, log);
 	var cancelled = first.onAction(ButtonAction(log, 99), scope);
 	activateButton(first, log);
-	assert(cancelled.cancel() == CallbackCancellation.Complete && log.destroyed == 2);
+	assert(cancelled.cancel() == CALLBACK_CANCELLATION_COMPLETE && log.destroyed == 2);
 	first.onAction(ButtonAction(log, 1), scope);
 	second.onAction(ButtonAction(log, 2), scope);
 	first.setTitle("Changed without an action");
@@ -154,7 +154,7 @@ void verifyActions() {
 	GUI.run();
 	assert(log.values.len == 3 && log.values.get(0) == 1 && log.values.get(1) == 2 && log.values.get(2) == 1);
 	assert(!first.isOpen() && !second.isOpen());
-	assert(scope.cancel() == CallbackCancellation.Complete && log.destroyed == 4);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && log.destroyed == 4);
 
 	for (int mode = 0; mode < 3; mode++) {
 		GUI.initialize(4);
@@ -171,8 +171,8 @@ void verifyActions() {
 		bool failed = false;
 		try { GUI.run(); } catch (string error) { assert(error.equals("button work failed")); failed = true; }
 		assert(failed == state.fail && state.values.len == 1);
-		assert(registration.pollCompletion() == CallbackCancellation.Complete);
-		assert(actionScope.cancel() == CallbackCancellation.Complete && state.destroyed == 1);
+		assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(actionScope.cancel() == CALLBACK_CANCELLATION_COMPLETE && state.destroyed == 1);
 	}
 
 	for (int mode = 0; mode < 2; mode++) {
@@ -190,7 +190,7 @@ void verifyActions() {
 			rejected = true;
 		}
 		assert(rejected && state.values.len == 0 && !button.isOpen());
-		assert(overflowScope.cancel() == CallbackCancellation.Complete && state.destroyed == 1);
+		assert(overflowScope.cancel() == CALLBACK_CANCELLATION_COMPLETE && state.destroyed == 1);
 	}
 }
 
@@ -212,9 +212,9 @@ class ForeignView implements IView {
 
 	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { throw "Foreign views take no input"; }
 
-	public CallbackCancellation close() { return CallbackCancellation.Complete; }
+	public CallbackCancellation close() { return CALLBACK_CANCELLATION_COMPLETE; }
 
-	public CallbackCancellation pollClose() { return CallbackCancellation.Complete; }
+	public CallbackCancellation pollClose() { return CALLBACK_CANCELLATION_COMPLETE; }
 }
 
 /* GUI.capture projects a provider root to backing pixels and rejects roots
@@ -235,7 +235,7 @@ void verifyCapture() {
 	try { GUI.capture(ForeignView(), layers); } catch (string error) { rejected = error.equals("Capture root belongs to another GUI provider"); }
 	assert(rejected);
 	window.close();
-	assert(GUI.close() == CallbackCancellation.Complete);
+	assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE);
 }
 
 /* Image handles convert on a worker, present on the UI thread, and stay
@@ -258,7 +258,7 @@ void verifyImageHandles() {
 	try { view.setImageHandle(handle); } catch (string error) { rejected = error.equals("Native image handle is closed"); }
 	assert(rejected);
 	view.setImageHandle(null);
-	assert(GUI.close() == CallbackCancellation.Complete && !view.isOpen());
+	assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE && !view.isOpen());
 }
 
 int main(int argc, char** argv) {

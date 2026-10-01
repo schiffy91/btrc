@@ -117,13 +117,13 @@ class GPUDevice {
 	}
 
 	public CallbackCancellation close() {
-		var result = self._pump == null ? CallbackCancellation.Complete : self._pump.cancel();
+		var result = self._pump == null ? CALLBACK_CANCELLATION_COMPLETE : self._pump.cancel();
 		self._adapterCompletion = null;
 		self._deviceCompletion = null;
 		self._queue = null;
 		self._device = null;
 		self._adapter = null;
-		self._state = result == CallbackCancellation.Complete ? GPU_DEVICE_CLOSED : GPU_DEVICE_CLOSING;
+		self._state = result == CALLBACK_CANCELLATION_COMPLETE ? GPU_DEVICE_CLOSED : GPU_DEVICE_CLOSING;
 		return result;
 	}
 

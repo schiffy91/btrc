@@ -41,14 +41,14 @@ int main() {
 	receiver.consume = false;
 	sendKey(native, kVK_ANSI_D, "d");
 	assert(receiver.calls == 2 && receiver.last == APP_KEY_D);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	sendKey(native, kVK_ANSI_A, "a");
 	assert(receiver.calls == 2);
 	var next = CallbackScope();
 	window.onKey(receiver, next);
-	assert(window.close() == CallbackCancellation.Complete);
-	assert(next.cancel() == CallbackCancellation.Complete);
+	assert(window.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(next.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	other.close();
-	assert(GUI.close() == CallbackCancellation.Complete);
+	assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE);
 	return 0;
 }

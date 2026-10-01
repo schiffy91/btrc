@@ -25,7 +25,7 @@ or display-synchronization API. Native GPU completion required for shutdown
 must not use a domain callback that Quit intentionally abandons.
 `run()` closes owned windows and detached views before returning or propagating
 a work error. `GUI.close()` covers setup without loop entry and returns a
-`CallbackCancellation`; `Pending` keeps the application owner. Enter `GUI.run()`
+`CallbackCancellation`; `CALLBACK_CANCELLATION_PENDING` keeps the application owner. Enter `GUI.run()`
 to drain that shutdown on the native executor. Closed aliases remain closed
 after reinitialization.
 `button.onAction(receiver, scope)` registers an `IButtonAction.invoke()` receiver
@@ -114,9 +114,9 @@ row/column layout, `IGrid` for grids and `IGPUView` for GPU composition.
 
 `IView.close()` starts shutdown once and reports completion. `pollClose()` advances
 already-started cleanup without retrying failed native operations; it reports
-`NotRequested` on a live view. Native controls complete immediately. A container
+`CALLBACK_CANCELLATION_NOT_REQUESTED` on a live view. Native controls complete immediately. A container
 retains pending children and its native backing, closes siblings independently,
-and removes a child only after `Complete`. `isOpen() == false` means admission
+and removes a child only after `CALLBACK_CANCELLATION_COMPLETE`. `isOpen() == false` means admission
 has stopped, not that native cleanup finished. Dropping an unfinished subtree
 owner is a diagnosed lifecycle error, not permission to free native borrowers.
 

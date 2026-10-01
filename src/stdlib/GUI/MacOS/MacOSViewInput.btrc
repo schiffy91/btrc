@@ -171,9 +171,9 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 
 	public CallbackCancellation pollCompletion() {
 		if (!NSThread.isMainThread()) { throw "View input requires the main thread"; }
-		if (self._open) { return CallbackCancellation.NotRequested; }
+		if (self._open) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var state = self._native.pollCompletion();
-		if (state == CallbackCancellation.Complete) { self._view = null; self._pointer = null; self._scroll = null; }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._view = null; self._pointer = null; self._scroll = null; }
 		return state;
 	}
 

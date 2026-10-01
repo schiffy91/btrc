@@ -22,7 +22,7 @@ class PointerReceiver implements IViewPointerHandler {
 	public double y = 0.0;
 	public CallbackScope? cancelOwner;
 	public IWindow? closeWindow;
-	public CallbackCancellation closeState = CallbackCancellation.NotRequested;
+	public CallbackCancellation closeState = CALLBACK_CANCELLATION_NOT_REQUESTED;
 
 	public bool pointer(AppPointerEvent event) {
 		self.x = event.logicalX; self.y = event.logicalY;
@@ -94,8 +94,8 @@ int main() {
 	assert(scroll.calls == 2);
 	root.detach(panel);
 	assert(hover.exited == 1);
-	assert(panel.close() == CallbackCancellation.Complete && !button.isOpen());
-	assert(hoverScope.cancel() == CallbackCancellation.Complete);
+	assert(panel.close() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
+	assert(hoverScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	sendPointer(native, NSEventTypeLeftMouseDown, 45.0, 60.0);
 	assert(receiver.presses == 1 && receiver.entered == 1);
 	assert(NativePointerEvents.forwarded() == 0);
@@ -117,7 +117,7 @@ int main() {
 	NativePointerEvents.loseFocus(native.nativeWindow());
 	assert(receiver.cancelled == 1);
 	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(receiver.cancelled == 2 && !registration.isOpen());
 	sendPointer(native, NSEventTypeLeftMouseDragged, 60.0, 70.0);
 	assert(receiver.drags == 1);
@@ -139,23 +139,23 @@ int main() {
 	otherRoot.detach(view);
 	root.attach(view);
 	view.arrange(30.0, 40.0, 100.0, 80.0);
-	assert(other.close() == CallbackCancellation.Complete);
+	assert(other.close() == CALLBACK_CANCELLATION_COMPLETE);
 	receiver.cancelOwner = next;
 	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
 	sendPointer(native, NSEventTypeLeftMouseDragged, 60.0, 70.0);
-	assert(receiver.closeState == CallbackCancellation.Pending);
-	assert(next.pollCompletion() == CallbackCancellation.Complete && receiver.cancelled == 5);
+	assert(receiver.closeState == CALLBACK_CANCELLATION_PENDING);
+	assert(next.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && receiver.cancelled == 5);
 	receiver.cancelOwner = null;
 	var closing = CallbackScope();
 	view.onPointer(receiver, closing);
 	receiver.closeWindow = native;
 	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
 	sendPointer(native, NSEventTypeLeftMouseDragged, 60.0, 70.0);
-	assert(receiver.closeState == CallbackCancellation.Pending);
-	assert(native.pollClose() == CallbackCancellation.Complete);
+	assert(receiver.closeState == CALLBACK_CANCELLATION_PENDING);
+	assert(native.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(!view.isOpen() && receiver.cancelled == 6);
-	assert(closing.cancel() == CallbackCancellation.Complete);
-	assert(GUI.close() == CallbackCancellation.Complete);
+	assert(closing.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE);
 	print("PASS: view-local pointer routing, capture, forwarding and scoped native shutdown");
 	return 0;
 }

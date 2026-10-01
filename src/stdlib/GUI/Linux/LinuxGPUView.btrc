@@ -148,7 +148,7 @@ class LinuxGPUView extends LinuxNodeView implements IGPUView {
 	public GPUReadback readback(int maximumPixels = 16777216) { return GPUReadback.create(self.frameRenderer(), maximumPixels, self._work); }
 
 	public CallbackCancellation close() {
-		if (self.node().closed) { return CallbackCancellation.Complete; }
+		if (self.node().closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (!self._closing) {
 			self.node().requireDetached();
 			self._closing = true;
@@ -163,12 +163,12 @@ class LinuxGPUView extends LinuxNodeView implements IGPUView {
 	}
 
 	public CallbackCancellation pollClose() {
-		if (self.node().closed) { return CallbackCancellation.Complete; }
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
-		if (self._closeFailed) { return CallbackCancellation.Failed; }
+		if (self.node().closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (self._closeFailed) { return CALLBACK_CANCELLATION_FAILED; }
 		try {
 			var work = self._work.pollCompletion();
-			if (work != CallbackCancellation.Complete) { return work; }
+			if (work != CALLBACK_CANCELLATION_COMPLETE) { return work; }
 			self._sampled = null;
 			self._renderer = null;
 			var target = self._target;
@@ -176,13 +176,13 @@ class LinuxGPUView extends LinuxNodeView implements IGPUView {
 			self._target = null;
 			self._targetDevice = null;
 			var view = self.node().close();
-			if (view != CallbackCancellation.Complete) { return view; }
-		} catch (string error) { self._error = error; self._closeFailed = true; return CallbackCancellation.Failed; }
-		return CallbackCancellation.Complete;
+			if (view != CALLBACK_CANCELLATION_COMPLETE) { return view; }
+		} catch (string error) { self._error = error; self._closeFailed = true; return CALLBACK_CANCELLATION_FAILED; }
+		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
 	public void __del__() {
 		if (self.node() == null) { return; }
-		if (self.close() != CallbackCancellation.Complete) { Console.fatal("GPU view destroyed before native work drained"); }
+		if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("GPU view destroyed before native work drained"); }
 	}
 }

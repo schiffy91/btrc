@@ -126,16 +126,16 @@ class MacOSStack implements IStack, IMacOSView {
 
 	public CallbackCancellation close() {
 		// A constructor can fail before either managed field is initialized.
-		var state = self._container == null ? CallbackCancellation.Complete : self._container.close();
-		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE && self._layout != null) { self._layout.close(); }
 		return state;
 	}
 
 	public CallbackCancellation pollClose() {
-		var state = self._container == null ? CallbackCancellation.Complete : self._container.pollClose();
-		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE && self._layout != null) { self._layout.close(); }
 		return state;
 	}
 
-	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
 }

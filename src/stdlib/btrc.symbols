@@ -1,8 +1,13 @@
-btrc-symbols 1 099ba9b0-235018-26
+btrc-symbols 1 f21f0717-235169-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
 Bytes	Bytes.btrc
+CALLBACK_CANCELLATION_COMPLETE	Callback.btrc
+CALLBACK_CANCELLATION_FAILED	Callback.btrc
+CALLBACK_CANCELLATION_NOT_REQUESTED	Callback.btrc
+CALLBACK_CANCELLATION_PENDING	Callback.btrc
+CALLBACK_CANCELLATION_RETRYABLE_FAILURE	Callback.btrc
 CHILD_STDIN_INHERIT	Process.btrc
 CHILD_STDIN_NULL	Process.btrc
 CLIArgs	CLI.btrc
@@ -32,7 +37,6 @@ ChildStdin	Process.btrc
 Command	Process.btrc
 CommandOutput	Process.btrc
 CompiledRegex	Regex.btrc
-Complete	Callback.btrc
 Console	Console.btrc
 DateTime	DateTime.btrc
 Environment	Platform.btrc
@@ -49,7 +53,6 @@ FILE_SNAPSHOT_CLOSED	IO.btrc
 FILE_SNAPSHOT_FAILED	IO.btrc
 FILE_SNAPSHOT_UNSUPPORTED	IO.btrc
 FILE_SYMLINK	IO.btrc
-Failed	Callback.btrc
 File	IO.btrc
 FileKind	IO.btrc
 FileLineReadKind	IO.btrc
@@ -75,7 +78,6 @@ List	List.btrc
 ListNode	List.btrc
 Map	Map.btrc
 Math	Math.btrc
-NotRequested	Callback.btrc
 OWNED_BUFFER_COUNT_OUT_OF_RANGE	OwnedBuffer.btrc
 OWNED_BUFFER_INVALID_ARGUMENT	OwnedBuffer.btrc
 OWNED_BUFFER_OPENED	OwnedBuffer.btrc
@@ -88,13 +90,11 @@ OwnedBuffers	OwnedBuffer.btrc
 OwnedClosure	Callback.btrc
 Path	IO.btrc
 Pattern	Pattern.btrc
-Pending	Callback.btrc
 Platform	Platform.btrc
 ProcessStatus	Process.btrc
 Random	Random.btrc
 Regex	Regex.btrc
 Result	Result.btrc
-RetryableFailure	Callback.btrc
 SPSCQueue	SPSC.btrc
 SPSCQueueCursor	SPSC.btrc
 SPSCQueueOpenKind	SPSC.btrc

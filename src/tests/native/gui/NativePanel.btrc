@@ -60,9 +60,9 @@ int main() {
 	bool invalid = false;
 	try { panel.setCornerRadius(-1.0); } catch (string error) { invalid = true; }
 	assert(invalid);
-	assert(portable.close() == CallbackCancellation.Complete);
+	assert(portable.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(!imageView.isOpen());
-	assert(portable.close() == CallbackCancellation.Complete);
+	assert(portable.close() == CALLBACK_CANCELLATION_COMPLETE);
 	bool closed = false;
 	try { panel.setFill(RGBA(0, 0, 0)); } catch (string error) { closed = true; }
 	assert(closed);

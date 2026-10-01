@@ -278,7 +278,7 @@ class MacOSWindow implements IWindow {
 	public CallbackCancellation close() {
 		self.requireMainThread();
 		var window = self._window;
-		if (window == null) { return CallbackCancellation.Complete; }
+		if (window == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (self._mutating) { throw "Window root mutation is already active"; }
 		if (!self._closing) {
@@ -293,14 +293,14 @@ class MacOSWindow implements IWindow {
 	public CallbackCancellation pollClose() {
 		self.requireMainThread();
 		var window = self._window;
-		if (window == null) { return CallbackCancellation.Complete; }
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (window == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (self._mutating) { throw "Window root mutation is already active"; }
 		self._mutating = true;
-		CallbackCancellation result = CallbackCancellation.Complete;
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		try {
-			if (self._callbacks.cancel() != CallbackCancellation.Complete) { throw "Window callbacks must drain before shutdown"; }
+			if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Window callbacks must drain before shutdown"; }
 			var root = self._root;
 			if (root != null) {
 				if (!self._rootClosing) {
@@ -312,9 +312,9 @@ class MacOSWindow implements IWindow {
 					self._rootClosing = true;
 					result = root.close();
 				} else { result = root.pollClose(); }
-				if (result == CallbackCancellation.Complete) { self._root = null; }
+				if (result == CALLBACK_CANCELLATION_COMPLETE) { self._root = null; }
 			}
-			if (result == CallbackCancellation.Complete) {
+			if (result == CALLBACK_CANCELLATION_COMPLETE) {
 				if (!self._events.closed) { window.close(); }
 				self._window = null;
 			}
@@ -325,5 +325,5 @@ class MacOSWindow implements IWindow {
 		return result;
 	}
 
-	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
 }

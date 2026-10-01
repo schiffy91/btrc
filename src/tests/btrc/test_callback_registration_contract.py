@@ -298,14 +298,14 @@ class CancellationGlobals {
 }
 
 bool cancelFromUnregister(void* raw) {
-    assert(CancellationGlobals.holder.registration.cancel() == CallbackCancellation.Pending);
-    assert(CancellationGlobals.holder.registration.pollCompletion() == CallbackCancellation.Pending);
+    assert(CancellationGlobals.holder.registration.cancel() == CALLBACK_CANCELLATION_PENDING);
+    assert(CancellationGlobals.holder.registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
     return fake_unregister(raw);
 }
 
 void cancelFromDestroy(void* raw) {
-    assert(CancellationGlobals.holder.registration.cancel() == CallbackCancellation.Pending);
-    assert(CancellationGlobals.holder.registration.pollCompletion() == CallbackCancellation.Pending);
+    assert(CancellationGlobals.holder.registration.cancel() == CALLBACK_CANCELLATION_PENDING);
+    assert(CancellationGlobals.holder.registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
     destroyContext(raw);
 }
 
@@ -314,16 +314,16 @@ void cancellationDoesNotWaitForItsOwnExecutor() {
     StoredContext* context = makeStoredContext(null, 0u);
     var registration = new CallbackRegistration<CFunction<void, void*>>(storedTrampoline, context, cancelFromDestroy, activateStored, null, cancelFromUnregister, null);
     CancellationGlobals.holder = new CancellationHolder(registration);
-    assert(registration.pollCompletion() == CallbackCancellation.NotRequested);
+    assert(registration.pollCompletion() == CALLBACK_CANCELLATION_NOT_REQUESTED);
     assert(callbackGateTryEnter(context->gate));
-    assert(registration.cancel() == CallbackCancellation.Pending);
+    assert(registration.cancel() == CALLBACK_CANCELLATION_PENDING);
     assert(!registration.isOpen());
     assert(!callbackGateTryEnter(context->gate));
-    assert(registration.pollCompletion() == CallbackCancellation.Pending);
+    assert(registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
     assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
     callbackGateLeave(context->gate);
-    assert(registration.pollCompletion() == CallbackCancellation.Complete);
-    assert(registration.cancel() == CallbackCancellation.Complete);
+    assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+    assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
     assert(registration.close());
     assert(destroyed.load(MemoryOrder.ACQUIRE) == 1u);
     assert(fake_unregister_attempt_count() == 1);
@@ -334,11 +334,11 @@ void cancellationFailureKeepsContextUntilExplicitRetry() {
     resetScenario();
     var registration = makeRegistration(null, 0u, fake_unregister);
     fake_set_unregister_failures(1);
-    assert(registration.cancel() == CallbackCancellation.RetryableFailure);
-    assert(registration.pollCompletion() == CallbackCancellation.RetryableFailure);
+    assert(registration.cancel() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
+    assert(registration.pollCompletion() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
     assert(fake_unregister_attempt_count() == 1);
     assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
-    assert(registration.cancel() == CallbackCancellation.Complete);
+    assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
     assert(destroyed.load(MemoryOrder.ACQUIRE) == 1u);
 }
 
@@ -348,12 +348,12 @@ void concurrentCancellationClosesAdmissionForEveryCaller() {
     var registration = new CallbackRegistration<CFunction<void, void*>>(storedTrampoline, context, destroyContext, activateStored, null, fake_unregister, null);
     assert(callbackGateTryEnter(context->gate));
     Thread<int> first = spawn(() => {
-        assert(registration.cancel() == CallbackCancellation.Pending);
+        assert(registration.cancel() == CALLBACK_CANCELLATION_PENDING);
         assert(!callbackGateTryEnter(context->gate));
         return 1;
     });
     Thread<int> second = spawn(() => {
-        assert(registration.cancel() == CallbackCancellation.Pending);
+        assert(registration.cancel() == CALLBACK_CANCELLATION_PENDING);
         assert(!callbackGateTryEnter(context->gate));
         return 1;
     });
@@ -361,7 +361,7 @@ void concurrentCancellationClosesAdmissionForEveryCaller() {
     assert(second.join() == 1);
     assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
     callbackGateLeave(context->gate);
-    assert(registration.pollCompletion() == CallbackCancellation.Complete);
+    assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     assert(destroyed.load(MemoryOrder.ACQUIRE) == 1u);
     assert(fake_unregister_attempt_count() == 1);
 }
@@ -371,20 +371,20 @@ void cancellationOfRunningCallbackHasOneFinalizer() {
     var registration = makeRegistration(null, 0u, fake_unregister);
     fake_start(0);
     while (entered.load(MemoryOrder.ACQUIRE) == 0u) {}
-    assert(registration.cancel() == CallbackCancellation.Pending);
-    assert(registration.pollCompletion() == CallbackCancellation.Pending);
+    assert(registration.cancel() == CALLBACK_CANCELLATION_PENDING);
+    assert(registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
     assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
     releaseCallback.store(1u, MemoryOrder.RELEASE);
     fake_join();
     Thread<int> first = spawn(() => {
         CallbackCancellation result = registration.pollCompletion();
-        while (result == CallbackCancellation.Pending) { result = registration.pollCompletion(); }
-        return result == CallbackCancellation.Complete ? 1 : 0;
+        while (result == CALLBACK_CANCELLATION_PENDING) { result = registration.pollCompletion(); }
+        return result == CALLBACK_CANCELLATION_COMPLETE ? 1 : 0;
     });
     Thread<int> second = spawn(() => {
         CallbackCancellation result = registration.pollCompletion();
-        while (result == CallbackCancellation.Pending) { result = registration.pollCompletion(); }
-        return result == CallbackCancellation.Complete ? 1 : 0;
+        while (result == CALLBACK_CANCELLATION_PENDING) { result = registration.pollCompletion(); }
+        return result == CALLBACK_CANCELLATION_COMPLETE ? 1 : 0;
     });
     assert(first.join() == 1);
     assert(second.join() == 1);
@@ -1051,12 +1051,12 @@ class Context implements ICallbackContext {
 	public CallbackState? registration;
 	public bool unregister() {
 		unregistered++;
-		assert(self.registration.cancel() == CallbackCancellation.Pending);
+		assert(self.registration.cancel() == CALLBACK_CANCELLATION_PENDING);
 		return true;
 	}
 	public bool close() {
 		closed++;
-		assert(self.registration.cancel() == CallbackCancellation.Pending);
+		assert(self.registration.cancel() == CALLBACK_CANCELLATION_PENDING);
 		self.receiver = null;
 		self.registration = null;
 		return true;
@@ -1067,13 +1067,13 @@ void cancelInline() {
 	var state = CallbackState(context);
 	context.registration = state;
 	assert(callbackGateTryEnter(state.activationGate()));
-	assert(state.cancel() == CallbackCancellation.Pending);
+	assert(state.cancel() == CALLBACK_CANCELLATION_PENDING);
 	assert(unregistered == 0 && closed == 0 && destroyed == 0);
 	assert(!callbackGateTryEnter(state.activationGate()));
 	callbackGateLeave(state.activationGate());
 	state.finishActivation(true);
-	assert(state.pollCompletion() == CallbackCancellation.Complete);
-	assert(state.cancel() == CallbackCancellation.Complete);
+	assert(state.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(state.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 void drainAdmittedCallback() {
 	var context = Context();
@@ -1083,10 +1083,10 @@ void drainAdmittedCallback() {
 	ICallbackRegistration subscription = state;
 	assert(subscription.isOpen());
 	assert(callbackGateTryEnter(state.activationGate()));
-	assert(subscription.cancel() == CallbackCancellation.Pending);
+	assert(subscription.cancel() == CALLBACK_CANCELLATION_PENDING);
 	assert(unregistered == 1 && closed == 0 && destroyed == 0);
 	callbackGateLeave(state.activationGate());
-	assert(subscription.pollCompletion() == CallbackCancellation.Complete);
+	assert(subscription.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 }
 void abandonCycle() {
 	var context = Context();
@@ -1184,13 +1184,13 @@ void inlineCancel() {
 	context.activate(scope);
 	IReceiver? receiver = context.enter();
 	assert(receiver != null && receiver.invoke() == 42);
-	assert(context.cancel() == CallbackCancellation.Pending);
+	assert(context.cancel() == CALLBACK_CANCELLATION_PENDING);
 	assert(context.enter() == null);
 	assert(unregisters == 0);
 	context.leave(); receiver = null;
 	context.publish(Token());
-	assert(context.pollCompletion() == CallbackCancellation.Complete);
-	assert(scope.pollCompletion() == CallbackCancellation.NotRequested);
+	assert(context.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_NOT_REQUESTED);
 	assert(scope.pendingCount() == 0);
 	assert(receiversDestroyed == 1 && tokensDestroyed == 1 && unregisters == 1);
 }
@@ -1203,12 +1203,12 @@ void draining() {
 	assert(rejected);
 	IReceiver? receiver = context.enter();
 	assert(receiver != null);
-	assert(scope.cancel() == CallbackCancellation.Pending);
-	assert(context.pollCompletion() == CallbackCancellation.Pending);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
+	assert(context.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
 	assert(receiversDestroyed == 1 && tokensDestroyed == 1);
 	context.leave(); receiver = null;
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
-	assert(context.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(context.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(context.enter() == null);
 	assert(receiversDestroyed == 2 && tokensDestroyed == 2);
 }
@@ -1219,14 +1219,14 @@ void retry(bool raises) {
 	refuse = true; raiseError = raises;
 	int before = unregisters;
 	bool caught = false;
-	try { assert(context.cancel() == CallbackCancellation.RetryableFailure); }
+	try { assert(context.cancel() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE); }
 	catch (string error) { caught = error == "unregister probe"; }
 	assert(caught == raises);
-	assert(context.pollCompletion() == CallbackCancellation.RetryableFailure);
+	assert(context.pollCompletion() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
 	assert(unregisters == before + 1);
 	assert(context.enter() == null);
 	refuse = false; raiseError = false;
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(unregisters == before + 2);
 }
 void unpublished() {
@@ -1241,8 +1241,8 @@ void unpublished() {
 	assert(context.enter() == null);
 	context.leave(); receiver = null;
 	context.abortActivation();
-	assert(context.pollCompletion() == CallbackCancellation.Complete);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(context.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 void wrongExecutor() {
 	var scope = CallbackScope();
@@ -1259,7 +1259,7 @@ void wrongExecutor() {
 	assert(worker.join() == 4);
 	assert(context.isOpen());
 	assert(context.enter() != null); context.leave();
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 void abandonScopedReceiverCycle() {
 	var scope = CallbackScope();
@@ -1322,17 +1322,17 @@ void delayed(bool cancelled) {
 	var context = new CallbackRequest<IReceiver>(Receiver());
 	context.activate(scope); context.publish();
 	if (cancelled) {
-		assert(scope.cancel() == CallbackCancellation.Pending);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 		assert(context.enter() == null);
-		assert(context.pollCompletion() == CallbackCancellation.Pending);
+		assert(context.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
 		assert(destroyed == before && scope.pendingCount() == 1);
 	} else {
 		IReceiver? receiver = context.enter();
 		assert(receiver != null && receiver.invoke() == 42);
 		context.leave(); receiver = null;
 	}
-	assert(context.complete() == CallbackCancellation.Complete);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(context.complete() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.pendingCount() == 0 && destroyed == before + 1);
 	bool rejected = false;
 	try { context.complete(); } catch (string error) { rejected = true; }
@@ -1345,13 +1345,13 @@ void inlineCompletion(bool selfCancel) {
 	context.activate(scope);
 	IReceiver? receiver = context.enter();
 	assert(receiver != null);
-	if (selfCancel) { assert(context.cancel() == CallbackCancellation.Pending); }
-	assert(context.complete() == CallbackCancellation.Pending);
+	if (selfCancel) { assert(context.cancel() == CALLBACK_CANCELLATION_PENDING); }
+	assert(context.complete() == CALLBACK_CANCELLATION_PENDING);
 	context.leave(); receiver = null;
 	assert(destroyed == before);
 	context.publish();
-	assert(context.pollCompletion() == CallbackCancellation.Complete);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(context.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(destroyed == before + 1);
 }
 void admittedCall() {
@@ -1361,11 +1361,11 @@ void admittedCall() {
 	context.activate(scope); context.publish();
 	IReceiver? receiver = context.enter();
 	assert(receiver != null);
-	assert(context.complete() == CallbackCancellation.Pending);
-	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(context.complete() == CALLBACK_CANCELLATION_PENDING);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 	assert(destroyed == before);
 	context.leave(); receiver = null;
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(destroyed == before + 1);
 }
 void unpublished() {
@@ -1374,8 +1374,8 @@ void unpublished() {
 	var context = new CallbackRequest<IReceiver>(Receiver());
 	context.activate(scope);
 	context.abortActivation();
-	assert(context.pollCompletion() == CallbackCancellation.Complete);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(context.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(destroyed == before + 1);
 }
 void abortWhileAdmitted() {
@@ -1389,7 +1389,7 @@ void abortWhileAdmitted() {
 	assert(rejected);
 	context.leave(); receiver = null;
 	context.abortActivation();
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 void guards() {
 	var scope = CallbackScope();
@@ -1415,8 +1415,8 @@ void guards() {
 	bool duplicate = false;
 	try { context.enter(); } catch (string error) { duplicate = true; }
 	assert(duplicate);
-	assert(context.complete() == CallbackCancellation.Complete);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(context.complete() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 void receiverCycle() {
 	var scope = CallbackScope();
@@ -1424,9 +1424,9 @@ void receiverCycle() {
 	var context = new CallbackRequest<IReceiver>(receiver);
 	receiver.registration = context;
 	context.activate(scope); context.publish();
-	assert(scope.cancel() == CallbackCancellation.Pending);
-	assert(context.complete() == CallbackCancellation.Complete);
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
+	assert(context.complete() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 }
 class TerminalContext implements ICallbackContext {
 	public CallbackState? registration;
@@ -1443,14 +1443,14 @@ void terminalContext(bool published) {
 	context.registration = state;
 	context = null;
 	state.finishActivation(published);
-	assert(state.cancel() == CallbackCancellation.Complete);
+	assert(state.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	// Keep both cancellation aliases alive: terminal state must no longer own
 	// the context, or cycle collection may later destroy it on a worker.
 	assert(destroyed == before + 1);
 	Thread<int> worker = spawn(() => { return 7; });
 	assert(worker.join() == 7);
-	assert(state.cancel() == CallbackCancellation.Complete);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(state.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 int main() {
 	delayed(false); delayed(true); inlineCompletion(false); inlineCompletion(true);
@@ -1504,7 +1504,7 @@ void pending() {
 	var scope = CallbackScope();
 	var context = new CallbackRequest<IReceiver>(Receiver());
 	context.activate(scope); context.publish();
-	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 }
 void wrongExecutor() {
 	Thread<CallbackRequest<IReceiver>> worker = spawn(() => {
@@ -1554,13 +1554,13 @@ class Context implements ICallbackContext {
 	public bool raiseError = false;
 	public bool unregister() {
 		unregistered++;
-		if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (self.scope != null) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 		if (self.raiseError) { throw "unregister probe"; }
 		return !self.fail;
 	}
 	public bool close() {
 		closed++;
-		if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (self.scope != null) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 		self.receiver = null; self.registration = null; self.scope = null;
 		return true;
 	}
@@ -1580,11 +1580,11 @@ void inlineCancel() {
 	var state = scope.create(context);
 	context.registration = state;
 	assert(callbackGateTryEnter(state.activationGate()));
-	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 	assert(!callbackGateTryEnter(state.activationGate()));
 	callbackGateLeave(state.activationGate());
 	state.finishActivation(true);
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.pendingCount() == 0);
 	bool rejected = false;
 	try { scope.create(context); } catch (string error) { rejected = error == "Callback scope is closing"; }
@@ -1597,11 +1597,11 @@ void drain() {
 	state.finishActivation(true);
 	assert(callbackGateTryEnter(state.activationGate()));
 	int before = closed;
-	assert(scope.cancel() == CallbackCancellation.Pending);
-	assert(scope.pollCompletion() == CallbackCancellation.Pending);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
 	assert(scope.pendingCount() == 1 && closed == before);
 	callbackGateLeave(state.activationGate());
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.pendingCount() == 0 && closed == before + 1);
 }
 void failure(bool raises) {
@@ -1611,13 +1611,13 @@ void failure(bool raises) {
 	scope.create(first).finishActivation(true); scope.create(second).finishActivation(true);
 	int before = closed;
 	bool caught = false;
-	try { assert(scope.cancel() == CallbackCancellation.RetryableFailure); }
+	try { assert(scope.cancel() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE); }
 	catch (string error) { caught = error == "unregister probe"; }
 	assert(caught == raises);
 	assert(scope.pendingCount() == 1 && closed == before + 1);
-	assert(scope.pollCompletion() == CallbackCancellation.RetryableFailure);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
 	first.fail = false; first.raiseError = false;
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.pendingCount() == 0 && closed == before + 2);
 }
 void neverPublished() {
@@ -1626,7 +1626,7 @@ void neverPublished() {
 	var state = scope.create(context);
 	int before = unregistered;
 	state.finishActivation(false);
-	assert(scope.pollCompletion() == CallbackCancellation.NotRequested);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_NOT_REQUESTED);
 	assert(scope.pendingCount() == 0 && unregistered == before);
 }
 void cancelWhilePolling() {
@@ -1638,10 +1638,10 @@ void cancelWhilePolling() {
 	assert(callbackGateTryEnter(state.activationGate()));
 	/* Avoid cancelling the whole scope until the first context's close runs. */
 	first.scope = null;
-	assert(state.cancel() == CallbackCancellation.Pending);
+	assert(state.cancel() == CALLBACK_CANCELLATION_PENDING);
 	first.scope = scope;
 	callbackGateLeave(state.activationGate());
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.pendingCount() == 0);
 }
 void wrongExecutor() {
@@ -1654,7 +1654,7 @@ void wrongExecutor() {
 	});
 	assert(worker.join() == 1);
 	assert(scope.isOpen());
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 int main() {
 	scopedCycle(); inlineCancel(); drain(); failure(false); failure(true); neverPublished(); cancelWhilePolling(); wrongExecutor();
@@ -1713,8 +1713,8 @@ class Work implements ICallbackRegistration {
 	}
 	public CallbackCancellation pollCompletion() {
 		if (self.failPoll) { throw "poll failed"; }
-		if (self.reentrant != null) { assert(self.reentrant.cancel() == CallbackCancellation.Pending); self.reentrant = null; }
-		return self.closing ? (completed || self.immediate ? CallbackCancellation.Complete : CallbackCancellation.Pending) : CallbackCancellation.NotRequested;
+		if (self.reentrant != null) { assert(self.reentrant.cancel() == CALLBACK_CANCELLATION_PENDING); self.reentrant = null; }
+		return self.closing ? (completed || self.immediate ? CALLBACK_CANCELLATION_COMPLETE : CALLBACK_CANCELLATION_PENDING) : CALLBACK_CANCELLATION_NOT_REQUESTED;
 	}
 	public void __del__() { destroyed++; }
 }
@@ -1729,13 +1729,13 @@ void retainUntilComplete() {
 	try { scope.track(scope); } catch (string error) { rejected = true; }
 	assert(rejected && scope.pendingCount() == 1);
 	work = null;
-	assert(scope.pollCompletion() == CallbackCancellation.NotRequested && destroyed == 0);
-	assert(scope.cancel() == CallbackCancellation.Pending && destroyed == 0);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_NOT_REQUESTED && destroyed == 0);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING && destroyed == 0);
 	rejected = false;
 	try { scope.track(Work()); } catch (string error) { rejected = true; }
 	assert(rejected && destroyed == 1 && scope.pendingCount() == 1);
 	completed = true;
-	assert(scope.pollCompletion() == CallbackCancellation.Complete && destroyed == 2);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && destroyed == 2);
 	assert(scope.pendingCount() == 0);
 	completed = false;
 }
@@ -1751,7 +1751,7 @@ void failuresAndReentrancy() {
 	try { scope.pollCompletion(); } catch (string error) { rejected = error == "poll failed"; }
 	assert(rejected && scope.pendingCount() == 1);
 	first.failPoll = false; first.failCancel = false; first.immediate = true;
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 }
 class Construction implements ICallbackRegistration {
 	private bool closing = false;
@@ -1764,8 +1764,8 @@ class Construction implements ICallbackRegistration {
 		return value;
 	}
 	public bool isOpen() { return !self.closing; }
-	public CallbackCancellation cancel() { self.closing = true; return CallbackCancellation.Complete; }
-	public CallbackCancellation pollCompletion() { return self.closing ? CallbackCancellation.Complete : CallbackCancellation.NotRequested; }
+	public CallbackCancellation cancel() { self.closing = true; return CALLBACK_CANCELLATION_COMPLETE; }
+	public CallbackCancellation pollCompletion() { return self.closing ? CALLBACK_CANCELLATION_COMPLETE : CALLBACK_CANCELLATION_NOT_REQUESTED; }
 	public void __del__() { destroyed++; }
 }
 void failedConstruction() {
@@ -1774,7 +1774,7 @@ void failedConstruction() {
 	bool rejected = false;
 	try { Construction.create(scope); } catch (string error) { rejected = error == "construction failed after registration"; }
 	assert(rejected && scope.pendingCount() == 1 && destroyed == before);
-	assert(scope.pollCompletion() == CallbackCancellation.NotRequested);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_NOT_REQUESTED);
 	assert(scope.pendingCount() == 0 && destroyed == before + 1);
 }
 int main() {
@@ -1830,17 +1830,17 @@ int main() {
 	state.finishActivation(activateStored(closure.invokePointer(), closure.context(), state.activationGate(), null));
 	fake_start(0);
 	while (entered.load(MemoryOrder.ACQUIRE) == 0u) {}
-	assert(scope.cancel() == CallbackCancellation.Pending);
-	assert(scope.pollCompletion() == CallbackCancellation.Pending);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
 	assert(scope.pendingCount() == 1 && fake_unregister_count() == 1);
 	assert(destroyed.load(MemoryOrder.ACQUIRE) == 0u);
 	assert(!fake_invoke_now());
 	releaseCallback.store(1u, MemoryOrder.RELEASE);
 	fake_join();
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.pendingCount() == 0 && destroyed.load(MemoryOrder.ACQUIRE) == 1u);
 	assert(calls.load(MemoryOrder.ACQUIRE) == 1u && activeSamples[0] == 6.0);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	return 0;
 }
 """
@@ -1997,15 +1997,15 @@ void terminal() {
     Atomic<uint>* gate = state.activationGate();
     assert(callbackGateTryEnter(gate));
     bool caught = false;
-    try { assert(state.cancel() == CallbackCancellation.Failed); }
+    try { assert(state.cancel() == CALLBACK_CANCELLATION_FAILED); }
     catch (string error) { caught = error == "unknown cancellation"; }
     assert(caught == THROWS);
-    assert(state.pollCompletion() == CallbackCancellation.Failed);
-    assert(state.cancel() == CallbackCancellation.Failed);
-    assert(scope.cancel() == CallbackCancellation.Failed);
+    assert(state.pollCompletion() == CALLBACK_CANCELLATION_FAILED);
+    assert(state.cancel() == CALLBACK_CANCELLATION_FAILED);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_FAILED);
     callbackGateLeave(gate);
     assert(!callbackGateTryEnter(gate));
-    assert(scope.pollCompletion() == CallbackCancellation.Failed);
+    assert(scope.pollCompletion() == CALLBACK_CANCELLATION_FAILED);
     assert(attempts == 1 && closes == 0 && destroyed == 0 && scope.pendingCount() == 1);
     fprintf(stderr, "retained indeterminate context without retry\\n");
 }

@@ -172,7 +172,7 @@ class GPUProgram implements ICallbackRegistration {
 	public CallbackCancellation cancel() { return self.close(); }
 
 	public CallbackCancellation pollCompletion() {
-		if (self.isOpen()) { return CallbackCancellation.NotRequested; }
+		if (self.isOpen()) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		self.poll();
 		return self._pump.completion();
 	}
@@ -245,13 +245,13 @@ class GPUProgram implements ICallbackRegistration {
 	private void fail(string error) { self.close(); self._error = error; self._state = GPU_PROGRAM_FAILED; }
 
 	public CallbackCancellation close() {
-		var result = self._pump == null ? CallbackCancellation.Complete : self._pump.cancel();
+		var result = self._pump == null ? CALLBACK_CANCELLATION_COMPLETE : self._pump.cancel();
 		self._completion = null;
 		if (self._pipeline != null) { wgpuRenderPipelineRelease(self._pipeline); self._pipeline = null; }
 		if (self._pipelineLayout != null) { wgpuPipelineLayoutRelease(self._pipelineLayout); self._pipelineLayout = null; }
 		if (self._layout != null) { wgpuBindGroupLayoutRelease(self._layout); self._layout = null; }
 		if (self._shader != null) { wgpuShaderModuleRelease(self._shader); self._shader = null; }
-		self._state = result == CallbackCancellation.Complete ? GPU_PROGRAM_CLOSED : GPU_PROGRAM_CLOSING;
+		self._state = result == CALLBACK_CANCELLATION_COMPLETE ? GPU_PROGRAM_CLOSED : GPU_PROGRAM_CLOSING;
 		return result;
 	}
 

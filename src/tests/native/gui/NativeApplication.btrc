@@ -99,7 +99,7 @@ class ModalWork implements IApplicationWork {
 		fprintf(stderr, "modal response=%ld delivered=%d pending-work-delivered=%d\n", (long)response, deliveries, workDelivered);
 		assert(response == NSModalResponseAbort);
 		assert(self._window.isOpen() && self._child.isOpen());
-		assert(scope.cancel() == CallbackCancellation.Complete);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	}
 
 	public void __del__() { workDestroyed++; }
@@ -142,8 +142,8 @@ class StuckView implements IMacOSView {
 	public CallbackCancellation close() { self._closing = true; return self.pollClose(); }
 
 	public CallbackCancellation pollClose() {
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
-		return holdClose ? CallbackCancellation.Pending : self._view.close();
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		return holdClose ? CALLBACK_CANCELLATION_PENDING : self._view.close();
 	}
 }
 
@@ -162,9 +162,9 @@ void verifyStuckShutdown() {
 	try { application.run(); } catch (string error) { failure = error; }
 	assert(failure.equals("Native subtree shutdown did not complete"));
 	assert(!application.isRunning() && !child.isOpen() && ApplicationProbe.liveViews() == 1L);
-	assert(application.pollClose() == CallbackCancellation.Pending && ApplicationProbe.liveViews() == 1L);
+	assert(application.pollClose() == CALLBACK_CANCELLATION_PENDING && ApplicationProbe.liveViews() == 1L);
 	holdClose = false;
-	assert(application.close() == CallbackCancellation.Complete);
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(!window.isOpen() && !root.isOpen() && ApplicationProbe.liveViews() == 0L && !ApplicationProbe.hasDelegate());
 }
 
@@ -239,7 +239,7 @@ int main(int argc, char** argv) {
 	assert(deliveries == (beforeRun || scheduled || cancelledWork || failedWork ? 0 : 1));
 	assert(workDelivered == (scheduled ? 2048 : (failedWork || modal ? 1 : 0)));
 	assert(workDestroyed == (scheduled ? 2048 : (cancelledWork ? 6 : (modal ? 3 : (failedWork || nativePending ? 2 : 0)))));
-	assert(timers.cancel() == CallbackCancellation.Complete);
+	assert(timers.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(receiversDestroyed == deliveries);
 	application.requestQuit();
 	application.close();

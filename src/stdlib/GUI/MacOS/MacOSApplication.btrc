@@ -93,7 +93,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 			var window = self._windows.get(index);
 			window.dispatchPendingEvents();
 			if (!window.isOpen()) {
-				if (window.pollClose() == CallbackCancellation.Complete) { self._windows.remove(index); }
+				if (window.pollClose() == CALLBACK_CANCELLATION_COMPLETE) { self._windows.remove(index); }
 				else { pending = true; }
 			}
 		}
@@ -167,12 +167,12 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 			if (!self.quitRequested) { self.dispatchWindowEvents(); return; }
 			if (self._pendingWork > 0 || self._dispatchingEvents) { self.armShutdown(); return; }
 			var result = self.closeViews();
-			if (result == CallbackCancellation.Pending) {
+			if (result == CALLBACK_CANCELLATION_PENDING) {
 				self.startShutdownDeadline();
 				if (self.shutdownExpired()) { throw "Native subtree shutdown did not complete"; }
 				self.armShutdown();
 			}
-			else if (result == CallbackCancellation.Complete) { self.stopNative(NSApplication.sharedApplication()); }
+			else if (result == CALLBACK_CANCELLATION_COMPLETE) { self.stopNative(NSApplication.sharedApplication()); }
 			else { throw "Native subtree shutdown failed without completion"; }
 		} catch (string error) {
 			self.recordFailure(error);
@@ -182,17 +182,17 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 	}
 
 	private CallbackCancellation combineClose(CallbackCancellation result, CallbackCancellation state) {
-		if (result == CallbackCancellation.Failed || state == CallbackCancellation.Failed) { return CallbackCancellation.Failed; }
-		if (result == CallbackCancellation.RetryableFailure || state == CallbackCancellation.RetryableFailure) { return CallbackCancellation.RetryableFailure; }
-		return result == CallbackCancellation.Complete && state == CallbackCancellation.Complete ? CallbackCancellation.Complete : CallbackCancellation.Pending;
+		if (result == CALLBACK_CANCELLATION_FAILED || state == CALLBACK_CANCELLATION_FAILED) { return CALLBACK_CANCELLATION_FAILED; }
+		if (result == CALLBACK_CANCELLATION_RETRYABLE_FAILURE || state == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		return result == CALLBACK_CANCELLATION_COMPLETE && state == CALLBACK_CANCELLATION_COMPLETE ? CALLBACK_CANCELLATION_COMPLETE : CALLBACK_CANCELLATION_PENDING;
 	}
 
 	public CallbackCancellation closeViews() {
-		CallbackCancellation result = CallbackCancellation.Complete;
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		for (int index = self._windows.len - 1; index >= 0; index--) {
 			try {
 				var state = self._windows.get(index).close();
-				if (state == CallbackCancellation.Complete) { self._windows.remove(index); }
+				if (state == CALLBACK_CANCELLATION_COMPLETE) { self._windows.remove(index); }
 				else { result = self.combineClose(result, state); }
 			} catch (string error) { if (self._viewCloseFailure.isEmpty()) { self._viewCloseFailure = error; } }
 		}
@@ -201,7 +201,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 			for view in self._views {
 				try {
 					if (!view.isOpen()) {
-						if (view.pollClose() != CallbackCancellation.Complete) { self._closingRoots.push(view); }
+						if (view.pollClose() != CALLBACK_CANCELLATION_COMPLETE) { self._closingRoots.push(view); }
 						continue;
 					}
 					var native = (IMacOSView?)view;
@@ -214,7 +214,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 			try {
 				var view = self._closingRoots.get(index);
 				var state = view.isOpen() ? view.close() : view.pollClose();
-				if (state == CallbackCancellation.Complete) { self._closingRoots.remove(index); }
+				if (state == CALLBACK_CANCELLATION_COMPLETE) { self._closingRoots.remove(index); }
 				else { result = self.combineClose(result, state); }
 			} catch (string error) {
 				// _views still owns this root. Remove only its progress entry:
@@ -224,7 +224,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 			}
 		}
 		if (!self._viewCloseFailure.isEmpty()) { throw self._viewCloseFailure; }
-		if (result == CallbackCancellation.Complete) {
+		if (result == CALLBACK_CANCELLATION_COMPLETE) {
 			for view in self._views { if (view.isOpen()) { throw "GUI view remains attached outside application ownership"; } }
 			self._views.clear();
 		}
@@ -356,8 +356,8 @@ class MacOSApplication implements IApplication {
 		while (true) {
 			if (self._events.quitRequested && self._events.pendingWork() == 0) {
 				var result = self.close();
-				if (result == CallbackCancellation.Complete) { break; }
-				if (result != CallbackCancellation.Pending) { throw "Native subtree shutdown failed without completion"; }
+				if (result == CALLBACK_CANCELLATION_COMPLETE) { break; }
+				if (result != CALLBACK_CANCELLATION_PENDING) { throw "Native subtree shutdown failed without completion"; }
 				self._events.startShutdownDeadline();
 				if (self._events.shutdownExpired()) {
 					self._events.recordFailure("Native subtree shutdown did not complete");
@@ -424,7 +424,7 @@ class MacOSApplication implements IApplication {
 	private void rememberView(IView view) {
 		for (int index = self._views.len - 1; index >= 0; index--) {
 			var previous = self._views.get(index);
-			if (!previous.isOpen() && previous.pollClose() == CallbackCancellation.Complete) { self._views.remove(index); }
+			if (!previous.isOpen() && previous.pollClose() == CALLBACK_CANCELLATION_COMPLETE) { self._views.remove(index); }
 		}
 		self._views.push(view);
 	}
@@ -509,12 +509,12 @@ class MacOSApplication implements IApplication {
 
 	public CallbackCancellation pollClose() {
 		self.requireMainThread();
-		return self._closed ? CallbackCancellation.Complete : (self._closing ? self.close() : CallbackCancellation.NotRequested);
+		return self._closed ? CALLBACK_CANCELLATION_COMPLETE : (self._closing ? self.close() : CALLBACK_CANCELLATION_NOT_REQUESTED);
 	}
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
-		if (self._closed) { return CallbackCancellation.Complete; }
+		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		if (self._running) { throw "Request application quit before closing a running application"; }
@@ -523,19 +523,19 @@ class MacOSApplication implements IApplication {
 		self._events.requestQuit(self._application);
 		self._closing = true;
 		var views = self._events.closeViews();
-		if (views != CallbackCancellation.Complete) { return views; }
+		if (views != CALLBACK_CANCELLATION_COMPLETE) { return views; }
 		try {
-			if (self._shutdown.cancel() != CallbackCancellation.Complete) { throw "Native subtree completions must drain before shutdown"; }
-			if (self._delayed.cancel() != CallbackCancellation.Complete) { throw "Delayed application work must drain before shutdown"; }
-			if (self._work.cancel() != CallbackCancellation.Complete) { throw "Application work must drain before shutdown"; }
-			if (self._callbacks.cancel() != CallbackCancellation.Complete) { throw "Application callbacks must drain before shutdown"; }
+			if (self._shutdown.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Native subtree completions must drain before shutdown"; }
+			if (self._delayed.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Delayed application work must drain before shutdown"; }
+			if (self._work.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Application work must drain before shutdown"; }
+			if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Application callbacks must drain before shutdown"; }
 		} catch (string error) { self._closeFailure = error; throw error; }
 		release self._views;
 		self._actions.close();
 		self._signal.close();
 		self._closed = true;
-		return CallbackCancellation.Complete;
+		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
-	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native application destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native application destroyed before subtree cleanup completed"); } }
 }

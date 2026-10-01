@@ -114,7 +114,7 @@ class GPUReadback implements ICallbackRegistration {
 	public CallbackCancellation cancel() { return self.close(); }
 
 	public CallbackCancellation pollCompletion() {
-		if (self.isOpen()) { return CallbackCancellation.NotRequested; }
+		if (self.isOpen()) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		self.poll();
 		return self._pump.completion();
 	}
@@ -175,11 +175,11 @@ class GPUReadback implements ICallbackRegistration {
 	private void releaseBuffer() { if (self._buffer != null) { wgpuBufferRelease(self._buffer); self._buffer = null; } }
 
 	public CallbackCancellation close() {
-		var result = self._pump == null ? CallbackCancellation.Complete : self._pump.cancel();
+		var result = self._pump == null ? CALLBACK_CANCELLATION_COMPLETE : self._pump.cancel();
 		self._completion = null;
 		if (self._mapping && self._buffer != null) { wgpuBufferUnmap(self._buffer); self._mapping = false; }
-		self._state = result == CallbackCancellation.Complete ? GPU_READBACK_CLOSED : GPU_READBACK_CLOSING;
-		if (result == CallbackCancellation.Complete) { self.releaseBuffer(); }
+		self._state = result == CALLBACK_CANCELLATION_COMPLETE ? GPU_READBACK_CLOSED : GPU_READBACK_CLOSING;
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self.releaseBuffer(); }
 		return result;
 	}
 

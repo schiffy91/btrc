@@ -178,7 +178,7 @@ class MacOSTray implements ITray {
 	public void close() {
 		self.requireMainThread();
 		self._commands.quit();
-		if (self._scope.cancel() != CallbackCancellation.Complete) { throw "Native tray callbacks must drain before closing"; }
+		if (self._scope.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Native tray callbacks must drain before closing"; }
 		self._signal.close();
 		if (self._status != null) { self._status.setMenu(null); NSStatusBar.systemStatusBar().removeStatusItem(self._status); self._status = null; }
 	}

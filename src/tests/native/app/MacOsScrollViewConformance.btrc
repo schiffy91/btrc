@@ -74,9 +74,9 @@ int main() {
 	try { scroll.setFrame(0.0, 0.0, INFINITY, 300.0); } catch (string error) { rejected = error.equals("Invalid scroll view frame"); }
 	assert(rejected);
 	var native = scroll.nativeControl();
-	assert(portable.close() == CallbackCancellation.Complete);
+	assert(portable.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(!field.isOpen() && !nested.isOpen());
-	assert(portable.close() == CallbackCancellation.Complete);
+	assert(portable.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(NativeScrollViewProbe.finish(native));
 	header.close();
 	window.close();

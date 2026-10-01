@@ -25,7 +25,7 @@ class StuckView extends LinuxNodeView {
 
 	public CallbackCancellation pollClose() {
 		self.polls++;
-		return self.released ? self.node().pollClose() : CallbackCancellation.Pending;
+		return self.released ? self.node().pollClose() : CALLBACK_CANCELLATION_PENDING;
 	}
 }
 
@@ -53,11 +53,11 @@ int main() {
 	/* The stalled owners are retained, so releasing the subtree lets close finish. */
 	stuck.released = true;
 	var result = GUI.close();
-	while (result == CallbackCancellation.Pending && clock.elapsedMillis() < 30000.0f) {
+	while (result == CALLBACK_CANCELLATION_PENDING && clock.elapsedMillis() < 30000.0f) {
 		Timer.sleepMillis(1);
 		result = GUI.close();
 	}
-	assert(result == CallbackCancellation.Complete);
+	assert(result == CALLBACK_CANCELLATION_COMPLETE);
 	assert(!root.isOpen() && !stuck.isOpen());
 	Console.log("PASS: linux gui shutdown deadline");
 	return 0;

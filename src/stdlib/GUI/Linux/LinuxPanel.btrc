@@ -49,5 +49,5 @@ class LinuxPanel extends LinuxContainerView implements IPanel {
 
 	public void inheritAppearance() { self.node().requireOpen(); self._appearance = 0; self.node().invalidate(); }
 
-	public void __del__() { if (self.node() != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native panel destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native panel destroyed before subtree cleanup completed"); } }
 }

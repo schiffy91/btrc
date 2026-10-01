@@ -32,7 +32,7 @@ class PortableGPUJourney implements IApplicationWork {
 	public void run() {
 		assert(self._deadline.elapsed() < 10.0f);
 		if (self._step == 2) {
-			assert(!self.view.isOpen() && self.view.pollClose() == CallbackCancellation.Pending);
+			assert(!self.view.isOpen() && self.view.pollClose() == CALLBACK_CANCELLATION_PENDING);
 			assert(probePendingCompletions() == 1);
 			probeDeliverCompletion();
 			GUI.requestQuit();
@@ -86,11 +86,11 @@ class PortableGPUJourney implements IApplicationWork {
 	}
 
 	private void beginClose() {
-		assert(self.window.close() == CallbackCancellation.Pending);
+		assert(self.window.close() == CALLBACK_CANCELLATION_PENDING);
 		assert(!self.window.isOpen() && !self.root.isOpen() && !self.view.isOpen());
 		bool rejected = false;
 		try { self.view.frameRenderer(); } catch (string error) { rejected = true; }
-		assert(rejected && self.view.pollClose() == CallbackCancellation.Pending);
+		assert(rejected && self.view.pollClose() == CALLBACK_CANCELLATION_PENDING);
 		self._step = 2;
 		GUI.postAfter(0.001, self);
 	}
@@ -108,7 +108,7 @@ int main() {
 		window.attachRoot(root);
 		field.arrange(20.0, 12.0, 320.0, 28.0);
 		view.arrange(20.0, 60.0, 320.0, 160.0);
-		assert(view.pollClose() == CallbackCancellation.NotRequested);
+		assert(view.pollClose() == CALLBACK_CANCELLATION_NOT_REQUESTED);
 		bool rejected = false;
 		try { view.close(); } catch (string error) { rejected = true; }
 		assert(rejected && view.isOpen());
@@ -116,10 +116,10 @@ int main() {
 		var journey = PortableGPUJourney(view, window, root, stage);
 		GUI.post(journey);
 		GUI.run();
-		assert(journey.done && view.pollClose() == CallbackCancellation.Complete);
+		assert(journey.done && view.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(!field.isOpen() && root.childCount() == 0);
 		assert(probePendingCompletions() == 0 && probeAdapterClaims() == 0 && probeDeviceClaims() == 0 && probeBufferClaims() == 0);
-		assert(GUI.close() == CallbackCancellation.Complete);
+		assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE);
 	}
 	probeDelayCompletions(0);
 	print("PASS: portable GPU view renders, resizes and drains through native application shutdown");
