@@ -4,6 +4,7 @@
 import Library.GUI.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IButton;
+import Library.GUI.IDirectoryPicker;
 import Library.GUI.IView;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.SDL;
@@ -33,6 +34,19 @@ class Pointer implements IViewPointerHandler {
 	}
 }
 
+/* A modal picker pumps the loop itself, so opening one from inside native
+ * dispatch is rejected before any dialog transaction exists. */
+class PickerProbe implements IViewPointerHandler {
+	public string error = "";
+
+	public bool pointer(AppPointerEvent event) {
+		if (event.action != APP_POINTER_PRESSED) { return false; }
+		try { GUI.chooseDirectory(DirectoryPickerRequest("Choose", "")); }
+		catch (string failure) { self.error = failure; }
+		return false;
+	}
+}
+
 class Journey implements IApplicationWork {
 	private int _step = 0;
 	private unsigned int _window;
@@ -46,10 +60,12 @@ class Journey implements IApplicationWork {
 	private Counter _counter;
 	private Pointer _cardPointer;
 	private Pointer _rootPointer;
+	private PickerProbe _picker;
 	private int _rootBefore = 0;
 	public bool passed = false;
 
-	public Journey(unsigned int window, IView root, IButton button, ITextField field, ISelect select, ISlider slider, IScrollView scroll, IPanel card, Counter counter, Pointer cardPointer, Pointer rootPointer) {
+	public Journey(unsigned int window, IView root, IButton button, ITextField field, ISelect select, ISlider slider, IScrollView scroll, IPanel card, Counter counter, Pointer cardPointer, Pointer rootPointer, PickerProbe picker) {
+		self._picker = picker;
 		self._window = window; self._root = root; self._button = button; self._field = field; self._select = select; self._slider = slider; self._scroll = scroll; self._card = card; self._counter = counter; self._cardPointer = cardPointer; self._rootPointer = rootPointer;
 	}
 
@@ -94,6 +110,7 @@ class Journey implements IApplicationWork {
 			/* Subscriptions see every press before built-in controls; the card consumed its own. */
 			assert(self._cardPointer.presses == 1 && self._rootPointer.presses == self._rootBefore);
 			assert(self._cardPointer.entered >= 1);
+			assert(self._picker.error.equals("Native event dispatch is already active"));
 			var image = GUI.capture(self._root, new Vector<GUICaptureLayer>());
 			assert(image.width > 0 && image.height > 0);
 			var pixel = image.pixel(image.width / 8, image.height * 3 / 4);
@@ -142,13 +159,15 @@ int main() {
 	slider.arrange(20.0, 80.0, 120.0, slider.fittingHeight());
 	scroll.arrange(320.0, 120.0, 140.0, 160.0);
 	card.arrange(20.0, 160.0, 120.0, 120.0);
+	var picker = PickerProbe();
+	card.onPointer(picker, scope);
 	card.onPointer(cardPointer, scope);
 	root.onPointer(rootPointer, scope);
 	assert(button.fittingWidth() > 40.0 && button.fittingHeight() > 20.0);
 	assert(select.fittingWidth() > 60.0);
 	window.show();
 	unsigned int windowId = native == null ? 0u : native.nativeId();
-	var journey = Journey(windowId, root, button, field, select, slider, scroll, card, counter, cardPointer, rootPointer);
+	var journey = Journey(windowId, root, button, field, select, slider, scroll, card, counter, cardPointer, rootPointer, picker);
 	GUI.post(journey);
 	GUI.run();
 	assert(journey.passed);

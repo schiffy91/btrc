@@ -38,11 +38,11 @@ symbols = [
 	"SDL_Cursor", "SDL_CreateSystemCursor", "SDL_SetCursor", "SDL_DestroyCursor",
 	"BtrcSdlEvent", "btrcSdlPollEvent", "btrcSdlWaitEvent", "btrcSdlPushWake",
 	"btrcSdlWindowPointerProperty", "btrcSdlWindowNumberProperty", "btrcSdlWindowFlag", "btrcSdlSetTextInputArea", "btrcSdlSimpleMessageBox",
-	"BtrcSdlFolderDialog", "btrcSdlFolderDialogOpen", "btrcSdlFolderDialogState", "btrcSdlFolderDialogPath", "btrcSdlFolderDialogFree",
+	"BtrcSdlFolderDialog", "btrcSdlFolderDialogOpen", "btrcSdlFolderDialogState", "btrcSdlFolderDialogPath", "btrcSdlFolderDialogRelease",
 	"btrcSdlClipboardText", "btrcSdlFree",
 	"btrcSdlPushPointerMotion", "btrcSdlPushPointerButton", "btrcSdlPushWheel", "btrcSdlPushKey", "btrcSdlPushText"
 ]
-read-only-borrows = ["SDL_CreateWindow.title", "SDL_SetWindowTitle.title", "btrcSdlWindowPointerProperty.name", "btrcSdlWindowNumberProperty.name", "SDL_SetClipboardText.text", "btrcSdlSimpleMessageBox.title", "btrcSdlSimpleMessageBox.message", "btrcSdlFolderDialogOpen.initialDirectory", "btrcSdlPushText.text"]
+read-only-borrows = ["SDL_CreateWindow.title", "SDL_SetWindowTitle.title", "btrcSdlWindowPointerProperty.name", "btrcSdlWindowNumberProperty.name", "SDL_SetClipboardText.text", "btrcSdlSimpleMessageBox.title", "btrcSdlSimpleMessageBox.message", "btrcSdlFolderDialogOpen.initialDirectory", "btrcSdlFolderDialogOpen.title", "btrcSdlPushText.text"]
 os = ["linux"]
 
 [[native.pkg-config]]

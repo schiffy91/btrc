@@ -103,6 +103,8 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	public bool isRunning() { return self._running; }
 
+	public bool isDispatching() { return self._dispatching; }
+
 	public void requestQuit() {
 		if (self._closed || self._quitRequested) { return; }
 		self._quitRequested = true;
@@ -276,6 +278,7 @@ class LinuxApplication implements IApplication, ILinuxDialogPump {
 
 	/* One loop turn: wait for events or the next deadline, then service everything. */
 	public void pumpOnce(int timeoutMilliseconds) {
+		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		self._dispatching = true;
 		try {
 			self.pumpEvents(timeoutMilliseconds);
