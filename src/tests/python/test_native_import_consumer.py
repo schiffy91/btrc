@@ -5901,6 +5901,8 @@ def test_native_import_does_not_authorize_source_runtime_names(native_project, n
         ("import Library.GUI.MacOS.GUIProvider;", "return 0;", "private to package"),
         ('#include "GUI/MacOS/GUIProvider.btrc"', "return 0;", "private to package"),
         ("import Library.GUI;", "GUIProvider.active = null; return 0;", "GUIProvider"),
+        ("import Library.GUI.ApplicationSlot;", "return 0;", "private to package"),
+        ("import Library.GUI;", "GUIApplicationSlot.active = null; return 0;", "GUIApplicationSlot"),
         ("import Library.GUI.MacOS.MacOSStack;", "return 0;", "private to package"),
         ('#include "GUI/MacOS/MacOSStack.btrc"', "return 0;", "private to package"),
         ("import Library.GUI;", "var stack = MacOSStack(false, 8.0); return 0;", "MacOSStack"),
@@ -6156,6 +6158,7 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
                 "modal-native",
                 "modal-portable",
                 "scope-exit",
+                "stuck-subtree",
             )
         ]
         if fixture_name == "NativeApplication"

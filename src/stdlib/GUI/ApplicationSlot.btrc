@@ -1,0 +1,14 @@
+import Library.GUI.IApplication;
+
+/* Package-private: the facade's single application owner. Providers create
+ * the application; the facade alone publishes and clears this slot, after
+ * the provider has checked the UI thread. */
+class GUIApplicationSlot {
+	class IApplication? active = null;
+
+	class IApplication require() {
+		var application = GUIApplicationSlot.active;
+		if (application == null) { throw "Initialize GUI before creating views or running work"; }
+		return application;
+	}
+}

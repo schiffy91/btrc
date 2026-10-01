@@ -15,7 +15,8 @@ class AppKitText {
 
 	class string ownedValue(NSString text) {
 		unsigned long length = text.lengthOfBytesUsingEncoding(NSUTF8StringEncoding);
-		if ((size_t)length == (size_t)(-1)) { throw "Native text is too large"; }
+		// AppKit reports 0 when the text cannot be encoded or exceeds its limit.
+		if (length == 0UL && text.length() != 0UL) { throw "Native text is not representable as UTF-8"; }
 		var bytes = new OwnedBuffer<char>((size_t)length + (size_t)1);
 		if (!bytes.opened() || !text.getCString(bytes.borrow(), length + 1UL, NSUTF8StringEncoding)) { throw "Cannot read native text"; }
 		return Strings.copy(bytes.borrow());

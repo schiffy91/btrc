@@ -377,6 +377,25 @@ Milestones: UI1/UI3/UI5/UI7. Starting cases: E05, E08, E16, E23, E27, E42, E46, 
 | `IWindow.close` | `CallbackCancellation close();` |
 | `IWindow.pollClose` | `CallbackCancellation pollClose();` |
 
+## Changes since the frozen inventory
+
+The tables below stay frozen as release `ui0-source-inventory-2026-09-21`; their
+rows are the source of the tracked `ui-operation` denominator. Record later
+source changes here until the next release re-freezes them.
+
+- 2026-10-01 (btrc-D035): `IApplication` now declares the fifteen view factories
+  the facade already called on each concrete provider — `createButton`,
+  `createTextField`, `createContainer`, `createRow`, `createColumn`,
+  `createGPUView`, `createLabel`, `createImageView`, `createPanel`,
+  `createProgressIndicator`, `createLevelIndicator`, `createSlider`,
+  `createSelect`, `createScrollView` and `createGrid` — with the same signatures
+  as the `GUI.create*` rows minus their defaults. `GUI` owns capacity
+  validation, the single application slot and run/close; a provider supplies
+  only `createApplication`, `createImageHandle`, `chooseDirectory`,
+  `rasterizeText` and `capture`.
+- 2026-10-01 (btrc-D056): `GUI.rasterText` was removed; it had no caller in
+  btrc or BTRSmith. Use `GUI.rasterizeText`.
+
 ## GUI factories and services
 
 Source: [GUI.btrc](../../src/stdlib/GUI/GUI.btrc). UI1 qualifies provider selection

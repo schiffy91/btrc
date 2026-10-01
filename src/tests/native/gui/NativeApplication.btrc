@@ -105,6 +105,69 @@ class ModalWork implements IApplicationWork {
 	public void __del__() { workDestroyed++; }
 }
 
+bool holdClose = false;
+
+/* A subtree whose shutdown stays Pending while holdClose is set, as a native
+ * owner that never reaches its closed state would. */
+class StuckView implements IMacOSView {
+	private MacOSView _view;
+	private bool _closing = false;
+
+	public StuckView(MacOSView view) { self._view = view; }
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
+	public bool isOpen() { return !self._closing && self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public CallbackCancellation close() { self._closing = true; return self.pollClose(); }
+
+	public CallbackCancellation pollClose() {
+		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		return holdClose ? CallbackCancellation.Pending : self._view.close();
+	}
+}
+
+/* run() bounds its shutdown drain: it reports the stuck subtree, keeps the
+ * pending owners retained, and a later close() completes once they finish. */
+void verifyStuckShutdown() {
+	var application = MacOSApplication(4);
+	var window = application.createWindow("Native stuck shutdown", 240.0, 120.0);
+	var root = MacOSContainer();
+	var child = StuckView(MacOSView(ApplicationProbe.newView()));
+	root.attach(child);
+	window.attachRoot(root);
+	holdClose = true;
+	application.requestQuit();
+	string failure = "";
+	try { application.run(); } catch (string error) { failure = error; }
+	assert(failure.equals("Native subtree shutdown did not complete"));
+	assert(!application.isRunning() && !child.isOpen() && ApplicationProbe.liveViews() == 1L);
+	assert(application.pollClose() == CallbackCancellation.Pending && ApplicationProbe.liveViews() == 1L);
+	holdClose = false;
+	assert(application.close() == CallbackCancellation.Complete);
+	assert(!window.isOpen() && !root.isOpen() && ApplicationProbe.liveViews() == 0L && !ApplicationProbe.hasDelegate());
+}
+
 IView abandonedApplicationView() {
 	var application = MacOSApplication();
 	var child = application.createButton("Surviving alias");
@@ -115,6 +178,11 @@ IView abandonedApplicationView() {
 
 int main(int argc, char** argv) {
 	assert(argc == 2);
+	if (strcmp(argv[1], "stuck-subtree") == 0) {
+		verifyStuckShutdown();
+		print("native application loop, deferred quit and owned subtree shutdown");
+		return 0;
+	}
 	if (strcmp(argv[1], "scope-exit") == 0) {
 		var child = abandonedApplicationView();
 		assert(!child.isOpen() && !ApplicationProbe.hasDelegate());

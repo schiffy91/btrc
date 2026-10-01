@@ -1,5 +1,6 @@
 import Library.Callback;
 import Library.GUI.IApplication;
+import Library.GUI.ApplicationSlot;
 import Library.GUI.IWindow;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.IButton;
@@ -25,60 +26,77 @@ import Library.Vector;
 
 /* One application owner; the package chooses its provider for the target.
  * initialize/run/close stay on the UI thread. run closes before returning,
- * including work failures; explicit close covers setup without loop entry. */
+ * including work failures; explicit close covers setup without loop entry.
+ * Providers supply the application and the native services below; the
+ * facade owns validation and the application's lifetime. */
 class GUI {
-	class void initialize(int workCapacity = 256) { GUIProvider.initialize(workCapacity); }
+	class void initialize(int workCapacity = 256) {
+		GUIProvider.requireUIThread();
+		if (GUIApplicationSlot.active != null) { throw "GUI is already initialized"; }
+		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
+		GUIApplicationSlot.active = GUIProvider.createApplication(workCapacity);
+	}
 
-	class IWindow createWindow(string title, double width, double height) { return GUIProvider.application().createWindow(title, width, height); }
+	class IWindow createWindow(string title, double width, double height) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createWindow(title, width, height); }
 
-	class IButton createButton(string title) { return GUIProvider.application().createButton(title); }
+	class IButton createButton(string title) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createButton(title); }
 
-	class ITextField createTextField(string text = "", string placeholder = "") { return GUIProvider.application().createTextField(text, placeholder); }
+	class ITextField createTextField(string text = "", string placeholder = "") { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createTextField(text, placeholder); }
 
-	class IContainer createContainer() { return GUIProvider.application().createContainer(); }
+	class IContainer createContainer() { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createContainer(); }
 
-	class IStack createRow(double spacing = 8.0) { return GUIProvider.application().createRow(spacing); }
+	class IStack createRow(double spacing = 8.0) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createRow(spacing); }
 
-	class IStack createColumn(double spacing = 8.0) { return GUIProvider.application().createColumn(spacing); }
+	class IStack createColumn(double spacing = 8.0) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createColumn(spacing); }
 
-	class IGPUView createGPUView(bool capture = false) { return GUIProvider.application().createGPUView(capture); }
+	class IGPUView createGPUView(bool capture = false) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createGPUView(capture); }
 
-	class ILabel createLabel(string text = "") { return GUIProvider.application().createLabel(text); }
+	class ILabel createLabel(string text = "") { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createLabel(text); }
 
-	class IImageView createImageView() { return GUIProvider.application().createImageView(); }
+	class IImageView createImageView() { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createImageView(); }
 
 	/* Convert decoded pixels to the platform image on the calling thread, which may be a worker. */
-	class IImageHandle createImageHandle(Image pixels, int maximumPixels = 16777216) { return GUIProvider.createImageHandle(pixels, maximumPixels); }
+	class IImageHandle createImageHandle(Image pixels, int maximumPixels = 16777216) { return GUIProvider.createImageHandle(GUIApplicationSlot.active, pixels, maximumPixels); }
 
-	class IPanel createPanel(RGBA fill, double radius = 0.0) { return GUIProvider.application().createPanel(fill, radius); }
+	class IPanel createPanel(RGBA fill, double radius = 0.0) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createPanel(fill, radius); }
 
-	class IProgressIndicator createProgressIndicator() { return GUIProvider.application().createProgressIndicator(); }
+	class IProgressIndicator createProgressIndicator() { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createProgressIndicator(); }
 
-	class ILevelIndicator createLevelIndicator(double warning, double critical) { return GUIProvider.application().createLevelIndicator(warning, critical); }
+	class ILevelIndicator createLevelIndicator(double warning, double critical) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createLevelIndicator(warning, critical); }
 
-	class ISlider createSlider(double minimum, double maximum, int intervals = 0) { return GUIProvider.application().createSlider(minimum, maximum, intervals); }
+	class ISlider createSlider(double minimum, double maximum, int intervals = 0) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createSlider(minimum, maximum, intervals); }
 
-	class ISelect createSelect() { return GUIProvider.application().createSelect(); }
+	class ISelect createSelect() { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createSelect(); }
 
-	class IScrollView createScrollView() { return GUIProvider.application().createScrollView(); }
+	class IScrollView createScrollView() { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createScrollView(); }
 
-	class IGrid createGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0) { return GUIProvider.application().createGrid(columns, rows, columnSpacing, rowSpacing); }
+	class IGrid createGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().createGrid(columns, rows, columnSpacing, rowSpacing); }
 
-	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) { return GUIProvider.chooseDirectory(request); }
+	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) { GUIProvider.requireUIThread(); return GUIProvider.chooseDirectory(GUIApplicationSlot.require(), request); }
 
-	class void rasterizeText(TextRasterization request) { GUIProvider.rasterizeText(request); }
+	class void rasterizeText(TextRasterization request) { GUIProvider.requireUIThread(); GUIProvider.rasterizeText(GUIApplicationSlot.active, request); }
 
-	class Image rasterText(TextRun run) { return GUIProvider.rasterText(run); }
+	class Image capture(IView root, Vector<GUICaptureLayer> layers) { GUIProvider.requireUIThread(); return GUIProvider.capture(GUIApplicationSlot.require(), root, layers); }
 
-	class Image capture(IView root, Vector<GUICaptureLayer> layers) { return GUIProvider.capture(root, layers); }
+	class void post(IApplicationWork work) { GUIProvider.requireUIThread(); GUIApplicationSlot.require().post(work); }
 
-	class void post(IApplicationWork work) { GUIProvider.application().post(work); }
+	class ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) { GUIProvider.requireUIThread(); return GUIApplicationSlot.require().postAfter(delaySeconds, work); }
 
-	class ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) { return GUIProvider.application().postAfter(delaySeconds, work); }
+	class void requestQuit() { GUIProvider.requireUIThread(); GUIApplicationSlot.require().requestQuit(); }
 
-	class void requestQuit() { GUIProvider.application().requestQuit(); }
+	class void run() {
+		GUIProvider.requireUIThread();
+		var application = GUIApplicationSlot.require();
+		if (application.isRunning()) { throw "GUI is already running"; }
+		try { application.run(); } finally { GUI.close(); }
+	}
 
-	class void run() { GUIProvider.run(); }
-
-	class CallbackCancellation close() { return GUIProvider.close(); }
+	class CallbackCancellation close() {
+		GUIProvider.requireUIThread();
+		var application = GUIApplicationSlot.active;
+		if (application == null) { return CallbackCancellation.Complete; }
+		var result = application.close();
+		if (result == CallbackCancellation.Complete) { GUIApplicationSlot.active = null; }
+		return result;
+	}
 }

@@ -65,7 +65,15 @@ class LinuxDelayedWork implements ICallbackRegistration {
  * posted and delayed work, dispatches queued button actions and renders
  * every window whose content changed. Quit closes admission, drains admitted
  * work, then closes windows and detached roots before returning. */
-class LinuxApplication implements IApplication, ILinuxDialogPump {
+/* Provider-only projection, so the GUI facade's IApplication slot can reach
+ * the Linux services without a class downcast. */
+interface ILinuxApplication extends IApplication {
+	LinuxContext context();
+	LinuxWindow? firstWindow();
+	LinuxWindow? windowOwning(ILinuxView view);
+}
+
+class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private LinuxContext _context;
 	private Vector<LinuxWindow> _windows = [];
 	private Vector<IView> _views = [];

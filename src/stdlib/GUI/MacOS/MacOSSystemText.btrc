@@ -1,4 +1,6 @@
 import Library.GUI.TextRun;
+import Library.Bytes;
+import Library.Image;
 import Library.Math;
 import Library.OwnedBuffer;
 

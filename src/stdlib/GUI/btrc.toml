@@ -259,7 +259,7 @@ module = "MacOS.AppKitText"
 header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["+[NSString stringWithUTF8String:]", "-[NSString lengthOfBytesUsingEncoding:]", "-[NSString getCString:maxLength:encoding:]", "NSUTF8StringEncoding"]
+symbols = ["+[NSString stringWithUTF8String:]", "-[NSString length]", "-[NSString lengthOfBytesUsingEncoding:]", "-[NSString getCString:maxLength:encoding:]", "NSUTF8StringEncoding"]
 os = ["macos"]
 
 [[native.bindings]]

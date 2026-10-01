@@ -1,4 +1,6 @@
 import Library.Math;
+import Library.Console;
+import Library.Datetime;
 import Library.Callback;
 import Library.Vector;
 import Library.GUI.IApplication;
@@ -55,6 +57,8 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitRunLoop
 	private CallbackScope _shutdown;
 	private ICallbackRegistration? _shutdownTick;
 	private bool _dispatchingEvents = false;
+	private Timer _shutdownClock = Timer();
+	private bool _shutdownTimed = false;
 
 	public MacOSApplicationEvents(int workCapacity, MacOSActionQueue actions, Vector<MacOSWindow> windows, Vector<IView> views, CallbackScope shutdown) {
 		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
@@ -102,6 +106,18 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitRunLoop
 
 	public bool workFailed() { return self._workFailed; }
 
+	public void recordFailure(string error) { if (!self._workFailed) { self._workFailure = error; self._workFailed = true; } }
+
+	/* run() drains a pending subtree for at most this long, then reports it
+	 * and leaves the pending owners retained for a later close(). */
+	public void startShutdownDeadline() {
+		if (self._shutdownTimed) { return; }
+		self._shutdownClock.start();
+		self._shutdownTimed = true;
+	}
+
+	public bool shutdownExpired() { return self._shutdownTimed && (double)self._shutdownClock.elapsed() >= 10.0; }
+
 	public void requireWorkCapacity(int delayed) {
 		if (self.quitRequested) { throw "Application quit has been requested"; }
 		if (delayed >= self._workCapacity - self._pendingWork) { throw "Application work capacity exceeded"; }
@@ -120,7 +136,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitRunLoop
 	}
 
 	public void failWork(string error) {
-		if (!self._workFailed) { self._workFailure = error; self._workFailed = true; }
+		self.recordFailure(error);
 		self.requestQuit(NSApplication.sharedApplication());
 	}
 
@@ -151,11 +167,15 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitRunLoop
 			if (!self.quitRequested) { self.dispatchWindowEvents(); return; }
 			if (self._pendingWork > 0 || self._dispatchingEvents) { self.armShutdown(); return; }
 			var result = self.closeViews();
-			if (result == CallbackCancellation.Pending) { self.armShutdown(); }
+			if (result == CallbackCancellation.Pending) {
+				self.startShutdownDeadline();
+				if (self.shutdownExpired()) { throw "Native subtree shutdown did not complete"; }
+				self.armShutdown();
+			}
 			else if (result == CallbackCancellation.Complete) { self.stopNative(NSApplication.sharedApplication()); }
 			else { throw "Native subtree shutdown failed without completion"; }
 		} catch (string error) {
-			if (!self._workFailed) { self._workFailure = error; self._workFailed = true; }
+			self.recordFailure(error);
 			self.quitRequested = true;
 			self.stopNative(NSApplication.sharedApplication());
 		}
@@ -347,6 +367,11 @@ class MacOSApplication implements IApplication {
 				var result = self.close();
 				if (result == CallbackCancellation.Complete) { break; }
 				if (result != CallbackCancellation.Pending) { throw "Native subtree shutdown failed without completion"; }
+				self._events.startShutdownDeadline();
+				if (self._events.shutdownExpired()) {
+					self._events.recordFailure("Native subtree shutdown did not complete");
+					throw self._events.workFailure();
+				}
 			}
 			if (self._events.quitRequested) { self._events.armShutdown(); }
 			self._running = true;
