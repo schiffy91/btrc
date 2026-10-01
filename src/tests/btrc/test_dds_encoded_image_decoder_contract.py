@@ -78,5 +78,5 @@ def test_dds_decoder_is_bounded_and_content_driven() -> None:
     assert "68, 88, 84, 53" in source
     assert "EncodedImageDecodeOutcome.admit(encoded, limits)" in source
     assert "limits.allowsDimensions(header.width(), header.height())" in source
-    assert "Image.tryCreate(header.width(), header.height())" in source
+    assert "Image? decoded = Image.tryCreate(header.width(), header.height());" in source
     assert "filename" not in source.lower()

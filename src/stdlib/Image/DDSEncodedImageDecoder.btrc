@@ -117,8 +117,9 @@ class DDSEncodedImageDecoder implements IEncodedImageDecoder {
 	}
 
 	private EncodedImageDecodeOutcome decodeBlocks(Bytes encoded, DDSEncodedImageHeader header) {
-		var image = Image.tryCreate(header.width(), header.height());
-		if (image == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
+		Image? decoded = Image.tryCreate(header.width(), header.height());
+		if (decoded == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
+		Image image = decoded;
 		int blockBytes = header.encoding() == 1 ? 8 : 16;
 		int blocksWide = (header.width() + 3) / 4;
 		int blocksHigh = (header.height() + 3) / 4;

@@ -684,8 +684,9 @@ class ImageIO {
 		if (!ImageBinary.has(bytes, (long long)cursor.position, rasterBytes)) {
 			return ImageLoad.failure("PPM raster is truncated");
 		}
-		var image = Image.tryCreate(width, height);
-		if (image == null) { return ImageLoad.failure("PPM pixels cannot be allocated"); }
+		Image? decoded = Image.tryCreate(width, height);
+		if (decoded == null) { return ImageLoad.failure("PPM pixels cannot be allocated"); }
+		Image image = decoded;
 		int position = cursor.position;
 		for (int pixel = 0; pixel < image.area(); pixel++) {
 			int target = pixel * 4;
@@ -766,8 +767,9 @@ class ImageIO {
 		}
 		int width = (int)signedWidth;
 		int height = (int)absoluteHeight;
-		var image = Image.tryCreate(width, height);
-		if (image == null) { return ImageLoad.failure("BMP pixels cannot be allocated"); }
+		Image? decoded = Image.tryCreate(width, height);
+		if (decoded == null) { return ImageLoad.failure("BMP pixels cannot be allocated"); }
+		Image image = decoded;
 		for (int y = 0; y < height; y++) {
 			int sourceY = topDown ? y : height - 1 - y;
 			long long rowStart = pixelOffset + (long long)sourceY * rowStride;
