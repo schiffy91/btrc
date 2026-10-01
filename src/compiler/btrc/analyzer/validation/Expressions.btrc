@@ -694,9 +694,9 @@ class ExpressionValidator {
 				TypeValidator.fail("Lambda parameters cannot have default arguments", parameter);
 			}
 			if (parameter.type != null) {
-				Node? parameterValueType = self.storage.arrayParameterValueType(parameter.type);
-				if (parameterValueType != null) {
-					plan.variables.put(parameter.name, parameterValueType);
+				Node? bindingType = self.storage.parameterBindingType(parameter.type);
+				if (bindingType != null) {
+					plan.variables.put(parameter.name, bindingType);
 				}
 			}
 			index = index + 1;

@@ -13,6 +13,9 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
 REPO = Path(__file__).resolve().parents[3]
@@ -1097,6 +1100,64 @@ def test_scalar_only_gpu_array_result_uses_one_dispatch_element(
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
+
+
+@pytest.mark.parametrize("frontend", ["python", "btrc"])
+def test_gpu_array_parameter_return_copies_the_current_element(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    frontend: str,
+) -> None:
+    """A @gpu body binds an array parameter as its buffer, not a pointer.
+
+    `return ys;` from an array-returning kernel names that whole buffer and
+    copies the invocation's element; the self-hosted analyzer used to decay
+    the binding to `int*` and reject the return outright.
+    """
+
+    source = (
+        "@gpu int[] pick(int[] xs, int[] ys) { int i = gpu_id(); "
+        "if (i > 0) { return ys; } return xs; } "
+        "int main() { int[] xs = {1, 2}; int[] ys = {3, 4}; "
+        "int[] output = pick(xs, ys); "
+        "return output[0] == 1 && output[1] == 4 ? 0 : 1; }"
+    )
+    generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
+    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = _run([str(binary)], timeout=15)
+    assert result.returncode == 0
+
+
+@pytest.mark.parametrize(
+    "source, diagnostic",
+    [
+        (
+            "@gpu float[] widen(int[] xs) { return xs; } int main() { return 0; }",
+            "Return type mismatch: expected 'float[]' but got 'int[]' at 1:32",
+        ),
+        (
+            "int first(int[] xs) { return xs; } int main() { int[] xs = {1}; return first(xs); }",
+            "Return type mismatch: expected 'int' but got 'int*' at 1:23",
+        ),
+    ],
+    ids=["gpu-buffer", "host-pointer"],
+)
+def test_array_parameter_return_diagnostics_match_reference(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+    diagnostic: str,
+) -> None:
+    """Only a @gpu body keeps the array binding; host bodies still decay it."""
+
+    reference = SemanticAnalyzer().analyze(Parser(Lexer(source, "<test>").tokenize()).parse())
+    program = tmp_path / "program.btrc"
+    program.write_text(source)
+    selfhost = _run([str(semantic_btrcc), "--no-stdlib", str(program)], timeout=120)
+
+    assert reference.errors == [diagnostic]
+    assert selfhost.returncode == 1
+    assert f"error: {diagnostic}" in selfhost.stderr
 
 
 @pytest.mark.parametrize("frontend", ["python", "btrc"])
