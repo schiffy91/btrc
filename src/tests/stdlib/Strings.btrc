@@ -55,6 +55,17 @@ int main() {
 	assert(Strings.isAlpha('x') && !Strings.isAlpha('5'));
 	assert(Strings.isAlnum('9') && Strings.isAlnum('a') && !Strings.isAlnum(' '));
 	assert(Strings.isSpace(' ') && Strings.isSpace('\t') && !Strings.isSpace('a'));
+	assert(Strings.isSpace('\v') && Strings.isSpace('\f') && Strings.isSpace('\r'));
+
+	/* the delegates share the built-ins' null and whitespace contract */
+	string missing = null;
+	assert(Strings.replace("a.b", ".", missing).equals("ab"));
+	assert(Strings.replace("a.b", ".", missing).equals("a.b".replace(".", missing)));
+	assert(Strings.padLeft(missing, 3, '0').equals(""));
+	assert(Strings.isBlank(" \v\f\t"));
+	assert(Strings.lstrip("\v\fx").equals("x"));
+	assert(Strings.rstrip("x\v\f").equals("x"));
+	assert(Strings.title("a\vb").equals("A\vB"));
 
 	/* split + join round-trip */
 	Vector<string> parts = Strings.split("a,b,c", ",");

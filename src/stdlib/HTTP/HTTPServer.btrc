@@ -86,7 +86,7 @@ class HTTPServer {
 		request.method = parts.get(0);
 		request.version = parts.get(2);
 		string target = parts.get(1);
-		int query = Strings.find(target, "?", 0);
+		int query = target.find("?", 0);
 		if (query >= 0) {
 			request.path = target.substring(0, query);
 			request.query = target.substring(query + 1, target.len() - query - 1);
@@ -101,7 +101,7 @@ class HTTPServer {
 				request.error = "malformed header line";
 				return false;
 			}
-			int colon = Strings.find(line, ":", 0);
+			int colon = line.find(":", 0);
 			string name = line.substring(0, colon).toLower();
 			string value = line.substring(colon + 1, line.len() - colon - 1).trim();
 			if (name.equals("host")) {
@@ -250,7 +250,7 @@ class HTTPServer {
 		if (response.extraHeaders != null) {
 			for h in response.extraHeaders {
 				if (!HTTPFraming.headerLine(h)) { continue; }
-				int colon = Strings.find(h, ":", 0);
+				int colon = h.find(":", 0);
 				string name = h.substring(0, colon);
 				if (HTTPResponseHeaders.reserved(name)) { continue; }
 				int available = 65536 - head.len();

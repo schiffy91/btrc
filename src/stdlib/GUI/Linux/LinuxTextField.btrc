@@ -140,7 +140,7 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 		string pasted = Strings.copy(raw);
 		btrcSdlFree((void*)raw);
 		if (!Bytes.fromString(pasted).isNulFreeUtf8()) { return; }
-		self.replaceSelection(Strings.replace(Strings.replace(pasted, "\n", " "), "\r", ""));
+		self.replaceSelection(pasted.replace("\n", " ").replace("\r", ""));
 	}
 
 	public void paint(LinuxPainter painter, double x, double y) {

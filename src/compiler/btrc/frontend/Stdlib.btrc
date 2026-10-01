@@ -161,7 +161,7 @@ class FeStdlibRepository {
 
 	public FeStdlibLookup requiredModuleForCompilation(string name, FeStdlibRootSnapshot snapshot) {
 		if (name.contains(".")) {
-			string nested = self.sourcePaths.join(self.directoryPath, Strings.replace(name, ".", "/") + ".btrc");
+			string nested = self.sourcePaths.join(self.directoryPath, name.replace(".", "/") + ".btrc");
 			if (FileSystem.isFile(nested)) { return FeStdlibLookup(true, nested, ""); }
 			return FeStdlibLookup(false, "", f"stdlib import 'Library.{name}' not found\n  searched: {self.directoryPath}");
 		}
