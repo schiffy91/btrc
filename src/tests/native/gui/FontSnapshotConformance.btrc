@@ -2,7 +2,7 @@ import Library.Bytes;
 import Library.GUI.FontFace;
 import Library.GUI.Font;
 import Library.GUI.Raster;
-import Library.GUI.View;
+import Library.Image;
 
 #include <assert.h>
 
@@ -82,22 +82,18 @@ int main() {
 	var other = new Surface(32, 16);
 	FontSelectionProbe.select(surface, lifetime);
 	assert(lifetime.destroyed == 0 && other.textWidth("A") == 8 && other.textHeight() == 8);
-	surface.text(1, 1, "A\nA", new Color(200, 80, 40, 128), 9);
+	surface.text(1, 1, "A\nA", RGBA(200, 80, 40, 128), 9);
 	assert(surface.pixel(1, 1) == 0xc8502880U && surface.pixel(2, 1) == 0xc8502840U);
 	assert(surface.pixel(1, 5) == 0xc8502880U && surface.pixel(4, 1) == 0U);
-	surface.clear(new Color(0, 0, 0, 0));
-	surface.text(1, 1, "-A", new Color(200, 80, 40, 255), 1);
+	surface.clear(RGBA(0, 0, 0, 0));
+	surface.text(1, 1, "-A", RGBA(200, 80, 40, 255), 1);
 	assert(surface.pixel(0, 1) == 0xc85028ffU);
-	var label = View.text("AA");
-	UI.measure(surface, label);
-	assert(label.mW == 6 && label.mH == 4);
-	var immediate = new RasterGUI(surface);
-	immediate.label("A");
-	assert(immediate.cursorY == 28);
+	// Measurement follows the selected font at every scale.
+	assert(surface.textWidth("AA") == 6 && surface.textHeight() == 4 && surface.textHeight(2) == 4);
 	surface.setFont(null);
 	assert(lifetime.destroyed == 1 && surface.textWidth("A") == 8 && surface.textHeight() == 8);
-	surface.clear(new Color(0, 0, 0, 0));
-	surface.text(0, 0, "A", Color.rgb(255, 255, 255), 1);
+	surface.clear(RGBA(0, 0, 0, 0));
+	surface.text(0, 0, "A", RGBA(255, 255, 255), 1);
 	assert(surface.pixel(1, 0) == 0xffffffffU && surface.pixel(0, 0) == 0U);
 	print("PASS: owned signed-pitch font snapshots");
 	return 0;

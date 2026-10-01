@@ -5,6 +5,13 @@ Call `GUI.initialize()`, create a window and controls with `GUI.createWindow`,
 `GUI.createColumn`, `GUI.createRow`, `GUI.createButton` and `GUI.createTextField`, attach them,
 then enter `GUI.run()`. macOS and Linux are implemented; other targets fail explicitly.
 The factory returns portable interfaces and its application owner is package-private.
+`IApplication` declares every view factory, so providers agree on one contract.
+`GUI` owns capacity validation, the single application slot (`ApplicationSlot`)
+and run/close; a provider's private `GUIProvider` supplies only the application
+and the native services (image handles, the directory picker, text
+rasterization and capture). On macOS, `run()` drains a closing subtree for at
+most 10 s, then throws `Native subtree shutdown did not complete` and keeps the
+pending owners retained so a later `GUI.close()` can finish them.
 `GUI.post(work)` schedules UI-thread work; `GUI.requestQuit()` stops admission.
 `GUI.postAfter(delaySeconds, work)` schedules one cancellable delayed delivery
 and returns an `ICallbackRegistration`. It shares the immediate-work capacity;
@@ -82,9 +89,16 @@ The provider's `IMacOSView` interface lives with `MacOSView`. A checked
 `(IMacOSView?)view` query projects the existing native owner for composition;
 an incompatible implementation returns null. Portable signatures still expose
 no SDK objects. This is a provider integration boundary, not a product API or
-a substitute for the portable API. Existing provider modules remain exported
-for migration; the new factory's `GUIProvider` module is private, including
-named references through transitive imports.
+a substitute for the portable API. The factory's `GUIProvider` and
+`ApplicationSlot` modules are private, including named references through
+transitive imports.
+
+Export policy: consumers import `Library.GUI` and the portable `I*` contracts,
+never a platform module. Two provider modules stay exported on purpose as the
+AppKit seam for `Library.Tray`: `MacOS.AppKitText` and `MacOS.MacOSRunLoop`.
+The other `MacOS.*` exports remain only until the macOS native fixtures that
+still mount provider classes directly move to the factory with
+attach/arrange; they are not API, and new code must not import them.
 
 `MacOSContainer` implements `IContainer` with real native children. `attach`
 transfers subtree lifecycle responsibility; `detach` returns the same open child.
@@ -242,96 +256,43 @@ attached children and hierarchy cycles are rejected before calling AppKit.
 `close()` clears cells but does not close borrowed child owners. This provider
 does not yet constitute the portable declarative layout API.
 
-The APIs documented below are the legacy custom-painted raster toolkit.
-`Surface` owns its pixel buffer, resizing, fills, bitmap text, blending and
-readback in BTRC. Optional FreeType loading uses checked SDK owners and copied
-glyph snapshots. Native windows and product controls use `Library.GUI.GUI`; the obsolete
-standalone GLFW/OpenGL presenter has been removed.
+The APIs documented below are the offscreen raster surface. `Surface` owns its
+pixel buffer, resizing, fills, bitmap text, blending and readback in BTRC.
+Optional FreeType loading uses checked SDK owners and copied glyph snapshots.
+Native windows and product controls use `Library.GUI.GUI`; painted widget
+trees use `Library.UI`. The legacy immediate-mode widgets (`RasterGUI`,
+`GUIApp`, `Theme`, `GUIInput`, `Color`) and the declarative `View` tree were
+removed: they duplicated `Library.UI` and `Library.Image` inside the
+OS-native group.
 
 ## Layout
 
 | File | Role |
 |------|------|
-| `btrc_gui.h` | Only the borrowed `BtrcGuiPixels` record; no native font dispatch or raster owner. |
-| `Geometry.btrc` | Saturating integer geometry shared by immediate and declarative layout. |
-| `Raster.btrc` | BTRC-owned `Surface` storage, resize, clear/fill, readback/PPM and legacy immediate-mode widgets (`Color`, `GUIInput`, `Theme`, `RasterGUI`, `GUIApp`). |
-| `View.btrc` | Declarative UI: a `View` tree with flexbox-style layout, events-as-data (`GUIEvents`), and a one-call `UI.frame(...)`. |
+| `Geometry.btrc` | Saturating integer geometry for raster measurement. |
+| `Raster.btrc` | BTRC-owned `Surface` storage, resize, clear/fill/blend, bitmap and scalable text, readback/PPM. Colors are `Library.Image` `RGBA` values. |
 | `Font.btrc` / `FontFace.btrc` | Managed per-surface selection and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
 | `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional factory, private unique SDK owners and serialized copied glyph snapshots. |
 
 Not auto-included. Opt in with `import Library.GUI.Raster;`; no native raster
-archive is needed. `Surface.opened()` reports invalid dimensions
+archive or header is needed. `Surface.opened()` reports invalid dimensions
 or backing-allocation failure. Failed resize preserves the old image; successful
 resize preserves overlapping pixels and clears newly exposed pixels.
 `pixels()` is a synchronous borrow, invalidated by resize or owner destruction;
 there is no opaque `Surface.handle` or native surface destructor.
 
-## Quick start (immediate-mode)
+## Quick start
 
 Render to an offscreen buffer, inspect pixels or save a PPM:
 
 ```btrc
-var ui = RasterGUI(Surface(320, 200));
-ui.beginFrame();
-ui.label("rendered offscreen");
-ui.surface.savePpm("out.ppm");
-```
+import Library.Image;
+import Library.GUI.Raster;
 
-## Widgets
-
-`label`, `heading`, `button` → `bool` (clicked), `checkbox(text, value)` → `bool`,
-`slider(value, max)` → `int`, `panel`, `spacer`. Widgets lay out top-to-bottom;
-each returns the interaction for the current frame. Style via `Theme` (light by
-default; `Theme.dark()` provided).
-
-## Declarative UI (View tree)
-
-For richer layouts, `View.btrc` adds a declarative layer: describe the UI as a
-tree of `View`s and frame it in one call. Layout is flexbox-style (rows/columns
-with `padding`, `gap`, and `grow`); interactions come back as data keyed by a
-stable `id` (Elm-style — no closures).
-
-```btrc
-#include "GUI/Raster.btrc"
-#include "GUI/View.btrc"
-
-View ui() {
-    return View.column().pad(16).withGap(8).kids([
-        View.text("Notes — héllo"),            // UTF-8 throughout
-        View.button("Save", "save"),
-        View.spacer(),                          // grows to fill
-        View.row().withGap(8).kids([
-            View.button("Quit", "quit"),
-        ]),
-    ]);
-}
-
-GUIEvents e = UI.frame(surface, input, theme, ui());  // measure → layout → render
-if (e.wasClicked("save")) { /* ... */ }
-```
-
-`UI.frame` measures the tree, lays it out to the surface bounds, renders it, and
-returns a `GUIEvents` you query by id (`wasClicked`, `wasToggled`). Builders:
-`column`, `row`, `box`, `text`, `button`, `checkbox`, `spacer`; fluent setters:
-`pad`, `withGap`, `grows`, `bgColor`, `fgColor`, `scaleText`, `sized`, `child`,
-`kids`.
-
-## Threaded by default
-
-`GUIApp` bundles a `Surface`, a `GUI`, and a thread-safe `alive` flag. The
-loop runs on a background thread via `spawn`; coordinate with `Mutex`:
-
-```btrc
-var app = GUIApp(640, 400);
-Thread<int> t = spawn(() => {
-    while (app.running()) {
-        App.ui.beginFrame();
-        if (app.ui.button("Quit")) { App.stop(); }
-        // present via a window, or read pixels in a test
-    }
-    return 0;
-});
-t.join();
+var surface = Surface(320, 200);
+surface.clear(RGBA(250, 248, 245));
+surface.text(16, 16, "rendered offscreen", RGBA(43, 38, 34), 2);
+surface.savePpm("out.ppm");
 ```
 
 ## Fonts (UTF-8 + scalable)
@@ -347,7 +308,7 @@ Two backends:
   uppercase and non-ASCII codepoints render as a box.
 - **Scalable (explicit, owned).** `Font(face)` accepts an `IFontFace` whose
   metrics and glyphs are immutable owned snapshots. Select the font separately
-  on each surface; immediate and declarative layout use that surface's metrics:
+  on each surface; its measurement follows that selection:
 
   ```btrc
   import Library.GUI.Raster;
@@ -356,7 +317,7 @@ Two backends:
   // face is an IFontFace supplied by the font provider.
   var font = new Font(face);
   surface.setFont(font);
-  surface.text(10, 10, "Música", Color.rgb(255, 255, 255), 1);
+  surface.text(10, 10, "Música", RGBA(255, 255, 255), 1);
   surface.setFont(null); // explicitly restore this surface's bitmap font
   ```
 
@@ -386,26 +347,20 @@ details are recorded in [FontNativeMigration.md](FontNativeMigration.md).
 
 ## Dynamic resizing
 
-`Surface.resize(w, h)` changes the owned pixel buffer dimensions. The
-declarative layout reflows to those dimensions on the next frame:
-
-```btrc
-surface.resize(640, 480);
-GUIEvents events = UI.frame(surface, input, theme, view);
-```
+`Surface.resize(w, h)` changes the owned pixel buffer dimensions; callers
+redraw at the new size.
 
 ## Build
 
 ```
-make examples-gui   # build + run the headless examples/tests (demo, declarative, font)
+make -C examples/gui   # build + run the FontSmoke example
 ```
 
 ## Caveats
 
-- Raster widgets draw into CPU-owned offscreen pixels. Native window/control
+- Surfaces draw into CPU-owned offscreen pixels. Native window/control
   presentation belongs to the portable GUI factory and its selected provider.
-- Drawing is opaque-rect + bitmap text; it's intentionally minimal, not a
-  full retained-mode toolkit.
+- Drawing is rectangles, blending and text; it is intentionally minimal.
 
 ## Linux provider
 

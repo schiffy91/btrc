@@ -41,7 +41,6 @@ SUPPORTING_CONSUMERS = frozenset(
         "src/compiler/btrc/syntax/Types.btrc",
         "src/stdlib/Daemon/Daemon.btrc",
         "src/stdlib/Graph/Graph.btrc",
-        "src/stdlib/GUI/View.btrc",
     }
 )
 
@@ -53,22 +52,6 @@ OWNER_TREES = {
     "src/stdlib/": "the owners stdlib imports resolve to",
     "src/compiler/btrc/": "compiled whole by the bootstrap",
 }
-
-# The raw per-file audit uses one symbol owner and does not resolve the GUI
-# View module's UI shadowing the unrelated Library.UI UI. These consumers
-# select GUI/View explicitly; both fully resolved compilers qualify the calls.
-RAW_INCLUDE_SHADOWS = frozenset(
-    {
-        (
-            "examples/gui/Declarative.btrc",
-            "'UI' is defined in UI.btrc but Declarative.btrc does not import it",
-        ),
-        (
-            "src/tests/native/gui/FontSnapshotConformance.btrc",
-            "'UI' is defined in UI.btrc but FontSnapshotConformance.btrc does not import it",
-        ),
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -189,8 +172,6 @@ class CorpusImportAudit:
                 external_symbol_files=self.owner_files,
             ).check():
                 relative = path.relative_to(self.repository).as_posix()
-                if (relative, message) in RAW_INCLUDE_SHADOWS:
-                    continue
                 diagnostics.append(f"{relative}:{line}: {message}")
         return CorpusImportAuditResult(
             source_count=len(consumers),

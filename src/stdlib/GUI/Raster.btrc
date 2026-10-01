@@ -1,43 +1,31 @@
-/* btrc standard library — GUI (immediate-mode, software-rendered)
+/* btrc standard library — GUI raster surfaces (software-rendered)
  *
- * A simple, dependency-light UI: build a frame of widgets each tick and read
- * back interactions. Surface owns pixels, resizing, fills and readback in
- * BTRC, including scalable text drawn from owned font glyph snapshots.
- * Native windows and controls use Library.GUI.GUI. Raster surfaces remain
- * independent offscreen image buffers.
+ * Surface owns pixels, resizing, fills and readback in BTRC, including
+ * scalable text drawn from owned font glyph snapshots. Native windows and
+ * controls use Library.GUI.GUI; painted widget trees use Library.UI. Raster
+ * surfaces remain independent offscreen image buffers.
  *
  * NOT auto-included. Use: import Library.GUI.Raster;
  * No native raster archive is needed. Optional FreeType uses its package plan.
  *
- *   var ui = RasterGUI(Surface(480, 320));
- *   ui.beginFrame();
- *   ui.label("Hello");
- *   if (ui.button("Click me")) { ... }
+ *   var surface = Surface(480, 320);
+ *   surface.clear(RGBA(250, 248, 245));
+ *   surface.text(16, 16, "Hello", RGBA(43, 38, 34), 2);
  */
 
 import Library.OwnedBuffer;
+import Library.Image;
 import Library.GUI.Font;
 import Library.GUI.FontFace;
+import Library.GUI.Geometry;
 
-#include "GUI/Geometry.btrc"
-
-class Color {
-	public int r;
-	public int g;
-	public int b;
-	public int a;
-
-	public Color(int r, int g, int b, int a) {
-		self.r = r < 0 ? 0 : (r > 255 ? 255 : r);
-		self.g = g < 0 ? 0 : (g > 255 ? 255 : g);
-		self.b = b < 0 ? 0 : (b > 255 ? 255 : b);
-		self.a = a < 0 ? 0 : (a > 255 ? 255 : a);
-	}
-
-	class Color rgb(int r, int g, int b) { return Color(r, g, b, 255); }
-
-	public unsigned int packed() { return ((unsigned int)self.r << 24) | ((unsigned int)self.g << 16) | ((unsigned int)self.b << 8) | (unsigned int)self.a; }
-}
+/* Borrowed pixels for one synchronous raster operation, packed as uint32
+ * in 0xRRGGBBAA order. Never retain this view. */
+struct GUIRasterPixels {
+	int width;
+	int height;
+	unsigned int* pixels;
+};
 
 class GUIRaster {
 	/* One byte per glyph row, top row in the low byte; bit zero is leftmost. */
@@ -131,6 +119,8 @@ class GUIRaster {
 		return codepoint;
 	}
 
+	class unsigned int packed(RGBA color) { return ((unsigned int)color.red << 24) | ((unsigned int)color.green << 16) | ((unsigned int)color.blue << 8) | (unsigned int)color.alpha; }
+
 	class long long advance(long long position, long long distance) { return position > 9223372036854775807LL - distance ? 9223372036854775807LL : position + distance; }
 
 	class unsigned int blendChannel(unsigned int source, unsigned int sourceAlpha, unsigned int destination, unsigned int destinationAlpha, unsigned int alphaNumerator) {
@@ -140,36 +130,36 @@ class GUIRaster {
 	}
 
 	/* The pixel view is borrowed only for this synchronous raster operation. */
-	class void blendPixel(BtrcGuiPixels* pixels, int x, int y, unsigned int rgba) {
-		if (pixels == null || pixels->px == null || x < 0 || y < 0 || x >= pixels->w || y >= pixels->h) { return; }
-		size_t index = (size_t)y * (size_t)pixels->w + (size_t)x;
-		unsigned int destination = pixels->px[index];
+	class void blendPixel(struct GUIRasterPixels* pixels, int x, int y, unsigned int rgba) {
+		if (pixels == null || pixels->pixels == null || x < 0 || y < 0 || x >= pixels->width || y >= pixels->height) { return; }
+		size_t index = (size_t)y * (size_t)pixels->width + (size_t)x;
+		unsigned int destination = pixels->pixels[index];
 		unsigned int sourceAlpha = rgba & 255U;
 		unsigned int destinationAlpha = destination & 255U;
 		unsigned int alphaNumerator = sourceAlpha * 255U + destinationAlpha * (255U - sourceAlpha);
 		unsigned int red = GUIRaster.blendChannel((rgba >> 24) & 255U, sourceAlpha, (destination >> 24) & 255U, destinationAlpha, alphaNumerator);
 		unsigned int green = GUIRaster.blendChannel((rgba >> 16) & 255U, sourceAlpha, (destination >> 16) & 255U, destinationAlpha, alphaNumerator);
 		unsigned int blue = GUIRaster.blendChannel((rgba >> 8) & 255U, sourceAlpha, (destination >> 8) & 255U, destinationAlpha, alphaNumerator);
-		pixels->px[index] = (red << 24) | (green << 16) | (blue << 8) | ((alphaNumerator + 127U) / 255U);
+		pixels->pixels[index] = (red << 24) | (green << 16) | (blue << 8) | ((alphaNumerator + 127U) / 255U);
 	}
 
-	class void rectangle(BtrcGuiPixels* pixels, long long x, long long y, long long width, long long height, unsigned int rgba, bool blend) {
-		if (pixels == null || pixels->px == null || width <= 0LL || height <= 0LL) { return; }
+	class void rectangle(struct GUIRasterPixels* pixels, long long x, long long y, long long width, long long height, unsigned int rgba, bool blend) {
+		if (pixels == null || pixels->pixels == null || width <= 0LL || height <= 0LL) { return; }
 		long long left = x < 0LL ? 0LL : x;
 		long long top = y < 0LL ? 0LL : y;
 		long long right = GUIRaster.advance(x, width);
 		long long bottom = GUIRaster.advance(y, height);
-		if (right > (long long)pixels->w) { right = (long long)pixels->w; }
-		if (bottom > (long long)pixels->h) { bottom = (long long)pixels->h; }
+		if (right > (long long)pixels->width) { right = (long long)pixels->width; }
+		if (bottom > (long long)pixels->height) { bottom = (long long)pixels->height; }
 		for (long long row = top; row < bottom; row++) {
 			for (long long column = left; column < right; column++) {
 				if (blend) { GUIRaster.blendPixel(pixels, (int)column, (int)row, rgba); }
-				else { pixels->px[(size_t)row * (size_t)pixels->w + (size_t)column] = rgba; }
+				else { pixels->pixels[(size_t)row * (size_t)pixels->width + (size_t)column] = rgba; }
 			}
 		}
 	}
 
-	class void bitmapText(BtrcGuiPixels* pixels, int x, int y, string text, unsigned int rgba, int scale) {
+	class void bitmapText(struct GUIRasterPixels* pixels, int x, int y, string text, unsigned int rgba, int scale) {
 		if (text == null) { return; }
 		if (scale < 1) { scale = 1; }
 		int offset = 0;
@@ -235,7 +225,7 @@ class GUIRaster {
 		return current > maximum ? current : maximum;
 	}
 
-	class void fontText(BtrcGuiPixels* pixels, Font font, int x, int y, string text, unsigned int rgba) {
+	class void fontText(struct GUIRasterPixels* pixels, Font font, int x, int y, string text, unsigned int rgba) {
 		var metrics = font.metrics();
 		long long penX = (long long)x;
 		long long baseline = GUIRaster.signedAdvance((long long)y, (long long)GUIRaster.fontPixels(metrics.ascenderFixed()));
@@ -320,15 +310,15 @@ class Surface {
 		self.pixelHeight = height;
 	}
 
-	public void clear(Color color) {
+	public void clear(RGBA color) {
 		if (!self.opened()) { return; }
-		unsigned int rgba = color.packed();
+		unsigned int rgba = GUIRaster.packed(color);
 		unsigned int* pixels = self.pixels();
 		size_t count = (size_t)self.pixelWidth * (size_t)self.pixelHeight;
 		for (size_t index = (size_t)0; index < count; index++) { pixels[index] = rgba; }
 	}
 
-	public void fillRect(int x, int y, int width, int height, Color color) {
+	public void fillRect(int x, int y, int width, int height, RGBA color) {
 		if (!self.opened() || width <= 0 || height <= 0) { return; }
 		long long left = x < 0 ? 0LL : (long long)x;
 		long long top = y < 0 ? 0LL : (long long)y;
@@ -336,30 +326,30 @@ class Surface {
 		long long bottom = (long long)y + (long long)height;
 		if (right > (long long)self.pixelWidth) { right = (long long)self.pixelWidth; }
 		if (bottom > (long long)self.pixelHeight) { bottom = (long long)self.pixelHeight; }
-		unsigned int rgba = color.packed();
+		unsigned int rgba = GUIRaster.packed(color);
 		unsigned int* pixels = self.pixels();
 		for (long long row = top; row < bottom; row++) {
 			for (long long column = left; column < right; column++) { pixels[(size_t)row * (size_t)self.pixelWidth + (size_t)column] = rgba; }
 		}
 	}
 
-	public void blendRect(int x, int y, int width, int height, Color color) {
+	public void blendRect(int x, int y, int width, int height, RGBA color) {
 		if (!self.opened()) { return; }
-		BtrcGuiPixels view;
-		view.w = self.pixelWidth;
-		view.h = self.pixelHeight;
-		view.px = self.pixels();
-		GUIRaster.rectangle(&view, (long long)x, (long long)y, (long long)width, (long long)height, color.packed(), true);
+		struct GUIRasterPixels view;
+		view.width = self.pixelWidth;
+		view.height = self.pixelHeight;
+		view.pixels = self.pixels();
+		GUIRaster.rectangle(&view, (long long)x, (long long)y, (long long)width, (long long)height, GUIRaster.packed(color), true);
 	}
 
-	public void text(int x, int y, string text, Color color, int scale) {
+	public void text(int x, int y, string text, RGBA color, int scale) {
 		if (!self.opened()) { return; }
-		BtrcGuiPixels view;
-		view.w = self.pixelWidth;
-		view.h = self.pixelHeight;
-		view.px = self.pixels();
+		struct GUIRasterPixels view;
+		view.width = self.pixelWidth;
+		view.height = self.pixelHeight;
+		view.pixels = self.pixels();
 		if (text == null) { return; }
-		unsigned int rgba = color.packed();
+		unsigned int rgba = GUIRaster.packed(color);
 		var font = self.selectedFont;
 		if (font == null) { GUIRaster.bitmapText(&view, x, y, text, rgba, scale); }
 		else { GUIRaster.fontText(&view, font, x, y, text, rgba); }
@@ -388,208 +378,4 @@ class Surface {
 		if (fclose(output) != 0) { written = false; }
 		return written;
 	}
-}
-
-/* Per-frame input. A window backend (or a test) fills these before beginFrame. */
-class GUIInput {
-	public int mouseX;
-	public int mouseY;
-	public bool mouseDown;     /* button currently held */
-	public bool mousePressed;  /* pressed this frame (rising edge) */
-	public string typed;       /* text typed this frame */
-
-	public GUIInput() {
-		self.mouseX = -1;
-		self.mouseY = -1;
-		self.mouseDown = false;
-		self.mousePressed = false;
-		self.typed = "";
-	}
-}
-
-class Theme {
-	public Color bg;
-	public Color panel;
-	public Color text;
-	public Color accent;
-	public Color accentText;
-	public Color border;
-
-	public Theme() {
-		self.bg = Color.rgb(250, 248, 245);
-		self.panel = Color.rgb(255, 255, 255);
-		self.text = Color.rgb(43, 38, 34);
-		self.accent = Color.rgb(189, 93, 58);
-		self.accentText = Color.rgb(255, 255, 255);
-		self.border = Color.rgb(226, 220, 211);
-	}
-
-	class Theme dark() {
-		Theme t = Theme();
-		t.bg = Color.rgb(28, 26, 24);
-		t.panel = Color.rgb(34, 31, 28);
-		t.text = Color.rgb(236, 231, 225);
-		t.accent = Color.rgb(217, 116, 79);
-		t.accentText = Color.rgb(28, 26, 24);
-		t.border = Color.rgb(56, 51, 46);
-		return t;
-	}
-}
-
-/* Immediate-mode UI context. Widgets are laid out top-to-bottom; each returns
- * the interaction that happened this frame. */
-class RasterGUI {
-	public Surface surface;
-	public GUIInput input;
-	public Theme theme;
-	public int scale;
-	public int pad;
-	public int gap;
-	public int cursorX;
-	public int cursorY;
-	public int contentWidth;
-
-	public RasterGUI(Surface surface) {
-		self.surface = surface;
-		self.input = GUIInput();
-		self.theme = Theme();
-		self.scale = 2;
-		self.pad = 16;
-		self.gap = 8;
-		self.cursorX = 16;
-		self.cursorY = 16;
-		self.contentWidth = GUIInt.subtract(surface.width(), 32);
-	}
-
-	public bool hit(int x, int y, int w, int h) {
-		if (w <= 0 || h <= 0) { return false; }
-		long long mx = (long long)self.input.mouseX;
-		long long my = (long long)self.input.mouseY;
-		return mx >= (long long)x && mx < (long long)x + (long long)w && my >= (long long)y && my < (long long)y + (long long)h;
-	}
-
-	public void beginFrame() {
-		self.surface.clear(self.theme.bg);
-		self.cursorX = self.pad;
-		self.cursorY = self.pad;
-	}
-
-	public void panel(int x, int y, int w, int h) {
-		self.surface.fillRect(x, y, w, h, self.theme.panel);
-		self.surface.fillRect(x, y, w, 1, self.theme.border);
-		self.surface.fillRect(x, GUIInt.subtract(GUIInt.add(y, h), 1), w, 1, self.theme.border);
-	}
-
-	public void label(string text) {
-		self.surface.text(self.cursorX, GUIInt.add(self.cursorY, 4), text, self.theme.text, self.scale);
-		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, self.surface.textHeight(self.scale)), self.gap);
-	}
-
-	public void heading(string text) {
-		int headingScale = GUIInt.add(self.scale, 1);
-		self.surface.text(self.cursorX, self.cursorY, text, self.theme.accent, headingScale);
-		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, self.surface.textHeight(headingScale)), self.gap);
-	}
-
-	public void spacer(int px) { self.cursorY = GUIInt.add(self.cursorY, px); }
-
-	/* A clickable button. Returns true on the frame it is clicked. */
-	public bool button(string text) {
-		int th = self.surface.textHeight(self.scale);
-		int tw = self.surface.textWidth(text, self.scale);
-		int w = GUIInt.add(tw, 20);
-		int h = GUIInt.add(th, 12);
-		int x = self.cursorX;
-		int y = self.cursorY;
-		bool hovered = self.hit(x, y, w, h);
-		bool clicked = hovered && self.input.mousePressed;
-		Color fill = hovered ? self.theme.accent : self.theme.panel;
-		Color fg = hovered ? self.theme.accentText : self.theme.text;
-		self.surface.fillRect(x, y, w, h, fill);
-		if (!hovered) {
-			self.surface.fillRect(x, y, w, 1, self.theme.border);
-			self.surface.fillRect(x, GUIInt.subtract(GUIInt.add(y, h), 1), w, 1, self.theme.border);
-			self.surface.fillRect(x, y, 1, h, self.theme.border);
-			self.surface.fillRect(GUIInt.subtract(GUIInt.add(x, w), 1), y, 1, h, self.theme.border);
-		}
-		self.surface.text(GUIInt.add(x, 10), GUIInt.add(y, 6), text, fg, self.scale);
-		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, h), self.gap);
-		return clicked;
-	}
-
-	/* A checkbox. Returns the (possibly toggled) value for this frame. */
-	public bool checkbox(string text, bool value) {
-		int box = self.surface.textHeight(self.scale);
-		int x = self.cursorX;
-		int y = self.cursorY;
-		int w = GUIInt.add(GUIInt.add(box, 8), self.surface.textWidth(text, self.scale));
-		bool hovered = self.hit(x, y, w, box);
-		bool nv = value;
-		if (hovered && self.input.mousePressed) { nv = !value; }
-		self.surface.fillRect(x, y, box, box, self.theme.border);
-		if (nv) {
-			self.surface.fillRect(GUIInt.add(x, 3), GUIInt.add(y, 3), GUIInt.subtract(box, 6), GUIInt.subtract(box, 6), self.theme.accent);
-		}
-		self.surface.text(GUIInt.add(GUIInt.add(x, box), 8), y, text, self.theme.text, self.scale);
-		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, box), self.gap);
-		return nv;
-	}
-
-	/* A horizontal value bar (0..max). Returns the value, dragged by the mouse. */
-	public int slider(int value, int max) {
-		int h = 14;
-		int w = self.contentWidth;
-		int x = self.cursorX;
-		int y = self.cursorY;
-		int v = value;
-		if (max <= 0 || w <= 0) {
-			self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, h), self.gap);
-			return 0;
-		}
-		if (v < 0) { v = 0; }
-		if (v > max) { v = max; }
-		if (self.hit(x, y, w, h) && self.input.mouseDown && max > 0) {
-			int rel = self.input.mouseX - x;
-			if (rel < 0) { rel = 0; }
-			if (rel > w) { rel = w; }
-			v = (int)((long long)rel * (long long)max / (long long)w);
-		}
-		self.surface.fillRect(x, y, w, h, self.theme.border);
-		int fillW = (int)((long long)v * (long long)w / (long long)max);
-		self.surface.fillRect(x, y, fillW, h, self.theme.accent);
-		self.cursorY = GUIInt.add(GUIInt.add(self.cursorY, h), self.gap);
-		return v;
-	}
-}
-
-/* A threaded application shell. The render/update loop runs on a background
- * thread by default (spawn), so the main thread stays free; `alive` is a
- * thread-safe flag both sides read/write. Typical use:
- *
- *   var app = GUIApp(640, 400);
- *   Thread<int> t = spawn(() => {
- *       while (app.running()) {
- *           App.ui.beginFrame();
- *           if (app.ui.button("Quit")) { App.stop(); }
- *           // present App.surface via a window backend, or read pixels in tests
- *       }
- *       return 0;
- *   });
- *   // ... main thread does other work ...
- *   t.join();
- */
-class GUIApp {
-	public Surface surface;
-	public RasterGUI ui;
-	public Mutex<int> alive;   /* 1 = running, 0 = stopped (thread-safe) */
-
-	public GUIApp(int width, int height) {
-		self.surface = Surface(width, height);
-		self.ui = RasterGUI(self.surface);
-		self.alive = Mutex(1);
-	}
-
-	public bool running() { return self.alive.get() == 1; }
-
-	public void stop() { self.alive.set(0); }
 }

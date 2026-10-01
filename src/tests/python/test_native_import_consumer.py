@@ -4246,6 +4246,16 @@ int main() {
 def test_native_window_keyboard_monitor(native_project, native_compile, sanitize):
     source, _, _ = native_project
     source.write_text((REPO / "src/tests/native/gui/NativeKeyboard.btrc").read_text())
+    root = source.parent.parent
+    # Synthetic key events are test-only; the stdlib binds only what it uses.
+    (root / "KeyboardInput.h").write_text("#include <AppKit/AppKit.h>\n")
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "KeyboardInput.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["-[NSWindow windowNumber]", '
+        '"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]"]\n'
+    )
     plan = source.parent / "Keyboard.link.json"
     compiled = native_compile(source, plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
@@ -5904,6 +5914,8 @@ def test_native_import_does_not_authorize_source_runtime_names(native_project, n
         ("import Library.GUI.MacOS.GUIProvider;", "return 0;", "private to package"),
         ('#include "GUI/MacOS/GUIProvider.btrc"', "return 0;", "private to package"),
         ("import Library.GUI;", "GUIProvider.active = null; return 0;", "GUIProvider"),
+        ("import Library.GUI.ApplicationSlot;", "return 0;", "private to package"),
+        ("import Library.GUI;", "GUIApplicationSlot.active = null; return 0;", "GUIApplicationSlot"),
         ("import Library.GUI.MacOS.MacOSStack;", "return 0;", "private to package"),
         ('#include "GUI/MacOS/MacOSStack.btrc"', "return 0;", "private to package"),
         ("import Library.GUI;", "var stack = MacOSStack(false, 8.0); return 0;", "MacOSStack"),
@@ -5975,6 +5987,15 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
             '"+[StackProbe undoEditing]", "+[StackProbe observeViews]", "+[StackProbe remainingViews]", "+[StackProbe reset]", '
             '"+[StackProbe contentView]", "+[StackProbe verifyDetachedButton]", "+[StackProbe verifyHiddenButton]"]\n'
             '[[native.sources]]\npath = "StackProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        )
+    if fixture_name == "NativePanel":
+        # Appearance readback is test-only; the provider binds only what it sets.
+        (root / "PanelProbe.h").write_text("#import <AppKit/AppKit.h>\n")
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "PanelProbe.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["-[NSView appearance]", "-[NSAppearance name]"]\n'
         )
     if fixture_name == "NativeGUI":
         (root / "FactoryProbe.h").write_text(
@@ -6091,7 +6112,7 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
             'symbols = ["-[NSApplication postEvent:atStart:]", "-[NSWindow windowNumber]", "-[NSWindow sendEvent:]", "-[NSView hitTest:]", "-[NSView convertPoint:fromView:]", '
             '"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]", '
-            '"NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp"'
+            '"NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "-[NSView intrinsicContentSize]"'
             + (
                 ', "+[FlippedTestView new]", "-[NSView setBoundsOrigin:]", "+[ActionButtonProbe new]", '
                 '"+[ActionButtonProbe liveCount]", "-[ActionButtonProbe hasAction]", "-[ActionButtonProbe fire]"'
@@ -6159,6 +6180,7 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
                 "modal-native",
                 "modal-portable",
                 "scope-exit",
+                "stuck-subtree",
             )
         ]
         if fixture_name == "NativeApplication"
@@ -6175,7 +6197,11 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
         assert completed.returncode == 0, (arguments, completed.stdout, completed.stderr)
         assert expected in completed.stdout
         if fixture_name == "NativeGUI":
-            assert f"Factory retained fields: {native_retained_fields}\n" in completed.stdout
+            # AppKit may keep the first key text field past teardown until a
+            # later run-loop turn (macOS 15 does in the direct baseline, which
+            # never spins the loop). The factory may retain no more than that.
+            factory_retained_fields = int(completed.stdout.split("Factory retained fields: ", 1)[1].split("\n", 1)[0])
+            assert 0 <= factory_retained_fields <= native_retained_fields
     if fixture_name == "NativeContainers":
         failed_shutdown = subprocess.run(
             [str(executable), "--shutdown-failure"],
@@ -6291,11 +6317,20 @@ def test_system_text_uses_owned_btrc_rasters(native_project, native_compile, san
     assert "system text shaping, weights, Retina coverage and owned rasters" in completed.stdout
 
 
-def test_objective_c_runtime_module_links_without_appkit(native_project, native_compile):
+def test_objective_c_runtime_binding_links_without_appkit(native_project, native_compile):
     source, _sdk, _triple = native_project
     root = source.parent.parent
+    # The stdlib binds no standalone selector module; a project binds the
+    # Objective-C runtime header and links only Foundation.
+    (root / "ObjectiveCRuntime.h").write_text("#include <objc/objc.h>\n")
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "ObjectiveCRuntime.h"\n'
+        'language = "c"\nstandard = "c11"\nos = ["macos"]\nsymbols = ["SEL", "sel_registerName"]\n'
+        'read-only-borrows = ["sel_registerName.str"]\n'
+        '[[native.frameworks]]\nname = "Foundation"\nmodules = ["Main"]\nos = ["macos"]\n'
+    )
     source.write_text(
-        "import Library.GUI.MacOS.ObjectiveCRuntime;\n"
         'int main() { var selector = sel_registerName("nativeAction:"); '
         'return selector != null && selector == sel_registerName("nativeAction:") ? 0 : 1; }\n'
     )

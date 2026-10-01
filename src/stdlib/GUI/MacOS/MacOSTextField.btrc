@@ -1,26 +1,27 @@
+import Library.Callback;
 import Library.Math;
 import Library.GUI.ITextField;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
-import Library.GUI.MacOS.MacOSViewInput;
 
 /* Main-thread owner of an actual AppKit text field, not a painted imitation.
- * The host attaches nativeControl() to its view tree and closes this owner
- * before releasing that tree. AppKit owns selection, IME and field editing. */
+ * MacOSView owns attachment, input and teardown; this owner adds editing and
+ * ends any active field-editor session before the view closes. AppKit owns
+ * selection, IME and field editing. */
 class MacOSTextField implements ITextField, IMacOSView {
 	private NSTextField? _control;
-	private bool _attached = false;
-	private bool _closing = false;
-	private CallbackScope _input = CallbackScope();
-	private Vector<MacOSViewInput> _inputs = [];
+	private MacOSView _view;
 
 	public MacOSTextField(string text = "", string placeholder = "") {
 		self._control = null;
 		self.requireMainThread();
-		self._control = NSTextField.textFieldWithString(AppKitText.nativeValue(text));
+		var control = NSTextField.textFieldWithString(AppKitText.nativeValue(text));
+		if (control == null) { throw "Cannot create native text field"; }
+		self._control = control;
+		self._view = MacOSView(control);
 		/* Rounded bezels center their text vertically and share the native
 		 * control heights buttons use, so mixed toolbars align without padding hacks. */
-		self.nativeControl().setBezelStyle(NSTextFieldRoundedBezel);
+		control.setBezelStyle(NSTextFieldRoundedBezel);
 		self.setPlaceholder(placeholder);
 	}
 
@@ -30,49 +31,33 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public NSTextField nativeControl() {
 		self.requireMainThread();
-		if (self._control == null || self._closing) { throw "Text field is closed"; }
+		if (self._control == null || !self._view.isOpen()) { throw "Text field is closed"; }
 		return self._control;
 	}
 
-	public bool isOpen() { self.requireMainThread(); return self._control != null && !self._closing; }
+	public bool isOpen() { self.requireMainThread(); return self._control != null && self._view.isOpen(); }
 
 	public NSView nativeView() { return self.nativeControl(); }
 
-	public void attachTo(NSView parent) {
-		var control = self.nativeControl();
-		if (self._attached) { throw "View already belongs to a container"; }
-		MacOSView.validateAttachment(control, parent);
-		self._attached = true;
-		try { MacOSView.attachNative(control, parent); } catch (string error) {
-			NSView view = control;
-			self._attached = view.superview() == parent;
-			throw error;
-		}
-	}
+	public void attachTo(NSView parent) { self.nativeControl(); self._view.attachTo(parent); }
 
-	public void detachFrom(NSView parent) {
-		var control = self.nativeControl();
-		if (!self._attached) { throw "View has no container attachment"; }
-		self.cancelPointerCapture();
-		MacOSView.detachNative(control, parent);
-		self._attached = false;
-	}
+	public void detachFrom(NSView parent) { self.nativeControl(); self._view.detachFrom(parent); }
 
-	public double fittingWidth() { NSView view = self.nativeControl(); return view.fittingSize().width; }
+	public double fittingWidth() { self.nativeControl(); return self._view.fittingWidth(); }
 
-	public double fittingHeight() { NSView view = self.nativeControl(); return view.fittingSize().height; }
+	public double fittingHeight() { self.nativeControl(); return self._view.fittingHeight(); }
 
-	public bool isVisible() { NSView view = self.nativeControl(); return !view.isHidden(); }
+	public bool isVisible() { self.nativeControl(); return self._view.isVisible(); }
 
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs); }
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { self.nativeControl(); return self._view.onPointer(handler, owner); }
 
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs); }
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { self.nativeControl(); return self._view.onScroll(handler, owner); }
 
-	public void cancelPointerCapture() { MacOSViewInput.detached(self._inputs); }
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
 
-	public void setVisible(bool visible) { NSView view = self.nativeControl(); view.setHidden(!visible); }
+	public void setVisible(bool visible) { self.nativeControl(); self._view.setVisible(visible); }
 
-	public void arrange(double x, double y, double width, double height) { MacOSView.arrangeNative(self.nativeControl(), x, y, width, height); }
+	public void arrange(double x, double y, double width, double height) { self.nativeControl(); self._view.arrange(x, y, width, height); }
 
 	public string text() {
 		var control = self.nativeControl();
@@ -115,23 +100,22 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public CallbackCancellation pollClose() {
 		self.requireMainThread();
-		var control = self._control;
-		if (control == null) { return CallbackCancellation.Complete; }
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
-		var state = self._input.pollCompletion();
-		if (state != CallbackCancellation.Complete) { return state; }
-		control.abortEditing();
-		control.removeFromSuperview();
-		self._control = null;
-		return CallbackCancellation.Complete;
+		var state = self._view.pollClose();
+		if (state == CallbackCancellation.Complete) { self._control = null; }
+		return state;
 	}
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
 		var control = self._control;
 		if (control == null) { return CallbackCancellation.Complete; }
-		if (self._attached) { throw "Detach the view from its container before closing it"; }
-		if (!self._closing) { self._closing = true; self._input.cancel(); }
-		return self.pollClose();
+		if (self._view.isOpen()) {
+			self._view.requireDetached();
+			// End any field-editor session while the control is still in its window.
+			control.abortEditing();
+		}
+		var state = self._view.close();
+		if (state == CallbackCancellation.Complete) { self._control = null; }
+		return state;
 	}
 }

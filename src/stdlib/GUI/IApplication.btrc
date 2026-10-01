@@ -1,5 +1,20 @@
-import Library.GUI.IWindow;
 import Library.Callback;
+import Library.Image;
+import Library.GUI.IWindow;
+import Library.GUI.IButton;
+import Library.GUI.ITextField;
+import Library.GUI.IContainer;
+import Library.GUI.IStack;
+import Library.GUI.IGPUView;
+import Library.GUI.ILabel;
+import Library.GUI.IImageView;
+import Library.GUI.IPanel;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.ISlider;
+import Library.GUI.ISelect;
+import Library.GUI.IScrollView;
+import Library.GUI.IGrid;
 
 /* UI-executor work, never inline. Worker-thread publication is a separate
  * capability; post() requires the application's creating UI thread. Accepted
@@ -12,6 +27,23 @@ interface IApplicationWork { void run(); }
  * callbacks finish before owned windows are torn down. */
 interface IApplication {
 	IWindow createWindow(string title, double width, double height);
+	/* View factories. Each view is owned by this application until closed
+	 * and is torn down with it; every provider implements the same set. */
+	IButton createButton(string title);
+	ITextField createTextField(string text, string placeholder);
+	IContainer createContainer();
+	IStack createRow(double spacing);
+	IStack createColumn(double spacing);
+	IGPUView createGPUView(bool capture);
+	ILabel createLabel(string text);
+	IImageView createImageView();
+	IPanel createPanel(RGBA fill, double radius);
+	IProgressIndicator createProgressIndicator();
+	ILevelIndicator createLevelIndicator(double warning, double critical);
+	ISlider createSlider(double minimum, double maximum, int intervals);
+	ISelect createSelect();
+	IScrollView createScrollView();
+	IGrid createGrid(int columns, int rows, double columnSpacing, double rowSpacing);
 	void post(IApplicationWork work);
 	/* UI-thread, never inline. Delayed work shares the application capacity,
 	 * may run later than its delay, and is canceled by application shutdown.

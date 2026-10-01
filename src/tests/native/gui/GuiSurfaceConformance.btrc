@@ -1,3 +1,4 @@
+import Library.Image;
 import Library.GUI.Raster;
 
 #include <assert.h>
@@ -8,8 +9,8 @@ void guiFailAllocation(int countdown);
 class SurfaceProbe {
 	class Surface retained() {
 		var surface = Surface(2, 2);
-		surface.clear(Color(1, 2, 3, 4));
-		surface.fillRect(1, 1, 1, 1, Color(170, 187, 204, 221));
+		surface.clear(RGBA(1, 2, 3, 4));
+		surface.fillRect(1, 1, 1, 1, RGBA(170, 187, 204, 221));
 		return surface;
 	}
 }
@@ -24,10 +25,10 @@ int main(int argc, char** argv) {
 	assert(GUIRaster.textHeight(INT_MAX) == INT_MAX);
 	var invalid = Surface(0, 1);
 	assert(!invalid.opened() && invalid.width() == 0 && invalid.height() == 0);
-	invalid.clear(Color.rgb(255, 255, 255));
-	invalid.fillRect(0, 0, 1, 1, Color.rgb(255, 255, 255));
-	invalid.blendRect(0, 0, 1, 1, Color.rgb(255, 255, 255));
-	invalid.text(0, 0, "ignored", Color.rgb(255, 255, 255), 1);
+	invalid.clear(RGBA(255, 255, 255));
+	invalid.fillRect(0, 0, 1, 1, RGBA(255, 255, 255));
+	invalid.blendRect(0, 0, 1, 1, RGBA(255, 255, 255));
+	invalid.text(0, 0, "ignored", RGBA(255, 255, 255), 1);
 	assert(invalid.pixel(0, 0) == 0U && !invalid.savePpm(argv[1]));
 	assert(!Surface(-1, 1).opened());
 
@@ -55,31 +56,27 @@ int main(int argc, char** argv) {
 	unsigned int* previous = surface.pixels();
 	surface.resize(3, 3);
 	assert(previous == surface.pixels());
-	surface.fillRect(INT_MIN, INT_MIN, INT_MAX, INT_MAX, Color.rgb(255, 255, 255));
+	surface.fillRect(INT_MIN, INT_MIN, INT_MAX, INT_MAX, RGBA(255, 255, 255));
 	assert(surface.pixel(0, 0) == 0x01020304U);
-	surface.fillRect(-1, -1, 2, 2, Color(17, 34, 51, 68));
+	surface.fillRect(-1, -1, 2, 2, RGBA(17, 34, 51, 68));
 	assert(surface.pixel(0, 0) == 0x11223344U);
 	surface.resize(2, 2);
 	assert(surface.pixel(1, 1) == 0xAABBCCDDU);
 	surface.resize(3, 3);
 	assert(surface.pixel(2, 2) == 0U);
 
-	surface.clear(Color(0, 0, 0, 0));
-	surface.blendRect(0, 0, 1, 1, Color(255, 0, 0, 128));
+	surface.clear(RGBA(0, 0, 0, 0));
+	surface.blendRect(0, 0, 1, 1, RGBA(255, 0, 0, 128));
 	assert(surface.pixel(0, 0) == 0xFF000080U);
-	surface.clear(Color(0, 0, 255, 128));
-	surface.blendRect(0, 0, 1, 1, Color(255, 0, 0, 128));
+	surface.clear(RGBA(0, 0, 255, 128));
+	surface.blendRect(0, 0, 1, 1, RGBA(255, 0, 0, 128));
 	assert(surface.pixel(0, 0) == 0xAA0055C0U);
 	assert(!surface.savePpm("/"));
 	assert(surface.savePpm(argv[1]));
 
 	var glyph = Surface(8, 8);
-	glyph.text(0, 0, "A", Color.rgb(255, 255, 255), 1);
+	glyph.text(0, 0, "A", RGBA(255, 255, 255), 1);
 	assert(glyph.pixel(1, 0) == 0xFFFFFFFFU && glyph.pixel(0, 0) == 0U);
-	var ui = RasterGUI(Surface(80, 80));
-	ui.beginFrame();
-	ui.label("Hello");
-	assert(!ui.button("OK"));
 	print("PASS: BTRC-owned GUI pixels");
 	return 0;
 }

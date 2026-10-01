@@ -1,45 +1,34 @@
+import Library.Vector;
+import Library.Image;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSGPUView;
 import Library.GUI.MacOS.MacOSComposedCapture;
 import Library.GUI.MacOS.MacOSSystemText;
 import Library.GUI.MacOS.MacOSImageHandle;
+import Library.GUI.IApplication;
+import Library.GUI.IView;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.TextRun;
 import Library.GUI.IImageHandle;
 import Library.GUI.Capture;
 import Library.GUI.MacOS.MacOSDirectoryPicker;
 import Library.Image.MacOS.MacOSEncodedImageDecoder;
 
-/* Private package implementation. The static slot is the application owner,
- * not a widget registry or a second native lifetime mechanism. */
+/* Private package implementation: the native services behind the GUI facade.
+ * The facade validates requests and owns the application's lifetime. */
 class GUIProvider {
-	class MacOSApplication? active = null;
+	class void requireUIThread() { if (!NSThread.isMainThread()) { throw "GUI requires the main thread"; } }
 
-	class void requireMainThread() { if (!NSThread.isMainThread()) { throw "GUI requires the main thread"; } }
+	class IApplication createApplication(int workCapacity) { return MacOSApplication(workCapacity); }
 
-	class void initialize(int workCapacity) {
-		GUIProvider.requireMainThread();
-		if (GUIProvider.active != null) { throw "GUI is already initialized"; }
-		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
-		GUIProvider.active = MacOSApplication(workCapacity);
-	}
-
-	class MacOSApplication application() {
-		GUIProvider.requireMainThread();
-		var application = GUIProvider.active;
-		if (application == null) { throw "Initialize GUI before creating views or running work"; }
-		return application;
-	}
-
-	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) { GUIProvider.application(); return MacOSDirectoryPicker().chooseDirectory(request); }
+	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) { return MacOSDirectoryPicker().chooseDirectory(request); }
 
 	/* Conversion may run on a worker; it needs no initialized application. */
 	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return MacOSImageHandle.create(pixels, maximumPixels); }
 
-	class void rasterizeText(TextRasterization request) { GUIProvider.requireMainThread(); MacOSSystemText.rasterize(request); }
+	class void rasterizeText(IApplication? application, TextRasterization request) { MacOSSystemText.rasterize(request); }
 
-	class Image rasterText(TextRun run) { GUIProvider.requireMainThread(); return MacOSSystemText.raster(run); }
-
-	class Image capture(IView root, Vector<GUICaptureLayer> layers) {
-		GUIProvider.application();
+	class Image capture(IApplication application, IView root, Vector<GUICaptureLayer> layers) {
 		var native = (IMacOSView?)root;
 		if (native == null) { throw "Capture root belongs to another GUI provider"; }
 		Vector<MacOSCaptureLayer> nativeLayers = [];
@@ -52,20 +41,5 @@ class GUIProvider {
 		var decoded = MacOSEncodedImageDecoder().decode(encoded, EncodedImageDecodeLimits(134217728, 16384, 16384, 16777216LL));
 		if (!decoded.succeeded()) { throw "Cannot decode composed native capture"; }
 		return decoded.image();
-	}
-
-	class void run() {
-		var application = GUIProvider.application();
-		if (application.isRunning()) { throw "GUI is already running"; }
-		try { application.run(); } finally { GUIProvider.close(); }
-	}
-
-	class CallbackCancellation close() {
-		GUIProvider.requireMainThread();
-		var application = GUIProvider.active;
-		if (application == null) { return CallbackCancellation.Complete; }
-		var result = application.close();
-		if (result == CallbackCancellation.Complete) { GUIProvider.active = null; }
-		return result;
 	}
 }

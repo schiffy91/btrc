@@ -1,3 +1,4 @@
+import Library.Image;
 import Library.GUI.Raster;
 import Library.GUI.FreeType;
 
@@ -7,7 +8,7 @@ class GuiFontProbe {
 	class void draw(string path, Surface surface) {
 		var font = FreeType.load(path, 18);
 		surface.setFont(font);
-		surface.text(1, 1, "Música", Color(255, 120, 60, 128), 1);
+		surface.text(1, 1, "Música", RGBA(255, 120, 60, 128), 1);
 		bool visible = false;
 		for (int y = 0; y < surface.height(); y++) {
 			for (int x = 0; x < surface.width(); x++) {
@@ -28,8 +29,8 @@ int main(int argc, char** argv) {
 	assert(surface.textWidth("Música", 1) > 0);
 	surface.setFont(null);
 	/* Bitmap rendering is an explicit selection, never a stale-face fallback. */
-	surface.clear(Color(0, 0, 0, 0));
-	surface.text(0, 0, "A", Color.rgb(255, 255, 255), 1);
+	surface.clear(RGBA(0, 0, 0, 0));
+	surface.text(0, 0, "A", RGBA(255, 255, 255), 1);
 	assert(surface.pixel(1, 0) == 0xFFFFFFFFU && surface.pixel(0, 0) == 0U);
 	print("PASS: FreeType draws into BTRC-owned pixels");
 	return 0;

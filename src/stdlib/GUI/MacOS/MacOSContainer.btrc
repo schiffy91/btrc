@@ -1,3 +1,4 @@
+import Library.Callback;
 import Library.Vector;
 import Library.Console;
 import Library.GUI.IContainer;
@@ -19,6 +20,8 @@ class MacOSContainerChild {
 	public bool translatesAutoresizing;
 	public bool closing = false;
 	public bool failed = false;
+	public bool pinned = false;
+	public unsigned long autoresizingMask = 0UL;
 
 	public MacOSContainerChild(IView view, bool translatesAutoresizing) { self.view = view; self.translatesAutoresizing = translatesAutoresizing; }
 }
@@ -105,6 +108,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 			native.attachTo(childParent);
 			attached = true;
 			if (self._layout != null) { self._layout.arrangeChild(childView); }
+			MacOSContainer.pinTop(entry, childView, childParent);
 		} catch (string error) {
 			if (attached) {
 				try { self.detachChild(entry, parent); }
@@ -121,12 +125,24 @@ class MacOSContainer implements IContainer, IMacOSView {
 		}
 	}
 
+	/* arrange() converts the top-left contract to an origin once. A child the
+	 * layout left frame-positioned keeps that top distance when its parent
+	 * resizes; Auto Layout children are positioned by their constraints. */
+	class void pinTop(MacOSContainerChild entry, NSView child, NSView parent) {
+		if (!child.translatesAutoresizingMaskIntoConstraints()) { return; }
+		entry.autoresizingMask = child.autoresizingMask();
+		entry.pinned = true;
+		unsigned long vertical = NSViewMinYMargin | NSViewMaxYMargin | NSViewHeightSizable;
+		child.setAutoresizingMask((entry.autoresizingMask & ~vertical) | (parent.isFlipped() ? NSViewMaxYMargin : NSViewMinYMargin));
+	}
+
 	private void detachChild(MacOSContainerChild entry, NSView parent) {
 		var childParent = self._layout == null ? parent : self._layout.childParent();
 		var native = self.projection(entry.view);
 		var child = native.nativeView();
 		if (self._layout != null) { self._layout.forgetChild(child); }
 		native.detachFrom(childParent);
+		if (entry.pinned) { child.setAutoresizingMask(entry.autoresizingMask); entry.pinned = false; }
 		child.setTranslatesAutoresizingMaskIntoConstraints(entry.translatesAutoresizing);
 	}
 

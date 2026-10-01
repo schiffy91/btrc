@@ -199,3 +199,36 @@ def test_optional_freetype_factory(font_project, native_compile, sanitize, consu
     arguments = [str(font)] if consumer == "GuiFontConformance" else []
     result = _compile_and_run(source, native_compile, sanitize, arguments)
     assert ("PASS: FreeType draws into BTRC-owned pixels" if arguments else "FONT SMOKE TEST PASSED") in result.stdout
+
+
+def _linux_test_font() -> Path | None:
+    """BTRC_TEST_FONT, else fontconfig's sans-serif match."""
+    configured = os.environ.get("BTRC_TEST_FONT")
+    if configured:
+        return Path(configured)
+    if not shutil.which("fc-match"):
+        return None
+    matched = subprocess.run(["fc-match", "-f", "%{file}", "sans-serif"], capture_output=True, text=True, timeout=30)
+    return Path(matched.stdout.strip()) if matched.returncode == 0 and matched.stdout.strip() else None
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_freetype_draws_into_owned_pixels(tmp_path, request, frontend, sanitized):
+    """Linux runs the same FreeType conformance as macOS, on a fontconfig font."""
+    from src.tests.python.test_native_linux_providers import _build, _environment, _require_linux_reader
+
+    _require_linux_reader()
+    if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "freetype2"]).returncode:
+        pytest.skip("requires the optional FreeType SDK through pkg-config")
+    font = _linux_test_font()
+    if font is None or not font.is_file():
+        pytest.skip("requires BTRC_TEST_FONT or a fontconfig sans-serif font")
+    source = tmp_path / "GuiFontConformance.btrc"
+    source.write_text((REPO / "src/tests/native/gui/GuiFontConformance.btrc").read_text())
+    executable = _build(source, tmp_path, frontend, sanitized, request)
+    result = subprocess.run(
+        [str(executable), str(font)], capture_output=True, text=True, timeout=60, env=_environment(sanitized)
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: FreeType draws into BTRC-owned pixels" in result.stdout

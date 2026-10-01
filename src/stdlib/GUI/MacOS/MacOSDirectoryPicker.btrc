@@ -1,5 +1,6 @@
 import Library.App;
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.MacOS.AppKitText;
 import Library.OwnedBuffer;
 import Library.Strings;
 
@@ -12,11 +13,9 @@ class MacOSDirectoryPicker implements IDirectoryPicker {
 		self._maximumPathBytes = maximumPathBytes;
 	}
 
+	/* The picker reports text failures as outcomes, not exceptions. */
 	private NSString? nativeText(string text) {
-		var bytes = new OwnedBuffer<char>((size_t)text.len() + (size_t)1);
-		if (!bytes.opened()) { return null; }
-		strcpy(bytes.borrow(), text);
-		return NSString.stringWithUTF8String(bytes.borrow());
+		try { return AppKitText.nativeValue(text); } catch (string error) { return null; }
 	}
 
 	private DirectoryPickerOutcome openPanel(DirectoryPickerRequest request) {

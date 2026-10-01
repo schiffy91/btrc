@@ -216,19 +216,21 @@
     {
       "id": "linux-native-reader-covered",
       "files": [
-        "src/tests/python/test_native_linux_providers.py"
+        "src/tests/python/test_native_linux_providers.py",
+        "src/tests/python/test_native_font_runtime.py"
       ],
       "nodes": [
         "*::test_linux_image_decoding*",
         "*::test_linux_audio_faults*",
-        "*::test_linux_audio_session*"
+        "*::test_linux_audio_session*",
+        "*::test_linux_freetype_draws_into_owned_pixels*"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "Image decoding and audio fault injection need no display or PCM, and the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, so the devcontainer runs all three."
+      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, and the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, so the devcontainer runs all four."
     },
     {
       "id": "linux-native-reader-uncovered",

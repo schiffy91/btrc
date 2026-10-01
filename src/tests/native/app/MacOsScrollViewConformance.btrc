@@ -37,6 +37,15 @@ int main() {
 	nested.arrange(24.0, 500.0, 300.0, 200.0);
 	nested.scrollTo(80.0);
 	assert(fabs(nested.scrollOffset() - 80.0) < 0.01);
+	// Frame-positioned document children keep their top-left distance when
+	// the unflipped document grows; AppKit would otherwise keep the bottom.
+	scroll.setContentSize(480.0, 1800.0);
+	var document = scroll.documentView().frame();
+	var fieldFrame = field.nativeControl().frame();
+	var nestedFrame = nested.nativeControl().frame();
+	assert(fabs(document.size.height - fieldFrame.origin.y - fieldFrame.size.height - 70.0) < 0.01);
+	assert(fabs(document.size.height - nestedFrame.origin.y - nestedFrame.size.height - 500.0) < 0.01);
+	scroll.setContentSize(480.0, 1600.0);
 	assert(NativeScrollViewProbe.prepare(window.nativeWindow(), scroll.nativeControl(), header.nativeControl()));
 	assert(fabs(scroll.scrollOffset()) < 0.01);
 	scroll.scrollTo(125.5);

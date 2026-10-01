@@ -59,6 +59,9 @@ int main() {
 	var background = MacOSPanel(RGBA(30, 30, 30), 0.0);
 	background.setFrame(0.0, 0.0, 240.0, 200.0);
 	window.contentView().addSubview(background.nativeView());
+	// The ink probes read light text on a dark fill, so pin the subtree's
+	// appearance instead of inheriting the host's (light on a fresh runner).
+	background.setDarkAppearance(true);
 	string text = "MMMM MMMM MMMM MMMM MMMM MMMM MMMM MMMM";
 	var label = MacOSLabel(text);
 	ILabel portable = label;

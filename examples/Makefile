@@ -7,13 +7,13 @@
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: all cpu gpu callback realtime-primitives todo tray game triangle sgd sgd-render gui native-ui native-package clean
+.PHONY: all cpu gpu callback realtime-primitives todo tray game triangle sgd sgd-render gui native-package clean
 
 GPU_LIB := ../build/stdlib/GPU/libbtrc_gpu.a
 
 all: cpu gpu
 
-cpu: callback realtime-primitives todo gui native-ui
+cpu: callback realtime-primitives todo gui
 
 gpu: game triangle sgd sgd-render
 
@@ -66,13 +66,8 @@ clean:
 	@$(MAKE) -C sgd clean 2>/dev/null || true
 	@$(MAKE) -C gui clean 2>/dev/null || true
 	@$(MAKE) -C sgd-render clean 2>/dev/null || true
-	@$(MAKE) -C native-ui clean 2>/dev/null || true
 	@$(MAKE) -C tray clean 2>/dev/null || true
 	@$(MAKE) -C native-package clean 2>/dev/null || true
-
-native-ui: ## Render the headless native UI example to frames
-	@echo "=== native-ui ==="
-	@$(MAKE) -C native-ui run
 
 native-package: ## Build the recursive C/C++ package through its emitted plan
 	@test -n "$(TARGET)" || { echo "TARGET is required" >&2; exit 2; }

@@ -2,10 +2,10 @@ import Library.Strings;
 import Library.Vector;
 import Library.Image;
 import Library.GUI.IView;
+import Library.GUI.IApplication;
 import Library.GUI.IImageHandle;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.Capture;
-import Library.GUI.TextRun;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.LinuxView;
@@ -13,58 +13,55 @@ import Library.GUI.Linux.LinuxImageView;
 import Library.GUI.Linux.LinuxDirectoryPicker;
 import Library.GUI.Linux.LinuxSystemText;
 
-/* Private package implementation for Linux. The static slot is the
- * application owner, not a widget registry. SDL is initialized once and kept
- * for the process: a later initialize reuses it, SDL's main thread stays
- * fixed, and an abandoned folder dialog's callback may still run after
- * close, so SDL_Quit is deliberately never called. */
+/* Private package implementation for Linux: the native services behind the
+ * GUI facade. The facade validates requests and owns the application. SDL is
+ * initialized once and kept for the process: a later initialize reuses it,
+ * SDL's main thread stays fixed, and an abandoned folder dialog's callback
+ * may still run after close, so SDL_Quit is deliberately never called. */
 class GUIProvider {
-	class LinuxApplication? active = null;
 	class bool sdlReady = false;
 
 	/* SDL's main thread is the one that first initialized it: GUI.initialize. */
 	class void requireUIThread() { if (!SDL_IsMainThread()) { throw "GUI requires the main thread"; } }
 
-	class void initialize(int workCapacity) {
-		GUIProvider.requireUIThread();
-		if (GUIProvider.active != null) { throw "GUI is already initialized"; }
-		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
+	class IApplication createApplication(int workCapacity) {
 		if (!GUIProvider.sdlReady) {
 			if (!SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS)) { throw "Cannot initialize native windowing: " + Strings.copy((char*)SDL_GetError()); }
 			GUIProvider.sdlReady = true;
 		}
-		GUIProvider.active = LinuxApplication(workCapacity);
+		return LinuxApplication(workCapacity);
 	}
 
-	class LinuxApplication application() {
-		GUIProvider.requireUIThread();
-		var application = GUIProvider.active;
-		if (application == null) { throw "Initialize GUI before creating views or running work"; }
-		return application;
+	class ILinuxApplication linuxApplication(IApplication? application) {
+		var linux = (ILinuxApplication?)application;
+		if (linux == null) { throw "GUI application belongs to another provider"; }
+		return linux;
 	}
 
-	/* Worker-safe and independent of initialization: never reads `active`. */
+	/* Worker-safe and independent of initialization: needs no application. */
 	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return LinuxImageHandle.create(pixels, maximumPixels); }
 
-	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
-		var application = GUIProvider.application();
-		var window = application.firstWindow();
-		return LinuxDirectoryPicker(window == null ? null : window.nativeWindow(), application).chooseDirectory(request);
+	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) {
+		var linux = GUIProvider.linuxApplication(application);
+		var window = linux.firstWindow();
+		var pump = (ILinuxDialogPump?)linux;
+		if (pump == null) { throw "GUI application cannot run native dialogs"; }
+		return LinuxDirectoryPicker(window == null ? null : window.nativeWindow(), pump).chooseDirectory(request);
 	}
 
-	class void rasterizeText(TextRasterization request) { GUIProvider.requireUIThread(); LinuxSystemText.rasterize(GUIProvider.application().context().fonts, request); }
-
-	class Image rasterText(TextRun run) { GUIProvider.requireUIThread(); return LinuxSystemText.raster(GUIProvider.application().context().fonts, run); }
+	class void rasterizeText(IApplication? application, TextRasterization request) {
+		if (application == null) { throw "Initialize GUI before creating views or running work"; }
+		LinuxSystemText.rasterize(GUIProvider.linuxApplication(application).context().fonts, request);
+	}
 
 	/* The window composites every GPU child itself, so the readback is the
 	 * composed capture. Layers must name GPU views inside the root; their
 	 * pixels are not needed. The device request is asynchronous, and capture
 	 * fails at once rather than waiting for it on the UI thread. */
-	class Image capture(IView root, Vector<GUICaptureLayer> layers) {
-		var application = GUIProvider.application();
+	class Image capture(IApplication application, IView root, Vector<GUICaptureLayer> layers) {
 		var native = (ILinuxView?)root;
 		if (native == null) { throw "Capture root belongs to another GUI provider"; }
-		var window = application.windowOwning(native);
+		var window = GUIProvider.linuxApplication(application).windowOwning(native);
 		if (window == null) { throw "Capture root is not attached to a window"; }
 		if (layers == null) { throw "Capture layers are missing"; }
 		for layer in layers {
@@ -77,20 +74,5 @@ class GUIProvider {
 		var image = window.render(true);
 		if (image == null) { throw "Capture window produced no frame"; }
 		return image;
-	}
-
-	class void run() {
-		var application = GUIProvider.application();
-		if (application.isRunning()) { throw "GUI is already running"; }
-		try { application.run(); } finally { GUIProvider.close(); }
-	}
-
-	class CallbackCancellation close() {
-		GUIProvider.requireUIThread();
-		var application = GUIProvider.active;
-		if (application == null) { return CallbackCancellation.Complete; }
-		var result = application.close();
-		if (result == CallbackCancellation.Complete) { GUIProvider.active = null; }
-		return result;
 	}
 }

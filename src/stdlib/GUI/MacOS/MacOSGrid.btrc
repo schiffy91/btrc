@@ -111,8 +111,6 @@ class MacOSGridLayout implements IMacOSContainerLayout {
 
 	public void layout() { self.nativeView().layoutSubtreeIfNeeded(); }
 
-	public double fittingHeight() { return self.nativeView().fittingSize().height; }
-
 	public void close() {
 		if (!NSThread.isMainThread()) { throw "Native grids require the main thread"; }
 		self._grid = null;
