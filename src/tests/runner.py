@@ -34,11 +34,13 @@ from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.tests.corpus_files import language_test_files
 from src.tests.runner_capabilities import (
+    TARGET_CAPABILITIES,
     darwin_gpu_flags,
     darwin_tray_backend_error,
     declared_capabilities,
     linux_tray_backend_error,
     loopback_listener_error,
+    target_capability_error,
 )
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
@@ -129,6 +131,9 @@ def _require_test_capabilities(btrc_path):
             pytest.skip(error)
     if "native-tray" in required and platform.system() == "Linux":
         if error := linux_tray_backend_error():
+            pytest.skip(error)
+    for capability in sorted(required & TARGET_CAPABILITIES):
+        if error := target_capability_error(capability):
             pytest.skip(error)
 
 

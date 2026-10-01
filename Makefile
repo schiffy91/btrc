@@ -1,6 +1,7 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
+        skip-gate qualification-report \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
@@ -31,6 +32,15 @@ PYTEST_WORKERS ?= 8
 PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
 PYTEST_SERIAL_ARGS ?= -q -rs
 BTRC_FORMAT_PATHS := src examples
+# Python outside src/ that lint and format-check also own.
+PYTHON_TOOL_PATHS := tools/qualification
+# Every gate's pytest session writes a skip report (src/tests/skip_ledger.py)
+# naming each skip, its gating environment and the runners that cover it, and
+# the skip gate fails on any skip the runner's manifest under
+# src/tests/fixtures/expected-skips/ does not expect. CI uploads
+# build/skip-report*.json.
+SKIP_GATE := python3 -m tools.qualification skip-gate
+SKIP_REPORTS ?= build/skip-report.json
 # What `make linux-ci` runs inside the container. Override to reproduce a
 # single CI step, e.g. LINUX_CI_TARGETS="lint format-check".
 LINUX_CI_TARGETS ?= gpu-required test
@@ -219,8 +229,10 @@ ast-generate-btrc: compiler-codegen-generate ## Regenerate both AST catalogs thr
 
 test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
 	$(NIX) $(PYTEST) src/tests/ \
-		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
-	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py $(PYTEST_SERIAL_ARGS)
+		--ignore=src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report.json $(PYTEST_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report.json
+	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report-bootstrap.json $(PYTEST_SERIAL_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report-bootstrap.json
 
 test-unit: generated-check ## Run Python reference-compiler unit tests (lexer, parser, analyzer, codegen)
 	$(NIX) $(PYTEST) src/tests/python/ $(PYTEST_ARGS)
@@ -235,7 +247,7 @@ test-selfhost: generated-check ## Verify the self-hosted lexer is byte-identical
 	$(NIX) python3 -m tools.compiler_codegen.main verify-lexer
 
 test-boundaries: generated-check ## Check frozen compiler boundaries with portable host gating
-	$(NIX) python3 -m tools.compiler_codegen.main boundary-check
+	$(NIX) python3 -m tools.compiler_codegen.main boundary-check --report build/boundary-report.json
 
 test-boundaries-observed: generated-check ## Require the recorded local GCC/Clang behavior envelope
 	$(NIX) python3 -m tools.compiler_codegen.main boundary-check --require-observed
@@ -248,7 +260,8 @@ test-btrc-selfhost: generated-check ## Language corpus through the self-hosted c
 		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
 
 bootstrap: generated-check ## Prove the self-hosted compiler reproduces itself bit-for-bit (fixed point)
-	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py -v $(PYTEST_SERIAL_ARGS)
+	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py -v --skip-report=build/skip-report-bootstrap.json $(PYTEST_SERIAL_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report-bootstrap.json
 
 test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with gcc + clang at -O0 through -O3
 	@$(NIX) bash -c '\
@@ -257,7 +270,9 @@ test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with 
 				echo "=== $$cc -std=c11 -$$opt ===" && \
 				BTRC_TEST_BTRCC="$(abspath bin/btrcc)" BTRC_CC=$$cc \
 					BTRC_CFLAGS="-std=c11 -pedantic-errors -Wall -Wextra -Werror -$$opt" \
-					$(PYTEST) src/tests/runner.py --compilers=python,btrc $(PYTEST_ARGS) || exit 1; \
+					$(PYTEST) src/tests/runner.py --compilers=python,btrc \
+					--skip-report=build/skip-report-c11-$$cc-$$opt.json $(PYTEST_ARGS) || exit 1; \
+				$(SKIP_GATE) build/skip-report-c11-$$cc-$$opt.json || exit 1; \
 			done; \
 		done && \
 		echo "All C11 compliance tests passed (gcc + clang, -O0 through -O3)."'
@@ -275,17 +290,22 @@ SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"
 
 test-shard-unit: generated-check gpu-required ## CI shard: everything but the self-host and corpus suites
 	$(NIX) $(PYTEST) src/tests/ \
-		--ignore=src/tests/btrc --ignore=src/tests/runner.py $(PYTEST_ARGS)
+		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(PYTEST_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report-unit.json
 
 test-shard-btrc: generated-check gpu-required btrcc ## CI shard: self-host contract tests
 	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/btrc/ \
-		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
+		--ignore=src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report-btrc.json $(PYTEST_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report-btrc.json
 
 test-shard-corpus-python: generated-check gpu-required ## CI shard: language corpus through the reference compiler
-	$(NIX) $(PYTEST) src/tests/runner.py --compilers=python $(PYTEST_ARGS)
+	$(NIX) $(PYTEST) src/tests/runner.py --compilers=python --skip-report=build/skip-report-corpus-python.json $(PYTEST_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report-corpus-python.json
 
 test-shard-corpus-btrc: generated-check gpu-required btrcc ## CI shard: language corpus through the self-hosted compiler
-	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/runner.py --compilers=btrc $(PYTEST_ARGS)
+	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/runner.py --compilers=btrc \
+		--skip-report=build/skip-report-corpus-btrc.json $(PYTEST_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report-corpus-btrc.json
 
 test-shard-bootstrap: generated-check test-boundaries gpu-required bootstrap ## CI shard: frozen boundaries + self-host fixed point
 
@@ -296,7 +316,18 @@ test-c11-one: generated-check gpu-required btrcc ## One strict-C11 configuration
 		echo "=== $(C11_CC) -std=c11 -$(C11_OPT) ===" && \
 		$(SHARD_BTRCC) BTRC_CC=$(C11_CC) \
 			BTRC_CFLAGS="-std=c11 -pedantic-errors -Wall -Wextra -Werror -$(C11_OPT)" \
-			$(PYTEST) src/tests/runner.py --compilers=python,btrc $(PYTEST_ARGS)'
+			$(PYTEST) src/tests/runner.py --compilers=python,btrc \
+			--skip-report=build/skip-report-c11-$(C11_CC)-$(C11_OPT).json $(PYTEST_ARGS)'
+	$(NIX) $(SKIP_GATE) build/skip-report-c11-$(C11_CC)-$(C11_OPT).json
+
+skip-gate: ## Fail on a skip the runner's expected-skip manifest does not explain (SKIP_REPORTS=...)
+	$(NIX) $(SKIP_GATE) --list $(SKIP_REPORTS)
+
+qualification-report: ## Render the support/coverage report from this tree's gate outputs -> build/qualification-report.md
+	$(NIX) python3 -m tools.qualification report --this-host \
+		$(addprefix --skip-report ,$(wildcard build/skip-report*.json)) \
+		$(addprefix --boundary-report ,$(wildcard build/boundary-report.json)) \
+		--output build/qualification-report.md
 
 test-generate-goldens: generated-check ## Regenerate golden .stdout files
 	$(NIX) python3 src/tests/generate_expected.py
@@ -310,13 +341,13 @@ compiler-codegen-check: ## Check shared-spec generated compiler sources
 generated-check: compiler-codegen-check ## Check every committed generated source without modifying it
 
 lint: generated-check ## Run generated-policy checks and ruff linter
-	$(NIX) ruff check src/
+	$(NIX) ruff check src/ $(PYTHON_TOOL_PATHS)
 
 format: format-btrc ## Format Python and BTRC sources
-	$(NIX) ruff format src/
+	$(NIX) ruff format src/ $(PYTHON_TOOL_PATHS)
 
 format-check: format-btrc-check ## Check Python and BTRC formatting (CI)
-	$(NIX) ruff format --check src/
+	$(NIX) ruff format --check src/ $(PYTHON_TOOL_PATHS)
 
 format-btrc: ## Format canonical BTRC source while preserving intentional fixtures
 	$(NIX) btrc-format write $(BTRC_FORMAT_EXCLUDES) $(BTRC_FORMAT_PATHS)

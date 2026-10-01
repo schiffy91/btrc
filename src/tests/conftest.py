@@ -4,6 +4,11 @@ The language corpus under src/tests/<category>/ is run through BOTH compilers
 by runner.py; the `--compilers` option selects which (default both). The
 compiler-specific suites live under src/tests/python/ (Python reference compiler
 white-box unit tests) and src/tests/btrc/ (self-hosted compiler tests).
+
+Every session writes a skip report (src/tests/skip_ledger.py): each test's
+outcome, each skip's reason and gating environment, and each capability gate,
+classified against the runner's expected-skip manifest under
+src/tests/fixtures/expected-skips/. `--skip-report` names the file.
 """
 
 import contextlib
@@ -19,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.runner import default_c_compiler
+from src.tests.skip_ledger import SkipLedger
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -49,6 +55,12 @@ def pytest_addoption(parser):
         default="python,btrc",
         help="'both', or a comma-separated list containing 'python' (reference) and/or 'btrc' (self-hosted)",
     )
+    SkipLedger.add_options(parser)
+
+
+def pytest_configure(config):
+    """Record every skip and capability gate in this session's skip report."""
+    SkipLedger.install(config)
 
 
 def _parse_compilers(raw: str) -> list[str]:
