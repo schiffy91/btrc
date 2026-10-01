@@ -607,7 +607,12 @@ most of the native compile. The native plan builder (`tools/native_plan.py`,
 units it is about to compile share, and compiles a unit with the longest one
 that is a prefix of its own leading lines; fewer units, as in an edit build,
 compile as before. The unit's own includes then meet the guards the prelude
-already defined, so its translation is unchanged. A native header need not
+already defined, and its own feature macros the prelude's closing
+restatement of them: a C library may rewrite a feature macro it reads --
+glibc's `features.h` makes `_DEFAULT_SOURCE` 1 -- and the unit's definition
+would otherwise be a redefinition, which `-Werror` rejects. Its translation is
+unchanged but for such a macro keeping the unit's spelling past the prologue,
+which only the library read, behind its own guard. A native header need not
 carry a guard of its own: a module unit emits each native include inside an
 include-once block named for the header (`BTRC_INCLUDE_<hash>`), and a
 prologue takes only whole blocks with absolute paths, since a precompiled

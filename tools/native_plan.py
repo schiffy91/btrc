@@ -614,7 +614,12 @@ class _PreludeAccelerator:
     once per unit. Each prologue enough compiles share is precompiled once,
     and a unit compiles with the longest one that is a prefix of its own
     leading lines; its own includes then meet the guards the header already
-    defined, so the translation is unchanged. It only accelerates: cache keys
+    defined, and its own feature macros the header's closing restatement of
+    them. A C library may rewrite a feature macro it reads -- glibc's
+    features.h makes `_DEFAULT_SOURCE` 1 -- and the unit's definition would
+    otherwise be a redefinition. The translation is unchanged but for such a
+    macro keeping the unit's spelling past the prologue, which only the
+    library read, behind its own guard. It only accelerates: cache keys
     and dependency receipts come from the unaltered command, and a compile
     that fails with a header runs again without it.
     """
@@ -730,7 +735,15 @@ class _PreludeAccelerator:
     def _build(self, command: list[str], index: int, prologue: tuple[str, ...]) -> Path | None:
         source = self._directory / f"prelude-{index}.h"
         header = self._directory / f"prelude-{index}.pch"
-        source.write_text("\n".join(prologue) + "\n", encoding="utf-8")
+        # The unit defines its feature macros again after the header, which
+        # therefore ends with each as the prologue spells it.
+        restored = [
+            text
+            for line in prologue
+            if line.startswith("#define _")
+            for text in (line.replace("define", "undef", 1), line)
+        ]
+        source.write_text("\n".join((*prologue, *restored)) + "\n", encoding="utf-8")
         # The unit's own flags, so the header is compatible with every compile;
         # only the input language, source and output change.
         arguments = command[1:]
