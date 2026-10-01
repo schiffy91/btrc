@@ -309,3 +309,51 @@ def test_macro_constant_diagnostics_match_across_compilers(reader, tmp_path, req
         # an exception prefix for header-reader failures); the message must match.
         reports.append(re.sub(r" at \d+:\d+$", "", lines[0][lines[0].index(diagnostic) :]))
     assert reports[0] == reports[1]
+
+
+WEBGPU_PROGRAM = """import Library.GPU.SurfaceRenderer;
+
+void frame(GPUSurfaceRenderer renderer) {
+\trenderer.beginFrame(0.0, 0.0, 0.0);
+}
+
+int main(int argc, char** argv) {
+\tGPUSurfaceRenderer? renderer = null;
+\tif (argc > 100 && renderer != null) { frame(renderer); }
+\tprintf("%u\\n", WGPU_DEPTH_SLICE_UNDEFINED);
+\treturn 0;
+}
+"""
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the WebGPU proof builds against the Linux SDK")
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_webgpu_binding_names_the_sdk_depth_slice_macro(reader, tmp_path, request, frontend) -> None:
+    """The stdlib GPU binding selects WGPU_DEPTH_SLICE_UNDEFINED with no wrapper re-spelling."""
+    del reader  # The compilers locate it through BTRC_NATIVE_HEADER_READER.
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "wgpu-native"], timeout=TOOL_TIMEOUT).returncode
+    ):
+        pytest.skip("requires the optional wgpu-native SDK through pkg-config")
+    assert "WGPU_DEPTH_SLICE_UNDEFINED" not in (REPO / "src/stdlib/GPU/WebGPUImports.h").read_text(encoding="utf-8")
+    source = tmp_path / "Main.btrc"
+    source.write_text(WEBGPU_PROGRAM, encoding="utf-8")
+    generated = tmp_path / "main.c"
+    plan = tmp_path / "plan.json"
+    flags = ["--no-cache", "--target", "linux-x64", "--emit-link-plan", str(plan), str(source)]
+    command = (
+        [sys.executable, "-m", "src.compiler.python.main", *flags, "-o", str(generated)]
+        if frontend == "python"
+        else [request.getfixturevalue("btrcc_bin"), *flags]
+    )
+    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=TRANSPILE_TIMEOUT)
+    assert compiled.returncode == 0, compiled.stderr
+    if frontend == "selfhost":
+        generated.write_text(compiled.stdout, encoding="utf-8")
+    assert re.search(r"color\.depthSlice\b.*= WGPU_DEPTH_SLICE_UNDEFINED\)", generated.read_text(encoding="utf-8"))
+    executable = tmp_path / "program"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert ran.returncode == 0, ran.stderr
+    assert ran.stdout == "4294967295\n"
