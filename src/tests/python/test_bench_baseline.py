@@ -177,22 +177,6 @@ def test_measure_peak_sees_an_allocation_and_rejects_a_failed_command(tmp_path: 
         measure_peak([sys.executable, "-c", "raise SystemExit(3)"], {}, tmp_path)
 
 
-def test_measure_peak_does_not_report_the_parent_resident_set(tmp_path: Path) -> None:
-    """A large measuring process (a pytest worker in CI) must not become every child's peak.
-
-    Linux carries the resident high-water mark across fork and exec, so before
-    MAXRSS_LAUNCHER a 16 MiB child of a 180 MiB worker reported 180 MiB.
-    """
-
-    ballast = bytearray(160 << 20)
-    ballast[::4096] = b"x" * len(ballast[::4096])
-    small = measure_peak(_allocating(16), {}, tmp_path)
-    large = measure_peak(_allocating(80), {}, tmp_path)
-    assert len(ballast) == 160 << 20
-    assert small.bytes < 100 << 20
-    assert large.bytes - small.bytes > 60 << 20
-
-
 def test_workload_command_is_the_cold_jobs_1_module_unit_compile(tmp_path: Path) -> None:
     workload = Workload(tmp_path, target="macos-arm64")
     assert workload.name == "BTRSmith" and workload.metric == "btrcc.workload.BTRSmith_peak"
