@@ -13,7 +13,7 @@ import Library.GUI.Linux.LinuxPainter;
 class LinuxStack extends LinuxContainerView implements IStack {
 	private bool _vertical;
 	private double _spacing;
-	private StackAlignment _alignment = StackAlignment.Start;
+	private StackAlignment _alignment = STACK_ALIGN_START;
 	private double _top = 0.0;
 	private double _right = 0.0;
 	private double _bottom = 0.0;
@@ -70,15 +70,15 @@ class LinuxStack extends LinuxContainerView implements IStack {
 			if (self._vertical) {
 				if (width <= 0.0 || width > innerWidth) { width = innerWidth; }
 				double x = self._left;
-				if (self._alignment == StackAlignment.Center) { x = self._left + (innerWidth - width) * 0.5; }
-				else if (self._alignment == StackAlignment.End) { x = self._left + innerWidth - width; }
+				if (self._alignment == STACK_ALIGN_CENTER) { x = self._left + (innerWidth - width) * 0.5; }
+				else if (self._alignment == STACK_ALIGN_END) { x = self._left + innerWidth - width; }
 				childNode.arrange(x, cursor, width, height);
 				cursor += height + self._spacing;
 			} else {
 				if (height <= 0.0 || height > innerHeight) { height = innerHeight; }
 				double y = self._top;
-				if (self._alignment == StackAlignment.Center) { y = self._top + (innerHeight - height) * 0.5; }
-				else if (self._alignment == StackAlignment.End) { y = self._top + innerHeight - height; }
+				if (self._alignment == STACK_ALIGN_CENTER) { y = self._top + (innerHeight - height) * 0.5; }
+				else if (self._alignment == STACK_ALIGN_END) { y = self._top + innerHeight - height; }
 				childNode.arrange(cursor, y, width, height);
 				cursor += width + self._spacing;
 			}
@@ -99,7 +99,7 @@ class LinuxStack extends LinuxContainerView implements IStack {
 
 	public void setAlignment(StackAlignment alignment) {
 		self.node().requireOpen();
-		if (alignment != StackAlignment.Start && alignment != StackAlignment.Center && alignment != StackAlignment.End) { throw "Unknown stack alignment"; }
+		if (alignment != STACK_ALIGN_START && alignment != STACK_ALIGN_CENTER && alignment != STACK_ALIGN_END) { throw "Unknown stack alignment"; }
 		self._alignment = alignment;
 		self.relayout();
 		self.node().invalidate();

@@ -50,7 +50,7 @@ uses native intrinsic sizes, not manually assigned control frames.
 `GUI.createRow(spacing)` and `GUI.createColumn(spacing)` return `IStack`.
 Attach ordinary controls or nested stacks; AppKit performs recursive layout.
 Spacing defaults to eight logical points; `setPadding(top, right, bottom, left)`
-sets nonnegative insets. `StackAlignment.Start/Center/End` controls cross-axis
+sets nonnegative insets. `STACK_ALIGN_START`/`_CENTER`/`_END` control cross-axis
 alignment. Native control sizes and reading order are retained. Hidden children
 keep their space and parent; detach removes them from layout and restores their
 previous Auto Layout policy. `layout()` flushes pending native layout without

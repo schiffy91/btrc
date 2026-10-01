@@ -41,11 +41,11 @@ int main() {
 	StackProbe.undoEditing();
 	var capture = File("NativeStacks.tiff", "wb");
 	assert(capture.ok() && capture.writeBytes(MacOSViewCapture.captureTiff(StackProbe.contentView())) && capture.close());
-	row.setAlignment(StackAlignment.Center);
-	assert(row.alignment() == StackAlignment.Center);
-	row.setAlignment(StackAlignment.End);
-	assert(row.alignment() == StackAlignment.End);
-	row.setAlignment(StackAlignment.Start);
+	row.setAlignment(STACK_ALIGN_CENTER);
+	assert(row.alignment() == STACK_ALIGN_CENTER);
+	row.setAlignment(STACK_ALIGN_END);
+	assert(row.alignment() == STACK_ALIGN_END);
+	row.setAlignment(STACK_ALIGN_START);
 	cancel.setVisible(false);
 	column.layout();
 	StackProbe.verifyHiddenButton();
