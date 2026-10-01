@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
     assert(rendered.width() > 0 && rendered.rows() > 0);
     var measured = provider.glyph(0xe9, false);
     if (measured == null) { throw "Cannot measure accented glyph"; }
-    assert(measured.advanceX26_6() == rendered.advanceX26_6());
+    assert(measured.advanceFixed() == rendered.advanceFixed());
     print("PASS: actual FreeType unique setup");
     return 0;
 }

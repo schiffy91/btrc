@@ -36,7 +36,7 @@ class FontGlyph {
 	private int grayCount;
 	private Bytes pixels;
 
-	public FontGlyph(long long advanceX26_6, int bitmapLeft, int bitmapTop, int width, int rows, int pitch, FontPixelMode pixelMode, int numGrays, Bytes bitmap) {
+	public FontGlyph(long long advanceFixed, int bitmapLeft, int bitmapTop, int width, int rows, int pitch, FontPixelMode pixelMode, int numGrays, Bytes bitmap) {
 		if (width < 0 || rows < 0 || numGrays < 0 || numGrays > 65535) { throw "Invalid font glyph dimensions or gray count"; }
 		if (pixelMode != FONT_PIXEL_UNSUPPORTED && pixelMode != FONT_PIXEL_MONO && pixelMode != FONT_PIXEL_GRAY) { throw "Invalid font glyph pixel mode"; }
 		long long stride = pitch < 0 ? -(long long)pitch : (long long)pitch;
@@ -44,7 +44,7 @@ class FontGlyph {
 		long long rowBytes = pixelMode == FONT_PIXEL_MONO ? ((long long)width + 7LL) / 8LL : (long long)width;
 		bool readable = width > 0 && rows > 0 && pixelMode != FONT_PIXEL_UNSUPPORTED;
 		if (readable && (stride < rowBytes || span > (long long)bitmap.length())) { throw "Font glyph bitmap does not cover its signed-pitch rows"; }
-		self.advanceValue = advanceX26_6;
+		self.advanceValue = advanceFixed;
 		self.leftValue = bitmapLeft;
 		self.topValue = bitmapTop;
 		self.widthValue = width;
@@ -55,7 +55,8 @@ class FontGlyph {
 		self.pixels = readable ? bitmap.slice(0, (int)span) : new Bytes();
 	}
 
-	public long long advanceX26_6() { return self.advanceValue; }
+	/* Horizontal advance in 26.6 fixed point (1/64 pixel). */
+	public long long advanceFixed() { return self.advanceValue; }
 
 	public int bitmapLeft() { return self.leftValue; }
 

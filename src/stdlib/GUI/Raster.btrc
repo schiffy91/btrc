@@ -219,7 +219,7 @@ class GUIRaster {
 			if (codepoint == 10) { if (current > maximum) { maximum = current; } current = 0; continue; }
 			var glyph = font.glyph(codepoint, false);
 			if (glyph == null) { continue; }
-			int advance = GUIRaster.fontPixels(glyph.advanceX26_6());
+			int advance = GUIRaster.fontPixels(glyph.advanceFixed());
 			if (advance > 0) { current = GUIInt.clamp((long long)current + (long long)advance); }
 		}
 		return current > maximum ? current : maximum;
@@ -250,7 +250,7 @@ class GUIRaster {
 					}
 				}
 			}
-			penX = GUIRaster.signedAdvance(penX, (long long)GUIRaster.fontPixels(glyph.advanceX26_6()));
+			penX = GUIRaster.signedAdvance(penX, (long long)GUIRaster.fontPixels(glyph.advanceFixed()));
 		}
 	}
 }

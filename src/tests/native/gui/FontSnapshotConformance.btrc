@@ -51,7 +51,7 @@ int main() {
 	pixels.append(3); pixels.append(0); pixels.append(99);
 	var gray = new FontGlyph(129LL, -2, 3, 2, 2, -3, FONT_PIXEL_GRAY, 4, pixels);
 	pixels.set(3, 0);
-	assert(gray.advanceX26_6() == 129LL && gray.bitmapLeft() == -2 && gray.bitmapTop() == 3);
+	assert(gray.advanceFixed() == 129LL && gray.bitmapLeft() == -2 && gray.bitmapTop() == 3);
 	assert(gray.pitch() == -3 && gray.width() == 2 && gray.rows() == 2);
 	assert(gray.coverage(0, 0) == 255 && gray.coverage(0, 1) == 0);
 	assert(gray.coverage(1, 0) == 85 && gray.coverage(1, 1) == 170);
