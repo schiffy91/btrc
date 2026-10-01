@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import signal
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -19,8 +21,13 @@ from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.modules import ModuleUnitCompiler, ModuleUnitRecord
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
+from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceDependencyGraph
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
+from src.tests.python.test_native_cxx_owners import pugixml_project as pugixml_project
+from src.tests.python.test_native_import_consumer import apple_environment
+from src.tests.python.test_native_import_consumer import native_project as native_project
+from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "src" / "tests" / "native" / "modules"
@@ -49,6 +56,27 @@ def test_groups_merge_import_cycles_and_reciprocal_includes(tmp_path):
     assert groups.group_of(files["b"]) == groups.group_of(files["a"])
     assert groups.group_of(None) == CompilationGroups.PROGRAM
     assert groups.group_of("<stdlib>") == CompilationGroups.PROGRAM
+
+
+def test_native_declarations_belong_to_the_program_unit(tmp_path):
+    """What the native importer declares has no line in its binding's module.
+
+    Native-header declarations and the classes the importer writes compare
+    and hash equal to their binding module's path, but the program unit owns
+    them: it alone carries the Objective-C and C++ adapter units into the link
+    plan. The module's own declarations stay with its group, before and after.
+    """
+    module = tmp_path / "Bindings.btrc"
+    module.write_text("")
+    canonical = SourceDependencyGraph.canonical_file(str(module))
+    groups = CompilationGroups(((canonical,),))
+    # Resolve the plain path first, so a native stamp would hit its memo entry.
+    assert groups.group_of(str(module)) == canonical
+    header = NativeHeaderSource(str(module), "Bindings.h", language="objective-c")
+    for stamp in (header, NativeGeneratedSource(header), NativeGeneratedSource(str(module))):
+        assert stamp == str(module) and hash(stamp) == hash(str(module))
+        assert groups.group_of(stamp) == CompilationGroups.PROGRAM
+    assert groups.group_of(str(module)) == canonical
 
 
 def test_record_round_trips_and_rejects_malformed_payloads():
@@ -497,6 +525,181 @@ def test_realtime_proofs_cross_units_into_native_adapters(compiler: str, tmp_pat
     ran = subprocess.run([str(executable)], env=host, capture_output=True, text=True, timeout=30)
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "PASS: BTRC CoreAudio unit preserves samples, clocks and retryable ownership\n"
+
+
+@dataclass(frozen=True)
+class _NativeAdapters:
+    """The generated unit a native project links, and adapters only it defines."""
+
+    unit: str
+    linker: str
+    symbols: tuple[str, ...]
+
+
+@pytest.fixture
+def objective_c_units_project(native_project):
+    """A class, a category of it and an AppKit constant from three binding modules.
+
+    Each binding module is its own compilation group, so each would lower its
+    own Objective-C adapters if a group owned them.
+    """
+    source, _sdk, _triple = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").unlink()
+    (source.parent / "Foundation.btrc").unlink()
+    (root / "Base.h").write_text(
+        "#pragma once\n#import <Foundation/Foundation.h>\n@interface NativeWidget : NSObject\n- (long)baseValue;\n@end\n",
+        encoding="utf-8",
+    )
+    (root / "Extra.h").write_text(
+        '#pragma once\n#import "Base.h"\n@interface NativeWidget (Extra)\n- (long)offsetValue:(long)value;\n@end\n',
+        encoding="utf-8",
+    )
+    (root / "Modal.h").write_text("#pragma once\n#import <AppKit/AppKit.h>\n", encoding="utf-8")
+    (root / "Native.m").write_text(
+        '#import "Extra.h"\n@implementation NativeWidget\n- (long)baseValue { return 11; }\n@end\n'
+        "@implementation NativeWidget (Extra)\n- (long)offsetValue:(long)value { return self.baseValue + value; }\n@end\n",
+        encoding="utf-8",
+    )
+    manifest = 'manifest-version = 1\n[package]\nname = "nativeModuleUnits"\n'
+    for module, header, symbols in (
+        ("Alpha", "Base.h", ["+[NativeWidget new]", "-[NativeWidget baseValue]"]),
+        ("Beta", "Extra.h", ["-[NativeWidget baseValue]", "-[NativeWidget offsetValue:]"]),
+        ("Gamma", "Modal.h", ["NSModalResponseOK"]),
+    ):
+        manifest += (
+            f'[[native.bindings]]\nmodule = "{module}"\nheader = "{header}"\nlanguage = "objective-c"\n'
+            f'standard = "c11"\nos = ["macos"]\nsymbols = {json.dumps(symbols)}\n'
+        )
+        (source.parent / f"{module}.btrc").write_text("// Selected native declarations.\n", encoding="utf-8")
+    manifest += (
+        '[[native.sources]]\npath = "Native.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        '[[native.frameworks]]\nname = "Foundation"\n[[native.frameworks]]\nname = "AppKit"\n'
+    )
+    (root / "btrc.toml").write_text(manifest, encoding="utf-8")
+    source.write_text(
+        "import ./Alpha.btrc;\nimport ./Beta.btrc;\nimport ./Gamma.btrc;\nint main() {\n"
+        "\tvar widget = NativeWidget.new(); if (widget == null) { return 1; }\n"
+        "\tif (widget.baseValue() != 11L || widget.offsetValue(7L) != 18L) { return 2; }\n"
+        "\tif (NSModalResponseOK != 1L) { return 3; }\n"
+        "\trelease widget; return 0;\n}\n",
+        encoding="utf-8",
+    )
+    return source, _NativeAdapters(
+        "ObjectiveCAdapters",
+        "c",
+        (
+            "__btrc_objc_NativeWidget_retain",
+            "__btrc_objc_NativeWidget_offsetValue",
+            "__btrc_objc_address_NSModalResponseOK",
+        ),
+    )
+
+
+@pytest.fixture
+def cxx_units_project(pugixml_project):
+    """pugixml's C++ owners, whose initializer outcome class the importer writes."""
+    source, _sdk, _triple = pugixml_project
+    return source, _NativeAdapters(
+        "CxxAdapters", "c++", ("__btrc_cxx_PugiDocument_load_buffer", "__btrc_cxx_PugiNode_name")
+    )
+
+
+def _native_unit_plan(command: list[str], source: Path, output: Path, *, module_units: bool) -> dict:
+    """Compile `source` through a compiler CLI; return its link plan with unit paths made relative."""
+    output.mkdir(parents=True)
+    completed = subprocess.run(
+        [
+            *command,
+            "--no-cache",
+            "--no-stdlib",
+            "--strict-imports",
+            "--target",
+            "macos-arm64" if platform.machine() == "arm64" else "macos-x86_64",
+            str(source),
+            "-o",
+            str(output / "program.c"),
+            "--emit-units",
+            str(output / "program"),
+            "--emit-link-plan",
+            str(output / "program.link.json"),
+            *(["--module-units", "--jobs", "2"] if module_units else []),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert completed.returncode == 0, completed.stderr
+    plan = json.loads((output / "program.link.json").read_text(encoding="utf-8"))
+    plan["emitted-units"] = [Path(path).name for path in plan.get("emitted-units", [])]
+    return plan
+
+
+def _native_command(compiler: str, request) -> list[str]:
+    if compiler == "python":
+        return [sys.executable, "-m", "src.compiler.python.main"]
+    return [str(request.getfixturevalue("immutable_btrcc"))]
+
+
+@pytest.mark.parametrize("project", ["objective_c_units_project", "cxx_units_project"])
+def test_module_unit_link_plans_carry_native_adapters(compiler: str, project: str, tmp_path, request):
+    """A module-unit build links the same adapter units as a whole-program build.
+
+    The adapters belong to the program unit wherever their binding module
+    is, so the plan names the generated Objective-C or C++ unit and its
+    linker, every C unit only calls the adapters, and the program links.
+    """
+    source, expected = request.getfixturevalue(project)
+    source = source.resolve()
+    command = _native_command(compiler, request)
+    whole = _native_unit_plan(command, source, tmp_path / "whole", module_units=False)
+    plan = _native_unit_plan(command, source, tmp_path / "module", module_units=True)
+    assert [unit["name"] for unit in plan.get("generated-units", [])] == [expected.unit]
+    assert plan["linker-language"] == whole["linker-language"] == expected.linker
+    assert plan["generated-units"] == whole["generated-units"]
+    adapters = plan["generated-units"][0]["source"]
+    units = [tmp_path / "module" / "program.c", *(tmp_path / "module" / name for name in plan["emitted-units"])]
+    for symbol in expected.symbols:
+        # A definition opens at column zero with its linkage and return type; a
+        # call never does.
+        definition = re.compile(rf'^(?:extern "C" )?[A-Za-z_][\w \t*]*\b{symbol}\([^;\n]*\)\s*\{{', re.M)
+        assert definition.search(adapters), symbol
+        assert not any(definition.search(unit.read_text(encoding="utf-8")) for unit in units), symbol
+    environment = apple_environment()
+
+    def run(command, **kwargs):
+        flags = ["-O1"] if command[0].endswith(("clang", "clang++")) else []
+        return subprocess.run(
+            [command[0], *flags, *command[1:]], env=apple_environment(kwargs.pop("env", environment)), **kwargs
+        )
+
+    executable = tmp_path / "module" / "program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=tmp_path / "module" / "program.link.json",
+        generated_c=tmp_path / "module" / "program.c",
+        output=executable,
+        cc="/usr/bin/clang",
+        cxx="/usr/bin/clang++",
+        jobs=2,
+    )
+    ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0, (ran.stdout, ran.stderr)
+    assert not ran.stderr
+
+
+@pytest.mark.parametrize("project", ["objective_c_units_project", "cxx_units_project"])
+def test_module_unit_link_plans_match_across_compilers(project: str, tmp_path, request):
+    """Both compilers give native declarations to the program unit, so their
+    module-unit link plans name the same units, adapters and linker."""
+    source, _expected = request.getfixturevalue(project)
+    source = source.resolve()
+    plans = {
+        compiler: _native_unit_plan(_native_command(compiler, request), source, tmp_path / compiler, module_units=True)
+        for compiler in ("python", "btrc")
+    }
+    assert plans["python"] == plans["btrc"]
 
 
 def _cli_units(command: list[str], workspace: _Workspace, entry: str, output: Path, jobs: int) -> dict[str, str]:
@@ -982,8 +1185,6 @@ def test_native_plan_rebuilds_only_the_edited_unit(compiler: str, tmp_path, requ
     private body edit recompiles only the edited group's unit and relinks,
     and the program runs with the edit.
     """
-    from tools.native_plan import NativePlanBuilder
-
     clang = shutil.which("clang")
     if clang is None:
         pytest.skip("the native plan builder needs clang")

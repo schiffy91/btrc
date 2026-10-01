@@ -24,7 +24,7 @@ from ..parser.parser import Parser
 from ..syntax.ast.codec import AstJsonCodec
 from ..syntax.tokens import SourceSymbolDirective, Token, TokenKind
 from . import symbol_index
-from .native_imports import NativeDeclarationImporter
+from .native_imports import NativeDeclarationImporter, NativeGeneratedSource, NativeHeaderSource
 from .packages import IncludeResolutionError, NativeLinkPlan, PackageUniverse
 
 
@@ -72,8 +72,9 @@ class CompilationGroups:
     """Strongly connected source groups, each compiled into its own unit.
 
     A group is named by its first canonical member path. Declarations with no
-    source path, or from a file outside every group, belong to the program
-    unit, which also owns process-unique runtime state.
+    source path, everything the native importer declares, and declarations
+    from a file outside every group belong to the program unit, which also
+    owns process-unique runtime state.
     """
 
     PROGRAM = ""
@@ -98,8 +99,18 @@ class CompilationGroups:
         return next((members for members in self.groups if members[0] == name), ())
 
     def group_of(self, source_file: object) -> str:
-        """The owning group of a declaration's stamped source file."""
+        """The owning group of a declaration's stamped source file.
 
+        What the native importer declares belongs to the program unit whatever
+        module's binding imported it: the Objective-C and C++ adapters form one
+        generated unit per language, which only the program unit carries, and
+        the classes the importer writes have no line in any group's source.
+        """
+
+        # Before the memo: a native stamp compares and hashes equal to its
+        # binding module's path, which the memo maps to that module's group.
+        if isinstance(source_file, (NativeHeaderSource, NativeGeneratedSource)):
+            return self.PROGRAM
         if not isinstance(source_file, str) or not source_file or source_file.startswith("<"):
             return self.PROGRAM
         group = self._resolved.get(source_file)
