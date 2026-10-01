@@ -9,6 +9,7 @@ REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS = REPO / ".github/workflows"
 UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 SETUP_NODE = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"
+SKIP_REPORTS = "build/skip-report*.json"
 
 
 def _workflow(name: str) -> str:
@@ -45,6 +46,17 @@ def _step_containing(job: str, needle: str) -> str:
         len(lines),
     )
     return "\n".join(lines[start:end])
+
+
+def _jobs(workflow: str) -> dict[str, str]:
+    jobs = workflow.split("\njobs:\n", 1)[1]
+    return {name: _job(workflow, name) for name in re.findall(r"(?m)^  ([a-zA-Z0-9_-]+):\s*$", jobs)}
+
+
+def _steps(job: str) -> list[str]:
+    lines = job.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("      - ")]
+    return ["\n".join(lines[start:end]) for start, end in zip(starts, [*starts[1:], len(lines)], strict=True)]
 
 
 def _assert_archive_upload(job: str, archive: str) -> None:
@@ -100,6 +112,30 @@ def test_every_workflow_runs_on_main_and_on_manual_dispatch() -> None:
             "    branches: [main]",
             "  workflow_dispatch:",
         ], name
+
+
+def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
+    expected = {
+        ("ci.yml", "tests"): "skip-report-linux-${{ matrix.shard }}",
+        ("windows.yml", "windows"): "skip-report-windows",
+    }
+    test_jobs = {
+        (path.name, name): job
+        for path in _workflow_paths()
+        for name, job in _jobs(path.read_text(encoding="utf-8")).items()
+        if re.search(r"\bpytest\b|\btest-shard-|\btest-c11", _code(job))
+    }
+
+    # Any job that runs the suite keeps the skip report its pytest sessions
+    # write, even when a test failed, under a name unique within the run.
+    assert sorted(test_jobs) == sorted(expected)
+    for key, job in test_jobs.items():
+        final = _steps(job)[-1]
+        assert "if: always()" in final, key
+        assert UPLOAD_ARTIFACT in final, key
+        assert f"name: {expected[key]}" in final, key
+        assert f"path: {SKIP_REPORTS}" in final, key
+        assert "if-no-files-found: warn" in final, key
 
 
 def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
