@@ -704,7 +704,7 @@ def test_gpu_call_classification_has_one_semantic_owner() -> None:
     assert "callResolvesToSourceSymbol(" not in calls
     assert "self.state.gpuCallable && !self.state.inParameterDefault" in " ".join(calls.split())
     assert kernels.count("self.semantics.callResolvesToSourceSymbol(") == 1
-    assert wgsl.count("self.semantics.callResolvesToSourceSymbol(") == 1
+    assert "callResolvesToSourceSymbol(" not in wgsl
     assert "callResolvesToBuiltin(" not in calls
     assert "callResolvesToBuiltin(" not in wgsl
 
