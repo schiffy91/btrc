@@ -10,7 +10,7 @@ import Library.GUI.IImageHandle;
 import Library.GUI.IImageView;
 import Library.GUI.IView;
 import Library.GUI.IGPUView;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxWindow;

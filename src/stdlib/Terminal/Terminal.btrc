@@ -2,7 +2,7 @@
 
 import Library.Bytes;
 import Library.Terminal.TerminalClock;
-import Library.Terminal.TerminalPassword;
+import Library.Terminal.TerminalPasswordInput;
 
 #include <stdio.h>
 

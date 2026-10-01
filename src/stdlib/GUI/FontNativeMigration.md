@@ -1,6 +1,6 @@
 # FreeType provider boundary
 
-The BTRC font domain is implemented in `FontFace.btrc`, `Font.btrc` and
+The BTRC font domain is implemented in `IFontFace.btrc`, `Font.btrc` and
 `Raster.btrc`. `FontSnapshotConformance.btrc` exercises copied signed-pitch
 bitmap data, coverage, UTF-8, metrics, layout and explicit surface ownership.
 Those deterministic snapshots do not qualify the native FreeType adapter.

@@ -16,8 +16,8 @@
 import Library.OwnedBuffer;
 import Library.Image;
 import Library.GUI.Font;
-import Library.GUI.FontFace;
-import Library.GUI.Geometry;
+import Library.GUI.IFontFace;
+import Library.GUI.GUIInt;
 
 /* Borrowed pixels for one synchronous raster operation, packed as uint32
  * in 0xRRGGBBAA order. Never retain this view. */

@@ -2,7 +2,7 @@ import Library.FileSystem;
 import Library.IO;
 import Library.Terminal;
 import Library.Terminal.TerminalClock;
-import Library.Terminal.TerminalPassword;
+import Library.Terminal.TerminalPasswordInput;
 
 #include <assert.h>
 #include <errno.h>

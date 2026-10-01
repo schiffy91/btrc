@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
     if snapshot:
         source.write_text("""import ./FreeTypeFace.btrc;
 import Library.Bytes;
-import Library.GUI.FontFace;
+import Library.GUI.IFontFace;
 #include <assert.h>
 int main(int argc, char** argv) {
     assert(argc == 2);

@@ -661,13 +661,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("chunkedEnd", "int", "method", (("Bytes", "raw"), ("int", "bodyStart"), ("int", "maxBodyBytes"), ("int", "maxTrailerBytes"),), "chunkedEnd"),
         BuiltinMemberSpec("decodeChunked", "Bytes", "method", (("Bytes", "body"), ("int", "maxBodyBytes"), ("int", "maxTrailerBytes"),), "decodeChunked"),
     )),
-    ("HTTPUrl", (
-        BuiltinMemberSpec("decode", "string", "method", (("string", "value"),), "decode"),
-        BuiltinMemberSpec("encode", "string", "method", (("string", "value"),), "encode"),
-    )),
-    ("HTTPStatus", (
-        BuiltinMemberSpec("reason", "string", "method", (("int", "status"),), "reason"),
-    )),
     ("HTTPResponseHeaders", (
         BuiltinMemberSpec("reserved", "bool", "method", (("string", "name"),), "reserved"),
     )),
@@ -685,6 +678,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("sendBytesUntil", "bool", "method", (("int", "descriptor"), ("Bytes", "data"), ("long long", "deadline"),), "sendBytesUntil"),
         BuiltinMemberSpec("sendAllUntil", "bool", "method", (("int", "descriptor"), ("string", "data"), ("long long", "deadline"),), "sendAllUntil"),
         BuiltinMemberSpec("sendAll", "bool", "method", (("int", "descriptor"), ("string", "data"), ("int", "timeoutSecs"),), "sendAll"),
+    )),
+    ("HTTPStatus", (
+        BuiltinMemberSpec("reason", "string", "method", (("int", "status"),), "reason"),
+    )),
+    ("HTTPUrl", (
+        BuiltinMemberSpec("decode", "string", "method", (("string", "value"),), "decode"),
+        BuiltinMemberSpec("encode", "string", "method", (("string", "value"),), "encode"),
     )),
     ("Path", (
         BuiltinMemberSpec("exists", "bool", "method", (("string", "path"),), "exists"),

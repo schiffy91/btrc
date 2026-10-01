@@ -269,9 +269,9 @@ OS-native group.
 
 | File | Role |
 |------|------|
-| `Geometry.btrc` | Saturating integer geometry for raster measurement. |
+| `GUIInt.btrc` | Saturating integer geometry for raster measurement. |
 | `Raster.btrc` | BTRC-owned `Surface` storage, resize, clear/fill/blend, bitmap and scalable text, readback/PPM. Colors are `Library.Image` `RGBA` values. |
-| `Font.btrc` / `FontFace.btrc` | Managed per-surface selection and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
+| `Font.btrc` / `IFontFace.btrc` | Managed per-surface selection and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
 | `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional factory, private unique SDK owners and serialized copied glyph snapshots. |
 
 Not auto-included. Opt in with `import Library.GUI.Raster;`; no native raster
