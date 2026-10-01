@@ -161,7 +161,7 @@ class LinuxTray implements ITray {
 	class string resolveIcon(string path) {
 		string fallback = "application-x-executable";
 		if (path == null || path.isEmpty()) { return fallback; }
-		string resolved = UnixFileSystem.realPath(path);
+		string resolved = FileSystem.realPath(path);
 		return resolved.isEmpty() ? fallback : resolved;
 	}
 

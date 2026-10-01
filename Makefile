@@ -66,8 +66,7 @@ build: generated-check ## Create bin/btrcpy wrapper script
 # Runtime inputs whose names no extension glob in pyproject's package-data
 # covers. A wheel without them installs a compiler that cannot resolve stdlib
 # packages, so both packaging targets open the wheel they built and check.
-WHEEL_REQUIRED := src/language/grammar.ebnf src/stdlib/btrc.lock src/stdlib/btrc.symbols \
-	src/stdlib/LocalApplicationChannel/btrc.lock
+WHEEL_REQUIRED := src/language/grammar.ebnf src/stdlib/btrc.lock src/stdlib/btrc.symbols
 WHEEL_CHECK := python3 -c 'import sys, zipfile; names = set(zipfile.ZipFile(sys.argv[1]).namelist()); \
 	missing = [path for path in sys.argv[2:] if path not in names]; \
 	sys.exit(f"{sys.argv[1]} lacks {missing}" if missing else 0)'
