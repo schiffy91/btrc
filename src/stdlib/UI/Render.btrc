@@ -1,9 +1,22 @@
 /* Deterministic layout, hit-test, and proof-raster bridge for Library.UI.
  *
  * This platform-handle-free layer proves geometry and input with a portable
- * RGBA Image. That image is test evidence, not the production presentation
- * endpoint. Native application controls and GPU views use Library.GUI.GUI.
+ * RGBA Image. That image is test evidence, not a presentation endpoint; no
+ * GPU painter or native host consumes UIFrame. UIRenderer's pointer, key and
+ * text-editing methods are a deterministic test driver that turns synthetic
+ * input into UIEvent messages.
  */
+
+import Library.Image;
+import Library.Map;
+import Library.Math;
+import Library.Set;
+import Library.Strings;
+import Library.Vector;
+import Library.UI.Element;
+import Library.UI.Semantics;
+import Library.UI.Text;
+import Library.UI.Typography;
 
 /* Text-input limits are byte limits; editing and rendering advance only at
  * validated UTF-8 scalar boundaries. */
@@ -31,83 +44,15 @@ class UITextInput {
 		return UIRect(left, box.bounds.y + style.paddingTop() + (availableHeight - height) / 2, width, height);
 	}
 
-	class int byteAt(string value, int index) { return (int)(unsigned char)value[index]; }
-
-	class bool continuation(int value) { return value >= 0x80 && value <= 0xBF; }
-
-	class int scalarWidth(string value, int index) {
-		if (value == null || index < 0 || index >= value.len()) { return 0; }
-		int remaining = value.len() - index;
-		int first = UITextInput.byteAt(value, index);
-		if (first <= 0x7F) { return 1; }
-		if (first >= 0xC2 && first <= 0xDF && remaining >= 2 && UITextInput.continuation(UITextInput.byteAt(value, index + 1))) {
-			return 2;
-		}
-		if (remaining >= 3) {
-			int second = UITextInput.byteAt(value, index + 1);
-			int third = UITextInput.byteAt(value, index + 2);
-			bool validSecond = (first == 0xE0 && second >= 0xA0 && second <= 0xBF) || (first >= 0xE1 && first <= 0xEC && UITextInput.continuation(second)) || (first == 0xED && second >= 0x80 && second <= 0x9F) || (first >= 0xEE && first <= 0xEF && UITextInput.continuation(second));
-			if (validSecond && UITextInput.continuation(third)) {
-				return 3;
-			}
-		}
-		if (remaining >= 4) {
-			int second = UITextInput.byteAt(value, index + 1);
-			int third = UITextInput.byteAt(value, index + 2);
-			int fourth = UITextInput.byteAt(value, index + 3);
-			bool validSecond = (first == 0xF0 && second >= 0x90 && second <= 0xBF) || (first >= 0xF1 && first <= 0xF3 && UITextInput.continuation(second)) || (first == 0xF4 && second >= 0x80 && second <= 0x8F);
-			if (validSecond && UITextInput.continuation(third) && UITextInput.continuation(fourth)) {
-				return 4;
-			}
-		}
-		return 0;
-	}
-
-	class bool validUtf8(string value) { return UISemanticText.valid(value, 2147483647); }
-
-	class int previousBoundary(string value, int offset) {
-		if (value == null || offset <= 0) { return 0; }
-		int bounded = offset > value.len() ? value.len() : offset;
-		int index = bounded - 1;
-		while (index > 0 && UITextInput.continuation(UITextInput.byteAt(value, index))) {
-			index--;
-		}
-		return index;
-	}
-
-	class int nextBoundary(string value, int offset) {
-		if (value == null || offset >= value.len()) {
-			return value == null ? 0 : value.len();
-		}
-		int bounded = offset < 0 ? 0 : offset;
-		int width = UITextInput.scalarWidth(value, bounded);
-		return width == 0 ? bounded : bounded + width;
-	}
-
-	class int scalarCount(string value, int endOffset) {
-		if (value == null) { return 0; }
-		int end = endOffset < value.len() ? endOffset : value.len();
-		if (end < 0) { end = 0; }
-		int index = 0;
-		int count = 0;
-		while (index < end) {
-			int next = UITextInput.nextBoundary(value, index);
-			if (next <= index || next > end) { break; }
-			index = next;
-			count++;
-		}
-		return count;
-	}
-
 	class bool wordCharacter(string value, int offset) {
-		int code = UITextInput.byteAt(value, offset);
+		int code = UIText.byteAt(value, offset);
 		return code >= 128 || (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code == 95;
 	}
 
 	class int previousWord(string value, int offset) {
 		int position = offset;
-		while (position > 0 && !UITextInput.wordCharacter(value, UITextInput.previousBoundary(value, position))) { position = UITextInput.previousBoundary(value, position); }
-		while (position > 0 && UITextInput.wordCharacter(value, UITextInput.previousBoundary(value, position))) { position = UITextInput.previousBoundary(value, position); }
+		while (position > 0 && !UITextInput.wordCharacter(value, UIText.previousBoundary(value, position))) { position = UIText.previousBoundary(value, position); }
+		while (position > 0 && UITextInput.wordCharacter(value, UIText.previousBoundary(value, position))) { position = UIText.previousBoundary(value, position); }
 		return position;
 	}
 
@@ -115,35 +60,34 @@ class UITextInput {
 	 * UTF-8 scalar boundaries are preserved, as in keyboard word navigation. */
 	class int selectionGroup(string value, int offset) {
 		if (UITextInput.wordCharacter(value, offset)) { return 0; }
-		int code = UITextInput.byteAt(value, offset);
+		int code = UIText.byteAt(value, offset);
 		return code == 32 || (code >= 9 && code <= 13) ? 1 : 2;
 	}
 
 	class int selectionWordStart(string value, int offset) {
 		if (value.isEmpty()) { return 0; }
-		int position = offset >= value.len() ? UITextInput.previousBoundary(value, value.len()) : (offset < 0 ? 0 : offset);
+		int position = offset >= value.len() ? UIText.previousBoundary(value, value.len()) : (offset < 0 ? 0 : offset);
 		int group = UITextInput.selectionGroup(value, position);
-		while (position > 0 && UITextInput.selectionGroup(value, UITextInput.previousBoundary(value, position)) == group) { position = UITextInput.previousBoundary(value, position); }
+		while (position > 0 && UITextInput.selectionGroup(value, UIText.previousBoundary(value, position)) == group) { position = UIText.previousBoundary(value, position); }
 		return position;
 	}
 
 	class int selectionWordEnd(string value, int offset) {
 		if (value.isEmpty()) { return 0; }
-		int position = offset >= value.len() ? UITextInput.previousBoundary(value, value.len()) : (offset < 0 ? 0 : offset);
+		int position = offset >= value.len() ? UIText.previousBoundary(value, value.len()) : (offset < 0 ? 0 : offset);
 		int group = UITextInput.selectionGroup(value, position);
-		while (position < value.len() && UITextInput.selectionGroup(value, position) == group) { position = UITextInput.nextBoundary(value, position); }
+		while (position < value.len() && UITextInput.selectionGroup(value, position) == group) { position = UIText.nextBoundary(value, position); }
 		return position;
 	}
 
 	class int nextWord(string value, int offset) {
 		int position = offset;
-		while (position < value.len() && !UITextInput.wordCharacter(value, position)) { position = UITextInput.nextBoundary(value, position); }
-		while (position < value.len() && UITextInput.wordCharacter(value, position)) { position = UITextInput.nextBoundary(value, position); }
+		while (position < value.len() && !UITextInput.wordCharacter(value, position)) { position = UIText.nextBoundary(value, position); }
+		while (position < value.len() && UITextInput.wordCharacter(value, position)) { position = UIText.nextBoundary(value, position); }
 		return position;
 	}
 }
 
-#include "Typography.btrc"
 
 enum UIFrameStatus {
 	UI_FRAME_READY = 0,
@@ -152,52 +96,6 @@ enum UIFrameStatus {
 	UI_FRAME_INVALID_STYLE = 3,
 	UI_FRAME_LIMIT_EXCEEDED = 4
 };
-
-class UIColor {
-	public int red;
-	public int green;
-	public int blue;
-	public int alpha;
-
-	public UIColor(int red, int green, int blue, int alpha = 255) {
-		self.red = RGBA.channel(red);
-		self.green = RGBA.channel(green);
-		self.blue = RGBA.channel(blue);
-		self.alpha = RGBA.channel(alpha);
-	}
-
-	class UIColor hex(string value) {
-		int red = UIColor.hexPair(value, 1);
-		int green = UIColor.hexPair(value, 3);
-		int blue = UIColor.hexPair(value, 5);
-		int alpha = value.len() == 9 ? UIColor.hexPair(value, 7) : 255;
-		return UIColor(red, green, blue, alpha);
-	}
-
-	class int hexDigit(char value) {
-		if (value >= '0' && value <= '9') { return value - '0'; }
-		if (value >= 'a' && value <= 'f') { return value - 'a' + 10; }
-		return value - 'A' + 10;
-	}
-
-	class int hexPair(string value, int offset) { return UIColor.hexDigit(value[offset]) * 16 + UIColor.hexDigit(value[offset + 1]); }
-
-	class UIColor fromRgba(RGBA value) { return UIColor(value.red, value.green, value.blue, value.alpha); }
-
-	public RGBA rgba() { return RGBA(self.red, self.green, self.blue, self.alpha); }
-
-	class string hexByte(int value) {
-		string digits = "0123456789abcdef";
-		return digits.substring(value / 16, 1) + digits.substring(value % 16, 1);
-	}
-
-	/* Always "#rrggbbaa", accepted by every colour style property. */
-	public string css() { return "#" + UIColor.hexByte(self.red) + UIColor.hexByte(self.green) + UIColor.hexByte(self.blue) + UIColor.hexByte(self.alpha); }
-
-	public UIColor withAlpha(int alpha) { return UIColor(self.red, self.green, self.blue, alpha); }
-
-	public bool equals(UIColor other) { return other != null && self.red == other.red && self.green == other.green && self.blue == other.blue && self.alpha == other.alpha; }
-}
 
 class UITheme {
 	public UIColor background;
@@ -769,16 +667,15 @@ class UIResolvedStyle {
 
 	class int pixelValue(string value) { return Strings.toInt(value.substring(0, value.len() - 2)); }
 
+	/* Apply declarations in order; css UIStyle.validate would reject throws
+	 * that UIStyleError's message and changes nothing. */
 	public void apply(string source) {
 		if (self._frozen) { throw "cannot edit a frozen native UI style; copy it first"; }
-		if (source == null || source.trim().isEmpty()) { return; }
-		Vector<string> declarations = Strings.split(source, ";");
-		for declarationValue in declarations {
-			string declaration = declarationValue.trim();
-			if (declaration.isEmpty()) { continue; }
-			int separator = declaration.indexOf(":");
-			string property = declaration.substring(0, separator).trim().toLower();
-			string value = declaration.substring(separator + 1, declaration.len() - separator - 1).trim();
+		UIStyleDeclarations parsed = UIStyle.parse(source);
+		if (!parsed.ok()) { throw parsed.issue().message(); }
+		for (int index = 0; index < parsed.count(); index++) {
+			string property = parsed.propertyAt(index);
+			string value = parsed.valueAt(index);
 			if (property.equals("gap")) {
 				self._gap = UIResolvedStyle.pixelValue(value);
 			} else if (property.equals("padding")) {
@@ -1138,7 +1035,7 @@ class UILayout {
 			context.fail(UI_FRAME_INVALID_TREE, f"native UI select requires unique options and an exact selected value: {element.id()}");
 			return null;
 		}
-		if ((element.kind() == UI_TEXT || element.kind() == UI_BUTTON) && !UITextInput.validUtf8(element.contentText())) {
+		if ((element.kind() == UI_TEXT || element.kind() == UI_BUTTON) && !UIText.valid(element.contentText())) {
 			context.fail(UI_FRAME_INVALID_TREE, f"native UI content requires valid UTF-8 text: " + f"{element.id()}");
 			return null;
 		}
@@ -1146,7 +1043,7 @@ class UILayout {
 			context.fail(UI_FRAME_LIMIT_EXCEEDED, f"native UI element metadata exceeds its bound: {element.id()}");
 			return null;
 		}
-		if (element.kind() == UI_TEXT_INPUT && (element.textInputMaxBytes() < 1 || element.textInputMaxBytes() > 4096 || element.contentText().len() > element.textInputMaxBytes() || !UITextInput.validUtf8(element.contentText()) || !UITextInput.validUtf8(element.placeholderText()))) {
+		if (element.kind() == UI_TEXT_INPUT && (element.textInputMaxBytes() < 1 || element.textInputMaxBytes() > 4096 || element.contentText().len() > element.textInputMaxBytes() || !UIText.valid(element.contentText()) || !UIText.valid(element.placeholderText()))) {
 			context.fail(UI_FRAME_INVALID_TREE, f"native UI text input is invalid or exceeds its byte bound: " + f"{element.id()}");
 			return null;
 		}
@@ -1156,7 +1053,7 @@ class UILayout {
 			return null;
 		}
 		UISemanticRange? optionalRange = element.semanticRangeDescriptor();
-		if (optionalRange != null && (!optionalRange.valid() || !UISemanticText.valid(optionalRange.label(), 512))) {
+		if (optionalRange != null && (!optionalRange.valid() || !UIText.valid(optionalRange.label(), 512))) {
 			context.fail(UI_FRAME_INVALID_TREE, f"native UI semantic range is invalid: {element.id()}");
 			return null;
 		}
@@ -1515,7 +1412,7 @@ class UISelectIndicator {
 
 	class UIColor color(UILayoutBox box, UITheme theme) { return !box.enabled() ? theme.mutedText : (box.style.hasMarker() ? box.style.marker() : (box.style.hasForeground() ? box.style.foreground() : theme.mutedText)); }
 
-	/* A 1.5px round-capped stroke with the same geometry as the GPU primitive. */
+	/* A 1.5px round-capped stroke. */
 	class bool covers(float x, float y, int width, int height, bool expanded) {
 		if (width < 4 || height < 4) { return false; }
 		if (expanded) { y = (float)height - y; }
@@ -1571,7 +1468,7 @@ class UIScrollbar {
 	}
 }
 
-/* Shared scalar-aligned visible run for GPU, proof raster, and pointer hit
+/* Shared scalar-aligned visible run for the proof raster and pointer hit
  * testing. System typography supplies advances; text never escapes its field. */
 class UITextViewport {
 	public string text;
@@ -1587,28 +1484,23 @@ class UITextViewport {
 
 	class int width(string value, int start, int end, UITypography typography, UIResolvedStyle style) { return typography.measure(value.substring(start, end - start), style.fontSize(), style.lineHeight(), style.fontWeight()).width(); }
 
-	class int boundary(string value, int offset) {
-		if (offset > 0 && offset < value.len() && UITextInput.continuation(UITextInput.byteAt(value, offset))) { return UITextInput.previousBoundary(value, offset); }
-		return offset;
-	}
-
 	public UITextViewport(string value, int available, int caret, int anchor, UITypography typography, UIResolvedStyle style) {
 		int capacity = available > 2 ? available - 2 : 0;
 		int low = 0;
 		int high = caret < 0 ? 0 : caret;
 		while (low < high) {
-			int middle = UITextViewport.boundary(value, low + (high - low) / 2);
+			int middle = UIText.floorBoundary(value, low + (high - low) / 2);
 			if (UITextViewport.width(value, middle, caret, typography, style) <= capacity) { high = middle; }
-			else { low = UITextInput.nextBoundary(value, middle); }
+			else { low = UIText.nextBoundary(value, middle); }
 		}
 		self.start = low;
 		low = self.start;
 		high = value.len();
 		while (low < high) {
-			int middle = UITextViewport.boundary(value, low + (high - low + 1) / 2);
-			if (middle == low) { middle = UITextInput.nextBoundary(value, low); }
+			int middle = UIText.floorBoundary(value, low + (high - low + 1) / 2);
+			if (middle == low) { middle = UIText.nextBoundary(value, low); }
 			if (UITextViewport.width(value, self.start, middle, typography, style) <= capacity) { low = middle; }
-			else { high = UITextInput.previousBoundary(value, middle); }
+			else { high = UIText.previousBoundary(value, middle); }
 		}
 		int end = low;
 		self.text = value.substring(self.start, end - self.start);
@@ -1626,7 +1518,7 @@ class UITextViewport {
 		int offset = 0;
 		int previousWidth = 0;
 		while (offset < self.text.len()) {
-			int next = UITextInput.nextBoundary(self.text, offset);
+			int next = UIText.nextBoundary(self.text, offset);
 			int nextWidth = UITextViewport.width(self.text, 0, next, typography, style);
 			if (x < (characterHit ? nextWidth : previousWidth + (nextWidth - previousWidth) / 2)) { return self.start + offset; }
 			previousWidth = nextWidth;
@@ -1760,7 +1652,7 @@ class UIRaster {
 					}
 				}
 			}
-			index = UITextInput.nextBoundary(value, index);
+			index = UIText.nextBoundary(value, index);
 			cursor += advance;
 			if (cursor >= image.width) { return; }
 		}
@@ -1884,7 +1776,8 @@ class UIRaster {
 						if (textY >= image.height || textY + metrics.height() <= 0) { continue; }
 						int textX = typography.alignedX(x + style.paddingLeft(), box.bounds.width - style.horizontalPadding(), 0, metrics.width(), style.textAlignment());
 						UIColor color = style.hasForeground() ? style.foreground() : theme.text;
-						if (typography.platformRasterizes()) { UITextRaster.blit(image, UITextRaster.rasterize(typography, value, style.fontSize(), style.lineHeight(), style.fontWeight(), color), textX, textY); }
+						Image? platform = typography.platformRasterizes() ? typography.tintedPlatformRaster(value, style.fontSize(), style.lineHeight(), style.fontWeight(), color.rgba()) : null;
+						if (platform != null) { image.compositeImage(platform, textX, textY); }
 						else { UIRaster.text(image, textX, textY, value, color, style, typography); }
 					}
 				} else if (box.element.kind() == UI_IMAGE) {
@@ -2054,8 +1947,6 @@ class UIRenderer {
 
 	public string hoveredId() { return self.hoveredIdentity; }
 
-	public string pressedId() { return self.pressedIdentity; }
-
 	public string capturedRangeId() { return self.rangeCaptureIdentity; }
 
 	public string focusedId() { return self.focusedIdentity; }
@@ -2137,13 +2028,6 @@ class UIRenderer {
 			if (menu.enabled(index)) { menu.highlighted = index; break; }
 		}
 		return self.inputBatch(events);
-	}
-
-	public string displayValue(UIElement element) {
-		if (element.kind() == UI_TEXT_INPUT && element.id().equals(self.focusedIdentity) && self.focusedMaxBytes > 0) {
-			return self.focusedInputValue;
-		}
-		return element.contentText();
 	}
 
 	private void closeSelect() {
@@ -2770,7 +2654,7 @@ class UIRenderer {
 	private UIEventBatch replaceSelectedText(string text, UITextEditState before) {
 		self.textMenuValue = null;
 		Vector<UIEvent> events = [];
-		if (!self.editingText() || text == null || !UITextInput.validUtf8(text) || (long long)self.focusedInputValue.len() - (long long)(self.selectionEnd() - self.selectionStart()) + (long long)text.len() > (long long)self.focusedMaxBytes) {
+		if (!self.editingText() || text == null || !UIText.valid(text) || (long long)self.focusedInputValue.len() - (long long)(self.selectionEnd() - self.selectionStart()) + (long long)text.len() > (long long)self.focusedMaxBytes) {
 			return UIEventBatch(self.frameValue, events);
 		}
 		if (text.isEmpty() && self.selectionStart() == self.selectionEnd()) { return UIEventBatch(self.frameValue, events); }
@@ -2793,7 +2677,7 @@ class UIRenderer {
 	public UIEventBatch backspace(bool word = false, bool line = false) {
 		UITextEditState before = self.textEditState();
 		if (self.editingText() && self.selectionStart() == self.selectionEnd()) {
-			self.focusedAnchorByteOffset = line ? 0 : (word ? UITextInput.previousWord(self.focusedInputValue, self.focusedCaretByteOffset) : UITextInput.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
+			self.focusedAnchorByteOffset = line ? 0 : (word ? UITextInput.previousWord(self.focusedInputValue, self.focusedCaretByteOffset) : UIText.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		}
 		return self.replaceSelectedText("", before);
 	}
@@ -2801,7 +2685,7 @@ class UIRenderer {
 	public UIEventBatch deleteForward(bool word = false, bool line = false) {
 		UITextEditState before = self.textEditState();
 		if (self.editingText() && self.selectionStart() == self.selectionEnd()) {
-			self.focusedAnchorByteOffset = line ? self.focusedInputValue.len() : (word ? UITextInput.nextWord(self.focusedInputValue, self.focusedCaretByteOffset) : UITextInput.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
+			self.focusedAnchorByteOffset = line ? self.focusedInputValue.len() : (word ? UITextInput.nextWord(self.focusedInputValue, self.focusedCaretByteOffset) : UIText.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		}
 		return self.replaceSelectedText("", before);
 	}
@@ -2819,13 +2703,13 @@ class UIRenderer {
 	}
 
 	public UIEventBatch moveCaretLeft(bool extend = false, bool word = false, bool line = false) {
-		int destination = line ? 0 : (word ? UITextInput.previousWord(self.focusedInputValue, self.focusedCaretByteOffset) : UITextInput.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
+		int destination = line ? 0 : (word ? UITextInput.previousWord(self.focusedInputValue, self.focusedCaretByteOffset) : UIText.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		if (!extend && !word && !line && self.selectionStart() != self.selectionEnd()) { destination = self.selectionStart(); }
 		return self.moveCaret(destination, extend);
 	}
 
 	public UIEventBatch moveCaretRight(bool extend = false, bool word = false, bool line = false) {
-		int destination = line ? self.focusedInputValue.len() : (word ? UITextInput.nextWord(self.focusedInputValue, self.focusedCaretByteOffset) : UITextInput.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
+		int destination = line ? self.focusedInputValue.len() : (word ? UITextInput.nextWord(self.focusedInputValue, self.focusedCaretByteOffset) : UIText.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		if (!extend && !word && !line && self.selectionStart() != self.selectionEnd()) { destination = self.selectionEnd(); }
 		return self.moveCaret(destination, extend);
 	}

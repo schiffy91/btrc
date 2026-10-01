@@ -1,5 +1,7 @@
 /* Backend-neutral semantic values for Library.UI. */
 
+import Library.UI.Text;
+
 enum UISemanticRole {
 	UI_SEMANTIC_ROLE_AUTOMATIC = 0,
 	UI_SEMANTIC_ROLE_GROUP = 1,
@@ -48,44 +50,9 @@ enum UISemanticExpansionState {
 	UI_SEMANTIC_EXPANSION_ON = 2
 };
 
+/* Semantic labels and values are bounded, well-formed UTF-8. */
 class UISemanticText {
-	class int byteAt(string value, int index) { return (int)(unsigned char)value[index]; }
-
-	class bool continuation(int value) { return value >= 0x80 && value <= 0xBF; }
-
-	class int scalarWidth(string value, int index) {
-		if (value == null || index < 0 || index >= value.len()) { return 0; }
-		int remaining = value.len() - index;
-		int first = UISemanticText.byteAt(value, index);
-		if (first == 0) { return 0; }
-		if (first <= 0x7F) { return 1; }
-		if (first >= 0xC2 && first <= 0xDF && remaining >= 2 && UISemanticText.continuation(UISemanticText.byteAt(value, index + 1))) { return 2; }
-		if (remaining >= 3) {
-			int second = UISemanticText.byteAt(value, index + 1);
-			int third = UISemanticText.byteAt(value, index + 2);
-			bool validSecond = (first == 0xE0 && second >= 0xA0 && second <= 0xBF) || (first >= 0xE1 && first <= 0xEC && UISemanticText.continuation(second)) || (first == 0xED && second >= 0x80 && second <= 0x9F) || (first >= 0xEE && first <= 0xEF && UISemanticText.continuation(second));
-			if (validSecond && UISemanticText.continuation(third)) { return 3; }
-		}
-		if (remaining >= 4) {
-			int second = UISemanticText.byteAt(value, index + 1);
-			int third = UISemanticText.byteAt(value, index + 2);
-			int fourth = UISemanticText.byteAt(value, index + 3);
-			bool validSecond = (first == 0xF0 && second >= 0x90 && second <= 0xBF) || (first >= 0xF1 && first <= 0xF3 && UISemanticText.continuation(second)) || (first == 0xF4 && second >= 0x80 && second <= 0x8F);
-			if (validSecond && UISemanticText.continuation(third) && UISemanticText.continuation(fourth)) { return 4; }
-		}
-		return 0;
-	}
-
-	class bool valid(string value, int maximumBytes) {
-		if (value == null || value.len() > maximumBytes) { return false; }
-		int index = 0;
-		while (index < value.len()) {
-			int width = UISemanticText.scalarWidth(value, index);
-			if (width == 0) { return false; }
-			index += width;
-		}
-		return true;
-	}
+	class bool valid(string value, int maximumBytes) { return UIText.valid(value, maximumBytes); }
 }
 
 class UISemantics {

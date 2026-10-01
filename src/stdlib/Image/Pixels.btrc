@@ -294,16 +294,49 @@ class Image {
 	/* Straight-alpha source-over with byte-quantized coverage. Like setPixel,
 	 * coordinates must be valid; no temporary pixel objects are allocated. */
 	public void compositePixel(int x, int y, RGBA color, double coverage = 1.0) {
+		if (color == null) { self.offset(x, y); fprintf(stderr, "Image.compositePixel: color is null\n"); exit(1); }
+		self.compositeChannels(x, y, color.red, color.green, color.blue, color.alpha, coverage);
+	}
+
+	private void compositeChannels(int x, int y, int red, int green, int blue, int sourceAlpha, double coverage) {
 		int offset = self.offset(x, y);
-		if (color == null) { fprintf(stderr, "Image.compositePixel: color is null\n"); exit(1); }
 		if (!(coverage > 0.0)) { return; }
-		int alpha = RGBA.channel(color.alpha);
+		int alpha = RGBA.channel(sourceAlpha);
 		if (coverage < 1.0) { alpha = (int)((double)alpha * coverage + 0.5); }
 		int sourceWeight = alpha * 255;
 		int destinationWeight = (int)self.data[offset + 3] * (255 - alpha);
 		int weight = sourceWeight + destinationWeight;
 		if (weight == 0) { self.setRGBA(x, y, 0, 0, 0, 0); return; }
-		self.setRGBA(x, y, (RGBA.channel(color.red) * sourceWeight + (int)self.data[offset] * destinationWeight) / weight, (RGBA.channel(color.green) * sourceWeight + (int)self.data[offset + 1] * destinationWeight) / weight, (RGBA.channel(color.blue) * sourceWeight + (int)self.data[offset + 2] * destinationWeight) / weight, weight / 255);
+		self.setRGBA(x, y, (RGBA.channel(red) * sourceWeight + (int)self.data[offset] * destinationWeight) / weight, (RGBA.channel(green) * sourceWeight + (int)self.data[offset + 1] * destinationWeight) / weight, (RGBA.channel(blue) * sourceWeight + (int)self.data[offset + 2] * destinationWeight) / weight, weight / 255);
+	}
+
+	/* compositePixel for every source pixel at (left, top), clipped to this
+	 * image. This image keeps its own transparency; nothing is allocated. */
+	public void compositeImage(Image source, int left, int top) {
+		if (source == null) { fprintf(stderr, "Image.compositeImage: source is null\n"); exit(1); }
+		for (int y = 0; y < source.height; y++) {
+			int targetY = top + y;
+			if (targetY < 0 || targetY >= self.height) { continue; }
+			for (int x = 0; x < source.width; x++) {
+				int targetX = left + x;
+				if (targetX < 0 || targetX >= self.width) { continue; }
+				int offset = (y * source.width + x) * 4;
+				if (source.data[offset + 3] == 0) { continue; }
+				self.compositeChannels(targetX, targetY, (int)source.data[offset], (int)source.data[offset + 1], (int)source.data[offset + 2], (int)source.data[offset + 3], 1.0);
+			}
+		}
+	}
+
+	/* Recolour a coverage mask in place: RGB from color, alpha the stored
+	 * alpha scaled by color's alpha. */
+	public void tintCoverage(RGBA color) {
+		if (color == null) { fprintf(stderr, "Image.tintCoverage: color is null\n"); exit(1); }
+		for (int y = 0; y < self.height; y++) {
+			for (int x = 0; x < self.width; x++) {
+				int coverage = (int)self.data[(y * self.width + x) * 4 + 3];
+				self.setRGBA(x, y, color.red, color.green, color.blue, coverage * RGBA.channel(color.alpha) / 255);
+			}
+		}
 	}
 
 	/* Crossfade in premultiplied-alpha space, then store straight RGBA.

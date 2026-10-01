@@ -1,13 +1,44 @@
-# Native UI input contracts
+# Library.UI
 
-`Library.UI` keeps rendering and input portable without exposing platform
-handles. `UIStyleSheet` and per-element styles affect appearance only.
+`Library.UI` is a declarative element tree with deterministic layout,
+backend-neutral semantics, `UIEvent` messages and a proof raster. It holds no
+platform handles and has no presentation host: no GPU painter, window or
+native session consumes `UIFrame`. Applications build `UIElement` trees, call
+`UIRenderer.layout(root, width, height)` for geometry, and own presentation
+themselves (native controls and GPU views live in `Library.GUI`).
 
-The native GPU compositor antialiases rounded rectangle corners at framebuffer
-scale and multiplies coverage by the source alpha. Radius-zero fills keep their
-aligned rectangular edges; corner smoothing does not change layout or hit bounds.
+## Modules
 
-Explicitly transparent buttons stay transparent when idle. Hover and press add
+`import Library.UI;` is an import-only facade over an acyclic module graph;
+each module can also be imported alone:
+
+| Module | Owns |
+| --- | --- |
+| `Text` | UTF-8 scalar boundaries (`UIText`) shared by every other module |
+| `Semantics` | `UISemantics`, roles and states |
+| `Element` | `UIElement`, values (`UIColor`, `UISelect`, ranges, events) and styles (`UIStyle`, `UIStyleSheet`) |
+| `Typography` | `UITypography`, measurement, wrapping and the platform raster contract |
+| `Render` | `UIRenderer`, layout, hit testing, `UIResolvedStyle` and the proof raster painter |
+| `TextRaster` | `UITextRaster`, text runs as transparent `Image` rasters |
+
+## Hosts and the test driver
+
+A host synthesizes `UIEvent` values from its own input and applies them to its
+application state; the next tree it publishes is the accepted state. The
+`UIRenderer` interaction methods (`pointerPressed`, `pointerMoved`,
+`textEntered`, `moveCaretLeft`, `undoText`, `focusNext`, `openTextMenu`,
+`wheelBy`, ...) are a **deterministic test driver**: they turn synthetic input
+into the same `UIEvent` messages and keep caret, selection, menu and scrollbar
+state so tests can prove input contracts against the proof raster. They are
+not bound to keys, a clipboard or a window by this package.
+
+`render(root, width, height)` paints the proof raster, a portable RGBA `Image`
+used as test evidence, not a production surface.
+
+## Appearance
+
+`UIStyleSheet` and per-element styles affect appearance only. Explicitly
+transparent buttons stay transparent when idle. Hover and press add
 subtle foreground-tinted overlays (6% and 12%), honoring the declared corner
 radius. An explicit foreground controls the tint on custom dark/light materials;
 otherwise the theme text color supplies it. Disabled controls do not highlight.
@@ -46,15 +77,14 @@ layouts still receive independent editable styles. Freezing also detaches any
 previously exposed colors, so old references cannot change a shared template.
 
 `measuredNodeCount()`, `reusedNodeCount()`, and `retainedMeasurementCount()`
-report renderer work; preparation outcomes expose `measuredNodes` and
-`reusedNodes`. These are node counts, not allocation counts or GPU timings.
-`prepareCurrent()` still repaints already published geometry without layout.
+report renderer work. These are node counts, not allocation counts or timings.
+
 
 ## Background materials
 
 `background-image: linear-gradient(#RRGGBB[AA], #RRGGBB[AA])` paints a vertical
-two-stop gradient over `background-color`. Both renderers interpolate premultiplied
-colors, preserve rounded borders, and retain the original gradient coordinates
+two-stop gradient over `background-color`. The proof raster interpolates premultiplied
+colors, preserves rounded borders, and retains the original gradient coordinates
 when clipped or scrolled. `background-image: none` explicitly clears it through
 the normal cascade. Directions, extra stops, and image URLs are not supported.
 Gradient values are immutable and safe to share with frozen resolved styles.
@@ -72,8 +102,8 @@ limited to 512 bytes, and validated as NUL-free UTF-8. Checked and pressed use
 `UISemanticLiveMode`.
 
 Disabled elements cannot be hit, focused, edited, adjusted, or activated.
-`UIRenderer.activate(...)` is the accessibility activation boundary, and
-Enter/Space use it for the focused control. Actual focus is renderer-owned:
+`UIRenderer.activate(...)` is the accessibility activation boundary. Focus in
+the test driver is renderer-owned:
 inspect `UIResolvedSemantics.focused()` through a frame or layout box.
 There is no declarative focused flag, and style declarations cannot alter
 semantic values.
@@ -86,7 +116,7 @@ The thumb represents full measured content, including virtual rows that have no
 elements. Dragging retains its grab offset; track clicks page the viewport. Both
 use the existing `UI_SCROLLED` path and virtual-grid metrics. Release,
 focus loss, viewport resize, root replacement, or disabling the scrollbar cancels
-capture. The software and native GPU painters share geometry and theme colors;
+capture. The proof raster paints it from the same geometry and theme colors;
 select popups stay above it. No application-owned second scroll offset is needed.
 
 Attach `UISemanticRange.horizontal(...)` or `.vertical(...)` with
@@ -105,9 +135,8 @@ renderer-space movement increments and negative movement decrements; horizontal
 ranges use x (falling back to y when x is zero), while vertical ranges use y
 (falling back to x). A wheel outside a range retains ordinary viewport scroll.
 
-Focused ranges use axis arrows for small adjustments, Shift+arrow for large
-adjustments, and Control/Command+arrow for minimum or maximum. Accessibility
-adapters can call `adjustRange` directly with the same semantic adjustment.
+`adjustRange` and `adjustFocusedRange` apply small, large, minimum and maximum
+adjustments; a host maps its own keys or accessibility actions onto them.
 Button clicks, text input, and ordinary scrolling retain their existing event
 contracts.
 
@@ -119,9 +148,9 @@ stable, non-empty `value`, a user-facing `label`, and an optional enabled flag.
 Values are compared exactly; options must be unique, the selected value must
 exist, and descriptors are bounded and UTF-8 validated.
 
-Pointer or Enter/Space activation opens the renderer-owned menu. Arrow keys
-move across enabled options, Escape closes the menu while preserving focus,
-and Tab closes it while moving focus. A committed change emits
+Pointer activation or `activate` opens the renderer-owned menu;
+`navigateFocusedSelect` moves across enabled options, `dismiss` closes it while
+preserving focus, and `focusNext` closes it while moving focus. A committed change emits
 `UI_SELECTION_CHANGED`; `UIEvent.value()` carries the stable
 option value, never its presentation label. The application accepts that
 proposal by supplying the selected value in its next tree. Resolved semantics
@@ -143,7 +172,12 @@ adjust it without knowing every rule:
   a typo never silently doubles a selector.
 - `kindRule(kind, css)` styles every element of one kind, for example every
   button's radius. Kind rules count toward the 64 KiB budget but not the 256
-  rule limit.
+  rule limit; a kind outside `UIElementKind` is `UI_STYLE_INVALID_SELECTOR`.
+
+`UIStyle.parse(css)` is the one declaration parser. `UIStyle.validate` reports
+its first `UIStyleError`, and `UIResolvedStyle.apply(css)` applies its
+validated declarations or throws that error's message without changing the
+style, so `apply("color: red")` is an error rather than a bad read.
 
 Rows accept `align-items: start | center | end` for children shorter than
 the row; columns and grids ignore it. `UIColor.css()` prints
@@ -156,30 +190,27 @@ pick between at runtime.
 changing layout; the theme panel supplies the fill if no background is set.
 Focused text fields and open selects retain their accent rim. `marker-color`
 overrides the select disclosure color independently of its label. Both accept
-the same hex colors as `color` and apply to software and GPU presentation.
-Select disclosures use centered, round-capped chevrons, not text glyphs; they
-reverse when expanded and use the muted theme color when disabled. Software
-and GPU rendering share their logical geometry, with antialiased edges and no
-icon texture allocation.
+the same hex colors as `color`. Select disclosures use centered, round-capped
+chevrons, not text glyphs; they reverse when expanded and use the muted theme
+color when disabled.
 
-Text fields share a one-logical-pixel blinking caret, centered at font size
-within the line box (clamped to its height), in software and GPU rendering.
-Secondary-click or Control-click opens Cut/Copy/Paste/Select All without losing
-an existing selection under the pointer. Commands use the window clipboard and
-the same validated UTF-8 editing operations as keyboard shortcuts; failed copy
-does not delete text. Arrow keys select enabled commands; Enter activates;
-Escape or an outside click dismisses without activating content underneath.
-Focus loss, scrolling, resizing and external value replacement dismiss the menu.
-These are BTRC-rendered controls, not embedded AppKit text fields.
+Text fields draw a one-logical-pixel blinking caret, centered at font size
+within the line box (clamped to its height). The test driver's
+`openTextMenu` models Cut/Copy/Paste/Select All without losing an existing
+selection under the pointer and edits through the same validated UTF-8
+operations as `textEntered`/`backspace`; it reports the chosen command and
+never touches a clipboard. `navigateTextMenu` selects enabled commands; an
+outside press dismisses without activating content underneath. Focus loss,
+scrolling, resizing and external value replacement dismiss the menu.
 
 `padding` sets all four edges; `padding-top`, `padding-right`, `padding-bottom`,
 and `padding-left` override individual edges in declaration order (0..4096px).
-Use these insets instead of empty spacer elements. Layout, software/GPU drawing,
+Use these insets instead of empty spacer elements. Layout, the proof raster,
 and virtual-grid viewport calculations use the resolved edges. `padding()`
 reports the last uniform declaration; read `paddingTop()`/`paddingRight()`/
 `paddingBottom()`/`paddingLeft()` for effective values.
 
-Image elements optionally accept `imageRegion(UIImageRegion(left, top, width, height))`, an immutable normalized source rectangle inside [0,1]. Passing null restores the full image. Sampling changes do not change layout, hit targets, source bytes or image revision; GPU placements retain their own crop while sharing the cached texture. Element copies preserve the region independently of later setter calls. Invalid/nonfinite/empty/out-of-bounds rectangles are rejected.
+Image elements optionally accept `imageRegion(UIImageRegion(left, top, width, height))`, an immutable normalized source rectangle inside [0,1]. Passing null restores the full image. Sampling changes do not change layout, hit targets, source bytes or image revision. Element copies preserve the region independently of later setter calls. Invalid/nonfinite/empty/out-of-bounds rectangles are rejected.
 
 `width: fit` keeps text, images, and buttons without flowing children at their
 intrinsic content width plus padding, bounded by available space. Rows reserve
@@ -202,13 +233,13 @@ the root cannot float. Virtual-grid item counts exclude floating decorations.
 Text elements can opt into `text-wrap: wrap`; the default is `nowrap`, and
 buttons/inputs/selects remain single-line. Explicit line breaks are retained;
 spaces at a soft break are not painted. Long words and paths break to fit.
-macOS uses CoreText line and composed-character boundaries; a cluster wider
-than the available space remains intact. The deterministic proof font breaks
-at scalar cells and ASCII whitespace instead of claiming linguistic shaping.
+A platform typography provider supplies its own line-break callback; the
+deterministic proof font breaks at scalar cells and ASCII whitespace instead
+of claiming linguistic shaping.
 
 `UITypography.wrap` produces immutable `UITextLayout` lines with
 their exact metrics and vertical positions. Layout boxes expose that same
-layout to both painters; width changes invalidate retained measurements.
+layout to any painter; width changes invalidate retained measurements.
 Only visible lines paint. The existing 4096-byte per-element and 4 MiB tree
 metadata bounds include retained line data. Platform measurement providers
 must supply their matching line-break callback when opting into wrapping.
@@ -221,7 +252,6 @@ lineHeight, fontWeight, color, backingScale)`. The result is a transparent
 painter otherwise, sized from `measure()` either way. Runs longer than 4096
 bytes are cut at a scalar boundary; the empty run is `Image.empty()`.
 `UITextRaster.blit(target, source, x, y)` composes with straight
-alpha and keeps the target's own transparency. Callers supply the typography
-provider and backing scale explicitly. Native application presentation uses
-the portable GUI controls and GPU views; the former native-UI session host
-has been removed.
+alpha through `Image.compositeImage` and keeps the target's own transparency.
+Callers supply the typography provider and backing scale explicitly. The
+proof raster draws platform text the same way when the provider rasterizes.
