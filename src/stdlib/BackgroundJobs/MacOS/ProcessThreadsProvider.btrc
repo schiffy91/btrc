@@ -1,0 +1,13 @@
+/* macOS thread count: the kernel's task info for this process. */
+#include <libproc.h>
+#include <sys/proc_info.h>
+#include <unistd.h>
+
+class ProcessThreadsProvider {
+	class int count() {
+		struct proc_taskinfo info;
+		int size = (int)sizeof(struct proc_taskinfo);
+		if ((int)proc_pidinfo(getpid(), (int)PROC_PIDTASKINFO, 0ULL, &info, size) != size) { return -1; }
+		return (int)info.pti_threadnum;
+	}
+}

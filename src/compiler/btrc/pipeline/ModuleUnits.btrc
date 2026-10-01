@@ -1265,6 +1265,13 @@ class ModuleUnitCompiler {
 				}
 			}
 			WorkerReply reply = workers.awaitReply();
+			/* What a worker's request threw, such as a lowering diagnostic, is
+			 * thrown again here, whether the worker is a forked process or the
+			 * owner itself, so it surfaces as it would from one compile. */
+			if (reply.kind == WorkerReplyKind.WORKER_REPLY_RAISED) {
+				workers.terminate();
+				throw reply.error;
+			}
 			if (reply.kind != WorkerReplyKind.WORKER_REPLY_READY) {
 				self.workersFailed(workers, reply.kind == WorkerReplyKind.WORKER_REPLY_EMPTY ? "no module-unit request could be delivered" : reply.error);
 			}

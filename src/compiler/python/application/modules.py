@@ -318,6 +318,27 @@ class ForkedModuleUnitWorkers:
         # Each reaped worker's own usage, by worker index, where wait4 reports it.
         self._usage: dict[int, WorkerUsage] = {}
 
+    @staticmethod
+    def suggested_count() -> int:
+        """One worker per online CPU, at most four, as btrcc's pools suggest:
+        past four, measured compiles gained little and each worker adds its
+        own memory."""
+        try:
+            online = os.sysconf("SC_NPROCESSORS_ONLN")
+        except (AttributeError, ValueError, OSError):
+            online = os.cpu_count() or 1
+        return max(1, min(online, 4))
+
+    @staticmethod
+    def other_threads_running() -> bool:
+        """Whether a thread besides the caller runs in this process: one
+        /proc/self/task entry per thread where the host has it, else the
+        threads the interpreter started."""
+        try:
+            return len(os.listdir("/proc/self/task")) > 1
+        except OSError:
+            return threading.active_count() > 1
+
     @classmethod
     def start(cls, count: int, handler: Callable[[dict], dict]) -> ForkedModuleUnitWorkers | None:
         """Fork `count` workers running `handler`, or None where none can start.
@@ -325,7 +346,7 @@ class ForkedModuleUnitWorkers:
         Forking is safe only from a single-threaded owner: a lock another
         thread held at the fork would stay held forever in the worker.
         """
-        if count < 2 or not hasattr(os, "fork") or threading.active_count() > 1:
+        if count < 2 or not hasattr(os, "fork") or cls.other_threads_running():
             return None
         # Collection would otherwise touch, and so copy, every shared page.
         gc.freeze()

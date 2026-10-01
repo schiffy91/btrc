@@ -822,10 +822,10 @@ them copy-on-write. A group's lowered IR stays in the worker that lowered it;
 only small messages cross the pipes. The owner keeps every program-wide
 decision and runs the same schedule with one worker (answered in-process) or
 many, so the emitted units are byte-identical for every worker count.
-`--jobs N` sets the count (both CLIs); without it the self-hosted compiler
-uses one per CPU, at most four, the reference CLI at most two, and the Python
-API stays in-process unless asked, because a threaded embedding process must
-not fork.
+`--jobs N` sets the count (both CLIs); without it both CLIs use one per online
+CPU, at most four, and the Python API stays in-process unless asked, because a
+threaded embedding process must not fork. Neither compiler forks a pool while
+another thread of the process runs; it lowers in-process instead.
 
 Memory decides that default. Each worker starts as a copy-on-write image of
 the analyzed program, but ARC writes reference counts into the objects
@@ -894,7 +894,9 @@ with timing on and off.
 
 Failure: a worker that exits, is killed or breaks the protocol fails the
 compile with its diagnostic after every worker has been terminated and reaped;
-a lowering diagnostic raised in a Python worker is raised again in the owner.
+what a worker's request raises or throws, such as a lowering diagnostic, is
+raised again in the owner unchanged, in both compilers and whether the worker
+is forked or the owner itself.
 Records are written only by the owner, only for finished units, and are
 content-keyed and checksummed, so a failed compile publishes no output and
 leaves no partial record. Tests cover identical units across worker counts in

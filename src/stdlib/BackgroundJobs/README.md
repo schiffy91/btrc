@@ -61,12 +61,23 @@ and 69.0 s as one of eight. Work of that kind runs on worker processes.
 `WorkerPools` holds the portable contracts. An `IWorkerRequestHandler`
 answers one string request with one string reply; an `IWorkerPool` delivers
 requests to idle workers, returns each reply exactly once through
-`awaitReply()` (`READY`, `EMPTY` when nothing is outstanding, `FAILED` once any
-worker has failed, `TIMEOUT` when a nonnegative timeout passes with no reply)
-and owns the workers' lifetimes (`close()` lets them finish and reaps them,
-`terminate()` kills and reaps them). `InlineWorkerPool` is a pool whose single
-worker is the owner itself; it runs the same schedule, and a handler that
-throws fails it the way a crashed worker fails a process pool.
+`awaitReply()` (`READY`, `RAISED` with exactly what the handler threw, `EMPTY`
+when nothing is outstanding, `FAILED` once any worker has failed, `TIMEOUT`
+when a nonnegative timeout passes with no reply) and owns the workers'
+lifetimes (`close()` lets them finish and reaps them, `terminate()` kills and
+reaps them). After a `RAISED` reply the worker is idle again and the pool stays
+open; the owner decides whether to raise it. `usage(worker)` is a reaped
+worker's own `WorkerUsage`: user and system CPU time in microseconds and peak
+resident memory in KiB on every host, or null before reaping, for the owner
+itself and where the host reports none. `InlineWorkerPool` is a pool whose
+single worker is the owner itself; it runs the same schedule, a handler that
+throws reaches `awaitReply()` as `RAISED` exactly as a forked worker's does,
+and it reports no usage.
+
+`ProcessThreads.count()` is the process's live thread count, or -1 where the
+host cannot tell: one `/proc/self/task` entry per thread on linux
+(`Linux/ProcessThreadsProvider`), `proc_pidinfo` task info on macOS
+(`MacOS/ProcessThreadsProvider`).
 
 `HostWorkerPools` is the factory a host entry point hands to its owners. The
 `[[package.providers]]` entries in `btrc.toml` select its `WorkerPoolProvider`
@@ -85,7 +96,12 @@ windows provider would open. The Unix entries (`BtrccMain`, `MacOSMain`) pass
 The Unix provider starts each worker as a copy of the owner at `open()`, so
 it shares everything the owner had built copy-on-write and keeps what it
 builds itself between requests. Owner and worker share one `AF_UNIX` socket
-pair; frames are 16 lowercase hex digits of payload length and the payload.
+pair; frames are 16 lowercase hex digits of payload length and the payload,
+and a reply's payload starts with one kind byte, `=` before an answer and `!`
+before what the handler threw. A pool does not start while another thread
+runs, since a lock that thread held at the fork would stay held forever in the
+worker: `open()` returns null and the owner can answer inline. The owner reaps
+each worker with `wait4`, which reports that worker's own usage.
 The owner sends only to idle workers and reads every reply whole, so neither
 side blocks the other on a full socket. A worker that exits, is killed or
 writes a malformed frame fails the pool: every worker is terminated and

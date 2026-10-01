@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.application.compiler import Compiler
-from src.compiler.python.application.modules import ModuleUnitCompiler, ModuleUnitRecord
+from src.compiler.python.application.modules import ForkedModuleUnitWorkers, ModuleUnitCompiler, ModuleUnitRecord
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
@@ -847,7 +848,7 @@ def _timed_cli_build(
     command: list[str],
     workspace: _Workspace,
     output: Path,
-    jobs: int,
+    jobs: int | None,
     *,
     timing: bool = True,
     cache: Path | None = None,
@@ -873,8 +874,7 @@ def _timed_cli_build(
             "--emit-units",
             str(output / "program"),
             "--module-units",
-            "--jobs",
-            str(jobs),
+            *(["--jobs", str(jobs)] if jobs is not None else []),
         ],
         cwd=workspace.modules,
         env=environment,
@@ -982,9 +982,24 @@ def test_inline_and_incremental_builds_print_no_worker_timing(compiler: str, tmp
     _timed_cli_build(command, workspace, workspace.root / "cold", 2, cache=cache)
     warm = _timed_cli_build(command, workspace, workspace.root / "warm", 2, cache=cache)
     assert len(warm.owner) == 1 and not warm.workers
+    # Timing keeps the artifact cache on in both compilers, so the no-op
+    # rebuild is a hit, and both mark it.
+    assert re.search(r"\bartifact-hit=\d+us", warm.owner[0]), warm.owner[0]
     workspace.edit("Catalog/Catalog.btrc", 'print(f"catalog skipped {error}");', 'print(f"catalog skip: {error}");')
     edited = _timed_cli_build(command, workspace, workspace.root / "edited", 2, cache=cache)
     assert len(edited.owner) == 1 and not edited.workers
+
+
+def test_default_worker_count_is_one_per_online_cpu_up_to_four(compiler: str, tmp_path, request):
+    """Without --jobs both compilers start the same pool: one worker per
+    online CPU, at most four, and never more than the groups to lower."""
+    workspace = _Workspace(tmp_path.resolve())
+    build = _timed_cli_build(_timing_command(compiler, request), workspace, workspace.root / "cold", None)
+    lowered = _python_lowered_groups(workspace, workspace.root / "probe")
+    expected = min(os.sysconf("SC_NPROCESSORS_ONLN"), 4, lowered)
+    assert len(build.workers) == (expected if expected > 1 else 0), build.stderr
+    if compiler == "btrc":
+        assert f"module-unit-workers={max(expected, 1)}" in build.owner[0]
 
 
 def test_worker_timing_never_changes_the_units(compiler: str, tmp_path, request):
@@ -1294,6 +1309,81 @@ def test_a_dying_worker_fails_the_compile_and_leaves_no_workers(tmp_path):
     assert lines[0] == "module-unit worker failed: worker exited with status 9"
     assert lines[1] == "no workers left"
     assert not list(output.glob("program*.c"))
+
+
+_RAISING_WORKER = """
+import os, sys
+from pathlib import Path
+from src.compiler.python.application.compiler import Compiler
+from src.compiler.python.application.modules import ModuleUnitWorker
+from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.artifacts.cache import CompilerCache
+from src.compiler.python.ir.lowering.types import CodegenError
+
+answer = ModuleUnitWorker._answer
+
+def raising(self, request):
+    if request["op"] == "lower" and request["group"].endswith("Catalog.btrc"):
+        raise CodegenError("probe diagnostic from Catalog")
+    return answer(self, request)
+
+ModuleUnitWorker._answer = raising
+entry, output, jobs = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3])
+result = Compiler(cache=CompilerCache()).compile(
+    entry.read_text(),
+    str(entry),
+    CompilerOptions(units_prefix=str(output / "program"), module_units=True, module_jobs=jobs, use_cache=False),
+)
+print(result.failure.message if result.failure is not None else "no failure")
+"""
+
+
+def test_a_raising_request_surfaces_its_own_diagnostic_from_any_pool(tmp_path):
+    """What a worker's request raises reaches the owner unchanged, whether the
+    worker is the owner itself or a forked process: the same failure text."""
+    workspace = _Workspace(tmp_path.resolve())
+    messages = []
+    for jobs in (1, 3):
+        output = workspace.root / f"out-{jobs}"
+        output.mkdir()
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _RAISING_WORKER,
+                str(workspace.modules / "CatalogMain.btrc"),
+                str(output),
+                str(jobs),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_CACHE_DIR": str(workspace.cache), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert completed.returncode == 0, completed.stderr
+        messages.append(completed.stdout.splitlines()[0])
+    assert "probe diagnostic from Catalog" in messages[0]
+    assert messages[0] == messages[1]
+
+
+def test_workers_never_fork_beside_another_thread():
+    """A lock another thread held at the fork would stay held in the worker,
+    so the pool refuses to start and the owner lowers inline instead."""
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait, daemon=True)
+    thread.start()
+    try:
+        assert ForkedModuleUnitWorkers.other_threads_running()
+        assert ForkedModuleUnitWorkers.start(2, lambda request: request) is None
+    finally:
+        release.set()
+        thread.join(timeout=10)
+
+
+def test_suggested_worker_count_matches_the_self_hosted_pools():
+    """btrcc's pools suggest one worker per online CPU, at most four."""
+    assert ForkedModuleUnitWorkers.suggested_count() == max(1, min(os.sysconf("SC_NPROCESSORS_ONLN"), 4))
 
 
 _EFFECTS_PROGRAM = {

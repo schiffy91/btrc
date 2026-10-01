@@ -31,8 +31,8 @@ the API surface, so the layout follows a few fixed rules.
   prebuilt core archive.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
   `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`, `Image/Linux`,
-  `Tray/Linux`, `Tray/MacOS`, and `BackgroundJobs/Unix` for code shared by
-  linux and macOS) and implements the group's portable
+  `Tray/Linux`, `Tray/MacOS`, `BackgroundJobs/Linux`, `BackgroundJobs/MacOS`,
+  and `BackgroundJobs/Unix` for code shared by linux and macOS) and implements the group's portable
   contract: `GUI/MacOS/MacOSDirectoryPicker` implements `GUI/IDirectoryPicker`,
   `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
   (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/CoreAudioDevice`

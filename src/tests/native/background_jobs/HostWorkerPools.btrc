@@ -1,10 +1,12 @@
 // Host worker pools (forked processes on linux and macOS): requests reach
 // separate processes that inherit the owner's state, large payloads round-trip
 // whole, a bounded wait times out without failing the pool, and a worker that
-// dies or a pool that is terminated mid-request fails without hanging. Each
+// dies or a pool that is terminated mid-request fails without hanging. No
+// pool forks while another thread runs. Each
 // reaped worker reports its own usage; the inline worker, being the owner,
 // reports none.
 import Library.BackgroundJobs.HostWorkerPools;
+import Library.BackgroundJobs.ProcessThreads;
 import Library.BackgroundJobs.WorkerPools;
 import Library.Map;
 import Library.Strings;
@@ -48,12 +50,14 @@ int main() {
 	WorkerReply inlineReply = owner.awaitReply();
 	print(f"inline {inlineReply.worker}={inlineReply.payload}, then empty {owner.awaitReply().kind == WorkerReplyKind.WORKER_REPLY_EMPTY}");
 	print(f"inline closed cleanly {owner.close()}, usage none {owner.usage(0) == null}");
-	// A throwing handler fails the inline pool instead of escaping send.
+	// A throwing handler never escapes send: the throw comes back as RAISED
+	// with its own text, and the worker answers the next request.
 	IWorkerPool throwing = InlineWorkerPool(ProbeHandler(configuration));
 	print(f"inline throw accepted {throwing.send(0, "throw")}");
 	WorkerReply thrown = throwing.awaitReply();
-	print(f"inline throw failed {thrown.kind == WorkerReplyKind.WORKER_REPLY_FAILED}: {thrown.error}");
-	print(f"inline throw refuses more {!throwing.send(0, "x")}, closed cleanly {throwing.close()}");
+	print(f"inline throw raised {thrown.kind == WorkerReplyKind.WORKER_REPLY_RAISED} worker {thrown.worker}: {thrown.error}");
+	throwing.send(0, "after");
+	print(f"inline after throw {throwing.awaitReply().payload}, closed cleanly {throwing.close()}");
 	HostWorkerPools pools = HostWorkerPools();
 	print(f"suggested workers in range {pools.suggestedWorkers() >= 1 && pools.suggestedWorkers() <= 4}");
 	IWorkerPool? opened = pools.open(3, ProbeHandler(configuration));
@@ -83,6 +87,11 @@ int main() {
 
 	print(f"idle after replies {pool.idle(0) && pool.idle(1) && pool.idle(2)}");
 	print(f"empty {pool.awaitReply().kind == WorkerReplyKind.WORKER_REPLY_EMPTY}");
+
+	// A forked worker's throw comes back the same way, and that worker lives on.
+	pool.send(1, "throw");
+	WorkerReply raised = pool.awaitReply();
+	print(f"forked throw raised {raised.kind == WorkerReplyKind.WORKER_REPLY_RAISED} worker {raised.worker}: {raised.error}");
 
 	pool.send(1, "inherited");
 	print(f"inherited {pool.awaitReply().payload}");
@@ -129,6 +138,21 @@ int main() {
 	print(f"bounded wait timed out {waited.kind == WorkerReplyKind.WORKER_REPLY_TIMEOUT}, still busy {!stopped.idle(0)}");
 	stopped.terminate();
 	print(f"terminated reply failed {stopped.awaitReply().kind == WorkerReplyKind.WORKER_REPLY_FAILED}, usage reaped {stopped.usage(0) != null}");
+	// A lock another thread held at a fork would stay held in the worker, so
+	// no pool starts while one runs.
+	print(f"single threaded {ProcessThreads.count() == 1}");
+	Mutex<int> gate = Mutex(0);
+	Thread<int> waiting = spawn(() => {
+			while (gate.get() == 0) { usleep(1000); }
+			return 0;
+		});
+	print(f"threads while one waits {ProcessThreads.count()}, pool refused {pools.open(2, ProbeHandler(configuration)) == null}");
+	gate.set(1);
+	waiting.join();
+	gate.destroy();
+	IWorkerPool? reopened = pools.open(2, ProbeHandler(configuration));
+	print(f"reopened after join {reopened != null}");
+	if (reopened != null) { print(f"reopened closed cleanly {reopened.close()}"); }
 	print("PASS: process worker pool");
 	return 0;
 }
