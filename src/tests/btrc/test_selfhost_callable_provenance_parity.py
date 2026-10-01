@@ -14,8 +14,8 @@ from src.tests.btrc.test_callable_return_abi_contract import _compile_both
 from src.tests.btrc.test_global_reachability import (
     _strict_build_and_run,
 )
-from src.tests.btrc.test_mutex_value_contract import COMPILERS
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -266,7 +266,7 @@ def test_pointer_to_callable_slot_remains_an_object_pointer_cast(
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         _strict_build_and_run(
             generated,
             tmp_path / f"callable-slot-{Path(compiler).name}",
@@ -595,7 +595,7 @@ def test_selfhost_callable_runtime_is_strict_c11_clean(
 
     _instrument_callable_runtime(generated)
 
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         _strict_build_and_run(
             generated,
             tmp_path / f"callable-runtime-{Path(compiler).name}",

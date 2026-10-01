@@ -11,11 +11,10 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 from src.tests.python.test_codegen import emit_c
-from src.tests.python.test_gpu_dispatch_failures import (
-    COMPILERS,
-    _compile_with_gpu_stubs,
-)
+from src.tests.python.test_gpu_dispatch_failures import _compile_with_gpu_stubs
 
 GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "GPU"
 GPU_UNAVAILABLE_STUB = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "gpu_unavailable_stub.c"
@@ -31,8 +30,8 @@ def _analyzed_despite_errors(source: str):
     return SemanticAnalyzer().analyze(program)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("available", [False, True], ids=["cpu", "gpu"])
 def test_output_capacity_mismatch_fails_before_dispatch(
     tmp_path: Path,
@@ -49,14 +48,14 @@ def test_output_capacity_mismatch_fails_before_dispatch(
         compiler=c_compiler,
     )
 
-    result = subprocess.run([str(executable)], capture_output=True, text=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
 
     assert result.returncode != 0
     assert "output capacity is smaller than dispatch length" in result.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_named_gpu_arguments_and_defaults_follow_parameter_order(
     tmp_path: Path,
     c_compiler: str,
@@ -78,7 +77,7 @@ def test_named_gpu_arguments_and_defaults_follow_parameter_order(
         compiler=c_compiler,
     )
 
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_unsized_pointer_gpu_input_is_rejected() -> None:
@@ -185,8 +184,8 @@ def test_pointer_output_shadow_does_not_borrow_outer_array_capacity() -> None:
     assert any("array bound or initializer" in error for error in errors)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_zero_length_collection_result_uses_nonzero_c_storage(
     tmp_path: Path,
     c_compiler: str,
@@ -218,7 +217,7 @@ def test_zero_length_collection_result_uses_nonzero_c_storage(
         compiler=c_compiler,
     )
 
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_explicit_gpu_output_bound_is_evaluated_once() -> None:
@@ -252,8 +251,8 @@ def test_departed_array_shadow_does_not_lend_capacity_to_parameter() -> None:
     assert any("no provable writable capacity" in error for error in errors)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_live_gpu_dispatch_materializes_runtime_header_strictly(
     tmp_path: Path,
     c_compiler: str,
@@ -285,12 +284,13 @@ def test_live_gpu_dispatch_materializes_runtime_header_strictly(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
-    subprocess.run([str(binary)], check=True)
+    subprocess.run([str(binary)], check=True, timeout=RUN_TIMEOUT)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_dead_gpu_kernel_leaves_no_unused_shader_constant(
     tmp_path: Path,
     c_compiler: str,
@@ -316,11 +316,12 @@ def test_dead_gpu_kernel_leaves_no_unused_shader_constant(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_bool_uniform_layout_compiles_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -341,4 +342,4 @@ def test_bool_uniform_layout_compiles_strict_c11(
         compiler=c_compiler,
     )
 
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)

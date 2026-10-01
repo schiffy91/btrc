@@ -89,7 +89,6 @@ _SNIPPETS = (
         "Public method declaration",
         "public ${1:void} ${2:methodName}(${3:}) {\n\t$0\n}",
     ),
-    ("println", 'println("...")', "Print a line", 'println("${1:message}")$0'),
 )
 _ACCESS_VALUES = frozenset({".", "?.", "->"})
 _MEMBER_ACCESS_RE = re.compile(

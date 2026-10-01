@@ -1,6 +1,5 @@
 """Generic substitution must retain complete array and qualifier metadata."""
 
-import shutil
 import subprocess
 import sys
 from dataclasses import replace
@@ -15,9 +14,9 @@ from src.compiler.python.ir.lowering.session import LoweringSession
 from src.compiler.python.ir.lowering.types import CTypeLowerer
 from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.syntax.ast.generated import IntLiteral, Program, TypeExpr
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.python.test_codegen import emit_c
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 IDENTITY = TypeIdentity()
 
 
@@ -164,10 +163,10 @@ def test_generic_array_layout_retains_the_mapped_element_type(
 
 
 @pytest.mark.skipif(
-    not COMPILERS or sys.platform == "win32",
+    not HOST_C_COMPILERS or sys.platform == "win32",
     reason="requires a hosted C11 compiler",
 )
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_generic_string_and_scalar_arrays_compile_and_run_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,

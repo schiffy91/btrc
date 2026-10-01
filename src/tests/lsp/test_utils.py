@@ -7,7 +7,7 @@ from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.compiler.python.syntax.tokens import Token, TokenKind
 from src.devex.lsp.analysis.resolution import LexicalScopeIndex
-from src.tests.lsp.lsphelp import RESOLVER, analyze
+from src.tests.lsp.lsphelp import RESOLVER, analyze, pos_of
 
 _CHAIN = (
     "class Inner { public int v; public Inner(int v) { self.v = v; }\n"
@@ -114,3 +114,63 @@ def test_body_range_walks_elseif_and_switch():
     fn = ast.declarations[0]
     _start, end = LexicalScopeIndex.body_range(fn.body, fn.line)
     assert end >= 7  # the deepest statement (return last) is on line 7 (1-based)
+
+
+def test_resolve_variable_type_inferred_constructor_call():
+    # On the pre-analysis AST the `var` has no annotated type, so resolution
+    # falls to the constructor-call inference branch.
+    src = "class T { public int v; public T() { self.v = 0; } }\nint main() { var t = T(); return t.v; }\n"
+    ct = analyze(src).analyzed.class_table
+    assert RESOLVER.resolve_variable_type("t", _ast(src), ct) == "T"
+
+
+def test_resolve_variable_type_inferred_new_expr():
+    src = "class T { public int v; public T() { self.v = 0; } }\nint main() { var t = new T(); return t.v; }\n"
+    ct = analyze(src).analyzed.class_table
+    assert RESOLVER.resolve_variable_type("t", _ast(src), ct) == "T"
+
+
+def test_resolve_variable_type_in_else_branch():
+    src = (
+        "class T { public int v; public T() { self.v = 0; } }\n"
+        "int main() {\n"
+        "    if (1) { return 0; }\n"
+        "    else { T made = new T(); return made.v; }\n"
+        "}\n"
+    )
+    a = analyze(src)
+    assert RESOLVER.resolve_variable_type("made", a.ast, a.analyzed.class_table) == "T"
+
+
+def test_resolve_variable_type_in_else_if_branch():
+    src = (
+        "class T { public int v; public T() { self.v = 0; } }\n"
+        "int main() {\n"
+        "    if (1) { return 0; }\n"
+        "    else if (0) { T made = new T(); return made.v; }\n"
+        "    return 1;\n"
+        "}\n"
+    )
+    a = analyze(src)
+    assert RESOLVER.resolve_variable_type("made", a.ast, a.analyzed.class_table) == "T"
+
+
+def test_resolve_chain_static_root():
+    src = (
+        "class A { public int v; public A() { self.v = 0; }\n"
+        "          public int go() { return 1; } }\n"
+        "int main() { A a = A(); return a.go(); }\n"
+    )
+    a = analyze(src)
+    pos = pos_of(src, "A a")
+    a_idx = next(
+        i for i, t in enumerate(a.tokens) if t.value == "A" and t.line == pos.line + 1 and t.col == pos.character + 1
+    )
+    assert RESOLVER.resolve_chain_type(a, a.tokens, a_idx, a.analyzed.class_table) == "A"
+
+
+def test_resolve_chain_broken_hop_is_none():
+    src = "class A { public int v; public A() { self.v = 0; } }\nint main() { A a = A(); return a.bad; }\n"
+    a = analyze(src)
+    bad_idx = next(i for i, t in enumerate(a.tokens) if t.value == "bad")
+    assert RESOLVER.resolve_chain_type(a, a.tokens, bad_idx, a.analyzed.class_table) is None

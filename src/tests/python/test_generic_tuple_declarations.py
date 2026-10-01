@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 _INTERNAL_GENERIC_TUPLE_SOURCES = (
     pytest.param(
@@ -50,9 +48,9 @@ _INTERNAL_GENERIC_TUPLE_SOURCES = (
 )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@requires_host_c_compiler
 @pytest.mark.parametrize("source", _INTERNAL_GENERIC_TUPLE_SOURCES)
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_internal_generic_tuple_shapes_are_declared_before_specialized_bodies(
     tmp_path: Path,
     source: str,

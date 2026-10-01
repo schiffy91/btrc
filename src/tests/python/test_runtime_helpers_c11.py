@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 RUNTIME_CATALOG = RuntimeHelperCatalog()
 ALLOC = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("alloc")}
@@ -62,9 +63,8 @@ HELPER_ORDER = (
     ),
 )
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 CLANG = shutil.which("clang")
-NO_C11_RUNTIME = not COMPILERS or sys.platform == "win32"
+NO_C11_RUNTIME = not HOST_C_COMPILERS or sys.platform == "win32"
 
 
 def _source(main: str) -> str:
@@ -102,7 +102,7 @@ def _compile(tmp_path: Path, compiler: str, main: str, *, ubsan=False) -> Path:
 
 
 @pytest.mark.skipif(NO_C11_RUNTIME, reason="requires POSIX C11 runtime")
-@pytest.mark.parametrize("c_compiler", COMPILERS)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS)
 def test_foreign_thread_boundary_cleans_tls_and_contains_exceptions(tmp_path: Path, c_compiler: str):
     main = r"""
 static int disposed;
@@ -255,7 +255,7 @@ def test_retain_only_string_registry_is_warning_clean(tmp_path: Path):
 
 
 @pytest.mark.skipif(NO_C11_RUNTIME, reason="requires a pthread C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_runtime_helpers_execute_boundary_cases_under_strict_c11(tmp_path: Path, c_compiler: str):
     main = r"""
 typedef struct TestNode {
@@ -388,7 +388,7 @@ int main(int argc, char** argv) {
 }
 """
     binary = None
-    for c_compiler in reversed(COMPILERS):
+    for c_compiler in reversed(HOST_C_COMPILERS):
         try:
             binary = _compile(tmp_path, c_compiler, main, ubsan=True)
             break

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .manifest_fields import ManifestFields
+
 
 class IntrinsicEffectManifestError(ValueError):
     """The shared compiler-intrinsic effect specification is malformed."""
@@ -30,6 +32,8 @@ class IntrinsicEffectSpec:
 @dataclass(frozen=True, slots=True)
 class IntrinsicEffectManifest:
     """Canonical intrinsic effects consumed by both compiler implementations."""
+
+    _FIELDS = ManifestFields(IntrinsicEffectManifestError)
 
     schema_version: int
     methods: tuple[IntrinsicEffectSpec, ...]
@@ -66,7 +70,7 @@ class IntrinsicEffectManifest:
             document = tomllib.loads(data.decode("utf-8"))
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
             raise IntrinsicEffectManifestError(f"cannot read intrinsic effect manifest {path}: {error}") from error
-        cls._require_keys(document, cls._ROOT_KEYS, "intrinsic effect manifest")
+        cls._FIELDS.require_keys(document, cls._ROOT_KEYS, "intrinsic effect manifest")
         schema_version = document.get("schema_version")
         if type(schema_version) is not int or schema_version != 1:
             raise IntrinsicEffectManifestError(f"unsupported intrinsic effect schema version: {schema_version!r}")
@@ -86,7 +90,7 @@ class IntrinsicEffectManifest:
         context = f"methods[{index}]"
         if not isinstance(value, dict):
             raise IntrinsicEffectManifestError(f"{context} must be a table")
-        cls._require_keys(value, cls._METHOD_KEYS, context, required=cls._METHOD_REQUIRED_KEYS)
+        cls._FIELDS.require_keys(value, cls._METHOD_KEYS, context, required=cls._METHOD_REQUIRED_KEYS)
         receiver = cls._identifier(value, "receiver", context)
         method = cls._identifier(value, "method", context)
         realtime_effect = value.get("realtime_effect")
@@ -101,18 +105,3 @@ class IntrinsicEffectManifest:
         if not isinstance(value, str) or not cls._IDENTIFIER.fullmatch(value):
             raise IntrinsicEffectManifestError(f"{context}.{key} must be a C identifier")
         return value
-
-    @staticmethod
-    def _require_keys(
-        table: dict[str, Any],
-        allowed: frozenset[str],
-        context: str,
-        *,
-        required: frozenset[str] | None = None,
-    ) -> None:
-        unknown = set(table) - allowed
-        if unknown:
-            raise IntrinsicEffectManifestError(f"unknown {context} keys: {', '.join(sorted(unknown))}")
-        missing = (required or allowed) - set(table)
-        if missing:
-            raise IntrinsicEffectManifestError(f"missing {context} keys: {', '.join(sorted(missing))}")

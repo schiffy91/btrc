@@ -13,8 +13,9 @@ from src.compiler.python.ir.lowering.types import CTypeLowerer
 from src.compiler.python.ir.nodes import IRBinOp, IRCall, IRLiteral, IRNode, IRVar
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.test_codegen import emit_c
-from src.tests.python.test_typed_operator_contract import COMPILERS
 
 CLANG = shutil.which("clang")
 
@@ -178,8 +179,8 @@ def test_long_string_concat_has_bounded_c_expression_depth(tmp_path: Path):
     subprocess.run([str(executable)], check=True, timeout=15)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_fstring_pins_borrowed_value_across_later_introduced_conversion(
     tmp_path: Path,
     c_compiler: str,
@@ -241,8 +242,8 @@ def test_fstring_pins_borrowed_value_across_later_introduced_conversion(
     subprocess.run([str(executable)], check=True, timeout=15)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_call_boundaries_pin_borrowed_values_across_later_introduced_conversion(
     tmp_path: Path,
     c_compiler: str,
@@ -318,8 +319,8 @@ def test_call_boundaries_pin_borrowed_values_across_later_introduced_conversion(
     subprocess.run([str(executable)], check=True, timeout=15)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_optional_scalar_coalesce_is_single_evaluation_and_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -367,12 +368,13 @@ def test_optional_scalar_coalesce_is_single_evaluation_and_strict_c11(
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     subprocess.run([str(executable)], check=True, timeout=10)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_optional_generic_method_coalesce_is_lazy_and_preserves_protected_results(
     tmp_path: Path,
     c_compiler: str,

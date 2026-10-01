@@ -15,8 +15,8 @@ class StdlibSymbolIndexGenerator:
 
     def artifacts(self) -> tuple[GeneratedArtifact, ...]:
         from src.compiler.python.frontend.sources import StdlibRepository
-        from src.compiler.python.frontend.symbol_index import INDEX_FILE_NAME
+        from src.compiler.python.frontend.symbol_index import StdlibSymbolIndex
 
         sources = StdlibRepository(directory=str(self._repository_root / "src" / "stdlib"))
         content = sources.render_symbol_index().encode("utf-8")
-        return (GeneratedArtifact(PurePosixPath("src/stdlib") / INDEX_FILE_NAME, content),)
+        return (GeneratedArtifact(PurePosixPath("src/stdlib") / StdlibSymbolIndex.INDEX_FILE_NAME, content),)

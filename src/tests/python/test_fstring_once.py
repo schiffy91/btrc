@@ -9,15 +9,13 @@ run once without breaking short-circuit, ternary, or loop-condition semantics.
 """
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _snprintf_calls(c: str) -> list[str]:
@@ -57,8 +55,8 @@ def test_interpolations_use_matching_variadic_formats():
     assert c.count("__btrc_string_or_empty(") >= 3, c
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_control_sensitive_evaluation_stays_inside_expression(tmp_path, c_compiler):
     c = emit_c(
         "int calls = 0;\n"

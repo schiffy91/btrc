@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.tests.corpus_files import INCLUDE_FIXTURES, language_test_files
+from src.tests.corpus_files import include_fixtures, language_test_files
 
 TESTS = Path("src/tests")
 
@@ -41,7 +41,41 @@ def test_formatter_fixtures_are_owned_by_syntax_preservation_tests():
 def test_textual_include_fixtures_are_not_standalone_corpus_programs():
     selected = set(language_test_files(TESTS))
 
-    assert selected.isdisjoint(INCLUDE_FIXTURES)
+    fixtures = include_fixtures(TESTS)
+
+    assert selected.isdisjoint(fixtures)
+    assert "control_flow/includehelpers/AngleIncludeHelper.btrc" in fixtures
+    assert "imports/treehelpers/deep/Inner.btrc" in fixtures
+
+
+def test_fixtures_are_derived_from_every_reference_form(tmp_path):
+    (tmp_path / "topic" / "parts" / "deep").mkdir(parents=True)
+    (tmp_path / "sibling").mkdir()
+    for name in ("Quoted", "Angle", "Dotted", "Bare", "Parent", "Glob", "Deep"):
+        (tmp_path / "topic" / "parts" / f"{name}.btrc").write_text("")
+    (tmp_path / "topic" / "parts" / "deep" / "Leaf.btrc").write_text("")
+    (tmp_path / "sibling" / "Up.btrc").write_text("")
+    (tmp_path / "topic" / "Helpers.btrc").write_text("int main() { return 0; }\n")
+    (tmp_path / "topic" / "Program.btrc").write_text(
+        '#include "parts/Quoted.btrc"\n'
+        "#include <parts/Angle.btrc>\n"
+        "import ./parts/Dotted.btrc\n"
+        'import "parts/Bare.btrc"\n'
+        "import ../sibling/Up.btrc\n"
+        "import Library.Vector;\n"
+        '#include "native.c"\n'
+    )
+    (tmp_path / "topic" / "Globbing.btrc").write_text("import ./parts/deep/**\n")
+
+    assert include_fixtures(tmp_path) == {
+        "topic/parts/Quoted.btrc",
+        "topic/parts/Angle.btrc",
+        "topic/parts/Dotted.btrc",
+        "topic/parts/Bare.btrc",
+        "sibling/Up.btrc",
+        "topic/parts/deep/Leaf.btrc",
+    }
+    assert "topic/Helpers.btrc" in language_test_files(tmp_path)
 
 
 def test_every_runnable_program_has_a_stdout_golden():

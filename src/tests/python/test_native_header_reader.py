@@ -93,6 +93,7 @@ def assert_codec_parity(codec_probe, tmp_path, source):
 
 
 from src.compiler.python.frontend.packages import PackageUniverse
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 
@@ -893,7 +894,11 @@ def test_native_semantic_decoders_reject_invalid_metadata(reader, codec_probe, t
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires the actual macOS CoreFoundation SDK")
 def test_real_corefoundation_has_compiled_semantic_model(reader, codec_probe, tmp_path):
     sdk = subprocess.run(
-        ["xcrun", "--sdk", "macosx", "--show-sdk-path"], check=True, text=True, capture_output=True
+        ["xcrun", "--sdk", "macosx", "--show-sdk-path"],
+        check=True,
+        text=True,
+        capture_output=True,
+        timeout=TOOL_TIMEOUT,
     ).stdout.strip()
     result = read(
         reader,
@@ -1057,7 +1062,7 @@ def test_cpp_pugixml_sdk_resource_metadata(reader, codec_probe, tmp_path):
     package = shutil.which("pkg-config")
     if package is None:
         pytest.skip("pugixml metadata proof requires pkg-config")
-    flags = subprocess.run([package, "--cflags", "pugixml"], capture_output=True, text=True)
+    flags = subprocess.run([package, "--cflags", "pugixml"], capture_output=True, text=True, timeout=TOOL_TIMEOUT)
     if flags.returncode != 0:
         pytest.skip("pugixml SDK is not installed")
     import shlex
@@ -1371,7 +1376,11 @@ def test_incomplete_typedef_can_name_an_opaque_handle_but_not_a_value(reader, tm
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires the actual macOS CoreFoundation SDK")
 def test_real_corefoundation_header(reader, tmp_path):
     sdk = subprocess.run(
-        ["xcrun", "--sdk", "macosx", "--show-sdk-path"], check=True, text=True, capture_output=True
+        ["xcrun", "--sdk", "macosx", "--show-sdk-path"],
+        check=True,
+        text=True,
+        capture_output=True,
+        timeout=TOOL_TIMEOUT,
     ).stdout.strip()
     result = read(
         reader,
@@ -1426,7 +1435,11 @@ def test_package_binding_describes_a_real_sdk_header_request(reader, tmp_path):
     resolved = PackageUniverse().resolve_for(str(module), target="macos-aarch64")
     [binding] = resolved.native_plan.for_sources([str(module)]).bindings
     sdk = subprocess.run(
-        ["xcrun", "--sdk", "macosx", "--show-sdk-path"], check=True, text=True, capture_output=True
+        ["xcrun", "--sdk", "macosx", "--show-sdk-path"],
+        check=True,
+        text=True,
+        capture_output=True,
+        timeout=TOOL_TIMEOUT,
     ).stdout.strip()
     result = subprocess.run(
         [

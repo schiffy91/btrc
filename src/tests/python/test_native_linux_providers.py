@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
 from src.tests.runner_capabilities import linux_audio_backend_error, linux_display_error
 from tools.native_plan import NativePlanBuilder
 
@@ -100,6 +101,7 @@ def _build(source: Path, tmp_path: Path, frontend: str, sanitized: bool, request
                 str(fixture),
             ],
             check=True,
+            timeout=C_COMPILE_TIMEOUT,
         )
         objects.append(str(fixture))
 
@@ -172,7 +174,7 @@ def test_linux_audio_session(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("available", [True, False])
 def test_audio_capability_opens_the_configured_pcm(tmp_path, monkeypatch, available):
     """The devcontainer's own configuration opens a default PCM; an empty one does not."""
-    if subprocess.run(["pkg-config", "--exists", "alsa"], capture_output=True).returncode:
+    if subprocess.run(["pkg-config", "--exists", "alsa"], capture_output=True, timeout=TOOL_TIMEOUT).returncode:
         pytest.skip("requires ALSA development files")
     config = DEVCONTAINER_ALSA_CONFIG if available else tmp_path / "asound.conf"
     if not available:

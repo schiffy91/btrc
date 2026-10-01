@@ -7,12 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.python.test_arc_ownership_contracts import (
-    COMPILERS,
-    _asan_environment,
-    _emit,
-    _find_asan_compiler,
-)
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import C_COMPILE_TIMEOUT
+from src.tests.python.test_arc_ownership_contracts import _asan_environment, _emit, _find_asan_compiler
 
 GENERIC_LOCAL_SOURCE = r"""
     #include <assert.h>
@@ -286,15 +283,16 @@ def _compile(
         text=True,
         check=False,
         env=environment,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
     return executable
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
 @pytest.mark.parametrize(
     "c_compiler",
-    COMPILERS,
+    HOST_C_COMPILERS,
     ids=lambda path: Path(path).name,
 )
 def test_generic_local_arc_is_balanced(tmp_path: Path, c_compiler: str):
@@ -308,7 +306,7 @@ def test_generic_local_arc_is_balanced(tmp_path: Path, c_compiler: str):
     subprocess.run([str(executable)], check=True, timeout=15)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires AddressSanitizer")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires AddressSanitizer")
 def test_generic_local_arc_is_asan_clean(tmp_path: Path):
     compiler = _find_asan_compiler(tmp_path)
     environment = _asan_environment(compiler)

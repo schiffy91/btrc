@@ -1,19 +1,15 @@
-BTRC  := python3 -m src.compiler.python.main
-ROOT  := ../..
-SRC   := Todo.btrc
-OUT_C := todo.c
-OUT   := todo
+include ../Example.mk
 
 .PHONY: run clean
 
-run: $(OUT)
-	./$(OUT)
+run: todo
+	./todo
 
-$(OUT): $(OUT_C)
-	gcc $(OUT_C) -o $(OUT) -lm -lpthread
+todo: todo.c
+	$(CC) $(STRICT_CFLAGS) todo.c -o todo $(HOSTED_LIBS)
 
-$(OUT_C): $(SRC)
-	cd $(ROOT) && $(BTRC) examples/todo/$(SRC) -o examples/todo/$(OUT_C)
+todo.c: Todo.btrc
+	cd $(BTRC_ROOT) && $(BTRC) $(EXAMPLE)/Todo.btrc -o $(EXAMPLE)/todo.c
 
 clean:
-	rm -f $(OUT_C) $(OUT)
+	rm -f todo.c todo

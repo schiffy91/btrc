@@ -7,15 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import (
-    COMPILERS,
-    _compile_pair,
-    _strict_matrix,
-)
+from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
 from src.tests.btrc.test_semantic_validation import (
     _compile_reference_source,
     _compile_source,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -25,7 +22,7 @@ CALL_LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "OpaqueCCallLeadin
 READ_LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "OpaqueCOperandReadInvalid.btrc"
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires GCC or Clang with strict C11 support",
 )
 

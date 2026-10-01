@@ -3,8 +3,8 @@
      main -> b_helper               (direct)
    The leaf (Leaf) is reachable via two paths; the include guard must define it
    exactly once or the C compile fails on redefinition. */
-#include "DiamondAHelper.btrc"
-#include "DiamondBHelper.btrc"
+#include "includehelpers/DiamondAHelper.btrc"
+#include "includehelpers/DiamondBHelper.btrc"
 #include <assert.h>
 
 int main() {

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -26,8 +25,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 
 def _function(name: str, statements=None) -> IRFunctionDef:
@@ -168,8 +166,8 @@ def test_macro_replacements_root_whole_global_identifiers() -> None:
     assert [declaration.name for declaration in module.global_decls] == ["state"]
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_pruned_internal_global_is_strict_c11(
     tmp_path: Path,
     c_compiler: str,

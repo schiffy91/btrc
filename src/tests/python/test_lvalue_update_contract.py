@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import functools
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,9 +15,8 @@ from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 RUNTIME_SOURCE = r"""
 #include <assert.h>
@@ -337,8 +335,8 @@ def test_value_struct_field_assignment_preserves_the_original_lvalue():
     assert "(cell.value = probe())" in main
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_value_struct_field_assignment_is_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -369,8 +367,8 @@ def test_value_struct_field_assignment_is_strict_c11(
     subprocess.run([str(binary)], check=True, timeout=10)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_projection_assignment_runtime_is_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -401,8 +399,8 @@ def test_projection_assignment_runtime_is_strict_c11(
     subprocess.run([str(binary)], check=True, timeout=10)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_lvalue_runtime_is_strict_c11(tmp_path: Path, c_compiler: str):
     c_path = tmp_path / "lvalue_updates.c"
     binary = tmp_path / "lvalue_updates"

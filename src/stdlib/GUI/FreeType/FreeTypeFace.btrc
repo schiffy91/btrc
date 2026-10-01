@@ -43,7 +43,7 @@ class FreeTypeFace implements IFontFace {
 	}
 
 	private FontGlyph? loadGlyph(int codepoint, bool render) {
-		if (FT_Load_Char(self.face, (unsigned long)codepoint, render ? BTRC_FT_LOAD_RENDER : BTRC_FT_LOAD_DEFAULT) != 0) { return null; }
+		if (FT_Load_Char(self.face, (unsigned long)codepoint, render ? FT_LOAD_RENDER : FT_LOAD_DEFAULT) != 0) { return null; }
 		if (!render) {
 			var advance = copyFreeTypeAdvance(self.face);
 			if (advance == null) { throw "Cannot copy FreeType glyph advance"; }

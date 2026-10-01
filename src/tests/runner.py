@@ -19,26 +19,23 @@ single compiler with `pytest --compilers=python` (or `=btrc`); the Makefile wire
 """
 
 import json
-import math
 import os
 import platform
 import shlex
-import shutil
 import subprocess
-import sys
 import tempfile
 
 import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
-from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import default_c_compiler as default_c_compiler  # re-exported for CI steps
 from src.tests.corpus_files import language_test_files
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.runner_capabilities import (
     TARGET_CAPABILITIES,
     darwin_gpu_flags,
-    darwin_tray_backend_error,
     declared_capabilities,
-    linux_tray_backend_error,
     loopback_listener_error,
     target_capability_error,
 )
@@ -48,31 +45,10 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
 _GPU_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "GPU")
 _GPU_BUILD = os.path.join(_REPO_ROOT, "build", "stdlib", "GPU")
 
-# Compiler and flags configurable via environment.
-# Default to "cc" (the system C compiler), which resolves to the nix
-# gcc-wrapper that knows where glibc crt objects live.
-
-
-def default_c_compiler() -> str:
-    """The host C compiler when BTRC_CC is unset.
-
-    Nix's `cc` on macOS is GCC, which emulates thread-local storage through
-    pthread keys, so every compiled btrc program pays a call per access where
-    Apple's clang reads a native TLV descriptor. Measured on one identical
-    generated btrcc.c, a cold BTRSmith compile takes 74.9 s from the GCC build
-    against 62.3 s from the clang build: GCC's takes 20% longer over the whole
-    compile, and 79% longer on the generic-instance closure, the phase densest in thread-local and ARC
-    traffic.
-    """
-    if sys.platform == "darwin" and shutil.which("clang"):
-        return "clang"
-    return "cc"
-
-
-BTRC_CC = shlex.split(os.environ.get("BTRC_CC", default_c_compiler()))
+# Compiler and flags configurable via environment; the compiler defaults to
+# default_c_compiler() from src/tests/c_toolchains.py.
+BTRC_CC = configured_c_compiler()
 BTRC_CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
-if not BTRC_CC:
-    raise ValueError("BTRC_CC must name a C compiler")
 
 _PYTHON_COMPILER = Compiler()
 
@@ -81,35 +57,10 @@ _PYTHON_COMPILER = Compiler()
 MODULE_UNITS = os.environ.get("BTRC_TEST_MODULE_UNITS") == "1"
 
 
-def _positive_timeout_seconds(raw: str | None, *, name: str, default: float) -> float:
-    """Parse a positive finite subprocess timeout from the environment."""
-    if raw is None:
-        return default
-    try:
-        seconds = float(raw)
-    except ValueError as error:
-        raise ValueError(f"{name} must be a positive number of seconds") from error
-    if not math.isfinite(seconds) or seconds <= 0:
-        raise ValueError(f"{name} must be a positive number of seconds")
-    return seconds
-
-
-BTRC_TRANSPILE_TIMEOUT = _positive_timeout_seconds(
-    os.environ.get("BTRC_TEST_TRANSPILE_TIMEOUT"),
-    name="BTRC_TEST_TRANSPILE_TIMEOUT",
-    default=300.0,
-)
-
-# How long a compiled corpus program may run. The default suits the corpus,
-# where all but a handful finish in well under a second, and it is what catches
-# a program that hangs. The heaviest test is an order of magnitude slower than
-# the rest at -O0, so a slower machine -- a VM, an emulated architecture -- can
-# need a larger budget without anything being wrong.
-BTRC_RUN_TIMEOUT = _positive_timeout_seconds(
-    os.environ.get("BTRC_TEST_RUN_TIMEOUT"),
-    name="BTRC_TEST_RUN_TIMEOUT",
-    default=15.0,
-)
+# The corpus limits are the shared test-process limits; the names stay here
+# because test modules and the runner's own tests patch them on this module.
+BTRC_TRANSPILE_TIMEOUT = TRANSPILE_TIMEOUT
+BTRC_RUN_TIMEOUT = RUN_TIMEOUT
 
 
 def get_btrc_test_files():
@@ -123,51 +74,31 @@ def _require_test_capabilities(btrc_path):
     if "loopback-listener" in required:
         if error := loopback_listener_error():
             pytest.skip(error)
-    if "native-tray" in required and platform.system() not in ("Darwin", "Linux"):
-        pytest.skip("native tray provider is not implemented for this target")
-    if "native-tray" in required and platform.system() == "Darwin":
-        error = darwin_tray_backend_error(tuple(BTRC_CC), tuple(BTRC_CFLAGS))
-        if error:
-            pytest.skip(error)
-    if "native-tray" in required and platform.system() == "Linux":
-        if error := linux_tray_backend_error():
-            pytest.skip(error)
     for capability in sorted(required & TARGET_CAPABILITIES):
         if error := target_capability_error(capability):
             pytest.skip(error)
 
 
 def _transpile_python(btrc_path, btrc_file):
-    """Transpile a .btrc file to C via the reference Python compiler API."""
+    """Transpile a .btrc file to C through the reference compiler's public API."""
     with open(btrc_path) as f:
         source = f.read()
-    options = CompilerOptions(map_stdlib_positions=True)
-    frontend = _PYTHON_COMPILER.compile_frontend(
+    result = _PYTHON_COMPILER.compile(
         source,
         btrc_path,
-        options,
-        filename=os.path.basename(btrc_file),
+        CompilerOptions(map_stdlib_positions=True, use_cache=False),
     )
-    analyzed = frontend.analyzed
-    assert not analyzed.errors, f"Analyzer errors: {analyzed.errors}"
-    source_map = frontend.source_bundle.source_map(
-        split_spaces=bool(frontend.stdlib_source and frontend.user_program is not None),
-    )
-    ir_module = IRLowerer(
-        analyzed,
-        source_file=os.path.basename(btrc_file),
-        source_map=source_map,
-        prune_stdlib=options.dce,
-    ).lower()
-    ir_module = _PYTHON_COMPILER.pipeline.optimize(ir_module, options)
-    return _PYTHON_COMPILER.pipeline.emit(ir_module)
+    assert result.failure is None, f"{btrc_file}: compile failed: {result.failure}"
+    assert result.analyzed is None or not result.analyzed.errors, f"Analyzer errors: {result.analyzed.errors}"
+    assert result.c_source is not None, f"{btrc_file}: the compiler emitted no C"
+    return result.c_source
 
 
-def _transpile_python_module_units(btrc_path, btrc_file):
+def _transpile_python_module_units(btrc_path, directory):
     """Transpile through the public compiler API into module units."""
     with open(btrc_path) as f:
         source = f.read()
-    prefix = os.path.join(tempfile.mkdtemp(prefix="btrc-module-units-"), "program")
+    prefix = os.path.join(directory, "program")
     options = CompilerOptions(
         map_stdlib_positions=True,
         use_cache=False,
@@ -197,9 +128,8 @@ def _transpile_btrc(btrcc, btrc_path):
     return r.stdout
 
 
-def _transpile_btrc_module_units(btrcc, btrc_path):
+def _transpile_btrc_module_units(btrcc, btrc_path, directory):
     """Transpile with the self-hosted compiler into module units."""
-    directory = tempfile.mkdtemp(prefix="btrc-module-units-")
     primary = os.path.join(directory, "program.c")
     plan = os.path.join(directory, "program.json")
     r = subprocess.run(
@@ -281,7 +211,7 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
         gcc_flags = _gcc_flags(c_source, c_path, bin_path)
         if unit_paths:
             gcc_flags[gcc_flags.index(c_path) + 1 : gcc_flags.index(c_path) + 1] = unit_paths
-        compile_result = subprocess.run(gcc_flags, capture_output=True, text=True, timeout=60)
+        compile_result = subprocess.run(gcc_flags, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT)
         assert compile_result.returncode == 0, (
             f"gcc failed:\nstdout: {compile_result.stdout}\nstderr: {compile_result.stderr}"
         )
@@ -319,16 +249,16 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
 
 
 @pytest.mark.parametrize("btrc_file", get_btrc_test_files())
-def test_btrc_file(compiler, btrc_file, request):
+def test_btrc_file(compiler, btrc_file, request, tmp_path):
     """Run one language test through the selected compiler."""
     btrc_path = os.path.join(BTRC_TEST_DIR, btrc_file)
     if compiler == "python" and MODULE_UNITS:
-        c_source = _transpile_python_module_units(btrc_path, btrc_file)
+        c_source = _transpile_python_module_units(btrc_path, str(tmp_path))
     elif compiler == "python":
         c_source = _transpile_python(btrc_path, btrc_file)
     elif MODULE_UNITS:
         btrcc = request.getfixturevalue("btrcc_bin")
-        c_source = _transpile_btrc_module_units(btrcc, btrc_path)
+        c_source = _transpile_btrc_module_units(btrcc, btrc_path, str(tmp_path))
     else:
         btrcc = request.getfixturevalue("btrcc_bin")
         c_source = _transpile_btrc(btrcc, btrc_path)

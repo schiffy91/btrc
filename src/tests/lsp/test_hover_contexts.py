@@ -76,3 +76,87 @@ def test_hover_var_type_from_constructor_call():
 
 def test_hover_var_type_from_new_expr():
     assert "Box" in _hov("nb = new", offset=0)  # _infer_var_type via NewExpr
+
+
+def test_hover_variable_declared_in_try_block():
+    src = "int main() {\n    try { int caught = 5; return caught; }\n    catch (string e) { return 0; }\n}\n"
+    t = hover_text(get_hover_info(analyze(src), pos_of(src, "return caught", offset=7)))
+    assert "caught" in t
+
+
+def test_hover_variable_declared_in_else_block():
+    src = "int main() {\n    if (1) { return 1; }\n    else { int picked = 2; return picked; }\n}\n"
+    t = hover_text(get_hover_info(analyze(src), pos_of(src, "return picked", offset=7)))
+    assert "picked" in t
+
+
+def test_hover_var_inferred_from_unknown_call():
+    # the callee is undefined → the analyzer can't infer the type, so the
+    # hover heuristic falls back to the callee name.
+    src = "int main() { var thing = mystery(); return 0; }\n"
+    t = hover_text(get_hover_info(analyze(src), pos_of(src, "var thing", offset=4)))
+    assert "thing" in t or "mystery" in t
+
+
+# ---- variables nested inside block bodies (hover returns from inner scan) ---
+
+BLOCKS = """\
+import Library.{Vector, Map};
+
+int run(int n) {
+    Vector<int> items = [1, 2, 3];
+    Map<string, int> m = {};
+    for k, v in m {
+        int kv = v;
+    }
+    for x in items {
+        int inFor = x;
+    }
+    parallel for z in items {
+        int inPar = z;
+    }
+    if (n > 0) {
+        int inThen = 1;
+    } else {
+        int inElse = 2;
+    }
+    while (n > 0) {
+        int inWhile = n;
+        n = n - 1;
+    }
+    var fromCall = make(3);
+    var fromNew = new Holder(4);
+    return 0;
+}
+
+class Holder { public int h; public Holder(int h) { self.h = h; } }
+Holder make(int v) { return Holder(v); }
+"""
+
+
+def _hb(needle, offset=0):
+    return hover_text(get_hover_info(analyze(BLOCKS), pos_of(BLOCKS, needle, offset=offset)))
+
+
+def test_hover_var_in_for_body():
+    assert _hb("int inFor", offset=4) != ""
+
+
+def test_hover_var_in_parallel_body():
+    assert _hb("int inPar", offset=4) != ""
+
+
+def test_hover_var_in_then_block():
+    assert _hb("int inThen", offset=4) != ""
+
+
+def test_hover_var_in_while_body():
+    assert _hb("int inWhile", offset=4) != ""
+
+
+def test_hover_forin_second_loop_variable():
+    assert _hb("k, v in m", offset=3) != ""  # the second loop var (var_name2)
+
+
+def test_hover_var_inferred_from_call():
+    assert "Holder" in _hb("fromCall", offset=0)

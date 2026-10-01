@@ -16,11 +16,10 @@ from src.compiler.python.analyzer.gpu import (
 )
 from src.compiler.python.backend.wgsl_emitter import WgslEmitter
 from src.compiler.python.ir.nodes import IRNode
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.python.test_codegen import emit_c
-from src.tests.python.test_gpu_dispatch_failures import (
-    COMPILERS,
-    _compile_with_gpu_stubs,
-)
+from src.tests.python.test_gpu_dispatch_failures import _compile_with_gpu_stubs
 from src.tests.python.test_gpu_dispatch_ir import _generate
 
 
@@ -60,8 +59,8 @@ def test_dispatch_reads_status_before_guarded_user_data_and_cleans_before_failur
     assert status_read.start() < clear_guard < user_read < status_cleanup < checked_failure
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("status_code", sorted(GPU_STATUS_MESSAGES))
 def test_host_status_codes_fail_with_exact_language_diagnostic(
     tmp_path: Path,
@@ -78,14 +77,14 @@ def test_host_status_codes_fail_with_exact_language_diagnostic(
         compiler=c_compiler,
     )
 
-    result = subprocess.run([str(executable)], capture_output=True, text=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
 
     assert result.returncode == 1
     assert result.stderr == GPU_STATUS_MESSAGES[status_code]
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_unknown_host_status_has_a_generic_diagnostic(
     tmp_path: Path,
     c_compiler: str,
@@ -100,14 +99,14 @@ def test_unknown_host_status_has_a_generic_diagnostic(
         compiler=c_compiler,
     )
 
-    result = subprocess.run([str(executable)], capture_output=True, text=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
 
     assert result.returncode == 1
     assert result.stderr == GPU_UNKNOWN_STATUS_MESSAGE
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     ("kernel_body", "diagnostic"),
     [
@@ -131,14 +130,14 @@ def test_cpu_fallback_uses_the_same_checked_failure_contract(
         compiler=c_compiler,
     )
 
-    result = subprocess.run([str(executable)], capture_output=True, text=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
 
     assert result.returncode == 1
     assert result.stderr == diagnostic
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cpu_fallback_min_mod_minus_one_is_defined_zero(tmp_path: Path, c_compiler: str) -> None:
     executable = _compile_with_gpu_stubs(
         tmp_path,
@@ -148,11 +147,11 @@ def test_cpu_fallback_min_mod_minus_one_is_defined_zero(tmp_path: Path, c_compil
         fail_second_buffer=False,
         compiler=c_compiler,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_status_readback_failure_after_submission_fails_closed(
     tmp_path: Path,
     c_compiler: str,
@@ -166,14 +165,14 @@ def test_status_readback_failure_after_submission_fails_closed(
         fail_readback=True,
         compiler=c_compiler,
     )
-    result = subprocess.run([str(executable)], capture_output=True, text=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
 
     assert result.returncode == 1
     assert result.stderr == GPU_TRANSFER_FAILURE_MESSAGE
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_partial_multi_buffer_readback_never_runs_cpu_fallback(
     tmp_path: Path,
     c_compiler: str,
@@ -190,7 +189,7 @@ def test_partial_multi_buffer_readback_never_runs_cpu_fallback(
         compiler=c_compiler,
     )
 
-    result = subprocess.run([str(executable)], capture_output=True, text=True)
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
 
     assert result.returncode == 1
     assert result.stderr == GPU_TRANSFER_FAILURE_MESSAGE
@@ -212,5 +211,6 @@ def test_checked_shader_validates_with_naga() -> None:
         input=shader,
         text=True,
         capture_output=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr

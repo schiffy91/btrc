@@ -3,7 +3,10 @@
 import pytest
 
 from src.compiler.python.lexer.lexer import Lexer, LexerError
-from src.compiler.python.syntax.tokens import TokenKind
+from src.compiler.python.syntax.grammar import EbnfGrammarParser
+from src.compiler.python.syntax.tokens import TokenKind, TokenVocabulary
+
+GRAMMAR_PARSER = EbnfGrammarParser()
 
 
 def lex(source: str) -> list:
@@ -676,3 +679,19 @@ class TestTripleQuoteStrings:
         assert tokens[3].type == TokenKind.STRING_LIT
         assert tokens[3].value == '"hello\\nworld"'
         assert tokens[4].type == TokenKind.SEMICOLON
+
+
+def test_lexer_uses_its_explicit_immutable_vocabulary():
+    grammar = GRAMMAR_PARSER.parse('@lexical { @keywords { class } @operators { "+" } @annotations { gpu } }')
+    vocabulary = TokenVocabulary(grammar)
+
+    tokens = Lexer("class + value", vocabulary=vocabulary).tokenize()
+
+    assert [token.type for token in tokens] == [
+        TokenKind.CLASS,
+        TokenKind.PLUS,
+        TokenKind.IDENT,
+        TokenKind.EOF,
+    ]
+    with pytest.raises(TypeError):
+        vocabulary.keywords["while"] = TokenKind.WHILE

@@ -24,6 +24,7 @@ from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceDependencyGraph
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.test_native_cxx_owners import pugixml_project as pugixml_project
 from src.tests.python.test_native_import_consumer import apple_environment
 from src.tests.python.test_native_import_consumer import native_project as native_project
@@ -1519,7 +1520,7 @@ def test_cancelling_the_owner_leaves_no_workers(tmp_path, immutable_btrcc):
     )
 
     def workers() -> list[str]:
-        found = subprocess.run(["pgrep", "-P", str(owner.pid)], capture_output=True, text=True)
+        found = subprocess.run(["pgrep", "-P", str(owner.pid)], capture_output=True, text=True, timeout=TOOL_TIMEOUT)
         return found.stdout.split()
 
     try:
@@ -1535,7 +1536,11 @@ def test_cancelling_the_owner_leaves_no_workers(tmp_path, immutable_btrcc):
         alive = started
         while alive and time.monotonic() < deadline:
             time.sleep(0.5)
-            alive = [pid for pid in started if subprocess.run(["kill", "-0", pid], capture_output=True).returncode == 0]
+            alive = [
+                pid
+                for pid in started
+                if subprocess.run(["kill", "-0", pid], capture_output=True, timeout=TOOL_TIMEOUT).returncode == 0
+            ]
         assert not alive, f"workers outlived their owner: {alive}"
     finally:
         if owner.poll() is None:

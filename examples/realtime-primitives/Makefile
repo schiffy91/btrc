@@ -1,24 +1,26 @@
-BTRC_ROOT := ../..
-BTRC      := python3 -m src.compiler.python.main
-CC       ?= cc
-SOURCE   := Main.btrc
-GENERATED := main.c
-PROGRAM  := realtime-primitives
+include ../Example.mk
 
 .PHONY: all run clean
 
 all: run
 
-run: $(PROGRAM)
-	./$(PROGRAM)
+# Main.btrc exercises the bounded primitives; RealtimeGain.btrc is the
+# standalone @realtime kernel, which exits nonzero if its arithmetic is wrong.
+run: realtime-primitives realtime-gain
+	./realtime-primitives
+	./realtime-gain
 
-$(PROGRAM): $(GENERATED)
-	$(CC) -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
-		$(GENERATED) -o $(PROGRAM) -lm -lpthread
+realtime-primitives: main.c
+	$(CC) $(STRICT_CFLAGS) -O2 main.c -o realtime-primitives $(HOSTED_LIBS)
 
-$(GENERATED): $(SOURCE) $(BTRC_ROOT)/src/stdlib/SPSC.btrc
-	cd $(BTRC_ROOT) && $(BTRC) examples/realtime-primitives/$(SOURCE) \
-		-o examples/realtime-primitives/$(GENERATED)
+realtime-gain: gain.c
+	$(CC) $(STRICT_CFLAGS) -O2 gain.c -o realtime-gain $(HOSTED_LIBS)
+
+main.c: Main.btrc $(BTRC_ROOT)/src/stdlib/SPSC.btrc
+	cd $(BTRC_ROOT) && $(BTRC) $(EXAMPLE)/Main.btrc -o $(EXAMPLE)/main.c
+
+gain.c: RealtimeGain.btrc
+	cd $(BTRC_ROOT) && $(BTRC) $(EXAMPLE)/RealtimeGain.btrc -o $(EXAMPLE)/gain.c
 
 clean:
-	rm -f $(GENERATED) $(PROGRAM)
+	rm -f main.c gain.c realtime-primitives realtime-gain

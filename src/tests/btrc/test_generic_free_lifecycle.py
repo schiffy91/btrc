@@ -10,13 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import (
-    COMPILERS,
-    REPO,
-    _compile_pair,
-    _strict_matrix,
-)
+from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair, _strict_matrix
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
@@ -26,7 +22,7 @@ GENERIC_FIXTURE = FIXTURES / "GenericFreeLifecycleRuntime.btrc"
 COLLECTION_FIXTURE = FIXTURES / "CollectionExplicitFreeThenScopeRuntime.btrc"
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires GCC or Clang with strict C11 support",
 )
 

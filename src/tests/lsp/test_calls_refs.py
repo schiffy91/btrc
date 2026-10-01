@@ -1,5 +1,6 @@
 """Member-method signature help (with parameters + nesting), and references /
-rename for classes, functions, and methods."""
+rename for classes, functions, methods, and fields: declaration exclusion,
+static receivers, and rename refusal on keywords, literals, and built-ins."""
 
 from src.tests.lsp.lsphelp import analyze, get_references, get_rename_edits, get_signature_help, pos_of, prepare_rename
 
@@ -86,3 +87,67 @@ def test_stdlib_static_method_signature():
     src = 'import Library.Strings;\nint main() { string s = Strings.repeat("ab", 3); return s.len() > 0 ? 0 : 1; }\n'
     s = get_signature_help(analyze(src), pos_of(src, 'repeat("ab"', offset=7))
     assert s is not None and s.signatures
+
+
+def test_prepare_rename_none_on_literal():
+    src = "int main() { return 42; }\n"
+    assert prepare_rename(analyze(src), pos_of(src, "42", offset=0)) is None
+
+
+def test_rename_none_on_keyword():
+    src = "int main() { return 0; }\n"
+    assert get_rename_edits(analyze(src), pos_of(src, "return", offset=0), "x") is None
+
+
+def test_prepare_rename_builtin_generic_keyword_is_none():
+    # `List` lexes as an identifier but is a reserved built-in name.
+    src = "int main() { List<int> xs = new List<int>(); return 0; }\n"
+    assert prepare_rename(analyze(src), pos_of(src, "List<int> xs", offset=0)) is None
+
+
+# ---- references: include_declaration=False ---------------------------------
+
+
+def test_references_function_exclude_declaration():
+    src = "int helper() { return 1; }\nint main() { return helper() + helper(); }\n"
+    full = get_references(analyze(src), pos_of(src, "int helper", offset=4), include_declaration=True)
+    nodecl = get_references(analyze(src), pos_of(src, "int helper", offset=4), include_declaration=False)
+    full_lines = {r.range.start.line for r in full}
+    nodecl_lines = {r.range.start.line for r in nodecl}
+    assert 1 in full_lines and 1 in nodecl_lines  # the call site on line 1 is always a ref
+    assert 0 in full_lines  # the declaration (line 0) is a ref…
+    assert 0 not in nodecl_lines  # …dropped when excluded
+
+
+def test_class_references_can_exclude_declaration():
+    src = (
+        "class Widget { public int v; public Widget() { self.v = 0; } }\n"
+        "int main() { Widget w = new Widget(); return w.v; }\n"
+    )
+    pos = pos_of(src, "Widget w", offset=0)  # type usage -> classified as a class
+    with_decl = get_references(analyze(src), pos, include_declaration=True)
+    without = get_references(analyze(src), pos, include_declaration=False)
+    assert len(without) == len(with_decl) - 1
+
+
+def test_member_references_can_exclude_declaration():
+    src = (
+        "class P { public int val; public P() { self.val = 0; }\n"
+        "          public int read() { return self.val; } }\n"
+        "int main() { P p = P(); return p.val; }\n"
+    )
+    decl_pos = pos_of(src, "public int val", offset=11)
+    with_decl = get_references(analyze(src), decl_pos, include_declaration=True)
+    without = get_references(analyze(src), decl_pos, include_declaration=False)
+    assert len(without) == len(with_decl) - 1
+
+
+def test_member_references_resolve_static_and_skip_unresolved_receivers():
+    src = (
+        "class Klass { public int v; public Klass() { self.v = 0; }\n"
+        "              public int m() { return 1; } }\n"
+        "int main() { Klass k = Klass(); int a = k.m();"
+        " int b = Klass.m(); int c = ghost.m(); return a; }\n"
+    )
+    refs = get_references(analyze(src), pos_of(src, "public int m", offset=11), include_declaration=True)
+    assert len(refs) == 3

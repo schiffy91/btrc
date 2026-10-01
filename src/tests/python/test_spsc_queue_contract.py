@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,8 +10,7 @@ import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 
 def _emit_with_stdlib(source: str) -> str:
@@ -104,8 +102,8 @@ def test_managed_typed_wrapper_delegates_to_the_canonical_storage() -> None:
     assert generated.count("class SPSCQueue") == 0
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_fifo_full_empty_wraparound_and_thread_stress(
     tmp_path: Path,
     c_compiler: str,
@@ -185,8 +183,8 @@ def test_fifo_full_empty_wraparound_and_thread_stress(
     assert executed.returncode == 0, executed.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("failed_allocation", (1, 2, 3))
 def test_every_allocation_failure_returns_typed_oom(
     tmp_path: Path,

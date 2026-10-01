@@ -1,6 +1,5 @@
 """Strict-C execution checks for generated exception cleanup slots."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -9,9 +8,8 @@ import pytest
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 TRYCATCH = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("trycatch")}
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _strict_build_and_run(
@@ -71,8 +69,8 @@ def test_all_exception_message_captures_use_shared_bounded_copy() -> None:
     assert generated.count("__btrc_copy_error_message(") >= 3
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_error_message_copy_is_overlap_safe_and_strict_c11_o3(
     tmp_path: Path,
     c_compiler: str,
@@ -113,8 +111,8 @@ def test_error_message_copy_is_overlap_safe_and_strict_c11_o3(
     _strict_build_and_run(source, tmp_path, c_compiler, "-O3", "error_message_copy")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("optimization", ("-O0", "-O2", "-O3"))
 def test_generated_cleanup_slots_survive_strict_optimized_longjmp(
     tmp_path: Path,
@@ -141,8 +139,8 @@ def test_generated_cleanup_slots_survive_strict_optimized_longjmp(
     _strict_build_and_run(generated, tmp_path, c_compiler, optimization, "generated_cleanup")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     ("name", "source"),
     (
@@ -188,8 +186,8 @@ def test_terminal_finally_paths_are_strict_c11(
     _strict_build_and_run(generated, tmp_path, c_compiler, "-O0", name)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_finally_keeps_one_static_storage_object(tmp_path: Path, c_compiler: str) -> None:
     generated = emit_c("""
         int run(bool fail) {
@@ -210,8 +208,8 @@ def test_finally_keeps_one_static_storage_object(tmp_path: Path, c_compiler: str
     _strict_build_and_run(generated, tmp_path, c_compiler, "-O0", "finally_static_storage")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("optimization", ("-O0", "-O3"))
 def test_aggregate_mutations_survive_optimized_longjmp(
     tmp_path: Path,
@@ -242,8 +240,8 @@ def test_aggregate_mutations_survive_optimized_longjmp(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("optimization", ("-O0", "-O3"))
 def test_read_only_pointer_calls_do_not_force_aggregate_volatile(
     tmp_path: Path,

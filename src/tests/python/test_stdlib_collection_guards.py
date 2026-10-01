@@ -7,6 +7,8 @@ import sys
 
 import pytest
 
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
+
 
 @pytest.mark.parametrize(
     ("stdlib_module", "setup", "operation", "diagnostic"),
@@ -70,6 +72,7 @@ def test_collection_growth_fails_before_integer_overflow(
         check=False,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert transpile.returncode == 0, transpile.stderr
 
@@ -87,14 +90,10 @@ def test_collection_growth_fails_before_integer_overflow(
         check=False,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert compile_result.returncode == 0, compile_result.stderr
 
-    run = subprocess.run(
-        [str(executable)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    run = subprocess.run([str(executable)], check=False, capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert run.returncode == 1
     assert diagnostic in run.stderr

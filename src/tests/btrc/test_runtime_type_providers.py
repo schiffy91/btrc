@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 TYPE_CASES = (
     ("Mutex", "__btrc_mutex_val_t"),
     ("Thread", "__btrc_thread_t"),
@@ -154,7 +153,7 @@ def test_enum_value_irvar_roots_only_surviving_object_provider(
     )
     assert result.returncode == 0, result.stderr
 
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         _strict_build_and_run(
             emitted,
             tmp_path / f"enum-provider-{Path(compiler).name}",
@@ -178,7 +177,7 @@ def test_live_type_only_sizeof_retains_catalog_provider(
     emitted = generated.read_text()
     assert f"}} {c_type};" in emitted
 
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         _strict_compile(
             generated,
             tmp_path / f"live-{base.lower()}-{Path(compiler).name}.o",
@@ -202,7 +201,7 @@ def test_dead_type_only_sizeof_does_not_pin_catalog_provider(
     emitted = generated.read_text()
     assert f"}} {c_type};" not in emitted
 
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         _strict_compile(
             generated,
             tmp_path / f"dead-{base.lower()}-{Path(compiler).name}.o",
@@ -224,7 +223,7 @@ def test_live_runtime_object_reference_retains_catalog_provider(
     assert "static const __btrc_arc_type __btrc_mutex_arc_descriptor" in emitted
     assert "&__btrc_mutex_arc_descriptor" in emitted
 
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         _strict_compile(
             generated,
             tmp_path / f"live-object-{Path(compiler).name}.o",
@@ -246,7 +245,7 @@ def test_dead_runtime_object_reference_does_not_pin_catalog_provider(
     assert "static const __btrc_arc_type __btrc_mutex_arc_descriptor" not in emitted
     assert "&__btrc_mutex_arc_descriptor" not in emitted
 
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         _strict_compile(
             generated,
             tmp_path / f"dead-object-{Path(compiler).name}.o",

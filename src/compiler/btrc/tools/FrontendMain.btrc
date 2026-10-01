@@ -1,13 +1,10 @@
 /* Front-end driver: compose the full source for a btrc program and print it
- * verbatim to stdout (byte-identical to btrcpy's
- * resolve_frontend_source(...).source).
+ * verbatim to stdout (byte-identical to the Python compiler's
+ * CompilationPipeline.resolve(...).source).
  *
  * Strict imports are the default. `--relaxed-imports` explicitly enables
  * legacy whole-stdlib composition; `--no-stdlib` disables that composition
  * without affecting explicit includes/imports.
- *
- * Verification:
- *   (cd /tmp/shv && frontend F.btrc) | diff - oracle_source.txt
  */
 
 import Library.Console;

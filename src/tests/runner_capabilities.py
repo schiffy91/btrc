@@ -23,8 +23,11 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, ClassVar
 
+from src.tests.c_toolchains import configured_c_compiler
+from src.tests.process_limits import TOOL_TIMEOUT
+
 CAPABILITY_DIRECTIVE = "BTRC_TEST_REQUIRES:"
-HOST_CAPABILITIES = frozenset({"loopback-listener", "native-tray"})
+HOST_CAPABILITIES = frozenset({"loopback-listener"})
 TARGET_CAPABILITIES = frozenset(
     {
         "android-emulator",
@@ -38,21 +41,6 @@ TARGET_CAPABILITIES = frozenset(
 )
 KNOWN_CAPABILITIES = HOST_CAPABILITIES | TARGET_CAPABILITIES
 GRANTED_CAPABILITIES_VARIABLE = "BTRC_TEST_CAPABILITIES"
-
-_TRAY_PROBE_MARKER = "BTRC_TRAY_BACKEND_READY"
-_TRAY_PROBE_SOURCE = f"""
-#import <AppKit/AppKit.h>
-#include <stdio.h>
-
-int main(void) {{
-    [NSApplication sharedApplication];
-    NSStatusBar* bar = [NSStatusBar systemStatusBar];
-    NSStatusItem* item = [bar statusItemWithLength:NSVariableStatusItemLength];
-    if (item != nil) {{ [bar removeStatusItem:item]; }}
-    puts("{_TRAY_PROBE_MARKER}");
-    return 0;
-}}
-"""
 
 
 class CapabilityGateLog:
@@ -141,6 +129,31 @@ def target_capability_error(capability: str) -> str | None:
     return CapabilityGateLog.record(capability, TargetCapabilities().error(capability))
 
 
+class PkgConfig:
+    """Bounded pkg-config queries that report a missing tool as an absent package."""
+
+    @staticmethod
+    def flags(package: str) -> tuple[list[str], str | None]:
+        """Compile and link flags for `package`, or why they are unavailable."""
+        tool = shutil.which("pkg-config")
+        if tool is None:
+            return [], "pkg-config is not installed"
+        try:
+            result = subprocess.run(
+                [tool, "--cflags", "--libs", package], capture_output=True, text=True, timeout=TOOL_TIMEOUT
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return [], f"pkg-config failed for {package}: {error}"
+        if result.returncode != 0:
+            return [], f"pkg-config cannot find {package}"
+        return shlex.split(result.stdout), None
+
+    @classmethod
+    def missing(cls, package: str) -> str | None:
+        """Why `package` is unavailable through pkg-config, or None."""
+        return cls.flags(package)[1]
+
+
 class CapabilityProbeBuildError(RuntimeError):
     """A capability probe could not be built, so the test infrastructure failed."""
 
@@ -225,55 +238,14 @@ def darwin_gpu_flags() -> tuple[list[str], str | None]:
     ], None
 
 
-@CapabilityGateLog.gate("native-tray")
-def darwin_tray_backend_error(
-    compiler: tuple[str, ...],
-    cflags: tuple[str, ...],
-) -> str | None:
-    """Probe whether Cocoa tray initialization returns control to a CLI app."""
-    with tempfile.TemporaryDirectory(prefix="btrc-tray-probe-") as temporary:
-        source_path = Path(temporary, "probe.m")
-        binary_path = Path(temporary, "probe")
-        source_path.write_text(_TRAY_PROBE_SOURCE)
-        command = [
-            *compiler,
-            *cflags,
-            "-fobjc-arc",
-            str(source_path),
-            "-framework",
-            "Cocoa",
-            "-o",
-            str(binary_path),
-        ]
-        try:
-            compiled = subprocess.run(command, capture_output=True, text=True, timeout=60)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise CapabilityProbeBuildError(f"native tray backend probe could not be built: {error}") from error
-        if compiled.returncode != 0:
-            detail = compiled.stderr.strip() or compiled.stdout.strip() or "compiler failed"
-            raise CapabilityProbeBuildError(f"native tray backend probe could not be built: {detail[:300]}")
-        try:
-            result = subprocess.run([str(binary_path)], capture_output=True, text=True, timeout=10)
-        except OSError as error:
-            return f"native tray backend probe could not run: {error}"
-        except subprocess.TimeoutExpired as error:
-            raise CapabilityProbeRuntimeError(f"native tray backend probe timed out: {error}") from error
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"exit status {result.returncode}"
-        raise CapabilityProbeRuntimeError(f"native tray backend probe failed: {detail[:300]}")
-    if _TRAY_PROBE_MARKER not in result.stdout:
-        return "native tray backend is unavailable: Cocoa terminated the capability probe during initialization"
-    return None
-
-
 _TRAY_WATCHER_NAME = "org.kde.StatusNotifierWatcher"
 
 
 @CapabilityGateLog.gate("native-tray")
 def linux_tray_backend_error() -> str | None:
     """Return why a StatusNotifierItem cannot be hosted on this session bus."""
-    if subprocess.run(["pkg-config", "--exists", "dbus-1"], capture_output=True).returncode != 0:
-        return "native tray backend is unavailable: pkg-config cannot find dbus-1"
+    if error := PkgConfig.missing("dbus-1"):
+        return f"native tray backend is unavailable: {error}"
     dbus_send = shutil.which("dbus-send")
     if dbus_send is None:
         return "native tray backend is unavailable: dbus-send is not installed"
@@ -301,8 +273,8 @@ def linux_tray_backend_error() -> str | None:
 @CapabilityGateLog.gate("native-display")
 def linux_display_error() -> str | None:
     """Return why a Wayland or X11 window cannot be opened from this session."""
-    if subprocess.run(["pkg-config", "--exists", "sdl3"], capture_output=True).returncode != 0:
-        return "native GUI backend is unavailable: pkg-config cannot find sdl3"
+    if error := PkgConfig.missing("sdl3"):
+        return f"native GUI backend is unavailable: {error}"
     if not os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY"):
         return "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY"
     return None
@@ -313,9 +285,9 @@ def linux_audio_backend_error() -> str | None:
     """Return why no ALSA PCM can be opened from this session."""
     if os.environ.get("BTRC_SKIP_AUDIO_TESTS"):
         return "native audio backend tests are disabled by BTRC_SKIP_AUDIO_TESTS"
-    flags = subprocess.run(["pkg-config", "--cflags", "--libs", "alsa"], capture_output=True, text=True)
-    if flags.returncode != 0:
-        return "native audio backend is unavailable: pkg-config cannot find alsa"
+    flags, error = PkgConfig.flags("alsa")
+    if error:
+        return f"native audio backend is unavailable: {error}"
     with tempfile.TemporaryDirectory(prefix="btrc-alsa-probe-") as temporary:
         source = Path(temporary, "probe.c")
         binary = Path(temporary, "probe")
@@ -330,7 +302,7 @@ def linux_audio_backend_error() -> str | None:
         )
         try:
             compiled = subprocess.run(
-                ["cc", str(source), "-o", str(binary), *shlex.split(flags.stdout)],
+                [*configured_c_compiler(), str(source), "-o", str(binary), *flags],
                 capture_output=True,
                 text=True,
                 timeout=60,

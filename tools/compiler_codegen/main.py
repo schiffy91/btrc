@@ -37,7 +37,7 @@ class CompilerCodegenCommand:
             choices=(
                 "generate",
                 "check",
-                "verify-ast",
+                "dump-ast",
                 "verify-lexer",
                 "boundary-capture",
                 "boundary-check",
@@ -58,9 +58,9 @@ class CompilerCodegenCommand:
             parser.error(f"{arguments.operation} does not accept --report")
         try:
             verifier = CompilerBoundaryVerifier(self._repository_root)
-            if arguments.operation == "verify-ast":
+            if arguments.operation == "dump-ast":
                 if arguments.source is None:
-                    parser.error("verify-ast requires SOURCE")
+                    parser.error("dump-ast requires SOURCE")
                 sys.stdout.buffer.write(verifier.canonical_ast(Path(arguments.source)))
                 return 0
             if arguments.operation == "verify-lexer":

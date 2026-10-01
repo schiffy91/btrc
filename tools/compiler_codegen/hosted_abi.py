@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import GeneratedArtifact, format_generated_btrc
+from .manifest_fields import ManifestFields
 from .runtime import RuntimeManifest
 
 
@@ -161,6 +162,8 @@ class HostedAbiProvenanceSpec:
 class HostedAbiManifest:
     """Validated authoritative hosted ABI shared by both compilers."""
 
+    _FIELDS = ManifestFields(HostedAbiManifestError)
+
     schema_version: int
     provenance: HostedAbiProvenanceSpec
     names: HostedAbiNameSets
@@ -246,20 +249,20 @@ class HostedAbiManifest:
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
             raise HostedAbiManifestError(f"cannot read hosted ABI manifest {manifest_path}: {error}") from error
 
-        cls._require_keys(document, cls._ROOT_KEYS, "hosted ABI manifest")
-        schema_version = cls._integer(document, "schema_version", "hosted ABI manifest")
+        cls._FIELDS.require_keys(document, cls._ROOT_KEYS, "hosted ABI manifest")
+        schema_version = cls._FIELDS.integer(document, "schema_version", "hosted ABI manifest")
         if schema_version != 2:
             raise HostedAbiManifestError(f"unsupported hosted ABI schema version: {schema_version}")
 
-        provenance_table = cls._table(document, "provenance", "hosted ABI manifest")
-        cls._require_keys(provenance_table, cls._PROVENANCE_KEYS, "provenance")
+        provenance_table = cls._FIELDS.table(document, "provenance", "hosted ABI manifest")
+        cls._FIELDS.require_keys(provenance_table, cls._PROVENANCE_KEYS, "provenance")
         provenance = HostedAbiProvenanceSpec(
-            stdlib_source_marker=cls._string(provenance_table, "stdlib_source_marker", "provenance"),
-            user_source_marker=cls._string(provenance_table, "user_source_marker", "provenance"),
+            stdlib_source_marker=cls._FIELDS.string(provenance_table, "stdlib_source_marker", "provenance"),
+            user_source_marker=cls._FIELDS.string(provenance_table, "user_source_marker", "provenance"),
         )
 
-        names_table = cls._table(document, "names", "hosted ABI manifest")
-        cls._require_keys(names_table, cls._NAME_KEYS, "names")
+        names_table = cls._FIELDS.table(document, "names", "hosted ABI manifest")
+        cls._FIELDS.require_keys(names_table, cls._NAME_KEYS, "names")
         names = HostedAbiNameSets(
             functions=cls._name_tuple(names_table, "functions", "names"),
             macros=cls._name_tuple(names_table, "macros", "names"),
@@ -272,8 +275,8 @@ class HostedAbiManifest:
             runtime_adopting_helpers=cls._name_tuple(names_table, "runtime_adopting_helpers", "names"),
         )
 
-        platform_table = cls._table(document, "platform", "hosted ABI manifest")
-        cls._require_keys(platform_table, cls._PLATFORM_KEYS, "platform")
+        platform_table = cls._FIELDS.table(document, "platform", "hosted ABI manifest")
+        cls._FIELDS.require_keys(platform_table, cls._PLATFORM_KEYS, "platform")
         platform = HostedAbiPlatformSets(
             functions=cls._name_tuple(platform_table, "functions", "platform"),
             macros=cls._name_tuple(platform_table, "macros", "platform"),
@@ -313,7 +316,7 @@ class HostedAbiManifest:
         context = f"functions[{index}]"
         if not isinstance(value, dict):
             raise HostedAbiManifestError(f"{context} must be a table")
-        cls._require_keys(
+        cls._FIELDS.require_keys(
             value,
             cls._FUNCTION_REQUIRED_KEYS | cls._FUNCTION_OPTIONAL_KEYS,
             context,
@@ -330,18 +333,18 @@ class HostedAbiManifest:
             name=cls._identifier(value, "name", context),
             origin=cls._identifier(value, "origin", context),
             result=cls._type_shape(value.get("result"), f"{context}.result"),
-            parameters_known=cls._boolean(value, "parameters_known", context),
+            parameters_known=cls._FIELDS.boolean(value, "parameters_known", context),
             parameters=parameters,
-            variadic=cls._boolean(value, "variadic", context),
+            variadic=cls._FIELDS.boolean(value, "variadic", context),
             semantic_result=(
                 cls._type_shape(value["semantic_result"], f"{context}.semantic_result")
                 if "semantic_result" in value
                 else None
             ),
-            return_effect=cls._string(value, "return_effect", context),
+            return_effect=cls._FIELDS.string(value, "return_effect", context),
             return_alias_parameter=cls._optional_integer(value, "return_alias_parameter", context),
             return_alias_null_effect=cls._optional_string(value, "return_alias_null_effect", context),
-            raw_lifetime=cls._boolean(value, "raw_lifetime", context),
+            raw_lifetime=cls._FIELDS.boolean(value, "raw_lifetime", context),
             return_deallocator=cls._optional_string(value, "return_deallocator", context),
             return_alias_shape=cls._optional_string(value, "return_alias_shape", context),
             consume_deallocator=cls._optional_string(value, "consume_deallocator", context),
@@ -354,7 +357,7 @@ class HostedAbiManifest:
         context = f"{function_context}.parameters[{index}]"
         if not isinstance(value, dict):
             raise HostedAbiManifestError(f"{context} must be a table")
-        cls._require_keys(
+        cls._FIELDS.require_keys(
             value,
             cls._PARAMETER_KEYS,
             context,
@@ -363,7 +366,7 @@ class HostedAbiManifest:
         shape = cls._type_shape({key: value[key] for key in cls._TYPE_KEYS if key in value}, context)
         return HostedAbiParameterSpec(
             type_shape=shape,
-            effect=cls._string(value, "effect", context),
+            effect=cls._FIELDS.string(value, "effect", context),
             callback_lifetime=cls._optional_string(value, "callback_lifetime", context),
         )
 
@@ -371,9 +374,9 @@ class HostedAbiManifest:
     def _type_shape(cls, value: Any, context: str) -> HostedAbiTypeSpec:
         if not isinstance(value, dict):
             raise HostedAbiManifestError(f"{context} must be a table")
-        cls._require_keys(value, cls._TYPE_KEYS, context, required=cls._TYPE_REQUIRED_KEYS)
-        base = cls._string(value, "base", context)
-        pointer_depth = cls._integer(value, "pointer_depth", context)
+        cls._FIELDS.require_keys(value, cls._TYPE_KEYS, context, required=cls._TYPE_REQUIRED_KEYS)
+        base = cls._FIELDS.string(value, "base", context)
+        pointer_depth = cls._FIELDS.integer(value, "pointer_depth", context)
         if pointer_depth < 0:
             raise HostedAbiManifestError(f"{context}.pointer_depth must be non-negative")
         raw_generic_args = value.get("generic_args", [])
@@ -386,7 +389,7 @@ class HostedAbiManifest:
         return HostedAbiTypeSpec(
             base=base,
             pointer_depth=pointer_depth,
-            is_const=cls._boolean(value, "is_const", context),
+            is_const=cls._FIELDS.boolean(value, "is_const", context),
             generic_args=generic_args,
         )
 
@@ -545,64 +548,20 @@ class HostedAbiManifest:
         for argument in shape.generic_args:
             cls._validate_type_shape(argument, context)
 
-    @staticmethod
-    def _require_keys(
-        table: dict[str, Any],
-        allowed: frozenset[str],
-        context: str,
-        *,
-        required: frozenset[str] | None = None,
-    ) -> None:
-        unknown = set(table) - allowed
-        if unknown:
-            raise HostedAbiManifestError(f"unknown {context} keys: {', '.join(sorted(unknown))}")
-        required_keys = allowed if required is None else required
-        missing = required_keys - set(table)
-        if missing:
-            raise HostedAbiManifestError(f"missing {context} keys: {', '.join(sorted(missing))}")
-
-    @staticmethod
-    def _table(table: dict[str, Any], key: str, context: str) -> dict[str, Any]:
-        value = table.get(key)
-        if not isinstance(value, dict):
-            raise HostedAbiManifestError(f"{context}.{key} must be a table")
-        return value
-
-    @staticmethod
-    def _string(table: dict[str, Any], key: str, context: str) -> str:
-        value = table.get(key)
-        if not isinstance(value, str) or not value:
-            raise HostedAbiManifestError(f"{context}.{key} must be a non-empty string")
-        return value
-
     @classmethod
     def _identifier(cls, table: dict[str, Any], key: str, context: str) -> str:
-        value = cls._string(table, key, context)
+        value = cls._FIELDS.string(table, key, context)
         if not cls._IDENTIFIER.fullmatch(value):
             raise HostedAbiManifestError(f"{context}.{key} is not an identifier: {value!r}")
         return value
 
-    @staticmethod
-    def _integer(table: dict[str, Any], key: str, context: str) -> int:
-        value = table.get(key)
-        if type(value) is not int:
-            raise HostedAbiManifestError(f"{context}.{key} must be an integer")
-        return value
-
     @classmethod
     def _optional_integer(cls, table: dict[str, Any], key: str, context: str) -> int | None:
-        return cls._integer(table, key, context) if key in table else None
-
-    @staticmethod
-    def _boolean(table: dict[str, Any], key: str, context: str) -> bool:
-        value = table.get(key)
-        if type(value) is not bool:
-            raise HostedAbiManifestError(f"{context}.{key} must be a boolean")
-        return value
+        return cls._FIELDS.integer(table, key, context) if key in table else None
 
     @classmethod
     def _optional_string(cls, table: dict[str, Any], key: str, context: str) -> str | None:
-        return cls._string(table, key, context) if key in table else None
+        return cls._FIELDS.string(table, key, context) if key in table else None
 
     @classmethod
     def _name_tuple(cls, table: dict[str, Any], key: str, context: str) -> tuple[str, ...]:

@@ -15,6 +15,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     sanitized_build_and_run,
 )
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -24,10 +25,10 @@ ABI_RUNTIME = FIXTURES / "MutexValueAbiRuntime.btrc"
 MANAGED_RUNTIME = FIXTURES / "MutexManagedOwnershipRuntime.btrc"
 STRING_RUNTIME = FIXTURES / "MutexStringOwnershipRuntime.btrc"
 CONCURRENT_RUNTIME = FIXTURES / "MutexConcurrentSnapshotRuntime.btrc"
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+MANAGED_CONCURRENT_RUNTIME = FIXTURES / "MutexManagedConcurrentRuntime.btrc"
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires a pthread C11 compiler",
 )
 
@@ -130,7 +131,7 @@ def _build_and_run(generated, output, compiler, extra_flags=()):
 
 
 def _strict_matrix(compiled, tmp_path):
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         output = tmp_path / f"{compiled[0]}-{Path(compiler).name}"
         _build_and_run(compiled[1], output, compiler)
 
@@ -142,6 +143,7 @@ def _strict_matrix(compiled, tmp_path):
         (MANAGED_RUNTIME, "mutex-managed-ownership"),
         (STRING_RUNTIME, "mutex-string-ownership"),
         (CONCURRENT_RUNTIME, "mutex-concurrent-snapshot"),
+        (MANAGED_CONCURRENT_RUNTIME, "mutex-managed-concurrent"),
     ],
 )
 def test_mutex_contracts_have_strict_compiler_parity(
@@ -171,7 +173,7 @@ def test_managed_mutex_callbacks_are_strict_aliasing_clean(
         "mutex-managed-strict-aliasing",
     )
     for compiler_name, generated in compiled:
-        for compiler in COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             output = tmp_path / f"{compiler_name}-{Path(compiler).name}-strict-aliasing"
             _build_and_run(
                 generated,
@@ -187,6 +189,7 @@ def test_managed_mutex_callbacks_are_strict_aliasing_clean(
         (ABI_RUNTIME, "mutex-value-abi-san"),
         (MANAGED_RUNTIME, "mutex-managed-ownership-san"),
         (STRING_RUNTIME, "mutex-string-ownership-san"),
+        (MANAGED_CONCURRENT_RUNTIME, "mutex-managed-concurrent-san"),
     ],
 )
 def test_mutex_contracts_are_sanitizer_clean(

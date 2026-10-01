@@ -9,14 +9,14 @@ import pytest
 from src.tests.btrc.string_coercion_harness import (
     assert_tracked_strict_pair,
 )
-from src.tests.btrc.test_mutex_value_contract import COMPILERS
 from src.tests.btrc.test_semantic_validation import (
     _compile_reference_source,
     _compile_source,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-pytestmark = pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
+pytestmark = pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a C11 compiler")
 
 FIXTURES = Path(__file__).with_name("fixtures")
 RUNTIME_CASES = (

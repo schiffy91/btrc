@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 RUNTIME_CATALOG = RuntimeHelperCatalog()
 ALLOC = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("alloc")}
@@ -59,6 +60,7 @@ def _compile(tmp_path: Path, main: str, name: str) -> Path:
         ],
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
     return binary

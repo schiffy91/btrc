@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.native_imports import NativeHeaderRead, NativeImportError
-from src.tests.runner import default_c_compiler
+from src.tests.c_toolchains import configured_c_compiler
+from src.tests.process_limits import TOOL_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="Unix SDK-reader host capability")
@@ -35,7 +35,7 @@ def native_reader_driver(request, selfhost_driver, tmp_path_factory):
     assert result.returncode == 0, result.stderr
     result = subprocess.run(
         [
-            *shlex.split(os.environ.get("BTRC_CC", default_c_compiler())),
+            *configured_c_compiler(),
             "-std=c11",
             "-O2",
             "-Wall",
@@ -84,7 +84,11 @@ def assert_child_stopped(marker):
     if not marker.exists():
         return
     result = subprocess.run(
-        ["/bin/ps", "-o", "stat=", "-p", marker.read_text()], capture_output=True, text=True, check=False
+        ["/bin/ps", "-o", "stat=", "-p", marker.read_text()],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=TOOL_TIMEOUT,
     )
     assert not result.stdout.strip() or result.stdout.lstrip().startswith("Z"), "reader descendant survived"
 

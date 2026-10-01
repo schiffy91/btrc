@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.devex.formatter.cli import build_parser, main
+from src.tests.process_limits import TRANSPILE_TIMEOUT
 
 
 def test_every_style_default_has_a_cli_override() -> None:
@@ -156,6 +157,7 @@ def test_cli_module_executes_instead_of_silently_returning(tmp_path: Path) -> No
         check=False,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
 
     assert result.returncode == 1

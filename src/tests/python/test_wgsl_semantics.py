@@ -14,7 +14,9 @@ from src.compiler.python.backend.wgsl_emitter import WgslEmitter
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.python.test_gpu_dispatch_failures import COMPILERS, _compile_with_gpu_stubs
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
+from src.tests.python.test_gpu_dispatch_failures import _compile_with_gpu_stubs
 
 
 def _analyze(source: str):
@@ -255,8 +257,8 @@ def test_round_result_type_is_float_only_in_gpu_context() -> None:
     assert hosted.node_types[id(hosted_call)].base == "double"
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cpu_fallback_math_matches_gpu_source_contract(tmp_path: Path, c_compiler: str) -> None:
     executable = _compile_with_gpu_stubs(
         tmp_path,
@@ -268,7 +270,7 @@ def test_cpu_fallback_math_matches_gpu_source_contract(tmp_path: Path, c_compile
         fail_second_buffer=False,
         compiler=c_compiler,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 NAGA = shutil.which("naga")
@@ -286,6 +288,7 @@ def test_representative_generated_shader_validates_with_naga() -> None:
         input=shader,
         text=True,
         capture_output=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
 
@@ -297,5 +300,6 @@ def test_all_compound_operator_lowerings_validate_with_naga() -> None:
         input=_shader(_ALL_COMPOUND_OPERATORS_SOURCE),
         text=True,
         capture_output=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr

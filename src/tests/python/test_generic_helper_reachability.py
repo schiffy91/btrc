@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,9 +11,8 @@ import pytest
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 HASH = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("hash")}
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 PLAIN_GENERIC = """
 class Box<T> {
@@ -170,10 +168,10 @@ def test_generic_operation_helpers_follow_live_structured_calls():
 
 
 @pytest.mark.skipif(
-    not COMPILERS or sys.platform == "win32",
+    not HOST_C_COMPILERS or sys.platform == "win32",
     reason="requires a hosted C11 compiler",
 )
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     "name, source",
     (

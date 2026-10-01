@@ -2,20 +2,20 @@
  *
  * Creates a REAL OS menu-bar / notification-area icon with a native clickable
  * menu. Selecting an item runs that item's shell command via the UnixShell
- * stdlib. "Quit" stops the loop and removes the icon.
+ * stdlib; the commands are POSIX so the same menu works on macOS and Linux.
+ * "Quit" stops the loop and removes the icon.
  *
  * Build + run (macOS or Linux):   make            (this folder)
  * Native initialization failures are reported explicitly.
  */
-import Library.UI;
 import Library.Tray.Tray;
 
 int main() {
 	SystemTray tray = SystemTray("btrc")
 		.tip("btrc native tray demo")
 		.icon("icon.png")                                  // falls back to text
-		.item("Open Anthropic", "open https://www.anthropic.com")
-		.item("Say hello", "osascript -e 'display notification \"hello from btrc\"'")
+		.item("Show the date", "date")
+		.item("Say hello", "echo 'hello from btrc'")
 		.add(TrayItem("Build (disabled)", "make").disabled())
 		.item("Quit", TraySignal.quit());
 

@@ -21,7 +21,11 @@ def _workloads(args: argparse.Namespace) -> list[Workload]:
 
 def _meta(args: argparse.Namespace) -> dict:
     revision = subprocess.run(
-        ["git", "-c", "safe.directory=*", "rev-parse", "--short", "HEAD"], cwd=REPO, capture_output=True, text=True
+        ["git", "-c", "safe.directory=*", "rev-parse", "--short", "HEAD"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=60,
     ).stdout.strip()
     return {
         "platform": _baseline.platform_key(),

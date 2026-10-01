@@ -444,13 +444,13 @@ def test_fragment_publication_preserves_complete_ordered_trace(cache_session):
     assert session.response() == (captured.stdout, captured.stderr)
 
 
-def test_inline_receipt_remains_readable(cache_session):
+def test_legacy_inline_receipt_is_a_miss(cache_session):
     session = cache_session
-    stage, captured = session.seed()
+    stage, _ = session.seed()
     path, receipt = session.receipt()
     receipt.update(schema="btrc.native-header-cache.v1", filesystem=json.loads((stage / "filesystem.json").read_text()))
     session.write_receipt(path, receipt)
-    assert session.response() == (captured.stdout, captured.stderr)
+    assert not session.control()[0]["cache_hit"]
 
 
 @pytest.mark.parametrize("damage", ["missing", "contents", "mode", "symlink", "hardlink"])

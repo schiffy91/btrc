@@ -7,8 +7,8 @@ import shutil
 import zlib
 from pathlib import Path
 
-from src.compiler.python.frontend import symbol_index
 from src.compiler.python.frontend.sources import SourceDependencyGraph, StdlibRepository
+from src.compiler.python.frontend.symbol_index import StdlibSymbolIndex
 
 REPO = Path(__file__).resolve().parents[3]
 STDLIB = REPO / "src/stdlib"
@@ -31,7 +31,7 @@ def _copy_root_stdlib(destination: Path) -> Path:
 
 def test_digest_uses_zlib_crc32_over_names_and_bytes() -> None:
     assert zlib.crc32(b"123456789") == 0xCBF43926
-    digest = symbol_index.snapshot_digest([("A.btrc", b"one"), ("B.btrc", b"two")])
+    digest = StdlibSymbolIndex.snapshot_digest([("A.btrc", b"one"), ("B.btrc", b"two")])
     crc = zlib.crc32(b"A.btrc\0one\0B.btrc\0two\0")
     assert digest == f"{crc:08x}-6-2"
 
@@ -39,8 +39,8 @@ def test_digest_uses_zlib_crc32_over_names_and_bytes() -> None:
 def test_committed_index_is_current_and_used() -> None:
     sources = StdlibRepository()
     rendered = sources.render_symbol_index()
-    assert (STDLIB / symbol_index.INDEX_FILE_NAME).read_text(encoding="utf-8") == rendered
-    loaded = symbol_index.load(str(STDLIB), sources.symbol_index_digest())
+    assert (STDLIB / StdlibSymbolIndex.INDEX_FILE_NAME).read_text(encoding="utf-8") == rendered
+    loaded = StdlibSymbolIndex.load(str(STDLIB), sources.symbol_index_digest())
     assert loaded is not None
     assert sources.symbol_files() == _canonical(str(STDLIB), loaded)
     assert sources.symbol_files() == _canonical(str(STDLIB), sources.parsed_symbol_owners())
@@ -49,7 +49,7 @@ def test_committed_index_is_current_and_used() -> None:
 
 def test_index_is_consulted_only_when_its_digest_matches(tmp_path: Path) -> None:
     root = _copy_root_stdlib(tmp_path / "stdlib")
-    index = root / symbol_index.INDEX_FILE_NAME
+    index = root / StdlibSymbolIndex.INDEX_FILE_NAME
     lines = index.read_text(encoding="utf-8").split("\n")
     header = lines[0]
     # A current index is authoritative: dropping a line changes the answer.
@@ -67,10 +67,10 @@ def test_index_is_consulted_only_when_its_digest_matches(tmp_path: Path) -> None
 
 def test_malformed_index_lines_are_rejected() -> None:
     digest = "deadbeef-1-1"
-    assert symbol_index.parse(f"{symbol_index.FORMAT_TAG} {digest}\nName\t../Escape.btrc\n", digest) is None
-    assert symbol_index.parse(f"{symbol_index.FORMAT_TAG} {digest}\nName\tsub/File.btrc\n", digest) is None
-    assert symbol_index.parse(f"{symbol_index.FORMAT_TAG} {digest}\nName File.btrc\n", digest) is None
-    assert symbol_index.parse(f"{symbol_index.FORMAT_TAG} other\n", digest) is None
-    assert symbol_index.parse(f"{symbol_index.FORMAT_TAG} {digest}\nName\tFile.btrc\n", digest) == {
+    assert StdlibSymbolIndex.parse(f"{StdlibSymbolIndex.FORMAT_TAG} {digest}\nName\t../Escape.btrc\n", digest) is None
+    assert StdlibSymbolIndex.parse(f"{StdlibSymbolIndex.FORMAT_TAG} {digest}\nName\tsub/File.btrc\n", digest) is None
+    assert StdlibSymbolIndex.parse(f"{StdlibSymbolIndex.FORMAT_TAG} {digest}\nName File.btrc\n", digest) is None
+    assert StdlibSymbolIndex.parse(f"{StdlibSymbolIndex.FORMAT_TAG} other\n", digest) is None
+    assert StdlibSymbolIndex.parse(f"{StdlibSymbolIndex.FORMAT_TAG} {digest}\nName\tFile.btrc\n", digest) == {
         "Name": {"File.btrc"}
     }

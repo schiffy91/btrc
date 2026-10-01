@@ -12,7 +12,8 @@ import pytest
 from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
     _tracked_strict_matrix,
 )
-from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO, _compile_pair
+from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -21,7 +22,7 @@ LAMBDA_CONSTRUCTOR = FIXTURES / "LifecycleLambdaConstructorAbandonRuntime.btrc"
 FREESTANDING_CLEANUP = FIXTURES / "LifecycleFreestandingExceptionCleanupRuntime.btrc"
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires a hosted C11 compiler",
 )
 

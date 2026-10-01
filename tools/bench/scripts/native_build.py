@@ -31,7 +31,9 @@ def main() -> int:
         del extra[at : at + 2]
     plan = json.loads((out / "p.json").read_text())
     packages = sorted({package["name"] for package in plan["pkg-config"]})
-    cflags = shlex.split(subprocess.run(["pkg-config", "--cflags", *packages], capture_output=True, text=True).stdout)
+    cflags = shlex.split(
+        subprocess.run(["pkg-config", "--cflags", *packages], capture_output=True, text=True, timeout=60).stdout
+    )
     units = [out / "p.c", *map(Path, plan["emitted-units"])]
     objects = out.parent / "objects"
     shutil.rmtree(objects, ignore_errors=True)
@@ -67,6 +69,7 @@ def main() -> int:
             [*base, *preludes.get(source, []), "-c", str(source), "-o", str(objects / (source.stem + ".o"))],
             capture_output=True,
             text=True,
+            timeout=1800,
         )
         return time.perf_counter() - unit_started, source, completed.returncode, completed.stderr[:400]
 

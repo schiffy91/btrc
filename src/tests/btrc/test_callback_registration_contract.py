@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.runtime_ownership_harness import SANITIZER_FLAGS, require_sanitizers, sanitizer_environment
-from src.tests.btrc.test_mutex_value_contract import COMPILERS
 from src.tests.btrc.test_semantic_validation import REPO, _compile_reference_source, _compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-pytestmark = pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+pytestmark = pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 
 
 _FAKE_STORED_CALLBACK = r"""
@@ -982,7 +982,7 @@ def _runtime_matrix(
 ) -> dict[tuple[str, str], Path]:
     executables: dict[tuple[str, str], Path] = {}
     for frontend, c_source in generated.items():
-        for c_compiler in COMPILERS:
+        for c_compiler in HOST_C_COMPILERS:
             compiler_name = Path(c_compiler).name
             output = tmp_path / f"{frontend}-{compiler_name}"
             _build(c_compiler, c_source, fake, output)
@@ -1119,7 +1119,7 @@ void abandonScopedCycle() {
     toolchain = require_sanitizers(tmp_path) if sanitized else None
     executable = tmp_path / f"{frontend}-managed"
     _build(
-        toolchain.command if toolchain else COMPILERS[0],
+        toolchain.command if toolchain else HOST_C_COMPILERS[0],
         source,
         fake,
         executable,
@@ -1285,7 +1285,7 @@ int main() {
     toolchain = require_sanitizers(tmp_path) if sanitized else None
     executable = tmp_path / f"{frontend}-managed-context"
     _build(
-        toolchain.command if toolchain else COMPILERS[0],
+        toolchain.command if toolchain else HOST_C_COMPILERS[0],
         source,
         fake,
         executable,
@@ -1472,7 +1472,7 @@ int main() {
     toolchain = require_sanitizers(tmp_path) if sanitized else None
     executable = tmp_path / f"{frontend}-one-shot"
     _build(
-        toolchain.command if toolchain else COMPILERS[0],
+        toolchain.command if toolchain else HOST_C_COMPILERS[0],
         source,
         fake,
         executable,
@@ -1524,7 +1524,7 @@ void wrongExecutor() {
     fake = tmp_path / "empty.c"
     fake.write_text("typedef int EmptyNativeDriver;\n")
     executable = tmp_path / f"{frontend}-request-misuse"
-    _build(COMPILERS[0], source, fake, executable)
+    _build(HOST_C_COMPILERS[0], source, fake, executable)
     run = subprocess.run([str(executable)], cwd=REPO, capture_output=True, text=True, timeout=30)
     assert run.returncode != 0, (frontend, run.stderr)
     diagnostic = (
@@ -1673,7 +1673,7 @@ int main() {
     toolchain = require_sanitizers(tmp_path) if sanitized else None
     executable = tmp_path / f"{frontend}-scope"
     _build(
-        toolchain.command if toolchain else COMPILERS[0],
+        toolchain.command if toolchain else HOST_C_COMPILERS[0],
         source,
         fake,
         executable,
@@ -1794,7 +1794,7 @@ int main() {
     toolchain = require_sanitizers(tmp_path) if sanitized else None
     executable = tmp_path / f"{frontend}-scope-owners"
     _build(
-        toolchain.command if toolchain else COMPILERS[0],
+        toolchain.command if toolchain else HOST_C_COMPILERS[0],
         source,
         fake,
         executable,
@@ -1856,7 +1856,7 @@ int main() {
     toolchain = require_sanitizers(tmp_path) if sanitized else None
     executable = tmp_path / f"{frontend}-scope-worker"
     _build(
-        toolchain.command if toolchain else COMPILERS[0],
+        toolchain.command if toolchain else HOST_C_COMPILERS[0],
         source,
         fake,
         executable,
@@ -1908,7 +1908,7 @@ void wrongExecutor() {
     fake = tmp_path / "empty.c"
     fake.write_text("typedef int EmptyNativeDriver;\n")
     executable = tmp_path / f"{frontend}-scope-misuse"
-    _build(COMPILERS[0], source, fake, executable)
+    _build(HOST_C_COMPILERS[0], source, fake, executable)
     run = subprocess.run([str(executable)], cwd=REPO, capture_output=True, text=True, timeout=30)
     assert run.returncode != 0, (frontend, run.stderr)
     diagnostic = (
@@ -1949,7 +1949,7 @@ int main() { abandon(); return 0; }
     toolchain = require_sanitizers(tmp_path) if sanitized else None
     executable = tmp_path / f"{frontend}-scope-cycle"
     _build(
-        toolchain.command if toolchain else COMPILERS[0],
+        toolchain.command if toolchain else HOST_C_COMPILERS[0],
         source,
         fake,
         executable,
@@ -2024,7 +2024,7 @@ int main() { terminal(); return 0; }
     toolchain = require_sanitizers(tmp_path) if sanitized else None
     executable = tmp_path / "indeterminate"
     _build(
-        toolchain.command if toolchain else COMPILERS[0],
+        toolchain.command if toolchain else HOST_C_COMPILERS[0],
         source,
         fake,
         executable,

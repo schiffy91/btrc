@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,8 +10,7 @@ import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 
 def _emit_with_stdlib(source: str) -> str:
@@ -85,8 +83,8 @@ def test_callback_receives_only_a_stable_raw_borrow() -> None:
     assert "_Atomic(unsigned int)* counters" in generated
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_raw_atomic_owner_and_borrow_run_under_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -120,8 +118,8 @@ def test_raw_atomic_owner_and_borrow_run_under_strict_c11(
     assert run.returncode == 0, run.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("failed_allocation", (1, 2))
 def test_every_raw_owner_allocation_failure_returns_typed_oom(
     tmp_path: Path,

@@ -1,7 +1,7 @@
 /* Cross-include extern linkage: the global is defined in an included btrc file
    and referenced here via an `extern` declaration. Combines #include splicing
    with the extern variable path. */
-#include "ExternDefsHelper.btrc"
+#include "includehelpers/ExternDefsHelper.btrc"
 #include <assert.h>
 
 extern int sharedCounter;

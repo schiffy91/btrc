@@ -15,6 +15,7 @@ from src.compiler.python.frontend.imports import ImportVisibilityChecker
 from src.compiler.python.frontend.sources import SourceDependencyGraph, SourceDirectiveScanner, StdlibRepository
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.process_limits import TOOL_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
 TEST_ROOT = REPO / "src/tests"
@@ -114,6 +115,7 @@ class CorpusImportAudit:
             check=True,
             cwd=self.repository,
             text=True,
+            timeout=TOOL_TIMEOUT,
         ).stdout.split("\0")
         consumers = (
             path

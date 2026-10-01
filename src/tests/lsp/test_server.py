@@ -205,3 +205,91 @@ def test_completion_and_signature_compute_when_uncached(monkeypatch):
         lsp.SignatureHelpParams(text_document=_ident(), position=pos_of(SAMPLE, "add(self.x", offset=4))
     )
     assert sig is not None and sig.signatures
+
+
+def test_server_signature_falls_back_to_last_good(monkeypatch):
+    published = []
+    monkeypatch.setattr(
+        srv, "text_document_publish_diagnostics", lambda params: published.append(params), raising=False
+    )
+
+    class _Doc:
+        source = SAMPLE
+
+    class _WS:
+        def get_text_document(self, uri):
+            return _Doc()
+
+    monkeypatch.setattr(srv.protocol, "_workspace", _WS(), raising=False)
+    srv._validate_document(URI, SAMPLE)  # good analysis cached
+    srv._validate_document(URI, "class { broken")  # current is broken (no analysis)
+    sig = srv.signature_help(
+        lsp.SignatureHelpParams(
+            text_document=lsp.TextDocumentIdentifier(uri=URI), position=pos_of(SAMPLE, "add(self.x", offset=4)
+        )
+    )
+    assert sig is not None and sig.signatures
+
+
+# ------------------------------------- source swap + empty-result fallbacks
+
+
+class _OptionalWorkspace:
+    """A workspace whose document may be missing (source None)."""
+
+    def __init__(self, source):
+        self._source = source
+
+    def get_text_document(self, uri):
+        return _Doc(self._source) if self._source is not None else None
+
+
+def _install_ws(monkeypatch, source):
+    monkeypatch.setattr(srv, "text_document_publish_diagnostics", lambda params: None, raising=False)
+    monkeypatch.setattr(srv.protocol, "_workspace", _OptionalWorkspace(source), raising=False)
+
+
+def test_server_completion_swaps_in_current_source(monkeypatch):
+    _install_ws(monkeypatch, SAMPLE + "\n")  # doc newer than cache
+    srv._validate_document(URI, SAMPLE)  # cache holds old source
+    out = srv.complete(
+        lsp.CompletionParams(
+            text_document=lsp.TextDocumentIdentifier(uri=URI), position=pos_of(SAMPLE, "self.", offset=5)
+        )
+    )
+    assert out is not None
+
+
+def test_server_completion_empty_without_doc_or_cache(monkeypatch):
+    _install_ws(monkeypatch, None)  # no document
+    srv._analysis_cache.pop("file:///gone.btrc", None)
+    out = srv.complete(
+        lsp.CompletionParams(
+            text_document=lsp.TextDocumentIdentifier(uri="file:///gone.btrc"),
+            position=lsp.Position(line=0, character=0),
+        )
+    )
+    assert out == []
+
+
+def test_server_signature_swaps_in_current_source(monkeypatch):
+    _install_ws(monkeypatch, SAMPLE + "\n")
+    srv._validate_document(URI, SAMPLE)
+    out = srv.signature_help(
+        lsp.SignatureHelpParams(
+            text_document=lsp.TextDocumentIdentifier(uri=URI), position=pos_of(SAMPLE, "add(self.x", offset=4)
+        )
+    )
+    assert out is None or out.signatures
+
+
+def test_server_signature_none_without_doc_or_cache(monkeypatch):
+    _install_ws(monkeypatch, None)
+    srv._analysis_cache.pop("file:///gone2.btrc", None)
+    out = srv.signature_help(
+        lsp.SignatureHelpParams(
+            text_document=lsp.TextDocumentIdentifier(uri="file:///gone2.btrc"),
+            position=lsp.Position(line=0, character=0),
+        )
+    )
+    assert out is None

@@ -1,19 +1,15 @@
-BTRC  := python3 -m src.compiler.python.main
-ROOT  := ../..
-SRC   := Main.btrc
-OUT_C := callback.c
-OUT   := callback
+include ../Example.mk
 
 .PHONY: run clean
 
-run: $(OUT)
-	./$(OUT)
+run: callback
+	./callback
 
-$(OUT): $(OUT_C)
-	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic $(OUT_C) -o $(OUT) -lm -lpthread
+callback: callback.c
+	$(CC) $(STRICT_CFLAGS) callback.c -o callback $(HOSTED_LIBS)
 
-$(OUT_C): $(SRC) ../../src/stdlib/Callback.btrc
-	cd $(ROOT) && $(BTRC) examples/callback/$(SRC) -o examples/callback/$(OUT_C)
+callback.c: Main.btrc $(BTRC_ROOT)/src/stdlib/Callback.btrc
+	cd $(BTRC_ROOT) && $(BTRC) $(EXAMPLE)/Main.btrc -o $(EXAMPLE)/callback.c
 
 clean:
-	rm -f $(OUT_C) $(OUT)
+	rm -f callback.c callback

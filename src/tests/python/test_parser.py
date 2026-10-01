@@ -1576,3 +1576,45 @@ class TestParseErrors:
     def test_unclosed_paren_in_expr(self):
         with pytest.raises(ParseError):
             parse("void f() { int x = (1 + 2; }")
+
+
+def test_malformed_switch_body_is_parse_error():
+    with pytest.raises(ParseError):
+        Parser(Lexer("int main() { int x = 1; switch (x) { x = 2; } return 0; }", "<t>").tokenize()).parse()
+
+
+# C-style for-loop init declarations must carry name_line/name_col on the
+# variable's NAME token (the C-for branch once forgot to populate them).
+
+
+def _var_decls(node, out):
+    import dataclasses
+
+    if type(node).__name__ == "VarDeclStmt":
+        out.append(node)
+    if dataclasses.is_dataclass(node):
+        for fld in dataclasses.fields(node):
+            v = getattr(node, fld.name)
+            for x in v if isinstance(v, list) else [v]:
+                if dataclasses.is_dataclass(x):
+                    _var_decls(x, out)
+
+
+def test_cfor_loop_var_has_name_span():
+    src = (
+        "void f() {\n"
+        "    for (int idx = 0; idx < 3; idx = idx + 1) { }\n"
+        "    for (var jx = 0; jx < 3; jx = jx + 1) { }\n"
+        "}\n"
+    )
+    prog = Parser(Lexer(src, "t.btrc").tokenize()).parse()
+    lines = src.split("\n")
+    decls = []
+    for d in prog.declarations:
+        _var_decls(d, decls)
+    by_name = {d.name: d for d in decls}
+    for name in ("idx", "jx"):
+        d = by_name[name]
+        assert d.name_line > 0 and d.name_col > 0, f"{name} span unpopulated"
+        landed = lines[d.name_line - 1][d.name_col - 1 : d.name_col - 1 + len(name)]
+        assert landed == name, f"{name} span landed on {landed!r}"

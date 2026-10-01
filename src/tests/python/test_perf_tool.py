@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import RUN_TIMEOUT
 from tools import perf
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -197,7 +198,7 @@ def test_complete_build_measurement_includes_every_unit_and_mode(tmp_path, reque
         else:
             assert operations["compiled_units"] == 0
             assert operations["reused_units"] == len(operations["units"])
-        result = subprocess.run([run["executable"]], capture_output=True, text=True, check=True)
+        result = subprocess.run([run["executable"]], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT)
         assert result.stdout == "PASS: native package graph\n"
 
 

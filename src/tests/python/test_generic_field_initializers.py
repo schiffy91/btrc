@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,9 +10,8 @@ import pytest
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(compiler for compiler in (shutil.which("gcc"), shutil.which("clang")) if compiler is not None)
 
 SUCCESS_SOURCE = r"""
     #include <assert.h>
@@ -260,8 +258,8 @@ def _compile_and_run(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_generic_defaults_initialize_and_release_every_field(
     tmp_path: Path,
     c_compiler: str,
@@ -274,8 +272,8 @@ def test_generic_defaults_initialize_and_release_every_field(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_throwing_generic_default_abandons_initialized_cycle(
     tmp_path: Path,
     c_compiler: str,
@@ -288,8 +286,8 @@ def test_throwing_generic_default_abandons_initialized_cycle(
     )
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_user_generic_collection_like_field_names_remain_distinct(
     tmp_path: Path,
     c_compiler: str,

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -12,9 +10,10 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.syntax.tokens import TokenVocabulary
+from src.tests.c_toolchains import configured_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
-CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+CC = configured_c_compiler()
 DRIVER_SOURCES = {
     "parser": "src/compiler/btrc/tools/ParseMain.btrc",
     "compiler": "src/compiler/btrc/BtrccMain.btrc",
@@ -151,7 +150,7 @@ def test_valid_program_still_crosses_both_boundaries(selfhost_drivers: dict[str,
             sys.executable,
             "-m",
             "tools.compiler_codegen.main",
-            "verify-ast",
+            "dump-ast",
             str(program),
         ],
         timeout=15,
@@ -187,7 +186,7 @@ def test_keyword_member_names_match_reference_ast(selfhost_drivers: dict[str, Pa
     )
     program.write_text("void inspect() {\n" + "\n".join(members) + "\n}\n")
     parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
-    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "verify-ast", str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", str(program)], timeout=15)
     assert parsed.returncode == 0, parsed.stderr
     assert reference.returncode == 0, reference.stderr
     assert parsed.stdout == reference.stdout

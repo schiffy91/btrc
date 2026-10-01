@@ -32,6 +32,18 @@ class AsdlType:
     constructors: tuple[AsdlConstructor, ...] = ()
     attributes: tuple[AsdlField, ...] = ()
 
+    @property
+    def is_sum(self) -> bool:
+        """A sum type has more than one constructor."""
+
+        return len(self.constructors) > 1
+
+    @property
+    def is_simple_enum(self) -> bool:
+        """A sum type whose constructors carry no fields."""
+
+        return self.is_sum and all(not constructor.fields for constructor in self.constructors)
+
 
 @dataclass(frozen=True, slots=True)
 class AsdlModule:
@@ -72,7 +84,11 @@ class AsdlSchemaParser:
 
     def _tokenize(self, source: str) -> tuple[str, ...]:
         tokens: list[str] = []
+        position = 0
         for match in self._TOKEN_PATTERN.finditer(source):
+            if match.start() != position:
+                self._reject_character(source, position)
+            position = match.end()
             comment, identifier, punctuation, whitespace = match.groups()
             if comment or whitespace:
                 continue
@@ -80,7 +96,15 @@ class AsdlSchemaParser:
                 tokens.append(identifier)
             elif punctuation:
                 tokens.append(punctuation)
+        if position != len(source):
+            self._reject_character(source, position)
         return tuple(tokens)
+
+    @staticmethod
+    def _reject_character(source: str, offset: int) -> None:
+        line = source.count("\n", 0, offset) + 1
+        column = offset - (source.rfind("\n", 0, offset) + 1) + 1
+        raise SyntaxError(f"Unexpected character {source[offset]!r} at line {line}, column {column}")
 
     def _peek(self) -> str | None:
         if self._position < len(self._tokens):

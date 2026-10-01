@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
 from src.tests.btrc.test_semantic_validation import (
     _compile_source,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.python.test_numeric_comparison_c11 import RUNTIME_SOURCE
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def test_selfhost_mixed_comparisons_compile_strictly(
@@ -30,7 +28,7 @@ def test_selfhost_mixed_comparisons_compile_strictly(
     assert "(left == right)" in emitted
     assert "(low < high)" in emitted
 
-    for compiler in COMPILERS:
+    for compiler in HOST_C_COMPILERS:
         executable = tmp_path / f"comparison-{Path(compiler).name}"
         compiled = subprocess.run(
             [

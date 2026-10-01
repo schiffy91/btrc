@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -12,8 +11,10 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import configured_c_compiler
+
 REPO = Path(__file__).resolve().parents[3]
-CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+CC = configured_c_compiler()
 
 
 def _selfhost(compiler: Path, program: Path, *, timeout: int = 120):

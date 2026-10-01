@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 FIXTURE = Path(__file__).with_name("fixtures") / "trycatch_cleanup_address_reuse.c"
 ROOTS = {
     "__btrc_register_cleanup",
@@ -36,7 +35,7 @@ HEADERS = """\
 """
 
 pytestmark = pytest.mark.skipif(
-    not COMPILERS or sys.platform == "win32",
+    not HOST_C_COMPILERS or sys.platform == "win32",
     reason="requires a hosted strict C11 compiler",
 )
 
@@ -58,7 +57,7 @@ def _runtime_source() -> str:
     return f"{HEADERS}\n{helpers}\n\n{FIXTURE.read_text()}\n"
 
 
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cleanup_batch_freezes_values_before_first_destroy(
     tmp_path: Path,
     c_compiler: str,

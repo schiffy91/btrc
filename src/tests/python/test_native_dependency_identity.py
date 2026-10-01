@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import NativeLinkPlan, PackageTarget
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 from tools.native_plan import NativePlanBuilder, _ObjectCache
 
 
@@ -45,7 +46,7 @@ def test_cache_tracks_physical_header_bytes_with_preserved_mtime(tmp_path, monke
     cache = _ObjectCache(tmp_path / "cache", subprocess.run, target="dependency-identity-test")
     first = cache.probe(command, source)
     assert first.key is not None, first.reason
-    subprocess.run(command, capture_output=True, check=True)
+    subprocess.run(command, capture_output=True, check=True, timeout=C_COMPILE_TIMEOUT)
     original_object = output.read_bytes()
     assert hashlib.md5(original).digest() in original_object
     assert cache.store(first.key, output)
@@ -58,7 +59,7 @@ def test_cache_tracks_physical_header_bytes_with_preserved_mtime(tmp_path, monke
     header.write_bytes(changed)
     os.utime(header, ns=(before.st_atime_ns, before.st_mtime_ns))
     edited = cache.probe(command, source)
-    subprocess.run(command, capture_output=True, check=True)
+    subprocess.run(command, capture_output=True, check=True, timeout=C_COMPILE_TIMEOUT)
     fresh_object = output.read_bytes()
     assert hashlib.md5(changed).digest() in fresh_object
     assert fresh_object != original_object
@@ -104,7 +105,7 @@ def test_cache_keeps_implicit_system_and_existence_only_inputs(tmp_path, monkeyp
     cache = _ObjectCache(tmp_path / "cache", subprocess.run, target="dependency-identity-test")
     first = cache.probe(command, source)
     assert first.key is not None, first.reason
-    subprocess.run(command, capture_output=True, check=True)
+    subprocess.run(command, capture_output=True, check=True, timeout=C_COMPILE_TIMEOUT)
     inputs = {row["path"] for row in cache._manifests[first.key]["dependencies"]}
     assert {str(tmp_path / name) for name in headers} | {str(source)} <= inputs
     assert cache.probe(command, source).key == first.key
@@ -149,7 +150,7 @@ def test_cache_declines_lossy_header_report_names(tmp_path, monkeypatch, clang, 
     command = [clang, "-c", str(source), "-o", str(tmp_path / "Main.o")]
     # Clang accepts these inputs, but its header report folds CR/LF/CRLF to
     # one spelling. A valid ordinary build must remain available without reuse.
-    subprocess.run(command, capture_output=True, check=True)
+    subprocess.run(command, capture_output=True, check=True, timeout=C_COMPILE_TIMEOUT)
     cache = _ObjectCache(tmp_path / "cache", subprocess.run, target="dependency-identity-test")
     assert cache.probe(command, source).key is None
 
@@ -176,7 +177,7 @@ def test_cache_declines_unusable_header_report(tmp_path, clang, damage):
 
     cache = _ObjectCache(tmp_path / "cache", run, target="dependency-identity-test")
     assert cache.probe(command, source).key is None
-    subprocess.run(command, capture_output=True, check=True)
+    subprocess.run(command, capture_output=True, check=True, timeout=C_COMPILE_TIMEOUT)
 
 
 @pytest.mark.parametrize("name", ["back\\slash.h", "tab\tname.h"])
@@ -208,4 +209,4 @@ def test_native_build_recompiles_changed_physical_header(tmp_path, clang, name):
     os.utime(header, ns=(before.st_atime_ns, before.st_mtime_ns))
     assert builder.build(**options).as_dict()["compiled_units"] == 1
     assert builder.build(**options).as_dict()["compiled_units"] == 0
-    subprocess.run([str(output)], capture_output=True, check=True)
+    subprocess.run([str(output)], capture_output=True, check=True, timeout=RUN_TIMEOUT)

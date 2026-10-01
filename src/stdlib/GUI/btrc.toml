@@ -99,7 +99,7 @@ module = "FreeType.FreeTypeFace"
 header = "FreeType/FreeType.h"
 language = "c"
 standard = "c11"
-symbols = ["FT_Library", "FT_Face", "FT_Init_FreeType", "FT_Done_FreeType", "FT_New_Face", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char", "BTRC_FT_LOAD_DEFAULT", "BTRC_FT_LOAD_RENDER", "FT_PIXEL_MODE_MONO", "FT_PIXEL_MODE_GRAY"]
+symbols = ["FT_Library", "FT_Face", "FT_Init_FreeType", "FT_Done_FreeType", "FT_New_Face", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char", "FT_LOAD_DEFAULT", "FT_LOAD_RENDER", "FT_PIXEL_MODE_MONO", "FT_PIXEL_MODE_GRAY"]
 borrowed-parameters = ["FT_New_Face.library", "FT_Set_Pixel_Sizes.face", "FT_Load_Char.face"]
 read-only-borrows = ["FT_New_Face.filepathname"]
 

@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _compile_and_run(tmp_path: Path, compiler: str, generated: str):
@@ -64,8 +62,8 @@ ORDERING_BODY = """
 """
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_primary_string_helpers_sequence_receiver_and_arguments(tmp_path, c_compiler):
     generated = emit_c('int main() { string text = "abcd";' + ORDERING_BODY + "}")
 
@@ -73,8 +71,8 @@ def test_primary_string_helpers_sequence_receiver_and_arguments(tmp_path, c_comp
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_generic_string_helpers_use_the_same_ordering_boundary(tmp_path, c_compiler):
     generated = emit_c(
         "class Ops<T> { public Ops() {} public int verify(string text) {"

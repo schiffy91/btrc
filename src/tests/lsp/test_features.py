@@ -1,6 +1,7 @@
 """Behavioral tests for the remaining LSP features: hover, completion,
 find-references, rename, document symbols, signature help, semantic tokens.
-All drive the real feature functions over SAMPLE through the shared compiler."""
+All drive the real feature functions through the shared compiler, over SAMPLE
+and over sources that exercise struct, typedef, enum and generic declarations."""
 
 from src.tests.lsp.lsphelp import (
     SAMPLE,
@@ -139,3 +140,114 @@ def test_semantic_tokens_cover_fstring_variables_in_document_only():
     assert tokens is not None
     decoded = decoded_semantic_tokens(source, tokens.data, with_position=True)
     assert (0, 58, "label", "variable", 0) in decoded
+
+
+def test_semantic_tokens_classify_type_names():
+    src = (
+        "struct Pt { int x; int y; };\n"
+        "typedef int Id;\n"
+        "class Widget { public int w; public Widget() { self.w = 0; } }\n"
+        "int main() {\n"
+        "    Widget wd = Widget();\n"
+        "    Id n = 5;\n"
+        "    return n + wd.w;\n"
+        "}\n"
+    )
+    toks = get_semantic_tokens(analyze(src))
+    assert toks is not None and len(toks.data) > 0
+
+
+def test_semantic_tokens_new_constructor_and_generic():
+    src = (
+        "enum Color { RED, GREEN };\n"
+        "class Box<T> { public T v; public Box(T v) { self.v = v; } }\n"
+        "int main() {\n"
+        "    Box<int> b = new Box(5);\n"
+        "    Color c = RED;\n"
+        "    return 0;\n"
+        "}\n"
+    )
+    toks = get_semantic_tokens(analyze(src))
+    assert toks is not None and len(toks.data) > 0
+    decoded = decoded_semantic_tokens(src, toks.data)
+    assert ("Box", "type", 0) in decoded
+    assert ("Color", "type", 0) in decoded
+    assert ("RED", "enumMember", 0) in decoded
+
+
+GEN = """\
+struct RawPt { int x; int y; };
+
+class Base {
+    public int b;
+    public Base() { self.b = 0; }
+    public int describe() { return self.b; }
+    public int doubled { get { return self.b * 2; } }
+}
+
+class Gen<T> extends Base {
+    public T val;
+    public Gen(T v) { self.val = v; }
+    public T unwrap() { return self.val; }
+}
+
+int useGen(Gen<int> g) {
+    return g.unwrap();
+}
+
+int main() {
+    Gen<int> gi = Gen(5);
+    int r = useGen(gi);
+    return r;
+}
+"""
+
+
+def test_semantic_tokens_present_for_struct_generic():
+    toks = get_semantic_tokens(analyze(GEN))
+    assert toks is not None and toks.data
+
+
+# ------------------------------- struct / typedef / enum / generic declarations
+
+# Source exercising struct / typedef / generic class / inheritance.
+TYPES = """\
+struct Pt { int x; int y; };
+
+typedef int MyInt;
+
+enum Color { RED, BLUE };
+
+class Base {
+    public int b;
+    public Base() { self.b = 0; }
+    public int describe() { return self.b; }
+}
+
+class Gen<T> extends Base {
+    public T val;
+    public Gen(T v) { self.val = v; }
+    public T get() { return self.val; }
+}
+
+int main() {
+    Base base = Base();
+    int d = base.describe();
+    MyInt alias = 3;
+    Color color = RED;
+    return d + alias;
+}
+"""
+
+
+def test_semantic_tokens_struct_generic_typedef():
+    toks = get_semantic_tokens(analyze(TYPES))
+    assert toks is not None and toks.data
+    decoded = decoded_semantic_tokens(TYPES, toks.data)
+    assert ("MyInt", "type", 0) in decoded
+    assert ("RED", "enumMember", 0) in decoded
+
+
+def test_document_symbols_struct_typedef_generic():
+    names = {s.name for s in get_document_symbols(analyze(TYPES))}
+    assert {"Pt", "MyInt", "Color", "Gen", "Base"} <= names

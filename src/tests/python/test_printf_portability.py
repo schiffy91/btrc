@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.python.test_codegen import emit_c
 
-COMPILERS = tuple(compiler for compiler in (shutil.which("gcc"), shutil.which("clang")) if compiler is not None)
-pytestmark = pytest.mark.skipif(not COMPILERS, reason="needs GCC or Clang")
+pytestmark = requires_host_c_compiler
 
 
-@pytest.fixture(params=COMPILERS)
+@pytest.fixture(params=HOST_C_COMPILERS)
 def c_compiler(request):
     return request.param
 

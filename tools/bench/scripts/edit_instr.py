@@ -70,7 +70,9 @@ def compile_once(
         time.sleep(0.15)
         pid = process.pid
         if measure:
-            children = subprocess.run(["pgrep", "-P", str(process.pid)], capture_output=True, text=True).stdout.split()
+            children = subprocess.run(
+                ["pgrep", "-P", str(process.pid)], capture_output=True, text=True, timeout=60
+            ).stdout.split()
             pid = int(children[0]) if children else process.pid
         sampler = subprocess.Popen(
             ["sample", str(pid), "60", "1", "-file", str(sample)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -95,7 +97,7 @@ def phases(stderr: str) -> dict[str, int]:
 
 def clone(source: Path, destination: Path) -> None:
     shutil.rmtree(destination, ignore_errors=True)
-    subprocess.run(["/bin/cp", "-c", "-R", str(source), str(destination)], check=True)
+    subprocess.run(["/bin/cp", "-c", "-R", str(source), str(destination)], check=True, timeout=600)
 
 
 def main() -> None:

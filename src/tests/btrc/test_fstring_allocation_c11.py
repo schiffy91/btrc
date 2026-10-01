@@ -8,10 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import COMPILERS, REPO, _compile_pair
+from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-pytestmark = pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
+pytestmark = pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a C11 compiler")
 
 FIXTURES = (
     (
@@ -39,7 +40,7 @@ def test_fstring_allocation_is_warning_clean_after_optimization(
         fixture.stem,
     )
     for frontend, generated in compiled:
-        for compiler in COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             for optimization in ("-O0", "-O1", "-O2"):
                 output = tmp_path / f"{frontend}-{Path(compiler).name}-{optimization[1:]}"
                 build = subprocess.run(

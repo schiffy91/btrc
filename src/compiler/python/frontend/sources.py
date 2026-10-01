@@ -23,9 +23,9 @@ from ..lexer.lexer import Lexer
 from ..parser.parser import Parser
 from ..syntax.ast.codec import AstJsonCodec
 from ..syntax.tokens import SourceSymbolDirective, Token, TokenKind
-from . import symbol_index
 from .native_imports import NativeDeclarationImporter, NativeGeneratedSource, NativeHeaderSource
 from .packages import IncludeResolutionError, NativeLinkPlan, PackageUniverse
+from .symbol_index import StdlibSymbolIndex
 
 
 class CompilerStdlibSource(str):
@@ -1112,7 +1112,7 @@ class StdlibRepository:
 
         root = self.directory()
         files = self._root_module_files()
-        owners = symbol_index.load(root, self.symbol_index_digest(files))
+        owners = StdlibSymbolIndex.load(root, self.symbol_index_digest(files))
         if owners is None:
             owners = self.parsed_symbol_owners(files)
         self._symbol_files = {
@@ -1138,7 +1138,7 @@ class StdlibRepository:
                     entries.append((filename, source_file.read()))
             except OSError as error:
                 raise IncludeResolutionError(f"cannot read stdlib module {filename!r}: {error}") from error
-        return symbol_index.snapshot_digest(entries)
+        return StdlibSymbolIndex.snapshot_digest(entries)
 
     def parsed_symbol_owners(self, files: list[str] | None = None) -> dict[str, set[str]]:
         """Derive symbol -> owning root module names by parsing every root module."""
@@ -1161,7 +1161,7 @@ class StdlibRepository:
         """Render the current ``btrc.symbols`` content for this stdlib."""
 
         files = self._root_module_files()
-        return symbol_index.render(self.symbol_index_digest(files), self.parsed_symbol_owners(files))
+        return StdlibSymbolIndex.render(self.symbol_index_digest(files), self.parsed_symbol_owners(files))
 
 
 class _SourceImportResolver(Protocol):

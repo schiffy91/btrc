@@ -11,10 +11,8 @@ from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.python.test_strict_c_semantic_boundaries import (
-    COMPILERS,
-    _compile_and_run,
-)
+from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.python.test_strict_c_semantic_boundaries import _compile_and_run
 
 
 def _analyze(source: str):
@@ -44,8 +42,8 @@ def test_string_array_index_preserves_string_element_shape() -> None:
     assert analyzed.errors == []
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_inferred_vector_literal_import_materializes_live_specialization(
     tmp_path: Path,
     c_compiler: str,
@@ -84,8 +82,8 @@ def test_inferred_vector_literal_import_materializes_live_specialization(
     _compile_and_run(result.c_source, tmp_path, c_compiler)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_ignored_string_iteration_binding_is_strict_c11(
     tmp_path: Path,
     c_compiler: str,
@@ -104,8 +102,8 @@ def test_ignored_string_iteration_binding_is_strict_c11(
     _compile_and_run(generated, tmp_path, c_compiler)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_temporary_class_vector_iteration_materializes_specialization(tmp_path: Path, c_compiler: str) -> None:
     source = """
         import Library.Vector;

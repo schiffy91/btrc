@@ -1,6 +1,5 @@
 """Dynamic collection literals cross one typed ownership transaction."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -8,8 +7,7 @@ import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 
 
 def _emit(source: str) -> str:
@@ -68,8 +66,8 @@ def _compile_and_run(generated: str, tmp_path: Path, compiler: str, stem: str) -
     assert executed.returncode == 0, executed.stderr
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("collection_type", ["Vector", "List"])
 def test_sequence_literal_releases_fresh_managed_elements(
     tmp_path: Path,
@@ -102,8 +100,8 @@ def test_sequence_literal_releases_fresh_managed_elements(
     _compile_and_run(generated, tmp_path, c_compiler, f"{collection_type.lower()}_literal_ownership")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_sequence_literal_classifies_later_element_after_callable_rebind(
     tmp_path: Path,
     c_compiler: str,
@@ -144,8 +142,8 @@ def test_sequence_literal_classifies_later_element_after_callable_rebind(
     _compile_and_run(generated, tmp_path, c_compiler, "sequence_literal_callable_rebind")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_map_literal_releases_fresh_managed_keys_and_values(tmp_path: Path, c_compiler: str):
     generated = _emit("""
         import Library.Map;
@@ -182,8 +180,8 @@ def test_map_literal_releases_fresh_managed_keys_and_values(tmp_path: Path, c_co
     _compile_and_run(generated, tmp_path, c_compiler, "map_literal_ownership")
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_throwing_later_literal_leaf_unwinds_earlier_owned_leaf(tmp_path: Path, c_compiler: str):
     generated = _emit("""
         import Library.Vector;

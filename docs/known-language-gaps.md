@@ -15,6 +15,15 @@ gap ID.
 | — | Lambda expressions inside generic declarations | Generic-body lowering does not yet lift lambda declarations and their capture environments for each specialization. Inline lambdas passed to an ordinary generic method are supported; a lambda declared inside a generic class or method body is rejected. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
 | — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
 
+## Open native-platform defects
+
+These are not language gaps, but they are open defects no gate catches yet, so
+they are tracked here rather than only beside their reproducers.
+
+| Area | Symptom | Reproducer |
+|------|---------|------------|
+| macOS `NSSlider` presentation | After tracking, or disabling and re-enabling, the native value and cell value read 100 but the knob is drawn at the left; the 64-by-30 compact case also fails. Layout/display invalidation and a direct bitmap draw do not resolve it. | `src/tests/native/gui/SliderPresentation.m` (run instructions in `SliderPresentation.md`; macOS only) |
+
 ## Intentional syntax limits
 
 Multi-dimensional fixed arrays (`int grid[2][3]`, historical gap 9) are not

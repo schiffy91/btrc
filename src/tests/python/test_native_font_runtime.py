@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.test_native_import_consumer import REPO, apple_environment
 from src.tests.python.test_native_import_consumer import native_compile as native_compile
 from src.tests.python.test_native_import_consumer import native_project as native_project
@@ -36,14 +37,19 @@ def _test_font() -> Path:
     arial = Path("/System/Library/Fonts/Supplemental/Arial.ttf")
     if arial.is_file() or not shutil.which("fc-match"):
         return arial
-    matched = subprocess.run(["fc-match", "--format=%{file}", "sans-serif"], capture_output=True, text=True)
+    matched = subprocess.run(
+        ["fc-match", "--format=%{file}", "sans-serif"], capture_output=True, text=True, timeout=TOOL_TIMEOUT
+    )
     return Path(matched.stdout.strip()) if matched.returncode == 0 and matched.stdout.strip() else arial
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("snapshot", [False, True])
 def test_freetype_unique_setup(font_project, native_compile, sanitize, snapshot):
-    if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "freetype2"]).returncode:
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
         pytest.skip("requires the optional FreeType SDK through pkg-config")
     font = _test_font()
     if not font.is_file():
@@ -105,7 +111,7 @@ int main(int argc, char** argv) {
     var metrics = copyFreeTypeMetrics(face);
     if (metrics == null) { throw "Cannot snapshot FreeType metrics"; }
     assert(metrics.ascender > 0L && metrics.height > 0L);
-    assert(FT_Load_Char(face, 65UL, BTRC_FT_LOAD_RENDER) == 0);
+    assert(FT_Load_Char(face, 65UL, FT_LOAD_RENDER) == 0);
     var glyph = copyFreeTypeGlyph(face, 65536);
     if (glyph == null) { throw "Cannot snapshot actual glyph"; }
     assert(glyph.width > 0U && glyph.rows > 0U && glyph.pitch > 0);
@@ -113,7 +119,7 @@ int main(int argc, char** argv) {
     int coverage = 0;
     for (int index = 0; index < glyph.bitmap.length(); index++) { coverage += glyph.bitmap.get(index); }
     assert(coverage > 0);
-    assert(FT_Load_Char(face, 32UL, BTRC_FT_LOAD_RENDER) == 0);
+    assert(FT_Load_Char(face, 32UL, FT_LOAD_RENDER) == 0);
     var empty = copyFreeTypeGlyph(face, 0);
     if (empty == null) { throw "Space glyph must have an owned empty bitmap"; }
     assert(empty.bitmap.length() == 0);
@@ -179,7 +185,10 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("consumer", ["GuiFontConformance", "FontSmoke"])
 def test_optional_freetype_factory(font_project, native_compile, sanitize, consumer):
-    if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "freetype2"]).returncode:
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
         pytest.skip("requires the optional FreeType SDK through pkg-config")
     font = _test_font()
     if consumer == "GuiFontConformance" and not font.is_file():

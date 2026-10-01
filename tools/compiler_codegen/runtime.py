@@ -10,6 +10,7 @@ from typing import Any
 
 from . import GeneratedArtifact, format_generated_btrc
 from .intrinsic_effects import IntrinsicEffectManifest
+from .manifest_fields import ManifestFields
 
 
 class RuntimeManifestError(ValueError):
@@ -138,6 +139,8 @@ class RuntimeHelperSpec:
 class RuntimeManifest:
     """Validated authoritative runtime specification and extracted payloads."""
 
+    _FIELDS = ManifestFields(RuntimeManifestError)
+
     schema_version: int
     marker_version: int
     freestanding: FreestandingRuntimeSpec
@@ -216,18 +219,18 @@ class RuntimeManifest:
             document = tomllib.loads(manifest_data.decode("utf-8"))
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
             raise RuntimeManifestError(f"cannot read runtime manifest {manifest_path}: {error}") from error
-        cls._require_keys(document, cls._ROOT_KEYS, "runtime manifest")
-        schema_version = cls._integer(document, "schema_version", "runtime manifest")
-        marker_version = cls._integer(document, "marker_version", "runtime manifest")
+        cls._FIELDS.require_keys(document, cls._ROOT_KEYS, "runtime manifest")
+        schema_version = cls._FIELDS.integer(document, "schema_version", "runtime manifest")
+        marker_version = cls._FIELDS.integer(document, "marker_version", "runtime manifest")
         if schema_version != 3 or marker_version != 1:
             raise RuntimeManifestError(
                 f"unsupported runtime manifest versions: schema={schema_version}, marker={marker_version}"
             )
 
         asset_root = manifest_path.parent
-        freestanding_table = cls._table(document, "freestanding", "runtime manifest")
-        cls._require_keys(freestanding_table, cls._FREESTANDING_KEYS, "freestanding")
-        header = cls._string(document, "freestanding_header", "runtime manifest")
+        freestanding_table = cls._FIELDS.table(document, "freestanding", "runtime manifest")
+        cls._FIELDS.require_keys(freestanding_table, cls._FREESTANDING_KEYS, "freestanding")
+        header = cls._FIELDS.string(document, "freestanding_header", "runtime manifest")
         if Path(header).name != header or not header.endswith(".h"):
             raise RuntimeManifestError(f"invalid freestanding header path: {header!r}")
         header_path = asset_root / header
@@ -278,15 +281,15 @@ class RuntimeManifest:
             context = f"helpers[{index}]"
             if not isinstance(raw_helper, dict):
                 raise RuntimeManifestError(f"{context} must be a table")
-            cls._require_keys(
+            cls._FIELDS.require_keys(
                 raw_helper,
                 cls._HELPER_KEYS,
                 context,
-                optional=cls._OPTIONAL_HELPER_KEYS,
+                required=cls._HELPER_KEYS - cls._OPTIONAL_HELPER_KEYS,
             )
-            name = cls._string(raw_helper, "name", context)
-            category = cls._string(raw_helper, "category", context)
-            asset = cls._string(raw_helper, "asset", context)
+            name = cls._FIELDS.string(raw_helper, "name", context)
+            category = cls._FIELDS.string(raw_helper, "category", context)
+            asset = cls._FIELDS.string(raw_helper, "asset", context)
             if not cls._IDENTIFIER.fullmatch(name):
                 raise RuntimeManifestError(f"{context}.name is not a C identifier: {name!r}")
             if not cls._IDENTIFIER.fullmatch(category):
@@ -300,8 +303,8 @@ class RuntimeManifest:
                 raise RuntimeManifestError(
                     f"helper {name} declares asset {asset}, but its marker is in {source_entry[0]}"
                 )
-            order = cls._table(raw_helper, "order", context)
-            cls._require_keys(order, frozenset(cls._CATALOGS), f"{context}.order", allow_missing=True)
+            order = cls._FIELDS.table(raw_helper, "order", context)
+            cls._FIELDS.require_keys(order, frozenset(cls._CATALOGS), f"{context}.order", required=frozenset())
             if not order:
                 raise RuntimeManifestError(f"{context}.order must name at least one compiler catalog")
             python_order = cls._optional_order(order, "python", context)
@@ -466,11 +469,11 @@ class RuntimeManifest:
             context = f"runtime_call_features[{index}]"
             if not isinstance(item, dict):
                 raise RuntimeManifestError(f"{context} must be a table")
-            cls._require_keys(item, cls._CALL_FEATURE_KEYS, context)
+            cls._FIELDS.require_keys(item, cls._CALL_FEATURE_KEYS, context)
             features.append(
                 RuntimeCallFeatureSpec(
-                    prefix=cls._string(item, "prefix", context),
-                    macro=cls._string(item, "macro", context),
+                    prefix=cls._FIELDS.string(item, "prefix", context),
+                    macro=cls._FIELDS.string(item, "macro", context),
                 )
             )
         return tuple(features)
@@ -484,52 +487,14 @@ class RuntimeManifest:
             context = f"header_features[{index}]"
             if not isinstance(item, dict):
                 raise RuntimeManifestError(f"{context} must be a table")
-            cls._require_keys(item, cls._HEADER_FEATURE_KEYS, context)
+            cls._FIELDS.require_keys(item, cls._HEADER_FEATURE_KEYS, context)
             features.append(
                 RuntimeHeaderFeatureSpec(
-                    header=cls._string(item, "header", context),
-                    macro=cls._string(item, "macro", context),
+                    header=cls._FIELDS.string(item, "header", context),
+                    macro=cls._FIELDS.string(item, "macro", context),
                 )
             )
         return tuple(features)
-
-    @staticmethod
-    def _require_keys(
-        table: dict[str, Any],
-        allowed: frozenset[str],
-        context: str,
-        *,
-        allow_missing: bool = False,
-        optional: frozenset[str] = frozenset(),
-    ) -> None:
-        unknown = set(table) - allowed
-        if unknown:
-            raise RuntimeManifestError(f"unknown {context} keys: {', '.join(sorted(unknown))}")
-        if not allow_missing:
-            missing = allowed - optional - set(table)
-            if missing:
-                raise RuntimeManifestError(f"missing {context} keys: {', '.join(sorted(missing))}")
-
-    @staticmethod
-    def _table(table: dict[str, Any], key: str, context: str) -> dict[str, Any]:
-        value = table.get(key)
-        if not isinstance(value, dict):
-            raise RuntimeManifestError(f"{context}.{key} must be a table")
-        return value
-
-    @staticmethod
-    def _string(table: dict[str, Any], key: str, context: str) -> str:
-        value = table.get(key)
-        if not isinstance(value, str) or not value:
-            raise RuntimeManifestError(f"{context}.{key} must be a non-empty string")
-        return value
-
-    @staticmethod
-    def _integer(table: dict[str, Any], key: str, context: str) -> int:
-        value = table.get(key)
-        if type(value) is not int:
-            raise RuntimeManifestError(f"{context}.{key} must be an integer")
-        return value
 
     @classmethod
     def _optional_order(cls, order: dict[str, Any], catalog: str, context: str) -> int | None:

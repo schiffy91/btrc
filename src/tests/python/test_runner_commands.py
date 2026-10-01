@@ -6,6 +6,7 @@ import pytest
 
 from src.tests import runner
 from src.tests import runner_capabilities as capabilities
+from src.tests.process_limits import ProcessLimits
 
 
 @pytest.mark.parametrize("standard", ("-std=c11", "-std=gnu11"))
@@ -109,26 +110,6 @@ def test_gpu_environment_flags_must_be_configured_as_a_pair(tmp_path, monkeypatc
         runner._gcc_flags("/* btrc_gpu_compute_internal.h */", "/tmp/program.c", "/tmp/program")
 
 
-def test_windows_tray_is_an_explicit_unsupported_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    monkeypatch.setattr(runner, "declared_capabilities", lambda _source: {"native-tray"})
-
-    with pytest.raises(pytest.skip.Exception, match="native tray provider is not implemented"):
-        runner._require_test_capabilities("TrayNative.btrc")
-
-
-def test_linux_tray_skips_only_without_a_session_bus_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(platform, "system", lambda: "Linux")
-    monkeypatch.setattr(runner, "declared_capabilities", lambda _source: {"native-tray"})
-    monkeypatch.setattr(runner, "linux_tray_backend_error", lambda: None)
-    runner._require_test_capabilities("TrayNative.btrc")
-
-    reason = "native tray backend is unavailable: org.kde.StatusNotifierWatcher is not on the session bus"
-    monkeypatch.setattr(runner, "linux_tray_backend_error", lambda: reason)
-    with pytest.raises(pytest.skip.Exception, match="StatusNotifierWatcher is not on the session bus"):
-        runner._require_test_capabilities("TrayNative.btrc")
-
-
 def test_loopback_listener_probe_reports_permission_denial(monkeypatch: pytest.MonkeyPatch) -> None:
     class DeniedSocket:
         def __enter__(self):
@@ -191,46 +172,6 @@ def test_only_declared_listener_tests_run_the_loopback_probe(
     assert probes == 1
 
 
-def test_darwin_tray_probe_treats_early_clean_exit_as_unavailable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    results = iter(
-        [
-            SimpleNamespace(returncode=0, stdout="", stderr=""),
-            SimpleNamespace(returncode=0, stdout="", stderr=""),
-        ]
-    )
-    monkeypatch.setattr(capabilities.subprocess, "run", lambda *_args, **_kwargs: next(results))
-
-    error = capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",))
-
-    assert error == "native tray backend is unavailable: Cocoa terminated the capability probe during initialization"
-
-
-def test_darwin_tray_probe_build_failure_is_not_a_runtime_skip(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        capabilities.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="", stderr="Objective-C compile failed"),
-    )
-
-    with pytest.raises(capabilities.CapabilityProbeBuildError, match="Objective-C compile failed"):
-        capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",))
-
-
-def test_darwin_tray_probe_nonzero_exit_is_not_a_runtime_skip(monkeypatch: pytest.MonkeyPatch) -> None:
-    results = iter(
-        [
-            SimpleNamespace(returncode=0, stdout="", stderr=""),
-            SimpleNamespace(returncode=70, stdout="", stderr="probe crashed"),
-        ]
-    )
-    monkeypatch.setattr(capabilities.subprocess, "run", lambda *_args, **_kwargs: next(results))
-
-    with pytest.raises(capabilities.CapabilityProbeRuntimeError, match="probe crashed"):
-        capabilities.darwin_tray_backend_error(("clang",), ("-std=c11",))
-
-
 def test_runtime_capability_check_runs_after_successful_c_compilation(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -260,12 +201,12 @@ def test_runtime_capability_check_runs_after_successful_c_compilation(
 @pytest.mark.parametrize("raw", ("", "0", "-1", "nan", "inf", "not-a-number"))
 def test_transpile_timeout_rejects_non_positive_or_non_finite_values(raw: str) -> None:
     with pytest.raises(ValueError, match="BTRC_TEST_TRANSPILE_TIMEOUT must be a positive number"):
-        runner._positive_timeout_seconds(raw, name="BTRC_TEST_TRANSPILE_TIMEOUT", default=300.0)
+        ProcessLimits.positive_seconds(raw, name="BTRC_TEST_TRANSPILE_TIMEOUT", default=300.0)
 
 
 def test_transpile_timeout_uses_default_and_accepts_fractional_seconds() -> None:
-    assert runner._positive_timeout_seconds(None, name="timeout", default=300.0) == 300.0
-    assert runner._positive_timeout_seconds("12.5", name="timeout", default=300.0) == 12.5
+    assert ProcessLimits.positive_seconds(None, name="timeout", default=300.0) == 300.0
+    assert ProcessLimits.positive_seconds("12.5", name="timeout", default=300.0) == 12.5
 
 
 def test_selfhost_transpile_uses_configured_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,15 +238,16 @@ def test_python_corpus_runner_uses_the_strict_import_default(
     observed = {}
 
     class CapturingCompiler:
-        def compile_frontend(self, _source, _source_path, options, *, filename):
+        def compile(self, _source, source_path, options):
             observed["options"] = options
-            observed["filename"] = filename
-            raise RuntimeError("captured before lowering")
+            observed["source_path"] = source_path
+            raise RuntimeError("captured before compiling")
 
     monkeypatch.setattr(runner, "_PYTHON_COMPILER", CapturingCompiler())
 
-    with pytest.raises(RuntimeError, match="captured before lowering"):
+    with pytest.raises(RuntimeError, match="captured before compiling"):
         runner._transpile_python(str(program), program.name)
 
     assert observed["options"].strict_imports is True
-    assert observed["filename"] == program.name
+    assert observed["options"].use_cache is False
+    assert observed["source_path"] == str(program)

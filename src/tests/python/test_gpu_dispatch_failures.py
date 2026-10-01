@@ -11,9 +11,10 @@ import pytest
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 from src.tests.python.test_codegen import emit_c
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "GPU"
 
 _GPU_DECLS = r"""
@@ -186,12 +187,7 @@ def _compile_with_gpu_stubs(
     if "pthread.h" in unit.read_text():
         command.append("-lpthread")
     command.extend(["-o", str(executable)])
-    subprocess.run(
-        command,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    subprocess.run(command, check=True, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT)
     return executable
 
 
@@ -260,7 +256,7 @@ def test_void_dispatch_falls_back_after_partial_setup_and_cleans_up(
         available=True,
         fail_second_buffer=True,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_void_dispatch_falls_back_when_first_submission_is_rejected(
@@ -274,11 +270,11 @@ def test_void_dispatch_falls_back_when_first_submission_is_rejected(
         fail_second_buffer=False,
         fail_dispatch_at=1,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_array_return_dispatch_falls_back_when_gpu_is_unavailable(
     tmp_path: Path,
     c_compiler: str,
@@ -292,11 +288,11 @@ def test_array_return_dispatch_falls_back_when_gpu_is_unavailable(
         fail_second_buffer=False,
         compiler=c_compiler,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cpu_fallback_early_return_is_per_invocation(
     tmp_path: Path,
     c_compiler: str,
@@ -312,7 +308,7 @@ def test_cpu_fallback_early_return_is_per_invocation(
         fail_second_buffer=False,
         compiler=c_compiler,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_hosted_macro_parameter_names_cross_gpu_host_and_cpu_paths(
@@ -335,11 +331,11 @@ def test_hosted_macro_parameter_names_cross_gpu_host_and_cpu_paths(
         available=False,
         fail_second_buffer=False,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cpu_fallback_array_return_handles_branches_and_whole_buffers(
     tmp_path: Path,
     c_compiler: str,
@@ -355,7 +351,7 @@ def test_cpu_fallback_array_return_handles_branches_and_whole_buffers(
         fail_second_buffer=False,
         compiler=c_compiler,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_dispatch_locals_are_unique_across_same_and_nested_scopes(
@@ -377,7 +373,7 @@ def test_dispatch_locals_are_unique_across_same_and_nested_scopes(
         available=False,
         fail_second_buffer=False,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_loop_dispatch_keeps_one_persistent_context(tmp_path: Path) -> None:
@@ -397,7 +393,7 @@ def test_loop_dispatch_keeps_one_persistent_context(tmp_path: Path) -> None:
         available=True,
         fail_second_buffer=False,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_concurrent_dispatch_context_publication_destroys_cas_loser(
@@ -469,7 +465,7 @@ def test_collection_call_buffer_argument_evaluates_once_on_fallback(
         available=True,
         fail_second_buffer=True,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_collection_argument_precedes_inferred_gpu_result_array() -> None:
@@ -491,8 +487,8 @@ def test_collection_argument_precedes_inferred_gpu_result_array() -> None:
     assert c_source.index(length_snapshot) < c_source.index(declaration)
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_mixed_parameter_order_uses_source_order_on_cpu_fallback(
     tmp_path: Path,
     c_compiler: str,
@@ -516,7 +512,7 @@ def test_mixed_parameter_order_uses_source_order_on_cpu_fallback(
         fail_second_buffer=False,
         compiler=c_compiler,
     )
-    subprocess.run([str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
 
 
 def test_output_kernel_in_arbitrary_expression_is_rejected() -> None:

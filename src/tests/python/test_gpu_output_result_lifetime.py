@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.python.test_codegen import emit_c
-from src.tests.python.test_gpu_dispatch_failures import COMPILERS, _compile_with_gpu_stubs
+from src.tests.python.test_gpu_dispatch_failures import _compile_with_gpu_stubs
 
 OWNED_PROPERTY_SOURCE = r"""
 #include <assert.h>
@@ -210,8 +211,8 @@ def test_owned_fixed_array_output_receiver_is_cleanup_protected_before_throwing_
     assert producer.start() < registration < projection < throwing_rhs < dispatch < clear < release
 
 
-@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
     "source",
     (OWNED_PROPERTY_SOURCE, BORROWED_FIELD_SOURCE, FIXED_ARRAY_SOURCE, OWNED_FIXED_ARRAY_EXCEPTION_SOURCE),

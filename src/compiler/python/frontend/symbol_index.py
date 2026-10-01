@@ -21,59 +21,63 @@ import os
 import zlib
 from collections.abc import Iterable, Mapping
 
-INDEX_FILE_NAME = "btrc.symbols"
-FORMAT_TAG = "btrc-symbols 1"
 
+class StdlibSymbolIndex:
+    """Digest, render and load the generated root-stdlib symbol index."""
 
-def snapshot_digest(entries: Iterable[tuple[str, bytes]]) -> str:
-    """Digest ``(file name, raw bytes)`` pairs in discovery order."""
+    INDEX_FILE_NAME = "btrc.symbols"
+    FORMAT_TAG = "btrc-symbols 1"
 
-    crc = 0
-    byte_count = 0
-    file_count = 0
-    for name, content in entries:
-        crc = zlib.crc32(name.encode("utf-8"), crc)
-        crc = zlib.crc32(b"\0", crc)
-        crc = zlib.crc32(content, crc)
-        crc = zlib.crc32(b"\0", crc)
-        byte_count += len(content)
-        file_count += 1
-    return f"{crc & 0xFFFFFFFF:08x}-{byte_count}-{file_count}"
+    @classmethod
+    def snapshot_digest(cls, entries: Iterable[tuple[str, bytes]]) -> str:
+        """Digest ``(file name, raw bytes)`` pairs in discovery order."""
 
+        crc = 0
+        byte_count = 0
+        file_count = 0
+        for name, content in entries:
+            crc = zlib.crc32(name.encode("utf-8"), crc)
+            crc = zlib.crc32(b"\0", crc)
+            crc = zlib.crc32(content, crc)
+            crc = zlib.crc32(b"\0", crc)
+            byte_count += len(content)
+            file_count += 1
+        return f"{crc & 0xFFFFFFFF:08x}-{byte_count}-{file_count}"
 
-def render(digest: str, owners: Mapping[str, Iterable[str]]) -> str:
-    """Render one index: a header line, then ``symbol<TAB>file`` lines, sorted."""
+    @classmethod
+    def render(cls, digest: str, owners: Mapping[str, Iterable[str]]) -> str:
+        """Render one index: a header line, then ``symbol<TAB>file`` lines, sorted."""
 
-    lines = [f"{FORMAT_TAG} {digest}"]
-    for name in sorted(owners):
-        for relative in sorted(set(owners[name])):
-            lines.append(f"{name}\t{relative}")
-    return "\n".join(lines) + "\n"
+        lines = [f"{cls.FORMAT_TAG} {digest}"]
+        for name in sorted(owners):
+            for relative in sorted(set(owners[name])):
+                lines.append(f"{name}\t{relative}")
+        return "\n".join(lines) + "\n"
 
+    @classmethod
+    def parse(cls, text: str, digest: str) -> dict[str, set[str]] | None:
+        """Return the owners recorded for ``digest``, or None when the index is stale or malformed."""
 
-def parse(text: str, digest: str) -> dict[str, set[str]] | None:
-    """Return the owners recorded for ``digest``, or None when the index is stale or malformed."""
-
-    header, separator, body = text.partition("\n")
-    if not separator or header != f"{FORMAT_TAG} {digest}":
-        return None
-    owners: dict[str, set[str]] = {}
-    for line in body.split("\n"):
-        if not line:
-            continue
-        name, tab, relative = line.partition("\t")
-        if not tab or not name or not relative or "/" in relative or "\\" in relative or relative.startswith("."):
+        header, separator, body = text.partition("\n")
+        if not separator or header != f"{cls.FORMAT_TAG} {digest}":
             return None
-        owners.setdefault(name, set()).add(relative)
-    return owners
+        owners: dict[str, set[str]] = {}
+        for line in body.split("\n"):
+            if not line:
+                continue
+            name, tab, relative = line.partition("\t")
+            if not tab or not name or not relative or "/" in relative or "\\" in relative or relative.startswith("."):
+                return None
+            owners.setdefault(name, set()).add(relative)
+        return owners
 
+    @classmethod
+    def load(cls, root: str, digest: str) -> dict[str, set[str]] | None:
+        """Load the index beside the root stdlib at ``root`` when it matches ``digest``."""
 
-def load(root: str, digest: str) -> dict[str, set[str]] | None:
-    """Load the index beside the root stdlib at ``root`` when it matches ``digest``."""
-
-    try:
-        with open(os.path.join(root, INDEX_FILE_NAME), "rb") as index_file:
-            text = index_file.read().decode("utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
-    return parse(text, digest)
+        try:
+            with open(os.path.join(root, cls.INDEX_FILE_NAME), "rb") as index_file:
+                text = index_file.read().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        return cls.parse(text, digest)

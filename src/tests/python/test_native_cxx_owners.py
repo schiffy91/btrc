@@ -11,6 +11,7 @@ import subprocess
 
 import pytest
 
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.test_native_import_consumer import apple_environment
 from src.tests.python.test_native_import_consumer import native_compile as native_compile
 from src.tests.python.test_native_import_consumer import native_project as native_project
@@ -125,7 +126,10 @@ int main() {
 @pytest.fixture
 def pugixml_project(native_project, monkeypatch):
     package = shutil.which("pkg-config")
-    if package is None or subprocess.run([package, "--exists", "pugixml"], check=False).returncode:
+    if (
+        package is None
+        or subprocess.run([package, "--exists", "pugixml"], check=False, timeout=TOOL_TIMEOUT).returncode
+    ):
         pytest.skip("C++ owner proof requires the pugixml SDK through pkg-config")
     source, sdk, triple = native_project
     if ENVIRONMENT_SYSROOT:

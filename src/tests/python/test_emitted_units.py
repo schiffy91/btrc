@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import TOOL_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -398,7 +399,9 @@ def test_debug_split_units_map_lines_and_run(tmp_path, request, frontend):
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert result.stdout == GOLDEN.read_text()
-    with_debug = subprocess.run(["readelf", "--debug-dump=line", str(executable)], capture_output=True, text=True)
+    with_debug = subprocess.run(
+        ["readelf", "--debug-dump=line", str(executable)], capture_output=True, text=True, timeout=TOOL_TIMEOUT
+    )
     if with_debug.returncode == 0:
         assert "ForinInterfaceListLiteral.btrc" in with_debug.stdout
 

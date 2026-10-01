@@ -7,7 +7,7 @@ import Library.GPU.Readback;
 import ./Input.btrc;
 import ./Time.btrc;
 import ./Gameobject.btrc;
-import ./Renderer.btrc;
+import ./Scene.btrc;
 
 /* The native application owns the window, GPU child and asynchronous programs.
  * This engine owns keyboard registration and the scene's uniform resources. */
@@ -16,7 +16,7 @@ class Engine {
 	public IGPUView view;
 	public Input input;
 	public Time time;
-	public Renderer? renderer;
+	public Scene? scene;
 	public int width;
 	public int height;
 	private CallbackScope _keys = CallbackScope();
@@ -43,26 +43,26 @@ class Engine {
 		if (!ready) { return false; }
 		self.width = self.view.pixelWidth();
 		self.height = self.view.pixelHeight();
-		var renderer = self.renderer;
-		if (renderer == null) {
-			renderer = Renderer(self.view, self.width, self.height);
-			self.renderer = renderer;
+		var scene = self.scene;
+		if (scene == null) {
+			scene = Scene(self.view, self.width, self.height);
+			self.scene = scene;
 		}
-		if (renderer == null) { throw "Game renderer construction returned no owner"; }
-		renderer.resize(self.width, self.height);
-		return renderer.poll();
+		if (scene == null) { throw "Game scene construction returned no owner"; }
+		scene.resize(self.width, self.height);
+		return scene.poll();
 	}
 
 	public GPUReadback? render(GameObject player, bool capture = false) {
-		var renderer = self.renderer;
-		if (renderer == null) { throw "Game renderer is not ready"; }
-		return renderer.render(self.view, player, self.time.elapsed, capture);
+		var scene = self.scene;
+		if (scene == null) { throw "Game scene is not ready"; }
+		return scene.render(self.view, player, self.time.elapsed, capture);
 	}
 
 	public void close() {
 		self._closed = true;
 		if (self._keys != null) { self._keys.cancel(); }
-		if (self.renderer != null) { self.renderer.close(); }
+		if (self.scene != null) { self.scene.close(); }
 	}
 
 	public void __del__() { self.close(); }

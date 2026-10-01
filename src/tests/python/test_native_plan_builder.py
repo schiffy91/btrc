@@ -19,6 +19,7 @@ import pytest
 from src.compiler.python.artifacts.cache import CompilerGenerationPublisher, CompilerOutput
 from src.compiler.python.artifacts.publication import ArtifactPublisher, PublicationLock, PublishedArtifact
 from src.compiler.python.frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
+from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import (
     NativeBuildReport,
     NativePlanBuilder,
@@ -333,17 +334,9 @@ def aliased_generation(tmp_path):
     return paths
 
 
-@pytest.mark.parametrize("schema", [3, 4])
 @pytest.mark.parametrize("cached", [False, True])
-def test_generated_aliases_build_with_requested_include_paths_and_all_locks(
-    tmp_path, aliased_generation, schema, cached
-):
+def test_generated_aliases_build_with_requested_include_paths_and_all_locks(tmp_path, aliased_generation, cached):
     paths = aliased_generation
-    if schema == 3:
-        payload = json.loads(paths["plan"].read_text())
-        payload.update(schema=3)
-        payload["emitted-units"] = 1
-        paths["plan"].write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
     directories = {p.parent for p in paths.values()} | {p.resolve().parent for p in paths.values()}
     commands = []
 
@@ -702,23 +695,22 @@ def test_native_plan_fifo_rejects_without_blocking(tmp_path):
     assert "regular file" in completed.stderr
 
 
-@pytest.mark.parametrize("schema", [3, 4])
 @pytest.mark.parametrize("adapter", [False, True])
-def test_secondary_inventory_builds_from_another_working_directory(tmp_path, monkeypatch, schema, adapter):
+def test_secondary_inventory_builds_from_another_working_directory(tmp_path, monkeypatch, adapter):
     primary = tmp_path / "main.c"
     function = "bridge" if adapter else "answer"
     primary.write_text(f"int {function}(void); int main(void) {{ return {function}() == 42 ? 0 : 1; }}\n")
     directory = tmp_path / "secondary units"
     directory.mkdir()
-    secondary = Path(f"{primary}.unit-1.c") if schema == 3 else directory / "part.c"
+    secondary = directory / "part.c"
     secondary.write_text("int answer(void) { return 42; }\n")
     payload = (
         generated_plan("int answer(void); int bridge(void) { return answer(); }\n")
         if adapter
         else NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
     )
-    payload.update(schema=schema)
-    payload["emitted-units"] = 1 if schema == 3 else [str(secondary)]
+    payload.update(schema=4)
+    payload["emitted-units"] = [str(secondary)]
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
     monkeypatch.chdir(directory)
@@ -906,6 +898,7 @@ def _emit_plan(root: Path, generated: Path, plan: Path) -> None:
         cwd=REPO,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert completed.returncode == 0, completed.stderr
 
@@ -938,7 +931,7 @@ def test_builder_compiles_only_plan_units_and_runs(tmp_path: Path, optimization:
         ]
         assert "-Werror" in command
 
-    completed = subprocess.run([str(output)], capture_output=True, check=True, text=True)
+    completed = subprocess.run([str(output)], capture_output=True, check=True, text=True, timeout=RUN_TIMEOUT)
     assert completed.stdout == "PASS: native package graph\n"
     assert poison.is_file()
 
@@ -1066,6 +1059,7 @@ def test_example_makefile_realizes_the_canonical_plan() -> None:
             capture_output=True,
             text=True,
             env=environment,
+            timeout=TRANSPILE_TIMEOUT,
         )
         assert completed.returncode == 0, completed.stderr
         assert "PASS: native package graph" in completed.stdout
@@ -1149,7 +1143,7 @@ def test_object_cache_skips_unchanged_compiles(tmp_path: Path) -> None:
     builder.build(plan_path=plan, generated_c=generated, output=output, object_cache=cache)
     assert [command for command in commands if "-c" in command] == []
     assert (
-        subprocess.run([str(output)], capture_output=True, check=True, text=True).stdout
+        subprocess.run([str(output)], capture_output=True, check=True, text=True, timeout=RUN_TIMEOUT).stdout
         == "PASS: native package graph\n"
     )
 
@@ -1161,7 +1155,10 @@ def test_object_cache_skips_unchanged_compiles(tmp_path: Path) -> None:
     commands.clear()
     builder.build(plan_path=plan, generated_c=generated, output=output, object_cache=cache)
     assert [command[command.index("-c") + 1] for command in commands if "-c" in command] == [str(generated)]
-    assert subprocess.run([str(output)], capture_output=True, check=True, text=True).stdout == "PASS: edited\n"
+    assert (
+        subprocess.run([str(output)], capture_output=True, check=True, text=True, timeout=RUN_TIMEOUT).stdout
+        == "PASS: edited\n"
+    )
 
 
 def test_object_cache_reports_the_receipt_path_it_took(tmp_path: Path) -> None:
@@ -1239,7 +1236,7 @@ def cached_program(tmp_path):
             object_cache=tmp_path / "objects",
             **options,
         )
-        return subprocess.run([str(output)], capture_output=True, text=True, check=True).stdout
+        return subprocess.run([str(output)], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT).stdout
 
     return source, output, commands, build
 
@@ -1371,7 +1368,9 @@ def test_object_cache_does_not_publish_inputs_changed_during_compile(tmp_path):
     NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=source, output=output, object_cache=cache)
     assert not list(cache.glob("*.json")), "changed dependencies cannot publish the pre-compile key"
     NativePlanBuilder().build(plan_path=plan, generated_c=source, output=output, object_cache=cache)
-    assert subprocess.run([str(output)], capture_output=True, text=True, check=True).stdout == "2\n"
+    assert (
+        subprocess.run([str(output)], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT).stdout == "2\n"
+    )
 
 
 def test_object_cache_publication_supports_concurrent_builds(tmp_path):
@@ -1386,7 +1385,7 @@ def test_object_cache_publication_supports_concurrent_builds(tmp_path):
     def build(index):
         output = tmp_path / f"program-{index}"
         NativePlanBuilder().build(plan_path=plan, generated_c=source, output=output, object_cache=cache)
-        subprocess.run([str(output)], check=True)
+        subprocess.run([str(output)], check=True, timeout=RUN_TIMEOUT)
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(build, range(8)))
@@ -1444,6 +1443,7 @@ def test_emitted_native_plan_cache_through_both_frontends(tmp_path, request, fro
         env={**os.environ, "BTRC_UNIT_LINES": "1"},
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert emitted.returncode == 0, emitted.stderr
     assert all(alias.is_symlink() for alias in aliases)
@@ -1461,7 +1461,7 @@ def test_emitted_native_plan_cache_through_both_frontends(tmp_path, request, fro
     builder.build(plan_path=plan, generated_c=generated, output=output, object_cache=cache)
     assert not any("-c" in command for command in commands)
     assert (
-        subprocess.run([str(output)], check=True, capture_output=True, text=True).stdout
+        subprocess.run([str(output)], check=True, capture_output=True, text=True, timeout=RUN_TIMEOUT).stdout
         == "PASS: native package graph\n"
     )
 
@@ -1564,7 +1564,7 @@ def test_native_build_report_covers_generated_cpp_adapter_and_link(tmp_path):
     assert "-fexceptions" in report["units"][1]["command"]
     assert Path(report["link_command"][0]).name == Path(shutil.which("c++")).name
     assert report["wall_s"] >= report["link_s"] > 0
-    subprocess.run([str(output)], check=True)
+    subprocess.run([str(output)], check=True, timeout=RUN_TIMEOUT)
 
 
 @pytest.mark.parametrize("target", ["program.c", "program.link.json", "program"])
@@ -1622,7 +1622,10 @@ def test_generated_adapter_cache_keeps_real_source_path_and_relative_headers(tmp
     cold = NativePlanBuilder().build(**options)
     adapter = Path(cold.units[-1].source)
     assert adapter.read_text() == source_text, "debugger-visible source must survive the build"
-    assert subprocess.run([output], capture_output=True, text=True, check=True).stdout == f"41 {adapter}\n"
+    assert (
+        subprocess.run([output], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT).stdout
+        == f"41 {adapter}\n"
+    )
     warm = NativePlanBuilder().build(**options)
     assert warm.units[-1].source == str(adapter)
     assert warm.as_dict()["compiled_units"] == 0
@@ -1631,7 +1634,10 @@ def test_generated_adapter_cache_keeps_real_source_path_and_relative_headers(tmp
     header.write_text("#define VALUE 42\n")
     changed = NativePlanBuilder().build(**options)
     assert changed.as_dict()["compiled_units"] == 1
-    assert subprocess.run([output], capture_output=True, text=True, check=True).stdout == f"42 {adapter}\n"
+    assert (
+        subprocess.run([output], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT).stdout
+        == f"42 {adapter}\n"
+    )
 
 
 def test_generated_adapter_generations_do_not_replace_each_other(tmp_path):
@@ -1647,7 +1653,10 @@ def test_generated_adapter_generations_do_not_replace_each_other(tmp_path):
             plan_path=plan, generated_c=source, output=output, object_cache=tmp_path / "objects"
         )
         assert report.as_dict()["compiled_units"] == expected_compiles
-        assert subprocess.run([output], capture_output=True, text=True, check=True).stdout == f"{answer}\n"
+        assert (
+            subprocess.run([output], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT).stdout
+            == f"{answer}\n"
+        )
         paths.append(Path(report.units[-1].source))
     assert paths[0] == paths[2] != paths[1]
     assert paths[0].read_text() == "int answer(void) { return 41; }\n"
@@ -1688,7 +1697,7 @@ def test_generated_adapter_corruption_falls_back_without_mutating_shared_generat
     report = NativePlanBuilder().build(**options)
     assert report.adapter_source_status == "fallback"
     assert report.as_dict()["compiled_units"] == 1
-    subprocess.run([output], check=True)
+    subprocess.run([output], check=True, timeout=RUN_TIMEOUT)
     assert before == {path.name: path.read_bytes() for path in directory.iterdir()}
     assert not Path(report.units[-1].source).exists()
 
@@ -1711,7 +1720,7 @@ def test_generated_adapter_publication_failure_preserves_normal_build(tmp_path, 
         plan_path=plan, generated_c=source, output=output, object_cache=tmp_path / "objects"
     )
     assert report.adapter_source_status == "fallback"
-    subprocess.run([output], check=True)
+    subprocess.run([output], check=True, timeout=RUN_TIMEOUT)
     assert {path.name for path in tmp_path.glob(".btrc-*")} == {".btrc-publications.lock"}
 
 
@@ -1727,7 +1736,7 @@ def test_generated_adapter_publication_supports_concurrent_builds(tmp_path):
     def build(index):
         output = tmp_path / f"program-{index}"
         report = NativePlanBuilder().build(plan_path=plan, generated_c=source, output=output, object_cache=cache)
-        subprocess.run([output], check=True)
+        subprocess.run([output], check=True, timeout=RUN_TIMEOUT)
         return report
 
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -1776,7 +1785,7 @@ def test_generated_adapter_inaccessible_cache_does_not_prevent_build(tmp_path, m
     output = tmp_path / "program"
     report = NativePlanBuilder().build(plan_path=plan, generated_c=source, output=output, object_cache=cache)
     assert report.adapter_source_status in {"temporary", "fallback"}
-    subprocess.run([output], check=True)
+    subprocess.run([output], check=True, timeout=RUN_TIMEOUT)
 
 
 def _guarded_include(header: Path) -> str:
@@ -1878,3 +1887,15 @@ def test_prelude_prologue_takes_only_whole_guarded_absolute_includes(tmp_path: P
             '/* Generated by btrc */\n#pragma GCC diagnostic ignored "-Wunused-function"\n' + "\n".join(lines) + "\n"
         )
         assert _PreludeAccelerator.prologue(source) == tuple(expected), name
+
+
+def test_unwritten_schema_three_link_plans_are_rejected(tmp_path):
+    # Neither compiler ever wrote schema 3 (a bare emitted-unit count).
+    payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
+    payload.update(schema=3)
+    payload["emitted-units"] = 1
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+
+    with pytest.raises(NativePlanError, match="schema must be integer 1, 2 or 4"):
+        NativePlanReader().read(plan)

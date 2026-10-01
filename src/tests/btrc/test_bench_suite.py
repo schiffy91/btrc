@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from src.tests.process_limits import TRANSPILE_TIMEOUT
 from tools.bench.main import main
 from tools.bench.suite import REPO
 
@@ -43,6 +44,10 @@ def test_suite_measures_hello_and_checks_against_a_fresh_baseline(immutable_btrc
 
 def test_module_entry_point_prints_help() -> None:
     completed = subprocess.run(
-        [sys.executable, "-m", "tools.bench", "--help"], cwd=REPO, capture_output=True, text=True
+        [sys.executable, "-m", "tools.bench", "--help"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert completed.returncode == 0 and "bench-baseline" not in completed.stderr

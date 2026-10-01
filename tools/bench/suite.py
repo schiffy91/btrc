@@ -19,6 +19,8 @@ REPO = Path(__file__).resolve().parents[2]
 PROGRAMS = REPO / "src" / "tests" / "benchmarks"
 CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -pedantic"))
 LIBS = ["-lm", "-lpthread"]
+# A timed command is one compile or one benchmark run; the limit bounds a hang.
+COMMAND_TIMEOUT = 1800.0
 TIME = Path("/usr/bin/time")
 FOOTPRINT = re.compile(r"(\d+)\s+peak memory footprint")
 TIMING_VARIABLES = ("BTRC_TIMING", "BTRCC_TIMING")
@@ -83,7 +85,7 @@ def _children_cpu_seconds() -> float:
 def _run_timed(command: list[str], env: dict[str, str], cwd: Path) -> Timing:
     before = _children_cpu_seconds()
     started = time.perf_counter()
-    completed = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True)
+    completed = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, timeout=COMMAND_TIMEOUT)
     wall = time.perf_counter() - started
     cpu = _children_cpu_seconds() - before
     if completed.returncode != 0:
@@ -129,6 +131,7 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
             stderr=subprocess.PIPE,
             text=True,
             errors="replace",
+            timeout=COMMAND_TIMEOUT,
         )
         if completed.returncode != 0:
             raise RuntimeError(f"{' '.join(command)} failed ({completed.returncode}):\n{completed.stderr[-2000:]}")
@@ -339,24 +342,20 @@ class Suite:
         if str(REPO) not in sys.path:
             sys.path.insert(0, str(REPO))
         from src.compiler.python import Compiler, CompilerOptions
-        from src.compiler.python.ir.lowering.lowerer import IRLowerer
 
         compiler = Compiler()
         source = program.path.read_text(encoding="utf-8")
 
         def transpile() -> str:
-            options = CompilerOptions(map_stdlib_positions=True)
-            frontend = compiler.compile_frontend(source, str(program.path), options, filename=program.path.name)
-            if frontend.analyzed.errors:
-                raise RuntimeError(f"{program.name}: reference analyzer errors: {frontend.analyzed.errors}")
-            source_map = frontend.source_bundle.source_map(
-                split_spaces=bool(frontend.stdlib_source and frontend.user_program is not None),
+            # The production pipeline, uncached so every repetition does the work.
+            result = compiler.compile(
+                source, str(program.path), CompilerOptions(map_stdlib_positions=True, use_cache=False)
             )
-            module = IRLowerer(
-                frontend.analyzed, source_file=program.path.name, source_map=source_map, prune_stdlib=options.dce
-            ).lower()
-            module = compiler.pipeline.optimize(module, options)
-            return compiler.pipeline.emit(module)
+            if result.failure is not None or result.c_source is None:
+                raise RuntimeError(f"{program.name}: reference compile failed: {result.failure}")
+            if result.analyzed is not None and result.analyzed.errors:
+                raise RuntimeError(f"{program.name}: reference analyzer errors: {result.analyzed.errors}")
+            return result.c_source
 
         emitted = transpile()
         fastest = float("inf")

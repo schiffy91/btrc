@@ -29,9 +29,11 @@ import tempfile
 import unittest
 
 from src.compiler.python.artifacts.archive import TargetCatalog
+from src.tests.c_toolchains import configured_c_compiler
+from src.tests.process_limits import TOOL_TIMEOUT
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
+CC = configured_c_compiler()
 CFLAGS = shlex.split(os.environ.get("BTRC_CFLAGS", "-std=c11 -Wall -Wextra -Werror -pedantic -O2"))
 
 
@@ -91,6 +93,7 @@ def _terminate_process_tree(process: subprocess.Popen) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
+            timeout=TOOL_TIMEOUT,
         )
     with contextlib.suppress(ProcessLookupError):
         process.kill()

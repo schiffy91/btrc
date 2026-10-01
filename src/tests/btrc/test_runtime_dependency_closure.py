@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
-COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 # A try block with no managed values still registers cleanup slots, whose helper
 # contains an explanatory comment naming the cleanup runner.  That prose must
@@ -31,8 +30,8 @@ int main() {
 """
 
 
-@pytest.mark.skipif(not COMPILERS, reason="needs a C compiler")
-@pytest.mark.parametrize("c_compiler", COMPILERS)
+@requires_host_c_compiler
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS)
 def test_helper_comment_does_not_materialize_an_unused_runtime_function(
     semantic_btrcc: Path,
     tmp_path: Path,
