@@ -129,6 +129,11 @@ class FileSnapshot {
 
 	public bool sameObject(FileSnapshot other) { return other != null && self._device == other._device && self._inode == other._inode; }
 
+	/* The same kind, size, permissions and modification time, whichever inode
+	 * holds them. Only for files that are never rewritten in place, such as a
+	 * Nix store's, where deduplication relinks a file without changing it. */
+	public bool sameImmutableVersion(FileSnapshot other) { return other != null && self._kind == other._kind && self._size == other._size && self._mode == other._mode && self._modifiedSeconds == other._modifiedSeconds && self._modifiedNanoseconds == other._modifiedNanoseconds; }
+
 	public bool sameVersion(FileSnapshot other) { return self.sameObject(other) && self._kind == other._kind && self._size == other._size && self._mode == other._mode && self._modifiedSeconds == other._modifiedSeconds && self._modifiedNanoseconds == other._modifiedNanoseconds && self._changedSeconds == other._changedSeconds && self._changedNanoseconds == other._changedNanoseconds; }
 
 	private void appendU64(Bytes bytes, unsigned long long value) {

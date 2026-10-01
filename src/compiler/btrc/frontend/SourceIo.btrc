@@ -253,7 +253,7 @@ class FeSourceReadIdentity {
 	 * link elsewhere. */
 	public string validate(Map<string, string>? memo = null) {
 		var current = FileSystem.inspectExact(self.canonical);
-		if (!current.ok() || !self.version.sameVersion(current.snapshot())) { return "source input changed after read: " + self.path; }
+		if (!current.ok() || !self.sameVersion(current.snapshot())) { return "source input changed after read: " + self.path; }
 		Map<string, string> directories = memo == null ? new Map<string, string>() : memo;
 		string parent = PathTools.dirname(self.path);
 		if (!directories.has(parent)) { directories.put(parent, PathTools.absolute(parent)); }
@@ -262,7 +262,22 @@ class FeSourceReadIdentity {
 		return "";
 	}
 
-	public bool sameVersion(FileSnapshot version) { return self.version.sameVersion(version); }
+	/* A store file never changes once written, but Nix's auto-optimise-store
+	 * replaces it with a hard link to an identical file: its device, inode,
+	 * link count and change time move while its mode, size and modification
+	 * time do not. Only those last three are compared there. */
+	public bool sameVersion(FileSnapshot version) {
+		if (FeSourceReadIdentity.immutableStoreFile(self.canonical)) { return self.version.sameImmutableVersion(version); }
+		return self.version.sameVersion(version);
+	}
+
+	/* Whether a canonical path lies inside the read-only Nix store. */
+	class bool immutableStoreFile(string canonical) {
+		string store = Environment.get("NIX_STORE_DIR", "");
+		if (store.isEmpty()) { store = "/nix/store"; }
+		while (store.endsWith("/")) { store = store.substring(0, store.length() - 1); }
+		return canonical.startsWith(store + "/");
+	}
 }
 
 /* Fail-closed source-file input for one compiler application.  A source file is
