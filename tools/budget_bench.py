@@ -13,7 +13,9 @@ at 8 native jobs, executable included. Times are wall seconds from command
 entry until the artifact exists. Cold scenarios take 5 samples and
 incremental ones 20; every sample is printed with the median, the
 nearest-rank p95 and the maximum, as PLAN's "Numeric acceptance budgets"
-requires.
+requires. tools.qualification.statistics computes them, and
+``python3 -m tools.qualification ingest --budget-bench <out>/report.json``
+records a run in the qualification ledger against SCENARIOS.
 
 - cold-transpile: the compiler alone with empty btrc artifact caches.
 - cold-dev: empty caches, objects and output, executable included.
@@ -32,17 +34,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import re
 import shutil
-import statistics
 import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from tools.qualification.statistics import SampleStatistics
 
 REPO = Path(__file__).resolve().parents[1]
 ENTRY = "src/BTRSmith.btrc"
@@ -74,6 +76,16 @@ FIXTURES = (
     ),
 )
 TOUCHED = "src/frontend/player/UiPlayerTransport.btrc"
+# Every scenario a run can report, in report order: the denominator the
+# qualification ledger counts a run's evidence against.
+SCENARIOS = (
+    "cold-transpile",
+    "cold-dev",
+    *(f"edit-{name}" for name, *_ in FIXTURES),
+    "noop",
+    "touch",
+    "memory",
+)
 
 _FUNCTION_HEADER = re.compile(r"^[A-Za-z_][\w\s*]*?\b([A-Za-z_]\w*)\s*\([^;{}]*\)\s*\{$")
 _SESSION_NAME = re.compile(r"\b(?:__[A-Za-z]\w*?\d+\w*|[A-Za-z]\w*_\d+)\b")
@@ -87,14 +99,13 @@ class Scenario:
     notes: list[str] = field(default_factory=list)
 
     def summary(self) -> dict[str, object]:
-        ordered = sorted(self.samples)
-        rank = max(1, math.ceil(0.95 * len(ordered)))
+        summary = SampleStatistics.of(self.samples)
         return {
             "samples": [round(value, 3) for value in self.samples],
             "compile_native": [(round(a, 3), round(b, 3)) for a, b in self.parts],
-            "median": round(statistics.median(ordered), 3) if ordered else None,
-            "p95": round(ordered[rank - 1], 3) if ordered else None,
-            "max": round(ordered[-1], 3) if ordered else None,
+            "median": round(summary.median, 3) if summary else None,
+            "p95": round(summary.p95, 3) if summary else None,
+            "max": round(summary.maximum, 3) if summary else None,
             "notes": self.notes,
         }
 
