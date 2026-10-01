@@ -95,9 +95,14 @@ class DaemonControlProtocol {
 		long long deadline = DaemonControlClock.deadline(now, timeoutMilliseconds);
 		int attempts = timeoutMilliseconds / 20 + 1;
 		while (attempts > 0) {
-			if (DaemonControlFiles.absent(pidFile)) { return true; }
+			/* The supervisor deletes its record without notice, so a read can
+			 * lose the race with that deletion. Absence is therefore judged
+			 * after a failed read, never before it: a record that is gone
+			 * confirms termination, and only one still present but unreadable
+			 * has been replaced. */
 			DaemonControlRecord current = DaemonControlProtocol.record(pidFile);
-			if (!current.valid || !current.token.equals(original.token) || current.supervisorPid != original.supervisorPid) {
+			if (!current.valid) { return DaemonControlFiles.absent(pidFile); }
+			if (!current.token.equals(original.token) || current.supervisorPid != original.supervisorPid) {
 				return false;
 			}
 			attempts--;
