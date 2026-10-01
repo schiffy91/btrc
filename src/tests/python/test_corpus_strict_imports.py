@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,15 @@ SUPPORTING_CONSUMERS = frozenset(
     }
 )
 
+# Every source outside these trees is a consumer the audit must parse. The
+# stdlib holds the owners that imports resolve to, and the bootstrap compiles
+# the self-hosted compiler whole; SUPPORTING_CONSUMERS names the files from
+# both trees that executable fixtures reach.
+OWNER_TREES = {
+    "src/stdlib/": "the owners stdlib imports resolve to",
+    "src/compiler/btrc/": "compiled whole by the bootstrap",
+}
+
 # The raw per-file audit uses one symbol owner and does not resolve the GUI
 # View module's UI shadowing the unrelated Library.UI UI. These consumers
 # select GUI/View explicitly; both fully resolved compilers qualify the calls.
@@ -66,6 +76,8 @@ RAW_INCLUDE_SHADOWS = frozenset(
 @dataclass(frozen=True)
 class CorpusImportAuditResult:
     source_count: int
+    expected_source_count: int
+    unaudited_sources: tuple[str, ...]
     direct_owner_diagnostics: tuple[str, ...]
     duplicate_modules: tuple[str, ...]
     unknown_modules: tuple[str, ...]
@@ -90,6 +102,32 @@ class CorpusImportAudit:
         examples = (self.repository / "examples").rglob("*.btrc")
         supporting = (self.repository / relative for relative in SUPPORTING_CONSUMERS)
         return tuple(sorted({*shared, *fixtures, *examples, *supporting}))
+
+    def expected_consumers(self) -> frozenset[str]:
+        """Every consumer source, listed by git rather than by the consumer walk.
+
+        Untracked sources count so a test written before ``git add`` is not
+        reported; a tracked source deleted from the worktree does not.
+        """
+        # A container mounts the checkout under another uid; git refuses such a
+        # repository unless told the directory is safe.
+        listing = subprocess.run(
+            ["git", "-c", "safe.directory=*", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "*.btrc"],
+            capture_output=True,
+            check=True,
+            cwd=self.repository,
+            text=True,
+        ).stdout.split("\0")
+        consumers = (
+            path
+            for path in listing
+            if path and not path.startswith(tuple(OWNER_TREES)) and (self.repository / path).is_file()
+        )
+        return frozenset({*consumers, *SUPPORTING_CONSUMERS})
+
+    def unaudited_sources(self, consumers: tuple[Path, ...]) -> tuple[str, ...]:
+        audited = {path.relative_to(self.repository).as_posix() for path in consumers}
+        return tuple(sorted(self.expected_consumers() - audited))
 
     def direct_import_graph(
         self,
@@ -157,6 +195,8 @@ class CorpusImportAudit:
                 diagnostics.append(f"{relative}:{line}: {message}")
         return CorpusImportAuditResult(
             source_count=len(consumers),
+            expected_source_count=len(self.expected_consumers()),
+            unaudited_sources=self.unaudited_sources(consumers),
             direct_owner_diagnostics=tuple(sorted(set(diagnostics))),
             duplicate_modules=tuple(sorted(set(duplicate_modules))),
             unknown_modules=tuple(sorted(set(unknown_modules))),
@@ -165,19 +205,34 @@ class CorpusImportAudit:
 
 
 @pytest.fixture(scope="module")
-def corpus_import_audit() -> CorpusImportAuditResult:
-    return CorpusImportAudit().run()
+def corpus_audit() -> CorpusImportAudit:
+    return CorpusImportAudit()
+
+
+@pytest.fixture(scope="module")
+def corpus_import_audit(corpus_audit: CorpusImportAudit) -> CorpusImportAuditResult:
+    return corpus_audit.run()
 
 
 def test_corpus_declares_every_direct_stdlib_owner(
     corpus_import_audit: CorpusImportAuditResult,
 ) -> None:
-    # Includes the native SDK lifecycle, AppKit and module-unit fixtures; guard against
-    # accidentally narrowing the corpus audit as providers move packages.
-    assert corpus_import_audit.source_count == 1246
+    # The count is derived from git, not kept by hand: adding or removing a
+    # corpus file needs no edit here, but a consumer walk that narrows as
+    # providers move packages fails by naming each source it stopped auditing.
+    assert corpus_import_audit.unaudited_sources == ()
+    assert corpus_import_audit.source_count == corpus_import_audit.expected_source_count
     assert corpus_import_audit.duplicate_modules == ()
     assert corpus_import_audit.unknown_modules == ()
     assert corpus_import_audit.direct_owner_diagnostics == ()
+
+
+@pytest.mark.parametrize("tree", ("src/tests/collections", "src/tests/native", "src/tests/btrc/fixtures", "examples"))
+def test_coverage_names_a_source_the_consumer_walk_drops(corpus_audit: CorpusImportAudit, tree: str) -> None:
+    consumers = corpus_audit.consumer_files()
+    dropped = next(path for path in consumers if path.is_relative_to(corpus_audit.repository / tree))
+    narrowed = tuple(path for path in consumers if path != dropped)
+    assert corpus_audit.unaudited_sources(narrowed) == (dropped.relative_to(corpus_audit.repository).as_posix(),)
 
 
 def test_only_the_import_syntax_fixture_uses_stdlib_glob(
