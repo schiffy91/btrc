@@ -12,7 +12,7 @@ from tools.native_plan import NativePlanBuilder
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_native_pointer_routing(native_project, native_compile, sanitize):
+def test_native_pointer_routing(native_project, native_compile, gui_provider_root, sanitize):
     source, _, _ = native_project
     root = source.parent.parent
     fixture = REPO / "src/tests/native/gui"
@@ -26,7 +26,7 @@ def test_native_pointer_routing(native_project, native_compile, sanitize):
         'symbols = ["+[NativePointerEvents view]", "+[NativePointerEvents forwarded]", '
         '"+[NativePointerEvents scroll:x:y:]", "+[NativePointerEvents loseFocus:]", '
         '"NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseDragged", "NSEventTypeLeftMouseUp", "NSEventTypeMouseMoved", '
-        '"-[NSWindow windowNumber]", '
+        '"-[NSWindow windowNumber]", "-[NSApplication sendEvent:]", '
         '"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]"]\n'
         '[[native.sources]]\npath = "NativePointerEvents.m"\nlanguage = "objective-c"\n'
         'standard = "c11"\nos = ["macos"]\n'
@@ -34,7 +34,8 @@ def test_native_pointer_routing(native_project, native_compile, sanitize):
     )
     source.write_text((fixture / "NativePointer.btrc").read_text())
     plan = source.parent / "Pointer.link.json"
-    compiled = native_compile(source, plan_path=plan)
+    # The fixture wraps its own NSView in the provider's view owner.
+    compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
     assert not compiled.diagnostics
     generated = source.with_suffix(".c")

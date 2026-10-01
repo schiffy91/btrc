@@ -21,7 +21,7 @@ RUN_TIMEOUT = 30
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires real AppKit")
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
-def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
+def test_btrc_directory_picker_appkit(tmp_path, request, gui_provider_root, frontend, sanitized):
     if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         pytest.skip("requires the explicitly built native header reader")
     environment = {key: value for key, value in os.environ.items() if key not in {"DEVELOPER_DIR", "SDKROOT"}}
@@ -34,8 +34,12 @@ def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
         timeout=30,
     ).stdout.strip()
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
+    # The picker's prompt and path-buffer configuration belong to the provider,
+    # so this fixture compiles against the root that exports it.
     environment.update(
-        BTRC_NATIVE_SYSROOT=sdk, BTRC_NATIVE_TARGET=f"{architecture}-apple-macosx14.0.0", BTRC_HOME=str(ROOT / "src")
+        BTRC_NATIVE_SYSROOT=sdk,
+        BTRC_NATIVE_TARGET=f"{architecture}-apple-macosx14.0.0",
+        BTRC_HOME=str(gui_provider_root),
     )
     for name in ["MacOsDirectoryPickerConformance.btrc", "DirectoryPickerControl.h", "DirectoryPickerControl.m"]:
         shutil.copyfile(FIXTURE / name, tmp_path / name)
@@ -49,7 +53,17 @@ def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
     plan = tmp_path / "Picker.link.json"
     flags = ["--no-stdlib", "--target", f"macos-{architecture}", "--emit-link-plan", str(plan), str(source)]
     command = (
-        [sys.executable, "-B", "-m", "src.compiler.python.main", "--no-cache", *flags, "-o", str(generated)]
+        [
+            sys.executable,
+            "-B",
+            "-m",
+            "src.tests.gui_provider_root",
+            str(gui_provider_root),
+            "--no-cache",
+            *flags,
+            "-o",
+            str(generated),
+        ]
         if frontend == "python"
         else [str(request.getfixturevalue("immutable_btrcc")), *flags]
     )
@@ -117,21 +131,22 @@ def test_btrc_text_field_appkit(tmp_path, request, frontend, sanitized, consumer
         shutil.copyfile(FIXTURE / name, tmp_path / name)
     symbols = (
         [
-            "+[NativeScrollViewProbe prepare:scroll:header:]",
+            "+[NativeScrollViewProbe topOfDocumentChild:]",
+            "+[NativeScrollViewProbe prepare]",
             "+[NativeScrollViewProbe wheel]",
-            "+[NativeScrollViewProbe finish:]",
+            "+[NativeScrollViewProbe finish]",
         ]
         if scrolling
         else [
-            "+[NativeTextFieldProbe prepare:]",
-            "+[NativeTextFieldProbe mount:]",
-            "-[NSView addSubview:]",
+            "+[NativeTextFieldProbe prepare]",
+            "+[NativeTextFieldProbe matchesFittingWidth:height:]",
+            "+[NativeTextFieldProbe mount]",
             "+[NativeTextFieldProbe replaceSelection]",
             "+[NativeTextFieldProbe selectionUnchanged]",
             "+[NativeTextFieldProbe undo]",
             "+[NativeTextFieldProbe redo]",
             "+[NativeTextFieldProbe queueKey]",
-            "+[NativeTextFieldProbe finish:]",
+            "+[NativeTextFieldProbe finish]",
         ]
     )
     (tmp_path / "ControlProbe.btrc").write_text("// Native AppKit test driver declarations.\n")

@@ -14,8 +14,7 @@ interface IMacOSView extends IView {
 }
 
 /* Main-thread view ownership shared by native leaf controls and containers.
- * Managed attachment reserves close for the owning container. Direct native
- * mounting remains available for legacy window/container consumers. */
+ * Managed attachment reserves close for the owning container. */
 class MacOSView implements IMacOSView {
 	private NSView? _view;
 	private bool _attached = false;
@@ -121,17 +120,6 @@ class MacOSView implements IMacOSView {
 		var frame = view.frame();
 		frame.origin.x = nativeX;
 		frame.origin.y = nativeY;
-		frame.size.width = width;
-		frame.size.height = height;
-		view.setFrame(frame);
-	}
-
-	public void setFrame(double x, double y, double width, double height) {
-		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
-		var view = self.nativeView();
-		var frame = view.frame();
-		frame.origin.x = x;
-		frame.origin.y = y;
 		frame.size.width = width;
 		frame.size.height = height;
 		view.setFrame(frame);

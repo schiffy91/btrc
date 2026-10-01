@@ -198,14 +198,6 @@ class MacOSGrid implements IGrid, IMacOSView {
 
 	public void setColumnHidden(int column, bool hidden) { self.nativeView(); self._layout.setColumnHidden(column, hidden); }
 
-	public void setFrame(double x, double y, double width, double height) {
-		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native grid frame"; }
-		var view = self.nativeView();
-		var frame = view.frame();
-		frame.origin.x = x; frame.origin.y = y; frame.size.width = width; frame.size.height = height;
-		view.setFrame(frame);
-	}
-
 	public void layout() { self.nativeView(); self._layout.layout(); }
 
 	public CallbackCancellation close() {

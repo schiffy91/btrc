@@ -16,8 +16,6 @@ static NSHashTable *editorIdentity;
 
 + (NSStackView *)column { return (NSStackView *)[self window].contentView.subviews.firstObject; }
 
-+ (NSView *)contentView { return [self window].contentView; }
-
 + (NSTextField *)field { return (NSTextField *)[self column].arrangedSubviews.firstObject; }
 
 + (void)near:(double)actual expected:(double)expected { assert(fabs(actual - expected) < 0.1); }

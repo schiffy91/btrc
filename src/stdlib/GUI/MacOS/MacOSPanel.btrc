@@ -116,16 +116,6 @@ class MacOSPanel implements IPanel, IMacOSView {
 
 	public void inheritAppearance() { self.nativeView().setAppearance(null); }
 
-	public void setFrame(double x, double y, double width, double height) {
-		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native panel frame"; }
-		var view = self.nativeView();
-		var frame = view.frame();
-		frame.origin.x = x; frame.origin.y = y; frame.size.width = width; frame.size.height = height;
-		view.setFrame(frame);
-	}
-
-	public void addChild(NSView child) { MacOSView.attachNative(child, self.nativeView()); }
-
 	public CallbackCancellation close() {
 		var state = self._container == null ? CallbackCancellation.Complete : self._container.close();
 		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }

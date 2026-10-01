@@ -1,80 +1,88 @@
-import Library.Datetime;
 import Library.Image;
-import Library.Image.EncodedImage;
-import Library.IO;
+import Library.Vector;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IPanel;
 import Library.GUI.IProgressIndicator;
-import Library.Image.MacOS.MacOSEncodedImageDecoder;
-import Library.GUI.MacOS.MacOSApplication;
-import Library.GUI.MacOS.MacOSWindow;
-import Library.GUI.MacOS.MacOSPanel;
-import Library.GUI.MacOS.MacOSProgressIndicator;
-import Library.GUI.MacOS.MacOSViewCapture;
+import Library.GUI.Capture;
 
 #include <assert.h>
 
-Image indicatorPixels(MacOSWindow window, string name) {
-	var bytes = MacOSViewCapture.captureTiff(window.contentView());
-	var file = File(f"{name}.tiff", "wb");
-	assert(file.ok() && file.writeBytes(bytes) && file.close());
-	return MacOSEncodedImageDecoder().decode(bytes, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL)).image();
+Image indicatorPixels(IPanel root) {
+	Vector<GUICaptureLayer> layers = [];
+	return GUI.capture(root, layers);
+}
+
+/* Runs after the native loop has animated the indicator for 200 ms. */
+class RunningIndicator implements IApplicationWork {
+	private IWindow _window;
+	private IPanel _background;
+	private IProgressIndicator _indicator;
+	private Image _stopped;
+
+	public RunningIndicator(IWindow window, IPanel background, IProgressIndicator indicator, Image stopped) { self._window = window; self._background = background; self._indicator = indicator; self._stopped = stopped; }
+
+	public void run() {
+		assert(self._indicator.isRunning());
+		var running = indicatorPixels(self._background);
+		var change = self._stopped.diffRegion(running, 0, 0, 0, 0, self._stopped.width, self._stopped.height);
+		assert(change.comparable && change.changedPixels > 0);
+		/* AppKit cacheDisplay captures the static control representation while
+		 * occluded, also in a native Swift baseline. This proves appearance, not
+		 * animation motion; do not compare successive cached images as that oracle. */
+		self._indicator.setRunning(false);
+		assert(!self._indicator.isRunning());
+		self._indicator.setRunning(true);
+		self._background.detach(self._indicator);
+		self._indicator.close();
+		self._indicator.close();
+		bool closed = false;
+		try { self._indicator.setRunning(true); } catch (string error) { closed = true; }
+		assert(closed);
+		self._window.hide();
+		self._window.hide();
+		assert(!self._window.isVisible());
+		self._window.show();
+		assert(self._window.isVisible());
+		assert(self._window.detachRoot() == self._background);
+		self._background.close();
+		self._window.close();
+		self._window.close();
+		assert(!self._window.isVisible());
+		for (int operation = 0; operation < 2; operation++) {
+			bool rejected = false;
+			try {
+				if (operation == 0) { self._window.show(); }
+				else { self._window.hide(); }
+			} catch (string error) { rejected = true; }
+			assert(rejected);
+		}
+		GUI.requestQuit();
+	}
 }
 
 int main() {
-	var app = MacOSApplication();
-	var window = MacOSWindow("Native loading", 240.0, 180.0);
-	var background = MacOSPanel(RGBA(25, 26, 27));
-	background.setFrame(0.0, 0.0, 240.0, 180.0);
-	window.contentView().addSubview(background.nativeView());
-	var indicator = MacOSProgressIndicator();
-	IProgressIndicator portable = indicator;
-	background.attach(portable);
-	portable.arrange(104.0, 74.0, 32.0, 32.0);
+	GUI.initialize();
+	var window = GUI.createWindow("Native loading", 240.0, 180.0);
+	var background = GUI.createPanel(RGBA(25, 26, 27));
+	window.attachRoot(background);
+	var indicator = GUI.createProgressIndicator();
+	background.attach(indicator);
+	indicator.arrange(104.0, 74.0, 32.0, 32.0);
 	assert(!window.isVisible());
 	window.show();
 	assert(window.isVisible());
 	assert(!indicator.isRunning());
-	var stopped = indicatorPixels(window, "StoppedIndicator");
-	portable.setRunning(true);
-	portable.setRunning(true);
-	bool attachedClose = false;
-	try { portable.close(); } catch (string error) { attachedClose = true; }
-	assert(attachedClose && portable.isRunning());
-	var timer = Timer();
-	timer.start();
-	while (timer.elapsedMillis() < 200.0f) { app.pumpEvents(); }
-	assert(indicator.isRunning());
-	var running = indicatorPixels(window, "RunningIndicator");
-	var change = stopped.diffRegion(running, 0, 0, 0, 0, stopped.width, stopped.height);
-	assert(change.comparable && change.changedPixels > 0);
-	/* AppKit cacheDisplay captures the static control representation while
-	 * occluded, also in a native Swift baseline. This proves appearance, not
-	 * animation motion; do not compare successive cached images as that oracle. */
-	indicator.setRunning(false);
-	assert(!indicator.isRunning());
+	var stopped = indicatorPixels(background);
 	indicator.setRunning(true);
-	background.detach(portable);
-	indicator.close();
-	indicator.close();
-	bool closed = false;
-	try { indicator.setRunning(true); } catch (string error) { closed = true; }
-	assert(closed);
-	window.hide();
-	window.hide();
-	assert(!window.isVisible());
-	window.show();
-	assert(window.isVisible());
-	background.close();
-	window.close();
-	window.close();
-	assert(!window.isVisible());
-	for (int operation = 0; operation < 2; operation++) {
-		bool rejected = false;
-		try {
-			if (operation == 0) { window.show(); }
-			else { window.hide(); }
-		} catch (string error) { rejected = true; }
-		assert(rejected);
-	}
+	indicator.setRunning(true);
+	bool attachedClose = false;
+	try { indicator.close(); } catch (string error) { attachedClose = true; }
+	assert(attachedClose && indicator.isRunning());
+	GUI.postAfter(0.2, RunningIndicator(window, background, indicator, stopped));
+	GUI.run();
+	assert(!window.isOpen() && !background.isOpen() && !indicator.isOpen());
 	print("PASS: native progress appearance, window visibility, stop/restart and teardown");
 	return 0;
 }

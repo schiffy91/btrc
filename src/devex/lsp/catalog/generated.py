@@ -603,16 +603,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("nativeValue", "NSString", "method", (("string", "text"),), "nativeValue"),
         BuiltinMemberSpec("ownedValue", "string", "method", (("NSString", "text"),), "ownedValue"),
     )),
-    ("MacOSComposedCapture", (
-        BuiltinMemberSpec("captureTiff", "Bytes", "method", (("NSView", "root"), ("Vector<MacOSCaptureLayer>", "layers"), ("int", "maximumPixels"), ("int", "maximumBytes"),), "captureTiff"),
-    )),
-    ("MacOSSystemText", (
-        BuiltinMemberSpec("rasterize", "void", "method", (("TextRasterization", "request"),), "rasterize"),
-        BuiltinMemberSpec("raster", "Image", "method", (("TextRun", "run"),), "raster"),
-    )),
-    ("MacOSViewCapture", (
-        BuiltinMemberSpec("captureTiff", "Bytes", "method", (("NSView", "view"), ("int", "maximumPixels"), ("int", "maximumBytes"),), "captureTiff"),
-    )),
     ("GUIRaster", (
         BuiltinMemberSpec("glyph", "unsigned long long", "method", (("int", "codepoint"),), "glyph"),
         BuiltinMemberSpec("nextCodepoint", "int", "method", (("string", "text"), ("int", "length"), ("int*", "offset"),), "nextCodepoint"),

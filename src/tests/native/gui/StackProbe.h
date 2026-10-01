@@ -8,7 +8,6 @@
 + (void)observeViews;
 + (NSInteger)remainingViews;
 + (void)reset;
-+ (NSView *)contentView;
 + (void)verifyDetachedButton;
 + (void)verifyHiddenButton;
 @end

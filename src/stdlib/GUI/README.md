@@ -96,9 +96,10 @@ transitive imports.
 Export policy: consumers import `Library.GUI` and the portable `I*` contracts,
 never a platform module. Two provider modules stay exported on purpose as the
 AppKit seam for `Library.Tray`: `MacOS.AppKitText` and `MacOS.MacOSRunLoop`.
-The other `MacOS.*` exports remain only until the macOS native fixtures that
-still mount provider classes directly move to the factory with
-attach/arrange; they are not API, and new code must not import them.
+Every other `MacOS.*` module is private to the package. The provider's own
+conformance fixtures, which assert AppKit state through those modules, compile
+against a test data root whose copy of this manifest re-exports them
+(`src/tests/gui_provider_root.py`); products cannot.
 
 `MacOSContainer` implements `IContainer` with real native children. `attach`
 transfers subtree lifecycle responsibility; `detach` returns the same open child.
@@ -184,10 +185,10 @@ the directory picker reports abort as cancellation. This uses AppKit's
 not a nested polling pump. Asynchronous sheets and arbitrary nested-modal stacks
 still need lifecycle integration and qualification.
 
-Bounded embedded dispatch remains for existing hosts and is prohibited while
-the native loop is running. New portable applications use the target-selected
-factory and native scheduling described above. GPU subtree shutdown, worker
-publication and broader dialog handling still prevent full GUI qualification.
+`GUI.run()` enters AppKit's own run loop, the only native event dispatch; there
+is no embedded pump. Applications use the target-selected factory and native
+scheduling described above. GPU subtree shutdown, worker publication and broader
+dialog handling still prevent full GUI qualification.
 
 Pending window/subtree closure uses one application-owned native timer, armed
 only while cleanup needs progress. It is independent of canceled domain work
@@ -211,8 +212,7 @@ capture and renderer readback, independent of desktop visibility or screen lock.
 text field. `MacOSWindow` owns an AppKit window, title, content size and explicit
 close; `AppKitText` copies strings at the SDK boundary. Raw native children outside
 the managed root still require explicit child-before-window close. `MacOSApplication` owns
-main-thread startup and bounded nonblocking event dispatch for a shared UI/GPU
-loop. Its native run/quit/delegate path is implemented above; actual GPU embedding remains unfinished.
+main-thread startup and the native run/quit/delegate path described above.
 `MacOSScrollView` owns a native vertical viewport and document,
 with overlay scrollers, top-relative logical-point offsets and resize clamping.
 Native document children retain AppKit's unflipped coordinates; this is not yet
@@ -223,8 +223,9 @@ they are outside the current implementation scope.
 `MacOSButton(title, actions)` creates an AppKit momentary button. After native
 dispatch, consume `MacOSActionQueue.take()` and identify the opaque BTRC action with
 `button.matches(action)`. No native sender or selector is exposed. A checked
-target/action binding delivers into preallocated ordered storage; queued entries
-carry a generation so rebinding cancels old activations without changing order.
+target/action binding delivers into the portable `ActionMailbox` ring, confined
+to the main thread and woken through the run-loop signal; queued entries carry
+a generation so rebinding cancels old activations without changing order.
 Close buttons before the queue. Dropping a queue also cancels its subscriptions:
 their independent scopes are not retained by native callback receivers.
 

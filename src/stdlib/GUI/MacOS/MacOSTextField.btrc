@@ -86,18 +86,6 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public bool isEnabled() { return self.nativeControl().isEnabled(); }
 
-	/* AppKit frame coordinates are logical points in the parent view. */
-	public void setFrame(double x, double y, double width, double height) {
-		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid text field frame"; }
-		var control = self.nativeControl();
-		var frame = control.frame();
-		frame.origin.x = x;
-		frame.origin.y = y;
-		frame.size.width = width;
-		frame.size.height = height;
-		control.setFrame(frame);
-	}
-
 	public CallbackCancellation pollClose() {
 		self.requireMainThread();
 		var state = self._view.pollClose();

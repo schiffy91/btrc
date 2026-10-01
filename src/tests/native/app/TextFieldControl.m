@@ -2,18 +2,41 @@
 #include <stdio.h>
 
 /* Drives AppKit's real shared field editor. No replacement text widget or
- * synthetic value store participates in these checks. */
+ * synthetic value store participates in these checks. The fixture builds its
+ * window through the portable GUI factory; the probe finds it by title. */
 static NSWindow *testWindow;
 static NSTextView *editor;
+static NSTextField *testField;
 
 @implementation NativeTextFieldProbe
-+ (void)prepare:(NSWindow *)window { testWindow = window; }
-+ (BOOL)mount:(NSTextField *)field {
++ (BOOL)prepare {
+    for (NSWindow *window in NSApp.windows) {
+        if ([window.title isEqualToString:@"Library Música 🎸"]) { testWindow = window; return YES; }
+    }
+    return NO;
+}
+/* The window root is the only content subview; the field is its child. */
++ (NSTextField *)field {
+    if (testWindow.contentView.subviews.count != 1) { return nil; }
+    NSView *root = testWindow.contentView.subviews.firstObject;
+    for (NSView *view in root.subviews) {
+        if ([view isKindOfClass:[NSTextField class]]) { return (NSTextField *)view; }
+    }
+    return nil;
+}
++ (BOOL)matchesFittingWidth:(double)width height:(double)height {
+    NSTextField *field = [self field];
+    return field != nil && width == field.fittingSize.width && height == field.fittingSize.height;
+}
++ (BOOL)mount {
     if (![testWindow.title isEqualToString:@"Library Música 🎸"] || testWindow.releasedWhenClosed ||
         !NSEqualSizes(testWindow.contentView.frame.size, NSMakeSize(480, 180))) { return NO; }
-    if (field.superview != testWindow.contentView) { return NO; }
+    NSTextField *field = [self field];
+    NSView *root = testWindow.contentView.subviews.firstObject;
+    if (field == nil || !NSEqualRects(root.frame, testWindow.contentView.bounds)) { return NO; }
     if (!NSEqualRects(field.frame, NSMakeRect(24.25, 72.5, 431.75, 30.125))) { return NO; }
     if (![testWindow makeFirstResponder:field]) { return NO; }
+    testField = [field retain];
     editor = (NSTextView *)field.currentEditor;
     return [field isKindOfClass:[NSTextField class]] && editor != nil &&
         editor.isFieldEditor && [field.placeholderString isEqualToString:@"Search library"];
@@ -52,8 +75,10 @@ static NSTextView *editor;
     [NSApp postEvent:event atStart:YES];
     return YES;
 }
-+ (BOOL)finish:(NSTextField *)field {
-    BOOL detached = field.superview == nil && field.currentEditor == nil;
++ (BOOL)finish {
+    BOOL detached = testField.superview == nil && testField.currentEditor == nil;
+    [testField release];
+    testField = nil;
     editor = nil;
     testWindow = nil;
     return detached;

@@ -1,33 +1,55 @@
-import Library.IO;
 import Library.Image;
 import Library.Vector;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IPanel;
 import Library.GUI.ISelect;
-import Library.GUI.MacOS.MacOSApplication;
-import Library.GUI.MacOS.MacOSWindow;
-import Library.GUI.MacOS.MacOSPanel;
-import Library.GUI.MacOS.MacOSSelect;
-import Library.GUI.MacOS.MacOSViewCapture;
+import Library.GUI.Capture;
 
 #include <assert.h>
 
+/* Runs on the native loop once the shown window has been dispatched. */
+class SelectTeardown implements IApplicationWork {
+	private IWindow _window;
+	private IPanel _background;
+	private ISelect _select;
+
+	public SelectTeardown(IWindow window, IPanel background, ISelect select) { self._window = window; self._background = background; self._select = select; }
+
+	public void run() {
+		Vector<GUICaptureLayer> layers = [];
+		var pixels = GUI.capture(self._background, layers);
+		assert(pixels.width >= 360 && pixels.height >= 160);
+		self._background.detach(self._select);
+		self._select.close();
+		self._select.close();
+		bool rejected = false;
+		try { self._select.selectedIndex(); } catch (string error) { rejected = true; }
+		assert(rejected);
+		assert(self._window.detachRoot() == self._background);
+		self._background.close();
+		self._window.close();
+		GUI.requestQuit();
+	}
+}
+
 int main() {
-	var app = MacOSApplication();
-	var window = MacOSWindow("Native selection", 360.0, 160.0);
-	var background = MacOSPanel(RGBA(30, 30, 30));
-	background.setFrame(0.0, 0.0, 360.0, 160.0);
-	window.contentView().addSubview(background.nativeView());
-	var select = MacOSSelect();
-	ISelect portable = select;
-	background.attach(portable);
-	portable.arrange(30.0, 65.0, 300.0, 30.0);
+	GUI.initialize();
+	var window = GUI.createWindow("Native selection", 360.0, 160.0);
+	var background = GUI.createPanel(RGBA(30, 30, 30));
+	window.attachRoot(background);
+	var select = GUI.createSelect();
+	background.attach(select);
+	select.arrange(30.0, 65.0, 300.0, 30.0);
 	assert(select.itemCount() == 0 && select.selectedIndex() == -1 && select.selectedTitle().isEmpty());
-	portable.setItems(["Song Effects", "Raw Signal", "Song Effects"], 2);
+	select.setItems(["Song Effects", "Raw Signal", "Song Effects"], 2);
 	assert(select.itemCount() == 3 && select.selectedIndex() == 2 && select.selectedTitle() == "Song Effects");
 	select.setItemEnabled(2, false);
 	assert(!select.isItemEnabled(2) && select.isItemEnabled(0));
 	select.setItemEnabled(2, true);
-	portable.setSelectedIndex(1);
-	assert(portable.selectedIndex() == 1 && portable.selectedTitle() == "Raw Signal");
+	select.setSelectedIndex(1);
+	assert(select.selectedIndex() == 1 && select.selectedTitle() == "Raw Signal");
 	bool rejected = false;
 	try { select.setSelectedIndex(3); } catch (string error) { rejected = true; }
 	assert(rejected && select.selectedIndex() == 1);
@@ -49,17 +71,9 @@ int main() {
 	try { select.setFont(-1.0); } catch (string error) { rejected = true; }
 	assert(rejected);
 	window.show();
-	app.pumpEvents();
-	var file = File("NativeSelect.tiff", "wb");
-	assert(file.ok() && file.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && file.close());
-	background.detach(portable);
-	portable.close();
-	select.close();
-	rejected = false;
-	try { select.selectedIndex(); } catch (string error) { rejected = true; }
-	assert(rejected);
-	background.close();
-	window.close();
+	GUI.post(SelectTeardown(window, background, select));
+	GUI.run();
+	assert(!window.isOpen() && !background.isOpen() && !select.isOpen());
 	print("PASS: native selection, duplicate titles, replacement, bounds and teardown");
 	return 0;
 }

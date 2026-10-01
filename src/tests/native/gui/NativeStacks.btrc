@@ -1,8 +1,8 @@
 import Library.GUI.GUI;
 import Library.GUI.IStack;
 import Library.GUI.IView;
-import Library.GUI.MacOS.MacOSViewCapture;
-import Library.IO;
+import Library.GUI.Capture;
+import Library.Vector;
 
 #include <assert.h>
 
@@ -39,8 +39,9 @@ int main() {
 		assert(column.childAt(0) == field && row.childAt(0) == apply);
 	}
 	StackProbe.undoEditing();
-	var capture = File("NativeStacks.tiff", "wb");
-	assert(capture.ok() && capture.writeBytes(MacOSViewCapture.captureTiff(StackProbe.contentView())) && capture.close());
+	Vector<GUICaptureLayer> layers = [];
+	var capture = GUI.capture(column, layers);
+	assert(capture.width >= 480 && capture.width % 480 == 0 && capture.width / 480 == capture.height / 320);
 	row.setAlignment(StackAlignment.Center);
 	assert(row.alignment() == StackAlignment.Center);
 	row.setAlignment(StackAlignment.End);
