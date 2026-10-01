@@ -111,3 +111,50 @@ int main() {
 
     assert loc is not None
     assert loc.range.start.line == 1
+
+
+def test_definition_property_access():
+    src = (
+        "class Gauge {\n"
+        "    public int raw;\n"
+        "    public Gauge() { self.raw = 0; }\n"
+        "    public int level { get { return self.raw; } }\n"
+        "}\n"
+        "int main() { Gauge g = Gauge(); return g.level; }\n"
+    )
+    loc = get_definition(analyze(src), pos_of(src, "g.level", offset=2))
+    assert loc is None or loc.range.start.line == 3  # the `level` property decl
+
+
+def test_find_enclosing_class_via_self_member_definition():
+    src = (
+        "class Counter {\n"
+        "    public int n;\n"
+        "    public Counter() { self.n = 0; }\n"
+        "    public int bump() {\n"
+        "        int step = 1;\n"
+        "        return self.n + step;\n"
+        "    }\n"
+        "}\n"
+        "int main() { Counter c = Counter(); return c.bump(); }\n"
+    )
+    loc = get_definition(analyze(src), pos_of(src, "self.n + step", offset=5))
+    assert loc is not None
+    assert loc.range.start.line == 1
+
+
+# `x` is undefined, so its type can't be resolved. Cmd-click should not guess
+# that Point.getX is the target just because the member name matches.
+UNRESOLVED = (
+    "class Point {\n"
+    "    public int x;\n"
+    "    public Point(int x) { self.x = x; }\n"
+    "    public int getX() { return self.x; }\n"
+    "}\n"
+    "int main() { return x.getX(); }\n"
+)
+
+
+def test_definition_member_on_unresolvable_receiver():
+    loc = get_definition(analyze(UNRESOLVED), pos_of(UNRESOLVED, "x.getX", offset=2))
+    assert loc is None

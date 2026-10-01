@@ -642,7 +642,15 @@ def test_tracked_manifest_has_exact_capability_fixture_and_runtime_universes() -
         "shared.runtime-metadata",
         "shared.runtime-order",
     }
-    assert len(manifest.records) == 309
+    channels = {capability.id: capability.channels for capability in manifest.capabilities}
+    universe = {
+        (fixture.id, capability_id, channel)
+        for fixture in manifest.fixtures
+        for capability_id in fixture.capabilities
+        for channel in channels[capability_id]
+    }
+    assert {(record.fixture, record.capability, record.channel) for record in manifest.records} == universe
+    assert len(manifest.records) == len(universe)
     assert not BoundaryManifest._supports_capability("btrc", "raw-ir")
     assert not BoundaryManifest._supports_capability("btrc", "optimized-ir")
     manifest._validate_runtime_channel_universe(REPO)

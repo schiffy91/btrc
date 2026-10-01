@@ -1,5 +1,5 @@
 /* Test #include "file.btrc" directive */
-#include "IncludeHelper.btrc"
+#include "includehelpers/IncludeHelper.btrc"
 
 int main() {
 	var p = Point(3, 7);

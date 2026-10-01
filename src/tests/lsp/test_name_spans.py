@@ -195,3 +195,14 @@ def test_struct_definition_wins_over_later_forward_declaration():
 
     assert location is not None
     assert location.range.start.line == 0
+
+
+def test_name_pos_reads_fields_and_falls_back():
+    from src.compiler.python.syntax.ast.generated import ClassDecl
+
+    # Populated name span is read directly (file-qualified).
+    populated = ClassDecl(name="P", name_line=3, name_col=7, line=3, col=1)
+    assert DefinitionMap._name_pos(populated, "/p.btrc") == ("/p.btrc", 3, 7)
+    # Unpopulated name span (synthetic node) falls back to line/col.
+    synthetic = ClassDecl(name="P", line=5, col=2)
+    assert DefinitionMap._name_pos(synthetic, None) == (None, 5, 2)

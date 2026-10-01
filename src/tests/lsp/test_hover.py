@@ -71,3 +71,43 @@ int main() {
     t = hover_text(get_hover_info(analyze(source), pos_of(source, "{label}", offset=2)))
 
     assert "string" in t and "label" in t
+
+
+def test_hover_method_parameter():
+    src = (
+        "class C { public int v; public C(int v) { self.v = v; }\n"
+        "          public int f(int a) { return a; } }\n"
+        "int main() { C c = C(1); return c.f(2); }\n"
+    )
+    t = hover_text(get_hover_info(analyze(src), pos_of(src, "return a", offset=7)))
+    assert "a" in t
+
+
+def test_hover_builtin_string_member():
+    src = 'int main() { string s = "hi"; int n = s.len(); return n; }\n'
+    t = hover_text(get_hover_info(analyze(src), pos_of(src, "s.len", offset=2)))
+    assert "len" in t
+
+
+def test_hover_member_on_unresolved_receiver_is_none():
+    src = (
+        "class Point { public int x; public Point() { self.x = 0; }\n"
+        "              public int getX() { return self.x; } }\n"
+        "int main() { return mystery.getX(); }\n"
+    )
+    assert get_hover_info(analyze(src), pos_of(src, "mystery.getX", offset=8)) is None
+
+
+def test_hover_unknown_member_returns_none():
+    src = (
+        "class B { public int b; public B() { self.b = 0; }\n"
+        "          public int getB() { return self.b; } }\n"
+        "class D extends B { public int d; public D() { self.d = 0; } }\n"
+        "int main() { D x = new D(); return x.nope(); }\n"
+    )
+    assert get_hover_info(analyze(src), pos_of(src, "x.nope", offset=2)) is None
+
+
+def test_hover_in_body_non_variable_identifier_is_none():
+    src = "class K { public int v; public K() { self.v = 0; } }\nint main() { K k = K(); return foobar; }\n"
+    assert get_hover_info(analyze(src), pos_of(src, "return foobar", offset=7)) is None

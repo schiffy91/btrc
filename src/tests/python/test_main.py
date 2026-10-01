@@ -20,6 +20,7 @@ from src.compiler.python.frontend.packages import IncludeResolutionError
 from src.compiler.python.frontend.sources import StdlibAstCache, StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.main import main as compiler_main
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 
 RESOLVER = FrontendStage().resolver
 STDLIB = StdlibRepository()
@@ -211,8 +212,8 @@ def test_cli_end_to_end_compiles_and_runs(tmp_path, monkeypatch, capsys):
     assert "Transpiled" in capsys.readouterr().out
 
     binp = str(tmp_path / "e2e_bin")
-    subprocess.run([cc, "-std=c11", out_c, "-o", binp, "-lm", "-lpthread"], check=True)
-    result = subprocess.run([binp], capture_output=True, text=True)
+    subprocess.run([cc, "-std=c11", out_c, "-o", binp, "-lm", "-lpthread"], check=True, timeout=C_COMPILE_TIMEOUT)
+    result = subprocess.run([binp], capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert result.returncode == 0, result.stderr
     assert "E2E_OK" in result.stdout
 
@@ -800,3 +801,41 @@ def test_cached_warning_preserves_imported_location_and_text(tmp_path, monkeypat
     assert "(cached)" in warm.out
     assert warm.err == cold.err
     assert output.read_bytes() == first
+
+
+# --------------------------------------------------------------------------
+# expression nesting depth: a clean diagnostic, never a RecursionError
+# --------------------------------------------------------------------------
+
+REPO = Path(__file__).resolve().parents[3]
+
+
+def _compile(tmp_path, source):
+    src = tmp_path / "t.btrc"
+    src.write_text(source)
+    return subprocess.run(
+        [sys.executable, "-m", "src.compiler.python.main", str(src), "-o", str(tmp_path / "t.c")],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        env={"BTRC_CACHE_DIR": str(tmp_path / "cache"), "PATH": "/usr/bin:/bin"},
+        timeout=TRANSPILE_TIMEOUT,
+    )
+
+
+def test_moderate_nesting_compiles(tmp_path):
+    # ~58 parens used to overflow the parser's recursion; now within budget.
+    src = "int main() { int x = " + "(" * 58 + "1" + ")" * 58 + "; return 0; }\n"
+    r = _compile(tmp_path, src)
+    assert r.returncode == 0, r.stderr
+
+
+def test_pathological_nesting_is_clean_error(tmp_path):
+    # Absurd nesting still exceeds the lifted limit, but must be a clean
+    # diagnostic with no Python traceback.
+    src = "int main() { int x = " + "(" * 8000 + "1" + ")" * 8000 + "; return 0; }\n"
+    r = _compile(tmp_path, src)
+    assert r.returncode != 0
+    assert "Traceback" not in r.stderr
+    assert "RecursionError" not in r.stderr
+    assert "nested too deeply" in r.stderr

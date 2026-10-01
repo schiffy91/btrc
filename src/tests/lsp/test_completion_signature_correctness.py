@@ -111,7 +111,7 @@ def test_static_call_chain_rejects_instance_methods_and_follows_class_methods():
 def test_fstring_member_call_has_signature_help():
     source = (
         "class C { public C() {} public int add(int x) { return x; } }\n"
-        'int main() { C c = C(); println(f"{c.add(1)}"); return 0; }\n'
+        'int main() { C c = C(); print(f"{c.add(1)}"); return 0; }\n'
     )
     signature = get_signature_help(
         analyze(source),
@@ -164,3 +164,78 @@ class A {
     ast = Parser(Lexer(source, "scope.btrc").tokenize()).parse()
     assert LexicalScopeIndex.find_enclosing_class_from_source(ast, source, 3) == "A"
     assert LexicalScopeIndex.find_closing_brace_line(source.splitlines(), 0) == 4
+
+
+def test_completion_user_class_static_methods():
+    src = (
+        "class Util {\n"
+        "    public int x;\n"
+        "    public Util() { self.x = 0; }\n"
+        "    class int helper(int a) { return a; }\n"
+        "}\n"
+        "int main() { return Util.helper(5); }\n"
+    )
+    names = {i.label for i in get_completions(analyze(src), pos_of(src, "Util.helper", offset=5))}
+    assert "helper" in names
+
+
+def test_completion_static_methods_after_stdlib_class():
+    src = 'import Library.Strings;\nint main() { string s = Strings.repeat("a", 2); return 0; }\n'
+    names = {i.label for i in get_completions(analyze(src), pos_of(src, "Strings.repeat", offset=8))}
+    assert "repeat" in names
+
+
+def test_completion_after_stdlib_class_name():
+    src = "import Library.Math;\nint main() { int x = Math.abs(-3); return x; }\n"
+    names = {i.label for i in get_completions(analyze(src), pos_of(src, "Math.abs", offset=5))}
+    assert names  # Math.* static methods offered
+
+
+def test_completion_stdlib_class_dedup():
+    # Strings is both in the analyzed class_table and the stdlib static table;
+    # the dedup loop avoids duplicate labels.
+    src = 'import Library.Strings;\nint main() { string s = Strings.copy("x"); return 0; }\n'
+    items = get_completions(analyze(src), pos_of(src, "Strings.copy", offset=8))
+    labels = [i.label for i in items]
+    assert len(labels) == len(set(labels))  # no duplicates
+
+
+def test_completion_user_class_shadowing_stdlib_has_no_instance_leak():
+    src = (
+        "class Math { public int v; public Math() { self.v = 0; }\n"
+        "             public int sq() { return self.v * self.v; } }\n"
+        "int main() { int r = Math.sq(); return r; }\n"
+    )
+    items = get_completions(analyze(src), pos_of(src, "Math.sq", offset=5))
+    assert items == []
+
+
+def test_completion_self_members():
+    src = (
+        "class Counter {\n"
+        "    public int n;\n"
+        "    public Counter() { self.n = 0; }\n"
+        "    public int bump() { return self.n; }\n"
+        "}\n"
+    )
+    # cursor right after `self.` inside bump()
+    names = {i.label for i in get_completions(analyze(src), pos_of(src, "self.n", occurrence=2, offset=5))}
+    assert {"n", "bump"} <= names
+
+
+def test_completion_chain_with_unresolved_head_is_empty():
+    src = "int main() { return ghost.inner.value; }\n"
+    items = get_completions(analyze(src), pos_of(src, "ghost.inner.value", offset=12))
+    assert items == []
+
+
+def test_completion_member_of_enum_typed_field_is_empty():
+    # b.c resolves to the enum type Color, which is neither a built-in nor a
+    # class -> _members_for_type returns no members.
+    src = (
+        "enum Color { RED, GREEN };\n"
+        "class Box { public Color c; public Box() { self.c = RED; } }\n"
+        "int main() { Box b = Box(); return b.c.zz; }\n"
+    )
+    items = get_completions(analyze(src), pos_of(src, "b.c.zz", offset=4))
+    assert items == []

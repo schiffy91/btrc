@@ -17,6 +17,7 @@ from src.compiler.python.frontend.packages import (
     IncludeResolutionError,
     PackageManifestReader,
 )
+from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
 
 GIT = GitDependencyCache()
 RESOLVER = packages.PackageUniverse(GIT)
@@ -180,7 +181,7 @@ def _make_git_repo(root, marker):
         ["git", "add", "."],
         ["git", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "init"],
     ):
-        subprocess.run(cmd, cwd=root, env=env, check=True, capture_output=True)
+        subprocess.run(cmd, cwd=root, env=env, check=True, capture_output=True, timeout=C_COMPILE_TIMEOUT)
     return root
 
 
@@ -209,6 +210,7 @@ def test_git_branch_dep_repinned_on_refresh(tmp_path, monkeypatch):
         env=env,
         check=True,
         capture_output=True,
+        timeout=TOOL_TIMEOUT,
     )
     assert "rev one" in (pathlib.Path(clone) / "lib.btrc").read_text()
     GIT.resolve("dep", url, "main")
@@ -225,11 +227,7 @@ def test_pinned_sha_never_refetched(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     repo = _make_git_repo(tmp_path / "upstream", "immutable")
     sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True, timeout=TOOL_TIMEOUT
     ).stdout.strip()
     checkout = GIT.resolve("dep", repo.as_uri(), sha)
 
@@ -336,6 +334,7 @@ def test_branch_lock_pins_same_commit_across_fresh_caches(tmp_path, monkeypatch)
         env=env,
         check=True,
         capture_output=True,
+        timeout=TOOL_TIMEOUT,
     )
 
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "machine-b-cache"))
@@ -353,7 +352,7 @@ def test_branch_lock_pins_same_commit_across_fresh_caches(tmp_path, monkeypatch)
 def test_formerly_colliding_refs_have_distinct_checkouts(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     repo = _make_git_repo(tmp_path / "upstream", "slash")
-    subprocess.run(["git", "branch", "feature/a"], cwd=repo, check=True)
+    subprocess.run(["git", "branch", "feature/a"], cwd=repo, check=True, timeout=TOOL_TIMEOUT)
 
     (repo / "lib.btrc").write_text("// underscore\nint libfn() { return 2; }\n")
     env = {
@@ -369,8 +368,9 @@ def test_formerly_colliding_refs_have_distinct_checkouts(tmp_path, monkeypatch):
         env=env,
         check=True,
         capture_output=True,
+        timeout=TOOL_TIMEOUT,
     )
-    subprocess.run(["git", "branch", "feature_a"], cwd=repo, check=True)
+    subprocess.run(["git", "branch", "feature_a"], cwd=repo, check=True, timeout=TOOL_TIMEOUT)
 
     slash = GIT.resolve("dep", repo.as_uri(), "feature/a", refresh=True)
     underscore = GIT.resolve(
@@ -509,3 +509,244 @@ def test_error_is_canonical_frontend_exception():
     from src.compiler.python.frontend.packages import IncludeResolutionError as FrontendError
 
     assert FrontendError is IncludeResolutionError
+
+
+# --------------------------------------------------------------------------
+# dependency entry shapes
+# --------------------------------------------------------------------------
+
+
+def test_resolve_dep_bare_string(tmp_path):
+    d = RESOLVER._resolve_dependency(
+        "x",
+        "../sibling",
+        str(tmp_path),
+    )
+    assert os.path.isabs(d["path"])
+
+
+def test_resolve_dep_path_dict_relative(tmp_path):
+    d = RESOLVER._resolve_dependency(
+        "x",
+        {"path": "../sib"},
+        str(tmp_path),
+    )
+    assert d["path"].endswith("sib") and os.path.isabs(d["path"])
+
+
+def test_resolve_dep_path_dict_absolute():
+    d = RESOLVER._resolve_dependency(
+        "x",
+        {"path": "/abs/path"},
+        "/manifest",
+    )
+    assert d["path"] == "/abs/path"
+
+
+def test_resolve_dep_git(monkeypatch):
+    monkeypatch.setattr(
+        GIT,
+        "resolve",
+        lambda n, u, r, refresh=False: "/clone/root",
+    )
+    monkeypatch.setattr(GIT, "resolved_commit", lambda _path: "a" * 40)
+    d = RESOLVER._resolve_dependency(
+        "net",
+        {"git": "https://x/n.git", "rev": "v1"},
+        "/m",
+    )
+    assert d == {
+        "commit": "a" * 40,
+        "git": "https://x/n.git",
+        "path": "/clone/root",
+        "rev": "v1",
+    }
+
+
+def test_resolve_dep_invalid():
+    with pytest.raises(ValueError):
+        RESOLVER._resolve_dependency(
+            "x",
+            {"version": "1.0"},
+            "/m",
+        )
+
+
+# --------------------------------------------------------------------------
+# git checkouts
+# --------------------------------------------------------------------------
+
+
+def _fake_git_run(calls):
+    """subprocess.run stand-in: records commands, reports success."""
+
+    def run(cmd, *a, **k):
+        calls.append(cmd)
+        output = "a" * 40 + "\n" if "rev-parse" in cmd else ""
+        return subprocess.CompletedProcess(cmd, 0, output, "")
+
+    return run
+
+
+def test_resolve_git_clones(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
+    calls = []
+    monkeypatch.setattr(packages.subprocess, "run", _fake_git_run(calls))
+    path = GIT.resolve("net", "https://x/n.git", "v1")
+    assert os.path.isabs(path) and len(calls) == 3  # clone + checkout + rev-parse
+
+
+def test_resolve_git_uses_pinned_ref_record(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
+    record = GIT._ref_record_path("net", "https://x/n.git", "v1")
+    GIT._publish_ref_record(record, "net", "https://x/n.git", "v1", "a" * 40)
+    observed = []
+
+    def pinned(name, url, rev, commit):
+        observed.append((name, url, rev, commit))
+        return "/immutable/checkout"
+
+    monkeypatch.setattr(GIT, "_ensure_commit_checkout", pinned)
+    assert GIT.resolve("net", "https://x/n.git", "v1") == "/immutable/checkout"
+    assert observed == [("net", "https://x/n.git", "v1", "a" * 40)]
+
+
+def test_resolve_git_separates_url_from_options(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
+    calls = []
+    monkeypatch.setattr(packages.subprocess, "run", _fake_git_run(calls))
+    GIT.resolve("net", "--upload-pack=untrusted", "v1")
+    assert calls[0][0:4] == ["git", "clone", "--quiet", "--"]
+    assert calls[0][4] == "--upload-pack=untrusted"
+
+
+def test_git_subprocesses_are_noninteractive_and_bounded(monkeypatch):
+    observed = {}
+
+    def run(cmd, **kwargs):
+        observed.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(packages.subprocess, "run", run)
+    GIT._git(["status"])
+
+    assert observed["check"] is True
+    assert observed["timeout"] == GIT.GIT_TIMEOUT_SECONDS
+    assert observed["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert observed["env"]["GCM_INTERACTIVE"] == "Never"
+
+
+def test_resolve_git_rejects_option_revision(tmp_path, monkeypatch):
+    monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
+    calls = []
+    monkeypatch.setattr(packages.subprocess, "run", _fake_git_run(calls))
+    with pytest.raises(ValueError, match="invalid revision"):
+        GIT.resolve("net", "https://x/n.git", "--orphan")
+    assert calls == []
+
+
+def test_failed_git_checkout_does_not_poison_cache(tmp_path, monkeypatch):
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("BTRC_PKG_CACHE", str(cache))
+    monkeypatch.setattr(GIT, "_git", lambda _args: None)
+
+    def fail_checkout(_dest, _rev):
+        raise ValueError("bad revision")
+
+    monkeypatch.setattr(GIT, "_checkout", fail_checkout)
+
+    with pytest.raises(ValueError, match="bad revision"):
+        GIT.resolve("net", "https://x/n.git", "missing")
+
+    assert list(cache.iterdir()) == []
+
+
+# --------------------------------------------------------------------------
+# manifest + lock resolution
+# --------------------------------------------------------------------------
+
+
+def test_resolve_uses_lock(tmp_path):
+    (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n')
+    lock = {
+        "manifest_hash": RESOLVER.dependencies_hash({}),
+        "packages": {"dep": {"path": "/p"}},
+        "schema": packages.LOCK_SCHEMA,
+    }
+    (tmp_path / "btrc.lock").write_text(json.dumps(lock))
+    resolved = RESOLVER.resolve_manifest(str(tmp_path / "btrc.toml"))
+    assert resolved.entries == {"dep": {"path": "/p"}}
+
+
+def test_resolve_ignores_stale_lock(tmp_path):
+    # Legacy (hash-less) and out-of-date locks are re-resolved, not trusted.
+    (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n')
+    (tmp_path / "btrc.lock").write_text('{"packages": {"dep": {"path": "/p"}}}')
+    assert RESOLVER.resolve_manifest(str(tmp_path / "btrc.toml")).entries == {}
+
+
+@pytest.mark.parametrize(
+    "lock",
+    [
+        [],
+        {"packages": [], "schema": packages.LOCK_SCHEMA},
+        {"packages": {"dep": []}, "schema": packages.LOCK_SCHEMA},
+        {"packages": {"dep": {"path": 1}}, "schema": packages.LOCK_SCHEMA},
+        {
+            "packages": {"dep": {"commit": "a" * 40, "git": 1, "rev": "main"}},
+            "schema": packages.LOCK_SCHEMA,
+        },
+        {
+            "packages": {"dep": {"commit": "bad", "git": "https://x/n.git", "rev": "main"}},
+            "schema": packages.LOCK_SCHEMA,
+        },
+    ],
+)
+def test_resolve_fails_closed_on_structurally_invalid_current_lock(tmp_path, lock):
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text('[package]\nname = "x"\n')
+    if isinstance(lock, dict):
+        lock["manifest_hash"] = RESOLVER.dependencies_hash({})
+    (tmp_path / "btrc.lock").write_text(json.dumps(lock))
+    before = (tmp_path / "btrc.lock").read_bytes()
+    with pytest.raises(packages.LockfileError):
+        RESOLVER.resolve_manifest(str(manifest))
+    assert (tmp_path / "btrc.lock").read_bytes() == before
+
+
+def test_resolve_for_invalid_dependency_shape_is_controlled(tmp_path):
+    (tmp_path / "btrc.toml").write_text("dependencies = 1\n")
+    with pytest.raises(IncludeResolutionError, match=r"dependencies.*table"):
+        RESOLVER.resolve_for(str(tmp_path / "Main.btrc"))
+
+
+def test_resolve_writes_lock(tmp_path):
+    (tmp_path / "sib").mkdir()
+    (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n[dependencies]\nsib = { path = "./sib" }\n')
+    result = RESOLVER.resolve_manifest(
+        str(tmp_path / "btrc.toml"),
+        refresh=True,
+    )
+    assert "sib" in result.entries and (tmp_path / "btrc.lock").exists()
+
+
+def test_resolve_for_no_manifest(tmp_path):
+    assert RESOLVER.resolve_for(str(tmp_path / "x.btrc")).entries == {}
+
+
+# --------------------------------------------------------------------------
+# resolved package module lookup
+# --------------------------------------------------------------------------
+
+
+def test_resolved_packages_ignore_unknown_dependency():
+    assert packages.ResolvedPackages.empty().paths_for_import("unknowndep.mod") == ()
+
+
+def test_resolved_packages_support_root_layout(tmp_path):
+    root = tmp_path / "vec"
+    root.mkdir()
+    (root / "sub.btrc").write_text("int f() { return 0; }\n")
+    resolved_packages = packages.ResolvedPackages(None, {"vec": {"path": str(root)}})
+    paths = resolved_packages.paths_for_import("vec.sub")
+    assert paths and paths[0].endswith("sub.btrc")

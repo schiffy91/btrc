@@ -3,7 +3,7 @@ parser, and analyzer errors are reported with the right line and severity."""
 
 from lsprotocol import types as lsp
 
-from src.tests.lsp.lsphelp import analyze
+from src.tests.lsp.lsphelp import analyze, compute_diagnostics
 
 
 def _msgs(r):
@@ -85,3 +85,31 @@ def test_diagnostic_range_is_well_formed():
     for d in r.diagnostics:
         assert d.range.start.line >= 0
         assert d.range.end.character >= d.range.start.character or d.range.end.line > d.range.start.line
+
+
+def test_diagnostics_missing_include_is_tolerated():
+    # include resolution failure is caught and falls back to the raw source —
+    # the analysis must complete without crashing.
+    r = analyze('#include "definitely_missing_file.btrc"\nint main() { return 0; }\n')
+    assert r is not None and r.source
+
+
+def test_unlocated_analyzer_error_becomes_diagnostic(monkeypatch):
+    # an analyzer diag without a position (line/col 0) maps to a 1:1 diagnostic
+    from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+    from src.compiler.python.analyzer.program import Diag
+
+    real = SemanticAnalyzer.analyze
+
+    def fake(self, program):
+        res = real(self, program)
+        res.diags.append(Diag("a problem with no position", 0, 0))
+        return res
+
+    monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
+    # A unique URI keeps the shared workspace's snapshot cache from serving a
+    # result computed before the monkeypatch (xdist order-dependent otherwise).
+    r = compute_diagnostics("file:///t_unlocated_diag.btrc", "int main() { return 0; }\n")
+    assert any("no position" in d.message for d in r.diagnostics)
+    bad = next(d for d in r.diagnostics if "no position" in d.message)
+    assert (bad.range.start.line, bad.range.start.character) == (0, 0)

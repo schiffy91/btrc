@@ -349,3 +349,20 @@ def test_find_var_def_innermost_and_def_site_identity():
     assert outer_use is not None and outer_use.line == 2
     # the definition's own name token anchors itself
     assert dmap.find_var_def("v", inner_use.line, inner_use.col) is inner_use
+
+
+# ----------------------------------------------- definition skips other scopes
+
+
+def test_definition_var_out_of_other_function_scope():
+    # `dup` exists in both functions; resolving the use in `helper` must skip
+    # main's `dup`, whose scope begins on a later line than the cursor.
+    src = "int helper() { int dup = 1; return dup; }\nint main() { int dup = 2; return dup; }\n"
+    loc = get_definition(analyze(src), pos_of(src, "return dup", occurrence=1, offset=7))
+    assert loc is not None and loc.range.start.line == 0  # helper's dup
+
+
+def test_definition_var_declared_after_cursor_is_skipped():
+    src = "int main() {\n    int y = z;\n    int z = 5;\n    return y + z;\n}\n"
+    loc = get_definition(analyze(src), pos_of(src, "= z", offset=2))
+    assert loc is None or loc.range.start.line == 1

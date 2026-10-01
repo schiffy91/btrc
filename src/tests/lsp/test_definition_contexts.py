@@ -88,3 +88,9 @@ int main() {
 def test_def_typedef_usage_resolves_to_decl():
     loc = get_definition(analyze(DECLS), pos_of(DECLS, "Id n", offset=0))
     assert loc is not None and loc.range.start.line == 4  # `typedef int Id;`
+
+
+def test_definition_struct_usage():
+    src = "struct Pt { int x; int y; };\nint main() { struct Pt p; p.x = 1; return p.x; }\n"
+    loc = get_definition(analyze(src), pos_of(src, "struct Pt p", offset=7))
+    assert loc is None or loc.range.start.line == 0

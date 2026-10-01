@@ -1,7 +1,7 @@
 /* An included btrc file that uses #include <math.h> and a raw C function,
    spliced into a file that also uses a btrc class. math.h must not be emitted
    in a way that breaks the C compile. */
-#include "CheaderHelper.btrc"
+#include "includehelpers/CheaderHelper.btrc"
 #include <math.h>
 #include <assert.h>
 
