@@ -544,8 +544,11 @@ class FeImportVisibilityChecker {
 				continue;
 			}
 			FeLine? declarationLine = self.resolved.userLineForCombined(declaration.line);
-			if (declarationLine == null && generatedModule.isEmpty()) { continue; }
-			string sourceFile = generatedModule.isEmpty() ? declarationLine.sourceFile : generatedModule;
+			string sourceFile = generatedModule;
+			if (sourceFile.isEmpty()) {
+				if (declarationLine == null) { continue; }
+				sourceFile = declarationLine.sourceFile;
+			}
 			Map<string, bool> reachable = self.visibilityReachable(sourceFile);
 			string sourceIdentity = self.sourcePaths.identity(sourceFile);
 			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.genericParams());

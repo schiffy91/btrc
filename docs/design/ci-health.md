@@ -142,7 +142,7 @@ Two rows changed state in the same merge batch that added this document:
 | `windows-tooling` | product defect; deterministic | `windows.yml` `windows`: 3 of 314 | 2026-09-01 | no: Windows filesystem/bundle seams fixed 2026-09-01 | none (resolved) |
 | `windows-bootstrap` | product defect; deterministic | `windows.yml` `windows`: 9 of 314 | 2026-09-15 | no: fixed the same day (2026-09-15) | none (resolved) |
 | `windows-ctime` | product defect; deterministic | `windows.yml` `windows`: 4 of 314 | 2026-09-22 | no: SourceReadIdentity.validate compares fstat of an open handle on win32 (a544d5f) | none (resolved) |
-| `selfhost-nullable-access-warnings` | product defect: non-fatal warnings in self-hosted compiler sources; deterministic | `windows.yml+ci.yml+macos.yml` `every btrcc build` | — | yes at HEAD 1fc2fc5: Python transpile of cli/WindowsMain.btrc emits 122 'Non-optional access' warnings (Declarations.btrc 63, NativeImports.btrc 37, WindowsMain.btrc:1:1 11 mislocated, SourceIo.btrc 4, others 7); 126 on Windows CI and 122 on Linux/macOS at 7b266e7 | self-host compiler lane (narrow FeNativeResourceBinding?/FeNativeRealtimeRegistration?/NativeNode? reads); diagnostics-provenance owner for the 11 warnings mislocated at WindowsMain.btrc:1:1 |
+| `selfhost-nullable-access-warnings` | product defect: non-fatal warnings in self-hosted compiler sources; deterministic | `windows.yml+ci.yml+macos.yml` `every btrcc build` | — | no on stage2/ci-health: analyzer false positives fixed and unchecked reads guarded; the harness's self-host transpile and windows.yml now fail on any warning (see [Skip gates and fix-forward](#skip-gates-and-fix-forward-on-cf28fe7)) | none (resolved); the f-string location defect stays with the parser owner |
 
 Three of these are **process risks** rather than code defects, and the
 integrator owns all three: `generated-stale` (a derived file pushed without
@@ -228,16 +228,11 @@ each one:
    `flakehub-auth-warning`); the `nix-cache` errors remain open, and the
    option left is to drop the action for `actions/cache` keyed on
    `flake.lock` (`PLAN.md` D26: no binary-cache account).
-4. **The 122 "Non-optional access" warnings in the self-host Windows
-   build.** The Python transpile of `src/compiler/btrc/cli/WindowsMain.btrc`
-   emits them: 63 in `ir/lowering/Declarations.btrc`, 37 in
-   `frontend/NativeImports.btrc`, 4 in `frontend/SourceIo.btrc`, 7 in five
-   other files, and 11 reported at the wrong location,
-   `cli/WindowsMain.btrc:1:1`. Windows CI showed 126 at `7b266e7`. They are not fatal, but
-   they bury new diagnostics. **Owner:** the self-host compiler lane, which
-   narrows the `FeNativeResourceBinding?`, `FeNativeRealtimeRegistration?`
-   and `NativeNode?` reads, plus the diagnostics-provenance owner for the 11
-   mislocated warnings.
+4. **The 122 "Non-optional access" warnings in the self-host build.**
+   Closed on `stage2/ci-health`; see
+   [Skip gates and fix-forward on `cf28fe7`](#skip-gates-and-fix-forward-on-cf28fe7).
+   The f-string location defect behind the 11 mislocated warnings remains,
+   with the diagnostics-provenance owner.
 
 Also open, at lower rates:
 
@@ -249,6 +244,106 @@ Also open, at lower rates:
   Determinate installer on every shard, and that download failed two jobs
   in the window (2026-07-09 and 2026-09-16). **Owner:** the CI lane, with
   `tooling-linux-container-refresh`.
+
+## Skip gates and fix-forward on `cf28fe7`
+
+The `stage2/ci-health` lane, 2026-10-01, from CI run 36898564273, macOS run
+36898564246 and Windows run 36898564289, all on `cf28fe7`.
+
+### Expected-skip manifests
+
+All three runner manifests under `src/tests/fixtures/expected-skips/` are now
+enforced: an unexpected skip fails its gate. Every `test-shard-*` and
+`test-c11-one` target already ran `$(SKIP_GATE)` on its own report, on Linux
+and macOS alike. `windows.yml` did not: its three pytest steps all wrote the
+default `build/skip-report.json` and nothing gated it. Each step now writes
+`build/skip-report-windows-<step>.json` and gates it on the next line, and
+the `always()` upload keeps every report from a red run.
+
+| Runner | Classified from | Skips | Covered elsewhere | Uncovered |
+| --- | --- | --- | --- | --- |
+| `linux-devcontainer` | CI 36898564273: unit 3,108, btrc 34; the corpus, bootstrap and eight strict-C11 shards skip none | 3,142 | 3,007 (macOS 3,002, Windows 5) | 135 |
+| `windows` | Windows 36898564289, plus each selected file's `os.name` skips; confirmed by the gated dispatch 36911100193 (artifacts 2, compat 0, bootstrap harness 1, all expected) | 3 | 3 (macOS and Linux) | 0 |
+| `macos` | macOS 36898564246's unit shard: `pugixml-sdk` now also covers `test_module_units.py`'s three C++ owner cases, which would have failed the gate once the GUI failures are fixed; `windows-junctions` is now covered by Windows | 160 | 25 | 135 |
+
+The 135 uncovered Linux skips are: `native-compiler-provider` (88) and
+`native-receipt-provider` (11), because no runner sets
+`BTRC_NATIVE_PROVIDER_CC`/`CXX`; `pugixml-sdk` (2); the macOS-only C++
+owner proofs (24) and actual-SQLite proofs (4), which macOS skips as well
+for the same missing SDKs;  `linux-gui-display` (4),
+with no display server in the devcontainer; and `linux-tray-session-bus` (2),
+with no D-Bus session bus. No runner exercises the Linux GTK or tray backends.
+
+Six Linux rules expire when `stage4/tools-ci` puts its tools in the dev
+shell, and their notes say so: `lldb-missing` (4 DAP sessions), `pugixml-sdk`,
+`macos-only-pugixml-uncovered`, `macos-only-sqlite-uncovered`,
+`native-compiler-provider` and `native-receipt-provider`. Every Linux
+`covered_by: macos` claim was checked against macOS run 36898564246: 2,994
+confirmed passed; the 8 that failed there are the GUI-lane failures below,
+and the 28 that macOS also skipped moved to the two uncovered rules. Delete each rule
+when its tool lands; the gate will then fail if the tests still skip.
+
+`windows.yml` now also runs `test_artifact_reparse.py`, so the native
+junction case, which the macOS and Linux manifests used to list as uncovered,
+is covered by Windows.
+
+### The self-host "Non-optional access" warnings
+
+The 122 warnings were not Windows-specific. CI's Linux `release` job printed
+the same 122 when it transpiled `BtrccMain.btrc`. Windows printed 126 because
+it reported each of the four `SourceIo.btrc` warnings twice. Only the Python
+compiler emits this diagnostic, which the self-hosted analyzer does not
+implement, so the build was the only place they showed. They had two causes.
+On the original sources, the analyzer change alone removes 35 of them, and
+the source changes remove the other 87.
+
+- **Analyzer false positives.** A store of a value the analyzer knew was
+  non-null did not refine its target. For example,
+  `if (memo == null) { memo = {}; }`, `identity = FeSourceReadIdentity(...)`
+  and `var one = first.realtime` under a null guard all still warned. An
+  assignment through an unknown target, such as `Class.staticField = memo`,
+  also discarded every fact, including facts about locals it cannot alias.
+  The Python analyzer (`analyzer/flow.py`, `analyzer/statements.py`) now
+  records a fact when a nullable binding or field takes a provably non-null
+  value: a proven path, a constructor call, a collection literal, or any
+  non-nullable reference. Assignments through unknown targets now treat
+  facts the way calls do. `test_nullable_flow.py` pins both directions. A
+  store of `null`, a nullable value, an optional chain or a raw C pointer
+  still warns, and a call still forgets a stored field.
+- **Unchecked reads in the compiler.** Lowering read nullable contract fields
+  without a check: `imported.resource`, `callback.realtime`,
+  `callback.unregister`, `contract.callbackTable`, the Objective-C
+  accessors, `classMember(...)` and `nativeMethod`. It relied on the
+  frontend's invariants. Each read now binds a local and fails closed with a
+  `throw` naming the missing projection, which is the existing pattern in
+  `Declarations.btrc`. Other reads lost their guard to a later call, or to a
+  `bool` flag the analyzer cannot follow. Those now bind a local first. The
+  diagnostics stay identical.
+
+The 11 warnings reported at `<main>.btrc:1:1` were all in f-strings
+(`f"Native resource {resource.name}: ..."`). The reference parser lexes each
+f-string expression on its own, from line 1, so a diagnostic inside one
+loses its location. Guarding `resource` removed these 11 warnings, but the
+location defect itself remains open with the parser owner.
+
+**Guard.** The test harness's `_build_immutable_btrcc`, the transpile behind
+every gate's self-hosted compiler, now fails on any analyzer warning, just as
+its C build already uses `-Werror`. `windows.yml`'s bundle step does the same
+for `cli/WindowsMain.btrc`.
+
+**Proof runs.** Both dispatches ran on `84b4619`. CI 36911095136 passed
+16 of 16 jobs, with every shard's enforced gate clean (unit: 3,108 skips,
+0 unexpected) and 0 warnings in the release job's `BtrccMain.btrc`
+transpile. Windows 36911100193 passed with three gated pytest steps and a
+warning-free `WindowsMain.btrc` transpile.
+
+### CI failures on `cf28fe7`
+
+| Run | Job | Cause | Owner | State |
+| --- | --- | --- | --- | --- |
+| CI 36898564273 | `tests (unit)` | `test_bench_baseline.py`: `measure_peak` returned 189,808,640 bytes for both a 16 MiB and an 80 MiB child, and missed the injected regression. Linux carries a process's resident high-water mark across fork and exec, so a child of a large pytest worker reports the worker's RSS as its own `ru_maxrss`. Reproduced locally by holding 200 MiB in the caller: 16 and 80 MiB children both measured 217 MiB. | Stage 3 (`tools/bench`) | fixed on `main` by `dc44a85` (`MAXRSS_REPORTER`). This lane's equivalent fix was reverted in its favour. The existing tests catch the defect only when the pytest worker is large; a test that holds ballast in the caller would catch it on any host. |
+| Windows 36898564289 | `windows` | green; 126 warnings, as above | this lane | fixed |
+| macOS 36898564246 | `tests (unit)` | 8 `test_native_import_consumer.py::test_macos_panel_and_progress_controls` cases (NativeGUI "Factory retained fields", NativeLabels `Panel.c` assertion), both compilers, both modes. Behind them sat a skip-gate failure the red run hid: 3 pugixml skips in `test_module_units.py` that `macos.json` did not expect | `stage4/gui-core-macos` (GUI); this lane (manifest) | GUI open; manifest fixed |
 
 ## Appendix: per-job evidence
 

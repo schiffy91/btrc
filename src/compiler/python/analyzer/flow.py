@@ -97,7 +97,7 @@ class ControlFlowAnalyzer:
                 return AccessPath(parent.root, (*parent.fields, expression.field))
         return None
 
-    def _is_known_nonnull(self, expression) -> bool:
+    def is_known_nonnull(self, expression) -> bool:
         path = self.access_path(expression)
         return path is not None and path in self.session.nonnull_paths
 
@@ -125,14 +125,14 @@ class ControlFlowAnalyzer:
         return set()
 
     def _null_comparison_path(self, expression: BinaryExpr) -> AccessPath | None:
-        if self._is_null_literal(expression.left):
+        if self.is_null_literal(expression.left):
             return self.access_path(expression.right)
-        if self._is_null_literal(expression.right):
+        if self.is_null_literal(expression.right):
             return self.access_path(expression.left)
         return None
 
     @staticmethod
-    def _is_null_literal(expression) -> bool:
+    def is_null_literal(expression) -> bool:
         return isinstance(expression, NullLiteral) or (isinstance(expression, Identifier) and expression.name == "NULL")
 
     @staticmethod
@@ -147,12 +147,26 @@ class ControlFlowAnalyzer:
     def invalidate_nonnull_target(self, target) -> None:
         assigned = self.access_path(target)
         if assigned is None:
-            self.session.replace_nonnull_paths(())
+            # An index, dereference or static-field store reaches a local only
+            # through an escaped address, exactly as a call does.
+            self.session.replace_nonnull_paths(self._facts_surviving_unknown_write(self.session.nonnull_paths))
             return
         if assigned.fields:
             self.session.replace_nonnull_paths(fact for fact in self.session.nonnull_paths if not fact.fields)
             return
         self.session.replace_nonnull_paths(fact for fact in self.session.nonnull_paths if not assigned.contains(fact))
+
+    def record_nonnull_target(self, target) -> None:
+        """A store of a value known to be non-null makes its stable target path non-null."""
+        self._record_nonnull_path(self.access_path(target))
+
+    def record_nonnull_binding(self, symbol: SymbolInfo | None) -> None:
+        """A local initialized with a value known to be non-null starts non-null."""
+        self._record_nonnull_path(AccessPath(symbol) if symbol is not None else None)
+
+    def _record_nonnull_path(self, path: AccessPath | None) -> None:
+        if path is not None and (not self.session.address_escaped(path.root)):
+            self.session.replace_nonnull_paths({*self.session.nonnull_paths, path})
 
     def invalidate_nonnull_call(self, call: CallExpr) -> None:
         surviving = self._facts_surviving(set(self.session.nonnull_paths), call)
@@ -184,19 +198,27 @@ class ControlFlowAnalyzer:
                         if path is not None:
                             address_escapes.append(path)
         if has_unknown_assignment:
-            surviving.clear()
-        else:
-            if any(path.fields for path in assignments):
-                surviving = {fact for fact in surviving if not fact.fields}
-            surviving = {
-                fact
-                for fact in surviving
-                if not any(path.contains(fact) for path in assignments)
-                and (not any(path.contains(fact) for path in address_escapes))
-            }
+            surviving = self._facts_surviving_unknown_write(surviving)
+        elif any(path.fields for path in assignments):
+            surviving = {fact for fact in surviving if not fact.fields}
+        surviving = {
+            fact
+            for fact in surviving
+            if not any(path.contains(fact) for path in assignments)
+            and (not any(path.contains(fact) for path in address_escapes))
+        }
         if has_call:
             surviving = {fact for fact in surviving if not fact.fields and (not self._is_global_symbol(fact.root))}
         return surviving
+
+    def _facts_surviving_unknown_write(self, facts) -> set[AccessPath]:
+        return {
+            fact
+            for fact in facts
+            if not fact.fields
+            and (not self._is_global_symbol(fact.root))
+            and (not self.session.address_escaped(fact.root))
+        }
 
     def _walk_effect_nodes(self, expression):
         stack = [expression]

@@ -2926,8 +2926,7 @@ class TestNullableSafety:
                 public int val;
                 public Box(int v) { self.val = v; }
             }
-            int main() {
-                Box? b = new Box(1);
+            int read(Box? b) {
                 int x = b.val;
                 return x;
             }

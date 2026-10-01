@@ -461,8 +461,16 @@ class DeclarationLowerer {
 		if (!imported.resourceQueryType.isEmpty()) { self.emitResourceQuery(imported, module); }
 	}
 
+	/* The declared type of a managed field on a projected native input class. */
+	private Node nativeInputMemberType(string inputClass, string field) {
+		Node? member = self.analyzed.classMember(inputClass, field);
+		if (member == null) { throw f"native input {inputClass} has no field {field}"; }
+		return member.type;
+	}
+
 	private void emitResourceQuery(FeNativeImportedDeclaration imported, IRModule module) {
 		var resource = imported.resource;
+		if (resource == null) { throw "native resource query requires its resource binding"; }
 		Node sourceType = Node(); sourceType.kind = NK_TYPE_EXPR; sourceType.base = imported.resourceQueryType; sourceType.isNullable = true; sourceType.pointerDepth = 1;
 		Node targetType = Node(); targetType.kind = NK_TYPE_EXPR; targetType.base = resource.name; targetType.isNullable = true; targetType.pointerDepth = 1;
 		Vector<IRParam> parameters = [IRParam(self.cTypes.lower(sourceType), "source")];
@@ -484,7 +492,8 @@ class DeclarationLowerer {
 
 	private void emitRealtimeCAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
 		self.context.referenceHelper("__btrc_safe_calloc"); self.context.referenceHelper("__btrc_interface_methods");
-		var callback = contract.callbacks.get(0); var shape = callback.realtime;
+		var callback = contract.callbacks.get(0); var shape = callback.realtime; var unregister = callback.unregister;
+		if (shape == null || unregister == null) { throw "realtime callback adapter requires its realtime registration and unregister function"; }
 		string prefix = contract.adapterSymbol(declaration.name); string contextName = prefix + "_context"; string contextType = "struct " + contextName + "*";
 		Node receiverType = SemanticTypeSystem.namedClass(callback.interfaceName); Node ownerType = SemanticTypeSystem.namedClass(shape.resource);
 		string uniquePrefix = "__btrc_unique_" + shape.resource;
@@ -504,7 +513,7 @@ class DeclarationLowerer {
 		var capabilityDefinition = IRStructDef(); capabilityDefinition.name = shape.invocation; capabilityDefinition.fields.push(IRStructField("void*", "_context")); module.structDefs.push(capabilityDefinition); module.structForwards.push(IRStructForward(shape.invocation));
 		IRNode loadContext = IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.variable("raw")));
 		self.nativeUniqueFunction(module, prefix + "_destroy", "void", [IRParam("void*", "raw")], [loadContext, IRNode.expressionStatement(IRNode.call(uniquePrefix + "_end_borrow", [owner])), IRNode.expressionStatement(self.managedLifetime.releaseValue(receiver, receiverType)), IRNode.expressionStatement(IRNode.call("free", [context]))]);
-		self.nativeUniqueFunction(module, prefix + "_unregister", "bool", [IRParam("void*", "raw")], [loadContext, IRNode.returnStatement(IRNode.binary(IRNode.call(callback.unregister.name, [unit]), "==", IRNode.literal("0")))]);
+		self.nativeUniqueFunction(module, prefix + "_unregister", "bool", [IRParam("void*", "raw")], [loadContext, IRNode.returnStatement(IRNode.binary(IRNode.call(unregister.name, [unit]), "==", IRNode.literal("0")))]);
 		IRNode denied = IRNode.indirectCall(IRNode.fieldAccess(context, "denied", true), payloadValues); denied.realtimeProvenance = "typed-realtime-function";
 		Vector<IRNode> invocationArguments = [receiver, IRNode.addressOf(IRNode.variable("invocation"))]; invocationArguments.extend(payloadValues);
 		IRNode invoke = IRNode.indirectCall(IRNode.fieldAccess(context, "invoke", true), invocationArguments); invoke.realtimeProvenance = "typed-realtime-function";
@@ -572,6 +581,7 @@ class DeclarationLowerer {
 	private void emitCallbackTableAdapter(Node declaration, FeNativeCallContract contract, IRModule module) {
 		self.context.referenceHelper("__btrc_safe_calloc");
 		var table = contract.callbackTable;
+		if (table == null) { throw "callback table adapter requires its table projection"; }
 		string prefix = "__btrc_native_table_" + table.resource; string holderName = prefix + "_holder"; string holderType = "struct " + holderName + "*";
 		Node receiverType = SemanticTypeSystem.namedClass(table.interfaceName); string receiverC = self.cTypes.lower(receiverType); string tableType = table.nativeType + "*";
 		module.structForwards.push(IRStructForward(holderName));
@@ -768,7 +778,7 @@ class DeclarationLowerer {
 	private void emitCxxMethod(FeNativeImportedDeclaration imported, Node method, FeNativeCallContract contract, IRModule native, IRModule module, string root) {
 		var resource = imported.resource;
 		var projection = contract.cxxMethod;
-		if (projection == null) { throw "C++ method requires its projection"; }
+		if (resource == null || projection == null) { throw "C++ method requires its resource binding and projection"; }
 		NativeNode sdkMethod = projection.method;
 		Vector<IRNode> noArguments = [];
 		string alias = imported.declaration.name;
@@ -928,6 +938,7 @@ class DeclarationLowerer {
 	 * extern "C" adapter rather than a selected C function. */
 	private void emitUniqueResource(FeNativeImportedDeclaration imported, IRModule module, string symbol = "", string releaseSymbol = "") {
 		var resource = imported.resource;
+		if (resource == null) { throw "unique native resource requires its resource binding"; }
 		string nativeType = imported.typeSpelling.isEmpty() ? resource.name : imported.typeSpelling;
 		bool statusRelease = !resource.releaseConsumption.isEmpty();
 		string closeType = "void";
@@ -1411,7 +1422,7 @@ class DeclarationLowerer {
 			string fieldPath = path + "." + field.name;
 			if ((!field.record.isEmpty() || field.managed()) && !field.valueType.isNullable) { assignments.push(self.nativeNullGuard(source, f"Native call {callName}: null input {fieldPath}", false)); }
 			if (!field.record.isEmpty()) { source = self.nativeRecordInput(recordTypes.get(field.record), source, locals, assignments, callName, fieldPath, parameterNames, recordTypes, releases, field.prefix, field.byValue); }
-			else if (field.managed()) { source = self.emitNativeLease(parameterNames.len + locals.len, self.analyzed.classMember(projection.inputName(), field.name).type, source, parameterNames, assignments, releases, false, locals); source = IRNode.cast(field.resourceType.isEmpty() ? "void*" : field.resourceType, source); }
+			else if (field.managed()) { source = self.emitNativeLease(parameterNames.len + locals.len, self.nativeInputMemberType(projection.inputName(), field.name), source, parameterNames, assignments, releases, false, locals); source = IRNode.cast(field.resourceType.isEmpty() ? "void*" : field.resourceType, source); }
 			assignments.push(IRNode.assignment(target, source));
 		}
 		statements.push(IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block(assignments), null));
@@ -1864,7 +1875,7 @@ class DeclarationLowerer {
 			receiver = IRNode.fieldAccess(receiver, callback.field, true);
 			body.push(self.nativeNullGuard(receiver, f"Native call {declaration.name}: null callback {callback.field}", false));
 			Node inputType = declaration.params().get(receiverIndex).type;
-			receiver = self.emitNativeLease(arguments.len, self.analyzed.classMember(inputType.base, callback.field).type, receiver, parameterNames, body, releases);
+			receiver = self.emitNativeLease(arguments.len, self.nativeInputMemberType(inputType.base, callback.field), receiver, parameterNames, body, releases);
 		}
 		Vector<IRNode> locals = [];
 		for index in range(contract.recordInputs.len) {
@@ -2066,7 +2077,9 @@ class DeclarationLowerer {
 			arguments.push(IRNode.variable("_context"));
 			IRNode call = IRNode.indirectCall(IRNode.variable(field), arguments);
 			IRNode body = invocation.returnType == "void" ? IRNode.expressionStatement(call) : IRNode.returnStatement(IRNode.cast(method.nativeReturn, call));
-			holder.methods.push(IRObjectiveCMethod(method.nativeMethod.selector, method.nativeReturn, parameters, IRNode.block([body])));
+			var nativeMethod = method.nativeMethod;
+			if (nativeMethod == null) { throw "delegate callback method requires its native method"; }
+			holder.methods.push(IRObjectiveCMethod(nativeMethod.selector, method.nativeReturn, parameters, IRNode.block([body])));
 		}
 		return configure.selector;
 	}
@@ -2101,8 +2114,17 @@ class DeclarationLowerer {
 		Vector<IRNode> noArguments = [];
 		NativeNode descriptor = contract.objectiveCMethod;
 		FeNativeCallbackProjection callback = contract.callbacks.get(0);
-		bool objectCallback = callback.slotGetter != null;
-		bool action = callback.actionSetter != null;
+		/* `objectCallback` proves the slot getter and `action` the setter; the
+		 * resolver admits an action projection with all three accessors, so
+		 * bind their selectors once and fail closed rather than dereference
+		 * the nullable fields. */
+		var slotGetter = callback.slotGetter; var actionGetter = callback.actionGetter; var actionSetter = callback.actionSetter;
+		bool objectCallback = slotGetter != null;
+		bool action = actionSetter != null;
+		if (action && (actionGetter == null || slotGetter == null)) { throw "action callback requires its action setter, action getter and slot getter"; }
+		string slotSelector = slotGetter == null ? "" : slotGetter.selector;
+		string actionGetterSelector = actionGetter == null ? "" : actionGetter.selector;
+		string actionSetterSelector = actionSetter == null ? "" : actionSetter.selector;
 		NativeNode cancellation = callback.unregister;
 		string name = imported.declaration.name + "_" + method.name;
 		string prefix = "__btrc_objc_" + name;
@@ -2160,18 +2182,18 @@ class DeclarationLowerer {
 		abortCall.neverReturns = true;
 		Vector<IRNode> nativeUnregister = [];
 		if (objectCallback) {
-			IRNode current = IRNode.objectiveCMessage(unregisterReceiver, callback.slotGetter.selector, noArguments);
+			IRNode current = IRNode.objectiveCMessage(unregisterReceiver, slotSelector, noArguments);
 			nativeUnregister.push(IRNode.ifStatement(IRNode.binary(current, "!=", IRNode.cast("id", token, "borrow")), IRNode.block([IRNode.expressionStatement(abortCall)]), null));
 			unregisterArguments = [IRNode.literal("nil")];
 		}
 		if (action) {
-			IRNode selector = IRNode.objectiveCMessage(unregisterReceiver, callback.actionGetter.selector, noArguments);
+			IRNode selector = IRNode.objectiveCMessage(unregisterReceiver, actionGetterSelector, noArguments);
 			nativeUnregister.push(IRNode.ifStatement(IRNode.binary(selector, "!=", IRNode.objectiveCSelector("btrcInvoke:")), IRNode.block([IRNode.expressionStatement(abortCall)]), null));
-			nativeUnregister.push(IRNode.expressionStatement(IRNode.objectiveCMessage(unregisterReceiver, callback.actionSetter.selector, [IRNode.literal("NULL")])));
+			nativeUnregister.push(IRNode.expressionStatement(IRNode.objectiveCMessage(unregisterReceiver, actionSetterSelector, [IRNode.literal("NULL")])));
 		}
 		nativeUnregister.push(IRNode.expressionStatement(IRNode.objectiveCMessage(unregisterReceiver, cancellation.selector, unregisterArguments)));
-		if (objectCallback) { nativeUnregister.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(unregisterReceiver, callback.slotGetter.selector, noArguments), "!=", IRNode.literal("nil")), IRNode.block([IRNode.expressionStatement(abortCall)]), null)); }
-		if (action) { nativeUnregister.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(unregisterReceiver, callback.actionGetter.selector, noArguments), "!=", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(abortCall)]), null)); }
+		if (objectCallback) { nativeUnregister.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(unregisterReceiver, slotSelector, noArguments), "!=", IRNode.literal("nil")), IRNode.block([IRNode.expressionStatement(abortCall)]), null)); }
+		if (action) { nativeUnregister.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(unregisterReceiver, actionGetterSelector, noArguments), "!=", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(abortCall)]), null)); }
 		unregisterAdapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([
 			IRNode.objectiveCExceptionBoundary(IRNode.block(nativeUnregister), IRNode.block([IRNode.expressionStatement(abortCall)]))
 		]))]);
@@ -2268,8 +2290,8 @@ class DeclarationLowerer {
 		if (objectCallback) { for index in range(invokers.len) { configureArguments.push(IRNode.variable(f"invoke{index}")); } }
 		if (action) { configureArguments.push(nativeReceiver); }
 		Vector<IRNode> nativeBody = [];
-		if (objectCallback) { nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, callback.slotGetter.selector, noArguments), "!=", IRNode.literal("nil")), IRNode.block([IRNode.returnStatement(IRNode.literal("3"))]), null)); }
-		if (action) { nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, callback.actionGetter.selector, noArguments), "!=", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(IRNode.literal("3"))]), null)); }
+		if (objectCallback) { nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, slotSelector, noArguments), "!=", IRNode.literal("nil")), IRNode.block([IRNode.returnStatement(IRNode.literal("3"))]), null)); }
+		if (action) { nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, actionGetterSelector, noArguments), "!=", IRNode.literal("NULL")), IRNode.block([IRNode.returnStatement(IRNode.literal("3"))]), null)); }
 		nativeBody.extend([
 			IRNode.variableDeclaration(holderName + "*", "holder", IRNode.objectiveCMessage(IRNode.variable(holderName), "new", noArguments)),
 			IRNode.ifStatement(IRNode.binary(holder, "==", IRNode.literal("nil")), IRNode.block([IRNode.returnStatement(IRNode.literal("2"))]), null),
@@ -2278,20 +2300,13 @@ class DeclarationLowerer {
 		IRNode published = IRNode.objectiveCMessage(nativeReceiver, descriptor.selector, nativeArguments);
 		if (objectCallback) {
 			nativeBody.push(IRNode.expressionStatement(published));
-			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, callback.slotGetter.selector, noArguments), "!=", holder), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
+			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, slotSelector, noArguments), "!=", holder), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
 			published = holder;
 		}
 		if (action) {
-			/* `action` only proves the setter; the resolver admits an action
-			 * projection with all three accessors, so bind them once and fail
-			 * closed rather than dereference the nullable fields. */
-			var actionSetter = callback.actionSetter;
-			var actionGetter = callback.actionGetter;
-			var slotGetter = callback.slotGetter;
-			if (actionSetter == null || actionGetter == null || slotGetter == null) { throw "action callback requires its action setter, action getter and slot getter"; }
-			nativeBody.push(IRNode.expressionStatement(IRNode.objectiveCMessage(nativeReceiver, actionSetter.selector, [IRNode.objectiveCSelector("btrcInvoke:")])));
-			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, actionGetter.selector, noArguments), "!=", IRNode.objectiveCSelector("btrcInvoke:")), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
-			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, slotGetter.selector, noArguments), "!=", holder), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
+			nativeBody.push(IRNode.expressionStatement(IRNode.objectiveCMessage(nativeReceiver, actionSetterSelector, [IRNode.objectiveCSelector("btrcInvoke:")])));
+			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, actionGetterSelector, noArguments), "!=", IRNode.objectiveCSelector("btrcInvoke:")), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
+			nativeBody.push(IRNode.ifStatement(IRNode.binary(IRNode.objectiveCMessage(nativeReceiver, slotSelector, noArguments), "!=", holder), IRNode.block([IRNode.returnStatement(IRNode.literal("4"))]), null));
 		}
 		nativeBody.push(IRNode.assignment(IRNode.dereference(IRNode.variable("nativeResult")), IRNode.cast(nativeTokenC, published, "retain")));
 		nativeBody.push(IRNode.returnStatement(IRNode.literal("0")));

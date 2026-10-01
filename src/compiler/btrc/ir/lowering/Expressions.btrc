@@ -2508,13 +2508,15 @@ class ExpressionLowerer {
 		IRNode extent = IRNode.literal("0");
 		if (args.len == 1) {
 			Node? sourceType = self.resolvedExpressionType(node.args().get(0), varTypes);
-			if (sourceType == null || !sourceType.isArray || sourceType.arraySize == null || !self.analyzed.constantArrayBoundKeys.has(AstIdentity.key(sourceType.arraySize))) {
+			Node? arraySize = sourceType == null || !sourceType.isArray ? null : sourceType.arraySize;
+			if (arraySize == null || !self.analyzed.constantArrayBoundKeys.has(AstIdentity.key(arraySize))) {
 				print("internal compiler error: Span construction without an extent requires fixed-array storage");
 				exit(1);
+			} else {
+				/* The element count comes from the constant bound: the sequenced
+				 * operand may be a decayed pointer, which sizeof cannot measure. */
+				extent = IRNode.cast("size_t", self.lowerExpr(arraySize, varTypes, callableFlow));
 			}
-			/* The element count comes from the constant bound: the sequenced
-			 * operand may be a decayed pointer, which sizeof cannot measure. */
-			extent = IRNode.cast("size_t", self.lowerExpr(sourceType.arraySize, varTypes, callableFlow));
 		} else {
 			extent = IRNode.cast("size_t", args.get(1));
 		}

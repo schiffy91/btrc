@@ -261,6 +261,8 @@ def _build_immutable_btrcc(compiler: list[str], output: Path, binary: Path) -> N
         timeout=900,
     )
     assert transpile.returncode == 0 and generated.is_file(), transpile.stderr
+    # The compiler's own sources analyze clean, as its C builds with -Werror.
+    assert "warning:" not in transpile.stderr, transpile.stderr
     build = subprocess.run(
         [
             *compiler,

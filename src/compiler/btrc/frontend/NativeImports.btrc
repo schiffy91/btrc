@@ -1402,7 +1402,8 @@ class FeNativeDeclarationImporter {
 	private Node fieldType(NativeNode input) {
 		NativeNode native = self.withoutSpellingWrappers(self.withoutNestedNullable(input));
 		if (native.kind == NNK_NATIVE_ARRAY_TYPE) {
-			if (native.count == null || native.count == "0" || native.count.len() > 10 || (native.count.len() == 10 && native.count > "2147483647")) { self.fail("native array field requires a positive representable fixed bound"); }
+			string? count = native.count;
+			if (count == null || count == "0" || count.len() > 10 || (count.len() == 10 && count > "2147483647")) { self.fail("native array field requires a positive representable fixed bound"); }
 			Node element = self.fieldType(native.element);
 			if (element.isArray) { self.fail("multidimensional native array fields require native-type lowering"); }
 			element.isArray = true;
@@ -1957,8 +1958,10 @@ class FeNativeDeclarationImporter {
 			}
 			imported.returnType = self.resourceCallType(signature.returnType, callContract.resourceResult);
 			if (callContract.copiedInput != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = "bool"; }
-			if (callContract.ownedOutput != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = callContract.ownedOutput.resultName; }
-			if (callContract.copiedResult != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = callContract.copiedResult.kind == "string" ? "string" : "Bytes"; imported.returnType.isNullable = true; }
+			var ownedOutput = callContract.ownedOutput;
+			if (ownedOutput != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = ownedOutput.resultName; }
+			var copiedResult = callContract.copiedResult;
+			if (copiedResult != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = copiedResult.kind == "string" ? "string" : "Bytes"; imported.returnType.isNullable = true; }
 			for callback in callContract.callbacks {
 				if (!callback.oneShot) { continue; }
 				if (!borrowedOwner.isEmpty()) { self.fail("borrowed-results does not support one-shot callback registration"); }
@@ -2675,10 +2678,11 @@ class FeNativeDeclarationImporter {
 			if (!self.resourceTypes.has(selected.owner)) { self.fail("record snapshot requires an authenticated selected native owner"); }
 			var projection = FeNativeRecordSnapshot(); projection.resultName = selected.result;
 			if (selected.guard.len > 0) {
-				projection.guardPath = self.snapshotPath(selected.owner, selected.guard.get(0));
+				var guardPath = self.snapshotPath(selected.owner, selected.guard.get(0));
+				projection.guardPath = guardPath;
 				projection.guardConstant = selected.guard.get(1);
 				NativeNode constant = self.callbackExports.has(projection.guardConstant) ? self.callbackExports.get(projection.guardConstant) : null;
-				if (projection.guardPath.enumIdentity.isEmpty() || constant == null || constant.kind != NNK_NATIVE_CONSTANT || constant.enumIdentity != projection.guardPath.enumIdentity) { self.fail("record snapshot guard requires a selected constant of exactly the field's SDK enum"); }
+				if (guardPath.enumIdentity.isEmpty() || constant == null || constant.kind != NNK_NATIVE_CONSTANT || constant.enumIdentity != guardPath.enumIdentity) { self.fail("record snapshot guard requires a selected constant of exactly the field's SDK enum"); }
 			}
 			Node owner = self.node(NK_CLASS_DECL); owner.name = selected.result; owner.sourceFile = self.module;
 			var fields = selected.fields.keys(); fields.sortBy((string left, string right) => Strings.lessThan(left, right));
@@ -2730,8 +2734,9 @@ class FeNativeDeclarationImporter {
 			for key in binding.objectFields.keys() { objectFields.put(key, binding.objectFields.get(key)); }
 			Map<string, FeNativeCallbackProjection> callbackFields = {};
 			for imported in self.declarations {
-				if (imported.module != binding.module || imported.declaration.kind != NK_FUNCTION_DECL || !binding.symbols.contains(imported.declaration.name)) { continue; }
-				for callback in imported.callContract.callbacks {
+				var callContract = imported.callContract;
+				if (imported.module != binding.module || imported.declaration.kind != NK_FUNCTION_DECL || callContract == null || !binding.symbols.contains(imported.declaration.name)) { continue; }
+				for callback in callContract.callbacks {
 					if (callback.field.isEmpty()) { continue; }
 					string parameter = imported.declaration.name + "." + imported.declaration.params().get(callback.parameterIndex).name;
 					if (!binding.ownedRecords.contains(callback.record) || !binding.recordInputs.contains(parameter)) { self.fail("callback fields require owned-records and record-inputs"); }
@@ -3117,7 +3122,8 @@ class FeNativeDeclarationImporter {
 					if (!callback.actionGetter.isEmpty()) { self.callbackOperations.put(callback.actionGetter, true); }
 					for method in callback.methods { self.callbackOperations.put(method, true); }
 				} else if (!callback.unregister.isEmpty()) { self.callbackOperations.put(callback.unregister, true); }
-				if (callback.realtime != null) { for method in callback.realtime.operations.keys() { self.callbackOperations.put(Strings.split(callback.realtime.operations.get(method), ".").get(0), true); } }
+				var realtime = callback.realtime;
+				if (realtime != null) { for method in realtime.operations.keys() { self.callbackOperations.put(Strings.split(realtime.operations.get(method), ".").get(0), true); } }
 			}
 		}
 		string reader = Environment.get("BTRC_NATIVE_HEADER_READER", "");

@@ -657,9 +657,48 @@ class StatementAnalyzer:
         if isinstance(expression, UnaryExpr) and expression.op == "&":
             self.flow.record_nullable_address_escape(expression.operand)
         elif isinstance(expression, AssignExpr):
+            stores_nonnull = (
+                expression.op == "="
+                and self._is_nullable_binding(self.expressions.infer_type(expression.target))
+                and self._stores_nonnull(expression.value)
+            )
             self.flow.invalidate_nonnull_target(expression.target)
+            if stores_nonnull:
+                self.flow.record_nonnull_target(expression.target)
         elif isinstance(expression, CallExpr):
             self.flow.invalidate_nonnull_call(expression)
+
+    @staticmethod
+    def _is_nullable_binding(binding_type) -> bool:
+        """Only a nullable binding's accesses are checked, so only it needs a non-null fact."""
+        return binding_type is not None and binding_type.is_nullable
+
+    def _stores_nonnull(self, expression) -> bool:
+        """Whether a stored value cannot be null: a path the flow proved, or a non-nullable reference."""
+        if expression is None or self.flow.is_null_literal(expression):
+            return False
+        if self.flow.is_known_nonnull(expression):
+            return True
+        if isinstance(expression, TernaryExpr):
+            return self._stores_nonnull(expression.true_expr) and self._stores_nonnull(expression.false_expr)
+        if isinstance(expression, (ListLiteral, MapLiteral, BraceInitializer)):
+            return True
+        if isinstance(expression, FieldAccessExpr) and getattr(expression, "optional", False):
+            return False
+        value_type = self.expressions.infer_type(expression)
+        if value_type is None or value_type.is_nullable:
+            return False
+        if value_type.pointer_depth == 0:
+            return True
+        # A raw C pointer may be NULL without being declared nullable; a
+        # source reference (one level of class, interface, string or generic
+        # instance) may not.
+        return value_type.pointer_depth == 1 and (
+            value_type.base == "string"
+            or bool(value_type.generic_args)
+            or value_type.base in self.index.class_table
+            or value_type.base in self.index.interface_table
+        )
 
     def _analyze_lambda(self, expr):
         """Analyze a lambda expression."""
@@ -1873,6 +1912,8 @@ class StatementAnalyzer:
             self._validate_variable_storage(stmt, is_global=is_global)
             if define_binding:
                 self.session.scope.define(stmt.name, self._var_symbol(stmt))
+                if not is_global and self._is_nullable_binding(stmt.type) and self._stores_nonnull(stmt.initializer):
+                    self.flow.record_nonnull_binding(self.session.scope.lookup(stmt.name))
             return
         stmt.type = self.types.upgrade_class_type(stmt.type)
         self.generics.collect_type_instances(stmt.type)
@@ -1960,6 +2001,8 @@ class StatementAnalyzer:
         self._validate_variable_storage(stmt, is_global=is_global)
         if define_binding:
             self.session.scope.define(stmt.name, self._var_symbol(stmt))
+            if not is_global and self._is_nullable_binding(stmt.type) and self._stores_nonnull(stmt.initializer):
+                self.flow.record_nonnull_binding(self.session.scope.lookup(stmt.name))
 
     def _var_symbol(self, stmt: VarDeclStmt) -> SymbolInfo:
         """SymbolInfo for a local var decl, pinned to its name token span."""

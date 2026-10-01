@@ -211,3 +211,80 @@ def test_c_for_body_and_update_share_the_true_condition_refinement():
     """)
 
     assert warnings == []
+
+
+def test_storing_a_value_known_to_be_non_null_refines_the_target():
+    warnings = _nullable_warnings("""
+        class Holder {
+            public Box? item;
+            public Holder() { self.item = null; }
+        }
+        class Memo {
+            class Map<string, string>? memo = null;
+            class string lookup(string key) {
+                Map<string, string>? memo = Memo.memo;
+                if (memo == null) { memo = {}; Memo.memo = memo; }
+                if (memo.has(key)) { return memo.get(key); }
+                memo.put(key, key);
+                return key;
+            }
+        }
+        int constructed(bool flag) {
+            Box? box = null;
+            if (flag) { box = Box(1); return box.value; }
+            return 0;
+        }
+        int copiedFromGuardedField(Holder holder) {
+            if (holder.item == null) { return 0; }
+            var item = holder.item;
+            return item.value;
+        }
+        int storedField(Holder holder) {
+            holder.item = Box(2);
+            return holder.item.value;
+        }
+        int bothBranches(bool flag) {
+            Box? box = flag ? Box(1) : Box(2);
+            return box.value;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_a_nullable_or_possibly_null_store_does_not_refine_the_target():
+    warnings = _nullable_warnings("""
+        class Holder {
+            public Box? item;
+            public Holder() { self.item = null; }
+        }
+        Box? find(int key) { return null; }
+        int ternaryWithNull(bool flag) {
+            Box? box = flag ? Box(1) : null;
+            return box.value;
+        }
+        int reassignedNull() {
+            Box? box = Box(1);
+            box = null;
+            return box.value;
+        }
+        int copiedNullable(Holder holder) {
+            var item = holder.item;
+            return item.value;
+        }
+        int nullableResult() {
+            Box? box = find(1);
+            return box.value;
+        }
+        int optionalChain(Holder holder) {
+            Box? next = holder.item?.next;
+            return next.value;
+        }
+        int callForgetsStoredField(Holder holder) {
+            holder.item = Box(2);
+            find(0);
+            return holder.item.value;
+        }
+    """)
+
+    assert len(warnings) == 6

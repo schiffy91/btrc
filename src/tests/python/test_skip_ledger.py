@@ -107,7 +107,7 @@ def test_every_tracked_manifest_is_valid_and_named_for_a_known_runner():
 
     assert {"macos", "linux-devcontainer", "windows"} <= set(manifests)
     assert set(manifests) <= set(RUNNERS)
-    assert manifests["macos"].enforce
+    assert all(manifests[runner].enforce for runner in ("macos", "linux-devcontainer", "windows"))
     for manifest in manifests.values():
         for rule in manifest.rules:
             for pattern in rule.files:
@@ -175,6 +175,136 @@ def test_no_macos_rule_expects_a_naga_gated_skip():
     assert {nodeid: manifest.classify(nodeid, reason) for nodeid, reason in skips} == dict.fromkeys(
         (nodeid for nodeid, _ in skips), None
     )
+
+
+# Representative skips from CI run 36898564273 (Linux, cf28fe7): the unit and
+# btrc shards, by rule. The lldb, pugixml and native-provider rules expire when
+# stage4/tools-ci puts those tools in the dev shell.
+LINUX_SKIPS = {
+    "native-reader-macos-only": (
+        "src/tests/python/test_native_import_consumer.py::test_x[python]",
+        "requires macOS and the explicitly built native header reader",
+    ),
+    "native-digest-macos-only": (
+        "src/tests/btrc/test_native_digest.py::test_x",
+        "native SHA requires macOS and the configured SDK reader",
+    ),
+    "apple-sdk-headers": (
+        "src/tests/python/test_native_header_reader.py::test_x",
+        "requires the actual macOS CoreFoundation SDK",
+    ),
+    "core-audio-runtime": ("src/tests/python/test_module_units.py::test_x", "CoreAudio is available only on macOS"),
+    "native-gpu-adapter": (
+        "src/tests/python/test_native_gpu_runtime.py::test_x",
+        "no native compute adapter is available",
+    ),
+    "lldb-missing": (
+        "src/tests/debug/test_dap_session.py::test_stop_on_entry",
+        "needs lldb (with Python scripting): btrc debug adapter: cannot locate lldb "
+        "([Errno 2] No such file or directory: '/usr/bin/lldb').",
+    ),
+    "native-compiler-provider": (
+        "src/tests/python/test_native_preprocess_receipts.py::test_x",
+        "build native reader and configure its native compiler provider",
+    ),
+    "linux-gui-display": (
+        "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]",
+        "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY",
+    ),
+    "windows-junctions": (
+        "src/tests/python/test_artifact_reparse.py::test_windows_junction_is_rejected_as_archive_entry_and_destination",
+        "native junctions require Windows",
+    ),
+}
+
+# The Windows steps' recorded skip (run 36898564289) and the os.name skips of
+# the files those steps select.
+WINDOWS_SKIPS = {
+    "posix-process-group": (
+        "src/tests/btrc/test_bootstrap_harness.py::test_stage_timeout_kills_spawned_descendants",
+        "POSIX process-group contract",
+    ),
+    "posix-no-follow-utime": (
+        "src/tests/python/test_artifact_storage.py::test_normalize_timestamp_uses_no_follow_posix_utime",
+        "requires POSIX no-follow utime",
+    ),
+    "posix-fifo": (
+        "src/tests/python/test_artifact_storage.py::test_destination_exists_rejects_a_special_file",
+        "FIFOs are unavailable",
+    ),
+}
+
+EXPECTED_BY_RUNNER = {
+    "macos": dict(zip(("dap-session-developer-mode", "native-compiler-provider"), MACOS_SKIPS[:2], strict=True)),
+    "linux-devcontainer": LINUX_SKIPS,
+    "windows": WINDOWS_SKIPS,
+}
+
+
+@pytest.mark.parametrize("runner", ["linux-devcontainer", "windows"])
+def test_the_linux_and_windows_manifests_explain_their_recorded_skips(runner):
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+
+    assert manifest.enforce
+    assert {rule_id: manifest.classify(*skip).id for rule_id, skip in EXPECTED_BY_RUNNER[runner].items()} == {
+        rule_id: rule_id for rule_id in EXPECTED_BY_RUNNER[runner]
+    }
+    # A Windows-only reason on a Linux file, or a POSIX reason elsewhere, is not explained.
+    assert manifest.classify("src/tests/python/test_cases.py::test_x", "requires the native Windows CRT") is None
+
+
+def test_the_linux_manifest_names_coverage_and_its_expiring_tool_rules():
+    rules = {rule.id: rule for rule in ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json").rules}
+
+    assert rules["native-reader-macos-only"].covered_by == ("macos",)
+    assert rules["windows-junctions"].covered_by == ("windows",)
+    uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
+    assert uncovered == {
+        "macos-only-pugixml-uncovered",
+        "macos-only-sqlite-uncovered",
+        "pugixml-sdk",
+        "native-compiler-provider",
+        "native-receipt-provider",
+        "linux-gui-display",
+        "linux-tray-session-bus",
+    }
+    expiring = {rule_id for rule_id, rule in rules.items() if "stage4/tools-ci" in rule.note}
+    assert expiring == {
+        "macos-only-pugixml-uncovered",
+        "macos-only-sqlite-uncovered",
+        "lldb-missing",
+        "pugixml-sdk",
+        "native-compiler-provider",
+        "native-receipt-provider",
+    }
+    # A macOS-only C++ owner proof that macOS also skips is not claimed as covered.
+    cxx = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json").classify(
+        "src/tests/python/test_native_cxx_owners.py::test_x",
+        "requires macOS and the explicitly built native header reader",
+    )
+    assert cxx.id == "macos-only-pugixml-uncovered" and cxx.covered_by == ()
+
+
+@pytest.mark.parametrize("runner", sorted(EXPECTED_BY_RUNNER))
+def test_each_tracked_manifest_fails_the_gate_on_an_injected_skip(tmp_path, runner):
+    """Every qualified runner's real manifest is enforced: its recorded skips pass and an injected one fails."""
+
+    expected = list(EXPECTED_BY_RUNNER[runner].values())
+    injected = ("src/tests/python/test_injected.py::test_injected", "an injected unexpected skip")
+    report = tmp_path / f"skip-report-{runner}.json"
+    gate = [sys.executable, "-m", "tools.qualification", "skip-gate", str(report)]
+
+    report.write_text(json.dumps(_report(expected, runner=runner)))
+    assert SkipGate().check([report]).passed
+    clean = subprocess.run(gate, cwd=REPO, capture_output=True, text=True, timeout=120)
+    assert clean.returncode == 0, clean.stdout + clean.stderr
+
+    report.write_text(json.dumps(_report([*expected, injected], runner=runner)))
+    outcome = SkipGate().check([report])
+    assert outcome.failures == [f"{injected[0]}: unexpected skip on {runner}: {injected[1]}"]
+    failing = subprocess.run(gate, cwd=REPO, capture_output=True, text=True, timeout=120)
+    assert failing.returncode == 1
+    assert f"UNEXPECTED {injected[0]}" in failing.stdout
 
 
 @pytest.mark.parametrize(
@@ -536,3 +666,23 @@ def test_the_c11_matrix_gates_each_configuration():
 
     assert "--skip-report=build/skip-report-c11-$$cc-$$opt.json" in recipe
     assert "$(SKIP_GATE) build/skip-report-c11-$$cc-$$opt.json || exit 1" in recipe
+
+
+def test_every_windows_pytest_step_writes_its_own_skip_report_and_gates_it():
+    """windows.yml has no Makefile: each pytest step names its report and gates it before the next command."""
+
+    workflow = (REPO / ".github/workflows/windows.yml").read_text(encoding="utf-8")
+    commands = [line.strip() for line in workflow.replace("\\\n", " ").splitlines()]
+    sessions = [line for line in commands if line.startswith("python -m pytest")]
+    reports = [re.search(r"--skip-report=(\S+?\.json)", line).group(1) for line in sessions]
+    gated = [line.split()[-1] for line in commands if line.startswith("python -m tools.qualification skip-gate")]
+
+    assert len(sessions) == 3 and len(set(reports)) == len(reports)
+    assert all(report.startswith("build/skip-report-windows-") for report in reports)
+    assert gated == reports
+    for report in reports:
+        following = commands[commands.index(next(line for line in sessions if report in line)) + 1]
+        assert following == f"python -m tools.qualification skip-gate {report}"
+    assert "src/tests/python/test_artifact_reparse.py" in workflow
+    upload = workflow.split("name: Retain the skip report", 1)[1]
+    assert "if: always()" in upload and "path: build/skip-report*.json" in upload
