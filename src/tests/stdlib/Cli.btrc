@@ -69,12 +69,8 @@ int main() {
 	var help = CLIHelp().withWidth(12);
 	help.line("Usage: app").section("Commands").item("run", "Run it").item("very-long-command", "wraps").continuation("more detail");
 	var rendered = help.render();
-	assert(rendered.contains("Usage: app"));
-	assert(rendered.contains("Commands:"));
-	assert(rendered.contains("  run         Run it"));
-	assert(rendered.contains("  very-long-command"));
-	assert(rendered.contains("            wraps"));
-	assert(rendered.contains("            more detail"));
+	// Descriptions, wrapped descriptions and continuations share column 14.
+	assert(rendered.equals("Usage: app\n\nCommands:\n  run         Run it\n  very-long-command\n              wraps\n              more detail"));
 
 	print("PASS: test_stdlib_cli");
 	return 0;

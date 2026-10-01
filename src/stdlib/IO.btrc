@@ -229,30 +229,31 @@ class File {
 		return FileSnapshotReadOutcome.available(FileSnapshot.fromStatus(&status));
 	}
 
-	/* Reads everything from the current position to EOF.
-     * Chunked, so it works on non-seekable streams (pipes via setHandle)
-     * as well as regular files. */
-	public string read() {
-		if (!self.isOpen) { return ""; }
-		Bytes bytes = Bytes();
-		char chunk[8192];
-		size_t count = fread(chunk, 1, 8192, self.handle);
-		while (count > (size_t)0) {
-			bytes.appendRaw(chunk, (int)count);
-			count = fread(chunk, 1, 8192, self.handle);
-		}
-		if (ferror(self.handle)) { self.ioFailed = true; }
-		return bytes.toStringLossy();
-	}
+	/* Reads everything from the current position to EOF as text. Chunked
+     * through readBytes, so it works on non-seekable streams (pipes via
+     * setHandle) as well as regular files; text stops at an embedded NUL. */
+	public string read() { return self.readBytes().toStringLossy(); }
 
+	/* One line without its terminator: LF, or CR immediately before LF, as
+	 * readLineBounded strips. A CR elsewhere, including one at EOF, stays. */
 	public string readLine() {
 		if (!self.isOpen) { return ""; }
 		Bytes line = Bytes();
+		bool pendingCarriageReturn = false;
 		int ch = fgetc(self.handle);
 		while (ch != EOF && ch != '\n') {
-			line.append(ch);
+			if (pendingCarriageReturn) {
+				line.append('\r');
+				pendingCarriageReturn = false;
+			}
+			if (ch == '\r') {
+				pendingCarriageReturn = true;
+			} else {
+				line.append(ch);
+			}
 			ch = fgetc(self.handle);
 		}
+		if (pendingCarriageReturn && ch == EOF) { line.append('\r'); }
 		if (ch == EOF && ferror(self.handle)) { self.ioFailed = true; }
 		return line.toStringLossy();
 	}

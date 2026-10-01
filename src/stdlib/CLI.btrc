@@ -211,7 +211,9 @@ class CLIHelp {
 		return self;
 	}
 
-	public string padding() { return Strings.repeat(" ", self.width); }
+	/* Items indent two spaces before a width-wide signature column, so a
+	 * description or continuation line starts at column width + 2. */
+	public string padding() { return Strings.repeat(" ", self.width + 2); }
 
 	public CLIHelp line(string text) {
 		self.lines.push(text);
