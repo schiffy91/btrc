@@ -199,7 +199,7 @@ class GPUSurfaceRenderer {
 		if (self._view == null || self._encoder == null) { self.releaseFrame(); self._error = "Cannot allocate GPU frame"; return GPU_SURFACE_FRAME_UNAVAILABLE; }
 		WGPURenderPassColorAttachment color = {null};
 		color.view = self._view;
-		color.depthSlice = wgpuDepthSliceUndefined;
+		color.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 		color.loadOp = WGPULoadOp_Clear;
 		color.storeOp = WGPUStoreOp_Store;
 		color.clearValue.r = red;

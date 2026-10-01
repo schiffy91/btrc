@@ -767,10 +767,10 @@ class CoreAudioAggregateDescription {
 		self._description = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 		self._subdevices = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
 		if (self._aggregateUid == null || self._name == null || self._one == null || self._zero == null || self._input == null || self._output == null || self._description == null || self._subdevices == null) { return false; }
-		if (!self.put(self._input, coreAudioSubDeviceUidKey, self._inputUid) || !self.put(self._input, coreAudioDriftCompensationKey, self._one) || !self.put(self._output, coreAudioSubDeviceUidKey, self._outputUid) || !self.put(self._output, coreAudioDriftCompensationKey, self._zero)) { return false; }
+		if (!self.put(self._input, kAudioSubDeviceUIDKey, self._inputUid) || !self.put(self._input, kAudioSubDeviceDriftCompensationKey, self._one) || !self.put(self._output, kAudioSubDeviceUIDKey, self._outputUid) || !self.put(self._output, kAudioSubDeviceDriftCompensationKey, self._zero)) { return false; }
 		CFArrayAppendValue(self._subdevices, self._input);
 		CFArrayAppendValue(self._subdevices, self._output);
-		return self.put(self._description, coreAudioAggregateUidKey, self._aggregateUid) && self.put(self._description, coreAudioAggregateNameKey, self._name) && self.put(self._description, coreAudioAggregateSubDevicesKey, self._subdevices) && self.put(self._description, coreAudioAggregateMainDeviceKey, self._outputUid) && self.put(self._description, coreAudioAggregatePrivateKey, self._one) && self.put(self._description, coreAudioAggregateStackedKey, self._one);
+		return self.put(self._description, kAudioAggregateDeviceUIDKey, self._aggregateUid) && self.put(self._description, kAudioAggregateDeviceNameKey, self._name) && self.put(self._description, kAudioAggregateDeviceSubDeviceListKey, self._subdevices) && self.put(self._description, kAudioAggregateDeviceMainSubDeviceKey, self._outputUid) && self.put(self._description, kAudioAggregateDeviceIsPrivateKey, self._one) && self.put(self._description, kAudioAggregateDeviceIsStackedKey, self._one);
 	}
 
 	public CFDictionaryRef dictionary() { return self._description; }

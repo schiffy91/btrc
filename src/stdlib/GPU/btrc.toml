@@ -28,7 +28,7 @@ symbols = [
 	"wgpuSurfaceGetCurrentTexture", "WGPUSurfaceTexture", "WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal", "WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal",
 	"WGPUSurfaceGetCurrentTextureStatus_Timeout", "WGPUSurfaceGetCurrentTextureStatus_Outdated",
 	"wgpuTextureCreateView", "wgpuDeviceCreateCommandEncoder", "wgpuCommandEncoderBeginRenderPass", "WGPURenderPassColorAttachment", "WGPURenderPassDescriptor",
-	"wgpuDepthSliceUndefined", "WGPULoadOp_Clear", "WGPUStoreOp_Store", "wgpuRenderPassEncoderEnd", "wgpuRenderPassEncoderRelease",
+	"WGPU_DEPTH_SLICE_UNDEFINED", "WGPULoadOp_Clear", "WGPUStoreOp_Store", "wgpuRenderPassEncoderEnd", "wgpuRenderPassEncoderRelease",
 	"wgpuCommandEncoderFinish", "wgpuQueueSubmit", "wgpuSurfacePresent", "wgpuCommandBufferRelease", "wgpuCommandEncoderRelease", "wgpuTextureViewRelease", "wgpuTextureRelease",
 	"WGPUBufferDescriptor", "WGPUBufferUsage_Uniform", "WGPUBufferUsage_CopyDst", "wgpuDeviceCreateBuffer", "wgpuBufferRelease", "wgpuQueueWriteBuffer",
 	"WGPUTextureDescriptor", "WGPUTextureUsage_TextureBinding", "WGPUTextureUsage_CopyDst", "WGPUTextureDimension_2D", "wgpuDeviceCreateTexture",
