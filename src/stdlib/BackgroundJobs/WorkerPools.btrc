@@ -1,8 +1,8 @@
 /* Pools of workers that each answer one request at a time. The owner decides
  * what runs where and when; a pool only delivers requests, hands back each
  * reply exactly once and owns its workers' lifetimes. The contracts here are
- * portable; `InlineWorkerPool` answers in the owner and `ProcessWorkers`
- * implements them with forked worker processes. */
+ * portable; `InlineWorkerPool` answers in the owner, and `HostWorkerPools`
+ * opens the host's pools (forked worker processes on linux and macOS). */
 import Library.Vector;
 
 /* Runs inside a worker: answers one request with one reply. */
@@ -17,7 +17,10 @@ enum WorkerReplyKind {
 	WORKER_REPLY_EMPTY = 1,
 	/* A worker exited, crashed or broke the protocol. The pool has already
 	 * terminated every worker; no further request is accepted. */
-	WORKER_REPLY_FAILED = 2
+	WORKER_REPLY_FAILED = 2,
+	/* No reply arrived within the caller's timeout. Outstanding requests stay
+	 * outstanding and the pool stays open. */
+	WORKER_REPLY_TIMEOUT = 3
 };
 
 class WorkerReply {
@@ -43,8 +46,10 @@ interface IWorkerPool {
 	 * the pool has failed or closed. */
 	bool send(int worker, string request);
 	/* Block until an outstanding request is answered (READY), return EMPTY if
-	 * none is outstanding, or FAILED once any worker has failed. */
-	WorkerReply awaitReply();
+	 * none is outstanding, or FAILED once any worker has failed. A
+	 * nonnegative timeout bounds the wait with no reply and returns TIMEOUT;
+	 * a negative one waits indefinitely. */
+	WorkerReply awaitReply(int timeoutMilliseconds = -1);
 	/* Let every idle worker finish and reap it. False if a request was still
 	 * outstanding (those workers are terminated) or any worker exited
 	 * abnormally. */
@@ -76,14 +81,26 @@ class InlineWorkerPool implements IWorkerPool {
 
 	public bool idle(int worker) { return worker == 0 && !self.busy && !self.closed; }
 
+	private string failure = "";
+
+	/* A handler that throws fails the pool, as a forked worker that exits
+	 * does: the throw never escapes send, and awaitReply reports it. */
 	public bool send(int worker, string request) {
 		if (!self.idle(worker)) { return false; }
 		self.busy = true;
-		self.answers.push(self.handler.handle(request));
+		try { self.answers.push(self.handler.handle(request)); }
+		catch (string error) {
+			self.failure = f"worker request failed: {error}";
+			self.closed = true;
+		}
 		return true;
 	}
 
-	public WorkerReply awaitReply() {
+	public WorkerReply awaitReply(int timeoutMilliseconds = -1) {
+		if (!self.failure.isEmpty()) {
+			self.busy = false;
+			return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, 0, "", self.failure);
+		}
 		if (self.closed) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, -1, "", "worker pool is not open"); }
 		if (!self.busy) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_EMPTY, -1, "", ""); }
 		self.busy = false;
@@ -91,21 +108,10 @@ class InlineWorkerPool implements IWorkerPool {
 	}
 
 	public bool close() {
-		bool clean = !self.busy && !self.closed;
+		bool clean = !self.busy && !self.closed && self.failure.isEmpty();
 		self.closed = true;
 		return clean;
 	}
 
 	public void terminate() { self.closed = true; }
-}
-
-class InlineWorkerPools implements IWorkerPoolFactory {
-	public InlineWorkerPools() {}
-
-	public IWorkerPool? open(int workers, IWorkerRequestHandler handler) {
-		if (workers != 1) { return null; }
-		return InlineWorkerPool(handler);
-	}
-
-	public int suggestedWorkers() { return 1; }
 }

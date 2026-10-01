@@ -384,13 +384,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Audio", (
         BuiltinMemberSpec("createDevice", "AudioDeviceProviderOpenOutcome", "method", (), "createDevice"),
     )),
-    ("ProcessWorkerFrames", (
-        BuiltinMemberSpec("header", "string", "method", (("int", "length"),), "header"),
-        BuiltinMemberSpec("payloadLength", "int", "method", (("Bytes", "buffer"),), "payloadLength"),
-        BuiltinMemberSpec("take", "ProcessWorkerFrame*", "method", (("Bytes", "buffer"),), "take"),
-        BuiltinMemberSpec("writeFrame", "bool", "method", (("int", "descriptor"), ("string", "payload"),), "writeFrame"),
-        BuiltinMemberSpec("readInto", "int", "method", (("int", "descriptor"), ("Bytes", "buffer"),), "readInto"),
-    )),
     ("BitPattern32", (
         BuiltinMemberSpec("signedInteger", "int", "method", (("uint", "bits"),), "signedInteger"),
         BuiltinMemberSpec("floatingPoint", "float", "method", (("uint", "bits"),), "floatingPoint"),
@@ -426,11 +419,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("acknowledgement", "string", "method", (("string", "probe"),), "acknowledgement"),
     )),
     ("DaemonControlFiles", (
+        BuiltinMemberSpec("ownedDirectory", "bool", "method", (("string", "path"), ("mode_t", "mask"), ("mode_t", "required"),), "ownedDirectory"),
         BuiltinMemberSpec("canonicalPrivateDirectory", "bool", "method", (("string", "path"),), "canonicalPrivateDirectory"),
         BuiltinMemberSpec("ownedHome", "bool", "method", (("string", "path"),), "ownedHome"),
         BuiltinMemberSpec("createPrivateDirectory", "bool", "method", (("string", "path"),), "createPrivateDirectory"),
         BuiltinMemberSpec("ensureDefaultDirectory", "bool", "method", (), "ensureDefaultDirectory"),
         BuiltinMemberSpec("secureParent", "bool", "method", (("string", "path"),), "secureParent"),
+        BuiltinMemberSpec("prepareParent", "bool", "method", (("string", "path"),), "prepareParent"),
         BuiltinMemberSpec("canonicalFilePath", "string", "method", (("string", "path"),), "canonicalFilePath"),
         BuiltinMemberSpec("secureMetadata", "bool", "method", (("string", "path"), ("struct stat*", "status"),), "secureMetadata"),
         BuiltinMemberSpec("read", "string", "method", (("string", "path"),), "read"),
@@ -451,26 +446,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("ApplicationDirectories", (
         BuiltinMemberSpec("resolve", "ApplicationDirectoryRootsOutcome", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
         BuiltinMemberSpec("resolveStandard", "ApplicationDirectoryRootsOutcome", "method", (), "resolveStandard"),
-    )),
-    ("UnixFileSystem", (
-        BuiltinMemberSpec("chmodPath", "int", "method", (("string", "path"), ("int", "mode"),), "chmodPath"),
-        BuiltinMemberSpec("mkdirPath", "int", "method", (("string", "path"), ("int", "mode"),), "mkdirPath"),
-        BuiltinMemberSpec("mkdirOne", "int", "method", (("string", "path"), ("int", "mode"),), "mkdirOne"),
-        BuiltinMemberSpec("mkdirp", "int", "method", (("string", "path"),), "mkdirp"),
-        BuiltinMemberSpec("isCanonicalRoot", "bool", "method", (("string", "path"),), "isCanonicalRoot"),
-        BuiltinMemberSpec("removeRecursivePath", "int", "method", (("string", "path"),), "removeRecursivePath"),
-        BuiltinMemberSpec("removeRecursiveAtInspected", "int", "method", (("int", "parentDescriptor"), ("string", "name"), ("struct stat*", "inspected"),), "removeRecursiveAtInspected"),
-        BuiltinMemberSpec("leaseDirectoryAt", "DirectoryLease", "method", (("int", "parentDescriptor"), ("string", "name"),), "leaseDirectoryAt"),
-        BuiltinMemberSpec("removeRecursiveAtLease", "int", "method", (("int", "parentDescriptor"), ("string", "name"), ("DirectoryLease", "lease"),), "removeRecursiveAtLease"),
-        BuiltinMemberSpec("removeRecursiveAt", "int", "method", (("int", "parentDescriptor"), ("string", "name"),), "removeRecursiveAt"),
-        BuiltinMemberSpec("openDirectoryNoFollow", "int", "method", (("string", "path"),), "openDirectoryNoFollow"),
-        BuiltinMemberSpec("deletionParentPath", "string", "method", (("string", "parent"),), "deletionParentPath"),
-        BuiltinMemberSpec("removeRecursive", "int", "method", (("string", "path"),), "removeRecursive"),
-        BuiltinMemberSpec("symlinkPath", "int", "method", (("string", "target"), ("string", "linkPath"),), "symlinkPath"),
-        BuiltinMemberSpec("readLink", "string", "method", (("string", "path"),), "readLink"),
-        BuiltinMemberSpec("currentDirectory", "string", "method", (), "currentDirectory"),
-        BuiltinMemberSpec("realPath", "string", "method", (("string", "path"),), "realPath"),
-        BuiltinMemberSpec("tempDir", "string", "method", (("string", "prefix"),), "tempDir"),
     )),
     ("PathTools", (
         BuiltinMemberSpec("shellQuote", "string", "method", (("string", "raw"),), "shellQuote"),
@@ -502,11 +477,17 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("isSymlink", "bool", "method", (("string", "path"),), "isSymlink"),
         BuiltinMemberSpec("chmod", "int", "method", (("string", "path"), ("int", "mode"),), "chmod"),
         BuiltinMemberSpec("mkdir", "int", "method", (("string", "path"), ("int", "mode"),), "mkdir"),
+        BuiltinMemberSpec("mkdirOne", "int", "method", (("string", "path"), ("int", "mode"),), "mkdirOne"),
         BuiltinMemberSpec("mkdirp", "int", "method", (("string", "path"),), "mkdirp"),
+        BuiltinMemberSpec("isCanonicalRoot", "bool", "method", (("string", "path"),), "isCanonicalRoot"),
+        BuiltinMemberSpec("removeRecursivePath", "int", "method", (("string", "path"),), "removeRecursivePath"),
+        BuiltinMemberSpec("openDirectoryNoFollow", "int", "method", (("string", "path"),), "openDirectoryNoFollow"),
+        BuiltinMemberSpec("deletionParentPath", "string", "method", (("string", "parent"),), "deletionParentPath"),
         BuiltinMemberSpec("removeRecursive", "int", "method", (("string", "path"),), "removeRecursive"),
         BuiltinMemberSpec("symlink", "int", "method", (("string", "target"), ("string", "linkPath"),), "symlink"),
         BuiltinMemberSpec("readLink", "string", "method", (("string", "path"),), "readLink"),
         BuiltinMemberSpec("currentDirectory", "string", "method", (), "currentDirectory"),
+        BuiltinMemberSpec("realPath", "string", "method", (("string", "path"),), "realPath"),
         BuiltinMemberSpec("absolutePath", "string", "method", (("string", "path"),), "absolutePath"),
         BuiltinMemberSpec("tempDir", "string", "method", (("string", "prefix"),), "tempDir"),
         BuiltinMemberSpec("listDir", "Vector<string>", "method", (("string", "path"),), "listDir"),
@@ -519,6 +500,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("ExactFileSnapshot", (
         BuiltinMemberSpec("validate", "FileSystemError*", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
+    )),
+    ("DirectoryTreeRemoval", (
+        BuiltinMemberSpec("removeAt", "int", "method", (("int", "parentDescriptor"), ("string", "name"), ("FileSnapshot*", "expected"),), "removeAt"),
     )),
     ("FreeType", (
         BuiltinMemberSpec("load", "Font", "method", (("string", "path"), ("int", "pixelSize"),), "load"),
@@ -766,6 +750,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("LocalChannelFrame", (
         BuiltinMemberSpec("encode", "void", "method", (("unsigned char*", "header"), ("uint", "length"),), "encode"),
         BuiltinMemberSpec("decode", "uint", "method", (("unsigned char*", "header"),), "decode"),
+    )),
+    ("LocalPeerCredentials", (
+        BuiltinMemberSpec("peerUser", "int", "method", (("int", "descriptor"), ("uid_t*", "user"),), "peerUser"),
     )),
     ("Math", (
         BuiltinMemberSpec("PI", "float", "method", (), "PI"),

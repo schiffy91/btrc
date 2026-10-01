@@ -1,11 +1,11 @@
 /* Native macOS host composition; the portable Unix entry remains SDK-free. */
-import Library.BackgroundJobs.ProcessWorkers;
+import Library.BackgroundJobs.HostWorkerPools;
 import Library.Digest.NativeSHA256;
 
 import ./Driver.btrc;
 import ../frontend/NativeHeaderProcess.btrc;
 
 int main(int argc, char** argv) {
-	BtrccDriver driver = BtrccDriver(argc, argv, FeNativeHeaderProcess.read, NativeSHA256(), ForkedWorkerPools());
+	BtrccDriver driver = BtrccDriver(argc, argv, FeNativeHeaderProcess.read, NativeSHA256(), HostWorkerPools());
 	return driver.run();
 }

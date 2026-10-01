@@ -1,8 +1,10 @@
 /* Portable compiler host: SDK scanning awaits a real Windows process provider. */
 
+import Library.BackgroundJobs.HostWorkerPools;
+
 import ./Driver.btrc;
 
 int main(int argc, char** argv) {
-	BtrccDriver driver = BtrccDriver(argc, argv);
+	BtrccDriver driver = BtrccDriver(argc, argv, (FeNativeHeaderReader)null, null, HostWorkerPools());
 	return driver.run();
 }

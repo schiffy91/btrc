@@ -1,7 +1,8 @@
-// Forked worker pools: requests reach separate processes that inherit the
-// owner's state, large payloads round-trip whole, and a worker that dies or a
-// pool that is terminated mid-request fails without hanging.
-import Library.BackgroundJobs.ProcessWorkers;
+// Host worker pools (forked processes on linux and macOS): requests reach
+// separate processes that inherit the owner's state, large payloads round-trip
+// whole, a bounded wait times out without failing the pool, and a worker that
+// dies or a pool that is terminated mid-request fails without hanging.
+import Library.BackgroundJobs.HostWorkerPools;
 import Library.BackgroundJobs.WorkerPools;
 import Library.Map;
 import Library.Strings;
@@ -24,6 +25,7 @@ class ProbeHandler implements IWorkerRequestHandler {
 		if (request.equals("pid")) { return Strings.fromInt((int)getpid()); }
 		if (request.equals("inherited")) { return Strings.fromInt(self.configuration.answer); }
 		if (request.equals("crash")) { exit(3); }
+		if (request.equals("throw")) { throw "probe failure"; }
 		if (request.equals("sleep")) {
 			sleep(5);
 			return "slept";
@@ -38,16 +40,20 @@ int main() {
 	configuration.answer = 42;
 
 	// The owner itself as the only worker: the same contract, no fork.
-	IWorkerPool? inlineOpened = InlineWorkerPools().open(1, ProbeHandler(configuration));
-	if (inlineOpened == null) { return 1; }
-	IWorkerPool owner = inlineOpened;
-	print(f"inline refuses a second worker {InlineWorkerPools().open(2, ProbeHandler(configuration)) == null}");
+	IWorkerPool owner = InlineWorkerPool(ProbeHandler(configuration));
 	owner.send(0, "inline");
 	print(f"inline busy refused {!owner.send(0, "again")}");
 	WorkerReply inlineReply = owner.awaitReply();
 	print(f"inline {inlineReply.worker}={inlineReply.payload}, then empty {owner.awaitReply().kind == WorkerReplyKind.WORKER_REPLY_EMPTY}");
 	print(f"inline closed cleanly {owner.close()}");
-	ForkedWorkerPools pools = ForkedWorkerPools();
+	// A throwing handler fails the inline pool instead of escaping send.
+	IWorkerPool throwing = InlineWorkerPool(ProbeHandler(configuration));
+	print(f"inline throw accepted {throwing.send(0, "throw")}");
+	WorkerReply thrown = throwing.awaitReply();
+	print(f"inline throw failed {thrown.kind == WorkerReplyKind.WORKER_REPLY_FAILED}: {thrown.error}");
+	print(f"inline throw refuses more {!throwing.send(0, "x")}, closed cleanly {throwing.close()}");
+	HostWorkerPools pools = HostWorkerPools();
+	print(f"suggested workers in range {pools.suggestedWorkers() >= 1 && pools.suggestedWorkers() <= 4}");
 	IWorkerPool? opened = pools.open(3, ProbeHandler(configuration));
 	if (opened == null) {
 		print("FAIL: pool did not open");
@@ -106,6 +112,8 @@ int main() {
 	if (stopping == null) { return 1; }
 	IWorkerPool stopped = stopping;
 	stopped.send(0, "sleep");
+	WorkerReply waited = stopped.awaitReply(50);
+	print(f"bounded wait timed out {waited.kind == WorkerReplyKind.WORKER_REPLY_TIMEOUT}, still busy {!stopped.idle(0)}");
 	stopped.terminate();
 	print(f"terminated reply failed {stopped.awaitReply().kind == WorkerReplyKind.WORKER_REPLY_FAILED}");
 	print("PASS: process worker pool");

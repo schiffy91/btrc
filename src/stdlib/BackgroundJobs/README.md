@@ -51,7 +51,7 @@ is reported separately after resources have been reclaimed. Application owners
 must preserve that error rather than treating a later `ALREADY_CLOSED` result
 as successful shutdown.
 
-## Worker pools: `Library.BackgroundJobs.WorkerPools` and `ProcessWorkers`
+## Worker pools: `Library.BackgroundJobs.WorkerPools` and `HostWorkerPools`
 
 Thread workers share the process-wide ARC lock, so ARC-heavy work does not
 scale on them. Measured on macOS arm64, each thread building the same managed
@@ -62,21 +62,28 @@ and 69.0 s as one of eight. Work of that kind runs on worker processes.
 answers one string request with one string reply; an `IWorkerPool` delivers
 requests to idle workers, returns each reply exactly once through
 `awaitReply()` (`READY`, `EMPTY` when nothing is outstanding, `FAILED` once any
-worker has failed) and owns the workers' lifetimes (`close()` lets them finish
-and reaps them, `terminate()` kills and reaps them). `InlineWorkerPool` is a
-pool whose single worker is the owner itself, for hosts that cannot fork; it
-runs the same schedule.
+worker has failed, `TIMEOUT` when a nonnegative timeout passes with no reply)
+and owns the workers' lifetimes (`close()` lets them finish and reaps them,
+`terminate()` kills and reaps them). `InlineWorkerPool` is a pool whose single
+worker is the owner itself; it runs the same schedule, and a handler that
+throws fails it the way a crashed worker fails a process pool.
 
-`ProcessWorkers` implements the contracts with `fork` (POSIX only; import it
-only from a host entry point that can fork, as the self-hosted compiler's Unix
-entries do). A worker starts as a copy of the owner at `open()`, so it shares
-everything the owner had built copy-on-write and keeps what it builds itself
-between requests. Frames are 16 lowercase hex digits of payload length and
-the payload. The owner sends only to idle workers and reads every reply whole,
-so neither side blocks the other on a full pipe. A worker that exits, is
-killed or writes a malformed frame fails the pool: every worker is terminated
-and reaped, and no further request is accepted. While a pool is open the owner
-ignores `SIGPIPE`, so a dead worker surfaces as a failed write or end of input.
-Workers leave through `_exit`, never running the owner's exit path or flushing
-its stdio buffers twice. `suggestedWorkers()` is one per online CPU, at most
-four.
+`HostWorkerPools` is the factory a host entry point hands to its owners. The
+`[[package.providers]]` entries in `btrc.toml` select its `WorkerPoolProvider`
+for the target: `Unix/WorkerPoolProvider` forks workers on linux and macOS,
+and the root `WorkerPoolProvider` opens a single `InlineWorkerPool` on
+windows. Consumers never name a provider.
+
+The Unix provider starts each worker as a copy of the owner at `open()`, so
+it shares everything the owner had built copy-on-write and keeps what it
+builds itself between requests. Owner and worker share one `AF_UNIX` socket
+pair; frames are 16 lowercase hex digits of payload length and the payload.
+The owner sends only to idle workers and reads every reply whole, so neither
+side blocks the other on a full socket. A worker that exits, is killed or
+writes a malformed frame fails the pool: every worker is terminated and
+reaped, and no further request is accepted. Frames are written with
+`send(MSG_NOSIGNAL)`, so a dead peer surfaces as a failed write or end of
+input on either side; the pool never changes the process's `SIGPIPE`
+disposition, and concurrent pools cannot undo each other's. Workers leave
+through `_exit`, never running the owner's exit path or flushing its stdio
+buffers twice. `suggestedWorkers()` is one per online CPU, at most four.

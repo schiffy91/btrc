@@ -1,0 +1,14 @@
+/* The host's worker pools. `[[package.providers]]` selects WorkerPoolProvider
+ * for the target: forked worker processes on linux and macOS
+ * (Unix/WorkerPoolProvider), the owner itself as the only worker on windows
+ * (WorkerPoolProvider). Host entry points hand a HostWorkerPools to their
+ * owners and never name a provider. */
+import Library.BackgroundJobs.WorkerPools;
+
+class HostWorkerPools implements IWorkerPoolFactory {
+	public HostWorkerPools() {}
+
+	public IWorkerPool? open(int workers, IWorkerRequestHandler handler) { return WorkerPoolProvider.open(workers, handler); }
+
+	public int suggestedWorkers() { return WorkerPoolProvider.suggestedWorkers(); }
+}

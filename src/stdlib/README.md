@@ -21,7 +21,8 @@ the API surface, so the layout follows a few fixed rules.
   after their primary class, so a module path reads folder then class.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
   `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`, `Image/Linux`,
-  `Tray/Linux`, `Tray/MacOS`) and implements the group's portable
+  `Tray/Linux`, `Tray/MacOS`, and `BackgroundJobs/Unix` for code shared by
+  linux and macOS) and implements the group's portable
   contract: `GUI/MacOS/MacOSDirectoryPicker` implements `GUI/IDirectoryPicker`,
   `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
   (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/CoreAudioDevice`
