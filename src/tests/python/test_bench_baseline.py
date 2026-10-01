@@ -138,6 +138,13 @@ def test_a_small_peak_gets_the_absolute_floor_of_slack() -> None:
     assert statuses == ["ok", "regression", "improvement"]
 
 
+def test_a_workload_peak_over_its_absolute_budget_fails_whatever_its_baseline() -> None:
+    current = {"btrcc.workload.W_peak": 3.01 * 2**30, "btrcc.workload.V_peak": 2.99 * 2**30}
+    current["btrcc.compile.Huge_peak"] = 4.0 * 2**30  # a program compile is not the budgeted workload
+    assert baseline.over_budget(current, 3.0) == ["btrcc.workload.W_peak"]
+    assert baseline.over_budget(current, None) == []
+
+
 def test_merge_keeps_the_platform_metrics_a_peak_only_run_did_not_measure(tmp_path: Path) -> None:
     path = tmp_path / "baseline.json"
     baseline.store(baseline.load(path), "darwin-arm64", {"a_ms": 1.0, "b.p_peak": 100}, {"revision": "abc"}, path)
@@ -234,3 +241,9 @@ def test_peak_guard_trips_on_an_injected_allocation(tmp_path: Path, monkeypatch:
     alone = tmp_path / "alone.json"
     assert main(["check", *common, "--no-peaks", "--baseline", str(recorded), "--json", str(alone)]) == 1
     assert set(json.loads(alone.read_text())["metrics"]) == {"btrcc.workload.BTRSmith_peak"}
+    # An absolute budget fails even with the baseline's slack to spare.
+    monkeypatch.delenv("BENCH_INJECT_MIB")
+    workload_only = [*common, "--no-peaks", "--baseline", str(recorded)]
+    assert main(["check", *workload_only, "--peak-budget-gib", "1"]) == 0
+    assert main(["check", *workload_only, "--peak-budget-gib", "0.01"]) == 1
+    assert main(["check", *workload_only, "--peak-budget-gib", "0.01", "--baseline", str(tmp_path / "none.json")]) == 1

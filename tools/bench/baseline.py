@@ -126,6 +126,22 @@ def compare(
     return findings
 
 
+def over_budget(current: dict[str, float], budget_gib: float | None) -> list[str]:
+    """The workload peaks above an absolute budget, which no baseline can loosen.
+
+    The relative slack guards against drift; the budget is the M11 criterion
+    itself, and 2% of a 2.966 GiB peak is more than the 35 MiB left under it.
+    """
+
+    if budget_gib is None:
+        return []
+    return sorted(
+        name
+        for name, value in current.items()
+        if name.startswith("btrcc.workload.") and metric_kind(name) == "peak" and value > budget_gib * 2**30
+    )
+
+
 def load(path: Path = BASELINE_PATH) -> dict:
     if not path.is_file():
         return {"schema": SCHEMA_VERSION, "platforms": {}}
