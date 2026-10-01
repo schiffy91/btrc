@@ -879,11 +879,11 @@ class JSONNum {
 		if (isInt && value >= -9223372036854775808.0 && value < 9223372036854775808.0) {
 			char* buf = (char*)__btrc_safe_realloc(null, (size_t)32);
 			snprintf(buf, 32, "%lld", (long long)value);
-			return __btrc_str_track(buf);
+			return __btrc_string_adopt(buf);
 		}
 		char* buf = (char*)__btrc_safe_realloc(null, (size_t)40);
 		snprintf(buf, 40, "%.17g", value);
-		string formatted = __btrc_str_track(buf);
+		string formatted = __btrc_string_adopt(buf);
 
 		/* C formatting follows LC_NUMERIC; JSON always uses '.'. */
 		struct lconv* convention = localeconv();
@@ -901,7 +901,7 @@ class JSONNum {
 		char* buf = (char*)__btrc_safe_realloc(null, (size_t)2);
 		buf[0] = (char)code;
 		buf[1] = (char)0;
-		return __btrc_str_track(buf);
+		return __btrc_string_adopt(buf);
 	}
 
 	/* \uXXXX escape for a code < 0x10000. */
@@ -909,7 +909,7 @@ class JSONNum {
 		if (code < 0 || code > 0xFFFF) { code = 0xFFFD; }
 		char* buf = (char*)__btrc_safe_realloc(null, (size_t)8);
 		snprintf(buf, 8, "\\u%04x", code);
-		return __btrc_str_track(buf);
+		return __btrc_string_adopt(buf);
 	}
 
 	/* Encode a Unicode code point as a UTF-8 byte string. */
@@ -921,14 +921,14 @@ class JSONNum {
 			char* b = (char*)__btrc_safe_realloc(null, (size_t)2);
 			b[0] = (char)cp;
 			b[1] = (char)0;
-			return __btrc_str_track(b);
+			return __btrc_string_adopt(b);
 		}
 		if (cp < 0x800) {
 			char* b = (char*)__btrc_safe_realloc(null, (size_t)3);
 			b[0] = (char)(0xC0 | (cp >> 6));
 			b[1] = (char)(0x80 | (cp & 0x3F));
 			b[2] = (char)0;
-			return __btrc_str_track(b);
+			return __btrc_string_adopt(b);
 		}
 		if (cp < 0x10000) {
 			char* b = (char*)__btrc_safe_realloc(null, (size_t)4);
@@ -936,7 +936,7 @@ class JSONNum {
 			b[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
 			b[2] = (char)(0x80 | (cp & 0x3F));
 			b[3] = (char)0;
-			return __btrc_str_track(b);
+			return __btrc_string_adopt(b);
 		}
 		char* b = (char*)__btrc_safe_realloc(null, (size_t)5);
 		b[0] = (char)(0xF0 | (cp >> 18));
@@ -944,7 +944,7 @@ class JSONNum {
 		b[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
 		b[3] = (char)(0x80 | (cp & 0x3F));
 		b[4] = (char)0;
-		return __btrc_str_track(b);
+		return __btrc_string_adopt(b);
 	}
 }
 

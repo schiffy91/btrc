@@ -823,7 +823,7 @@ class OwnershipAnalyzer:
             return True
         callee = expression.callee
         if isinstance(callee, Identifier):
-            return callee.name in {"__btrc_str_track", "__btrc_string_adopt", "__btrc_string_alloc"}
+            return callee.name in {"__btrc_string_adopt", "__btrc_string_alloc"}
         if not isinstance(callee, FieldAccessExpr):
             return False
         receiver = self.types.canonical_type(self.type_of(callee.obj))

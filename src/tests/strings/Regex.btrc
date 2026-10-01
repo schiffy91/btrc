@@ -70,7 +70,12 @@ int main() {
 	assert(re.test("user@example.com") == true);
 	assert(re.fullMatch("user@example.com") == true);
 	assert(re.test("not an email") == false);
+	assert(re.isValid());
 	delete re;
+	CompiledRegex broken = new CompiledRegex("[");
+	assert(!broken.isValid());
+	assert(!broken.test("["));
+	delete broken;
 	print("compiled: ok");
 
 	/* Invalid pattern: no crash; safe defaults (stderr warning is expected). */

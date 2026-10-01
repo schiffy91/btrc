@@ -514,7 +514,7 @@ class ExpressionTypeResolver {
 				if (callee.name == "__btrc_eq" || callee.name == "__btrc_lt" || callee.name == "__btrc_gt") {
 					return SemanticTypeSystem.primitive("bool");
 				}
-				if (callee.name == "__btrc_str_track" || callee.name == "__btrc_string_adopt" || callee.name == "__btrc_string_alloc") {
+				if (callee.name == "__btrc_string_adopt" || callee.name == "__btrc_string_alloc") {
 					return SemanticTypeSystem.primitive("string");
 				}
 				string hostedCallKey = AstIdentity.key(node);

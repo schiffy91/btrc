@@ -43,14 +43,14 @@ int main() {
 	assert(empty.isBlank() == true);
 	assert(notblank.isBlank() == false);
 
-	// isDigitStr / isAlphaStr
+	// isDigit / isAlpha
 	string digits = "12345";
 	string alpha = "abcXYZ";
 	string mixStr = "abc123";
-	assert(digits.isDigitStr() == true);
-	assert(alpha.isDigitStr() == false);
-	assert(alpha.isAlphaStr() == true);
-	assert(mixStr.isAlphaStr() == false);
+	assert(digits.isDigit() == true);
+	assert(alpha.isDigit() == false);
+	assert(alpha.isAlpha() == true);
+	assert(mixStr.isAlpha() == false);
 
 	// toInt / toFloat
 	string numStr = "42";

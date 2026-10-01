@@ -3355,9 +3355,9 @@ class ExpressionLowerer:
 
     def _concat_call(self, left, right):
         self._session.require_helper("__btrc_strcat")
-        self._session.require_helper("__btrc_str_track")
+        self._session.require_helper("__btrc_string_adopt")
         return IRCall(
-            callee="__btrc_str_track",
+            callee="__btrc_string_adopt",
             args=[IRCall(callee="__btrc_strcat", args=[left, right], helper_ref="__btrc_strcat")],
-            helper_ref="__btrc_str_track",
+            helper_ref="__btrc_string_adopt",
         )

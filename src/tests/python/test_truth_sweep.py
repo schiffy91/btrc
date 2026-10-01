@@ -194,7 +194,7 @@ def test_string_methods_lower_through_spec_helpers():
     assert "__btrc_trim" in c
     assert "__btrc_toUpper" in c
     assert "__btrc_charLen" in c
-    assert "__btrc_str_track" in c  # trim/toUpper results are tracked
+    assert "__btrc_string_adopt" in c  # trim/toUpper results are tracked
 
 
 def test_string_to_bool_lowers_to_the_documented_runtime_helper():

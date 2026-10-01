@@ -27,6 +27,11 @@ int main() {
 	// exp and log are inverses
 	assert(Math.fabs(Math.exp(Math.log(5.0f)) - 5.0f) < 0.001f);
 
+	// Double variants keep double precision end to end.
+	assert(Math.absDouble(Math.expDouble(1.0) - 2.718281828459045) < 1e-12);
+	assert(Math.absDouble(Math.sqrtDouble(2.0) - 1.4142135623730951) < 1e-12);
+	assert(Math.absDouble(Math.sqrtDouble(1e300) - 1e150) < 1e138);
+
 	print("PASS: test_stdlib_math_log_exp");
 	return 0;
 }

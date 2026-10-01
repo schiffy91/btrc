@@ -327,10 +327,10 @@ def test_gpu_bind_group_retained_buffer_handles_fail_closed() -> None:
 
 
 def test_source_string_adopters_are_derived_from_the_canonical_registry() -> None:
-    assert hosted_source_helper_adopts_raw_string("__btrc_str_track", 0)
     assert hosted_source_helper_adopts_raw_string("__btrc_string_adopt", 0)
     assert not hosted_source_helper_adopts_raw_string("__btrc_string_alloc", 0)
-    assert not hosted_source_helper_adopts_raw_string("__btrc_str_track", 1)
+    assert not hosted_source_helper_adopts_raw_string("__btrc_string_adopt", 1)
+    assert not hosted_source_helper_adopts_raw_string("__btrc_str_track", 0)
 
 
 def test_generated_registry_is_current_and_has_one_domain_owner() -> None:

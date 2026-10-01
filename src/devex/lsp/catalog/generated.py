@@ -112,12 +112,6 @@ ARRAY_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "i"),), "iterGet"),
 )
 
-# Generated from src/stdlib/borrowedclosure.btrc
-BORROWEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
-    BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
-    BuiltinMemberSpec("context", "void*", "method", (), "context"),
-)
-
 # Generated from src/stdlib/ownedclosure.btrc
 OWNEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
@@ -338,7 +332,6 @@ VECTOR_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("max", "T", "method", (), "max"),
     BuiltinMemberSpec("sum", "T", "method", (), "sum"),
     BuiltinMemberSpec("join", "string", "method", (("string", "sep"),), "join"),
-    BuiltinMemberSpec("joinToString", "string", "method", (("string", "sep"),), "joinToString"),
     BuiltinMemberSpec("filter", "Vector<T>", "method", (("__fn_ptr<bool, T>", "pred"),), "filter"),
     BuiltinMemberSpec("findIndex", "int", "method", (("__fn_ptr<bool, T>", "pred"),), "findIndex"),
     BuiltinMemberSpec("forEach", "void", "method", (("__fn_ptr<void, T>", "fn"),), "forEach"),
@@ -357,7 +350,6 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Atomic", ATOMIC_MEMBERS),
     ("Span", SPAN_MEMBERS),
     ("Array", ARRAY_MEMBERS),
-    ("BorrowedClosure", BORROWEDCLOSURE_MEMBERS),
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
     ("CallbackToken", CALLBACKTOKEN_MEMBERS),
     ("CallbackContext", CALLBACKCONTEXT_MEMBERS),
@@ -413,7 +405,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),
         BuiltinMemberSpec("fatal", "void", "method", (("string", "msg"),), "fatal"),
         BuiltinMemberSpec("write", "void", "method", (("string", "msg"),), "write"),
-        BuiltinMemberSpec("writeLine", "void", "method", (("string", "msg"),), "writeLine"),
     )),
     ("DaemonControlRecord", (
         BuiltinMemberSpec("validToken", "bool", "method", (("string", "token"),), "validToken"),
@@ -810,6 +801,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("clamp", "int", "method", (("int", "x"), ("int", "lo"), ("int", "hi"),), "clamp"),
         BuiltinMemberSpec("power", "float", "method", (("float", "base"), ("int", "exp"),), "power"),
         BuiltinMemberSpec("sqrt", "float", "method", (("float", "x"),), "sqrt"),
+        BuiltinMemberSpec("sqrtDouble", "double", "method", (("double", "x"),), "sqrtDouble"),
         BuiltinMemberSpec("factorial", "int", "method", (("int", "n"),), "factorial"),
         BuiltinMemberSpec("gcd", "int", "method", (("int", "a"), ("int", "b"),), "gcd"),
         BuiltinMemberSpec("lcm", "int", "method", (("int", "a"), ("int", "b"),), "lcm"),
@@ -836,6 +828,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("log10", "float", "method", (("float", "x"),), "log10"),
         BuiltinMemberSpec("log2", "float", "method", (("float", "x"),), "log2"),
         BuiltinMemberSpec("exp", "float", "method", (("float", "x"),), "exp"),
+        BuiltinMemberSpec("expDouble", "double", "method", (("double", "x"),), "expDouble"),
         BuiltinMemberSpec("toRadians", "float", "method", (("float", "degrees"),), "toRadians"),
         BuiltinMemberSpec("toDegrees", "float", "method", (("float", "radians"),), "toDegrees"),
         BuiltinMemberSpec("fclamp", "float", "method", (("float", "val"), ("float", "lo"), ("float", "hi"),), "fclamp"),
@@ -943,9 +936,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"),), "run"),
     )),
     ("Regex", (
-        BuiltinMemberSpec("checkedLength", "int", "method", (("string", "text"),), "checkedLength"),
         BuiltinMemberSpec("capacityFor", "int", "method", (("int", "current"), ("long long", "required"),), "capacityFor"),
-        BuiltinMemberSpec("slice", "string", "method", (("string", "text"), ("int", "so"), ("int", "eo"),), "slice"),
         BuiltinMemberSpec("warn", "void", "method", (("string", "pattern"),), "warn"),
         BuiltinMemberSpec("matches", "bool", "method", (("string", "pattern"), ("string", "text"),), "matches"),
         BuiltinMemberSpec("fullMatch", "bool", "method", (("string", "pattern"), ("string", "text"),), "fullMatch"),
@@ -974,7 +965,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("isAlnum", "bool", "method", (("char", "c"),), "isAlnum"),
         BuiltinMemberSpec("isSpace", "bool", "method", (("char", "c"),), "isSpace"),
         BuiltinMemberSpec("toInt", "int", "method", (("string", "s"),), "toInt"),
-        BuiltinMemberSpec("toFloat", "float", "method", (("string", "s"),), "toFloat"),
         BuiltinMemberSpec("count", "int", "method", (("string", "s"), ("string", "sub"),), "count"),
         BuiltinMemberSpec("find", "int", "method", (("string", "s"), ("string", "sub"), ("int", "start"),), "find"),
         BuiltinMemberSpec("rfind", "int", "method", (("string", "s"), ("string", "sub"),), "rfind"),
@@ -985,15 +975,14 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("swapCase", "string", "method", (("string", "s"),), "swapCase"),
         BuiltinMemberSpec("padLeft", "string", "method", (("string", "s"), ("int", "width"), ("char", "fill"),), "padLeft"),
         BuiltinMemberSpec("padRight", "string", "method", (("string", "s"), ("int", "width"), ("char", "fill"),), "padRight"),
-        BuiltinMemberSpec("center", "string", "method", (("string", "s"), ("int", "width"), ("char", "fill"),), "center"),
         BuiltinMemberSpec("lstrip", "string", "method", (("string", "s"),), "lstrip"),
         BuiltinMemberSpec("rstrip", "string", "method", (("string", "s"),), "rstrip"),
         BuiltinMemberSpec("removePrefix", "string", "method", (("string", "s"), ("string", "prefix"),), "removePrefix"),
-        BuiltinMemberSpec("fromInt", "string", "method", (("int", "n"),), "fromInt"),
-        BuiltinMemberSpec("fromFloat", "string", "method", (("float", "f"),), "fromFloat"),
         BuiltinMemberSpec("isDigitStr", "bool", "method", (("string", "s"),), "isDigitStr"),
         BuiltinMemberSpec("isAlphaStr", "bool", "method", (("string", "s"),), "isAlphaStr"),
         BuiltinMemberSpec("isBlank", "bool", "method", (("string", "s"),), "isBlank"),
+        BuiltinMemberSpec("fromInt", "string", "method", (("int", "n"),), "fromInt"),
+        BuiltinMemberSpec("fromFloat", "string", "method", (("float", "f"),), "fromFloat"),
     )),
     ("TOML", (
         BuiltinMemberSpec("unquotedPosition", "int", "method", (("string", "line"), ("char", "target"),), "unquotedPosition"),

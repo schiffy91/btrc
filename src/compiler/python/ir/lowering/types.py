@@ -522,9 +522,9 @@ class CTypeLowerer:
             and (self._identity.is_scalar_string(left_type) or self._identity.is_scalar_string(right_type))
         ):
             self._session.require_helper("__btrc_strcat")
-            self._session.require_helper("__btrc_str_track")
+            self._session.require_helper("__btrc_string_adopt")
             joined = IRCall(callee="__btrc_strcat", args=[left, right], helper_ref="__btrc_strcat")
-            return IRCall(callee="__btrc_str_track", args=[joined], helper_ref="__btrc_str_track")
+            return IRCall(callee="__btrc_string_adopt", args=[joined], helper_ref="__btrc_string_adopt")
         if operator in {"==", "!=", "<", ">", "<=", ">="}:
             return self.lower_typed_comparison(operator, left, right, left_type, right_type)
         if (

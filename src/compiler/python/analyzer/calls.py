@@ -1489,7 +1489,7 @@ class CallAnalyzer:
         ):
             return
         self.session.error(
-            f"{subject} cannot implicitly convert raw 'char*' storage to managed 'string' because its ownership is not proven; transfer fresh storage with __btrc_str_track() or make an explicit copy",
+            f"{subject} cannot implicitly convert raw 'char*' storage to managed 'string' because its ownership is not proven; transfer fresh storage with __btrc_string_adopt() or make an explicit copy",
             getattr(value, "line", line),
             getattr(value, "col", col),
         )

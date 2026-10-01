@@ -254,16 +254,6 @@
       },
       {
         "$type": "IRHelperDecl",
-        "category": "string_pool",
-        "name": "__btrc_str_track",
-        "c_source": "static inline char* __btrc_str_track(char* s) {\n    return __btrc_string_adopt(s);\n}",
-        "depends_on": [
-          "__btrc_string_adopt"
-        ],
-        "required_headers": []
-      },
-      {
-        "$type": "IRHelperDecl",
         "category": "string",
         "name": "__btrc_string_or_empty",
         "c_source": "static inline const char* __btrc_string_or_empty(const char* s) {\n    return s ? s : \"\";\n}",
@@ -505,7 +495,7 @@
                       "op": "=",
                       "right": {
                         "$type": "IRCall",
-                        "callee": "__btrc_str_track",
+                        "callee": "__btrc_string_adopt",
                         "args": [
                           {
                             "$type": "IRCall",
@@ -532,7 +522,7 @@
                             "never_returns": false
                           }
                         ],
-                        "helper_ref": "__btrc_str_track",
+                        "helper_ref": "__btrc_string_adopt",
                         "realtime_provenance": "",
                         "cleanup_slot": null,
                         "never_returns": false
@@ -549,7 +539,7 @@
                       "op": "=",
                       "right": {
                         "$type": "IRCall",
-                        "callee": "__btrc_str_track",
+                        "callee": "__btrc_string_adopt",
                         "args": [
                           {
                             "$type": "IRCall",
@@ -568,7 +558,7 @@
                             "never_returns": false
                           }
                         ],
-                        "helper_ref": "__btrc_str_track",
+                        "helper_ref": "__btrc_string_adopt",
                         "realtime_provenance": "",
                         "cleanup_slot": null,
                         "never_returns": false

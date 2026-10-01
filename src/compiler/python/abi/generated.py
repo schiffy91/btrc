@@ -342,23 +342,6 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
-        name='__btrc_str_track',
-        origin='runtime',
-        result=GeneratedAbiTypeRow('char', 1, False, ()),
-        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('char', 1, False, ()), 'consume', None),),
-        variadic=False,
-        semantic_result=GeneratedAbiTypeRow('string', 0, False, ()),
-        return_effect='fresh',
-        return_alias_parameter=None,
-        return_alias_null_effect=None,
-        raw_lifetime=False,
-        return_deallocator=None,
-        return_alias_shape=None,
-        consume_deallocator=None,
-        return_alias_null_deallocator=None,
-        realtime_effect='unknown',
-    ),
-    GeneratedHostedFunctionRow(
         name='__btrc_strdup',
         origin='runtime',
         result=GeneratedAbiTypeRow('char', 1, False, ()),
@@ -6229,7 +6212,6 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     '__btrc_process_descriptors_supported',
     '__btrc_safe_calloc',
     '__btrc_safe_realloc',
-    '__btrc_str_track',
     '__btrc_strdup',
     '__btrc_string_adopt',
     '__btrc_string_alloc',
@@ -12760,7 +12742,6 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     '__btrc_process_descriptors_supported',
     '__btrc_safe_calloc',
     '__btrc_safe_realloc',
-    '__btrc_str_track',
     '__btrc_strdup',
     '__btrc_string_adopt',
     '__btrc_string_alloc',
@@ -14309,7 +14290,6 @@ HOSTED_NATIVE_INTERNAL_NAMES: tuple[str, ...] = (
 )
 
 HOSTED_RUNTIME_ADOPTING_HELPERS: tuple[str, ...] = (
-    '__btrc_str_track',
     '__btrc_string_adopt',
 )
 
@@ -17610,4 +17590,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '4532bf0606ebc661949beff48b63e964ce2acfa14e35e820c1b981879ad90506'
+HOSTED_ABI_FINGERPRINT = '2a84f6f646e11743f1ac56bdf452ca7d70464d2a4b115743cdeac6183498692a'

@@ -1,42 +1,28 @@
-/* btrc standard library — exact borrowed/owned callback closures and registration gate
+/* btrc standard library — exact owned callback closures and registration gate
  *
- * CFunction<...> is one noncapturing C function-pointer word. BorrowedClosure
- * names the non-owning invoke/context pair passed through managed interfaces.
- * OwnedClosure adds the context's one terminal destroy operation.
- * CallbackRegistration adds the admission, unregister, in-flight drain, and
- * destruction order required by C APIs that store that pair.
+ * CFunction<...> is one noncapturing C function-pointer word. OwnedClosure
+ * names an invoke/context pair together with the context's one terminal
+ * destroy operation. CallbackRegistration adds the admission, unregister,
+ * in-flight drain, and destruction order required by C APIs that store that
+ * pair.
  *
  * Invoke is intentionally the complete trampoline signature, including its
  * void* context parameter.  Callers extract both values and pass the context
  * at the position required by that C API; no hidden ABI rewriting occurs.
+ *
+ * Blocking: callbackGateDrain, OwnedClosure.close and CallbackState.close wait
+ * until every in-flight callback (or a concurrent destroy) has left. They never
+ * time out; they back off from spinning to yielding to short sleeps, so a stuck
+ * callback costs a sleeping thread rather than a busy core. None of them may be
+ * called from @realtime code.
  */
 
 import Library.OwnedBuffer;
 import Library.Vector;
 
 #include <pthread.h>
-
-/* A typed, non-owning callback lease. The producer owns the context and must
- * keep it alive until every consumer-specific stop or unregister barrier has
- * drained. Native/package seams may extract the exact pair; product interfaces
- * should pass this object without unpacking and repacking it. */
-class BorrowedClosure<Invoke> {
-	private Invoke _invoke;
-	private void* _context;
-
-	public BorrowedClosure(Invoke invoke, void* context) {
-		if (invoke == (Invoke)null) {
-			fprintf(stderr, "BorrowedClosure requires a nonnull invoke callback\n");
-			abort();
-		}
-		self._invoke = invoke;
-		self._context = context;
-	}
-
-	public Invoke invokePointer() { return self._invoke; }
-
-	public void* context() { return self._context; }
-}
+#include <sched.h>
+#include <time.h>
 
 /* The low bit closes admission; every admitted callback owns two units. A
  * bounded CAS loop makes successful entry its own linearization point and
@@ -63,10 +49,35 @@ class BorrowedClosure<Invoke> {
 	state->fetchSub(2u, MemoryOrder.RELEASE);
 }
 
-void callbackGateCloseAdmission(Atomic<uint>* state) { state->fetchOr(1u, MemoryOrder.ACQ_REL); }
+/* One step of the blocking waits below: spin briefly, then yield, then sleep
+ * 50 microseconds per step. Returns the next attempt number. Internal to this
+ * module; it is not static only because generic OwnedClosure specializations
+ * are emitted in their consumers' translation units. Never @realtime. */
+uint callbackBackoff(uint attempt) {
+	if (attempt < 64u) { return attempt + 1u; }
+	if (attempt < 128u) {
+		sched_yield();
+		return attempt + 1u;
+	}
+	struct timespec delay;
+	delay.tv_sec = (time_t)0;
+	delay.tv_nsec = 50000L;
+	nanosleep(&delay, null);
+	return attempt;
+}
 
+void callbackGateCloseAdmission(Atomic<uint>* state) {
+	if (state == null) { return; }
+	state->fetchOr(1u, MemoryOrder.ACQ_REL);
+}
+
+/* Closes admission (idempotently) and blocks until every admitted callback
+ * has left the gate. */
 void callbackGateDrain(Atomic<uint>* state) {
-	while (state->load(MemoryOrder.ACQUIRE) != 1u) {}
+	if (state == null) { return; }
+	callbackGateCloseAdmission(state);
+	uint attempt = 0u;
+	while (state->load(MemoryOrder.ACQUIRE) != 1u) { attempt = callbackBackoff(attempt); }
 }
 
 /* Internal context protocol: registration owns this object until the native
@@ -128,16 +139,18 @@ class OwnedClosure<Invoke> implements ICallbackContext {
 		uint observed = self.beginClose();
 		if (observed != 0u) {
 			if (observed == 1u) {
+				uint attempt = 0u;
 				while (!self._closingThreadReady.load(MemoryOrder.ACQUIRE)) {
 					if (self._state.load(MemoryOrder.ACQUIRE) != 1u) {
 						return self._state.load(MemoryOrder.ACQUIRE) == 2u;
 					}
+					attempt = callbackBackoff(attempt);
 				}
 				if (pthread_equal(self._closingThread, pthread_self()) != 0) {
 					fprintf(stderr, "OwnedClosure.close cannot re-enter its destroy callback\n");
 					abort();
 				}
-				while (self._state.load(MemoryOrder.ACQUIRE) == 1u) {}
+				while (self._state.load(MemoryOrder.ACQUIRE) == 1u) { attempt = callbackBackoff(attempt); }
 			}
 			return self._state.load(MemoryOrder.ACQUIRE) == 2u;
 		}
@@ -314,8 +327,10 @@ class CallbackState implements ICallbackRegistration {
 
 	public bool close() {
 		CallbackCancellation result = self.cancel();
+		uint attempt = 0u;
 		while (result == CallbackCancellation.Pending) {
 			self.rejectReentrantClose();
+			attempt = callbackBackoff(attempt);
 			result = self.pollCompletion();
 		}
 		return result == CallbackCancellation.Complete;
@@ -352,7 +367,9 @@ class CallbackScope implements ICallbackRegistration {
 
 	public CallbackScope() { self._executor = pthread_self(); }
 
-	private void requireExecutor() {
+	/* Throws unless called on the scope's creating thread. Owners whose own
+	 * methods are confined to that executor call this directly. */
+	public void requireExecutor() {
 		if (pthread_equal(self._executor, pthread_self()) == 0) { throw "Callback scope requires its creating thread"; }
 	}
 

@@ -1,5 +1,13 @@
 /* btrc standard library — Math
  * Object-oriented math utilities inspired by Python's math module.
+ *
+ * Naming convention: the unsuffixed name is the int or float form (`abs`,
+ * `sqrt`, `exp`); a `Double` suffix names the double-precision variant
+ * (`absDouble`, `sqrtDouble`, `expDouble`). Double variants are added on
+ * demand, so a missing one is an omission, not a policy. The older f-prefixed
+ * float names (`fabs`, `fmax`, `fmin`, `fsum`, `fclamp`, `fsign`) and the
+ * all-caps constant methods (`PI`, `E`, `TAU`, `INF`) are retained public API;
+ * new methods follow the suffix rule instead.
  */
 
 import Library.Vector;
@@ -74,6 +82,8 @@ class Math {
 	}
 
 	class float sqrt(float x) { return sqrtf(x); }
+
+	class double sqrtDouble(double x) { return sqrt(x); }
 
 	/* Factorial and combinatorics */
 	class int factorial(int n) {
@@ -213,6 +223,8 @@ class Math {
 	class float log2(float x) { return log2f(x); }
 
 	class float exp(float x) { return expf(x); }
+
+	class double expDouble(double x) { return exp(x); }
 
 	/* Conversion */
 	class float toRadians(float degrees) { return degrees * 3.14159265358979323846f / 180.0f; }

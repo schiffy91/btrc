@@ -147,7 +147,7 @@ class SemanticTypeSystem {
 		if (method == "len" || method == "byteLen" || method == "length" || method == "charLen" || method == "indexOf" || method == "lastIndexOf" || method == "find" || method == "count" || method == "toInt") {
 			return SemanticTypeSystem.primitive("int");
 		}
-		if (method == "equals" || method == "contains" || method == "startsWith" || method == "endsWith" || method == "isEmpty" || method == "isBlank" || method == "isUpper" || method == "isLower" || method == "isAlnum" || method == "isAlnumStr" || method == "isDigit" || method == "isDigitStr" || method == "isAlpha" || method == "isAlphaStr" || method == "toBool") {
+		if (method == "equals" || method == "contains" || method == "startsWith" || method == "endsWith" || method == "isEmpty" || method == "isBlank" || method == "isUpper" || method == "isLower" || method == "isAlnum" || method == "isDigit" || method == "isAlpha" || method == "toBool") {
 			return SemanticTypeSystem.primitive("bool");
 		}
 		if (method == "charAt") { return SemanticTypeSystem.primitive("char"); }

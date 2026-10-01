@@ -1,25 +1,49 @@
-/* Result<T, E> carrying an Error OBJECT as the error type (Result<int, Error>),
- * combining the two stdlib error idioms. Existing Result tests only use
- * primitive/string E. Confirms the Err branch holds the structured error and the
- * Ok branch holds the value, with no inline Result/Error definitions (both come
- * from the stdlib). */
-import Library.Error;
+/* Result<T, E> carrying an error OBJECT as the error type
+ * (Result<int, Failure>). Existing Result tests only use primitive/string E.
+ * Confirms the Err branch holds the structured error, dispatching through a
+ * subclass, and the Ok branch holds the value. */
 import Library.Result;
 
 #include <assert.h>
 
+class Failure {
+	public string message;
+	public int code;
+
+	public Failure(string message, int code) {
+		self.message = message;
+		self.code = code;
+	}
+
+	public string toString() { return self.message; }
+}
+
+class ValueFailure extends Failure {
+	public ValueFailure(string message) {
+		self.message = message;
+		self.code = 1;
+	}
+}
+
+class IOFailure extends Failure {
+	public IOFailure(string message) {
+		self.message = message;
+		self.code = 2;
+	}
+}
+
 int main() {
-	// Err case: error payload is a structured Error subclass.
-	Result<int, Error> bad = new Result<int, Error>(false, 0, new ValueError("bad"));
+	// Err case: error payload is a structured Failure subclass.
+	Result<int, Failure> bad = new Result<int, Failure>(false, 0, new ValueFailure("bad"));
 	assert(bad.isErr());
 	assert(!bad.isOk());
-	Error e = bad.unwrapErr();
-	assert(e.code == 1);                 // ValueError.code
+	Failure e = bad.unwrapErr();
+	assert(e.code == 1);                 // ValueFailure.code
 	assert(e.toString().equals("bad"));  // inherited toString()
 	assert(e.message.equals("bad"));
 
 	// Ok case: value payload is intact, error side unused.
-	Result<int, Error> good = new Result<int, Error>(true, 42, new IOError(""));
+	Result<int, Failure> good = new Result<int, Failure>(true, 42, new IOFailure(""));
 	assert(good.isOk());
 	assert(good.unwrap() == 42);
 

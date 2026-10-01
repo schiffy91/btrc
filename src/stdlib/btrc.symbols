@@ -1,8 +1,7 @@
-btrc-symbols 1 b2910c0c-253255-27
+btrc-symbols 1 ba105b59-248074-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
-BorrowedClosure	Callback.btrc
 Bytes	Bytes.btrc
 CLIArgs	CLI.btrc
 CLICommand	CLI.btrc
@@ -32,7 +31,6 @@ Complete	Callback.btrc
 Console	Console.btrc
 DateTime	Datetime.btrc
 Environment	Platform.btrc
-Error	Error.btrc
 ExecResult	Process.btrc
 FILE_DIRECTORY	IO.btrc
 FILE_LINE_READ_END	IO.btrc
@@ -56,8 +54,6 @@ FileSnapshotReadKind	IO.btrc
 FileSnapshotReadOutcome	IO.btrc
 ICallbackContext	Callback.btrc
 ICallbackRegistration	Callback.btrc
-IOError	Error.btrc
-IndexError	Error.btrc
 Iterable	Iterable.btrc
 JSON	JSONX.btrc
 JSONNum	JSON.btrc
@@ -65,7 +61,6 @@ JSONObject	JSON.btrc
 JSONParser	JSON.btrc
 JSONText	JSON.btrc
 JSONValue	JSON.btrc
-KeyError	Error.btrc
 List	List.btrc
 ListNode	List.btrc
 Map	Map.btrc
@@ -110,16 +105,15 @@ StringBuilder	Strings.btrc
 Strings	Strings.btrc
 TOML	TOML.btrc
 Timer	Datetime.btrc
-TypeError	Error.btrc
 UnixPattern	Pattern.btrc
 UnixPipe	Process.btrc
 UnixPlatform	Platform.btrc
 UnixProcess	Process.btrc
 UnixShell	Process.btrc
-ValueError	Error.btrc
 Vector	Vector.btrc
 btrcSpscCopy	SPSC.btrc
 btrcSpscNextCursor	SPSC.btrc
+callbackBackoff	Callback.btrc
 callbackGateCloseAdmission	Callback.btrc
 callbackGateDrain	Callback.btrc
 callbackGateLeave	Callback.btrc

@@ -621,7 +621,7 @@ class CallValidator {
 		if (effect == "alias" || effect == "independent" || (effect == "fresh" && self.hostedAbi.returnDeallocatorForCall(value.callee.name, value) == "free")) {
 			return;
 		}
-		TypeValidator.fail(subject + " cannot implicitly convert raw 'char*' storage to managed " + "'string' because its ownership is not proven; transfer fresh " + "storage with __btrc_str_track() or make an explicit copy", value);
+		TypeValidator.fail(subject + " cannot implicitly convert raw 'char*' storage to managed " + "'string' because its ownership is not proven; transfer fresh " + "storage with __btrc_string_adopt() or make an explicit copy", value);
 	}
 
 	public void validateSourceHelperConsumer(string name, int index, Node argument, Map<string, Node> vars) {
@@ -1135,7 +1135,7 @@ class CallValidator {
 		return parameter;
 	}
 
-	public bool zeroArgStringMethod(string method) { return method == "len" || method == "byteLen" || method == "length" || method == "charLen" || method == "isEmpty" || method == "isBlank" || method == "isUpper" || method == "isLower" || method == "isAlnum" || method == "isAlnumStr" || method == "isDigit" || method == "isDigitStr" || method == "isAlpha" || method == "isAlphaStr" || method == "trim" || method == "lstrip" || method == "rstrip" || method == "toUpper" || method == "toLower" || method == "reverse" || method == "capitalize" || method == "title" || method == "swapCase" || method == "toInt" || method == "toFloat" || method == "toDouble" || method == "toLong" || method == "toBool"; }
+	public bool zeroArgStringMethod(string method) { return method == "len" || method == "byteLen" || method == "length" || method == "charLen" || method == "isEmpty" || method == "isBlank" || method == "isUpper" || method == "isLower" || method == "isAlnum" || method == "isDigit" || method == "isAlpha" || method == "trim" || method == "lstrip" || method == "rstrip" || method == "toUpper" || method == "toLower" || method == "reverse" || method == "capitalize" || method == "title" || method == "swapCase" || method == "toInt" || method == "toFloat" || method == "toDouble" || method == "toLong" || method == "toBool"; }
 
 	class bool oneStringArgMethod(string method) { return method == "equals" || method == "contains" || method == "startsWith" || method == "endsWith" || method == "indexOf" || method == "lastIndexOf" || method == "count" || method == "removePrefix" || method == "removeSuffix" || method == "split"; }
 

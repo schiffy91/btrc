@@ -1823,7 +1823,7 @@ class OwnershipLowerer:
             return True
         callee = expression.callee
         if isinstance(callee, Identifier):
-            return callee.name in {"__btrc_str_track", "__btrc_string_adopt", "__btrc_string_alloc"}
+            return callee.name in {"__btrc_string_adopt", "__btrc_string_alloc"}
         if not isinstance(callee, FieldAccessExpr):
             return False
         receiver_type = self._session.type_of(callee.obj)

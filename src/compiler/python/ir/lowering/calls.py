@@ -2699,8 +2699,8 @@ class CallLowerer:
         call = IRCall(callee=helper, args=operands, helper_ref=helper)
         if method not in _STRING_TRACK_METHODS:
             return call
-        self._session.require_helper("__btrc_str_track")
-        return IRCall(callee="__btrc_str_track", args=[call], helper_ref="__btrc_str_track")
+        self._session.require_helper("__btrc_string_adopt")
+        return IRCall(callee="__btrc_string_adopt", args=[call], helper_ref="__btrc_string_adopt")
 
     @staticmethod
     def _materialize_string_special(method: str, operands: list[IRExpr]) -> IRExpr:
@@ -2752,9 +2752,9 @@ class CallLowerer:
             )
         helper = self._to_string_helper(base)
         self._session.require_helper(helper)
-        self._session.require_helper("__btrc_str_track")
+        self._session.require_helper("__btrc_string_adopt")
         converted = IRCall(callee=helper, args=[receiver], helper_ref=helper)
-        return IRCall(callee="__btrc_str_track", args=[converted], helper_ref="__btrc_str_track")
+        return IRCall(callee="__btrc_string_adopt", args=[converted], helper_ref="__btrc_string_adopt")
 
     @staticmethod
     def _to_string_helper(base: str) -> str:
@@ -3122,8 +3122,8 @@ class CallLowerer:
         if mode == COPY:
             self._session.require_helper("__btrc_strdup")
             value = IRCall(callee="__btrc_strdup", args=[value], helper_ref="__btrc_strdup")
-        self._session.require_helper("__btrc_str_track")
-        return IRCall(callee="__btrc_str_track", args=[value], helper_ref="__btrc_str_track")
+        self._session.require_helper("__btrc_string_adopt")
+        return IRCall(callee="__btrc_string_adopt", args=[value], helper_ref="__btrc_string_adopt")
 
     def materialize_requested_hosted_result(self, source, call: IRExpr) -> IRExpr:
         """Apply one recorded hosted result conversion to its own call IR."""

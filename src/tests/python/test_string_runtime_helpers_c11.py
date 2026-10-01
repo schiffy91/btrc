@@ -84,15 +84,6 @@ int main(void) { char value[] = "borrowed"; __btrc_string_release_cleanup(value)
     "__btrc_string_live_count": """
 int main(void) { return __btrc_string_live_count() == 0 ? 0 : 1; }
 """,
-    "__btrc_str_track": """
-int main(void) {
-    char* value = (char*)__btrc_safe_realloc(NULL, 1); value[0] = '\\0';
-    return __btrc_str_track(value) == value ? 0 : 1;
-}
-""",
-    "__btrc_str_flush": """
-int main(void) { __btrc_str_flush(); return 0; }
-""",
     "__btrc_string_alloc": """
 int main(void) { char* value = __btrc_string_alloc(0); return value[0] == '\\0' ? 0 : 1; }
 """,

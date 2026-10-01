@@ -630,6 +630,15 @@ void saturatedAndClosedGatesFailClosed() {
     assert(closed.load(MemoryOrder.ACQUIRE) == 1u);
 }
 
+void drainClosesAdmissionAndToleratesNull() {
+    callbackGateDrain(null);
+    callbackGateCloseAdmission(null);
+    Atomic<uint> idle = Atomic(0u);
+    callbackGateDrain(&idle);
+    assert(idle.load(MemoryOrder.ACQUIRE) == 1u);
+    assert(!callbackGateTryEnter(&idle));
+}
+
 void ownedClosureCloseIsACompletionBarrier() {
     ownedDestroyStarted.store(0u, MemoryOrder.RELAXED);
     ownedReleaseDestroy.store(0u, MemoryOrder.RELAXED);
@@ -679,6 +688,7 @@ int main() {
     throwingUnregisterLeavesACompletedRetryState();
     throwingActivationRollsBackBeforeConstructionEscapes();
     saturatedAndClosedGatesFailClosed();
+    drainClosesAdmissionAndToleratesNull();
     ownedClosureCloseIsACompletionBarrier();
     cancellationDoesNotWaitForItsOwnExecutor();
     cancellationFailureKeepsContextUntilExplicitRetry();

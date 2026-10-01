@@ -45,9 +45,7 @@ def test_substring_clamps_without_adding_signed_integers() -> None:
 
 def test_string_helpers_only_use_checked_allocation_and_known_dependencies() -> None:
     rows = {row.name: row for row in RUNTIME_HELPER_ROWS}
-    string_rows = tuple(
-        row for row in RUNTIME_HELPER_ROWS if row.category in {"string_ownership", "string_pool", "string"}
-    )
+    string_rows = tuple(row for row in RUNTIME_HELPER_ROWS if row.category in {"string_ownership", "string"})
 
     for row in string_rows:
         assert "(char*)malloc(" not in row.c_source
@@ -88,11 +86,10 @@ def test_string_families_are_generated_once_for_both_compilers() -> None:
 def test_string_family_categories_are_complete_and_disjoint() -> None:
     grouped = {
         category: {row.name for row in RUNTIME_HELPER_ROWS if row.category == category}
-        for category in ("string_ownership", "string_pool", "string")
+        for category in ("string_ownership", "string")
     }
 
     assert all(grouped.values())
-    assert grouped["string_ownership"].isdisjoint(grouped["string_pool"])
     assert grouped["string_ownership"].isdisjoint(grouped["string"])
-    assert grouped["string_pool"].isdisjoint(grouped["string"])
+    assert not any(row.category == "string_pool" for row in RUNTIME_HELPER_ROWS)
     assert set(EXPECTED_OPERATION_HELPERS) <= grouped["string"]

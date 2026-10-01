@@ -120,7 +120,7 @@ class CLICommandLine {
 				continue;
 			}
 			if (value.startsWith("--")) {
-				var split = Strings.find(value, "=", 0);
+				var split = value.find("=", 0);
 				if (split >= 0) {
 					var name = value.substring(0, split);
 					var optionValue = value.substring(split + 1, value.len() - split - 1);
@@ -230,7 +230,7 @@ class CLIHelp {
 		return self;
 	}
 
-	public string padding() { return Strings.repeat(" ", self.width); }
+	public string padding() { return " ".repeat(self.width); }
 
 	public CLIHelp line(string text) {
 		self.lines.push(text);
@@ -257,7 +257,7 @@ class CLIHelp {
 			}
 			return self;
 		}
-		var padded = Strings.padRight(signature, self.width, ' ');
+		var padded = signature.padRight(self.width, ' ');
 		self.line(f"  {padded}{description}");
 		return self;
 	}

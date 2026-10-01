@@ -1,18 +1,48 @@
-/* Error class hierarchy used polymorphically: store distinct Error subclasses in
- * a Vector<Error>, then iterate and read the per-subclass `code` field plus the
- * inherited toString() in a loop. test_stdlib_error only does flat field access on
- * individually-typed locals; it never stores subclasses in a collection nor
- * dispatches over them. */
-import Library.Error;
+/* An error-object class hierarchy used polymorphically: store distinct
+ * subclasses in a Vector<Failure>, then iterate and read the per-subclass `code`
+ * field plus the inherited toString() in a loop. */
 import Library.Vector;
 
 #include <assert.h>
 
+class Failure {
+	public string message;
+	public int code;
+
+	public Failure(string message, int code) {
+		self.message = message;
+		self.code = code;
+	}
+
+	public string toString() { return self.message; }
+}
+
+class ValueFailure extends Failure {
+	public ValueFailure(string message) {
+		self.message = message;
+		self.code = 1;
+	}
+}
+
+class IOFailure extends Failure {
+	public IOFailure(string message) {
+		self.message = message;
+		self.code = 2;
+	}
+}
+
+class KeyFailure extends Failure {
+	public KeyFailure(string message) {
+		self.message = message;
+		self.code = 5;
+	}
+}
+
 int main() {
-	Vector<Error> errs = [];
-	errs.push(new ValueError("v"));   // code 1
-	errs.push(new IOError("i"));      // code 2
-	errs.push(new KeyError("k"));     // code 5
+	Vector<Failure> errs = [];
+	errs.push(new ValueFailure("v"));   // code 1
+	errs.push(new IOFailure("i"));      // code 2
+	errs.push(new KeyFailure("k"));     // code 5
 	assert(errs.len == 3);
 
 	int sumCodes = 0;

@@ -100,14 +100,14 @@ def test_explicit_string_adoption_is_owned_and_materializes_its_helpers():
             char* raw = (char*)__btrc_safe_realloc(NULL, (size_t)2);
             raw[0] = (char)120;
             raw[1] = (char)0;
-            string owned = __btrc_str_track(raw);
+            string owned = __btrc_string_adopt(raw);
             return owned[0] == (char)120 ? 0 : 1;
         }
     """)
     emitted = _emit(module)
 
-    assert "static inline char* __btrc_str_track" in emitted
-    assert "char* owned = __btrc_str_track(raw);" in emitted
+    assert "static inline char* __btrc_string_adopt" in emitted
+    assert "char* owned = __btrc_string_adopt(raw);" in emitted
     clear = emitted.index("owned = NULL;")
     release = emitted.index("__btrc_string_release(", clear)
     assert clear < release

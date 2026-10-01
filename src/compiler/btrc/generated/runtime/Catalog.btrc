@@ -79,8 +79,6 @@ class GeneratedRuntimeCatalogData {
 		self.pushRows23();
 		self.pushRows24();
 		self.pushRows25();
-		self.pushRows26();
-		self.pushRows27();
 		self.intrinsicEffects = [];
 		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "compareExchangeStrong", "safe", "atomic_compare_exchange_strong_explicit", "Atomic.compareExchangeStrong"));
 		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "exchange", "safe", "atomic_exchange_explicit", "Atomic.exchange"));
@@ -354,30 +352,6 @@ class GeneratedRuntimeCatalogData {
 			true,
 			"unknown"));
 		self.rows.push(GeneratedRuntimeHelperRow(
-			"string_pool",
-			"__btrc_str_track",
-			[
-			"static inline char* __btrc_str_track(char* s) {\n    return __btrc_string_adopt(s);\n}",
-		],
-			["__btrc_string_adopt"],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			true,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
-			"string_pool",
-			"__btrc_str_flush",
-			[
-			"static inline void __btrc_str_flush(void) {\n    /* Retained for source compatibility; ownership is explicit. */\n}",
-		],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_string_or_empty",
 			[
@@ -401,9 +375,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
-	}
-
-	private void pushRows3() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_string_alloc",
@@ -428,6 +399,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows3() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_ascii_lower",
@@ -500,9 +474,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows4() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_replace",
@@ -529,6 +500,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows4() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_repeat",
@@ -601,9 +575,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows5() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_swapCase",
@@ -628,6 +599,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows5() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_padRight",
@@ -700,9 +674,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows6() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_join",
@@ -728,6 +699,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows6() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_indexOf",
@@ -800,9 +774,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows7() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_count",
@@ -827,6 +798,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows7() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_isDigitStr",
@@ -899,9 +873,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows8() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_utf8_charlen",
@@ -927,6 +898,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows8() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_parseLong",
@@ -999,9 +973,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows9() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_uintToString",
@@ -1026,6 +997,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows9() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_ulongLongToString",
@@ -1098,9 +1072,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows10() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_fromFloat",
@@ -1114,93 +1085,6 @@ class GeneratedRuntimeCatalogData {
 			false,
 			"unknown"));
 		self.rows.push(GeneratedRuntimeHelperRow(
-			"math",
-			"__btrc_math_factorial",
-			[
-			"static inline long long __btrc_math_factorial(int n) {\n    if (n < 0) { fprintf(stderr, \"btrc: factorial of negative number\\n\"); exit(1); }\n    if (n > 20) { fprintf(stderr, \"btrc: factorial overflow (n=%d)\\n\", n); exit(1); }\n    long long r = 1;\n    for (int i = 2; i <= n; i++) r *= i;\n    return r;\n}",
-		],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
-			"math",
-			"__btrc_math_gcd",
-			[
-			"static inline int __btrc_math_gcd(int a, int b) {\n    unsigned int ua = a < 0 ? 0u - (unsigned int)a : (unsigned int)a;\n    unsigned int ub = b < 0 ? 0u - (unsigned int)b : (unsigned int)b;\n    while (ub) { unsigned int t = ub; ub = ua % ub; ua = t; }\n    if (ua > INT_MAX) { fprintf(stderr, \"btrc: gcd result overflow\\n\"); exit(1); }\n    return (int)ua;\n}",
-		],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
-			"math",
-			"__btrc_math_lcm",
-			[
-			"static inline int __btrc_math_lcm(int a, int b) {\n    if (a == 0 || b == 0) return 0;\n    int g = __btrc_math_gcd(a, b);\n    long long result = ((long long)a / g) * (long long)b;\n    if (result < 0) result = -result;\n    if (result > INT_MAX) { fprintf(stderr, \"btrc: lcm result overflow\\n\"); exit(1); }\n    return (int)result;\n}",
-		],
-			["__btrc_math_gcd"],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
-			"math",
-			"__btrc_math_fibonacci",
-			[
-			"static inline int __btrc_math_fibonacci(int n) {\n    if (n <= 0) return 0;\n    if (n == 1) return 1;\n    if (n > 46) { fprintf(stderr, \"btrc: fibonacci result overflow\\n\"); exit(1); }\n    int a = 0, b = 1;\n    for (int i = 2; i <= n; i++) { int t = a + b; a = b; b = t; }\n    return b;\n}",
-		],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
-			"math",
-			"__btrc_math_isPrime",
-			[
-			"static inline bool __btrc_math_isPrime(int n) {\n    if (n < 2) return false;\n    if (n < 4) return true;\n    if (n % 2 == 0 || n % 3 == 0) return false;\n    for (int i = 5; i <= n / i; i += 6)\n        if (n % i == 0 || n % (i + 2) == 0) return false;\n    return true;\n}",
-		],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
-			"math",
-			"__btrc_math_sum_int",
-			[
-			"static inline int __btrc_math_sum_int(int* data, int size) {\n    if (size <= 0) return 0;\n    if (!data) { fprintf(stderr, \"btrc: sum received null data\\n\"); exit(1); }\n    long long sum = 0;\n    for (int i = 0; i < size; i++) sum += data[i];\n    if (sum < INT_MIN || sum > INT_MAX) { fprintf(stderr, \"btrc: sum result overflow\\n\"); exit(1); }\n    return (int)sum;\n}",
-		],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
-			"math",
-			"__btrc_math_fsum",
-			[
-			"static inline float __btrc_math_fsum(float* data, int size) {\n    if (size <= 0) return 0.0f;\n    if (!data) { fprintf(stderr, \"btrc: fsum received null data\\n\"); exit(1); }\n    float s = 0.0f;\n    for (int i = 0; i < size; i++) s += data[i];\n    return s;\n}",
-		],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-	}
-
-	private void pushRows11() {
-		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_tls_state",
 			[
@@ -1213,6 +1097,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows10() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_try_level",
@@ -1297,9 +1184,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows12() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_push_try",
@@ -1313,6 +1197,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows11() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"hash",
 			"__btrc_hash_real",
@@ -1399,9 +1286,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows13() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_lock_state",
@@ -1415,6 +1299,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows12() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_snapshot_state",
@@ -1499,9 +1386,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows14() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_mutation_lock",
@@ -1514,6 +1398,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows13() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_destroyed_tracking_scope",
@@ -1600,9 +1487,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows15() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_suspect_locked",
@@ -1618,6 +1502,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows14() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_suspect",
@@ -1706,9 +1593,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows16() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_cycle_collector_state",
@@ -1722,6 +1606,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows15() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_graph_primitives",
@@ -1833,9 +1720,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows17() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_abandon_queue_drain",
@@ -1848,6 +1732,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows16() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_topology_cleanup",
@@ -1936,9 +1823,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows18() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_retain_edge",
@@ -1952,6 +1836,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows17() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_adopt_edge",
@@ -2041,9 +1928,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows19() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_invalidate",
@@ -2056,6 +1940,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows18() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_destroy_slot",
@@ -2147,9 +2034,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows20() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_cleanup_types",
@@ -2162,6 +2046,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows19() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_register_cleanup_kind",
@@ -2249,9 +2136,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows21() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_raise_captured",
@@ -2264,6 +2148,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows20() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_run_cleanup_guarded",
@@ -2350,9 +2237,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
-	}
-
-	private void pushRows22() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_close_descriptors_except",
@@ -2365,6 +2249,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
+	}
+
+	private void pushRows21() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_close_descriptors_except_many",
@@ -2452,9 +2339,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
-	}
-
-	private void pushRows23() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_exec_signal_guard_begin",
@@ -2467,6 +2351,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
+	}
+
+	private void pushRows22() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_exec_signal_guard_parent_end",
@@ -2553,9 +2440,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows24() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_thread_box_dispose",
@@ -2568,6 +2452,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows23() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_thread_arc_dispose",
@@ -2652,9 +2539,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows25() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_mutex_finalize_callback_guard",
@@ -2667,6 +2551,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows24() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_mutex_arc_retain",
@@ -2754,9 +2641,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows26() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_mutex_val_get",
@@ -2770,6 +2654,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows25() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_mutex_val_set",
@@ -2856,7 +2743,17 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"cycles",
+			"__btrc_interface_methods",
+			[
+			"static inline const void* __btrc_interface_methods(void* object, const char* name) {\n    const void* methods = __btrc_interface_try_methods(object, name);\n    if (methods) return methods;\n    fprintf(stderr, \"btrc: invalid interface receiver for %s\\n\", name);\n    abort();\n}",
+		],
+			["__btrc_interface_try_methods"],
+			["string.h", "stdio.h", "stdlib.h"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			false,
+			"unknown"));
 	}
-
-	private void pushRows27() { self.rows.push(GeneratedRuntimeHelperRow("cycles", "__btrc_interface_methods", ["static inline const void* __btrc_interface_methods(void* object, const char* name) {\n    const void* methods = __btrc_interface_try_methods(object, name);\n    if (methods) return methods;\n    fprintf(stderr, \"btrc: invalid interface receiver for %s\\n\", name);\n    abort();\n}",], ["__btrc_interface_try_methods"], ["string.h", "stdio.h", "stdlib.h"], self.emptyStrings(), self.emptyStrings(), false, "unknown")); }
 }

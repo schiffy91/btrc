@@ -6,7 +6,7 @@ string managedCopy(string value) {
 	size_t length = strlen(value);
 	char* copy = (char*)malloc(length + (size_t)1);
 	memcpy(copy, value, length + (size_t)1);
-	return __btrc_str_track(copy);
+	return __btrc_string_adopt(copy);
 }
 
 char* rawCopy(string value) {

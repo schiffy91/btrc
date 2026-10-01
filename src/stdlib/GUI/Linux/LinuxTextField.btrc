@@ -133,7 +133,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		string pasted = "";
 		try { pasted = Strings.copy(raw); } finally { SDL_free((void*)raw); }
 		if (!Bytes.fromString(pasted).isNulFreeUtf8()) { return; }
-		self.replaceSelection(Strings.replace(Strings.replace(pasted, "\n", " "), "\r", ""));
+		self.replaceSelection(pasted.replace("\n", " ").replace("\r", ""));
 	}
 
 	public void paint(LinuxPainter painter, double x, double y) {

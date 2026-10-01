@@ -1698,13 +1698,13 @@ class ExpressionLowerer {
 		}
 		if (op == "+" && (TypeComposition.isSemanticScalarString(leftType) || self.operators.isCStringPointer(leftType)) && (TypeComposition.isSemanticScalarString(rightType) || self.operators.isCStringPointer(rightType)) && (TypeComposition.isSemanticScalarString(leftType) || TypeComposition.isSemanticScalarString(rightType))) {
 			self.context.referenceHelper("__btrc_strcat");
-			self.context.referenceHelper("__btrc_str_track");
+			self.context.referenceHelper("__btrc_string_adopt");
 			Vector<IRNode> catArgs = [];
 			catArgs.push(left);
 			catArgs.push(right);
 			Vector<IRNode> trackArgs = [];
 			trackArgs.push(IRNode.call("__btrc_strcat", catArgs));
-			return IRNode.call("__btrc_str_track", trackArgs);
+			return IRNode.call("__btrc_string_adopt", trackArgs);
 		}
 		if (self.operators.isComparisonOperator(op)) {
 			int domain = self.operators.comparisonDomain(op, leftType, rightType);
@@ -3487,13 +3487,13 @@ class ExpressionLowerer {
 
 	private IRNode irTrackedStringConcat(IRNode left, IRNode right) {
 		self.context.referenceHelper("__btrc_strcat");
-		self.context.referenceHelper("__btrc_str_track");
+		self.context.referenceHelper("__btrc_string_adopt");
 		Vector<IRNode> concatArguments = [];
 		concatArguments.push(left);
 		concatArguments.push(right);
 		Vector<IRNode> trackArguments = [];
 		trackArguments.push(IRNode.call("__btrc_strcat", concatArguments));
-		return IRNode.call("__btrc_str_track", trackArguments);
+		return IRNode.call("__btrc_string_adopt", trackArguments);
 	}
 
 	private void irRegisterConcatCleanup(IRNode declaration, string name, string runtimeType, Vector<IRNode> sequence) {

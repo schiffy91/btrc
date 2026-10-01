@@ -89,7 +89,7 @@ class OwnershipSemantics {
 		Node callee = call.callee;
 		if (callee == null) { return false; }
 		if (callee.kind == NK_IDENTIFIER) {
-			return callee.name == "__btrc_string_alloc" || callee.name == "__btrc_string_adopt" || callee.name == "__btrc_str_track";
+			return callee.name == "__btrc_string_alloc" || callee.name == "__btrc_string_adopt";
 		}
 		if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
 		Node? receiverType = self.expressionType(callee.obj, environment);

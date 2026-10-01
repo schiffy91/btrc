@@ -19,8 +19,6 @@ __btrc_string_retain
 __btrc_string_release
 __btrc_string_release_cleanup
 __btrc_string_live_count
-__btrc_str_track
-__btrc_str_flush
 __btrc_string_or_empty
 __btrc_string_length
 __btrc_string_alloc
@@ -80,13 +78,6 @@ __btrc_longDoubleToString
 __btrc_charToString
 __btrc_fromInt
 __btrc_fromFloat
-__btrc_math_factorial
-__btrc_math_gcd
-__btrc_math_lcm
-__btrc_math_fibonacci
-__btrc_math_isPrime
-__btrc_math_sum_int
-__btrc_math_fsum
 __btrc_tls_state
 __btrc_try_level
 __btrc_trycatch_globals

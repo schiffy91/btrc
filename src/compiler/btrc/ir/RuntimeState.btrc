@@ -31,7 +31,7 @@ class RuntimeUnitState {
 			}
 			if (current.len == 0 && (stripped.isEmpty() || stripped.startsWith("/*") || stripped.startsWith("*") || stripped.startsWith("//"))) { continue; }
 			current.push(line);
-			depth = depth + Strings.count(line, "{") - Strings.count(line, "}");
+			depth = depth + line.count("{") - line.count("}");
 			if (depth == 0 && (stripped.endsWith(";") || stripped.endsWith("}"))) { units.push(Strings.join(current, "\n")); current = []; }
 		}
 		if (current.len > 0) { units.push(Strings.join(current, "\n")); }
@@ -41,15 +41,15 @@ class RuntimeUnitState {
 	/* True when the unit is a function definition rather than a variable. */
 	class bool isFunctionDefinition(string unit) {
 		if (unit.trim().startsWith("#")) { return false; }
-		int brace = Strings.find(unit, "{", 0);
+		int brace = unit.find("{", 0);
 		if (brace < 0) { return false; }
-		string signature = Strings.rstrip(unit.substring(0, brace));
+		string signature = unit.substring(0, brace).rstrip();
 		return signature.contains("(") && !signature.endsWith("=");
 	}
 
 	/* A `static` file-scope variable that is neither const nor a function. */
 	class bool isMutableState(string unit) {
-		string head = Strings.lstrip(unit);
+		string head = unit.lstrip();
 		if (!head.startsWith("static ") || head.startsWith("static const ") || head.startsWith("static inline ")) { return false; }
 		return !RuntimeUnitState.isFunctionDefinition(unit);
 	}
@@ -57,7 +57,7 @@ class RuntimeUnitState {
 	/* `text` without the leading `static`/`inline` specifiers that give a
 	 * helper internal linkage; the remaining specifiers keep their order. */
 	class string external(string text) {
-		Vector<string> words = Strings.split(Strings.lstrip(text), " ");
+		Vector<string> words = Strings.split(text.lstrip(), " ");
 		int kept = 0;
 		while (kept < words.len && (words.get(kept) == "static" || words.get(kept) == "inline")) { kept = kept + 1; }
 		Vector<string> rest = [];
@@ -72,20 +72,20 @@ class RuntimeUnitState {
 	class string runtimeLinkage(string source, bool define) {
 		Vector<string> output = [];
 		for unit in RuntimeUnitState.splitToplevelUnits(source) {
-			string head = Strings.lstrip(unit);
+			string head = unit.lstrip();
 			if (head.startsWith("#") || !(head.startsWith("static ") || head.startsWith("inline "))) { output.push(unit); continue; }
 			if (RuntimeUnitState.isFunctionDefinition(unit)) {
 				if (define) { output.push(RuntimeUnitState.external(unit)); continue; }
-				int brace = Strings.find(unit, "{", 0);
-				output.push(RuntimeUnitState.external(Strings.rstrip(unit.substring(0, brace)) + ";"));
+				int brace = unit.find("{", 0);
+				output.push(RuntimeUnitState.external(unit.substring(0, brace).rstrip() + ";"));
 				continue;
 			}
 			string definition = RuntimeUnitState.external(unit);
 			if (define) { output.push(definition); continue; }
-			string declaration = Strings.rstrip(definition);
+			string declaration = definition.rstrip();
 			if (declaration.endsWith(";")) { declaration = declaration.substring(0, declaration.length() - 1); }
-			int initializer = Strings.find(declaration, "=", 0);
-			if (initializer >= 0) { declaration = Strings.rstrip(declaration.substring(0, initializer)); }
+			int initializer = declaration.find("=", 0);
+			if (initializer >= 0) { declaration = declaration.substring(0, initializer).rstrip(); }
 			output.push("extern " + declaration + ";");
 		}
 		return Strings.join(output, "\n");
@@ -97,13 +97,13 @@ class RuntimeUnitState {
 		Vector<string> output = [];
 		for unit in RuntimeUnitState.splitToplevelUnits(source) {
 			if (!RuntimeUnitState.isMutableState(unit)) { output.push(unit); continue; }
-			string head = Strings.lstrip(unit);
+			string head = unit.lstrip();
 			string definition = head.substring(7, head.length() - 7);
 			if (primary) { output.push(definition); continue; }
-			string declaration = Strings.rstrip(definition);
+			string declaration = definition.rstrip();
 			if (declaration.endsWith(";")) { declaration = declaration.substring(0, declaration.length() - 1); }
-			int initializer = Strings.find(declaration, "=", 0);
-			if (initializer >= 0) { declaration = Strings.rstrip(declaration.substring(0, initializer)); }
+			int initializer = declaration.find("=", 0);
+			if (initializer >= 0) { declaration = declaration.substring(0, initializer).rstrip(); }
 			output.push("extern " + declaration + ";");
 		}
 		return Strings.join(output, "\n");

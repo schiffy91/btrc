@@ -43,7 +43,7 @@ class HTTPRequest {
 		if (self.query == null || self.query.isEmpty()) { return out; }
 		for pair in Strings.split(self.query, "&") {
 			if (pair.isEmpty()) { continue; }
-			int eq = Strings.find(pair, "=", 0);
+			int eq = pair.find("=", 0);
 			if (eq < 0) {
 				out.put(HTTPUrl.decode(pair), "");
 			} else {

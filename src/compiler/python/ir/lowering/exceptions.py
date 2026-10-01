@@ -1707,14 +1707,14 @@ class ExceptionLowerer:
         from src.compiler.python.syntax.ast.generated import TypeExpr
 
         self._session.require_helper("__btrc_strdup")
-        self._session.require_helper("__btrc_str_track")
+        self._session.require_helper("__btrc_string_adopt")
         return [
             ExceptionBinding(
                 name=node.catch_var,
                 c_type="char*",
                 type_expr=TypeExpr(base="string"),
                 value=IRCall(
-                    callee="__btrc_str_track",
+                    callee="__btrc_string_adopt",
                     args=[
                         IRCall(
                             callee="__btrc_strdup",
@@ -1722,7 +1722,7 @@ class ExceptionLowerer:
                             helper_ref="__btrc_strdup",
                         )
                     ],
-                    helper_ref="__btrc_str_track",
+                    helper_ref="__btrc_string_adopt",
                 ),
                 owned=True,
             )

@@ -145,7 +145,7 @@ def test_non_free_managed_helper_raw_result_is_rejected_by_both_analyzers(
     source = """
         #include <string.h>
         int main() {
-            string value = (char*)__btrc_str_track(strdup("owned"));
+            string value = (char*)__btrc_string_adopt(strdup("owned"));
             return value == null ? 0 : 0;
         }
     """
@@ -167,7 +167,7 @@ def test_hosted_results_are_converted_inside_operand_lifetime_boundary(
     )
     for _frontend, generated in compiled:
         source = generated.read_text()
-        assert "__btrc_str_track(strdup" in source
+        assert "__btrc_string_adopt(strdup" in source
         assert "__btrc_strdup" in source
     run_strict_pair(compiled, tmp_path)
     toolchain = require_sanitizers(tmp_path)
@@ -193,7 +193,7 @@ def test_getcwd_null_result_is_adopted_without_leaking_original_allocation(
     )
     for artifact in compiled:
         generated = artifact[1].read_text()
-        assert "__btrc_str_track(getcwd" in generated
+        assert "__btrc_string_adopt(getcwd" in generated
         assert "__btrc_strdup(getcwd" not in generated
         _tracked_strict_matrix(
             artifact,
@@ -210,7 +210,7 @@ def test_hosted_result_identity_precedes_bodyful_source_shadow_provenance(
     compiled = _compile_hosted_shadow_pair(semantic_btrcc, tmp_path)
     for _frontend, generated in compiled:
         source = generated.read_text()
-        assert source.count("__btrc_str_track(strdup") >= 2
+        assert source.count("__btrc_string_adopt(strdup") >= 2
         assert "__btrc_source_strdup" in source
     run_strict_pair(compiled, tmp_path)
     toolchain = require_sanitizers(tmp_path)

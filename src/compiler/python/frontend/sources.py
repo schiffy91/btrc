@@ -908,13 +908,6 @@ _PRIORITY_FILES = (
     "Platform.btrc",
     "Process.btrc",
 )
-# Legacy relaxed composition and the prebuilt core archive concatenate root
-# modules after stripping imports. Native adapters with nested source-graph or
-# compiler-owned native-link dependencies must remain explicit imports so the
-# resolver retains those requirements.
-# Every native adapter and nested source graph now lives in a group folder
-# (see src/stdlib/README.md), so no root module needs an exemption today.
-_EXPLICIT_STDLIB_MODULES: frozenset[str] = frozenset()
 _CLASS_NAME = re.compile(
     r"^\s*(?:abstract\s+)?class\s+(\w+)(?:\s*<[^>\n]+>)?\s*"
     r"(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?"
@@ -969,11 +962,6 @@ class StdlibRepository:
         prioritized.extend(name for name in files if name not in _PRIORITY_FILES)
         return prioritized
 
-    def relaxed_composition_files(self) -> list[str]:
-        """Return core modules safe for the legacy monolithic source unit."""
-
-        return [name for name in self.discover_files() if name not in _EXPLICIT_STDLIB_MODULES]
-
     def find_file(self, include_path: str) -> str | None:
         """Find a stdlib file by root-relative path or nested basename.
 
@@ -1013,7 +1001,7 @@ class StdlibRepository:
         lines: list[str] = []
         source_positions: list[tuple[str, int]] = []
         identities: list[SourceReadIdentity] = []
-        for filename in self.relaxed_composition_files():
+        for filename in self.discover_files():
             path = os.path.join(self._directory, filename)
             if not os.path.isfile(path):
                 continue
