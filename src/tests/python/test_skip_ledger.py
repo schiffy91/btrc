@@ -183,7 +183,7 @@ def test_no_macos_rule_expects_a_naga_gated_skip():
 # stage4/tools-ci puts those tools in the dev shell.
 LINUX_SKIPS = {
     "native-reader-macos-only": (
-        "src/tests/python/test_native_import_consumer.py::test_x[python]",
+        "src/tests/python/test_native_callbacks.py::test_x[python]",
         "requires macOS and the explicitly built native header reader",
     ),
     "native-digest-macos-only": (
