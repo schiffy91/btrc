@@ -1,10 +1,18 @@
 /* btrc standard library — Map<K, V>
- * Hash map using open addressing with linear probing.
- * Key comparison via __btrc_eq, hashing via __btrc_hash (djb2).
+ * Hash map using open addressing with linear probing over a power-of-two
+ * table. Keys compare with __btrc_eq and hash with __btrc_hash, whose value
+ * depends on the type: integral keys hash to themselves, strings use djb2,
+ * reals FNV-1a over a canonical double, and references a Fibonacci-mixed
+ * address. slotOf() applies a Fibonacci multiply and folds the high bits down
+ * before reducing to a slot, so keys that share their low bits (multiples of
+ * a power of two) still spread across the table.
  *
  * Performance: put/get/has O(1) average, O(n) worst case.
- * Resize at 75% load factor. Deletion uses backward-shift
- * rehashing (no tombstones) to maintain probe-chain integrity.
+ * Resize at 75% load factor. Deletion leaves no tombstones: removing an
+ * entry re-inserts every later entry of its probe cluster.
+ * Iteration visits slots in table order, which is unspecified.
+ * free() releases every entry and leaves an empty 16-slot table, so the
+ * map stays usable.
  */
 
 import Library.Iterable;
@@ -30,7 +38,9 @@ class Map<K, V> implements Iterable {
 		return nextCap;
 	}
 
-	public Map() {
+	public Map() { self.allocateEmpty(); }
+
+	private void allocateEmpty() {
 		self.cap = 16;
 		self.len = 0;
 		self.keys = (K*)__btrc_safe_calloc(16, sizeof(K));
@@ -38,8 +48,14 @@ class Map<K, V> implements Iterable {
 		self.occupied = (bool*)__btrc_safe_calloc(16, sizeof(bool));
 	}
 
+	/* The probe start for one key. */
+	private unsigned int slotOf(K key) {
+		unsigned int mixed = __btrc_hash(key) * 2654435769u;
+		return (mixed ^ (mixed >> 16)) % (unsigned int)self.cap;
+	}
+
 	public void resize() {
-		int old_cap = self.cap;
+		int oldCap = self.cap;
 		K* oldKeys = self.keys;
 		V* oldValues = self.values;
 		bool* oldOccupied = self.occupied;
@@ -48,7 +64,7 @@ class Map<K, V> implements Iterable {
 		self.keys = (K*)__btrc_safe_calloc(self.cap, sizeof(K));
 		self.values = (V*)__btrc_safe_calloc(self.cap, sizeof(V));
 		self.occupied = (bool*)__btrc_safe_calloc(self.cap, sizeof(bool));
-		for (int i = 0; i < old_cap; i++) {
+		for (int i = 0; i < oldCap; i++) {
 			if (oldOccupied[i]) {
 				self.putMoved(oldKeys[i], oldValues[i]);
 			}
@@ -90,7 +106,7 @@ class Map<K, V> implements Iterable {
 	}
 
 	private void putMoved(K key, V value) {
-		unsigned int idx = __btrc_hash(key) % self.cap;
+		unsigned int idx = self.slotOf(key);
 		while (self.occupied[idx]) {
 			if (__btrc_eq(self.keys[idx], key)) { self.values[idx] = value; return; }
 			idx = (idx + 1) % self.cap;
@@ -102,7 +118,7 @@ class Map<K, V> implements Iterable {
 	}
 
 	private void putRetained(K key, V value) {
-		unsigned int idx = __btrc_hash(key) % self.cap;
+		unsigned int idx = self.slotOf(key);
 		while (self.occupied[idx]) {
 			if (__btrc_eq(self.keys[idx], key)) {
 				keep value;
@@ -121,7 +137,7 @@ class Map<K, V> implements Iterable {
 	}
 
 	public V get(K key) {
-		unsigned int idx = __btrc_hash(key) % self.cap;
+		unsigned int idx = self.slotOf(key);
 		while (self.occupied[idx]) {
 			if (__btrc_eq(self.keys[idx], key)) { return self.values[idx]; }
 			idx = (idx + 1) % self.cap;
@@ -131,7 +147,7 @@ class Map<K, V> implements Iterable {
 	}
 
 	public V getOrDefault(K key, V fallback) {
-		unsigned int idx = __btrc_hash(key) % self.cap;
+		unsigned int idx = self.slotOf(key);
 		while (self.occupied[idx]) {
 			if (__btrc_eq(self.keys[idx], key)) { return self.values[idx]; }
 			idx = (idx + 1) % self.cap;
@@ -140,7 +156,7 @@ class Map<K, V> implements Iterable {
 	}
 
 	public bool has(K key) {
-		unsigned int idx = __btrc_hash(key) % self.cap;
+		unsigned int idx = self.slotOf(key);
 		while (self.occupied[idx]) {
 			if (__btrc_eq(self.keys[idx], key)) { return true; }
 			idx = (idx + 1) % self.cap;
@@ -155,6 +171,11 @@ class Map<K, V> implements Iterable {
 	}
 
 	public void free() {
+		self.releaseStorage();
+		self.allocateEmpty();
+	}
+
+	private void releaseStorage() {
 		for (int i = 0; i < self.cap; i++) {
 			if (self.occupied[i]) {
 				release self.keys[i];
@@ -171,10 +192,10 @@ class Map<K, V> implements Iterable {
 		self.len = 0;
 	}
 
-	public void __del__() { self.free(); }
+	public void __del__() { self.releaseStorage(); }
 
 	public void remove(K key) {
-		unsigned int idx = __btrc_hash(key) % self.cap;
+		unsigned int idx = self.slotOf(key);
 		while (self.occupied[idx]) {
 			if (__btrc_eq(self.keys[idx], key)) {
 				release self.keys[idx];

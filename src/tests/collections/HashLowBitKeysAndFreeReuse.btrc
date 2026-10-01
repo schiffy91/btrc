@@ -1,0 +1,68 @@
+/* Map and Set probe from a mixed slot, not the raw hash: integral keys hash to
+ * themselves, so 64 multiples of 64 share their low six bits and, reduced
+ * straight to a power-of-two table, fall into two slots and two long clusters.
+ * The longest run of occupied slots stays short once the probe start is mixed.
+ * free() leaves an empty, usable table. */
+import Library.Map;
+import Library.Set;
+
+#include <assert.h>
+
+int longestRun(bool* occupied, int cap) {
+	int longest = 0;
+	int run = 0;
+	for (int pass = 0; pass < 2; pass++) {
+		for (int i = 0; i < cap; i++) {
+			if (occupied[i]) {
+				run++;
+				if (run > longest) { longest = run; }
+			} else {
+				run = 0;
+			}
+		}
+	}
+	return longest > cap ? cap : longest;
+}
+
+int main() {
+	Map<int, int> map = {};
+	Set<int> set = Set();
+	for (int i = 0; i < 64; i++) {
+		map.put(i * 64, i);
+		set.add(i * 64);
+	}
+	assert(map.size() == 64);
+	assert(set.size() == 64);
+	for (int i = 0; i < 64; i++) {
+		assert(map.get(i * 64) == i);
+		assert(set.contains(i * 64));
+		assert(!map.has(i * 64 + 1));
+	}
+	assert(longestRun(map.occupied, map.cap) < 16);
+	assert(longestRun(set.occupied, set.cap) < 16);
+
+	for (int i = 0; i < 64; i = i + 2) {
+		map.remove(i * 64);
+		set.remove(i * 64);
+	}
+	for (int i = 0; i < 64; i++) {
+		assert(map.has(i * 64) == (i % 2 == 1));
+		assert(set.contains(i * 64) == (i % 2 == 1));
+	}
+
+	map.free();
+	set.free();
+	assert(map.size() == 0);
+	assert(!map.has(64));
+	assert(map.getOrDefault(64, -1) == -1);
+	map.remove(64);
+	map.put(7, 70);
+	assert(map.get(7) == 70);
+	assert(!set.contains(64));
+	set.add(9);
+	assert(set.contains(9));
+	assert(set.size() == 1);
+
+	print("PASS: test_hash_low_bit_keys_and_free_reuse");
+	return 0;
+}

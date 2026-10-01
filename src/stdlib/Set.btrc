@@ -1,10 +1,18 @@
 /* btrc standard library — Set<T>
- * Hash set using open addressing with linear probing.
- * Element comparison via __btrc_eq, hashing via __btrc_hash (djb2).
+ * Hash set using open addressing with linear probing over a power-of-two
+ * table. Elements compare with __btrc_eq and hash with __btrc_hash, whose value
+ * depends on the type: integral keys hash to themselves, strings use djb2,
+ * reals FNV-1a over a canonical double, and references a Fibonacci-mixed
+ * address. slotOf() applies a Fibonacci multiply and folds the high bits down
+ * before reducing to a slot, so keys that share their low bits (multiples of
+ * a power of two) still spread across the table.
  *
  * Performance: add/contains O(1) average, O(n) worst case.
- * Resize at 75% load factor. Deletion uses backward-shift
- * rehashing (no tombstones) to maintain probe-chain integrity.
+ * Resize at 75% load factor. Deletion leaves no tombstones: removing an
+ * entry re-inserts every later entry of its probe cluster.
+ * Iteration visits slots in table order, which is unspecified.
+ * free() releases every entry and leaves an empty 16-slot table, so the
+ * set stays usable.
  */
 
 import Library.Iterable;
@@ -29,11 +37,19 @@ class Set<T> implements Iterable {
 		return nextCap;
 	}
 
-	public Set() {
+	public Set() { self.allocateEmpty(); }
+
+	private void allocateEmpty() {
 		self.cap = 16;
 		self.len = 0;
 		self.keys = (T*)__btrc_safe_calloc(16, sizeof(T));
 		self.occupied = (bool*)__btrc_safe_calloc(16, sizeof(bool));
+	}
+
+	/* The probe start for one element. */
+	private unsigned int slotOf(T key) {
+		unsigned int mixed = __btrc_hash(key) * 2654435769u;
+		return (mixed ^ (mixed >> 16)) % (unsigned int)self.cap;
 	}
 
 	public void resize() {
@@ -59,7 +75,7 @@ class Set<T> implements Iterable {
 	}
 
 	private void addMoved(T key) {
-		var index = __btrc_hash(key) % self.cap;
+		var index = self.slotOf(key);
 		while (self.occupied[index]) {
 			if (__btrc_eq(self.keys[index], key)) { return; }
 			index = (index + 1) % self.cap;
@@ -70,7 +86,7 @@ class Set<T> implements Iterable {
 	}
 
 	private void addRetained(T key) {
-		var index = __btrc_hash(key) % self.cap;
+		var index = self.slotOf(key);
 		while (self.occupied[index]) {
 			if (__btrc_eq(self.keys[index], key)) { return; }
 			index = (index + 1) % self.cap;
@@ -82,7 +98,7 @@ class Set<T> implements Iterable {
 	}
 
 	public bool contains(T key) {
-		var index = __btrc_hash(key) % self.cap;
+		var index = self.slotOf(key);
 		while (self.occupied[index]) {
 			if (__btrc_eq(self.keys[index], key)) { return true; }
 			index = (index + 1) % self.cap;
@@ -93,7 +109,7 @@ class Set<T> implements Iterable {
 	public bool has(T key) { return self.contains(key); }
 
 	public void remove(T key) {
-		var index = __btrc_hash(key) % self.cap;
+		var index = self.slotOf(key);
 		while (self.occupied[index]) {
 			if (__btrc_eq(self.keys[index], key)) {
 				release self.keys[index];
@@ -114,6 +130,11 @@ class Set<T> implements Iterable {
 	}
 
 	public void free() {
+		self.releaseStorage();
+		self.allocateEmpty();
+	}
+
+	private void releaseStorage() {
 		for (int i = 0; i < self.cap; i++) {
 			if (self.occupied[i]) {
 				release self.keys[i];
@@ -127,7 +148,7 @@ class Set<T> implements Iterable {
 		self.len = 0;
 	}
 
-	public void __del__() { self.free(); }
+	public void __del__() { self.releaseStorage(); }
 
 	public void clear() {
 		for (int i = 0; i < self.cap; i++) {

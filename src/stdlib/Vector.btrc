@@ -181,8 +181,8 @@ class Vector<T> implements Iterable {
 		self.len++;
 	}
 
-	/* Comparison-based methods — use __btrc_eq/__btrc_lt macros
-     * for type-safe string vs primitive comparison. */
+	/* Comparison-based methods — __btrc_eq/__btrc_lt are compiler intrinsics
+	 * lowered per element type (string contents vs primitive values). */
 
 	public bool contains(T val) {
 		for (int i = 0; i < self.len; i++) {
