@@ -109,17 +109,31 @@ class LinuxFonts {
 
 	public LinuxFonts() {
 		self._faces = new Map<int, LinuxFace>();
-		self._regularPath = LinuxFonts.resolve("sans-serif", 80);
-		self._boldPath = LinuxFonts.resolve("sans-serif", 200);
+		self._regularPath = LinuxFonts.resolve("sans-serif", FC_WEIGHT_REGULAR);
+		self._boldPath = LinuxFonts.resolve("sans-serif", FC_WEIGHT_BOLD);
 		if (self._boldPath.isEmpty()) { self._boldPath = self._regularPath; }
 		if (self._regularPath.isEmpty()) { throw "No system sans-serif font is available"; }
 	}
 
+	/* The file of fontconfig's best match for a family and weight; empty when
+	 * none. FcPattern is a record typedef, which the importer cannot declare as
+	 * a resource (docs/design/native-interop.md), so both patterns are
+	 * destroyed explicitly; nothing between creation and destruction throws. */
 	class string resolve(string family, int weight) {
-		var matched = btrcFontconfigMatchFile(family, weight);
-		if (matched == null) { return ""; }
-		string path = Strings.copy(matched);
-		btrcFontconfigFree(matched);
+		if (!FcInit()) { return ""; }
+		FcPattern* pattern = FcNameParse((const FcChar8*)family);
+		if (pattern == null) { return ""; }
+		FcPatternAddInteger(pattern, FC_WEIGHT, weight);
+		FcConfigSubstitute(null, pattern, FcMatchPattern);
+		FcDefaultSubstitute(pattern);
+		FcResult result = FcResultNoMatch;
+		FcPattern* match = FcFontMatch(null, pattern, &result);
+		FcPatternDestroy(pattern);
+		if (match == null) { return ""; }
+		FcChar8* file = null;
+		bool found = FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch && file != null;
+		string path = found ? Strings.copy((char*)file) : "";
+		FcPatternDestroy(match);
 		return path;
 	}
 

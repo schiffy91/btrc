@@ -1,6 +1,10 @@
-/* SDL3 windowing for the Linux GUI provider. The union-typed SDL_Event and
- * the dialog callback cannot cross the typed importer, so these inline
- * adapters flatten them into plain C values; no policy lives here. */
+/* SDL3 windowing for the Linux GUI provider. The manifest binds ordinary SDL
+ * functions directly; this header keeps only what the typed importer cannot
+ * express, each for its stated reason:
+ * - SDL_Event is a union, so btrcSdlPollEvent/WaitEvent flatten it and the
+ *   btrcSdlPush* helpers build one (synthetic input for automation/tests);
+ * - the folder dialog's callback may run on another thread, so its
+ *   transaction (atomic state, two owners) lives on the C side. */
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,20 +96,6 @@ static inline void btrcSdlPushWake(void) {
 	SDL_PushEvent(&event);
 }
 
-static inline void* btrcSdlWindowPointerProperty(SDL_Window* window, const char* name) { return SDL_GetPointerProperty(SDL_GetWindowProperties(window), name, NULL); }
-
-static inline long long btrcSdlWindowNumberProperty(SDL_Window* window, const char* name) { return (long long)SDL_GetNumberProperty(SDL_GetWindowProperties(window), name, 0); }
-
-static inline int btrcSdlWindowFlag(SDL_Window* window, unsigned long long flag) { return (SDL_GetWindowFlags(window) & (SDL_WindowFlags)flag) != 0 ? 1 : 0; }
-
-static inline void btrcSdlSetTextInputArea(SDL_Window* window, int x, int y, int width, int height, int cursor) {
-	SDL_Rect area;
-	area.x = x; area.y = y; area.w = width; area.h = height;
-	SDL_SetTextInputArea(window, &area, cursor);
-}
-
-static inline int btrcSdlSimpleMessageBox(const char* title, const char* message, SDL_Window* window) { return SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, message, window) ? 1 : 0; }
-
 /* One folder-dialog transaction. SDL may deliver the callback on another
  * thread (the zenity backend does), so the result is published through an
  * atomic state after the path is written, and the transaction has two owners:
@@ -161,10 +151,6 @@ static inline int btrcSdlFolderDialogState(BtrcSdlFolderDialog* dialog) { return
 
 /* Valid only after the state reports a selection. */
 static inline const char* btrcSdlFolderDialogPath(const BtrcSdlFolderDialog* dialog) { return dialog->path == NULL ? "" : dialog->path; }
-
-static inline char* btrcSdlClipboardText(void) { return SDL_GetClipboardText(); }
-
-static inline void btrcSdlFree(void* memory) { SDL_free(memory); }
 
 /* Synthetic input for automation and tests: events enter SDL's own queue and
  * reach the window exactly like device events. Coordinates are window points. */

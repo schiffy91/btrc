@@ -14,7 +14,10 @@ import Library.GUI.Linux.LinuxDirectoryPicker;
 import Library.GUI.Linux.LinuxSystemText;
 
 /* Private package implementation for Linux. The static slot is the
- * application owner, not a widget registry. */
+ * application owner, not a widget registry. SDL is initialized once and kept
+ * for the process: a later initialize reuses it, SDL's main thread stays
+ * fixed, and an abandoned folder dialog's callback may still run after
+ * close, so SDL_Quit is deliberately never called. */
 class GUIProvider {
 	class LinuxApplication? active = null;
 	class bool sdlReady = false;

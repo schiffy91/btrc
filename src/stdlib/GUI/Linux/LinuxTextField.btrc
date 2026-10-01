@@ -135,10 +135,10 @@ class LinuxTextField implements ITextField, ILinuxView, ILinuxTextTarget {
 
 	private void paste() {
 		if (!SDL_HasClipboardText()) { return; }
-		var raw = btrcSdlClipboardText();
+		var raw = SDL_GetClipboardText();
 		if (raw == null) { return; }
-		string pasted = Strings.copy(raw);
-		btrcSdlFree((void*)raw);
+		string pasted = "";
+		try { pasted = Strings.copy(raw); } finally { SDL_free((void*)raw); }
 		if (!Bytes.fromString(pasted).isNulFreeUtf8()) { return; }
 		self.replaceSelection(Strings.replace(Strings.replace(pasted, "\n", " "), "\r", ""));
 	}

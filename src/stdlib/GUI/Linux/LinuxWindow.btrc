@@ -549,7 +549,12 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		if (self._window == null) { return; }
 		if (self._host.textInputWanted) {
 			double scale = 1.0;
-			btrcSdlSetTextInputArea(self._window, (int)(self._host.textInputX * scale), (int)(self._host.textInputY * scale), (int)Math.maxDouble(1.0, self._host.textInputWidth * scale), (int)Math.maxDouble(1.0, self._host.textInputHeight * scale), 0);
+			SDL_Rect area;
+			area.x = (int)(self._host.textInputX * scale);
+			area.y = (int)(self._host.textInputY * scale);
+			area.w = (int)Math.maxDouble(1.0, self._host.textInputWidth * scale);
+			area.h = (int)Math.maxDouble(1.0, self._host.textInputHeight * scale);
+			SDL_SetTextInputArea(self._window, &area, 0);
 			if (!SDL_TextInputActive(self._window)) { SDL_StartTextInput(self._window); }
 		} else if (SDL_TextInputActive(self._window)) { SDL_StopTextInput(self._window); }
 	}
@@ -694,13 +699,13 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 
 	public void hide() { self.requireOpen(); SDL_HideWindow(self._window); self._visible = false; }
 
-	public bool isVisible() { return self.isOpen() && self._visible && btrcSdlWindowFlag(self._window, (unsigned long long)SDL_WINDOW_HIDDEN) == 0; }
+	public bool isVisible() { return self.isOpen() && self._visible && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_HIDDEN) == 0ULL; }
 
 	public bool isFocused() { return self.isOpen() && self._focused; }
 
 	public void showAlert(string title, string message) {
 		self.requireOpen();
-		btrcSdlSimpleMessageBox(title, message, self._window);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, message, self._window);
 	}
 
 	public ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner) {

@@ -471,6 +471,16 @@ Initial tracked-file inventory (2026-09-09), not a completed semantic audit: BTR
 | `tools/NativeHeaderReader.cpp` | 1 | Build-time Clang AST access remains justified C++; no product policy here. |
 | Native tests/examples | 62 | Keep genuine foreign-ABI oracles; update consumers and remove fixtures for retired bridges, not independent correctness coverage. |
 
+**Named importer exception (2026-10-01): record-typedef resources.** A
+`[native.bindings.resources.X]` entry must name a record-pointer typedef
+(`WGPUInstance`, `FT_Face`). fontconfig declares `typedef struct _FcPattern
+FcPattern` and passes `FcPattern*`, so `FcPattern` cannot be a resource, and
+`Linux/LinuxFonts.btrc` destroys its two patterns explicitly with no throwing
+call between creation and destruction. The Linux GUI's `SDL.h` keeps only the
+`SDL_Event` union flattening, the cross-thread folder-dialog transaction and
+the synthetic-input pushes; every other SDL and fontconfig call is a direct
+binding.
+
 BTRSmith's 14 production adapter files under `packages/{miniz,pugixml,sqlite,vgmstream,yaml,zlib}/native/` are also in scope; their nine native release probes/fixtures require individual review. Preserve pinned upstream implementations. Move our resource management, parser/decoder orchestration and error mapping into the package's BTRC objects, then delete superseded adapters after parity and real-content tests. Any remaining native file must have a specific documented purpose; migration is not complete with these bridges merely hidden behind new wrappers.
 
 `MacOSEncodedImageDecoder` owns content recognition, bounds and format checks; its private decode transaction retains input and pixels while SDK handles borrow them. `__del__` releases the native resources before managed fields. `Image.tryCreate` makes pixel-allocation failure recoverable; CoreGraphics draws directly into the final buffer, followed by in-place BTRC alpha conversion. No resource or borrowed SDK value escapes through the public API. This is a verified concrete owner, not general compiler-checked native ownership.

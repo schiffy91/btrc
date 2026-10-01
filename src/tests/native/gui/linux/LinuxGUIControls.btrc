@@ -84,6 +84,11 @@ class Journey implements IApplicationWork {
 		btrcSdlPushPointerButton(self._window, (float)x, (float)y, 1u, 0, 1u);
 	}
 
+	private void chord(unsigned int scancode, unsigned int key, unsigned int modifiers) {
+		btrcSdlPushKey(self._window, scancode, key, modifiers, 1, 0);
+		btrcSdlPushKey(self._window, scancode, key, modifiers, 0, 0);
+	}
+
 	public void run() {
 		self._step++;
 		int step = self._step;
@@ -105,6 +110,13 @@ class Journey implements IApplicationWork {
 			btrcSdlPushKey(self._window, (unsigned int)SDL_SCANCODE_BACKSPACE, (unsigned int)SDLK_BACKSPACE, 0u, 0, 0);
 		} else if (step == 6) {
 			assert(self._field.text().equals("hello"));
+			/* Select all, copy, move to the end and paste through SDL's clipboard. */
+			self.chord((unsigned int)SDL_SCANCODE_A, (unsigned int)SDLK_A, (unsigned int)SDL_KMOD_LCTRL);
+			self.chord((unsigned int)SDL_SCANCODE_C, (unsigned int)SDLK_C, (unsigned int)SDL_KMOD_LCTRL);
+			self.chord((unsigned int)SDL_SCANCODE_END, (unsigned int)SDLK_END, 0u);
+			self.chord((unsigned int)SDL_SCANCODE_V, (unsigned int)SDLK_V, (unsigned int)SDL_KMOD_LCTRL);
+		} else if (step == 7) {
+			assert(self._field.text().equals("hellohello"));
 			self.click(360.0, 30.0);
 		} else if (step == 8) {
 			self.click(360.0, 30.0 + 26.0 + 4.0 + 20.0 * 2.0 + 10.0);
