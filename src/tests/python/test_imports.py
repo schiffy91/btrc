@@ -79,7 +79,7 @@ def test_std_brace_import_resolves_stdlib():
     resolved = RESOLVER.resolve_includes(source, "Main.btrc")
 
     assert "class Strings" in resolved
-    assert "class JSONObject" in resolved
+    assert "class JSONValue" in resolved
     assert "import std" not in resolved
 
 

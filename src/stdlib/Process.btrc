@@ -1,12 +1,10 @@
 /* btrc standard library — Process execution
- * Cross-platform API shape with UnixShell implemented first.
- *
- * UnixShell intentionally names the POSIX implementation. PowerShell is a
- * placeholder so callers can branch explicitly when Windows support arrives.
+ * ChildProcess runs an executable with a structured argv; UnixShell runs a
+ * POSIX shell command line through /bin/sh. Windows needs a native process
+ * provider, which does not exist yet.
  */
 
 import Library.Bytes;
-import Library.IO;
 import Library.Platform;
 import Library.Strings;
 import Library.Vector;
@@ -22,8 +20,6 @@ import Library.Vector;
 #include <time.h>
 #include <unistd.h>
 
-extern FILE* popen(const char* command, const char* mode);
-extern int pclose(FILE* stream);
 extern char** environ;
 
 class ProcessStatus {
@@ -39,50 +35,6 @@ class ProcessStatus {
 	}
 
 	public bool ok() { return self.code() == 0; }
-}
-
-class UnixPipe {
-	private FILE* handle;
-	public string command;
-
-	public UnixPipe(string command) {
-		self.command = command;
-		self.handle = popen(command, "r");
-	}
-
-	public bool ok() { return self.handle != NULL; }
-
-	public string readAll() {
-		if (!self.ok()) { return ""; }
-		Bytes bytes = Bytes();
-		char chunk[4096];
-		size_t count = fread(chunk, 1, 4096, self.handle);
-		while (count > (size_t)0) {
-			bytes.appendRaw(chunk, (int)count);
-			count = fread(chunk, 1, 4096, self.handle);
-		}
-		return bytes.toStringLossy();
-	}
-
-	public ProcessStatus close() {
-		if (!self.ok()) { return ProcessStatus(-1); }
-		int raw = pclose(self.handle);
-		self.handle = NULL;
-		return ProcessStatus(raw);
-	}
-
-	public void __del__() {
-		if (self.handle != NULL) {
-			pclose(self.handle);
-			self.handle = NULL;
-		}
-	}
-}
-
-class UnixProcess {
-	class ProcessStatus system(string command) { return ProcessStatus(system(command)); }
-
-	class UnixPipe pipe(string command) { return UnixPipe(command); }
 }
 
 class ShellWords {
@@ -149,39 +101,24 @@ class ShellWords {
 		}
 		return Strings.replace(result, sensitive, "***");
 	}
-
-	class string envAssignment(string item) {
-		int split = Strings.find(item, "=", 0);
-		if (split <= 0) {
-			throw f"invalid environment assignment: {item}";
-		}
-		string name = item.substring(0, split);
-		if (!ShellWords.isEnvName(name)) {
-			throw f"invalid environment variable name: {name}";
-		}
-		string value = item.substring(split + 1, item.len() - split - 1);
-		return name + "=" + ShellWords.quote(value);
-	}
 }
 
-class CommandOutput {
-	class string collect() { return "collect"; }
+/* Where a child's stdout or stderr goes. COMBINE is valid only for stderr,
+ * and only when stdout is collected. */
+enum CommandOutput {
+	COMMAND_OUTPUT_COLLECT = 0,
+	COMMAND_OUTPUT_STREAM = 1,
+	COMMAND_OUTPUT_COMBINE = 2,
+	COMMAND_OUTPUT_SUPPRESS = 3
+};
 
-	class string stream() { return "stream"; }
-
-	class string combine() { return "combine"; }
-
-	class string suppress() { return "suppress"; }
-
-	class bool valid(string mode) { return mode != null && (mode.equals(CommandOutput.collect()) || mode.equals(CommandOutput.stream()) || mode.equals(CommandOutput.combine()) || mode.equals(CommandOutput.suppress())); }
-}
-
-class CommandEnvironment {
-	class Vector<string> empty() {
-		Vector<string> env = [];
-		return env;
-	}
-}
+/* What a child reads when no stdinData is supplied: /dev/null, or the
+ * parent's own stdin. Supplied stdinData always wins, and supplying it
+ * together with CHILD_STDIN_INHERIT is a caller error. */
+enum ChildStdin {
+	CHILD_STDIN_NULL = 0,
+	CHILD_STDIN_INHERIT = 1
+};
 
 class ChildDescriptorMapping {
 	public int sourceDescriptor;
@@ -190,13 +127,6 @@ class ChildDescriptorMapping {
 	public ChildDescriptorMapping(int sourceDescriptor, int childDescriptor) {
 		self.sourceDescriptor = sourceDescriptor;
 		self.childDescriptor = childDescriptor;
-	}
-}
-
-class ChildDescriptorMappings {
-	class Vector<ChildDescriptorMapping> empty() {
-		Vector<ChildDescriptorMapping> mappings = [];
-		return mappings;
 	}
 }
 
@@ -211,6 +141,10 @@ class ExecResult {
 	 * streamed/suppressed output and synthetic results have no captured bytes. */
 	public int capturedStdoutBytes;
 	public int capturedStderrBytes;
+	/* A capture limit was exceeded (code 125) or a capture could not be read
+	 * (code 127); each also appends a diagnostic line to err. */
+	public bool captureExceeded;
+	public bool captureFailed;
 
 	public ExecResult(int code, string out, string err, string command, int capturedStdoutBytes = 0, int capturedStderrBytes = 0) {
 		self.code = code;
@@ -220,6 +154,8 @@ class ExecResult {
 		self.timedOut = false;
 		self.capturedStdoutBytes = capturedStdoutBytes;
 		self.capturedStderrBytes = capturedStderrBytes;
+		self.captureExceeded = false;
+		self.captureFailed = false;
 	}
 
 	public bool ok() { return self.code == 0; }
@@ -530,6 +466,12 @@ class ChildProcess {
 	}
 
 	class void validateArguments(Vector<string> arguments) {
+		if (arguments == null || arguments.len < 0) {
+			throw "child arguments must be a valid vector";
+		}
+		if (arguments.len > 2147483645) {
+			throw "too many child arguments";
+		}
 		for argument in arguments {
 			if (argument == null) {
 				throw "child arguments cannot contain null";
@@ -559,8 +501,8 @@ class ChildProcess {
 	}
 
 	class void validateEnvironment(Vector<string> environment, Vector<string> unsetEnvironment) {
-		if (environment == null || unsetEnvironment == null) {
-			throw "child environment vectors cannot be null";
+		if (environment == null || unsetEnvironment == null || environment.len < 0 || unsetEnvironment.len < 0) {
+			throw "child environment vectors must be valid vectors";
 		}
 		for item in environment {
 			if (item == null) {
@@ -633,7 +575,59 @@ class ChildProcess {
 		return 0;
 	}
 
+	/* A failure result reports an operating-system or platform condition met
+	 * while starting the child; a malformed request throws instead. */
 	class ExecResult failure(string command, string message) { return ExecResult(127, Strings.copy(""), Strings.copy(message), Strings.copy(command)); }
+
+	class bool validOutputs(CommandOutput stdout, CommandOutput stderr) {
+		if (stdout < COMMAND_OUTPUT_COLLECT || stdout > COMMAND_OUTPUT_SUPPRESS || stderr < COMMAND_OUTPUT_COLLECT || stderr > COMMAND_OUTPUT_SUPPRESS) { return false; }
+		if (stdout == COMMAND_OUTPUT_COMBINE) { return false; }
+		return stderr != COMMAND_OUTPUT_COMBINE || stdout == COMMAND_OUTPUT_COLLECT;
+	}
+
+	/* Every descriptor-mapping field is the caller's to get right, so each
+	 * malformed mapping throws. Returns the highest child descriptor. */
+	class int validateDescriptorMappings(Vector<ChildDescriptorMapping> descriptorMappings, int descriptorBound) {
+		int maximumChildDescriptor = 2;
+		unsigned char* sourceDescriptors = (unsigned char*)calloc((size_t)descriptorBound, sizeof(unsigned char));
+		unsigned char* childDescriptors = (unsigned char*)calloc((size_t)descriptorBound, sizeof(unsigned char));
+		if (sourceDescriptors == NULL || childDescriptors == NULL) {
+			free(sourceDescriptors);
+			free(childDescriptors);
+			return -1;
+		}
+		string descriptorError = "";
+		for mapping in descriptorMappings {
+			if (mapping == null) {
+				descriptorError = "child descriptor mappings cannot contain null";
+			} else if (mapping.sourceDescriptor < 0) {
+				descriptorError = "child descriptor source cannot be negative";
+			} else if (mapping.sourceDescriptor >= descriptorBound) {
+				descriptorError = "child descriptor source is outside the supported range";
+			} else if (mapping.childDescriptor < 0) {
+				descriptorError = "child descriptor target cannot be negative";
+			} else if (mapping.childDescriptor <= STDERR_FILENO) {
+				descriptorError = "child descriptor target conflicts with standard streams";
+			} else if (mapping.childDescriptor >= descriptorBound - 1) {
+				descriptorError = "child descriptor target is outside the supported range";
+			} else if (sourceDescriptors[mapping.sourceDescriptor] != (unsigned char)0) {
+				descriptorError = "duplicate child descriptor source";
+			} else if (childDescriptors[mapping.childDescriptor] != (unsigned char)0) {
+				descriptorError = "duplicate child descriptor target";
+			} else {
+				sourceDescriptors[mapping.sourceDescriptor] = (unsigned char)1;
+				childDescriptors[mapping.childDescriptor] = (unsigned char)1;
+				if (mapping.childDescriptor > maximumChildDescriptor) {
+					maximumChildDescriptor = mapping.childDescriptor;
+				}
+			}
+			if (!descriptorError.isEmpty()) { break; }
+		}
+		free(sourceDescriptors);
+		free(childDescriptors);
+		if (!descriptorError.isEmpty()) { throw descriptorError; }
+		return maximumChildDescriptor;
+	}
 
 	class string render(string executable, Vector<string> arguments) {
 		Vector<string> parts = [ShellWords.quote(executable)];
@@ -643,26 +637,29 @@ class ChildProcess {
 		return parts.join(" ");
 	}
 
-	class ExecResult run(string executable, Vector<string> arguments, string cwd = "", Vector<string> environment = CommandEnvironment.empty(), Vector<string> unsetEnvironment = CommandEnvironment.empty(), int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, string stdinData = "", string stdout = CommandOutput.collect(), string stderr = CommandOutput.collect(), int executableDescriptor = -1, Vector<ChildDescriptorMapping> descriptorMappings = ChildDescriptorMappings.empty(), int workingDirectoryDescriptor = -1, bool foreground = false) {
+	/* Malformed requests throw: an empty executable, null or invalid vectors,
+	 * negative descriptors, conflicting cwd sources, bad output modes, bad
+	 * environment entries, bad descriptor mappings and stdinData combined
+	 * with CHILD_STDIN_INHERIT. Conditions met while starting the child --
+	 * an unsupported platform capability, a resource or exec failure --
+	 * return code 127 with the reason in err. */
+	class ExecResult run(string executable, Vector<string> arguments, string cwd = "", Vector<string> environment = [], Vector<string> unsetEnvironment = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, string stdinData = "", CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COLLECT, int executableDescriptor = -1, Vector<ChildDescriptorMapping> descriptorMappings = [], int workingDirectoryDescriptor = -1, bool foreground = false, ChildStdin stdinMode = CHILD_STDIN_NULL) {
 		if (executable == null || executable.isEmpty()) {
-			return ChildProcess.failure(executable, "executable cannot be empty");
+			throw "executable cannot be empty";
 		}
 		if (executableDescriptor < -1) {
-			return ChildProcess.failure(executable, "executable descriptor cannot be negative");
+			throw "executable descriptor cannot be negative";
 		}
 		if (workingDirectoryDescriptor < -1) {
-			return ChildProcess.failure(executable, "working directory descriptor cannot be negative");
-		}
-		if (arguments == null) {
-			return ChildProcess.failure(executable, "arguments cannot be null");
+			throw "working directory descriptor cannot be negative";
 		}
 		ChildProcess.validateArguments(arguments);
-		if (descriptorMappings == null) {
-			return ChildProcess.failure(executable, "child descriptor mappings cannot be null");
+		if (descriptorMappings == null || descriptorMappings.len < 0) {
+			throw "child descriptor mappings must be a valid vector";
 		}
 		bool hasCwd = cwd != null && !cwd.isEmpty();
 		if (hasCwd && workingDirectoryDescriptor >= 0) {
-			return ChildProcess.failure(executable, "working directory path and descriptor cannot both be set");
+			throw "working directory path and descriptor cannot both be set";
 		}
 		if (timeoutMilliseconds < 0) {
 			throw "timeoutMilliseconds cannot be negative";
@@ -670,8 +667,15 @@ class ChildProcess {
 		if (maxStdoutBytes < 0 || maxStderrBytes < 0 || maxStdoutBytes > 2147483646 || maxStderrBytes > 2147483646) {
 			throw "child capture limits are outside the supported range";
 		}
-		if (stdout == null || stderr == null || !CommandOutput.valid(stdout) || !CommandOutput.valid(stderr) || stdout.equals(CommandOutput.combine()) || (stderr.equals(CommandOutput.combine()) && !stdout.equals(CommandOutput.collect()))) {
+		if (!ChildProcess.validOutputs(stdout, stderr)) {
 			throw "invalid child output mode combination";
+		}
+		bool hasStdinData = stdinData != null && !stdinData.isEmpty();
+		if (stdinMode != CHILD_STDIN_NULL && stdinMode != CHILD_STDIN_INHERIT) {
+			throw "invalid child stdin mode";
+		}
+		if (hasStdinData && stdinMode == CHILD_STDIN_INHERIT) {
+			throw "stdinData cannot be combined with CHILD_STDIN_INHERIT";
 		}
 		ChildProcess.validateEnvironment(environment, unsetEnvironment);
 		string command = ChildProcess.render(executable, arguments);
@@ -687,44 +691,9 @@ class ChildProcess {
 			if (descriptorBound < 4 || descriptorMappings.len > descriptorBound - 3) {
 				return ChildProcess.failure(command, "unsupported process descriptor limit\n");
 			}
-			unsigned char* sourceDescriptors = (unsigned char*)calloc((size_t)descriptorBound, sizeof(unsigned char));
-			unsigned char* childDescriptors = (unsigned char*)calloc((size_t)descriptorBound, sizeof(unsigned char));
-			if (sourceDescriptors == NULL || childDescriptors == NULL) {
-				free(sourceDescriptors);
-				free(childDescriptors);
+			maximumChildDescriptor = ChildProcess.validateDescriptorMappings(descriptorMappings, descriptorBound);
+			if (maximumChildDescriptor < 0) {
 				return ChildProcess.failure(command, "failed to validate child descriptor mappings\n");
-			}
-			string descriptorError = "";
-			for mapping in descriptorMappings {
-				if (mapping == null) {
-					descriptorError = "child descriptor mappings cannot contain null\n";
-				} else if (mapping.sourceDescriptor < 0) {
-					descriptorError = "child descriptor source cannot be negative\n";
-				} else if (mapping.sourceDescriptor >= descriptorBound) {
-					descriptorError = "child descriptor source is outside the supported range\n";
-				} else if (mapping.childDescriptor < 0) {
-					descriptorError = "child descriptor target cannot be negative\n";
-				} else if (mapping.childDescriptor <= STDERR_FILENO) {
-					descriptorError = "child descriptor target conflicts with standard streams\n";
-				} else if (mapping.childDescriptor >= descriptorBound - 1) {
-					descriptorError = "child descriptor target is outside the supported range\n";
-				} else if (sourceDescriptors[mapping.sourceDescriptor] != (unsigned char)0) {
-					descriptorError = "duplicate child descriptor source\n";
-				} else if (childDescriptors[mapping.childDescriptor] != (unsigned char)0) {
-					descriptorError = "duplicate child descriptor target\n";
-				} else {
-					sourceDescriptors[mapping.sourceDescriptor] = (unsigned char)1;
-					childDescriptors[mapping.childDescriptor] = (unsigned char)1;
-					if (mapping.childDescriptor > maximumChildDescriptor) {
-						maximumChildDescriptor = mapping.childDescriptor;
-					}
-				}
-				if (!descriptorError.isEmpty()) { break; }
-			}
-			free(sourceDescriptors);
-			free(childDescriptors);
-			if (!descriptorError.isEmpty()) {
-				return ChildProcess.failure(command, descriptorError);
 			}
 		}
 		long long deadline = 0LL;
@@ -733,9 +702,6 @@ class ChildProcess {
 			if (deadline < 0LL) {
 				return ChildProcess.failure(command, "failed to read monotonic clock");
 			}
-		}
-		if (arguments.len > 2147483645) {
-			return ChildProcess.failure(command, "too many child arguments");
 		}
 		char** execArguments = ChildProcessArguments.build(executable, arguments);
 		if (execArguments == NULL) {
@@ -753,12 +719,12 @@ class ChildProcess {
 		stdoutPipe[1] = -1;
 		stderrPipe[0] = -1;
 		stderrPipe[1] = -1;
-		if (stdout.equals(CommandOutput.collect()) && ChildProcess.openPipe(stdoutPipe) != 0) {
+		if (stdout == COMMAND_OUTPUT_COLLECT && ChildProcess.openPipe(stdoutPipe) != 0) {
 			ChildProcessEnvironment.freeEntries(execEnvironment);
 			ChildProcessArguments.freeEntries(execArguments);
 			return ChildProcess.failure(command, "failed to create stdout pipe");
 		}
-		if (stderr.equals(CommandOutput.collect()) && ChildProcess.openPipe(stderrPipe) != 0) {
+		if (stderr == COMMAND_OUTPUT_COLLECT && ChildProcess.openPipe(stderrPipe) != 0) {
 			ChildProcess.closePipe(stdoutPipe);
 			ChildProcessEnvironment.freeEntries(execEnvironment);
 			ChildProcessArguments.freeEntries(execArguments);
@@ -766,7 +732,7 @@ class ChildProcess {
 		}
 
 		int nullDescriptor = -1;
-		if (stdout.equals(CommandOutput.suppress()) || stderr.equals(CommandOutput.suppress())) {
+		if (stdout == COMMAND_OUTPUT_SUPPRESS || stderr == COMMAND_OUTPUT_SUPPRESS) {
 			int openedNullDescriptor = open("/dev/null", (int)O_WRONLY | (int)O_CLOEXEC);
 			if (openedNullDescriptor >= 0) {
 				nullDescriptor = openedNullDescriptor;
@@ -776,7 +742,7 @@ class ChildProcess {
 				}
 			}
 		}
-		if ((stdout.equals(CommandOutput.suppress()) || stderr.equals(CommandOutput.suppress())) && nullDescriptor < 0) {
+		if ((stdout == COMMAND_OUTPUT_SUPPRESS || stderr == COMMAND_OUTPUT_SUPPRESS) && nullDescriptor < 0) {
 			ChildProcess.closePipe(stdoutPipe);
 			ChildProcess.closePipe(stderrPipe);
 			ChildProcessEnvironment.freeEntries(execEnvironment);
@@ -787,7 +753,22 @@ class ChildProcess {
 		FILE* input = NULL;
 		int inputDescriptor = -1;
 		int inputStreamDescriptor = -1;
-		if (stdinData != null && !stdinData.isEmpty()) {
+		if (!hasStdinData && stdinMode == CHILD_STDIN_NULL) {
+			inputDescriptor = open("/dev/null", (int)O_RDONLY | (int)O_CLOEXEC);
+			if (inputDescriptor >= 0 && ChildProcess.moveOutsideStandardStreams(&inputDescriptor) != 0) {
+				if (inputDescriptor >= 0) { close(inputDescriptor); }
+				inputDescriptor = -1;
+			}
+			if (inputDescriptor < 0) {
+				ChildProcess.closePipe(stdoutPipe);
+				ChildProcess.closePipe(stderrPipe);
+				if (nullDescriptor >= 0) { close(nullDescriptor); }
+				ChildProcessEnvironment.freeEntries(execEnvironment);
+				ChildProcessArguments.freeEntries(execArguments);
+				return ChildProcess.failure(command, "failed to open /dev/null for child stdin");
+			}
+		}
+		if (hasStdinData) {
 			input = tmpfile();
 			if (input != NULL) {
 				size_t inputLength = strlen(stdinData);
@@ -834,9 +815,9 @@ class ChildProcess {
 			ChildProcessEnvironment.freeEntries(execEnvironment);
 			return ChildProcess.failure(command, "failed to execute child process\n");
 		}
-		bool suppressStdout = stdout.equals(CommandOutput.suppress());
-		bool suppressStderr = stderr.equals(CommandOutput.suppress());
-		bool combineStderr = stderr.equals(CommandOutput.combine());
+		bool suppressStdout = stdout == COMMAND_OUTPUT_SUPPRESS;
+		bool suppressStderr = stderr == COMMAND_OUTPUT_SUPPRESS;
+		bool combineStderr = stderr == COMMAND_OUTPUT_COMBINE;
 		int stdoutSource = stdoutPipe[1] >= 0 ? stdoutPipe[1] : (suppressStdout ? nullDescriptor : -1);
 		int stderrSource = stderrPipe[1] >= 0 ? stderrPipe[1] : (suppressStderr ? nullDescriptor : -1);
 		int descriptorMappingCount = descriptorMappings.len;
@@ -1049,6 +1030,18 @@ class ChildProcess {
 		int rawStatus = 0;
 
 		while (!exited || output.open || error.open) {
+			/* With nothing to read and no deadline, the only remaining event
+             * is the child's exit, so block for it instead of polling. */
+			if (!exited && !output.open && !error.open && deadline == 0LL) {
+				pid_t waited = waitpid(child, &rawStatus, 0);
+				if (waited == child) {
+					exited = true;
+				} else if (waited < (pid_t)0 && errno != EINTR) {
+					exited = true;
+					rawStatus = -1;
+				}
+				continue;
+			}
 			if (!exited) {
 				pid_t waited = waitpid(child, &rawStatus, WNOHANG);
 				if (waited == child) {
@@ -1079,7 +1072,19 @@ class ChildProcess {
 			streams[1].fd = error.open ? error.descriptor : -1;
 			streams[1].events = POLLIN;
 			streams[1].revents = 0;
-			int ready = poll(streams, (nfds_t)2, 10);
+			/* Open captures without a deadline wait for data or EOF alone.
+             * Before a deadline, wake no later than it; with no capture open
+             * the child's exit is only observable by polling, so wake at
+             * least every 10 ms, as after an expired deadline. */
+			int pollTimeout = 10;
+			if (!timedOut && deadline > 0LL) {
+				long long remaining = now < 0LL || now >= deadline ? 0LL : deadline - now;
+				long long ceiling = output.open || error.open ? 2147483647LL : 10LL;
+				pollTimeout = (int)(remaining < ceiling ? remaining : ceiling);
+			} else if (deadline == 0LL && (output.open || error.open)) {
+				pollTimeout = -1;
+			}
+			int ready = poll(streams, (nfds_t)2, pollTimeout);
 			if (ready > 0) {
 				if (output.open && streams[0].revents != 0) {
 					output.readReady();
@@ -1123,6 +1128,8 @@ class ChildProcess {
 		}
 		ExecResult result = ExecResult(code, output.text(), errorText, command, output.buffer.len, error.buffer.len);
 		result.timedOut = timedOut;
+		result.captureExceeded = captureExceeded;
+		result.captureFailed = captureFailed;
 		return result;
 	}
 }
@@ -1154,103 +1161,47 @@ class Command {
 		return self;
 	}
 
-	public string renderEnv(string item) { return ShellWords.envAssignment(item); }
-
-	public string render() {
-		Vector<string> parts = [];
-		parts.push(self.command);
-		for item in self.arguments {
-			parts.push(ShellWords.quote(item));
-		}
-		return parts.join(" ");
-	}
+	/* command is argv[0], quoted like every argument, so the rendered text
+	 * runs exactly the argv that ChildProcess.run would receive. */
+	public string render() { return ChildProcess.render(self.command, self.arguments); }
 
 	public string toString() { return self.render(); }
 }
 
+/* Runs a POSIX shell command line through /bin/sh -c. cwd and env reach the
+ * shell process itself, so they hold for every command in the line. Unlike
+ * ChildProcess.run, the shell inherits the caller's stdin unless stdin text
+ * is supplied, because command lines are often interactive. */
 class UnixShell {
-	public bool logCommands;
-	public string chrootPath;
-
-	public UnixShell() {
-		self.logCommands = false;
-		self.chrootPath = "";
-	}
+	public UnixShell() {}
 
 	class string quote(string raw) { return ShellWords.quote(raw); }
 
 	class string redactText(string text, string sensitive) { return ShellWords.redact(text, sensitive); }
 
-	class int statusCode(int rawStatus) {
-		ProcessStatus status = ProcessStatus(rawStatus);
-		int code = status.code();
-		return code;
-	}
-
 	class void logError(string message) { fprintf(stderr, "%s\n", __btrc_string_or_empty(message)); }
 
-	public void chroot(string path) { self.chrootPath = path; }
-
-	public void clearChroot() { self.chrootPath = ""; }
-
-	public string renderEnv(Vector<string> env) {
-		Vector<string> parts = [];
-		for item in env {
-			parts.push(ShellWords.envAssignment(item));
-		}
-		return parts.join(" ");
-	}
-
-	public string withContext(string command, string cwd, Vector<string> env, bool sudo, string chroot) {
-		string rendered = command;
-		string envPrefix = self.renderEnv(env);
-		if (!envPrefix.isEmpty()) {
-			rendered = f"{envPrefix} {rendered}";
-		}
-		if (sudo) {
-			rendered = f"sudo {rendered}";
-		}
-		if (!cwd.isEmpty()) {
-			rendered = f"cd {ShellWords.quote(cwd)} && {rendered}";
-		}
-		string root = chroot.isEmpty() ? self.chrootPath : chroot;
-		if (!root.isEmpty()) {
-			rendered = f"nixos-enter --root {ShellWords.quote(root)} --command {ShellWords.quote(rendered)}";
-		}
-		return rendered;
-	}
-
-	public ExecResult run(string command, string stdout = CommandOutput.collect(), string stderr = CommandOutput.combine(), bool logCommand = false, bool logFailure = true, bool throwOnFailure = false, string redactSubstring = "", string stdin = "", string cwd = "", Vector<string> env = CommandEnvironment.empty(), bool sudo = false, string chroot = "", int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, bool foreground = false) {
-		if (!CommandOutput.valid(stdout)) { throw f"invalid stdout mode: {stdout}"; }
-		if (!CommandOutput.valid(stderr)) { throw f"invalid stderr mode: {stderr}"; }
-		if (stdout.equals(CommandOutput.combine())) { throw "stdout cannot use CommandOutput.combine"; }
-		if (stderr.equals(CommandOutput.combine()) && !stdout.equals(CommandOutput.collect())) {
-			throw "stderr can only combine with collected stdout";
-		}
-
-		var rendered = self.withContext(command, cwd, env, sudo, chroot);
-		if (self.logCommands || logCommand) {
-			var visible = UnixShell.redactText(rendered, redactSubstring);
+	public ExecResult run(string command, CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COMBINE, bool logCommand = false, bool logFailure = true, bool throwOnFailure = false, string redactSubstring = "", string stdin = "", string cwd = "", Vector<string> env = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, bool foreground = false) {
+		if (command == null) { throw "shell command cannot be null"; }
+		string visible = UnixShell.redactText(command, redactSubstring == null ? "" : redactSubstring);
+		if (logCommand) {
 			UnixShell.logError(f"LOG: {visible}");
 		}
 
-		var child = ChildProcess.run("/bin/sh", ["-c", rendered], timeoutMilliseconds=timeoutMilliseconds, maxStdoutBytes=maxStdoutBytes, maxStderrBytes=maxStderrBytes, stdinData=stdin, stdout=stdout, stderr=stderr, foreground=foreground);
+		bool hasStdin = stdin != null && !stdin.isEmpty();
+		var child = ChildProcess.run("/bin/sh", ["-c", command], cwd=cwd, environment=env, timeoutMilliseconds=timeoutMilliseconds, maxStdoutBytes=maxStdoutBytes, maxStderrBytes=maxStderrBytes, stdinData=stdin, stdout=stdout, stderr=stderr, foreground=foreground, stdinMode=hasStdin ? CHILD_STDIN_NULL : CHILD_STDIN_INHERIT);
 		var code = child.code;
 
 		if ((logFailure || throwOnFailure) && code != 0) {
-			UnixShell.logError(f"Command failed ({code}): {UnixShell.redactText(rendered, redactSubstring)}");
+			UnixShell.logError(f"Command failed ({code}): {visible}");
 		}
 		if (throwOnFailure && code != 0) {
-			throw f"Command failed ({code}): {UnixShell.redactText(rendered, redactSubstring)}";
+			throw f"Command failed ({code}): {visible}";
 		}
-		ExecResult result = ExecResult(code, child.out, child.err, rendered, child.capturedStdoutBytes, child.capturedStderrBytes);
+		ExecResult result = ExecResult(code, child.out, child.err, visible, child.capturedStdoutBytes, child.capturedStderrBytes);
 		result.timedOut = child.timedOut;
+		result.captureExceeded = child.captureExceeded;
+		result.captureFailed = child.captureFailed;
 		return result;
 	}
-}
-
-class PowerShell {
-	public PowerShell() {}
-
-	public ExecResult run(string command, string stdout = CommandOutput.collect(), string stderr = CommandOutput.combine(), bool logCommand = false, bool logFailure = true, bool throwOnFailure = false, string redactSubstring = "", string stdin = "", string cwd = "", Vector<string> env = CommandEnvironment.empty(), bool sudo = false, string chroot = "", int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608) { return ExecResult(127, "", "PowerShell support is not implemented", command); }
 }

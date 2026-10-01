@@ -43,6 +43,16 @@ int main() {
 	assert(all.get(1).equals("second"));
 	assert(all.get(2).equals("third"));
 
+	// readLine strips CR before LF, as readLineBounded does; a lone CR and a
+	// CR at EOF are payload.
+	assert(Path.writeAll(path, "dos\r\nmid\rdle\r\n\r\ntail\r"));
+	File crlf = File(path, "r");
+	assert(crlf.readLine().equals("dos"));
+	assert(crlf.readLine().equals("mid\rdle"));
+	assert(crlf.readLine().equals(""));
+	assert(crlf.readLine().equals("tail\r"));
+	crlf.close();
+
 	string longLine = Strings.repeat("0123456789", 900);
 	assert(Path.writeAll(path, longLine + "\nshort\n\n"));
 	File longReader = File(path, "r");

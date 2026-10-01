@@ -198,7 +198,7 @@ class ApplicationDirectoryResolver {
 	public ApplicationDirectoryRootsOutcome resolve(ApplicationDirectoryLimits limits) {
 		int maximumBytes = limits.maximumPathBytes();
 		if (maximumBytes <= 0 || maximumBytes > 1048576) { return self.rejected(APP_DIRECTORY_INVALID_ARGUMENT, "Application directory path limits must be between 1 and 1048576 bytes."); }
-		int platform = __btrc_application_directories_platform();
+		int platform = __btrc_target_platform();
 		if (platform == 1) { return self.resolveMacOS(maximumBytes); }
 		if (platform == 2) { return self.resolveLinux(maximumBytes); }
 		return self.rejected(APP_DIRECTORY_UNSUPPORTED, "Application directories are not supported on this platform.");

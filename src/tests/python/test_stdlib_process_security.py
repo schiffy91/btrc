@@ -337,9 +337,12 @@ def test_child_descriptor_capabilities_are_leased_and_fail_closed() -> None:
     assert "Vector<ChildDescriptorMapping> descriptorMappings" in run
     assert "int workingDirectoryDescriptor = -1" in run
     assert "working directory path and descriptor cannot both be set" in run
-    assert "duplicate child descriptor source" in run
-    assert "duplicate child descriptor target" in run
-    assert "conflicts with standard streams" in run
+    mappings = source.split("class int validateDescriptorMappings", 1)[1].split("\n\t}\n", 1)[0]
+    assert "ChildProcess.validateDescriptorMappings(" in run
+    assert "duplicate child descriptor source" in mappings
+    assert "duplicate child descriptor target" in mappings
+    assert "conflicts with standard streams" in mappings
+    assert "throw descriptorError" in mappings
     assert "F_DUPFD_CLOEXEC" in run
     assert "descriptorLeaseMinimum = maximumChildDescriptor + 1" in run
     assert "dup2(leasedMappingDescriptors[index]" in child
@@ -370,7 +373,9 @@ def test_process_rejects_null_elements_and_conflicting_environment_edits() -> No
     assert "item == null" in validation
     assert "name == null" in validation
     assert "cannot be both set and unset" in validation
-    assert "stdout == null || stderr == null" in source
+    outputs = source.split("class bool validOutputs", 1)[1].split("\n\t}\n", 1)[0]
+    assert "stdout > COMMAND_OUTPUT_SUPPRESS" in outputs
+    assert "stderr > COMMAND_OUTPUT_SUPPRESS" in outputs
 
 
 def test_process_capture_has_no_named_reopen_path() -> None:

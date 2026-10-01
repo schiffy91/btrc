@@ -2,8 +2,8 @@
  *   - quote("") -> '' (empty needs quoting, isSafeArg false on empty);
  *   - quote of a string with an embedded single quote uses the '\'' dance;
  *   - safe args pass through unquoted;
- *   - envAssignment splits NAME=value and quotes the value;
- *   - envAssignment throws on a missing '=' or a bad variable name;
+ *   - shell env entries reach the environment verbatim, never as shell text;
+ *   - a missing '=' or a bad variable name throws;
  *   - redact replaces a sensitive substring. */
 import Library.Process;
 
@@ -23,15 +23,15 @@ int main() {
 	// a'b -> 'a'\''b'
 	assert(ShellWords.quote("a'b").equals("'a'\\''b'"));
 
-	// envAssignment quotes the value half.
-	assert(ShellWords.envAssignment("FOO=bar").equals("FOO=bar"));
-	assert(ShellWords.envAssignment("FOO=a b").equals("FOO='a b'"));
-	assert(ShellWords.envAssignment("PATH_X=/a/b").equals("PATH_X=/a/b"));
+	// env values reach the shell's environment verbatim; nothing is quoted.
+	UnixShell sh = UnixShell();
+	assert(sh.run("printenv FOO", env=["FOO=a b"], logFailure=false).stdout().equals("a b\n"));
+	assert(sh.run("printenv FOO", env=["FOO=it's $HOME"], logFailure=false).stdout().equals("it's $HOME\n"));
 
 	// Missing '=' throws.
 	bool noEq = false;
 	try {
-		ShellWords.envAssignment("NOEQ");
+		sh.run("true", env=["NOEQ"]);
 	} catch (string e) {
 		noEq = e.contains("invalid environment assignment");
 	}
@@ -40,7 +40,7 @@ int main() {
 	// A leading-digit (invalid) variable name throws.
 	bool badName = false;
 	try {
-		ShellWords.envAssignment("1BAD=x");
+		sh.run("true", env=["1BAD=x"]);
 	} catch (string e) {
 		badName = e.contains("invalid environment variable name");
 	}

@@ -89,14 +89,15 @@ class Game implements IApplicationWork {
 
 int main(int argc, char** argv) {
 	var args = CLIArgs(argc, argv);
-	if (args.count() > 1 || (args.count() == 1 && !args.has("--verify"))) { print("Usage: game [--verify]"); return 1; }
+	bool verify = args.count() == 1 && args.get(0).equals("--verify");
+	if (args.count() > 0 && !verify) { print("Usage: game [--verify]"); return 1; }
 	GUI.initialize();
 	Game? game = null;
 	try {
-		game = Game(args.has("--verify"));
+		game = Game(verify);
 		GUI.post(game);
 		GUI.run();
-		if (args.has("--verify")) {
+		if (verify) {
 			if (game == null || !game.verified) { throw "Game verification ended before rendering"; }
 			print("PASS: native game scene, camera follow, jump physics, resize and shutdown");
 		}

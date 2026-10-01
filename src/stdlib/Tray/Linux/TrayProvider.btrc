@@ -274,7 +274,7 @@ class TrayProvider {
 	/* Runs after the Event reply left, so the host never waits on the command. */
 	private void activate(string command) {
 		if (command.equals(TraySignal.quit())) { self.quit(); return; }
-		self._shell.run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
+		self._shell.run(command, stdout=COMMAND_OUTPUT_STREAM, stderr=COMMAND_OUTPUT_STREAM, logFailure=false);
 		self.refreshCheckItems();
 	}
 

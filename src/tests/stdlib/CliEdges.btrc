@@ -50,9 +50,8 @@ int main() {
 	var help = CLIHelp().withWidth(5);
 	help.item("12345", "desc");     // len == width -> wrap
 	var rendered = help.render();
-	assert(rendered.contains("  12345"));
-	// The description sits on a separate, indented line.
-	assert(rendered.contains("\n     desc"));
+	// The description sits on its own line, in the description column.
+	assert(rendered.equals("  12345\n       desc"));
 
 	// An item whose signature wraps but has an empty description: no trailing
 	// description line is produced.

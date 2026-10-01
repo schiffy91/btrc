@@ -4996,13 +4996,12 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='runtime',
-        name='__btrc_application_directories_platform',
+        name='__btrc_target_platform',
         c_source=(
-            'static inline int __btrc_application_directories_platform(void) {\n#if de'
-            'fined(BTRC_APPLICATION_DIRECTORIES_PLATFORM_OVERRIDE)\n    return BTRC_AP'
-            'PLICATION_DIRECTORIES_PLATFORM_OVERRIDE;\n#elif defined(__APPLE__)\n    re'
-            'turn 1;\n#elif defined(__linux__)\n    return 2;\n#elif defined(_WIN32)\n   '
-            ' return 3;\n#else\n    return 0;\n#endif\n}'
+            'static inline int __btrc_target_platform(void) {\n#if defined(BTRC_TARGET'
+            '_PLATFORM_OVERRIDE)\n    return BTRC_TARGET_PLATFORM_OVERRIDE;\n#elif defi'
+            'ned(__APPLE__)\n    return 1;\n#elif defined(__linux__)\n    return 2;\n#eli'
+            'f defined(_WIN32)\n    return 3;\n#else\n    return 0;\n#endif\n}'
         ),
         depends_on=(),
         required_headers=(),

@@ -2404,7 +2404,7 @@ source_visible = false
 order = { python = 215, btrc = 200 }
 
 [[helpers]]
-name = "__btrc_application_directories_platform"
+name = "__btrc_target_platform"
 category = "runtime"
 asset = "core.c"
 dependencies = []

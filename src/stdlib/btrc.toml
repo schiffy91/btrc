@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_runtime"
-exports = ["Array", "BitPattern", "Bytes", "CLI", "Callback", "Console", "Datetime", "IO", "Iterable", "JSON", "JSONX", "List", "Map", "Math", "OwnedBuffer", "Pattern", "Platform", "Process", "Random", "Regex", "Result", "SPSC", "Set", "Strings", "TOML", "Vector"]
+exports = ["Array", "BitPattern", "Bytes", "CLI", "Callback", "Console", "Datetime", "IO", "Iterable", "JSON", "List", "Map", "Math", "OwnedBuffer", "Pattern", "Platform", "Process", "Random", "Regex", "Result", "SPSC", "Set", "Strings", "TOML", "Vector"]
 
 # Every functional group is its own package; see README.md.
 [dependencies]

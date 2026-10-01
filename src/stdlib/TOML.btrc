@@ -4,7 +4,6 @@
  */
 
 import Library.Map;
-import Library.JSON;
 import Library.Strings;
 import Library.Vector;
 
@@ -59,12 +58,86 @@ class TOML {
 	class string unquote(string raw) {
 		string value = raw.trim();
 		if (value.startsWith("\"") && value.endsWith("\"") && value.len() >= 2) {
-			return JSONText.unescape(value.substring(1, value.len() - 2));
+			return TOML.unescapeBasic(value.substring(1, value.len() - 2));
 		}
 		if (value.startsWith("'") && value.endsWith("'") && value.len() >= 2) {
 			return value.substring(1, value.len() - 2);
 		}
 		return value;
+	}
+
+	/* Decode the body of a TOML basic string. Recognized escapes are \b \t
+	 * \n \f \r \" \\ \uXXXX and \UXXXXXXXX; a literal tab is allowed, and any
+	 * other escape, control character, surrogate or NUL is a format error. */
+	class string unescapeBasic(string body) {
+		StringBuilder output = StringBuilder();
+		int length = body.len();
+		int i = 0;
+		while (i < length) {
+			char c = body[i];
+			if (c != '\\') {
+				if ((c >= (char)0 && c < ' ' && c != '\t') || c == (char)127) {
+					throw "TOML basic string contains a control character";
+				}
+				output.appendChar(c);
+				i++;
+				continue;
+			}
+			if (i + 1 >= length) { throw "TOML basic string ends inside an escape"; }
+			char escape = body[i + 1];
+			i = i + 2;
+			if (escape == 'b') { output.appendChar((char)8); }
+			else if (escape == 't') { output.appendChar('\t'); }
+			else if (escape == 'n') { output.appendChar('\n'); }
+			else if (escape == 'f') { output.appendChar((char)12); }
+			else if (escape == 'r') { output.appendChar('\r'); }
+			else if (escape == '"') { output.appendChar('"'); }
+			else if (escape == '\\') { output.appendChar('\\'); }
+			else if (escape == 'u' || escape == 'U') {
+				int digits = escape == 'u' ? 4 : 8;
+				if (i + digits > length) { throw "TOML unicode escape is truncated"; }
+				int codePoint = 0;
+				for (int index = 0; index < digits; index++) {
+					int digit = TOML.hexDigit(body[i + index]);
+					if (digit < 0) { throw "TOML unicode escape has a non-hex digit"; }
+					if (codePoint > 0x10FFFF) { throw "TOML unicode escape is not a Unicode scalar value"; }
+					codePoint = codePoint * 16 + digit;
+				}
+				i = i + digits;
+				TOML.appendUtf8(output, codePoint);
+			} else {
+				throw f"TOML basic string has an invalid escape: \\{escape}";
+			}
+		}
+		return output.toString();
+	}
+
+	class int hexDigit(char c) {
+		if (c >= '0' && c <= '9') { return c - '0'; }
+		if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
+		if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
+		return -1;
+	}
+
+	class void appendUtf8(StringBuilder output, int codePoint) {
+		if (codePoint <= 0 || codePoint > 0x10FFFF || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+			throw "TOML unicode escape is not a non-NUL Unicode scalar value";
+		}
+		if (codePoint < 0x80) {
+			output.appendChar((char)codePoint);
+		} else if (codePoint < 0x800) {
+			output.appendChar((char)(0xC0 | (codePoint >> 6)));
+			output.appendChar((char)(0x80 | (codePoint & 0x3F)));
+		} else if (codePoint < 0x10000) {
+			output.appendChar((char)(0xE0 | (codePoint >> 12)));
+			output.appendChar((char)(0x80 | ((codePoint >> 6) & 0x3F)));
+			output.appendChar((char)(0x80 | (codePoint & 0x3F)));
+		} else {
+			output.appendChar((char)(0xF0 | (codePoint >> 18)));
+			output.appendChar((char)(0x80 | ((codePoint >> 12) & 0x3F)));
+			output.appendChar((char)(0x80 | ((codePoint >> 6) & 0x3F)));
+			output.appendChar((char)(0x80 | (codePoint & 0x3F)));
+		}
 	}
 
 	class string key(string line) {

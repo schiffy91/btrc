@@ -1540,7 +1540,19 @@ class FePackageManifestParser {
 
 	private bool nativeTable(string name) { return name.equals("native.sources") || name.equals("native.headers") || name.equals("native.include-directories") || name.equals("native.defines") || name.equals("native.frameworks") || name.equals("native.pkg-config") || name.equals("native.bindings"); }
 
+	/* Library.TOML throws on a malformed basic string. A manifest is user
+	 * input, so that becomes a package failure, as tomllib's decode error does
+	 * in the Python compiler, rather than an uncaught exception. */
 	public FeParsedPackageManifest parse(bool deferNative = false) {
+		try {
+			return self.parseManifest(deferNative);
+		} catch (string error) {
+			FePackageFailure.fail(f"cannot parse package manifest '{self.manifestPath}': {error}");
+		}
+		return null;
+	}
+
+	private FeParsedPackageManifest parseManifest(bool deferNative) {
 		string section = "";
 		FeManifestBlock block = null;
 		var packageFields = FeManifestBlock("package", self.manifestPath);
@@ -1806,7 +1818,13 @@ class FePackageImportPolicy {
 		if (!self.manifests.has(manifestPath)) {
 			string content = self.files.readRequired(manifestPath);
 			FeParsedPackageManifest parsed = null;
-			if (TOML.rootMap(content).has("manifest-version")) { parsed = FePackageManifestParser(content, manifestPath, PathTools.dirname(manifestPath)).parse(); }
+			bool versioned = false;
+			try {
+				versioned = TOML.rootMap(content).has("manifest-version");
+			} catch (string error) {
+				FePackageFailure.fail(f"cannot parse package manifest '{manifestPath}': {error}");
+			}
+			if (versioned) { parsed = FePackageManifestParser(content, manifestPath, PathTools.dirname(manifestPath)).parse(); }
 			self.manifests.put(manifestPath, parsed);
 			if (parsed != null) {
 				for provider in parsed.providers {

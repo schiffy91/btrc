@@ -152,13 +152,13 @@ int main(int argc, char** argv) {
 	assert(binary.stdout().equals("before"));
 	assert(binary.stderr().equals("err"));
 	assert(binary.capturedStdoutBytes == 12 && binary.capturedStderrBytes == 8);
-	ExecResult combined = ChildProcess.run(executable, ["--binary"], stderr=CommandOutput.combine());
+	ExecResult combined = ChildProcess.run(executable, ["--binary"], stderr=COMMAND_OUTPUT_COMBINE);
 	assert(combined.ok());
 	assert(combined.capturedStdoutBytes == 20 && combined.capturedStderrBytes == 0);
-	ExecResult suppressed = ChildProcess.run(executable, ["--binary"], stdout=CommandOutput.suppress(), stderr=CommandOutput.suppress());
+	ExecResult suppressed = ChildProcess.run(executable, ["--binary"], stdout=COMMAND_OUTPUT_SUPPRESS, stderr=COMMAND_OUTPUT_SUPPRESS);
 	assert(suppressed.ok());
 	assert(suppressed.capturedStdoutBytes == 0 && suppressed.capturedStderrBytes == 0);
-	ExecResult shellBinary = UnixShell().run(ShellWords.quote(executable) + " --binary", stderr=CommandOutput.collect());
+	ExecResult shellBinary = UnixShell().run(ShellWords.quote(executable) + " --binary", stderr=COMMAND_OUTPUT_COLLECT);
 	assert(shellBinary.ok());
 	assert(shellBinary.capturedStdoutBytes == 12 && shellBinary.capturedStderrBytes == 8);
 
@@ -179,6 +179,13 @@ int main(int argc, char** argv) {
 	string missingStderr = missing.stderr();
 	assert(missingStderr.contains("failed to execute") || missingStderr.contains("failed to start"));
 
+	// Without stdinData the child reads /dev/null, so a reader sees EOF at
+	// once instead of blocking on the parent's stdin.
+	ExecResult silent = ChildProcess.run("cat", noArguments, timeoutMilliseconds=5000);
+	assert(silent.ok());
+	assert(!silent.wasTimedOut());
+	assert(silent.stdout().isEmpty());
+
 	ExecResult volume = ChildProcess.run(executable, ["--volume"], timeoutMilliseconds=2000);
 	assert(volume.ok());
 	assert(volume.stdout().len() == 80000);
@@ -189,6 +196,8 @@ int main(int argc, char** argv) {
 	assert(bounded.code == 125);
 	assert(bounded.stdout().len() <= 1024);
 	assert(bounded.stderr().contains("capture limit"));
+	assert(bounded.captureExceeded && !bounded.captureFailed);
+	assert(!volume.captureExceeded && !volume.captureFailed);
 	assert(bounded.capturedStdoutBytes <= 1024 && bounded.capturedStderrBytes <= 1024);
 
 	string descendantMarker = PathTools.join(root, "descendant survived");

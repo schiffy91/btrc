@@ -1,7 +1,9 @@
-/* JSONValue and legacy JSONText safety boundaries: malformed control bytes,
+/* JSONValue safety boundaries: malformed control bytes,
  * recursion limits, numeric overflow, defined int conversion, and full escape
  * decoding through the shared JSON string parser. */
 import Library.JSON;
+import Library.Strings;
+import Library.Vector;
 
 #include <assert.h>
 #include <string.h>
@@ -21,16 +23,12 @@ int main() {
 	assert(JSONValue.parse("2147483648").asInt() == 0);
 	assert(JSONValue.parse("-2147483649").asInt() == 0);
 
-	JSONObject legacyNumber = JSONObject.parse("{\"n\":2147483648}");
-	assert(legacyNumber.getInt("n", -17) == -17);
-	assert(JSONText.intField("{\"n\":-2147483649}", "n", -19) == -19);
+	JSONValue escaped = JSONValue.parse("{\"u\":\"\\u00e9\",\"controls\":\"\\b\\f\"}");
+	assert(strcmp(escaped.get("u").asString(), "\xc3\xa9") == 0);
+	assert(strcmp(escaped.get("controls").asString(), "\b\f") == 0);
 
-	JSONObject escaped = JSONObject.parse("{\"u\":\"\\u00e9\",\"controls\":\"\\b\\f\"}");
-	assert(strcmp(escaped.getString("u", ""), "\xc3\xa9") == 0);
-	assert(strcmp(escaped.getString("controls", ""), "\b\f") == 0);
-
-	JSONObject controlKey = JSONObject();
-	controlKey.setString("b\b", "value");
+	JSONValue controlKey = JSONValue.makeObject();
+	controlKey.set("b\b", JSONValue.makeString("value"));
 	string controlKeyText = controlKey.stringify();
 	assert(controlKeyText.contains("\"b\\b\""));
 	assert(!JSONValue.parse(controlKeyText).isError());
@@ -39,6 +37,42 @@ int main() {
 	assert(unpaired.isString());
 	assert(strcmp(unpaired.asString(), "\xef\xbf\xbd\xef\xbf\xbd") == 0);
 	assert(strcmp(JSONNum.utf8(0x110000), "\xef\xbf\xbd") == 0);
+	// A lone high surrogate before a valid pair: U+FFFD, then the pair.
+	JSONValue repaired = JSONValue.parse("\"\\ud800\\ud83d\\ude00\"");
+	assert(repaired.isString());
+	assert(strcmp(repaired.asString(), "\xef\xbf\xbd\xf0\x9f\x98\x80") == 0);
+
+	// kind() is a JSONKind whose values stay the documented integers.
+	assert(JSONValue.parse("[]").kind() == JSON_ARRAY);
+	assert(JSONValue.parse("{}").kind() == 5);
+	assert(JSONValue.parse("nope").kind() == JSON_ERROR);
+	JSONValue list = JSONValue.parse("[1,\"two\",3]");
+	Vector<JSONValue> elements = list.elements();
+	assert(elements.len == 3 && elements.get(1).asString().equals("two"));
+	elements.pop();
+	assert(list.size() == 3);
+	assert(JSONValue.makeObject().elements().len == 0);
+
+	// Wide objects: duplicate detection, lookup and replacement stay
+	// consistent past the point where an object switches to its key index.
+	StringBuilder wide = StringBuilder();
+	wide.appendChar('{');
+	for i in range(20000) {
+		if (i > 0) { wide.appendChar(','); }
+		wide.append(f"\"k{i}\":{i}");
+	}
+	wide.appendChar('}');
+	JSONValue wideObject = JSONValue.parse(wide.toString());
+	assert(wideObject.isObject());
+	assert(wideObject.size() == 20000);
+	assert(wideObject.get("k0").asInt() == 0);
+	assert(wideObject.get("k19999").asInt() == 19999);
+	assert(!wideObject.has("k20000"));
+	wideObject.set("k7", JSONValue.makeString("seven"));
+	assert(wideObject.size() == 20000);
+	assert(wideObject.get("k7").asString().equals("seven"));
+	assert(wideObject.keys().get(7).equals("k7"));
+	assert(JSONValue.parse("{\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5,\"f\":6,\"g\":7,\"h\":8,\"i\":9,\"j\":10,\"a\":11}").isError());
 
 	string deep = "0";
 	for i in range(520) { deep = "[" + deep + "]"; }
@@ -50,11 +84,21 @@ int main() {
 		parent.push(builtDeep);
 		builtDeep = parent;
 	}
-	assert(!JSONValue.parse(builtDeep.stringify()).isError());
-
-	assert(JSONText.slice("abc", -4, 2).equals("ab"));
-	assert(JSONText.slice("abc", 3, 2).equals(""));
-	assert(JSONText.skipSpaces("  x", -9) == 2);
+	// Writing past the 512-level limit is an error, not a silent null.
+	bool deepRejected = false;
+	try {
+		builtDeep.stringify();
+	} catch (string error) {
+		deepRejected = error.contains("512");
+	}
+	assert(deepRejected);
+	JSONValue shallowEnough = JSONValue.makeInt(1);
+	for i in range(500) {
+		JSONValue parent = JSONValue.makeArray();
+		parent.push(shallowEnough);
+		shallowEnough = parent;
+	}
+	assert(!JSONValue.parse(shallowEnough.stringify()).isError());
 
 	double infinity = strtod("1e9999", NULL);
 	JSONValue invalidFloat = JSONValue.makeFloat(infinity);

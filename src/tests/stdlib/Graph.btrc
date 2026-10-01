@@ -62,6 +62,44 @@ int main() {
 	assert(targets.get(0).equals("final"));
 	assert(targets.get(1).equals("ignored"));
 
+	CLIArgs badArg = CLIArgs(0, null);
+	badArg.values.push("--arg");
+	badArg.values.push("=novalue");
+	bool badArgRejected = false;
+	try {
+		GraphCLI.args(badArg, 0);
+	} catch (string error) {
+		badArgRejected = error.contains("Expected --arg key=value");
+	}
+	assert(badArgRejected);
+
+	// An unreadable file is an I/O error, not an empty graph.
+	bool missingFileRejected = false;
+	try {
+		GraphParser.readFile(PathTools.join(dir, "absent.json"));
+	} catch (string error) {
+		missingFileRejected = error.contains("Cannot open graph file");
+	}
+	assert(missingFileRejected);
+
+	// Field types are checked through the JSON tree, and nested keys that
+	// merely share a name are not mistaken for top-level fields.
+	string nestedPath = PathTools.join(dir, "nested.json");
+	Path.writeAll(nestedPath, "{\"meta\":{\"name\":\"inner\"},\"nodes\":[{\"id\":\"a\",\"spec\":\"a.json\",\"args\":{\"n\":3,\"s\":\"x\\\"y\"}}]}");
+	ExecutionGraph nested = GraphParser.readFile(nestedPath);
+	assert(nested.name.equals("graph"));
+	assert(nested.node("a").args.get("n").equals("3"));
+	assert(nested.node("a").args.get("s").equals("x\"y"));
+	string wrongTypePath = PathTools.join(dir, "wrong-type.json");
+	Path.writeAll(wrongTypePath, "{\"nodes\":[{\"id\":7,\"spec\":\"a.json\"}]}");
+	bool wrongTypeRejected = false;
+	try {
+		GraphParser.readFile(wrongTypePath);
+	} catch (string error) {
+		wrongTypeRejected = error.contains("Graph field id must be a string");
+	}
+	assert(wrongTypeRejected);
+
 	GraphTraversal traversal = GraphTraversal(graph);
 	Vector<string> order = traversal.order(["final"]);
 	assert(traversal.ok());

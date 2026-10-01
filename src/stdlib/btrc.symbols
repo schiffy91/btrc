@@ -1,12 +1,18 @@
-btrc-symbols 1 ba105b59-248074-26
+btrc-symbols 1 4274716d-234766-25
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
 Bytes	Bytes.btrc
+CHILD_STDIN_INHERIT	Process.btrc
+CHILD_STDIN_NULL	Process.btrc
 CLIArgs	CLI.btrc
 CLICommand	CLI.btrc
 CLICommandLine	CLI.btrc
 CLIHelp	CLI.btrc
+COMMAND_OUTPUT_COLLECT	Process.btrc
+COMMAND_OUTPUT_COMBINE	Process.btrc
+COMMAND_OUTPUT_STREAM	Process.btrc
+COMMAND_OUTPUT_SUPPRESS	Process.btrc
 CallbackCancellation	Callback.btrc
 CallbackContext	Callback.btrc
 CallbackRegistration	Callback.btrc
@@ -16,15 +22,14 @@ CallbackScope	Callback.btrc
 CallbackState	Callback.btrc
 CallbackToken	Callback.btrc
 ChildDescriptorMapping	Process.btrc
-ChildDescriptorMappings	Process.btrc
 ChildProcess	Process.btrc
 ChildProcessArguments	Process.btrc
 ChildProcessCapture	Process.btrc
 ChildProcessClock	Process.btrc
 ChildProcessEnvironment	Process.btrc
 ChildProcessExecutable	Process.btrc
+ChildStdin	Process.btrc
 Command	Process.btrc
-CommandEnvironment	Process.btrc
 CommandOutput	Process.btrc
 CompiledRegex	Regex.btrc
 Complete	Callback.btrc
@@ -55,12 +60,17 @@ FileSnapshotReadOutcome	IO.btrc
 ICallbackContext	Callback.btrc
 ICallbackRegistration	Callback.btrc
 Iterable	Iterable.btrc
-JSON	JSONX.btrc
+JSONKind	JSON.btrc
 JSONNum	JSON.btrc
-JSONObject	JSON.btrc
 JSONParser	JSON.btrc
-JSONText	JSON.btrc
 JSONValue	JSON.btrc
+JSON_ARRAY	JSON.btrc
+JSON_BOOL	JSON.btrc
+JSON_ERROR	JSON.btrc
+JSON_NULL	JSON.btrc
+JSON_NUMBER	JSON.btrc
+JSON_OBJECT	JSON.btrc
+JSON_STRING	JSON.btrc
 List	List.btrc
 ListNode	List.btrc
 Map	Map.btrc
@@ -80,7 +90,6 @@ Path	IO.btrc
 Pattern	Pattern.btrc
 Pending	Callback.btrc
 Platform	Platform.btrc
-PowerShell	Process.btrc
 ProcessStatus	Process.btrc
 Random	Random.btrc
 Regex	Regex.btrc
@@ -105,10 +114,6 @@ StringBuilder	Strings.btrc
 Strings	Strings.btrc
 TOML	TOML.btrc
 Timer	Datetime.btrc
-UnixPattern	Pattern.btrc
-UnixPipe	Process.btrc
-UnixPlatform	Platform.btrc
-UnixProcess	Process.btrc
 UnixShell	Process.btrc
 Vector	Vector.btrc
 btrcSpscCopy	SPSC.btrc
@@ -119,7 +124,4 @@ callbackGateDrain	Callback.btrc
 callbackGateLeave	Callback.btrc
 callbackGateTryEnter	Callback.btrc
 environ	Process.btrc
-fileno	IO.btrc
 localeconv	JSON.btrc
-pclose	Process.btrc
-popen	Process.btrc

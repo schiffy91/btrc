@@ -61,10 +61,6 @@ int main() {
 	assert(object.stringify().equals(objectText));
 	assert(JSONValue.parse(objectText).stringify().equals(objectText));
 
-	JSONObject legacy = JSONObject();
-	legacy.setString(malformedKey, malformedValue);
-	assert(legacy.stringify().equals(objectText));
-
 	StringBuilder rawJson = StringBuilder();
 	rawJson.appendChar((char)34);
 	rawJson.append(malformedValue);

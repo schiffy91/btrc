@@ -1,4 +1,4 @@
-/* UnixShell.run with cwd= (cd prefix) and env= (NAME=value prefix) rendering,
+/* UnixShell.run with cwd= and env= applied to the shell process itself,
  * plus a multi-KB stdin round-trip through the temp-file mechanism and a
  * simultaneous stderr=collect capture. Hermetic: cwd is /tmp, no network. */
 import Library.Process;
@@ -9,17 +9,22 @@ import Library.Vector;
 int main() {
 	UnixShell sh = UnixShell();
 
-	// cwd= prefixes the command with `cd <quoted> && ...`, so pwd reports /tmp.
+	// cwd= is the shell's working directory, so pwd reports /tmp.
 	var pwd = sh.run("pwd", cwd="/tmp", logFailure=false).trimmed();
 	assert(pwd.endsWith("tmp"));
 
-	// env= renders a NAME=value prefix the spawned command inherits. The value
-	// is read by `printenv`, which inspects its own environment (a "$FOO" in the
-	// shell would expand before the prefix takes effect, so we must read it from
-	// a child process, not via shell expansion).
+	// env= is the shell's own environment, so it reaches every command in
+	// the line, and shell expansion sees it too.
 	Vector<string> env = ["FOO=bar"];
 	var got = sh.run("printenv FOO", env=env, logFailure=false).trimmed();
 	assert(got.equals("bar"));
+	assert(sh.run("printenv FOO; printenv FOO", env=env, logFailure=false).stdout().equals("bar\nbar\n"));
+	assert(sh.run("printf '%s' \"$FOO\"", env=env, logFailure=false).stdout().equals("bar"));
+
+	// The recorded command is redacted like the log line.
+	var redacted = sh.run("printf '%s' s3cret", redactSubstring="s3cret", logFailure=false);
+	assert(redacted.stdout().equals("s3cret"));
+	assert(!redacted.command.contains("s3cret"));
 
 	// cwd and env combine.
 	Vector<string> env2 = ["MSG=hi"];
@@ -34,7 +39,7 @@ int main() {
 	assert(echoed.equals(big));
 
 	// stderr=collect captures the error stream separately from stdout.
-	var res = sh.run("printf err >&2; printf out", stdout=CommandOutput.collect(), stderr=CommandOutput.collect(), logFailure=false);
+	var res = sh.run("printf err >&2; printf out", stdout=COMMAND_OUTPUT_COLLECT, stderr=COMMAND_OUTPUT_COLLECT, logFailure=false);
 	assert(res.stdout().equals("out"));
 	assert(res.stderr().equals("err"));
 
