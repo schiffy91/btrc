@@ -2160,6 +2160,10 @@ Two further workflows cover the platforms the Linux job cannot:
 [`Windows`](.github/workflows/windows.yml) each build a native release archive,
 relocate it, and run the compiled output on that operating system.
 
+[CI health](docs/design/ci-health.md) records each job's failure and flake
+rate since February 2026, every failure signature with its classification,
+and the owner of each one still open.
+
 The conventions CI enforces:
 
 - A language or ABI change is made in the shared specification and then
