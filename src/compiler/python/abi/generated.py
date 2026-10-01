@@ -427,6 +427,23 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
+        name='__btrc_target_architecture',
+        origin='runtime',
+        result=GeneratedAbiTypeRow('int', 0, False, ()),
+        parameters=(),
+        variadic=False,
+        semantic_result=None,
+        return_effect='value',
+        return_alias_parameter=None,
+        return_alias_null_effect=None,
+        raw_lifetime=False,
+        return_deallocator=None,
+        return_alias_shape=None,
+        consume_deallocator=None,
+        return_alias_null_deallocator=None,
+        realtime_effect='safe',
+    ),
+    GeneratedHostedFunctionRow(
         name='__btrc_target_platform',
         origin='runtime',
         result=GeneratedAbiTypeRow('int', 0, False, ()),
@@ -6200,6 +6217,7 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     '__btrc_string_length',
     '__btrc_string_live_count',
     '__btrc_string_or_empty',
+    '__btrc_target_architecture',
     '__btrc_target_platform',
     '__btrc_terminal_adopt_foreground',
     '__btrc_terminal_foreground_group',
@@ -12729,6 +12747,7 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     '__btrc_string_length',
     '__btrc_string_live_count',
     '__btrc_string_or_empty',
+    '__btrc_target_architecture',
     '__btrc_target_platform',
     '__btrc_terminal_adopt_foreground',
     '__btrc_terminal_foreground_group',
@@ -17569,4 +17588,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '689d613b4d34a1be8208db4e4f03e4c435dbf631aaeecb4ac037e74b90a9a9de'
+HOSTED_ABI_FINGERPRINT = 'cb0af8dc84591868742194e4a006ed578eb896788deeb42ab0bda771c8b3769c'

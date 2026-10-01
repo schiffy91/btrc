@@ -398,6 +398,7 @@ channels = [
   "helper.__btrc_suspect_locked",
   "helper.__btrc_suspect_state",
   "helper.__btrc_swapCase",
+  "helper.__btrc_target_architecture",
   "helper.__btrc_target_platform",
   "helper.__btrc_terminal_adopt_foreground",
   "helper.__btrc_terminal_foreground_group",
@@ -1376,9 +1377,9 @@ channel = "asset.core_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.core_c.bin"
 baseline_sha256 = "9073d4d1c0363d79bc29c168852ab117112c4f0796256864c553d5430f804cac"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.core_c.bin"
-accepted_sha256 = "42bc4e04124ad0d08fa51084a14d70fac7e72473aa3b417a0e88c220b1da479c"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. ApplicationDirectories resolves macOS, Linux, and future Windows policy through a compiler-owned runtime platform discriminator. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_application_directories_contract.py"]
+accepted_sha256 = "2ed95410350a1a9b884b038d9e7e7616bb3ec3aa005bf5aaa716f53830819304"
+reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. ApplicationDirectories resolves macOS, Linux, and future Windows policy through a compiler-owned runtime platform discriminator. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change. The new __btrc_target_architecture helper joins core.c after __btrc_target_platform: the C compiler's target architecture (1 = x86_64, 2 = aarch64, 0 = other, with an override macro), which btrcc reads to infer its host package target as the reference compiler does."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_application_directories_contract.py", "src/tests/btrc/test_native_packages.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.cycles_c"
@@ -4612,8 +4613,8 @@ channel = "helper.__btrc_application_directories_platform"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0228.bin"
 baseline_sha256 = "297a9a957afa03850c568ff30ba4f410f7f0ef33357ba32f5891d123877a8cc3"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0228.bin"
-accepted_sha256 = "ba22042b647ca2a688ada708371ddccdb2fb361f47161e15b7c1eaf6a75d9d44"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. The helper is renamed __btrc_target_platform (record 0233), so this name has no row."
+accepted_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. The helper is renamed __btrc_target_platform (record 0233), so this name has no row. Re-captured: the accepted row still named the pre-rename helper, which the catalog no longer carries."
 regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_application_directories_contract.py"]
 
 [[records]]
@@ -4626,9 +4627,9 @@ channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
 baseline_sha256 = "37e2442001713cb436302de380466e70ae4d1c6123368fbd0b4e30f5021b422a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "2fdcf94417cd31fdf50e8db206a66efe96204a1a697e18f5b7dc4c2ef5048903"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/python/test_application_directories_contract.py"]
+accepted_sha256 = "d86485f0eac816047cfbc2137c4a6be6cf2f8d5036e46d206e0457d122e1968f"
+reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change. __btrc_target_architecture joins both catalogs at the end of their orders; every earlier helper keeps its position."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/python/test_application_directories_contract.py", "src/tests/btrc/test_native_packages.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-order.btrc"
@@ -4640,9 +4641,9 @@ channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
 baseline_sha256 = "213371cc7e12185e6643930ec91b4a3016d51ab6add711a63cd7d41b6c85dea2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "cf435337e7243ab548f84fdfdfe787412fe81a7a4429cbe18f19c3dcbb620bdf"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/python/test_application_directories_contract.py"]
+accepted_sha256 = "85091df7326f7f582db28fdc53f4b35578f2f2fd12fdad38025992eed9f283ff"
+reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change. __btrc_target_architecture joins both catalogs at the end of their orders; every earlier helper keeps its position."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/python/test_application_directories_contract.py", "src/tests/btrc/test_native_packages.py"]
 
 
 
@@ -4882,6 +4883,20 @@ channel = "helper.__btrc_target_platform"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0233.bin"
 baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0233.bin"
-accepted_sha256 = "f0ad4dafff78670fc3c794bd44b8cbba7592c6276ec3cd9e109c529911da100d"
-reason = "The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change."
+accepted_sha256 = "5e54900e3a13c6593196daf7d6161ae12bc2b8546504c8a405fd0aa69d2f6adf"
+reason = "The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change. Re-captured: the accepted row predated the D060 contiguous order close-up, so it carried the old catalog orders; the helper is unchanged."
 regressions = ["src/tests/python/test_application_directories_contract.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0234"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_target_architecture"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0234.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0234.bin"
+accepted_sha256 = "18c0d8b420f96e476ac31318b45bce7e0af86a01baad35b4b20bea8fe5240656"
+reason = "btrcc infers its host package target from the compiler-owned __btrc_target_architecture discriminator beside __btrc_target_platform, as the reference compiler infers it from its own process; the helper is new, so its baseline row is null."
+regressions = ["src/tests/btrc/test_native_packages.py"]

@@ -35,6 +35,19 @@ class FePackageTarget {
 
 	private bool validArchitecture(string value) { return value.equals("x86_64") || value.equals("aarch64"); }
 
+	/* The host this compiler runs on, which the reference compiler also
+	 * selects when no --target is given. A btrcc binary's host is the target
+	 * its C compiler built it for. An unrecognized host keeps an empty target,
+	 * so only target-dependent inputs fail, and they ask for --target. */
+	class FePackageTarget host() {
+		int platform = __btrc_target_platform();
+		int architecture = __btrc_target_architecture();
+		string os = platform == 1 ? "macos" : (platform == 2 ? "linux" : (platform == 3 ? "windows" : ""));
+		string arch = architecture == 1 ? "x86_64" : (architecture == 2 ? "aarch64" : "");
+		if (os.isEmpty() || arch.isEmpty()) { return FePackageTarget("", ""); }
+		return FePackageTarget(os, arch);
+	}
+
 	class FePackageTarget parse(string raw) {
 		if (raw == null || raw.isEmpty()) {
 			FePackageFailure.fail("version-1 package manifests require --target OS-ARCH");
@@ -2891,7 +2904,7 @@ class FePackageGraphResolver {
 
 	private FePackageTarget planTarget(string targetValue) {
 		if (targetValue == null || targetValue.isEmpty()) {
-			return FePackageTarget("", "");
+			return FePackageTarget.host();
 		}
 		return FePackageTarget.parse(targetValue);
 	}
@@ -2914,7 +2927,7 @@ class FePackageGraphResolver {
 			FeNativeLinkPlan legacyPlan = FeNativeLinkPlan(target, legacyPackages, legacyDeclarations);
 			return FeResolvedPackages(false, manifestPath, "", legacyNodes, legacyPlan);
 		}
-		target = FePackageTarget.parse(targetValue);
+		if (target.operatingSystem.isEmpty()) { target = FePackageTarget.parse(targetValue); }
 		string root = FeCanonicalPath.absolute(PathTools.dirname(manifestPath));
 		string lockPath = PathTools.join(root, "btrc.lock");
 		/* The old lock is validated derived state, not the input version this

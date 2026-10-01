@@ -95,7 +95,7 @@ class GeneratedHostedAbiData {
 	public GeneratedHostedAbiData() {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "689d613b4d34a1be8208db4e4f03e4c435dbf631aaeecb4ac037e74b90a9a9de";
+		self.fingerprint = "cb0af8dc84591868742194e4a006ed578eb896788deeb42ab0bda771c8b3769c";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -107,7 +107,7 @@ class GeneratedHostedAbiData {
 		if (rows != null) { return rows; }
 		Vector<GeneratedHostedFunctionRow> built = [];
 		int index = 0;
-		while (index < 361) {
+		while (index < 362) {
 			built.push(self.functionAt(index));
 			index = index + 1;
 		}
@@ -607,9 +607,12 @@ class GeneratedHostedAbiData {
 				"unknown");
 		}
 		if (index == 23) {
-			return GeneratedHostedFunctionRow("__btrc_target_platform", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "safe");
+			return GeneratedHostedFunctionRow("__btrc_target_architecture", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "safe");
 		}
 		if (index == 24) {
+			return GeneratedHostedFunctionRow("__btrc_target_platform", "runtime", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "safe");
+		}
+		if (index == 25) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_terminal_adopt_foreground",
 				"runtime",
@@ -632,7 +635,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 25) {
+		if (index == 26) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_terminal_foreground_group",
 				"runtime",
@@ -654,7 +657,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 26) {
+		if (index == 27) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_validate_executable_descriptor",
 				"runtime",
@@ -676,7 +679,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 27) {
+		if (index == 28) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_validate_working_directory_descriptor",
 				"runtime",
@@ -698,10 +701,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 28) {
+		if (index == 29) {
 			return GeneratedHostedFunctionRow("abort", "stdlib", GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 29) {
+		if (index == 30) {
 			return GeneratedHostedFunctionRow(
 				"abs",
 				"stdlib",
@@ -723,7 +726,7 @@ class GeneratedHostedAbiData {
 				"",
 				"safe");
 		}
-		if (index == 30) {
+		if (index == 31) {
 			return GeneratedHostedFunctionRow(
 				"accept",
 				"posix",
@@ -747,7 +750,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 31) {
+		if (index == 32) {
 			return GeneratedHostedFunctionRow(
 				"access",
 				"posix",
@@ -770,7 +773,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 32) {
+		if (index == 33) {
 			return GeneratedHostedFunctionRow(
 				"acos",
 				"math",
@@ -792,7 +795,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 33) {
+		if (index == 34) {
 			return GeneratedHostedFunctionRow(
 				"acosf",
 				"math",
@@ -814,7 +817,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 34) {
+		if (index == 35) {
 			return GeneratedHostedFunctionRow(
 				"acosh",
 				"math",
@@ -836,7 +839,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 35) {
+		if (index == 36) {
 			return GeneratedHostedFunctionRow(
 				"acoshf",
 				"math",
@@ -858,7 +861,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 36) {
+		if (index == 37) {
 			return GeneratedHostedFunctionRow(
 				"acoshl",
 				"math",
@@ -880,7 +883,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 37) {
+		if (index == 38) {
 			return GeneratedHostedFunctionRow(
 				"acosl",
 				"math",
@@ -902,7 +905,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 38) {
+		if (index == 39) {
 			return GeneratedHostedFunctionRow(
 				"aligned_alloc",
 				"stdlib",
@@ -925,7 +928,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 39) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow1(int index) {
+		if (index == 40) {
 			return GeneratedHostedFunctionRow(
 				"asin",
 				"math",
@@ -947,11 +954,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow1(int index) {
-		if (index == 40) {
+		if (index == 41) {
 			return GeneratedHostedFunctionRow(
 				"asinf",
 				"math",
@@ -973,7 +976,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 41) {
+		if (index == 42) {
 			return GeneratedHostedFunctionRow(
 				"asinh",
 				"math",
@@ -995,7 +998,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 42) {
+		if (index == 43) {
 			return GeneratedHostedFunctionRow(
 				"asinhf",
 				"math",
@@ -1017,7 +1020,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 43) {
+		if (index == 44) {
 			return GeneratedHostedFunctionRow(
 				"asinhl",
 				"math",
@@ -1039,7 +1042,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 44) {
+		if (index == 45) {
 			return GeneratedHostedFunctionRow(
 				"asinl",
 				"math",
@@ -1061,7 +1064,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 45) {
+		if (index == 46) {
 			return GeneratedHostedFunctionRow(
 				"atan",
 				"math",
@@ -1083,7 +1086,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 46) {
+		if (index == 47) {
 			return GeneratedHostedFunctionRow(
 				"atan2",
 				"math",
@@ -1106,7 +1109,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 47) {
+		if (index == 48) {
 			return GeneratedHostedFunctionRow(
 				"atan2f",
 				"math",
@@ -1129,7 +1132,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 48) {
+		if (index == 49) {
 			return GeneratedHostedFunctionRow(
 				"atan2l",
 				"math",
@@ -1152,7 +1155,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 49) {
+		if (index == 50) {
 			return GeneratedHostedFunctionRow(
 				"atanf",
 				"math",
@@ -1174,7 +1177,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 50) {
+		if (index == 51) {
 			return GeneratedHostedFunctionRow(
 				"atanh",
 				"math",
@@ -1196,7 +1199,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 51) {
+		if (index == 52) {
 			return GeneratedHostedFunctionRow(
 				"atanhf",
 				"math",
@@ -1218,7 +1221,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 52) {
+		if (index == 53) {
 			return GeneratedHostedFunctionRow(
 				"atanhl",
 				"math",
@@ -1240,7 +1243,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 53) {
+		if (index == 54) {
 			return GeneratedHostedFunctionRow(
 				"atanl",
 				"math",
@@ -1262,7 +1265,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 54) {
+		if (index == 55) {
 			return GeneratedHostedFunctionRow(
 				"atof",
 				"stdlib",
@@ -1284,7 +1287,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 55) {
+		if (index == 56) {
 			return GeneratedHostedFunctionRow(
 				"atoi",
 				"stdlib",
@@ -1306,7 +1309,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 56) {
+		if (index == 57) {
 			return GeneratedHostedFunctionRow(
 				"atol",
 				"stdlib",
@@ -1328,7 +1331,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 57) {
+		if (index == 58) {
 			return GeneratedHostedFunctionRow(
 				"atoll",
 				"stdlib",
@@ -1350,7 +1353,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 58) {
+		if (index == 59) {
 			return GeneratedHostedFunctionRow(
 				"bind",
 				"posix",
@@ -1374,7 +1377,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 59) {
+		if (index == 60) {
 			return GeneratedHostedFunctionRow(
 				"bsearch",
 				"stdlib",
@@ -1400,37 +1403,15 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 60) {
+		if (index == 61) {
 			return GeneratedHostedFunctionRow("btrc_gpu_acquire_compute", "native_gpu", GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "independent", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 61) {
-			return GeneratedHostedFunctionRow("btrc_gpu_available", "native_gpu", GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
-		}
 		if (index == 62) {
-			return GeneratedHostedFunctionRow(
-				"btrc_gpu_bind_group_destroy",
-				"native_gpu",
-				GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-				true,
-				[
-				GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "consume", ""),
-			],
-				false,
-				false,
-				GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-				"value",
-				-1,
-				"",
-				true,
-				"",
-				"",
-				"btrc_gpu_bind_group_destroy",
-				"",
-				"unknown");
+			return GeneratedHostedFunctionRow("btrc_gpu_available", "native_gpu", GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
 		if (index == 63) {
 			return GeneratedHostedFunctionRow(
-				"btrc_gpu_buffer_destroy",
+				"btrc_gpu_bind_group_destroy",
 				"native_gpu",
 				GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
 				true,
@@ -1446,12 +1427,34 @@ class GeneratedHostedAbiData {
 				true,
 				"",
 				"",
-				"btrc_gpu_buffer_destroy",
+				"btrc_gpu_bind_group_destroy",
 				"",
 				"unknown");
 		}
 		if (index == 64) {
 			return GeneratedHostedFunctionRow(
+				"btrc_gpu_buffer_destroy",
+				"native_gpu",
+				GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "consume", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				true,
+				"",
+				"",
+				"btrc_gpu_buffer_destroy",
+				"",
+				"unknown");
+		}
+		if (index == 65) {
+			return GeneratedHostedFunctionRow(
 				"btrc_gpu_compute_pipeline_destroy",
 				"native_gpu",
 				GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
@@ -1472,7 +1475,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 65) {
+		if (index == 66) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_create_bind_group",
 				"native_gpu",
@@ -1497,7 +1500,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 66) {
+		if (index == 67) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_create_buffer",
 				"native_gpu",
@@ -1521,7 +1524,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 67) {
+		if (index == 68) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_create_compute_pipeline",
 				"native_gpu",
@@ -1545,7 +1548,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 68) {
+		if (index == 69) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_create_shader",
 				"native_gpu",
@@ -1568,7 +1571,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 69) {
+		if (index == 70) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_destroy",
 				"native_gpu",
@@ -1590,7 +1593,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 70) {
+		if (index == 71) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_dispatch",
 				"native_gpu",
@@ -1615,10 +1618,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 71) {
+		if (index == 72) {
 			return GeneratedHostedFunctionRow("btrc_gpu_init_compute", "native_gpu", GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "independent", -1, "", false, "btrc_gpu_destroy", "", "", "", "unknown");
 		}
-		if (index == 72) {
+		if (index == 73) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_read_buffer_checked",
 				"native_gpu",
@@ -1643,7 +1646,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 73) {
+		if (index == 74) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_shader_destroy",
 				"native_gpu",
@@ -1665,7 +1668,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 74) {
+		if (index == 75) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_write_buffer",
 				"native_gpu",
@@ -1690,7 +1693,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 75) {
+		if (index == 76) {
 			return GeneratedHostedFunctionRow(
 				"calloc",
 				"stdlib",
@@ -1713,7 +1716,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 76) {
+		if (index == 77) {
 			return GeneratedHostedFunctionRow(
 				"cbrt",
 				"math",
@@ -1735,7 +1738,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 77) {
+		if (index == 78) {
 			return GeneratedHostedFunctionRow(
 				"cbrtf",
 				"math",
@@ -1757,7 +1760,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 78) {
+		if (index == 79) {
 			return GeneratedHostedFunctionRow(
 				"cbrtl",
 				"math",
@@ -1779,7 +1782,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 79) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow2(int index) {
+		if (index == 80) {
 			return GeneratedHostedFunctionRow(
 				"ceil",
 				"math",
@@ -1801,11 +1808,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow2(int index) {
-		if (index == 80) {
+		if (index == 81) {
 			return GeneratedHostedFunctionRow(
 				"ceilf",
 				"math",
@@ -1827,7 +1830,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 81) {
+		if (index == 82) {
 			return GeneratedHostedFunctionRow(
 				"ceill",
 				"math",
@@ -1849,7 +1852,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 82) {
+		if (index == 83) {
 			return GeneratedHostedFunctionRow(
 				"chdir",
 				"posix",
@@ -1871,7 +1874,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 83) {
+		if (index == 84) {
 			return GeneratedHostedFunctionRow(
 				"chmod",
 				"posix",
@@ -1894,7 +1897,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 84) {
+		if (index == 85) {
 			return GeneratedHostedFunctionRow(
 				"clearerr",
 				"stdio",
@@ -1916,10 +1919,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 85) {
+		if (index == 86) {
 			return GeneratedHostedFunctionRow("clock", "posix_process", GeneratedAbiTypeRow("clock_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("clock_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 86) {
+		if (index == 87) {
 			return GeneratedHostedFunctionRow(
 				"clock_gettime",
 				"posix_process",
@@ -1942,7 +1945,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 87) {
+		if (index == 88) {
 			return GeneratedHostedFunctionRow(
 				"close",
 				"posix",
@@ -1964,7 +1967,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 88) {
+		if (index == 89) {
 			return GeneratedHostedFunctionRow(
 				"closedir",
 				"posix",
@@ -1986,7 +1989,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 89) {
+		if (index == 90) {
 			return GeneratedHostedFunctionRow(
 				"copysign",
 				"math",
@@ -2009,7 +2012,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 90) {
+		if (index == 91) {
 			return GeneratedHostedFunctionRow(
 				"copysignf",
 				"math",
@@ -2032,7 +2035,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 91) {
+		if (index == 92) {
 			return GeneratedHostedFunctionRow(
 				"copysignl",
 				"math",
@@ -2055,7 +2058,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 92) {
+		if (index == 93) {
 			return GeneratedHostedFunctionRow(
 				"cos",
 				"math",
@@ -2077,7 +2080,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 93) {
+		if (index == 94) {
 			return GeneratedHostedFunctionRow(
 				"cosf",
 				"math",
@@ -2099,7 +2102,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 94) {
+		if (index == 95) {
 			return GeneratedHostedFunctionRow(
 				"cosh",
 				"math",
@@ -2121,7 +2124,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 95) {
+		if (index == 96) {
 			return GeneratedHostedFunctionRow(
 				"coshf",
 				"math",
@@ -2143,7 +2146,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 96) {
+		if (index == 97) {
 			return GeneratedHostedFunctionRow(
 				"coshl",
 				"math",
@@ -2165,7 +2168,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 97) {
+		if (index == 98) {
 			return GeneratedHostedFunctionRow(
 				"cosl",
 				"math",
@@ -2187,7 +2190,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 98) {
+		if (index == 99) {
 			return GeneratedHostedFunctionRow(
 				"dirfd",
 				"posix",
@@ -2209,7 +2212,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 99) {
+		if (index == 100) {
 			return GeneratedHostedFunctionRow(
 				"dup2",
 				"posix",
@@ -2232,7 +2235,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 100) {
+		if (index == 101) {
 			return GeneratedHostedFunctionRow(
 				"erf",
 				"math",
@@ -2254,7 +2257,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 101) {
+		if (index == 102) {
 			return GeneratedHostedFunctionRow(
 				"erfc",
 				"math",
@@ -2276,7 +2279,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 102) {
+		if (index == 103) {
 			return GeneratedHostedFunctionRow(
 				"erfcf",
 				"math",
@@ -2298,7 +2301,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 103) {
+		if (index == 104) {
 			return GeneratedHostedFunctionRow(
 				"erfcl",
 				"math",
@@ -2320,7 +2323,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 104) {
+		if (index == 105) {
 			return GeneratedHostedFunctionRow(
 				"erff",
 				"math",
@@ -2342,7 +2345,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 105) {
+		if (index == 106) {
 			return GeneratedHostedFunctionRow(
 				"erfl",
 				"math",
@@ -2364,7 +2367,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 106) {
+		if (index == 107) {
 			return GeneratedHostedFunctionRow(
 				"execve",
 				"posix_process",
@@ -2388,7 +2391,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 107) {
+		if (index == 108) {
 			return GeneratedHostedFunctionRow(
 				"exit",
 				"stdlib",
@@ -2410,7 +2413,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 108) {
+		if (index == 109) {
 			return GeneratedHostedFunctionRow(
 				"exp",
 				"math",
@@ -2432,7 +2435,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 109) {
+		if (index == 110) {
 			return GeneratedHostedFunctionRow(
 				"exp2",
 				"math",
@@ -2454,7 +2457,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 110) {
+		if (index == 111) {
 			return GeneratedHostedFunctionRow(
 				"exp2f",
 				"math",
@@ -2476,7 +2479,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 111) {
+		if (index == 112) {
 			return GeneratedHostedFunctionRow(
 				"exp2l",
 				"math",
@@ -2498,7 +2501,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 112) {
+		if (index == 113) {
 			return GeneratedHostedFunctionRow(
 				"expf",
 				"math",
@@ -2520,7 +2523,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 113) {
+		if (index == 114) {
 			return GeneratedHostedFunctionRow(
 				"expl",
 				"math",
@@ -2542,7 +2545,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 114) {
+		if (index == 115) {
 			return GeneratedHostedFunctionRow(
 				"expm1",
 				"math",
@@ -2564,7 +2567,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 115) {
+		if (index == 116) {
 			return GeneratedHostedFunctionRow(
 				"expm1f",
 				"math",
@@ -2586,7 +2589,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 116) {
+		if (index == 117) {
 			return GeneratedHostedFunctionRow(
 				"expm1l",
 				"math",
@@ -2608,7 +2611,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 117) {
+		if (index == 118) {
 			return GeneratedHostedFunctionRow(
 				"fabs",
 				"math",
@@ -2630,7 +2633,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 118) {
+		if (index == 119) {
 			return GeneratedHostedFunctionRow(
 				"fabsf",
 				"math",
@@ -2652,7 +2655,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 119) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow3(int index) {
+		if (index == 120) {
 			return GeneratedHostedFunctionRow(
 				"fabsl",
 				"math",
@@ -2674,11 +2681,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow3(int index) {
-		if (index == 120) {
+		if (index == 121) {
 			return GeneratedHostedFunctionRow(
 				"fchmod",
 				"posix",
@@ -2701,7 +2704,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 121) {
+		if (index == 122) {
 			return GeneratedHostedFunctionRow(
 				"fclose",
 				"stdio",
@@ -2723,7 +2726,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 122) {
+		if (index == 123) {
 			return GeneratedHostedFunctionRow(
 				"fcntl",
 				"posix",
@@ -2746,7 +2749,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 123) {
+		if (index == 124) {
 			return GeneratedHostedFunctionRow(
 				"fdim",
 				"math",
@@ -2769,7 +2772,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 124) {
+		if (index == 125) {
 			return GeneratedHostedFunctionRow(
 				"fdimf",
 				"math",
@@ -2792,7 +2795,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 125) {
+		if (index == 126) {
 			return GeneratedHostedFunctionRow(
 				"fdiml",
 				"math",
@@ -2815,7 +2818,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 126) {
+		if (index == 127) {
 			return GeneratedHostedFunctionRow(
 				"fdopendir",
 				"posix",
@@ -2837,7 +2840,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 127) {
+		if (index == 128) {
 			return GeneratedHostedFunctionRow(
 				"feof",
 				"stdio",
@@ -2859,7 +2862,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 128) {
+		if (index == 129) {
 			return GeneratedHostedFunctionRow(
 				"ferror",
 				"stdio",
@@ -2881,7 +2884,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 129) {
+		if (index == 130) {
 			return GeneratedHostedFunctionRow(
 				"fflush",
 				"stdio",
@@ -2903,7 +2906,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 130) {
+		if (index == 131) {
 			return GeneratedHostedFunctionRow(
 				"fgetc",
 				"stdio",
@@ -2925,7 +2928,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 131) {
+		if (index == 132) {
 			return GeneratedHostedFunctionRow(
 				"fgets",
 				"stdio",
@@ -2949,7 +2952,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 132) {
+		if (index == 133) {
 			return GeneratedHostedFunctionRow(
 				"fileno",
 				"stdio",
@@ -2971,7 +2974,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 133) {
+		if (index == 134) {
 			return GeneratedHostedFunctionRow(
 				"flock",
 				"posix",
@@ -2994,7 +2997,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 134) {
+		if (index == 135) {
 			return GeneratedHostedFunctionRow(
 				"flockfile",
 				"stdio",
@@ -3016,7 +3019,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 135) {
+		if (index == 136) {
 			return GeneratedHostedFunctionRow(
 				"floor",
 				"math",
@@ -3038,7 +3041,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 136) {
+		if (index == 137) {
 			return GeneratedHostedFunctionRow(
 				"floorf",
 				"math",
@@ -3060,7 +3063,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 137) {
+		if (index == 138) {
 			return GeneratedHostedFunctionRow(
 				"floorl",
 				"math",
@@ -3082,7 +3085,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 138) {
+		if (index == 139) {
 			return GeneratedHostedFunctionRow(
 				"fma",
 				"math",
@@ -3106,7 +3109,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 139) {
+		if (index == 140) {
 			return GeneratedHostedFunctionRow(
 				"fmaf",
 				"math",
@@ -3130,7 +3133,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 140) {
+		if (index == 141) {
 			return GeneratedHostedFunctionRow(
 				"fmal",
 				"math",
@@ -3154,7 +3157,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 141) {
+		if (index == 142) {
 			return GeneratedHostedFunctionRow(
 				"fmax",
 				"math",
@@ -3177,7 +3180,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 142) {
+		if (index == 143) {
 			return GeneratedHostedFunctionRow(
 				"fmaxf",
 				"math",
@@ -3200,7 +3203,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 143) {
+		if (index == 144) {
 			return GeneratedHostedFunctionRow(
 				"fmaxl",
 				"math",
@@ -3223,7 +3226,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 144) {
+		if (index == 145) {
 			return GeneratedHostedFunctionRow(
 				"fmin",
 				"math",
@@ -3246,7 +3249,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 145) {
+		if (index == 146) {
 			return GeneratedHostedFunctionRow(
 				"fminf",
 				"math",
@@ -3269,7 +3272,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 146) {
+		if (index == 147) {
 			return GeneratedHostedFunctionRow(
 				"fminl",
 				"math",
@@ -3292,7 +3295,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 147) {
+		if (index == 148) {
 			return GeneratedHostedFunctionRow(
 				"fmod",
 				"math",
@@ -3315,7 +3318,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 148) {
+		if (index == 149) {
 			return GeneratedHostedFunctionRow(
 				"fmodf",
 				"math",
@@ -3338,7 +3341,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 149) {
+		if (index == 150) {
 			return GeneratedHostedFunctionRow(
 				"fmodl",
 				"math",
@@ -3361,7 +3364,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 150) {
+		if (index == 151) {
 			return GeneratedHostedFunctionRow(
 				"fnmatch",
 				"posix",
@@ -3385,7 +3388,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 151) {
+		if (index == 152) {
 			return GeneratedHostedFunctionRow(
 				"fopen",
 				"stdio",
@@ -3408,10 +3411,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 152) {
+		if (index == 153) {
 			return GeneratedHostedFunctionRow("fork", "posix_process", GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 153) {
+		if (index == 154) {
 			return GeneratedHostedFunctionRow(
 				"forkpty",
 				"posix_process",
@@ -3436,7 +3439,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 154) {
+		if (index == 155) {
 			return GeneratedHostedFunctionRow(
 				"fprintf",
 				"stdio",
@@ -3459,7 +3462,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 155) {
+		if (index == 156) {
 			return GeneratedHostedFunctionRow(
 				"fputc",
 				"stdio",
@@ -3482,7 +3485,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 156) {
+		if (index == 157) {
 			return GeneratedHostedFunctionRow(
 				"fputs",
 				"stdio",
@@ -3505,7 +3508,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 157) {
+		if (index == 158) {
 			return GeneratedHostedFunctionRow(
 				"fread",
 				"stdio",
@@ -3530,7 +3533,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 158) {
+		if (index == 159) {
 			return GeneratedHostedFunctionRow(
 				"free",
 				"stdlib",
@@ -3552,7 +3555,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 159) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow4(int index) {
+		if (index == 160) {
 			return GeneratedHostedFunctionRow(
 				"freopen",
 				"stdio",
@@ -3576,11 +3583,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow4(int index) {
-		if (index == 160) {
+		if (index == 161) {
 			return GeneratedHostedFunctionRow(
 				"fseek",
 				"stdio",
@@ -3604,7 +3607,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 161) {
+		if (index == 162) {
 			return GeneratedHostedFunctionRow(
 				"fstat",
 				"posix",
@@ -3627,7 +3630,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 162) {
+		if (index == 163) {
 			return GeneratedHostedFunctionRow(
 				"fstatat",
 				"posix",
@@ -3652,7 +3655,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 163) {
+		if (index == 164) {
 			return GeneratedHostedFunctionRow(
 				"fsync",
 				"posix",
@@ -3674,7 +3677,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 164) {
+		if (index == 165) {
 			return GeneratedHostedFunctionRow(
 				"ftell",
 				"stdio",
@@ -3696,7 +3699,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 165) {
+		if (index == 166) {
 			return GeneratedHostedFunctionRow(
 				"funlockfile",
 				"stdio",
@@ -3718,7 +3721,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 166) {
+		if (index == 167) {
 			return GeneratedHostedFunctionRow(
 				"fwrite",
 				"stdio",
@@ -3743,7 +3746,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 167) {
+		if (index == 168) {
 			return GeneratedHostedFunctionRow(
 				"getc",
 				"stdio",
@@ -3765,10 +3768,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 168) {
+		if (index == 169) {
 			return GeneratedHostedFunctionRow("getchar", "stdio", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 169) {
+		if (index == 170) {
 			return GeneratedHostedFunctionRow(
 				"getcwd",
 				"posix",
@@ -3791,7 +3794,7 @@ class GeneratedHostedAbiData {
 				"free",
 				"unknown");
 		}
-		if (index == 170) {
+		if (index == 171) {
 			return GeneratedHostedFunctionRow(
 				"getenv",
 				"stdlib",
@@ -3813,13 +3816,13 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 171) {
+		if (index == 172) {
 			return GeneratedHostedFunctionRow("geteuid", "posix_process", GeneratedAbiTypeRow("uid_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("uid_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 172) {
+		if (index == 173) {
 			return GeneratedHostedFunctionRow("getpid", "posix_process", GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 173) {
+		if (index == 174) {
 			return GeneratedHostedFunctionRow(
 				"getpwnam_r",
 				"posix_process",
@@ -3845,7 +3848,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 174) {
+		if (index == 175) {
 			return GeneratedHostedFunctionRow(
 				"getrlimit",
 				"posix_process",
@@ -3868,7 +3871,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 175) {
+		if (index == 176) {
 			return GeneratedHostedFunctionRow(
 				"hypot",
 				"math",
@@ -3891,7 +3894,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 176) {
+		if (index == 177) {
 			return GeneratedHostedFunctionRow(
 				"hypotf",
 				"math",
@@ -3914,7 +3917,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 177) {
+		if (index == 178) {
 			return GeneratedHostedFunctionRow(
 				"hypotl",
 				"math",
@@ -3937,7 +3940,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 178) {
+		if (index == 179) {
 			return GeneratedHostedFunctionRow(
 				"initgroups",
 				"posix_process",
@@ -3960,7 +3963,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 179) {
+		if (index == 180) {
 			return GeneratedHostedFunctionRow(
 				"isalnum",
 				"ctype",
@@ -3982,7 +3985,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 180) {
+		if (index == 181) {
 			return GeneratedHostedFunctionRow(
 				"isalpha",
 				"ctype",
@@ -4004,7 +4007,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 181) {
+		if (index == 182) {
 			return GeneratedHostedFunctionRow(
 				"isatty",
 				"posix_process",
@@ -4026,7 +4029,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 182) {
+		if (index == 183) {
 			return GeneratedHostedFunctionRow(
 				"isblank",
 				"ctype",
@@ -4048,7 +4051,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 183) {
+		if (index == 184) {
 			return GeneratedHostedFunctionRow(
 				"iscntrl",
 				"ctype",
@@ -4070,7 +4073,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 184) {
+		if (index == 185) {
 			return GeneratedHostedFunctionRow(
 				"isdigit",
 				"ctype",
@@ -4092,7 +4095,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 185) {
+		if (index == 186) {
 			return GeneratedHostedFunctionRow(
 				"isgraph",
 				"ctype",
@@ -4114,7 +4117,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 186) {
+		if (index == 187) {
 			return GeneratedHostedFunctionRow(
 				"islower",
 				"ctype",
@@ -4136,7 +4139,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 187) {
+		if (index == 188) {
 			return GeneratedHostedFunctionRow(
 				"isprint",
 				"ctype",
@@ -4158,7 +4161,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 188) {
+		if (index == 189) {
 			return GeneratedHostedFunctionRow(
 				"ispunct",
 				"ctype",
@@ -4180,7 +4183,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 189) {
+		if (index == 190) {
 			return GeneratedHostedFunctionRow(
 				"isspace",
 				"ctype",
@@ -4202,7 +4205,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 190) {
+		if (index == 191) {
 			return GeneratedHostedFunctionRow(
 				"isupper",
 				"ctype",
@@ -4224,7 +4227,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 191) {
+		if (index == 192) {
 			return GeneratedHostedFunctionRow(
 				"isxdigit",
 				"ctype",
@@ -4246,7 +4249,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 192) {
+		if (index == 193) {
 			return GeneratedHostedFunctionRow(
 				"kill",
 				"posix_process",
@@ -4269,7 +4272,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 193) {
+		if (index == 194) {
 			return GeneratedHostedFunctionRow(
 				"labs",
 				"stdlib",
@@ -4291,7 +4294,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 194) {
+		if (index == 195) {
 			return GeneratedHostedFunctionRow(
 				"lgamma",
 				"math",
@@ -4313,7 +4316,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 195) {
+		if (index == 196) {
 			return GeneratedHostedFunctionRow(
 				"lgammaf",
 				"math",
@@ -4335,7 +4338,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 196) {
+		if (index == 197) {
 			return GeneratedHostedFunctionRow(
 				"lgammal",
 				"math",
@@ -4357,7 +4360,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 197) {
+		if (index == 198) {
 			return GeneratedHostedFunctionRow(
 				"listen",
 				"posix",
@@ -4380,7 +4383,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 198) {
+		if (index == 199) {
 			return GeneratedHostedFunctionRow(
 				"llabs",
 				"stdlib",
@@ -4402,7 +4405,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 199) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow5(int index) {
+		if (index == 200) {
 			return GeneratedHostedFunctionRow(
 				"localtime_r",
 				"posix",
@@ -4425,11 +4432,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow5(int index) {
-		if (index == 200) {
+		if (index == 201) {
 			return GeneratedHostedFunctionRow(
 				"log",
 				"math",
@@ -4451,7 +4454,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 201) {
+		if (index == 202) {
 			return GeneratedHostedFunctionRow(
 				"log10",
 				"math",
@@ -4473,7 +4476,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 202) {
+		if (index == 203) {
 			return GeneratedHostedFunctionRow(
 				"log10f",
 				"math",
@@ -4495,7 +4498,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 203) {
+		if (index == 204) {
 			return GeneratedHostedFunctionRow(
 				"log10l",
 				"math",
@@ -4517,7 +4520,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 204) {
+		if (index == 205) {
 			return GeneratedHostedFunctionRow(
 				"log1p",
 				"math",
@@ -4539,7 +4542,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 205) {
+		if (index == 206) {
 			return GeneratedHostedFunctionRow(
 				"log1pf",
 				"math",
@@ -4561,7 +4564,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 206) {
+		if (index == 207) {
 			return GeneratedHostedFunctionRow(
 				"log1pl",
 				"math",
@@ -4583,7 +4586,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 207) {
+		if (index == 208) {
 			return GeneratedHostedFunctionRow(
 				"log2",
 				"math",
@@ -4605,7 +4608,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 208) {
+		if (index == 209) {
 			return GeneratedHostedFunctionRow(
 				"log2f",
 				"math",
@@ -4627,7 +4630,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 209) {
+		if (index == 210) {
 			return GeneratedHostedFunctionRow(
 				"log2l",
 				"math",
@@ -4649,7 +4652,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 210) {
+		if (index == 211) {
 			return GeneratedHostedFunctionRow(
 				"logb",
 				"math",
@@ -4671,7 +4674,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 211) {
+		if (index == 212) {
 			return GeneratedHostedFunctionRow(
 				"logbf",
 				"math",
@@ -4693,7 +4696,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 212) {
+		if (index == 213) {
 			return GeneratedHostedFunctionRow(
 				"logbl",
 				"math",
@@ -4715,7 +4718,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 213) {
+		if (index == 214) {
 			return GeneratedHostedFunctionRow(
 				"logf",
 				"math",
@@ -4737,7 +4740,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 214) {
+		if (index == 215) {
 			return GeneratedHostedFunctionRow(
 				"logl",
 				"math",
@@ -4759,7 +4762,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 215) {
+		if (index == 216) {
 			return GeneratedHostedFunctionRow(
 				"lseek",
 				"posix",
@@ -4783,7 +4786,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 216) {
+		if (index == 217) {
 			return GeneratedHostedFunctionRow(
 				"lstat",
 				"posix",
@@ -4806,7 +4809,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 217) {
+		if (index == 218) {
 			return GeneratedHostedFunctionRow(
 				"malloc",
 				"stdlib",
@@ -4828,7 +4831,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 218) {
+		if (index == 219) {
 			return GeneratedHostedFunctionRow(
 				"mblen",
 				"stdlib",
@@ -4851,7 +4854,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 219) {
+		if (index == 220) {
 			return GeneratedHostedFunctionRow(
 				"memchr",
 				"string",
@@ -4875,7 +4878,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 220) {
+		if (index == 221) {
 			return GeneratedHostedFunctionRow(
 				"memcmp",
 				"string",
@@ -4899,7 +4902,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 221) {
+		if (index == 222) {
 			return GeneratedHostedFunctionRow(
 				"memcpy",
 				"string",
@@ -4923,7 +4926,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 222) {
+		if (index == 223) {
 			return GeneratedHostedFunctionRow(
 				"memmove",
 				"string",
@@ -4947,7 +4950,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 223) {
+		if (index == 224) {
 			return GeneratedHostedFunctionRow(
 				"memset",
 				"string",
@@ -4971,7 +4974,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 224) {
+		if (index == 225) {
 			return GeneratedHostedFunctionRow(
 				"mkdir",
 				"posix",
@@ -4994,7 +4997,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 225) {
+		if (index == 226) {
 			return GeneratedHostedFunctionRow(
 				"mkdirat",
 				"posix",
@@ -5018,7 +5021,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 226) {
+		if (index == 227) {
 			return GeneratedHostedFunctionRow(
 				"mkdtemp",
 				"stdlib",
@@ -5040,7 +5043,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 227) {
+		if (index == 228) {
 			return GeneratedHostedFunctionRow(
 				"nanosleep",
 				"posix_process",
@@ -5063,7 +5066,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 228) {
+		if (index == 229) {
 			return GeneratedHostedFunctionRow(
 				"nearbyint",
 				"math",
@@ -5085,7 +5088,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 229) {
+		if (index == 230) {
 			return GeneratedHostedFunctionRow(
 				"nearbyintf",
 				"math",
@@ -5107,7 +5110,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 230) {
+		if (index == 231) {
 			return GeneratedHostedFunctionRow(
 				"nearbyintl",
 				"math",
@@ -5129,7 +5132,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 231) {
+		if (index == 232) {
 			return GeneratedHostedFunctionRow(
 				"nextafter",
 				"math",
@@ -5152,7 +5155,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 232) {
+		if (index == 233) {
 			return GeneratedHostedFunctionRow(
 				"nextafterf",
 				"math",
@@ -5175,7 +5178,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 233) {
+		if (index == 234) {
 			return GeneratedHostedFunctionRow(
 				"nextafterl",
 				"math",
@@ -5198,7 +5201,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 234) {
+		if (index == 235) {
 			return GeneratedHostedFunctionRow(
 				"open",
 				"posix",
@@ -5221,7 +5224,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 235) {
+		if (index == 236) {
 			return GeneratedHostedFunctionRow(
 				"openat",
 				"posix",
@@ -5245,7 +5248,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 236) {
+		if (index == 237) {
 			return GeneratedHostedFunctionRow(
 				"opendir",
 				"posix",
@@ -5267,7 +5270,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 237) {
+		if (index == 238) {
 			return GeneratedHostedFunctionRow(
 				"pclose",
 				"stdio",
@@ -5289,7 +5292,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 238) {
+		if (index == 239) {
 			return GeneratedHostedFunctionRow(
 				"perror",
 				"stdio",
@@ -5311,7 +5314,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 239) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow6(int index) {
+		if (index == 240) {
 			return GeneratedHostedFunctionRow(
 				"pipe",
 				"posix_process",
@@ -5333,11 +5340,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow6(int index) {
-		if (index == 240) {
+		if (index == 241) {
 			return GeneratedHostedFunctionRow(
 				"poll",
 				"posix_process",
@@ -5361,7 +5364,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 241) {
+		if (index == 242) {
 			return GeneratedHostedFunctionRow(
 				"popen",
 				"stdio",
@@ -5384,7 +5387,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 242) {
+		if (index == 243) {
 			return GeneratedHostedFunctionRow(
 				"pow",
 				"math",
@@ -5407,7 +5410,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 243) {
+		if (index == 244) {
 			return GeneratedHostedFunctionRow(
 				"powf",
 				"math",
@@ -5430,7 +5433,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 244) {
+		if (index == 245) {
 			return GeneratedHostedFunctionRow(
 				"powl",
 				"math",
@@ -5453,7 +5456,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 245) {
+		if (index == 246) {
 			return GeneratedHostedFunctionRow(
 				"printf",
 				"stdio",
@@ -5475,7 +5478,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 246) {
+		if (index == 247) {
 			return GeneratedHostedFunctionRow(
 				"pthread_join",
 				"concurrency",
@@ -5498,7 +5501,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 247) {
+		if (index == 248) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_destroy",
 				"concurrency",
@@ -5520,7 +5523,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 248) {
+		if (index == 249) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_init",
 				"concurrency",
@@ -5543,7 +5546,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 249) {
+		if (index == 250) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_lock",
 				"concurrency",
@@ -5565,7 +5568,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 250) {
+		if (index == 251) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_unlock",
 				"concurrency",
@@ -5587,7 +5590,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 251) {
+		if (index == 252) {
 			return GeneratedHostedFunctionRow(
 				"putc",
 				"stdio",
@@ -5610,7 +5613,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 252) {
+		if (index == 253) {
 			return GeneratedHostedFunctionRow(
 				"putchar",
 				"stdio",
@@ -5632,7 +5635,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 253) {
+		if (index == 254) {
 			return GeneratedHostedFunctionRow(
 				"puts",
 				"stdio",
@@ -5654,7 +5657,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 254) {
+		if (index == 255) {
 			return GeneratedHostedFunctionRow(
 				"qsort",
 				"stdlib",
@@ -5679,7 +5682,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 255) {
+		if (index == 256) {
 			return GeneratedHostedFunctionRow(
 				"quick_exit",
 				"stdlib",
@@ -5701,7 +5704,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 256) {
+		if (index == 257) {
 			return GeneratedHostedFunctionRow(
 				"raise",
 				"posix_process",
@@ -5723,10 +5726,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 257) {
+		if (index == 258) {
 			return GeneratedHostedFunctionRow("rand", "stdlib", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 258) {
+		if (index == 259) {
 			return GeneratedHostedFunctionRow(
 				"read",
 				"posix",
@@ -5750,7 +5753,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 259) {
+		if (index == 260) {
 			return GeneratedHostedFunctionRow(
 				"readdir",
 				"posix",
@@ -5772,7 +5775,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 260) {
+		if (index == 261) {
 			return GeneratedHostedFunctionRow(
 				"readlink",
 				"posix",
@@ -5796,7 +5799,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 261) {
+		if (index == 262) {
 			return GeneratedHostedFunctionRow(
 				"realloc",
 				"stdlib",
@@ -5819,7 +5822,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 262) {
+		if (index == 263) {
 			return GeneratedHostedFunctionRow(
 				"reallocarray",
 				"stdlib",
@@ -5843,7 +5846,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 263) {
+		if (index == 264) {
 			return GeneratedHostedFunctionRow(
 				"realpath",
 				"posix",
@@ -5866,7 +5869,7 @@ class GeneratedHostedAbiData {
 				"free",
 				"unknown");
 		}
-		if (index == 264) {
+		if (index == 265) {
 			return GeneratedHostedFunctionRow(
 				"recv",
 				"posix",
@@ -5891,7 +5894,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 265) {
+		if (index == 266) {
 			return GeneratedHostedFunctionRow(
 				"regcomp",
 				"posix",
@@ -5915,7 +5918,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 266) {
+		if (index == 267) {
 			return GeneratedHostedFunctionRow(
 				"regexec",
 				"posix",
@@ -5941,7 +5944,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 267) {
+		if (index == 268) {
 			return GeneratedHostedFunctionRow(
 				"regfree",
 				"posix",
@@ -5963,7 +5966,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 268) {
+		if (index == 269) {
 			return GeneratedHostedFunctionRow(
 				"remainder",
 				"math",
@@ -5986,7 +5989,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 269) {
+		if (index == 270) {
 			return GeneratedHostedFunctionRow(
 				"remainderf",
 				"math",
@@ -6009,7 +6012,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 270) {
+		if (index == 271) {
 			return GeneratedHostedFunctionRow(
 				"remainderl",
 				"math",
@@ -6032,7 +6035,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 271) {
+		if (index == 272) {
 			return GeneratedHostedFunctionRow(
 				"remove",
 				"stdio",
@@ -6054,7 +6057,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 272) {
+		if (index == 273) {
 			return GeneratedHostedFunctionRow(
 				"rename",
 				"stdio",
@@ -6077,7 +6080,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 273) {
+		if (index == 274) {
 			return GeneratedHostedFunctionRow(
 				"renameat",
 				"posix",
@@ -6102,7 +6105,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 274) {
+		if (index == 275) {
 			return GeneratedHostedFunctionRow(
 				"rewind",
 				"stdio",
@@ -6124,7 +6127,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 275) {
+		if (index == 276) {
 			return GeneratedHostedFunctionRow(
 				"rint",
 				"math",
@@ -6146,7 +6149,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 276) {
+		if (index == 277) {
 			return GeneratedHostedFunctionRow(
 				"rintf",
 				"math",
@@ -6168,7 +6171,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 277) {
+		if (index == 278) {
 			return GeneratedHostedFunctionRow(
 				"rintl",
 				"math",
@@ -6190,7 +6193,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 278) {
+		if (index == 279) {
 			return GeneratedHostedFunctionRow(
 				"rmdir",
 				"posix",
@@ -6212,7 +6215,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 279) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow7(int index) {
+		if (index == 280) {
 			return GeneratedHostedFunctionRow(
 				"round",
 				"math",
@@ -6234,11 +6241,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow7(int index) {
-		if (index == 280) {
+		if (index == 281) {
 			return GeneratedHostedFunctionRow(
 				"roundf",
 				"math",
@@ -6260,7 +6263,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 281) {
+		if (index == 282) {
 			return GeneratedHostedFunctionRow(
 				"roundl",
 				"math",
@@ -6282,7 +6285,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 282) {
+		if (index == 283) {
 			return GeneratedHostedFunctionRow(
 				"send",
 				"posix",
@@ -6307,7 +6310,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 283) {
+		if (index == 284) {
 			return GeneratedHostedFunctionRow(
 				"setenv",
 				"posix_process",
@@ -6331,7 +6334,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 284) {
+		if (index == 285) {
 			return GeneratedHostedFunctionRow(
 				"setgid",
 				"posix_process",
@@ -6353,7 +6356,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 285) {
+		if (index == 286) {
 			return GeneratedHostedFunctionRow(
 				"setpgid",
 				"posix_process",
@@ -6376,7 +6379,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 286) {
+		if (index == 287) {
 			return GeneratedHostedFunctionRow(
 				"setrlimit",
 				"posix_process",
@@ -6399,7 +6402,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 287) {
+		if (index == 288) {
 			return GeneratedHostedFunctionRow(
 				"setsockopt",
 				"posix",
@@ -6425,7 +6428,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 288) {
+		if (index == 289) {
 			return GeneratedHostedFunctionRow(
 				"setuid",
 				"posix_process",
@@ -6447,7 +6450,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 289) {
+		if (index == 290) {
 			return GeneratedHostedFunctionRow(
 				"shutdown",
 				"posix",
@@ -6470,7 +6473,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 290) {
+		if (index == 291) {
 			return GeneratedHostedFunctionRow(
 				"sigaction",
 				"posix_process",
@@ -6494,7 +6497,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 291) {
+		if (index == 292) {
 			return GeneratedHostedFunctionRow(
 				"sigaddset",
 				"posix_process",
@@ -6517,7 +6520,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 292) {
+		if (index == 293) {
 			return GeneratedHostedFunctionRow(
 				"sigemptyset",
 				"posix_process",
@@ -6539,7 +6542,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 293) {
+		if (index == 294) {
 			return GeneratedHostedFunctionRow(
 				"sin",
 				"math",
@@ -6561,7 +6564,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 294) {
+		if (index == 295) {
 			return GeneratedHostedFunctionRow(
 				"sinf",
 				"math",
@@ -6583,7 +6586,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 295) {
+		if (index == 296) {
 			return GeneratedHostedFunctionRow(
 				"sinh",
 				"math",
@@ -6605,7 +6608,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 296) {
+		if (index == 297) {
 			return GeneratedHostedFunctionRow(
 				"sinhf",
 				"math",
@@ -6627,7 +6630,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 297) {
+		if (index == 298) {
 			return GeneratedHostedFunctionRow(
 				"sinhl",
 				"math",
@@ -6649,7 +6652,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 298) {
+		if (index == 299) {
 			return GeneratedHostedFunctionRow(
 				"sinl",
 				"math",
@@ -6671,7 +6674,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 299) {
+		if (index == 300) {
 			return GeneratedHostedFunctionRow(
 				"snprintf",
 				"stdio",
@@ -6695,7 +6698,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 300) {
+		if (index == 301) {
 			return GeneratedHostedFunctionRow(
 				"socket",
 				"posix",
@@ -6719,7 +6722,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 301) {
+		if (index == 302) {
 			return GeneratedHostedFunctionRow(
 				"socketpair",
 				"posix",
@@ -6744,7 +6747,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 302) {
+		if (index == 303) {
 			return GeneratedHostedFunctionRow(
 				"sprintf",
 				"stdio",
@@ -6767,7 +6770,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 303) {
+		if (index == 304) {
 			return GeneratedHostedFunctionRow(
 				"sqrt",
 				"math",
@@ -6789,7 +6792,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 304) {
+		if (index == 305) {
 			return GeneratedHostedFunctionRow(
 				"sqrtf",
 				"math",
@@ -6811,7 +6814,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 305) {
+		if (index == 306) {
 			return GeneratedHostedFunctionRow(
 				"sqrtl",
 				"math",
@@ -6833,7 +6836,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 306) {
+		if (index == 307) {
 			return GeneratedHostedFunctionRow(
 				"srand",
 				"stdlib",
@@ -6855,7 +6858,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 307) {
+		if (index == 308) {
 			return GeneratedHostedFunctionRow(
 				"stat",
 				"posix",
@@ -6878,7 +6881,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 308) {
+		if (index == 309) {
 			return GeneratedHostedFunctionRow(
 				"strcat",
 				"string",
@@ -6901,7 +6904,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 309) {
+		if (index == 310) {
 			return GeneratedHostedFunctionRow(
 				"strchr",
 				"string",
@@ -6924,7 +6927,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 310) {
+		if (index == 311) {
 			return GeneratedHostedFunctionRow(
 				"strcmp",
 				"string",
@@ -6947,7 +6950,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 311) {
+		if (index == 312) {
 			return GeneratedHostedFunctionRow(
 				"strcoll",
 				"string",
@@ -6970,7 +6973,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 312) {
+		if (index == 313) {
 			return GeneratedHostedFunctionRow(
 				"strcpy",
 				"string",
@@ -6993,7 +6996,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 313) {
+		if (index == 314) {
 			return GeneratedHostedFunctionRow(
 				"strcspn",
 				"string",
@@ -7016,7 +7019,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 314) {
+		if (index == 315) {
 			return GeneratedHostedFunctionRow(
 				"strdup",
 				"string",
@@ -7038,7 +7041,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 315) {
+		if (index == 316) {
 			return GeneratedHostedFunctionRow(
 				"strerror",
 				"string",
@@ -7060,7 +7063,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 316) {
+		if (index == 317) {
 			return GeneratedHostedFunctionRow(
 				"strlen",
 				"string",
@@ -7082,7 +7085,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 317) {
+		if (index == 318) {
 			return GeneratedHostedFunctionRow(
 				"strncat",
 				"string",
@@ -7106,7 +7109,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 318) {
+		if (index == 319) {
 			return GeneratedHostedFunctionRow(
 				"strncmp",
 				"string",
@@ -7130,7 +7133,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 319) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow8(int index) {
+		if (index == 320) {
 			return GeneratedHostedFunctionRow(
 				"strncpy",
 				"string",
@@ -7154,11 +7161,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow8(int index) {
-		if (index == 320) {
+		if (index == 321) {
 			return GeneratedHostedFunctionRow(
 				"strnlen",
 				"string",
@@ -7181,7 +7184,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 321) {
+		if (index == 322) {
 			return GeneratedHostedFunctionRow(
 				"strpbrk",
 				"string",
@@ -7204,7 +7207,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 322) {
+		if (index == 323) {
 			return GeneratedHostedFunctionRow(
 				"strrchr",
 				"string",
@@ -7227,7 +7230,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 323) {
+		if (index == 324) {
 			return GeneratedHostedFunctionRow(
 				"strspn",
 				"string",
@@ -7250,7 +7253,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 324) {
+		if (index == 325) {
 			return GeneratedHostedFunctionRow(
 				"strstr",
 				"string",
@@ -7273,7 +7276,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 325) {
+		if (index == 326) {
 			return GeneratedHostedFunctionRow(
 				"strtod",
 				"stdlib",
@@ -7296,7 +7299,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 326) {
+		if (index == 327) {
 			return GeneratedHostedFunctionRow(
 				"strtof",
 				"stdlib",
@@ -7319,7 +7322,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 327) {
+		if (index == 328) {
 			return GeneratedHostedFunctionRow(
 				"strtok",
 				"string",
@@ -7342,7 +7345,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 328) {
+		if (index == 329) {
 			return GeneratedHostedFunctionRow(
 				"strtol",
 				"stdlib",
@@ -7366,7 +7369,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 329) {
+		if (index == 330) {
 			return GeneratedHostedFunctionRow(
 				"strtold",
 				"stdlib",
@@ -7389,7 +7392,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 330) {
+		if (index == 331) {
 			return GeneratedHostedFunctionRow(
 				"strtoll",
 				"stdlib",
@@ -7413,7 +7416,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 331) {
+		if (index == 332) {
 			return GeneratedHostedFunctionRow(
 				"strtoul",
 				"stdlib",
@@ -7437,7 +7440,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 332) {
+		if (index == 333) {
 			return GeneratedHostedFunctionRow(
 				"strtoull",
 				"stdlib",
@@ -7461,7 +7464,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 333) {
+		if (index == 334) {
 			return GeneratedHostedFunctionRow(
 				"strxfrm",
 				"string",
@@ -7485,7 +7488,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 334) {
+		if (index == 335) {
 			return GeneratedHostedFunctionRow(
 				"symlink",
 				"posix",
@@ -7508,7 +7511,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 335) {
+		if (index == 336) {
 			return GeneratedHostedFunctionRow(
 				"sysconf",
 				"posix_process",
@@ -7530,7 +7533,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 336) {
+		if (index == 337) {
 			return GeneratedHostedFunctionRow(
 				"system",
 				"stdlib",
@@ -7552,7 +7555,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 337) {
+		if (index == 338) {
 			return GeneratedHostedFunctionRow(
 				"tan",
 				"math",
@@ -7574,7 +7577,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 338) {
+		if (index == 339) {
 			return GeneratedHostedFunctionRow(
 				"tanf",
 				"math",
@@ -7596,7 +7599,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 339) {
+		if (index == 340) {
 			return GeneratedHostedFunctionRow(
 				"tanh",
 				"math",
@@ -7618,7 +7621,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 340) {
+		if (index == 341) {
 			return GeneratedHostedFunctionRow(
 				"tanhf",
 				"math",
@@ -7640,7 +7643,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 341) {
+		if (index == 342) {
 			return GeneratedHostedFunctionRow(
 				"tanhl",
 				"math",
@@ -7662,7 +7665,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 342) {
+		if (index == 343) {
 			return GeneratedHostedFunctionRow(
 				"tanl",
 				"math",
@@ -7684,7 +7687,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 343) {
+		if (index == 344) {
 			return GeneratedHostedFunctionRow(
 				"tcgetattr",
 				"posix_process",
@@ -7707,7 +7710,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 344) {
+		if (index == 345) {
 			return GeneratedHostedFunctionRow(
 				"tcsetattr",
 				"posix_process",
@@ -7731,7 +7734,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 345) {
+		if (index == 346) {
 			return GeneratedHostedFunctionRow(
 				"tgamma",
 				"math",
@@ -7753,7 +7756,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 346) {
+		if (index == 347) {
 			return GeneratedHostedFunctionRow(
 				"tgammaf",
 				"math",
@@ -7775,7 +7778,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 347) {
+		if (index == 348) {
 			return GeneratedHostedFunctionRow(
 				"tgammal",
 				"math",
@@ -7797,7 +7800,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 348) {
+		if (index == 349) {
 			return GeneratedHostedFunctionRow(
 				"time",
 				"posix_process",
@@ -7819,10 +7822,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 349) {
+		if (index == 350) {
 			return GeneratedHostedFunctionRow("tmpfile", "stdio", GeneratedAbiTypeRow("FILE", 1, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("FILE", 1, false, self.emptyTypes()), "independent", -1, "", false, "fclose", "", "", "", "unknown");
 		}
-		if (index == 350) {
+		if (index == 351) {
 			return GeneratedHostedFunctionRow(
 				"tolower",
 				"ctype",
@@ -7844,7 +7847,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 351) {
+		if (index == 352) {
 			return GeneratedHostedFunctionRow(
 				"toupper",
 				"ctype",
@@ -7866,7 +7869,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 352) {
+		if (index == 353) {
 			return GeneratedHostedFunctionRow(
 				"trunc",
 				"math",
@@ -7888,7 +7891,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 353) {
+		if (index == 354) {
 			return GeneratedHostedFunctionRow(
 				"truncf",
 				"math",
@@ -7910,7 +7913,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 354) {
+		if (index == 355) {
 			return GeneratedHostedFunctionRow(
 				"truncl",
 				"math",
@@ -7932,7 +7935,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 355) {
+		if (index == 356) {
 			return GeneratedHostedFunctionRow(
 				"ungetc",
 				"stdio",
@@ -7955,7 +7958,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 356) {
+		if (index == 357) {
 			return GeneratedHostedFunctionRow(
 				"unlink",
 				"posix",
@@ -7977,7 +7980,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 357) {
+		if (index == 358) {
 			return GeneratedHostedFunctionRow(
 				"unlinkat",
 				"posix",
@@ -8001,7 +8004,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 358) {
+		if (index == 359) {
 			return GeneratedHostedFunctionRow(
 				"unsetenv",
 				"posix_process",
@@ -8023,7 +8026,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 359) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow9(int index) {
+		if (index == 360) {
 			return GeneratedHostedFunctionRow(
 				"waitpid",
 				"posix_process",
@@ -8047,11 +8054,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow9(int index) {
-		if (index == 360) {
+		if (index == 361) {
 			return GeneratedHostedFunctionRow(
 				"write",
 				"posix",
@@ -8107,347 +8110,348 @@ class GeneratedHostedAbiData {
 		slots.put("__btrc_string_length", 20);
 		slots.put("__btrc_string_live_count", 21);
 		slots.put("__btrc_string_or_empty", 22);
-		slots.put("__btrc_target_platform", 23);
-		slots.put("__btrc_terminal_adopt_foreground", 24);
-		slots.put("__btrc_terminal_foreground_group", 25);
-		slots.put("__btrc_validate_executable_descriptor", 26);
-		slots.put("__btrc_validate_working_directory_descriptor", 27);
-		slots.put("abort", 28);
-		slots.put("abs", 29);
-		slots.put("accept", 30);
-		slots.put("access", 31);
-		slots.put("acos", 32);
-		slots.put("acosf", 33);
-		slots.put("acosh", 34);
-		slots.put("acoshf", 35);
-		slots.put("acoshl", 36);
-		slots.put("acosl", 37);
-		slots.put("aligned_alloc", 38);
-		slots.put("asin", 39);
-		slots.put("asinf", 40);
-		slots.put("asinh", 41);
-		slots.put("asinhf", 42);
-		slots.put("asinhl", 43);
-		slots.put("asinl", 44);
-		slots.put("atan", 45);
-		slots.put("atan2", 46);
-		slots.put("atan2f", 47);
-		slots.put("atan2l", 48);
-		slots.put("atanf", 49);
-		slots.put("atanh", 50);
-		slots.put("atanhf", 51);
-		slots.put("atanhl", 52);
-		slots.put("atanl", 53);
-		slots.put("atof", 54);
-		slots.put("atoi", 55);
-		slots.put("atol", 56);
-		slots.put("atoll", 57);
-		slots.put("bind", 58);
-		slots.put("bsearch", 59);
-		slots.put("btrc_gpu_acquire_compute", 60);
-		slots.put("btrc_gpu_available", 61);
-		slots.put("btrc_gpu_bind_group_destroy", 62);
-		slots.put("btrc_gpu_buffer_destroy", 63);
-		slots.put("btrc_gpu_compute_pipeline_destroy", 64);
-		slots.put("btrc_gpu_create_bind_group", 65);
-		slots.put("btrc_gpu_create_buffer", 66);
-		slots.put("btrc_gpu_create_compute_pipeline", 67);
-		slots.put("btrc_gpu_create_shader", 68);
-		slots.put("btrc_gpu_destroy", 69);
-		slots.put("btrc_gpu_dispatch", 70);
-		slots.put("btrc_gpu_init_compute", 71);
-		slots.put("btrc_gpu_read_buffer_checked", 72);
-		slots.put("btrc_gpu_shader_destroy", 73);
-		slots.put("btrc_gpu_write_buffer", 74);
-		slots.put("calloc", 75);
-		slots.put("cbrt", 76);
-		slots.put("cbrtf", 77);
-		slots.put("cbrtl", 78);
-		slots.put("ceil", 79);
-		slots.put("ceilf", 80);
-		slots.put("ceill", 81);
-		slots.put("chdir", 82);
-		slots.put("chmod", 83);
-		slots.put("clearerr", 84);
-		slots.put("clock", 85);
-		slots.put("clock_gettime", 86);
-		slots.put("close", 87);
-		slots.put("closedir", 88);
-		slots.put("copysign", 89);
-		slots.put("copysignf", 90);
-		slots.put("copysignl", 91);
-		slots.put("cos", 92);
-		slots.put("cosf", 93);
-		slots.put("cosh", 94);
-		slots.put("coshf", 95);
-		slots.put("coshl", 96);
-		slots.put("cosl", 97);
-		slots.put("dirfd", 98);
-		slots.put("dup2", 99);
-		slots.put("erf", 100);
-		slots.put("erfc", 101);
-		slots.put("erfcf", 102);
-		slots.put("erfcl", 103);
-		slots.put("erff", 104);
-		slots.put("erfl", 105);
-		slots.put("execve", 106);
-		slots.put("exit", 107);
-		slots.put("exp", 108);
-		slots.put("exp2", 109);
-		slots.put("exp2f", 110);
-		slots.put("exp2l", 111);
-		slots.put("expf", 112);
-		slots.put("expl", 113);
-		slots.put("expm1", 114);
-		slots.put("expm1f", 115);
-		slots.put("expm1l", 116);
-		slots.put("fabs", 117);
-		slots.put("fabsf", 118);
-		slots.put("fabsl", 119);
-		slots.put("fchmod", 120);
-		slots.put("fclose", 121);
-		slots.put("fcntl", 122);
-		slots.put("fdim", 123);
-		slots.put("fdimf", 124);
-		slots.put("fdiml", 125);
-		slots.put("fdopendir", 126);
-		slots.put("feof", 127);
-		slots.put("ferror", 128);
-		slots.put("fflush", 129);
-		slots.put("fgetc", 130);
-		slots.put("fgets", 131);
-		slots.put("fileno", 132);
-		slots.put("flock", 133);
-		slots.put("flockfile", 134);
-		slots.put("floor", 135);
-		slots.put("floorf", 136);
-		slots.put("floorl", 137);
-		slots.put("fma", 138);
-		slots.put("fmaf", 139);
-		slots.put("fmal", 140);
-		slots.put("fmax", 141);
-		slots.put("fmaxf", 142);
-		slots.put("fmaxl", 143);
-		slots.put("fmin", 144);
-		slots.put("fminf", 145);
-		slots.put("fminl", 146);
-		slots.put("fmod", 147);
-		slots.put("fmodf", 148);
-		slots.put("fmodl", 149);
-		slots.put("fnmatch", 150);
-		slots.put("fopen", 151);
-		slots.put("fork", 152);
-		slots.put("forkpty", 153);
-		slots.put("fprintf", 154);
-		slots.put("fputc", 155);
-		slots.put("fputs", 156);
-		slots.put("fread", 157);
-		slots.put("free", 158);
-		slots.put("freopen", 159);
-		slots.put("fseek", 160);
-		slots.put("fstat", 161);
-		slots.put("fstatat", 162);
-		slots.put("fsync", 163);
-		slots.put("ftell", 164);
-		slots.put("funlockfile", 165);
-		slots.put("fwrite", 166);
-		slots.put("getc", 167);
-		slots.put("getchar", 168);
-		slots.put("getcwd", 169);
-		slots.put("getenv", 170);
-		slots.put("geteuid", 171);
-		slots.put("getpid", 172);
-		slots.put("getpwnam_r", 173);
-		slots.put("getrlimit", 174);
-		slots.put("hypot", 175);
-		slots.put("hypotf", 176);
-		slots.put("hypotl", 177);
-		slots.put("initgroups", 178);
-		slots.put("isalnum", 179);
-		slots.put("isalpha", 180);
-		slots.put("isatty", 181);
-		slots.put("isblank", 182);
-		slots.put("iscntrl", 183);
-		slots.put("isdigit", 184);
-		slots.put("isgraph", 185);
-		slots.put("islower", 186);
-		slots.put("isprint", 187);
-		slots.put("ispunct", 188);
-		slots.put("isspace", 189);
-		slots.put("isupper", 190);
-		slots.put("isxdigit", 191);
-		slots.put("kill", 192);
-		slots.put("labs", 193);
-		slots.put("lgamma", 194);
-		slots.put("lgammaf", 195);
-		slots.put("lgammal", 196);
-		slots.put("listen", 197);
-		slots.put("llabs", 198);
-		slots.put("localtime_r", 199);
-		slots.put("log", 200);
-		slots.put("log10", 201);
-		slots.put("log10f", 202);
-		slots.put("log10l", 203);
-		slots.put("log1p", 204);
-		slots.put("log1pf", 205);
-		slots.put("log1pl", 206);
-		slots.put("log2", 207);
-		slots.put("log2f", 208);
-		slots.put("log2l", 209);
-		slots.put("logb", 210);
-		slots.put("logbf", 211);
-		slots.put("logbl", 212);
-		slots.put("logf", 213);
-		slots.put("logl", 214);
-		slots.put("lseek", 215);
-		slots.put("lstat", 216);
-		slots.put("malloc", 217);
-		slots.put("mblen", 218);
-		slots.put("memchr", 219);
-		slots.put("memcmp", 220);
-		slots.put("memcpy", 221);
-		slots.put("memmove", 222);
-		slots.put("memset", 223);
-		slots.put("mkdir", 224);
-		slots.put("mkdirat", 225);
-		slots.put("mkdtemp", 226);
-		slots.put("nanosleep", 227);
-		slots.put("nearbyint", 228);
-		slots.put("nearbyintf", 229);
-		slots.put("nearbyintl", 230);
-		slots.put("nextafter", 231);
-		slots.put("nextafterf", 232);
-		slots.put("nextafterl", 233);
-		slots.put("open", 234);
-		slots.put("openat", 235);
-		slots.put("opendir", 236);
-		slots.put("pclose", 237);
-		slots.put("perror", 238);
-		slots.put("pipe", 239);
-		slots.put("poll", 240);
-		slots.put("popen", 241);
-		slots.put("pow", 242);
-		slots.put("powf", 243);
-		slots.put("powl", 244);
-		slots.put("printf", 245);
-		slots.put("pthread_join", 246);
-		slots.put("pthread_mutex_destroy", 247);
-		slots.put("pthread_mutex_init", 248);
-		slots.put("pthread_mutex_lock", 249);
+		slots.put("__btrc_target_architecture", 23);
+		slots.put("__btrc_target_platform", 24);
+		slots.put("__btrc_terminal_adopt_foreground", 25);
+		slots.put("__btrc_terminal_foreground_group", 26);
+		slots.put("__btrc_validate_executable_descriptor", 27);
+		slots.put("__btrc_validate_working_directory_descriptor", 28);
+		slots.put("abort", 29);
+		slots.put("abs", 30);
+		slots.put("accept", 31);
+		slots.put("access", 32);
+		slots.put("acos", 33);
+		slots.put("acosf", 34);
+		slots.put("acosh", 35);
+		slots.put("acoshf", 36);
+		slots.put("acoshl", 37);
+		slots.put("acosl", 38);
+		slots.put("aligned_alloc", 39);
+		slots.put("asin", 40);
+		slots.put("asinf", 41);
+		slots.put("asinh", 42);
+		slots.put("asinhf", 43);
+		slots.put("asinhl", 44);
+		slots.put("asinl", 45);
+		slots.put("atan", 46);
+		slots.put("atan2", 47);
+		slots.put("atan2f", 48);
+		slots.put("atan2l", 49);
+		slots.put("atanf", 50);
+		slots.put("atanh", 51);
+		slots.put("atanhf", 52);
+		slots.put("atanhl", 53);
+		slots.put("atanl", 54);
+		slots.put("atof", 55);
+		slots.put("atoi", 56);
+		slots.put("atol", 57);
+		slots.put("atoll", 58);
+		slots.put("bind", 59);
+		slots.put("bsearch", 60);
+		slots.put("btrc_gpu_acquire_compute", 61);
+		slots.put("btrc_gpu_available", 62);
+		slots.put("btrc_gpu_bind_group_destroy", 63);
+		slots.put("btrc_gpu_buffer_destroy", 64);
+		slots.put("btrc_gpu_compute_pipeline_destroy", 65);
+		slots.put("btrc_gpu_create_bind_group", 66);
+		slots.put("btrc_gpu_create_buffer", 67);
+		slots.put("btrc_gpu_create_compute_pipeline", 68);
+		slots.put("btrc_gpu_create_shader", 69);
+		slots.put("btrc_gpu_destroy", 70);
+		slots.put("btrc_gpu_dispatch", 71);
+		slots.put("btrc_gpu_init_compute", 72);
+		slots.put("btrc_gpu_read_buffer_checked", 73);
+		slots.put("btrc_gpu_shader_destroy", 74);
+		slots.put("btrc_gpu_write_buffer", 75);
+		slots.put("calloc", 76);
+		slots.put("cbrt", 77);
+		slots.put("cbrtf", 78);
+		slots.put("cbrtl", 79);
+		slots.put("ceil", 80);
+		slots.put("ceilf", 81);
+		slots.put("ceill", 82);
+		slots.put("chdir", 83);
+		slots.put("chmod", 84);
+		slots.put("clearerr", 85);
+		slots.put("clock", 86);
+		slots.put("clock_gettime", 87);
+		slots.put("close", 88);
+		slots.put("closedir", 89);
+		slots.put("copysign", 90);
+		slots.put("copysignf", 91);
+		slots.put("copysignl", 92);
+		slots.put("cos", 93);
+		slots.put("cosf", 94);
+		slots.put("cosh", 95);
+		slots.put("coshf", 96);
+		slots.put("coshl", 97);
+		slots.put("cosl", 98);
+		slots.put("dirfd", 99);
+		slots.put("dup2", 100);
+		slots.put("erf", 101);
+		slots.put("erfc", 102);
+		slots.put("erfcf", 103);
+		slots.put("erfcl", 104);
+		slots.put("erff", 105);
+		slots.put("erfl", 106);
+		slots.put("execve", 107);
+		slots.put("exit", 108);
+		slots.put("exp", 109);
+		slots.put("exp2", 110);
+		slots.put("exp2f", 111);
+		slots.put("exp2l", 112);
+		slots.put("expf", 113);
+		slots.put("expl", 114);
+		slots.put("expm1", 115);
+		slots.put("expm1f", 116);
+		slots.put("expm1l", 117);
+		slots.put("fabs", 118);
+		slots.put("fabsf", 119);
+		slots.put("fabsl", 120);
+		slots.put("fchmod", 121);
+		slots.put("fclose", 122);
+		slots.put("fcntl", 123);
+		slots.put("fdim", 124);
+		slots.put("fdimf", 125);
+		slots.put("fdiml", 126);
+		slots.put("fdopendir", 127);
+		slots.put("feof", 128);
+		slots.put("ferror", 129);
+		slots.put("fflush", 130);
+		slots.put("fgetc", 131);
+		slots.put("fgets", 132);
+		slots.put("fileno", 133);
+		slots.put("flock", 134);
+		slots.put("flockfile", 135);
+		slots.put("floor", 136);
+		slots.put("floorf", 137);
+		slots.put("floorl", 138);
+		slots.put("fma", 139);
+		slots.put("fmaf", 140);
+		slots.put("fmal", 141);
+		slots.put("fmax", 142);
+		slots.put("fmaxf", 143);
+		slots.put("fmaxl", 144);
+		slots.put("fmin", 145);
+		slots.put("fminf", 146);
+		slots.put("fminl", 147);
+		slots.put("fmod", 148);
+		slots.put("fmodf", 149);
+		slots.put("fmodl", 150);
+		slots.put("fnmatch", 151);
+		slots.put("fopen", 152);
+		slots.put("fork", 153);
+		slots.put("forkpty", 154);
+		slots.put("fprintf", 155);
+		slots.put("fputc", 156);
+		slots.put("fputs", 157);
+		slots.put("fread", 158);
+		slots.put("free", 159);
+		slots.put("freopen", 160);
+		slots.put("fseek", 161);
+		slots.put("fstat", 162);
+		slots.put("fstatat", 163);
+		slots.put("fsync", 164);
+		slots.put("ftell", 165);
+		slots.put("funlockfile", 166);
+		slots.put("fwrite", 167);
+		slots.put("getc", 168);
+		slots.put("getchar", 169);
+		slots.put("getcwd", 170);
+		slots.put("getenv", 171);
+		slots.put("geteuid", 172);
+		slots.put("getpid", 173);
+		slots.put("getpwnam_r", 174);
+		slots.put("getrlimit", 175);
+		slots.put("hypot", 176);
+		slots.put("hypotf", 177);
+		slots.put("hypotl", 178);
+		slots.put("initgroups", 179);
+		slots.put("isalnum", 180);
+		slots.put("isalpha", 181);
+		slots.put("isatty", 182);
+		slots.put("isblank", 183);
+		slots.put("iscntrl", 184);
+		slots.put("isdigit", 185);
+		slots.put("isgraph", 186);
+		slots.put("islower", 187);
+		slots.put("isprint", 188);
+		slots.put("ispunct", 189);
+		slots.put("isspace", 190);
+		slots.put("isupper", 191);
+		slots.put("isxdigit", 192);
+		slots.put("kill", 193);
+		slots.put("labs", 194);
+		slots.put("lgamma", 195);
+		slots.put("lgammaf", 196);
+		slots.put("lgammal", 197);
+		slots.put("listen", 198);
+		slots.put("llabs", 199);
+		slots.put("localtime_r", 200);
+		slots.put("log", 201);
+		slots.put("log10", 202);
+		slots.put("log10f", 203);
+		slots.put("log10l", 204);
+		slots.put("log1p", 205);
+		slots.put("log1pf", 206);
+		slots.put("log1pl", 207);
+		slots.put("log2", 208);
+		slots.put("log2f", 209);
+		slots.put("log2l", 210);
+		slots.put("logb", 211);
+		slots.put("logbf", 212);
+		slots.put("logbl", 213);
+		slots.put("logf", 214);
+		slots.put("logl", 215);
+		slots.put("lseek", 216);
+		slots.put("lstat", 217);
+		slots.put("malloc", 218);
+		slots.put("mblen", 219);
+		slots.put("memchr", 220);
+		slots.put("memcmp", 221);
+		slots.put("memcpy", 222);
+		slots.put("memmove", 223);
+		slots.put("memset", 224);
+		slots.put("mkdir", 225);
+		slots.put("mkdirat", 226);
+		slots.put("mkdtemp", 227);
+		slots.put("nanosleep", 228);
+		slots.put("nearbyint", 229);
+		slots.put("nearbyintf", 230);
+		slots.put("nearbyintl", 231);
+		slots.put("nextafter", 232);
+		slots.put("nextafterf", 233);
+		slots.put("nextafterl", 234);
+		slots.put("open", 235);
+		slots.put("openat", 236);
+		slots.put("opendir", 237);
+		slots.put("pclose", 238);
+		slots.put("perror", 239);
+		slots.put("pipe", 240);
+		slots.put("poll", 241);
+		slots.put("popen", 242);
+		slots.put("pow", 243);
+		slots.put("powf", 244);
+		slots.put("powl", 245);
+		slots.put("printf", 246);
+		slots.put("pthread_join", 247);
+		slots.put("pthread_mutex_destroy", 248);
+		slots.put("pthread_mutex_init", 249);
 	}
 
 	private void indexFunctions1(Map<string, int> slots) {
-		slots.put("pthread_mutex_unlock", 250);
-		slots.put("putc", 251);
-		slots.put("putchar", 252);
-		slots.put("puts", 253);
-		slots.put("qsort", 254);
-		slots.put("quick_exit", 255);
-		slots.put("raise", 256);
-		slots.put("rand", 257);
-		slots.put("read", 258);
-		slots.put("readdir", 259);
-		slots.put("readlink", 260);
-		slots.put("realloc", 261);
-		slots.put("reallocarray", 262);
-		slots.put("realpath", 263);
-		slots.put("recv", 264);
-		slots.put("regcomp", 265);
-		slots.put("regexec", 266);
-		slots.put("regfree", 267);
-		slots.put("remainder", 268);
-		slots.put("remainderf", 269);
-		slots.put("remainderl", 270);
-		slots.put("remove", 271);
-		slots.put("rename", 272);
-		slots.put("renameat", 273);
-		slots.put("rewind", 274);
-		slots.put("rint", 275);
-		slots.put("rintf", 276);
-		slots.put("rintl", 277);
-		slots.put("rmdir", 278);
-		slots.put("round", 279);
-		slots.put("roundf", 280);
-		slots.put("roundl", 281);
-		slots.put("send", 282);
-		slots.put("setenv", 283);
-		slots.put("setgid", 284);
-		slots.put("setpgid", 285);
-		slots.put("setrlimit", 286);
-		slots.put("setsockopt", 287);
-		slots.put("setuid", 288);
-		slots.put("shutdown", 289);
-		slots.put("sigaction", 290);
-		slots.put("sigaddset", 291);
-		slots.put("sigemptyset", 292);
-		slots.put("sin", 293);
-		slots.put("sinf", 294);
-		slots.put("sinh", 295);
-		slots.put("sinhf", 296);
-		slots.put("sinhl", 297);
-		slots.put("sinl", 298);
-		slots.put("snprintf", 299);
-		slots.put("socket", 300);
-		slots.put("socketpair", 301);
-		slots.put("sprintf", 302);
-		slots.put("sqrt", 303);
-		slots.put("sqrtf", 304);
-		slots.put("sqrtl", 305);
-		slots.put("srand", 306);
-		slots.put("stat", 307);
-		slots.put("strcat", 308);
-		slots.put("strchr", 309);
-		slots.put("strcmp", 310);
-		slots.put("strcoll", 311);
-		slots.put("strcpy", 312);
-		slots.put("strcspn", 313);
-		slots.put("strdup", 314);
-		slots.put("strerror", 315);
-		slots.put("strlen", 316);
-		slots.put("strncat", 317);
-		slots.put("strncmp", 318);
-		slots.put("strncpy", 319);
-		slots.put("strnlen", 320);
-		slots.put("strpbrk", 321);
-		slots.put("strrchr", 322);
-		slots.put("strspn", 323);
-		slots.put("strstr", 324);
-		slots.put("strtod", 325);
-		slots.put("strtof", 326);
-		slots.put("strtok", 327);
-		slots.put("strtol", 328);
-		slots.put("strtold", 329);
-		slots.put("strtoll", 330);
-		slots.put("strtoul", 331);
-		slots.put("strtoull", 332);
-		slots.put("strxfrm", 333);
-		slots.put("symlink", 334);
-		slots.put("sysconf", 335);
-		slots.put("system", 336);
-		slots.put("tan", 337);
-		slots.put("tanf", 338);
-		slots.put("tanh", 339);
-		slots.put("tanhf", 340);
-		slots.put("tanhl", 341);
-		slots.put("tanl", 342);
-		slots.put("tcgetattr", 343);
-		slots.put("tcsetattr", 344);
-		slots.put("tgamma", 345);
-		slots.put("tgammaf", 346);
-		slots.put("tgammal", 347);
-		slots.put("time", 348);
-		slots.put("tmpfile", 349);
-		slots.put("tolower", 350);
-		slots.put("toupper", 351);
-		slots.put("trunc", 352);
-		slots.put("truncf", 353);
-		slots.put("truncl", 354);
-		slots.put("ungetc", 355);
-		slots.put("unlink", 356);
-		slots.put("unlinkat", 357);
-		slots.put("unsetenv", 358);
-		slots.put("waitpid", 359);
-		slots.put("write", 360);
+		slots.put("pthread_mutex_lock", 250);
+		slots.put("pthread_mutex_unlock", 251);
+		slots.put("putc", 252);
+		slots.put("putchar", 253);
+		slots.put("puts", 254);
+		slots.put("qsort", 255);
+		slots.put("quick_exit", 256);
+		slots.put("raise", 257);
+		slots.put("rand", 258);
+		slots.put("read", 259);
+		slots.put("readdir", 260);
+		slots.put("readlink", 261);
+		slots.put("realloc", 262);
+		slots.put("reallocarray", 263);
+		slots.put("realpath", 264);
+		slots.put("recv", 265);
+		slots.put("regcomp", 266);
+		slots.put("regexec", 267);
+		slots.put("regfree", 268);
+		slots.put("remainder", 269);
+		slots.put("remainderf", 270);
+		slots.put("remainderl", 271);
+		slots.put("remove", 272);
+		slots.put("rename", 273);
+		slots.put("renameat", 274);
+		slots.put("rewind", 275);
+		slots.put("rint", 276);
+		slots.put("rintf", 277);
+		slots.put("rintl", 278);
+		slots.put("rmdir", 279);
+		slots.put("round", 280);
+		slots.put("roundf", 281);
+		slots.put("roundl", 282);
+		slots.put("send", 283);
+		slots.put("setenv", 284);
+		slots.put("setgid", 285);
+		slots.put("setpgid", 286);
+		slots.put("setrlimit", 287);
+		slots.put("setsockopt", 288);
+		slots.put("setuid", 289);
+		slots.put("shutdown", 290);
+		slots.put("sigaction", 291);
+		slots.put("sigaddset", 292);
+		slots.put("sigemptyset", 293);
+		slots.put("sin", 294);
+		slots.put("sinf", 295);
+		slots.put("sinh", 296);
+		slots.put("sinhf", 297);
+		slots.put("sinhl", 298);
+		slots.put("sinl", 299);
+		slots.put("snprintf", 300);
+		slots.put("socket", 301);
+		slots.put("socketpair", 302);
+		slots.put("sprintf", 303);
+		slots.put("sqrt", 304);
+		slots.put("sqrtf", 305);
+		slots.put("sqrtl", 306);
+		slots.put("srand", 307);
+		slots.put("stat", 308);
+		slots.put("strcat", 309);
+		slots.put("strchr", 310);
+		slots.put("strcmp", 311);
+		slots.put("strcoll", 312);
+		slots.put("strcpy", 313);
+		slots.put("strcspn", 314);
+		slots.put("strdup", 315);
+		slots.put("strerror", 316);
+		slots.put("strlen", 317);
+		slots.put("strncat", 318);
+		slots.put("strncmp", 319);
+		slots.put("strncpy", 320);
+		slots.put("strnlen", 321);
+		slots.put("strpbrk", 322);
+		slots.put("strrchr", 323);
+		slots.put("strspn", 324);
+		slots.put("strstr", 325);
+		slots.put("strtod", 326);
+		slots.put("strtof", 327);
+		slots.put("strtok", 328);
+		slots.put("strtol", 329);
+		slots.put("strtold", 330);
+		slots.put("strtoll", 331);
+		slots.put("strtoul", 332);
+		slots.put("strtoull", 333);
+		slots.put("strxfrm", 334);
+		slots.put("symlink", 335);
+		slots.put("sysconf", 336);
+		slots.put("system", 337);
+		slots.put("tan", 338);
+		slots.put("tanf", 339);
+		slots.put("tanh", 340);
+		slots.put("tanhf", 341);
+		slots.put("tanhl", 342);
+		slots.put("tanl", 343);
+		slots.put("tcgetattr", 344);
+		slots.put("tcsetattr", 345);
+		slots.put("tgamma", 346);
+		slots.put("tgammaf", 347);
+		slots.put("tgammal", 348);
+		slots.put("time", 349);
+		slots.put("tmpfile", 350);
+		slots.put("tolower", 351);
+		slots.put("toupper", 352);
+		slots.put("trunc", 353);
+		slots.put("truncf", 354);
+		slots.put("truncl", 355);
+		slots.put("ungetc", 356);
+		slots.put("unlink", 357);
+		slots.put("unlinkat", 358);
+		slots.put("unsetenv", 359);
+		slots.put("waitpid", 360);
+		slots.put("write", 361);
 	}
 
 	public Vector<string> functionNames() {
@@ -8489,6 +8493,7 @@ class GeneratedHostedAbiData {
 		values.push("__btrc_string_length");
 		values.push("__btrc_string_live_count");
 		values.push("__btrc_string_or_empty");
+		values.push("__btrc_target_architecture");
 		values.push("__btrc_target_platform");
 		values.push("__btrc_terminal_adopt_foreground");
 		values.push("__btrc_terminal_foreground_group");
@@ -8713,10 +8718,10 @@ class GeneratedHostedAbiData {
 		values.push("fgetattrlist");
 		values.push("fgetc");
 		values.push("fgetpos");
-		values.push("fgetpwent");
 	}
 
 	private void pushFunctionNames1(Vector<string> values) {
+		values.push("fgetpwent");
 		values.push("fgetpwent_r");
 		values.push("fgets");
 		values.push("fileno");
@@ -8966,10 +8971,10 @@ class GeneratedHostedAbiData {
 		values.push("llroundl");
 		values.push("localtime");
 		values.push("localtime_r");
-		values.push("lockf");
 	}
 
 	private void pushFunctionNames2(Vector<string> values) {
+		values.push("lockf");
 		values.push("log");
 		values.push("log10");
 		values.push("log10f");
@@ -9219,10 +9224,10 @@ class GeneratedHostedAbiData {
 		values.push("pwrite");
 		values.push("qecvt");
 		values.push("qecvt_r");
-		values.push("qfcvt");
 	}
 
 	private void pushFunctionNames3(Vector<string> values) {
+		values.push("qfcvt");
 		values.push("qfcvt_r");
 		values.push("qgcvt");
 		values.push("qsort");
@@ -9472,10 +9477,10 @@ class GeneratedHostedAbiData {
 		values.push("tanl");
 		values.push("tcdrain");
 		values.push("tcflow");
-		values.push("tcflush");
 	}
 
 	private void pushFunctionNames4(Vector<string> values) {
+		values.push("tcflush");
 		values.push("tcgetattr");
 		values.push("tcgetpgrp");
 		values.push("tcgetsid");
@@ -14781,6 +14786,7 @@ class GeneratedHostedAbiData {
 		values.push("__btrc_string_length");
 		values.push("__btrc_string_live_count");
 		values.push("__btrc_string_or_empty");
+		values.push("__btrc_target_architecture");
 		values.push("__btrc_target_platform");
 		values.push("__btrc_terminal_adopt_foreground");
 		values.push("__btrc_terminal_foreground_group");
@@ -14884,10 +14890,10 @@ class GeneratedHostedAbiData {
 		values.push("atomic_long");
 		values.push("atomic_ptrdiff_t");
 		values.push("atomic_schar");
-		values.push("atomic_short");
 	}
 
 	private void pushOwnedNames10(Vector<string> values) {
+		values.push("atomic_short");
 		values.push("atomic_signal_fence");
 		values.push("atomic_size_t");
 		values.push("atomic_store");
@@ -15137,10 +15143,10 @@ class GeneratedHostedAbiData {
 		values.push("flocktimeout");
 		values.push("floor");
 		values.push("floorf");
-		values.push("floorl");
 	}
 
 	private void pushOwnedNames11(Vector<string> values) {
+		values.push("floorl");
 		values.push("fls");
 		values.push("flsl");
 		values.push("flsll");
@@ -15390,10 +15396,10 @@ class GeneratedHostedAbiData {
 		values.push("isatty");
 		values.push("isblank");
 		values.push("iscntrl");
-		values.push("isdigit");
 	}
 
 	private void pushOwnedNames12(Vector<string> values) {
+		values.push("isdigit");
 		values.push("isfdtype");
 		values.push("isfinite");
 		values.push("isgraph");
@@ -15643,10 +15649,10 @@ class GeneratedHostedAbiData {
 		values.push("pseudo_AF_KEY");
 		values.push("pseudo_AF_PIP");
 		values.push("pseudo_AF_RTIP");
-		values.push("pseudo_AF_XTP");
 	}
 
 	private void pushOwnedNames13(Vector<string> values) {
+		values.push("pseudo_AF_XTP");
 		values.push("psiginfo");
 		values.push("psignal");
 		values.push("psort");
@@ -15896,10 +15902,10 @@ class GeneratedHostedAbiData {
 		values.push("scalbnf");
 		values.push("scalbnl");
 		values.push("scandir");
-		values.push("scandir_b");
 	}
 
 	private void pushOwnedNames14(Vector<string> values) {
+		values.push("scandir_b");
 		values.push("scandirat");
 		values.push("scandirat_b");
 		values.push("scanf");
@@ -16149,10 +16155,10 @@ class GeneratedHostedAbiData {
 		values.push("tcflag_t");
 		values.push("tcflow");
 		values.push("tcflush");
-		values.push("tcgetattr");
 	}
 
 	private void pushOwnedNames15(Vector<string> values) {
+		values.push("tcgetattr");
 		values.push("tcgetpgrp");
 		values.push("tcgetsid");
 		values.push("tcsendbreak");
