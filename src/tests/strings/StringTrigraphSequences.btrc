@@ -1,0 +1,13 @@
+// Literal text that spells a C11 trigraph is emitted escaped, so `??'` stays
+// three characters instead of becoming `^` under a strict C11 compiler.
+int main() {
+	print("a??'b");
+	print("??=??/??(??)??!??<??>??-");
+	print("???'");
+	string spaced = "x?" + "?'y";
+	print(spaced);
+	print(f"{1}??'{2}");
+	char question = '?';
+	print(f"{question}");
+	return 0;
+}
