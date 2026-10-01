@@ -1003,10 +1003,16 @@ class StorageLowerer:
         )
         self._session.record_declaration(declaration)
         bound = IRVar(name=declaration.name)
+        # A zero or negative bound holds one physical element and no logical
+        # ones: iteration sees an empty array.
         return ArrayBound(
             setup=(declaration,),
             physical=self.safe_array_size(bound),
-            logical=bound,
+            logical=IRTernary(
+                condition=IRBinOp(left=bound, op=">", right=IRLiteral(text="0")),
+                true_expr=bound,
+                false_expr=IRLiteral(text="0"),
+            ),
         )
 
     def materialize_dispatch_length(self, length: IRExpr) -> ArrayBound:
