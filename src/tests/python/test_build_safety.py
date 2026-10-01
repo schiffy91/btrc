@@ -11,6 +11,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from src.tests.process_limits import TOOL_TIMEOUT, TRANSPILE_TIMEOUT
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAKEFILE = REPO_ROOT / "Makefile"
 FLAKE = REPO_ROOT / "flake.nix"
@@ -35,6 +37,7 @@ def _make_dry_run(*args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     return result.stdout
 
@@ -46,6 +49,7 @@ def test_help_lists_targets_whose_names_contain_digits():
         check=True,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
 
     assert "test-c11" in result.stdout
@@ -419,7 +423,7 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     assert "exclude-package-data" not in setuptools
     # Every tracked runtime input under a packaged directory reaches the wheel.
     tracked = subprocess.run(
-        ["git", "ls-files", "src"], cwd=REPO_ROOT, check=True, capture_output=True, text=True
+        ["git", "ls-files", "src"], cwd=REPO_ROOT, check=True, capture_output=True, text=True, timeout=TOOL_TIMEOUT
     ).stdout.split()
     unpackaged = [
         path
