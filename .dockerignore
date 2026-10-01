@@ -24,6 +24,9 @@
 !src/devex/vscode/package.json
 !src/language/
 !src/language/**
+!src/runtime/
+!src/runtime/gpu/
+!src/runtime/gpu/**
 !src/stdlib/
 !src/stdlib/**
 !tools/

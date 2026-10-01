@@ -27,6 +27,7 @@ in
     COPY --chown=${uid}:${uid} src/devex/lsp/ /tmp/flake/src/devex/lsp/
     COPY --chown=${uid}:${uid} src/language/ /tmp/flake/src/language/
     COPY --chown=${uid}:${uid} src/stdlib/ /tmp/flake/src/stdlib/
+    COPY --chown=${uid}:${uid} src/runtime/gpu/ /tmp/flake/src/runtime/gpu/
     COPY --chown=${uid}:${uid} src/devex/vscode/package.json /tmp/flake/src/devex/vscode/package.json
     COPY --chown=${uid}:${uid} tools/native_plan.py tools/NativeHeaderReader.cpp /tmp/flake/tools/
     COPY --chown=${uid}:${uid} LICENSE /tmp/flake/LICENSE
