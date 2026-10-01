@@ -114,6 +114,17 @@ jobs:
       # self-host transpile to make progress under shared load. The init owner
       # reaps daemon-test grandchildren after process-group termination.
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+      # Every pytest session classifies its skips in build/skip-report*.json.
+      # Keep the report even from a failed shard, so a red run's coverage is
+      # as visible as a green one's.
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-linux-${{ matrix.shard }}
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
 
   bench:
     runs-on: ubuntu-latest
