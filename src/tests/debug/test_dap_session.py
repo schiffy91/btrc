@@ -1,8 +1,10 @@
 """Integration test for the btrc debug adapter: a real DAP session over lldb.
 
-Skips gracefully where the toolchain is unavailable (no lldb / no C compiler),
-so it is safe in CI; where lldb exists it exercises the whole path — build,
-breakpoint, stop, stack, btrc-aware variables, step, and program output.
+Skips where the host cannot debug (no C compiler, macOS developer mode off,
+no lldb with its Python bridge), each with its own reason so the skip ledger
+can expect one and still flag another; where lldb exists it exercises the
+whole path — build, breakpoint, stop, stack, btrc-aware variables, step, and
+program output.
 """
 
 import json
@@ -21,32 +23,53 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 ADAPTER_COMMAND = [sys.executable, "-m", "src.devex.debug"]
 
 
-def _lldb_runtime_available() -> bool:
-    """Whether the adapter can start on this host.
+COMPILER_REASON = "needs a C compiler"
+DEVELOPER_MODE_REASON = (
+    "needs macOS developer mode for lldb to launch an inferior (sudo /usr/sbin/DevToolsSecurity -enable)"
+)
+LLDB_REASON = "needs lldb (with Python scripting)"
+
+
+def _session_skip_reason() -> str | None:
+    """Why this host cannot run a DAP session, or None when it can.
 
     lldb's binary can exist while its Python bridge cannot be imported: a
-    distribution that ships lldb without its python3-lldb package, or an lldb
-    built against a different Python than any on PATH. Probing lldb's module
-    directory from this process proves nothing about the adapter, which is
-    launched as a fresh interpreter with its own search path; the only honest
-    probe is the adapter itself, launched exactly as these tests launch it,
-    answering initialize. macOS can separately require debugger authorization.
-    Skip when either is missing, matching this module's "skips gracefully
-    where the toolchain is unavailable" contract."""
+    distribution that ships lldb without its python3-lldb package, an lldb
+    built against a different Python than any on PATH, or a build shell whose
+    exported DEVELOPER_DIR and SDKROOT misdirect Apple's xcrun shims. Probing
+    lldb's module directory from this process proves nothing about the
+    adapter, which is launched as a fresh interpreter with its own search path
+    and its own `LldbBootstrap` environment; the only honest probe is the
+    adapter itself, launched exactly as these tests launch it, answering
+    initialize. The adapter refuses to start without debugger access, so that
+    is asked first, of the same bootstrap, and reported under its own reason:
+    a Mac with developer mode off is an expected skip, an lldb that cannot
+    start under developer mode is not."""
+    if shutil.which("cc") is None and shutil.which("gcc") is None:
+        return COMPILER_REASON
     if not LldbBootstrap().debugger_access_available():
-        return False
+        return DEVELOPER_MODE_REASON
     proc = subprocess.Popen(
         ADAPTER_COMMAND, cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
+    client = DapClient(proc)
     try:
-        response = DapClient(proc).request("initialize", {"adapterID": "btrc"}, timeout=30)
+        response = client.request("initialize", {"adapterID": "btrc"}, timeout=30)
+        exited = client.closed
+    except BrokenPipeError:  # the adapter exited before it read the request
+        response, exited = None, True
     finally:
         proc.kill()
         proc.wait()
-    return bool(response and response.get("success"))
+    if response and response.get("success"):
+        return None
+    # Only an adapter that closed its output on its own has said why; a hung one is not read.
+    stderr = proc.stderr.read().decode(errors="replace").strip() if exited else ""
+    return f"{LLDB_REASON}: {stderr.splitlines()[-1]}" if stderr else LLDB_REASON
 
 
 PROGRAM = """\
+import Library.Vector;
 class Point { public int x; public int y;
   public Point(int x, int y) { self.x = x; self.y = y; } }
 int main() {
@@ -57,7 +80,7 @@ int main() {
   return 0;
 }
 """
-BP_LINE = 7  # print(v.len)
+BP_LINE = 8  # print(v.len)
 
 
 class DapClient:
@@ -66,10 +89,20 @@ class DapClient:
         self.seq = 0
         self.responses = {}
         self.events = []
+        self.closed = False
         self.cv = threading.Condition()
         threading.Thread(target=self._reader, daemon=True).start()
 
     def _reader(self):
+        try:
+            self._read_messages()
+        finally:
+            # A dead adapter answers nothing more; stop every wait at once.
+            with self.cv:
+                self.closed = True
+                self.cv.notify_all()
+
+    def _read_messages(self):
         f = self.proc.stdout
         while True:
             n = None
@@ -100,7 +133,7 @@ class DapClient:
         self.proc.stdin.flush()
         with self.cv:
             end = time.time() + timeout
-            while s not in self.responses and time.time() < end:
+            while s not in self.responses and not self.closed and time.time() < end:
                 self.cv.wait(0.2)
             return self.responses.get(s)
 
@@ -112,15 +145,15 @@ class DapClient:
                     if e["event"] == name:
                         self.events.remove(e)
                         return e
+                if self.closed:
+                    return None
                 self.cv.wait(0.2)
             return None
 
 
 # Evaluated at import: it launches the adapter, so it follows the client it uses.
-pytestmark = pytest.mark.skipif(
-    not _lldb_runtime_available() or (shutil.which("cc") is None and shutil.which("gcc") is None),
-    reason="needs lldb (with Python scripting) and a C compiler",
-)
+SKIP_REASON = _session_skip_reason()
+pytestmark = pytest.mark.skipif(SKIP_REASON is not None, reason=SKIP_REASON or "")
 
 LOOP_PROGRAM = """\
 int main() {

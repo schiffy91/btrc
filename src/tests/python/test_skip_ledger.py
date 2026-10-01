@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -25,9 +26,14 @@ from tools.qualification.skips import (
 
 REPO = Path(__file__).resolve().parents[3]
 
-# Representative skips from the 1cadaf4 `make test` record on macOS.
+# Representative skips from the 1cadaf4 `make test` record on macOS. That
+# record's DAP session skip was lldb's; since stage2/lldbenv the dev shell runs
+# those sessions, and the one skip a Mac still expects is developer mode off.
 MACOS_SKIPS = [
-    ("src/tests/debug/test_dap_session.py::test_stop_on_entry", "needs lldb (with Python scripting) and a C compiler"),
+    (
+        "src/tests/debug/test_dap_session.py::test_stop_on_entry",
+        "needs macOS developer mode for lldb to launch an inferior (sudo /usr/sbin/DevToolsSecurity -enable)",
+    ),
     (
         "src/tests/python/test_native_compiler_context.py::test_context[x]",
         "build native reader and configure its native compiler provider",
@@ -123,6 +129,35 @@ def test_the_macos_manifest_explains_the_recorded_skips_and_names_their_coverage
         manifest.classify("src/tests/python/test_wgsl_semantics.py::test_x", "naga WGSL validator is not installed")
         is None
     )
+
+
+def test_the_macos_manifest_expects_a_dap_session_skip_only_for_developer_mode():
+    """The DAP sessions skip under a reason per cause; on a Mac only developer mode being off is expected.
+
+    The reasons are read from the test module's source: importing it would
+    launch the adapter to probe this host.
+    """
+
+    module = ast.parse((REPO / "src/tests/debug/test_dap_session.py").read_text(encoding="utf-8"))
+    reasons = {
+        target.id: node.value.value
+        for node in module.body
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id.endswith("_REASON")
+    }
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "macos.json")
+    nodeid = "src/tests/debug/test_dap_session.py::test_full_debug_session"
+
+    assert set(reasons) == {"COMPILER_REASON", "DEVELOPER_MODE_REASON", "LLDB_REASON"}
+    assert manifest.classify(nodeid, reasons["DEVELOPER_MODE_REASON"]).id == "dap-session-developer-mode"
+    for unexpected in (
+        reasons["COMPILER_REASON"],
+        reasons["LLDB_REASON"],
+        f"{reasons['LLDB_REASON']}: btrc debug adapter: cannot locate lldb (exit status 1).",
+        "needs lldb (with Python scripting) and a C compiler",
+    ):
+        assert manifest.classify(nodeid, unexpected) is None, unexpected
 
 
 def test_no_macos_rule_expects_a_naga_gated_skip():

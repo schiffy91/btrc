@@ -2,22 +2,22 @@
   "schema": "btrc.expected-skips/1",
   "runner": "macos",
   "enforce": true,
-  "description": "The Mac's `make test` inside `nix develop`, classified from the 1cadaf4 record (172 skips) on 2026-09-30. naga has no rule: the dev shell provides it from stage2/nix (e74a3cc), so a naga skip is unexpected again.",
+  "description": "The Mac's `make test` inside `nix develop`, classified from the 1cadaf4 record (172 skips) on 2026-09-30. naga has no rule: the dev shell provides it from stage2/nix (e74a3cc), so a naga skip is unexpected again. lldb has no rule either: the debug adapter resolves Apple's lldb without the shell's DEVELOPER_DIR and SDKROOT (stage2/lldbenv), so on a developer-mode Mac a DAP session skip is unexpected; only developer mode being off is expected.",
   "rules": [
     {
-      "id": "dap-session-lldb-python",
+      "id": "dap-session-developer-mode",
       "files": [
         "src/tests/debug/test_dap_session.py"
       ],
-      "reason": "^needs lldb \\(with Python scripting\\) and a C compiler$",
-      "category": "missing-tool",
+      "reason": "^needs macOS developer mode for lldb to launch an inferior",
+      "category": "capability",
       "gating": {
-        "tools": [
-          "lldb"
+        "capabilities": [
+          "debugger-access"
         ]
       },
       "covered_by": [],
-      "note": "The dev shell's lldb cannot import its Python bridge, and the devcontainer skips the same four DAP sessions."
+      "note": "LldbBootstrap.debugger_access_available() found developer mode off, so lldb cannot launch an inferior without an authorization prompt. macos.yml enables it for the unit shard, where the four DAP sessions run; the devcontainer skips them."
     },
     {
       "id": "arc-witness-sanitizer-runtime",

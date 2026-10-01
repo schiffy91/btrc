@@ -4,6 +4,17 @@ The lldb module only imports under the specific interpreter lldb was built
 against (on macOS, Apple's ``/usr/bin/python3``). VSCode may launch this adapter
 with any python, so on import failure we locate lldb's module dir via
 ``lldb -P`` and re-exec under an interpreter that can load it.
+
+Apple's ``/usr/bin/lldb`` and ``/usr/bin/python3`` are xcrun shims that resolve
+through the developer directory. A build shell exports ``DEVELOPER_DIR`` and
+``SDKROOT`` naming its build SDK (Nix's apple-sdk setup hook does), and that
+SDK carries neither tool: ``lldb -P`` fails with "tool 'lldb' not found" and
+``python3`` falls through to the shell's own interpreter, which cannot load
+Xcode's ``_lldb``. The bridge, its interpreter and the adapter that runs under
+it are therefore resolved without those two variables, which selects
+xcode-select's developer directory for all three alike. The shell itself keeps
+them, so its other compiles are unchanged; the adapter's debug builds run
+without them, and Nix's cc wrapper then selects its own SDK again.
 """
 
 from __future__ import annotations
@@ -23,6 +34,8 @@ class LldbBootstrap:
     PROBE_TIMEOUT_SECONDS = 15
     ADAPTER_MODULE = "src.devex.debug"
     DEVTOOLS_SECURITY = "/usr/sbin/DevToolsSecurity"
+    # Build-SDK selectors a shell exports; lldb resolution must not inherit them.
+    BUILD_SDK_VARIABLES = ("DEVELOPER_DIR", "SDKROOT")
 
     def __init__(
         self,
@@ -76,6 +89,7 @@ class LldbBootstrap:
         try:
             lldb_python_path = self._check_output(
                 [lldb_executable, "-P"],
+                env=self.lldb_environment(),
                 text=True,
                 stderr=subprocess.DEVNULL,
                 timeout=self.PROBE_TIMEOUT_SECONDS,
@@ -83,8 +97,8 @@ class LldbBootstrap:
         except (OSError, subprocess.SubprocessError) as error:
             self._fail(f"btrc debug adapter: cannot locate lldb ({error}).\n")
 
+        environment = self._probe_environment(lldb_python_path)
         for python in self._candidate_interpreters():
-            environment = self._probe_environment(lldb_python_path)
             if self._can_run_adapter(python, environment):
                 self._execve(
                     python,
@@ -120,12 +134,17 @@ class LldbBootstrap:
             return False
         return status.returncode == 0 and "currently enabled" in status.stdout.lower()
 
+    def lldb_environment(self) -> dict[str, str]:
+        """The adapter's environment without the build-SDK selectors (see the module docstring)."""
+
+        return {name: value for name, value in self.environment.items() if name not in self.BUILD_SDK_VARIABLES}
+
     def _candidate_interpreters(self) -> tuple[str, ...]:
         candidates = ("/usr/bin/python3", self._path_lookup("python3"), self.executable)
         return tuple(dict.fromkeys(candidate for candidate in candidates if candidate))
 
     def _probe_environment(self, lldb_python_path: str) -> dict[str, str]:
-        environment = dict(self.environment)
+        environment = self.lldb_environment()
         environment[self.GUARD_VARIABLE] = "1"
         package_root = str(Path(__file__).resolve().parents[4])
         environment["PYTHONPATH"] = os.pathsep.join(
