@@ -443,8 +443,9 @@ class RealtimeAudioProgramRouter {
 		self._context->commands = null;
 		self._context->slots = null;
 		self._context->atomics = null;
-		SPSCQueues.close(self._commands);
+		struct SPSCQueueStorage* commands = self._commands;
 		self._commands = null;
+		SPSCQueues.close(&commands);
 		self._contextOwner.close();
 		self._atomicsOwner.close();
 		self._slotsOwner.close();

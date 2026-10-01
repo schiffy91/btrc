@@ -52,7 +52,7 @@ int main() {
     struct CallbackContext context = {commands};
     if (!SPSCQueues.tryPushBorrowed(commands, &sent)) { return 2; }
     if (!consume(&context, &received)) { return 3; }
-    SPSCQueues.close(commands);
+    SPSCQueues.close(&commands);
     return received.kind == 7 && received.token == 11ULL ? 0 : 4;
 }
 """
@@ -150,7 +150,7 @@ def test_fifo_full_empty_wraparound_and_thread_stress(
             });
             int producerResult = producer.join();
             int consumerResult = consumer.join();
-            SPSCQueues.close(queue);
+            SPSCQueues.close(&queue);
             return producerResult + consumerResult;
         }
         """
@@ -199,7 +199,7 @@ def test_every_allocation_failure_returns_typed_oom(
             SPSCQueueOpenKind opened = SPSCQueues.tryOpen(
                 4u, sizeof(int), &queue);
             if (opened != SPSC_QUEUE_OUT_OF_MEMORY || queue != null) {
-                if (queue != null) { SPSCQueues.close(queue); }
+                if (queue != null) { SPSCQueues.close(&queue); }
                 return 1;
             }
             return 0;

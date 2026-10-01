@@ -205,12 +205,9 @@ static void btrcRealtimeClipTransportControlSlotClose(struct BtrcRealtimeClipTra
 static void btrcRealtimeClipTransportContextClose(struct BtrcRealtimeClipTransportContext** context, struct OwnedBufferStorage** contextOwner, struct OwnedBufferStorage** atomicsOwner) {
 	if (context != null && *context != null) {
 		btrcRealtimeClipPracticeContextClose(&(*context)->practice);
-		SPSCQueues.close((*context)->commandQueue);
-		SPSCQueues.close((*context)->eventQueue);
-		SPSCQueues.close((*context)->retirementQueue);
-		(*context)->commandQueue = null;
-		(*context)->eventQueue = null;
-		(*context)->retirementQueue = null;
+		SPSCQueues.close(&(*context)->commandQueue);
+		SPSCQueues.close(&(*context)->eventQueue);
+		SPSCQueues.close(&(*context)->retirementQueue);
 		(*context)->atomics = null;
 		*context = null;
 	}

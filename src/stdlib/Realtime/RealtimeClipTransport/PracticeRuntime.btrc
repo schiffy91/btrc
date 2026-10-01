@@ -104,10 +104,8 @@ struct BtrcRealtimeClipPracticeContext {
 
 static void btrcRealtimeClipPracticeContextClose(struct BtrcRealtimeClipPracticeContext* context) {
 	if (context == null) { return; }
-	SPSCQueues.close(context->inputQueue);
-	SPSCQueues.close(context->telemetryQueue);
-	context->inputQueue = null;
-	context->telemetryQueue = null;
+	SPSCQueues.close(&context->inputQueue);
+	SPSCQueues.close(&context->telemetryQueue);
 	context->configuration.configured = 0;
 	context->phase = (int)REALTIME_CLIP_PRACTICE_IDLE;
 }

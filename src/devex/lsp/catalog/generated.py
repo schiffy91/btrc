@@ -882,7 +882,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("tryOpen", "SPSCQueueOpenKind", "method", (("uint", "capacity"), ("size_t", "valueSize"), ("struct SPSCQueueStorage**", "output"),), "tryOpen"),
         BuiltinMemberSpec("tryPushBorrowed", "bool", "method", (("struct SPSCQueueStorage*", "queue"), ("void*", "value"),), "tryPushBorrowed"),
         BuiltinMemberSpec("tryPopBorrowed", "bool", "method", (("struct SPSCQueueStorage*", "queue"), ("void*", "output"),), "tryPopBorrowed"),
-        BuiltinMemberSpec("close", "void", "method", (("struct SPSCQueueStorage*", "queue"),), "close"),
+        BuiltinMemberSpec("close", "void", "method", (("struct SPSCQueueStorage**", "owner"),), "close"),
     )),
     ("Strings", (
         BuiltinMemberSpec("checkedLength", "int", "method", (("string", "s"),), "checkedLength"),

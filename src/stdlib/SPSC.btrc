@@ -3,7 +3,8 @@
  * SPSCQueues owns the raw allocation boundary used by stored realtime
  * callbacks. tryOpen returns a typed failure and one owning storage pointer;
  * tryPushBorrowed/tryPopBorrowed only borrow that pointer. close must run
- * after both participating threads have stopped and consumes the owner.
+ * after both participating threads have stopped; it consumes the owner and
+ * nulls the caller's pointer.
  *
  * SPSCQueue<T> remains the managed, typed convenience wrapper for ordinary
  * code. Its constructor preserves the historical fail-fast contract.
@@ -99,8 +100,10 @@ class SPSCQueues {
 		return true;
 	}
 
-	class void close(struct SPSCQueueStorage* queue) {
-		if (queue == null) { return; }
+	class void close(struct SPSCQueueStorage** owner) {
+		if (owner == null || *owner == null) { return; }
+		struct SPSCQueueStorage* queue = *owner;
+		*owner = null;
 		free(queue->values);
 		queue->values = null;
 		free(queue->cursors);
@@ -129,8 +132,9 @@ class SPSCQueue<T> {
 	public bool tryPop(T* output) { return SPSCQueues.tryPopBorrowed(self.queue, output); }
 
 	public void close() {
-		SPSCQueues.close(self.queue);
+		struct SPSCQueueStorage* queue = self.queue;
 		self.queue = null;
+		SPSCQueues.close(&queue);
 	}
 
 	public void __del__() { self.close(); }
