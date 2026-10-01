@@ -58,6 +58,16 @@ MACOS_SKIPS = [
         "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]",
         "requires Linux and the explicitly built native header reader",
     ),
+    # macOS run 36905763175 (962c7dc) failed its gate on these two shapes: the
+    # C++ owner link plans need pugixml, and the Linux FreeType case skips off Linux.
+    (
+        "src/tests/python/test_module_units.py::test_module_unit_link_plans_match_across_compilers[cxx_units_project]",
+        "C++ owner proof requires the pugixml SDK through pkg-config",
+    ),
+    (
+        "src/tests/python/test_native_font_runtime.py::test_linux_freetype_draws_into_owned_pixels[True-selfhost]",
+        "requires Linux and the explicitly built native header reader",
+    ),
 ]
 
 
@@ -125,6 +135,8 @@ def test_the_macos_manifest_explains_the_recorded_skips_and_names_their_coverage
     assert rules[MACOS_SKIPS[5][0]].covered_by == ("windows",)
     assert rules[MACOS_SKIPS[7][0]].id == "linux-native-reader-covered"
     assert rules[MACOS_SKIPS[8][0]].id == "linux-native-reader-uncovered"
+    assert rules[MACOS_SKIPS[9][0]].id == "pugixml-sdk"
+    assert rules[MACOS_SKIPS[10][0]].id == "linux-native-reader-covered"
     # The dev shell provides naga (stage2/nix, e74a3cc), so a naga skip is unexpected again.
     assert (
         manifest.classify("src/tests/python/test_wgsl_semantics.py::test_x", "naga WGSL validator is not installed")
