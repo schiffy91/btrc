@@ -1,0 +1,20 @@
+// Pointer arithmetic advances by elements, and pointer difference counts them.
+#include <assert.h>
+#include <stddef.h>
+
+int main() {
+	int values[5] = {10, 20, 30, 40, 50};
+	int* cursor = values;
+	cursor = cursor + 2;
+	assert(*cursor == 30);
+	cursor++;
+	assert(*cursor == 40);
+	cursor = cursor - 3;
+	assert(cursor == &values[0]);
+	int* last = &values[4];
+	ptrdiff_t distance = last - cursor;
+	assert(distance == (ptrdiff_t)4);
+	assert(*(values + 1) == 20);
+	print("PASS: pointer arithmetic");
+	return 0;
+}

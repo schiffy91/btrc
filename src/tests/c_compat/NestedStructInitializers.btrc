@@ -1,0 +1,22 @@
+// Brace initializers nest through struct members and arrays of structs.
+#include <assert.h>
+
+struct Point {
+	int x;
+	int y;
+};
+
+struct Segment {
+	struct Point start;
+	struct Point end;
+};
+
+int main() {
+	struct Segment segment = {{1, 2}, {3, 4}};
+	assert(segment.start.y == 2);
+	assert(segment.end.x == 3);
+	struct Point corners[2] = {{0, 0}, {5, 6}};
+	assert(corners[1].x + corners[1].y == 11);
+	print("PASS: nested struct initializers");
+	return 0;
+}

@@ -1,0 +1,22 @@
+// Block-scope variable-length arrays (C row 23). btrc keeps C's runtime extent
+// but clamps a non-positive bound to one element instead of leaving it undefined.
+#include <assert.h>
+
+int sum(int count) {
+	int values[count];
+	int total = 0;
+	for (int i = 0; i < count; i++) {
+		values[i] = i;
+	}
+	for (int i = 0; i < count; i++) {
+		total += values[i];
+	}
+	return total;
+}
+
+int main() {
+	assert(sum(5) == 10);
+	assert(sum(1) == 0);
+	print("PASS: variable-length array");
+	return 0;
+}

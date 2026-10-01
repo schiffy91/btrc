@@ -1,0 +1,26 @@
+// An assignment used as a loop or branch condition yields the assigned value.
+#include <assert.h>
+
+int values[4] = {3, 2, 1, 0};
+int cursor = 0;
+
+int next() {
+	int value = values[cursor];
+	cursor++;
+	return value;
+}
+
+int main() {
+	int item;
+	int total = 0;
+	while ((item = next()) != 0) {
+		total += item;
+	}
+	assert(total == 6);
+	int found;
+	if ((found = total * 2) > 10) {
+		assert(found == 12);
+	}
+	print("PASS: assignment in condition");
+	return 0;
+}

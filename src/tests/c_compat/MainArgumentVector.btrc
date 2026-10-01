@@ -1,0 +1,10 @@
+// The hosted C entry point with an argument count and vector.
+#include <assert.h>
+
+int main(int argc, char** argv) {
+	assert(argc >= 1);
+	assert(argv[0] != null);
+	assert(argv[argc] == null);
+	print("PASS: main(int argc, char** argv)");
+	return 0;
+}
