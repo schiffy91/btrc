@@ -503,7 +503,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
     )),
     ("ExactFileSnapshot", (
-        BuiltinMemberSpec("validate", "FileSystemError?", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
+        BuiltinMemberSpec("validate", "FileSystemError?", "method", (("FileSnapshot", "expected"), ("FileSystemOutcome<FileSnapshot>", "held"), ("string", "path"), ("string", "operation"),), "validate"),
     )),
     ("DirectoryTreeRemoval", (
         BuiltinMemberSpec("removeAt", "int", "method", (("int", "parentDescriptor"), ("string", "name"), ("FileSnapshot?", "expected"),), "removeAt"),
