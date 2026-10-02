@@ -1,6 +1,6 @@
 import Library.Audio.AudioDevice;
-import Library.Audio.Linux.AlsaDevice;
+import Library.Audio.Linux.LinuxAudioDevice;
 
 class AudioProvider {
-	class AudioDeviceProviderOpenOutcome open() { return AlsaDeviceProvider.open(); }
+	class AudioDeviceProviderOpenOutcome open() { return LinuxAudioDevice.open(); }
 }

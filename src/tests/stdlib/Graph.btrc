@@ -115,6 +115,19 @@ int main() {
 	assert(secondOrder.get(0).equals("seed"));
 	assert(secondOrder.get(1).equals("build"));
 
+	// visit() on a fresh traversal indexes the graph itself; it does not
+	// depend on an earlier order() call.
+	GraphTraversal visited = GraphTraversal(graph);
+	assert(visited.visit("build") == 0);
+	assert(visited.ok());
+	assert(visited.ordered.len == 2);
+	assert(visited.ordered.get(0).equals("seed"));
+	assert(visited.ordered.get(1).equals("build"));
+	assert(visited.visit("final") == 0);
+	assert(visited.ordered.len == 3 && visited.ordered.get(2).equals("final"));
+	assert(visited.visit("missing") == 1);
+	assert(visited.error.contains("Unknown graph node: missing"));
+
 	var duplicate = graphWith([graphNode("a", "a.json"), graphNode("a", "other.json")]);
 	assert(!duplicate.valid());
 	assert(duplicate.validationError().contains("Duplicate graph node id: a"));

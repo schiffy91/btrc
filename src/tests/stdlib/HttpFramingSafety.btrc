@@ -2,9 +2,9 @@
 import Library.Bytes;
 import Library.HTTP.HTTPClient;
 import Library.HTTP.HTTPFraming;
-import Library.HTTP.HTTPProtocol;
+import Library.HTTP.HTTPUrl;
 import Library.HTTP.HTTPServer;
-import Library.HTTP.HTTPTypes;
+import Library.HTTP.HTTPRequest;
 import Library.Strings;
 import Library.Vector;
 

@@ -50,11 +50,6 @@ enum UISemanticExpansionState {
 	UI_SEMANTIC_EXPANSION_ON = 2
 };
 
-/* Semantic labels and values are bounded, well-formed UTF-8. */
-class UISemanticText {
-	class bool valid(string value, int maximumBytes) { return UIText.valid(value, maximumBytes); }
-}
-
 class UISemantics {
 	private UISemanticRole roleValue;
 	private string labelValue;
@@ -135,7 +130,7 @@ class UISemantics {
 
 	public bool valid() {
 		if (!self.validRole() || !self.validLive() || !self.validToggle(self.checkedValue) || !self.validToggle(self.pressedValue) || !self.validExpansion()) { return false; }
-		return UISemanticText.valid(self.labelValue, 512) && UISemanticText.valid(self.hintValue, 512) && UISemanticText.valid(self.semanticValue, 512);
+		return UIText.valid(self.labelValue, 512) && UIText.valid(self.hintValue, 512) && UIText.valid(self.semanticValue, 512);
 	}
 }
 

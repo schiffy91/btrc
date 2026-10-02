@@ -1,5 +1,5 @@
 /* Real AppKit provider lifecycle, built through the native link plan. */
-import Library.Tray.Tray;
+import Library.Tray;
 
 int main() {
 	/* The quit sentinel is a stable, documented token. */

@@ -169,16 +169,16 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 	public void scrollTo(double offset) { self.nativeView(); self._layout.scrollTo(offset); }
 
 	public CallbackCancellation close() {
-		var state = self._container == null ? CallbackCancellation.Complete : self._container.close();
-		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE && self._layout != null) { self._layout.close(); }
 		return state;
 	}
 
 	public CallbackCancellation pollClose() {
-		var state = self._container == null ? CallbackCancellation.Complete : self._container.pollClose();
-		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE && self._layout != null) { self._layout.close(); }
 		return state;
 	}
 
-	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }
 }

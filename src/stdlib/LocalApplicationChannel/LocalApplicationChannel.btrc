@@ -8,6 +8,8 @@
  */
 import Library.OwnedBuffer;
 import Library.Bytes;
+import Library.Timer;
+import Library.IO;
 import Library.LocalApplicationChannel.LocalPeerCredentials;
 import Library.Vector;
 
@@ -211,7 +213,7 @@ class LocalApplicationChannelServer {
 		if (self.closed) { return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_CLOSED, null, 0); }
 		if (!self.acceptOne()) { return LocalApplicationChannelPollOutcome(LOCAL_APPLICATION_CHANNEL_POLL_FAILED, null, errno); }
 		int remaining = self.configuration.workBytesPerPoll();
-		long long now = LocalChannelSocket.nowMilliseconds();
+		long long now = MonotonicClock.milliseconds();
 		for (int index = 0; index < self.peers.len; index++) {
 			var peer = self.peers.get(index);
 			if (peer.closed()) { continue; }
@@ -281,7 +283,7 @@ class LocalChannelPeer {
 		self.expected = 4;
 		self.offset = 0;
 		self.requestIdentity = 0ULL;
-		self.lastActivity = LocalChannelSocket.nowMilliseconds();
+		self.lastActivity = MonotonicClock.milliseconds();
 		if (!self.header.opened()) { self.close(); }
 	}
 
@@ -291,7 +293,7 @@ class LocalChannelPeer {
 
 	public bool matches(unsigned long long identity) { return self.state == LOCAL_CHANNEL_DELIVERED && self.requestIdentity == identity; }
 
-	public bool expired(long long now, int timeout) { return now == (long long)LLONG_MAX || self.lastActivity == (long long)LLONG_MAX || now < self.lastActivity || now - self.lastActivity >= (long long)timeout; }
+	public bool expired(long long now, int timeout) { return now < 0LL || self.lastActivity < 0LL || now < self.lastActivity || now - self.lastActivity >= (long long)timeout; }
 
 	public int advance(int budget) {
 		while (budget > 0 && (self.state == LOCAL_CHANNEL_HEADER || self.state == LOCAL_CHANNEL_BODY || self.state == LOCAL_CHANNEL_WRITING)) {
@@ -310,7 +312,7 @@ class LocalChannelPeer {
 			if (count <= (ssize_t)0 || (size_t)count > (size_t)permitted) { self.close(); return budget; }
 			self.offset += (int)count;
 			budget -= (int)count;
-			self.lastActivity = LocalChannelSocket.nowMilliseconds();
+			self.lastActivity = MonotonicClock.milliseconds();
 			if (self.offset != self.expected) { continue; }
 			if (self.state == LOCAL_CHANNEL_WRITING) { self.close(); return budget; }
 			if (self.state == LOCAL_CHANNEL_BODY) { self.state = LOCAL_CHANNEL_READY; return budget; }
@@ -332,7 +334,7 @@ class LocalChannelPeer {
 		var payload = Bytes.fromRaw((char*)body.borrow(), self.expected);
 		self.requestIdentity = identity;
 		self.state = LOCAL_CHANNEL_DELIVERED;
-		self.lastActivity = LocalChannelSocket.nowMilliseconds();
+		self.lastActivity = MonotonicClock.milliseconds();
 		return LocalApplicationChannelRequest(owner, identity, payload);
 	}
 
@@ -347,7 +349,7 @@ class LocalChannelPeer {
 		self.expected = response.len + 4;
 		self.offset = 0;
 		self.state = LOCAL_CHANNEL_WRITING;
-		self.lastActivity = LocalChannelSocket.nowMilliseconds();
+		self.lastActivity = MonotonicClock.milliseconds();
 		return true;
 	}
 
@@ -427,9 +429,8 @@ class LocalApplicationChannelClient {
 			int error = errno;
 			return LocalApplicationChannelClientOutcome(error == ENOENT ? LOCAL_APPLICATION_CHANNEL_REQUEST_UNAVAILABLE : LOCAL_APPLICATION_CHANNEL_REQUEST_SECURITY_REJECTED, Bytes(), error);
 		}
-		long long now = LocalChannelSocket.nowMilliseconds();
-		if (now > (long long)LLONG_MAX - (long long)timeoutMilliseconds) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED, Bytes(), EIO); }
-		long long deadline = now + (long long)timeoutMilliseconds;
+		long long deadline = MonotonicClock.deadlineAfter((long long)timeoutMilliseconds);
+		if (deadline < 0LL) { return LocalApplicationChannelClientOutcome(LOCAL_APPLICATION_CHANNEL_REQUEST_IO_FAILED, Bytes(), EIO); }
 		LocalChannelSocket connection = LocalChannelSocket();
 		if (!connection.connectTo(path, deadline)) {
 			int error = errno;
@@ -502,20 +503,7 @@ class LocalChannelSocket {
 		return true;
 	}
 
-	class long long nowMilliseconds() {
-		struct timespec now;
-		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_sec < (time_t)0 || now.tv_nsec < 0L || now.tv_nsec >= 1000000000L || (unsigned long long)now.tv_sec > (unsigned long long)(LLONG_MAX / 1000LL)) { return LLONG_MAX; }
-		long long whole = (long long)now.tv_sec * 1000LL;
-		long long fraction = (long long)now.tv_nsec / 1000000LL;
-		return whole > (long long)LLONG_MAX - fraction ? (long long)LLONG_MAX : whole + fraction;
-	}
-
-	private bool configure() {
-		int descriptorFlags = fcntl(self.descriptor, F_GETFD, 0);
-		if (descriptorFlags < 0 || fcntl(self.descriptor, F_SETFD, descriptorFlags | FD_CLOEXEC) < 0) { return false; }
-		int statusFlags = fcntl(self.descriptor, F_GETFL, 0);
-		return statusFlags >= 0 && fcntl(self.descriptor, F_SETFL, statusFlags | O_NONBLOCK) == 0;
-	}
+	private bool configure() { return DescriptorFlags.configure(self.descriptor, true); }
 
 	public bool create() {
 		self.close();
@@ -589,9 +577,8 @@ class LocalChannelSocket {
 
 	private bool waitReady(short events, long long deadline) {
 		while (true) {
-			long long now = LocalChannelSocket.nowMilliseconds();
-			if (now >= deadline) { errno = ETIMEDOUT; return false; }
-			long long remaining = deadline - now;
+			long long remaining = MonotonicClock.remaining(deadline);
+			if (remaining <= 0LL) { errno = ETIMEDOUT; return false; }
 			struct pollfd pending;
 			pending.fd = self.descriptor;
 			pending.events = events;

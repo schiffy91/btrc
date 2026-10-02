@@ -1,7 +1,7 @@
 /* The drawn Linux provider on a live display: layout, synthetic pointer,
  * keyboard and text input reach the controls exactly like device events,
  * and the composed window reads back through GUI.capture. */
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IButton;
 import Library.GUI.ISelect;
@@ -10,7 +10,7 @@ import Library.GUI.IImageHandle;
 import Library.GUI.IImageView;
 import Library.GUI.IView;
 import Library.GUI.IGPUView;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxWindow;

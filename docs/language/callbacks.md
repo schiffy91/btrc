@@ -118,16 +118,16 @@ caller's unregister/destruction. They return `CallbackCancellation`:
 
 | Result | Meaning |
 |---|---|
-| `NotRequested` | Registration is open; polling does not initiate cancellation. |
-| `Pending` | Unregister, callback drain or destruction is still outstanding. |
-| `Complete` | Destruction has finished successfully. |
-| `RetryableFailure` | Unregister failed; context remains alive and admission closed. |
-| `Failed` | Destruction failed; no automatic retry is safe. |
+| `CALLBACK_CANCELLATION_NOT_REQUESTED` | Registration is open; polling does not initiate cancellation. |
+| `CALLBACK_CANCELLATION_PENDING` | Unregister, callback drain or destruction is still outstanding. |
+| `CALLBACK_CANCELLATION_COMPLETE` | Destruction has finished successfully. |
+| `CALLBACK_CANCELLATION_RETRYABLE_FAILURE` | Unregister failed; context remains alive and admission closed. |
+| `CALLBACK_CANCELLATION_FAILED` | Destruction failed; no automatic retry is safe. |
 
 Repeated cancellation/polling joins the same operation. Cancellation reentered
-from unregister or destruction returns `Pending`, without invoking either
+from unregister or destruction returns `CALLBACK_CANCELLATION_PENDING`, without invoking either
 adapter again. A false or throwing unregister must guarantee that its context
-remains valid for retry; it publishes `RetryableFailure` without destroying
+remains valid for retry; it publishes `CALLBACK_CANCELLATION_RETRYABLE_FAILURE` without destroying
 anything. Only an explicit subsequent `cancel()` or `close()` retries it, never
 an observational poll. Exceptions propagate after publishing the failure state.
 Mappings with indeterminate failures are not supported by this primitive.
@@ -143,8 +143,8 @@ Thread-affinity enforcement, asynchronous unregister completion and typed
 non-realtime native callbacks are not provided by this primitive yet.
 
 `close()` is the blocking completion barrier for independent workers. It uses
-the same cancellation path and waits for `Pending` to become a terminal result;
-it returns true only for `Complete`. Reentrant close from unregister or destroy
+the same cancellation path and waits for `CALLBACK_CANCELLATION_PENDING` to become a terminal result;
+it returns true only for `CALLBACK_CANCELLATION_COMPLETE`. Reentrant close from unregister or destroy
 is rejected. Final ARC destruction still calls `close()` and aborts if cleanup
 fails. Do not drop the final registration reference on an executor whose
 callbacks still need to drain: finish the scoped cancellation first. Existing

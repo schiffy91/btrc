@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 
 from src.tests.process_limits import TOOL_TIMEOUT
-from src.tests.python.test_native_import_consumer import REPO, apple_environment
-from src.tests.python.test_native_import_consumer import native_compile as native_compile
-from src.tests.python.test_native_import_consumer import native_project as native_project
+from src.tests.python.native_import_fixtures import REPO, apple_environment
+from src.tests.python.native_import_fixtures import native_compile as native_compile
+from src.tests.python.native_import_fixtures import native_project as native_project
 from tools.native_plan import NativePlanBuilder
 
 
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
     if snapshot:
         source.write_text("""import ./FreeTypeFace.btrc;
 import Library.Bytes;
-import Library.GUI.FontFace;
+import Library.GUI.IFontFace;
 #include <assert.h>
 int main(int argc, char** argv) {
     assert(argc == 2);
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
     assert(rendered.width() > 0 && rendered.rows() > 0);
     var measured = provider.glyph(0xe9, false);
     if (measured == null) { throw "Cannot measure accented glyph"; }
-    assert(measured.advanceX26_6() == rendered.advanceX26_6());
+    assert(measured.advanceFixed() == rendered.advanceFixed());
     print("PASS: actual FreeType unique setup");
     return 0;
 }
@@ -155,13 +155,22 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
     executable = source.parent / "FreeTypeSetup"
 
     apple = sys.platform == "darwin"
-    cc, cxx = ("/usr/bin/clang", "/usr/bin/clang++") if apple else ("cc", "c++")
+    # The builder invokes each driver by its resolved path, so the runner must
+    # recognize that path: a bare "cc" never matches and drops the sanitizers.
+    drivers = ("/usr/bin/clang", "/usr/bin/clang++") if apple else ("cc", "c++")
+    cc, cxx = (shutil.which(driver) for driver in drivers)
+    if cc is None or cxx is None:
+        pytest.skip(f"requires the {drivers[0]} and {drivers[1]} drivers")
     environment = apple_environment() if apple else {**os.environ, "ASAN_OPTIONS": "detect_leaks=0"}
+    sanitizers = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+    driven = []
 
     def runner(command, **kwargs):
         flags = ["-O2"] if command[0] in {cc, cxx} else []
         if flags and sanitize:
-            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+            flags += sanitizers
+        if flags:
+            driven.append([command[0], *flags, *command[1:]])
         return subprocess.run([command[0], *flags, *command[1:]], env=environment, **kwargs)
 
     NativePlanBuilder(runner=runner).build(
@@ -171,6 +180,12 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
         cc=cc,
         cxx=cxx,
     )
+    # Every compile and the link went through a recognized driver, and a
+    # sanitized build carried the sanitizers into each of them.
+    assert any("-c" in command for command in driven), driven
+    assert any("-c" not in command and "-o" in command for command in driven), driven
+    for command in driven:
+        assert all(flag in command for flag in sanitizers) == sanitize, command
     completed = subprocess.run(
         [str(executable), *arguments],
         env=environment,
@@ -183,7 +198,7 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-@pytest.mark.parametrize("consumer", ["GuiFontConformance", "FontSmoke"])
+@pytest.mark.parametrize("consumer", ["GUIFontConformance", "FontSmoke"])
 def test_optional_freetype_factory(font_project, native_compile, sanitize, consumer):
     if (
         not shutil.which("pkg-config")
@@ -191,12 +206,12 @@ def test_optional_freetype_factory(font_project, native_compile, sanitize, consu
     ):
         pytest.skip("requires the optional FreeType SDK through pkg-config")
     font = _test_font()
-    if consumer == "GuiFontConformance" and not font.is_file():
+    if consumer == "GUIFontConformance" and not font.is_file():
         pytest.skip("requires BTRC_TEST_FONT, the system Arial font or fontconfig")
     source, _, _ = font_project
-    directory = REPO / ("src/tests/native/gui" if consumer == "GuiFontConformance" else "examples/gui")
+    directory = REPO / ("src/tests/native/gui" if consumer == "GUIFontConformance" else "examples/gui")
     source.write_text((directory / f"{consumer}.btrc").read_text())
-    arguments = [str(font)] if consumer == "GuiFontConformance" else []
+    arguments = [str(font)] if consumer == "GUIFontConformance" else []
     result = _compile_and_run(source, native_compile, sanitize, arguments)
     assert ("PASS: FreeType draws into BTRC-owned pixels" if arguments else "FONT SMOKE TEST PASSED") in result.stdout
 
@@ -227,8 +242,8 @@ def test_linux_freetype_draws_into_owned_pixels(tmp_path, request, frontend, san
     font = _linux_test_font()
     if font is None or not font.is_file():
         pytest.skip("requires BTRC_TEST_FONT or a fontconfig sans-serif font")
-    source = tmp_path / "GuiFontConformance.btrc"
-    source.write_text((REPO / "src/tests/native/gui/GuiFontConformance.btrc").read_text())
+    source = tmp_path / "GUIFontConformance.btrc"
+    source.write_text((REPO / "src/tests/native/gui/GUIFontConformance.btrc").read_text())
     executable = _build(source, tmp_path, frontend, sanitized, request)
     result = subprocess.run(
         [str(executable), str(font)], capture_output=True, text=True, timeout=60, env=_environment(sanitized)

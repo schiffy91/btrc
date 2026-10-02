@@ -17,7 +17,7 @@ each module can also be imported alone:
 | `Text` | UTF-8 scalar boundaries (`UIText`) shared by every other module |
 | `Semantics` | `UISemantics`, roles and states |
 | `Element` | `UIElement`, values (`UIColor`, `UISelect`, ranges, events) and styles (`UIStyle`, `UIStyleSheet`) |
-| `Typography` | `UITypography`, measurement, wrapping and the platform raster contract |
+| `Typography` | `UITypography`: deterministic measurement and wrapping |
 | `Render` | `UIRenderer`, layout, hit testing, `UIResolvedStyle` and the proof raster painter |
 | `TextRaster` | `UITextRaster`, text runs as transparent `Image` rasters |
 
@@ -233,25 +233,24 @@ the root cannot float. Virtual-grid item counts exclude floating decorations.
 Text elements can opt into `text-wrap: wrap`; the default is `nowrap`, and
 buttons/inputs/selects remain single-line. Explicit line breaks are retained;
 spaces at a soft break are not painted. Long words and paths break to fit.
-A platform typography provider supplies its own line-break callback; the
-deterministic proof font breaks at scalar cells and ASCII whitespace instead
-of claiming linguistic shaping.
+The deterministic proof font breaks at scalar cells and ASCII whitespace
+instead of claiming linguistic shaping; system text is shaped by
+`Library.GUI` (`GUI.rasterizeText`), not by `UITypography`.
 
 `UITypography.wrap` produces immutable `UITextLayout` lines with
 their exact metrics and vertical positions. Layout boxes expose that same
 layout to any painter; width changes invalidate retained measurements.
 Only visible lines paint. The existing 4096-byte per-element and 4 MiB tree
-metadata bounds include retained line data. Platform measurement providers
-must supply their matching line-break callback when opting into wrapping.
+metadata bounds include retained line data.
 
 Surfaces that draw their own images (rulers, meters, note charts) obtain
 text through `UITextRaster.rasterize(typography, text, fontSize,
 lineHeight, fontWeight, color, backingScale)`. The result is a transparent
-`Image` in backing pixels: the platform's system font when the session's
-`UITypography` carries a raster provider, the deterministic 5x7 glyph
-painter otherwise, sized from `measure()` either way. Runs longer than 4096
+`Image` in backing pixels from the deterministic 5x7 glyph painter, sized
+from `measure()`. Runs longer than 4096
 bytes are cut at a scalar boundary; the empty run is `Image.empty()`.
 `UITextRaster.blit(target, source, x, y)` composes with straight
 alpha through `Image.compositeImage` and keeps the target's own transparency.
-Callers supply the typography provider and backing scale explicitly. The
-proof raster draws platform text the same way when the provider rasterizes.
+Callers supply the typography and backing scale explicitly. A painter that
+needs the system font rasterizes the run with
+`GUI.rasterizeText` instead.

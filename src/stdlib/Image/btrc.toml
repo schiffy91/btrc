@@ -6,12 +6,12 @@ exports = ["DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Im
 
 [[package.providers]]
 module = "SystemImageDecoder"
-implementation = "MacOS.SystemImageProvider"
+implementation = "MacOS.SystemImageDecoderProvider"
 os = ["macos"]
 
 [[package.providers]]
 module = "SystemImageDecoder"
-implementation = "Linux.SystemImageProvider"
+implementation = "Linux.SystemImageDecoderProvider"
 os = ["linux"]
 
 [[native.pkg-config]]

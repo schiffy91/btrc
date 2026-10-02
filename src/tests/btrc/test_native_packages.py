@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
@@ -23,20 +24,29 @@ def _environment() -> dict[str, str]:
     return {**os.environ, "BTRC_HOME": str(REPO / "src")}
 
 
-def test_stdlib_native_headers_require_target_even_without_project_manifest(immutable_btrcc, tmp_path):
+def _host_target() -> str:
+    """The target both compilers select when no --target is given."""
+
+    target = PackageTarget.parse(None)
+    return f"{target.operating_system}-{target.architecture}"
+
+
+def test_stdlib_native_headers_infer_the_host_target_without_project_manifest(immutable_btrcc, tmp_path):
     source = tmp_path / "Main.btrc"
     source.write_text("import Library.BackgroundJobs;\nint main() { return 0; }\n", encoding="utf-8")
-    result = subprocess.run(
-        [str(immutable_btrcc), "--strict-imports", str(source)],
-        cwd=REPO,
-        env=_environment(),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert result.returncode != 0
-    assert result.stdout == ""
-    assert "native header bindings require --target OS-ARCH" in result.stderr
+    outputs = []
+    for target in ((), ("--target", _host_target())):
+        result = subprocess.run(
+            [str(immutable_btrcc), "--strict-imports", "--no-cache", *target, str(source)],
+            cwd=REPO,
+            env=_environment(),
+            capture_output=True,
+            text=True,
+            timeout=TRANSPILE_TIMEOUT,
+        )
+        assert result.returncode == 0, result.stderr
+        outputs.append(result.stdout)
+    assert outputs[0] == outputs[1]
 
 
 def _reference(
@@ -758,22 +768,26 @@ def test_selfhost_rejects_git_without_attempting_acquisition(
     assert "Git dependency 'remote' is not yet supported by btrcc" in result.stderr
 
 
-def test_selfhost_versioned_manifest_requires_explicit_target(
+def test_selfhost_versioned_manifest_infers_the_host_target(
     semantic_btrcc: Path,
+    tmp_path: Path,
 ) -> None:
     source = EXAMPLE / "src/Main.btrc"
-
-    result = subprocess.run(
-        [str(semantic_btrcc), "--no-stdlib", str(source)],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        env=_environment(),
-        timeout=TRANSPILE_TIMEOUT,
-    )
-
-    assert result.returncode != 0
-    assert "version-1 package manifests require --target OS-ARCH" in result.stderr
+    plans = []
+    for target in ((), ("--target", _host_target())):
+        plan = tmp_path / f"plan{len(plans)}.json"
+        result = subprocess.run(
+            [str(semantic_btrcc), "--no-stdlib", "--no-cache", *target, "--emit-link-plan", str(plan), str(source)],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            env=_environment(),
+            timeout=TRANSPILE_TIMEOUT,
+        )
+        assert result.returncode == 0, result.stderr
+        plans.append(json.loads(plan.read_text(encoding="utf-8")))
+    assert plans[0] == plans[1]
+    assert plans[0]["target"] == PackageTarget.parse(None).as_dict()
 
 
 def test_selfhost_strict_manifest_rejects_arbitrary_build_fields(

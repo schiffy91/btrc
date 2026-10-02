@@ -822,10 +822,10 @@ them copy-on-write. A group's lowered IR stays in the worker that lowered it;
 only small messages cross the pipes. The owner keeps every program-wide
 decision and runs the same schedule with one worker (answered in-process) or
 many, so the emitted units are byte-identical for every worker count.
-`--jobs N` sets the count (both CLIs); without it the self-hosted compiler
-uses one per CPU, at most four, the reference CLI at most two, and the Python
-API stays in-process unless asked, because a threaded embedding process must
-not fork.
+`--jobs N` sets the count (both CLIs); without it both CLIs use one per online
+CPU, at most four, and the Python API stays in-process unless asked, because a
+threaded embedding process must not fork. Neither compiler forks a pool while
+another thread of the process runs; it lowers in-process instead.
 
 Memory decides that default. Each worker starts as a copy-on-write image of
 the analyzed program, but ARC writes reference counts into the objects
@@ -883,15 +883,20 @@ one `timing` request, and after a clean close it prints the replies as
 `<compiler> worker timing: worker=<i> ...` lines after its own line. Only the
 owner writes, so worker reports never interleave and never repeat the owner's
 marks; a failed compile prints none, and an inline pool, whose work is already
-in the owner's line, adds no worker line and no `w-*` mark. Per-worker resource
-usage (`wait4`) is a follow-up. Tests check one owner line first, one line per
+in the owner's line, adds no worker line and no `w-*` mark. The pool reaps each
+worker with `wait4`, and the owner ends that worker's line with
+`usage=user:Nus,sys:Nus,maxrss:NKiB`, its whole-life CPU time and peak resident
+memory, normalized to KiB where macOS reports bytes; a host without `wait4`
+omits the field. Tests check one owner line first, one line per
 worker from distinct processes whose lowerings add up to the owner's count, no
 worker lines for inline, unchanged or one-group rebuilds, and identical units
 with timing on and off.
 
 Failure: a worker that exits, is killed or breaks the protocol fails the
 compile with its diagnostic after every worker has been terminated and reaped;
-a lowering diagnostic raised in a Python worker is raised again in the owner.
+what a worker's request raises or throws, such as a lowering diagnostic, is
+raised again in the owner unchanged, in both compilers and whether the worker
+is forked or the owner itself.
 Records are written only by the owner, only for finished units, and are
 content-keyed and checksummed, so a failed compile publishes no output and
 leaves no partial record. Tests cover identical units across worker counts in

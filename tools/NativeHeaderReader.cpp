@@ -147,10 +147,17 @@ public:
 // An object-like macro selected as a symbol is an SDK constant with no
 // declaration. Clang's preprocessor expands it, the expansion is parsed here
 // and every operand and operator is built through Clang's Sema, so the
-// constant's type and value are exactly what the SDK's own C gives it. Only
-// integer constant expressions are accepted, however many object-like or
+// constant's type and value are exactly what the SDK's own C gives it. Integer constant expressions and ordinary string literals (with
+// adjacent literals concatenated) are accepted, however many object-like or
 // function-like macros the expansion invokes; anything else (a macro that is
-// itself function-like, strings, non-constant operands) refuses.
+// itself function-like, wide strings, non-constant operands) refuses.
+struct NativeMacroValue {
+	clang::QualType type;
+	llvm::APSInt integer;
+	std::string text;
+	bool string = false;
+};
+
 class NativeMacroConstant {
 	clang::Sema& sema;
 	clang::Preprocessor& preprocessor;
@@ -247,6 +254,11 @@ class NativeMacroConstant {
 		if (!token) { refuse("ends before an operand"); return nullptr; }
 		if (token->is(clang::tok::numeric_constant)) { ++position; return checked(sema.ActOnNumericConstant(*token), "integer literal"); }
 		if (token->is(clang::tok::char_constant)) { ++position; return checked(sema.ActOnCharacterConstant(*token), "character literal"); }
+		if (clang::tok::isStringLiteral(token->getKind())) {
+			std::vector<clang::Token> pieces;
+			while (peek() && clang::tok::isStringLiteral(peek()->getKind())) { pieces.push_back(*peek()); ++position; }
+			return checked(sema.ActOnStringLiteral(pieces), "string literal");
+		}
 		if (token->is(clang::tok::identifier)) {
 			++position;
 			const auto* found = lookup(token->getIdentifierInfo());
@@ -329,8 +341,8 @@ class NativeMacroConstant {
 public:
 	NativeMacroConstant(clang::Sema& value, clang::Preprocessor& macros) : sema(value), preprocessor(macros), context(value.getASTContext()) {}
 
-	// The macro's integer value and type, or an explanation in `failure`.
-	std::optional<std::pair<clang::QualType, llvm::APSInt>> evaluate(const clang::IdentifierInfo& name, const clang::MacroInfo& info, std::string& reason) {
+	// The macro's integer or string value and type, or an explanation in `failure`.
+	std::optional<NativeMacroValue> evaluate(const clang::IdentifierInfo& name, const clang::MacroInfo& info, std::string& reason) {
 		auto& diagnostics = sema.getDiagnostics();
 		bool suppressed = diagnostics.getSuppressAllDiagnostics();
 		diagnostics.setSuppressAllDiagnostics(true);
@@ -343,10 +355,15 @@ public:
 			clang::EnterExpressionEvaluationContext constant(sema, clang::Sema::ExpressionEvaluationContext::ConstantEvaluated);
 			auto* expression = conditional();
 			clang::Expr::EvalResult evaluated;
+			const auto* literal = expression ? llvm::dyn_cast<clang::StringLiteral>(expression->IgnoreParens()) : nullptr;
 			if (expression && position != tokens.size()) { refuse("has trailing tokens"); }
-			else if (expression && !expression->getType()->isIntegralOrEnumerationType()) { refuse("is not an integer constant"); }
+			else if (literal && !literal->isOrdinary()) { refuse("is not an ordinary string literal"); }
+			else if (literal && literal->getString().contains('\0')) { refuse("is a string literal with an embedded NUL"); }
+			else if (literal && !llvm::json::isUTF8(literal->getString())) { refuse("is a string literal that is not UTF-8"); }
+			else if (literal) { return NativeMacroValue{context.getPointerType(context.CharTy.withConst()), llvm::APSInt(), literal->getString().str(), true}; }
+			else if (expression && !expression->getType()->isIntegralOrEnumerationType()) { refuse("is not an integer or string constant"); }
 			else if (expression && !expression->EvaluateAsInt(evaluated, context)) { refuse("is not an integer constant expression"); }
-			else if (expression) { return std::make_pair(expression->getType(), evaluated.Val.getInt()); }
+			else if (expression) { return NativeMacroValue{expression->getType(), evaluated.Val.getInt(), "", false}; }
 		}
 		reason = failure;
 		return std::nullopt;
@@ -766,11 +783,17 @@ class NativeHeaderReader {
 		std::string reason;
 		auto value = NativeMacroConstant(sema, preprocessor).evaluate(*preprocessor.getIdentifierInfo(name), info, reason);
 		if (!value) { errors.push_back("Native macro " + name + " " + reason); return result; }
+		if (value->string) {
+			result["kind"] = "string_constant";
+			result["type"] = type(value->type);
+			result["value"] = value->text;
+			return result;
+		}
 		result["kind"] = "enum_constant";
-		result["type"] = type(value->first.getUnqualifiedType());
+		result["type"] = type(value->type.getUnqualifiedType());
 		result["enum_identity"] = "";
 		llvm::SmallString<32> decimal;
-		value->second.toString(decimal);
+		value->integer.toString(decimal);
 		result["value"] = decimal.str().str();
 		return result;
 	}

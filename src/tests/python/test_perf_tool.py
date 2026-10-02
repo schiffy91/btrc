@@ -1,6 +1,7 @@
 """Measure both frontends through the strict production native-plan compile/link path."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,43 @@ ROOT = Path(__file__).resolve().parents[3]
 def test_phase_times_reads_both_compilers_marks():
     stderr = "noise\nbtrcpy timing: lex=1500us parse=500us analyze=2000000us\nbtrcc timing: lex=1000us emit=250us\n"
     assert perf.phase_times(stderr) == {"lex": 0.0025, "parse": 0.0005, "analyze": 2.0, "emit": 0.00025}
+
+
+def test_phase_times_reads_annotated_marks_and_skips_counters():
+    stderr = (
+        "btrcc timing: lex=10us a-records-stored(replayed=3,journaled=1)=20us "
+        "a-instances(replayed=4)=5us module-unit-workers=2 module-units=lowered:3,reused:2 "
+        "setjmp-analyses=2/3,rounds=1,levels=2 relowered-stale=4 "
+        "instance-closure=class:3+2r,method:4+1r a-records-stored(replayed=0,journaled=7)=30us\n"
+    )
+    assert perf.phase_times(stderr) == pytest.approx(
+        {"lex": 0.00001, "a-records-stored": 0.00005, "a-instances": 0.000005}
+    )
+
+
+TIMER_CALL = re.compile(r'BtrccPhaseTimer\.(mark|note)\((f?)"([^"]*)"')
+INTERPOLATION = re.compile(r"\{[^{}]*\}")
+
+
+def test_phase_times_parses_every_mark_the_compilers_print():
+    """Each mark either compiler can print is one phase; each note is none."""
+
+    marks: set[str] = set()
+    notes: set[str] = set()
+    for source in sorted((ROOT / "src/compiler/btrc").rglob("*.btrc")):
+        for kind, _, text in TIMER_CALL.findall(source.read_text()):
+            (marks if kind == "mark" else notes).add(INTERPOLATION.sub("7", text))
+    python_labels = set()
+    for source in sorted((ROOT / "src/compiler/python").rglob("*.py")):
+        python_labels.update(re.findall(r'_timed\([^,]+, "([^"]+)"', source.read_text()))
+    assert any("(" in mark for mark in marks) and notes and python_labels
+    for mark in sorted(marks):
+        name = mark.split("(", 1)[0]
+        assert perf.phase_times(f"btrcc timing: {mark}=3us") == {name: 0.000003}, mark
+    for label in sorted(python_labels):
+        assert perf.phase_times(f"btrcpy timing: {label}=3us") == {label: 0.000003}, label
+    for note in sorted(notes):
+        assert perf.phase_times(f"btrcc timing: {note}") == {}, note
 
 
 def test_worker_phase_times_reads_worker_lines_and_owner_sums_skip_them():
@@ -39,6 +77,29 @@ def test_worker_phase_times_reads_worker_lines_and_owner_sums_skip_them():
     assert workers[1]["busy:finish"] == pytest.approx(0.000007)
     assert "pid" not in workers[0] and "requests" not in workers[0]
     assert perf.worker_phase_times(owner) == {}
+
+
+def test_worker_usage_reads_reaped_usage_and_phase_sums_skip_it():
+    owner = "btrcc timing: lex=1000us module-unit-workers=2"
+    stderr = "\n".join(
+        (
+            owner,
+            "btrcc worker timing: worker=0 pid=11 requests=lower:1,setjmp:0,realtime:0,finish:1 "
+            "busy=lower:3000us,setjmp:0us,realtime:0us,finish:500us w-wait=10us "
+            "usage=user:2500000us,sys:125000us,maxrss:204800KiB",
+            "btrcpy worker timing: worker=1 pid=12 requests=lower:1,setjmp:0,realtime:0,finish:1 "
+            "busy=lower:2000us,setjmp:0us,realtime:0us,finish:7us w-wait=20us",
+        )
+    )
+    assert perf.worker_usage(stderr) == {0: {"user": 2.5, "sys": 0.125, "maxrss_kib": 204800.0}}
+    workers = perf.worker_phase_times(stderr)
+    assert not any(name.startswith("usage") or name in {"user", "sys", "maxrss"} for name in workers[0])
+    assert (
+        workers[0]
+        == perf.worker_phase_times(stderr.replace(" usage=user:2500000us,sys:125000us,maxrss:204800KiB", ""))[0]
+    )
+    assert perf.phase_times(stderr) == perf.phase_times(owner)
+    assert perf.worker_usage(owner) == {}
 
 
 @pytest.mark.parametrize("platform,raw", [("darwin", 32 * 1024 * 1024), ("linux", 32 * 1024)])

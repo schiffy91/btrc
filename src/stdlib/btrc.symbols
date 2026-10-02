@@ -1,8 +1,13 @@
-btrc-symbols 1 a42790e9-234776-25
+btrc-symbols 1 eb852da9-240514-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
 Bytes	Bytes.btrc
+CALLBACK_CANCELLATION_COMPLETE	Callback.btrc
+CALLBACK_CANCELLATION_FAILED	Callback.btrc
+CALLBACK_CANCELLATION_NOT_REQUESTED	Callback.btrc
+CALLBACK_CANCELLATION_PENDING	Callback.btrc
+CALLBACK_CANCELLATION_RETRYABLE_FAILURE	Callback.btrc
 CHILD_STDIN_INHERIT	Process.btrc
 CHILD_STDIN_NULL	Process.btrc
 CLIArgs	CLI.btrc
@@ -13,6 +18,7 @@ COMMAND_OUTPUT_COLLECT	Process.btrc
 COMMAND_OUTPUT_COMBINE	Process.btrc
 COMMAND_OUTPUT_STREAM	Process.btrc
 COMMAND_OUTPUT_SUPPRESS	Process.btrc
+CStringArray	Process.btrc
 CallbackCancellation	Callback.btrc
 CallbackContext	Callback.btrc
 CallbackRegistration	Callback.btrc
@@ -25,16 +31,15 @@ ChildDescriptorMapping	Process.btrc
 ChildProcess	Process.btrc
 ChildProcessArguments	Process.btrc
 ChildProcessCapture	Process.btrc
-ChildProcessClock	Process.btrc
 ChildProcessEnvironment	Process.btrc
 ChildProcessExecutable	Process.btrc
 ChildStdin	Process.btrc
 Command	Process.btrc
 CommandOutput	Process.btrc
 CompiledRegex	Regex.btrc
-Complete	Callback.btrc
 Console	Console.btrc
-DateTime	Datetime.btrc
+DateTime	DateTime.btrc
+DescriptorFlags	IO.btrc
 Environment	Platform.btrc
 ExecResult	Process.btrc
 FILE_DIRECTORY	IO.btrc
@@ -49,7 +54,6 @@ FILE_SNAPSHOT_CLOSED	IO.btrc
 FILE_SNAPSHOT_FAILED	IO.btrc
 FILE_SNAPSHOT_UNSUPPORTED	IO.btrc
 FILE_SYMLINK	IO.btrc
-Failed	Callback.btrc
 File	IO.btrc
 FileKind	IO.btrc
 FileLineReadKind	IO.btrc
@@ -75,7 +79,7 @@ List	List.btrc
 ListNode	List.btrc
 Map	Map.btrc
 Math	Math.btrc
-NotRequested	Callback.btrc
+MonotonicClock	Timer.btrc
 OWNED_BUFFER_COUNT_OUT_OF_RANGE	OwnedBuffer.btrc
 OWNED_BUFFER_INVALID_ARGUMENT	OwnedBuffer.btrc
 OWNED_BUFFER_OPENED	OwnedBuffer.btrc
@@ -88,13 +92,11 @@ OwnedBuffers	OwnedBuffer.btrc
 OwnedClosure	Callback.btrc
 Path	IO.btrc
 Pattern	Pattern.btrc
-Pending	Callback.btrc
 Platform	Platform.btrc
 ProcessStatus	Process.btrc
 Random	Random.btrc
 Regex	Regex.btrc
 Result	Result.btrc
-RetryableFailure	Callback.btrc
 SPSCQueue	SPSC.btrc
 SPSCQueueCursor	SPSC.btrc
 SPSCQueueOpenKind	SPSC.btrc
@@ -113,11 +115,10 @@ ShellWords	Process.btrc
 StringBuilder	Strings.btrc
 Strings	Strings.btrc
 TOML	TOML.btrc
-Timer	Datetime.btrc
+Timer	Timer.btrc
+UTF8	Strings.btrc
 UnixShell	Process.btrc
 Vector	Vector.btrc
-btrcSpscCopy	SPSC.btrc
-btrcSpscNextCursor	SPSC.btrc
 callbackBackoff	Callback.btrc
 callbackGateCloseAdmission	Callback.btrc
 callbackGateDrain	Callback.btrc

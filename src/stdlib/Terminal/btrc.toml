@@ -2,4 +2,4 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_terminal"
-exports = ["Terminal", "TerminalClock", "TerminalPassword"]
+exports = ["Terminal", "TerminalPasswordInput"]

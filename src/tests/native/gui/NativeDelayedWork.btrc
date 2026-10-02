@@ -1,5 +1,5 @@
 import Library.Callback;
-import Library.Datetime;
+import Library.Timer;
 import Library.GUI;
 import Library.Math;
 import Library.Vector;
@@ -54,8 +54,8 @@ int main(int argc, char** argv) {
 	} else if (strcmp(argv[1], "cancel") == 0) {
 		for (int index = 0; index < 128; index++) {
 			var pending = GUI.postAfter(3600.0, DelayedWork(window, 0));
-			assert(pending.isOpen() && pending.cancel() == CallbackCancellation.Complete);
-			assert(!pending.isOpen() && pending.pollCompletion() == CallbackCancellation.Complete);
+			assert(pending.isOpen() && pending.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+			assert(!pending.isOpen() && pending.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 			assert(destroyed == index + 1 && delivered == 0);
 		}
 		GUI.postAfter(0.0, DelayedWork(window, 0));
@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
 		rejected = false;
 		try { GUI.post(DelayedWork(window, 0)); } catch (string error) { rejected = error.equals("Application work capacity exceeded"); }
 		assert(rejected && destroyed == 2);
-		assert(pending.get(0).cancel() == CallbackCancellation.Complete);
+		assert(pending.get(0).cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		GUI.post(DelayedWork(window, 0));
 		expectedDestroyed = 7;
 	} else if (strcmp(argv[1], "invalid") == 0) {
@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
 	assert(failed == failure);
 	assert(delivered == expectedDelivered && destroyed == expectedDestroyed);
 	assert(!window.isOpen() && !root.isOpen() && !button.isOpen());
-	if (observed != null) { assert(!observed.isOpen() && observed.pollCompletion() == CallbackCancellation.Complete && observed.cancel() == CallbackCancellation.Complete); }
+	if (observed != null) { assert(!observed.isOpen() && observed.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && observed.cancel() == CALLBACK_CANCELLATION_COMPLETE); }
 	GUI.close();
 	print("native delayed work cancellation, bounded capacity and orderly shutdown");
 	return 0;

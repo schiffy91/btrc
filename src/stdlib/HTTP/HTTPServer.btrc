@@ -1,10 +1,11 @@
 /* HTTP/1.1 server lifecycle, request parsing, and response emission. */
 import Library.Bytes;
 import Library.HTTP.HTTPFraming;
-import Library.HTTP.HTTPProtocol;
+import Library.HTTP.HTTPStatus;
 import Library.HTTP.HTTPResponseHeaders;
 import Library.HTTP.HTTPSocket;
-import Library.HTTP.HTTPTypes;
+import Library.HTTP.HTTPRequest;
+import Library.HTTP.HTTPResponse;
 import Library.Strings;
 import Library.Vector;
 

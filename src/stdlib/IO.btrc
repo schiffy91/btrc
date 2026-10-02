@@ -7,8 +7,26 @@ import Library.Platform;
 import Library.Vector;
 
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
+
+/* The descriptor flags every library socket and pipe sets: close-on-exec so
+ * no child inherits it, and nonblocking I/O for deadline-driven waits. Each
+ * adds its flag to the ones the descriptor already has. */
+class DescriptorFlags {
+	class bool closeOnExec(int descriptor) {
+		int flags = fcntl(descriptor, F_GETFD, 0);
+		return flags >= 0 && fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) == 0;
+	}
+
+	class bool nonblocking(int descriptor) {
+		int flags = fcntl(descriptor, F_GETFL, 0);
+		return flags >= 0 && fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0;
+	}
+
+	class bool configure(int descriptor, bool nonblocking) { return DescriptorFlags.closeOnExec(descriptor) && (!nonblocking || DescriptorFlags.nonblocking(descriptor)); }
+}
 
 enum FileLineReadKind {
 	FILE_LINE_READ_LINE = 0,
@@ -129,6 +147,11 @@ class FileSnapshot {
 	public long long size() { return self._size; }
 
 	public bool sameObject(FileSnapshot other) { return other != null && self._device == other._device && self._inode == other._inode; }
+
+	/* The same kind, size, permissions and modification time, whichever inode
+	 * holds them. Only for files that are never rewritten in place, such as a
+	 * Nix store's, where deduplication relinks a file without changing it. */
+	public bool sameImmutableVersion(FileSnapshot other) { return other != null && self._kind == other._kind && self._size == other._size && self._mode == other._mode && self._modifiedSeconds == other._modifiedSeconds && self._modifiedNanoseconds == other._modifiedNanoseconds; }
 
 	public bool sameVersion(FileSnapshot other) { return self.sameObject(other) && self._kind == other._kind && self._size == other._size && self._mode == other._mode && self._modifiedSeconds == other._modifiedSeconds && self._modifiedNanoseconds == other._modifiedNanoseconds && self._changedSeconds == other._changedSeconds && self._changedNanoseconds == other._changedNanoseconds; }
 
@@ -419,11 +442,10 @@ class File {
 }
 
 class Path {
-	/* Stat-based existence check. Delegates to FileSystem.exists so Path and
-     * FileSystem agree on every case: directories count as existing, and a file
-     * that exists but is unreadable still reports true. (The old fopen("r")
-     * probe returned false for unreadable-but-existing files and depended on
-     * read permission — a silent inconsistency with FileSystem.exists.) */
+	/* Stat-based existence check. It calls stat(2) directly, as
+     * FileSystem.exists does through FileStatus, so the two agree: a symlink is
+     * followed, directories count as existing, and a file that exists but is
+     * unreadable still reports true. IO does not import FileSystem. */
 	class bool exists(string path) {
 		if (path == null) { return false; }
 		struct stat st;

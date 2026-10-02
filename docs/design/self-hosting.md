@@ -9,8 +9,8 @@ Both consume `src/language/grammar.ebnf` and `src/language/ast.asdl`, then run
 lexer, parser, analyzer, IR generation, optimization, and C emission. Language
 tests share the same source fixtures and golden runtime output.
 
-The self-hosted destination is an exact 99-file `.btrc` inventory: 93
-compiler/generated files and six explicit developer-tool files. At the package
+The self-hosted destination is an exact 97-file `.btrc` inventory: 94
+compiler/generated files and three stage-inspection tool files. At the package
 root, `Compiler.btrc` is the public application object and `BtrccMain.btrc` is
 the portable Unix process entry point. `cli/WindowsMain.btrc` composes the
 Windows host without Unix SDK scanning; `cli/MacOSMain.btrc` composes the
@@ -62,26 +62,32 @@ exist for stage-boundary inspection.
 
 The package ownership is exact:
 
-- `pipeline/` contains the imports-only stage manifest, immutable models, and
-  `CompilerPipeline`.
+- `pipeline/` contains the imports-only stage manifest, the mutable option and
+  result transports for one compilation (`pipeline/Models.btrc`),
+  `CompilerPipeline`, and `ModuleUnitCompiler`.
 - `syntax/`, `lexer/`, `frontend/`, and `parser/` own the complete front end;
   parser source-macro definitions remain with the parser.
 - `analyzer/` owns semantic composition, declarations, types, expressions,
-  generics, operators, hosted ABI, source macros, and GPU policy;
+  generics, operators, hosted ABI, source macros, GPU policy, and realtime-effect
+  proof;
   `analyzer/ownership/` owns managed values and cycles, while
   `analyzer/validation/` contains one validator composition owner and ten
   focused domain validators.
-- `ir/` owns the imports-only stage manifest, complete structured model, and
-  `CEmitter`; `ir/runtime/` owns catalog selection and reference collection.
-- `ir/lowering/` contains `LoweringContext`, `IRLowerer`, and the type,
-  declaration, generic, function, statement, control-flow, expression, call,
+- `ir/` owns the imports-only stage manifest, complete structured model,
+  `CEmitter`, and `RuntimeUnitState` (runtime linkage across emitted units);
+  `ir/runtime/` owns catalog selection and reference collection.
+- `ir/lowering/` contains source reachability, `LoweringContext`, `IRLowerer`,
+  `CallableFlowState`, and the type, declaration, generic, function, statement, control-flow, expression, call,
   callable, assignment, aggregate, string, and concurrency lowerers. Its
   `ownership/` package contains the six ownership-specific lowerers.
 - `ir/gpu/` owns WGSL rendering and GPU pipeline planning;
-  `ir/optimization/` owns reachability/normalization, cleanup validation, and
-  the two setjmp analysis/safety owners.
-- `generated/` contains data-only AST, hosted-ABI, and runtime catalogs.
-  `tools/` contains five developer entry points plus the ASDL schema owner.
+  `ir/optimization/` owns reachability/normalization, cleanup validation, the
+  structured-IR realtime backstop, and the two setjmp analysis/safety owners.
+- `generated/` contains the generated AST, hosted-ABI, native-ABI, and runtime
+  catalogs. They are data/schema declarations, except that `Node.btrc` also
+  carries the generated accessors of its lazily allocated list fields.
+  `tools/` contains the three stage-inspection entry points (`LexMain`,
+  `ParseMain`, `FrontendMain`).
 
 Stage manifests contain imports only. Concrete leaves own behavior, and public
 class names remain globally unique because directories do not create btrc
@@ -106,8 +112,8 @@ node file directly.
 features, source markers, and deterministic order for the shared pre-authored
 runtime assets: `core.c`, `collections.c`, `cycles.c`, `mutex.c`, `process.c`,
 `strings.c`, `threads.c`, `trycatch.c`, `gpu.c`, and `btrc_rt.h`.
-`src/compiler/btrc/generated/runtime/Catalog.btrc` contains immutable generated
-rows; `ir/runtime/Catalog.btrc` and `ir/runtime/References.btrc` retain query,
+`src/compiler/btrc/generated/runtime/Catalog.btrc` contains generated rows
+with public fields that consumers treat as read-only by convention; `ir/runtime/Catalog.btrc` and `ir/runtime/References.btrc` retain query,
 selection, dependency, and reference behavior. Lowering and C emission do not
 assemble runtime source.
 
