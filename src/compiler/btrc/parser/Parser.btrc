@@ -24,6 +24,10 @@ class Parser {
 	public GrammarInfo grammar;
 	public bool failed;
 	public string diagnostic;
+	/* Type names this file declared so far: a statement `T (*name)(...);`
+	 * whose head is one of them is a declaration (D20). Imported names stay
+	 * invisible, because a file's parse is cached context-free. */
+	public Vector<string> fileTypeNames;
 
 	public Parser(Vector<Token> tokens, GrammarInfo grammar) {
 		self.tokens = tokens;
@@ -31,6 +35,7 @@ class Parser {
 		self.grammar = grammar;
 		self.failed = false;
 		self.diagnostic = "";
+		self.fileTypeNames = [];
 	}
 
 	/* ---- Token helpers ---- */
@@ -159,6 +164,11 @@ class Parser {
 		while (!self.atEnd() && !self.failed) {
 			Node d = self.parseTopLevelItem();
 			if (!self.failed) {
+				if (d.kind == NK_CLASS_DECL || d.kind == NK_INTERFACE_DECL || d.kind == NK_STRUCT_DECL || d.kind == NK_ENUM_DECL || d.kind == NK_RICH_ENUM_DECL) {
+					self.fileTypeNames.push(d.name);
+				} else if (d.kind == NK_TYPEDEF_DECL) {
+					self.fileTypeNames.push(d.alias);
+				}
 				prog.declarationsMut().push(d);
 			}
 		}
@@ -423,6 +433,9 @@ class Parser {
 
 		Node typeExpr = self.parseType();
 
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			return self.parseFunctionPointerField(access, typeExpr, tok, isRealtime);
+		}
 		// Constructor: next is '(' -> the "type" is the name.
 		if (self.check("LPAREN")) {
 			Node constructor = self.parseMethodRest(access, typeExpr, typeExpr.base, isGpu, isRealtime, tok.line, tok.col, typeExpr.line, typeExpr.col, isAbstractMethod, keepReturn);
@@ -459,6 +472,29 @@ class Parser {
 			self.expect("SEMICOLON");
 			return fd;
 		}
+	}
+
+	/* A class field spelled with a function-pointer declarator. */
+	public Node parseFunctionPointerField(string access, Node typeExpr, Token tok, bool isRealtime) {
+		if (isRealtime) {
+			self.failAt("@realtime cannot be applied to fields or properties", self.peek());
+		}
+		Node declarator = self.parseFunctionPointerDeclarator(typeExpr, 1);
+		Node fd = Node();
+		fd.kind = NK_FIELD_DECL;
+		fd.access = access;
+		fd.type = declarator.type;
+		fd.name = declarator.name;
+		fd.line = tok.line;
+		fd.col = tok.col;
+		fd.nameLine = declarator.nameLine;
+		fd.nameCol = declarator.nameCol;
+		if (self.matchTok("EQ")) {
+			Node init = self.parseExpression();
+			fd.initializer = init;
+		}
+		self.expect("SEMICOLON");
+		return fd;
 	}
 
 	public Node parseMethodRest(string access, Node returnType, string name, bool isGpu, bool isRealtime, int line, int col, int nameLine, int nameCol, bool isAbstract, bool keepReturn) {
@@ -587,14 +623,13 @@ class Parser {
 
 	public Node parseStructField() {
 		Node ftype = self.parseType();
-		Token fnameTok = self.expect("IDENT");
-		self.parseDeclaratorArraySuffix(ftype);
+		Node declarator = self.parseDeclaratorName(ftype);
 		Node fd = Node();
 		fd.kind = NK_FIELD_DEF;
-		fd.type = ftype;
-		fd.name = fnameTok.value;
-		fd.line = fnameTok.line;
-		fd.col = fnameTok.col;
+		fd.type = declarator.type;
+		fd.name = declarator.name;
+		fd.line = declarator.nameLine;
+		fd.col = declarator.nameCol;
 		self.expect("SEMICOLON");
 		return fd;
 	}
@@ -742,16 +777,27 @@ class Parser {
 	public Node parseTypedefDecl() {
 		Token tok = self.expect("TYPEDEF");
 		Node original = self.parseType();
-		Token aliasTok = self.expect("IDENT");
-		self.expect("SEMICOLON");
 		Node n = Node();
 		n.kind = NK_TYPEDEF_DECL;
-		n.original = original;
-		n.alias = aliasTok.value;
 		n.line = tok.line;
 		n.col = tok.col;
-		n.nameLine = aliasTok.line;
-		n.nameCol = aliasTok.col;
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			Node declarator = self.parseFunctionPointerDeclarator(original, 1);
+			n.original = declarator.type;
+			n.alias = declarator.name;
+			n.nameLine = declarator.nameLine;
+			n.nameCol = declarator.nameCol;
+		} else {
+			Token aliasTok = self.expect("IDENT");
+			if (self.check("LPAREN")) {
+				self.failAt("A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer", self.peek());
+			}
+			n.original = original;
+			n.alias = aliasTok.value;
+			n.nameLine = aliasTok.line;
+			n.nameCol = aliasTok.col;
+		}
+		self.expect("SEMICOLON");
 		return n;
 	}
 
@@ -789,12 +835,14 @@ class Parser {
 			return vd;
 		}
 
-		Node typeExpr = self.parseType();
-		Token nameTok = self.expect("IDENT");
-		string name = nameTok.value;
-		self.parseDeclaratorArraySuffix(typeExpr);
+		Node specifier = self.parseType();
+		bool functionPointer = self.isFunctionPointerDeclarator(self.pos);
+		Node declarator = self.parseDeclaratorName(specifier);
+		Node typeExpr = declarator.type;
+		string name = declarator.name;
+		Token nameTok = Token("IDENT", name, declarator.nameLine, declarator.nameCol);
 
-		if (self.check("LPAREN")) {
+		if (self.check("LPAREN") && !functionPointer) {
 			self.expect("LPAREN");
 			Vector<Node> params = self.parseParamList(true);
 			self.expect("RPAREN");
@@ -1126,6 +1174,240 @@ class Parser {
 		}
 	}
 
+	/* Parse a declarator after its specifier: a name with an optional array
+	 * suffix, or a named function-pointer declarator. The declarator returns
+	 * as a Param node holding its name, name position and type. */
+	public Node parseDeclaratorName(Node typeExpr) {
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			return self.parseFunctionPointerDeclarator(typeExpr, 1);
+		}
+		Token nameTok = self.expect("IDENT");
+		Node declarator = Node();
+		declarator.kind = NK_PARAM;
+		declarator.type = typeExpr;
+		declarator.name = nameTok.value;
+		declarator.line = typeExpr.line;
+		declarator.col = typeExpr.col;
+		declarator.nameLine = nameTok.line;
+		declarator.nameCol = nameTok.col;
+		self.parseDeclaratorArraySuffix(typeExpr);
+		return declarator;
+	}
+
+	/* ---- Function-pointer declarators (C row 7) ---- */
+
+	class string functionPointerReturnMessage() { return "A function returning a function pointer needs a typedef: write 'typedef R (*Name)(...);' and return 'Name'"; }
+
+	public bool isFunctionPointerDeclarator(int p) { return self.tokenTypeAt(p) == "LPAREN" && self.tokenTypeAt(p + 1) == "STAR"; }
+
+	/* Return the position after the balanced bracket group at p, or -1. */
+	public int scanGroup(int p) {
+		int depth = 0;
+		while (p < self.tokens.len) {
+			string tt = self.tokenTypeAt(p);
+			if (tt == "LPAREN" || tt == "LBRACKET" || tt == "LBRACE") {
+				depth = depth + 1;
+			} else if (tt == "RPAREN" || tt == "RBRACKET" || tt == "RBRACE") {
+				depth = depth - 1;
+				if (depth == 0) { return p + 1; }
+			} else if (tt == "EOF") {
+				return -1;
+			}
+			p = p + 1;
+		}
+		return -1;
+	}
+
+	/* Return the position after `(*name[n])(...)`, or -1. `named` says whether
+	 * the declarator names something or is abstract (`(*)(...)` in a cast or
+	 * sizeof). The shapes refused with a targeted diagnostic, a function
+	 * returning a function pointer (`(*get(void))(int)`), scan too, so the
+	 * parser reaches the refusal. */
+	public int scanFunctionPointerDeclarator(int p, bool named) {
+		if (!self.isFunctionPointerDeclarator(p)) { return -1; }
+		p = p + 1;
+		while (self.tokenTypeAt(p) == "STAR" || self.tokenTypeAt(p) == "CONST" || self.tokenTypeAt(p) == "VOLATILE") { p = p + 1; }
+		if ((self.tokenTypeAt(p) == "IDENT") != named) { return -1; }
+		if (named) { p = p + 1; }
+		while (self.tokenTypeAt(p) == "LBRACKET" || self.tokenTypeAt(p) == "LPAREN") {
+			p = self.scanGroup(p);
+			if (p < 0) { return -1; }
+		}
+		if (self.tokenTypeAt(p) != "RPAREN" || self.tokenTypeAt(p + 1) != "LPAREN") { return -1; }
+		return self.scanGroup(p + 1);
+	}
+
+	/* Scan a cast or sizeof type: a type expression, optionally followed by
+	 * an abstract function-pointer declarator. */
+	public int scanAbstractType(int p) {
+		int typeEnd = self.scanTypeEnd(p);
+		if (typeEnd >= 0 && self.isFunctionPointerDeclarator(typeEnd)) {
+			return self.scanFunctionPointerDeclarator(typeEnd, false);
+		}
+		return typeEnd;
+	}
+
+	public Node parseAbstractType() {
+		Node typeExpr = self.parseType();
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			Node declarator = self.parseFunctionPointerDeclarator(typeExpr, 0);
+			return declarator.type;
+		}
+		return typeExpr;
+	}
+
+	/* Parse `(*name[n])(params)` after its result type. It is C's spelling of
+	 * CFunction<result, params...>, so it builds that TypeExpr; the array
+	 * suffix applies to the pointer. The declarator returns as a Param node,
+	 * an abstract one named "" as an unnamed parameter is. nameMode is 1 where
+	 * a name is required, 0 for an abstract declarator and -1 for a
+	 * parameter, where either is allowed. Storage classes move from the
+	 * result to the declared pointer. A pointer to a function pointer and a
+	 * qualified function pointer are refused: a typedef spells both. */
+	public Node parseFunctionPointerDeclarator(Node result, int nameMode) {
+		Node declarator = Node();
+		declarator.kind = NK_PARAM;
+		declarator.name = "";
+		declarator.line = result.line;
+		declarator.col = result.col;
+		self.expect("LPAREN");
+		self.expect("STAR");
+		if (self.check("STAR")) {
+			self.failAt("A pointer to a function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'Name*'", self.peek());
+		}
+		if (self.check("CONST") || self.check("VOLATILE")) {
+			self.failAt("A qualified function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'const Name'", self.peek());
+		}
+		if (nameMode == 1 || (nameMode < 0 && self.check("IDENT"))) {
+			Token nameTok = self.expect("IDENT");
+			declarator.name = nameTok.value;
+			declarator.nameLine = nameTok.line;
+			declarator.nameCol = nameTok.col;
+		}
+		Node functionType = Node();
+		functionType.kind = NK_TYPE_EXPR;
+		functionType.base = "__fn_ptr";
+		functionType.line = result.line;
+		functionType.col = result.col;
+		functionType.isStatic = result.isStatic;
+		functionType.isExtern = result.isExtern;
+		result.isStatic = false;
+		result.isExtern = false;
+		functionType.genericArgsMut().push(result);
+		declarator.type = functionType;
+		if (self.check("LPAREN")) {
+			self.failAt(Parser.functionPointerReturnMessage(), self.peek());
+			return declarator;
+		}
+		if (declarator.name.isEmpty() && self.check("LBRACKET")) {
+			self.failAt("An array of function pointers needs a name: write 'typedef R (*Name)(...);' and use 'Name[n]'", self.peek());
+			return declarator;
+		}
+		self.parseDeclaratorArraySuffix(functionType);
+		self.expect("RPAREN");
+		self.parseFunctionPointerParams(functionType);
+		return declarator;
+	}
+
+	/* Parse a pointee's parameter-type list into the pointer type's generic
+	 * arguments; parameter names are documentation only. */
+	public void parseFunctionPointerParams(Node functionType) {
+		self.expect("LPAREN");
+		if (self.check("VOID") && self.peekAt(1).type == "RPAREN") { self.advance(); }
+		int count = 0;
+		while ((!self.check("RPAREN") || count > 0) && !self.failed) {
+			if (self.check("DOT")) {
+				self.failAt("A variadic function-pointer type is not supported until variadic definitions (C row 14)", self.peek());
+				return;
+			}
+			Token tok = self.peek();
+			Node param = self.parseType();
+			if (param.base == "void" && param.pointerDepth == 0 && param.genericArgs().len == 0) {
+				self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
+				return;
+			}
+			if (self.isFunctionPointerDeclarator(self.pos)) {
+				Node inner = self.parseFunctionPointerDeclarator(param, -1);
+				param = inner.type;
+			} else {
+				if (self.check("IDENT")) { self.expect("IDENT"); }
+				self.parseDeclaratorArraySuffix(param);
+				if (param.isArray) {
+					// C11 6.7.6.3p7: an array parameter is a pointer.
+					param.isArray = false;
+					param.arraySize = null;
+					param.pointerDepth = param.pointerDepth + 1;
+				}
+			}
+			functionType.genericArgsMut().push(param);
+			count = count + 1;
+			if (!self.matchTok("COMMA")) { break; }
+		}
+		self.expect("RPAREN");
+	}
+
+	/* Decide a statement `T (*name)(...)` per D20. It declares when T names
+	 * a type: a built-in or qualified type, a type this file declared
+	 * earlier, or a head followed by an initializer (a call result is never
+	 * assignable). A bare identifier head with `;` declares only when the
+	 * parenthesized list is unmistakably a parameter-type list; otherwise
+	 * the statement is an expression. */
+	public bool isFunctionPointerDeclaration(int declarator) {
+		int end = self.scanFunctionPointerDeclarator(declarator, true);
+		if (end < 0) { return false; }
+		if (self.tokenTypeAt(end) == "EQ") { return true; }
+		if (self.tokenTypeAt(end) != "SEMICOLON") { return false; }
+		if (!self.isBareTypeName(self.pos, declarator)) { return true; }
+		if (self.fileTypeNames.contains(self.tokens.get(self.pos).value)) { return true; }
+		return self.isParameterTypeList(self.scanGroup(declarator));
+	}
+
+	/* Whether start..end is an identifier with only `*`/`?` after it, a type
+	 * spelling that an expression could also have. */
+	public bool isBareTypeName(int start, int end) {
+		if (self.tokenTypeAt(start) != "IDENT") { return false; }
+		int p = start + 1;
+		while (p < end) {
+			string tt = self.tokenTypeAt(p);
+			if (tt != "STAR" && tt != "QUESTION") { return false; }
+			p = p + 1;
+		}
+		return true;
+	}
+
+	/* Whether the `(...)` at p can only be a parameter-type list: `(void)`,
+	 * or a list with an element an expression cannot spell (a built-in or
+	 * qualified type, generic arguments, or an identifier followed by a
+	 * name). */
+	public bool isParameterTypeList(int p) {
+		if (self.tokenTypeAt(p + 1) == "VOID" && self.tokenTypeAt(p + 2) == "RPAREN") { return true; }
+		p = p + 1;
+		while (self.tokenTypeAt(p) != "RPAREN" && self.tokenTypeAt(p) != "EOF") {
+			int typeEnd = self.scanTypeEnd(p);
+			if (typeEnd < 0) { return false; }
+			if (!self.isBareTypeName(p, typeEnd)) { return true; }
+			if (typeEnd == p + 1 && self.tokenTypeAt(typeEnd) == "IDENT") { return true; }
+			p = self.scanListElementEnd(typeEnd);
+			if (self.tokenTypeAt(p) == "COMMA") { p = p + 1; }
+		}
+		return false;
+	}
+
+	/* Return the position of the `,` or `)` that ends a list element. */
+	public int scanListElementEnd(int p) {
+		while (self.tokenTypeAt(p) != "COMMA" && self.tokenTypeAt(p) != "RPAREN" && self.tokenTypeAt(p) != "EOF") {
+			string tt = self.tokenTypeAt(p);
+			if (tt == "LPAREN" || tt == "LBRACKET" || tt == "LBRACE") {
+				int groupEnd = self.scanGroup(p);
+				if (groupEnd < 0) { return self.tokens.len; }
+				p = groupEnd;
+			} else {
+				p = p + 1;
+			}
+		}
+		return p;
+	}
+
 	/* ---- Parameters ---- */
 
 	/* `(void)` is C's spelling of an empty list. Only a body-less function
@@ -1164,7 +1446,21 @@ class Parser {
 			self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
 			return p;
 		}
-		if (self.check("COMMA") || self.check("RPAREN") || self.check("LBRACKET") || self.check("EQ")) {
+		bool functionPointer = self.isFunctionPointerDeclarator(self.pos);
+		p.name = "";
+		if (functionPointer) {
+			Node declarator = self.parseFunctionPointerDeclarator(typeExpr, -1);
+			p.type = declarator.type;
+			p.name = declarator.name;
+			p.nameLine = declarator.nameLine;
+			p.nameCol = declarator.nameCol;
+		} else if (!(self.check("COMMA") || self.check("RPAREN") || self.check("LBRACKET") || self.check("EQ"))) {
+			Token nameTok = self.expect("IDENT");
+			p.name = nameTok.value;
+			p.nameLine = nameTok.line;
+			p.nameCol = nameTok.col;
+		}
+		if (p.name.isEmpty()) {
 			if (!allowUnnamed) {
 				self.failAt(Parser.unnamedParameterMessage(), tok);
 				return p;
@@ -1173,17 +1469,12 @@ class Parser {
 				self.failAt("A 'keep' parameter requires a name", tok);
 				return p;
 			}
-			p.name = "";
-			self.parseDeclaratorArraySuffix(typeExpr);
+			if (!functionPointer) { self.parseDeclaratorArraySuffix(typeExpr); }
 			if (self.check("EQ")) { self.failAt("An unnamed parameter cannot have a default value", self.peek()); }
 			return p;
 		}
-		Token nameTok = self.expect("IDENT");
-		p.name = nameTok.value;
 		p.keep_ = hasKeep;
-		p.nameLine = nameTok.line;
-		p.nameCol = nameTok.col;
-		self.parseDeclaratorArraySuffix(typeExpr);
+		if (!functionPointer) { self.parseDeclaratorArraySuffix(typeExpr); }
 		if (self.matchTok("EQ")) {
 			Node def = self.parseExpression();
 			p.default_ = def;
@@ -1366,6 +1657,9 @@ class Parser {
 		if (typeEnd < 0 || typeEnd >= self.tokens.len) {
 			return false;
 		}
+		if (self.isFunctionPointerDeclarator(typeEnd)) {
+			return self.isFunctionPointerDeclaration(typeEnd);
+		}
 		if (self.tokenTypeAt(typeEnd) != "IDENT") {
 			// `int string = 0;` is a declaration the name check refuses;
 			// `int function(...)` stays a verbose lambda.
@@ -1400,17 +1694,16 @@ class Parser {
 			return vd;
 		}
 
-		Node typeExpr = self.parseType();
-		Token nameTok = self.expect("IDENT");
+		Node specifier = self.parseType();
+		Node declarator = self.parseDeclaratorName(specifier);
 		Node vd = Node();
 		vd.kind = NK_VAR_DECL_STMT;
-		vd.type = typeExpr;
-		vd.name = nameTok.value;
+		vd.type = declarator.type;
+		vd.name = declarator.name;
 		vd.line = tok.line;
 		vd.col = tok.col;
-		vd.nameLine = nameTok.line;
-		vd.nameCol = nameTok.col;
-		self.parseDeclaratorArraySuffix(typeExpr);
+		vd.nameLine = declarator.nameLine;
+		vd.nameCol = declarator.nameCol;
 		if (self.matchTok("EQ")) {
 			Node init = self.parseExpression();
 			vd.initializer = init;
@@ -1551,16 +1844,16 @@ class Parser {
 					iv.declarationsMut().push(vd);
 					n.init = iv;
 				} else {
-					Node typeExpr = self.parseType();
-					Token nameTok = self.expect("IDENT");
+					Node specifier = self.parseType();
+					Node declarator = self.parseDeclaratorName(specifier);
 					Node vd = Node();
 					vd.kind = NK_VAR_DECL_STMT;
-					vd.type = typeExpr;
-					vd.name = nameTok.value;
+					vd.type = declarator.type;
+					vd.name = declarator.name;
 					vd.line = start.line;
 					vd.col = start.col;
-					vd.nameLine = nameTok.line;
-					vd.nameCol = nameTok.col;
+					vd.nameLine = declarator.nameLine;
+					vd.nameCol = declarator.nameCol;
 					if (self.matchTok("EQ")) {
 						Node iv2 = self.parseExpression();
 						vd.initializer = iv2;
@@ -1895,7 +2188,7 @@ class Parser {
 
 	public bool isCast() {
 		int typeStart = self.pos + 1;
-		int typeEnd = self.scanTypeEnd(typeStart);
+		int typeEnd = self.scanAbstractType(typeStart);
 		if (typeEnd < 0 || self.tokenTypeAt(typeEnd) != "RPAREN") {
 			return false;
 		}
@@ -1907,7 +2200,7 @@ class Parser {
 
 	public Node parseCast() {
 		Token tok = self.expect("LPAREN");
-		Node targetType = self.parseType();
+		Node targetType = self.parseAbstractType();
 		self.expect("RPAREN");
 		Node expr = self.parseUnary();
 		Node n = Node();
@@ -1920,7 +2213,7 @@ class Parser {
 	}
 
 	public bool isSizeofType() {
-		int typeEnd = self.scanTypeEnd(self.pos);
+		int typeEnd = self.scanAbstractType(self.pos);
 		return typeEnd >= 0 && self.tokenTypeAt(typeEnd) == "RPAREN";
 	}
 
@@ -1943,7 +2236,7 @@ class Parser {
 	}
 
 	public Node makeSizeofType() {
-		Node ty = self.parseType();
+		Node ty = self.parseAbstractType();
 		Node st = Node();
 		st.kind = NK_SIZEOF_TYPE;
 		st.type = ty;

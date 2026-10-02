@@ -50,8 +50,9 @@ Further rules fixed now so no construct needs a second schema commit:
   variable); generic arguments are part of the specifier and are copied.
 - **Function-pointer declarators (r07).** `T (*name)(...)` is a declaration
   when `T` is a built-in type keyword or a type declared earlier in the same
-  file, or when the parenthesized list that follows is a parameter-type list;
-  otherwise it is an expression. Per-file parse results are cached under a
+  file, when an initializer follows, or when the parenthesized list that
+  follows is a parameter-type list; otherwise it is an expression (the exact
+  rule is in "Stage 16 r07" below). Per-file parse results are cached under a
   context-free digest, so the parser cannot consult imported type names; the
   analyzer refuses a parsed declaration whose head does not resolve to a type.
   A function-pointer type is the existing `CFunction<...>` type, never a
@@ -126,6 +127,80 @@ or adjacent string.
   `int f(int); int f(int a); int f(int b) {}` conflicts at the definition in
   both compilers. A `(` list not followed by `;` or `{` is the ordinary
   `Expected LBRACE` error, not an unnamed-parameter refusal.
+
+## Stage 16 r07: function-pointer declarators
+
+- **One type.** `R (*name)(params)` is C's spelling of
+  `CFunction<R, params...>`: both parsers build the same `__fn_ptr`
+  `TypeExpr` (result first, then the parameter types), so the analyzer's
+  `CFunction` contracts (`docs/language/callbacks.md`) and the existing
+  `IRFunctionPointerTypedef` lowering apply unchanged, and a declarator
+  program lowers to the same raw IR and C as its `CFunction` twin
+  (`src/tests/btrc/test_c_compatibility_function_pointers.py`). The
+  `TypeExpr` is positioned at the result type's first token, as a
+  `CFunction` type is at `CFunction`; the declaration keeps its name position.
+- **Where.** One declarator owner per parser (`_parse_declarator_name` /
+  `parseDeclaratorName`, with `_parse_function_pointer_declarator` /
+  `parseFunctionPointerDeclarator`) serves local and global variables, the
+  C-`for` initializer, struct fields (`FieldDef`) and class fields
+  (`FieldDecl`). Parameters take a named or, in a prototype, an abstract
+  declarator (`int (*)(int)`, under r01's unnamed-parameter rules); typedefs
+  take a named one; casts and `sizeof` take an abstract one. The array
+  suffix sits inside the parentheses and applies to the pointer:
+  `int (*ops[4])(int)` is `CFunction<int, int>[4]`. A storage class written
+  before the result (`static int (*hook)(void)`) moves to the declared
+  pointer. In the pointee's list, `()` and `(void)` are empty, names are
+  documentation only, an array parameter is a pointer (C11 6.7.6.3p7), and a
+  parameter may itself be a function pointer.
+- **D20 disambiguation, identical in both parsers.** A statement
+  `T (*name[n])(...)` followed by `=` or `;` is a declaration when the head
+  `T` is not a bare identifier (a keyword, qualifier, `struct`/`enum`/`union`
+  or generic arguments), or an `=` follows (a call result is never
+  assignable), or this file declared `T` earlier (a class, interface,
+  struct, enum or typedef parsed before the statement's top-level item), or
+  the pointee list is `(void)` or has an element an expression cannot spell
+  (a non-bare type, or an identifier followed by a name). Anything else is an
+  expression, such as the call `pick (*pointer)(4);`. File scope, fields,
+  parameters and typedefs have no expression reading. Per-file parse caching
+  hides imported names, so `size_t (*f)(size_t);` with no initializer stays
+  an expression; the analyzer refuses a declaration whose head names no type
+  with its ordinary unknown-type diagnostic.
+- **Refused, with one diagnostic in both compilers**
+  (`test_c_compatibility_refusals.py`): a function returning a function
+  pointer (`int (*pick(int))(int)`) and a pointer to (`(**p)`), qualified
+  (`(* const p)`) or unnamed array of (`sizeof(int (*[3])(int))`) function
+  pointers each point at a typedef; a function type typedef
+  (`typedef int F(int);`) points at the pointer typedef; a variadic pointee
+  (`(const char*, ...)`) waits for row 14.
+- **Header mining.** A read-only scan of the 443 C headers and sources the
+  build reaches (`cc -M` closures under the nix dev shell: every tracked
+  `.h`, the runtime and native fixtures, glibc 2.42, ALSA 1.2.15, SDL3 3.4,
+  FreeType 2.14, libpng 1.6, libjpeg-turbo 3.1, dbus 1.16, fontconfig 2.17,
+  wgpu-native 27) counted the declarator forms:
+
+  | Form | repo | glibc | ALSA | SDL3 | FreeType | jpeg | dbus | fontconfig | wgpu | Total |
+  |------|-----:|------:|-----:|-----:|---------:|-----:|-----:|-----------:|-----:|------:|
+  | `typedef R (*T)(...)` | 18 | 4 | 13 | 40 | 18 | 1 | 30 | 2 | 202 | 328 |
+  | struct field `R (*f)(...)` | 3 | 22 | 7 | 25 | 0 | 26 | 8 | 0 | 0 | 91 |
+  | named parameter | 16 | 32 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 50 |
+  | abstract parameter `R (*)(...)` | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+  | `typedef R T(...)` (function type) | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 4 |
+  | local (inside a glibc macro) | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+  | variadic pointee | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+  | pointer return, `void *(*f)(...)` | 7 | 9 | 0 | 6 | 2 | 2 | 3 | 0 | 2 | 31 |
+
+  libpng's 14 declarators hide behind `PNG_CALLBACK`/`PNG_FUNCTION`, SDL3
+  writes `(SDLCALL *name)` 62 times, and wgpu appends
+  `WGPU_FUNCTION_ATTRIBUTE` 201 times; those reach btrc macro-expanded
+  through the native-header reader or not at all, so r07 accepts only the
+  expanded shape. Arrays of function pointers, globals, casts, `sizeof`,
+  `(**p)`, `* const` and functions returning function pointers occur zero
+  times. The corpus (`c_compat/FunctionPointer*.btrc`) follows the table:
+  a typedef in the runtime's `__btrc_destroy_fn` shape, a jpeglib-style
+  ops struct, a qsort comparator and a pthread-shaped entry parameter, plus
+  the local, global, array, cast and `sizeof` forms r07 also owns.
+- **Formatter.** btrc-format is token-based and already spaces the
+  declarators as C does; no change.
 
 ## Stage 16 integration notes (`ccompat-c1-integrate`)
 

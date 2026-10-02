@@ -340,87 +340,66 @@ id = "r07-function-pointer-local"
 row = "7"
 construct = "int (*op)(int, int) = add;"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 4:2" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 4:2" }
-source = '''
-#include <assert.h>
-int add(int a, int b) { return a + b; }
-int main() {
-	int (*operation)(int, int) = add;
-	assert(operation(2, 3) == 5);
-	print("PASS: function pointer local");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: function pointer locals and globals\n" }
+btrcc = { exit = 0, stdout = "PASS: function pointer locals and globals\n" }
+corpus = "c_compat/FunctionPointerLocal.btrc"
 
 [[probe]]
 id = "r07-function-pointer-typedef"
 row = "7"
 construct = "typedef int (*BinaryOp)(int, int);"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected typedef alias, got LPAREN '(' at 2:13" }
-btrcc = { diagnostic = "Expected IDENT, got LPAREN '(' at 2:13" }
-source = '''
-#include <assert.h>
-typedef int (*BinaryOp)(int, int);
-int multiply(int a, int b) { return a * b; }
-int main() {
-	BinaryOp operation = multiply;
-	assert(operation(6, 7) == 42);
-	print("PASS: function pointer typedef");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: function pointer typedefs\n" }
+btrcc = { exit = 0, stdout = "PASS: function pointer typedefs\n" }
+corpus = "c_compat/FunctionPointerTypedef.btrc"
 
 [[probe]]
 id = "r07-function-pointer-parameter"
 row = "7"
 construct = "int apply(int (*op)(int, int), ...)"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected parameter name, got LPAREN '(' at 3:15" }
-btrcc = { diagnostic = "Expected IDENT, got LPAREN '(' at 3:15" }
-source = '''
-#include <assert.h>
-int subtract(int a, int b) { return a - b; }
-int apply(int (*operation)(int, int), int a, int b) { return operation(a, b); }
-int main() {
-	assert(apply(subtract, 9, 4) == 5);
-	print("PASS: function pointer parameter");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: function pointer parameters\n" }
+btrcc = { exit = 0, stdout = "PASS: function pointer parameters\n" }
+corpus = "c_compat/FunctionPointerParameter.btrc"
 
 [[probe]]
 id = "r07-function-pointer-array"
 row = "7"
 construct = "int (*ops[2])(int, int)"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 5:2" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 5:2" }
-source = '''
-#include <assert.h>
-int add(int a, int b) { return a + b; }
-int subtract(int a, int b) { return a - b; }
-int main() {
-	int (*operations[2])(int, int) = {add, subtract};
-	assert(operations[0](4, 2) == 6);
-	assert(operations[1](4, 2) == 2);
-	print("PASS: function pointer array");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: function pointer arrays\n" }
+btrcc = { exit = 0, stdout = "PASS: function pointer arrays\n" }
+corpus = "c_compat/FunctionPointerArray.btrc"
+
+[[probe]]
+id = "r07-function-pointer-field"
+row = "7"
+construct = "struct S { int (*encode)(const char*, int); };"
+intent = "positive"
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: function pointer fields\n" }
+btrcc = { exit = 0, stdout = "PASS: function pointer fields\n" }
+corpus = "c_compat/FunctionPointerField.btrc"
+
+[[probe]]
+id = "r07-function-pointer-cast"
+row = "7"
+construct = "(int (*)(const void*, const void*))f and sizeof(int (*)(int))"
+intent = "positive"
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: function pointer casts and sizeof\n" }
+btrcc = { exit = 0, stdout = "PASS: function pointer casts and sizeof\n" }
+corpus = "c_compat/FunctionPointerCast.btrc"
 
 [[probe]]
 id = "r07-function-pointer-mismatch"
@@ -428,10 +407,9 @@ row = "7"
 construct = "a function pointer of the wrong signature"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 3:2" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 3:2" }
+revision = "35e6b91"
+python = { diagnostic = "Cannot assign 'CFunction<int, int, int>' to variable 'unary' of type 'CFunction<int, int>' at 3:2" }
+btrcc = { diagnostic = "Cannot assign 'CFunction<int, int, int>' to variable 'unary' of type 'CFunction<int, int>' at 3:2" }
 source = '''
 int add(int a, int b) { return a + b; }
 int main() {

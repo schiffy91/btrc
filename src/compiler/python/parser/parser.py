@@ -96,6 +96,21 @@ VOID_PARAMETER_LIST = "A 'void' parameter must be the only one, unnamed and unqu
 UNNAMED_PARAMETER = "Parameter name required: only a function prototype without a body may omit it"
 UNNAMED_KEEP_PARAMETER = "A 'keep' parameter requires a name"
 UNNAMED_DEFAULT_PARAMETER = "An unnamed parameter cannot have a default value"
+# C function-pointer declarator refusals (C row 7, docs/design/c-compatibility.md).
+FUNCTION_POINTER_RETURN = (
+    "A function returning a function pointer needs a typedef: write 'typedef R (*Name)(...);' and return 'Name'"
+)
+VARIADIC_FUNCTION_POINTER = "A variadic function-pointer type is not supported until variadic definitions (C row 14)"
+FUNCTION_POINTER_POINTER = (
+    "A pointer to a function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'Name*'"
+)
+QUALIFIED_FUNCTION_POINTER = (
+    "A qualified function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'const Name'"
+)
+ABSTRACT_FUNCTION_POINTER_ARRAY = (
+    "An array of function pointers needs a name: write 'typedef R (*Name)(...);' and use 'Name[n]'"
+)
+FUNCTION_TYPE_TYPEDEF = "A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer"
 
 
 class ParseError(Exception):
@@ -111,11 +126,20 @@ class Parser:
     def __init__(self, tokens: list[Token]):
         self.tokens = tokens
         self.pos = 0
+        # Type names this file declared so far: a statement `T (*name)(...);`
+        # whose head is one of them is a declaration (D20). Imported names
+        # stay invisible, because a file's parse is cached context-free.
+        self._file_type_names: set[str] = set()
 
     def parse(self):
         decls = []
         while not self._at_end():
-            decls.append(self._parse_top_level_item())
+            decl = self._parse_top_level_item()
+            if isinstance(decl, (ClassDecl, InterfaceDecl, StructDecl, EnumDecl, RichEnumDecl)):
+                self._file_type_names.add(decl.name)
+            elif isinstance(decl, TypedefDecl):
+                self._file_type_names.add(decl.alias)
+            decls.append(decl)
         return Program(declarations=decls)
 
     # ---- Token helpers ----
@@ -572,6 +596,219 @@ class Parser:
         if self._check(TokenKind.LBRACKET):
             raise self._error("Multi-dimensional arrays require an AST/IR representation for every dimension")
 
+    def _parse_declarator_name(self, type_expr: TypeExpr, what: str) -> tuple[Token, TypeExpr]:
+        """Parse a declarator after its specifier: a name with an optional
+        array suffix, or a named function-pointer declarator."""
+        if self._is_function_pointer_declarator(self.pos):
+            name_tok, type_expr = self._parse_function_pointer_declarator(type_expr, name=True)
+            assert name_tok is not None
+            return name_tok, type_expr
+        name_tok = self._expect(TokenKind.IDENT, what)
+        self._parse_declarator_array_suffix(type_expr)
+        return name_tok, type_expr
+
+    # ---- Function-pointer declarators (C row 7) ----
+
+    def _is_function_pointer_declarator(self, position: int) -> bool:
+        return self._token_kind_at(position) == TokenKind.LPAREN and self._token_kind_at(position + 1) == TokenKind.STAR
+
+    def _scan_group(self, position: int) -> int | None:
+        """Return the position after the balanced bracket group at ``position``."""
+        depth = 0
+        while position < len(self.tokens):
+            token_kind = self._token_kind_at(position)
+            if token_kind in (TokenKind.LPAREN, TokenKind.LBRACKET, TokenKind.LBRACE):
+                depth += 1
+            elif token_kind in (TokenKind.RPAREN, TokenKind.RBRACKET, TokenKind.RBRACE):
+                depth -= 1
+                if depth == 0:
+                    return position + 1
+            elif token_kind == TokenKind.EOF:
+                return None
+            position += 1
+        return None
+
+    def _scan_function_pointer_declarator(self, position: int, *, name: bool) -> int | None:
+        """Return the token after ``(*name[n])(...)``, or ``None``.
+
+        ``name`` says whether the declarator names something or is abstract
+        (``(*)(...)`` in a cast or ``sizeof``). The shapes refused with a
+        targeted diagnostic, a function returning a function pointer
+        (``(*get(void))(int)``), scan too, so the parser reaches the refusal.
+        """
+        if not self._is_function_pointer_declarator(position):
+            return None
+        position += 1
+        while self._token_kind_at(position) in (TokenKind.STAR, TokenKind.CONST, TokenKind.VOLATILE):
+            position += 1
+        if (self._token_kind_at(position) == TokenKind.IDENT) != name:
+            return None
+        if name:
+            position += 1
+        while self._token_kind_at(position) in (TokenKind.LBRACKET, TokenKind.LPAREN):
+            position = self._scan_group(position)
+            if position is None:
+                return None
+        if self._token_kind_at(position) != TokenKind.RPAREN or self._token_kind_at(position + 1) != TokenKind.LPAREN:
+            return None
+        return self._scan_group(position + 1)
+
+    def _scan_abstract_type(self, position: int) -> int | None:
+        """Scan a cast or ``sizeof`` type: a type expression, optionally
+        followed by an abstract function-pointer declarator."""
+        type_end = self._scan_type_expr(position)
+        if type_end is not None and self._is_function_pointer_declarator(type_end):
+            return self._scan_function_pointer_declarator(type_end, name=False)
+        return type_end
+
+    def _parse_abstract_type(self) -> TypeExpr:
+        type_expr = self._parse_type_expr()
+        if self._is_function_pointer_declarator(self.pos):
+            _, type_expr = self._parse_function_pointer_declarator(type_expr, name=False)
+        return type_expr
+
+    def _parse_function_pointer_declarator(
+        self, result: TypeExpr, *, name: bool | None
+    ) -> tuple[Token | None, TypeExpr]:
+        """Parse ``(*name[n])(params)`` after its result type.
+
+        It is C's spelling of ``CFunction<result, params...>``, so it builds
+        that ``TypeExpr``; the array suffix applies to the pointer. ``name`` is
+        ``True`` where a name is required, ``False`` for an abstract
+        declarator, ``None`` for a parameter, where either is allowed. Storage
+        classes move from the result to the declared pointer. A pointer to a
+        function pointer and a qualified function pointer are refused: a
+        typedef spells both.
+        """
+        self._expect(TokenKind.LPAREN)
+        self._expect(TokenKind.STAR)
+        if self._check(TokenKind.STAR):
+            raise self._error(FUNCTION_POINTER_POINTER)
+        if self._check(TokenKind.CONST, TokenKind.VOLATILE):
+            raise self._error(QUALIFIED_FUNCTION_POINTER)
+        name_tok = None
+        if name is True or (name is None and self._check(TokenKind.IDENT)):
+            name_tok = self._expect(TokenKind.IDENT, "function pointer name")
+        function_type = TypeExpr(
+            base="__fn_ptr",
+            generic_args=[result],
+            is_static=result.is_static,
+            is_extern=result.is_extern,
+            line=result.line,
+            col=result.col,
+        )
+        result.is_static = False
+        result.is_extern = False
+        if self._check(TokenKind.LPAREN):
+            raise self._error(FUNCTION_POINTER_RETURN)
+        if name_tok is None and self._check(TokenKind.LBRACKET):
+            raise self._error(ABSTRACT_FUNCTION_POINTER_ARRAY)
+        self._parse_declarator_array_suffix(function_type)
+        self._expect(TokenKind.RPAREN)
+        function_type.generic_args.extend(self._parse_function_pointer_params())
+        return name_tok, function_type
+
+    def _parse_function_pointer_params(self) -> list[TypeExpr]:
+        """Parse a pointee's parameter-type list; names are documentation only."""
+        self._expect(TokenKind.LPAREN)
+        params: list[TypeExpr] = []
+        if self._check(TokenKind.VOID) and self._peek(1).type == TokenKind.RPAREN:
+            self._advance()
+        while not self._check(TokenKind.RPAREN) or params:
+            if self._check(TokenKind.DOT):
+                raise self._error(VARIADIC_FUNCTION_POINTER)
+            tok = self._peek()
+            param = self._parse_type_expr()
+            if param.base == "void" and param.pointer_depth == 0 and not param.generic_args:
+                raise ParseError(VOID_PARAMETER_LIST, tok.line, tok.col)
+            if self._is_function_pointer_declarator(self.pos):
+                _, param = self._parse_function_pointer_declarator(param, name=None)
+            else:
+                if self._check(TokenKind.IDENT):
+                    self._expect(TokenKind.IDENT)
+                self._parse_declarator_array_suffix(param)
+                if param.is_array:
+                    # C11 6.7.6.3p7: an array parameter is a pointer.
+                    param.is_array = False
+                    param.array_size = None
+                    param.pointer_depth += 1
+            params.append(param)
+            if not self._match(TokenKind.COMMA):
+                break
+        self._expect(TokenKind.RPAREN)
+        return params
+
+    def _is_function_pointer_declaration(self, declarator: int) -> bool:
+        """Decide a statement ``T (*name)(...)`` per D20.
+
+        It declares when ``T`` names a type: a built-in or qualified type, a
+        type this file declared earlier, or a head followed by an initializer
+        (a call result is never assignable). A bare identifier head with
+        ``;`` declares only when the parenthesized list is unmistakably a
+        parameter-type list; otherwise the statement is an expression.
+        """
+        end = self._scan_function_pointer_declarator(declarator, name=True)
+        if end is None:
+            return False
+        if self._token_kind_at(end) == TokenKind.EQ:
+            return True
+        if self._token_kind_at(end) != TokenKind.SEMICOLON:
+            return False
+        if not self._is_bare_type_name(self.pos, declarator):
+            return True
+        if self.tokens[self.pos].value in self._file_type_names:
+            return True
+        params = self._scan_group(declarator)
+        assert params is not None
+        return self._is_parameter_type_list(params)
+
+    def _is_bare_type_name(self, start: int, end: int) -> bool:
+        """Whether ``start:end`` is an identifier with only ``*``/``?`` after it,
+        a type spelling that an expression could also have."""
+        if self._token_kind_at(start) != TokenKind.IDENT:
+            return False
+        return all(
+            self._token_kind_at(position) in (TokenKind.STAR, TokenKind.QUESTION) for position in range(start + 1, end)
+        )
+
+    def _is_parameter_type_list(self, position: int) -> bool:
+        """Whether the ``(...)`` at ``position`` can only be a parameter-type list.
+
+        ``(void)`` qualifies, as does a list with an element an expression
+        cannot spell: a built-in or qualified type, generic arguments, or an
+        identifier followed by a name.
+        """
+        if (
+            self._token_kind_at(position + 1) == TokenKind.VOID
+            and self._token_kind_at(position + 2) == TokenKind.RPAREN
+        ):
+            return True
+        position += 1
+        while self._token_kind_at(position) not in (TokenKind.RPAREN, TokenKind.EOF):
+            type_end = self._scan_type_expr(position)
+            if type_end is None:
+                return False
+            if not self._is_bare_type_name(position, type_end):
+                return True
+            if type_end == position + 1 and self._token_kind_at(type_end) == TokenKind.IDENT:
+                return True
+            position = self._scan_list_element_end(type_end)
+            if self._token_kind_at(position) == TokenKind.COMMA:
+                position += 1
+        return False
+
+    def _scan_list_element_end(self, position: int) -> int:
+        """Return the position of the ``,`` or ``)`` that ends a list element."""
+        while self._token_kind_at(position) not in (TokenKind.COMMA, TokenKind.RPAREN, TokenKind.EOF):
+            if self._token_kind_at(position) in (TokenKind.LPAREN, TokenKind.LBRACKET, TokenKind.LBRACE):
+                group_end = self._scan_group(position)
+                if group_end is None:
+                    return len(self.tokens)
+                position = group_end
+            else:
+                position += 1
+        return position
+
     # ---- Parameters ----
 
     def _parse_param_list(self, *, allow_unnamed: bool = False) -> list[Param]:
@@ -601,18 +838,25 @@ class Parser:
         type_expr = self._parse_type_expr()
         if type_expr.base == "void" and type_expr.pointer_depth == 0 and not type_expr.generic_args:
             raise ParseError(VOID_PARAMETER_LIST, tok.line, tok.col)
-        if self._check(TokenKind.COMMA, TokenKind.RPAREN, TokenKind.LBRACKET, TokenKind.EQ):
+        name_tok = None
+        function_pointer = self._is_function_pointer_declarator(self.pos)
+        if function_pointer:
+            name_tok, type_expr = self._parse_function_pointer_declarator(type_expr, name=None)
+        elif not self._check(TokenKind.COMMA, TokenKind.RPAREN, TokenKind.LBRACKET, TokenKind.EQ):
+            name_tok = self._expect(TokenKind.IDENT, "parameter name")
+        if name_tok is None:
             if not allow_unnamed:
                 raise ParseError(UNNAMED_PARAMETER, tok.line, tok.col)
             if has_keep:
                 raise ParseError(UNNAMED_KEEP_PARAMETER, tok.line, tok.col)
-            self._parse_declarator_array_suffix(type_expr)
+            if not function_pointer:
+                self._parse_declarator_array_suffix(type_expr)
             if self._check(TokenKind.EQ):
                 raise self._error(UNNAMED_DEFAULT_PARAMETER)
             return Param(type=type_expr, name="", default=None, keep=False, line=tok.line, col=tok.col)
-        name_tok = self._expect(TokenKind.IDENT, "parameter name")
         name = name_tok.value
-        self._parse_declarator_array_suffix(type_expr)
+        if not function_pointer:
+            self._parse_declarator_array_suffix(type_expr)
         default = None
         if self._match(TokenKind.EQ):
             default = self._parse_expr()
@@ -777,8 +1021,7 @@ class Parser:
         fields = []
         while not self._check(TokenKind.RBRACE) and not self._at_end():
             field_type = self._parse_type_expr()
-            name_tok = self._expect(TokenKind.IDENT, "field name")
-            self._parse_declarator_array_suffix(field_type)
+            name_tok, field_type = self._parse_declarator_name(field_type, "field name")
             fields.append(
                 FieldDef(
                     type=field_type,
@@ -917,6 +1160,8 @@ class Parser:
         keep_return = bool(self._match(TokenKind.KEEP))
         type_expr = self._parse_type_expr()
 
+        if self._is_function_pointer_declarator(self.pos):
+            return self._parse_function_pointer_field(access, type_expr, tok, is_realtime)
         if self._check(TokenKind.LPAREN):
             return self._parse_method_rest(
                 access,
@@ -969,6 +1214,25 @@ class Parser:
             access=access,
             type=type_expr,
             name=name,
+            initializer=init,
+            line=tok.line,
+            col=tok.col,
+            name_line=name_tok.line,
+            name_col=name_tok.col,
+        )
+
+    def _parse_function_pointer_field(self, access, type_expr, tok, is_realtime) -> FieldDecl:
+        """Parse a class field spelled with a function-pointer declarator."""
+        if is_realtime:
+            raise self._error("@realtime cannot be applied to fields or properties")
+        name_tok, type_expr = self._parse_function_pointer_declarator(type_expr, name=True)
+        assert name_tok is not None
+        init = self._parse_expr() if self._match(TokenKind.EQ) else None
+        self._expect(TokenKind.SEMICOLON)
+        return FieldDecl(
+            access=access,
+            type=type_expr,
+            name=name_tok.value,
             initializer=init,
             line=tok.line,
             col=tok.col,
@@ -1138,7 +1402,13 @@ class Parser:
     def _parse_typedef_decl(self) -> TypedefDecl:
         tok = self._expect(TokenKind.TYPEDEF)
         original = self._parse_type_expr()
-        alias_tok = self._expect(TokenKind.IDENT, "typedef alias")
+        if self._is_function_pointer_declarator(self.pos):
+            alias_tok, original = self._parse_function_pointer_declarator(original, name=True)
+            assert alias_tok is not None
+        else:
+            alias_tok = self._expect(TokenKind.IDENT, "typedef alias")
+            if self._check(TokenKind.LPAREN):
+                raise self._error(FUNCTION_TYPE_TYPEDEF)
         alias = alias_tok.value
         self._expect(TokenKind.SEMICOLON)
         return TypedefDecl(
@@ -1174,11 +1444,11 @@ class Parser:
             )
 
         type_expr = self._parse_type_expr()
-        name_tok = self._expect(TokenKind.IDENT, "name")
+        function_pointer = self._is_function_pointer_declarator(self.pos)
+        name_tok, type_expr = self._parse_declarator_name(type_expr, "name")
         name = name_tok.value
-        self._parse_declarator_array_suffix(type_expr)
 
-        if self._check(TokenKind.LPAREN):
+        if self._check(TokenKind.LPAREN) and not function_pointer:
             self._expect(TokenKind.LPAREN)
             params = self._parse_param_list(allow_unnamed=True)
             self._expect(TokenKind.RPAREN)
@@ -1328,6 +1598,8 @@ class Parser:
         type_end = self._scan_type_expr(self.pos)
         if type_end is None or type_end >= len(self.tokens):
             return False
+        if self._is_function_pointer_declarator(type_end):
+            return self._is_function_pointer_declaration(type_end)
         if self.tokens[type_end].type != TokenKind.IDENT:
             # `int string = 0;` is a declaration the name check refuses;
             # `int function(...)` stays a verbose lambda.
@@ -1370,9 +1642,8 @@ class Parser:
             )
 
         type_expr = self._parse_type_expr()
-        name_tok = self._expect(TokenKind.IDENT, "variable name")
+        name_tok, type_expr = self._parse_declarator_name(type_expr, "variable name")
         name = name_tok.value
-        self._parse_declarator_array_suffix(type_expr)
         init = None
         if self._match(TokenKind.EQ):
             init = self._parse_expr()
@@ -1484,7 +1755,7 @@ class Parser:
                     )
                 else:
                     type_expr = self._parse_type_expr()
-                    name_tok = self._expect(TokenKind.IDENT, "variable name")
+                    name_tok, type_expr = self._parse_declarator_name(type_expr, "variable name")
                     name = name_tok.value
                     init_val = None
                     if self._match(TokenKind.EQ):
@@ -1784,7 +2055,7 @@ class Parser:
     def _is_cast(self) -> bool:
         """Check if '(' starts a cast expression."""
         type_start = self.pos + 1
-        type_end = self._scan_type_expr(type_start)
+        type_end = self._scan_abstract_type(type_start)
         if type_end is None or type_end >= len(self.tokens) or self.tokens[type_end].type != TokenKind.RPAREN:
             return False
         follow_pos = type_end + 1
@@ -1796,7 +2067,7 @@ class Parser:
 
     def _parse_cast(self) -> CastExpr:
         tok = self._expect(TokenKind.LPAREN)
-        target_type = self._parse_type_expr()
+        target_type = self._parse_abstract_type()
         self._expect(TokenKind.RPAREN)
         expr = self._parse_unary()
         return CastExpr(target_type=target_type, expr=expr, line=tok.line, col=tok.col)
@@ -1805,7 +2076,7 @@ class Parser:
         tok = self._expect(TokenKind.SIZEOF)
         self._expect(TokenKind.LPAREN)
         if self._is_type_start(self._peek()) and self._is_sizeof_type():
-            operand = SizeofType(type=self._parse_type_expr())
+            operand = SizeofType(type=self._parse_abstract_type())
         else:
             operand = SizeofExprOp(expr=self._parse_expr())
         self._expect(TokenKind.RPAREN)
@@ -1813,7 +2084,7 @@ class Parser:
 
     def _is_sizeof_type(self) -> bool:
         """Lookahead to check if sizeof contains a type."""
-        type_end = self._scan_type_expr(self.pos)
+        type_end = self._scan_abstract_type(self.pos)
         return type_end is not None and type_end < len(self.tokens) and self.tokens[type_end].type == TokenKind.RPAREN
 
     def _parse_postfix(self):

@@ -82,11 +82,34 @@ with the same diagnostic in both compilers:
 | `int f(int = 3);` | `An unnamed parameter cannot have a default value` |
 | a prototype and definition whose arity, types or `keep` differ | `Conflicting declarations for function 'f'` |
 
-Still open: an abstract function-pointer parameter (`int (*)(int)`) waits for
-row 7; a prototype whose parameter names differ from its definition's
+Still open: a prototype whose parameter names differ from its definition's
 (`int f(int a);` then `int f(int b) {}`) is refused as conflicting, though C
 accepts it; `typedef void V; int f(V);` is refused although C reads it as
 `(void)`; and a diagnostic about an unnamed parameter names it `''`.
+
+## Function-pointer declarators (C row 7)
+
+`R (*name)(params)` is C's spelling of `CFunction<R, params...>` in local and
+global variables, the C-`for` initializer, struct and class fields,
+parameters (named, or abstract `R (*)(params)` in a prototype) and typedefs;
+`R (*name[n])(params)` is an array of them, and casts and `sizeof` take the
+abstract form (`c_compat/FunctionPointer*.btrc`). A statement whose head is
+not a type in scope stays an expression, as in C (PLAN.md D20). Refused, with
+the same diagnostic in both compilers:
+
+| C source | Diagnostic |
+|----------|------------|
+| `int (*pick(int))(int)` | `A function returning a function pointer needs a typedef: write 'typedef R (*Name)(...);' and return 'Name'` |
+| `int (**p)(int)` | `A pointer to a function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'Name*'` |
+| `int (* const p)(int)` | `A qualified function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'const Name'` |
+| `sizeof(int (*[3])(int))` | `An array of function pointers needs a name: write 'typedef R (*Name)(...);' and use 'Name[n]'` |
+| `typedef int F(int);` | `A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer` |
+| `void (*log)(const char*, ...)` | `A variadic function-pointer type is not supported until variadic definitions (C row 14)` |
+
+Still open: a statement `T (*name)(list);` whose head is an imported type
+and whose list an expression could also spell (`size_t (*f)(size_t);`) parses
+as an expression, because a file's parse cannot see imported names; add an
+initializer or write `CFunction<...>`.
 
 ## Variable-length arrays (C row 23)
 

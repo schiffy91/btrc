@@ -1,0 +1,37 @@
+// C row 7: struct and class fields `T (*name)(params)`, modelled on
+// jpeglib's `void (*error_exit)(j_common_ptr cinfo);`.
+#include <assert.h>
+
+struct Codec {
+	int (*encode)(const char* text, int length);
+	void (*reset)(void);
+	int resets;
+};
+
+int resetCount = 0;
+
+int checksum(const char* text, int length) {
+	int total = 0;
+	for (int i = 0; i < length; i++) {
+		total += text[i];
+	}
+	return total;
+}
+
+void countReset(void) { resetCount += 1; }
+
+class Dispatcher {
+	public int (*handler)(const char*, int) = checksum;
+}
+
+int main(void) {
+	struct Codec codec = {checksum, countReset, 0};
+	assert(codec.encode("ab", 2) == 195);
+	codec.reset();
+	codec.reset();
+	assert(resetCount == 2);
+	Dispatcher dispatcher = new Dispatcher();
+	assert(dispatcher.handler("a", 1) == 97);
+	print("PASS: function pointer fields");
+	return 0;
+}

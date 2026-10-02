@@ -443,3 +443,77 @@ class TestStringConcat:
             parse('void __t__() { char* text = L"ab"; }')
         with pytest.raises(ParseError, match="Expected SEMICOLON"):
             parse('void __t__() { char* text = "a" u8"b"; }')
+
+
+# ---- C row 7: function-pointer declarators ----
+
+
+def _cfunction(type_expr) -> tuple:
+    """A function-pointer TypeExpr as (result, parameters...) base spellings."""
+    assert type_expr.base == "__fn_ptr"
+    return tuple(f"{arg.base}{'*' * arg.pointer_depth}" for arg in type_expr.generic_args)
+
+
+class TestFunctionPointerDeclarators:
+    def test_every_declarator_position_builds_cfunction(self):
+        prog = parse(
+            "typedef int (*Op)(int, int);\n"
+            "static char* (*hook)(const char* text);\n"
+            "int (*table[4])(int);\n"
+            "struct S { void (*reset)(void); };\n"
+            "class C { public int (*handler)(int) = null; }\n"
+            "int apply(int (*f)(int), int (*)(void*));\n"
+        )
+        typedef, hook, table, struct, klass, function = prog.declarations
+        assert typedef.alias == "Op" and _cfunction(typedef.original) == ("int", "int", "int")
+        assert hook.name == "hook" and _cfunction(hook.type) == ("char*", "char*")
+        assert hook.type.is_static and not hook.type.generic_args[0].is_static
+        assert table.name == "table" and table.type.is_array and table.type.array_size.value == 4
+        assert struct.fields[0].name == "reset" and _cfunction(struct.fields[0].type) == ("void",)
+        assert klass.members[0].name == "handler" and _cfunction(klass.members[0].type) == ("int", "int")
+        named, unnamed = function.params
+        assert named.name == "f" and unnamed.name == "" and _cfunction(unnamed.type) == ("int", "void*")
+
+    def test_local_declarations_and_their_positions(self):
+        statement = parse_stmt("int (*operation)(int, int) = add;")
+        assert (statement.name, statement.line, statement.col) == ("operation", 1, 16)
+        assert (statement.name_line, statement.name_col) == (1, 22)
+        assert _cfunction(statement.type) == ("int", "int", "int")
+
+    def test_abstract_declarators_in_casts_and_sizeof(self):
+        cast = parse_expr("(int (*)(const void*, const void*))compare")
+        assert isinstance(cast, CastExpr) and _cfunction(cast.target_type) == ("int", "void*", "void*")
+        size = parse_expr("sizeof(void (*)(int))")
+        assert _cfunction(size.operand.type) == ("void", "int")
+
+    def test_pointee_parameters(self):
+        param = parse("int f(int (*g)(int (*)(int), int values[3]));").declarations[0].params[0]
+        inner, array = param.type.generic_args[1:]
+        assert _cfunction(inner) == ("int", "int") and array.pointer_depth == 1 and not array.is_array
+        assert parse("int f(int (*g)());").declarations[0].params[0].type.generic_args[1:] == []
+
+    def test_a_head_that_is_not_a_type_stays_an_expression(self):
+        assert isinstance(parse_stmt("pick (*pointer)(4);"), ExprStmt)
+        assert isinstance(parse_stmt("pick (*pointer)(value);"), ExprStmt)
+        assert parse_stmt("Count (*scale)(Count value);").name == "scale"
+        assert parse_stmt("Count (*scale)(const Count*);").name == "scale"
+        assert parse_stmt("Count (*scale)(Count) = twice;").name == "scale"
+        prog = parse("typedef int Count;\nvoid __t__() { Count (*scale)(Count); }")
+        assert prog.declarations[1].body.statements[0].name == "scale"
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "int (*pick(int))(int);",
+            "void (*report)(const char*, ...);",
+            "int (**indirect)(int);",
+            "int (* const fixed)(int);",
+            "typedef int Unary(int);",
+            "int size = sizeof(int (*[3])(int));",
+            "int apply(int (*)(int)) { return 0; }",
+            "int apply(int (*g)(void, int));",
+        ],
+    )
+    def test_refused_declarator_forms(self, source):
+        with pytest.raises(ParseError):
+            parse(source)

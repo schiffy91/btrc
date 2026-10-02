@@ -1,0 +1,30 @@
+// C row 7: a parameter `T (*name)(params)`, named or abstract in a
+// prototype, as qsort's comparator and pthread_create's entry are written.
+#include <assert.h>
+#include <stdlib.h>
+
+int ascending(const void* left, const void* right) { return *(const int*)left - * (const int*)right; }
+
+int descending(const void* left, const void* right) { return *(const int*)right - * (const int*)left; }
+
+void* passThrough(void* value) { return value; }
+
+void sortInts(int* values, size_t count, int(*compare)(const void* left, const void* right)) { qsort(values, count, sizeof(int), compare); }
+
+void* runEntry(void* (*)(void*), void*);
+
+void* runEntry(void* (*entry)(void*), void* argument) { return entry(argument); }
+
+int main(void) {
+	int values[5] = {4, 1, 5, 2, 3};
+	sortInts(values, 5, ascending);
+	for (int i = 0; i < 5; i++) {
+		assert(values[i] == i + 1);
+	}
+	sortInts(values, 5, descending);
+	assert(values[0] == 5 && values[4] == 1);
+	int marker = 7;
+	assert(runEntry(passThrough, &marker) == &marker);
+	print("PASS: function pointer parameters");
+	return 0;
+}

@@ -1,4 +1,4 @@
-"""C that btrc rejects on purpose (C rows 1 and 19-24) fails identically in both compilers.
+"""C that btrc rejects on purpose (C rows 1, 7 and 19-24) fails identically in both compilers.
 
 docs/known-language-gaps.md ("C that btrc rejects on purpose") states each
 policy. Every refusal here is pinned to one diagnostic -- message, line and
@@ -545,6 +545,81 @@ VLA_REFUSALS = [
     ),
 ]
 
+# Row 7: function-pointer declarators that a typedef spells instead, and
+# variadic pointees, deferred to row 14. A head that names no type is the
+# analyzer's ordinary unknown-type refusal; a signature mismatch is the
+# CFunction assignment refusal.
+FUNCTION_POINTER_RETURN = (
+    "A function returning a function pointer needs a typedef: write 'typedef R (*Name)(...);' and return 'Name'"
+)
+VARIADIC_POINTEE = "A variadic function-pointer type is not supported until variadic definitions (C row 14)"
+FUNCTION_POINTER_REFUSALS = [
+    pytest.param(
+        "int (*pick(int))(int, int);\nint main() { return 0; }",
+        (FUNCTION_POINTER_RETURN, 1, 11),
+        id="r07-function-returning-function-pointer",
+    ),
+    pytest.param(
+        "struct Table { int (*lookup(int))(int); };\nint main() { return 0; }",
+        (FUNCTION_POINTER_RETURN, 1, 28),
+        id="r07-field-returning-function-pointer",
+    ),
+    pytest.param(
+        "void (*report)(const char*, ...);\nint main() { return 0; }",
+        (VARIADIC_POINTEE, 1, 29),
+        id="r07-variadic-pointee",
+    ),
+    pytest.param(
+        "int apply(int (*)(int, ...), int);\nint main() { return 0; }",
+        (VARIADIC_POINTEE, 1, 24),
+        id="r07-variadic-abstract-parameter",
+    ),
+    pytest.param(
+        "int (**indirect)(int);\nint main() { return 0; }",
+        ("A pointer to a function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'Name*'", 1, 7),
+        id="r07-pointer-to-function-pointer",
+    ),
+    pytest.param(
+        "int main() { int (* const fixed)(int); return 0; }",
+        (
+            "A qualified function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'const Name'",
+            1,
+            21,
+        ),
+        id="r07-qualified-function-pointer",
+    ),
+    pytest.param(
+        "typedef int Unary(int);\nint main() { return 0; }",
+        ("A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer", 1, 18),
+        id="r07-function-type-typedef",
+    ),
+    pytest.param(
+        "int main() { return (int)sizeof(int (*[3])(int)); }",
+        ("An array of function pointers needs a name: write 'typedef R (*Name)(...);' and use 'Name[n]'", 1, 39),
+        id="r07-abstract-array",
+    ),
+    pytest.param(
+        "int apply(int (*callback)(void, int));\nint main() { return 0; }",
+        (VOID_LIST, 1, 27),
+        id="r07-void-beside-pointee-parameter",
+    ),
+    pytest.param(
+        "int apply(int (*)(int)) { return 0; }\nint main() { return 0; }",
+        (UNNAMED, 1, 11),
+        id="r07-unnamed-definition-parameter",
+    ),
+    pytest.param(
+        "int main() { Missing (*handler)(int); return 0; }",
+        ("Generic argument 1 of Variable 'handler' uses unknown by-value type 'Missing'", 1, 14),
+        id="r07-head-names-no-type",
+    ),
+    pytest.param(
+        "int add(int a, int b) { return a + b; }\nint main() { int (*unary)(int) = add; return unary(1); }",
+        ("Cannot assign 'CFunction<int, int, int>' to variable 'unary' of type 'CFunction<int, int>'", 2, 14),
+        id="r07-signature-mismatch",
+    ),
+]
+
 # Row 23 refusals where the compilers agree on the refusal but not on its
 # diagnostic. Each is pre-existing and shared with fixed-size arrays; the pair
 # is pinned so a change to either side is deliberate.
@@ -576,7 +651,8 @@ VLA_DIVERGENT_REFUSALS = [
 
 
 @pytest.mark.parametrize(
-    ("source", "expected"), REFUSALS + C_REFUSALS + ADJACENT_STRING_REFUSALS + CHAR_ARRAY_REFUSALS + VLA_REFUSALS
+    ("source", "expected"),
+    REFUSALS + C_REFUSALS + ADJACENT_STRING_REFUSALS + CHAR_ARRAY_REFUSALS + VLA_REFUSALS + FUNCTION_POINTER_REFUSALS,
 )
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,
