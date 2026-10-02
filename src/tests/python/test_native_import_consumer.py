@@ -6197,7 +6197,11 @@ def test_macos_panel_and_progress_controls(
                 f"[((__bridge NSButton*){receiver}) action]"
             )
     if fixture_name == "NativeGrid":
-        adapter = json.loads(plan.read_text())["generated-units"][0]["source"]
+        adapter = next(
+            unit["source"]
+            for unit in json.loads(plan.read_text())["generated-units"]
+            if "typedef struct __btrc_value_CGRect " in unit["source"]
+        )
         # Match the self-hosted dependency order, including forward declarations.
         # The real Settings form exposed reference ordering CGRect before CGPoint.
         assert adapter.index("typedef struct __btrc_value_CGPoint ") < adapter.index(

@@ -83,7 +83,7 @@ int main() {
 	assert(!view.isVisible());
 	view.setVisible(true);
 	root.attach(field);
-	assert(NativeTextFieldProbe.fittingWidth(view.fittingWidth(), view.fittingHeight()));
+	assert(NativeTextFieldProbe.matchesFittingWidth(view.fittingWidth(), view.fittingHeight()));
 	view.arrange(24.25, 77.375, 431.75, 30.125);
 	bool invalidFrame = false;
 	try { view.arrange(0.0, 0.0, -1.0, 30.0); } catch (string error) { invalidFrame = error.equals("Invalid native view frame"); }
