@@ -49,6 +49,8 @@ def _python_c(entry: str) -> str:
     assert result.failure is None, f"{entry}: {result.failure}"
     assert result.analyzed is None or not result.analyzed.errors, result.analyzed.errors
     assert result.c_source is not None, f"{entry}: the Python compiler emitted no C"
+    # Examples analyze clean in both compilers, as the compiler itself does.
+    assert [diagnostic.message for diagnostic in result.diagnostics if diagnostic.severity == "warning"] == []
     return result.c_source
 
 
@@ -61,6 +63,7 @@ def _selfhost_c(btrcc: str, entry: str) -> str:
         timeout=TRANSPILE_TIMEOUT,
     )
     assert result.returncode == 0, f"{entry}: btrcc failed:\n{result.stderr[:2000]}"
+    assert "warning:" not in result.stderr, result.stderr
     return result.stdout
 
 

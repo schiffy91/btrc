@@ -492,7 +492,7 @@ class Parser {
 		n.paramsStorage = params;
 		if (isAbstract) {
 			self.expect("SEMICOLON");
-			n.bodyNode = null;
+			// An abstract method has no body; a fresh Node leaves bodyNode null.
 		} else {
 			Node body = self.parseBlock();
 			n.bodyNode = body;
@@ -530,7 +530,7 @@ class Parser {
 				self.advance();
 				n.hasGetter = true;
 				if (self.matchTok("SEMICOLON")) {
-					n.getterBody = null;
+					// An auto getter has no body; getterBody stays null.
 				} else if (self.check("LBRACE")) {
 					Node gb = self.parseBlock();
 					n.getterBody = gb;
@@ -543,7 +543,7 @@ class Parser {
 				self.advance();
 				n.hasSetter = true;
 				if (self.matchTok("SEMICOLON")) {
-					n.setterBody = null;
+					// An auto setter has no body; setterBody stays null.
 				} else if (self.check("LBRACE")) {
 					Node sb = self.parseBlock();
 					n.setterBody = sb;
@@ -782,7 +782,6 @@ class Parser {
 			self.expect("SEMICOLON");
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
-			vd.type = null;
 			vd.name = nameTok.value;
 			vd.initializer = init;
 			vd.line = start.line;
@@ -814,7 +813,7 @@ class Parser {
 			fn.nameLine = nameTok.line;
 			fn.nameCol = nameTok.col;
 			if (self.matchTok("SEMICOLON")) {
-				fn.bodyNode = null;
+				// A forward declaration has no body; bodyNode stays null.
 				return fn;
 			}
 			if (self.check("LBRACE")) { self.refuseUnnamedDefinition(params); }
@@ -1393,7 +1392,6 @@ class Parser {
 			self.expect("SEMICOLON");
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
-			vd.type = null;
 			vd.name = nameTok.value;
 			vd.initializer = init;
 			vd.line = tok.line;
@@ -1542,7 +1540,6 @@ class Parser {
 					Node initVal = self.parseExpression();
 					Node vd = Node();
 					vd.kind = NK_VAR_DECL_STMT;
-					vd.type = null;
 					vd.name = nameTok.value;
 					vd.initializer = initVal;
 					vd.line = start.line;
@@ -1646,7 +1643,7 @@ class Parser {
 			Node v = self.parseExpression();
 			n.valueNode = v;
 		} else if (self.matchTok("DEFAULT")) {
-			n.valueNode = null;
+			// The default clause has no value; valueNode stays null.
 		}
 		self.expect("COLON");
 		while (!self.check("CASE") && !self.check("DEFAULT") && !self.check("RBRACE") && !self.atEnd()) {
@@ -2262,7 +2259,7 @@ class Parser {
 			n.name = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
-			if (self.check("STRING_LIT") && !Parser.isEncodingPrefix(tok, self.peek())) { return self.parseAdjacentStrings(n, tok); }
+			if (self.beginsAdjacentStrings(tok)) { return self.parseAdjacentStrings(n, tok); }
 			return n;
 		}
 
@@ -2277,6 +2274,21 @@ class Parser {
 	class bool isEncodingPrefix(Token name, Token following) {
 		bool prefix = name.value == "L" || name.value == "u" || name.value == "U" || name.value == "u8";
 		return prefix && following.type == "STRING_LIT" && following.line == name.line && following.col == name.col + name.value.length();
+	}
+
+	/* Whether the consumed name starts a concatenation: string_concat may
+	 * open with any run of macro pieces, so the run of names after it must
+	 * end at a literal that the run's last name does not prefix as its
+	 * encoding. */
+	public bool beginsAdjacentStrings(Token name) {
+		Token last = name;
+		int offset = 0;
+		while (self.peekAt(offset).type == "IDENT") {
+			last = self.peekAt(offset);
+			offset += 1;
+		}
+		Token following = self.peekAt(offset);
+		return following.type == "STRING_LIT" && !Parser.isEncodingPrefix(last, following);
 	}
 
 	class string adjacentFStringMessage() { return "An f-string cannot be concatenated with an adjacent string literal"; }
@@ -2481,7 +2493,6 @@ class Parser {
 		self.expect("FAT_ARROW");
 		Node n = Node();
 		n.kind = NK_LAMBDA_EXPR;
-		n.returnType = null;
 		n.paramsStorage = params;
 		n.line = tok.line;
 		n.col = tok.col;

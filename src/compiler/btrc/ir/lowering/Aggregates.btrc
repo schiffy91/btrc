@@ -125,8 +125,7 @@ class AggregateValueLowerer {
 			if (operand.effectiveType == null) {
 				operand.effectiveType = operand.contextualType;
 			}
-			self.operandPlanner.requireType(operand.effectiveType, operand.expression);
-			Node concreteType = operand.effectiveType;
+			Node concreteType = self.operandPlanner.requireType(operand.effectiveType, operand.expression);
 			bool laterEffect = false;
 			int later = index + 1;
 			while (later < plan.operands.len) {

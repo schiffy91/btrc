@@ -14,7 +14,7 @@ class Obj {
 }
 
 class Holder {
-	public Obj item;
+	public Obj? item;
 	public Holder() { self.item = null; }
 }
 
@@ -32,13 +32,13 @@ int main() {
 	holder.item = new Obj(1);
 	assert(alive == 1);
 	holder.item = holder.item;
-	assert(holder.item.id == 1);
+	assert(holder.item?.id == 1);
 	assert(alive == 1);
 
 	Obj replacement = new Obj(2);
 	getHolder().item = replacement;
 	assert(receiverCalls == 1);
-	assert(holder.item.id == 2);
+	assert(holder.item?.id == 2);
 	assert(alive == 1);
 
 	holder.item = null;

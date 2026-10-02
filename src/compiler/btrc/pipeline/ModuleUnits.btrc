@@ -2488,6 +2488,9 @@ class ValidationRecordCodec {
 					if (!ValidationRecordCodec.plain(fact.name) || !ValidationRecordCodec.plain(fact.member) || !ValidationRecordCodec.plain(fact.detail)) { return null; }
 					line = line + "\t" + fact.name + "\t" + fact.member;
 					if (fact.kind == VALIDATION_REALTIME_EFFECT) { line = line + "\t" + fact.detail; }
+				} else if (fact.kind == VALIDATION_WARNING) {
+					if (!ValidationRecordCodec.plain(fact.detail)) { return null; }
+					line = line + "\t" + fact.detail;
 				}
 			}
 			out.append(line);
@@ -2613,6 +2616,9 @@ class ValidationRecordCodec {
 				fact.member = fields.get(6);
 			} else if (kind == VALIDATION_BOUNDED_LOOP) {
 				if (fields.len != 5) { return null; }
+			} else if (kind == VALIDATION_WARNING) {
+				if (fields.len != 6) { return null; }
+				fact.detail = fields.get(5);
 			} else if (kind != VALIDATION_HOSTED_CALL && kind != VALIDATION_CONSTANT_BOUND && kind != VALIDATION_ITERATION_CAPACITY) {
 				return null;
 			} else if (fields.len != 5) {

@@ -8,7 +8,7 @@ int nodeCount = 0;
 
 class Node {
 	public int id;
-	public Node next;
+	public Node? next;
 
 	public Node(int id) {
 		self.id = id;
@@ -28,13 +28,13 @@ int main() {
 		a.next = b;                  // b.rc -> 2
 		b.next = a;                  // a(ext).rc -> 3
 		assert(nodeCount == 2);
-		assert(a.next.id == 2);
+		assert(a.next?.id == 2);
 		// inner scope exit drops a and b's local refs, but ext still points at a,
 		// so the cycle remains externally reachable and must survive.
 	}
 	assert(nodeCount == 2);
 	assert(ext.id == 1);
-	assert(ext.next.id == 2);
+	assert(ext.next?.id == 2);
 
 	// Drop the external reference: now the cycle is unreachable and reclaimable.
 	release ext;

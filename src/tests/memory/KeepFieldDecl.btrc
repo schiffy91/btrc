@@ -19,7 +19,7 @@ class Obj {
 }
 
 class Box {
-	public keep Obj item;
+	public keep Obj? item;
 
 	public Box() { self.item = null; }
 }
@@ -31,13 +31,13 @@ int main() {
 
 	// Assign into the keep-qualified field: rc 1 -> 2.
 	b.item = o;
-	assert(b.item.id == 5);
+	assert(b.item?.id == 5);
 
 	// release respects the refcount: rc 2 -> 1, object survives via the field.
 	release o;
 	assert(o == null);
 	assert(alive == 1);
-	assert(b.item.id == 5);
+	assert(b.item?.id == 5);
 
 	// Deleting the box releases the kept field, dropping rc 1 -> 0 -> destroyed.
 	delete b;

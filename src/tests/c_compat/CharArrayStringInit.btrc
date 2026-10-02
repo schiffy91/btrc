@@ -16,6 +16,12 @@ const char motto[16] = "stay";
 #define SUFFIX "!"
 char joinedGlobal[] = "abc" "def";
 
+// An unsized class static takes its extent from its string, as a global does.
+class Keys {
+	class char joined[] = "ab" "cd";
+	class char single[] = "xyz";
+}
+
 int countCalls() {
 	static char calls[4] = "a";
 	calls[0] = (char)(calls[0] + 1);
@@ -86,6 +92,21 @@ int main() {
 	assert((int)sizeof(shout) == 4 && strcmp(shout, "hi!") == 0);
 	assert((int)sizeof(joinedGlobal) == 7 && strcmp(joinedGlobal, "abcdef") == 0);
 	print("PASS: adjacent literals");
+
+	Keys.joined[0] = 'A';
+	Keys.single[2] = 'Z';
+	assert((int)sizeof(Keys.joined) == 5 && strcmp(Keys.joined, "Abcd") == 0);
+	assert((int)sizeof(Keys.single) == 4 && strcmp(Keys.single, "xyZ") == 0);
+	print("PASS: class static");
+
+	// A backslash-newline inside a literal is deleted (translation phase 2).
+	char spliced[6] = "ab\
+cd" "e";
+	assert((int)sizeof(spliced) == 6 && strcmp(spliced, "abcde") == 0);
+	string splicedText = "xy\
+zw";
+	assert(splicedText == "xyzw");
+	print("PASS: line splice");
 
 	string text = "managed";
 	char copy[8] = "managed";

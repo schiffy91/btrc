@@ -14,6 +14,15 @@ class UiSemanticTest {
 	}
 }
 
+UILayoutBox requireBox(UIFrame frame, string identity) {
+	UILayoutBox? box = frame.boxFor(identity);
+	if (box == null) {
+		fprintf(stderr, "FAIL: missing layout box '%s'\n", identity);
+		exit(1);
+	}
+	return box;
+}
+
 int main() {
 	UISemantics toggle = UISemantics(UI_SEMANTIC_ROLE_TOGGLE_BUTTON, "Playback", "Starts or pauses playback", "Playing", UI_SEMANTIC_LIVE_POLITE).pressed(UI_SEMANTIC_TOGGLE_ON).expanded(UI_SEMANTIC_EXPANSION_OFF).busy(true).readOnly(true);
 	assert(toggle.valid());
@@ -49,7 +58,7 @@ int main() {
 	UIFrame frame = renderer.layout(root, 240, 240);
 	assert(frame.ok());
 
-	UILayoutBox enabledSemanticBox = frame.boxFor("enabled");
+	UILayoutBox enabledSemanticBox = requireBox(frame, "enabled");
 	UIResolvedSemantics enabled = enabledSemanticBox.resolvedSemantics();
 	assert(enabled.role() == UI_SEMANTIC_ROLE_TOGGLE_BUTTON);
 	assert(enabled.enabled() && enabled.selected() && enabled.focusable() && !enabled.focused());
@@ -61,7 +70,7 @@ int main() {
 	assert(frame.resolvedSemanticsFor("enabled") != null);
 	assert(frame.resolvedSemanticsFor("missing") == null);
 
-	UILayoutBox disabledSemanticBox = frame.boxFor("disabled");
+	UILayoutBox disabledSemanticBox = requireBox(frame, "disabled");
 	UIResolvedSemantics disabled = disabledSemanticBox.resolvedSemantics();
 	assert(!disabled.enabled() && !disabled.focusable() && !disabled.focused());
 	assert(disabledButton.hasFocusableOverride() == false);
@@ -80,22 +89,22 @@ int main() {
 
 	renderer.focusNext();
 	assert(renderer.focusedId() == "enabled");
-	UILayoutBox focusedEnabledBox = renderer.currentFrame().boxFor("enabled");
+	UILayoutBox focusedEnabledBox = requireBox(renderer.currentFrame(), "enabled");
 	assert(focusedEnabledBox.resolvedSemantics().focused());
 	renderer.focusNext();
 	assert(renderer.focusedId() == "tab");
-	UILayoutBox unfocusedEnabledBox = renderer.currentFrame().boxFor("enabled");
-	UILayoutBox focusedTabBox = renderer.currentFrame().boxFor("tab");
+	UILayoutBox unfocusedEnabledBox = requireBox(renderer.currentFrame(), "enabled");
+	UILayoutBox focusedTabBox = requireBox(renderer.currentFrame(), "tab");
 	assert(!unfocusedEnabledBox.resolvedSemantics().focused());
 	assert(focusedTabBox.resolvedSemantics().focused());
 	renderer.focusNext();
 	assert(renderer.focusedId() == "enabled");
 	renderer.blur();
 	assert(renderer.focusedId().isEmpty());
-	UILayoutBox blurredEnabledBox = renderer.currentFrame().boxFor("enabled");
+	UILayoutBox blurredEnabledBox = requireBox(renderer.currentFrame(), "enabled");
 	assert(!blurredEnabledBox.resolvedSemantics().focused());
 
-	UILayoutBox disabledBox = renderer.currentFrame().boxFor("disabled");
+	UILayoutBox disabledBox = requireBox(renderer.currentFrame(), "disabled");
 	int disabledX = disabledBox.bounds.x + 2;
 	int disabledY = disabledBox.bounds.y + 2;
 	assert(renderer.pointerMoved(disabledX, disabledY).eventCount() == 0);
@@ -103,7 +112,7 @@ int main() {
 	assert(renderer.pointerPressed(disabledX, disabledY).eventCount() == 0);
 	assert(!UiSemanticTest.hasEvent(renderer.pointerReleased(disabledX, disabledY), UI_CLICKED));
 
-	UILayoutBox rangeBox = renderer.currentFrame().boxFor("disabled-range");
+	UILayoutBox rangeBox = requireBox(renderer.currentFrame(), "disabled-range");
 	int rangeX = rangeBox.bounds.x + 2;
 	int rangeY = rangeBox.bounds.y + 2;
 	assert(renderer.pointerMoved(rangeX, rangeY).eventCount() == 0);
@@ -112,7 +121,7 @@ int main() {
 	assert(renderer.adjustRange("disabled-range", UI_RANGE_ADJUST_SMALL_INCREMENT).eventCount() == 0);
 	assert(!UiSemanticTest.hasEvent(renderer.wheelBy(0, 40), UI_RANGE_WHEEL));
 
-	UILayoutBox inputBox = renderer.currentFrame().boxFor("disabled-input");
+	UILayoutBox inputBox = requireBox(renderer.currentFrame(), "disabled-input");
 	renderer.pointerPressed(inputBox.bounds.x + 2, inputBox.bounds.y + 2);
 	assert(renderer.focusedId().isEmpty());
 	assert(renderer.textEntered("x").eventCount() == 0);
@@ -126,7 +135,7 @@ int main() {
 	UIElement monitor = UIElement.select("monitor", UISelect(monitorOptions, "song-effects")).semantics(UISemantics(UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor"));
 	UIFrame selectFrame = selectRenderer.layout(monitor, 240, 120);
 	assert(selectFrame.ok());
-	UILayoutBox collapsedMonitorBox = selectFrame.boxFor("monitor");
+	UILayoutBox collapsedMonitorBox = requireBox(selectFrame, "monitor");
 	UIResolvedSemantics monitorSemantics = collapsedMonitorBox.resolvedSemantics();
 	assert(monitorSemantics.role() == UI_SEMANTIC_ROLE_COMBO_BOX);
 	assert(monitorSemantics.label() == "Monitor");
@@ -135,7 +144,7 @@ int main() {
 	assert(monitorSemantics.focusable() && !monitorSemantics.focused());
 	assert(selectRenderer.activate("monitor").eventCount() == 0);
 	assert(selectRenderer.expandedSelectId() == "monitor");
-	UILayoutBox expandedMonitorBox = selectRenderer.currentFrame().boxFor("monitor");
+	UILayoutBox expandedMonitorBox = requireBox(selectRenderer.currentFrame(), "monitor");
 	monitorSemantics = expandedMonitorBox.resolvedSemantics();
 	assert(monitorSemantics.focused());
 	assert(monitorSemantics.expansionState() == UI_SEMANTIC_EXPANSION_ON);
@@ -149,7 +158,7 @@ int main() {
 	assert(selectRenderer.focusedId() == "monitor");
 	UIElement rawMonitor = UIElement.select("monitor", UISelect(monitorOptions, "raw-signal")).semantics(UISemantics(UI_SEMANTIC_ROLE_AUTOMATIC, "Monitor"));
 	selectRenderer.layout(rawMonitor, 240, 120);
-	UILayoutBox rawMonitorBox = selectRenderer.currentFrame().boxFor("monitor");
+	UILayoutBox rawMonitorBox = requireBox(selectRenderer.currentFrame(), "monitor");
 	assert(rawMonitorBox.resolvedSemantics().value() == "Raw signal");
 	assert(selectRenderer.activate("monitor").eventCount() == 0);
 	selectRenderer.dismiss();
@@ -159,7 +168,7 @@ int main() {
 	assert(selectRenderer.focusedId().isEmpty());
 	UIFrame disabledSelectFrame = UIRenderer().layout(UIElement.select("disabled-select", UISelect(monitorOptions, "song-effects")).enabled(false), 240, 60);
 	assert(disabledSelectFrame.ok());
-	UILayoutBox disabledSelectBox = disabledSelectFrame.boxFor("disabled-select");
+	UILayoutBox disabledSelectBox = requireBox(disabledSelectFrame, "disabled-select");
 	assert(!disabledSelectBox.resolvedSemantics().enabled());
 	assert(!disabledSelectBox.resolvedSemantics().focusable());
 

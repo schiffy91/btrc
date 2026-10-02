@@ -9,7 +9,7 @@ import Library.Vector;
 
 class ListNode<T> {
 	public T value;
-	public ListNode<T> next;
+	public ListNode<T>? next;
 
 	public ListNode(T val) {
 		self.value = val;
@@ -20,14 +20,30 @@ class ListNode<T> {
 }
 
 class List<T> implements Iterable {
-	public ListNode<T> head;
-	public ListNode<T> tail;
+	public ListNode<T>? head;
+	public ListNode<T>? tail;
 	public int len;
 
 	public List() {
 		self.head = null;
 		self.tail = null;
 		self.len = 0;
+	}
+
+	/* Bounds-checked callers only ask for an index below len; a missing node
+	 * means the chain disagrees with len, which is a fatal invariant break. */
+	private ListNode<T> nodeAt(int idx) {
+		ListNode<T>? cur = self.head;
+		int i = 0;
+		while (i < idx && cur != null) {
+			cur = cur.next;
+			i++;
+		}
+		if (cur == null) {
+			fprintf(stderr, "List node %d missing (len=%d)\n", idx, self.len);
+			exit(1);
+		}
+		return cur;
 	}
 
 	private void ensureCanGrow() {
@@ -40,11 +56,12 @@ class List<T> implements Iterable {
 	public void pushBack(T val) {
 		self.ensureCanGrow();
 		ListNode<T> node = new ListNode<T>(val);
-		if (self.head == null) {
+		ListNode<T>? tail = self.tail;
+		if (tail == null) {
 			self.head = node;
 			self.tail = node;
 		} else {
-			self.tail.next = node;
+			tail.next = node;
 			self.tail = node;
 		}
 		self.len++;
@@ -64,15 +81,18 @@ class List<T> implements Iterable {
 	public void push(T val) { self.pushBack(val); }
 
 	public T popBack() {
-		if (self.head == null) {
+		ListNode<T>? head = self.head;
+		if (head == null) {
 			fprintf(stderr, "List popBack from empty list\n");
 			exit(1);
 		}
-		ListNode<T> prev = null;
-		ListNode<T> cur = self.head;
-		while (cur.next != null) {
+		ListNode<T>? prev = null;
+		ListNode<T> cur = head;
+		ListNode<T>? next = cur.next;
+		while (next != null) {
 			prev = cur;
-			cur = cur.next;
+			cur = next;
+			next = cur.next;
 		}
 		T val = cur.copiedValue();
 		if (prev == null) {
@@ -87,15 +107,16 @@ class List<T> implements Iterable {
 	}
 
 	public T popFront() {
-		if (self.head == null) {
+		ListNode<T>? head = self.head;
+		if (head == null) {
 			fprintf(stderr, "List popFront from empty list\n");
 			exit(1);
 		}
-		T val = self.head.copiedValue();
+		T val = head.copiedValue();
 		if (self.len == 1) {
 			self.tail = null;
 		}
-		self.head = self.head.next;
+		self.head = head.next;
 		self.len--;
 		return val;
 	}
@@ -103,19 +124,21 @@ class List<T> implements Iterable {
 	public T pop() { return self.popBack(); }
 
 	public T front() {
-		if (self.head == null) {
+		ListNode<T>? head = self.head;
+		if (head == null) {
 			fprintf(stderr, "List.front() on empty list\n");
 			exit(1);
 		}
-		return self.head.value;
+		return head.value;
 	}
 
 	public T back() {
-		if (self.head == null) {
+		ListNode<T>? tail = self.tail;
+		if (tail == null) {
 			fprintf(stderr, "List.back() on empty list\n");
 			exit(1);
 		}
-		return self.tail.value;
+		return tail.value;
 	}
 
 	public T get(int idx) {
@@ -123,11 +146,7 @@ class List<T> implements Iterable {
 			fprintf(stderr, "List index out of bounds: %d (len=%d)\n", idx, self.len);
 			exit(1);
 		}
-		ListNode<T> cur = self.head;
-		for (int i = 0; i < idx; i++) {
-			cur = cur.next;
-		}
-		return cur.value;
+		return self.nodeAt(idx).value;
 	}
 
 	public void set(int idx, T val) {
@@ -135,10 +154,7 @@ class List<T> implements Iterable {
 			fprintf(stderr, "List index out of bounds: %d (len=%d)\n", idx, self.len);
 			exit(1);
 		}
-		ListNode<T> cur = self.head;
-		for (int i = 0; i < idx; i++) {
-			cur = cur.next;
-		}
+		ListNode<T> cur = self.nodeAt(idx);
 		cur.value = val;
 	}
 
@@ -147,7 +163,7 @@ class List<T> implements Iterable {
 	public bool isEmpty() { return self.len == 0; }
 
 	public bool contains(T val) {
-		ListNode<T> cur = self.head;
+		ListNode<T>? cur = self.head;
 		while (cur != null) {
 			if (__btrc_eq(cur.value, val)) { return true; }
 			cur = cur.next;
@@ -156,7 +172,7 @@ class List<T> implements Iterable {
 	}
 
 	public int indexOf(T val) {
-		ListNode<T> cur = self.head;
+		ListNode<T>? cur = self.head;
 		int i = 0;
 		while (cur != null) {
 			if (__btrc_eq(cur.value, val)) { return i; }
@@ -174,10 +190,7 @@ class List<T> implements Iterable {
 		if (idx == 0) { self.pushFront(val); return; }
 		if (idx == self.len) { self.pushBack(val); return; }
 		self.ensureCanGrow();
-		ListNode<T> prev = self.head;
-		for (int i = 1; i < idx; i++) {
-			prev = prev.next;
-		}
+		ListNode<T> prev = self.nodeAt(idx - 1);
 		ListNode<T> node = new ListNode<T>(val);
 		node.next = prev.next;
 		prev.next = node;
@@ -190,20 +203,23 @@ class List<T> implements Iterable {
 			exit(1);
 		}
 		if (idx == 0) {
+			ListNode<T> head = self.nodeAt(0);
 			if (self.len == 1) {
 				self.tail = null;
 			}
-			self.head = self.head.next;
+			self.head = head.next;
 		} else {
-			ListNode<T> prev = self.head;
-			for (int i = 1; i < idx; i++) {
-				prev = prev.next;
-			}
+			ListNode<T> prev = self.nodeAt(idx - 1);
 			if (idx == self.len - 1) {
 				self.tail = prev;
 				prev.next = null;
 			} else {
-				prev.next = prev.next.next;
+				ListNode<T>? removed = prev.next;
+				if (removed == null) {
+					fprintf(stderr, "List node %d missing (len=%d)\n", idx, self.len);
+					exit(1);
+				}
+				prev.next = removed.next;
 			}
 		}
 		self.len--;
@@ -211,7 +227,7 @@ class List<T> implements Iterable {
 
 	public void reverse() {
 		List<T> reversed = new List<T>();
-		ListNode<T> cur = self.head;
+		ListNode<T>? cur = self.head;
 		while (cur != null) {
 			reversed.pushFront(cur.value);
 			cur = cur.next;
@@ -240,7 +256,7 @@ class List<T> implements Iterable {
 
 	public Vector<T> toVector() {
 		Vector<T> result = [];
-		ListNode<T> cur = self.head;
+		ListNode<T>? cur = self.head;
 		while (cur != null) {
 			result.push(cur.value);
 			cur = cur.next;
@@ -252,11 +268,5 @@ class List<T> implements Iterable {
 
 	public int iterLen() { return self.len; }
 
-	public T iterGet(int n) {
-		ListNode<T> cur = self.head;
-		for (int i = 0; i < n; i++) {
-			cur = cur.next;
-		}
-		return cur.value;
-	}
+	public T iterGet(int n) { return self.nodeAt(n).value; }
 }

@@ -1579,7 +1579,7 @@ class FePackageManifestParser {
 
 	private FeParsedPackageManifest parseManifest(bool deferNative) {
 		string section = "";
-		FeManifestBlock block = null;
+		FeManifestBlock? block = null;
 		var packageFields = FeManifestBlock("package", self.manifestPath);
 		bool restrictedExports = false;
 		bool sawVersion = false;
@@ -1746,6 +1746,7 @@ class FePackageManifestParser {
 				if (section.startsWith("native.bindings.record-snapshots.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.initializers.")) { prefix = section.substring(16, section.length() - 16) + "."; }
 				if (section.startsWith("native.bindings.copied-inputs.")) { prefix = section.substring(16, section.length() - 16) + "."; }
+				if (block == null) { FePackageFailure.fail(f"package manifest '{self.manifestPath}' field '{key}' requires a preceding native binding"); }
 				block.set(prefix + TOML.unquote(key), raw);
 			}
 		}
@@ -1820,9 +1821,11 @@ class FePackageManifestParser {
 /* Check every source edge before deduplication. Canonical package ownership
  * makes relative imports, includes and symlinks obey the same export boundary. */
 class FePackageImportPolicy {
-	private FePackageTarget target;
+	private FePackageTarget? target;
 	private Map<string, Vector<FeModuleProvider>> providers;
 	private Map<string, string> owners;
+	/* Every manifest read so far; only versioned ones have a parsed entry. */
+	private Map<string, bool> loadedManifests = {};
 	private Map<string, FeParsedPackageManifest> manifests;
 	private FeSourcePathPolicy paths;
 	private FeSourceFileReader files;
@@ -1830,7 +1833,7 @@ class FePackageImportPolicy {
 	 * a file's answer is remembered, as its directory's owner already is. */
 	private Map<string, string> manifestOf = {};
 
-	public FePackageImportPolicy(FePackageTarget target = null) {
+	public FePackageImportPolicy(FePackageTarget? target = null) {
 		self.target = target;
 		self.providers = {};
 		self.owners = {};
@@ -1839,10 +1842,10 @@ class FePackageImportPolicy {
 		self.files = FeSourceFileReader();
 	}
 
-	private FeParsedPackageManifest loadManifest(string manifestPath) {
-		if (!self.manifests.has(manifestPath)) {
+	private FeParsedPackageManifest? loadManifest(string manifestPath) {
+		if (!self.loadedManifests.has(manifestPath)) {
 			string content = self.files.readRequired(manifestPath);
-			FeParsedPackageManifest parsed = null;
+			FeParsedPackageManifest? parsed = null;
 			bool versioned = false;
 			try {
 				versioned = TOML.rootMap(content).has("manifest-version");
@@ -1850,8 +1853,9 @@ class FePackageImportPolicy {
 				FePackageFailure.fail(f"cannot parse package manifest '{manifestPath}': {error}");
 			}
 			if (versioned) { parsed = FePackageManifestParser(content, manifestPath, PathTools.dirname(manifestPath)).parse(); }
-			self.manifests.put(manifestPath, parsed);
+			self.loadedManifests.put(manifestPath, true);
 			if (parsed != null) {
+				self.manifests.put(manifestPath, parsed);
 				for provider in parsed.providers {
 					string identity = self.paths.identity(provider.module);
 					if (!self.providers.has(identity)) { Vector<FeModuleProvider> empty = []; self.providers.put(identity, empty); }
@@ -1859,6 +1863,7 @@ class FePackageImportPolicy {
 				}
 			}
 		}
+		if (!self.manifests.has(manifestPath)) { return null; }
 		return self.manifests.get(manifestPath);
 	}
 
@@ -1869,12 +1874,13 @@ class FePackageImportPolicy {
 		if (manifestPath.isEmpty()) { return result; }
 		self.loadManifest(manifestPath);
 		if (!self.providers.has(identity)) { return result; }
-		if (self.target == null) { FePackageFailure.fail(f"module '{source}' requires a compilation target for provider selection"); }
+		FePackageTarget? target = self.target;
+		if (target == null) { FePackageFailure.fail(f"module '{source}' requires a compilation target for provider selection"); }
 		Vector<FeModuleProvider> candidates = self.providers.get(identity);
 		for provider in candidates {
-			if (provider.selectedFor(self.target)) { result.push(provider.implementation); return result; }
+			if (provider.selectedFor(target)) { result.push(provider.implementation); return result; }
 		}
-		FePackageFailure.fail(f"module '{source}' has no provider for target {self.target.operatingSystem}-{self.target.architecture}");
+		FePackageFailure.fail(f"module '{source}' has no provider for target {target.operatingSystem}-{target.architecture}");
 		return result;
 	}
 
@@ -2012,7 +2018,7 @@ class FeNativeLinkPlan {
 		int sourceIndex = 0;
 		while (sourceIndex < sourcePaths.len) {
 			string source = sourcePolicy.identity(sourcePaths.get(sourceIndex));
-			FePackageNode owner = null;
+			FePackageNode? owner = null;
 			int ownerLength = -1;
 			packageIndex = 0;
 			while (packageIndex < packages.len) {
@@ -2770,10 +2776,10 @@ class FeResolvedPackages {
 		self.linkPlan = linkPlan;
 	}
 
-	private FePackageNode ownerFor(string sourcePath) {
+	private FePackageNode? ownerFor(string sourcePath) {
 		string source = FeCanonicalPath.absolute(sourcePath);
 		Vector<string> names = self.nodes.keys();
-		FePackageNode best = null;
+		FePackageNode? best = null;
 		int bestLength = -1;
 		int index = 0;
 		while (index < names.len) {
@@ -2797,7 +2803,7 @@ class FeResolvedPackages {
 		int separator = spec.indexOf(".");
 		string alias = separator < 0 ? spec : spec.substring(0, separator);
 		string rest = separator < 0 ? "" : spec.substring(separator + 1, spec.length() - separator - 1);
-		FePackageNode owner = self.ownerFor(sourcePath);
+		FePackageNode? owner = self.ownerFor(sourcePath);
 		if (owner == null || !owner.dependencies.has(alias)) { return result; }
 		string targetName = owner.dependencies.get(alias);
 		if (!self.nodes.has(targetName)) {

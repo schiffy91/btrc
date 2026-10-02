@@ -90,7 +90,7 @@ class ExpressionValidator {
 	private void validateCondition(Node? expression, string subject, Map<string, Node> variables) {
 		self.rejectThreadObservation(expression, variables);
 		Node? condition = self.types.inferType(expression, variables);
-		if (condition != null && !self.types.scalarConditionType(condition)) {
+		if (expression != null && condition != null && !self.types.scalarConditionType(condition)) {
 			TypeValidator.fail(subject + " requires a scalar condition, got '" + self.types.formatType(condition) + "'", expression);
 		}
 	}
@@ -707,7 +707,7 @@ class ExpressionValidator {
 			parameterNames.put(parameter.name, true);
 			self.types.validateDeclaredType(parameter.type, "Lambda parameter '" + parameter.name + "'", "parameter", parameter);
 			self.types.rejectRuntimeInterfaceType(parameter.type, parameter);
-			self.storage.validateArrayBound(parameter.type, "Lambda parameter '" + parameter.name + "'", "parameter", parameter, plan.variables);
+			self.validateArrayBound(parameter.type, "Lambda parameter '" + parameter.name + "'", "parameter", parameter, plan.variables);
 			if (parameter.default_ != null) {
 				TypeValidator.fail("Lambda parameters cannot have default arguments", parameter);
 			}
@@ -833,6 +833,14 @@ class ExpressionValidator {
 			}
 			captureIndex = captureIndex + 1;
 		}
+	}
+
+	/* A bound is an expression first: it is validated in full, as any other
+	 * expression is, before storage folds it into an extent. */
+	public void validateArrayBound(Node? typeExpr, string subject, string context, Node site, Map<string, Node> vars) {
+		if (typeExpr == null) { return; }
+		if (typeExpr.isArray && typeExpr.arraySize != null) { self.validateExpr(typeExpr.arraySize, vars); }
+		self.storage.validateArrayBound(typeExpr, subject, context, site, vars);
 	}
 
 	public void validateExprList(Vector<Node> expressions, Map<string, Node> vars) {

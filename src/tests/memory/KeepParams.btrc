@@ -16,7 +16,7 @@ class Obj {
 }
 
 class Holder {
-	public Obj stored;
+	public Obj? stored;
 
 	public Holder() { self.stored = null; }
 
@@ -31,7 +31,7 @@ int main() {
 
 	// The field store retains o; the call-scoped keep is released on return.
 	h.store(o);
-	assert(h.stored.id == 1);
+	assert(h.stored?.id == 1);
 
 	// Deleting the holder releases the field-owned reference.
 	delete h;

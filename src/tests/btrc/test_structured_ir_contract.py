@@ -166,7 +166,7 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
         declarations.index("public void emitStructDecl(") : declarations.index("public void emitGlobalVar(")
     ]
 
-    assert "public IRNode arraySize;" in field_schema
+    assert "public IRNode? arraySize;" in field_schema
     assert "self.arraySize = null;" in field_schema
     assert "CallableFlowState callableFlow = CallableFlowState();" in emit_struct
     assert "f.type.arraySize, empty, callableFlow);" in emit_struct

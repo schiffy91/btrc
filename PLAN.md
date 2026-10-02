@@ -134,6 +134,8 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - `src/tests/btrc`, the changed tests and the full corpus through both compilers: 5,982 passed. The one failure was `stdlib/Daemon.btrc`'s wall-clock limit under load; it passes alone, and lane `stage2/daemon-runtime` owns the cause;
   - the bootstrap reached its fixed point.
 
+- **Nullable-flow parity** (lane `stage4/nullable-flow-parity`, batch 7 on `1837bf7`). Python gains non-returning calls: a `noreturn` list in `hosted_abi.toml` (`exit`, `abort`, `_Exit`, `quick_exit`, `longjmp`, `pthread_exit`), never-returning functions and methods, and unreachable code, so a null guard ending in one proves the value non-null after it. btrcc now prints warnings in the Python format (they never change the exit status) and ports the nullable-access flow as `NullableFlow`. Both compilers add the store warning `Possibly-null value stored in non-nullable <context> of type 'T'` for initializers, assignments, returns, arguments and defaults. Both report identical warnings on all 1,203 corpus, stdlib and example programs; the corpus runner checks every program's warnings against an `expected/<Stem>.warnings` golden, and the self-host transpiles stay at zero. `List.head`/`tail` and `ListNode.next` became nullable (rename table updated). Merge fix-ups: the `ControlFlow.btrc` conflict keeps batch 6's local-bound check before the flow checks, and batch 6's F9/F10 lowering stores a string-array extent only when there is one (`d662ab0`), which removed the two new self-host warnings. Gates: clean (generated-source, lint, format, diff, zero-warning self-host transpiles, `boundary-check` 287 of 311). `src/tests/python`, `src/tests/btrc`, the corpus through both compilers and the LSP tests: 11,220 passed, 3,165 skipped. The bootstrap reached its fixed point.
+
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
 
@@ -150,6 +152,8 @@ Each stage records its exit evidence here as it closes; measurements and commit 
 - **Integration fixes.** Merging r05 dropped an import r04 used. r04's literal-only sites broke r05's kind-coverage contract, so r04 now takes any string constant through the source-macro decoder: `char s[] = "ab" "cd";` works in both compilers, and its exact fit and overflow refuse. r04's duplicate byte counters were removed, leaving one decoder per compiler. Two c1-body corpus files were also run through `btrc-format`. `docs/design/c-compatibility.md` lists what `ccompat-c1-integrate` still owes.
 - **Evidence.** The generated-source check, lint, format-check and `git diff --check` are clean. The self-host transpile of all three entries has zero warnings. The full corpus through both compilers, plus the parser, formatter, LSP, refusal, inventory, contract and lexer tests, gave 2,837 passed. The one failure was `stdlib/Daemon.btrc`'s wall-clock deadline under `-n 4`, which passes alone in both compilers. The bootstrap reached its fixed point (20 min).
 - **Devex follow-ups (lane `stage16/devex-c1-fixes`, landed in batch 5).** The review's F1–F6 are fixed. The LSP ends a braceless body's scope with its statement (`58892da`). The formatter now lays out braceless `else`, do-while, closing brackets, imports and compaction correctly (`557ea36`), closes an `if` inside an unbraced `do` with it, and nests continuation-line bodies (`b4f2c1b`); three corpus files were reindented, whitespace only. Formatter and LSP tests: 529 passed.
+- **Integration-review fixes (lane `stage16/c1-integrate-fixes`, `2822c60`, landed in batch 6).** F7: a run of macro names before a string literal (`A B "c"`) parses as one concatenation in both parsers. F8: btrcc refuses a non-`string` catch type with the Python message and position. F9/F10: an unsized string-initialized global or class static gets an explicit size at lowering from the source-macro decoder, which the analyzed program now carries, so split and module-unit builds emit `extern char g[5];`. F11: both lexers delete a backslash-newline inside a literal and keep line numbers. F12: one `validateArrayBound` in btrcc, checked after a local's initializer as in Python. New `test_c_compatibility_integration.py` (12 tests, both compilers). Deferred: `catch (string* e)` still parses to different errors, and a global read only through `sizeof` is still dropped by the optimizer.
+- **Batch 6** (`integ/b6` on `d7e601a`, with the Stage 24 and Stage 27 design docs): the generated-source check, lint, format-check, `git diff --check`, zero-warning self-host transpiles of all three entries and `boundary-check` (287 of 311) are clean. `src/tests/btrc`, the corpus through both compilers and the lexer, parser, analyzer, grammar-drift and literal tests gave 6,502 passed and 43 skipped. The bootstrap reached its fixed point.
 - **Next.** The `c1-decl` lane (r03 multi-declarators, r19 the comma operator, r07 function-pointer declarators, plus the header miner), then `ccompat-c1-integrate`, then C4.
 
 ### Stages 16 (C4), 19 and 20: designs (done 2026-10-02)
@@ -191,6 +195,39 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - the owner's sign-off on the adaptations;
   - every physical device and account (D8);
   - wgpu-native archive digests, recorded at first download in Stage 23.
+
+### Stage 27: interop ownership design (design step 0, lane `stage27/interop-design`, 2026-10-02)
+- **Design.** [`docs/design/native-interop-ownership.md`](docs/design/native-interop-ownership.md) is the one ownership plan for C function tables, Objective-C protocols and blocks, JNI, COM and GObject. Every foreign value is in one of three relations to ARC: btrc owns a foreign claim, a call borrows, or foreign code holds one external claim on btrc. Three mechanisms are shared by every model: dispatch through a foreign table, one holder shape, and one checked conversion. One rule translates foreign failure. Foreign-held cycles break only by explicit cancellation, every foreign entry pins its receiver and holder, and `executor`/`release-executor` share one closed value set. It needs no new `runtime/c` asset or manifest row (step 2 adds one TLS field, a holder-thread generation, through one D14 re-capture), and no new compiler file (88/97 unchanged).
+- **`native_abi.asdl` delta (purely additive, schema v2 → v4).** `NativeField.callback_parameters`; `NativeHeader.protocol_declarations` with `NativeObjectiveCProtocol`, `NativeProtocolRequirement` and `NativeObjectiveCProperty`; Objective-C interface `protocols`, `properties` and `main_actor`, and three method flags; `NativeJavaClass`, `NativeJavaMethod` and `NativeJavaField` declarations; `NativeJavaObject` and `NativeJavaArray` types. Java metadata comes from a new `tools/JavaClassReader.c` (C11 + zlib) on the existing batch protocol (D22). GObject needs no schema change; its transfer facts come from the manifest, not `.gir`.
+- **Order.** 1 schema v2 → 2 function-table calls (exit: `-O2` and ASan/UBSan vtable fixture) → 3 Objective-C slice (macOS and iOS-simulator delegate round trip) → 4 JNI slice (host JVM with `-Xcheck:jni`, then the emulator round trip) → 5 COM (Linux proxy, then exact release counts on Windows CI). Stage 29 runs steps 6 (I1) and 7 (A1); Stage 31 runs step 8 (GObject, Linux tier A, with tier B required before the GTK spike). Each step lands Python first, then btrc, one commit per construct, and ends with a feature bootstrap.
+- **Review.** Five drafting agents, one per model. Then 2 adversarial reviewers (ARC soundness; Python/btrc implementability) and 1 parity reviewer raised 44 findings, 13 of them blocking. The blocking findings covered off-thread holder release, the lack of a lease across a foreign entry, the GLib context check, the JVM lifetime owner, an over-broad verifier rule, the Java reader launch path, an ASDL field-name collision in the btrc renderer, an incomplete key list, the executor spelling, the signal syntax, COM sink cancellation, HRESULT on ordinary methods, and JNI `main`. All 44 are resolved in the document's Review section. A confirmation pass then found all 13 resolved and raised 4 new blocking gaps: the holder and resource release-executor defaults, JNI env-table privacy (`dispatch-records`), the COM sink IID source, and the dispatch key grammar. All 4 are resolved in the same section.
+- **Approval.** Approved under the standing design-approval rule: the two adversarial reviewers and the parity reviewer leave no unresolved blocking finding.
+- **Open for the owner (non-blocking).** The Java reader's implementation language (C11 chosen); `failure = "throw"` for Java entry only; free-threaded COM sinks waiting on atomic ARC; the iOS-simulator evidence depends on Stages 24–25.
+
+### Stage 24: target-contract design (lane `stage24/target-contract-design`, 2026-10-02)
+- **Spec step done; implementation waits for C4** (Stage 16 creates `targets.toml`). `docs/design/platform-target-contract.md` designs all seven Stage 24 items:
+  - the spec delta: 11 rows with triples, sysroot kinds, data-model columns and the `""`/gnu/msvc/simulator environment axis;
+  - the hosted-ABI unavailability tables and a reachability check run in the optimizer;
+  - the native-reader targets, with sysroot validation and identity;
+  - link plan schema 5;
+  - provider filters with an `env` selector and a platform-directory rule;
+  - cache identity on the canonical label;
+  - the target ABI fixture.
+
+  For each item it gives the owners in both compilers, the named tests, the exit evidence, the Linux/Mac/NDK/runner split and the four gated sub-batches.
+- **Decisions.**
+  - `__ANDROID_API__` is defined from the row's API level.
+  - clang 21 predefines `TARGET_OS_*` for Darwin triples, so those names become rows rather than foreign names.
+  - `__STDC__` excludes msvc.
+  - Analyzer widths come from the row, which also covers btrc literal typing.
+  - Both compilers refuse an unknown host up front with one message.
+  - The LSP gains a `btrc.target` setting.
+- **Review.** Three research agents (Apple, Android, Windows) checked every triple and macro with clang 21.1.8 and zig 0.16.0. Two adversarial reviewers (triples and sysroots; Python/btrc parity) and a parity reviewer raised 19 distinct blocking findings, all resolved and listed in the document's Review table.
+- **PLAN amendment.** `windows-aarch64-msvc` is a provisional row: wgpu-native ships Windows ARM64 only as MSVC, which meets D21's condition. Stage 28's `platforms-w1-toolchain-abi-route` confirms or removes it.
+- **Owner questions.**
+  - Q1: the macOS row minimum (14.0 by default).
+  - Q2: the MSVC row scope.
+  - Q3: no `ios-x86_64-simulator` row.
 
 ## Decisions (all resolved 2026-09-30)
 

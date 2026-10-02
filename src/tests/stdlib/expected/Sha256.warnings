@@ -1,0 +1,5 @@
+src/tests/stdlib/Sha256.btrc:100:19: Possibly-null value stored in non-nullable argument 1 of 'appendText' of type 'string' — check for null first
+src/tests/stdlib/Sha256.btrc:104:23: Possibly-null value stored in non-nullable argument 1 of 'digest' of type 'string' — check for null first
+src/tests/stdlib/Sha256.btrc:105:28: Possibly-null value stored in non-nullable argument 1 of 'digestBytes' of type 'Bytes' — check for null first
+src/tests/stdlib/Sha256.btrc:64:23: Possibly-null value stored in non-nullable argument 1 of 'appendBytes' of type 'Bytes' — check for null first
+src/tests/stdlib/Sha256.btrc:88:29: Possibly-null value stored in non-nullable argument 1 of 'appendBytes' of type 'Bytes' — check for null first

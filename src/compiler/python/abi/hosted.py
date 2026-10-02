@@ -24,6 +24,7 @@ from .generated import (
     HOSTED_MACRO_NAMES,
     HOSTED_NATIVE_INTERNAL_NAMES,
     HOSTED_NATIVE_NAMES,
+    HOSTED_NORETURN_FUNCTIONS,
     HOSTED_OBJECT_NAMES,
     HOSTED_OWNED_NAMES,
     HOSTED_PLATFORM_FUNCTION_NAMES,
@@ -56,6 +57,7 @@ class HostedAbiRepository:
         self._native = frozenset(HOSTED_NATIVE_NAMES)
         self._native_internal = frozenset(HOSTED_NATIVE_INTERNAL_NAMES)
         self._runtime_adopting = frozenset(HOSTED_RUNTIME_ADOPTING_HELPERS)
+        self._noreturn = frozenset(HOSTED_NORETURN_FUNCTIONS)
         self._platform_functions = frozenset(HOSTED_PLATFORM_FUNCTION_NAMES)
         self._platform_macros = frozenset(HOSTED_PLATFORM_MACRO_NAMES)
         self._platform_objects = frozenset(HOSTED_PLATFORM_OBJECT_NAMES)
@@ -97,6 +99,11 @@ class HostedAbiRepository:
     @property
     def native_internal_names(self) -> frozenset[str]:
         return self._native_internal
+
+    @property
+    def noreturn_function_names(self) -> frozenset[str]:
+        """Hosted functions that never return to their caller."""
+        return self._noreturn
 
     @property
     def platform_function_names(self) -> frozenset[str]:

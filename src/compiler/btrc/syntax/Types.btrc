@@ -8,13 +8,19 @@ class TypeShape {
 	class bool intrinsicReference(Node typeExpr) { return typeExpr.base == "Array" || typeExpr.base == "List" || typeExpr.base == "Map" || typeExpr.base == "Mutex" || typeExpr.base == "Set" || typeExpr.base == "Thread" || typeExpr.base == "Vector" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr" || typeExpr.base == "string"; }
 
 	class Node copyWithArguments(Node typeExpr, Vector<Node> genericArgs) {
+		Node result = TypeShape.copyWithoutArraySize(typeExpr, genericArgs);
+		result.arraySize = typeExpr.arraySize;
+		return result;
+	}
+
+	/* Everything but the fixed array bound, which a fresh Node leaves null. */
+	class Node copyWithoutArraySize(Node typeExpr, Vector<Node> genericArgs) {
 		Node result = Node();
 		result.kind = NK_TYPE_EXPR;
 		result.base = typeExpr.base;
 		result.genericArgsStorage = genericArgs;
 		result.pointerDepth = typeExpr.pointerDepth;
 		result.isArray = typeExpr.isArray;
-		result.arraySize = typeExpr.arraySize;
 		result.isConst = typeExpr.isConst;
 		result.isNullable = typeExpr.isNullable;
 		result.nullableOuterDepth = typeExpr.nullableOuterDepth;
@@ -39,10 +45,11 @@ class TypeShape {
 	}
 
 	class Node withoutOuterArray(Node typeExpr) {
-		Node result = TypeShape.copy(typeExpr);
-		if (result.isArray) {
+		Node result = TypeShape.copyWithoutArraySize(typeExpr, typeExpr.genericArgs());
+		if (!result.isArray) {
+			result.arraySize = typeExpr.arraySize;
+		} else {
 			result.isArray = false;
-			result.arraySize = null;
 			if (typeExpr.nullableOuterDepth > 0) {
 				result.nullableOuterDepth = typeExpr.nullableOuterDepth - 1;
 			} else if (typeExpr.isNullable) {

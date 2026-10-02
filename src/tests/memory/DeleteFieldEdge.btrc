@@ -21,7 +21,7 @@ class Holder {
 }
 
 int main() {
-	Holder holder = new Holder();
+	Holder? holder = new Holder();
 	holder.child = new Leaf(1);
 	holder.sibling = new Leaf(2);
 	assert(alive == 2);

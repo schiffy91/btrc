@@ -5,7 +5,8 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 
-from src.compiler.python.analyzer.program import AnalysisSession, SymbolInfo
+from src.compiler.python.abi.hosted import HOSTED_ABI
+from src.compiler.python.analyzer.program import AnalysisSession, DeclarationIndex, SymbolInfo
 from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
@@ -15,16 +16,20 @@ from src.compiler.python.syntax.ast.generated import (
     BreakStmt,
     CallExpr,
     CForStmt,
+    ClassDecl,
     ContinueStmt,
     DoWhileStmt,
     ElseBlock,
     ElseIf,
+    ExprStmt,
     FieldAccessExpr,
     ForInStmt,
+    FunctionDecl,
     Identifier,
     IfStmt,
     IndexExpr,
     LambdaExpr,
+    MethodDecl,
     NullLiteral,
     ParallelForStmt,
     ReturnStmt,
@@ -32,7 +37,9 @@ from src.compiler.python.syntax.ast.generated import (
     SwitchStmt,
     ThrowStmt,
     TryCatchStmt,
+    TypeExpr,
     UnaryExpr,
+    VarDeclStmt,
     WhileStmt,
 )
 
@@ -58,9 +65,242 @@ class AccessPath:
 class ControlFlowAnalyzer:
     """Control-flow, termination, and nullable-flow analysis."""
 
-    def __init__(self, session: AnalysisSession, types: TypeSystem) -> None:
+    def __init__(self, session: AnalysisSession, types: TypeSystem, index: DeclarationIndex) -> None:
         self.session = session
         self.types = types
+        self.index = index
+        # Identities of the function and method declarations no call to which returns.
+        self._nonreturning_callables: set[int] = set()
+        # One root per class whose static fields a path names, global like a global variable.
+        self._class_roots: dict[str, SymbolInfo] = {}
+
+    def compute_nonreturning_callables(self, program) -> None:
+        """Find every function and method that cannot return to its caller.
+
+        A callable never returns when every path through its body ends in a
+        ``throw`` or in a call that never returns: a hosted ``noreturn``
+        function such as ``exit``, or another such callable. The set is the
+        least fixed point over the call graph, so mutual recursion with no exit
+        is not assumed to diverge. Calls resolve syntactically: ``f()`` to a
+        top-level function, ``C.m()`` to a static method of class ``C``,
+        ``self.m()`` to every implementation of ``m`` the receiver's class or a
+        subclass of it can dispatch to, and ``self.field.m()`` likewise through
+        the class the field is declared as. A local binding of the same name
+        shadows the callee.
+        """
+        self._nonreturning_callables = set()
+        candidates = []
+        for declaration in program.declarations:
+            if isinstance(declaration, FunctionDecl) and declaration.body is not None:
+                candidates.append((declaration, None))
+            elif isinstance(declaration, ClassDecl):
+                for member in declaration.members:
+                    if (
+                        isinstance(member, MethodDecl)
+                        and member.body is not None
+                        and (not member.is_constructor)
+                        and member.name != "__del__"
+                    ):
+                        candidates.append((member, declaration.name))
+        bodies = [
+            (callable_, owner, frozenset(self._callable_local_names(callable_))) for callable_, owner in candidates
+        ]
+        changed = True
+        while changed:
+            changed = False
+            for callable_, owner, local_names in bodies:
+                if id(callable_) in self._nonreturning_callables:
+                    continue
+                if self._statements_diverge(callable_.body.statements, owner, local_names):
+                    self._nonreturning_callables.add(id(callable_))
+                    changed = True
+
+    def call_never_returns(self, call) -> bool:
+        """Whether a call in the body being analyzed cannot return."""
+        owner = self.session.current_class.name if self.session.current_class is not None else None
+        return self._call_diverges(call, owner, None)
+
+    def statement_ends_flow(self, statement) -> bool:
+        """Whether no statement after this one in its sequence can run."""
+        if isinstance(statement, (ReturnStmt, ThrowStmt)):
+            return True
+        return (
+            isinstance(statement, ExprStmt)
+            and isinstance(statement.expr, CallExpr)
+            and self.call_never_returns(statement.expr)
+        )
+
+    def is_local_binding(self, name: str) -> bool:
+        symbol = self.session.scope.lookup(name)
+        return symbol is not None and symbol.kind != "function"
+
+    def _shadowed(self, name: str, local_names: frozenset[str] | None) -> bool:
+        """Whether a local binding hides a callee: one the pre-pass collected, or (None) one in scope now."""
+        return self.is_local_binding(name) if local_names is None else name in local_names
+
+    def _call_diverges(self, call, owner: str | None, local_names: frozenset[str] | None) -> bool:
+        callee = call.callee
+        if isinstance(callee, Identifier):
+            if self._shadowed(callee.name, local_names):
+                return False
+            if callee.name in HOSTED_ABI.noreturn_function_names:
+                return True
+            function = self.index.function_table.get(callee.name)
+            return function is not None and id(function) in self._nonreturning_callables
+        if not isinstance(callee, FieldAccessExpr) or callee.optional or callee.arrow:
+            return False
+        if isinstance(callee.obj, SelfExpr):
+            return owner is not None and self._dispatch_never_returns(owner, callee.field)
+        if isinstance(callee.obj, FieldAccessExpr) and isinstance(callee.obj.obj, SelfExpr):
+            field_class = self._self_field_class(owner, callee.obj) if owner is not None else None
+            return field_class is not None and self._dispatch_never_returns(field_class, callee.field)
+        if isinstance(callee.obj, Identifier) and (not self._shadowed(callee.obj.name, local_names)):
+            info = self.index.class_table.get(callee.obj.name)
+            method = info.methods.get(callee.field) if info is not None else None
+            return method is not None and method.access == "class" and id(method) in self._nonreturning_callables
+        return False
+
+    def _dispatch_never_returns(self, owner: str, name: str) -> bool:
+        """Whether every method ``self.name()`` can dispatch to from class ``owner`` diverges."""
+        found = False
+        for info in self.index.class_table.values():
+            if not self._descends_from(info, owner):
+                continue
+            method = info.methods.get(name)
+            if method is None:
+                continue
+            if method.access == "class" or id(method) not in self._nonreturning_callables:
+                return False
+            found = True
+        return found
+
+    def _self_field_class(self, owner: str, access) -> str | None:
+        """The class `self.field` is declared as in non-generic class `owner`, if it is one."""
+        info = self.index.class_table.get(owner)
+        if info is None or info.generic_params or access.optional or access.arrow:
+            return None
+        field = info.fields.get(access.field)
+        declared = field.type if field is not None and field.access != "class" else None
+        if declared is None or declared.is_array:
+            return None
+        target = self.index.class_table.get(declared.base)
+        return declared.base if target is not None and not target.generic_params else None
+
+    def _descends_from(self, info, owner: str) -> bool:
+        seen = set()
+        current = info
+        while current is not None and current.name not in seen:
+            if current.name == owner:
+                return True
+            seen.add(current.name)
+            current = self.index.class_table.get(current.parent) if current.parent else None
+        return False
+
+    def _statements_diverge(self, statements, owner, local_names) -> bool:
+        """Whether a statement sequence can neither complete nor return."""
+        for statement in statements:
+            if self._statement_diverges(statement, owner, local_names):
+                return True
+            if self._contains_return(statement):
+                return False
+        return False
+
+    def _statement_diverges(self, statement, owner, local_names) -> bool:
+        if isinstance(statement, ThrowStmt):
+            return True
+        if isinstance(statement, ExprStmt):
+            return isinstance(statement.expr, CallExpr) and self._call_diverges(statement.expr, owner, local_names)
+        if isinstance(statement, Block):
+            return self._statements_diverge(statement.statements, owner, local_names)
+        if isinstance(statement, IfStmt):
+            if not self._statements_diverge(statement.then_block.statements, owner, local_names):
+                return False
+            if isinstance(statement.else_block, ElseBlock):
+                return self._statements_diverge(statement.else_block.body.statements, owner, local_names)
+            if isinstance(statement.else_block, ElseIf):
+                return self._statement_diverges(statement.else_block.if_stmt, owner, local_names)
+            return False
+        if isinstance(statement, SwitchStmt):
+            return any(case.value is None for case in statement.cases) and all(
+                self._statements_diverge(case.body, owner, local_names) for case in statement.cases
+            )
+        if isinstance(statement, TryCatchStmt):
+            if statement.finally_block is not None and self._statements_diverge(
+                statement.finally_block.statements, owner, local_names
+            ):
+                return True
+            if not self._statements_diverge(statement.try_block.statements, owner, local_names):
+                return False
+            return statement.catch_block is None or self._statements_diverge(
+                statement.catch_block.statements, owner, local_names
+            )
+        # A loop whose body always runs once diverges with that body, unless a
+        # break leaves the loop first.
+        enters_body = (
+            (
+                isinstance(statement, WhileStmt)
+                and isinstance(statement.condition, BoolLiteral)
+                and statement.condition.value
+            )
+            or isinstance(statement, DoWhileStmt)
+            or (isinstance(statement, CForStmt) and statement.condition is None)
+        )
+        return (
+            enters_body
+            and (not self.contains_loop_break(statement.body))
+            and self._statements_diverge(statement.body.statements, owner, local_names)
+        )
+
+    def _contains_return(self, statement) -> bool:
+        """Whether a return statement (outside any lambda) is nested in a statement."""
+        if isinstance(statement, ReturnStmt):
+            return True
+        return any(self._contains_return(child) for child in self._child_statements(statement))
+
+    @staticmethod
+    def _child_statements(statement) -> list:
+        if isinstance(statement, Block):
+            return list(statement.statements)
+        if isinstance(statement, IfStmt):
+            children = [statement.then_block]
+            if isinstance(statement.else_block, ElseBlock):
+                children.append(statement.else_block.body)
+            elif isinstance(statement.else_block, ElseIf):
+                children.append(statement.else_block.if_stmt)
+            return children
+        if isinstance(statement, (WhileStmt, DoWhileStmt, CForStmt, ForInStmt, ParallelForStmt)):
+            return [statement.body]
+        if isinstance(statement, SwitchStmt):
+            return [child for case in statement.cases for child in case.body]
+        if isinstance(statement, TryCatchStmt):
+            return [block for block in (statement.try_block, statement.catch_block, statement.finally_block) if block]
+        return []
+
+    def _callable_local_names(self, callable_) -> set[str]:
+        """Every name a callable's parameters or body binds, which shadows a callee of that name."""
+        names = {parameter.name for parameter in callable_.params}
+        stack = [callable_.body]
+        while stack:
+            node = stack.pop()
+            if node is None or not dataclasses.is_dataclass(node):
+                continue
+            if isinstance(node, VarDeclStmt):
+                names.add(node.name)
+            elif isinstance(node, (ForInStmt, ParallelForStmt)):
+                names.add(node.var_name)
+                if isinstance(node, ForInStmt) and node.var_name2:
+                    names.add(node.var_name2)
+            elif isinstance(node, TryCatchStmt) and node.catch_var:
+                names.add(node.catch_var)
+            elif isinstance(node, LambdaExpr):
+                names.update(parameter.name for parameter in node.params)
+            for field in dataclasses.fields(node):
+                child = getattr(node, field.name)
+                if isinstance(child, (list, tuple)):
+                    stack.extend(child)
+                elif dataclasses.is_dataclass(child):
+                    stack.append(child)
+        return names
 
     def is_range_call(self, expr) -> bool:
         return isinstance(expr, CallExpr) and isinstance(expr.callee, Identifier) and (expr.callee.name == "range")
@@ -88,6 +328,8 @@ class ControlFlowAnalyzer:
     def access_path(self, expression) -> AccessPath | None:
         if isinstance(expression, Identifier):
             symbol = self.session.scope.lookup(expression.name)
+            if symbol is None and expression.name in self.index.class_table:
+                symbol = self._class_root(expression.name)
             return AccessPath(symbol) if symbol is not None else None
         if isinstance(expression, SelfExpr):
             symbol = self.session.scope.lookup("self")
@@ -97,6 +339,14 @@ class ControlFlowAnalyzer:
             if parent is not None:
                 return AccessPath(parent.root, (*parent.fields, expression.field))
         return None
+
+    def _class_root(self, name: str) -> SymbolInfo:
+        """The root of `C.field` paths: a class's static storage, which any call can change."""
+        root = self._class_roots.get(name)
+        if root is None:
+            root = SymbolInfo(name, TypeExpr(base=name), "class")
+            self._class_roots[name] = root
+        return root
 
     def is_known_nonnull(self, expression) -> bool:
         path = self.access_path(expression)
@@ -137,11 +387,13 @@ class ControlFlowAnalyzer:
         return isinstance(expression, NullLiteral) or (isinstance(expression, Identifier) and expression.name == "NULL")
 
     @staticmethod
-    def join_nonnull_flows(flows: list[set[AccessPath]]) -> set[AccessPath]:
-        if not flows:
-            return set()
-        joined = set(flows[0])
-        for flow in flows[1:]:
+    def join_nonnull_flows(flows) -> set[AccessPath] | None:
+        """Join the flows that reach one point; None (unreachable) when none does."""
+        reaching = [flow for flow in flows if flow is not None]
+        if not reaching:
+            return None
+        joined = set(reaching[0])
+        for flow in reaching[1:]:
             joined.intersection_update(flow)
         return joined
 
@@ -202,7 +454,11 @@ class ControlFlowAnalyzer:
         root = target
         while isinstance(root, (FieldAccessExpr, IndexExpr)):
             root = root.obj
-        return isinstance(root, Identifier) and self.session.scope.lookup(root.name) is None
+        return (
+            isinstance(root, Identifier)
+            and self.session.scope.lookup(root.name) is None
+            and root.name not in self.index.class_table
+        )
 
     def _facts_surviving(self, facts: set[AccessPath], expression) -> set[AccessPath]:
         return self._facts_surviving_nodes(facts, self._walk_effect_nodes(expression))
@@ -267,7 +523,9 @@ class ControlFlowAnalyzer:
                     stack.append(child)
 
     def _is_global_symbol(self, symbol: SymbolInfo) -> bool:
-        return any(candidate is symbol for candidate in self.session.global_scope.symbols.values())
+        return symbol.kind == "class" or any(
+            candidate is symbol for candidate in self.session.global_scope.symbols.values()
+        )
 
     def _forget_nonnull_symbols(self, symbols) -> None:
         forgotten = tuple(symbols)

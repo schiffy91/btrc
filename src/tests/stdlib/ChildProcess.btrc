@@ -17,7 +17,7 @@ int childProbe(int argc, char** argv) {
 		assert(getcwd(cwd, 4096) != NULL);
 		string overrideValue = Environment.get("BTRC_CHILD_OVERRIDE", "");
 		string newValue = Environment.get("BTRC_CHILD_NEW", "");
-		string removedValue = null;
+		string? removedValue = null;
 		char* removedRaw = getenv("BTRC_CHILD_REMOVE");
 		if (removedRaw != NULL) { removedValue = Strings.copy(removedRaw); }
 		printf("cwd=%s\n", cwd);

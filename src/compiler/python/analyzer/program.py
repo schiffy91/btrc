@@ -368,6 +368,7 @@ class AnalyzedProgram:
     rich_enum_unsafe_default_ids: set[int] = field(default_factory=set)
     array_iteration_capacity_ids: set[int] = field(default_factory=set)
     constant_array_bound_ids: set[int] = field(default_factory=set)
+    source_macros: SourceMacroNamespace = field(default_factory=SourceMacroNamespace.empty)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     diags: list[Diag] = field(default_factory=list)
@@ -423,6 +424,7 @@ class AnalysisSession(AnalysisContext):
         self.array_iteration_capacity_ids: set[int] = set()
         self.realtime_bounded_loop_ids: set[int] = set()
         self._nonnull_paths: set = set()
+        self._flow_unreachable: bool = False
         self._address_escaped_symbol_ids: set[int] = set()
         self.rich_enum_unsafe_default_ids: set[int] = set()
         self.record_occurrences: bool = False
@@ -527,14 +529,37 @@ class AnalysisSession(AnalysisContext):
     def replace_nonnull_paths(self, facts) -> None:
         self._nonnull_paths = set(facts)
 
+    @property
+    def flow_unreachable(self) -> bool:
+        """Whether no execution reaches the code being analyzed (after a throw or an exit)."""
+        return self._flow_unreachable
+
+    @property
+    def nonnull_flow(self) -> frozenset | None:
+        """The current flow: its non-null facts, or None where no execution reaches."""
+        return None if self._flow_unreachable else frozenset(self._nonnull_paths)
+
+    def replace_nonnull_flow(self, flow) -> None:
+        """Install a joined flow; None marks the code that follows as unreachable."""
+        self._flow_unreachable = flow is None
+        self._nonnull_paths = set() if flow is None else set(flow)
+
+    def mark_flow_unreachable(self) -> None:
+        self.replace_nonnull_flow(None)
+
     @contextmanager
-    def nonnull_frame(self, facts=None) -> Iterator[None]:
+    def nonnull_frame(self, facts=None, *, reachable: bool = False) -> Iterator[None]:
+        """Analyze within a branch; ``reachable`` starts a fresh body (a lambda) that is always reached."""
         previous = self._nonnull_paths
+        previous_unreachable = self._flow_unreachable
         self._nonnull_paths = set(previous if facts is None else facts)
+        if reachable:
+            self._flow_unreachable = False
         try:
             yield
         finally:
             self._nonnull_paths = previous
+            self._flow_unreachable = previous_unreachable
 
     @contextmanager
     def assignment_target(self) -> Iterator[None]:

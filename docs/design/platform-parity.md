@@ -154,6 +154,8 @@ Dependencies: P0. Exit: both frontends build and run an ABI/callback fixture
 on **Windows x64, iOS arm64 simulator/device, Android arm64/device + x86_64
 emulator**; Windows arm64 joins no later than W2. No provider alias to a host OS.
 
+Stage 24's design for this milestone is [platform-target-contract.md](platform-target-contract.md).
+
 - Extend shared target contracts, both package resolvers, provider filters,
   native semantic extraction, link-plan codec/reader and artifact cache keys.
   Specify target triple, environment, deployment/API minimum, sysroot/SDK,
@@ -300,6 +302,8 @@ that works outside the checkout with Unicode/space-containing paths.
   GUIDs, calling conventions, COM AddRef/Release, out parameters, callbacks,
   apartment/thread affinity and asynchronous cancellation. Verify actual SDK
   types rather than manually transcribing layouts or vtables.
+  The ownership model and implementation order are in
+  [native-interop-ownership.md](native-interop-ownership.md).
 - Keep the working Zig/MinGW route first. Qualify a Windows SDK/clang-cl or
   equivalent MSVC-ABI route when required by dependencies; state what remains
   unsupported with MSVC itself rather than implying toolchain interchangeability.

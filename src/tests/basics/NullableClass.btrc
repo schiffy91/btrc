@@ -6,7 +6,7 @@ class Box {
 	public int getVal() { return self.val; }
 }
 int main() {
-	Box b = new Box(42);
+	Box? b = new Box(42);
 	print(b?.val);
 	delete b;
 	b = null;
