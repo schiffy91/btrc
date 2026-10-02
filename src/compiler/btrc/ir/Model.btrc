@@ -914,12 +914,16 @@ class IRGpuKernel {
  * so stage boundaries never exchange a lowering context or guess at names. */
 class IRTemporaryNames {
 	private int nextIdentity;
+	/* Every name `fresh` returned; the optimizer renumbers them per function. */
+	public Map<string, bool> generated = {};
 
 	public IRTemporaryNames() { self.nextIdentity = 0; }
 
 	public string fresh(string prefix) {
 		self.nextIdentity = self.nextIdentity + 1;
-		return prefix + "_" + Strings.fromInt(self.nextIdentity);
+		string name = prefix + "_" + Strings.fromInt(self.nextIdentity);
+		self.generated.put(name, true);
+		return name;
 	}
 }
 

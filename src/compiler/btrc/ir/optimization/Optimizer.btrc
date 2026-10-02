@@ -79,9 +79,10 @@ class IROptimizer {
 			self.eliminateUnreachable(module);
 		}
 		BtrccPhaseTimer.mark("o-dce");
-		CycleReturnBoundaryLowerer(module.temporaryNames).installProgramBoundary(module);
+		CycleReturnBoundaryLowerer().installProgramBoundary(module);
 		self.normalizeUnusedParameters(module);
 		self.orderPrototypes(module);
+		self.renumberTemporaries(module);
 		BtrccPhaseTimer.mark("o-params");
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
 		Map<string, bool> requiredHelpers = references.requiredBy(module);
@@ -119,9 +120,10 @@ class IROptimizer {
 		for definition in module.functions {
 			if (self.droppedInvalid.has(definition.name)) { self.droppedInvalid.remove(definition.name); }
 		}
-		CycleReturnBoundaryLowerer(module.temporaryNames).installProgramBoundaryWhen(module, programCyclableRelease);
+		CycleReturnBoundaryLowerer().installProgramBoundaryWhen(module, programCyclableRelease);
 		self.normalizeUnusedParameters(module);
 		self.orderPrototypes(module);
+		self.renumberTemporaries(module);
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
 		Map<string, bool> requiredHelpers = references.requiredBy(module);
 		self.runtimeHelpers.materializeInto(module, requiredHelpers, references.requiredHeaders());
@@ -865,6 +867,127 @@ class IROptimizer {
 		m.typedefDefs = typedefs;
 		m.taggedUnionDefs = tagged;
 		m.structDefs = structs;
+	}
+
+	/* Number each function's compiler temporaries from 1, in allocation
+	 * order, skipping any number a non-temporary name in the function already
+	 * spells. Lowering draws every temporary from one counter, so without
+	 * this a function's names depended on how much else was lowered first,
+	 * including functions DCE later removed. Mirrors
+	 * IROptimizer._renumber_temporaries in the Python owner. */
+	private int temporaryNumber(string name) {
+		int index = name.length() - 1;
+		while (index >= 0 && name[index] >= '0' && name[index] <= '9') { index = index - 1; }
+		if (index <= 0 || index == name.length() - 1 || name[index] != '_') { return 0; }
+		return Strings.toInt(name.substring(index + 1, name.length() - index - 1));
+	}
+
+	private void collectTemporaryNames(IRNode? node, Map<string, bool> generated, Map<string, int> temporaries, Vector<string> order, Map<string, bool> occupied) {
+		if (node == null) { return; }
+		if (node.kind == IRK_VAR || node.kind == IRK_VAR_DECL) {
+			if (generated.has(node.name)) {
+				if (!temporaries.has(node.name)) {
+					temporaries.put(node.name, self.temporaryNumber(node.name));
+					order.push(node.name);
+				}
+			} else {
+				occupied.put(node.name, true);
+			}
+		}
+		self.collectTemporaryNames(node.left, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.right, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.operand, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.expr, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.obj, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.index, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.condition, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.trueExpr, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.falseExpr, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.arraySize, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.init, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.value, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.target, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.thenBlock, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.elseBlock, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.body, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.update, generated, temporaries, order, occupied);
+		self.collectTemporaryNames(node.result, generated, temporaries, order, occupied);
+		for argument in node.args() { self.collectTemporaryNames(argument, generated, temporaries, order, occupied); }
+		for statement in node.stmts() { self.collectTemporaryNames(statement, generated, temporaries, order, occupied); }
+	}
+
+	private void renameTemporaries(IRNode? node, Map<string, string> renamed) {
+		if (node == null) { return; }
+		if ((node.kind == IRK_VAR || node.kind == IRK_VAR_DECL) && renamed.has(node.name)) { node.name = renamed.get(node.name); }
+		if (renamed.has(node.storageRoot)) { node.storageRoot = renamed.get(node.storageRoot); }
+		if (renamed.has(node.arrayStorageRoot)) { node.arrayStorageRoot = renamed.get(node.arrayStorageRoot); }
+		IRCleanupSlot? slot = node.cleanupSlot;
+		if (slot != null && renamed.has(slot.name)) { slot.name = renamed.get(slot.name); }
+		self.renameTemporaries(node.left, renamed);
+		self.renameTemporaries(node.right, renamed);
+		self.renameTemporaries(node.operand, renamed);
+		self.renameTemporaries(node.expr, renamed);
+		self.renameTemporaries(node.obj, renamed);
+		self.renameTemporaries(node.index, renamed);
+		self.renameTemporaries(node.condition, renamed);
+		self.renameTemporaries(node.trueExpr, renamed);
+		self.renameTemporaries(node.falseExpr, renamed);
+		self.renameTemporaries(node.arraySize, renamed);
+		self.renameTemporaries(node.init, renamed);
+		self.renameTemporaries(node.value, renamed);
+		self.renameTemporaries(node.target, renamed);
+		self.renameTemporaries(node.thenBlock, renamed);
+		self.renameTemporaries(node.elseBlock, renamed);
+		self.renameTemporaries(node.body, renamed);
+		self.renameTemporaries(node.update, renamed);
+		self.renameTemporaries(node.result, renamed);
+		for argument in node.args() { self.renameTemporaries(argument, renamed); }
+		for statement in node.stmts() { self.renameTemporaries(statement, renamed); }
+	}
+
+	private void renumberBody(Vector<IRParam> params, IRNode? body, Map<string, bool> generated) {
+		Map<string, int> temporaries = {};
+		Vector<string> order = [];
+		Map<string, bool> occupied = {};
+		for parameter in params { occupied.put(parameter.name, true); }
+		self.collectTemporaryNames(body, generated, temporaries, order, occupied);
+		if (order.len == 0) { return; }
+		/* Stable insertion sort by the allocation counter. */
+		Vector<string> sorted = [];
+		for name in order {
+			int position = sorted.len;
+			while (position > 0 && temporaries.get(sorted.get(position - 1)) > temporaries.get(name)) { position = position - 1; }
+			sorted.insert(position, name);
+		}
+		/* Two phases through placeholders no identifier can spell, so a node
+		 * the IR shares between two places is never renamed twice. */
+		Map<string, string> placeholders = {};
+		Map<string, string> finals = {};
+		int counter = 0;
+		for name in sorted {
+			if (temporaries.get(name) == 0) { continue; }
+			string prefix = name.substring(0, name.length() - Strings.fromInt(temporaries.get(name)).length() - 1);
+			string candidate = "";
+			while (true) {
+				counter = counter + 1;
+				candidate = prefix + "_" + Strings.fromInt(counter);
+				if (!occupied.has(candidate)) { break; }
+			}
+			string placeholder = "#" + Strings.fromInt(counter);
+			placeholders.put(name, placeholder);
+			finals.put(placeholder, candidate);
+		}
+		self.renameTemporaries(body, placeholders);
+		self.renameTemporaries(body, finals);
+	}
+
+	private void renumberTemporaries(IRModule module) {
+		Map<string, bool> generated = module.temporaryNames.generated;
+		if (generated.len == 0) { return; }
+		for definition in module.functions { self.renumberBody(definition.params, definition.body, generated); }
+		for declaration in module.objectiveCClasses {
+			for method in declaration.methods { self.renumberBody(method.params, method.body, generated); }
+		}
 	}
 
 	/* Order prototypes independently of the lowering phase that declared

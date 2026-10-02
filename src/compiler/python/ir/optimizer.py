@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import re
 from collections.abc import Iterable
+from dataclasses import replace
 
 from ..abi.freestanding import FreestandingRuntime
 from ..runtime.catalog import RuntimeHelperCatalog
@@ -13,6 +14,7 @@ from .nodes import (
     IRBlock,
     IRCall,
     IRCast,
+    IRCleanupSlot,
     IRCxxNew,
     IRDoWhile,
     IREnumDef,
@@ -31,6 +33,7 @@ from .nodes import (
     IRNode,
     IRObjectiveCBlock,
     IRObjectiveCMessage,
+    IRParam,
     IRReturn,
     IRStatementSequence,
     IRStmtExpr,
@@ -127,6 +130,7 @@ class IROptimizer:
             self._prune_runtime_support()
         self._normalize_unused_parameters()
         self._order_prototypes()
+        self._renumber_temporaries()
         if not self._module.freestanding:
             # Keep the standalone Stage-5 API complete; the application
             # finalizer repeats this idempotently while deriving the remaining
@@ -678,6 +682,73 @@ class IROptimizer:
         providers: dict[str, set[DeclarationKey]],
     ) -> set[DeclarationKey]:
         return {key for name in names for key in providers.get(name, ())}
+
+    def _renumber_temporaries(self) -> None:
+        """Number each function's compiler temporaries from 1, in allocation order.
+
+        Lowering draws every temporary from one counter, so a function's names
+        depended on how much else was lowered before it, including functions
+        dead-code elimination later removed. Renumbering per function keeps
+        each prefix and the allocation order and skips any number a
+        non-temporary name in the function already spells. btrcc's optimizer
+        applies the same rule.
+        """
+        generated = self._module.temporary_names
+        if not generated:
+            return
+        bodies = [*self._module.function_defs]
+        for declaration in self._module.objective_c_classes:
+            bodies.extend(declaration.methods)
+        for function in bodies:
+            nodes = tuple(IRNode.walk_value(function))
+            temporaries: dict[str, int] = {}
+            occupied: set[str] = set()
+            for node in nodes:
+                name = getattr(node, "name", None) if isinstance(node, (IRVar, IRVarDecl, IRParam)) else None
+                if not isinstance(name, str):
+                    continue
+                if name in generated:
+                    prefix, _, number = name.rpartition("_")
+                    temporaries[name] = int(number) if number.isdigit() and prefix else 0
+                else:
+                    occupied.add(name)
+            if not temporaries:
+                continue
+            # Two phases through placeholders no identifier can spell, so a
+            # node the IR shares between two places is never renamed twice.
+            placeholders: dict[str, str] = {}
+            finals: dict[str, str] = {}
+            counter = 0
+            for name in sorted(temporaries, key=lambda item: temporaries[item]):
+                if not temporaries[name]:
+                    continue
+                prefix = name.rpartition("_")[0]
+                while True:
+                    counter += 1
+                    candidate = f"{prefix}_{counter}"
+                    if candidate not in occupied:
+                        break
+                placeholders[name] = f"#{counter}"
+                finals[f"#{counter}"] = candidate
+            self._rename_temporaries(nodes, placeholders)
+            self._rename_temporaries(nodes, finals)
+
+    @staticmethod
+    def _rename_temporaries(nodes: tuple[object, ...], renamed: dict[str, str]) -> None:
+        renamed_slots: dict[int, IRCleanupSlot] = {}
+        for node in nodes:
+            if isinstance(node, (IRVar, IRVarDecl)) and node.name in renamed:
+                node.name = renamed[node.name]
+            slot = getattr(node, "cleanup_slot", None)
+            if isinstance(slot, IRCleanupSlot) and slot.name in renamed:
+                # A declaration and its registration share one slot record.
+                if id(slot) not in renamed_slots:
+                    renamed_slots[id(slot)] = replace(slot, name=renamed[slot.name])
+                node.cleanup_slot = renamed_slots[id(slot)]
+            for root_field in ("storage_root", "array_storage_root"):
+                root = getattr(node, root_field, None)
+                if isinstance(root, str) and root in renamed:
+                    setattr(node, root_field, renamed[root])
 
     def _order_prototypes(self) -> None:
         """Order prototypes independently of the lowering phase that declared them.
