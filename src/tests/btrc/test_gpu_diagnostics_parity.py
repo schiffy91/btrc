@@ -229,6 +229,11 @@ INVALID_PROBES = (
         GpuDiagnostic("@gpu function 'k': for-loop initializer/update must update a variable or buffer element", 2, 24),
     ),
     GpuProbe(
+        "stmt-for-bad-comma-update",
+        "@gpu void k(int[] xs) {\nfor (int j = 0; j < 3; j++, j + 1) { xs[0] = j; }\n}\nint main() { return 0; }\n",
+        GpuDiagnostic("@gpu function 'k': for-loop initializer/update must update a variable or buffer element", 2, 29),
+    ),
+    GpuProbe(
         "stmt-if-int-condition",
         "@gpu void k(int[] xs) {\nint i = gpu_id();\nif (i) { xs[i] = 1; }\n}\nint main() { return 0; }\n",
         GpuDiagnostic("@gpu function 'k': control-flow condition must be bool, got 'int'", 3, 5),
@@ -580,6 +585,11 @@ VALID_PROBES = (
     GpuProbe(
         "valid-for-loop",
         "@gpu void k(int[] xs) {\nint i = gpu_id();\nint total = 0;\nfor (int j = 0; j < 4; j++) { if (j == 2) { continue; } total += j; }\nxs[i] = total;\n}\nint main() { int[] xs = {1, 2, 3, 4}; k(xs); return 0; }\n",
+        kernels=("k",),
+    ),
+    GpuProbe(
+        "valid-for-comma-header",
+        "@gpu void k(int[] xs) {\nint i = gpu_id();\nint total = 0;\nint j;\nint m;\nfor (j = 0, m = 3; j < 4; j++, m--) { total += j * m; }\nfor (int a = 0, b = 1; a < 2; a++, b += a) { total += b; }\nxs[i] = total;\n}\nint main() { int[] xs = {1, 2, 3, 4}; k(xs); return 0; }\n",
         kernels=("k",),
     ),
     GpuProbe(

@@ -499,6 +499,8 @@ class ControlFlowValidator {
 		while (caseIndex < statement.cases().len) {
 			Node caseClause = statement.cases().get(caseIndex);
 			self.validateExpression(caseClause.valueNode,  vars);
+			Map<string, bool> noCaseReservedNames = {};
+			self.names.validateDirectLocalNameList(caseClause.bodyNodeList(), noCaseReservedNames);
 			Map<string, Node> caseVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> previousCaseLocals = self.types.cloneFlags(self.state.localBindings);
 			Map<string, bool> previousCaseBorrowed = self.types.cloneFlags(self.state.borrowedBindings);
@@ -602,7 +604,7 @@ class ControlFlowValidator {
 			}
 			declared = self.storage.inferredBindingValueType(actual, declaration.initializer, vars);
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer) && !self.storage.charArrayStringInitializer(declared, declaration.initializer, vars)) {
-			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'", declaration);
+			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared), declaration);
 		}
 		self.ownership.rejectThreadHandleCopy(declared, actual, declaration.initializer, declaration);
 		vars.put(declaration.name, declared);
@@ -649,7 +651,12 @@ class ControlFlowValidator {
 		Map<string, Node> loopVars = TypeValidator.cloneTypes(vars);
 		if (statement.init != null) {
 			if (statement.init.kind == NK_FOR_INIT_VAR) {
+				Map<string, bool> initNames = {};
 				for declaration in statement.init.declarations() {
+					if (initNames.has(declaration.name)) {
+						TypeValidator.failAtName("Duplicate variable name '" + declaration.name + "' in the same scope", declaration);
+					}
+					initNames.put(declaration.name, true);
 					self.validateVariable(declaration,  loopVars);
 					Node? declarationType = declaration.type;
 					if (declarationType == null) {

@@ -16,6 +16,7 @@ from src.compiler.python.syntax.ast.generated import (
     CastExpr,
     CForStmt,
     ClassDecl,
+    CommaExpr,
     ElseBlock,
     EnumDecl,
     ExprStmt,
@@ -31,6 +32,8 @@ from src.compiler.python.syntax.ast.generated import (
     StringLiteral,
     StructDecl,
     TryCatchStmt,
+    TupleLiteral,
+    TypedefDecl,
     UnaryExpr,
 )
 
@@ -522,3 +525,90 @@ class TestFunctionPointerDeclarators:
     def test_refused_declarator_forms(self, source):
         with pytest.raises(ParseError):
             parse(source)
+
+
+# ---- declarator lists: several declarators per declaration (C row 3, D20) ----
+
+
+class TestMultipleDeclarators:
+    def test_star_and_suffix_bind_to_each_declarator(self):
+        body = parse("void __t__() { int *p, value, *q = null, a[3]; }").declarations[0].body.statements
+        assert [(s.name, s.type.pointer_depth, s.type.is_array) for s in body] == [
+            ("p", 1, False),
+            ("value", 0, False),
+            ("q", 1, False),
+            ("a", 0, True),
+        ]
+        # The first declarator keeps the declaration's start; later ones start
+        # at their first token (`*` or the name).
+        assert [(s.col, s.name_col) for s in body] == [(16, 21), (24, 24), (31, 32), (42, 42)]
+        assert body[2].initializer is not None and body[1].initializer is None
+
+    def test_specifier_is_copied_per_declarator(self):
+        body = parse("void __t__() { const Vector<int> a = [], *b; int[] c = {1}, d = {2}; }").declarations[0]
+        a, b, c, d = body.body.statements
+        assert b.type.base == "Vector" and b.type.is_const and b.type.pointer_depth == 1
+        assert b.type.generic_args == a.type.generic_args
+        assert b.type.generic_args[0] is not a.type.generic_args[0]
+        assert c.type.is_array and d.type.is_array
+
+    def test_fields_typedefs_and_globals_splice(self):
+        program = parse(
+            "struct P { int x, *y; };\nclass C { public int a = 1, b; }\ntypedef int A, *B;\nint g = 1, *h;\n"
+        ).declarations
+        struct, klass, alias_a, alias_b, global_g, global_h = program
+        assert [(f.name, f.type.pointer_depth, f.col) for f in struct.fields] == [("x", 0, 16), ("y", 1, 20)]
+        assert [(m.name, m.access, m.initializer is not None) for m in klass.members] == [
+            ("a", "public", True),
+            ("b", "public", False),
+        ]
+        assert isinstance(alias_a, TypedefDecl) and (alias_b.alias, alias_b.original.pointer_depth) == ("B", 1)
+        assert (global_g.name, global_h.name, global_h.type.pointer_depth) == ("g", "h", 1)
+
+    def test_for_initializer_holds_every_declarator(self):
+        loop = parse_stmt("for (int i = 0, *p = null, j = 9; i < j; i++) {}")
+        assert isinstance(loop, CForStmt)
+        assert [d.name for d in loop.init.declarations] == ["i", "p", "j"]
+
+    @pytest.mark.parametrize(
+        ("source", "message"),
+        [
+            ("void __t__() { int a, ; }", "Expected declarator name, got SEMICOLON"),
+            ("int f(), x;", "Function 'f' must be declared on its own"),
+            ("void __t__() { int x, f(); }", "Function 'f' must be declared on its own"),
+            ("void __t__() { int? a, b; }", "A nullable declaration declares one variable"),
+            ("void __t__() { var a = 1, b = 2; }", "'var' declares one variable"),
+            ("var a = 1, b = 2;", "'var' declares one variable"),
+            ("typedef int A, B[3];", "Expected SEMICOLON, got LBRACKET"),
+        ],
+    )
+    def test_refused_declarator_lists(self, source, message):
+        with pytest.raises(ParseError, match=message):
+            parse(source)
+
+
+# ---- comma_expr: C's comma operator in for headers only (D19 row 19) ----
+
+
+class TestForHeaderComma:
+    def test_initializer_and_update_take_comma_lists(self):
+        loop = parse_stmt("for (i = 0, j = 9; i < j; i++, j--) {}")
+        assert isinstance(loop.init.expression, CommaExpr)
+        assert isinstance(loop.update, CommaExpr)
+        assert [type(e) for e in loop.update.elements] == [UnaryExpr, UnaryExpr]
+        first = loop.init.expression.elements[0]
+        assert (loop.init.expression.line, loop.init.expression.col) == (first.line, first.col)
+
+    def test_one_operand_stays_a_plain_expression(self):
+        loop = parse_stmt("for (i = 0; i < 3; i++) {}")
+        assert isinstance(loop.update, UnaryExpr)
+        assert not isinstance(loop.init.expression, CommaExpr)
+
+    def test_parenthesized_comma_list_stays_a_tuple(self):
+        assert isinstance(parse_expr("(1, 2)"), TupleLiteral)
+        loop = parse_stmt("for (t = (1, 2); i < 3; i++) {}")
+        assert isinstance(loop.init.expression.value, TupleLiteral)
+
+    def test_condition_takes_one_expression(self):
+        with pytest.raises(ParseError, match="Expected SEMICOLON, got COMMA"):
+            parse_stmt("for (i = 0; i < 2, j < 3; i++) {}")

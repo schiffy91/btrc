@@ -379,3 +379,30 @@ def test_a_loop_guard_still_refines_every_iteration():
     """)
 
     assert warnings == []
+
+
+def test_for_header_comma_operands_update_flow_like_single_expressions():
+    # C row 19: each comma operand records and invalidates facts exactly as
+    # the same assignment alone in the header does.
+    warnings = _nullable_warnings("""
+        int cleared(Box? box) {
+            int index;
+            if (box != null) {
+                for (index = 0, box = null; index < 1; index++) {}
+                return box.value;
+            }
+            return 0;
+        }
+        int filled() {
+            int index;
+            Box? box = null;
+            for (index = 0, box = new Box(4); index < 1; index++) {}
+            return box.value;
+        }
+    """)
+
+    # Only `cleared` warns: its operand nulled the guarded path, and
+    # `filled`'s operand stored a fresh object.
+    assert len(warnings) == 1
+    prelude_lines = PRELUDE.count("\n")
+    assert f"{prelude_lines + 6}:" in warnings[0]

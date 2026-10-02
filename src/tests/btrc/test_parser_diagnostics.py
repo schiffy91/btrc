@@ -192,6 +192,48 @@ def test_keyword_member_names_match_reference_ast(selfhost_drivers: dict[str, Pa
     assert parsed.stdout == reference.stdout
 
 
+def test_declarator_lists_match_reference_ast(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
+    """Several declarators splice identically, positions and copied specifiers included (C row 3)."""
+    program = tmp_path / "Declarators.btrc"
+    program.write_text(
+        "struct Link { int *target, value, cells[2]; };\n"
+        "typedef const int Count, *CountPointer;\n"
+        "static int first = 1, *second, third[3] = {1, 2, 3};\n"
+        "class Box { public Vector<int> left = [], *right; private int[] a, b; }\n"
+        "void inspect() {\n"
+        "\tint *pointer, value = 2, *other = &value;\n"
+        "\tMap<string, int> m = {}, *n;\n"
+        "\tfor (int i = 0, *p = null, j = 9; i < j; i++) {}\n"
+        "\tswitch (value) { case 1: int a = 1, b = a; break; default: break; }\n"
+        "}\n"
+    )
+    parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", str(program)], timeout=15)
+    assert parsed.returncode == 0, parsed.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert parsed.stdout == reference.stdout
+
+
+def test_for_header_commas_match_reference_ast(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
+    """A for-header comma list is one CommaExpr at its first operand; a tuple stays a tuple (C row 19)."""
+    program = tmp_path / "Commas.btrc"
+    program.write_text(
+        "void inspect(int* values, int count) {\n"
+        "\tint i;\n"
+        "\tint j;\n"
+        "\tfor (i = 0, j = count - 1; i < j; i++, j--) { values[i] = j; }\n"
+        "\tfor (int a = 0, b = 1; a < 2; a++, b += a, values[0] = b) {}\n"
+        "\tfor (i = 0; i < 1; i++) {}\n"
+        "\t(int, int) pair = (1, 2);\n"
+        "}\n"
+    )
+    parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", str(program)], timeout=15)
+    assert parsed.returncode == 0, parsed.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert parsed.stdout == reference.stdout
+
+
 @pytest.mark.skipif(not Path("/dev/full").exists(), reason="requires /dev/full")
 def test_parser_driver_reports_stdout_failure(
     selfhost_drivers: dict[str, Path],

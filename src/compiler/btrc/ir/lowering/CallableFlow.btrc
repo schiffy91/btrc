@@ -608,6 +608,12 @@ class CallableFlowState {
 			}
 			return valueAbi;
 		}
+		if (expression.kind == NK_COMMA_EXPR) {
+			// C's comma operator: each operand in order; the last is the value.
+			int lastAbi = 0;
+			for element in expression.elements() { lastAbi = self.evaluateExpression(element, values, currentContext); }
+			return lastAbi;
+		}
 		if (expression.kind == NK_TERNARY_EXPR) {
 			self.evaluateExpression(expression.condition, values, currentContext);
 			CallableFlowSnapshot branchEntry = self.snapshot();

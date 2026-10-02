@@ -130,6 +130,123 @@ or adjacent string.
   both compilers. A `(` list not followed by `;` or `{` is the ordinary
   `Expected LBRACE` error, not an unnamed-parameter refusal.
 
+## Stage 16 r03: several declarators
+
+- **One declarator parser per compiler.** `Parser._parse_declarators` and
+  `Parser.parseDeclarators` read a declaration's declarator list once the
+  first name and its array suffix are read: the first declarator's
+  initializer, then per `,` its own `{*}`, name, array suffix and
+  initializer. Locals and the C-`for` initializer (`_parse_declaration_head`,
+  `parseVarDeclStmtsInto`), globals (`_parse_function_or_var_decl`,
+  `parseFunctionOrVarDeclInto`), struct fields, class fields and typedefs all
+  call it, and the declarators come back as `VarDeclStmt`s that the field,
+  member and typedef callers re-shape into `FieldDef`, `FieldDecl` and
+  `TypedefDecl`. Statement lists splice through `_parse_block_item` /
+  `parseBlockItemInto`; `_lookahead_is_var_decl` / `lookaheadIsVarDecl` treat
+  `,` after the first name as a declaration boundary.
+- **Specifier versus declarator.** `_parse_type_expr` still reads the first
+  declarator's `*`s greedily. Each later declarator starts from a deep copy of
+  the specifier (`copy.deepcopy`; btrc's `Parser.copySpecifier`) with no
+  pointer level and no suffix extent, then binds its own `*`s and `[n]`, so
+  `int *p, v;` makes `v` an `int` (D20). The specifier is everything else
+  `_parse_type_expr` reads: qualifiers and storage class, the base, generic
+  arguments, and btrc's prefix `[]`, so `int[] a, b;` and `Vector<int> a, b;`
+  declare two arrays and two vectors. The copied `TypeExpr` keeps the
+  specifier's position.
+- **Positions.** The first declarator keeps the declaration's start (the
+  access keyword for a class field, `typedef` for an alias); each later one
+  starts at its first token, `*` or its name. A `FieldDef` stays positioned at
+  its name, as before. A single declarator parses byte-identically to before.
+- **Decisions.** Class fields are in scope: `public int x = 1, y;` declares two
+  fields with the same access, each with its own initializer; a property
+  declares one name. `typedef int A, *B;` declares one alias per declarator,
+  `*` bound to each; a typedef declarator takes no array suffix until Stage
+  18. `T? a, b` is refused at the `,` (`A nullable declaration declares one
+  variable: write one declaration per nullable variable`), and so is a second
+  `var` declarator (`'var' declares one variable: write one 'var' declaration
+  per variable`). A function declarator beside others is legal C and refused
+  at its name either way round (`Function 'f' must be declared on its own, not
+  beside other declarators`). A missing later name is `Expected declarator
+  name, got …`; a keyword there is the reserved-word refusal. `int a[], b;`
+  meets the ordinary unsized-array refusal for `a` alone.
+- **Semantics.** Splicing makes each declarator an ordinary declaration, so
+  the analyzer and lowering need no change: duplicates use the existing
+  per-scope, global, field and typedef checks; a name enters scope after its
+  own declarator (`int a = b, b = 1;` is `Unresolved identifier 'b'`);
+  initializers lower in source order; each declarator gets its own `IRVarDecl`
+  and cleanup slot. btrcc now reports a duplicate local at its name with the
+  reference's wording and words a duplicate struct field as it does, and it
+  checks a C-`for` initializer's declarators for duplicates (it used to emit
+  C that redeclared the name). A duplicate class field or typedef and an
+  unknown name keep the two compilers' existing wordings; the refusal test
+  pins each per compiler. The parity review found that btrcc never checked a
+  `switch` case's own declarations for duplicates (`case 1: int a, a;`); it
+  now does, as the reference does, with each case its own scope in both. A C-`for` initializer with several declarators keeps them
+  in `ForInitVar.declarations`, and both compilers lower every for-init
+  declaration (one or many) to declarations in a block enclosing the `IRFor`,
+  as single declarations already did, so the loop variables keep the loop's
+  scope.
+- **Tooling.** LSP document symbols list every spliced field and typedef with
+  its own range, and global variables as `Variable` symbols. The formatter
+  needed no change (it lays out tokens).
+- **Tests.** `c_compat/MultipleDeclarators.btrc` covers locals, `int
+  *pointer, value;`, globals, struct and class fields, typedefs, the C-`for`
+  initializer, left-to-right side effects and per-declarator ARC (creation and
+  destruction counts across a block and a loop with `continue`). The refusals
+  above and the duplicate, scope and binding cases are pinned in
+  `btrc/test_c_compatibility_refusals.py`; inventory rows
+  `r03-multiple-local-declarators`, `r03-pointer-declarator-binding` and
+  `r03-multiple-field-declarators` are PASS.
+
+## Stage 16 r19: the comma operator in `for` headers
+
+- **Parser.** `Parser._parse_for_header_expr` / `Parser.parseForHeaderExpression`
+  read the C-`for` initializer (when it is not a declaration) and the update:
+  two or more operands become `CommaExpr(elements)` positioned at the first
+  operand, one stays a plain expression. The condition still takes one
+  expression (`Expected SEMICOLON, got COMMA`), and `(a, b)` everywhere else
+  stays a `TupleLiteral` (D19 row 19).
+- **Analyzer.** A `CommaExpr` types as its last operand. Each operand is
+  analyzed in order and refused if it observes a `Thread` handle, as the
+  single header expression always was, and the reference's nullable-flow
+  effects (an assignment recording or clearing a non-null fact) apply per
+  operand, in order. In btrcc the comma is handled by the
+  type resolver, the expression validator, the raw-parameter safety walk
+  (`Borrows.rawParamExprSafe`) and the method-generic and generic-instance
+  collectors; the value-origin and ownership classifiers never see one,
+  because a `CommaExpr` is only ever the discarded root of a header.
+- **Lowering.** Both compilers lower it to `IRCommaExpr`, each operand exactly
+  as that header position lowers one expression, with every operand cast to
+  `void`: both positions discard the value, and strict C11 otherwise warns
+  about an unused operand. A
+  discarded fresh managed result in a header is not released, with or
+  without a comma; that predates r19 and is recorded in
+  `docs/known-language-gaps.md`'s open gaps.
+- **Realtime.** The bounded-loop proof (`RealtimeAnalyzer._canonical_c_for`,
+  btrc `canonicalCFor`) now takes the induction variable from the declarator
+  the condition compares, among any number of declarators, and accepts an
+  update with exactly one canonical step of it. Every other declarator and
+  update operand is checked, like the body, under a guard that forbids
+  writing or taking the address of the induction variable or its bound (a
+  declarator may declare the bound itself), so
+  `for (int i = 0, n = 10, *q = &n; i < n; i++) { (*q)++; }` stays unproven.
+- **GPU.** A kernel's comma header validates each operand as an update and
+  emits one WGSL statement per operand.
+- **Diagnostics.** A tuple literal assigned to or initializing a non-tuple
+  adds `; btrc reads a parenthesized comma list as a tuple, not C's comma
+  operator` in both compilers (`TypeSystem.comma_tuple_hint`,
+  `TypeValidator.commaTupleHint`). The initializer diagnostic is identical;
+  the assignment diagnostic keeps each compiler's existing wording
+  (`Cannot assign … to 'int'` against btrcc's `Assignment expects 'int' but
+  got …`), both with the hint, pinned per compiler.
+- **Tests.** `c_compat/CommaForHeaders.btrc` (two-index loops with assignment
+  and declaration initializers, operand order including `continue`, managed
+  operands); the realtime suites accept multi-update loops and refuse a double
+  step, a guarded write and an induction write in another initializer, in
+  both compilers; a GPU probe emits identical WGSL; inventory row
+  `r19-comma-in-for-header` is PASS and `r19-comma-operator-expression` carries
+  the hint.
+
 ## Stage 16 r07: function-pointer declarators
 
 - **One type.** `R (*name)(params)` is C's spelling of
@@ -154,8 +271,19 @@ or adjacent string.
   pointer. In the pointee's list, `()` and `(void)` are empty, names are
   documentation only, an array parameter is a pointer (C11 6.7.6.3p7), and a
   parameter may itself be a function pointer.
+- **With several declarators (r03).** A function-pointer declarator is one
+  more declarator form in r03's list owner (`_parse_declarators` /
+  `parseDeclarators`): it may come first or later, beside plain ones, each
+  with its own initializer, as in `int (*f)(int) = g, v;`,
+  `int *p, (*q)(void);`, `typedef int (*A)(int), (*B)(void);` and the C-`for`
+  initializer. Every declarator starts from the specifier as parsed before
+  the first declarator (`_declarator_specifier` / `declaratorSpecifier`), so
+  `*`s written before a function-pointer declarator are its result's
+  (`char *(*f)(int), c;` makes `c` a `char`), and a storage class moves to
+  each declared pointer. A function declarator beside others stays r03's
+  refusal.
 - **D20 disambiguation, identical in both parsers.** A statement
-  `T (*name[n])(...)` followed by `=` or `;` is a declaration when the head
+  `T (*name[n])(...)` followed by `=`, `;` or `,` is a declaration when the head
   `T` is not a bare identifier (a keyword, qualifier, `struct`/`enum`/`union`
   or generic arguments), or an `=` follows (a call result is never
   assignable), or the pointee list is `(void)` or has an element an

@@ -1,0 +1,76 @@
+/* C row 19: the comma operator in a C-for initializer and update (D19).
+ * Operands run left to right and every value but the last is discarded.
+ * Outside a for header `(a, b)` stays a tuple. */
+#include <assert.h>
+#include <string.h>
+
+char order[32];
+int orderLength = 0;
+
+int record(char tag, int value) {
+	order[orderLength] = tag;
+	orderLength++;
+	order[orderLength] = '\0';
+	return value;
+}
+
+void reverse(int* values, int count) {
+	int i;
+	int j;
+	for (i = 0, j = count - 1; i < j; i++, j--) {
+		int saved = values[i];
+		values[i] = values[j];
+		values[j] = saved;
+	}
+}
+
+void checkTwoIndexLoops() {
+	int values[5] = {1, 2, 3, 4, 5};
+	reverse(values, 5);
+	assert(values[0] == 5 && values[2] == 3 && values[4] == 1);
+	int steps = 0;
+	for (int low = 0, high = 9; low < high; low++, high--) { steps++; }
+	assert(steps == 5);
+	int sum = 0;
+	int k;
+	int doubled;
+	for (k = 0, doubled = 0; k < 4; k++, doubled += 2) { sum += doubled; }
+	assert(sum == 0 + 2 + 4 + 6 && doubled == 8);
+	print("PASS: two-index loops");
+}
+
+void checkOrder() {
+	int a;
+	int b;
+	int c = 0;
+	for (a = record('a', 0), b = record('b', 1); a < 2; a++, b = record('u', b + 1), c = record('v', a)) {}
+	assert(strcmp(order, "abuvuv") == 0);
+	assert(a == 2 && b == 3 && c == 2);
+	int visits = 0;
+	int skipped = 0;
+	for (int i = 0, j = 10; i < 6; i++, j--) {
+		if (i % 2 == 0) {
+			skipped++;
+			continue;
+		}
+		visits += j;
+		if (i == 5) { break; }
+	}
+	assert(skipped == 3 && visits == 9 + 7 + 5);
+	print("PASS: left-to-right operands");
+}
+
+void checkManagedOperands() {
+	string text = "";
+	int count;
+	for (count = 0, text = "<"; count < 3; count++, text = text + "-") {}
+	assert(count == 3 && text == "<---");
+	print("PASS: managed operands");
+}
+
+int main() {
+	checkTwoIndexLoops();
+	checkOrder();
+	checkManagedOperands();
+	return 0;
+}

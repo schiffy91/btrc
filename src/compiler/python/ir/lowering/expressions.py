@@ -40,6 +40,7 @@ from src.compiler.python.syntax.ast.generated import (
     CallExpr,
     CastExpr,
     CharLiteral,
+    CommaExpr,
     FieldAccessExpr,
     FloatLiteral,
     FStringExpr,
@@ -1987,6 +1988,17 @@ class ExpressionLowerer:
             return self._lower_sizeof(
                 node,
                 provenance,
+            )
+        if isinstance(node, CommaExpr):
+            # C's comma operator in a for header: each operand in order,
+            # lowered exactly as that header position lowers one expression.
+            # Both header positions discard the value, so every operand is
+            # cast to void.
+            return IRCommaExpr(
+                expressions=[
+                    IRCast(target_type=CType(text="void"), expr=self.lower_expr(element, provenance))
+                    for element in node.elements
+                ]
             )
         if isinstance(node, TernaryExpr):
             branch_ownership = self._ownership.conditional_branch_ownership(node, provenance)

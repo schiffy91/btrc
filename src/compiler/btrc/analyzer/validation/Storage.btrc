@@ -1476,7 +1476,7 @@ class StorageValidator {
 				TypeValidator.fail("Array-returning @gpu output element type is not compatible " + "with the target storage", expression);
 			}
 			if (!gpuTargetHasCapacity && !genericNull && !self.types.contextualAggregateInitializer(expression.valueNode) && !self.types.assignmentCompatible(target, source)) {
-				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'", expression);
+				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target), expression);
 			}
 			return;
 		}

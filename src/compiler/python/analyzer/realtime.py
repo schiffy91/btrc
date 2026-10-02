@@ -250,20 +250,40 @@ class RealtimeAnalyzer:
             self._visit(callable_, node.condition)
             return
         if isinstance(node, ast.CForStmt):
-            protected_names = self._canonical_c_for(node, callable_)
-            if protected_names is None:
+            canonical = self._canonical_c_for(node, callable_)
+            if canonical is None:
                 self._effect(callable_, "blocking", "unproven C-style loop", node)
                 self._visit(callable_, node.init)
                 self._visit(callable_, node.condition)
                 self._visit(callable_, node.update)
                 self._visit(callable_, node.body)
                 return
-            self._visit(callable_, node.init)
+            protected_names, induction, step = canonical
+            self._visit(callable_, induction)
+            # The other declarators run before the loop. Each may declare the
+            # bound but never write, or take the address of, the induction
+            # variable or a bound declared before it.
+            violated = False
+            for declaration in node.init.declarations:
+                if declaration is induction:
+                    continue
+                initializer = RealtimeLoopGuard(protected_names - {declaration.name}, node, violated=violated)
+                self._loop_guards.append(initializer)
+                try:
+                    self._visit(callable_, declaration)
+                finally:
+                    self._loop_guards.pop()
+                violated = initializer.violated
             self._visit(callable_, node.condition)
-            self._visit(callable_, node.update)
-            guard = RealtimeLoopGuard(protected_names, node)
+            self._visit(callable_, step)
+            guard = RealtimeLoopGuard(protected_names, node, violated=violated)
             self._loop_guards.append(guard)
             try:
+                # Every other update operand runs each iteration, so like the
+                # body it may write neither the induction variable nor its bound.
+                for update in self._for_update_operands(node.update):
+                    if update is not step:
+                        self._visit(callable_, update)
                 self._visit(callable_, node.body)
             finally:
                 self._loop_guards.pop()
@@ -560,28 +580,56 @@ class RealtimeAnalyzer:
             if declaration is not None:
                 self._source_call(callable_, declaration, loop)
 
-    def _canonical_c_for(self, loop: ast.CForStmt, callable_: RealtimeCallable) -> frozenset[str] | None:
-        if not isinstance(loop.init, ast.ForInitVar) or len(loop.init.declarations) != 1:
-            return None
-        declaration = loop.init.declarations[0]
-        if not isinstance(declaration, ast.VarDeclStmt) or not isinstance(declaration.initializer, ast.IntLiteral):
-            return None
-        induction_type = declaration.type or self.session.node_types.get(id(declaration.initializer))
-        if not self._integral_scalar(induction_type):
-            return None
+    @staticmethod
+    def _for_update_operands(update) -> list:
+        """A for update's operands: a comma expression's elements, or the one expression."""
+        if update is None:
+            return []
+        return list(update.elements) if isinstance(update, ast.CommaExpr) else [update]
 
+    def _canonical_c_for(
+        self, loop: ast.CForStmt, callable_: RealtimeCallable
+    ) -> tuple[frozenset[str], ast.VarDeclStmt, object] | None:
+        """Prove ``for (T i = literal, ...; i < bound; ..., i++, ...)`` bounded.
+
+        The induction variable is the declarator the condition compares; the
+        update must step it exactly once in the condition's direction. Returns
+        the protected names, the induction declaration and its step.
+        """
+        if not isinstance(loop.init, ast.ForInitVar):
+            return None
+        declarations = {
+            declaration.name: declaration
+            for declaration in loop.init.declarations
+            if isinstance(declaration, ast.VarDeclStmt)
+        }
         condition = loop.condition
         if not isinstance(condition, ast.BinaryExpr) or condition.op not in {"<", ">"}:
             return None
-        direction = ""
-        bound = None
-        if isinstance(condition.left, ast.Identifier) and condition.left.name == declaration.name:
-            bound = condition.right
-            direction = "++" if condition.op == "<" else "--"
-        elif isinstance(condition.right, ast.Identifier) and condition.right.name == declaration.name:
-            bound = condition.left
-            direction = "--" if condition.op == "<" else "++"
-        if bound is None:
+        # Either side may name the induction variable; with a declarator on
+        # each side, the one the update steps is it.
+        for name, bound, direction in (
+            (condition.left, condition.right, "++" if condition.op == "<" else "--"),
+            (condition.right, condition.left, "--" if condition.op == "<" else "++"),
+        ):
+            if isinstance(name, ast.Identifier) and name.name in declarations:
+                proven = self._canonical_induction(callable_, loop, declarations[name.name], bound, direction)
+                if proven is not None:
+                    return proven
+        return None
+
+    def _canonical_induction(
+        self,
+        callable_: RealtimeCallable,
+        loop: ast.CForStmt,
+        declaration: ast.VarDeclStmt,
+        bound,
+        direction: str,
+    ) -> tuple[frozenset[str], ast.VarDeclStmt, object] | None:
+        if not isinstance(declaration.initializer, ast.IntLiteral):
+            return None
+        induction_type = declaration.type or self.session.node_types.get(id(declaration.initializer))
+        if not self._integral_scalar(induction_type):
             return None
 
         protected = {declaration.name}
@@ -596,15 +644,17 @@ class RealtimeAnalyzer:
         elif not isinstance(bound, ast.IntLiteral):
             return None
 
-        update = loop.update
-        if (
-            not isinstance(update, ast.UnaryExpr)
-            or update.op != direction
-            or not isinstance(update.operand, ast.Identifier)
-            or update.operand.name != declaration.name
-        ):
+        steps = [
+            update
+            for update in self._for_update_operands(loop.update)
+            if isinstance(update, ast.UnaryExpr)
+            and update.op == direction
+            and isinstance(update.operand, ast.Identifier)
+            and update.operand.name == declaration.name
+        ]
+        if len(steps) != 1:
             return None
-        return frozenset(protected)
+        return frozenset(protected), declaration, steps[0]
 
     def _integral_scalar(self, type_expr, seen=()) -> bool:
         if type_expr is None or type_expr.base in seen:

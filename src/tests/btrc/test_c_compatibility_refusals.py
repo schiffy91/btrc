@@ -26,6 +26,7 @@ COMPLEX = "C11 '_Complex' is not supported; btrc has no complex types"
 
 VOID_LIST = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'"
 UNNAMED = "Parameter name required: only a function prototype without a body may omit it"
+TUPLE_HINT = "; btrc reads a parenthesized comma list as a tuple, not C's comma operator"
 
 REFUSALS = [
     # Row 1: `(void)` is the only void parameter list, and only a prototype
@@ -110,11 +111,17 @@ REFUSALS = [
         (UNNAMED, 1, 27),
         id="r01-unnamed-variant",
     ),
-    # Row 19: a parenthesized comma list is a tuple literal, not the comma operator.
+    # Row 19: outside a for header a parenthesized comma list is a tuple
+    # literal, not the comma operator, and the diagnostic says so.
     pytest.param(
         "int main() { int value = (1, 2); return value; }",
-        ("Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'", 1, 14),
+        ("Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'" + TUPLE_HINT, 1, 14),
         id="r19-comma-operator",
+    ),
+    pytest.param(
+        "int main() { int i; int j = 0; for (i = 0; i < 2, j < 3; i++) {} return 0; }",
+        ("Expected SEMICOLON, got COMMA ','", 1, 49),
+        id="r19-comma-in-for-condition",
     ),
     # Row 20: grammar keywords never name a declaration.
     pytest.param(
@@ -290,6 +297,112 @@ C_REFUSALS = [
         "int helper() { return 1; };\nint main() { return helper() - 1; }",
         ("Unexpected token ';' at top level", 1, 27),
         id="r06-semicolon-after-function",
+    ),
+]
+
+FUNCTION_BESIDE = "Function '{}' must be declared on its own, not beside other declarators"
+
+# Row 3: several declarators (src/tests/c_compat/MultipleDeclarators.btrc). C
+# itself rejects a missing declarator and a repeated name; btrc also refuses a
+# function declarator beside others (legal C), several declarators on a
+# nullable specifier and on `var`. Each declarator is checked on its own, so
+# `int a[], b;` meets the unsized-array rule and a later name is not yet in
+# scope in an earlier initializer.
+DECLARATOR_REFUSALS = [
+    pytest.param(
+        "int main() {\n\tint first, ;\n\treturn 0;\n}",
+        ("Expected declarator name, got SEMICOLON ';'", 2, 13),
+        id="r03-missing-declarator",
+    ),
+    pytest.param(
+        "int main() { for (int i = 0, ; i < 2; i++) {} return 0; }",
+        ("Expected declarator name, got SEMICOLON ';'", 1, 30),
+        id="r03-missing-for-declarator",
+    ),
+    pytest.param(
+        "int main() { for (int i = 0, int j = 0; i < 2; i++) {} return 0; }",
+        ("Expected declarator name, got INT 'int'", 1, 30),
+        id="r03-repeated-specifier",
+    ),
+    pytest.param(
+        "int f(), x;\nint main() { return 0; }",
+        (FUNCTION_BESIDE.format("f"), 1, 5),
+        id="r03-function-first",
+    ),
+    pytest.param(
+        "int x, f();\nint main() { return 0; }",
+        (FUNCTION_BESIDE.format("f"), 1, 8),
+        id="r03-function-later",
+    ),
+    pytest.param(
+        "int main() { int x, f(); return 0; }",
+        (FUNCTION_BESIDE.format("f"), 1, 21),
+        id="r03-block-function-later",
+    ),
+    pytest.param(
+        "int main() { int a, a; return 0; }",
+        ("Duplicate variable name 'a' in the same scope", 1, 21),
+        id="r03-duplicate-local",
+    ),
+    pytest.param(
+        "int main() { int *a, *a; return 0; }",
+        ("Duplicate variable name 'a' in the same scope", 1, 23),
+        id="r03-duplicate-local-at-name",
+    ),
+    pytest.param(
+        "int main() { for (int i = 0, i = 1; i < 2; i++) {} return 0; }",
+        ("Duplicate variable name 'i' in the same scope", 1, 30),
+        id="r03-duplicate-for-declarator",
+    ),
+    pytest.param(
+        "int main() { switch (1) { default: int a = 1, a = 2; break; } return 0; }",
+        ("Duplicate variable name 'a' in the same scope", 1, 47),
+        id="r03-duplicate-case-declarator",
+    ),
+    pytest.param(
+        "int main() { switch (1) { case 1: int a; int a; break; default: break; } return 0; }",
+        ("Duplicate variable name 'a' in the same scope", 1, 46),
+        id="r03-duplicate-case-local",
+    ),
+    pytest.param(
+        "int g, g;\nint main() { return 0; }",
+        ("Duplicate definition of global 'g'", 1, 8),
+        id="r03-duplicate-global",
+    ),
+    pytest.param(
+        "struct P { int x, x; };\nint main() { return 0; }",
+        ("Duplicate field 'x' in struct 'P'", 1, 19),
+        id="r03-duplicate-struct-field",
+    ),
+    pytest.param(
+        "int main() { int a[], b; return 0; }",
+        ("Variable 'a' requires an array bound or initializer", 1, 14),
+        id="r03-unsized-array-declarator",
+    ),
+    pytest.param(
+        "int main() { int a = 1, *b = a; return 0; }",
+        ("Cannot assign 'int' to variable 'b' of type 'int*'", 1, 25),
+        id="r03-star-binds-per-declarator",
+    ),
+    pytest.param(
+        "int main() { int x = 1, string = 2; return x; }",
+        (RESERVED.format("string"), 1, 25),
+        id="r03-reserved-later-declarator",
+    ),
+    pytest.param(
+        "int main() { int? a, b; return 0; }",
+        ("A nullable declaration declares one variable: write one declaration per nullable variable", 1, 20),
+        id="r03-nullable-declarators",
+    ),
+    pytest.param(
+        "int main() { var a = 1, b = 2; return 0; }",
+        ("'var' declares one variable: write one 'var' declaration per variable", 1, 23),
+        id="r03-var-declarators",
+    ),
+    pytest.param(
+        "var a = 1, b = 2;\nint main() { return 0; }",
+        ("'var' declares one variable: write one 'var' declaration per variable", 1, 10),
+        id="r03-global-var-declarators",
     ),
 ]
 
@@ -657,7 +770,13 @@ VLA_DIVERGENT_REFUSALS = [
 
 @pytest.mark.parametrize(
     ("source", "expected"),
-    REFUSALS + C_REFUSALS + ADJACENT_STRING_REFUSALS + CHAR_ARRAY_REFUSALS + VLA_REFUSALS + FUNCTION_POINTER_REFUSALS,
+    REFUSALS
+    + C_REFUSALS
+    + DECLARATOR_REFUSALS
+    + ADJACENT_STRING_REFUSALS
+    + CHAR_ARRAY_REFUSALS
+    + VLA_REFUSALS
+    + FUNCTION_POINTER_REFUSALS,
 )
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,
@@ -767,6 +886,49 @@ def test_accepted_neighbour_runs_strictly_in_both_compilers(
 # literal after it is refused. The two import parsers already reported this
 # differently before row 5 landed (btrcc has no same-line import check); the
 # pair is pinned so a change to either side is deliberate.
+# The two compilers word these general diagnostics differently for single
+# declarations too (a duplicate member or typedef, an unknown name); several
+# declarators reach the same checks, so the divergence is pinned, not new.
+DECLARATOR_DIVERGENT_REFUSALS = [
+    pytest.param(
+        "class C { public int a, a; }\nint main() { return 0; }",
+        ("Duplicate field 'a' in class 'C'", 1, 25),
+        ("Duplicate member 'C.a'", 1, 25),
+        id="r03-duplicate-class-field",
+    ),
+    pytest.param(
+        "typedef int A, A;\nint main() { return 0; }",
+        ("Duplicate typedef name 'A'", 1, 16),
+        ("Duplicate top-level declaration 'A'", 1, 16),
+        id="r03-duplicate-typedef",
+    ),
+    pytest.param(
+        "int main() { int a = b, b = 1; return a; }",
+        ("Unresolved identifier 'b' used as a value", 1, 22),
+        ("Unknown identifier 'b'", 1, 22),
+        id="r03-later-declarator-not-in-scope",
+    ),
+]
+
+# Row 19: each compiler words a mistyped assignment and a missing expression
+# its own way; the tuple hint is the same in both.
+COMMA_DIVERGENT_REFUSALS = [
+    # Each compiler words a mistyped assignment its own way; both add the hint.
+    pytest.param(
+        "int main() { int value = 0; value = (1, 2); return value; }",
+        ("Cannot assign 'Tuple<int, int>' to 'int'" + TUPLE_HINT, 1, 29),
+        ("Assignment expects 'int' but got 'Tuple<int, int>'" + TUPLE_HINT, 1, 37),
+        id="r19-comma-operator-assignment",
+    ),
+    # A missing operand is each parser's ordinary expression error.
+    pytest.param(
+        "int main() { int i; for (i = 0, ; i < 2; i++) {} return 0; }",
+        ("Unexpected token ';' in expression", 1, 33),
+        ("Expected expression, got SEMICOLON ';'", 1, 33),
+        id="r19-missing-comma-operand",
+    ),
+]
+
 IMPORT_PATH_REFUSALS = [
     pytest.param(
         'import "a.btrc" "b.btrc";\nint main() { return 0; }',
@@ -783,7 +945,8 @@ IMPORT_PATH_REFUSALS = [
 
 
 @pytest.mark.parametrize(
-    ("source", "reference_expected", "selfhost_expected"), VLA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS
+    ("source", "reference_expected", "selfhost_expected"),
+    VLA_DIVERGENT_REFUSALS + DECLARATOR_DIVERGENT_REFUSALS + COMMA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS,
 )
 def test_divergent_refusal_is_pinned_per_compiler(
     semantic_btrcc: Path,
