@@ -81,14 +81,18 @@ def records():
 
 
 def test_every_stdlib_operation_names_a_module_with_declarations():
-    declaration = re.compile(r"^\s*(?:abstract\s+)?(?:class|interface|enum|struct)\s+\w+|^\w[\w<>*, ]*\s+\w+\s*\(", re.MULTILINE)
+    declaration = re.compile(
+        r"^\s*(?:abstract\s+)?(?:class|interface|enum|struct)\s+\w+|^\w[\w<>*, ]*\s+\w+\s*\(", re.MULTILINE
+    )
     for identifier, (source, bound) in stdlib_operations().items():
         assert source.is_file(), f"{identifier}: {source.relative_to(REPO)} does not exist"
         text = source.read_text(encoding="utf-8")
         # A group's aggregate module (Library.BackgroundJobs) only imports the modules it selects.
         aggregate = re.findall(rf"^import ({re.escape(identifier)}\.\w+);", text, re.MULTILINE)
         # A native binding module (Library.GPU.WebGPU) is declared by its checked SDK header.
-        assert declaration.search(text) or aggregate or bound, f"{identifier}: {source.relative_to(REPO)} declares nothing"
+        assert declaration.search(text) or aggregate or bound, (
+            f"{identifier}: {source.relative_to(REPO)} declares nothing"
+        )
 
 
 def test_the_inventory_covers_the_recomputed_denominator_on_every_slice():
@@ -97,7 +101,9 @@ def test_the_inventory_covers_the_recomputed_denominator_on_every_slice():
     ids = {record.subject.id for record in ledger}
     assert sorted(expected - ids) == [], "operations the inventory has not classified"
     assert sorted(ids - expected) == [], "rows whose operation no manifest, export or corpus topic declares"
-    slots = Counter((record.subject.id, SLICE_OF.get((record.subject.platform, record.subject.variant))) for record in ledger)
+    slots = Counter(
+        (record.subject.id, SLICE_OF.get((record.subject.platform, record.subject.variant))) for record in ledger
+    )
     assert all(record.subject.kind is SubjectKind.OPERATION for record in ledger)
     assert None not in {name for _, name in slots}, "every row names one of the six target slices"
     assert [slot for slot, count in slots.items() if count != 1] == [], "one row per operation and slice"

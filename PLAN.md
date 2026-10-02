@@ -129,6 +129,20 @@ Each stage records its exit evidence here as it closes; measurements and commit 
 ### Stage 17: C2 design (done 2026-10-02, main session)
 - `de986a9`: workflow `wf_104e132f-1a7` (three read-only drafters, two adversarial reviewers, synthesis) recorded the C2 aggregate representation and Stage 18's array dimensions in `docs/design/c-compatibility.md`. Unions are `StructDecl(is_union)`. Typedef records are spliced. Anonymous members are their own kind, and designators sit in a parallel `BraceInitializer.entries` list. `CompoundLiteral` is added. Flexible array members follow C11. Bit-field widths go in `FieldDef.value`, and `TypeExpr.elements`/`array_pointer_depth` carry the dimensions. The fat `Node` gains no pointer field. The serial schema commit waits for `ccompat-c1-integrate`.
 
+### Stage 22: P0 inventory (inventory done 2026-10-02, cloud lane `stage22/p0-inventory`; the stage stays open)
+- **`platforms-p0-inventory`.** `docs/design/platform-inventory.toml` classifies every operation on the six target slices, in the ledger format. The ledger gained `TARGET_SLICES`, which lets an inventory row name a family plus artifact variant, a `slices` denominator axis, and a compact TOML row form (`InventoryRows`).
+- **Denominator.** 323 operations × 6 slices = 1,938 slots, frozen as release `p0-inventory-2026-10-02` in `tools/qualification/denominators.toml`. The operations are 84 stdlib exports outside UI0's `App`/`GUI`/`Tray`/`UI`, 223 runtime helpers and 16 corpus topics. `test_platform_inventory.py`, which runs in `make test`, recomputes them from the manifests, exports and corpus and fails on drift.
+- **Totals (equivalent / adapted / os-restricted / missing).**
+  - Windows x64 and arm64: 271 / 36 / 4 / 12 each.
+  - iOS device and simulator: 281 / 16 / 23 / 3 each.
+  - Android arm64 and x86_64: 294 / 15 / 11 / 3 each.
+  - No row is `passed`: no slice result has been ingested.
+- **Review.** A skeptical reviewer checked 30 sampled cells and confirmed 22. Its 8 findings were applied: 6 regression lists, 1 owner and 1 reason. None changed a class.
+- **Deferred.**
+  - Runtime rows inherit their asset's regression tests, which do not reach every helper. Per-helper pins remain to be done.
+  - BTRSmith journeys and package contracts are pending in the private BTRSmith repository (`btrsmith-p0-inventory`) and are kept out of these totals.
+  - The entry gate, the adaptation approvals (`platforms-p0-adaptations`), the matrix pin and the device registry are still pending.
+
 ## Decisions (all resolved 2026-09-30)
 
 Every decision below is settled. Where stage text further down still says "you approve", "you close", "if approved", "your checklist" or "blocked on push", the resolution in this section and the standing approvals after it govern. No stage waits on a decision.

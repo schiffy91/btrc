@@ -66,12 +66,12 @@ id = "Library.Audio.AudioDevice"
 group = "stdlib/Audio"
 title = "Portable audio device contract and negotiation"
 regression = ["src/tests/btrc/test_audio_device_contract.py::test_audio_device_contract_runs_with_both_frontends", "src/tests/btrc/test_audio_device_contract.py::test_audio_device_contract_keeps_negotiation_and_barrier_explicit"]
-windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "platform-neutral contract over IAudioDevicePlatform; no includes or OS calls, only Bytes/Console/Vector" }
-windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "platform-neutral contract over IAudioDevicePlatform; no includes or OS calls, only Bytes/Console/Vector" }
-ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "platform-neutral contract over IAudioDevicePlatform; no includes or OS calls, only Bytes/Console/Vector" }
-ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "platform-neutral contract over IAudioDevicePlatform; no includes or OS calls, only Bytes/Console/Vector" }
-android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "platform-neutral contract over IAudioDevicePlatform; no includes or OS calls, only Bytes/Console/Vector" }
-android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "platform-neutral contract over IAudioDevicePlatform; no includes or OS calls, only Bytes/Console/Vector" }
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "portable btrc over Bytes/Console/Vector and RealtimeAudio (Callback, pthreads); no OS audio API" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "portable btrc over Bytes/Console/Vector and RealtimeAudio (Callback, pthreads); no OS audio API" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "portable btrc over Bytes/Console/Vector and RealtimeAudio (Callback, pthreads); no OS audio API" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "portable btrc over Bytes/Console/Vector and RealtimeAudio (Callback, pthreads); no OS audio API" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "portable btrc over Bytes/Console/Vector and RealtimeAudio (Callback, pthreads); no OS audio API" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "portable btrc over Bytes/Console/Vector and RealtimeAudio (Callback, pthreads); no OS audio API" }
 
 [[rows]]
 kind = "operation"
@@ -325,7 +325,7 @@ kind = "operation"
 id = "Library.Digest"
 group = "stdlib/Digest"
 title = "Digest package aggregate"
-regression = ["src/tests/runner.py::test_btrc_file", "src/tests/btrc/test_native_digest.py::test_digest_owns_result_and_matches_binary_vectors"]
+regression = ["src/tests/runner.py::test_btrc_file"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc digest over Bytes; no OS includes" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc digest over Bytes; no OS includes" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc digest over Bytes; no OS includes" }
@@ -564,8 +564,8 @@ windows-x64 = { parity = "adapted", implementation = "partial", owner = "W1", st
 windows-arm64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "pure codecs build; HTTPSocket/HTTPServer need Winsock (empty sys/socket.h shim), HTTPClient needs Win32 Process" }
 ios-device = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl, forbidden on iOS, needs NSURLSession" }
 ios-simulator = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl, forbidden on iOS, needs NSURLSession" }
-android-arm64 = { parity = "adapted", implementation = "partial", owner = "A1", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl (no curl/exec on Android), needs HttpURLConnection via JNI" }
-android-x86_64 = { parity = "adapted", implementation = "partial", owner = "A1", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl (no curl/exec on Android), needs HttpURLConnection via JNI" }
+android-arm64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl (no curl/exec on Android), needs HttpURLConnection via JNI" }
+android-x86_64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl (no curl/exec on Android), needs HttpURLConnection via JNI" }
 
 [[rows]]
 kind = "operation"
@@ -1782,7 +1782,7 @@ kind = "operation"
 id = "runtime.__btrc_arc_thread_state_cleanup"
 group = "runtime/cycles"
 title = "__btrc_arc_thread_state_cleanup (cycles.c)"
-regression = ["src/tests/python/test_arc_concurrency_regressions.py::test_arc_concurrency_regressions_are_strict_c11_clean", "src/tests/python/test_arc_witness_runtime.py::test_witness_transitions_are_exact", "src/tests/python/test_cycle_capacity_guards.py::test_cycle_capacity_boundaries_are_strict_c11"]
+regression = ["src/tests/python/test_arc_concurrency_regressions.py::test_arc_concurrency_regressions_are_strict_c11_clean", "src/tests/python/test_arc_witness_runtime.py::test_witness_transitions_are_exact"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -2038,7 +2038,7 @@ kind = "operation"
 id = "runtime.__btrc_cleanup_capacity"
 group = "runtime/trycatch"
 title = "__btrc_cleanup_capacity (trycatch.c)"
-regression = ["src/tests/python/test_cleanup_runtime_reentrancy.py::test_cleanup_throw_preserves_primary_and_continues_once", "src/tests/python/test_runtime_helpers_c11.py::test_foreign_thread_boundary_cleans_tls_and_contains_exceptions", "src/tests/python/test_runtime_helper_registry.py::test_cleanup_setjmp_is_confined_to_non_inline_guards"]
+regression = ["src/tests/python/test_cleanup_runtime_reentrancy.py::test_cleanup_throw_preserves_primary_and_continues_once", "src/tests/python/test_runtime_helpers_c11.py::test_foreign_thread_boundary_cleans_tls_and_contains_exceptions", "src/tests/python/test_exception_cleanup_strict_c11.py::test_generated_cleanup_slots_survive_strict_optimized_longjmp"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -2194,7 +2194,7 @@ kind = "operation"
 id = "runtime.__btrc_cycle_state_cleanup"
 group = "runtime/cycles"
 title = "__btrc_cycle_state_cleanup (cycles.c)"
-regression = ["src/tests/python/test_arc_concurrency_regressions.py::test_arc_concurrency_regressions_are_strict_c11_clean", "src/tests/python/test_arc_witness_runtime.py::test_witness_transitions_are_exact", "src/tests/python/test_cycle_capacity_guards.py::test_cycle_capacity_boundaries_are_strict_c11"]
+regression = ["src/tests/python/test_arc_concurrency_regressions.py::test_arc_concurrency_regressions_are_strict_c11_clean", "src/tests/python/test_arc_witness_runtime.py::test_witness_transitions_are_exact"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -2576,7 +2576,7 @@ kind = "operation"
 id = "runtime.__btrc_intToString"
 group = "runtime/strings"
 title = "__btrc_intToString (strings.c)"
-regression = ["src/tests/python/test_string_runtime_helpers_c11.py::test_minimal_string_helper_root_is_warning_clean", "src/tests/python/test_string_runtime_helpers_c11.py::test_every_managed_string_ownership_helper_has_a_minimal_c11_case", "src/tests/python/test_runtime_helpers_c11.py::test_retain_only_string_registry_is_warning_clean"]
+regression = ["src/tests/python/test_codegen_builtins.py::test_int_to_string_method", "src/tests/runner.py::test_btrc_file"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -4033,7 +4033,7 @@ kind = "operation"
 id = "runtime.__btrc_ulongLongToString"
 group = "runtime/strings"
 title = "__btrc_ulongLongToString (strings.c)"
-regression = ["src/tests/python/test_string_runtime_helpers_c11.py::test_minimal_string_helper_root_is_warning_clean", "src/tests/python/test_string_runtime_helpers_c11.py::test_every_managed_string_ownership_helper_has_a_minimal_c11_case", "src/tests/python/test_runtime_helpers_c11.py::test_retain_only_string_registry_is_warning_clean"]
+regression = ["src/tests/runner.py::test_btrc_file"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }

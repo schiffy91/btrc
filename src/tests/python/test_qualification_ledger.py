@@ -1392,7 +1392,7 @@ android-arm64 = {{ parity = "equivalent", implementation = "implemented", status
     assert all(r.provenance.btrc_revision == "c7f785e" for r in records)
 
     for edit, message in (
-        ('windows-x64 = {{', "unknown field"),
+        ("windows-x64 = {{", "unknown field"),
         ('status = "implemented-unverified"', "a missing slot cannot be implemented-unverified"),
         ("provenance = {{", "needs provenance btrc_revision and recorded_at"),
     ):

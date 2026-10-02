@@ -129,8 +129,7 @@ class LedgerRollup:
             runs = [
                 run
                 for run in tests.get((nodeid, subject.platform), ())
-                if run.subject.frontend in (None, subject.frontend)
-                and subject.variant in (None, run.subject.variant)
+                if run.subject.frontend in (None, subject.frontend) and subject.variant in (None, run.subject.variant)
             ]
             best = max(runs, key=lambda run: (run.subject.frontend is not None, run.order), default=None)
             latest[nodeid] = best.evidence if best is not None else None
