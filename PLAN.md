@@ -138,6 +138,23 @@ Each stage records its exit evidence here as it closes; measurements and commit 
 ### Stages 16 (C4), 19 and 20: designs (done 2026-10-02)
 - Workflow `wf_926e5dfc-b6e` ran one drafter and two adversarial reviewers (implementability and C11 soundness) per topic, followed by a synthesis. It produced `docs/design/c-preprocessor-conditionals.md`, `docs/design/c-vocabulary-specifiers.md` and `docs/design/c-goto-labels.md`, linked from `c-compatibility.md`.
 
+### Stage 22 (read-only planning, cloud lane `stage22/p0-matrix`, 2026-10-02)
+- **Toolchain matrix** (`tooling-p0-toolchain-matrix` with `platforms-p0-matrix-pin`): `docs/design/platform-toolchain-matrix.md` pins one row per slice and tool, each with its source and access date. The pins:
+  - **Apple.** Xcode 27.0 (27A266a, GA), with deployment targets iOS 15–27 and simulators iOS 17 or later.
+  - **Android.** NDK r29 `29.0.14206865` (16 KiB pages by default), minSdk 29, target and compile API 36 (Play's requirement from 2026-08-31), JDK 17, Gradle 9.6.0 with AGP 9.4.0. The direct aapt2/d8 path is undocumented as a supported build.
+  - **Windows.** Windows 11 24H2 (26100) as the floor; zig 0.16.0 for `x86_64-` and `aarch64-windows-gnu`.
+  - **Libraries.** wgpu-native v27.0.4.0 prebuilt archives per slice, and FreeType 2.14.3.
+- **D21's MSVC condition holds.** wgpu-native ships Windows ARM64 only as an MSVC build, so GPU-linked ARM64 artifacts take `aarch64-windows-msvc`. The owner confirms this at Stage 24.
+- **Probe.** `python3 -m tools.qualification.toolchain` re-checks the recorded Mac facts and prints mismatches; on Linux it reports every probe not applicable. Its test is `test_toolchain_matrix.py`.
+- **Device registry** (`qualification-device-lab`): `docs/qualification/devices.toml` and its README. Every physical gate of Stages 23 and 39–43 maps to a named device or an `unavailable` row that names its blocking item. `test_device_registry.py` verifies it against this plan's item ids.
+- **Adaptations** (`platforms-p0-adaptations`): `docs/design/platform-adaptations.md` is a draft, drafted by three read-only agents from official platform docs. It covers ten desktop-only contracts across three platform families and ends with ten questions for the owner.
+- **Entry baseline.** The Windows overlay docs were already correct (`src/runtime/windows/`). The naming test's dead `Windows/sys` exemption is removed.
+- **Pending:**
+  - the entry gate run (`platforms-p0-entry-baseline`), which needs the Mac and the bucket-order call;
+  - the owner's sign-off on the adaptations;
+  - every physical device and account (D8);
+  - wgpu-native archive digests, recorded at first download in Stage 23.
+
 ## Decisions (all resolved 2026-09-30)
 
 Every decision below is settled. Where stage text further down still says "you approve", "you close", "if approved", "your checklist" or "blocked on push", the resolution in this section and the standing approvals after it govern. No stage waits on a decision.
