@@ -7,10 +7,10 @@ int dispatch(int a, int b) {
 	switch (a) {
 		case 1:
 			switch (b) {
-			case 2: r = 12;
-			break; // breaks inner switch only
-			default: r = 10;
-		}
+				case 2: r = 12;
+				break; // breaks inner switch only
+				default: r = 10;
+			}
 		r += 1000; // proves inner break did NOT exit the outer switch case
 		break;
 		default: r = 0;
