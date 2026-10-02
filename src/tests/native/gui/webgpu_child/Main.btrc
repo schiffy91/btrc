@@ -13,13 +13,13 @@ import Library.IO;
 import Library.Vector;
 import Library.Image.MacOS.MacOSEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSComposedCapture;
-import Library.GPU.Device;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.Program;
-import Library.GPU.Readback;
-import Library.GPU.UniformBuffer;
-import Library.GPU.ImageTexture;
-import Library.Datetime;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUReadback;
+import Library.GPU.GPUUniformBuffer;
+import Library.GPU.GPUImageTexture;
+import Library.Timer;
 import Library.Callback;
 
 import ./CompletionProbe.btrc;
@@ -94,13 +94,13 @@ class NativeGpuChildTest {
 				while (deadline.elapsed() < 10.0f && probePendingCompletions() == 0) { delayed.poll(); Timer.sleep(0.001); }
 				assert(probePendingCompletions() == 1 && delayed.state() == GPU_PROGRAM_PIPELINE);
 			}
-			assert(delayed.close() == CallbackCancellation.Pending);
-			assert(delayed.close() == CallbackCancellation.Pending && delayed.poll() == GPU_PROGRAM_CLOSING);
+			assert(delayed.close() == CALLBACK_CANCELLATION_PENDING);
+			assert(delayed.close() == CALLBACK_CANCELLATION_PENDING && delayed.poll() == GPU_PROGRAM_CLOSING);
 			delayed = null;
-			assert(lifetime.cancel() == CallbackCancellation.Pending && lifetime.pendingCount() == 1);
+			assert(lifetime.cancel() == CALLBACK_CANCELLATION_PENDING && lifetime.pendingCount() == 1);
 			assert(probePendingCompletions() == 1);
 			probeDeliverCompletion();
-			assert(lifetime.pollCompletion() == CallbackCancellation.Complete && lifetime.pendingCount() == 0);
+			assert(lifetime.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && lifetime.pendingCount() == 0);
 		}
 		probeDelayCompletions(0);
 		Vector<GPUProgram> concurrent = [GPUProgram.create(device, renderer.nativeFormat(), NativeGpuChildTest.shader(), 8), GPUProgram.create(device, renderer.nativeFormat(), NativeGpuChildTest.shader(), 4), GPUProgram.create(device, renderer.nativeFormat(), "not valid WGSL", 8)];
@@ -108,7 +108,7 @@ class NativeGpuChildTest {
 			var entry = concurrent.get(index);
 			NativeGpuChildTest.awaitProgram(entry);
 			assert(entry.state() == (index == 0 ? GPU_PROGRAM_READY : GPU_PROGRAM_FAILED));
-			assert(entry.close() == CallbackCancellation.Complete);
+			assert(entry.close() == CALLBACK_CANCELLATION_COMPLETE);
 		}
 		concurrent.clear();
 		var program = GPUProgram.create(device, renderer.nativeFormat(), NativeGpuChildTest.shader(), 8);
@@ -251,16 +251,16 @@ class NativeGpuChildTest {
 			deadline.start();
 			while (deadline.elapsed() < 10.0f && probePendingCompletions() == 0) { delayed.poll(); Timer.sleep(0.001); }
 			assert(probePendingCompletions() == 1 && delayed.state() == GPU_READBACK_MAPPING);
-			assert(delayed.close() == CallbackCancellation.Pending && probeBufferClaims() == buffers + 1);
-			assert(delayed.close() == CallbackCancellation.Pending && delayed.poll() == GPU_READBACK_CLOSING);
+			assert(delayed.close() == CALLBACK_CANCELLATION_PENDING && probeBufferClaims() == buffers + 1);
+			assert(delayed.close() == CALLBACK_CANCELLATION_PENDING && delayed.poll() == GPU_READBACK_CLOSING);
 			bool unavailable = false;
 			try { delayed.takeImage(); } catch (string error) { unavailable = true; }
 			assert(unavailable && probePendingCompletions() == 1 && probeBufferClaims() == buffers + 1);
 			delayed = null;
-			assert(lifetime.cancel() == CallbackCancellation.Pending && lifetime.pendingCount() == 1);
-			assert(lifetime.pollCompletion() == CallbackCancellation.Pending && probeBufferClaims() == buffers + 1);
+			assert(lifetime.cancel() == CALLBACK_CANCELLATION_PENDING && lifetime.pendingCount() == 1);
+			assert(lifetime.pollCompletion() == CALLBACK_CANCELLATION_PENDING && probeBufferClaims() == buffers + 1);
 			probeDeliverCompletion();
-			assert(lifetime.pollCompletion() == CallbackCancellation.Complete && lifetime.pendingCount() == 0);
+			assert(lifetime.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && lifetime.pendingCount() == 0);
 			assert(probeBufferClaims() == buffers);
 		}
 		probeDelayCompletions(0);
@@ -422,9 +422,9 @@ int main() {
 	assert(owner.poll() == GPU_DEVICE_CLOSED);
 	assert(orphanedValidation.poll() == GPU_PROGRAM_FAILED);
 	assert(orphanedValidation.error().equals("GPU device closed during validation"));
-	assert(orphanedValidation.close() == CallbackCancellation.Pending && probePendingCompletions() == 1);
+	assert(orphanedValidation.close() == CALLBACK_CANCELLATION_PENDING && probePendingCompletions() == 1);
 	probeDeliverCompletion();
-	assert(orphanedValidation.poll() == GPU_PROGRAM_CLOSED && orphanedValidation.close() == CallbackCancellation.Complete);
+	assert(orphanedValidation.poll() == GPU_PROGRAM_CLOSED && orphanedValidation.close() == CALLBACK_CANCELLATION_COMPLETE);
 	probeDelayCompletions(0);
 	NativeGpuChildTest.verifyClosedDevice(owner);
 	// Closing before consumption must release an inline or late adapter result.
@@ -441,13 +441,13 @@ int main() {
 			deadline.reset(); deadline.start();
 			while (deadline.elapsed() < 10.0f && probePendingCompletions() == 0) { delayed.poll(); Timer.sleep(0.001); }
 			assert(probePendingCompletions() == 1);
-			assert(delayed.close() == CallbackCancellation.Pending);
+			assert(delayed.close() == CALLBACK_CANCELLATION_PENDING);
 			assert(delayed.poll() == GPU_DEVICE_CLOSING);
 			NativeGpuChildTest.verifyClosedDevice(delayed);
 			assert(probePendingCompletions() == 1);
 			probeDeliverCompletion();
 			assert(delayed.poll() == GPU_DEVICE_CLOSED);
-			assert(delayed.close() == CallbackCancellation.Complete);
+			assert(delayed.close() == CALLBACK_CANCELLATION_COMPLETE);
 			assert(probeAdapterClaims() == 0 && probeDeviceClaims() == 0);
 		}
 	}

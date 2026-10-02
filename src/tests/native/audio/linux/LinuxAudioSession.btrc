@@ -1,10 +1,10 @@
 /* The ALSA provider against the machine's default PCM: inventory, a duplex
  * or output-only session, realtime blocks with monotonic clocks, and the
  * suspend/drain/close barrier before the provider closes. */
-import Library.Audio.Audio;
+import Library.Audio;
 import Library.Audio.AudioDevice;
 import Library.Audio.RealtimeAudio;
-import Library.Datetime;
+import Library.Timer;
 import Library.Console;
 
 #include <assert.h>

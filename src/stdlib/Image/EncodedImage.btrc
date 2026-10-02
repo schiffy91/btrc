@@ -6,7 +6,7 @@
  * through ImageIO as a documented platform extension, and other providers
  * report those as ENCODED_IMAGE_DECODE_UNSUPPORTED. decode()
  * is synchronous and may borrow encoded only until it returns. A successful
- * outcome owns one tightly packed, top-down, straight-RGBA Library.Image.Image;
+ * outcome owns one tightly packed, top-down, straight-RGBA Library.Image;
  * failures own no image.
  */
 

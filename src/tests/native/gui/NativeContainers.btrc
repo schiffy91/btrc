@@ -133,19 +133,19 @@ class FailingView implements IMacOSView {
 	private CallbackCancellation finishClose() {
 		self._view.close();
 		if (self._failClose) { throw "Injected container child close failure"; }
-		return CallbackCancellation.Complete;
+		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
 	public CallbackCancellation close() {
 		closeAttempts++;
 		self._closing = true;
-		return self.remainingPolls > 0 ? CallbackCancellation.Pending : self.finishClose();
+		return self.remainingPolls > 0 ? CALLBACK_CANCELLATION_PENDING : self.finishClose();
 	}
 
 	public CallbackCancellation pollClose() {
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		if (self.remainingPolls > 0) { self.remainingPolls--; }
-		return self.remainingPolls > 0 ? CallbackCancellation.Pending : self.finishClose();
+		return self.remainingPolls > 0 ? CALLBACK_CANCELLATION_PENDING : self.finishClose();
 	}
 }
 
@@ -159,15 +159,15 @@ void verifyPendingSubtree() {
 	root.attach(pending);
 	window.attachRoot(root);
 	int previous = closeAttempts;
-	assert(window.pollClose() == CallbackCancellation.NotRequested);
-	assert(window.close() == CallbackCancellation.Pending);
+	assert(window.pollClose() == CALLBACK_CANCELLATION_NOT_REQUESTED);
+	assert(window.close() == CALLBACK_CANCELLATION_PENDING);
 	assert(!root.isOpen() && !pending.isOpen() && !immediate.isOpen());
 	assert(root.childCount() == 1 && window.root() == root && OwnedViewProbe.liveCount() == 1L);
-	assert(window.close() == CallbackCancellation.Pending && closeAttempts == previous + 1);
-	assert(window.pollClose() == CallbackCancellation.Pending && OwnedViewProbe.liveCount() == 1L);
-	assert(window.pollClose() == CallbackCancellation.Complete);
+	assert(window.close() == CALLBACK_CANCELLATION_PENDING && closeAttempts == previous + 1);
+	assert(window.pollClose() == CALLBACK_CANCELLATION_PENDING && OwnedViewProbe.liveCount() == 1L);
+	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(root.childCount() == 0 && window.root() == null && OwnedViewProbe.liveCount() == 0L);
-	assert(window.close() == CallbackCancellation.Complete && closeAttempts == previous + 1);
+	assert(window.close() == CALLBACK_CANCELLATION_COMPLETE && closeAttempts == previous + 1);
 }
 
 class QuitWithPendingView implements IApplicationWork {
@@ -195,7 +195,7 @@ void verifyPendingApplication(bool quitBeforeRun) {
 	if (quitBeforeRun) { app.requestQuit(); }
 	else { app.post(QuitWithPendingView(app, pending)); }
 	app.run();
-	assert(!app.isRunning() && app.pollClose() == CallbackCancellation.Complete);
+	assert(!app.isRunning() && app.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(window.root() == null && pending.remainingPolls == 0);
 	assert(closeAttempts == previous + 1 && OwnedViewProbe.liveCount() == 0L);
 }
@@ -212,7 +212,7 @@ class ObservePendingWindow implements IApplicationWork {
 	public void run() {
 		if (self._observations == 0) {
 			if (self._nativeClose) { OwnedViewProbe.closeWindowNamed(AppKitText.nativeValue("Pending first window")); }
-			else { assert(self._first.close() == CallbackCancellation.Pending); }
+			else { assert(self._first.close() == CALLBACK_CANCELLATION_PENDING); }
 		}
 		self._observations++;
 		if (self._first.root() != null) {
@@ -238,7 +238,7 @@ void verifyPendingWindow(bool nativeClose) {
 	first.show(); second.show();
 	app.post(ObservePendingWindow(app, first, second, nativeClose));
 	app.run();
-	assert(app.pollClose() == CallbackCancellation.Complete && OwnedViewProbe.liveCount() == 0L);
+	assert(app.pollClose() == CALLBACK_CANCELLATION_COMPLETE && OwnedViewProbe.liveCount() == 0L);
 }
 
 void prepareDetachedRoot(MacOSApplication app) {
@@ -246,7 +246,7 @@ void prepareDetachedRoot(MacOSApplication app) {
 	var pending = FailingView(null, false);
 	pending.remainingPolls = 10;
 	root.attach(pending);
-	assert(root.close() == CallbackCancellation.Pending);
+	assert(root.close() == CALLBACK_CANCELLATION_PENDING);
 	app.createButton("Creation retains unfinished roots");
 }
 
@@ -254,9 +254,9 @@ void verifyPendingDetachedRoot() {
 	var app = MacOSApplication();
 	prepareDetachedRoot(app);
 	assert(OwnedViewProbe.liveCount() == 1L);
-	assert(app.close() == CallbackCancellation.Pending);
+	assert(app.close() == CALLBACK_CANCELLATION_PENDING);
 	app.run();
-	assert(app.pollClose() == CallbackCancellation.Complete && OwnedViewProbe.liveCount() == 0L);
+	assert(app.pollClose() == CALLBACK_CANCELLATION_COMPLETE && OwnedViewProbe.liveCount() == 0L);
 }
 
 bool rejectsClose(IView view) {
@@ -467,7 +467,7 @@ void verifyApplicationWindows(MacOSApplication app) {
 	if (secondRoot == null || secondChild == null) { throw "The application stopped before observing the native close"; }
 	assert(!second.isOpen() && !secondRoot.isOpen() && !secondChild.isOpen());
 	assert(OwnedViewProbe.liveCount() == 0L);
-	assert(app.close() == CallbackCancellation.Complete);
+	assert(app.close() == CALLBACK_CANCELLATION_COMPLETE);
 	bool rejected = false;
 	try { app.createWindow("After shutdown", 100.0, 100.0); } catch (string error) { rejected = true; }
 	assert(rejected);

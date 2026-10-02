@@ -170,3 +170,34 @@ jobs:
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14
+
+  # A shard whose runner is lost (one c11 job died with no log at all) never
+  # reaches its `if: always()` upload, and the run's artifact list just lacks
+  # its report. This job runs after every shard, whatever their outcome, and
+  # names each tests job that left no skip report, so missing coverage shows
+  # as a warning on the run rather than as an absent artifact.
+  skip-reports:
+    needs: tests
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+    steps:
+      - name: Name every test shard that left no skip report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifacts=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name')
+          shards=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+            --jq '.jobs[].name | select(startswith("tests (")) | ltrimstr("tests (") | rtrimstr(")")')
+          test -n "$shards"
+          missing=0
+          for shard in $shards; do
+            if ! grep -qx "skip-report-macos-$shard" <<<"$artifacts"; then
+              echo "::warning::tests ($shard) uploaded no skip report; its skips are unclassified"
+              echo "- tests ($shard): no skip report" >> "$GITHUB_STEP_SUMMARY"
+              missing=$((missing + 1))
+            fi
+          done
+          echo "$missing test shard(s) left no skip report"

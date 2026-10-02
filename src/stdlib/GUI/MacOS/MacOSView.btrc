@@ -130,19 +130,19 @@ class MacOSView implements IMacOSView {
 	public CallbackCancellation pollClose() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		var view = self._view;
-		if (view == null) { return CallbackCancellation.Complete; }
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var state = self._input.pollCompletion();
-		if (state != CallbackCancellation.Complete) { return state; }
+		if (state != CALLBACK_CANCELLATION_COMPLETE) { return state; }
 		view.removeFromSuperview();
 		self._view = null;
-		return CallbackCancellation.Complete;
+		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
 	public CallbackCancellation close() {
 		self.requireDetached();
 		var view = self._view;
-		if (view == null) { return CallbackCancellation.Complete; }
+		if (view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (!self._closing) { self._closing = true; self._input.cancel(); }
 		return self.pollClose();
 	}

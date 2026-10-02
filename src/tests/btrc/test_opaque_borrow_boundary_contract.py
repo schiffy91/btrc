@@ -135,6 +135,14 @@ INVALID_CASES = (
         id="constructor-forward-wrapper",
     ),
     pytest.param(
+        "#include <string.h>\nclass Writer { class void wipe(void* value) { "
+        "memset(value, 0, 1); } } void forward(void* value) { Writer.wipe(value); } "
+        "class Box {} int main() { Box owner = new Box(); "
+        "forward((void*)owner); return 0; }",
+        "parameter is not proven borrow-only",
+        id="static-method-mutating-forward",
+    ),
+    pytest.param(
         "extern void retain(void* value); class Box {} int main() { "
         "Box owner = new Box(); retain((void*)owner); return 0; }",
         "parameter is not proven borrow-only",

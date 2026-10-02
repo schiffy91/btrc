@@ -7,7 +7,7 @@ import Library.GUI.IView;
 import Library.GUI.IContainer;
 import Library.GUI.IPanel;
 import Library.GUI.IButton;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.GUI.MacOS.MacOSActionQueue;
 import Library.GUI.MacOS.MacOSButton;
 import Library.GUI.MacOS.MacOSView;

@@ -341,7 +341,6 @@ VECTOR_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("all", "bool", "method", (("__fn_ptr<bool, T>", "pred"),), "all"),
     BuiltinMemberSpec("reduce", "T", "method", (("T", "init"), ("__fn_ptr<T, T, T>", "fn"),), "reduce"),
     BuiltinMemberSpec("copy", "Vector<T>", "method", (), "copy"),
-    BuiltinMemberSpec("removeAt", "void", "method", (("int", "idx"),), "removeAt"),
     BuiltinMemberSpec("iterLen", "int", "method", (), "iterLen"),
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "i"),), "iterGet"),
 )
@@ -377,16 +376,19 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Audio", (
         BuiltinMemberSpec("createDevice", "AudioDeviceProviderOpenOutcome", "method", (), "createDevice"),
     )),
-    ("AlsaDeviceProvider", (
+    ("LinuxAudioDevice", (
         BuiltinMemberSpec("open", "AudioDeviceProviderOpenOutcome", "method", (), "open"),
     )),
-    ("CoreAudioDeviceProvider", (
+    ("MacOSAudioDevice", (
         BuiltinMemberSpec("open", "AudioDeviceProviderOpenOutcome", "method", (), "open"),
     )),
     ("RealtimeAudioSamples", (
         BuiltinMemberSpec("silence", "void", "method", (("Span<float>", "samples"),), "silence"),
         BuiltinMemberSpec("gather", "void", "method", (("Span<float>", "physical"), ("int", "physicalChannels"), ("Span<int>", "channels"), ("Span<float>", "selected"), ("int", "frames"),), "gather"),
         BuiltinMemberSpec("scatter", "void", "method", (("Span<float>", "selected"), ("Span<int>", "channels"), ("Span<float>", "physical"), ("int", "physicalChannels"), ("int", "frames"),), "scatter"),
+    )),
+    ("ProcessThreads", (
+        BuiltinMemberSpec("count", "int", "method", (), "count"),
     )),
     ("BitPattern32", (
         BuiltinMemberSpec("signedInteger", "int", "method", (("uint", "bits"),), "signedInteger"),
@@ -405,20 +407,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("parsePid", "int", "method", (("string", "text"),), "parsePid"),
         BuiltinMemberSpec("parse", "DaemonControlRecord", "method", (("string", "content"),), "parse"),
     )),
-    ("DaemonControlClock", (
-        BuiltinMemberSpec("millisecondsFrom", "long long", "method", (("uintmax_t", "seconds"), ("long", "nanoseconds"),), "millisecondsFrom"),
-        BuiltinMemberSpec("milliseconds", "long long", "method", (), "milliseconds"),
-        BuiltinMemberSpec("deadline", "long long", "method", (("long long", "now"), ("int", "timeoutMilliseconds"),), "deadline"),
-        BuiltinMemberSpec("pause", "void", "method", (), "pause"),
-        BuiltinMemberSpec("before", "bool", "method", (("long long", "deadline"),), "before"),
-    )),
     ("DaemonControlPaths", (
         BuiltinMemberSpec("validDaemonName", "bool", "method", (("string", "name"),), "validDaemonName"),
         BuiltinMemberSpec("absolute", "bool", "method", (("string", "path"),), "absolute"),
         BuiltinMemberSpec("defaultDirectory", "string", "method", (), "defaultDirectory"),
-        BuiltinMemberSpec("stop", "string", "method", (("string", "pidFile"), ("string", "token"),), "stop"),
-        BuiltinMemberSpec("probePrefix", "string", "method", (("string", "pidFile"), ("string", "token"),), "probePrefix"),
-        BuiltinMemberSpec("probe", "string", "method", (("string", "pidFile"), ("string", "token"), ("string", "challenge"),), "probe"),
+        BuiltinMemberSpec("stop", "string", "method", (("string", "controlFile"), ("string", "token"),), "stop"),
+        BuiltinMemberSpec("probePrefix", "string", "method", (("string", "controlFile"), ("string", "token"),), "probePrefix"),
+        BuiltinMemberSpec("probe", "string", "method", (("string", "controlFile"), ("string", "token"), ("string", "challenge"),), "probe"),
         BuiltinMemberSpec("acknowledgement", "string", "method", (("string", "probe"),), "acknowledgement"),
     )),
     ("DaemonControlFiles", (
@@ -441,17 +436,16 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("DaemonControlProtocol", (
         BuiltinMemberSpec("pauseBeforeRetry", "bool", "method", (("long long", "deadline"),), "pauseBeforeRetry"),
         BuiltinMemberSpec("randomToken", "string", "method", (), "randomToken"),
-        BuiltinMemberSpec("record", "DaemonControlRecord", "method", (("string", "pidFile"),), "record"),
-        BuiltinMemberSpec("probe", "bool", "method", (("string", "pidFile"), ("DaemonControlRecord", "record"), ("int", "timeoutMilliseconds"),), "probe"),
-        BuiltinMemberSpec("waitForRecord", "bool", "method", (("string", "pidFile"), ("int", "timeoutMilliseconds"),), "waitForRecord"),
-        BuiltinMemberSpec("waitForRemoval", "bool", "method", (("string", "pidFile"), ("DaemonControlRecord", "original"), ("int", "timeoutMilliseconds"),), "waitForRemoval"),
+        BuiltinMemberSpec("record", "DaemonControlRecord", "method", (("string", "controlFile"),), "record"),
+        BuiltinMemberSpec("probe", "bool", "method", (("string", "controlFile"), ("DaemonControlRecord", "record"), ("int", "timeoutMilliseconds"),), "probe"),
+        BuiltinMemberSpec("waitForRecord", "bool", "method", (("string", "controlFile"), ("int", "timeoutMilliseconds"),), "waitForRecord"),
+        BuiltinMemberSpec("waitForRemoval", "bool", "method", (("string", "controlFile"), ("DaemonControlRecord", "original"), ("int", "timeoutMilliseconds"),), "waitForRemoval"),
     )),
     ("ApplicationDirectories", (
         BuiltinMemberSpec("resolve", "ApplicationDirectoryRootsOutcome", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
         BuiltinMemberSpec("resolveStandard", "ApplicationDirectoryRootsOutcome", "method", (), "resolveStandard"),
     )),
     ("PathTools", (
-        BuiltinMemberSpec("shellQuote", "string", "method", (("string", "raw"),), "shellQuote"),
         BuiltinMemberSpec("isSeparatorFor", "bool", "method", (("char", "value"), ("bool", "windows"),), "isSeparatorFor"),
         BuiltinMemberSpec("hasDrivePrefixFor", "bool", "method", (("string", "path"), ("bool", "windows"),), "hasDrivePrefixFor"),
         BuiltinMemberSpec("isAbsoluteFor", "bool", "method", (("string", "path"), ("bool", "windows"),), "isAbsoluteFor"),
@@ -489,7 +483,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("removeRecursive", "int", "method", (("string", "path"),), "removeRecursive"),
         BuiltinMemberSpec("symlink", "int", "method", (("string", "target"), ("string", "linkPath"),), "symlink"),
         BuiltinMemberSpec("readLink", "string", "method", (("string", "path"),), "readLink"),
-        BuiltinMemberSpec("currentDirectory", "string", "method", (), "currentDirectory"),
         BuiltinMemberSpec("realPath", "string", "method", (("string", "path"),), "realPath"),
         BuiltinMemberSpec("absolutePath", "string", "method", (("string", "path"),), "absolutePath"),
         BuiltinMemberSpec("tempDir", "string", "method", (("string", "prefix"),), "tempDir"),
@@ -575,9 +568,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("levelWidth", "double", "method", (), "levelWidth"),
         BuiltinMemberSpec("spinnerSize", "double", "method", (), "spinnerSize"),
     )),
-    ("LinuxScalar", (
-        BuiltinMemberSpec("decode", "LinuxScalar", "method", (("string", "text"), ("int", "offset"),), "decode"),
-    )),
     ("LinuxTextLines", (
         BuiltinMemberSpec("wrap", "Vector<string>", "method", (("LinuxFonts", "fonts"), ("string", "text"), ("double", "size"), ("double", "scale"), ("bool", "bold"), ("double", "width"),), "wrap"),
     )),
@@ -605,7 +595,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("GUIRaster", (
         BuiltinMemberSpec("glyph", "unsigned long long", "method", (("int", "codepoint"),), "glyph"),
-        BuiltinMemberSpec("nextCodepoint", "int", "method", (("string", "text"), ("int", "length"), ("int*", "offset"),), "nextCodepoint"),
         BuiltinMemberSpec("packed", "unsigned int", "method", (("RGBA", "color"),), "packed"),
         BuiltinMemberSpec("advance", "long long", "method", (("long long", "position"), ("long long", "distance"),), "advance"),
         BuiltinMemberSpec("blendChannel", "unsigned int", "method", (("unsigned int", "source"), ("unsigned int", "sourceAlpha"), ("unsigned int", "destination"), ("unsigned int", "destinationAlpha"), ("unsigned int", "alphaNumerator"),), "blendChannel"),
@@ -652,19 +641,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("chunkedEnd", "int", "method", (("Bytes", "raw"), ("int", "bodyStart"), ("int", "maxBodyBytes"), ("int", "maxTrailerBytes"),), "chunkedEnd"),
         BuiltinMemberSpec("decodeChunked", "Bytes", "method", (("Bytes", "body"), ("int", "maxBodyBytes"), ("int", "maxTrailerBytes"),), "decodeChunked"),
     )),
-    ("HTTPUrl", (
-        BuiltinMemberSpec("decode", "string", "method", (("string", "value"),), "decode"),
-        BuiltinMemberSpec("encode", "string", "method", (("string", "value"),), "encode"),
-    )),
-    ("HTTPStatus", (
-        BuiltinMemberSpec("reason", "string", "method", (("int", "status"),), "reason"),
-    )),
     ("HTTPResponseHeaders", (
         BuiltinMemberSpec("reserved", "bool", "method", (("string", "name"),), "reserved"),
     )),
     ("HTTPSocket", (
-        BuiltinMemberSpec("configureDescriptor", "bool", "method", (("int", "descriptor"), ("bool", "nonblocking"),), "configureDescriptor"),
-        BuiltinMemberSpec("nowMilliseconds", "long long", "method", (), "nowMilliseconds"),
         BuiltinMemberSpec("deadlineAfter", "long long", "method", (("int", "timeoutSecs"),), "deadlineAfter"),
         BuiltinMemberSpec("waitFor", "bool", "method", (("int", "descriptor"), ("short", "events"), ("long long", "deadline"),), "waitFor"),
         BuiltinMemberSpec("openListener", "int", "method", (("int", "port"), ("bool", "bindAny"),), "openListener"),
@@ -676,6 +656,18 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("sendBytesUntil", "bool", "method", (("int", "descriptor"), ("Bytes", "data"), ("long long", "deadline"),), "sendBytesUntil"),
         BuiltinMemberSpec("sendAllUntil", "bool", "method", (("int", "descriptor"), ("string", "data"), ("long long", "deadline"),), "sendAllUntil"),
         BuiltinMemberSpec("sendAll", "bool", "method", (("int", "descriptor"), ("string", "data"), ("int", "timeoutSecs"),), "sendAll"),
+    )),
+    ("HTTPStatus", (
+        BuiltinMemberSpec("reason", "string", "method", (("int", "status"),), "reason"),
+    )),
+    ("HTTPUrl", (
+        BuiltinMemberSpec("decode", "string", "method", (("string", "value"),), "decode"),
+        BuiltinMemberSpec("encode", "string", "method", (("string", "value"),), "encode"),
+    )),
+    ("DescriptorFlags", (
+        BuiltinMemberSpec("closeOnExec", "bool", "method", (("int", "descriptor"),), "closeOnExec"),
+        BuiltinMemberSpec("nonblocking", "bool", "method", (("int", "descriptor"),), "nonblocking"),
+        BuiltinMemberSpec("configure", "bool", "method", (("int", "descriptor"), ("bool", "nonblocking"),), "configure"),
     )),
     ("Path", (
         BuiltinMemberSpec("exists", "bool", "method", (("string", "path"),), "exists"),
@@ -800,6 +792,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("pid", "int", "method", (), "pid"),
         BuiltinMemberSpec("euid", "int", "method", (), "euid"),
         BuiltinMemberSpec("isRoot", "bool", "method", (), "isRoot"),
+        BuiltinMemberSpec("currentDirectory", "string", "method", (), "currentDirectory"),
     )),
     ("Environment", (
         BuiltinMemberSpec("get", "string", "method", (("string", "name"), ("string", "fallback"),), "get"),
@@ -814,14 +807,11 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("quote", "string", "method", (("string", "raw"),), "quote"),
         BuiltinMemberSpec("redact", "string", "method", (("string", "text"), ("string", "sensitive"),), "redact"),
     )),
-    ("ChildProcessClock", (
-        BuiltinMemberSpec("millisecondsFrom", "long long", "method", (("uintmax_t", "seconds"), ("long", "nanoseconds"),), "millisecondsFrom"),
-        BuiltinMemberSpec("milliseconds", "long long", "method", (), "milliseconds"),
-        BuiltinMemberSpec("deadline", "long long", "method", (("long long", "now"), ("int", "timeoutMilliseconds"),), "deadline"),
+    ("CStringArray", (
+        BuiltinMemberSpec("copyEntry", "char*", "method", (("string", "value"),), "copyEntry"),
+        BuiltinMemberSpec("freeAll", "void", "method", (("char**", "entries"),), "freeAll"),
     )),
     ("ChildProcessEnvironment", (
-        BuiltinMemberSpec("copyEntry", "char*", "method", (("string", "value"),), "copyEntry"),
-        BuiltinMemberSpec("freeEntries", "void", "method", (("char**", "environment"),), "freeEntries"),
         BuiltinMemberSpec("assignmentHasName", "bool", "method", (("string", "assignment"), ("string", "name"),), "assignmentHasName"),
         BuiltinMemberSpec("assignmentsShareName", "bool", "method", (("string", "left"), ("string", "right"),), "assignmentsShareName"),
         BuiltinMemberSpec("replaced", "bool", "method", (("string", "inherited"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"),), "replaced"),
@@ -829,11 +819,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("ChildProcessArguments", (
         BuiltinMemberSpec("build", "char**", "method", (("string", "executable"), ("Vector<string>", "arguments"),), "build"),
-        BuiltinMemberSpec("freeEntries", "void", "method", (("char**", "arguments"),), "freeEntries"),
     )),
     ("ChildProcessExecutable", (
         BuiltinMemberSpec("join", "string", "method", (("string", "left"), ("string", "right"),), "join"),
-        BuiltinMemberSpec("currentDirectory", "string", "method", (), "currentDirectory"),
         BuiltinMemberSpec("workingDirectory", "string", "method", (("string", "cwd"),), "workingDirectory"),
         BuiltinMemberSpec("searchPath", "string", "method", (("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"),), "searchPath"),
         BuiltinMemberSpec("resolve", "string", "method", (("string", "executable"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"),), "resolve"),
@@ -868,10 +856,12 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("subst", "string", "method", (("string", "pattern"), ("string", "text"), ("string", "replacement"), ("bool", "all"),), "subst"),
     )),
     ("SPSCQueues", (
+        BuiltinMemberSpec("nextCursor", "uint", "method", (("uint", "cursor"), ("uint", "slotCount"),), "nextCursor"),
+        BuiltinMemberSpec("copyBytes", "void", "method", (("unsigned char*", "destination"), ("unsigned char*", "source"), ("size_t", "count"),), "copyBytes"),
         BuiltinMemberSpec("tryOpen", "SPSCQueueOpenKind", "method", (("uint", "capacity"), ("size_t", "valueSize"), ("struct SPSCQueueStorage**", "output"),), "tryOpen"),
         BuiltinMemberSpec("tryPushBorrowed", "bool", "method", (("struct SPSCQueueStorage*", "queue"), ("void*", "value"),), "tryPushBorrowed"),
         BuiltinMemberSpec("tryPopBorrowed", "bool", "method", (("struct SPSCQueueStorage*", "queue"), ("void*", "output"),), "tryPopBorrowed"),
-        BuiltinMemberSpec("close", "void", "method", (("struct SPSCQueueStorage*", "queue"),), "close"),
+        BuiltinMemberSpec("close", "void", "method", (("struct SPSCQueueStorage**", "owner"),), "close"),
     )),
     ("Strings", (
         BuiltinMemberSpec("checkedLength", "int", "method", (("string", "s"),), "checkedLength"),
@@ -904,6 +894,17 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("fromInt", "string", "method", (("int", "n"),), "fromInt"),
         BuiltinMemberSpec("fromFloat", "string", "method", (("float", "f"),), "fromFloat"),
     )),
+    ("UTF8", (
+        BuiltinMemberSpec("continuation", "bool", "method", (("int", "value"),), "continuation"),
+        BuiltinMemberSpec("width", "int", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "width"),
+        BuiltinMemberSpec("decode", "int", "method", (("string", "data"), ("int", "length"), ("int*", "offset"),), "decode"),
+        BuiltinMemberSpec("valid", "bool", "method", (("string", "data"), ("int", "length"),), "valid"),
+        BuiltinMemberSpec("next", "int", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "next"),
+        BuiltinMemberSpec("previous", "int", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "previous"),
+        BuiltinMemberSpec("wordScalar", "bool", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "wordScalar"),
+        BuiltinMemberSpec("previousWord", "int", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "previousWord"),
+        BuiltinMemberSpec("nextWord", "int", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "nextWord"),
+    )),
     ("TOML", (
         BuiltinMemberSpec("unquotedPosition", "int", "method", (("string", "line"), ("char", "target"),), "unquotedPosition"),
         BuiltinMemberSpec("stripInlineComment", "string", "method", (("string", "raw"),), "stripInlineComment"),
@@ -926,12 +927,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("prompt", "string", "method", (("string", "label"),), "prompt"),
         BuiltinMemberSpec("promptPassword", "string", "method", (("string", "label"),), "promptPassword"),
     )),
-    ("TerminalClock", (
-        BuiltinMemberSpec("milliseconds", "long long", "method", (), "milliseconds"),
-        BuiltinMemberSpec("deadlineAfter", "long long", "method", (("int", "milliseconds"),), "deadlineAfter"),
-    )),
     ("TerminalPasswordInput", (
-        BuiltinMemberSpec("configureSignalDescriptor", "bool", "method", (("int", "descriptor"),), "configureSignalDescriptor"),
         BuiltinMemberSpec("ensureSignalPipe", "bool", "method", (), "ensureSignalPipe"),
         BuiltinMemberSpec("drainSignalPipe", "void", "method", (), "drainSignalPipe"),
         BuiltinMemberSpec("setTerminalAttributes", "bool", "method", (("int", "descriptor"), ("struct termios*", "attributes"),), "setTerminalAttributes"),
@@ -940,6 +936,15 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("signalReadDescriptor", "int", "method", (), "signalReadDescriptor"),
         BuiltinMemberSpec("signalWriteDescriptor", "int", "method", (), "signalWriteDescriptor"),
         BuiltinMemberSpec("prompt", "string", "method", (("string", "label"),), "prompt"),
+    )),
+    ("MonotonicClock", (
+        BuiltinMemberSpec("millisecondsFrom", "long long", "method", (("uintmax_t", "seconds"), ("long", "nanoseconds"),), "millisecondsFrom"),
+        BuiltinMemberSpec("milliseconds", "long long", "method", (), "milliseconds"),
+        BuiltinMemberSpec("nanoseconds", "long long", "method", (), "nanoseconds"),
+        BuiltinMemberSpec("deadline", "long long", "method", (("long long", "now"), ("long long", "durationMilliseconds"),), "deadline"),
+        BuiltinMemberSpec("deadlineAfter", "long long", "method", (("long long", "durationMilliseconds"),), "deadlineAfter"),
+        BuiltinMemberSpec("remaining", "long long", "method", (("long long", "deadline"),), "remaining"),
+        BuiltinMemberSpec("before", "bool", "method", (("long long", "deadline"),), "before"),
     )),
     ("TraySignal", (
         BuiltinMemberSpec("quit", "string", "method", (), "quit"),
@@ -956,12 +961,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("UITextInput", (
         BuiltinMemberSpec("iconBounds", "UIRect", "method", (("UILayoutBox", "box"),), "iconBounds"),
-        BuiltinMemberSpec("wordCharacter", "bool", "method", (("string", "value"), ("int", "offset"),), "wordCharacter"),
-        BuiltinMemberSpec("previousWord", "int", "method", (("string", "value"), ("int", "offset"),), "previousWord"),
         BuiltinMemberSpec("selectionGroup", "int", "method", (("string", "value"), ("int", "offset"),), "selectionGroup"),
         BuiltinMemberSpec("selectionWordStart", "int", "method", (("string", "value"), ("int", "offset"),), "selectionWordStart"),
         BuiltinMemberSpec("selectionWordEnd", "int", "method", (("string", "value"), ("int", "offset"),), "selectionWordEnd"),
-        BuiltinMemberSpec("nextWord", "int", "method", (("string", "value"), ("int", "offset"),), "nextWord"),
     )),
     ("UILayout", (
         BuiltinMemberSpec("maximum", "int", "method", (("int", "left"), ("int", "right"),), "maximum"),
@@ -991,13 +993,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("selectPopup", "void", "method", (("Image", "image"), ("Vector<UILayoutBox>", "boxes"), ("UISelectPopup", "popup"), ("int", "highlightedOption"), ("UITheme", "theme"), ("UITypography", "typography"),), "selectPopup"),
         BuiltinMemberSpec("frame", "void", "method", (("Image", "image"), ("Vector<UILayoutBox>", "boxes"), ("UITheme", "theme"), ("UITypography", "typography"), ("string", "hovered"), ("string", "focused"), ("string", "focusedValue"), ("int", "caretByteOffset"), ("int", "scrollX"), ("int", "scrollY"), ("UISelectPopup", "popup"), ("int", "highlightedOption"), ("UIScrollbar*", "scrollbar"), ("int", "anchorByteOffset"), ("bool", "caretVisible"),), "frame"),
     )),
-    ("UISemanticText", (
-        BuiltinMemberSpec("valid", "bool", "method", (("string", "value"), ("int", "maximumBytes"),), "valid"),
-    )),
     ("UIText", (
-        BuiltinMemberSpec("byteAt", "int", "method", (("string", "value"), ("int", "index"),), "byteAt"),
-        BuiltinMemberSpec("continuation", "bool", "method", (("int", "value"),), "continuation"),
-        BuiltinMemberSpec("scalarWidth", "int", "method", (("string", "value"), ("int", "index"),), "scalarWidth"),
         BuiltinMemberSpec("valid", "bool", "method", (("string", "value"), ("int", "maximumBytes"),), "valid"),
         BuiltinMemberSpec("previousBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "previousBoundary"),
         BuiltinMemberSpec("nextBoundary", "int", "method", (("string", "value"), ("int", "offset"),), "nextBoundary"),
@@ -1009,8 +1005,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("maximumBytes", "int", "method", (), "maximumBytes"),
         BuiltinMemberSpec("bounded", "string", "method", (("string", "value"),), "bounded"),
         BuiltinMemberSpec("tint", "void", "method", (("Image", "image"), ("UIColor", "color"),), "tint"),
-        BuiltinMemberSpec("tryPlatformRasterize", "Image*", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "tryPlatformRasterize"),
-        BuiltinMemberSpec("deterministic", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "deterministic"),
         BuiltinMemberSpec("rasterize", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "rasterize"),
         BuiltinMemberSpec("blit", "void", "method", (("Image", "target"), ("Image", "source"), ("int", "left"), ("int", "top"),), "blit"),
     )),

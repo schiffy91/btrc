@@ -9,7 +9,7 @@ import Library.GUI.MacOS.MacOSView;
 class MacOSStackLayout implements IMacOSContainerLayout {
 	private NSStackView? _stack;
 	private bool _vertical;
-	private StackAlignment _alignment = StackAlignment.Start;
+	private StackAlignment _alignment = STACK_ALIGN_START;
 
 	public MacOSStackLayout(bool vertical, double spacing) {
 		if (!NSThread.isMainThread()) { throw "Native stacks require the main thread"; }
@@ -21,7 +21,7 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 		stack.setOrientation(vertical ? NSUserInterfaceLayoutOrientationVertical : NSUserInterfaceLayoutOrientationHorizontal);
 		stack.setDetachesHiddenViews(false);
 		stack.setSpacing(spacing);
-		self.setAlignment(StackAlignment.Start);
+		self.setAlignment(STACK_ALIGN_START);
 	}
 
 	private NSStackView control() {
@@ -48,9 +48,9 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 
 	public void setAlignment(StackAlignment alignment) {
 		var stack = self.control();
-		if (alignment == StackAlignment.Start) { stack.setAlignment(self._vertical ? NSLayoutAttributeLeading : NSLayoutAttributeTop); }
-		else if (alignment == StackAlignment.Center) { stack.setAlignment(self._vertical ? NSLayoutAttributeCenterX : NSLayoutAttributeCenterY); }
-		else if (alignment == StackAlignment.End) { stack.setAlignment(self._vertical ? NSLayoutAttributeTrailing : NSLayoutAttributeBottom); }
+		if (alignment == STACK_ALIGN_START) { stack.setAlignment(self._vertical ? NSLayoutAttributeLeading : NSLayoutAttributeTop); }
+		else if (alignment == STACK_ALIGN_CENTER) { stack.setAlignment(self._vertical ? NSLayoutAttributeCenterX : NSLayoutAttributeCenterY); }
+		else if (alignment == STACK_ALIGN_END) { stack.setAlignment(self._vertical ? NSLayoutAttributeTrailing : NSLayoutAttributeBottom); }
 		else { throw "Unknown stack alignment"; }
 		self._alignment = alignment;
 	}
@@ -126,16 +126,16 @@ class MacOSStack implements IStack, IMacOSView {
 
 	public CallbackCancellation close() {
 		// A constructor can fail before either managed field is initialized.
-		var state = self._container == null ? CallbackCancellation.Complete : self._container.close();
-		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE && self._layout != null) { self._layout.close(); }
 		return state;
 	}
 
 	public CallbackCancellation pollClose() {
-		var state = self._container == null ? CallbackCancellation.Complete : self._container.pollClose();
-		if (state == CallbackCancellation.Complete && self._layout != null) { self._layout.close(); }
+		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE && self._layout != null) { self._layout.close(); }
 		return state;
 	}
 
-	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
 }

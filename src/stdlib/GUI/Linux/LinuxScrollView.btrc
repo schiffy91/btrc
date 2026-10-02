@@ -107,5 +107,5 @@ class LinuxScrollView extends LinuxContainerView implements IScrollView {
 		self.applyOffset(offset);
 	}
 
-	public void __del__() { if (self.node() != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }
 }

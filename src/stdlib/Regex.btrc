@@ -33,7 +33,8 @@
  *   For repeated matching against one pattern, use `CompiledRegex`, which
  *   caches the compiled program and frees it in `__del__` (use new/delete).
  *
- * Auto-included; depends only on libc and Vector.
+ * Import explicitly with `import Library.Regex;`. Depends only on libc,
+ * Strings and Vector.
  */
 
 import Library.Strings;

@@ -5,7 +5,7 @@ import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.IPanel;
 import Library.GUI.IProgressIndicator;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 
 #include <assert.h>
 

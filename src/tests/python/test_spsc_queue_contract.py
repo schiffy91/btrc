@@ -52,7 +52,7 @@ int main() {
     struct CallbackContext context = {commands};
     if (!SPSCQueues.tryPushBorrowed(commands, &sent)) { return 2; }
     if (!consume(&context, &received)) { return 3; }
-    SPSCQueues.close(commands);
+    SPSCQueues.close(&commands);
     return received.kind == 7 && received.token == 11ULL ? 0 : 4;
 }
 """
@@ -71,7 +71,7 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
         assert "for (" not in body
         assert "%" not in body
         assert "/" not in body
-    copy_body = _body(generated, "btrcSpscCopy")
+    copy_body = _body(generated, "SPSCQueues_copyBytes")
     assert copy_body.count("for (") == 1
     assert not forbidden.search(copy_body)
     assert "while (" not in copy_body
@@ -84,8 +84,8 @@ def test_borrowed_operations_are_one_realtime_safe_composition() -> None:
     assert "memory_order_relaxed" in pop
     assert "memory_order_acquire" in pop
     assert "memory_order_release" in pop
-    assert "btrcSpscNextCursor" in push
-    assert "btrcSpscNextCursor" in pop
+    assert "SPSCQueues_nextCursor" in push
+    assert "SPSCQueues_nextCursor" in pop
     assert "const void* value" in generated
     assert "struct SPSCQueueStorage* queue" in generated
 
@@ -150,7 +150,7 @@ def test_fifo_full_empty_wraparound_and_thread_stress(
             });
             int producerResult = producer.join();
             int consumerResult = consumer.join();
-            SPSCQueues.close(queue);
+            SPSCQueues.close(&queue);
             return producerResult + consumerResult;
         }
         """
@@ -199,7 +199,7 @@ def test_every_allocation_failure_returns_typed_oom(
             SPSCQueueOpenKind opened = SPSCQueues.tryOpen(
                 4u, sizeof(int), &queue);
             if (opened != SPSC_QUEUE_OUT_OF_MEMORY || queue != null) {
-                if (queue != null) { SPSCQueues.close(queue); }
+                if (queue != null) { SPSCQueues.close(&queue); }
                 return 1;
             }
             return 0;

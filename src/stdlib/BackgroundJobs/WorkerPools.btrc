@@ -20,7 +20,11 @@ enum WorkerReplyKind {
 	WORKER_REPLY_FAILED = 2,
 	/* No reply arrived within the caller's timeout. Outstanding requests stay
 	 * outstanding and the pool stays open. */
-	WORKER_REPLY_TIMEOUT = 3
+	WORKER_REPLY_TIMEOUT = 3,
+	/* The worker's handler threw; `error` is exactly what it threw. The
+	 * worker is idle again and the pool stays open, so the owner decides
+	 * whether to raise it, terminate the pool or carry on. */
+	WORKER_REPLY_RAISED = 4
 };
 
 class WorkerReply {
@@ -37,6 +41,21 @@ class WorkerReply {
 	}
 }
 
+/* What one worker process used over its whole life, as its reaper saw it:
+ * CPU time in microseconds and peak resident memory in KiB, whatever unit the
+ * host reports it in. */
+class WorkerUsage {
+	public long long userMicros;
+	public long long systemMicros;
+	public long long maxResidentKibibytes;
+
+	public WorkerUsage(long long userMicros, long long systemMicros, long long maxResidentKibibytes) {
+		self.userMicros = userMicros;
+		self.systemMicros = systemMicros;
+		self.maxResidentKibibytes = maxResidentKibibytes;
+	}
+}
+
 /* Owner-side view of a started pool. Requests go only to idle workers, and a
  * worker is idle again once its reply has been returned by awaitReply. */
 interface IWorkerPool {
@@ -45,8 +64,9 @@ interface IWorkerPool {
 	/* Deliver one request to an idle worker; false if the worker is busy or
 	 * the pool has failed or closed. */
 	bool send(int worker, string request);
-	/* Block until an outstanding request is answered (READY), return EMPTY if
-	 * none is outstanding, or FAILED once any worker has failed. A
+	/* Block until an outstanding request is answered (READY, or RAISED when
+	 * its handler threw), return EMPTY if none is outstanding, or FAILED once
+	 * any worker has failed. A
 	 * nonnegative timeout bounds the wait with no reply and returns TIMEOUT;
 	 * a negative one waits indefinitely. */
 	WorkerReply awaitReply(int timeoutMilliseconds = -1);
@@ -56,6 +76,10 @@ interface IWorkerPool {
 	bool close();
 	/* Kill every worker and reap it. Idempotent. */
 	void terminate();
+	/* What `worker` used, once close or terminate has reaped it; null before
+	 * then, for a worker that is the owner itself, and on hosts that do not
+	 * report a reaped child's usage. */
+	WorkerUsage? usage(int worker);
 }
 
 interface IWorkerPoolFactory {
@@ -72,6 +96,8 @@ interface IWorkerPoolFactory {
 class InlineWorkerPool implements IWorkerPool {
 	private IWorkerRequestHandler handler;
 	private Vector<string> answers = [];
+	/* Whether the outstanding answer is what the handler threw. */
+	private bool raised = false;
 	private bool busy = false;
 	private bool closed = false;
 
@@ -81,37 +107,37 @@ class InlineWorkerPool implements IWorkerPool {
 
 	public bool idle(int worker) { return worker == 0 && !self.busy && !self.closed; }
 
-	private string failure = "";
-
-	/* A handler that throws fails the pool, as a forked worker that exits
-	 * does: the throw never escapes send, and awaitReply reports it. */
+	/* A handler that throws never escapes send: awaitReply hands the throw
+	 * back as RAISED, exactly as a forked worker's would be. */
 	public bool send(int worker, string request) {
 		if (!self.idle(worker)) { return false; }
 		self.busy = true;
+		self.raised = false;
 		try { self.answers.push(self.handler.handle(request)); }
 		catch (string error) {
-			self.failure = f"worker request failed: {error}";
-			self.closed = true;
+			self.answers.push(error);
+			self.raised = true;
 		}
 		return true;
 	}
 
 	public WorkerReply awaitReply(int timeoutMilliseconds = -1) {
-		if (!self.failure.isEmpty()) {
-			self.busy = false;
-			return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, 0, "", self.failure);
-		}
 		if (self.closed) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, -1, "", "worker pool is not open"); }
 		if (!self.busy) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_EMPTY, -1, "", ""); }
 		self.busy = false;
-		return WorkerReply(WorkerReplyKind.WORKER_REPLY_READY, 0, self.answers.pop(), "");
+		string answer = self.answers.pop();
+		if (self.raised) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_RAISED, 0, "", answer); }
+		return WorkerReply(WorkerReplyKind.WORKER_REPLY_READY, 0, answer, "");
 	}
 
 	public bool close() {
-		bool clean = !self.busy && !self.closed && self.failure.isEmpty();
+		bool clean = !self.busy && !self.closed;
 		self.closed = true;
 		return clean;
 	}
 
 	public void terminate() { self.closed = true; }
+
+	/* The only worker is the owner, whose usage is its own. */
+	public WorkerUsage? usage(int worker) { return null; }
 }

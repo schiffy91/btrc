@@ -76,7 +76,10 @@ class TOML {
 		while (i < length) {
 			char c = body[i];
 			if (c != '\\') {
-				if ((c >= (char)0 && c < ' ' && c != '\t') || c == (char)127) {
+				/* Unsigned, so a byte at or above 0x80 (UTF-8) is never a control
+				 * character, wherever plain char is signed or unsigned. */
+				int code = (int)(unsigned char)c;
+				if ((code < 0x20 && c != '\t') || code == 0x7f) {
 					throw "TOML basic string contains a control character";
 				}
 				output.appendChar(c);

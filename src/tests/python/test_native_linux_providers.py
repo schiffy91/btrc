@@ -253,6 +253,24 @@ def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
     )
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
+    """A GPU view moved to a window with another device never samples its old target there."""
+    _require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    _build_and_run(
+        ROOT / "src/tests/native/gui/linux/LinuxGUIReparent.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        "PASS: linux gui reparent",
+        timeout=180,
+    )
+
+
 @pytest.mark.parametrize("target", ["windows-x86_64"])
 def test_linux_gui_unsupported_target(target, tmp_path):
     result = subprocess.run(

@@ -863,8 +863,8 @@ class FeVisibilityDiagnostic {
 
 	public string render() {
 		string lineText = f"{self.line}";
-		string pad = Strings.repeat(" ", lineText.length());
-		string caret = Strings.repeat(" ", self.col > 0 ? self.col - 1 : 0) + "^";
+		string pad = " ".repeat(lineText.length());
+		string caret = " ".repeat(self.col > 0 ? self.col - 1 : 0) + "^";
 		return f"error: {self.message}\n {pad}--> {self.sourceFile}:{self.line}:{self.col}" + f"\n {pad} |\n {lineText} | {self.sourceLine}\n {pad} | {caret}";
 	}
 }

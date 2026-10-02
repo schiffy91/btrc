@@ -10,7 +10,7 @@ import Library.GUI.IPanel;
 import Library.GUI.IGrid;
 import Library.GUI.ILabel;
 import Library.GUI.ISelect;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.GUI.MacOS.MacOSView;
 
 #include <assert.h>
@@ -84,8 +84,8 @@ class GridLayout implements IApplicationWork {
 		form.layout();
 		assert(nativeOf(monitor).frame().size.width > 100.0);
 		self._background.detach(form);
-		assert(form.close() == CallbackCancellation.Complete);
-		assert(form.close() == CallbackCancellation.Complete);
+		assert(form.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(form.close() == CALLBACK_CANCELLATION_COMPLETE);
 		nested.close();
 		assert(!input.isOpen() && !monitor.isOpen() && !nested.isOpen());
 		input.close();

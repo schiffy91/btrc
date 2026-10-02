@@ -4,13 +4,17 @@
  * Each worker is a fork of the owner taken when the pool opens, so it starts
  * with everything the owner had built, shared copy-on-write. Owner and worker
  * talk over one AF_UNIX stream socket pair; a frame is 16 lowercase hex digits
- * giving the payload length, then the payload. A worker answers one request at
+ * giving the payload length, then the payload. A reply's payload starts with
+ * one kind byte: `=` before the handler's answer, `!` before what it threw,
+ * so a throw reaches the owner as RAISED and the worker carries on. A worker answers one request at
  * a time and the owner sends only to idle workers, reading every reply whole,
  * so neither side can block the other on a full socket. Every frame is written
  * with send(MSG_NOSIGNAL), so a peer that died surfaces as a failed write or an
  * end of input on either side without touching the process's SIGPIPE
  * disposition. Workers leave through _exit, so they never run the owner's exit
- * handlers or flush its stdio buffers a second time. */
+ * handlers or flush its stdio buffers a second time. The owner reaps each
+ * worker with wait4, which also reports that worker's own resource usage. */
+import Library.BackgroundJobs.ProcessThreads;
 import Library.BackgroundJobs.WorkerPools;
 import Library.Bytes;
 import Library.Vector;
@@ -19,7 +23,9 @@ import Library.Vector;
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -120,6 +126,8 @@ class ProcessWorkerState {
 	public bool requestsClosed = false;
 	public string exit = "";
 	public Bytes buffer = Bytes();
+	/* The worker's own usage, recorded by the wait that reaped it. */
+	public WorkerUsage? usage = null;
 
 	public ProcessWorkerState(pid_t pid, int channel) {
 		self.pid = pid;
@@ -146,8 +154,9 @@ class ProcessWorkerState {
 	private bool waitStatus() {
 		if (self.reaped) { return self.exit.isEmpty(); }
 		int status = 0;
+		struct rusage used;
 		while (true) {
-			pid_t waited = waitpid(self.pid, &status, 0);
+			pid_t waited = wait4(self.pid, &status, 0, &used);
 			if (waited == self.pid) { break; }
 			if (waited < (pid_t)0 && errno == EINTR) { continue; }
 			self.reaped = true;
@@ -155,11 +164,22 @@ class ProcessWorkerState {
 			return false;
 		}
 		self.reaped = true;
+		self.usage = ProcessWorkerState.usageOf(&used);
 		if (WIFEXITED(status) && WEXITSTATUS(status) == 0) { return true; }
 		if (WIFEXITED(status)) { self.exit = f"worker exited with status {WEXITSTATUS(status)}"; }
 		else if (WIFSIGNALED(status)) { self.exit = f"worker killed by signal {WTERMSIG(status)}"; }
 		else { self.exit = "worker ended abnormally"; }
 		return false;
+	}
+
+	/* A reaped child's usage. macOS reports peak resident memory in bytes,
+	 * linux in KiB. */
+	class WorkerUsage usageOf(struct rusage* used) {
+		long long user = (long long)used->ru_utime.tv_sec * 1000000LL + (long long)used->ru_utime.tv_usec;
+		long long system = (long long)used->ru_stime.tv_sec * 1000000LL + (long long)used->ru_stime.tv_usec;
+		long long resident = (long long)used->ru_maxrss;
+		if (__btrc_target_platform() == 1) { resident = resident / 1024LL; }
+		return WorkerUsage(user, system, resident);
 	}
 
 	/* Wait for the worker to exit; true when it exited with status 0. */
@@ -179,9 +199,12 @@ class ForkedWorkerPool implements IWorkerPool {
 
 	public ForkedWorkerPool() {}
 
-	/* Fork `count` workers running `handler`; null if any could not start. */
+	/* Fork `count` workers running `handler`; null if any could not start,
+	 * or while another thread runs: a lock that thread held at the fork would
+	 * stay held forever in the worker. A host that cannot count its threads
+	 * forks as before. */
 	class ForkedWorkerPool? start(int count, IWorkerRequestHandler handler) {
-		if (count < 1 || count > 64) { return null; }
+		if (count < 1 || count > 64 || ProcessThreads.count() > 1) { return null; }
 		ForkedWorkerPool pool = ForkedWorkerPool();
 		/* Buffered output would otherwise be written once by each process. */
 		fflush(stdout);
@@ -231,12 +254,8 @@ class ForkedWorkerPool implements IWorkerPool {
 			}
 			if (!frame.complete) { _exit(71); }
 			string reply = "";
-			try { reply = handler.handle(frame.payload); }
-			catch (string error) {
-				fprintf(stderr, "worker request failed: %s\n", error);
-				fflush(stderr);
-				_exit(72);
-			}
+			try { reply = "=" + handler.handle(frame.payload); }
+			catch (string error) { reply = "!" + error; }
 			if (!ProcessWorkerFrames.writeFrame(channel, reply)) { _exit(73); }
 		}
 	}
@@ -298,7 +317,12 @@ class ForkedWorkerPool implements IWorkerPool {
 					return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, index, "", frame.error);
 				}
 				state.busy = false;
-				return WorkerReply(WorkerReplyKind.WORKER_REPLY_READY, index, frame.payload, "");
+				string payload = frame.payload;
+				string body = payload.length() > 0 ? payload.substring(1, payload.length() - 1) : "";
+				if (payload.startsWith("=")) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_READY, index, body, ""); }
+				if (payload.startsWith("!")) { return WorkerReply(WorkerReplyKind.WORKER_REPLY_RAISED, index, "", body); }
+				self.fail();
+				return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, index, "", "worker reply has no kind");
 			}
 		}
 		return WorkerReply(WorkerReplyKind.WORKER_REPLY_FAILED, -1, "", "unreachable");
@@ -331,6 +355,11 @@ class ForkedWorkerPool implements IWorkerPool {
 			state.reap();
 		}
 		self.closed = true;
+	}
+
+	public WorkerUsage? usage(int worker) {
+		if (worker < 0 || worker >= self.workers.len) { return null; }
+		return self.workers.get(worker).usage;
 	}
 
 	private void fail() {

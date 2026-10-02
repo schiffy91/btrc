@@ -1,0 +1,92 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IContainer;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.IScrollView;
+
+import ./ControlProbe.btrc;
+#include <assert.h>
+#include <math.h>
+
+int main() {
+	GUI.initialize();
+	var window = GUI.createWindow("Native scrolling", 480.0, 480.0);
+	var root = GUI.createContainer();
+	window.attachRoot(root);
+	var header = GUI.createTextField("Search library", "Search");
+	// Native frame (24, 430, 432, 30) from the bottom of the 480-point content.
+	root.attach(header);
+	header.arrange(24.0, 20.0, 432.0, 30.0);
+	var scroll = GUI.createScrollView();
+	// Native frame (0, 0, 480, 400): the bottom of the content area.
+	root.attach(scroll);
+	scroll.arrange(0.0, 80.0, 480.0, 400.0);
+	scroll.setContentSize(480.0, 1600.0);
+	var field = GUI.createTextField("Document", "");
+	scroll.attach(field);
+	field.arrange(24.0, 70.0, 400.0, 30.0);
+	assert(scroll.childCount() == 1 && scroll.childAt(0) == field);
+	bool attachedClose = false;
+	try { field.close(); } catch (string error) { attachedClose = true; }
+	assert(attachedClose && field.isOpen());
+	var nested = GUI.createScrollView();
+	nested.setContentSize(300.0, 900.0);
+	scroll.attach(nested);
+	nested.arrange(24.0, 500.0, 300.0, 200.0);
+	nested.scrollTo(80.0);
+	assert(fabs(nested.scrollOffset() - 80.0) < 0.01);
+	// Frame-positioned document children keep their top-left distance when
+	// the unflipped document grows; AppKit would otherwise keep the bottom.
+	scroll.setContentSize(480.0, 1800.0);
+	assert(fabs(NativeScrollViewProbe.topOfDocumentChild(0L) - 70.0) < 0.01);
+	assert(fabs(NativeScrollViewProbe.topOfDocumentChild(1L) - 500.0) < 0.01);
+	scroll.setContentSize(480.0, 1600.0);
+	assert(NativeScrollViewProbe.prepare());
+	assert(fabs(scroll.scrollOffset()) < 0.01);
+	scroll.scrollTo(125.5);
+	assert(fabs(scroll.scrollOffset() - 125.5) < 0.01);
+	// Native frame (0, 0, 480, 300): still the bottom of the content area.
+	scroll.arrange(0.0, 180.0, 480.0, 300.0);
+	assert(fabs(scroll.scrollOffset() - 125.5) < 0.01);
+	scroll.scrollTo(100000.0);
+	assert(fabs(scroll.scrollOffset() - 1300.0) < 0.01);
+	scroll.scrollTo(-100.0);
+	assert(scroll.scrollOffset() == 0.0);
+	scroll.setContentSize(480.0, 100.0);
+	assert(scroll.scrollOffset() == 0.0);
+	scroll.setContentSize(480.0, 1600.0);
+	assert(scroll.scrollOffset() == 0.0);
+	scroll.scrollTo(600.0);
+	assert(NativeScrollViewProbe.wheel());
+	assert(scroll.scrollOffset() > 0.0);
+	assert(fabs(nested.scrollOffset() - 80.0) < 0.01);
+	bool rejected = false;
+	try { scroll.setContentSize(480.0, -1.0); } catch (string error) { rejected = error.equals("Invalid scroll content size"); }
+	assert(rejected);
+	rejected = false;
+	try { scroll.scrollTo(NAN); } catch (string error) { rejected = error.equals("Invalid scroll offset"); }
+	assert(rejected);
+	rejected = false;
+	try { scroll.arrange(0.0, 180.0, INFINITY, 300.0); } catch (string error) { rejected = error.equals("Invalid native view frame"); }
+	assert(rejected);
+	root.detach(scroll);
+	assert(scroll.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(!field.isOpen() && !nested.isOpen());
+	assert(scroll.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(NativeScrollViewProbe.finish());
+	root.detach(header);
+	header.close();
+	window.close();
+	bool closed = false;
+	try { scroll.scrollTo(0.0); } catch (string error) { closed = true; }
+	assert(closed);
+	Thread<int> worker = spawn(() => {
+			try { var invalid = GUI.createScrollView(); } catch (string error) { return error.equals("GUI requires the main thread") ? 0 : 1; }
+			return 2;
+		});
+	assert(worker.join() == 0);
+	assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("PASS: AppKit scroll view composition from BTRC");
+	return 0;
+}

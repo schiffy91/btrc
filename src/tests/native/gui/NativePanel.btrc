@@ -7,7 +7,7 @@ import Library.GUI.IWindow;
 import Library.GUI.IContainer;
 import Library.GUI.IPanel;
 import Library.GUI.IImageView;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSPanel;
@@ -51,9 +51,9 @@ class PanelRendering implements IApplicationWork {
 		try { panel.setCornerRadius(-1.0); } catch (string error) { invalid = true; }
 		assert(invalid);
 		assert(self._root.detach(panel) == panel);
-		assert(panel.close() == CallbackCancellation.Complete);
+		assert(panel.close() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(!self._imageView.isOpen());
-		assert(panel.close() == CallbackCancellation.Complete);
+		assert(panel.close() == CALLBACK_CANCELLATION_COMPLETE);
 		bool closed = false;
 		try { panel.setFill(RGBA(0, 0, 0)); } catch (string error) { closed = true; }
 		assert(closed);

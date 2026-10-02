@@ -1,7 +1,13 @@
-/* Portable directory-picker contract. Each platform provider (GUI/MacOS today;
- * Linux and Windows later) implements IDirectoryPicker and owns its UI-thread
- * checks and modal resources. Keep the concrete type at the call site;
- * interfaces do not erase ownership in BTRC. */
+/* Portable directory-picker contract. Applications call
+ * GUI.chooseDirectory(request) on the UI thread of an initialized GUI; the
+ * target's GUI provider builds its picker (MacOSDirectoryPicker over
+ * NSOpenPanel, LinuxDirectoryPicker over SDL's portal/zenity folder dialog)
+ * and runs it modally. A picker owns its modal resources and reports an
+ * invalid request, an unavailable dialog or a native failure as a failed
+ * outcome; a user dismissal, or an application Quit that aborts the modal,
+ * is a cancelled outcome. The Linux picker pumps application events until
+ * the dialog answers, so it throws when opened from inside native event
+ * dispatch. Windows has no provider. */
 
 import Library.App;
 

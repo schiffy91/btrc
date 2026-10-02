@@ -6,7 +6,7 @@ import Library.GUI.IWindow;
 import Library.GUI.IPanel;
 import Library.GUI.IButton;
 import Library.GUI.ISelect;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 
 #include <assert.h>
 

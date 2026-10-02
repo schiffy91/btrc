@@ -138,7 +138,7 @@ def _run(executable, *arguments):
 @pytest.mark.parametrize(
     "fixture,hooks",
     [
-        ("MacOsEncodedImageDecoderConformance", False),
+        ("MacOSEncodedImageDecoderConformance", False),
         ("ImageIoCleanup", True),
     ],
 )
@@ -241,7 +241,7 @@ def test_imageio_binding_requires_reader_before_emitting_code(tmp_path, monkeypa
     from src.compiler.python import Compiler, CompilerOptions
 
     monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
-    source = FIXTURES / "MacOsEncodedImageDecoderConformance.btrc"
+    source = FIXTURES / "MacOSEncodedImageDecoderConformance.btrc"
     result = Compiler().compile(source.read_text(), str(source), CompilerOptions(use_cache=False, target="macos-arm64"))
     assert not result.successful and not result.c_source
     assert "BTRC_NATIVE_HEADER_READER" in str(result.failure)

@@ -1,7 +1,7 @@
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IStack;
 import Library.GUI.IView;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.Vector;
 
 #include <assert.h>
@@ -42,11 +42,11 @@ int main() {
 	Vector<GUICaptureLayer> layers = [];
 	var capture = GUI.capture(column, layers);
 	assert(capture.width >= 480 && capture.width % 480 == 0 && capture.width / 480 == capture.height / 320);
-	row.setAlignment(StackAlignment.Center);
-	assert(row.alignment() == StackAlignment.Center);
-	row.setAlignment(StackAlignment.End);
-	assert(row.alignment() == StackAlignment.End);
-	row.setAlignment(StackAlignment.Start);
+	row.setAlignment(STACK_ALIGN_CENTER);
+	assert(row.alignment() == STACK_ALIGN_CENTER);
+	row.setAlignment(STACK_ALIGN_END);
+	assert(row.alignment() == STACK_ALIGN_END);
+	row.setAlignment(STACK_ALIGN_START);
 	cancel.setVisible(false);
 	column.layout();
 	StackProbe.verifyHiddenButton();

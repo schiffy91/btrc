@@ -59,7 +59,9 @@ int alsaFaultErrorHandler(snd_lib_error_handler_t handler);
  * parameters with an indeterminate cleanup, 20 capture start, 21 device lost
  * while running (unrecoverable write), 22 a stalled device that never becomes
  * ready, 23 one wait that overstays its timeout by six seconds, 24 the first
- * prefill write fails unrecoverably. */
+ * prefill write fails unrecoverably, and one capture read fails once with 25
+ * an overrun (-EPIPE), 26 a resumed suspend (-ESTRPIPE) or 27 an interrupted
+ * read (-EINTR). */
 void unitReset(int failure);
 void unitFail(int failure);
 void allowSessionCleanup(void);
@@ -67,6 +69,8 @@ int pendingSessions(void);
 int unitDisposals(void);
 int unitStops(void);
 int unitRenders(void);
+/* Capture periods read successfully. */
+int unitReads(void);
 int unitInputChannels(void);
 int unitOutputChannels(void);
 void unitDeviceChannels(int input, int output);
