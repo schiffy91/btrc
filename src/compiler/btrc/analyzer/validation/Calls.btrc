@@ -500,8 +500,11 @@ class CallValidator {
 		}
 		/* Named arguments, arity and argument types belong to the analyzer's
 		 * GpuKernelValidator, which checks every kernel after its body. */
-		if (name == "gpu_id" && call.args().len != 0) {
-			TypeValidator.fail("gpu_id() takes no arguments", call);
+		if (name == "gpu_id") {
+			for argumentName in call.argNames() {
+				if (argumentName != "") { TypeValidator.fail("WGSL built-ins do not accept named arguments", call); }
+			}
+			if (call.args().len != 0) { TypeValidator.fail("gpu_id() takes no arguments", call); }
 		}
 		if (self.state.analyzed.funcTable.has(name)) {
 			/* A canonical bodyless hosted prototype is superseded by the GPU

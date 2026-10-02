@@ -909,16 +909,18 @@ class StatementAnalyzer:
     def _analyze_c_for_scoped(self, stmt) -> None:
         if stmt.init:
             if isinstance(stmt.init, ForInitVar):
-                declaration = stmt.init.var_decl
-                self._analyze_var_decl(declaration)
-                if declaration.type and (declaration.type.is_static or declaration.type.is_extern):
-                    self.session.error(
-                        "C-style for initializer cannot use static or extern storage", declaration.line, declaration.col
-                    )
-                if declaration.type and declaration.type.is_array:
-                    self.session.error(
-                        "C-style for initializer cannot declare an array", declaration.line, declaration.col
-                    )
+                for declaration in stmt.init.declarations:
+                    self._analyze_var_decl(declaration)
+                    if declaration.type and (declaration.type.is_static or declaration.type.is_extern):
+                        self.session.error(
+                            "C-style for initializer cannot use static or extern storage",
+                            declaration.line,
+                            declaration.col,
+                        )
+                    if declaration.type and declaration.type.is_array:
+                        self.session.error(
+                            "C-style for initializer cannot declare an array", declaration.line, declaration.col
+                        )
             elif isinstance(stmt.init, ForInitExpr):
                 self.analyze_expression(stmt.init.expression)
                 self.aggregates.reject_thread_observation(stmt.init.expression)

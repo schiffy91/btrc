@@ -145,11 +145,12 @@ public:
 };
 
 // An object-like macro selected as a symbol is an SDK constant with no
-// declaration. Its replacement tokens, with nested object-like macros spliced
-// in, are parsed here and every operand and operator is built through Clang's
-// Sema, so the constant's type and value are exactly what the SDK's own C
-// gives it. Only integer constant expressions are accepted; anything else
-// (strings, function-like macros, non-constant operands) refuses.
+// declaration. Clang's preprocessor expands it, the expansion is parsed here
+// and every operand and operator is built through Clang's Sema, so the
+// constant's type and value are exactly what the SDK's own C gives it. Only
+// integer constant expressions are accepted, however many object-like or
+// function-like macros the expansion invokes; anything else (a macro that is
+// itself function-like, strings, non-constant operands) refuses.
 class NativeMacroConstant {
 	clang::Sema& sema;
 	clang::Preprocessor& preprocessor;
@@ -158,17 +159,28 @@ class NativeMacroConstant {
 	size_t position = 0;
 	std::string failure;
 
-	bool expand(const clang::MacroInfo& info, std::set<const clang::IdentifierInfo*>& active) {
-		for (const auto& token : info.tokens()) {
-			const auto* identifier = token.getIdentifierInfo();
-			const auto* nested = identifier && !active.count(identifier) ? preprocessor.getMacroInfo(identifier) : nullptr;
-			if (!nested) { tokens.push_back(token); continue; }
-			if (nested->isFunctionLike()) { return refuse("uses function-like macro " + identifier->getName().str()); }
-			active.insert(identifier);
-			if (!expand(*nested, active)) { return false; }
-			active.erase(identifier);
+	// Clang's own preprocessor expands the macro name, so nested object-like
+	// and function-like invocations, `#` and `##` mean exactly what they mean
+	// in the SDK's C (a libc may spell UINT32_MAX through UINT32_C(...)). An
+	// eof token tagged with this object bounds the expansion.
+	bool expand(const clang::IdentifierInfo& name, const clang::MacroInfo& info) {
+		clang::Token start;
+		start.startToken();
+		start.setKind(clang::tok::identifier);
+		start.setIdentifierInfo(const_cast<clang::IdentifierInfo*>(&name));
+		start.setLocation(info.getDefinitionLoc());
+		start.setLength(name.getLength());
+		clang::Token end;
+		end.startToken();
+		end.setKind(clang::tok::eof);
+		end.setLocation(info.getDefinitionEndLoc());
+		end.setEofData(this);
+		preprocessor.EnterTokenStream(llvm::ArrayRef<clang::Token>{start, end}, false, false);
+		for (clang::Token token;;) {
+			preprocessor.Lex(token);
+			if (token.is(clang::tok::eof)) { return token.getEofData() == this || refuse("has an unterminated macro invocation"); }
+			tokens.push_back(token);
 		}
-		return true;
 	}
 
 	bool refuse(std::string reason) {
@@ -319,16 +331,17 @@ public:
 
 	// The macro's integer value and type, or an explanation in `failure`.
 	std::optional<std::pair<clang::QualType, llvm::APSInt>> evaluate(const clang::IdentifierInfo& name, const clang::MacroInfo& info, std::string& reason) {
-		std::set<const clang::IdentifierInfo*> active{&name};
+		auto& diagnostics = sema.getDiagnostics();
+		bool suppressed = diagnostics.getSuppressAllDiagnostics();
+		diagnostics.setSuppressAllDiagnostics(true);
+		auto restore = llvm::make_scope_exit([&] { diagnostics.setSuppressAllDiagnostics(suppressed); });
 		if (info.isFunctionLike()) { refuse("is a function-like macro"); }
 		else if (info.tokens_empty()) { refuse("has no replacement tokens"); }
-		else if (expand(info, active)) {
-			auto& diagnostics = sema.getDiagnostics();
-			bool suppressed = diagnostics.getSuppressAllDiagnostics();
-			diagnostics.setSuppressAllDiagnostics(true);
+		else if (!expand(name, info)) {}
+		else if (tokens.empty()) { refuse("expands to no tokens"); }
+		else {
 			clang::EnterExpressionEvaluationContext constant(sema, clang::Sema::ExpressionEvaluationContext::ConstantEvaluated);
 			auto* expression = conditional();
-			diagnostics.setSuppressAllDiagnostics(suppressed);
 			clang::Expr::EvalResult evaluated;
 			if (expression && position != tokens.size()) { refuse("has trailing tokens"); }
 			else if (expression && !expression->getType()->isIntegralOrEnumerationType()) { refuse("is not an integer constant"); }

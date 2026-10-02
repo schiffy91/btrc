@@ -1412,15 +1412,17 @@ class Parser:
                     self._expect(TokenKind.EQ, "'=' (var requires an initializer)")
                     init_val = self._parse_expr()
                     init = ForInitVar(
-                        var_decl=VarDeclStmt(
-                            type=None,
-                            name=name,
-                            initializer=init_val,
-                            line=start.line,
-                            col=start.col,
-                            name_line=name_tok.line,
-                            name_col=name_tok.col,
-                        )
+                        declarations=[
+                            VarDeclStmt(
+                                type=None,
+                                name=name,
+                                initializer=init_val,
+                                line=start.line,
+                                col=start.col,
+                                name_line=name_tok.line,
+                                name_col=name_tok.col,
+                            )
+                        ]
                     )
                 else:
                     type_expr = self._parse_type_expr()
@@ -1430,15 +1432,17 @@ class Parser:
                     if self._match(TokenKind.EQ):
                         init_val = self._parse_expr()
                     init = ForInitVar(
-                        var_decl=VarDeclStmt(
-                            type=type_expr,
-                            name=name,
-                            initializer=init_val,
-                            line=start.line,
-                            col=start.col,
-                            name_line=name_tok.line,
-                            name_col=name_tok.col,
-                        )
+                        declarations=[
+                            VarDeclStmt(
+                                type=type_expr,
+                                name=name,
+                                initializer=init_val,
+                                line=start.line,
+                                col=start.col,
+                                name_line=name_tok.line,
+                                name_col=name_tok.col,
+                            )
+                        ]
                     )
             else:
                 init = ForInitExpr(expression=self._parse_expr())

@@ -69,10 +69,11 @@ def test_completion_after_chain():
 
 GENERIC_BUILTIN_SRC = """\
 import Library.Map;
+import Library.Strings;
 
 int main() {
     string text = "a,b";
-    int splitCount = text.split(",").len;
+    int splitCount = Strings.split(text, ",").len;
     Map<string, int> lookup = {};
     int keyCount = lookup.keys().len;
     return splitCount + keyCount;
@@ -85,11 +86,13 @@ def _completion_names(source, needle, offset):
     return {item.label for item in get_completions(analyze(source), position)}
 
 
-def test_completion_after_string_split_call_returns_vector_members():
+def test_completion_after_strings_split_call_returns_vector_members():
+    # The built-in `text.split(",")` is a C string array (STRING_METHODS),
+    # not a Vector; Strings.split is the Vector<string> spelling.
     names = _completion_names(
         GENERIC_BUILTIN_SRC,
-        'text.split(",").len',
-        len('text.split(",").'),
+        'Strings.split(text, ",").len',
+        len('Strings.split(text, ",").'),
     )
     assert {"len", "get", "join"} <= names
 
@@ -119,8 +122,8 @@ def test_hover_after_generic_builtin_call_uses_vector_member():
             analyze(GENERIC_BUILTIN_SRC),
             pos_of(
                 GENERIC_BUILTIN_SRC,
-                'text.split(",").len',
-                offset=len('text.split(",").'),
+                'Strings.split(text, ",").len',
+                offset=len('Strings.split(text, ",").'),
             ),
         )
     )

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.process_limits import TOOL_TIMEOUT
 from tools import budget_bench as bench
 
 REPO = Path(__file__).resolve().parents[3]
@@ -126,13 +127,17 @@ def test_wait4_collector_measures_a_real_child_and_keeps_its_exit_status(tmp_pat
     command = bench.TimeReport.command("linux")
     assert command[:2] == [sys.executable, "-c"]
     allocate = "import sys; block = bytearray(64 * 2**20); sys.stderr.write('child\\n'); sys.exit(int(sys.argv[1]))"
-    completed = subprocess.run([*command, sys.executable, "-c", allocate, "0"], capture_output=True, text=True)
+    completed = subprocess.run(
+        [*command, sys.executable, "-c", allocate, "0"], capture_output=True, text=True, timeout=TOOL_TIMEOUT
+    )
     assert completed.returncode == 0 and completed.stderr.startswith("child\n")
     report = bench.TimeReport.parse(completed.stderr)
     assert report.max_rss_bytes is not None and report.max_rss_bytes > 64 * 2**20
     assert report.wall_s is not None and report.wall_s > 0 and report.user_s is not None
     assert report.instructions_retired is None and report.peak_footprint_bytes is None
-    failed = subprocess.run([*command, sys.executable, "-c", allocate, "3"], capture_output=True, text=True)
+    failed = subprocess.run(
+        [*command, sys.executable, "-c", allocate, "3"], capture_output=True, text=True, timeout=TOOL_TIMEOUT
+    )
     assert failed.returncode == 3
     assert bench.TimeReport.collector("linux") == "wait4 rusage of the measured process tree"
     assert bench.TimeReport.instruction_counter("linux") == "unavailable on this host: test"

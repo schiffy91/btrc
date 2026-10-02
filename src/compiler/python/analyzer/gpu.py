@@ -27,6 +27,8 @@ from src.compiler.python.syntax.ast.generated import (
     ExprStmt,
     FieldAccessExpr,
     FloatLiteral,
+    ForInitExpr,
+    ForInitVar,
     ForInStmt,
     FStringLiteral,
     FunctionDecl,
@@ -223,9 +225,10 @@ class GpuKernelValidator:
             try:
                 if statement.init:
                     initializer = statement.init
-                    if hasattr(initializer, "var_decl"):
-                        self._validate_statement(validation, initializer.var_decl)
-                    if hasattr(initializer, "expression"):
+                    if isinstance(initializer, ForInitVar):
+                        for declaration in initializer.declarations:
+                            self._validate_statement(validation, declaration)
+                    if isinstance(initializer, ForInitExpr):
                         self._validate_update(validation, initializer.expression)
                 if statement.condition:
                     self._expressions.validate(validation, statement.condition)
