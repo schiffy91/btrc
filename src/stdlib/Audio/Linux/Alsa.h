@@ -69,6 +69,12 @@ static inline int btrcAlsaSetInterleavedFloat(snd_pcm_t* pcm, snd_pcm_hw_params_
 	return snd_pcm_hw_params_set_format(pcm, params, SND_PCM_FORMAT_FLOAT);
 }
 
+/* Starts a PCM only from PREPARED: snd_pcm_recover leaves an overrun prepared,
+ * but resumes a suspend to RUNNING and leaves an interrupted read unchanged. */
+static inline int btrcAlsaStartIfPrepared(snd_pcm_t* pcm) {
+	return snd_pcm_state(pcm) == SND_PCM_STATE_PREPARED ? snd_pcm_start(pcm) : 0;
+}
+
 /* Whether the PCM holds a started or prepared stream that a close must drop first. */
 static inline int btrcAlsaNeedsDrop(snd_pcm_t* pcm) {
 	snd_pcm_state_t state = snd_pcm_state(pcm);

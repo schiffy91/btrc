@@ -1,9 +1,10 @@
 /* The ALSA provider against the AlsaFaults fixture: setup failures release
  * their PCM, a failed stop keeps the handle for a retried close, a failed
  * close is indeterminate and never retried, a stream fault ends the worker and
- * is reported by drain(), a stalled device never hangs suspend or drain, a
- * fixed-channel device opens a narrower selection, and an open session's PCM
- * stays in the inventory without being probed. */
+ * is reported by drain(), a recovered capture read keeps the stream running,
+ * a stalled device never hangs suspend or drain, a fixed-channel device opens a
+ * narrower selection, and an open session's PCM stays in the inventory without
+ * being probed. */
 import Library.Audio.Audio;
 import Library.Audio.AudioDevice;
 import Library.Audio.RealtimeAudio;
@@ -20,6 +21,7 @@ int pendingSessions();
 int unitDisposals();
 int unitStops();
 int unitRenders();
+int unitReads();
 void unitDeviceChannels(int input, int output);
 void unitFixedChannels(int fixed);
 int unitConfiguredChannels(int capture);
@@ -146,6 +148,26 @@ void lostDevice() {
 	assert(duplex.suspend().succeeded());
 	assert(duplex.drain().status() == AUDIO_DEVICE_NOT_FOUND && duplex.state() == DUPLEX_AUDIO_SESSION_DRAINED);
 	allowSessionCleanup();
+	assert(duplex.close().succeeded() && pendingSessions() == 0 && unitDisposals() == 2);
+	assert(provider.close().succeeded());
+}
+
+/* A failed capture read that recovers keeps the stream running: an overrun is
+ * restarted from PREPARED, while a resumed suspend and an interrupted read are
+ * left as they are, never started twice. */
+void recoveredCapture(int failure) {
+	unitReset(0);
+	var provider = Audio.createDevice().provider();
+	struct BlockLog state = {0, 0};
+	var duplex = startedSession(provider, &state);
+	Timer.sleepMillis(30);
+	unitFail(failure);
+	Timer.sleepMillis(30);
+	int reads = unitReads();
+	int blocks = state.blocks;
+	Timer.sleepMillis(60);
+	assert(unitReads() > reads + 2 && state.blocks > blocks + 2);
+	assert(duplex.suspend().succeeded() && duplex.drain().succeeded());
 	assert(duplex.close().succeeded() && pendingSessions() == 0 && unitDisposals() == 2);
 	assert(provider.close().succeeded());
 }
@@ -281,6 +303,9 @@ int main() {
 	failedStart();
 	retriedClose();
 	lostDevice();
+	recoveredCapture(25);
+	recoveredCapture(26);
+	recoveredCapture(27);
 	failedWorkerStart(20);
 	failedWorkerStart(24);
 	stalledDevice();

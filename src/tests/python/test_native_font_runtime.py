@@ -155,13 +155,22 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
     executable = source.parent / "FreeTypeSetup"
 
     apple = sys.platform == "darwin"
-    cc, cxx = ("/usr/bin/clang", "/usr/bin/clang++") if apple else ("cc", "c++")
+    # The builder invokes each driver by its resolved path, so the runner must
+    # recognize that path: a bare "cc" never matches and drops the sanitizers.
+    drivers = ("/usr/bin/clang", "/usr/bin/clang++") if apple else ("cc", "c++")
+    cc, cxx = (shutil.which(driver) for driver in drivers)
+    if cc is None or cxx is None:
+        pytest.skip(f"requires the {drivers[0]} and {drivers[1]} drivers")
     environment = apple_environment() if apple else {**os.environ, "ASAN_OPTIONS": "detect_leaks=0"}
+    sanitizers = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+    driven = []
 
     def runner(command, **kwargs):
         flags = ["-O2"] if command[0] in {cc, cxx} else []
         if flags and sanitize:
-            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+            flags += sanitizers
+        if flags:
+            driven.append([command[0], *flags, *command[1:]])
         return subprocess.run([command[0], *flags, *command[1:]], env=environment, **kwargs)
 
     NativePlanBuilder(runner=runner).build(
@@ -171,6 +180,12 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
         cc=cc,
         cxx=cxx,
     )
+    # Every compile and the link went through a recognized driver, and a
+    # sanitized build carried the sanitizers into each of them.
+    assert any("-c" in command for command in driven), driven
+    assert any("-c" not in command and "-o" in command for command in driven), driven
+    for command in driven:
+        assert all(flag in command for flag in sanitizers) == sanitize, command
     completed = subprocess.run(
         [str(executable), *arguments],
         env=environment,

@@ -46,6 +46,10 @@ class LinuxGPUView extends LinuxNodeView implements IGPUView {
 	}
 
 	public void paint(LinuxPainter painter, double x, double y) {
+		/* A reparented view keeps its old window's target until the next poll()
+		 * rebuilds it: never sample a texture from another window's device. */
+		var host = self.node().host;
+		if (host == null || host.device == null || host.device != self._targetDevice) { return; }
 		var target = self._target;
 		var renderer = self._renderer;
 		if (target == null || renderer == null || !target.hasTexture() || renderer.presentedCount() == 0ULL) { return; }
@@ -84,6 +88,10 @@ class LinuxGPUView extends LinuxNodeView implements IGPUView {
 
 	public string error() { return self._error; }
 
+	/* True once the view can render on its window's device. After the view
+	 * moves to a window with another device, the first true poll() rebuilds the
+	 * target and renderer there: programs and readbacks created earlier belong
+	 * to the old device and must be created again. */
 	public bool poll() {
 		self.requireOpen();
 		if (!self._error.isEmpty()) { return false; }
