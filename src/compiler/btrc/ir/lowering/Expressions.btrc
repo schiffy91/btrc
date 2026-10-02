@@ -954,7 +954,13 @@ class ExpressionLowerer {
 	public ManagedReleaseSlot lowerManagedReleaseSlot(ManagedReleaseSlotPlan plan, Map<string, Node> varTypes, Vector<IRNode> statements, CallableFlowState callableFlow) {
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		ManagedReleaseSlot slot = ManagedReleaseSlot(plan, boundary);
-		if (plan.persistentOwner != null && plan.persistentOwnerType != null) {
+		PhysicalStorageTarget? indexedStorage = null;
+		if (plan.persistentOwner != null && plan.persistentOwnerType != null && plan.persistentOwner.kind == NK_SELF_EXPR) {
+			/* A collection method's own receiver names the edge owner
+			 * directly, as Python's persistent_edge_owner_c_name does. */
+			slot.owner = IRNode.variable("self");
+			slot.persistent = true;
+		} else if (plan.persistentOwner != null && plan.persistentOwnerType != null) {
 			Node ownerNode = plan.persistentOwner;
 			Node ownerType = plan.persistentOwnerType;
 			string ownerName = self.context.freshTemporary("__btrc_release_owner");
@@ -965,30 +971,29 @@ class ExpressionLowerer {
 			slot.persistent = true;
 			boundary.rememberOverride(ownerNode, slot.owner);
 		}
-		if (plan.expression.kind == NK_INDEX_EXPR) {
-			if (plan.orderedIndex) {
-				Node objectType = plan.objectType;
-				Node indexType = plan.indexType;
-				boundary.addLoweredOperand(plan.expression.obj, objectType, self.lowerExpr(plan.expression.obj, varTypes, callableFlow), false, false);
-				boundary.addLoweredOperand(plan.expression.index, indexType, self.lowerExpr(plan.expression.index, varTypes, callableFlow), false, false);
-			}
+		if (plan.expression.kind == NK_INDEX_EXPR && plan.orderedIndex) {
+			Node objectType = plan.objectType;
+			Node indexType = plan.indexType;
+			boundary.addLoweredOperand(plan.expression.obj, objectType, self.lowerExpr(plan.expression.obj, varTypes, callableFlow), false, false);
+			boundary.addLoweredOperand(plan.expression.index, indexType, self.lowerExpr(plan.expression.index, varTypes, callableFlow), false, false);
 			slot.target = self.lowerIndexCore(plan.expression, varTypes, callableFlow);
+		} else if (plan.expression.kind == NK_INDEX_EXPR) {
+			/* The slot's receiver and index are stabilized once, as Python's
+			 * lower_managed_slot_target materializes them. */
+			PhysicalStorageTarget storage = self.materializePhysicalTarget(plan.expression, varTypes, callableFlow);
+			indexedStorage = storage;
+			slot.target = storage.target;
 		} else {
 			slot.target = self.lowerExpr(plan.expression, varTypes, callableFlow);
 		}
 		boundary.restore();
 		slot.emitBefore(statements);
-		return slot;
-	}
-
-	/* Typed arbitrary-expression cleanup at a full-expression boundary. */
-	public IRNode releaseVarStmt2(IRNode target, string runtimeType) {
-		Vector<IRNode> statements = [];
-		statements.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(target, runtimeType)));
-		if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
-			statements.push(IRNode.expressionStatement(self.managedLifetime.pollCycles()));
+		PhysicalStorageTarget? stabilized = indexedStorage;
+		if (stabilized != null) {
+			for declaration in stabilized.declarations { statements.push(declaration); }
+			for setup in stabilized.setup { statements.push(IRNode.expressionStatement(setup)); }
 		}
-		return IRNode.block(statements);
+		return slot;
 	}
 
 	public IRNode lowerExpr(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
@@ -3151,145 +3156,112 @@ class ExpressionLowerer {
 	}
 
 	public IRNode lowerFString(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		string tmp = self.context.freshTemporary("__fstr");
-		string fmt = "";
-		OwnershipBoundary interpolationBoundary = self.callOwnership.boundary();
-		bool hasInterpolationBoundary = false;
-		Vector<IRNode> argDecls = [];
-		Vector<IRNode> argAssignments = [];
-		Vector<IRNode> args = [];
-		int i = 0;
-		while (i < node.parts().len) {
-			Node part = node.parts().get(i);
+		Vector<string> formats = [];
+		Vector<Node> interpolations = [];
+		Vector<PreparedValue> preparedValues = [];
+		Vector<string> valueCTypes = [];
+		Vector<string> specs = [];
+		Vector<int> partIndexes = [];
+		for part in node.parts() {
 			if (part.kind == NK_F_STRING_TEXT) {
-				fmt = fmt + self.strings.replacePercent(part.text);
-			} else if (part.kind == NK_F_STRING_EXPR) {
-				Node interpolation = part.expression;
-				Node? sourceType = self.resolvedExpressionType(interpolation, varTypes);
-				Node? targetType = sourceType;
-				bool converts = self.strings.requiresTargetStringConversion(SemanticTypeSystem.primitive("string"), sourceType);
-				if (converts) { targetType = SemanticTypeSystem.primitive("string"); }
-				bool owns = self.ownershipSemantics.contextualUnconsumedOwnedResult(interpolation, targetType, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
-				bool laterEffect = false;
-				int laterPartIndex = i + 1;
-				while (laterPartIndex < node.parts().len) {
-					Node laterPart = node.parts().get(laterPartIndex);
-					if (laterPart.kind == NK_F_STRING_EXPR && self.operandPlanner.hasEffect(laterPart.expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()))) {
-						laterEffect = true;
-					}
-					laterPartIndex = laterPartIndex + 1;
-				}
-				bool pinBorrowed = laterEffect && !owns && !converts && self.managedValues.isManaged(self.cTypes.resolveBodyType(sourceType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
-				if (owns || converts || pinBorrowed) {
-					PreparedValue prepared = self.prepareCallTargetValue(interpolation, targetType, varTypes, callableFlow);
-					self.operandPlanner.requireType(prepared.effectiveType, interpolation);
-					Node effectiveType = prepared.effectiveType;
-					interpolationBoundary.addLoweredOperand(interpolation, effectiveType, prepared.value, prepared.owned, pinBorrowed);
-					hasInterpolationBoundary = true;
-				}
-				string spec = self.lowerFStringInterp(part, tmp, args.len, argDecls, argAssignments, args, varTypes, callableFlow);
-				fmt = fmt + spec;
+				formats.push(self.strings.replacePercent(part.text));
+				continue;
 			}
-			i = i + 1;
+			if (part.kind != NK_F_STRING_EXPR) { continue; }
+			Node interpolation = part.expression;
+			Node? sourceType = self.resolvedExpressionType(interpolation, varTypes);
+			Node? targetType = sourceType;
+			if (self.strings.requiresTargetStringConversion(SemanticTypeSystem.primitive("string"), sourceType)) {
+				targetType = SemanticTypeSystem.primitive("string");
+			}
+			PreparedValue prepared = self.prepareCallTargetValue(interpolation, targetType, varTypes, callableFlow);
+			string spec = prepared.converted ? "%s" : self.strings.printfFormatSpec(sourceType);
+			if (sourceType == null) { spec = self.untrackedFormat(interpolation, spec); }
+			string valueCType = spec == "%s" ? "char*" : "int";
+			if (prepared.effectiveType != null) { valueCType = self.cTypes.lower(prepared.effectiveType); }
+			interpolations.push(interpolation);
+			preparedValues.push(prepared);
+			valueCTypes.push(valueCType);
+			specs.push(spec);
+			partIndexes.push(formats.len);
+			formats.push(spec);
 		}
 		/* No interpolations: a plain string literal. */
-		if (args.len == 0) {
-			return IRNode.literal("\"" + fmt + "\"");
+		if (interpolations.len == 0) {
+			return IRNode.literal("\"" + Strings.join(formats, "") + "\"");
+		}
+		/* Every interpolation is evaluated once, in source order, into a call
+		 * operand that both formatting passes read, as Python's
+		 * lower_typed_fstring sequences it through its call boundary. */
+		OwnershipOperandEnvironment environment = self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive());
+		OwnershipBoundary boundary = self.callOwnership.boundary();
+		Vector<IRNode> arguments = [];
+		int index = 0;
+		while (index < interpolations.len) {
+			Node interpolation = interpolations.get(index);
+			PreparedValue prepared = preparedValues.get(index);
+			Node operandType = SemanticTypeSystem.primitive("int");
+			if (prepared.effectiveType != null) { operandType = prepared.effectiveType; }
+			bool laterEffect = false;
+			int later = index + 1;
+			while (later < interpolations.len) {
+				if (self.operandPlanner.hasEffect(interpolations.get(later), environment) || preparedValues.get(later).converted) { laterEffect = true; }
+				later = later + 1;
+			}
+			bool pin = interpolation.kind != NK_SELF_EXPR && interpolation.kind != NK_SUPER_EXPR && !prepared.owned && self.managedValues.isManaged(operandType) && laterEffect;
+			IRNode value = boundary.stageValue(operandType, valueCTypes.get(index), prepared.value, prepared.owned, pin, false);
+			PrintfArg adapted = self.strings.adaptPrintfArg(value, prepared.effectiveType, specs.get(index));
+			formats.set(partIndexes.get(index), adapted.formatSpec);
+			arguments.push(adapted.value);
+			index = index + 1;
 		}
 		self.context.referenceHelper("__btrc_string_alloc");
-		string lenVar = tmp + "_len";
-		string bufVar = tmp + "_buf";
-		IRNode fmtLit = IRNode.literal("\"" + fmt + "\"");
-		/* int __len = snprintf(NULL, 0, "fmt", args...); */
-		Vector<IRNode> measureArgs = [];
-		measureArgs.push(IRNode.literal("NULL"));
-		measureArgs.push(IRNode.literal("0"));
-		measureArgs.push(fmtLit);
-		int a = 0;
-		while (a < args.len) { measureArgs.push(args.get(a)); a = a + 1; }
-		/* __btrc_string_alloc already returns an adopted managed string. */
-		IRNode lenPlus1 = IRNode.binary(IRNode.cast("size_t", IRNode.variable(lenVar)), "+", IRNode.literal("1"));
-		Vector<IRNode> allocArgs = [];
-		allocArgs.push(IRNode.variable(lenVar));
-		IRNode allocated = IRNode.call("__btrc_string_alloc", allocArgs);
-		/* snprintf(__buf, __len + 1, "fmt", args...); */
-		Vector<IRNode> writeArgs = [];
-		writeArgs.push(IRNode.variable(bufVar));
-		writeArgs.push(lenPlus1);
-		writeArgs.push(fmtLit);
-		int w = 0;
-		while (w < args.len) { writeArgs.push(args.get(w)); w = w + 1; }
-
-		/* Only declarations are hoisted. All evaluations stay in a comma
-         * expression so short-circuit/ternary branches and loop conditions keep
-         * their source semantics under strict C11. */
+		IRNode format = IRNode.literal("\"" + Strings.join(formats, "") + "\"");
+		string lengthName = self.context.freshTemporary("__fstr_len");
+		string bufferName = self.context.freshTemporary("__fstr_buf");
+		IRNode lengthDeclaration = IRNode.variableDeclaration("int", lengthName, null);
+		IRNode bufferDeclaration = IRNode.variableDeclaration("char*", bufferName, null);
+		self.context.recordLocal(lengthDeclaration);
+		self.context.recordLocal(bufferDeclaration);
 		Vector<IRNode> declarations = [];
-		int d = 0;
-		while (d < argDecls.len) {
-			declarations.push(argDecls.get(d));
-			d = d + 1;
+		declarations.push(lengthDeclaration);
+		declarations.push(bufferDeclaration);
+		IRNode length = IRNode.variable(lengthName);
+		IRNode buffer = IRNode.variable(bufferName);
+		Vector<IRNode> measureArguments = [];
+		measureArguments.push(IRNode.literal("NULL"));
+		measureArguments.push(IRNode.literal("0"));
+		measureArguments.push(format);
+		Vector<IRNode> allocationArguments = [];
+		allocationArguments.push(length);
+		Vector<IRNode> writeArguments = [];
+		writeArguments.push(buffer);
+		writeArguments.push(IRNode.binary(IRNode.cast("size_t", length), "+", IRNode.literal("1")));
+		writeArguments.push(format);
+		for argument in arguments {
+			measureArguments.push(argument);
+			writeArguments.push(argument);
 		}
-		declarations.push(IRNode.variableDeclaration("int", lenVar, null));
-		declarations.push(IRNode.variableDeclaration("char*", bufVar, null));
-
 		Vector<IRNode> sequence = [];
-		int si = 0;
-		while (si < argAssignments.len) {
-			sequence.push(argAssignments.get(si));
-			si = si + 1;
-		}
-		sequence.push(IRNode.binary(IRNode.variable(lenVar), "=", IRNode.call("snprintf", measureArgs)));
-		sequence.push(IRNode.binary(IRNode.variable(bufVar), "=", allocated));
-		sequence.push(IRNode.call("snprintf", writeArgs));
-		sequence.push(IRNode.variable(bufVar));
-		IRNode result = IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
-		if (!hasInterpolationBoundary) { return result; }
-		interpolationBoundary.resultOwned = true;
-		interpolationBoundary.restore();
-		return interpolationBoundary.finish(result, SemanticTypeSystem.primitive("string"), false);
+		sequence.push(IRNode.binary(length, "=", IRNode.call("snprintf", measureArguments)));
+		/* __btrc_string_alloc already returns an adopted managed string. */
+		sequence.push(IRNode.binary(buffer, "=", IRNode.call("__btrc_string_alloc", allocationArguments)));
+		sequence.push(IRNode.call("snprintf", writeArguments));
+		sequence.push(buffer);
+		boundary.resultOwned = true;
+		return boundary.finish(IRNode.statementExpression(declarations, IRNode.commaExpression(sequence)), SemanticTypeSystem.primitive("string"), false);
 	}
 
-	/* Lower one f-string interpolation. Appends an arg-decl (evaluated once) and
-     * an arg ref (used by both snprintf passes), returns the format spec.
-     * Mirrors fstrings._lower_interpolation. */
-	public string lowerFStringInterp(Node part, string tmp, int index, Vector<IRNode> argDecls, Vector<IRNode> argAssignments, Vector<IRNode> args, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		Node ex = part.expression;
-		IRNode irValue = self.lowerExpr(ex, varTypes, callableFlow);
-		Node? argType = self.resolvedExpressionType(ex, varTypes);
-		Node? effectiveType = argType;
-		string fmt = self.strings.printfFormatSpec(argType);
-		string cType = "int";
-		if (argType != null) { cType = self.cTypes.lower(argType); }
-
-		if (self.strings.requiresTargetStringConversion(SemanticTypeSystem.primitive("string"), argType)) {
-			fmt = "%s";
-			cType = "char*";
-			effectiveType = SemanticTypeSystem.primitive("string");
+	/* The format of an interpolation whose type the analyzer did not track:
+	 * known string producers format as %s, as Python's _untracked_format. */
+	private string untrackedFormat(Node expression, string fallback) {
+		if (expression.kind == NK_F_STRING_LITERAL || StringConstant.isNode(expression)) { return "%s"; }
+		if (expression.kind == NK_CALL_EXPR) {
+			Node? callee = expression.callee;
+			if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && self.strings.isStringProducingMethod(callee.field)) { return "%s"; }
 		}
-
-		/* Untracked type: force %s for string-producing expressions (mirrors
-         * fstrings._lower_interp's `arg_type is None` branch). A method call
-         * whose field is a known string-producing method (toString, trim, ...)
-         * — e.g. an enum's `e.toString()` — formats as %s. */
-		if (argType == null) {
-			if (ex.kind == NK_F_STRING_LITERAL || StringConstant.isNode(ex)) {
-				fmt = "%s";
-			} else if (ex.kind == NK_CALL_EXPR) {
-				Node? fcallee = ex.callee;
-				if (fcallee != null && fcallee.kind == NK_FIELD_ACCESS_EXPR && self.strings.isStringProducingMethod(fcallee.field)) {
-					fmt = "%s";
-				}
-			}
-			if (fmt == "%s") { cType = "char*"; } else { cType = "int"; }
-		}
-
-		/* Hoist the value into a temp so it evaluates exactly once. */
-		string argVar = tmp + "_arg" + Strings.fromInt(index);
-		argDecls.push(IRNode.variableDeclaration(cType, argVar, null));
-		argAssignments.push(IRNode.binary(IRNode.variable(argVar), "=", irValue));
-		PrintfArg adapted = self.strings.adaptPrintfArg(IRNode.variable(argVar), effectiveType, fmt);
-		args.push(adapted.value);
-		return adapted.formatSpec;
+		if (fallback == "") { return "%d"; }
+		return fallback;
 	}
 
 	/* print(...) -> printf with format string (matches calls.py _lower_print). */

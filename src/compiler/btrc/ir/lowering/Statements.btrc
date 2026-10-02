@@ -663,7 +663,13 @@ class StatementLowerer {
 				IRNode discardedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(discardedType), discardedName, loweredExpression);
 				self.context.recordLocal(discardedDeclaration);
 				out.push(discardedDeclaration);
-				out.push(self.expressions.releaseVarStmt2(IRNode.variable(discardedName), self.managedValues.runtimeType(self.cTypes.resolveBodyType(discardedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))));
+				Node concreteDiscarded = self.cTypes.resolveBodyType(discardedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+				Vector<IRNode> discardRelease = [];
+				discardRelease.push(self.managedLifetime.releaseValue(IRNode.variable(discardedName), concreteDiscarded));
+				if (self.managedValues.isArc(concreteDiscarded) && self.cycles.runtimeTypeMayCycle(self.managedValues.runtimeType(concreteDiscarded))) {
+					discardRelease.push(self.managedLifetime.pollCycles());
+				}
+				out.push(IRNode.expressionStatement(IRNode.commaExpression(discardRelease)));
 			} else {
 				out.push(IRNode.expressionStatement(loweredExpression));
 			}
@@ -996,11 +1002,14 @@ class StatementLowerer {
 		} else {
 			string valueName = self.context.freshTemporary("__btrc_release_value");
 			out.push(IRNode.variableDeclaration(self.cTypes.lower(et), valueName, slot));
-			if (persistentSlot) {
+			/* A string slot holds no ARC edge, so it is taken, cleared and
+			 * released, as Python's _take_clear_release spells it. */
+			bool edgeSlot = persistentSlot && runtimeType != self.managedValues.stringRuntimeType();
+			if (edgeSlot) {
 				out.push(IRNode.expressionStatement(self.managedLifetime.unlinkEdge(IRNode.variable(valueName), et, releaseSlot.owner)));
 			}
 			out.push(IRNode.assignment(slot, IRNode.literal("NULL")));
-			if (persistentSlot) {
+			if (edgeSlot) {
 				out.push(IRNode.expressionStatement(self.managedLifetime.releaseEdge(IRNode.variable(valueName), et, IRNode.literal("NULL"))));
 			} else {
 				out.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(IRNode.variable(valueName), runtimeType)));
