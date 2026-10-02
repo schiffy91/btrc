@@ -156,14 +156,19 @@ class RuntimeHelperCatalog:
         self,
         roots: Set[str],
     ) -> tuple[GeneratedRuntimeHelperRow, ...]:
-        """Return reachable definitions in dependency-first canonical order."""
+        """Return the dependency closure of ``roots`` in canonical catalog order.
+
+        The generator guarantees the catalog order defines every dependency
+        before its dependents, so the closure is materialized in that order
+        regardless of which of its members were roots; btrcc's catalog does
+        the same with the same order.
+        """
 
         unknown = set(roots) - self._index.keys()
         if unknown:
             raise ValueError(f"unknown runtime helper(s): {', '.join(sorted(unknown))}")
 
         state: dict[str, int] = {}
-        ordered: list[GeneratedRuntimeHelperRow] = []
 
         def visit(name: str, path: tuple[str, ...]) -> None:
             current = state.get(name, 0)
@@ -179,12 +184,11 @@ class RuntimeHelperCatalog:
                     raise ValueError(f"runtime helper {name} has unknown dependency {dependency}")
                 visit(dependency, (*path, name))
             state[name] = 2
-            ordered.append(definition)
 
         for name in self._stable_order:
             if name in roots:
                 visit(name, ())
-        return tuple(ordered)
+        return tuple(self._index[name] for name in self._stable_order if state.get(name) == 2)
 
     def selection(self) -> RuntimeHelperSelection:
         """Create isolated mutable roots for one lowering run."""

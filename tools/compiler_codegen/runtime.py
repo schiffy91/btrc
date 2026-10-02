@@ -434,6 +434,22 @@ class RuntimeManifest:
                         f"{', '.join(sorted(unavailable))}"
                     )
             self._validate_acyclic(catalog, helpers)
+            # Each compiler materializes a selection in catalog order, so that
+            # order must define every dependency before its dependents.
+            defined: set[str] = set()
+            for helper in helpers:
+                later = [dependency for dependency in helper.dependencies if dependency not in defined]
+                defined.add(helper.name)
+                if later:
+                    raise RuntimeManifestError(
+                        f"{catalog} helper {helper.name} is ordered before its dependencies: {', '.join(later)}"
+                    )
+        # One canonical order: the btrc catalog is the Python catalog restricted
+        # to its members, so both compilers emit a shared selection identically.
+        btrc_members = {helper.name for helper in self.helpers_for("btrc")}
+        restricted = [helper.name for helper in self.helpers_for("python") if helper.name in btrc_members]
+        if restricted != [helper.name for helper in self.helpers_for("btrc")]:
+            raise RuntimeManifestError("btrc helper order must be the python helper order restricted to its members")
         self._unique(self.freestanding.calls, "freestanding calls")
         self._unique(self.freestanding.objects, "freestanding objects")
         self._unique(self.freestanding.types, "freestanding types")

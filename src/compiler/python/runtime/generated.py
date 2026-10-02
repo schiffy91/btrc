@@ -1626,6 +1626,40 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_callback_types',
+        c_source=(
+            '/* Type-erased ARC metadata shared by ownership paths. */\ntypedef int __'
+            'btrc_arc_count;\ntypedef struct __btrc_arc_type __btrc_arc_type;\ntypedef '
+            'struct __btrc_arc_incoming __btrc_arc_incoming;\ntypedef enum {\n    __BTR'
+            'C_ARC_LIVE = 1,\n    __BTRC_ARC_QUEUED = 2,\n    __BTRC_ARC_DESTROYING = 3'
+            '\n} __btrc_arc_state;\ntypedef struct __btrc_arc_header {\n    __btrc_arc_c'
+            'ount rc;\n    __btrc_arc_count edge_rc;\n    /* One current incoming-edge '
+            'owner, or self as a full-snapshot sentinel. */\n    void* live_witness;\n '
+            '   const __btrc_arc_type* type;\n    __btrc_arc_incoming* incoming;\n    v'
+            'oid* deferred_next;\n    unsigned char suppress_hook;\n    __btrc_arc_stat'
+            'e state;\n} __btrc_arc_header;\nstruct __btrc_arc_incoming {\n    void* own'
+            'er;\n    __btrc_arc_incoming* next;\n};\ntypedef void (*__btrc_destroy_fn)('
+            'void*);\ntypedef void* (*__btrc_arc_slot_access_fn)(\n    volatile void*, '
+            'void*, void*, int);\ntypedef void (*__btrc_field_visit_fn)(\n    volatile '
+            'void*, __btrc_arc_slot_access_fn,\n    const __btrc_arc_type*, void*);\nty'
+            'pedef void (*__btrc_visit_fn)(\n    void*, __btrc_field_visit_fn, void*);'
+            '\ntypedef void (*__btrc_hook_fn)(void*);\ntypedef int (*__btrc_hook_guard_'
+            'fn)(\n    __btrc_hook_fn, void*, char*, size_t);\ntypedef void (*__btrc_ra'
+            'ise_fn)(const char*);\ntypedef struct {\n    const char* name;\n    const v'
+            'oid* methods;\n} __btrc_interface_entry;\nstruct __btrc_arc_type {\n    __b'
+            'trc_visit_fn visit;\n    __btrc_destroy_fn destroy;\n    __btrc_hook_fn ho'
+            'ok;\n    __btrc_hook_guard_fn guard;\n    __btrc_raise_fn raise;\n    const'
+            ' __btrc_interface_entry* interfaces;\n    size_t interface_count;\n};'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=('__btrc_arc_count', '__btrc_arc_type', '__btrc_interface_entry', '__btrc_arc_incoming', '__btrc_arc_state', '__btrc_arc_header', '__btrc_destroy_fn', '__btrc_arc_slot_access_fn', '__btrc_field_visit_fn', '__btrc_visit_fn', '__btrc_hook_fn', '__btrc_hook_guard_fn', '__btrc_raise_fn'),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
         category='trycatch',
         name='__btrc_cleanup_types',
         c_source=(
@@ -1749,6 +1783,941 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_suspect_state',
+        c_source=(
+            '/* ARC cycle detection: suspect buffer */\nstatic void** __btrc_suspects '
+            '= NULL;\nstatic int __btrc_suspect_count = 0;\nstatic __btrc_visit_fn* __b'
+            'trc_visit_table = NULL;\nstatic __btrc_destroy_fn* __btrc_destroy_table ='
+            ' NULL;\nstatic void** __btrc_suspect_keys = NULL;\n/* Buffer index of the '
+            'suspect held at each hash slot, so forgetting one never\n * scans the buf'
+            'fer. */\nstatic int* __btrc_suspect_slots = NULL;\nstatic int __btrc_suspe'
+            'ct_key_cap = 0;'
+        ),
+        depends_on=('__btrc_arc_callback_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_suspect_capacity',
+        c_source=(
+            'static int __btrc_suspect_cap = 0;'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_ptr_hash',
+        c_source=(
+            'static size_t __btrc_ptr_hash(const void* ptr) {\n    uintptr_t value = ('
+            'uintptr_t)ptr;\n    value ^= value >> 17;\n    value ^= value >> 9;\n    re'
+            'turn (size_t)value;\n}'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_header_of',
+        c_source=(
+            'static inline __btrc_arc_header* __btrc_arc_header_of(void* object) {\n  '
+            '  return (__btrc_arc_header*)object;\n}'
+        ),
+        depends_on=('__btrc_arc_callback_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_type_of',
+        c_source=(
+            'static inline const __btrc_arc_type* __btrc_arc_type_of(\n        void* o'
+            'bject, const __btrc_arc_type* fallback) {\n    if (object && __btrc_arc_h'
+            'eader_of(object)->type)\n        return __btrc_arc_header_of(object)->typ'
+            'e;\n    return fallback;\n}'
+        ),
+        depends_on=('__btrc_arc_header_of',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_validate',
+        c_source=(
+            '/* Header invariants are checked on every retain, release and edge move.'
+            '\n * That is a debugging aid, not a memory-safety boundary: the checks co'
+            "st\n * about a twentieth of a compiled program's time, so they stay on un"
+            'der a\n * sanitizer or BTRC_ARC_CHECKS and are compiled out otherwise. */'
+            '\n#if defined(BTRC_ARC_CHECKS) || defined(__SANITIZE_ADDRESS__) || define'
+            'd(__SANITIZE_THREAD__)\n#define __BTRC_ARC_CHECKS 1\n#elif defined(__has_f'
+            'eature)\n#if __has_feature(address_sanitizer) || __has_feature(thread_san'
+            'itizer)\n#define __BTRC_ARC_CHECKS 1\n#endif\n#endif\nstatic inline void __b'
+            'trc_arc_validate(void* object) {\n#if !defined(__BTRC_ARC_CHECKS)\n    (vo'
+            'id)object;\n    return;\n#endif\n    if (!object) return;\n    __btrc_arc_he'
+            'ader* header = __btrc_arc_header_of(object);\n    int live = header->stat'
+            'e == __BTRC_ARC_LIVE\n        && header->rc > 0 && header->edge_rc >= 0\n '
+            '       && header->edge_rc <= header->rc\n        && header->deferred_next'
+            ' == NULL && !header->suppress_hook;\n    int queued = header->state == __'
+            'BTRC_ARC_QUEUED\n        && header->rc == 0 && header->edge_rc == 0\n     '
+            '   && header->live_witness == NULL && header->incoming == NULL;\n    int '
+            'destroying = header->state == __BTRC_ARC_DESTROYING\n        && header->r'
+            'c == 0 && header->edge_rc == 0\n        && header->live_witness == NULL &'
+            '& header->incoming == NULL\n        && header->deferred_next == NULL && !'
+            'header->suppress_hook;\n    if ((!live && !queued && !destroying) || !hea'
+            'der->type\n            || !header->type->destroy\n            || (header->'
+            'type->hook\n                && (!header->type->guard || !header->type->ra'
+            'ise))) {\n        fprintf(stderr, "btrc: invalid ARC header\\n");\n        '
+            'exit(1);\n    }\n}'
+        ),
+        depends_on=('__btrc_arc_header_of',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_suspect_locked',
+        c_source=(
+            'static int __btrc_suspect_next_capacity(\n        int capacity, const cha'
+            'r* message) {\n    if (capacity < 0 || capacity > INT_MAX / 2) {\n        '
+            'fprintf(stderr, "btrc: %s\\n", message);\n        exit(1);\n    }\n    retur'
+            'n capacity ? capacity * 2 : 256;\n}\nstatic size_t __btrc_suspect_capacity'
+            '_bytes(\n        int capacity, size_t element_size, const char* message) '
+            '{\n    if (capacity < 0 || (element_size != 0\n            && (size_t)capa'
+            'city > SIZE_MAX / element_size)) {\n        fprintf(stderr, "btrc: %s\\n",'
+            ' message);\n        exit(1);\n    }\n    return (size_t)capacity * element_'
+            'size;\n}\nstatic void __btrc_grow_suspect_keys_locked(void) {\n    int cap '
+            '= __btrc_suspect_next_capacity(\n        __btrc_suspect_key_cap, "cycle s'
+            'uspect hash overflow");\n    size_t bytes = __btrc_suspect_capacity_bytes'
+            '(\n        cap, sizeof(void*), "cycle suspect hash size overflow");\n    s'
+            'ize_t slot_bytes = __btrc_suspect_capacity_bytes(\n        cap, sizeof(in'
+            't), "cycle suspect hash size overflow");\n    void** keys = (void**)__btr'
+            'c_safe_calloc(1, bytes);\n    int* slots = (int*)__btrc_safe_calloc(1, sl'
+            'ot_bytes);\n    for (int i = 0; i < __btrc_suspect_count; i++) {\n        '
+            'size_t index = __btrc_ptr_hash(__btrc_suspects[i]) & ((size_t)cap - 1);\n'
+            '        while (keys[index]) index = (index + 1) & ((size_t)cap - 1);\n   '
+            '     keys[index] = __btrc_suspects[i];\n        slots[index] = i;\n    }\n '
+            '   free(__btrc_suspect_keys);\n    free(__btrc_suspect_slots);\n    __btrc'
+            '_suspect_keys = keys;\n    __btrc_suspect_slots = slots;\n    __btrc_suspe'
+            'ct_key_cap = cap;\n}\nstatic inline void __btrc_suspect_locked(void* obj, '
+            '__btrc_visit_fn visit,\n                           __btrc_destroy_fn dest'
+            'roy) {\n    if (!obj) return;\n    __btrc_arc_validate(obj);\n    __btrc_ar'
+            'c_header* header = __btrc_arc_header_of(obj);\n    if (header->rc > heade'
+            'r->edge_rc) return;\n    __btrc_arc_type fallback = {\n        .visit = vi'
+            'sit, .destroy = destroy,\n        .hook = NULL, .guard = NULL, .raise = N'
+            'ULL};\n    const __btrc_arc_type* type = __btrc_arc_type_of(obj, &fallbac'
+            'k);\n    if (!type || !type->visit || !type->destroy) return;\n    if (__b'
+            'trc_suspect_count < 0 || __btrc_suspect_count == INT_MAX\n            || '
+            '__btrc_suspect_cap < 0\n            || __btrc_suspect_count > __btrc_susp'
+            'ect_cap) {\n        fprintf(stderr, "btrc: cycle suspect overflow\\n");\n  '
+            '      exit(1);\n    }\n    if (__btrc_suspect_key_cap == 0\n            || '
+            '__btrc_suspect_count >= __btrc_suspect_key_cap / 2)\n        __btrc_grow_'
+            'suspect_keys_locked();\n    size_t key = __btrc_ptr_hash(obj)\n        & ('
+            '(size_t)__btrc_suspect_key_cap - 1);\n    while (__btrc_suspect_keys[key]'
+            ') {\n        if (__btrc_suspect_keys[key] == obj) return;\n        key = ('
+            'key + 1) & ((size_t)__btrc_suspect_key_cap - 1);\n    }\n    if (__btrc_su'
+            'spect_count >= __btrc_suspect_cap) {\n        int new_cap = __btrc_suspec'
+            't_next_capacity(\n            __btrc_suspect_cap, "cycle suspect overflow'
+            '");\n        size_t object_bytes = __btrc_suspect_capacity_bytes(\n       '
+            '     new_cap, sizeof(void*), "cycle suspect size overflow");\n        siz'
+            'e_t visit_bytes = __btrc_suspect_capacity_bytes(\n            new_cap, si'
+            'zeof(__btrc_visit_fn),\n            "cycle suspect size overflow");\n     '
+            '   size_t destroy_bytes = __btrc_suspect_capacity_bytes(\n            new'
+            '_cap, sizeof(__btrc_destroy_fn),\n            "cycle suspect size overflo'
+            'w");\n        __btrc_suspects = (void**)__btrc_safe_realloc(\n            '
+            '__btrc_suspects, object_bytes);\n        __btrc_visit_table = (__btrc_vis'
+            'it_fn*)__btrc_safe_realloc(\n            __btrc_visit_table, visit_bytes)'
+            ';\n        __btrc_destroy_table = (__btrc_destroy_fn*)__btrc_safe_realloc'
+            '(\n            __btrc_destroy_table, destroy_bytes);\n        __btrc_suspe'
+            'ct_cap = new_cap;\n    }\n    __btrc_suspects[__btrc_suspect_count] = obj;'
+            '\n    __btrc_visit_table[__btrc_suspect_count] = type->visit;\n    __btrc_'
+            'destroy_table[__btrc_suspect_count] = type->destroy;\n    __btrc_suspect_'
+            'keys[key] = obj;\n    __btrc_suspect_slots[key] = __btrc_suspect_count;\n '
+            '   __btrc_suspect_count++;\n}'
+        ),
+        depends_on=('__btrc_suspect_state', '__btrc_suspect_capacity', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc', '__btrc_arc_type_of', '__btrc_arc_validate'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_incoming_teardown_pending',
+        c_source=(
+            'static int __btrc_arc_incoming_teardown_pending(\n        void* object) {'
+            '\n    __btrc_arc_header* header = __btrc_arc_header_of(object);\n    if (!'
+            'header->incoming) return 0;\n    for (__btrc_arc_incoming* edge = header-'
+            '>incoming;\n            edge; edge = edge->next) {\n        void* owner = '
+            'edge->owner;\n        if (!owner || owner == object) return 0;\n        __'
+            'btrc_arc_validate(owner);\n        if (__btrc_arc_header_of(owner)->state'
+            ' != __BTRC_ARC_DESTROYING)\n            return 0;\n    }\n    return 1;\n}'
+        ),
+        depends_on=('__btrc_arc_validate',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_reverse_state',
+        c_source=(
+            '/* Scratch state for exact reverse-root classification. */\nstatic void**'
+            ' __btrc_reverse_queue = NULL;\nstatic int __btrc_reverse_queue_cap = 0;\ns'
+            'tatic void** __btrc_reverse_keys = NULL;\nstatic unsigned int* __btrc_rev'
+            'erse_marks = NULL;\nstatic int __btrc_reverse_key_cap = 0;\nstatic int __b'
+            'trc_reverse_count = 0;\nstatic unsigned int __btrc_reverse_epoch = 0;'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_reverse_proves_live',
+        c_source=(
+            'static int __btrc_reverse_next_capacity(\n        int capacity, const cha'
+            'r* message) {\n    if (capacity < 0 || capacity > INT_MAX / 2) {\n        '
+            'fprintf(stderr, "btrc: %s\\n", message);\n        exit(1);\n    }\n    retur'
+            'n capacity ? capacity * 2 : 256;\n}\nstatic size_t __btrc_reverse_capacity'
+            '_bytes(\n        int capacity, size_t element_size, const char* message) '
+            '{\n    if (capacity < 0 || (element_size != 0\n            && (size_t)capa'
+            'city > SIZE_MAX / element_size)) {\n        fprintf(stderr, "btrc: %s\\n",'
+            ' message);\n        exit(1);\n    }\n    return (size_t)capacity * element_'
+            'size;\n}\nstatic void __btrc_reverse_reserve_queue(int needed) {\n    if (n'
+            'eeded < 0 || __btrc_reverse_queue_cap < 0) {\n        fprintf(stderr, "bt'
+            'rc: reverse ARC queue overflow\\n");\n        exit(1);\n    }\n    if (neede'
+            'd <= __btrc_reverse_queue_cap) return;\n    int cap = __btrc_reverse_queu'
+            'e_cap;\n    while (cap < needed)\n        cap = __btrc_reverse_next_capaci'
+            'ty(\n            cap, "reverse ARC queue overflow");\n    size_t bytes = _'
+            '_btrc_reverse_capacity_bytes(\n        cap, sizeof(void*), "reverse ARC q'
+            'ueue size overflow");\n    __btrc_reverse_queue = (void**)__btrc_safe_rea'
+            'lloc(\n        __btrc_reverse_queue, bytes);\n    __btrc_reverse_queue_cap'
+            ' = cap;\n}\nstatic void __btrc_reverse_grow_keys(void) {\n    int cap = __b'
+            'trc_reverse_next_capacity(\n        __btrc_reverse_key_cap, "reverse ARC '
+            'hash overflow");\n    size_t key_bytes = __btrc_reverse_capacity_bytes(\n '
+            '       cap, sizeof(void*), "reverse ARC hash size overflow");\n    size_t'
+            ' mark_bytes = __btrc_reverse_capacity_bytes(\n        cap, sizeof(unsigne'
+            'd int), "reverse ARC hash size overflow");\n    void** keys = (void**)__b'
+            'trc_safe_calloc(1, key_bytes);\n    unsigned int* marks = (unsigned int*)'
+            '__btrc_safe_calloc(1, mark_bytes);\n    for (int i = 0; i < __btrc_revers'
+            'e_count; i++) {\n        void* object = __btrc_reverse_queue[i];\n        '
+            'size_t slot = __btrc_ptr_hash(object) & ((size_t)cap - 1);\n        while'
+            ' (marks[slot] == __btrc_reverse_epoch)\n            slot = (slot + 1) & ('
+            '(size_t)cap - 1);\n        marks[slot] = __btrc_reverse_epoch;\n        ke'
+            'ys[slot] = object;\n    }\n    free(__btrc_reverse_keys);\n    free(__btrc_'
+            'reverse_marks);\n    __btrc_reverse_keys = keys;\n    __btrc_reverse_marks'
+            ' = marks;\n    __btrc_reverse_key_cap = cap;\n}\nstatic int __btrc_reverse_'
+            'add(void* object) {\n    if (!object) return 0;\n    if (__btrc_reverse_co'
+            'unt < 0 || __btrc_reverse_count == INT_MAX) {\n        fprintf(stderr, "b'
+            'trc: reverse ARC count overflow\\n");\n        exit(1);\n    }\n    if (__bt'
+            'rc_reverse_key_cap == 0\n            || __btrc_reverse_count >= __btrc_re'
+            'verse_key_cap / 2)\n        __btrc_reverse_grow_keys();\n    size_t slot ='
+            ' __btrc_ptr_hash(object)\n        & ((size_t)__btrc_reverse_key_cap - 1);'
+            '\n    while (__btrc_reverse_marks[slot] == __btrc_reverse_epoch) {\n      '
+            '  if (__btrc_reverse_keys[slot] == object) return 0;\n        slot = (slo'
+            't + 1) & ((size_t)__btrc_reverse_key_cap - 1);\n    }\n    __btrc_reverse_'
+            'reserve_queue(__btrc_reverse_count + 1);\n    __btrc_reverse_marks[slot] '
+            '= __btrc_reverse_epoch;\n    __btrc_reverse_keys[slot] = object;\n    __bt'
+            'rc_reverse_queue[__btrc_reverse_count++] = object;\n    return 1;\n}\nstati'
+            'c int __btrc_arc_reverse_proves_live(void* object) {\n    __btrc_reverse_'
+            'count = 0;\n    __btrc_reverse_epoch++;\n    if (__btrc_reverse_epoch == 0'
+            ') {\n        if (__btrc_reverse_marks) {\n            size_t bytes = __btr'
+            'c_reverse_capacity_bytes(\n                __btrc_reverse_key_cap, sizeof'
+            '(unsigned int),\n                "reverse ARC hash size overflow");\n     '
+            '       memset(__btrc_reverse_marks, 0, bytes);\n        }\n        __btrc_'
+            'reverse_epoch = 1;\n    }\n    /* Prefer the current concrete incoming-own'
+            'er chain before expanding fan-in.\n     * Repeated temporary releases of '
+            'a shared child otherwise enqueue every\n     * owner, even when its newes'
+            't owner leads directly to an external root.\n     * The mutation lock kee'
+            'ps these owner edges valid. A witness is only a\n     * route: never trea'
+            't a snapshot sentinel or a previously live owner as\n     * proof. Rechec'
+            'k each reference count and fall back to the exact worklist\n     * when t'
+            'he preferred chain ends or cycles. */\n    void* preferred = object;\n    '
+            'while (preferred && __btrc_reverse_add(preferred)) {\n        __btrc_arc_'
+            'validate(preferred);\n        __btrc_arc_header* header = __btrc_arc_head'
+            'er_of(preferred);\n        if (header->rc > header->edge_rc) return 1;\n  '
+            '      if (header->live_witness == preferred) break;\n        preferred = '
+            'header->live_witness;\n    }\n    for (int head = 0; head < __btrc_reverse'
+            '_count; head++) {\n        void* current = __btrc_reverse_queue[head];\n  '
+            '      __btrc_arc_validate(current);\n        __btrc_arc_header* header = '
+            '__btrc_arc_header_of(current);\n        if (header->rc > header->edge_rc)'
+            ' return 1;\n        for (__btrc_arc_incoming* edge = header->incoming;\n  '
+            '              edge; edge = edge->next)\n            __btrc_reverse_add(ed'
+            'ge->owner);\n    }\n    return 0;\n}'
+        ),
+        depends_on=('__btrc_arc_reverse_state', '__btrc_arc_validate', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_forget_suspect',
+        c_source=(
+            'static void __btrc_forget_suspect(void* obj) {\n    if (!obj || __btrc_su'
+            'spect_key_cap == 0) return;\n    size_t mask = (size_t)__btrc_suspect_key'
+            '_cap - 1;\n    size_t hole = __btrc_ptr_hash(obj) & mask;\n    while (__bt'
+            'rc_suspect_keys[hole]\n            && __btrc_suspect_keys[hole] != obj)\n '
+            '       hole = (hole + 1) & mask;\n    if (!__btrc_suspect_keys[hole]) ret'
+            'urn;\n    int index = __btrc_suspect_slots[hole];\n    __btrc_suspect_keys'
+            '[hole] = NULL;\n    size_t scan = (hole + 1) & mask;\n    while (__btrc_su'
+            'spect_keys[scan]) {\n        void* displaced = __btrc_suspect_keys[scan];'
+            '\n        int displaced_index = __btrc_suspect_slots[scan];\n        __btr'
+            'c_suspect_keys[scan] = NULL;\n        size_t target = __btrc_ptr_hash(dis'
+            'placed) & mask;\n        while (__btrc_suspect_keys[target])\n            '
+            'target = (target + 1) & mask;\n        __btrc_suspect_keys[target] = disp'
+            'laced;\n        __btrc_suspect_slots[target] = displaced_index;\n        s'
+            'can = (scan + 1) & mask;\n    }\n    /* The hash slot names the buffer pos'
+            'ition, so removal is a swap with the\n     * last suspect rather than a s'
+            'can of every live suspect: with hundreds of\n     * thousands of suspects'
+            ' dying in one drain, that scan was quadratic. */\n    if (index < 0 || in'
+            'dex >= __btrc_suspect_count\n            || __btrc_suspects[index] != obj'
+            ') {\n        fprintf(stderr, "btrc: cycle suspect buffer out of sync\\n");'
+            '\n        exit(1);\n    }\n    int last = --__btrc_suspect_count;\n    if (i'
+            'ndex == last) return;\n    void* moved = __btrc_suspects[last];\n    __btr'
+            'c_suspects[index] = moved;\n    __btrc_visit_table[index] = __btrc_visit_'
+            'table[last];\n    __btrc_destroy_table[index] = __btrc_destroy_table[last'
+            '];\n    size_t moved_slot = __btrc_ptr_hash(moved) & mask;\n    while (__b'
+            'trc_suspect_keys[moved_slot] != moved) {\n        if (!__btrc_suspect_key'
+            's[moved_slot]) {\n            fprintf(stderr, "btrc: cycle suspect hash l'
+            'ost a suspect\\n");\n            exit(1);\n        }\n        moved_slot = ('
+            'moved_slot + 1) & mask;\n    }\n    __btrc_suspect_slots[moved_slot] = ind'
+            'ex;\n}'
+        ),
+        depends_on=('__btrc_suspect_state', '__btrc_ptr_hash'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_deferred_state',
+        c_source=(
+            '/* Per-thread intrusive FIFO for terminal ARC work. */\n/* __btrc_tls.arc'
+            '_deferred_head and __btrc_tls.arc_deferred_tail live in the thread-local'
+            ' record __btrc_tls. */\n\nstatic _Noreturn void __btrc_arc_raise_unlocked('
+            '\n        const __btrc_arc_type* type, const char* message) {\n    if (typ'
+            'e && type->raise) type->raise(message);\n    fprintf(stderr, "Unhandled e'
+            'xception: %s\\n", message);\n    exit(1);\n}\n\nstatic void __btrc_arc_enqueu'
+            'e_locked(void* object) {\n    __btrc_arc_header* header = __btrc_arc_head'
+            'er_of(object);\n    if (header->state != __BTRC_ARC_LIVE\n            || h'
+            'eader->rc != 0 || header->edge_rc != 0\n            || header->incoming !'
+            '= NULL || header->deferred_next != NULL) {\n        fprintf(stderr, "btrc'
+            ': invalid ARC enqueue\\n");\n        exit(1);\n    }\n    header->live_witne'
+            'ss = NULL;\n    header->state = __BTRC_ARC_QUEUED;\n    if (__btrc_tls.arc'
+            '_deferred_tail) {\n        __btrc_arc_header_of(__btrc_tls.arc_deferred_t'
+            'ail)->deferred_next = object;\n    } else {\n        __btrc_tls.arc_deferr'
+            'ed_head = object;\n    }\n    __btrc_tls.arc_deferred_tail = object;\n}'
+        ),
+        depends_on=('__btrc_tls_state', '__btrc_arc_callback_types', '__btrc_arc_header_of'),
+        required_headers=('stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_release_impl',
+        c_source=(
+            'static inline int __btrc_arc_release_impl(\n        void* object, const _'
+            '_btrc_arc_type* fallback,\n        int edge, void* replacement) {\n    if '
+            '(!object) return 0;\n    __btrc_arc_validate(object);\n    __btrc_arc_head'
+            'er* header = __btrc_arc_header_of(object);\n    const __btrc_arc_type* ty'
+            'pe = __btrc_arc_type_of(object, fallback);\n    if (!type || !type->destr'
+            'oy) { fprintf(stderr, "btrc: untyped managed release\\n"); exit(1); }\n   '
+            ' if (header->state != __BTRC_ARC_LIVE) {\n        fprintf(stderr, "btrc: '
+            'release of non-live managed object\\n");\n        exit(1);\n    }\n    if (h'
+            'eader->rc <= 0 || (edge && header->edge_rc <= 0)) { fprintf(stderr, "btr'
+            'c: reference count underflow\\n"); exit(1); }\n    if (edge) {\n        /* '
+            'The slot-specific unlink atom invalidated only the removed owner. */\n   '
+            '     (void)replacement;\n        header->edge_rc--;\n    }\n    header->rc-'
+            '-;\n    if (header->rc == 0) {\n        if (header->edge_rc != 0 || header'
+            '->incoming != NULL) {\n            fprintf(stderr, "btrc: terminal object'
+            ' retained an incoming edge\\n");\n            exit(1);\n        }\n        _'
+            '_btrc_forget_suspect(object);\n        __btrc_arc_enqueue_locked(object);'
+            '\n        return 0;\n    }\n    __btrc_arc_validate(object);\n    if (type->'
+            'visit && header->rc == header->edge_rc\n            && !__btrc_arc_incomi'
+            'ng_teardown_pending(object)\n            && !__btrc_arc_reverse_proves_li'
+            've(object))\n        __btrc_suspect_locked(object, type->visit, type->des'
+            'troy);\n    return 0;\n}'
+        ),
+        depends_on=('__btrc_suspect_locked', '__btrc_arc_incoming_teardown_pending', '__btrc_arc_reverse_proves_live', '__btrc_forget_suspect', '__btrc_arc_deferred_state'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_lock_state',
+        c_source=(
+            '/* One process-wide lock domain for ARC topology.\n *\n * stdatomic.h is w'
+            'hat src/runtime/c/manifest.toml records this helper needs,\n * and the ma'
+            'nifest is the only place a runtime dependency may be declared. A\n * plat'
+            'form lock would need a header the manifest cannot express, because the\n '
+            '* dependency would hold on one target and not on another, and --freestan'
+            'ding\n * output is allowed to include nothing but btrc_rt.h. */\nstatic _A'
+            'tomic int __btrc_arc_lock_word = 0;\n\n/* A waiter polls the word with pla'
+            'in loads and a pause hint, so contending\n * threads do not bounce the ca'
+            'che line on every spin and the owner keeps the\n * cycles it needs to rel'
+            'ease. The hint is a compiler builtin: no header. */\nstatic inline void _'
+            '_btrc_arc_lock_relax(void) {\n#if defined(__aarch64__) || defined(__arm__'
+            ')\n    __asm__ __volatile__("yield" ::: "memory");\n#elif (defined(__x86_6'
+            '4__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))\n'
+            '    __asm__ __volatile__("pause" ::: "memory");\n#endif\n}\nstatic void __b'
+            'trc_arc_lock_raw(void) {\n    for (;;) {\n        if (!atomic_exchange_exp'
+            'licit(\n                &__btrc_arc_lock_word, 1, memory_order_acquire))\n'
+            '            return;\n        while (atomic_load_explicit(\n               '
+            ' &__btrc_arc_lock_word, memory_order_relaxed))\n            __btrc_arc_lo'
+            'ck_relax();\n    }\n}\nstatic void __btrc_arc_unlock_raw(void) {\n    atomic'
+            '_store_explicit(\n        &__btrc_arc_lock_word, 0, memory_order_release)'
+            ';\n}'
+        ),
+        depends_on=(),
+        required_headers=('stdatomic.h',),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_snapshot_state',
+        c_source=(
+            'static _Atomic int __btrc_arc_snapshotting = 0;'
+        ),
+        depends_on=(),
+        required_headers=('stdatomic.h',),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_shutdown_state',
+        c_source=(
+            'static int __btrc_arc_shutdown = 0;'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_mutation_lock',
+        c_source=(
+            'static void __btrc_arc_lock_mutation(void) {\n    for (;;) {\n        __bt'
+            'rc_arc_lock_raw();\n        if (__btrc_arc_shutdown) {\n            __btrc'
+            '_arc_unlock_raw();\n            fprintf(stderr, "btrc: ARC operation afte'
+            'r shutdown\\n");\n            exit(1);\n        }\n        if (!atomic_load_'
+            'explicit(\n                &__btrc_arc_snapshotting, memory_order_acquire'
+            '))\n            return;\n        __btrc_arc_unlock_raw();\n        while (a'
+            'tomic_load_explicit(\n                &__btrc_arc_snapshotting, memory_or'
+            'der_acquire)) {}\n    }\n}\nstatic void __btrc_arc_unlock_mutation(void) {\n'
+            '    __btrc_arc_unlock_raw();\n}'
+        ),
+        depends_on=('__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_shutdown_state'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_cycle_collector_state',
+        c_source=(
+            '\n/* ARC cycle collector: typed graph snapshot, O(vertices + edges). */\nt'
+            'ypedef struct {\n    void* object;\n    __btrc_visit_fn visit;\n    __btrc_'
+            'destroy_fn destroy;\n    int internal;\n    int first_edge;\n    unsigned c'
+            'har live;\n    unsigned char state;\n    unsigned char root;\n} __btrc_cycl'
+            'e_vertex;\ntypedef struct {\n    volatile void* slot_storage;\n    __btrc_a'
+            'rc_slot_access_fn access;\n    int source;\n    int target;\n    int next;\n'
+            '} __btrc_cycle_edge;\ntypedef struct {\n    __btrc_cycle_vertex* vertices;'
+            '\n    __btrc_cycle_edge* edges;\n    int* queue;\n    int vertex_count;\n   '
+            ' int vertex_cap;\n    int edge_count;\n    int edge_cap;\n    int queue_cap'
+            ';\n    int queue_count;\n    int source;\n    void** object_keys;\n    int* '
+            'object_values;\n    unsigned int* object_marks;\n    int object_cap;\n    u'
+            'nsigned int object_epoch;\n    volatile void** slot_keys;\n    int* slot_v'
+            'alues;\n    unsigned int* slot_marks;\n    int slot_cap;\n    unsigned int '
+            'slot_epoch;\n} __btrc_cycle_context;\nstatic __btrc_cycle_context __btrc_c'
+            'ycle_scratch;\nstatic int __btrc_collecting = 0;\n'
+        ),
+        depends_on=('__btrc_arc_callback_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_graph_primitives',
+        c_source=(
+            '\nstatic void __btrc_cycle_fail(const char* message) {\n    fprintf(stderr'
+            ', "btrc: %s\\n", message);\n    exit(1);\n}\nstatic int __btrc_cycle_next_ca'
+            'pacity(\n        int capacity, const char* message) {\n    if (capacity < '
+            '0 || capacity > INT_MAX / 2)\n        __btrc_cycle_fail(message);\n    ret'
+            'urn capacity ? capacity * 2 : 256;\n}\nstatic size_t __btrc_cycle_capacity'
+            '_bytes(\n        int capacity, size_t element_size, const char* message) '
+            '{\n    if (capacity < 0 || (element_size != 0\n            && (size_t)capa'
+            'city > SIZE_MAX / element_size))\n        __btrc_cycle_fail(message);\n   '
+            ' return (size_t)capacity * element_size;\n}\nstatic void __btrc_cycle_next'
+            '_epoch(\n        unsigned int* epoch, unsigned int* marks, int cap) {\n   '
+            ' (*epoch)++;\n    if (*epoch == 0) {\n        if (marks) {\n            siz'
+            'e_t bytes = __btrc_cycle_capacity_bytes(\n                cap, sizeof(uns'
+            'igned int), "cycle epoch size overflow");\n            memset(marks, 0, b'
+            'ytes);\n        }\n        *epoch = 1;\n    }\n}\nstatic void __btrc_cycle_re'
+            'serve_vertices(\n        __btrc_cycle_context* context, int needed) {\n   '
+            ' if (needed < 0 || context->vertex_cap < 0)\n        __btrc_cycle_fail("c'
+            'ycle vertex overflow");\n    if (needed <= context->vertex_cap) return;\n '
+            '   int cap = context->vertex_cap;\n    while (cap < needed)\n        cap ='
+            ' __btrc_cycle_next_capacity(cap, "cycle vertex overflow");\n    size_t by'
+            'tes = __btrc_cycle_capacity_bytes(\n        cap, sizeof(__btrc_cycle_vert'
+            'ex), "cycle vertex size overflow");\n    context->vertices = (__btrc_cycl'
+            'e_vertex*)__btrc_safe_realloc(\n        context->vertices, bytes);\n    co'
+            'ntext->vertex_cap = cap;\n}\nstatic void __btrc_cycle_reserve_edges(\n     '
+            '   __btrc_cycle_context* context, int needed) {\n    if (needed < 0 || co'
+            'ntext->edge_cap < 0)\n        __btrc_cycle_fail("cycle edge overflow");\n '
+            '   if (needed <= context->edge_cap) return;\n    int cap = context->edge_'
+            'cap;\n    while (cap < needed)\n        cap = __btrc_cycle_next_capacity(c'
+            'ap, "cycle edge overflow");\n    size_t bytes = __btrc_cycle_capacity_byt'
+            'es(\n        cap, sizeof(__btrc_cycle_edge), "cycle edge size overflow");'
+            '\n    context->edges = (__btrc_cycle_edge*)__btrc_safe_realloc(\n        c'
+            'ontext->edges, bytes);\n    context->edge_cap = cap;\n}\nstatic void __btrc'
+            '_cycle_reserve_queue(\n        __btrc_cycle_context* context, int needed)'
+            ' {\n    if (needed < 0 || context->queue_cap < 0)\n        __btrc_cycle_fa'
+            'il("cycle queue overflow");\n    if (needed <= context->queue_cap) return'
+            ';\n    int cap = context->queue_cap;\n    while (cap < needed)\n        cap'
+            ' = __btrc_cycle_next_capacity(cap, "cycle queue overflow");\n    size_t b'
+            'ytes = __btrc_cycle_capacity_bytes(\n        cap, sizeof(int), "cycle que'
+            'ue size overflow");\n    context->queue = (int*)__btrc_safe_realloc(\n    '
+            '    context->queue, bytes);\n    context->queue_cap = cap;\n}\nstatic void '
+            '__btrc_cycle_push_queue(\n        __btrc_cycle_context* context, int valu'
+            'e) {\n    if (context->queue_count < 0 || context->queue_count == INT_MAX'
+            ')\n        __btrc_cycle_fail("cycle queue overflow");\n    __btrc_cycle_re'
+            'serve_queue(context, context->queue_count + 1);\n    context->queue[conte'
+            'xt->queue_count++] = value;\n}\nstatic void __btrc_cycle_grow_objects(__bt'
+            'rc_cycle_context* context) {\n    int cap = __btrc_cycle_next_capacity(\n '
+            '       context->object_cap, "cycle object hash overflow");\n    size_t ke'
+            'y_bytes = __btrc_cycle_capacity_bytes(\n        cap, sizeof(void*), "cycl'
+            'e object hash size overflow");\n    size_t value_bytes = __btrc_cycle_cap'
+            'acity_bytes(\n        cap, sizeof(int), "cycle object hash size overflow"'
+            ');\n    size_t mark_bytes = __btrc_cycle_capacity_bytes(\n        cap, siz'
+            'eof(unsigned int), "cycle object hash size overflow");\n    void** keys ='
+            ' (void**)__btrc_safe_calloc(1, key_bytes);\n    int* values = (int*)__btr'
+            'c_safe_realloc(NULL, value_bytes);\n    unsigned int* marks = (unsigned i'
+            'nt*)__btrc_safe_calloc(1, mark_bytes);\n    for (int i = 0; i < context->'
+            'vertex_count; i++) {\n        void* object = context->vertices[i].object;'
+            '\n        size_t slot = __btrc_ptr_hash(object) & ((size_t)cap - 1);\n    '
+            '    while (marks[slot] == context->object_epoch)\n            slot = (slo'
+            't + 1) & ((size_t)cap - 1);\n        marks[slot] = context->object_epoch;'
+            '\n        keys[slot] = object;\n        values[slot] = i;\n    }\n    free(c'
+            'ontext->object_keys);\n    free(context->object_values);\n    free(context'
+            '->object_marks);\n    context->object_keys = keys;\n    context->object_va'
+            'lues = values;\n    context->object_marks = marks;\n    context->object_ca'
+            'p = cap;\n}\nstatic int __btrc_cycle_find_object(\n        __btrc_cycle_con'
+            'text* context, void* object) {\n    if (context->object_cap == 0) return '
+            '-1;\n    size_t slot = __btrc_ptr_hash(object)\n        & ((size_t)context'
+            '->object_cap - 1);\n    while (context->object_marks[slot] == context->ob'
+            'ject_epoch) {\n        if (context->object_keys[slot] == object)\n        '
+            '    return context->object_values[slot];\n        slot = (slot + 1) & ((s'
+            'ize_t)context->object_cap - 1);\n    }\n    return -1;\n}\nstatic int __btrc'
+            '_cycle_add_object(__btrc_cycle_context* context,\n        void* object, c'
+            'onst __btrc_arc_type* fallback) {\n    if (!object) __btrc_cycle_fail("nu'
+            'll managed cycle edge");\n    __btrc_arc_validate(object);\n    const __bt'
+            'rc_arc_type* type = __btrc_arc_type_of(object, fallback);\n    if (!type '
+            '|| !type->destroy)\n        __btrc_cycle_fail("untyped managed cycle edge'
+            '");\n    int found = __btrc_cycle_find_object(context, object);\n    if (f'
+            'ound >= 0) {\n        __btrc_cycle_vertex* vertex = &context->vertices[fo'
+            'und];\n        if (vertex->visit != type->visit || vertex->destroy != typ'
+            'e->destroy)\n            __btrc_cycle_fail("conflicting runtime types for'
+            ' cycle object");\n        return found;\n    }\n    if (context->vertex_cou'
+            'nt < 0 || context->vertex_count == INT_MAX)\n        __btrc_cycle_fail("c'
+            'ycle vertex overflow");\n    if (context->object_cap == 0\n            || '
+            'context->vertex_count >= context->object_cap / 2)\n        __btrc_cycle_g'
+            'row_objects(context);\n    __btrc_cycle_reserve_vertices(context, context'
+            '->vertex_count + 1);\n    int index = context->vertex_count++;\n    contex'
+            't->vertices[index] = (__btrc_cycle_vertex){\n        object, type->visit,'
+            ' type->destroy, 0, -1, 0, 0, 0};\n    size_t slot = __btrc_ptr_hash(objec'
+            't)\n        & ((size_t)context->object_cap - 1);\n    while (context->obje'
+            'ct_marks[slot] == context->object_epoch)\n        slot = (slot + 1) & ((s'
+            'ize_t)context->object_cap - 1);\n    context->object_marks[slot] = contex'
+            't->object_epoch;\n    context->object_keys[slot] = object;\n    context->o'
+            'bject_values[slot] = index;\n    return index;\n}\nstatic void __btrc_cycle'
+            '_grow_slots(__btrc_cycle_context* context) {\n    int cap = __btrc_cycle_'
+            'next_capacity(\n        context->slot_cap, "cycle slot hash overflow");\n '
+            '   size_t key_bytes = __btrc_cycle_capacity_bytes(\n        cap, sizeof(v'
+            'olatile void*), "cycle slot hash size overflow");\n    size_t value_bytes'
+            ' = __btrc_cycle_capacity_bytes(\n        cap, sizeof(int), "cycle slot ha'
+            'sh size overflow");\n    size_t mark_bytes = __btrc_cycle_capacity_bytes('
+            '\n        cap, sizeof(unsigned int), "cycle slot hash size overflow");\n  '
+            '  volatile void** keys = (volatile void**)__btrc_safe_calloc(\n        1,'
+            ' key_bytes);\n    int* values = (int*)__btrc_safe_realloc(NULL, value_byt'
+            'es);\n    unsigned int* marks = (unsigned int*)__btrc_safe_calloc(1, mark'
+            '_bytes);\n    for (int i = 0; i < context->edge_count; i++) {\n        vol'
+            'atile void* storage = context->edges[i].slot_storage;\n        size_t slo'
+            't = __btrc_ptr_hash((const void*)storage)\n            & ((size_t)cap - 1'
+            ');\n        while (marks[slot] == context->slot_epoch)\n            slot ='
+            ' (slot + 1) & ((size_t)cap - 1);\n        marks[slot] = context->slot_epo'
+            'ch;\n        keys[slot] = storage;\n        values[slot] = i;\n    }\n    fr'
+            'ee(context->slot_keys);\n    free(context->slot_values);\n    free(context'
+            '->slot_marks);\n    context->slot_keys = keys;\n    context->slot_values ='
+            ' values;\n    context->slot_marks = marks;\n    context->slot_cap = cap;\n}'
+            '\nstatic int __btrc_cycle_find_slot(\n        __btrc_cycle_context* contex'
+            't, volatile void* storage) {\n    if (context->slot_cap == 0) return -1;\n'
+            '    size_t slot = __btrc_ptr_hash((const void*)storage)\n        & ((size'
+            '_t)context->slot_cap - 1);\n    while (context->slot_marks[slot] == conte'
+            'xt->slot_epoch) {\n        if (context->slot_keys[slot] == storage)\n     '
+            '       return context->slot_values[slot];\n        slot = (slot + 1) & (('
+            'size_t)context->slot_cap - 1);\n    }\n    return -1;\n}\nstatic void __btrc'
+            '_cycle_reset_context(__btrc_cycle_context* context) {\n    context->verte'
+            'x_count = 0;\n    context->edge_count = 0;\n    context->source = -1;\n    '
+            'context->queue_count = 0;\n    __btrc_cycle_next_epoch(&context->object_e'
+            'poch,\n        context->object_marks, context->object_cap);\n    __btrc_cy'
+            'cle_next_epoch(&context->slot_epoch,\n        context->slot_marks, contex'
+            't->slot_cap);\n}\n'
+        ),
+        depends_on=('__btrc_cycle_collector_state', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc', '__btrc_arc_type_of', '__btrc_arc_validate'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_unregister_incoming',
+        c_source=(
+            'static void __btrc_arc_unregister_incoming(\n        void* object, void* '
+            'owner) {\n    __btrc_arc_header* header = __btrc_arc_header_of(object);\n '
+            '   if (!owner) {\n        header->live_witness = NULL;\n        return;\n  '
+            '  }\n    __btrc_arc_incoming** link = &header->incoming;\n    while (*link'
+            ' && (*link)->owner != owner) link = &(*link)->next;\n    if (!*link) {\n  '
+            '      fprintf(stderr, "btrc: missing managed incoming edge\\n");\n        '
+            'exit(1);\n    }\n    __btrc_arc_incoming* removed = *link;\n    *link = rem'
+            'oved->next;\n    free(removed);\n    if (header->live_witness == object ||'
+            ' header->live_witness == owner) {\n        header->live_witness = NULL;\n '
+            '       for (__btrc_arc_incoming* edge = header->incoming;\n              '
+            '  edge; edge = edge->next) {\n            if (edge->owner != object) {\n  '
+            '              header->live_witness = edge->owner;\n                break;'
+            '\n            }\n        }\n    }\n}'
+        ),
+        depends_on=('__btrc_arc_header_of',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_snapshot_gate_state',
+        c_source=(
+            '/* Publish snapshot intent before waiting for topology owners. */\nstatic'
+            ' _Atomic int __btrc_arc_snapshot_pending = 0;'
+        ),
+        depends_on=(),
+        required_headers=('stdatomic.h',),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_topology_state',
+        c_source=(
+            'static int __btrc_arc_topology_active = 0;\nstatic int __btrc_arc_topolog'
+            'y_flush_pending = 0;'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_collect_cycles_once',
+        c_source=(
+            'static void __btrc_cycle_snapshot_edge(\n        volatile void* slot_stor'
+            'age, __btrc_arc_slot_access_fn access,\n        const __btrc_arc_type* ty'
+            'pe, void* opaque) {\n    __btrc_cycle_context* context = (__btrc_cycle_co'
+            'ntext*)opaque;\n    if (!slot_storage || !access) return;\n    void* objec'
+            't = access(slot_storage, NULL, NULL, 0);\n    if (!object) return;\n    if'
+            ' (__btrc_cycle_find_slot(context, slot_storage) >= 0) return;\n    if (co'
+            'ntext->slot_cap == 0\n            || context->edge_count >= context->slot'
+            '_cap / 2)\n        __btrc_cycle_grow_slots(context);\n    int target = __b'
+            'trc_cycle_add_object(context, object, type);\n    if (context->vertices[t'
+            'arget].internal == INT_MAX)\n        __btrc_cycle_fail("cycle incoming-ed'
+            'ge overflow");\n    context->vertices[target].internal++;\n    __btrc_cycl'
+            'e_vertex* target_vertex = &context->vertices[target];\n    if (target_ver'
+            'tex->state == 0) {\n        __btrc_arc_header* header =\n            __btr'
+            'c_arc_header_of(target_vertex->object);\n        if (header->rc > header-'
+            '>edge_rc) {\n            target_vertex->state = 2;\n            target_ver'
+            'tex->live = 1;\n        } else {\n            target_vertex->state = 3;\n  '
+            '          __btrc_cycle_push_queue(context, target);\n        }\n    }\n    '
+            'if (context->edge_count < 0 || context->edge_count == INT_MAX)\n        _'
+            '_btrc_cycle_fail("cycle edge overflow");\n    __btrc_cycle_reserve_edges('
+            'context, context->edge_count + 1);\n    int edge = context->edge_count++;'
+            '\n    context->edges[edge] = (__btrc_cycle_edge){\n        slot_storage, a'
+            'ccess, context->source, target,\n        context->vertices[context->sourc'
+            'e].first_edge};\n    context->vertices[context->source].first_edge = edge'
+            ';\n    size_t slot = __btrc_ptr_hash((const void*)slot_storage)\n        &'
+            ' ((size_t)context->slot_cap - 1);\n    while (context->slot_marks[slot] ='
+            '= context->slot_epoch)\n        slot = (slot + 1) & ((size_t)context->slo'
+            't_cap - 1);\n    context->slot_marks[slot] = context->slot_epoch;\n    con'
+            'text->slot_keys[slot] = slot_storage;\n    context->slot_values[slot] = e'
+            'dge;\n}\nstatic void __btrc_cycle_snapshot(__btrc_cycle_context* context) '
+            '{\n    int seeds = __btrc_suspect_count;\n    for (int i = 0; i < seeds; i'
+            '++) {\n        void* object = __btrc_suspects[i];\n        if (!object) co'
+            'ntinue;\n        __btrc_arc_validate(object);\n        __btrc_arc_header* '
+            'header = __btrc_arc_header_of(object);\n        if (header->rc > header->'
+            'edge_rc) continue;\n        __btrc_arc_type fallback = {\n            .vis'
+            'it = __btrc_visit_table[i],\n            .destroy = __btrc_destroy_table['
+            'i],\n            .hook = NULL, .guard = NULL, .raise = NULL};\n        int'
+            ' root = __btrc_cycle_add_object(context, object, &fallback);\n        if '
+            '(context->vertices[root].state == 0) {\n            context->vertices[roo'
+            't].state = 3;\n            __btrc_cycle_push_queue(context, root);\n      '
+            '  }\n    }\n    __btrc_suspect_count = 0;\n    if (__btrc_suspect_keys) {\n '
+            '       size_t bytes = __btrc_cycle_capacity_bytes(\n            __btrc_su'
+            'spect_key_cap, sizeof(void*),\n            "cycle suspect hash size overf'
+            'low");\n        memset(__btrc_suspect_keys, 0, bytes);\n    }\n    int head'
+            ' = 0;\n    while (head < context->queue_count) {\n        int scanned = co'
+            'ntext->queue[head++];\n        __btrc_cycle_vertex* vertex = &context->ve'
+            'rtices[scanned];\n        if (vertex->state != 3) continue;\n        __btr'
+            'c_arc_validate(vertex->object);\n        __btrc_arc_header* header = __bt'
+            'rc_arc_header_of(vertex->object);\n        if (header->rc > header->edge_'
+            'rc) {\n            vertex->state = 2;\n            vertex->live = 1;\n     '
+            '       continue;\n        }\n        vertex->state = 1;\n        vertex->li'
+            've = 0;\n        if (!vertex->visit) continue;\n        context->source = '
+            'scanned;\n        vertex->visit(vertex->object, __btrc_cycle_snapshot_edg'
+            'e, context);\n    }\n}\nstatic void __btrc_cycle_mark_live(__btrc_cycle_con'
+            'text* context) {\n    __btrc_cycle_reserve_queue(context, context->vertex'
+            '_count);\n    int head = 0;\n    int tail = 0;\n    for (int i = 0; i < con'
+            'text->vertex_count; i++) {\n        __btrc_cycle_vertex* vertex = &contex'
+            't->vertices[i];\n        __btrc_arc_validate(vertex->object);\n        int'
+            ' rc = __btrc_arc_header_of(vertex->object)->rc;\n        if (rc < vertex-'
+            '>internal)\n            __btrc_cycle_fail("reference count below internal'
+            ' edge count");\n        if (vertex->live || rc > vertex->internal) {\n    '
+            '        vertex->live = 1;\n            context->queue[tail++] = i;\n      '
+            '  }\n    }\n    while (head < tail) {\n        int source = context->queue['
+            'head++];\n        for (int edge = context->vertices[source].first_edge;\n '
+            '               edge >= 0; edge = context->edges[edge].next) {\n          '
+            '  int target = context->edges[edge].target;\n            if (!context->ve'
+            'rtices[target].live) {\n                context->vertices[target].live = '
+            '1;\n                context->queue[tail++] = target;\n            }\n      '
+            '  }\n    }\n    for (int i = 0; i < context->vertex_count; i++) {\n        '
+            '__btrc_cycle_vertex* vertex = &context->vertices[i];\n        __btrc_arc_'
+            'header* header =\n            __btrc_arc_header_of(vertex->object);\n     '
+            '   if (!vertex->live) {\n            header->live_witness = NULL;\n       '
+            ' } else if (header->rc == header->edge_rc\n                && !header->li'
+            've_witness) {\n            /* Preserve a concrete owner; self is only the'
+            ' fallback proof. */\n            header->live_witness = vertex->object;\n '
+            '       }\n    }\n}\nstatic void __btrc_cycle_reclaim(__btrc_cycle_context* '
+            'context) {\n    for (int i = 0; i < context->edge_count; i++) {\n        _'
+            '_btrc_cycle_edge* edge = &context->edges[i];\n        if (context->vertic'
+            'es[edge->source].live) continue;\n        void* target_object = context->'
+            'vertices[edge->target].object;\n        if (edge->access(edge->slot_stora'
+            'ge,\n                target_object, NULL, 1) != target_object)\n          '
+            '  __btrc_cycle_fail("managed graph changed during cycle collection");\n  '
+            '      __btrc_arc_unregister_incoming(\n            context->vertices[edge'
+            '->target].object,\n            context->vertices[edge->source].object);\n '
+            '       __btrc_arc_header* target = __btrc_arc_header_of(\n            con'
+            'text->vertices[edge->target].object);\n        if (target->rc <= 0 || tar'
+            'get->edge_rc <= 0)\n            __btrc_cycle_fail("managed edge count und'
+            'erflow");\n        target->rc--;\n        target->edge_rc--;\n        if (t'
+            'arget->rc > 0)\n            __btrc_arc_validate(context->vertices[edge->t'
+            'arget].object);\n    }\n    for (int i = 0; i < context->vertex_count; i++'
+            ') {\n        __btrc_cycle_vertex* vertex = &context->vertices[i];\n       '
+            ' if (vertex->live) continue;\n        __btrc_arc_header* header = __btrc_'
+            'arc_header_of(vertex->object);\n        if (header->rc != 0 || header->ed'
+            'ge_rc != 0)\n            __btrc_cycle_fail("dead cycle retained an owned '
+            'reference");\n        if (header->incoming != NULL)\n            __btrc_cy'
+            'cle_fail("dead cycle retained an incoming owner");\n        __btrc_forget'
+            '_suspect(vertex->object);\n        __btrc_arc_enqueue_locked(vertex->obje'
+            'ct);\n    }\n}\nstatic int __btrc_collect_cycles_once(void) {\n    __btrc_ar'
+            'c_lock_raw();\n    if (__btrc_arc_shutdown) {\n        __btrc_arc_unlock_r'
+            'aw();\n        fprintf(stderr, "btrc: ARC operation after shutdown\\n");\n '
+            '       exit(1);\n    }\n    /* The snapshot owner resets the suspect buffe'
+            'r outside the raw lock.\n     * Gate that ownership before inspecting any'
+            ' suspect-buffer state. */\n    if (__btrc_collecting) {\n        __btrc_ar'
+            'c_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        r'
+            'eturn 2;\n    }\n    if (atomic_load_explicit(\n                &__btrc_arc'
+            '_snapshot_pending, memory_order_acquire)\n            || atomic_load_expl'
+            'icit(\n                &__btrc_arc_snapshotting, memory_order_acquire)) {'
+            '\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unloc'
+            'k_raw();\n        return 2;\n    }\n    if (__btrc_suspect_count == 0) {\n  '
+            '      __btrc_arc_unlock_raw();\n        return 0;\n    }\n    if (__btrc_ar'
+            'c_topology_active > 0) {\n        __btrc_arc_topology_flush_pending = 1;\n'
+            '        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    __btrc_coll'
+            'ecting = 1;\n    __btrc_arc_topology_flush_pending = 0;\n    atomic_store_'
+            'explicit(\n        &__btrc_arc_snapshotting, 1, memory_order_release);\n  '
+            '  __btrc_arc_unlock_raw();\n\n    __btrc_cycle_context* context = &__btrc_'
+            'cycle_scratch;\n    __btrc_cycle_reset_context(context);\n    __btrc_cycle'
+            '_snapshot(context);\n    __btrc_cycle_mark_live(context);\n\n    __btrc_arc'
+            '_lock_raw();\n    __btrc_cycle_reclaim(context);\n    __btrc_collecting = '
+            '0;\n    atomic_store_explicit(\n        &__btrc_arc_snapshotting, 0, memor'
+            'y_order_release);\n    __btrc_arc_unlock_raw();\n    return 1;\n}\n'
+        ),
+        depends_on=('__btrc_arc_graph_primitives', '__btrc_suspect_state', '__btrc_ptr_hash', '__btrc_safe_realloc', '__btrc_arc_unregister_incoming', '__btrc_forget_suspect', '__btrc_arc_type_of', '__btrc_arc_validate', '__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_snapshot_gate_state', '__btrc_arc_topology_state', '__btrc_arc_shutdown_state', '__btrc_arc_deferred_state'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_topology_depth_state',
+        c_source=(
+            '/* __btrc_tls.arc_topology_depth and __btrc_tls.arc_draining live in the'
+            ' thread-local record __btrc_tls. */'
+        ),
+        depends_on=('__btrc_tls_state',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_active_drains_state',
+        c_source=(
+            'static int __btrc_arc_active_drains = 0;'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_drain',
+        c_source=(
+            'static void __btrc_arc_drain_deferred(int force_cycles) {\n    if (__btrc'
+            "_tls.arc_draining) return;\n    /* The deferred FIFO is this thread's own"
+            ': only its releases enqueue into\n     * it, under the mutation lock, and'
+            ' only this drain dequeues. So an empty\n     * head read here without the'
+            ' lock is exact, and the common release --\n     * one that leaves the obj'
+            'ect alive -- returns without touching the lock. */\n    if (!force_cycles'
+            ' && __btrc_tls.arc_topology_depth == 0\n            && __btrc_tls.arc_def'
+            'erred_head == NULL)\n        return;\n    if (__btrc_tls.arc_topology_dept'
+            'h > 0) {\n        __btrc_arc_lock_mutation();\n        if (force_cycles ||'
+            ' __btrc_tls.arc_deferred_head\n                || __btrc_suspect_count > '
+            '0)\n            __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc'
+            '_unlock_mutation();\n        return;\n    }\n    __btrc_arc_lock_mutation()'
+            ';\n    int has_terminal = __btrc_tls.arc_deferred_head != NULL;\n    if (!'
+            'has_terminal && !force_cycles) {\n        __btrc_arc_unlock_mutation();\n '
+            '       return;\n    }\n    if (__btrc_arc_active_drains == INT_MAX) {\n    '
+            '    fprintf(stderr, "btrc: ARC drain count overflow\\n");\n        exit(1)'
+            ';\n    }\n    __btrc_arc_active_drains++;\n    __btrc_arc_unlock_mutation()'
+            ';\n\n    __btrc_tls.arc_draining = 1;\n    int cascade = 0;\n    char first_'
+            "error[1024];\n    first_error[0] = '\\0';\n    __btrc_raise_fn first_raise "
+            '= NULL;\n    int has_error = 0;\n    for (;;) {\n        __btrc_arc_lock_mu'
+            'tation();\n        void* object = __btrc_tls.arc_deferred_head;\n        i'
+            'f (object) {\n            __btrc_arc_header* header = __btrc_arc_header_o'
+            'f(object);\n            if (header->state != __BTRC_ARC_QUEUED) {\n       '
+            '         fprintf(stderr, "btrc: invalid deferred ARC state\\n");\n        '
+            '        exit(1);\n            }\n            __btrc_tls.arc_deferred_head '
+            '= header->deferred_next;\n            if (!__btrc_tls.arc_deferred_head)\n'
+            '                __btrc_tls.arc_deferred_tail = NULL;\n            header-'
+            '>deferred_next = NULL;\n            int suppress_hook = header->suppress_'
+            'hook;\n            header->suppress_hook = 0;\n            header->state ='
+            ' __BTRC_ARC_DESTROYING;\n            const __btrc_arc_type* type = header'
+            '->type;\n            __btrc_arc_unlock_mutation();\n\n            if (type-'
+            '>visit || type->hook) cascade = 1;\n            if (type->hook && !suppre'
+            'ss_hook) {\n                char error[1024];\n                error[0] = '
+            "'\\0';\n                if (type->guard(type->hook, object, error, sizeof "
+            'error)\n                        && !has_error) {\n                    memc'
+            'py(first_error, error, sizeof first_error);\n                    first_ra'
+            'ise = type->raise;\n                    has_error = 1;\n                }\n'
+            '            }\n            type->destroy(object);\n            continue;\n '
+            '       }\n        int pending = __btrc_suspect_count > 0;\n        if (!pe'
+            'nding && __btrc_arc_topology_active == 0)\n            __btrc_arc_topolog'
+            'y_flush_pending = 0;\n        __btrc_arc_unlock_mutation();\n        if (!'
+            '(pending && (force_cycles || cascade))) break;\n        int collected = _'
+            '_btrc_collect_cycles_once();\n        if (collected == 1) continue;\n     '
+            '   /* Another collector owns the snapshot, or another thread owns a\n    '
+            '     * topology scope.  In either case collect-once has published the\n  '
+            '       * global flush request.  Never wait here: the topology owner may '
+            'be\n         * waiting for this thread, while an active collector will fi'
+            'nish the\n         * handoff from its own drain loop. */\n        break;\n '
+            '   }\n    __btrc_tls.arc_draining = 0;\n    __btrc_arc_lock_mutation();\n  '
+            '  if (__btrc_arc_active_drains <= 0) {\n        fprintf(stderr, "btrc: in'
+            'valid ARC drain count\\n");\n        exit(1);\n    }\n    __btrc_arc_active_'
+            'drains--;\n    __btrc_arc_unlock_mutation();\n    if (has_error) {\n       '
+            ' __btrc_arc_type transport = {\n            .visit = NULL, .destroy = NUL'
+            'L, .hook = NULL,\n            .guard = NULL, .raise = first_raise};\n     '
+            '   __btrc_arc_raise_unlocked(&transport, first_error);\n    }\n}'
+        ),
+        depends_on=('__btrc_arc_deferred_state', '__btrc_collect_cycles_once', '__btrc_arc_mutation_lock', '__btrc_arc_topology_state', '__btrc_arc_topology_depth_state', '__btrc_arc_shutdown_state', '__btrc_arc_active_drains_state'),
+        required_headers=('limits.h', 'stdio.h', 'stdlib.h', 'string.h'),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_release',
+        c_source=(
+            'static inline int __btrc_arc_release(\n        void* object, const __btrc'
+            '_arc_type* type) {\n    if (!object) return 0;\n    __btrc_arc_lock_mutati'
+            'on();\n    __btrc_arc_release_impl(object, type, 0, NULL);\n    __btrc_arc'
+            '_unlock_mutation();\n    __btrc_arc_drain_deferred(0);\n    return 0;\n}'
+        ),
+        depends_on=('__btrc_arc_release_impl', '__btrc_arc_mutation_lock', '__btrc_arc_drain'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
         category='trycatch',
         name='__btrc_run_cleanup_guarded',
         c_source=(
@@ -1808,6 +2777,20 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_flush_cycles',
+        c_source=(
+            'static int __btrc_flush_cycles(void) {\n    __btrc_arc_drain_deferred(1);'
+            '\n    return 0;\n}'
+        ),
+        depends_on=('__btrc_arc_drain',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
         category='trycatch',
         name='__btrc_flush_cycles_guarded',
         c_source=(
@@ -1817,6 +2800,79 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'trc_tls.try_top--;\n}'
         ),
         depends_on=('__btrc_push_try', '__btrc_flush_cycles'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_destroyed_tracking',
+        c_source=(
+            '/* ARC cascade-destroy tracking: avoid reading freed memory */\n/* __btrc'
+            '_tls.tracking, __btrc_tls.destroyed and __btrc_tls.destroyed_count live '
+            'in the thread-local record __btrc_tls. */'
+        ),
+        depends_on=('__btrc_tls_state',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_active_unwinds_state',
+        c_source=(
+            'static int __btrc_arc_active_unwinds = 0;'
+        ),
+        depends_on=(),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_destroyed_tracking_scope',
+        c_source=(
+            'static void __btrc_destroyed_tracking_begin(void) {\n    __btrc_arc_lock_'
+            'mutation();\n    int active = __btrc_tls.tracking;\n    if (active == 0) {'
+            '\n        __btrc_tls.destroyed_count = 0;\n        if (__btrc_arc_active_u'
+            'nwinds == INT_MAX) {\n            fprintf(stderr, "btrc: active unwind co'
+            'unt overflow\\n");\n            exit(1);\n        }\n        __btrc_arc_acti'
+            've_unwinds++;\n    }\n    if (active == INT_MAX) {\n        fprintf(stderr,'
+            ' "btrc: destroyed tracking depth overflow\\n");\n        exit(1);\n    }\n  '
+            '  __btrc_tls.tracking = active + 1;\n    __btrc_arc_unlock_mutation();\n}\n'
+            'static void __btrc_destroyed_tracking_end(void) {\n    __btrc_arc_lock_mu'
+            'tation();\n    int active = __btrc_tls.tracking;\n    if (active <= 0) {\n '
+            '       fprintf(stderr, "btrc: unbalanced destroyed tracking scope\\n");\n '
+            '       exit(1);\n    }\n    active--;\n    __btrc_tls.tracking = active;\n  '
+            '  if (active == 0) {\n        __btrc_tls.destroyed_count = 0;\n        if '
+            '(__btrc_arc_active_unwinds <= 0) {\n            fprintf(stderr, "btrc: in'
+            'valid active unwind count\\n");\n            exit(1);\n        }\n        __'
+            'btrc_arc_active_unwinds--;\n    }\n    __btrc_arc_unlock_mutation();\n}'
+        ),
+        depends_on=('__btrc_destroyed_tracking', '__btrc_arc_mutation_lock', '__btrc_arc_active_unwinds_state'),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_is_destroyed',
+        c_source=(
+            'static int __btrc_is_destroyed(void* ptr) {\n    if (!ptr) return 0;\n    '
+            '__btrc_arc_lock_mutation();\n    for (int i = 0; i < __btrc_tls.destroyed'
+            '_count; i++) {\n        if (__btrc_tls.destroyed[i] != ptr) continue;\n   '
+            '     __btrc_arc_unlock_mutation();\n        return 1;\n    }\n    __btrc_ar'
+            'c_unlock_mutation();\n    return 0;\n}'
+        ),
+        depends_on=('__btrc_destroyed_tracking', '__btrc_arc_mutation_lock'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2209,166 +3265,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
-        name='__btrc_arc_callback_types',
-        c_source=(
-            '/* Type-erased ARC metadata shared by ownership paths. */\ntypedef int __'
-            'btrc_arc_count;\ntypedef struct __btrc_arc_type __btrc_arc_type;\ntypedef '
-            'struct __btrc_arc_incoming __btrc_arc_incoming;\ntypedef enum {\n    __BTR'
-            'C_ARC_LIVE = 1,\n    __BTRC_ARC_QUEUED = 2,\n    __BTRC_ARC_DESTROYING = 3'
-            '\n} __btrc_arc_state;\ntypedef struct __btrc_arc_header {\n    __btrc_arc_c'
-            'ount rc;\n    __btrc_arc_count edge_rc;\n    /* One current incoming-edge '
-            'owner, or self as a full-snapshot sentinel. */\n    void* live_witness;\n '
-            '   const __btrc_arc_type* type;\n    __btrc_arc_incoming* incoming;\n    v'
-            'oid* deferred_next;\n    unsigned char suppress_hook;\n    __btrc_arc_stat'
-            'e state;\n} __btrc_arc_header;\nstruct __btrc_arc_incoming {\n    void* own'
-            'er;\n    __btrc_arc_incoming* next;\n};\ntypedef void (*__btrc_destroy_fn)('
-            'void*);\ntypedef void* (*__btrc_arc_slot_access_fn)(\n    volatile void*, '
-            'void*, void*, int);\ntypedef void (*__btrc_field_visit_fn)(\n    volatile '
-            'void*, __btrc_arc_slot_access_fn,\n    const __btrc_arc_type*, void*);\nty'
-            'pedef void (*__btrc_visit_fn)(\n    void*, __btrc_field_visit_fn, void*);'
-            '\ntypedef void (*__btrc_hook_fn)(void*);\ntypedef int (*__btrc_hook_guard_'
-            'fn)(\n    __btrc_hook_fn, void*, char*, size_t);\ntypedef void (*__btrc_ra'
-            'ise_fn)(const char*);\ntypedef struct {\n    const char* name;\n    const v'
-            'oid* methods;\n} __btrc_interface_entry;\nstruct __btrc_arc_type {\n    __b'
-            'trc_visit_fn visit;\n    __btrc_destroy_fn destroy;\n    __btrc_hook_fn ho'
-            'ok;\n    __btrc_hook_guard_fn guard;\n    __btrc_raise_fn raise;\n    const'
-            ' __btrc_interface_entry* interfaces;\n    size_t interface_count;\n};'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=('__btrc_arc_count', '__btrc_arc_type', '__btrc_interface_entry', '__btrc_arc_incoming', '__btrc_arc_state', '__btrc_arc_header', '__btrc_destroy_fn', '__btrc_arc_slot_access_fn', '__btrc_field_visit_fn', '__btrc_visit_fn', '__btrc_hook_fn', '__btrc_hook_guard_fn', '__btrc_raise_fn'),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_header_of',
-        c_source=(
-            'static inline __btrc_arc_header* __btrc_arc_header_of(void* object) {\n  '
-            '  return (__btrc_arc_header*)object;\n}'
-        ),
-        depends_on=('__btrc_arc_callback_types',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_type_of',
-        c_source=(
-            'static inline const __btrc_arc_type* __btrc_arc_type_of(\n        void* o'
-            'bject, const __btrc_arc_type* fallback) {\n    if (object && __btrc_arc_h'
-            'eader_of(object)->type)\n        return __btrc_arc_header_of(object)->typ'
-            'e;\n    return fallback;\n}'
-        ),
-        depends_on=('__btrc_arc_header_of',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_validate',
-        c_source=(
-            '/* Header invariants are checked on every retain, release and edge move.'
-            '\n * That is a debugging aid, not a memory-safety boundary: the checks co'
-            "st\n * about a twentieth of a compiled program's time, so they stay on un"
-            'der a\n * sanitizer or BTRC_ARC_CHECKS and are compiled out otherwise. */'
-            '\n#if defined(BTRC_ARC_CHECKS) || defined(__SANITIZE_ADDRESS__) || define'
-            'd(__SANITIZE_THREAD__)\n#define __BTRC_ARC_CHECKS 1\n#elif defined(__has_f'
-            'eature)\n#if __has_feature(address_sanitizer) || __has_feature(thread_san'
-            'itizer)\n#define __BTRC_ARC_CHECKS 1\n#endif\n#endif\nstatic inline void __b'
-            'trc_arc_validate(void* object) {\n#if !defined(__BTRC_ARC_CHECKS)\n    (vo'
-            'id)object;\n    return;\n#endif\n    if (!object) return;\n    __btrc_arc_he'
-            'ader* header = __btrc_arc_header_of(object);\n    int live = header->stat'
-            'e == __BTRC_ARC_LIVE\n        && header->rc > 0 && header->edge_rc >= 0\n '
-            '       && header->edge_rc <= header->rc\n        && header->deferred_next'
-            ' == NULL && !header->suppress_hook;\n    int queued = header->state == __'
-            'BTRC_ARC_QUEUED\n        && header->rc == 0 && header->edge_rc == 0\n     '
-            '   && header->live_witness == NULL && header->incoming == NULL;\n    int '
-            'destroying = header->state == __BTRC_ARC_DESTROYING\n        && header->r'
-            'c == 0 && header->edge_rc == 0\n        && header->live_witness == NULL &'
-            '& header->incoming == NULL\n        && header->deferred_next == NULL && !'
-            'header->suppress_hook;\n    if ((!live && !queued && !destroying) || !hea'
-            'der->type\n            || !header->type->destroy\n            || (header->'
-            'type->hook\n                && (!header->type->guard || !header->type->ra'
-            'ise))) {\n        fprintf(stderr, "btrc: invalid ARC header\\n");\n        '
-            'exit(1);\n    }\n}'
-        ),
-        depends_on=('__btrc_arc_header_of',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_destroyed_tracking',
-        c_source=(
-            '/* ARC cascade-destroy tracking: avoid reading freed memory */\n/* __btrc'
-            '_tls.tracking, __btrc_tls.destroyed and __btrc_tls.destroyed_count live '
-            'in the thread-local record __btrc_tls. */'
-        ),
-        depends_on=('__btrc_tls_state',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_destroyed_tracking_scope',
-        c_source=(
-            'static void __btrc_destroyed_tracking_begin(void) {\n    __btrc_arc_lock_'
-            'mutation();\n    int active = __btrc_tls.tracking;\n    if (active == 0) {'
-            '\n        __btrc_tls.destroyed_count = 0;\n        if (__btrc_arc_active_u'
-            'nwinds == INT_MAX) {\n            fprintf(stderr, "btrc: active unwind co'
-            'unt overflow\\n");\n            exit(1);\n        }\n        __btrc_arc_acti'
-            've_unwinds++;\n    }\n    if (active == INT_MAX) {\n        fprintf(stderr,'
-            ' "btrc: destroyed tracking depth overflow\\n");\n        exit(1);\n    }\n  '
-            '  __btrc_tls.tracking = active + 1;\n    __btrc_arc_unlock_mutation();\n}\n'
-            'static void __btrc_destroyed_tracking_end(void) {\n    __btrc_arc_lock_mu'
-            'tation();\n    int active = __btrc_tls.tracking;\n    if (active <= 0) {\n '
-            '       fprintf(stderr, "btrc: unbalanced destroyed tracking scope\\n");\n '
-            '       exit(1);\n    }\n    active--;\n    __btrc_tls.tracking = active;\n  '
-            '  if (active == 0) {\n        __btrc_tls.destroyed_count = 0;\n        if '
-            '(__btrc_arc_active_unwinds <= 0) {\n            fprintf(stderr, "btrc: in'
-            'valid active unwind count\\n");\n            exit(1);\n        }\n        __'
-            'btrc_arc_active_unwinds--;\n    }\n    __btrc_arc_unlock_mutation();\n}'
-        ),
-        depends_on=('__btrc_destroyed_tracking', '__btrc_arc_mutation_lock', '__btrc_arc_active_unwinds_state'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_is_destroyed',
-        c_source=(
-            'static int __btrc_is_destroyed(void* ptr) {\n    if (!ptr) return 0;\n    '
-            '__btrc_arc_lock_mutation();\n    for (int i = 0; i < __btrc_tls.destroyed'
-            '_count; i++) {\n        if (__btrc_tls.destroyed[i] != ptr) continue;\n   '
-            '     __btrc_arc_unlock_mutation();\n        return 1;\n    }\n    __btrc_ar'
-            'c_unlock_mutation();\n    return 0;\n}'
-        ),
-        depends_on=('__btrc_destroyed_tracking', '__btrc_arc_mutation_lock'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
         name='__btrc_destroyed_capacity',
         c_source=(
             '/* __btrc_tls.destroyed_cap lives in the thread-local record __btrc_tls.'
@@ -2414,121 +3310,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
-        name='__btrc_suspect_state',
-        c_source=(
-            '/* ARC cycle detection: suspect buffer */\nstatic void** __btrc_suspects '
-            '= NULL;\nstatic int __btrc_suspect_count = 0;\nstatic __btrc_visit_fn* __b'
-            'trc_visit_table = NULL;\nstatic __btrc_destroy_fn* __btrc_destroy_table ='
-            ' NULL;\nstatic void** __btrc_suspect_keys = NULL;\n/* Buffer index of the '
-            'suspect held at each hash slot, so forgetting one never\n * scans the buf'
-            'fer. */\nstatic int* __btrc_suspect_slots = NULL;\nstatic int __btrc_suspe'
-            'ct_key_cap = 0;'
-        ),
-        depends_on=('__btrc_arc_callback_types',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_suspect_capacity',
-        c_source=(
-            'static int __btrc_suspect_cap = 0;'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_ptr_hash',
-        c_source=(
-            'static size_t __btrc_ptr_hash(const void* ptr) {\n    uintptr_t value = ('
-            'uintptr_t)ptr;\n    value ^= value >> 17;\n    value ^= value >> 9;\n    re'
-            'turn (size_t)value;\n}'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_suspect_locked',
-        c_source=(
-            'static int __btrc_suspect_next_capacity(\n        int capacity, const cha'
-            'r* message) {\n    if (capacity < 0 || capacity > INT_MAX / 2) {\n        '
-            'fprintf(stderr, "btrc: %s\\n", message);\n        exit(1);\n    }\n    retur'
-            'n capacity ? capacity * 2 : 256;\n}\nstatic size_t __btrc_suspect_capacity'
-            '_bytes(\n        int capacity, size_t element_size, const char* message) '
-            '{\n    if (capacity < 0 || (element_size != 0\n            && (size_t)capa'
-            'city > SIZE_MAX / element_size)) {\n        fprintf(stderr, "btrc: %s\\n",'
-            ' message);\n        exit(1);\n    }\n    return (size_t)capacity * element_'
-            'size;\n}\nstatic void __btrc_grow_suspect_keys_locked(void) {\n    int cap '
-            '= __btrc_suspect_next_capacity(\n        __btrc_suspect_key_cap, "cycle s'
-            'uspect hash overflow");\n    size_t bytes = __btrc_suspect_capacity_bytes'
-            '(\n        cap, sizeof(void*), "cycle suspect hash size overflow");\n    s'
-            'ize_t slot_bytes = __btrc_suspect_capacity_bytes(\n        cap, sizeof(in'
-            't), "cycle suspect hash size overflow");\n    void** keys = (void**)__btr'
-            'c_safe_calloc(1, bytes);\n    int* slots = (int*)__btrc_safe_calloc(1, sl'
-            'ot_bytes);\n    for (int i = 0; i < __btrc_suspect_count; i++) {\n        '
-            'size_t index = __btrc_ptr_hash(__btrc_suspects[i]) & ((size_t)cap - 1);\n'
-            '        while (keys[index]) index = (index + 1) & ((size_t)cap - 1);\n   '
-            '     keys[index] = __btrc_suspects[i];\n        slots[index] = i;\n    }\n '
-            '   free(__btrc_suspect_keys);\n    free(__btrc_suspect_slots);\n    __btrc'
-            '_suspect_keys = keys;\n    __btrc_suspect_slots = slots;\n    __btrc_suspe'
-            'ct_key_cap = cap;\n}\nstatic inline void __btrc_suspect_locked(void* obj, '
-            '__btrc_visit_fn visit,\n                           __btrc_destroy_fn dest'
-            'roy) {\n    if (!obj) return;\n    __btrc_arc_validate(obj);\n    __btrc_ar'
-            'c_header* header = __btrc_arc_header_of(obj);\n    if (header->rc > heade'
-            'r->edge_rc) return;\n    __btrc_arc_type fallback = {\n        .visit = vi'
-            'sit, .destroy = destroy,\n        .hook = NULL, .guard = NULL, .raise = N'
-            'ULL};\n    const __btrc_arc_type* type = __btrc_arc_type_of(obj, &fallbac'
-            'k);\n    if (!type || !type->visit || !type->destroy) return;\n    if (__b'
-            'trc_suspect_count < 0 || __btrc_suspect_count == INT_MAX\n            || '
-            '__btrc_suspect_cap < 0\n            || __btrc_suspect_count > __btrc_susp'
-            'ect_cap) {\n        fprintf(stderr, "btrc: cycle suspect overflow\\n");\n  '
-            '      exit(1);\n    }\n    if (__btrc_suspect_key_cap == 0\n            || '
-            '__btrc_suspect_count >= __btrc_suspect_key_cap / 2)\n        __btrc_grow_'
-            'suspect_keys_locked();\n    size_t key = __btrc_ptr_hash(obj)\n        & ('
-            '(size_t)__btrc_suspect_key_cap - 1);\n    while (__btrc_suspect_keys[key]'
-            ') {\n        if (__btrc_suspect_keys[key] == obj) return;\n        key = ('
-            'key + 1) & ((size_t)__btrc_suspect_key_cap - 1);\n    }\n    if (__btrc_su'
-            'spect_count >= __btrc_suspect_cap) {\n        int new_cap = __btrc_suspec'
-            't_next_capacity(\n            __btrc_suspect_cap, "cycle suspect overflow'
-            '");\n        size_t object_bytes = __btrc_suspect_capacity_bytes(\n       '
-            '     new_cap, sizeof(void*), "cycle suspect size overflow");\n        siz'
-            'e_t visit_bytes = __btrc_suspect_capacity_bytes(\n            new_cap, si'
-            'zeof(__btrc_visit_fn),\n            "cycle suspect size overflow");\n     '
-            '   size_t destroy_bytes = __btrc_suspect_capacity_bytes(\n            new'
-            '_cap, sizeof(__btrc_destroy_fn),\n            "cycle suspect size overflo'
-            'w");\n        __btrc_suspects = (void**)__btrc_safe_realloc(\n            '
-            '__btrc_suspects, object_bytes);\n        __btrc_visit_table = (__btrc_vis'
-            'it_fn*)__btrc_safe_realloc(\n            __btrc_visit_table, visit_bytes)'
-            ';\n        __btrc_destroy_table = (__btrc_destroy_fn*)__btrc_safe_realloc'
-            '(\n            __btrc_destroy_table, destroy_bytes);\n        __btrc_suspe'
-            'ct_cap = new_cap;\n    }\n    __btrc_suspects[__btrc_suspect_count] = obj;'
-            '\n    __btrc_visit_table[__btrc_suspect_count] = type->visit;\n    __btrc_'
-            'destroy_table[__btrc_suspect_count] = type->destroy;\n    __btrc_suspect_'
-            'keys[key] = obj;\n    __btrc_suspect_slots[key] = __btrc_suspect_count;\n '
-            '   __btrc_suspect_count++;\n}'
-        ),
-        depends_on=('__btrc_suspect_state', '__btrc_suspect_capacity', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc', '__btrc_arc_type_of', '__btrc_arc_validate'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
         name='__btrc_suspect',
         c_source=(
             'static inline void __btrc_suspect(\n        void* obj, __btrc_visit_fn vi'
@@ -2537,140 +3318,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             '();\n}'
         ),
         depends_on=('__btrc_suspect_locked', '__btrc_arc_mutation_lock'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_lock_state',
-        c_source=(
-            '/* One process-wide lock domain for ARC topology.\n *\n * stdatomic.h is w'
-            'hat src/runtime/c/manifest.toml records this helper needs,\n * and the ma'
-            'nifest is the only place a runtime dependency may be declared. A\n * plat'
-            'form lock would need a header the manifest cannot express, because the\n '
-            '* dependency would hold on one target and not on another, and --freestan'
-            'ding\n * output is allowed to include nothing but btrc_rt.h. */\nstatic _A'
-            'tomic int __btrc_arc_lock_word = 0;\n\n/* A waiter polls the word with pla'
-            'in loads and a pause hint, so contending\n * threads do not bounce the ca'
-            'che line on every spin and the owner keeps the\n * cycles it needs to rel'
-            'ease. The hint is a compiler builtin: no header. */\nstatic inline void _'
-            '_btrc_arc_lock_relax(void) {\n#if defined(__aarch64__) || defined(__arm__'
-            ')\n    __asm__ __volatile__("yield" ::: "memory");\n#elif (defined(__x86_6'
-            '4__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))\n'
-            '    __asm__ __volatile__("pause" ::: "memory");\n#endif\n}\nstatic void __b'
-            'trc_arc_lock_raw(void) {\n    for (;;) {\n        if (!atomic_exchange_exp'
-            'licit(\n                &__btrc_arc_lock_word, 1, memory_order_acquire))\n'
-            '            return;\n        while (atomic_load_explicit(\n               '
-            ' &__btrc_arc_lock_word, memory_order_relaxed))\n            __btrc_arc_lo'
-            'ck_relax();\n    }\n}\nstatic void __btrc_arc_unlock_raw(void) {\n    atomic'
-            '_store_explicit(\n        &__btrc_arc_lock_word, 0, memory_order_release)'
-            ';\n}'
-        ),
-        depends_on=(),
-        required_headers=('stdatomic.h',),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_shutdown_state',
-        c_source=(
-            'static int __btrc_arc_shutdown = 0;'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_active_drains_state',
-        c_source=(
-            'static int __btrc_arc_active_drains = 0;'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_active_unwinds_state',
-        c_source=(
-            'static int __btrc_arc_active_unwinds = 0;'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_snapshot_state',
-        c_source=(
-            'static _Atomic int __btrc_arc_snapshotting = 0;'
-        ),
-        depends_on=(),
-        required_headers=('stdatomic.h',),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_mutation_lock',
-        c_source=(
-            'static void __btrc_arc_lock_mutation(void) {\n    for (;;) {\n        __bt'
-            'rc_arc_lock_raw();\n        if (__btrc_arc_shutdown) {\n            __btrc'
-            '_arc_unlock_raw();\n            fprintf(stderr, "btrc: ARC operation afte'
-            'r shutdown\\n");\n            exit(1);\n        }\n        if (!atomic_load_'
-            'explicit(\n                &__btrc_arc_snapshotting, memory_order_acquire'
-            '))\n            return;\n        __btrc_arc_unlock_raw();\n        while (a'
-            'tomic_load_explicit(\n                &__btrc_arc_snapshotting, memory_or'
-            'der_acquire)) {}\n    }\n}\nstatic void __btrc_arc_unlock_mutation(void) {\n'
-            '    __btrc_arc_unlock_raw();\n}'
-        ),
-        depends_on=('__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_shutdown_state'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_topology_state',
-        c_source=(
-            'static int __btrc_arc_topology_active = 0;\nstatic int __btrc_arc_topolog'
-            'y_flush_pending = 0;'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_topology_depth_state',
-        c_source=(
-            '/* __btrc_tls.arc_topology_depth and __btrc_tls.arc_draining live in the'
-            ' thread-local record __btrc_tls. */'
-        ),
-        depends_on=('__btrc_tls_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -2736,6 +3383,35 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
+        name='__btrc_arc_abandon_callback_state',
+        c_source=(
+            'typedef void (*__btrc_abandon_drain_fn)(void);\n/* __btrc_tls.abandon_dra'
+            'in_callback lives in the thread-local record __btrc_tls. */'
+        ),
+        depends_on=('__btrc_tls_state',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
+        name='__btrc_arc_abandon_queue_drain',
+        c_source=(
+            'static void __btrc_arc_drain_pending_abandons(void) {\n    __btrc_abandon'
+            '_drain_fn callback =\n        __btrc_tls.abandon_drain_callback;\n    if ('
+            'callback) callback();\n}'
+        ),
+        depends_on=('__btrc_arc_abandon_callback_state',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='cycles',
         name='__btrc_arc_topology_cleanup',
         c_source=(
             'static void __btrc_arc_topology_cleanup(void* token) {\n    int should_fl'
@@ -2763,47 +3439,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_topology_leave', '__btrc_arc_abandon_queue_drain', '__btrc_flush_cycles', '__btrc_arc_drain'),
         required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_deferred_state',
-        c_source=(
-            '/* Per-thread intrusive FIFO for terminal ARC work. */\n/* __btrc_tls.arc'
-            '_deferred_head and __btrc_tls.arc_deferred_tail live in the thread-local'
-            ' record __btrc_tls. */\n\nstatic _Noreturn void __btrc_arc_raise_unlocked('
-            '\n        const __btrc_arc_type* type, const char* message) {\n    if (typ'
-            'e && type->raise) type->raise(message);\n    fprintf(stderr, "Unhandled e'
-            'xception: %s\\n", message);\n    exit(1);\n}\n\nstatic void __btrc_arc_enqueu'
-            'e_locked(void* object) {\n    __btrc_arc_header* header = __btrc_arc_head'
-            'er_of(object);\n    if (header->state != __BTRC_ARC_LIVE\n            || h'
-            'eader->rc != 0 || header->edge_rc != 0\n            || header->incoming !'
-            '= NULL || header->deferred_next != NULL) {\n        fprintf(stderr, "btrc'
-            ': invalid ARC enqueue\\n");\n        exit(1);\n    }\n    header->live_witne'
-            'ss = NULL;\n    header->state = __BTRC_ARC_QUEUED;\n    if (__btrc_tls.arc'
-            '_deferred_tail) {\n        __btrc_arc_header_of(__btrc_tls.arc_deferred_t'
-            'ail)->deferred_next = object;\n    } else {\n        __btrc_tls.arc_deferr'
-            'ed_head = object;\n    }\n    __btrc_tls.arc_deferred_tail = object;\n}'
-        ),
-        depends_on=('__btrc_tls_state', '__btrc_arc_callback_types', '__btrc_arc_header_of'),
-        required_headers=('stdio.h', 'stdlib.h'),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_snapshot_gate_state',
-        c_source=(
-            '/* Publish snapshot intent before waiting for topology owners. */\nstatic'
-            ' _Atomic int __btrc_arc_snapshot_pending = 0;'
-        ),
-        depends_on=(),
-        required_headers=('stdatomic.h',),
         provided_types=(),
         provided_objects=(),
         source_visible=False,
@@ -2852,23 +3487,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
-        name='__btrc_arc_reverse_state',
-        c_source=(
-            '/* Scratch state for exact reverse-root classification. */\nstatic void**'
-            ' __btrc_reverse_queue = NULL;\nstatic int __btrc_reverse_queue_cap = 0;\ns'
-            'tatic void** __btrc_reverse_keys = NULL;\nstatic unsigned int* __btrc_rev'
-            'erse_marks = NULL;\nstatic int __btrc_reverse_key_cap = 0;\nstatic int __b'
-            'trc_reverse_count = 0;\nstatic unsigned int __btrc_reverse_epoch = 0;'
-        ),
-        depends_on=(),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
         name='__btrc_arc_register_incoming',
         c_source=(
             'static void __btrc_arc_register_incoming(\n        void* object, void* ow'
@@ -2881,131 +3499,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'ect)->live_witness = owner;\n}'
         ),
         depends_on=('__btrc_arc_header_of', '__btrc_safe_realloc'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_unregister_incoming',
-        c_source=(
-            'static void __btrc_arc_unregister_incoming(\n        void* object, void* '
-            'owner) {\n    __btrc_arc_header* header = __btrc_arc_header_of(object);\n '
-            '   if (!owner) {\n        header->live_witness = NULL;\n        return;\n  '
-            '  }\n    __btrc_arc_incoming** link = &header->incoming;\n    while (*link'
-            ' && (*link)->owner != owner) link = &(*link)->next;\n    if (!*link) {\n  '
-            '      fprintf(stderr, "btrc: missing managed incoming edge\\n");\n        '
-            'exit(1);\n    }\n    __btrc_arc_incoming* removed = *link;\n    *link = rem'
-            'oved->next;\n    free(removed);\n    if (header->live_witness == object ||'
-            ' header->live_witness == owner) {\n        header->live_witness = NULL;\n '
-            '       for (__btrc_arc_incoming* edge = header->incoming;\n              '
-            '  edge; edge = edge->next) {\n            if (edge->owner != object) {\n  '
-            '              header->live_witness = edge->owner;\n                break;'
-            '\n            }\n        }\n    }\n}'
-        ),
-        depends_on=('__btrc_arc_header_of',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_incoming_teardown_pending',
-        c_source=(
-            'static int __btrc_arc_incoming_teardown_pending(\n        void* object) {'
-            '\n    __btrc_arc_header* header = __btrc_arc_header_of(object);\n    if (!'
-            'header->incoming) return 0;\n    for (__btrc_arc_incoming* edge = header-'
-            '>incoming;\n            edge; edge = edge->next) {\n        void* owner = '
-            'edge->owner;\n        if (!owner || owner == object) return 0;\n        __'
-            'btrc_arc_validate(owner);\n        if (__btrc_arc_header_of(owner)->state'
-            ' != __BTRC_ARC_DESTROYING)\n            return 0;\n    }\n    return 1;\n}'
-        ),
-        depends_on=('__btrc_arc_validate',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_reverse_proves_live',
-        c_source=(
-            'static int __btrc_reverse_next_capacity(\n        int capacity, const cha'
-            'r* message) {\n    if (capacity < 0 || capacity > INT_MAX / 2) {\n        '
-            'fprintf(stderr, "btrc: %s\\n", message);\n        exit(1);\n    }\n    retur'
-            'n capacity ? capacity * 2 : 256;\n}\nstatic size_t __btrc_reverse_capacity'
-            '_bytes(\n        int capacity, size_t element_size, const char* message) '
-            '{\n    if (capacity < 0 || (element_size != 0\n            && (size_t)capa'
-            'city > SIZE_MAX / element_size)) {\n        fprintf(stderr, "btrc: %s\\n",'
-            ' message);\n        exit(1);\n    }\n    return (size_t)capacity * element_'
-            'size;\n}\nstatic void __btrc_reverse_reserve_queue(int needed) {\n    if (n'
-            'eeded < 0 || __btrc_reverse_queue_cap < 0) {\n        fprintf(stderr, "bt'
-            'rc: reverse ARC queue overflow\\n");\n        exit(1);\n    }\n    if (neede'
-            'd <= __btrc_reverse_queue_cap) return;\n    int cap = __btrc_reverse_queu'
-            'e_cap;\n    while (cap < needed)\n        cap = __btrc_reverse_next_capaci'
-            'ty(\n            cap, "reverse ARC queue overflow");\n    size_t bytes = _'
-            '_btrc_reverse_capacity_bytes(\n        cap, sizeof(void*), "reverse ARC q'
-            'ueue size overflow");\n    __btrc_reverse_queue = (void**)__btrc_safe_rea'
-            'lloc(\n        __btrc_reverse_queue, bytes);\n    __btrc_reverse_queue_cap'
-            ' = cap;\n}\nstatic void __btrc_reverse_grow_keys(void) {\n    int cap = __b'
-            'trc_reverse_next_capacity(\n        __btrc_reverse_key_cap, "reverse ARC '
-            'hash overflow");\n    size_t key_bytes = __btrc_reverse_capacity_bytes(\n '
-            '       cap, sizeof(void*), "reverse ARC hash size overflow");\n    size_t'
-            ' mark_bytes = __btrc_reverse_capacity_bytes(\n        cap, sizeof(unsigne'
-            'd int), "reverse ARC hash size overflow");\n    void** keys = (void**)__b'
-            'trc_safe_calloc(1, key_bytes);\n    unsigned int* marks = (unsigned int*)'
-            '__btrc_safe_calloc(1, mark_bytes);\n    for (int i = 0; i < __btrc_revers'
-            'e_count; i++) {\n        void* object = __btrc_reverse_queue[i];\n        '
-            'size_t slot = __btrc_ptr_hash(object) & ((size_t)cap - 1);\n        while'
-            ' (marks[slot] == __btrc_reverse_epoch)\n            slot = (slot + 1) & ('
-            '(size_t)cap - 1);\n        marks[slot] = __btrc_reverse_epoch;\n        ke'
-            'ys[slot] = object;\n    }\n    free(__btrc_reverse_keys);\n    free(__btrc_'
-            'reverse_marks);\n    __btrc_reverse_keys = keys;\n    __btrc_reverse_marks'
-            ' = marks;\n    __btrc_reverse_key_cap = cap;\n}\nstatic int __btrc_reverse_'
-            'add(void* object) {\n    if (!object) return 0;\n    if (__btrc_reverse_co'
-            'unt < 0 || __btrc_reverse_count == INT_MAX) {\n        fprintf(stderr, "b'
-            'trc: reverse ARC count overflow\\n");\n        exit(1);\n    }\n    if (__bt'
-            'rc_reverse_key_cap == 0\n            || __btrc_reverse_count >= __btrc_re'
-            'verse_key_cap / 2)\n        __btrc_reverse_grow_keys();\n    size_t slot ='
-            ' __btrc_ptr_hash(object)\n        & ((size_t)__btrc_reverse_key_cap - 1);'
-            '\n    while (__btrc_reverse_marks[slot] == __btrc_reverse_epoch) {\n      '
-            '  if (__btrc_reverse_keys[slot] == object) return 0;\n        slot = (slo'
-            't + 1) & ((size_t)__btrc_reverse_key_cap - 1);\n    }\n    __btrc_reverse_'
-            'reserve_queue(__btrc_reverse_count + 1);\n    __btrc_reverse_marks[slot] '
-            '= __btrc_reverse_epoch;\n    __btrc_reverse_keys[slot] = object;\n    __bt'
-            'rc_reverse_queue[__btrc_reverse_count++] = object;\n    return 1;\n}\nstati'
-            'c int __btrc_arc_reverse_proves_live(void* object) {\n    __btrc_reverse_'
-            'count = 0;\n    __btrc_reverse_epoch++;\n    if (__btrc_reverse_epoch == 0'
-            ') {\n        if (__btrc_reverse_marks) {\n            size_t bytes = __btr'
-            'c_reverse_capacity_bytes(\n                __btrc_reverse_key_cap, sizeof'
-            '(unsigned int),\n                "reverse ARC hash size overflow");\n     '
-            '       memset(__btrc_reverse_marks, 0, bytes);\n        }\n        __btrc_'
-            'reverse_epoch = 1;\n    }\n    /* Prefer the current concrete incoming-own'
-            'er chain before expanding fan-in.\n     * Repeated temporary releases of '
-            'a shared child otherwise enqueue every\n     * owner, even when its newes'
-            't owner leads directly to an external root.\n     * The mutation lock kee'
-            'ps these owner edges valid. A witness is only a\n     * route: never trea'
-            't a snapshot sentinel or a previously live owner as\n     * proof. Rechec'
-            'k each reference count and fall back to the exact worklist\n     * when t'
-            'he preferred chain ends or cycles. */\n    void* preferred = object;\n    '
-            'while (preferred && __btrc_reverse_add(preferred)) {\n        __btrc_arc_'
-            'validate(preferred);\n        __btrc_arc_header* header = __btrc_arc_head'
-            'er_of(preferred);\n        if (header->rc > header->edge_rc) return 1;\n  '
-            '      if (header->live_witness == preferred) break;\n        preferred = '
-            'header->live_witness;\n    }\n    for (int head = 0; head < __btrc_reverse'
-            '_count; head++) {\n        void* current = __btrc_reverse_queue[head];\n  '
-            '      __btrc_arc_validate(current);\n        __btrc_arc_header* header = '
-            '__btrc_arc_header_of(current);\n        if (header->rc > header->edge_rc)'
-            ' return 1;\n        for (__btrc_arc_incoming* edge = header->incoming;\n  '
-            '              edge; edge = edge->next)\n            __btrc_reverse_add(ed'
-            'ge->owner);\n    }\n    return 0;\n}'
-        ),
-        depends_on=('__btrc_arc_reverse_state', '__btrc_arc_validate', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -3117,80 +3610,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
-        name='__btrc_forget_suspect',
-        c_source=(
-            'static void __btrc_forget_suspect(void* obj) {\n    if (!obj || __btrc_su'
-            'spect_key_cap == 0) return;\n    size_t mask = (size_t)__btrc_suspect_key'
-            '_cap - 1;\n    size_t hole = __btrc_ptr_hash(obj) & mask;\n    while (__bt'
-            'rc_suspect_keys[hole]\n            && __btrc_suspect_keys[hole] != obj)\n '
-            '       hole = (hole + 1) & mask;\n    if (!__btrc_suspect_keys[hole]) ret'
-            'urn;\n    int index = __btrc_suspect_slots[hole];\n    __btrc_suspect_keys'
-            '[hole] = NULL;\n    size_t scan = (hole + 1) & mask;\n    while (__btrc_su'
-            'spect_keys[scan]) {\n        void* displaced = __btrc_suspect_keys[scan];'
-            '\n        int displaced_index = __btrc_suspect_slots[scan];\n        __btr'
-            'c_suspect_keys[scan] = NULL;\n        size_t target = __btrc_ptr_hash(dis'
-            'placed) & mask;\n        while (__btrc_suspect_keys[target])\n            '
-            'target = (target + 1) & mask;\n        __btrc_suspect_keys[target] = disp'
-            'laced;\n        __btrc_suspect_slots[target] = displaced_index;\n        s'
-            'can = (scan + 1) & mask;\n    }\n    /* The hash slot names the buffer pos'
-            'ition, so removal is a swap with the\n     * last suspect rather than a s'
-            'can of every live suspect: with hundreds of\n     * thousands of suspects'
-            ' dying in one drain, that scan was quadratic. */\n    if (index < 0 || in'
-            'dex >= __btrc_suspect_count\n            || __btrc_suspects[index] != obj'
-            ') {\n        fprintf(stderr, "btrc: cycle suspect buffer out of sync\\n");'
-            '\n        exit(1);\n    }\n    int last = --__btrc_suspect_count;\n    if (i'
-            'ndex == last) return;\n    void* moved = __btrc_suspects[last];\n    __btr'
-            'c_suspects[index] = moved;\n    __btrc_visit_table[index] = __btrc_visit_'
-            'table[last];\n    __btrc_destroy_table[index] = __btrc_destroy_table[last'
-            '];\n    size_t moved_slot = __btrc_ptr_hash(moved) & mask;\n    while (__b'
-            'trc_suspect_keys[moved_slot] != moved) {\n        if (!__btrc_suspect_key'
-            's[moved_slot]) {\n            fprintf(stderr, "btrc: cycle suspect hash l'
-            'ost a suspect\\n");\n            exit(1);\n        }\n        moved_slot = ('
-            'moved_slot + 1) & mask;\n    }\n    __btrc_suspect_slots[moved_slot] = ind'
-            'ex;\n}'
-        ),
-        depends_on=('__btrc_suspect_state', '__btrc_ptr_hash'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_release_impl',
-        c_source=(
-            'static inline int __btrc_arc_release_impl(\n        void* object, const _'
-            '_btrc_arc_type* fallback,\n        int edge, void* replacement) {\n    if '
-            '(!object) return 0;\n    __btrc_arc_validate(object);\n    __btrc_arc_head'
-            'er* header = __btrc_arc_header_of(object);\n    const __btrc_arc_type* ty'
-            'pe = __btrc_arc_type_of(object, fallback);\n    if (!type || !type->destr'
-            'oy) { fprintf(stderr, "btrc: untyped managed release\\n"); exit(1); }\n   '
-            ' if (header->state != __BTRC_ARC_LIVE) {\n        fprintf(stderr, "btrc: '
-            'release of non-live managed object\\n");\n        exit(1);\n    }\n    if (h'
-            'eader->rc <= 0 || (edge && header->edge_rc <= 0)) { fprintf(stderr, "btr'
-            'c: reference count underflow\\n"); exit(1); }\n    if (edge) {\n        /* '
-            'The slot-specific unlink atom invalidated only the removed owner. */\n   '
-            '     (void)replacement;\n        header->edge_rc--;\n    }\n    header->rc-'
-            '-;\n    if (header->rc == 0) {\n        if (header->edge_rc != 0 || header'
-            '->incoming != NULL) {\n            fprintf(stderr, "btrc: terminal object'
-            ' retained an incoming edge\\n");\n            exit(1);\n        }\n        _'
-            '_btrc_forget_suspect(object);\n        __btrc_arc_enqueue_locked(object);'
-            '\n        return 0;\n    }\n    __btrc_arc_validate(object);\n    if (type->'
-            'visit && header->rc == header->edge_rc\n            && !__btrc_arc_incomi'
-            'ng_teardown_pending(object)\n            && !__btrc_arc_reverse_proves_li'
-            've(object))\n        __btrc_suspect_locked(object, type->visit, type->des'
-            'troy);\n    return 0;\n}'
-        ),
-        depends_on=('__btrc_suspect_locked', '__btrc_arc_incoming_teardown_pending', '__btrc_arc_reverse_proves_live', '__btrc_forget_suspect', '__btrc_arc_deferred_state'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
         name='__btrc_arc_replace_edge',
         c_source=(
             'static inline int __btrc_arc_replace_edge(\n        volatile void* slot_s'
@@ -3236,22 +3655,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             '_mutation();\n    __btrc_arc_drain_deferred(0);\n    return 0;\n}'
         ),
         depends_on=('__btrc_arc_release_impl', '__btrc_arc_register_incoming', '__btrc_arc_unregister_incoming', '__btrc_arc_mutation_lock', '__btrc_arc_drain'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_release',
-        c_source=(
-            'static inline int __btrc_arc_release(\n        void* object, const __btrc'
-            '_arc_type* type) {\n    if (!object) return 0;\n    __btrc_arc_lock_mutati'
-            'on();\n    __btrc_arc_release_impl(object, type, 0, NULL);\n    __btrc_arc'
-            '_unlock_mutation();\n    __btrc_arc_drain_deferred(0);\n    return 0;\n}'
-        ),
-        depends_on=('__btrc_arc_release_impl', '__btrc_arc_mutation_lock', '__btrc_arc_drain'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -3384,168 +3787,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
-        name='__btrc_cycle_collector_state',
-        c_source=(
-            '\n/* ARC cycle collector: typed graph snapshot, O(vertices + edges). */\nt'
-            'ypedef struct {\n    void* object;\n    __btrc_visit_fn visit;\n    __btrc_'
-            'destroy_fn destroy;\n    int internal;\n    int first_edge;\n    unsigned c'
-            'har live;\n    unsigned char state;\n    unsigned char root;\n} __btrc_cycl'
-            'e_vertex;\ntypedef struct {\n    volatile void* slot_storage;\n    __btrc_a'
-            'rc_slot_access_fn access;\n    int source;\n    int target;\n    int next;\n'
-            '} __btrc_cycle_edge;\ntypedef struct {\n    __btrc_cycle_vertex* vertices;'
-            '\n    __btrc_cycle_edge* edges;\n    int* queue;\n    int vertex_count;\n   '
-            ' int vertex_cap;\n    int edge_count;\n    int edge_cap;\n    int queue_cap'
-            ';\n    int queue_count;\n    int source;\n    void** object_keys;\n    int* '
-            'object_values;\n    unsigned int* object_marks;\n    int object_cap;\n    u'
-            'nsigned int object_epoch;\n    volatile void** slot_keys;\n    int* slot_v'
-            'alues;\n    unsigned int* slot_marks;\n    int slot_cap;\n    unsigned int '
-            'slot_epoch;\n} __btrc_cycle_context;\nstatic __btrc_cycle_context __btrc_c'
-            'ycle_scratch;\nstatic int __btrc_collecting = 0;\n'
-        ),
-        depends_on=('__btrc_arc_callback_types',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_graph_primitives',
-        c_source=(
-            '\nstatic void __btrc_cycle_fail(const char* message) {\n    fprintf(stderr'
-            ', "btrc: %s\\n", message);\n    exit(1);\n}\nstatic int __btrc_cycle_next_ca'
-            'pacity(\n        int capacity, const char* message) {\n    if (capacity < '
-            '0 || capacity > INT_MAX / 2)\n        __btrc_cycle_fail(message);\n    ret'
-            'urn capacity ? capacity * 2 : 256;\n}\nstatic size_t __btrc_cycle_capacity'
-            '_bytes(\n        int capacity, size_t element_size, const char* message) '
-            '{\n    if (capacity < 0 || (element_size != 0\n            && (size_t)capa'
-            'city > SIZE_MAX / element_size))\n        __btrc_cycle_fail(message);\n   '
-            ' return (size_t)capacity * element_size;\n}\nstatic void __btrc_cycle_next'
-            '_epoch(\n        unsigned int* epoch, unsigned int* marks, int cap) {\n   '
-            ' (*epoch)++;\n    if (*epoch == 0) {\n        if (marks) {\n            siz'
-            'e_t bytes = __btrc_cycle_capacity_bytes(\n                cap, sizeof(uns'
-            'igned int), "cycle epoch size overflow");\n            memset(marks, 0, b'
-            'ytes);\n        }\n        *epoch = 1;\n    }\n}\nstatic void __btrc_cycle_re'
-            'serve_vertices(\n        __btrc_cycle_context* context, int needed) {\n   '
-            ' if (needed < 0 || context->vertex_cap < 0)\n        __btrc_cycle_fail("c'
-            'ycle vertex overflow");\n    if (needed <= context->vertex_cap) return;\n '
-            '   int cap = context->vertex_cap;\n    while (cap < needed)\n        cap ='
-            ' __btrc_cycle_next_capacity(cap, "cycle vertex overflow");\n    size_t by'
-            'tes = __btrc_cycle_capacity_bytes(\n        cap, sizeof(__btrc_cycle_vert'
-            'ex), "cycle vertex size overflow");\n    context->vertices = (__btrc_cycl'
-            'e_vertex*)__btrc_safe_realloc(\n        context->vertices, bytes);\n    co'
-            'ntext->vertex_cap = cap;\n}\nstatic void __btrc_cycle_reserve_edges(\n     '
-            '   __btrc_cycle_context* context, int needed) {\n    if (needed < 0 || co'
-            'ntext->edge_cap < 0)\n        __btrc_cycle_fail("cycle edge overflow");\n '
-            '   if (needed <= context->edge_cap) return;\n    int cap = context->edge_'
-            'cap;\n    while (cap < needed)\n        cap = __btrc_cycle_next_capacity(c'
-            'ap, "cycle edge overflow");\n    size_t bytes = __btrc_cycle_capacity_byt'
-            'es(\n        cap, sizeof(__btrc_cycle_edge), "cycle edge size overflow");'
-            '\n    context->edges = (__btrc_cycle_edge*)__btrc_safe_realloc(\n        c'
-            'ontext->edges, bytes);\n    context->edge_cap = cap;\n}\nstatic void __btrc'
-            '_cycle_reserve_queue(\n        __btrc_cycle_context* context, int needed)'
-            ' {\n    if (needed < 0 || context->queue_cap < 0)\n        __btrc_cycle_fa'
-            'il("cycle queue overflow");\n    if (needed <= context->queue_cap) return'
-            ';\n    int cap = context->queue_cap;\n    while (cap < needed)\n        cap'
-            ' = __btrc_cycle_next_capacity(cap, "cycle queue overflow");\n    size_t b'
-            'ytes = __btrc_cycle_capacity_bytes(\n        cap, sizeof(int), "cycle que'
-            'ue size overflow");\n    context->queue = (int*)__btrc_safe_realloc(\n    '
-            '    context->queue, bytes);\n    context->queue_cap = cap;\n}\nstatic void '
-            '__btrc_cycle_push_queue(\n        __btrc_cycle_context* context, int valu'
-            'e) {\n    if (context->queue_count < 0 || context->queue_count == INT_MAX'
-            ')\n        __btrc_cycle_fail("cycle queue overflow");\n    __btrc_cycle_re'
-            'serve_queue(context, context->queue_count + 1);\n    context->queue[conte'
-            'xt->queue_count++] = value;\n}\nstatic void __btrc_cycle_grow_objects(__bt'
-            'rc_cycle_context* context) {\n    int cap = __btrc_cycle_next_capacity(\n '
-            '       context->object_cap, "cycle object hash overflow");\n    size_t ke'
-            'y_bytes = __btrc_cycle_capacity_bytes(\n        cap, sizeof(void*), "cycl'
-            'e object hash size overflow");\n    size_t value_bytes = __btrc_cycle_cap'
-            'acity_bytes(\n        cap, sizeof(int), "cycle object hash size overflow"'
-            ');\n    size_t mark_bytes = __btrc_cycle_capacity_bytes(\n        cap, siz'
-            'eof(unsigned int), "cycle object hash size overflow");\n    void** keys ='
-            ' (void**)__btrc_safe_calloc(1, key_bytes);\n    int* values = (int*)__btr'
-            'c_safe_realloc(NULL, value_bytes);\n    unsigned int* marks = (unsigned i'
-            'nt*)__btrc_safe_calloc(1, mark_bytes);\n    for (int i = 0; i < context->'
-            'vertex_count; i++) {\n        void* object = context->vertices[i].object;'
-            '\n        size_t slot = __btrc_ptr_hash(object) & ((size_t)cap - 1);\n    '
-            '    while (marks[slot] == context->object_epoch)\n            slot = (slo'
-            't + 1) & ((size_t)cap - 1);\n        marks[slot] = context->object_epoch;'
-            '\n        keys[slot] = object;\n        values[slot] = i;\n    }\n    free(c'
-            'ontext->object_keys);\n    free(context->object_values);\n    free(context'
-            '->object_marks);\n    context->object_keys = keys;\n    context->object_va'
-            'lues = values;\n    context->object_marks = marks;\n    context->object_ca'
-            'p = cap;\n}\nstatic int __btrc_cycle_find_object(\n        __btrc_cycle_con'
-            'text* context, void* object) {\n    if (context->object_cap == 0) return '
-            '-1;\n    size_t slot = __btrc_ptr_hash(object)\n        & ((size_t)context'
-            '->object_cap - 1);\n    while (context->object_marks[slot] == context->ob'
-            'ject_epoch) {\n        if (context->object_keys[slot] == object)\n        '
-            '    return context->object_values[slot];\n        slot = (slot + 1) & ((s'
-            'ize_t)context->object_cap - 1);\n    }\n    return -1;\n}\nstatic int __btrc'
-            '_cycle_add_object(__btrc_cycle_context* context,\n        void* object, c'
-            'onst __btrc_arc_type* fallback) {\n    if (!object) __btrc_cycle_fail("nu'
-            'll managed cycle edge");\n    __btrc_arc_validate(object);\n    const __bt'
-            'rc_arc_type* type = __btrc_arc_type_of(object, fallback);\n    if (!type '
-            '|| !type->destroy)\n        __btrc_cycle_fail("untyped managed cycle edge'
-            '");\n    int found = __btrc_cycle_find_object(context, object);\n    if (f'
-            'ound >= 0) {\n        __btrc_cycle_vertex* vertex = &context->vertices[fo'
-            'und];\n        if (vertex->visit != type->visit || vertex->destroy != typ'
-            'e->destroy)\n            __btrc_cycle_fail("conflicting runtime types for'
-            ' cycle object");\n        return found;\n    }\n    if (context->vertex_cou'
-            'nt < 0 || context->vertex_count == INT_MAX)\n        __btrc_cycle_fail("c'
-            'ycle vertex overflow");\n    if (context->object_cap == 0\n            || '
-            'context->vertex_count >= context->object_cap / 2)\n        __btrc_cycle_g'
-            'row_objects(context);\n    __btrc_cycle_reserve_vertices(context, context'
-            '->vertex_count + 1);\n    int index = context->vertex_count++;\n    contex'
-            't->vertices[index] = (__btrc_cycle_vertex){\n        object, type->visit,'
-            ' type->destroy, 0, -1, 0, 0, 0};\n    size_t slot = __btrc_ptr_hash(objec'
-            't)\n        & ((size_t)context->object_cap - 1);\n    while (context->obje'
-            'ct_marks[slot] == context->object_epoch)\n        slot = (slot + 1) & ((s'
-            'ize_t)context->object_cap - 1);\n    context->object_marks[slot] = contex'
-            't->object_epoch;\n    context->object_keys[slot] = object;\n    context->o'
-            'bject_values[slot] = index;\n    return index;\n}\nstatic void __btrc_cycle'
-            '_grow_slots(__btrc_cycle_context* context) {\n    int cap = __btrc_cycle_'
-            'next_capacity(\n        context->slot_cap, "cycle slot hash overflow");\n '
-            '   size_t key_bytes = __btrc_cycle_capacity_bytes(\n        cap, sizeof(v'
-            'olatile void*), "cycle slot hash size overflow");\n    size_t value_bytes'
-            ' = __btrc_cycle_capacity_bytes(\n        cap, sizeof(int), "cycle slot ha'
-            'sh size overflow");\n    size_t mark_bytes = __btrc_cycle_capacity_bytes('
-            '\n        cap, sizeof(unsigned int), "cycle slot hash size overflow");\n  '
-            '  volatile void** keys = (volatile void**)__btrc_safe_calloc(\n        1,'
-            ' key_bytes);\n    int* values = (int*)__btrc_safe_realloc(NULL, value_byt'
-            'es);\n    unsigned int* marks = (unsigned int*)__btrc_safe_calloc(1, mark'
-            '_bytes);\n    for (int i = 0; i < context->edge_count; i++) {\n        vol'
-            'atile void* storage = context->edges[i].slot_storage;\n        size_t slo'
-            't = __btrc_ptr_hash((const void*)storage)\n            & ((size_t)cap - 1'
-            ');\n        while (marks[slot] == context->slot_epoch)\n            slot ='
-            ' (slot + 1) & ((size_t)cap - 1);\n        marks[slot] = context->slot_epo'
-            'ch;\n        keys[slot] = storage;\n        values[slot] = i;\n    }\n    fr'
-            'ee(context->slot_keys);\n    free(context->slot_values);\n    free(context'
-            '->slot_marks);\n    context->slot_keys = keys;\n    context->slot_values ='
-            ' values;\n    context->slot_marks = marks;\n    context->slot_cap = cap;\n}'
-            '\nstatic int __btrc_cycle_find_slot(\n        __btrc_cycle_context* contex'
-            't, volatile void* storage) {\n    if (context->slot_cap == 0) return -1;\n'
-            '    size_t slot = __btrc_ptr_hash((const void*)storage)\n        & ((size'
-            '_t)context->slot_cap - 1);\n    while (context->slot_marks[slot] == conte'
-            'xt->slot_epoch) {\n        if (context->slot_keys[slot] == storage)\n     '
-            '       return context->slot_values[slot];\n        slot = (slot + 1) & (('
-            'size_t)context->slot_cap - 1);\n    }\n    return -1;\n}\nstatic void __btrc'
-            '_cycle_reset_context(__btrc_cycle_context* context) {\n    context->verte'
-            'x_count = 0;\n    context->edge_count = 0;\n    context->source = -1;\n    '
-            'context->queue_count = 0;\n    __btrc_cycle_next_epoch(&context->object_e'
-            'poch,\n        context->object_marks, context->object_cap);\n    __btrc_cy'
-            'cle_next_epoch(&context->slot_epoch,\n        context->slot_marks, contex'
-            't->slot_cap);\n}\n'
-        ),
-        depends_on=('__btrc_cycle_collector_state', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc', '__btrc_arc_type_of', '__btrc_arc_validate'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
         name='__btrc_arc_abandon_graph',
         c_source=(
             'static void __btrc_abandon_snapshot_edge(\n        volatile void* slot_st'
@@ -3665,41 +3906,12 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
-        name='__btrc_arc_abandon_callback_state',
-        c_source=(
-            'typedef void (*__btrc_abandon_drain_fn)(void);\n/* __btrc_tls.abandon_dra'
-            'in_callback lives in the thread-local record __btrc_tls. */'
-        ),
-        depends_on=('__btrc_tls_state',),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
         name='__btrc_arc_abandon_queue_state',
         c_source=(
             '/* __btrc_tls.abandon_queue, __btrc_tls.abandon_count and __btrc_tls.aba'
             'ndon_cap live in the thread-local record __btrc_tls. */'
         ),
         depends_on=('__btrc_tls_state', '__btrc_arc_abandon_callback_state'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_abandon_queue_drain',
-        c_source=(
-            'static void __btrc_arc_drain_pending_abandons(void) {\n    __btrc_abandon'
-            '_drain_fn callback =\n        __btrc_tls.abandon_drain_callback;\n    if ('
-            'callback) callback();\n}'
-        ),
-        depends_on=('__btrc_arc_abandon_callback_state',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -3756,204 +3968,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
-        name='__btrc_collect_cycles_once',
-        c_source=(
-            'static void __btrc_cycle_snapshot_edge(\n        volatile void* slot_stor'
-            'age, __btrc_arc_slot_access_fn access,\n        const __btrc_arc_type* ty'
-            'pe, void* opaque) {\n    __btrc_cycle_context* context = (__btrc_cycle_co'
-            'ntext*)opaque;\n    if (!slot_storage || !access) return;\n    void* objec'
-            't = access(slot_storage, NULL, NULL, 0);\n    if (!object) return;\n    if'
-            ' (__btrc_cycle_find_slot(context, slot_storage) >= 0) return;\n    if (co'
-            'ntext->slot_cap == 0\n            || context->edge_count >= context->slot'
-            '_cap / 2)\n        __btrc_cycle_grow_slots(context);\n    int target = __b'
-            'trc_cycle_add_object(context, object, type);\n    if (context->vertices[t'
-            'arget].internal == INT_MAX)\n        __btrc_cycle_fail("cycle incoming-ed'
-            'ge overflow");\n    context->vertices[target].internal++;\n    __btrc_cycl'
-            'e_vertex* target_vertex = &context->vertices[target];\n    if (target_ver'
-            'tex->state == 0) {\n        __btrc_arc_header* header =\n            __btr'
-            'c_arc_header_of(target_vertex->object);\n        if (header->rc > header-'
-            '>edge_rc) {\n            target_vertex->state = 2;\n            target_ver'
-            'tex->live = 1;\n        } else {\n            target_vertex->state = 3;\n  '
-            '          __btrc_cycle_push_queue(context, target);\n        }\n    }\n    '
-            'if (context->edge_count < 0 || context->edge_count == INT_MAX)\n        _'
-            '_btrc_cycle_fail("cycle edge overflow");\n    __btrc_cycle_reserve_edges('
-            'context, context->edge_count + 1);\n    int edge = context->edge_count++;'
-            '\n    context->edges[edge] = (__btrc_cycle_edge){\n        slot_storage, a'
-            'ccess, context->source, target,\n        context->vertices[context->sourc'
-            'e].first_edge};\n    context->vertices[context->source].first_edge = edge'
-            ';\n    size_t slot = __btrc_ptr_hash((const void*)slot_storage)\n        &'
-            ' ((size_t)context->slot_cap - 1);\n    while (context->slot_marks[slot] ='
-            '= context->slot_epoch)\n        slot = (slot + 1) & ((size_t)context->slo'
-            't_cap - 1);\n    context->slot_marks[slot] = context->slot_epoch;\n    con'
-            'text->slot_keys[slot] = slot_storage;\n    context->slot_values[slot] = e'
-            'dge;\n}\nstatic void __btrc_cycle_snapshot(__btrc_cycle_context* context) '
-            '{\n    int seeds = __btrc_suspect_count;\n    for (int i = 0; i < seeds; i'
-            '++) {\n        void* object = __btrc_suspects[i];\n        if (!object) co'
-            'ntinue;\n        __btrc_arc_validate(object);\n        __btrc_arc_header* '
-            'header = __btrc_arc_header_of(object);\n        if (header->rc > header->'
-            'edge_rc) continue;\n        __btrc_arc_type fallback = {\n            .vis'
-            'it = __btrc_visit_table[i],\n            .destroy = __btrc_destroy_table['
-            'i],\n            .hook = NULL, .guard = NULL, .raise = NULL};\n        int'
-            ' root = __btrc_cycle_add_object(context, object, &fallback);\n        if '
-            '(context->vertices[root].state == 0) {\n            context->vertices[roo'
-            't].state = 3;\n            __btrc_cycle_push_queue(context, root);\n      '
-            '  }\n    }\n    __btrc_suspect_count = 0;\n    if (__btrc_suspect_keys) {\n '
-            '       size_t bytes = __btrc_cycle_capacity_bytes(\n            __btrc_su'
-            'spect_key_cap, sizeof(void*),\n            "cycle suspect hash size overf'
-            'low");\n        memset(__btrc_suspect_keys, 0, bytes);\n    }\n    int head'
-            ' = 0;\n    while (head < context->queue_count) {\n        int scanned = co'
-            'ntext->queue[head++];\n        __btrc_cycle_vertex* vertex = &context->ve'
-            'rtices[scanned];\n        if (vertex->state != 3) continue;\n        __btr'
-            'c_arc_validate(vertex->object);\n        __btrc_arc_header* header = __bt'
-            'rc_arc_header_of(vertex->object);\n        if (header->rc > header->edge_'
-            'rc) {\n            vertex->state = 2;\n            vertex->live = 1;\n     '
-            '       continue;\n        }\n        vertex->state = 1;\n        vertex->li'
-            've = 0;\n        if (!vertex->visit) continue;\n        context->source = '
-            'scanned;\n        vertex->visit(vertex->object, __btrc_cycle_snapshot_edg'
-            'e, context);\n    }\n}\nstatic void __btrc_cycle_mark_live(__btrc_cycle_con'
-            'text* context) {\n    __btrc_cycle_reserve_queue(context, context->vertex'
-            '_count);\n    int head = 0;\n    int tail = 0;\n    for (int i = 0; i < con'
-            'text->vertex_count; i++) {\n        __btrc_cycle_vertex* vertex = &contex'
-            't->vertices[i];\n        __btrc_arc_validate(vertex->object);\n        int'
-            ' rc = __btrc_arc_header_of(vertex->object)->rc;\n        if (rc < vertex-'
-            '>internal)\n            __btrc_cycle_fail("reference count below internal'
-            ' edge count");\n        if (vertex->live || rc > vertex->internal) {\n    '
-            '        vertex->live = 1;\n            context->queue[tail++] = i;\n      '
-            '  }\n    }\n    while (head < tail) {\n        int source = context->queue['
-            'head++];\n        for (int edge = context->vertices[source].first_edge;\n '
-            '               edge >= 0; edge = context->edges[edge].next) {\n          '
-            '  int target = context->edges[edge].target;\n            if (!context->ve'
-            'rtices[target].live) {\n                context->vertices[target].live = '
-            '1;\n                context->queue[tail++] = target;\n            }\n      '
-            '  }\n    }\n    for (int i = 0; i < context->vertex_count; i++) {\n        '
-            '__btrc_cycle_vertex* vertex = &context->vertices[i];\n        __btrc_arc_'
-            'header* header =\n            __btrc_arc_header_of(vertex->object);\n     '
-            '   if (!vertex->live) {\n            header->live_witness = NULL;\n       '
-            ' } else if (header->rc == header->edge_rc\n                && !header->li'
-            've_witness) {\n            /* Preserve a concrete owner; self is only the'
-            ' fallback proof. */\n            header->live_witness = vertex->object;\n '
-            '       }\n    }\n}\nstatic void __btrc_cycle_reclaim(__btrc_cycle_context* '
-            'context) {\n    for (int i = 0; i < context->edge_count; i++) {\n        _'
-            '_btrc_cycle_edge* edge = &context->edges[i];\n        if (context->vertic'
-            'es[edge->source].live) continue;\n        void* target_object = context->'
-            'vertices[edge->target].object;\n        if (edge->access(edge->slot_stora'
-            'ge,\n                target_object, NULL, 1) != target_object)\n          '
-            '  __btrc_cycle_fail("managed graph changed during cycle collection");\n  '
-            '      __btrc_arc_unregister_incoming(\n            context->vertices[edge'
-            '->target].object,\n            context->vertices[edge->source].object);\n '
-            '       __btrc_arc_header* target = __btrc_arc_header_of(\n            con'
-            'text->vertices[edge->target].object);\n        if (target->rc <= 0 || tar'
-            'get->edge_rc <= 0)\n            __btrc_cycle_fail("managed edge count und'
-            'erflow");\n        target->rc--;\n        target->edge_rc--;\n        if (t'
-            'arget->rc > 0)\n            __btrc_arc_validate(context->vertices[edge->t'
-            'arget].object);\n    }\n    for (int i = 0; i < context->vertex_count; i++'
-            ') {\n        __btrc_cycle_vertex* vertex = &context->vertices[i];\n       '
-            ' if (vertex->live) continue;\n        __btrc_arc_header* header = __btrc_'
-            'arc_header_of(vertex->object);\n        if (header->rc != 0 || header->ed'
-            'ge_rc != 0)\n            __btrc_cycle_fail("dead cycle retained an owned '
-            'reference");\n        if (header->incoming != NULL)\n            __btrc_cy'
-            'cle_fail("dead cycle retained an incoming owner");\n        __btrc_forget'
-            '_suspect(vertex->object);\n        __btrc_arc_enqueue_locked(vertex->obje'
-            'ct);\n    }\n}\nstatic int __btrc_collect_cycles_once(void) {\n    __btrc_ar'
-            'c_lock_raw();\n    if (__btrc_arc_shutdown) {\n        __btrc_arc_unlock_r'
-            'aw();\n        fprintf(stderr, "btrc: ARC operation after shutdown\\n");\n '
-            '       exit(1);\n    }\n    /* The snapshot owner resets the suspect buffe'
-            'r outside the raw lock.\n     * Gate that ownership before inspecting any'
-            ' suspect-buffer state. */\n    if (__btrc_collecting) {\n        __btrc_ar'
-            'c_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        r'
-            'eturn 2;\n    }\n    if (atomic_load_explicit(\n                &__btrc_arc'
-            '_snapshot_pending, memory_order_acquire)\n            || atomic_load_expl'
-            'icit(\n                &__btrc_arc_snapshotting, memory_order_acquire)) {'
-            '\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unloc'
-            'k_raw();\n        return 2;\n    }\n    if (__btrc_suspect_count == 0) {\n  '
-            '      __btrc_arc_unlock_raw();\n        return 0;\n    }\n    if (__btrc_ar'
-            'c_topology_active > 0) {\n        __btrc_arc_topology_flush_pending = 1;\n'
-            '        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    __btrc_coll'
-            'ecting = 1;\n    __btrc_arc_topology_flush_pending = 0;\n    atomic_store_'
-            'explicit(\n        &__btrc_arc_snapshotting, 1, memory_order_release);\n  '
-            '  __btrc_arc_unlock_raw();\n\n    __btrc_cycle_context* context = &__btrc_'
-            'cycle_scratch;\n    __btrc_cycle_reset_context(context);\n    __btrc_cycle'
-            '_snapshot(context);\n    __btrc_cycle_mark_live(context);\n\n    __btrc_arc'
-            '_lock_raw();\n    __btrc_cycle_reclaim(context);\n    __btrc_collecting = '
-            '0;\n    atomic_store_explicit(\n        &__btrc_arc_snapshotting, 0, memor'
-            'y_order_release);\n    __btrc_arc_unlock_raw();\n    return 1;\n}\n'
-        ),
-        depends_on=('__btrc_arc_graph_primitives', '__btrc_suspect_state', '__btrc_ptr_hash', '__btrc_safe_realloc', '__btrc_arc_unregister_incoming', '__btrc_forget_suspect', '__btrc_arc_type_of', '__btrc_arc_validate', '__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_snapshot_gate_state', '__btrc_arc_topology_state', '__btrc_arc_shutdown_state', '__btrc_arc_deferred_state'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_arc_drain',
-        c_source=(
-            'static void __btrc_arc_drain_deferred(int force_cycles) {\n    if (__btrc'
-            "_tls.arc_draining) return;\n    /* The deferred FIFO is this thread's own"
-            ': only its releases enqueue into\n     * it, under the mutation lock, and'
-            ' only this drain dequeues. So an empty\n     * head read here without the'
-            ' lock is exact, and the common release --\n     * one that leaves the obj'
-            'ect alive -- returns without touching the lock. */\n    if (!force_cycles'
-            ' && __btrc_tls.arc_topology_depth == 0\n            && __btrc_tls.arc_def'
-            'erred_head == NULL)\n        return;\n    if (__btrc_tls.arc_topology_dept'
-            'h > 0) {\n        __btrc_arc_lock_mutation();\n        if (force_cycles ||'
-            ' __btrc_tls.arc_deferred_head\n                || __btrc_suspect_count > '
-            '0)\n            __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc'
-            '_unlock_mutation();\n        return;\n    }\n    __btrc_arc_lock_mutation()'
-            ';\n    int has_terminal = __btrc_tls.arc_deferred_head != NULL;\n    if (!'
-            'has_terminal && !force_cycles) {\n        __btrc_arc_unlock_mutation();\n '
-            '       return;\n    }\n    if (__btrc_arc_active_drains == INT_MAX) {\n    '
-            '    fprintf(stderr, "btrc: ARC drain count overflow\\n");\n        exit(1)'
-            ';\n    }\n    __btrc_arc_active_drains++;\n    __btrc_arc_unlock_mutation()'
-            ';\n\n    __btrc_tls.arc_draining = 1;\n    int cascade = 0;\n    char first_'
-            "error[1024];\n    first_error[0] = '\\0';\n    __btrc_raise_fn first_raise "
-            '= NULL;\n    int has_error = 0;\n    for (;;) {\n        __btrc_arc_lock_mu'
-            'tation();\n        void* object = __btrc_tls.arc_deferred_head;\n        i'
-            'f (object) {\n            __btrc_arc_header* header = __btrc_arc_header_o'
-            'f(object);\n            if (header->state != __BTRC_ARC_QUEUED) {\n       '
-            '         fprintf(stderr, "btrc: invalid deferred ARC state\\n");\n        '
-            '        exit(1);\n            }\n            __btrc_tls.arc_deferred_head '
-            '= header->deferred_next;\n            if (!__btrc_tls.arc_deferred_head)\n'
-            '                __btrc_tls.arc_deferred_tail = NULL;\n            header-'
-            '>deferred_next = NULL;\n            int suppress_hook = header->suppress_'
-            'hook;\n            header->suppress_hook = 0;\n            header->state ='
-            ' __BTRC_ARC_DESTROYING;\n            const __btrc_arc_type* type = header'
-            '->type;\n            __btrc_arc_unlock_mutation();\n\n            if (type-'
-            '>visit || type->hook) cascade = 1;\n            if (type->hook && !suppre'
-            'ss_hook) {\n                char error[1024];\n                error[0] = '
-            "'\\0';\n                if (type->guard(type->hook, object, error, sizeof "
-            'error)\n                        && !has_error) {\n                    memc'
-            'py(first_error, error, sizeof first_error);\n                    first_ra'
-            'ise = type->raise;\n                    has_error = 1;\n                }\n'
-            '            }\n            type->destroy(object);\n            continue;\n '
-            '       }\n        int pending = __btrc_suspect_count > 0;\n        if (!pe'
-            'nding && __btrc_arc_topology_active == 0)\n            __btrc_arc_topolog'
-            'y_flush_pending = 0;\n        __btrc_arc_unlock_mutation();\n        if (!'
-            '(pending && (force_cycles || cascade))) break;\n        int collected = _'
-            '_btrc_collect_cycles_once();\n        if (collected == 1) continue;\n     '
-            '   /* Another collector owns the snapshot, or another thread owns a\n    '
-            '     * topology scope.  In either case collect-once has published the\n  '
-            '       * global flush request.  Never wait here: the topology owner may '
-            'be\n         * waiting for this thread, while an active collector will fi'
-            'nish the\n         * handoff from its own drain loop. */\n        break;\n '
-            '   }\n    __btrc_tls.arc_draining = 0;\n    __btrc_arc_lock_mutation();\n  '
-            '  if (__btrc_arc_active_drains <= 0) {\n        fprintf(stderr, "btrc: in'
-            'valid ARC drain count\\n");\n        exit(1);\n    }\n    __btrc_arc_active_'
-            'drains--;\n    __btrc_arc_unlock_mutation();\n    if (has_error) {\n       '
-            ' __btrc_arc_type transport = {\n            .visit = NULL, .destroy = NUL'
-            'L, .hook = NULL,\n            .guard = NULL, .raise = first_raise};\n     '
-            '   __btrc_arc_raise_unlocked(&transport, first_error);\n    }\n}'
-        ),
-        depends_on=('__btrc_arc_deferred_state', '__btrc_collect_cycles_once', '__btrc_arc_mutation_lock', '__btrc_arc_topology_state', '__btrc_arc_topology_depth_state', '__btrc_arc_shutdown_state', '__btrc_arc_active_drains_state'),
-        required_headers=('limits.h', 'stdio.h', 'stdlib.h', 'string.h'),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
         name='__btrc_collect_cycles',
         c_source=(
             'static void __btrc_collect_cycles(void) {\n    __btrc_arc_drain_deferred('
@@ -3976,20 +3990,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             '0;\n}'
         ),
         depends_on=('__btrc_arc_drain', '__btrc_arc_mutation_lock'),
-        required_headers=(),
-        provided_types=(),
-        provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='cycles',
-        name='__btrc_flush_cycles',
-        c_source=(
-            'static int __btrc_flush_cycles(void) {\n    __btrc_arc_drain_deferred(1);'
-            '\n    return 0;\n}'
-        ),
-        depends_on=('__btrc_arc_drain',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -4674,6 +4674,43 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
+        name='__btrc_mutex_arc_type',
+        c_source=(
+            'static void __btrc_mutex_arc_visit(\n        void* object, __btrc_field_v'
+            'isit_fn fn, void* context) {\n    __btrc_mutex_val_t* m = (__btrc_mutex_v'
+            'al_t*)object;\n    if (!m || !fn) return;\n    int err = pthread_mutex_loc'
+            'k(&m->lock);\n    if (err != 0) {\n        fprintf(stderr, "btrc: mutex lo'
+            'ck failed (%d)\\n", err);\n        exit(1);\n    }\n    if (m->value && m->s'
+            'lot_access)\n        fn((volatile void*)m->value, m->slot_access,\n       '
+            '     (const __btrc_arc_type*)m->context, context);\n    err = pthread_mut'
+            'ex_unlock(&m->lock);\n    if (err != 0) {\n        fprintf(stderr, "btrc: '
+            'mutex unlock failed (%d)\\n", err);\n        exit(1);\n    }\n}\nstatic void '
+            '__btrc_mutex_arc_destroy(void* object) {\n    __btrc_mutex_val_t* m = (__'
+            'btrc_mutex_val_t*)object;\n    if (!m) return;\n    void* topology = m->sl'
+            'ot_access\n        ? __btrc_arc_topology_begin() : NULL;\n    int err = pt'
+            'hread_mutex_lock(&m->lock);\n    if (err != 0) {\n        fprintf(stderr, '
+            '"btrc: mutex lock failed (%d)\\n", err);\n        exit(1);\n    }\n    void*'
+            ' old = m->value;\n    m->value = NULL;\n    err = pthread_mutex_unlock(&m-'
+            '>lock);\n    if (err != 0) {\n        fprintf(stderr, "btrc: mutex unlock '
+            'failed (%d)\\n", err);\n        exit(1);\n    }\n    err = pthread_mutex_des'
+            'troy(&m->lock);\n    if (err != 0) {\n        fprintf(stderr, "btrc: mutex'
+            ' destroy failed (%d)\\n", err);\n        exit(1);\n    }\n    if (m->release'
+            ' && old)\n        m->release(old, m->access, m->context, m);\n    if (topo'
+            'logy)\n        (void)__btrc_arc_topology_leave(topology);\n    __btrc_mark'
+            '_destroyed(m);\n    free(old);\n    free(m->context);\n    free(m);\n}\nstati'
+            'c const __btrc_arc_type __btrc_mutex_arc_descriptor = {\n    __btrc_mutex'
+            '_arc_visit,\n    __btrc_mutex_arc_destroy,\n    NULL, NULL, __btrc_throw, '
+            'NULL, 0\n};'
+        ),
+        depends_on=('__btrc_mutex_val_types', '__btrc_arc_topology_begin', '__btrc_arc_topology_leave', '__btrc_mark_destroyed', '__btrc_throw'),
+        required_headers=('stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=('__btrc_mutex_arc_descriptor',),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='threads',
         name='__btrc_mutex_val_create',
         c_source=(
             'static __btrc_mutex_val_t* __btrc_mutex_val_create(\n        void* initia'
@@ -4793,43 +4830,6 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         required_headers=(),
         provided_types=(),
         provided_objects=(),
-        source_visible=False,
-        realtime_effect='unknown',
-    ),
-    GeneratedRuntimeHelperRow(
-        category='threads',
-        name='__btrc_mutex_arc_type',
-        c_source=(
-            'static void __btrc_mutex_arc_visit(\n        void* object, __btrc_field_v'
-            'isit_fn fn, void* context) {\n    __btrc_mutex_val_t* m = (__btrc_mutex_v'
-            'al_t*)object;\n    if (!m || !fn) return;\n    int err = pthread_mutex_loc'
-            'k(&m->lock);\n    if (err != 0) {\n        fprintf(stderr, "btrc: mutex lo'
-            'ck failed (%d)\\n", err);\n        exit(1);\n    }\n    if (m->value && m->s'
-            'lot_access)\n        fn((volatile void*)m->value, m->slot_access,\n       '
-            '     (const __btrc_arc_type*)m->context, context);\n    err = pthread_mut'
-            'ex_unlock(&m->lock);\n    if (err != 0) {\n        fprintf(stderr, "btrc: '
-            'mutex unlock failed (%d)\\n", err);\n        exit(1);\n    }\n}\nstatic void '
-            '__btrc_mutex_arc_destroy(void* object) {\n    __btrc_mutex_val_t* m = (__'
-            'btrc_mutex_val_t*)object;\n    if (!m) return;\n    void* topology = m->sl'
-            'ot_access\n        ? __btrc_arc_topology_begin() : NULL;\n    int err = pt'
-            'hread_mutex_lock(&m->lock);\n    if (err != 0) {\n        fprintf(stderr, '
-            '"btrc: mutex lock failed (%d)\\n", err);\n        exit(1);\n    }\n    void*'
-            ' old = m->value;\n    m->value = NULL;\n    err = pthread_mutex_unlock(&m-'
-            '>lock);\n    if (err != 0) {\n        fprintf(stderr, "btrc: mutex unlock '
-            'failed (%d)\\n", err);\n        exit(1);\n    }\n    err = pthread_mutex_des'
-            'troy(&m->lock);\n    if (err != 0) {\n        fprintf(stderr, "btrc: mutex'
-            ' destroy failed (%d)\\n", err);\n        exit(1);\n    }\n    if (m->release'
-            ' && old)\n        m->release(old, m->access, m->context, m);\n    if (topo'
-            'logy)\n        (void)__btrc_arc_topology_leave(topology);\n    __btrc_mark'
-            '_destroyed(m);\n    free(old);\n    free(m->context);\n    free(m);\n}\nstati'
-            'c const __btrc_arc_type __btrc_mutex_arc_descriptor = {\n    __btrc_mutex'
-            '_arc_visit,\n    __btrc_mutex_arc_destroy,\n    NULL, NULL, __btrc_throw, '
-            'NULL, 0\n};'
-        ),
-        depends_on=('__btrc_mutex_val_types', '__btrc_arc_topology_begin', '__btrc_arc_topology_leave', '__btrc_mark_destroyed', '__btrc_throw'),
-        required_headers=('stdio.h', 'stdlib.h'),
-        provided_types=(),
-        provided_objects=('__btrc_mutex_arc_descriptor',),
         source_visible=False,
         realtime_effect='unknown',
     ),
