@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["ActionMailbox", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitEvents", "MacOS.AppKitText", "MacOS.MacOSActionQueue", "MacOS.MacOSApplication", "MacOS.MacOSButton", "MacOS.MacOSComposedCapture", "MacOS.MacOSContainer", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSGPUSurface", "MacOS.MacOSGrid", "MacOS.MacOSImageHandle", "MacOS.MacOSImageView", "MacOS.MacOSLabel", "MacOS.MacOSLevelIndicator", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSScrollView", "MacOS.MacOSSelect", "MacOS.MacOSSlider", "MacOS.MacOSSystemText", "MacOS.MacOSTextField", "MacOS.MacOSView", "MacOS.MacOSViewCapture", "MacOS.MacOSWindow", "MacOS.MetalLayer", "MacOS.WebGPUSurface", "Linux.SDL", "Linux.WebGPUSurface", "Linux.LinuxGPUSurface", "Linux.LinuxFonts", "Linux.LinuxPainter", "Linux.LinuxContext", "Linux.LinuxView", "Linux.LinuxActionQueue", "Linux.LinuxContainer", "Linux.LinuxPanel", "Linux.LinuxStack", "Linux.LinuxGrid", "Linux.LinuxScrollView", "Linux.LinuxLabel", "Linux.LinuxButton", "Linux.LinuxTextField", "Linux.LinuxSelect", "Linux.LinuxSlider", "Linux.LinuxImageView", "Linux.LinuxIndicators", "Linux.LinuxGPUView", "Linux.LinuxSymbols", "Linux.LinuxWindow", "Linux.LinuxApplication", "Linux.LinuxDirectoryPicker", "Linux.LinuxSystemText", "Raster", "TextRun"]
+exports = ["ActionMailbox", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Linux.SDL", "Linux.WebGPUSurface", "Linux.LinuxGPUSurface", "Linux.LinuxFonts", "Linux.LinuxPainter", "Linux.LinuxContext", "Linux.LinuxView", "Linux.LinuxActionQueue", "Linux.LinuxContainer", "Linux.LinuxPanel", "Linux.LinuxStack", "Linux.LinuxGrid", "Linux.LinuxScrollView", "Linux.LinuxLabel", "Linux.LinuxButton", "Linux.LinuxTextField", "Linux.LinuxSelect", "Linux.LinuxSlider", "Linux.LinuxImageView", "Linux.LinuxIndicators", "Linux.LinuxGPUView", "Linux.LinuxSymbols", "Linux.LinuxWindow", "Linux.LinuxApplication", "Linux.LinuxDirectoryPicker", "Linux.LinuxSystemText", "Raster", "TextRun"]
 
 [[package.providers]]
 module = "GUI"
@@ -432,9 +432,7 @@ symbols = [
 	"-[NSApplication run]", "-[NSApplication stop:]", "-[NSApplication isRunning]",
 	"-[NSApplication modalWindow]", "-[NSApplication stopModalWithCode:]", "NSModalResponseAbort",
 	"-[NSApplication setDelegate:]", "-[NSApplication delegate]", "-[NSApplicationDelegate applicationShouldTerminate:]", "NSTerminateCancel",
-	"-[NSApplication postEvent:atStart:]", "+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]", "NSEventTypeApplicationDefined",
-	"-[NSApplication nextEventMatchingMask:untilDate:inMode:dequeue:]", "-[NSApplication sendEvent:]", "-[NSApplication updateWindows]",
-	"+[NSDate distantPast]", "+[NSDate dateWithTimeIntervalSinceNow:]", "NSDefaultRunLoopMode", "NSEventMaskAny"
+	"-[NSApplication postEvent:atStart:]", "+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]", "NSEventTypeApplicationDefined"
 ]
 os = ["macos"]
 

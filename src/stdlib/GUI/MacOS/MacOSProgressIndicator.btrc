@@ -61,8 +61,6 @@ class MacOSProgressIndicator implements IProgressIndicator, IMacOSView {
 		self._running = running;
 	}
 
-	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
-
 	public CallbackCancellation close() {
 		if (!NSThread.isMainThread()) { throw "Native progress indicators require the main thread"; }
 		if (self._indicator == null) { return self._view.pollClose(); }

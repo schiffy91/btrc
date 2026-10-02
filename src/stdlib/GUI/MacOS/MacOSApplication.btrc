@@ -294,11 +294,10 @@ class MacOSDelayedWork implements IAppKitDelayedWork {
 	}
 }
 
-/* One application owner on the main thread. The native run loop is the
- * standalone entrypoint; bounded dispatch remains for existing embedded hosts. */
+/* One application owner on the main thread. AppKit's run loop, entered by
+ * run(), is the only native event dispatch. */
 class MacOSApplication implements IApplication {
 	private NSApplication _application;
-	private bool _dispatching;
 	private bool _running = false;
 	private MacOSApplicationEvents _events;
 	private CallbackScope _callbacks;
@@ -316,7 +315,6 @@ class MacOSApplication implements IApplication {
 	public MacOSApplication(int workCapacity = 256) {
 		self.requireMainThread();
 		self._application = NSApplication.sharedApplication();
-		self._dispatching = false;
 		self._signal = MacOSRunLoopSignal();
 		self._actions = MacOSActionQueue(workCapacity, self._signal);
 		self._shutdown = CallbackScope();
@@ -339,20 +337,14 @@ class MacOSApplication implements IApplication {
 
 	private void requireIdle() {
 		self.requireMainThread();
-		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
-	}
-
-	private void requireEmbeddedDispatch() {
-		self.requireIdle();
-		if (self._running) { throw "AppKit owns native event dispatch while run is active"; }
 	}
 
 	public bool isRunning() { self.requireMainThread(); return self._running; }
 
 	public void run() {
 		self.requireMainThread();
-		if (self._running || self._dispatching) { throw "Native application loop is already active"; }
+		if (self._running) { throw "Native application loop is already active"; }
 		if (self._closed) { throw "Application shutdown has completed"; }
 		while (true) {
 			if (self._events.quitRequested && self._events.pendingWork() == 0) {
@@ -460,54 +452,6 @@ class MacOSApplication implements IApplication {
 
 	public IGrid createGrid(int columns, int rows, double columnSpacing, double rowSpacing) { self.requireCreation(); var view = MacOSGrid(columns, rows, columnSpacing, rowSpacing); self.rememberView(view); return view; }
 
-	private void dispatchWindowEvents() { self._events.dispatchWindowEvents(); }
-
-	/* A host can consume its own shortcuts before dispatching the remaining
-	 * event to AppKit. Native tracking is never replaced by a painted widget. */
-	public NSEvent? nextEvent() {
-		self.requireEmbeddedDispatch();
-		return self._application.nextEventMatchingMask(NSEventMaskAny, NSDate.distantPast(), NSDefaultRunLoopMode, true);
-	}
-
-	public void dispatchEvent(NSEvent event) {
-		self.requireEmbeddedDispatch();
-		if (event == null) { throw "Cannot dispatch a missing native event"; }
-		self._dispatching = true;
-		try {
-			self._application.sendEvent(event);
-		} catch (string error) {
-			self._dispatching = false;
-			throw error;
-		}
-		self._dispatching = false;
-		self.dispatchWindowEvents();
-	}
-
-	public void updateWindows() { self.requireIdle(); self._application.updateWindows(); self.dispatchWindowEvents(); }
-
-	/* Wait without consuming the event: the host still owns shortcut routing.
-	 * A deadline keeps non-AppKit work (audio snapshots, jobs, IPC) progressing. */
-	public bool waitForEvents(double seconds) {
-		self.requireEmbeddedDispatch();
-		if (!Math.isFinite(seconds) || seconds < 0.0) { throw "Native event wait must be finite and nonnegative"; }
-		var deadline = NSDate.dateWithTimeIntervalSinceNow(seconds);
-		return self._application.nextEventMatchingMask(NSEventMaskAny, deadline, NSDefaultRunLoopMode, false) != null;
-	}
-
-	public int pumpEvents(int maximum = 64) {
-		self.requireEmbeddedDispatch();
-		if (maximum <= 0) { throw "Event dispatch limit must be positive"; }
-		int dispatched = 0;
-		while (dispatched < maximum) {
-			var event = self.nextEvent();
-			if (event == null) { break; }
-			self.dispatchEvent(event);
-			dispatched++;
-		}
-		self.updateWindows();
-		return dispatched;
-	}
-
 	public CallbackCancellation pollClose() {
 		self.requireMainThread();
 		return self._closed ? CALLBACK_CANCELLATION_COMPLETE : (self._closing ? self.close() : CALLBACK_CANCELLATION_NOT_REQUESTED);
@@ -517,7 +461,6 @@ class MacOSApplication implements IApplication {
 		self.requireMainThread();
 		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (self._dispatching) { throw "Native event dispatch is already active"; }
 		if (self._running) { throw "Request application quit before closing a running application"; }
 		if (self._events.eventsActive()) { throw "Application events must return before closing"; }
 		if (self._events.pendingWork() > 0) { throw "Run the application to drain pending work before closing"; }

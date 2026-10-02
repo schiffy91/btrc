@@ -395,6 +395,13 @@ source changes here until the next release re-freezes them.
   `rasterizeText` and `capture`.
 - 2026-10-01 (btrc-D056): `GUI.rasterText` was removed; it had no caller in
   btrc or BTRSmith. Use `GUI.rasterizeText`.
+- 2026-10-01 (btrc-D033, btrc-D055, btrc-D056): the provider-only mounting
+  paths are gone. `MacOSApplication` lost its embedded pump (`nextEvent`,
+  `dispatchEvent`, `updateWindows`, `waitForEvents`, `pumpEvents`); every macOS
+  view, `MacOSScrollView` and `MacOSGPUSurface` lost `setFrame` in favour of
+  `IView.arrange`; `MacOSPanel` lost `addChild` in favour of `IContainer.attach`.
+  `Library.GUI` exports no `MacOS.*` module except the `Library.Tray` seam
+  (`MacOS.AppKitText`, `MacOS.MacOSRunLoop`). No portable row changes.
 
 ## GUI factories and services
 
