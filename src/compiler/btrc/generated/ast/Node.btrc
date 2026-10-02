@@ -84,6 +84,8 @@ enum NodeKind {
 	NK_TUPLE_LITERAL,
 	NK_LAMBDA_EXPR,
 	NK_SPAWN_EXPR,
+	NK_STRING_CONCAT,
+	NK_COMMA_EXPR,
 	NK_SIZEOF_TYPE,
 	NK_SIZEOF_EXPR_OP,
 	NK_MAP_ENTRY,
@@ -208,7 +210,6 @@ class Node {
 	public Node catchBlock;
 	public Node finallyBlock;
 	public Node ifStmt;
-	public Node varDecl;
 	public Node expression;
 	/* Null until written: a node pays neither a list allocation nor a
      * managed edge for a `bodyNodeList` it never fills. Read it

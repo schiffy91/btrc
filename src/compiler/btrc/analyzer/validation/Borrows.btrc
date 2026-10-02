@@ -576,7 +576,9 @@ class BorrowValidator {
 			bool initSafe = true;
 			if (statement.init != null) {
 				if (statement.init.kind == NK_FOR_INIT_VAR) {
-					initSafe = self.rawParamStmtSafe(statement.init.varDecl, parameterName, owner, locals, vars);
+					for declaration in statement.init.declarations() {
+						if (!self.rawParamStmtSafe(declaration, parameterName, owner, locals, vars)) { initSafe = false; }
+					}
 				} else {
 					initSafe = self.rawParamExprSafe(statement.init.expression, parameterName, owner, locals, vars);
 				}

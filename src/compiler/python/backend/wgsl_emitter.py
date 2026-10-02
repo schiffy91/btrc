@@ -343,7 +343,8 @@ class WgslEmitter:
         self._indent += 1
         self._push_name_scope()
         if isinstance(statement.init, ForInitVar):
-            self._emit_var_decl(statement.init.var_decl)
+            for declaration in statement.init.declarations:
+                self._emit_var_decl(declaration)
         elif isinstance(statement.init, ForInitExpr):
             self._emit_expression_statement(statement.init.expression)
         self._line("loop {")

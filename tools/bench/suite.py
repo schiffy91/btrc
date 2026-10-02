@@ -147,6 +147,7 @@ def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
             stdout=subprocess.PIPE,
             stderr=errors,
             text=True,
+            timeout=COMMAND_TIMEOUT,
         )
         fields = reporter.stdout.split()
         returncode = int(fields[1]) if reporter.returncode == 0 and len(fields) == 2 else reporter.returncode

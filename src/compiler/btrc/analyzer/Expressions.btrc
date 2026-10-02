@@ -847,7 +847,6 @@ class ExpressionTypeResolver {
 		ExpressionTypeResolver.collectIdentifiers(n.catchBlock, names);
 		ExpressionTypeResolver.collectIdentifiers(n.finallyBlock, names);
 		ExpressionTypeResolver.collectIdentifiers(n.ifStmt, names);
-		ExpressionTypeResolver.collectIdentifiers(n.varDecl, names);
 		ExpressionTypeResolver.collectIdentifiers(n.expression, names);
 		ExpressionTypeResolver.collectIdentifiers(n.left, names);
 		ExpressionTypeResolver.collectIdentifiers(n.right, names);
@@ -862,6 +861,7 @@ class ExpressionTypeResolver {
 		ExpressionTypeResolver.collectIdentifiers(n.fn, names);
 		ExpressionTypeResolver.collectIdentifiers(n.key, names);
 		/* Vector<Node> children. */
+		ExpressionTypeResolver.collectIdentifiersList(n.declarations(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.members(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.methods(), names);
 		ExpressionTypeResolver.collectIdentifiersList(n.params(), names);
@@ -1037,13 +1037,14 @@ class ExpressionTypeResolver {
 		if (statement.kind == NK_C_FOR_STMT) {
 			Map<string, Node> loopVars = self.copyTypes(vars);
 			if (statement.init != null && statement.init.kind == NK_FOR_INIT_VAR) {
-				Node declaration = statement.init.varDecl;
-				Node? declared = declaration.type;
-				if (declared == null) {
-					declared = self.inferType(declaration.initializer, analyzed, operators, loopVars);
-				}
-				if (declared != null) {
-					loopVars.put(declaration.name, declared);
+				for declaration in statement.init.declarations() {
+					Node? declared = declaration.type;
+					if (declared == null) {
+						declared = self.inferType(declaration.initializer, analyzed, operators, loopVars);
+					}
+					if (declared != null) {
+						loopVars.put(declaration.name, declared);
+					}
 				}
 			}
 			return self.inferredLambdaReturnInBlock(statement.bodyNode, analyzed, operators, loopVars);
