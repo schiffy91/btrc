@@ -48,7 +48,7 @@ int main() {
 	print("PASS: signed and unsigned char");
 
 	char accented[] = "caf\u00e9";
-	char literal[] = "café";
+	char literal[] = "caf\xc3\xa9";
 	char astral[] = "\U0001F600";
 	assert((int)sizeof(accented) == 6 && (int)sizeof(literal) == 6);
 	assert(strcmp(accented, literal) == 0);
