@@ -41,8 +41,12 @@ jobs:
         run: |
           nix develop --command bash -c '
             python3 -m pytest -p tools.tmp_located_warnings -n 3 -q --tb=line -p no:cacheprovider \
-              src/tests/python/test_examples.py src/tests/python/test_native_*.py \
-              src/tests/python/test_macos_encoded_image_decoder_runtime.py src/tests/python/test_core_audio_device_runtime.py || true
+              src/tests/python/test_examples.py src/tests/python/test_native_control_sizing_runtime.py \
+              src/tests/python/test_native_gui_appkit.py src/tests/python/test_native_pointer_runtime.py \
+              src/tests/python/test_native_webgpu_imports.py src/tests/python/test_native_font_runtime.py \
+              src/tests/python/test_native_tray_runtime.py src/tests/python/test_native_gui_runtime.py \
+              src/tests/python/test_native_image_graphics.py \
+              src/tests/python/test_macos_encoded_image_decoder_runtime.py || true
             echo "===== LOCATED WARNINGS ====="
             sort build/located-warnings.txt | uniq -c || true
           '

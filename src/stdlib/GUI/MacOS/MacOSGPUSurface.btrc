@@ -57,9 +57,19 @@ class MacOSGPUSurface {
 		return self._view;
 	}
 
-	public WGPUInstance nativeInstance() { self.nativeView(); return self._instance; }
+	public WGPUInstance nativeInstance() {
+		self.nativeView();
+		var instance = self._instance;
+		if (instance == null) { throw "GPU surface is closed"; }
+		return instance;
+	}
 
-	public WGPUSurface nativeSurface() { self.nativeView(); return self._surface; }
+	public WGPUSurface nativeSurface() {
+		self.nativeView();
+		var surface = self._surface;
+		if (surface == null) { throw "GPU surface is closed"; }
+		return surface;
+	}
 
 	public int pixelWidth() { self.nativeView(); return self._pixelWidth; }
 

@@ -31,8 +31,9 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public NSTextField nativeControl() {
 		self.requireMainThread();
-		if (self._control == null || !self._view.isOpen()) { throw "Text field is closed"; }
-		return self._control;
+		var control = self._control;
+		if (control == null || !self._view.isOpen()) { throw "Text field is closed"; }
+		return control;
 	}
 
 	public bool isOpen() { self.requireMainThread(); return self._control != null && self._view.isOpen(); }
