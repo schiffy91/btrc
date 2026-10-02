@@ -1,0 +1,22 @@
+/* A Mutex holding a string retains each stored value and releases the
+ * one it replaces (__btrc_mutex_string_retain / __btrc_mutex_string_release). */
+#include <assert.h>
+
+int main() {
+	Mutex<string> label = Mutex("first");
+	assert(label.get() == "first");
+	label.set("second");
+	assert(label.get() == "second");
+
+	Thread<int> writer = spawn(() => {
+			label.set("from thread");
+			return 0;
+		});
+	writer.join();
+	assert(label.get() == "from thread");
+	print(label.get());
+
+	label.destroy();
+	print("PASS: test_mutex_string_value");
+	return 0;
+}

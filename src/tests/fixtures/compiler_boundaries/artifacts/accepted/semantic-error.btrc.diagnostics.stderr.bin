@@ -1,1 +1,1 @@
-error: Unknown identifier 'missing_value' at 2:12
+error: Unresolved identifier 'missing_value' used as a value at 2:12

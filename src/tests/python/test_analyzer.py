@@ -1829,7 +1829,7 @@ class TestDuplicateDetection:
             void foo() { }
             int main() { return 0; }
         """
-        assert has_error(src, "Duplicate function name 'foo'")
+        assert has_error(src, "Duplicate definition of function 'foo'")
 
     def test_duplicate_field_in_class(self):
         src = """

@@ -893,6 +893,70 @@ class GpuAnalyzer:
     def validate_kernel(self, function: FunctionDecl) -> None:
         self._kernels.validate(function, self.session.scope)
 
+    def contextual_local_type(self, expression) -> TypeExpr | None:
+        """Type an analyzed kernel ``var`` initializer in the GPU domain, where a floating literal is f32.
+
+        Operands the GPU domain does not retype keep the host type body analysis recorded.
+        """
+        if isinstance(expression, TernaryExpr):
+            when_true = self._host_type(expression.true_expr)
+            if when_true is not None and when_true.is_array:
+                return self._host_type(expression)
+        contextual = isinstance(
+            expression, (FloatLiteral, IntLiteral, BoolLiteral, BinaryExpr, UnaryExpr, TernaryExpr, CastExpr)
+        ) or (isinstance(expression, CallExpr) and self.call_uses_intrinsic(expression))
+        if contextual:
+            base = self._contextual_base(expression)
+            if base:
+                return TypeExpr(base=base)
+        return self._host_type(expression)
+
+    def _host_type(self, expression) -> TypeExpr | None:
+        return self.session.node_types.get(id(expression))
+
+    def _contextual_base(self, expression) -> str:
+        if expression is None:
+            return ""
+        if isinstance(expression, FloatLiteral):
+            return "float"
+        if isinstance(expression, IntLiteral):
+            return "int"
+        if isinstance(expression, BoolLiteral):
+            return "bool"
+        if isinstance(expression, BinaryExpr):
+            if expression.op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||"):
+                return "bool"
+            left = self._contextual_base(expression.left)
+            right = self._contextual_base(expression.right)
+            if "float" in (left, right):
+                return "float"
+            if left == right and left:
+                return left
+        if isinstance(expression, UnaryExpr):
+            if expression.op == "!":
+                return "bool"
+            return self._contextual_base(expression.operand)
+        if isinstance(expression, TernaryExpr):
+            when_true = self._contextual_base(expression.true_expr)
+            when_false = self._contextual_base(expression.false_expr)
+            if when_true == when_false:
+                return when_true
+            if {when_true, when_false} == {"int", "float"}:
+                return "float"
+        if isinstance(expression, CastExpr) and expression.target_type is not None:
+            return expression.target_type.base
+        if isinstance(expression, CallExpr) and isinstance(expression.callee, Identifier):
+            name = expression.callee.name
+            intrinsic = self.call_uses_intrinsic(expression)
+            if intrinsic and name == "gpu_id":
+                return "int"
+            if intrinsic and (name in WGSL_FLOAT_UNARY_BUILTINS or name == "pow"):
+                return "float"
+            if intrinsic and name in WGSL_SAME_TYPE_BUILTINS and expression.args:
+                return self._contextual_base(expression.args[0])
+        inferred = self._host_type(expression)
+        return inferred.base if inferred is not None else ""
+
 
 __all__ = [
     "GpuAnalyzer",

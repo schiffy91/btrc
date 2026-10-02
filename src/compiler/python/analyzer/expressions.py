@@ -668,7 +668,7 @@ class ExpressionAnalyzer:
                 return
             if not self.types.types_compatible(target, source):
                 self.session.error(
-                    f"Cannot assign '{self.types.format_type(source)}' to '{self.types.format_type(target)}'"
+                    f"Cannot assign '{self.types.format_source_type(source)}' to '{self.types.format_source_type(target)}'"
                     f"{self.types.comma_tuple_hint(expression.value, target)}",
                     expression.line,
                     expression.col,
@@ -1176,6 +1176,9 @@ class ExpressionAnalyzer:
             return overloaded
         if expression.op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||"):
             return TypeExpr(base="bool")
+        if expression.op in ("&", "|", "^") and self._is_bool_scalar(left) and self._is_bool_scalar(right):
+            # Bitwise operators over two bools are non-short-circuit logic and stay bool.
+            return TypeExpr(base="bool")
         if left and right:
             pointer_result = self._infer_pointer_arithmetic(expression.op, left, right)
             if pointer_result:
@@ -1186,6 +1189,12 @@ class ExpressionAnalyzer:
             if numeric is not None:
                 return numeric
         return left or right
+
+    def _is_bool_scalar(self, type_expr: TypeExpr | None) -> bool:
+        if type_expr is None:
+            return False
+        canonical = self.types.canonical_type(type_expr)
+        return canonical.base == "bool" and canonical.pointer_depth == 0 and not canonical.is_array
 
     def _infer_pointer_arithmetic(self, operator, left, right):
         if operator == "-" and self.storage.is_raw_pointer_value(left):
@@ -1968,6 +1977,24 @@ class ExpressionAnalyzer:
             if id(expr) not in self.session.lambda_body_facts:
                 self.session.error("Lambda body was not prepared by statement analysis", expr.line, expr.col)
         elif isinstance(expr, NewExpr):
+            # A re-analysed tree already carries the implicit class pointer.
+            written_depth = expr.type.pointer_depth - int(getattr(expr.type, "auto_upgraded", False))
+            if written_depth or expr.type.is_array or expr.type.is_nullable:
+                self.session.error(
+                    f"new requires an unqualified class type, got '{self.types.format_type(expr.type)}'",
+                    expr.line,
+                    expr.col,
+                )
+            elif (
+                expr.type.base != "Mutex"
+                and expr.type.base not in _MANAGED_COLLECTION_BASES
+                and expr.type.base not in self.index.class_table
+            ):
+                # The collections are stdlib classes; a real compile has already
+                # rejected one used without its import.
+                self.session.error(
+                    f"new requires a class type, got '{self.types.format_type(expr.type)}'", expr.line, expr.col
+                )
             expr.type = self.types.upgrade_class_type(expr.type)
             self.generics.collect_type_instances(expr.type)
             for arg in expr.args:

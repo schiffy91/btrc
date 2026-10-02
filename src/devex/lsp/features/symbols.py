@@ -56,7 +56,8 @@ class SymbolProvider:
             return None
         line, col = mapped
         start = self._pos(result.source, line, col)
-        if isinstance(node, (ClassDecl, FunctionDecl, MethodDecl)):
+        # A prototype has no body, so a brace scan would reach the next definition.
+        if isinstance(node, ClassDecl) or (isinstance(node, (FunctionDecl, MethodDecl)) and node.body is not None):
             end_line = LexicalScopeIndex.find_closing_brace_line(source_lines, line - 1)
             if end_line is not None:
                 end_col = DocumentText.utf16_length(source_lines[end_line]) if end_line < len(source_lines) else 0

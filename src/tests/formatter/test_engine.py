@@ -609,3 +609,116 @@ def test_declarator_lists_keep_each_declarators_pointer() -> None:
     )
 
     assert formatted(source) == source
+
+
+def _in_main(body: str) -> str:
+    return "int main() {\n\tint a = 1;\n\tint b = 1;\n\tint x = 0;\n" + body + "\treturn x;\n}\n"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\tif (a)\n\t\tif (b) x = 1;\n\t\telse x = 2;\n",
+        "\tif (a)\n\t\tif (b) { x = 1; }\n\t\telse x = 2;\n",
+        "\tif (a)\n\t\tif (b) {\n\t\t\tx = 1;\n\t\t}\n\t\telse x = 2;\n",
+        "\twhile (a)\n\t\tif (b) x = 1;\n\t\telse x = 2;\n",
+        "\tif (a)\n\t\twhile (b)\n\t\t\tif (x) x = 1;\n\t\t\telse x = 2;\n\telse\n\t\tx = 3;\n",
+        "\tif (a)\n\t\tif (b) {\n\t\t\tx = 1;\n\t\t} else {\n\t\t\tx = 2;\n\t\t}\n\telse\n\t\tx = 3;\n",
+        "\tif (a)\n\t\tif (b) x = 1; else x = 2;\n\telse\n\t\tx = 3;\n",
+        "\tif (a) {\n\t\tx = 1;\n\t}\n\telse if (b)\n\t\tx = 2;\n\telse\n\t\tx = 3;\n",
+    ],
+)
+def test_dangling_else_aligns_with_an_inner_if_whose_body_shares_its_line(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\twhile (a)\n\t\tdo\n\t\t\tx++;\n\t\twhile (x < 3);\n",
+        "\tif (a)\n\t\tdo\n\t\t\tx++;\n\t\twhile (x < 3);\n",
+        "\tif (a)\n\t\tdo {\n\t\t\tx++;\n\t\t}\n\t\twhile (x < 6);\n",
+        "\tif (a)\n\t\tdo\n\t\t{\n\t\t\tx++;\n\t\t}\n\t\twhile (x < 6);\n",
+        "\tif (a)\n\t\tdo\n\t\t\tx++;\n\t\twhile (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tdo\n\t\t\tdo x++; while (x < 2);\n\t\twhile (x < 3);\n\tx = 4;\n",
+        "\tif (a)\n\t\tdo\n\t\t\twhile (x < 2)\n\t\t\t\tx++;\n\t\twhile (x < 3);\n\tx = 4;\n",
+        "\tdo {\n\t\tx++;\n\t} while (x < 3);\n\twhile (x < 5)\n\t\tx++;\n",
+    ],
+)
+def test_do_while_closing_while_aligns_with_an_unbraced_do(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '\tif (x)\n\t\tprintf("%s\\n"\n\t\t\t"tail %d\\n",\n\t\t\t"head",\n\t\t\tx\n\t\t);\n',
+        "\tint[] v = [1];\n\tif (x)\n\t\tv = [\n\t\t\t1,\n\t\t\t2\n\t\t];\n",
+        '\tif (a)\n\t\tif (x)\n\t\t\tprintf(\n\t\t\t\t"%d\\n",\n\t\t\t\tx\n\t\t\t);\n\t\telse\n\t\t\tx = 2;\n',
+    ],
+)
+def test_closing_bracket_line_in_an_unbraced_body_stays_with_its_statement(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs", single_line_statements=False) == source
+
+
+def test_wrapped_call_in_an_unbraced_body_closes_at_the_body_level() -> None:
+    source = _in_main('\tif (x)\n\t\tprintf("%d %d %d\\n", alpha, beta, gamma);\n')
+    result = formatted(source, indent_style="tabs", line_width=40)
+    assert "\n\t\t);\n" in result
+    assert "\n\t);\n" not in result
+    assert formatted(result, indent_style="tabs", line_width=40) == result
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import "relhelpers/QuotedMsg.btrc"\n\nint main() { return 0; }\n',
+        'import "a.btrc"\nimport "b.btrc"\n\nint main() { return 0; }\n',
+    ],
+)
+def test_line_after_a_semicolon_less_quoted_import_is_not_a_string_continuation(source: str) -> None:
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'string usage() {\n\treturn "usage: tool [options]\\n"\n\t\t"  -h  help\\n"\n\t\t"  -v  verbose\\n";\n}\n',
+        'class Tool {\n\tpublic string usage() {\n\t\treturn "usage: tool\\n"\n\t\t\t"  -h  help\\n";\n\t}\n}\n',
+        'string usage() { return "usage: tool [options]\\n" "  -h  help\\n"; }\n',
+    ],
+)
+def test_trivial_function_compaction_keeps_split_string_pieces(source: str) -> None:
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\tif (a)\n\t\tdo if (b) x++; while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tdo if (b) { x++; } while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tdo\n\t\t\tif (b) x++; while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tif (b) do\n\t\t\tif (x) x++;\n\t\twhile (x < 0);\n\t\telse x = 2;\n",
+    ],
+)
+def test_ifs_inside_an_unbraced_do_body_close_with_its_while(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\tswitch (x) {\n\t\tcase 0:\n\t\t\tif (a)\n\t\t\t\tx = 1;\n\t\tdefault: break;\n\t}\n",
+        "\tswitch (x) {\n\t\tcase 0:\n\t\t\ttry {\n\t\t\t\tx = 1;\n\t\t\t} catch (string error) {\n"
+        "\t\t\t\tx = 2;\n\t\t\t}\n\t\tdefault: break;\n\t}\n",
+        "\tvar f = (int y) => y;\n\tf =\n\t\t(int y) => {\n\t\t\treturn y;\n\t\t};\n",
+        "\tThread<int> t = a > 0\n\t\t? spawn(() => { return 1; })\n\t\t: spawn(() => { return 2; });\n",
+    ],
+)
+def test_a_body_opened_on_a_continuation_line_nests_past_it(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source

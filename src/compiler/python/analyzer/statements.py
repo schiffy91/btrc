@@ -699,11 +699,15 @@ class StatementAnalyzer:
                 and self._is_nullable_binding(self.expressions.infer_type(expression.target))
                 and self._stores_nonnull(expression.value)
             )
+            # A call or store inside the value runs before the store lands.
+            self.flow.invalidate_nonnull_effects(expression.value)
             self.flow.invalidate_nonnull_target(expression.target)
             if stores_nonnull:
                 self.flow.record_nonnull_target(expression.target)
         elif isinstance(expression, CallExpr):
             self.flow.invalidate_nonnull_call(expression)
+        else:
+            self.flow.invalidate_nonnull_effects(expression)
 
     @staticmethod
     def _is_nullable_binding(binding_type) -> bool:
@@ -961,13 +965,16 @@ class StatementAnalyzer:
             elif isinstance(stmt.init, ForInitExpr):
                 self.analyze_expression(stmt.init.expression)
                 self.aggregates.reject_thread_observation(stmt.init.expression)
+        before_iteration = set(self.session.nonnull_paths)
+        self.session.replace_nonnull_paths(
+            self.flow.facts_surviving_loop(before_iteration, stmt.body, stmt.update, stmt.condition)
+        )
         if stmt.condition:
             self.analyze_expression(stmt.condition)
             self.aggregates.reject_thread_observation(stmt.condition)
         self.session.loop_depth += 1
         self.session.break_depth += 1
         body_facts = self.flow.nonnull_facts_for_outcome(stmt.condition, True) if stmt.condition is not None else set()
-        before_iteration = set(self.session.nonnull_paths)
         with self._flow_branch(body_facts):
             self._analyze_c_for_iteration(stmt)
             iteration_flow = set(self.session.nonnull_paths)
@@ -1078,16 +1085,29 @@ class StatementAnalyzer:
         self.session.replace_nonnull_paths(self.flow.join_nonnull_flows(continuing_flows))
 
     def _analyze_nullable_while(self, statement) -> None:
+        entry = set(self.session.nonnull_paths)
+        self.session.replace_nonnull_paths(self.flow.facts_surviving_loop(entry, statement.body, statement.condition))
         self.analyze_expression(statement.condition)
         self.aggregates.reject_thread_observation(statement.condition)
         self.session.loop_depth += 1
         self.session.break_depth += 1
-        self._analyze_nullable_loop_body(statement.body, self.flow.nonnull_facts_for_outcome(statement.condition, True))
+        self._analyze_nullable_loop_body(
+            statement.body, self.flow.nonnull_facts_for_outcome(statement.condition, True), entry=entry
+        )
         self.session.loop_depth -= 1
         self.session.break_depth -= 1
 
-    def _analyze_nullable_loop_body(self, body, facts=()) -> None:
-        before_body = set(self.session.nonnull_paths)
+    def _analyze_nullable_loop_body(self, body, facts=(), *, back_edge=(), entry=None) -> None:
+        """Analyze a loop body once from facts that hold on every iteration.
+
+        ``back_edge`` names what runs between iterations besides the body (a
+        do-while condition). ``entry`` is the flow before the loop when its
+        head was already narrowed (a while condition).
+        """
+        before_body = set(self.session.nonnull_paths) if entry is None else set(entry)
+        self.session.replace_nonnull_paths(
+            self.flow.facts_surviving_loop(set(self.session.nonnull_paths), body, *back_edge)
+        )
         with self._flow_branch(facts):
             self._analyze_block(body)
             body_flow = set(self.session.nonnull_paths)
@@ -1841,7 +1861,7 @@ class StatementAnalyzer:
         elif isinstance(stmt, DoWhileStmt):
             self.session.loop_depth += 1
             self.session.break_depth += 1
-            self._analyze_nullable_loop_body(stmt.body)
+            self._analyze_nullable_loop_body(stmt.body, back_edge=(stmt.condition,))
             self.session.loop_depth -= 1
             self.session.break_depth -= 1
             self.analyze_expression(stmt.condition)
@@ -1914,6 +1934,8 @@ class StatementAnalyzer:
             with self.session.gpu_result_context(boundary):
                 self.analyze_expression(stmt.initializer)
             inferred = self.expressions.infer_type(stmt.initializer)
+            if inferred is not None and self.session.in_gpu_function:
+                inferred = self.gpu.contextual_local_type(stmt.initializer)
             if inferred is None:
                 self.session.error(f"Cannot infer type for 'var' declaration of '{stmt.name}'", stmt.line, stmt.col)
                 stmt.type = TypeExpr(base="int")

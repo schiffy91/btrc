@@ -315,3 +315,94 @@ def test_for_header_comma_operands_update_flow_like_single_expressions():
     assert len(warnings) == 1
     prelude_lines = PRELUDE.count("\n")
     assert f"{prelude_lines + 6}:" in warnings[0]
+
+
+def test_a_call_inside_a_stored_value_invalidates_member_facts_first():
+    warnings = _nullable_warnings("""
+        class Holder {
+            public Box? item;
+            public Holder() { self.item = null; }
+        }
+        Box clearAndMake(Holder holder) { holder.item = null; return Box(3); }
+        int callInStoredValue(Holder holder) {
+            holder.item = Box(1);
+            Box? other = null;
+            other = clearAndMake(holder);
+            return holder.item.value + other.value;
+        }
+        int callInCondition(Holder holder) {
+            holder.item = Box(1);
+            if (clearAndMake(holder).value > 0) { return holder.item.value; }
+            return 0;
+        }
+    """)
+
+    assert warnings == [
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 17:20",
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 21:58",
+    ]
+
+
+def test_a_loop_body_cannot_rely_on_facts_its_back_edge_kills():
+    warnings = _nullable_warnings("""
+        int whileWalk(Box head) {
+            int total = 0;
+            Box? node = head;
+            while (total < 10) {
+                total += node.value;
+                node = node.next;
+            }
+            return total;
+        }
+        int forWalk(Box head) {
+            int total = 0;
+            for (Box? node = head; total < 10; node = node.next) {
+                total += node.value;
+            }
+            return total;
+        }
+        int doWalk(Box head) {
+            int total = 0;
+            Box? node = head;
+            do {
+                total += node.value;
+            } while ((node = node.next) != null || total < 10);
+            return total;
+        }
+    """)
+
+    assert len(warnings) == 6
+    assert all(warning.startswith("Non-optional access") for warning in warnings)
+
+
+def test_a_loop_guard_still_refines_every_iteration():
+    warnings = _nullable_warnings("""
+        int whileWalk(Box? head) {
+            int total = 0;
+            Box? node = head;
+            while (node != null) {
+                total += node.value;
+                node = node.next;
+            }
+            return total;
+        }
+        int forWalk(Box? head) {
+            int total = 0;
+            for (Box? node = head; node != null; node = node.next) {
+                total += node.value;
+            }
+            return total;
+        }
+        int untouched(Box head, int count) {
+            Box? stable = head;
+            int total = 0;
+            for (int index = 0; index < count; index++) {
+                Box? local = null;
+                local = Box(index);
+                total += stable.value + local.value;
+            }
+            return total;
+        }
+    """)
+
+    assert warnings == []

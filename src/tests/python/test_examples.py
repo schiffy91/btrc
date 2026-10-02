@@ -8,9 +8,9 @@ under strict C11 with every host compiler, from both compilers' C, and must
 exit 0 with identical output. The rest (GUI, GPU, tray) only transpile here;
 their Makefiles build them through the native plan on a host with those SDKs.
 
-The two compilers' C is not byte-identical today (include order, runtime
-helper selection and realtime lowering differ), so this compares behavior,
-as the corpus does.
+The two compilers' C is not byte-identical today (temporary naming, indexed
+stores, runtime-helper selection and header order differ; see
+docs/design/compiler-parity.md), so this compares behavior, as the corpus does.
 """
 
 from __future__ import annotations
