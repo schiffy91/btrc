@@ -23,6 +23,7 @@ from src.compiler.python.ir.nodes import (
     IRCompoundLiteral,
     IRDeref,
     IRDoWhile,
+    IRExpr,
     IRExprStmt,
     IRFieldAccess,
     IRFor,
@@ -959,22 +960,42 @@ class _LexicalVisibilityPass:
         temporary, a call operand in a nested try) with a value live across
         it; large functions then warn about storage that is never live there.
         Volatile storage is never coalesced, so no generated local of the
-        function can carry a clobbered value. Arrays are memory already.
+        function can carry a clobbered value. Arrays are memory already, and
+        a local whose address is taken lives in memory and keeps its declared
+        pointee type for the API that receives the address.
         """
+        addressed: set[str] = set()
+        self._addressed_names(value, addressed)
+        self._qualify_generated(value, addressed)
+
+    def _addressed_names(self, value: object, addressed: set[str]) -> None:
+        if isinstance(value, IRAddressOf) and isinstance(value.expr, IRExpr):
+            root = value.expr.direct_storage_root()
+            if root:
+                addressed.add(root)
+        if dataclasses.is_dataclass(value):
+            for field in dataclasses.fields(value):
+                self._addressed_names(getattr(value, field.name), addressed)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                self._addressed_names(item, addressed)
+
+    def _qualify_generated(self, value: object, addressed: set[str]) -> None:
         if isinstance(value, IRVarDecl):
             if (
                 ExceptionLowerer.compiler_storage_name(value.name)
                 and ExceptionLowerer._automatic(value)
                 and value.array_size is None
                 and not value.is_unsized_array
+                and value.name not in addressed
             ):
                 self._qualify(value)
         if dataclasses.is_dataclass(value):
             for field in dataclasses.fields(value):
-                self.qualify_generated_locals(getattr(value, field.name))
+                self._qualify_generated(getattr(value, field.name), addressed)
         elif isinstance(value, (list, tuple)):
             for item in value:
-                self.qualify_generated_locals(item)
+                self._qualify_generated(item, addressed)
 
     def block(self, block: IRBlock | None, inherited=()) -> None:
         if block is None:

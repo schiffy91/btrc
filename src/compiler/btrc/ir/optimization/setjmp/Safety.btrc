@@ -376,34 +376,70 @@ class SetjmpSafetyPlanner {
 	 * temporary, a call operand in a nested try) with a value live across it;
 	 * large functions then warn about storage that is never live there.
 	 * Volatile storage is never coalesced, so no generated local of the
-	 * function can carry a clobbered value. Arrays are memory already. */
-	private void qualifyGeneratedLocals(IRNode? node) {
+	 * function can carry a clobbered value. Arrays are memory already, and a
+	 * local whose address is taken lives in memory and keeps its declared
+	 * pointee type for the API that receives the address. */
+	private void qualifyGeneratedLocals(IRNode body) {
+		Map<string, bool> addressed = {};
+		self.collectAddressed(body, addressed);
+		self.qualifyGenerated(body, addressed);
+	}
+
+	private void collectAddressed(IRNode? node, Map<string, bool> addressed) {
 		if (node == null) { return; }
-		if (node.kind == IRK_VAR_DECL && self.compilerOwnedStorage(node.name) && !node.isStatic && !node.isExtern && !node.isArrayDecl) {
+		if (node.kind == IRK_ADDRESS_OF) {
+			string root = IRNode.directStorageRoot(node.expr);
+			if (root != "") { addressed.put(root, true); }
+		}
+		self.collectAddressed(node.left, addressed);
+		self.collectAddressed(node.right, addressed);
+		self.collectAddressed(node.operand, addressed);
+		self.collectAddressed(node.expr, addressed);
+		self.collectAddressed(node.obj, addressed);
+		self.collectAddressed(node.index, addressed);
+		self.collectAddressed(node.condition, addressed);
+		self.collectAddressed(node.trueExpr, addressed);
+		self.collectAddressed(node.falseExpr, addressed);
+		self.collectAddressed(node.init, addressed);
+		self.collectAddressed(node.value, addressed);
+		self.collectAddressed(node.target, addressed);
+		self.collectAddressed(node.update, addressed);
+		self.collectAddressed(node.result, addressed);
+		self.collectAddressed(node.arraySize, addressed);
+		self.collectAddressed(node.thenBlock, addressed);
+		self.collectAddressed(node.elseBlock, addressed);
+		self.collectAddressed(node.body, addressed);
+		for argument in node.args() { self.collectAddressed(argument, addressed); }
+		for statement in node.stmts() { self.collectAddressed(statement, addressed); }
+	}
+
+	private void qualifyGenerated(IRNode? node, Map<string, bool> addressed) {
+		if (node == null) { return; }
+		if (node.kind == IRK_VAR_DECL && self.compilerOwnedStorage(node.name) && !node.isStatic && !node.isExtern && !node.isArrayDecl && !addressed.has(node.name)) {
 			if (!node.isVolatile) { node.setjmpInferredVolatile = true; }
 			node.isVolatile = true;
 			node.effectiveIsVolatile = true;
 		}
-		self.qualifyGeneratedLocals(node.left);
-		self.qualifyGeneratedLocals(node.right);
-		self.qualifyGeneratedLocals(node.operand);
-		self.qualifyGeneratedLocals(node.expr);
-		self.qualifyGeneratedLocals(node.obj);
-		self.qualifyGeneratedLocals(node.index);
-		self.qualifyGeneratedLocals(node.condition);
-		self.qualifyGeneratedLocals(node.trueExpr);
-		self.qualifyGeneratedLocals(node.falseExpr);
-		self.qualifyGeneratedLocals(node.init);
-		self.qualifyGeneratedLocals(node.value);
-		self.qualifyGeneratedLocals(node.target);
-		self.qualifyGeneratedLocals(node.update);
-		self.qualifyGeneratedLocals(node.result);
-		self.qualifyGeneratedLocals(node.arraySize);
-		self.qualifyGeneratedLocals(node.thenBlock);
-		self.qualifyGeneratedLocals(node.elseBlock);
-		self.qualifyGeneratedLocals(node.body);
-		for argument in node.args() { self.qualifyGeneratedLocals(argument); }
-		for statement in node.stmts() { self.qualifyGeneratedLocals(statement); }
+		self.qualifyGenerated(node.left, addressed);
+		self.qualifyGenerated(node.right, addressed);
+		self.qualifyGenerated(node.operand, addressed);
+		self.qualifyGenerated(node.expr, addressed);
+		self.qualifyGenerated(node.obj, addressed);
+		self.qualifyGenerated(node.index, addressed);
+		self.qualifyGenerated(node.condition, addressed);
+		self.qualifyGenerated(node.trueExpr, addressed);
+		self.qualifyGenerated(node.falseExpr, addressed);
+		self.qualifyGenerated(node.init, addressed);
+		self.qualifyGenerated(node.value, addressed);
+		self.qualifyGenerated(node.target, addressed);
+		self.qualifyGenerated(node.update, addressed);
+		self.qualifyGenerated(node.result, addressed);
+		self.qualifyGenerated(node.arraySize, addressed);
+		self.qualifyGenerated(node.thenBlock, addressed);
+		self.qualifyGenerated(node.elseBlock, addressed);
+		self.qualifyGenerated(node.body, addressed);
+		for argument in node.args() { self.qualifyGenerated(argument, addressed); }
+		for statement in node.stmts() { self.qualifyGenerated(statement, addressed); }
 	}
 
 	private bool bodyContainsSetjmp(IRFunction definition) {
@@ -784,7 +820,8 @@ class SetjmpSafetyPlanner {
 				self.rejectUnmodelledCaptures(definition, self.effectsByFunction.get(definition.name));
 				Vector<IRNode> visible = [];
 				self.scanBlock(definition.body, visible, definition.params, self.effectsByFunction.get(definition.name));
-				if (self.bodyContainsSetjmp(definition)) { self.qualifyGeneratedLocals(definition.body); }
+				IRNode? body = definition.body;
+				if (body != null && self.bodyContainsSetjmp(definition)) { self.qualifyGeneratedLocals(body); }
 			}
 			self.validateFunction(definition);
 			index = index + 1;
