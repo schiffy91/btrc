@@ -813,15 +813,10 @@ class GpuPipeline {
 	public void registerKernels(Node program, IRModule module) {
 		/* The analyzer has already rejected @gpu methods and bodyless kernels. */
 		self.indexTranslationUnitOutputs(program);
-		bool addedRuntime = false;
 		int declarationIndex = 0;
 		while (declarationIndex < program.declarations().len) {
 			Node declaration = program.declarations().get(declarationIndex);
 			if (declaration.kind == NK_FUNCTION_DECL && declaration.isGpu) {
-				if (!addedRuntime) {
-					module.preprocessorDecls.push(IRPreprocessorDecl.include("btrc_gpu_compute_internal.h", false));
-					addedRuntime = true;
-				}
 				if (self.kernels.has(declaration.name)) {
 					self.reject(declaration, "duplicate @gpu kernel '" + declaration.name + "'");
 				}
@@ -1497,17 +1492,5 @@ class GpuPipeline {
 			kernelIndex = kernelIndex + 1;
 		}
 		module.gpuKernels = kept;
-		if (kept.len == 0) {
-			Vector<IRPreprocessorDecl> preprocessor = [];
-			int index = 0;
-			while (index < module.preprocessorDecls.len) {
-				IRPreprocessorDecl declaration = module.preprocessorDecls.get(index);
-				if (!(declaration.kind == IR_PREPROCESSOR_INCLUDE && !declaration.isSystem && declaration.header == "btrc_gpu_compute_internal.h")) {
-					preprocessor.push(declaration);
-				}
-				index = index + 1;
-			}
-			module.preprocessorDecls = preprocessor;
-		}
 	}
 }

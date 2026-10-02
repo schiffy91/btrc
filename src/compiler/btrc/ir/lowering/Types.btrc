@@ -258,8 +258,6 @@ class CTypeLowerer {
 		return "ATOMIC_INT_LOCK_FREE";
 	}
 
-	public bool usesAtomic() { return self.atomicTypeOrder.len > 0; }
-
 	public void appendRealtimeTypeDeclarations(IRModule module) {
 		int spanIndex = 0;
 		while (spanIndex < self.spanTypeOrder.len) {

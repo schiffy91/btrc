@@ -1033,8 +1033,7 @@ class StatementLowerer {
 		self.context.referenceHelper("__btrc_trycatch_globals");
 		self.context.referenceHelper("__btrc_push_try");
 		self.context.referenceHelper("__btrc_throw");
-		/* try/catch needs <setjmp.h> (already added at module level when any
-         * declaration uses try/catch). */
+		/* Its setjmp call makes helper materialization include <setjmp.h>. */
 
 		/* A try with a `finally` but NO `catch` must run the finally and then
          * RE-THROW any pending exception to the enclosing handler (mirrors

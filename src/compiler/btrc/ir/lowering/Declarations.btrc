@@ -425,7 +425,6 @@ class DeclarationLowerer {
 	private IRNode nativeCallbackBoundary(Vector<IRNode> body, IRModule module) {
 		self.context.referenceHelper("__btrc_trycatch_globals");
 		self.context.referenceHelper("__btrc_push_try");
-		self.appendPreprocessorDecl(module, IRPreprocessorDecl.include("setjmp.h", true));
 		IRNode frame = IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_stack", false), IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
 		IRNode condition = IRNode.binary(IRNode.call("setjmp", [IRNode.fieldAccess(frame, "env", true)]), "==", IRNode.literal("0"));
 		Vector<IRNode> noArguments = [];

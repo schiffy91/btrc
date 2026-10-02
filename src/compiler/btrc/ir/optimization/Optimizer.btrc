@@ -83,7 +83,8 @@ class IROptimizer {
 		self.normalizeUnusedParameters(module);
 		BtrccPhaseTimer.mark("o-params");
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
-		self.runtimeHelpers.materializeInto(module, references.requiredBy(module));
+		Map<string, bool> requiredHelpers = references.requiredBy(module);
+		self.runtimeHelpers.materializeInto(module, requiredHelpers, references.requiredHeaders());
 		BtrccPhaseTimer.mark("o-helpers");
 	}
 
@@ -120,7 +121,8 @@ class IROptimizer {
 		CycleReturnBoundaryLowerer(module.temporaryNames).installProgramBoundaryWhen(module, programCyclableRelease);
 		self.normalizeUnusedParameters(module);
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
-		self.runtimeHelpers.materializeInto(module, references.requiredBy(module));
+		Map<string, bool> requiredHelpers = references.requiredBy(module);
+		self.runtimeHelpers.materializeInto(module, requiredHelpers, references.requiredHeaders());
 		self.moduleUnit = false;
 		self.unneededInstances = {};
 	}
