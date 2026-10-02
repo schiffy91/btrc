@@ -107,7 +107,7 @@ class ApplicationDirectoryResolver {
 	private string append(string base, string suffix) { return base.equals("/") ? "/" + suffix : base + "/" + suffix; }
 
 	private FileSystemOutcome<ApplicationDirectoryRoots> rejected(FileSystemErrorKind kind, int nativeCode, string message) {
-		FileSystemError error = FileSystemError(kind, "resolveApplicationDirectories", "", nativeCode, message);
+		FileSystemError error = FileSystemError(kind, "resolve application directories", "", nativeCode, message);
 		return new FileSystemOutcome<ApplicationDirectoryRoots>(null, error);
 	}
 
