@@ -1,5 +1,0 @@
-import Library.Image.Linux.LinuxEncodedImageDecoder;
-
-class SystemImageProvider {
-	class EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return LinuxEncodedImageDecoder().decode(encoded, limits); }
-}

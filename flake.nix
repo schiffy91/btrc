@@ -41,6 +41,7 @@
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
             sdl3.dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
+            xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
           ];
       };
       files = import ./nix { inherit cfg lib; };
@@ -132,6 +133,12 @@
           # read them, so the packaged compilers' wrappers do not carry them.
           BTRC_NATIVE_PROVIDER_CC = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang";
           BTRC_NATIVE_PROVIDER_CXX = "${pkgs.llvmPackages_21.stdenv.cc}/bin/clang++";
+        } // lib.optionalAttrs (!isDarwin) {
+          # Mesa's software Vulkan driver (lavapipe) and the loader wgpu-native
+          # dlopens. Only tools/virtual-display.sh selects them, so a developer's
+          # shell keeps its real GPU and CI's headless runner still gets an adapter.
+          BTRC_LAVAPIPE_ICD = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
+          BTRC_VULKAN_LOADER = "${pkgs.vulkan-loader}/lib";
         } // nativeHeaderEnvironment pkgs);
       });
       packages = eachSystem (pkgs: let

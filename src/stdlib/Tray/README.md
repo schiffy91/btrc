@@ -1,6 +1,6 @@
 # Native tray
 
-`import Library.Tray.Tray;` provides `SystemTray` and the portable model
+`import Library.Tray;` provides `SystemTray` and the portable model
 (`Tray`, `TrayItem`, `TraySignal` in `TrayModel.btrc`). `SystemTray` holds an
 `ITray` (`ITray.btrc`) that the package's `TrayProvider` factory creates for the
 compilation target: `MacOS/MacOSTray` (AppKit) on macOS, `Linux/LinuxTray`

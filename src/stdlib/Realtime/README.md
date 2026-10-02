@@ -2,7 +2,7 @@
 
 Realtime clip playback, practice audio and the clocks that map between them.
 Import each module by its own path; the group deliberately has **no facade
-module**. Unlike `Library.Audio.Audio`, there is no platform choice to hide
+module**. Unlike `Library.Audio`, there is no platform choice to hide
 behind one entry point: every module here is portable, and each is a separate
 contract a consumer takes on only when it needs it. A facade would only re-export
 these modules and widen every importer's visibility to all of them.
@@ -11,7 +11,7 @@ these modules and widen every importer's visibility to all of them.
 | --- | --- |
 | `Library.Realtime.RealtimeClock` | Immutable frame-rate, speed and clock-mapping values. |
 | `Library.Realtime.RealtimeClipPractice` | Practice configuration, telemetry and captured-input values. |
-| `Library.Realtime.RealtimeClipTransport` | The clip transport contract (`RealtimeClipTransportPort`) and its preallocated implementation. |
+| `Library.Realtime.RealtimeClipTransport` | The clip transport contract (`IRealtimeClipTransport`) and its preallocated implementation. |
 
 ## Threads and barriers
 
@@ -34,13 +34,11 @@ The clock snapshot is a sequence lock whose payload words are published with
 release stores and read with acquire loads, so a reader either sees one
 complete snapshot or retries.
 
-## Compatibility exports
+## Package-private runtime
 
-`RealtimeClipTransport/Runtime.btrc` and `RealtimeClipTransport/PracticeRuntime.btrc`
-hold the transport's private callback mechanics: the plain-data context, its
-queues, and the render loop. They are still listed in `btrc.toml` exports, and
-keep their paths and context layout, because an existing consumer composes its
-player against them. That use should move to `renderer()` and
-`RealtimeClipTransport.render`; once it has, the two modules stop being exported
-and become `RealtimeClipTransportRuntime.btrc` and
-`RealtimeClipPracticeRuntime.btrc`, imported by module path.
+`RealtimeClipTransportRuntime.btrc` and `RealtimeClipPracticeRuntime.btrc` hold
+the transport's callback mechanics: the plain-data context, its queues, and the
+render loop. They are not exported, so a consumer outside this package cannot
+import them or name their `Btrc*` context layout; `RealtimeClipTransport.btrc`
+imports them by module path. A composing program uses `renderer()` and
+`RealtimeClipTransport.render`, and drains with `suspend()`, as described above.

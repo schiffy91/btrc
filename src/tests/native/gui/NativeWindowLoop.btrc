@@ -90,8 +90,8 @@ int main() {
 	button.onAction(CancelledClick(audit), actions);
 	NSTimer.scheduledTimerWithTimeInterval(0.02, true, CloseWindows(application, first, second, firstChild, secondChild, button, audit), timers);
 	application.run();
-	assert(timers.cancel() == CallbackCancellation.Complete);
-	assert(actions.cancel() == CallbackCancellation.Complete);
+	assert(timers.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(actions.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(!ApplicationProbe.hasDelegate() && ApplicationProbe.liveViews() == 0L);
 	assert(!first.isVisible() && !second.isVisible());
 	print("native window close drains independently of application quit");

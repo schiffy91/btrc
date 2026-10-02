@@ -1,6 +1,6 @@
 /* btrc standard library — generic clip transport contract.
  *
- * RealtimeClipTransportPort is the compile-time contract shared by product
+ * IRealtimeClipTransport is the compile-time contract shared by product
  * adapters and the preallocated stdlib implementation. The control thread owns
  * clips and transport values. realtimeProgram() lends one non-owning callback
  * pair, and renderer() one plain-data render handle, until suspend() returns;
@@ -14,8 +14,32 @@ import Library.OwnedBuffer;
 import Library.Audio.RealtimeAudio;
 import Library.Realtime.RealtimeClock;
 import Library.Realtime.RealtimeClipPractice;
+import Library.Realtime.RealtimeClipTransportRuntime;
 
-import ./RealtimeClipTransport/Runtime.btrc;
+enum RealtimeClipTransportStatus {
+	REALTIME_CLIP_TRANSPORT_OK,
+	REALTIME_CLIP_TRANSPORT_INVALID_ARGUMENT,
+	REALTIME_CLIP_TRANSPORT_WRONG_STATE,
+	REALTIME_CLIP_TRANSPORT_NOT_FOUND,
+	REALTIME_CLIP_TRANSPORT_CAPACITY_EXHAUSTED,
+	REALTIME_CLIP_TRANSPORT_LIMIT_EXCEEDED,
+	REALTIME_CLIP_TRANSPORT_OUT_OF_MEMORY,
+	REALTIME_CLIP_TRANSPORT_FAILED
+};
+
+enum RealtimeClipPlaybackState {
+	REALTIME_CLIP_STAGED,
+	REALTIME_CLIP_PAUSED,
+	REALTIME_CLIP_PLAYING,
+	REALTIME_CLIP_ENDED
+};
+
+enum RealtimeClipEventKind {
+	REALTIME_CLIP_ACTIVATED,
+	REALTIME_CLIP_REPLACED,
+	REALTIME_CLIP_CANCELLED,
+	REALTIME_CLIP_COMPLETED
+};
 
 class RealtimeClipTransportLimits {
 	private int _maximumBlockFrames;
@@ -445,7 +469,7 @@ class RealtimeClipTransportTelemetryOutcome {
 	}
 }
 
-interface RealtimeClipTransportPort {
+interface IRealtimeClipTransport {
 	RealtimeAudioFormat format();
 	RealtimeClipTransportLimits limits();
 	RealtimeClipTransportLifecycle lifecycle();
@@ -504,7 +528,7 @@ class RealtimeClipTransportOpenOutcome {
 	}
 }
 
-class RealtimeClipTransport implements RealtimeClipTransportPort {
+class RealtimeClipTransport implements IRealtimeClipTransport {
 	private RealtimeClipTransportConfiguration _configuration;
 	private RealtimeClipTransportLifecycle _lifecycle;
 	private void* _owner;

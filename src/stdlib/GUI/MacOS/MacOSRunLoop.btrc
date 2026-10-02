@@ -18,7 +18,7 @@ class MacOSRunLoopSignal {
 
 	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop signals require the main thread"; } }
 
-	public void subscribe(IAppKitRunLoopEvents receiver, CallbackScope scope) {
+	public void subscribe(IAppKitNotificationObserver receiver, CallbackScope scope) {
 		self.requireMainThread();
 		var notification = self._notification;
 		if (notification == null) { throw "Native run-loop signal is closed"; }

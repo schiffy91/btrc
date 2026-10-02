@@ -176,7 +176,7 @@ class LinuxButton extends LinuxNodeView implements IButton {
 
 	public CallbackCancellation close() {
 		var state = self.node().close();
-		if (state == CallbackCancellation.Complete) { self.releaseAction(); }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseAction(); }
 		return state;
 	}
 
@@ -189,7 +189,7 @@ class LinuxButton extends LinuxNodeView implements IButton {
 
 	public CallbackCancellation pollClose() {
 		var state = self.node().pollClose();
-		if (state == CallbackCancellation.Complete) { self.releaseAction(); }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseAction(); }
 		return state;
 	}
 

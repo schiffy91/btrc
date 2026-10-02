@@ -13,17 +13,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 CHECKED_ROOTS = ("src/tests", "tools/compiler_codegen", "tools/bench")
 WAITING_CALLS = frozenset({"run", "check_output", "check_call", "call"})
-# Owned by the tools-ci lane in the Stage 4 campaign; its two `make --dry-run`
-# probes get their limits there.
-PENDING = frozenset({"src/tests/python/test_build_safety.py"})
 
 
 def _sources() -> list[Path]:
     return sorted(
-        path
-        for root in CHECKED_ROOTS
-        for path in (REPO / root).rglob("*.py")
-        if "__pycache__" not in path.parts and path.relative_to(REPO).as_posix() not in PENDING
+        path for root in CHECKED_ROOTS for path in (REPO / root).rglob("*.py") if "__pycache__" not in path.parts
     )
 
 

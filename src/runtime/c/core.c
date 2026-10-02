@@ -180,3 +180,16 @@ static inline int __btrc_target_platform(void) {
 #endif
 }
 /* btrc-runtime-helper:end __btrc_target_platform */
+/* btrc-runtime-helper:begin __btrc_target_architecture */
+static inline int __btrc_target_architecture(void) {
+#if defined(BTRC_TARGET_ARCHITECTURE_OVERRIDE)
+    return BTRC_TARGET_ARCHITECTURE_OVERRIDE;
+#elif defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)
+    return 1;
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    return 2;
+#else
+    return 0;
+#endif
+}
+/* btrc-runtime-helper:end __btrc_target_architecture */

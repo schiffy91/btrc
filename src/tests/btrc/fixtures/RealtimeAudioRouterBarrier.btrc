@@ -34,7 +34,7 @@ int main() {
 	releaseSignal.init(0u);
 	struct SlowRouteContext context = {&entered, &finished, &releaseSignal, 0ULL, 0};
 	RealtimeAudioProgram producer = RealtimeAudioProgram(renderSlowRoute, &context);
-	RealtimeAudioProgramRouter router = new RealtimeAudioProgramRouter(1, 0);
+	RealtimeAudioRouter router = new RealtimeAudioRouter(1, 0);
 	RealtimeAudioProgram provider = router.providerProgram();
 	RealtimeAudioRouteAttachment attachment = router.attach(producer).attachment();
 	assert(router.activate(attachment).succeeded());

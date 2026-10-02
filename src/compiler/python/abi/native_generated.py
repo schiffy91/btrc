@@ -105,6 +105,16 @@ class NativeConstant:
 
 
 @dataclass(kw_only=True)
+class NativeStringConstant:
+    name: str = ""
+    value_type: native_type
+    string_value: str = ""
+    source_file: str = _dc_field(default=None, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    column: int = 0
+
+
+@dataclass(kw_only=True)
 class NativeGlobal:
     name: str = ""
     value_type: native_type
@@ -248,7 +258,7 @@ class NativeField:
 
 # --- Union type aliases for sum types ---
 
-native_declaration = Union[NativeFunction, NativeObjectiveCMethod, NativeCxxClass, NativeCxxMethod, NativeTypedef, NativeConstant, NativeGlobal, NativeRecordDeclaration]
+native_declaration = Union[NativeFunction, NativeObjectiveCMethod, NativeCxxClass, NativeCxxMethod, NativeTypedef, NativeConstant, NativeStringConstant, NativeGlobal, NativeRecordDeclaration]
 native_type = Union[NativeBuiltin, NativePointer, NativeAlias, NativeRecordType, NativeEnumType, NativeFunctionType, NativeArrayType, NativeQualifiedType, NativeObjectiveCObject, NativeObjectiveCBlock]
 
 

@@ -5,9 +5,10 @@
  * short-write coverage lives in HttpSocketIo.btrc. */
 import Library.Bytes;
 import Library.HTTP.HTTPFraming;
-import Library.HTTP.HTTPProtocol;
+import Library.HTTP.HTTPUrl;
+import Library.HTTP.HTTPStatus;
 import Library.HTTP.HTTPServer;
-import Library.HTTP.HTTPTypes;
+import Library.HTTP.HTTPRequest;
 import Library.Map;
 
 #include <assert.h>

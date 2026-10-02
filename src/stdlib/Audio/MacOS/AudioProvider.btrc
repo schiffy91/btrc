@@ -1,6 +1,6 @@
 import Library.Audio.AudioDevice;
-import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.MacOS.MacOSAudioDevice;
 
 class AudioProvider {
-	class AudioDeviceProviderOpenOutcome open() { return CoreAudioDeviceProvider.open(); }
+	class AudioDeviceProviderOpenOutcome open() { return MacOSAudioDevice.open(); }
 }

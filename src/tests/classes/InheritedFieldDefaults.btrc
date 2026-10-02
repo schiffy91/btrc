@@ -1,0 +1,33 @@
+/* Construction applies base-class field defaults, then each subclass's own
+ * defaults root class outward, and only then the constructor body. */
+
+class Base {
+	public int a = 7;
+	public int b;
+	public string name = "base";
+}
+
+class Child extends Base {
+	public int c = 9;
+	public Child() { self.b = 5; }
+}
+
+class Plain extends Base {
+	public int d = 3;
+}
+
+class Grand extends Child {
+	public int e = 11;
+	public Grand(int extra) { self.e = self.e + extra + self.c; }
+}
+
+int main() {
+	Child child = Child();
+	print(f"{child.a} {child.b} {child.c} {child.name}");
+	Plain plain = Plain();
+	print(f"{plain.a} {plain.b} {plain.d} {plain.name}");
+	Grand grand = Grand(1);
+	print(f"{grand.a} {grand.b} {grand.c} {grand.e} {grand.name}");
+	print("PASS: inherited field defaults");
+	return 0;
+}

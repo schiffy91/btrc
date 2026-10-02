@@ -1,0 +1,10 @@
+/* How many threads this process is running. `[[package.providers]]` selects
+ * the host's count: one /proc/self/task entry per thread on linux, the
+ * kernel's task info on macOS. Forking is safe only from a single-threaded
+ * process, since a lock another thread held at the fork stays held forever in
+ * the child, so the forked worker pool asks before it starts. */
+class ProcessThreads {
+	/* The live thread count, the caller's included, or -1 when the host
+	 * cannot tell. */
+	class int count() { return ProcessThreadsProvider.count(); }
+}

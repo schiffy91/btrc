@@ -20,7 +20,7 @@ class AudioSessionObserver {
 	}
 }
 
-class FakeAudioSessionBackend implements AudioSessionBackend {
+class FakeAudioSessionBackend implements IAudioSessionBackend {
 	private int _state;
 	private unsigned long long _epoch;
 	private AudioSessionObserver? _observer;
@@ -76,7 +76,7 @@ class FakeAudioSessionBackend implements AudioSessionBackend {
 	for (size_t index = 0u; index < outputSampleCount; index++) { outputs.trySet(index, 0.0f); }
 }
 
-class FakeAudioDeviceProvider implements AudioDeviceProvider {
+class FakeAudioDeviceProvider implements IAudioDeviceProvider {
 	private bool _open;
 	private unsigned long long _generation;
 
@@ -119,7 +119,7 @@ void abandonSession(FakeAudioDeviceProvider provider, DuplexAudioOpenRequest req
 
 DuplexAudioSession sessionWithBackendAlias(DuplexAudioNegotiatedFormat format, RealtimeAudioProgram program, AudioSessionObserver observer) {
 	var concrete = FakeAudioSessionBackend(observer);
-	AudioSessionBackend alias = concrete;
+	IAudioSessionBackend alias = concrete;
 	return DuplexAudioSession(format, program, alias);
 }
 

@@ -1,67 +1,41 @@
-/* UTF-8 scalar boundaries for Library.UI: the one owner of the byte-level
- * rules that semantics validation, text input, typography and text rasters
- * share. Offsets are byte offsets; a boundary never splits a scalar. */
+/* UTF-8 scalar boundaries for Library.UI, built on the root UTF8 rules that
+ * semantics validation, text input, typography and text rasters share.
+ * Offsets are byte offsets; a boundary never splits a scalar. */
+
+import Library.Strings;
 
 class UIText {
-	class int byteAt(string value, int index) { return (int)(unsigned char)value[index]; }
-
-	class bool continuation(int value) { return value >= 0x80 && value <= 0xBF; }
-
-	/* Bytes in the well-formed scalar at index; 0 for malformed or out-of-range input. */
-	class int scalarWidth(string value, int index) {
-		if (value == null || index < 0 || index >= value.len()) { return 0; }
-		int remaining = value.len() - index;
-		int first = UIText.byteAt(value, index);
-		if (first == 0) { return 0; }
-		if (first <= 0x7F) { return 1; }
-		if (first >= 0xC2 && first <= 0xDF && remaining >= 2 && UIText.continuation(UIText.byteAt(value, index + 1))) { return 2; }
-		if (remaining >= 3) {
-			int second = UIText.byteAt(value, index + 1);
-			int third = UIText.byteAt(value, index + 2);
-			bool validSecond = (first == 0xE0 && second >= 0xA0 && second <= 0xBF) || (first >= 0xE1 && first <= 0xEC && UIText.continuation(second)) || (first == 0xED && second >= 0x80 && second <= 0x9F) || (first >= 0xEE && first <= 0xEF && UIText.continuation(second));
-			if (validSecond && UIText.continuation(third)) { return 3; }
-		}
-		if (remaining >= 4) {
-			int second = UIText.byteAt(value, index + 1);
-			int third = UIText.byteAt(value, index + 2);
-			int fourth = UIText.byteAt(value, index + 3);
-			bool validSecond = (first == 0xF0 && second >= 0x90 && second <= 0xBF) || (first >= 0xF1 && first <= 0xF3 && UIText.continuation(second)) || (first == 0xF4 && second >= 0x80 && second <= 0x8F);
-			if (validSecond && UIText.continuation(third) && UIText.continuation(fourth)) { return 4; }
-		}
-		return 0;
-	}
-
 	/* Non-null, at most maximumBytes, and well-formed throughout. */
 	class bool valid(string value, int maximumBytes = 2147483647) {
-		if (value == null || value.len() > maximumBytes) { return false; }
-		int index = 0;
-		while (index < value.len()) {
-			int width = UIText.scalarWidth(value, index);
-			if (width == 0) { return false; }
-			index += width;
-		}
-		return true;
+		if (value == null) { return false; }
+		int length = value.len();
+		return length <= maximumBytes && UTF8.valid(value, length);
 	}
 
-	class int previousBoundary(string value, int offset) {
-		if (value == null || offset <= 0) { return 0; }
-		int bounded = offset > value.len() ? value.len() : offset;
-		int index = bounded - 1;
-		while (index > 0 && UIText.continuation(UIText.byteAt(value, index))) { index--; }
-		return index;
-	}
+	class int previousBoundary(string value, int offset) { return value == null ? 0 : UTF8.previous(value, value.len(), offset); }
 
+	/* Unlike UTF8.next, a malformed byte is not stepped over: text input only
+	 * ever holds validated values, and prefix stops at the first malformed byte. */
 	class int nextBoundary(string value, int offset) {
-		if (value == null || offset >= value.len()) { return value == null ? 0 : value.len(); }
+		if (value == null) { return 0; }
+		int length = value.len();
+		if (offset >= length) { return length; }
 		int bounded = offset < 0 ? 0 : offset;
-		int width = UIText.scalarWidth(value, bounded);
-		return width == 0 ? bounded : bounded + width;
+		return bounded + UTF8.width(value, length, bounded);
 	}
 
-	/* The boundary at or before offset. */
+	/* The boundary at or before offset: the start of the scalar that offset
+	 * falls inside, else offset itself. */
 	class int floorBoundary(string value, int offset) {
-		if (offset > 0 && offset < value.len() && UIText.continuation(UIText.byteAt(value, offset))) { return UIText.previousBoundary(value, offset); }
-		return offset;
+		int length = value.len();
+		if (offset <= 0 || offset >= length) { return offset; }
+		int candidate = offset;
+		int steps = 0;
+		while (candidate > 0 && steps < 3 && UTF8.continuation((int)(unsigned char)value[candidate])) {
+			candidate--;
+			steps++;
+		}
+		return UTF8.width(value, length, candidate) > offset - candidate ? candidate : offset;
 	}
 
 	class int scalarCount(string value, int endOffset) {

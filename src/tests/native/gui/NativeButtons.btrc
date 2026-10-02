@@ -1,4 +1,4 @@
-import Library.Datetime;
+import Library.Timer;
 import Library.IO;
 import Library.Image;
 import Library.Image.EncodedImage;

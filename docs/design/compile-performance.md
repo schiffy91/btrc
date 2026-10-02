@@ -1,6 +1,12 @@
 # Compile performance: where the time goes and what to do about it
 
-**Current priority, September 22:** unchanged latency is closed at ≤5 s.
+Status: **historical record** (2026-09-19 to 2026-09-22). The priorities,
+measurements and plans below describe the compiler as it was then and are not
+current direction; `PLAN.md` owns what remains, and `AGENTS.md` ("Measuring a
+compile" and "Performance changes already measured and rejected") holds the
+current measurement rules and rejected experiments.
+
+**Priority as of September 22 (historical):** unchanged latency is closed at ≤5 s.
 The latest edit/cold campaign is recorded at the end of this document; the
 September 19 profiles below are historical and use a different host/mode.
 
@@ -250,8 +256,11 @@ peaks repeated within 356 KiB, inside the guard's 1 MiB minimum slack. Instructi
 `perf stat -e instructions:u` when `perf` is on PATH and the kernel lets it
 count. Otherwise provenance records `instruction_counter: "unavailable on
 this host: …"` and the metric is absent, never estimated. Provenance also
-carries `host_summary`, read from the host: CPU, CPUs, memory, OS and
-architecture, in both `budget_bench` and `tools/perf.py`.
+carries `host_summary`, read from the host by `HostProvenance.summary`
+(`tools/qualification/adapters.py`): chip, cores, memory and OS, which on the
+acceptance Mac is exactly `Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0` and on
+Linux names the CPU model, logical CPUs, memory and kernel, in both
+`budget_bench` and `tools/perf.py`.
 
 **Receipts: Linux takes the object-cache-only path.** The reader builds its
 preprocessing provider only under `__APPLE__`, because it binds a session

@@ -550,7 +550,7 @@ class CompilationPipeline:
             strict_imports=options.strict_imports,
             map_stdlib_positions=options.map_stdlib_positions,
             refresh_packages=options.refresh_packages,
-            use_cache=options.use_cache and not options.profile,
+            use_cache=options.use_cache,
             target=options.target,
             profile=profile,
         )

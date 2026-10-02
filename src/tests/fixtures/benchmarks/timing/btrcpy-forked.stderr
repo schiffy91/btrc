@@ -1,0 +1,3 @@
+btrcpy timing: resolve_includes=21865us lex=13039us parse=16119us analyze=98759us lower=153652us optimize=163516us emit=4709us
+btrcpy worker timing: worker=0 pid=5175 requests=lower:3,setjmp:3,realtime:0,finish:3 busy=lower:48376us,setjmp:5684us,realtime:0us,finish:75154us w-wait=101616us
+btrcpy worker timing: worker=1 pid=5176 requests=lower:3,setjmp:3,realtime:0,finish:3 busy=lower:55712us,setjmp:10452us,realtime:0us,finish:144095us w-wait=20501us

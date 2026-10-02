@@ -54,13 +54,9 @@ src/devex/lsp/.venv/
 # VS Code extension build artifacts
 /build/devex/vscode/
 
-# GUI example binary
-examples/gui/gui_demo
-examples/gui/gui_declarative
+# GUI and rendering example binaries
 examples/gui/gui_font
-examples/gui/font_smoke.link.json
 examples/sgd-render/sgd_render
-examples/native-ui/native_ui
 examples/*/frames/
 
 # Local build artifacts. The tracked `build/*.nix` files are authored policy,

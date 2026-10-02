@@ -32,7 +32,7 @@ int main() {
 	RealtimeAudioProgram firstProgram = RealtimeAudioProgram(renderConstantRoute, &firstContext);
 	RealtimeAudioProgram secondProgram = RealtimeAudioProgram(renderConstantRoute, &secondContext);
 	RealtimeAudioProgram thirdProgram = RealtimeAudioProgram(renderConstantRoute, &thirdContext);
-	RealtimeAudioProgramRouter router = new RealtimeAudioProgramRouter(2, 2);
+	RealtimeAudioRouter router = new RealtimeAudioRouter(2, 2);
 	RealtimeAudioProgram providerProgram = router.providerProgram();
 	assert(providerProgram == router.providerProgram());
 	RealtimeAudioProcess process = providerProgram.invokePointer();
@@ -94,7 +94,7 @@ int main() {
 	assert(router.closeAfterProviderDrain().succeeded());
 	assert(router.isClosed());
 
-	RealtimeAudioProgramRouter boundedRouter = new RealtimeAudioProgramRouter(1, 0);
+	RealtimeAudioRouter boundedRouter = new RealtimeAudioRouter(1, 0);
 	RealtimeAudioRouteAttachment boundedAttachment = boundedRouter.attach(firstProgram).attachment();
 	for (int activation = 0; activation < 64; activation++) { assert(boundedRouter.activate(boundedAttachment).succeeded()); }
 	assert(boundedRouter.activate(boundedAttachment).status() == REALTIME_AUDIO_ROUTE_BUSY);

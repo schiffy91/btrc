@@ -13,6 +13,8 @@
  * owning Bytes locals on scope exit (Bytes_destroy runs __del__ then free(self)).
  */
 
+import Library.Strings;
+
 class Bytes {
 	public char* data;
 	public int len;
@@ -154,34 +156,9 @@ class Bytes {
 					continue;
 				}
 			}
-			int first = self.get(index);
-			index++;
-			if (first == 0) { return false; }
-			if (first < 0x80) { continue; }
-
-			int codepoint = 0;
-			int continuation = 0;
-			if (first >= 0xc2 && first <= 0xdf) {
-				codepoint = first & 0x1f;
-				continuation = 1;
-			} else if (first >= 0xe0 && first <= 0xef) {
-				codepoint = first & 0x0f;
-				continuation = 2;
-			} else if (first >= 0xf0 && first <= 0xf4) {
-				codepoint = first & 0x07;
-				continuation = 3;
-			} else {
-				return false;
-			}
-			if (continuation > self.len - index) { return false; }
-			while (continuation > 0) {
-				int next = self.get(index);
-				index++;
-				if ((next & 0xc0) != 0x80) { return false; }
-				codepoint = (codepoint << 6) | (next & 0x3f);
-				continuation--;
-			}
-			if ((codepoint >= 0xd800 && codepoint <= 0xdfff) || codepoint > 0x10ffff || (codepoint < 0x80 && first >= 0xc2) || (codepoint < 0x800 && first >= 0xe0) || (codepoint < 0x10000 && first >= 0xf0)) { return false; }
+			int width = UTF8.width(self.data, self.len, index);
+			if (width == 0 || self.data[index] == '\0') { return false; }
+			index += width;
 		}
 		return true;
 	}

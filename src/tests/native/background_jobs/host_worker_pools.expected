@@ -1,23 +1,30 @@
 inline busy refused true
 inline 0=echo:inline, then empty true
-inline closed cleanly true
+inline closed cleanly true, usage none true
 inline throw accepted true
-inline throw failed true: worker request failed: probe failure
-inline throw refuses more true, closed cleanly false
+inline throw raised true worker 0: probe failure
+inline after throw echo:after, closed cleanly true
 suggested workers in range true
 size 3
 distinct workers true, separate from owner true
 idle after replies true
 empty true
+forked throw raised true worker 1: probe failure
 inherited 42
 0=echo:hello
 2=2000005
 unknown worker refused true
+usage before reaping none true
 closed cleanly true
+reaped usage plausible true, unknown worker none true
 send after close refused true
 crash failed true worker 1: worker exited with status 3
 send after failure refused true
 close after failure false
 bounded wait timed out true, still busy true
-terminated reply failed true
+terminated reply failed true, usage reaped true
+single threaded true
+threads while one waits 2, pool refused true
+reopened after join true
+reopened closed cleanly true
 PASS: process worker pool

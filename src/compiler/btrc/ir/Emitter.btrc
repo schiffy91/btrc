@@ -774,7 +774,7 @@ class CEmitter {
 		int index = 0;
 		while (index < self.lines.len) {
 			string current = self.lines.get(index);
-			if (current.contains("@@BTRC_CLINE@@")) { self.lines.set(index, Strings.replace(current, "@@BTRC_CLINE@@", Strings.fromInt(index + 2))); }
+			if (current.contains("@@BTRC_CLINE@@")) { self.lines.set(index, current.replace("@@BTRC_CLINE@@", Strings.fromInt(index + 2))); }
 			index = index + 1;
 		}
 	}

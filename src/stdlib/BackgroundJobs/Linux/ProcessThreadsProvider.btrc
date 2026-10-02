@@ -1,0 +1,19 @@
+/* Linux thread count: each thread of the process is one /proc/self/task
+ * entry. */
+#include <dirent.h>
+
+class ProcessThreadsProvider {
+	class int count() {
+		DIR* tasks = opendir("/proc/self/task");
+		if (tasks == null) { return -1; }
+		int count = 0;
+		struct dirent* entry = readdir(tasks);
+		while (entry != null) {
+			char* name = (char*)entry->d_name;
+			if (name[0] != '.') { count = count + 1; }
+			entry = readdir(tasks);
+		}
+		closedir(tasks);
+		return count;
+	}
+}

@@ -147,7 +147,7 @@ class UIColor {
 	}
 
 	class UIColor hex(string value) {
-		if (!UIColor.validHex(value)) { throw f"invalid native UI colour: {value}"; }
+		if (!UIColor.validHex(value)) { throw f"invalid UI colour: {value}"; }
 		int red = UIColor.hexPair(value, 1);
 		int green = UIColor.hexPair(value, 3);
 		int blue = UIColor.hexPair(value, 5);
@@ -293,7 +293,7 @@ class UIStyle {
 			if (declaration.isEmpty()) { continue; }
 			int separator = declaration.indexOf(":");
 			if (separator <= 0 || separator >= declaration.len() - 1) {
-				return UIStyleDeclarations.failed(UIStyleError(UI_STYLE_INVALID_DECLARATION, "", f"invalid native UI style declaration: {declaration}"));
+				return UIStyleDeclarations.failed(UIStyleError(UI_STYLE_INVALID_DECLARATION, "", f"invalid UI style declaration: {declaration}"));
 			}
 			string property = declaration.substring(0, separator).trim().toLower();
 			string value = declaration.substring(separator + 1, declaration.len() - separator - 1).trim();
@@ -348,20 +348,20 @@ class UIStyle {
 				return UIStyleError(UI_STYLE_INVALID_VALUE, property, f"{property} requires #RRGGBB or #RRGGBBAA");
 			}
 		} else {
-			return UIStyleError(UI_STYLE_UNSUPPORTED_PROPERTY, property, f"unsupported native UI style property: {property}");
+			return UIStyleError(UI_STYLE_UNSUPPORTED_PROPERTY, property, f"unsupported UI style property: {property}");
 		}
 		return UIStyleError.valid();
 	}
 
 	class UIStyleError validateClassName(string value) {
 		if (value == null || value.isEmpty() || value.len() > 128) {
-			return UIStyleError(UI_STYLE_INVALID_SELECTOR, "className", "native UI class names must contain 1..128 bytes");
+			return UIStyleError(UI_STYLE_INVALID_SELECTOR, "className", "UI class names must contain 1..128 bytes");
 		}
 		for (int index = 0; index < value.len(); index++) {
 			char character = value[index];
 			bool valid = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_';
 			if (!valid) {
-				return UIStyleError(UI_STYLE_INVALID_SELECTOR, "className", "native UI class names use letters, digits, '-' and '_'");
+				return UIStyleError(UI_STYLE_INVALID_SELECTOR, "className", "UI class names use letters, digits, '-' and '_'");
 			}
 		}
 		return UIStyleError.valid();
@@ -403,7 +403,7 @@ class UIStyleSheet {
 	public long long revision() { return self.revisionValue; }
 
 	private void changed() {
-		if (self.revisionValue == 9223372036854775807LL) { throw "native UI stylesheet revision exhausted"; }
+		if (self.revisionValue == 9223372036854775807LL) { throw "UI stylesheet revision exhausted"; }
 		self.revisionValue++;
 	}
 
@@ -418,11 +418,11 @@ class UIStyleSheet {
 		}
 		int index = (int)kind;
 		if (index < 0 || index >= UIStyleSheet.kindCount()) {
-			self.issueValue = UIStyleError(UI_STYLE_INVALID_SELECTOR, "kind", f"unknown native UI element kind: {index}");
+			self.issueValue = UIStyleError(UI_STYLE_INVALID_SELECTOR, "kind", f"unknown UI element kind: {index}");
 			return self;
 		}
 		if ((long long)self.ruleBytes + (long long)css.len() > 65536LL) {
-			self.issueValue = UIStyleError(UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+			self.issueValue = UIStyleError(UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "UI style sheets allow 256 rules and 64 KiB");
 			return self;
 		}
 		self.ruleBytes += css.len() - self.kindRules.get(index).len();
@@ -449,7 +449,7 @@ class UIStyleSheet {
 			}
 			string merged = self.rules.get(index).trim().isEmpty() ? css : self.rules.get(index) + "; " + css;
 			if ((long long)self.ruleBytes + (long long)css.len() + 2LL > 65536LL) {
-				self.issueValue = UIStyleError(UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+				self.issueValue = UIStyleError(UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "UI style sheets allow 256 rules and 64 KiB");
 				return self;
 			}
 			self.ruleBytes += merged.len() - self.rules.get(index).len();
@@ -473,12 +473,12 @@ class UIStyleSheet {
 			return self;
 		}
 		if (self.selectors.len >= 256 || (long long)self.ruleBytes + (long long)className.len() + (long long)css.len() > 65536LL) {
-			self.issueValue = UIStyleError(UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+			self.issueValue = UIStyleError(UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "UI style sheets allow 256 rules and 64 KiB");
 			return self;
 		}
 		for selector in self.selectors {
 			if (selector.equals(className)) {
-				self.issueValue = UIStyleError(UI_STYLE_DUPLICATE_RULE, className, f"duplicate native UI class rule: {className}");
+				self.issueValue = UIStyleError(UI_STYLE_DUPLICATE_RULE, className, f"duplicate UI class rule: {className}");
 				return self;
 			}
 		}
@@ -802,7 +802,7 @@ class UIImageRegion {
 	private double heightValue;
 
 	public UIImageRegion(double left, double top, double width, double height) {
-		if (!Math.isFinite(left) || !Math.isFinite(top) || !Math.isFinite(width) || !Math.isFinite(height) || left < 0.0 || top < 0.0 || width <= 0.0 || height <= 0.0 || left + width > 1.0 || top + height > 1.0) { throw "invalid native UI image region"; }
+		if (!Math.isFinite(left) || !Math.isFinite(top) || !Math.isFinite(width) || !Math.isFinite(height) || left < 0.0 || top < 0.0 || width <= 0.0 || height <= 0.0 || left + width > 1.0 || top + height > 1.0) { throw "invalid UI image region"; }
 		self.leftValue = left;
 		self.topValue = top;
 		self.widthValue = width;
@@ -928,7 +928,7 @@ class UIElement {
 	/* Decorative pixels belong to the text field's one focus/hit target.
 	 * Dimensions are logical pixels; the image may have a Retina backing. */
 	public UIElement leadingIcon(Image image, int width, int height, int gap = 8) {
-		if (self.elementKind != UI_TEXT_INPUT || image == null || image.isEmpty() || width < 1 || width > 256 || height < 1 || height > 256 || gap < 0 || gap > 256) { throw "native UI leading icons require a text input, image, 1..256px dimensions and 0..256px gap"; }
+		if (self.elementKind != UI_TEXT_INPUT || image == null || image.isEmpty() || width < 1 || width > 256 || height < 1 || height > 256 || gap < 0 || gap > 256) { throw "UI leading icons require a text input, image, 1..256px dimensions and 0..256px gap"; }
 		self.imageValue = image;
 		self.leadingIconWidthValue = width;
 		self.leadingIconHeightValue = height;
@@ -943,7 +943,7 @@ class UIElement {
 	public int leadingIconInset() { return self.leadingIconWidthValue + self.leadingIconGapValue; }
 
 	public UIElement imageRegion(UIImageRegion? region) {
-		if (self.elementKind != UI_IMAGE) { throw "native UI image regions require an image element"; }
+		if (self.elementKind != UI_IMAGE) { throw "UI image regions require an image element"; }
 		self.imageRegionValue = region;
 		return self;
 	}

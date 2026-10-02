@@ -10,16 +10,18 @@
  * .isUpper(), .isLower(), .split(), .toInt(), .toFloat(), .toDouble(),
  * .toLong(), .toBool().
  *
- * Owned here: split/join over Vector<string>, compare/lessThan, rfind, the
+ * Owned here: split over Vector<string>, compare/lessThan, rfind, the
  * saturating toInt, fromInt/fromFloat, the char classifiers, copy,
- * checkedLength, and StringBuilder. The remaining class methods (repeat,
+ * checkedLength, StringBuilder, and UTF8, the one owner of UTF-8 scalar
+ * decoding, validation, boundaries and word navigation. join delegates to
+ * Vector.join. The remaining class methods (repeat,
  * replace, count, find, capitalize, title, swapCase, padLeft, padRight,
  * lstrip, rstrip, removePrefix, isDigitStr, isAlphaStr, isBlank) are retained
  * one-line delegates to the built-in of the same meaning, so both spellings
  * share one implementation and one null/whitespace contract.
  *
  * === CONTRACT ===
- *  - ENCODING: every operation here is BYTE-based, not Unicode-aware. Lengths,
+ *  - ENCODING: every Strings operation is BYTE-based, not Unicode-aware. Lengths,
  *    indices, find/rfind/count offsets, and slices are all measured in bytes.
  *    The string is treated as NUL-terminated, so an embedded '\0' ends it (use
  *    Library.Bytes for binary-safe data).
@@ -54,42 +56,8 @@ class Strings {
 
 	class string repeat(string s, int count) { return s.repeat(count); }
 
-	class string join(Vector<string> items, string sep) {
-		if (items == null || items.len == 0) { return Strings.copy(""); }
-		if (sep == null) { sep = ""; }
-		int seplen = Strings.checkedLength(sep);
-		int total = 0;
-		for i in range(items.len) {
-			int itemLength = Strings.checkedLength(items.get(i));
-			if (itemLength > 2147483646 - total) {
-				fprintf(stderr, "string join overflow\n");
-				exit(1);
-			}
-			total = total + itemLength;
-		}
-		long long separatorBytes = (long long)seplen * (long long)(items.len - 1);
-		if (separatorBytes > (long long)(2147483646 - total)) {
-			fprintf(stderr, "string join overflow\n");
-			exit(1);
-		}
-		total = total + (int)separatorBytes;
-		char* result = (char*)__btrc_safe_realloc(NULL, (size_t)total + (size_t)1);
-		int pos = 0;
-		string first = items.get(0) == null ? "" : items.get(0);
-		int firstLen = Strings.checkedLength(first);
-		memcpy(result, first, (size_t)firstLen);
-		pos = firstLen;
-		for i in range(1, items.len) {
-			memcpy(result + pos, sep, seplen);
-			pos = pos + seplen;
-			string item = items.get(i) == null ? "" : items.get(i);
-			int item_len = Strings.checkedLength(item);
-			memcpy(result + pos, item, (size_t)item_len);
-			pos = pos + item_len;
-		}
-		result[pos] = '\0';
-		return __btrc_string_adopt(result);
-	}
+	/* Vector.join owns joining; a null vector joins to "". */
+	class string join(Vector<string> items, string sep) { return items == null ? "" : items.join(sep); }
 
 	class string replace(string s, string old, string replacement) { return s.replace(old, replacement); }
 
@@ -245,6 +213,127 @@ class Strings {
 		char* buf = (char*)__btrc_safe_realloc(NULL, 64);
 		snprintf(buf, 64, "%g", f);
 		return __btrc_string_adopt(buf);
+	}
+}
+
+/* The one owner of UTF-8 scalar rules (RFC 3629). A well-formed scalar is one
+ * to four bytes with no overlong form, no surrogate (U+D800..U+DFFF) and
+ * nothing above U+10FFFF. Any other byte decodes as U+FFFD and advances one
+ * byte, so decoding and boundary walks always make progress and agree with
+ * each other. Offsets are byte offsets into data[0, length), which lets
+ * binary buffers with embedded NUL share these rules; U+0000 is well-formed,
+ * so callers that forbid NUL check for it themselves. */
+class UTF8 {
+	class bool continuation(int value) { return value >= 0x80 && value <= 0xBF; }
+
+	/* Bytes in the well-formed scalar at offset: 1 to 4, or 0 when the bytes
+	 * there are an invalid lead, a stray continuation, an overlong form, a
+	 * surrogate, beyond U+10FFFF, truncated, or out of range. */
+	class int width(string data, int length, int offset) {
+		if (data == null || offset < 0 || offset >= length) { return 0; }
+		int first = (int)(unsigned char)data[offset];
+		if (first <= 0x7F) { return 1; }
+		int remaining = length - offset;
+		if (first >= 0xC2 && first <= 0xDF) {
+			return remaining >= 2 && UTF8.continuation((int)(unsigned char)data[offset + 1]) ? 2 : 0;
+		}
+		if (first >= 0xE0 && first <= 0xEF) {
+			if (remaining < 3) { return 0; }
+			int second = (int)(unsigned char)data[offset + 1];
+			int low = first == 0xE0 ? 0xA0 : 0x80;
+			int high = first == 0xED ? 0x9F : 0xBF;
+			return second >= low && second <= high && UTF8.continuation((int)(unsigned char)data[offset + 2]) ? 3 : 0;
+		}
+		if (first >= 0xF0 && first <= 0xF4) {
+			if (remaining < 4) { return 0; }
+			int second = (int)(unsigned char)data[offset + 1];
+			int low = first == 0xF0 ? 0x90 : 0x80;
+			int high = first == 0xF4 ? 0x8F : 0xBF;
+			return second >= low && second <= high && UTF8.continuation((int)(unsigned char)data[offset + 2]) && UTF8.continuation((int)(unsigned char)data[offset + 3]) ? 4 : 0;
+		}
+		return 0;
+	}
+
+	/* The scalar at *offset, advancing *offset past it: U+FFFD for a malformed
+	 * byte, which advances one byte, and -1 (with *offset at length) when
+	 * *offset is outside data[0, length). */
+	class int decode(string data, int length, int* offset) {
+		int start = *offset;
+		if (data == null || start < 0 || start >= length) {
+			*offset = length;
+			return -1;
+		}
+		int width = UTF8.width(data, length, start);
+		if (width == 0) {
+			*offset = start + 1;
+			return 0xFFFD;
+		}
+		*offset = start + width;
+		int first = (int)(unsigned char)data[start];
+		if (width == 1) { return first; }
+		int codepoint = first & (width == 2 ? 0x1F : (width == 3 ? 0x0F : 0x07));
+		for (int index = 1; index < width; index++) { codepoint = (codepoint << 6) | ((int)(unsigned char)data[start + index] & 0x3F); }
+		return codepoint;
+	}
+
+	/* True when data[0, length) is well-formed throughout. */
+	class bool valid(string data, int length) {
+		if (data == null || length < 0) { return false; }
+		int offset = 0;
+		while (offset < length) {
+			int width = UTF8.width(data, length, offset);
+			if (width == 0) { return false; }
+			offset += width;
+		}
+		return true;
+	}
+
+	/* The boundary after the scalar at offset; a malformed byte is its own
+	 * one-byte scalar. Clamped to [0, length]. */
+	class int next(string data, int length, int offset) {
+		if (offset >= length) { return length < 0 ? 0 : length; }
+		if (offset < 0) { return 0; }
+		int width = UTF8.width(data, length, offset);
+		return offset + (width == 0 ? 1 : width);
+	}
+
+	/* The boundary before offset, the exact inverse of next: the start of the
+	 * well-formed scalar ending at offset, else the single malformed byte
+	 * before it. */
+	class int previous(string data, int length, int offset) {
+		int bounded = offset > length ? length : offset;
+		if (data == null || bounded <= 0) { return 0; }
+		int candidate = bounded - 1;
+		int steps = 0;
+		while (candidate > 0 && steps < 3 && UTF8.continuation((int)(unsigned char)data[candidate])) {
+			candidate--;
+			steps++;
+		}
+		return UTF8.width(data, length, candidate) == bounded - candidate ? candidate : bounded - 1;
+	}
+
+	/* Word scalars for keyboard navigation: ASCII letters, digits and '_',
+	 * plus every non-ASCII scalar. */
+	class bool wordScalar(string data, int length, int offset) {
+		if (data == null || offset < 0 || offset >= length) { return false; }
+		int code = (int)(unsigned char)data[offset];
+		return code >= 0x80 || (code >= '0' && code <= '9') || (code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '_';
+	}
+
+	/* The start of the word at or before offset, skipping separators first. */
+	class int previousWord(string data, int length, int offset) {
+		int position = offset > length ? length : offset;
+		while (position > 0 && !UTF8.wordScalar(data, length, UTF8.previous(data, length, position))) { position = UTF8.previous(data, length, position); }
+		while (position > 0 && UTF8.wordScalar(data, length, UTF8.previous(data, length, position))) { position = UTF8.previous(data, length, position); }
+		return position;
+	}
+
+	/* The end of the word at or after offset, skipping separators first. */
+	class int nextWord(string data, int length, int offset) {
+		int position = offset < 0 ? 0 : offset;
+		while (position < length && !UTF8.wordScalar(data, length, position)) { position = UTF8.next(data, length, position); }
+		while (position < length && UTF8.wordScalar(data, length, position)) { position = UTF8.next(data, length, position); }
+		return position;
 	}
 }
 

@@ -1,15 +1,15 @@
 import Library.GUI.IGPUView;
-import Library.GPU.Program;
-import Library.GPU.Readback;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.UniformBuffer;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUReadback;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUUniformBuffer;
 
 import ./Camera.btrc;
 import ./Light.btrc;
 import ./Material.btrc;
 import ./Ground.btrc;
 import ./Sky.btrc;
-import ./Gameobject.btrc;
+import ./GameObject.btrc;
 
 /* btrc 3D Engine -- Scene
  *

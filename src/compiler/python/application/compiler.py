@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
@@ -251,6 +252,7 @@ class Compiler:
         )
 
         if cache_inputs is not None:
+            start = time.perf_counter()
             cached = self.cache.load_artifacts(
                 cache_inputs[0],
                 source_path,
@@ -264,6 +266,10 @@ class Compiler:
                     else None
                 )
                 if native_plan is not None:
+                    # Profiling keeps the cache, as btrcc's timing does, and
+                    # marks the hit the way btrcc does.
+                    if profile is not None:
+                        profile["artifact-hit"] = time.perf_counter() - start
                     return CompilerResult(
                         options=options,
                         source_bundle=resolved,
