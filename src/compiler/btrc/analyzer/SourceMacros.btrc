@@ -75,9 +75,7 @@ class SourceMacroNamespace {
 		return null;
 	}
 
-	public string unresolvedPieceMessage(Node piece) {
-		return "Cannot concatenate '" + piece.name + "' with an adjacent string literal: it is not a source macro that expands to a string literal";
-	}
+	public string unresolvedPieceMessage(Node piece) { return "Cannot concatenate '" + piece.name + "' with an adjacent string literal: it is not a source macro that expands to a string literal"; }
 
 	/* The decoded byte length of a string-constant expression, without
 	 * terminator; -1 for anything else. Every piece decodes separately. */
