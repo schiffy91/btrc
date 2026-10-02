@@ -676,3 +676,32 @@ def test_line_after_a_semicolon_less_quoted_import_is_not_a_string_continuation(
 )
 def test_trivial_function_compaction_keeps_split_string_pieces(source: str) -> None:
     assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\tif (a)\n\t\tdo if (b) x++; while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tdo if (b) { x++; } while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tdo\n\t\t\tif (b) x++; while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tif (b) do\n\t\t\tif (x) x++;\n\t\twhile (x < 0);\n\t\telse x = 2;\n",
+    ],
+)
+def test_ifs_inside_an_unbraced_do_body_close_with_its_while(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\tswitch (x) {\n\t\tcase 0:\n\t\t\tif (a)\n\t\t\t\tx = 1;\n\t\tdefault: break;\n\t}\n",
+        "\tswitch (x) {\n\t\tcase 0:\n\t\t\ttry {\n\t\t\t\tx = 1;\n\t\t\t} catch (string error) {\n"
+        "\t\t\t\tx = 2;\n\t\t\t}\n\t\tdefault: break;\n\t}\n",
+        "\tvar f = (int y) => y;\n\tf =\n\t\t(int y) => {\n\t\t\treturn y;\n\t\t};\n",
+        "\tThread<int> t = a > 0\n\t\t? spawn(() => { return 1; })\n\t\t: spawn(() => { return 2; });\n",
+    ],
+)
+def test_a_body_opened_on_a_continuation_line_nests_past_it(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source

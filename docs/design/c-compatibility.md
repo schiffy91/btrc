@@ -165,7 +165,13 @@ step did and still owes, in both compilers:
   `)` or `]` line inside an unbraced body at the body's level; does not treat
   the line after a semicolon-less `import "x.btrc"` as a string continuation;
   and does not compact a trivial function whose string pieces are split across
-  lines (`src/tests/formatter/test_engine.py`). Neither compiler changed.
+  lines (`src/tests/formatter/test_engine.py`). A follow-up fuzz pass found
+  two more: ifs inside an unbraced `do` body now close with its `while`, and a
+  header or `{` on a continuation line outside parentheses (after `case X:`,
+  a lambda after `=`) nests its body past the continuation, which reindented
+  three switch corpus files (whitespace only). Still deferred: case bodies are
+  not modelled, so statements after a case's first line stay at the label's
+  level. Neither compiler changed.
 
 ## C2 aggregates (Stage 17) and array dimensions (Stage 18)
 
