@@ -1,6 +1,7 @@
 // A non-block body of if, else, while, do and the C-style for is one statement.
-#include <assert.h>
 import Library.Vector;
+
+#include <assert.h>
 
 int sign(int value) {
 	if (value < 0)

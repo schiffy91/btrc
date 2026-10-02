@@ -121,6 +121,32 @@ or adjacent string.
   both compilers. A `(` list not followed by `;` or `{` is the ordinary
   `Expected LBRACE` error, not an unnamed-parameter refusal.
 
+## Stage 16 integration notes (`ccompat-c1-integrate`)
+
+The four C1 lanes (r02/r06 bodies, r01 parameters, r05 adjacent strings, r04
+char arrays) landed in that order as separate merges. What the integration
+step still owes, in both compilers:
+
+- **Adjacent strings into a char array.** `char s[6] = "ab" "c";` is refused
+  with "A char array can only be initialized from a string literal or a brace
+  list". r04's extent goes through one owner
+  (`string_initializer_byte_length` / `stringInitializerByteLength`), which
+  must accept a `StringConcat` whose parts are string literals and sum their
+  decoded bytes. C allows this, and neither compiler accepted it before C1.
+- **One decoder.** The Python lexer has both r05's `decode_string` and r04's
+  `string_byte_length`. On a lexically valid literal they agree: the byte length
+  equals `len(decode_string(raw))`. Keep one owner per compiler and test that
+  the two compilers agree on escapes, `\u`/`\U`, line splices and UTF-8.
+- **Body IR proof in btrcc.** btrcc has no `--emit-ir`, so r02's
+  braced-versus-braceless proof compares btrcc's C output, while the Python
+  compiler compares raw IR.
+- **Deferred by r04, all existing behavior shared with `int` arrays:** a bound
+  the front end cannot evaluate (a C `#define` or `sizeof`) leaves the exact
+  fit to the C compiler; a line splice inside a literal gains the emitter's
+  indentation; a global used only through `sizeof(g)` is dropped by the
+  optimizer; `const int N = 3; char t[N] = "abc";` is emitted as a VLA with an
+  initializer.
+
 ## C2 aggregates (Stage 17) and array dimensions (Stage 18)
 
 PLAN.md Stage 17 puts every C2 representation decision into one serial schema commit. That commit also fixes `TypeExpr`'s array dimensions for Stage 18 (r17). As a result, `src/language/ast.asdl`, the generated `Node` and dataclasses, the canonical renderers and the AST boundary records churn only once.

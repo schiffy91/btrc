@@ -14,13 +14,10 @@ int twice(int x) {
 int pick(int x) {
 	int result = 0;
 	switch (x) {
-		case 1:
-			;
-		case 2:
-			result = 12;
-			break;
-		default:
-			;
+		case 1:;
+		case 2: result = 12;
+		break;
+		default:;
 	}
 	return result;
 }

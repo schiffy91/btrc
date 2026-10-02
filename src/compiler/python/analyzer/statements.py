@@ -60,6 +60,7 @@ from src.compiler.python.syntax.ast.generated import (
     ReturnStmt,
     RichEnumDecl,
     SelfExpr,
+    StringLiteral,
     StructDecl,
     SwitchStmt,
     TernaryExpr,
