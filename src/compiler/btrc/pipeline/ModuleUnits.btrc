@@ -552,48 +552,6 @@ class ModuleUnitDeclarations {
 		return names;
 	}
 
-	/* Complete struct definitions must precede structs that embed them by
-	 * value; merged shared structs can depend on the unit's own and back.
-	 * Keep the given order among those that are ready. */
-	private void orderStructs(IRModule unit) {
-		Map<string, bool> names = {};
-		for definition in unit.structDefs { names.put(definition.name, true); }
-		Vector<IRStructDef> ordered = [];
-		Map<string, bool> placed = {};
-		int remaining = unit.structDefs.len;
-		while (remaining > 0) {
-			bool progressed = false;
-			for definition in unit.structDefs {
-				if (placed.has(definition.name)) { continue; }
-				bool ready = true;
-				for field in definition.fields {
-					if (field.cType.indexOf("*") >= 0) { continue; }
-					Map<string, bool> used = {};
-					ModuleUnitDeclarations.collectText(field.cType, used);
-					for name in used.keys() {
-						if (names.has(name) && !name.equals(definition.name) && !placed.has(name)) { ready = false; }
-					}
-				}
-				if (ready) {
-					ordered.push(definition);
-					placed.put(definition.name, true);
-					remaining = remaining - 1;
-					progressed = true;
-				}
-			}
-			if (!progressed) {
-				for definition in unit.structDefs {
-					if (!placed.has(definition.name)) {
-						ordered.push(definition);
-						placed.put(definition.name, true);
-					}
-				}
-				remaining = 0;
-			}
-		}
-		unit.structDefs = ordered;
-	}
-
 	/* Add the shared declarations `unit` needs that it does not provide. */
 	/* Native binding headers and the C names each declares. A group unit
 	 * keeps only the headers whose names its final C mentions: every unit
@@ -735,7 +693,6 @@ class ModuleUnitDeclarations {
 			else if (kind == 6) { unit.functionDecls.push(self.shared.functionDecls.get(position)); }
 			else { unit.globalDecls.push(self.shared.globalDecls.get(position)); }
 		}
-		self.orderStructs(unit);
 		/* Directives of other groups (their headers and macros) apply to every
 		 * unit, as they do to the whole program; they precede all C code. */
 		for declaration in self.shared.preprocessorDecls {
