@@ -81,6 +81,7 @@ class IROptimizer {
 		BtrccPhaseTimer.mark("o-dce");
 		CycleReturnBoundaryLowerer(module.temporaryNames).installProgramBoundary(module);
 		self.normalizeUnusedParameters(module);
+		self.orderPrototypes(module);
 		BtrccPhaseTimer.mark("o-params");
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
 		Map<string, bool> requiredHelpers = references.requiredBy(module);
@@ -120,6 +121,7 @@ class IROptimizer {
 		}
 		CycleReturnBoundaryLowerer(module.temporaryNames).installProgramBoundaryWhen(module, programCyclableRelease);
 		self.normalizeUnusedParameters(module);
+		self.orderPrototypes(module);
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
 		Map<string, bool> requiredHelpers = references.requiredBy(module);
 		self.runtimeHelpers.materializeInto(module, requiredHelpers, references.requiredHeaders());
@@ -833,6 +835,34 @@ class IROptimizer {
 		m.typedefDefs = typedefs;
 		m.taggedUnionDefs = tagged;
 		m.structDefs = structs;
+	}
+
+	/* Order prototypes independently of the lowering phase that declared
+	 * them: those with no definition in this module keep their relative order
+	 * and come first, the rest follow their definitions' order. Mirrors
+	 * IROptimizer._order_prototypes in the Python owner. */
+	private void orderPrototypes(IRModule module) {
+		Map<string, Vector<IRFunctionDecl>> byName = {};
+		Map<string, bool> defined = {};
+		for definition in module.functions { defined.put(definition.name, true); }
+		Vector<IRFunctionDecl> ordered = [];
+		for declaration in module.functionDecls {
+			if (!defined.has(declaration.name)) {
+				ordered.push(declaration);
+				continue;
+			}
+			if (!byName.has(declaration.name)) {
+				Vector<IRFunctionDecl> group = [];
+				byName.put(declaration.name, group);
+			}
+			byName.get(declaration.name).push(declaration);
+		}
+		for definition in module.functions {
+			if (!byName.has(definition.name)) { continue; }
+			for declaration in byName.get(definition.name) { ordered.push(declaration); }
+			byName.remove(definition.name);
+		}
+		module.functionDecls = ordered;
 	}
 
 	/* Normalize unused C parameters into explicit structured discards.

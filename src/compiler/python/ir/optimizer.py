@@ -126,6 +126,7 @@ class IROptimizer:
             # structs/typedefs while retaining providers used by live CTypes.
             self._prune_runtime_support()
         self._normalize_unused_parameters()
+        self._order_prototypes()
         if not self._module.freestanding:
             # Keep the standalone Stage-5 API complete; the application
             # finalizer repeats this idempotently while deriving the remaining
@@ -677,6 +678,22 @@ class IROptimizer:
         providers: dict[str, set[DeclarationKey]],
     ) -> set[DeclarationKey]:
         return {key for name in names for key in providers.get(name, ())}
+
+    def _order_prototypes(self) -> None:
+        """Order prototypes independently of the lowering phase that declared them.
+
+        Prototypes with no definition in this module keep their relative order
+        and come first; the rest follow their definitions' order. btrcc's
+        optimizer applies the same rule, so both compilers emit one prototype
+        block for one set of definitions.
+        """
+        positions = {function.name: index for index, function in enumerate(self._module.function_defs)}
+        external = [declaration for declaration in self._module.function_decls if declaration.name not in positions]
+        defined = sorted(
+            (declaration for declaration in self._module.function_decls if declaration.name in positions),
+            key=lambda declaration: positions[declaration.name],
+        )
+        self._module.function_decls = [*external, *defined]
 
     def _normalize_unused_parameters(self) -> None:
         for function in self._module.function_defs:
