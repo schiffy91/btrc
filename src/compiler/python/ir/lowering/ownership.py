@@ -462,10 +462,18 @@ class CycleMetadata:
         """Whether an emitted representation can join a retain cycle."""
         if emitted_name in self._emitted_may_cycle:
             return self._emitted_may_cycle[emitted_name]
+        result = True
         info = self._analyzed.class_table.get(emitted_name)
+        instance = self._generic_instance(emitted_name)
         if info is not None and (not info.generic_params):
-            return self.type_may_cycle(TypeExpr(base=emitted_name))
-        return True
+            result = self.type_may_cycle(TypeExpr(base=emitted_name))
+        elif instance is not None:
+            # A specialization answers from its concrete type, exactly as the
+            # typed query does; only an unknown emitted name stays conservative.
+            base, arguments = instance
+            result = self.type_may_cycle(TypeExpr(base=base, generic_args=list(arguments)))
+        self._emitted_may_cycle[emitted_name] = result
+        return result
 
     def visit_action(self, type_expr: TypeExpr, seen: set[tuple] | None = None) -> DirectVisitAction | None:
         """Return one typed heap edge, or ``None`` for unmanaged storage."""
