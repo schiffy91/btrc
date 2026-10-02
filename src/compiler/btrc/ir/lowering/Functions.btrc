@@ -530,8 +530,6 @@ class FunctionLowerer {
 
 	public void emitGpuCpuFallback(Node declaration, IRModule module) {
 		self.resetFuncVarDecls();
-		// The fallback's checked indices call the runtime catalog's bounds check.
-		self.context.referenceHelper("__btrc_gpu_index_check");
 		GpuCpuLoweringPlan plan = self.gpuPipeline.beginCpuFallback(declaration, module, self.seededVarTypes());
 		string previousReturnC = self.context.currentReturnCType;
 		Node? previousReturn = self.context.currentReturnType;
