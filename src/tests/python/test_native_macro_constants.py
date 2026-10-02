@@ -433,7 +433,7 @@ def test_foreign_binding_constants_fold_beside_a_visible_macro(reader, tmp_path,
     text = generated.read_text(encoding="utf-8")
     for name in ("SHARED_FLAG", "SHARED_WIDE", "demo_Mode_off", "demo_Mode_on"):
         assert not re.search(rf"\b{name}\s*=", text), name
-    assert "unsigned long wide = ((unsigned long)1099511627776UL);" in text
+    assert "unsigned long wide = ((unsigned long)1099511627776U);" in text
     assert "long mode = ((long)-3);" in text
     assert '"%d %lu %ld %ld\\n", ((int)32), wide, mode, ((long)((long)4))' in text
     executable = tmp_path / "program"

@@ -2104,12 +2104,6 @@ class ExpressionLowerer:
             return IRLiteral(text=predefined)
         if self._session.local_is_declared(name):
             return self._source_identifier_var(node, self._ownership.source_binding_c_name(name, provenance))
-        constant = self._folded_native_constants.get(name)
-        if constant is not None:
-            return IRCast(
-                target_type=CType(text=self._types.render(replace(constant.type, is_const=False))),
-                expr=IRLiteral(text=constant.initializer.raw),
-            )
         if name in self._analyzed.native_owned_globals:
             prefix = "__btrc_objc_read_" if name in self._objective_c_globals else "__btrc_native_read_"
             return IRCall(callee=prefix + name, args=[])
@@ -2129,6 +2123,12 @@ class ExpressionLowerer:
                 return IRVar(name=f"{prefix}{name}")
         if name in self._analyzed.function_table and (not self._session.local_is_declared(name)):
             return IRFunctionRef(name=provenance.source_function_c_name(name))
+        constant = self._folded_native_constants.get(name)
+        if constant is not None:
+            return IRCast(
+                target_type=CType(text=self._types.render(replace(constant.type, is_const=False))),
+                expr=IRLiteral(text=constant.initializer.raw),
+            )
         return self._source_identifier_var(node, name)
 
     def _source_identifier_var(self, node, c_name):
