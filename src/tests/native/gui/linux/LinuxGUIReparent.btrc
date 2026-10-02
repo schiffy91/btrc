@@ -1,0 +1,97 @@
+/* A GPU view moved between two windows, each with its own WebGPU device: the
+ * new window composes nothing for it until poll() rebuilds the offscreen
+ * target on the new device, and never samples the old window's texture. */
+import Library.GUI.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IContainer;
+import Library.GUI.IGPUView;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.Capture;
+import Library.GPU.SurfaceRenderer;
+import Library.Image;
+import Library.Vector;
+import Library.Datetime;
+import Library.Console;
+import Library.Callback;
+
+#include <assert.h>
+
+class ReparentJourney implements IApplicationWork {
+	public IGPUView view;
+	public IContainer first;
+	public IContainer second;
+	public bool passed = false;
+	private int _step = 0;
+	private Timer _deadline = Timer();
+
+	public ReparentJourney(IGPUView view, IContainer first, IContainer second) {
+		self.view = view; self.first = first; self.second = second;
+		self._deadline.start();
+	}
+
+	/* Draws one solid frame into the view's current target. */
+	private void present(double red, double green, double blue) {
+		assert(self.view.beginFrame(red, green, blue) == GPU_SURFACE_FRAME_READY);
+		assert(self.view.frameRenderer().present());
+	}
+
+	private RGBA centre(IContainer root) {
+		var image = GUI.capture(root, new Vector<GUICaptureLayer>());
+		assert(image.width > 0 && image.height > 0);
+		return image.pixel(image.width / 2, image.height / 2);
+	}
+
+	public void run() {
+		assert(self._deadline.elapsed() < 20.0f);
+		bool ready = self.view.poll();
+		assert(self.view.error().isEmpty());
+		if (self._step == 0 && ready) {
+			self.present(0.0, 0.0, 1.0);
+			var shown = self.centre(self.first);
+			assert(shown.blue > 200 && shown.red < 60 && shown.green < 60);
+			/* Reparent: the target still belongs to the first window's device. */
+			self.first.detach(self.view);
+			self.second.attach(self.view);
+			self.view.arrange(0.0, 0.0, 200.0, 160.0);
+			self._step = 1;
+		} else if (self._step == 1) {
+			/* The second window composes before any poll: its panel shows, and the
+			 * first device's texture is never sampled on the second device. */
+			var stale = self.centre(self.second);
+			assert(stale.red > 200 && stale.blue < 60);
+			self._step = 2;
+		} else if (self._step == 2 && ready) {
+			/* poll() rebuilt the target on the second window's device. */
+			self.present(0.0, 1.0, 0.0);
+			var rebuilt = self.centre(self.second);
+			assert(rebuilt.green > 200 && rebuilt.red < 60 && rebuilt.blue < 60);
+			self.passed = true;
+			GUI.requestQuit();
+			return;
+		}
+		GUI.postAfter(0.001, self);
+	}
+}
+
+int main() {
+	GUI.initialize(64);
+	var firstWindow = GUI.createWindow("BTRC Linux reparent A", 200.0, 160.0);
+	var secondWindow = GUI.createWindow("BTRC Linux reparent B", 200.0, 160.0);
+	var first = GUI.createPanel(RGBA(40, 40, 40, 255), 0.0);
+	var second = GUI.createPanel(RGBA(230, 20, 20, 255), 0.0);
+	var view = GUI.createGPUView(true);
+	first.attach(view);
+	firstWindow.attachRoot(first);
+	secondWindow.attachRoot(second);
+	view.arrange(0.0, 0.0, 200.0, 160.0);
+	firstWindow.show();
+	secondWindow.show();
+	var journey = ReparentJourney(view, first, second);
+	GUI.post(journey);
+	GUI.run();
+	assert(journey.passed);
+	assert(GUI.close() == CallbackCancellation.Complete);
+	Console.log("PASS: linux gui reparent");
+	return 0;
+}
