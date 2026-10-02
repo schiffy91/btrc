@@ -62,7 +62,7 @@ This document is Stage 24's serial **Spec** step: the design that the fan-out im
 | A third target table, for release bundles, spells `linux-x64` and `macos-arm64`. Its host map lacks Windows ARM64. | `src/compiler/python/artifacts/archive.py:1306-1400` |
 | The link plan writes `"target": {"arch", "os"}` and schema 1, 2 or 4. The builder reads 1, 2 and 4, compiles with the host `cc`/`c++` and never passes `--target`. Frameworks require macOS. | `packages.py:43`, `:564-620`; `Packages.btrc:2370-2403`; `tools/native_plan.py:33-48`, `:312-334`, `:891-966`; `src/language/package-manifest.md:1789-1831` |
 | The native reader takes its triple and sysroot only from `BTRC_NATIVE_TARGET` and `BTRC_NATIVE_SYSROOT`. It accepts `{arm64,x86_64}-apple-macosxN.N.N` or `<arch>-(unknown-)linux-gnu` and refuses everything else, Windows included. Objective-C requires macOS. | `src/compiler/python/frontend/native_imports.py:790-806`, `:1018-1075`; `src/compiler/btrc/frontend/NativeImports.btrc:2530-2547`, `:3146-3149` |
-| The native read cache keys on the reader argv, which includes `--target=` and `-isysroot <path>`, but no SDK content or version. | `native_imports.py:951-1017`; `src/compiler/btrc/frontend/NativeHeaderProcess.btrc:58-77` |
+| The native read cache keys on the reader argv, which includes `--target=` and `-isysroot <path>`. The reader's own cache re-verifies every recorded input file (inode, size, mtime, digest) before reuse. | `native_imports.py:951-1017`; `src/compiler/btrc/frontend/NativeHeaderProcess.btrc:58-77` |
 | Both analyzers take integer widths from the compiler's own process: Python `CIntegerWidths.native()` uses `struct.calcsize`, and btrcc uses its C `LONG_MAX`. | `src/compiler/python/analyzer/types.py:105-125`; `src/compiler/btrc/analyzer/validation/Constants.btrc:316-330` |
 | `hosted_abi.toml` `[platform]` is one target-independent union of automatic-header names (about 3,300 functions, macros, objects and types; it includes Windows seams such as `GetFileAttributesA`). Nothing selects it by target. | `src/language/hosted_abi.toml:8108-11400`; `tools/compiler_codegen/hosted_abi.py:128-146`, `:396-433`; `src/tests/python/test_hosted_abi_platform_names.py` |
 | Package predicates are `os` and `arch` string arrays over the closed sets. An empty array matches every value. | `src/language/package-manifest.md:64-90`, `:113-116` |
@@ -86,7 +86,7 @@ This document is Stage 24's serial **Spec** step: the design that the fan-out im
 | Hosted availability | `hosted_abi.toml` gains one `[[platform_targets]]` table per row, listing the `[platform]` names that are unavailable there. The optimizer refuses a reachable reference to an unavailable name. |
 | Link plan | **Schema 5 is always written.** It adds target identity, target arguments and the sysroot identity. The builder reads 1, 2, 4 and 5, but a legacy plan builds only on the host row it names. |
 | Provider filters | Manifests gain an `env` selector. A platform-named module directory (`MacOS`, `IOS`, `Linux`, `Android`, `Windows`) must select only its own OS. |
-| Cache identity | Every key spells the **canonical label**, never the raw option. The prebuilt stdlib archive, the native read cache and the builder caches gain the label and, where they read a sysroot, the sysroot identity. A matrix test proves each cache misses across every axis. |
+| Cache identity | Every key spells the **canonical label**, never the raw option. The prebuilt stdlib archive and the builder caches gain the label; the native resolution fingerprint and the builder caches gain the sysroot identity. A matrix test proves each cache misses (or, for the stdlib archive, refuses) across every axis. |
 | Host inference | Desktop rows only (`compiler_host = true`, the default environment). Python and btrcc refuse every other host with the same message and at the same point. |
 
 ## 1. `platforms-p1-target-spec`
@@ -235,32 +235,43 @@ Every value below is clang 21.1.8 `-std=c11 -dM -E` for the row's triple.
 
 The test names them as classified skips off the Mac.
 
-### 1.4 `PackageTarget` reads `TARGET_ROWS`
+### 1.4 One target owner per compiler
 
-**Python.** `frontend/packages.py::PackageTarget` becomes:
-- **Fields:** `operating_system`, `architecture` and `environment`. `row` is a property returning the `GeneratedTargetRow`, and `label` is a property.
-- **`parse(value)`:**
-  - It splits on `-` into two or three parts.
+**Python.** Parsing, labels and host inference live in a new class `TargetRepository` in `abi/hosted.py`, beside `HostedAbiRepository`, which already owns the generated ABI data. `abi` is the one package that every consumer may import under `test_compiler_api.py:270-284`: `frontend` and `artifacts` may import it, and neither may import the other. `TargetRepository` provides:
+- `parse(value)`:
+  - It splits on `-` into two or three parts and refuses any empty part. So `macos-aarch64-`, `linux-x86_64-`, `-` and `""` are refused, and an empty environment is never spelled in a label.
   - It applies `TARGET_ARCHITECTURE_ALIASES` to the architecture.
   - When the environment is absent, it uses `TARGET_DEFAULT_ENVIRONMENTS.get(os, "")`.
   - It looks up `(os, arch, environment)` in `TARGET_ROWS`.
-  - On failure it raises `ValueError` with the message in §1.5.
-- **`host()`** replaces the `parse(None)` branch (§1.7).
-- **`_TARGET_OPERATING_SYSTEMS` and `_TARGET_ARCHITECTURES` are deleted.**
-- `as_dict()` keeps `{"arch", "os"}` for the legacy link-plan writer path. Schema 5 writes the full identity (§4).
+  - On failure it raises `TargetSelectionError(ValueError)` with the message in §1.5.
+- `host(system=None, machine=None)` (§1.7).
+- `labels()`.
+
+`frontend/packages.py::PackageTarget` keeps its role as the frontend's value:
+- **Fields:** `operating_system`, `architecture` and `environment`. `row` and `label` are properties.
+- **Construction:** `parse` and `coerce` delegate to `TargetRepository`.
+- **Deleted:** `_TARGET_OPERATING_SYSTEMS` and `_TARGET_ARCHITECTURES`.
+- **`as_dict()` is deleted.** Schema 5 writes the full identity (§4), and no writer is left on the `{"arch", "os"}` form.
 
 **Also in Python:**
 - `NativeDeclaration.selected_for` and the binding and provider predicates gain the `env` selector (§5).
-- `artifacts/archive.py::TargetCatalog` takes its host map from `PackageTarget.host()`. Its release names, `linux-x64` and the rest, are rendered from the row with the inverse of `TARGET_ARCHITECTURE_ALIASES` for `compiler_host` rows only. This adds the missing Windows ARM64 host.
+- `artifacts/archive.py::TargetCatalog` builds its default host map from `TargetRepository.host()`, an `abi` import that is allowed. Its release names, `linux-x64` and the rest, are rendered from the `compiler_host` rows with the inverse of `TARGET_ARCHITECTURE_ALIASES`. This adds the missing Windows ARM64 host. Its constructor keeps the signature that `test_compiler_api.py:338-343` pins.
+- The CLI's `--target` help and its validation (§1.5) go through a new `application/compiler.py` API, `Compiler.target_labels()` and `Compiler.select_target(raw)`, because `cli/` may import only `application` (`test_compiler_api.py:276-278`).
 
-**btrc.** `frontend/Packages.btrc::FePackageTarget` gets the same fields (`operatingSystem`, `architecture`, `environment`), the `row()` and `label()` accessors, and `parse(raw)`/`host()`. They read `GeneratedHostedAbiData` rows. `validOperatingSystem` and `validArchitecture` are deleted. The frontend imports only generated data, as C4 already requires (`Resolver.btrc:3-15`).
+**btrc.** `frontend/Packages.btrc::FePackageTarget` gets the same fields (`operatingSystem`, `architecture`, `environment`), the `row()` and `label()` accessors, and `parse(raw)`, `host()` and `hostFrom(…)` (§1.7). They read `GeneratedHostedAbiData` rows. `validOperatingSystem` and `validArchitecture` are deleted. The btrc frontend imports only generated data, which C4 introduces; today `Resolver.btrc:3-15` imports none.
 
-**Ripple, both compilers.** `--target`'s metavar and help become `OS-ARCH[-ENV]`: `cli/compiler.py:79-83`, `cli/Driver.btrc:202`, `:237-245`, and `tools/FrontendMain.btrc:29`, `:49-52`. The help text lists the labels generated from the rows.
+**Ripple, both compilers.**
+- `--target`'s metavar and help become `OS-ARCH[-ENV]`: `cli/compiler.py:79-83`, `cli/Driver.btrc:202`, `:237-245`, and `tools/FrontendMain.btrc:29`, `:49-52`. The help text lists the labels.
+- Every message that spells a target uses the label, so `windows-aarch64` and `windows-aarch64-msvc` stay distinguishable:
+  - "no provider for target" (`packages.py:1012`, `Packages.btrc:1865`);
+  - "native header bindings require --target OS-ARCH" (`Packages.btrc:1975`, which becomes unreachable once §1.7 removes the empty target);
+  - `tools/native_plan.py:320`, `:966`.
+- No test pins the old target messages. A grep of `src/tests` and `tools` for `unsupported package target`, `cannot infer a supported package target` and `requires OS-ARCH` finds nothing.
 
 ### 1.5 One accepted set, one message
 
-Both compilers accept exactly the eleven labels, each optional explicit default environment, and each architecture alias. That is 11 canonical labels plus 19 alias spellings:
-- `x64` or `arm64` on each of the 11 rows;
+Both compilers accept exactly the eleven labels, each optional explicit default environment, and each architecture alias. That is 11 canonical labels plus 19 alias spellings, 30 in all, and the test lists every one:
+- `x64` or `arm64` on each of the 11 rows (including `windows-arm64-msvc` and `ios-arm64-simulator`);
 - `-gnu` on each of the 4 linux and windows-gnu rows;
 - both forms together on those 4 rows.
 
@@ -270,52 +281,68 @@ They reject everything else with one message, character for character:
 unsupported target '<raw>'; expected one of android-aarch64, android-x86_64, ios-aarch64, ios-aarch64-simulator, linux-aarch64, linux-x86_64, macos-aarch64, macos-x86_64, windows-aarch64, windows-aarch64-msvc, windows-x86_64
 ```
 
-The list is the sorted canonical labels. Python raises `ValueError` and the CLI prints it as `error: <message>`. btrcc prints `error: package resolution failed: <message>` today; Stage 24 moves the target check ahead of package resolution in both compilers, so both print `error: <message>` and exit 1 (§1.7). Today's messages differ: compare `packages.py:181-192` with `Packages.btrc:51-66`.
+The list is the sorted canonical labels. Today's messages differ: compare `packages.py:181-192` with `Packages.btrc:51-66`.
 
-**Round-trip.** Every spelling accepted today parses to the same `(os, arch)` and to an environment of `""` or the default. Its canonical label is `os-arch`, as today. The legacy link-plan dictionary, the cache keys after §6's canonicalization, and the bundle names are therefore byte-identical for every spelling accepted today.
+**Where the check runs.** Both CLIs check in this order: argument errors first, then the target, then reading the input. Each prints `error: <message>` with no `package resolution failed:` prefix, and exits 1. A target error therefore appears even when the input path does not exist, and the test uses a missing input path to prove it.
+- **Python today.** `--target bogus` ends in a raw traceback, because `PackageTarget.coerce` runs at `packages.py:2528`, outside the `try`. The CLI also reads the source (`cli/compiler.py:230`) before `compile()`. With Stage 24, `CompilerCommand` calls `Compiler.select_target` right after argument parsing. `select_target` returns a `CompilerFailure` of the existing kind `CompilerFailureKind.INPUT` (`application/results.py:30-39`).
+- **btrcc today.** An empty `options.target` means "infer the host" (`Driver.btrc:238-245`; `Packages.btrc:2906`). So `--target ""` silently selects the host, and `--target "" --target linux-x86_64` passes the only-once check. Stage 24 adds a `targetGiven` flag to `BtrccOptions`: an explicit empty value is the §1.5 error in both CLIs, and a repeated `--target` is refused whatever its first value.
+- **The LSP.** Only the LSP's empty `btrc.target` setting means "the host".
+
+**Round-trip.** Every spelling accepted today parses to the same `(os, arch)`, with an environment of `""` or the default. Its canonical label is `os-arch`, the same as today's normalized spelling. After Stage 24, all spellings of one target give identical cache keys, link plans and bundle names. The keys themselves change once: btrcc used the raw spelling, and every plan becomes schema 5.
 
 ### 1.6 Deployment minimum
 
-- `minimum_version` is fixed per row: macOS 14.0 (see owner question Q1), iOS 17.0 (D21), Android 29 (D21). It is empty for linux and windows, whose triples carry no version. The Windows 11 floor is a runtime and packaging fact in the matrix, not a compile flag.
-- There is no `--min-version` option. A later stage that needs one adds a row or a validated override that changes the triple and every derived macro together. Never a separate `-D`.
-- **`BTRC_NATIVE_TARGET`** stays accepted, for BTRSmith's `bsm_env.sh` and existing tests. When set, it must equal the row's `triple` or one of its `triple_aliases`. Otherwise both readers refuse with:
+- `minimum_version` is fixed per row: macOS 14.0 (owner question Q1), iOS 17.0 (D21), Android 29 (D21). It is empty for linux and windows, whose triples carry no version. The Windows 11 floor is a runtime and packaging fact in the matrix, not a compile flag.
+- There is no `--min-version` option. A later stage that needs one adds a row, or a validated override that changes the triple and every derived macro together. Never a separate `-D`.
+- **`BTRC_NATIVE_TARGET`** stays accepted, for BTRSmith's `bsm_env.sh` and the existing tests. When set, it must equal the row's `triple` or one of its `triple_aliases`. Otherwise both readers refuse with:
 
   ```text
   BTRC_NATIVE_TARGET '<value>' does not match target <label> (<triple>)
   ```
 
-  It no longer selects the triple; the row does. The Stage 22 matrix proposes zig spellings (`x86_64-windows-gnu`) as triples; those are `zig_target` values, and clang maps them to a different vendor (`x86_64-unknown-windows-gnu`), so they are not aliases. The matrix's slice table is updated to the row triples when it merges. Today's macOS regex accepts any `N.N.N` version, so a value other than 14.0 now refuses. Every in-repo user spells 14.0.0 (`tools/bench/scripts/bsm_env.sh:29`, `src/tests/python/native_import_fixtures.py`).
+  - It no longer selects the triple; the row does.
+  - The Stage 22 matrix proposes zig spellings (`x86_64-windows-gnu`) as triples. Those are `zig_target` values. clang maps them to a different vendor (`x86_64-unknown-windows-gnu`), so they are not aliases. The matrix's slice table is updated to the row triples when it merges.
+  - Today's macOS regex accepts any `N.N.N` version, so a value other than 14.0 now refuses. Every in-repo user spells 14.0.0 (`tools/bench/scripts/bsm_env.sh:29`, `src/tests/python/native_import_fixtures.py`).
 
 ### 1.7 Host inference
 
-Both compilers infer the host only when `--target` is absent. Both map the host to a row with `compiler_host = true` in its default environment.
+Both compilers infer the host only when `--target` is absent. Both reduce the host to a pair of **normalized tokens**, an OS token in {`macos`, `linux`, `windows`} and an architecture token in {`x86_64`, `aarch64`}, or to nothing. They then select the `compiler_host` row in that OS's default environment.
 
-- **Python.** `PackageTarget.host()` maps `platform.system().lower()` ∈ {`darwin` → macos, `linux` → linux, `windows` → windows} and `platform.machine().lower()` ∈ {`x86_64`, `amd64` → x86_64; `aarch64`, `arm64` → aarch64}. Python 3.13 reports `ios` and `android` from `platform.system()`; they are deliberately unmapped.
-- **btrcc.** `FePackageTarget.host()` keeps reading `__btrc_target_platform()` and `__btrc_target_architecture()`. Stage 24 leaves the runtime helpers alone, which avoids a D14 re-capture here; Stage 25 owns the iOS and Android codes (see [Hand-offs](#hand-offs)). A btrcc for a non-host row cannot exist: `SelfhostBundleBuilder` and `TargetCatalog` accept only `compiler_host` rows, and `test_target_contract.py` pins that.
-- **Unrecognized host, both compilers.** The compile stops before reading any source, with this message and exit 1:
+- **Python** (`TargetRepository.host(system, machine)`). It maps `platform.system().lower()`: `darwin` → `macos`, `linux` → `linux`, `windows` → `windows`. It maps `platform.machine().lower()`: `x86_64` and `amd64` → `x86_64`; `aarch64` and `arm64` → `aarch64`. Everything else maps to nothing, including Python 3.13's `ios` and `android` and MSYS2's `msys_nt-…`.
+- **btrcc** (`FePackageTarget.hostFrom(int platform, int architecture)`). It maps `__btrc_target_platform()`'s codes 1/2/3 to `macos`/`linux`/`windows`, and `__btrc_target_architecture()`'s codes 1/2 to `x86_64`/`aarch64`. Code 0 maps to nothing.
+  - Stage 24 leaves the runtime helpers alone, which avoids a D14 re-capture here. Stage 25 owns the iOS and Android codes ([Hand-offs](#hand-offs)).
+  - A btrcc for a non-host row cannot exist: `SelfhostBundleBuilder` and `TargetCatalog` accept only `compiler_host` rows.
+- **Different bases, documented.** Python infers from the interpreter process: x86_64 under Rosetta, and x86_64 for x64 Python on Windows ARM64. btrcc infers from the target it was built for. The parity test does not assume the two agree on one machine. It takes btrcc's expected row from the binary's machine type through `ExecutableFormatInspector`, and Python's from the interpreter.
+- **Unrecognized host, both compilers.** The compile stops at the target check (§1.5), before reading any source, with this message and exit 1:
 
   ```text
-  error: cannot infer a supported target from host <system>-<machine>; pass --target
+  error: cannot infer a supported target from this host; pass --target
   ```
 
-  This replaces btrcc's empty target, `Packages.btrc:38-49`. The empty target is no longer possible because from Stage 24 every compile needs a row: the analyzer widths come from it (§1.8). It also replaces C4's lazy D13: C4 made the LSP and btrcc complete the environment only at the first conditional, so that a file without conditionals compiled on an unknown host. With a row required for widths, that laziness has nothing left to protect.
-  - **btrcc's `<system>-<machine>`** comes from `uname()` through the existing `Library.Platform`.
-  - **The LSP** keeps one exception: a file opened on an unrecognized host without `btrc.target` shows the message once as a workspace diagnostic and parses without conditioning or widths. It does not crash (C4's LSP test).
-  - **Spelling.** `<system>` and `<machine>` are lowercased in both compilers: Python's `platform.system()`/`platform.machine()` and btrcc's `uname()` `sysname`/`machine` (`Darwin`, `Linux`, `arm64`, `x86_64`, Windows `ARM64`/`AMD64`) agree once lowercased.
-- **Testing.** CI has no unsupported host, so both compilers expose the inference through a unit seam: Python `PackageTarget.host(system=…, machine=…)`, and btrc `FePackageTarget.hostFrom(int platform, int architecture, string system, string machine)`, whose integers are `__btrc_target_platform()`'s codes. `test_target_contract.py` holds one table of `(system, machine, platform code, architecture code, expected label or message)` rows and drives both seams with it. A real unknown-host btrcc is also built once with `-DBTRC_TARGET_PLATFORM_OVERRIDE=0` (`core.c:170-171`), which already exists for exactly this.
+  - **No host details.** The message names no host, because btrcc's only facts are code 0 and 0, and it has no `uname` binding (`src/stdlib/Platform.btrc` has none, and `uname` is not in `hosted_abi.toml`).
+  - **What it replaces.** It replaces btrcc's empty target (`Packages.btrc:38-49`). From Stage 24 every compile needs a row, because the analyzer widths come from it (§1.8).
+  - **The LSP keeps C4's lazy D13.** On an unrecognized host with no `btrc.target`, the workspace shows this message once as a workspace diagnostic. It then analyses with the named fallback row `LSP_FALLBACK_TARGET = "linux-x86_64"`, defined in `src/devex/lsp/workspace/workspace.py`, so hovers and widths work. It conditions lazily, as C4 designs, so D13 still appears at a file's first conditional. Compiles never use the fallback.
+- **Testing.** One table in `test_target_contract.py` holds rows of `(system, machine) | (platform code, architecture code) → tokens → expected label or message`. It drives the Python string seam and the btrc integer seam. Every row whose tokens are equal must give the same answer.
+  - For an end-to-end unknown host, a btrcc is built once with `-DBTRC_TARGET_PLATFORM_OVERRIDE=0`. That seam already exists (`core.c:170-171`) and `test_application_directories_contract.py:80` already uses it.
 
 ### 1.8 Data model in both analyzers
 
-- **Python.** `analyzer/types.py::CIntegerWidths` gains `for_target(row)`, built from `sizeof_long`, with char 8, short 16, int 32 and long long 64 (a generator rule pins these four across every row). `NumericLiteralSemantics` takes the widths of the selected target from `SemanticAnalyzer`. `CIntegerWidths.native()` is deleted, so no analysis depends on the compiler's process.
-- **btrc.** `analyzer/validation/Constants.btrc::ConstantValidator` (`:38`) replaces its uses of the C `LONG_MIN`/`LONG_MAX`/`ULONG_MAX` (`builtinCastRange`, `:333-337`) with values computed from the row's `sizeofLong`. The selected row reaches it through the analyzer's context, which `CompilerPipeline` fills.
-- **Widths contract.** C4's widths check (`__CHAR_BIT__`, `__SIZEOF_SHORT__`, `__SIZEOF_INT__` and `__SIZEOF_LONG_LONG__` equal both analyzers' widths) gains `__SIZEOF_LONG__` against `for_target` for every row. It stays in `test_hosted_abi_contract.py`.
+- **Python.** `analyzer/types.py::CIntegerWidths` gains `for_target(row)`. It is built from `sizeof_long`, with char 8, short 16, int 32 and long long 64; a generator rule pins those four across every row.
+  - `NumericLiteralSemantics` and `SemanticAnalyzer` take a target row.
+  - About 118 call sites construct them with no target, most of them tests and the LSP (`workspace.py:319`, `:323`, `:352`). For those, the default is `TargetRepository.host()`'s row, so they keep today's widths on every supported host.
+  - `CIntegerWidths.native()` is deleted, so no analysis depends on `struct.calcsize`.
+- **btrc.** Three sites use the C compiler's own `long` limits, and all three switch to the row's `sizeofLong`:
+  - `analyzer/validation/Constants.btrc::ConstantValidator` (`:38`), `builtinCastRange` (`:333-337`);
+  - `syntax/Literals.btrc::IntegerLiteral.typeName()` (`:105-140`), which types an unsuffixed or `l`/`u` literal as `long` or `long long` through `LONG_MAX`/`ULONG_MAX`. It gains a `long`-width parameter. Its callers pass the selected row's width: the class method `analyzer/Operators.btrc:138-142` (`integerLiteralType`) and `frontend/NativeImports.btrc:1530`.
+  - The row reaches them through the analyzer context and the native importer, both filled by `CompilerPipeline`.
+- **Widths contract.** C4's widths check covers `__CHAR_BIT__`, `__SIZEOF_SHORT__`, `__SIZEOF_INT__` and `__SIZEOF_LONG_LONG__` against both analyzers' widths. It gains `__SIZEOF_LONG__` against `for_target` for every row, and stays in `test_hosted_abi_contract.py`.
 - **Observable change.** A Linux → `windows-x86_64` compile now types `long` as 32 bits:
   - `long x = 3000000000;` is refused, with the existing out-of-range message;
-  - the constant cast-range checks for `long` and `unsigned long` use the 32-bit range.
+  - the constant cast-range checks for `long` and `unsigned long` use the 32-bit range;
+  - the unsuffixed decimal literal `3000000000` is typed `long long` in both compilers. Today both compilers type it from the host (`long` on every LP64 host, whatever the target). Switching only Python would have split them, which would change overload choice and f-string formats, so all three btrc sites move in the same commit.
 
-  Neither analyzer folds the hosted `LONG_MAX` macro; it reaches C unchanged and C's `<limits.h>` gives the target's value.
-
-  `test_target_data_model.py` pins both in both compilers.
+  Neither analyzer folds the hosted `LONG_MAX` macro. It reaches C unchanged, and C's `<limits.h>` gives the target's value. `test_target_data_model.py` pins all three in both compilers.
+- **Release C files.** `Makefile:128-129` generates `dist/btrcc-windows.c` with no `--target`, so the host row's LP64 widths and availability would analyse a Windows build. It gains `--target windows-x86_64`. The portable `dist/btrcc.c` is generated once and cross-compiled for the four LP64 desktop rows (`Makefile:150-169`). The release gate regenerates it with `--target` for each of those rows and requires byte-identical output. If any row differs, that row gets its own C file.
 
 ### 1.9 MSVC
 
@@ -347,7 +374,7 @@ The LSP owner is `src/devex/lsp/workspace/workspace.py`:
 
 | Test | What it proves |
 |------|----------------|
-| `src/tests/btrc/test_target_contract.py` (new; both compilers) | The accepted set: the 11 labels and their 19 aliases, and a rejection battery (`linux-x86`, `ios-x86_64-simulator`, `macos-arm64-gnu`, `windows-x86_64-msvc`, `android-arm64-29`, `ios-aarch64-device`, `""`, `-`, `linux-`). Accepted labels give identical canonical labels and rejected ones identical messages, through `btrcc --target X --emit-link-plan` and `btrcpy`, with no source read. Host inference: the seam table in both compilers and the unknown-host message. Every spelling accepted today round-trips (§1.5). Slices map to rows (§1.2). Only `compiler_host` rows reach `TargetCatalog`. |
+| `src/tests/btrc/test_target_contract.py` (new; both compilers) | The accepted set: the 11 labels and their 19 aliases, and a rejection battery (`linux-x86`, `ios-x86_64-simulator`, `macos-arm64-gnu`, `windows-x86_64-msvc`, `android-arm64-29`, `ios-aarch64-device`, `macos-aarch64-`, `linux-x86_64-`, an explicit `--target ""`, `-`, `linux-`, and a repeated `--target`). Accepted labels give identical canonical labels and rejected ones identical messages and exit 1, through `btrcc --target X --emit-link-plan` and `btrcpy`, with an input path that does not exist (so no source is read). Host inference: the seam table in both compilers and the unknown-host message. Every spelling accepted today round-trips (§1.5). Slices map to rows (§1.2). Only `compiler_host` rows reach `TargetCatalog`. |
 | `src/tests/python/test_hosted_abi_contract.py` (extended) | Each generator rule in §1.1 has a failing fixture. The generated rows equal the spec. Derived macros come only from columns. The widths contract covers `__SIZEOF_LONG__`. |
 | `src/tests/python/test_target_macro_table.py` (C4's test 3, extended) | All 11 triples from the rows against clang 21. Mac-bound: Apple clang and `TargetConditionals.h`. |
 | `src/tests/btrc/test_target_data_model.py` (new; both compilers) | For each of `linux-x86_64`, `windows-x86_64` and `windows-aarch64-msvc`: `long` literal and cast-range refusals are the same in both compilers, and they follow the row, not the host. |
@@ -412,13 +439,13 @@ The extraction is a read-only `tools/hosted_platform.py`, owned by the class `Ho
 
 The check runs in the **optimizer stage** (pipeline stage 5, not PLAN Stage 5), after reachability, not in the analyzer. A stdlib function that names a macOS-only symbol and is unreachable from a Linux program is removed before emission today, and the analyzer cannot know that.
 
-- **Python.** `ir/optimizer.py::IROptimizer` gains `refuse_unavailable_hosted(target)`. Once the reachability graph is final, it walks the reachable functions' calls and identifier references to hosted names, the reachable globals' initializers and the kept extern declarations. On the first reference whose name is in `HOSTED_PLATFORM_UNAVAILABLE[label]`, in emission order, it raises `CompilerFailureKind.SEMANTIC`:
+- **Python.** `ir/optimizer.py::IROptimizer` gains `refuse_unavailable_hosted(target)`. Once the reachability graph is final, it walks the reachable functions' calls and identifier references to hosted names, the reachable globals' initializers and the kept extern declarations. On references whose name is in `HOSTED_PLATFORM_UNAVAILABLE[label]`, it reports the one that sorts first by `(function, name)`. Emission order is not stable across whole-program and `--module-units` builds, where btrcc optimizes in forked worker groups, it raises a `CompilerFailureKind.ANALYSIS` failure:
 
   ```text
   '<name>' is not available on target <label> (hosted ABI); referenced from <function>
   ```
 
-- **btrc.** The same check lives in `ir/optimization/Optimizer.btrc`'s reachability owner (`IROptimizer`), with the same message and order.
+- **btrc.** The same check lives in `ir/optimization/Optimizer.btrc`'s reachability owner (`IROptimizer`), with the same message and the same `(function, name)` order. Under `--module-units` the owner process runs it over the merged reachability result, never inside a worker.
 - **Scope.** Live `#include` lines and `.c` imports are not inspected; the C compiler owns them. A user-declared prototype of a hosted name (`extern int fork(void);`) is still a hosted-name reference: btrc already refuses redeclaring hosted names in user code.
 - **`--no-dce`** keeps every function, so the check sees every reference. That matches C, where an undeclared call in an emitted function already fails under `-std=c11`.
 - **Stdlib on new targets.** A stdlib module that names an unavailable symbol, inside a function a program reaches, now fails at btrc time with the name and the target. The mobile and Windows stdlib adaptations (Stages 25–26, `platform-adaptations.md`) clear these with C4 `#if` guards or providers. For bionic, this is the safety net that platform-parity P1 asks for ("minimum-version code must not reference an unavailable symbol unguarded"), because `__INTRODUCED_IN` hides a declaration above the triple's API level. For Apple it is weaker: the iOS 27.0 SDK declares newer APIs with `API_AVAILABLE(ios(18.0))` rather than hiding them, so names-only extraction reports them available at 17.0. Stage 24 relies on clang's `-Wunguarded-availability` in the C compile for those; reading availability attributes into the tables is left to a later stage and recorded as a gap.
@@ -446,7 +473,7 @@ The check runs in the **optimizer stage** (pipeline stage 5, not PLAN Stage 5), 
 | macos, ios | `--target=<triple> -isysroot <sysroot>`; Objective-C adds `-fblocks -fobjc-arc` |
 | linux | `--target=<triple> -isysroot <sysroot> -isystem <sysroot>/usr/include` (unchanged) |
 | android | `--target=<triple> --sysroot=<sysroot>` (clang then searches `usr/local/include`, `usr/include/<arch>-linux-android` and `usr/include`, checked with `-###`) |
-| windows gnu | `--target=<triple> -nostdinc -isystem <zig lib>/include -isystem <sysroot>/include/any-windows-any -isystem <repo>/src/runtime/windows`, where `<sysroot>` is zig's `lib/libc` and `<zig lib>/include` is zig's bundled clang resource headers, searched first as `zig cc -v -E` shows |
+| windows gnu | `--target=<triple> -nostdinc -isystem <zig lib>/include -isystem <sysroot>/include/any-windows-any -isystem <runtime root>/windows`, where `<runtime root>` is each compiler's existing runtime-asset root (the checkout's `src/runtime` for btrcpy; the installed data root beside `--stdlib-dir` for btrcc). The two argv strings may then differ in that path, which changes only each compiler's own reader-cache key, never the decoded semantics. In this row, `<sysroot>` is zig's `lib/libc` and `<zig lib>/include` is zig's bundled clang resource headers, searched first as `zig cc -v -E` shows |
 | windows msvc | `--target=<triple> -isystem <VC include> -isystem <SDK ucrt/um/shared>`, all from `windows-sdk` validation (runner-bound) |
 
 - **Objective-C** is allowed when `row.objective_c` is true: macOS and iOS. The error at `:1068` becomes `Objective-C adapters require an Apple target`.
@@ -464,7 +491,7 @@ The check runs in the **optimizer stage** (pipeline stage 5, not PLAN Stage 5), 
 | `zig-mingw` | `include/any-windows-any/windows.h` and `include/any-windows-any/_mingw_mac.h` exist | `include/any-windows-any/_mingw_mac.h` (it carries the MinGW-w64 version: `__MINGW64_VERSION_MAJOR` 13 in zig 0.16.0) |
 | `windows-sdk` | runner-bound; `Include/<version>/um/windows.h` exists | `Include/<version>` directory name plus the `SDKManifest.xml` digest |
 
-The identity is SHA-256 over `kind\0name\0<file bytes>`. It enters the native read cache key (§6), the native resolution fingerprint (`native_imports.py:782-788`, `btrc-native-resolution-v4`), and link plan v5 (§4).
+The identity is SHA-256 over `kind\0name\0<file bytes>`. It enters the native resolution fingerprint (`native_imports.py:782-788`, `btrc-native-resolution-v4`), and link plan v5 (§4).
 
 **Rejected:** running `xcrun` from the compiler. That would add a process and an environment-dependent answer to both compilers, which goes against the principle that the compilers never discover a toolchain.
 
@@ -624,7 +651,7 @@ It resolves with every export imported, through the reference package resolver. 
 - **missing:** a configured module with no provider for the row. It is reported, and is expected for `GUI`, `Audio`, `Tray` and `UI` on mobile until Stages 31–35. The test compares the missing set with `docs/design/platform-inventory.toml`'s `missing`/`os-restricted` cells and fails on any disagreement, so the two stay one denominator.
 - **portable:** the rest.
 
-**Audit, part of the item.** Every stdlib native declaration with an empty `os` array now also matches ios and android. The provider-filter writer lists them, about a dozen per the P0 inventory, and gives each an explicit `os` or a reason to stay portable. Example: `src/stdlib/GUI/btrc.toml:27` binds `Linux/SDL.h` with `os = ["macos"]`; the matrix flags it as foreign, and the writer fixes the module path or the selector.
+**Audit, part of the item.** Every stdlib native declaration with an empty `os` array now also matches ios and android. The provider-filter writer lists them, about a dozen per the P0 inventory, and gives each an explicit `os` or a reason to stay portable. Today every platform-directory record in `src/stdlib/GUI/btrc.toml` already selects its own OS (`:27-44` binds `Linux/SDL.h` with `os = ["linux"]`), so the rule should hold there from the start. The matrix will show whether any other manifest breaks it.
 
 **Exit evidence:** zero foreign records for every row through both frontends; the missing set equals the inventory; `make test` green. All of this runs on Linux, because it reads only manifests.
 
@@ -645,8 +672,8 @@ Every cache key that can depend on the target spells the **canonical label** fro
 | Python whole-program artifacts (`application/compiler.py:197-222`) | `cache_identity()` includes `native_plan.canonical_json()` | No code change: the v5 plan carries the identity. The test proves it. |
 | Module units (`modules.py:863`; `ModuleUnits.btrc:1817`) | raw `options.target` | Label. |
 | btrc `ValidationRecords` (`ModuleUnits.btrc:2705`) | `target=options.target` | `target=<label>`; context version `validation-record-v5`. |
-| Prebuilt stdlib archive (`artifacts/stdlib.py:119-170`, `:276-300`) | hash of the composed stdlib text | **Changed.** The manifest gains `target` (the label) and `target_spec` (`TARGET_SPEC_FINGERPRINT`). `load` misses unless both match. The archive holds emitted C, which depends on widths and hosted availability, not only on conditioned text. |
-| Native header reads (`native_imports.py:951-1017`; `NativeHeaderProcess.btrc:67-77`) | the argv (`--target=`, `-isysroot <path>`) | The request gains `sysroot_identity`, and the schema becomes `btrc.native-read.v2`. Without it, an Xcode or NDK update in place would replay stale semantics. |
+| Prebuilt stdlib archive (`artifacts/stdlib.py:75-170`, `:276-300`) | hash of the composed stdlib text | **Changed.** `StdlibArchiveManifest.SCHEMA` goes from 5 to 6, because `valid()` requires the exact field set. The manifest gains `target` (the label) and `target_spec` (`TARGET_SPEC_FINGERPRINT`). The archive holds emitted C, which depends on widths and hosted availability, not only on conditioned text. It is an artifact with one slot per stdlib directory, not a cache, so a mismatch is not a silent miss: `load` raises the existing `ArchiveVersionError` with `prebuilt stdlib archive was built for <label>; regenerate it for <label>`. The matrix (§6.3) asserts that refusal, which is the poisoning guard for this row. |
+| Native header reads (`native_imports.py:951-1017`; `NativeHeaderProcess.btrc:67-77`; the reader's own cache in `tools/NativeHeaderReader.cpp`) | the argv (`--target=`, `-isysroot <path>`); the reader re-checks every recorded file's inode, size, mtime and content digest before reuse (`NativeTraceVerifier`, `NativeFileTrace`, `:1306-1340`, `:1518+`, `:2465`) | **Unchanged.** An in-place Xcode or NDK update already misses there. The request stays `btrc.native-read.v1`: the reader accepts only that exact five-key request (`:2747`), so a v2 would break every pinned reader, including `bsm_env.sh`'s. The `--target=` in the argv separates rows. |
 | Native resolution fingerprint (`native_imports.py:782-788`; btrc twin) | `btrc-native-resolution-v3` | v4, with the label and the sysroot identity. |
 | Directive cache, stdlib AST cache | conditioned text (C4) | Unchanged. Conditioned text is a pure function of raw text and label. |
 | LSP `UnitCache` (C4) | target label plus environment identity | Unchanged in shape. The label is now the `btrc.target` setting's (§1.10). |
