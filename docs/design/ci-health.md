@@ -187,6 +187,20 @@ the `id-token: write` permission that only the FlakeHub login used;
 `test_ci_workflow_contracts.py` keeps it off. The row keeps the lane's
 wording until a CI run confirms the annotation is gone.
 
+`nix-cache` came back inside the devcontainer image build on 2026-10-01 and
+2026-10-02 (`bench` job 110631740226 on a637aed, `tests (c11-clang-O3)` job
+110653116098 on 0a3213d). The host's Magic Nix Cache was throttled, but
+those jobs did not fail on the host. They failed in the image's
+`nix print-dev-env` step, which fetches from cache.nixos.org directly: HTTP/2
+framing errors, a resumed download the cache answered with HTTP 416, then
+"some substitutes ... failed; try '--fallback'" for perl, git or nodejs.
+`nix/containerfile.nix` now installs Nix with `http2 = false`,
+`download-attempts = 10`, `connect-timeout = 15` and `fallback = true`, and
+retries `nix print-dev-env` up to three times, keeping the paths an earlier
+attempt copied. The final failure still fails the build.
+`test_build_safety.py` pins each setting and the retry. The host-side Nix
+configuration, set by `determinate-nix-action`, is unchanged.
+
 ### Unclassified
 
 | Signature | Classification | Hits (failed / runs) | Seen | Still present | Owner |

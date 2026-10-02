@@ -187,6 +187,28 @@ def test_devcontainer_stages_the_gpu_runtime_its_dev_shell_builds():
             assert f"!{'/'.join(parts[:depth])}/" in admitted, prefix
 
 
+def test_devcontainer_image_build_survives_a_flaky_binary_cache():
+    """CI lost runs to cache.nixos.org HTTP/2 framing errors and 416s inside the image build."""
+    containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
+    install = containerfile[containerfile.index("determinate-nix-installer.sh install") :]
+    install = install[: install.index("rm -f /tmp/determinate-nix-installer.sh")]
+
+    for setting in (
+        "experimental-features = nix-command flakes",
+        "http2 = false",
+        "download-attempts = 10",
+        "connect-timeout = 15",
+        "fallback = true",
+    ):
+        assert f'--extra-conf "{setting}"' in install, setting
+    evaluation = containerfile[containerfile.index("RUN cd /tmp/flake") :]
+    evaluation = evaluation[: evaluation.index("rm -rf /tmp/flake")]
+    assert "for attempt in 1 2 3; do" in evaluation
+    assert "nix print-dev-env . > ${home}/.nix-devshell.sh && break;" in evaluation
+    # The last failure still fails the build rather than leaving an empty shell file.
+    assert '[ "$attempt" -lt 3 ] || exit 1;' in evaluation
+
+
 def test_devcontainer_installs_the_null_alsa_pcm():
     """CI's Linux shards run the ALSA session tests against this PCM; without it they would fail there."""
     containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
