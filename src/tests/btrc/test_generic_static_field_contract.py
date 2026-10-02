@@ -57,7 +57,7 @@ def test_generic_method_lowers_scalar_and_managed_static_fields(
     borrowed_store = next(
         line
         for line in emitted.splitlines()
-        if "__btrc_store_value" in line and " = value)" in line and "Globals_shared" in line
+        if "__btrc_slot_new" in line and " = value)" in line and "Globals_shared" in line
     )
     assert "__btrc_arc_retain(" in borrowed_store
     assert "__btrc_arc_replace_edge" not in emitted
@@ -121,12 +121,12 @@ def test_static_managed_strong_slot_preserves_exact_ownership(
     borrowed_store = next(
         line
         for line in emitted.splitlines()
-        if "__btrc_store_value" in line and " = first)" in line and "Globals_shared" in line
+        if "__btrc_slot_new" in line and " = first)" in line and "Globals_shared" in line
     )
     self_store = next(
         line
         for line in emitted.splitlines()
-        if "__btrc_store_value" in line and " = Globals_shared)" in line and "Globals_shared" in line
+        if "__btrc_slot_new" in line and " = Globals_shared)" in line and "Globals_shared" in line
     )
     fresh_store = next(line for line in emitted.splitlines() if "makeItem(2)" in line)
     assert "__btrc_arc_retain(" in borrowed_store

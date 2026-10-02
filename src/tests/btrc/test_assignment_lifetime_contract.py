@@ -52,11 +52,11 @@ def test_managed_identifier_assignments_cannot_bypass_the_typed_slot_owner() -> 
     core = expressions[expressions.index("private IRNode materializeAssignmentCore(") :]
     identifier_plan = managed_types[
         managed_types.index("private ManagedIdentifierStorePlan? identifierStorePlan(") : managed_types.index(
-            "/* Commit one already-owned replacement", managed_types.index("private ManagedIdentifierStorePlan?")
+            "/* Commit one new persistent +1", managed_types.index("private ManagedIdentifierStorePlan?")
         )
     ]
     strong_store = managed_types[
-        managed_types.index("private void appendStrongSlotCommit(") : managed_types.index(
+        managed_types.index("private IRNode replaceManagedSlot(") : managed_types.index(
             "public IRNode materializeStaticFieldStore("
         )
     ]
@@ -68,8 +68,11 @@ def test_managed_identifier_assignments_cannot_bypass_the_typed_slot_owner() -> 
     assert identifier_plan.index("registeredType != null") < identifier_plan.index("targetType == null")
     assert "!self.context.sourceCNameActive(storageName)" in identifier_plan
     assert "self.analyzed.globalHasDefinition.has(sourceName)" in identifier_plan
-    assert "self.lifetime.cleanupRegistration(" in strong_store
-    assert strong_store.index('value, "=", IRNode.literal("NULL")') < strong_store.index("self.lifetime.releaseValue(")
+    assert "self.lifetime.protectTemporary(" in strong_store
+    assert strong_store.index("self.lifetime.protectTemporary(") < strong_store.index('old, "=", slot')
+    assert strong_store.index('replacement, "=", IRNode.literal("NULL")') < strong_store.index(
+        "self.lifetime.releaseValue("
+    )
 
 
 def test_managed_compound_updates_have_one_physical_storage_transaction() -> None:
@@ -83,13 +86,13 @@ def test_managed_compound_updates_have_one_physical_storage_transaction() -> Non
     type_validation = (validation / "Types.btrc").read_text()
     core = expressions[expressions.index("private IRNode materializeAssignmentCore(") :]
     transaction = managed_types[
-        managed_types.index("private void appendArcFieldPublication(") : managed_types.index(
+        managed_types.index("public ManagedCompoundStore prepareCompoundStore(") : managed_types.index(
             "public IRNode releaseField("
         )
     ]
     arc_publication = managed_types[
-        managed_types.index("private void appendArcFieldPublication(") : managed_types.index(
-            "/* Stabilize the physical target", managed_types.index("private void appendArcFieldPublication(")
+        managed_types.index("private void appendProtectedArcFieldPublication(") : managed_types.index(
+            "/* Move one temporary +1 out", managed_types.index("private void appendProtectedArcFieldPublication(")
         )
     ]
     plan = managed_types[
@@ -111,17 +114,17 @@ def test_managed_compound_updates_have_one_physical_storage_transaction() -> Non
         'update.rightValue, "=", loweredRight'
     )
     assert transaction.index("self.lifetime.retainValue(") < transaction.index('update.rightValue, "=", loweredRight')
-    assert "self.appendCleanupProtection(" in transaction
-    assert "self.lifetime.cleanupRegistration(" in managed_types
+    assert "self.lifetime.protectTemporary(" in transaction
+    assert "public void protectTemporary(" in lifetime
     assert "self.lifetime.replaceTypedEdge(" in arc_publication
-    assert arc_publication.index("self.appendCleanupProtection(") < arc_publication.index(
-        "self.lifetime.replaceTypedEdge("
+    assert transaction.index("self.lifetime.protectTemporary(concreteReplacementDeclaration") < transaction.index(
+        "self.appendProtectedArcFieldPublication("
     )
     assert arc_publication.index("self.lifetime.replaceTypedEdge(") < arc_publication.index(
         "self.appendReleaseAndClear("
     )
     assert "owner, false" in arc_publication
-    assert "self.appendStrongSlotCommit(" in transaction
+    assert '"__btrc_update_current"' in transaction
     assert "self.appendReleaseAndClear(" in transaction
     assert "public string storageCType;" in managed_types
     assert "private Node canonicalStorageType(Node typeExpr)" in managed_types
