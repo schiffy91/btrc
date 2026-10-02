@@ -467,8 +467,10 @@ class AlsaStream implements AudioSessionBackend {
 		if (read < 0L) {
 			int recovered = snd_pcm_recover(state->capture, (int)read, 1);
 			if (recovered < 0) { return recovered; }
-			/* Recovery leaves capture prepared, and a prepared capture never becomes ready. */
-			int restarted = snd_pcm_start(state->capture);
+			/* An overrun recovers to PREPARED, where capture never becomes ready on its
+			 * own; a resumed suspend is already RUNNING and an interrupted read is
+			 * unchanged, and starting either would fail with -EBADFD. */
+			int restarted = btrcAlsaStartIfPrepared(state->capture);
 			if (restarted < 0) { return restarted; }
 			RealtimeAudioSamples.silence(Span(state->physicalInput, physicalSamples));
 			*flags |= (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY;
