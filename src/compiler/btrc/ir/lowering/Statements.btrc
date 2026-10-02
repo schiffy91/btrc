@@ -1540,11 +1540,12 @@ class StatementLowerer {
 		if (self.analyzed.isGenericClass(iterType.base)) {
 			calleePrefix = TypeIdentity.mangleGenericType(iterType.base, iterType.genericArgs());
 		}
-		string idx = self.context.freshTemporary("__i");
-		string nVar = self.context.freshTemporary("__n");
+		/* Allocation order follows Python's _plan_iterable_for_in. */
 		string iterVar = self.context.freshTemporary("__iter");
 		out.push(IRNode.variableDeclaration(self.cTypes.lower(iterType), iterVar, irIter));
 		string ownedRuntimeType = self.expressions.beginOwnedIteration(node.iterable, iterType, varTypes, iterVar, out, callableFlow);
+		string idx = self.context.freshTemporary("__i");
+		string nVar = self.context.freshTemporary("__n");
 		Node getMethod = ControlFlowValidator.iterableMethod(iterType, "iterGet", self.analyzed);
 		Node elemT = ControlFlowValidator.iterableResolvedType(getMethod.returnType, iterType, self.analyzed);
 		string elemC = self.iterValueC(elemT);

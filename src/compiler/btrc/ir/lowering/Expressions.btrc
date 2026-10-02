@@ -157,7 +157,15 @@ class ExpressionLowerer {
 		if (runtimeType == "") { return; }
 		self.managedLifetime.unregisterManaged(self.context.sourceCName(name));
 		self.context.borrowedLocalBindings.put(name, true);
-		output.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(IRNode.variable(name), runtimeType)));
+		/* The owner leaves its scope as Python's release_scope releases it,
+		 * then the hoist is cleared for any later loop exit. */
+		string releasedName = self.context.freshTemporary("__btrc_scope_released");
+		output.push(IRNode.variableDeclaration(self.managedValues.runtimeCType(runtimeType), releasedName, IRNode.variable(name)));
+		output.push(IRNode.assignment(IRNode.variable(name), IRNode.literal("NULL")));
+		output.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(IRNode.variable(releasedName), runtimeType)));
+		if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
+			output.push(IRNode.expressionStatement(self.managedLifetime.flushCycles()));
+		}
 		output.push(IRNode.assignment(IRNode.variable(name), IRNode.literal("NULL")));
 	}
 
