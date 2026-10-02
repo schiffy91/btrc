@@ -404,7 +404,7 @@ class Parser {
 			self.advance();
 		} else {
 			self.failAt("Expected access specifier (public/private/static), got '" + tok.value + "'", tok);
-			return Node();
+			return;
 		}
 
 		bool isAbstractMethod = false;
