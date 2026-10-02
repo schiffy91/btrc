@@ -605,6 +605,12 @@ class ControlFlowValidator {
 			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'", declaration);
 		}
 		self.ownership.rejectThreadHandleCopy(declared, actual, declaration.initializer, declaration);
+		/* A global's bound was validated before any body; a local's bound is
+		 * validated after its initializer, where the reference compiler
+		 * analyzes it, and before the name is in scope. */
+		if (self.state.owner != "" && declaration.type != null && declaration.type.isArray && declaration.type.arraySize != null) {
+			self.expressions.validateExpr(declaration.type.arraySize, vars);
+		}
 		vars.put(declaration.name, declared);
 		self.state.borrowedBindings.remove(declaration.name);
 		if (self.state.owner != "") {
@@ -688,6 +694,10 @@ class ControlFlowValidator {
 			Map<string, Node> catchVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> catchNames = {};
 			Node catchType = statement.catchType;
+			// Exceptions carry a string message, so only `string e` names one.
+			if (catchType != null && !(catchType.base == "string" && catchType.pointerDepth == 0)) {
+				TypeValidator.fail(f"Catch type '{catchType.base}' is not supported — exceptions carry a string message; use 'string {statement.catchVar}' or an untyped catch", catchType);
+			}
 			if (catchType == null) { catchType = SemanticTypeSystem.primitive("string"); }
 			if (statement.catchVar != "") {
 				self.names.validateLexicalBindingName(statement.catchVar, "Catch variable", statement);

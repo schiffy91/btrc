@@ -313,21 +313,28 @@ class LiteralScanner:
         *,
         literal_kind: str,
     ) -> None:
-        """Validate and preserve one C11 escape, including line splices."""
+        """Validate and preserve one C11 escape; drop a line splice.
+
+        A backslash-newline is deleted, as C translation phase 2 does, so the
+        literal's spelling is the bytes it stores; the line counter still
+        advances, so later token positions are unchanged.
+        """
         lex = self._lexer
 
+        if lex._peek(1) == "\n":
+            lex._advance()
+            lex._advance()
+            return
+        if lex._peek(1) == "\r" and lex._peek(2) == "\n":
+            lex._advance()
+            lex._advance()
+            lex._advance()
+            return
         chars.append(lex._advance())
         if lex.pos >= len(lex.source):
             raise LexerError(f"Unterminated {literal_kind} literal", line, col)
 
         escaped = lex._peek()
-        if escaped == "\n":
-            chars.append(lex._advance())
-            return
-        if escaped == "\r" and lex._peek(1) == "\n":
-            chars.append(lex._advance())
-            chars.append(lex._advance())
-            return
         if escaped == "\r":
             raise LexerError(f"Unterminated {literal_kind} literal", line, col)
         if LiteralDecoder.is_simple_escape(escaped):

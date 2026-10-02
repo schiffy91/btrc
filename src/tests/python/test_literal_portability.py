@@ -127,6 +127,8 @@ def test_line_splice_updates_following_token_position(newline: str):
     tokens = Lexer(f'"left\\{newline}right" int', "<literal>").tokenize()
 
     assert tokens[0].type is TokenKind.STRING_LIT
+    # Translation phase 2 deletes the splice, so the spelling is what is stored.
+    assert tokens[0].value == '"leftright"'
     assert tokens[1].type is TokenKind.INT
     assert tokens[1].line == 2
 

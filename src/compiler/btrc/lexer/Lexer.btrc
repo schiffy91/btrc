@@ -354,7 +354,21 @@ class Lexer {
 		return true;
 	}
 
+	/* A backslash-newline is deleted, as C translation phase 2 does, so the
+	 * literal's spelling is the bytes it stores; the line counter still
+	 * advances, so later token positions are unchanged. */
 	private string appendEscape(string content, string literalKind, int line, int col) {
+		if (self.peek(1) == '\n') {
+			self.advance();
+			self.advance();
+			return content;
+		}
+		if (self.peek(1) == '\r' && self.peek(2) == '\n') {
+			self.advance();
+			self.advance();
+			self.advance();
+			return content;
+		}
 		string result = content + f"{self.advance()}";
 		if (self.atEnd()) {
 			self.failLex("Unterminated " + literalKind + " literal", line, col);

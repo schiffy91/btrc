@@ -6,4 +6,6 @@ PASS: global
 PASS: static local
 PASS: struct field
 PASS: adjacent literals
+PASS: class static
+PASS: line splice
 PASS: xbc abcd jello Tag

@@ -11,6 +11,8 @@
 #define SALUTATION GREETING PUNCTUATION
 #define BANG "!" /* a trailing comment is not a piece */
 #define TAG "tag" // nor is a line comment
+#define LEAD "lead"
+#define MID "-mid-"
 
 char* banner = "ban" "ner";
 char* tables[2] = {"ta" "ble", "row" "s"};
@@ -54,6 +56,10 @@ int main() {
 	assert(strcmp(GREETING "!", "hello!") == 0);
 	assert(pieceLength("x" GREETING) == 6);
 	assert(strcmp(TAG"-"TAG, "tag-tag") == 0);
+	// A concatenation may open with a run of macro pieces.
+	char* opened = LEAD MID "tail";
+	assert(strcmp(opened, "lead-mid-tail") == 0);
+	print("PASS: a concatenation may open with macro pieces");
 	print("PASS: source-macro " "pieces");
 
 	string joined = "con" "cat" "enated";

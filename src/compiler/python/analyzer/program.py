@@ -368,6 +368,7 @@ class AnalyzedProgram:
     rich_enum_unsafe_default_ids: set[int] = field(default_factory=set)
     array_iteration_capacity_ids: set[int] = field(default_factory=set)
     constant_array_bound_ids: set[int] = field(default_factory=set)
+    source_macros: SourceMacroNamespace = field(default_factory=SourceMacroNamespace.empty)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     diags: list[Diag] = field(default_factory=list)
