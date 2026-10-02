@@ -72,10 +72,10 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 		bool down = type == NSEventTypeKeyDown;
 		if (type == NSEventTypeFlagsChanged) {
 			unsigned long mask = 0UL;
-			if (key == APP_KEY_LEFT_ALT) { mask = (unsigned long)MacOSLeftOptionFlag; }
-			else if (key == APP_KEY_RIGHT_ALT) { mask = (unsigned long)MacOSRightOptionFlag; }
-			else if (key == APP_KEY_LEFT_SHIFT) { mask = (unsigned long)MacOSLeftShiftFlag; }
-			else if (key == APP_KEY_RIGHT_SHIFT) { mask = (unsigned long)MacOSRightShiftFlag; }
+			if (key == APP_KEY_LEFT_ALT) { mask = (unsigned long)NX_DEVICELALTKEYMASK; }
+			else if (key == APP_KEY_RIGHT_ALT) { mask = (unsigned long)NX_DEVICERALTKEYMASK; }
+			else if (key == APP_KEY_LEFT_SHIFT) { mask = (unsigned long)NX_DEVICELSHIFTKEYMASK; }
+			else if (key == APP_KEY_RIGHT_SHIFT) { mask = (unsigned long)NX_DEVICERSHIFTKEYMASK; }
 			else { return native; }
 			down = (flags & mask) != 0UL;
 		}
