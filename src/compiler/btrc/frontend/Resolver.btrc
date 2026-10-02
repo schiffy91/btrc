@@ -290,9 +290,9 @@ class FeImportResolver {
 	private FeStdlibRootSnapshot stdlibSnapshot;
 	private FeSourceDirectoryScanner sourceDirectories;
 	private FeSourcePathPolicy sourcePaths;
-	private FeResolvedPackages packages;
+	private FeResolvedPackages? packages;
 
-	public FeImportResolver(FeStdlibRepository stdlib, FeStdlibRootSnapshot stdlibSnapshot, FeSourceDirectoryScanner sourceDirectories, FeResolvedPackages packages = null) {
+	public FeImportResolver(FeStdlibRepository stdlib, FeStdlibRootSnapshot stdlibSnapshot, FeSourceDirectoryScanner sourceDirectories, FeResolvedPackages? packages = null) {
 		self.stdlib = stdlib;
 		self.stdlibSnapshot = stdlibSnapshot;
 		self.sourceDirectories = sourceDirectories;
@@ -472,13 +472,14 @@ class FeImportResolver {
 			return self.resolveRelative(spec, sourceDir);
 		}
 		if (self.packageImportSpec(spec)) {
-			if (self.packages == null) {
+			FeResolvedPackages? packages = self.packages;
+			if (packages == null) {
 				fprintf(stderr, "error: package import '%s' is unsupported by btrcc without a version-1 btrc.toml; use an explicit local path beginning with './'\n", spec);
 				exit(1);
 			}
-			Vector<string> packagePaths = self.packages.pathsForImport(spec, sourceDir);
+			Vector<string> packagePaths = packages.pathsForImport(spec, sourceDir);
 			if (packagePaths.len > 0) { return packagePaths; }
-			if (!self.packages.versioned) {
+			if (!packages.versioned) {
 				fprintf(stderr, "error: package import '%s' is unsupported by btrcc without a version-1 btrc.toml; use an explicit local path beginning with './'\n", spec);
 			} else {
 				fprintf(stderr, "error: package import '%s' is not declared by the owning btrc.toml; use an explicit local path beginning with './' for local files\n", spec);
@@ -591,9 +592,9 @@ class FeFrontendResolver {
 	private Map<string, bool> included;
 	private FeDependencyGraphBuilder dependencies;
 	private FeSourcePathPolicy sourcePaths;
-	private FeResolvedPackages packages;
+	private FeResolvedPackages? packages;
 
-	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages packages = null, FeDirectiveCache? directiveCache = null) {
+	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages? packages = null, FeDirectiveCache? directiveCache = null) {
 		self.importPolicy = FePackageImportPolicy(packages == null ? null : packages.linkPlan.target);
 		self.directiveScanner = FeDirectiveScanner(grammar, directiveCache);
 		self.sourceDirectories = FeSourceDirectoryScanner();
@@ -712,7 +713,8 @@ class FeFrontendResolver {
 		/* Each result owns a stable dependency graph. Resolver reuse must not
          * retain a prior call's include guards or dependency edges. */
 		self.included = {};
-		self.importPolicy = FePackageImportPolicy(self.packages == null ? null : self.packages.linkPlan.target);
+		FeResolvedPackages? packages = self.packages;
+		self.importPolicy = FePackageImportPolicy(packages == null ? null : packages.linkPlan.target);
 		self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
 		FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
 		BtrccPhaseTimer.mark("r-snapshot");

@@ -419,7 +419,7 @@ class IROptimizer {
 	/* Collect referenced function names from an IR expression/statement tree.
      * Calls and IRFunctionRef nodes are semantic references. Literal text
      * is data and must never root a same-named dead function. */
-	private void collectFuncRefs(IRNode node, Map<string, bool> names, Map<string, bool> out) {
+	private void collectFuncRefs(IRNode? node, Map<string, bool> names, Map<string, bool> out) {
 		if (node == null) { return; }
 		if (node.kind == IRK_CALL && names.has(node.callee)) {
 			out.put(node.callee, true);
@@ -623,7 +623,7 @@ class IROptimizer {
 	/* Scan only type-bearing IR fields. Literal payloads and callable names are
      * values, not type references; treating them as C source both roots unrelated
      * declarations and repeatedly scans large generated-runtime string data. */
-	private void collectStructRefsNode(IRNode node, Map<string, bool> names, Map<string, bool> out) {
+	private void collectStructRefsNode(IRNode? node, Map<string, bool> names, Map<string, bool> out) {
 		if (node == null) { return; }
 		if (node.cType != "") {
 			self.scanTextForKnownNames(node.cType, names, out);

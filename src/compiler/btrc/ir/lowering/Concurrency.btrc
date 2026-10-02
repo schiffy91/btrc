@@ -168,7 +168,7 @@ class ConcurrencyLowerer {
 		return self.cTypes.lower(storageType);
 	}
 
-	public IRNode boxExactValue(IRNode expr, Node valueType, string prefix) {
+	public IRNode boxExactValue(IRNode expr, Node? valueType, string prefix) {
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(valueType, self.analyzed.typedefTable);
 		if (resolved == null || (resolved.base == "void" && resolved.pointerDepth == 0)) {
 			return IRNode.literal("NULL");
@@ -425,6 +425,10 @@ class ConcurrencyLowerer {
 		Node? argType = self.resolvedExpressionType(node.args().get(0), varTypes);
 		if (node.kind == NK_NEW_EXPR && node.type.genericArgs().len > 0) {
 			argType = node.type.genericArgs().get(0);
+		}
+		if (argType == null) {
+			fprintf(stderr, "internal compiler error: Mutex value at %d:%d has no resolved type\n", node.line, node.col);
+			exit(1);
 		}
 		Node concreteType = argType;
 		IRNode boxed = self.boxExactValue(args.get(0), concreteType, "__btrc_mutex");

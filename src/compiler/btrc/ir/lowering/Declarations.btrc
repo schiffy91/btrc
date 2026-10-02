@@ -245,7 +245,7 @@ class DeclarationLowerer {
 		} else if (contract.recordSnapshot != null) {
 			self.nativeRecordSnapshot(declaration, contract.recordSnapshot, arguments, statements, releases, cleanup);
 		} else if (contract.copiedResult != null) {
-			self.nativeCopiedResult(declaration, contract, arguments, parameterNames, statements, releases, cleanup);
+			self.nativeCopiedResult(declaration, contract, contract.copiedResult, arguments, parameterNames, statements, releases, cleanup);
 		} else if (contract.ownedOutput != null) {
 			self.nativeOwnedOutput(declaration, contract.ownedOutput, arguments, parameterNames, statements, releases, cleanup);
 		} else if (self.uniqueResource(contract.resourceResult)) {
@@ -1194,8 +1194,7 @@ class DeclarationLowerer {
 		statements.extend(cleanup); statements.push(IRNode.returnStatement(owner));
 	}
 
-	private void nativeCopiedResult(Node declaration, FeNativeCallContract contract, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
-		FeNativeCopiedResult projection = contract.copiedResult;
+	private void nativeCopiedResult(Node declaration, FeNativeCallContract contract, FeNativeCopiedResult projection, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
 		Vector<string> names = [];
 		for stem in ["copied_result", "copied_pointer", "copied_length"] {
 			string name = "__btrc_native_" + stem;
@@ -1223,8 +1222,8 @@ class DeclarationLowerer {
 	}
 
 	private void nativeOwnedOutput(Node declaration, FeNativeOwnedOutput output, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
-		if (output.initializer != null) { self.nativeInitializer(declaration, output, arguments, parameterNames, statements, releases, cleanup); return; }
-		if (output.sizedResource != null) { self.nativeResourceOutput(declaration, output, arguments, parameterNames, statements, releases, cleanup); return; }
+		if (output.initializer != null) { self.nativeInitializer(declaration, output, output.initializer, arguments, parameterNames, statements, releases, cleanup); return; }
+		if (output.sizedResource != null) { self.nativeResourceOutput(declaration, output, output.sizedResource, arguments, parameterNames, statements, releases, cleanup); return; }
 		Vector<IRNode> callArguments = arguments;
 		string name = "__btrc_native_owned_output";
 		while (parameterNames.has(name)) { name = name + "_"; }
@@ -1302,7 +1301,7 @@ class DeclarationLowerer {
 		statements.extend(cleanup); statements.push(IRNode.returnStatement(called));
 	}
 
-	private void nativeInitializer(Node declaration, FeNativeOwnedOutput output, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+	private void nativeInitializer(Node declaration, FeNativeOwnedOutput output, FeNativeInitializer shape, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
 		string name = "__btrc_native_initializer";
 		while (parameterNames.has(name)) { name = name + "_"; }
 		Vector<IRNode> noArguments = [];
@@ -1319,7 +1318,6 @@ class DeclarationLowerer {
 			IRNode.assignment(child, IRNode.call("__btrc_unique_" + output.resource + "_new", noArguments)),
 			IRNode.assignment(storage, IRNode.call("calloc", [IRNode.literal("1"), IRNode.sizeofExpression(IRNode.dereference(storage))]))
 		]);
-		FeNativeInitializer shape = output.initializer;
 		Vector<IRNode> nativeArguments = [];
 		int visible = 0;
 		for index in range(arguments.len + 1) {
@@ -1351,14 +1349,13 @@ class DeclarationLowerer {
 		statements.extend(cleanup); statements.push(IRNode.returnStatement(owner));
 	}
 
-	private void nativeResourceOutput(Node declaration, FeNativeOwnedOutput output, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
+	private void nativeResourceOutput(Node declaration, FeNativeOwnedOutput output, FeNativeSizedResourceOutput sized, Vector<IRNode> arguments, Map<string, bool> parameterNames, Vector<IRNode> statements, Vector<Vector<IRNode>> releases, Vector<IRNode> cleanup) {
 		Vector<string> names = [];
 		for stem in ["owner", "value", "size"] {
 			string name = "__btrc_native_output_" + stem;
 			while (parameterNames.has(name) || names.contains(name)) { name = name + "_"; }
 			names.push(name);
 		}
-		FeNativeSizedResourceOutput sized = output.sizedResource;
 		var valueType = Node(); valueType.kind = NK_TYPE_EXPR; valueType.base = output.resource; valueType.isNullable = true; valueType.pointerDepth = 1;
 		Vector<IRNode> noArguments = [];
 		IRNode ownerSlot = IRNode.variableDeclaration(self.cTypes.lower(declaration.returnType), names.get(0), IRNode.call(output.resultName + "_new", noArguments));
@@ -1567,7 +1564,7 @@ class DeclarationLowerer {
 				self.emitStoredObjectiveCAdapter(imported, method, contract, module, native);
 				continue;
 			}
-			NativeNode descriptor = contract.objectiveCMethod;
+			NativeNode descriptor = self.objectiveCMethodDescriptor(contract, method);
 			bool initializer = descriptor.methodFamily == "init" && !descriptor.classMethod && descriptor.relatedResult;
 			bool classFactory = descriptor.classMethod || initializer;
 			Map<int, FeNativeCallbackProjection> callbacks = {};
@@ -1929,9 +1926,17 @@ class DeclarationLowerer {
 		self.appendFunction(adapter, module);
 	}
 
+	/* Every Objective-C method contract carries its method descriptor; fail
+	 * closed rather than dereference the nullable field. */
+	private NativeNode objectiveCMethodDescriptor(FeNativeCallContract contract, Node method) {
+		NativeNode? descriptor = contract.objectiveCMethod;
+		if (descriptor == null) { throw "Objective-C method '" + method.name + "' has no native method descriptor"; }
+		return descriptor;
+	}
+
 	private void emitOneShotObjectiveCAdapter(FeNativeImportedDeclaration imported, Node method, FeNativeCallContract contract, IRModule module, IRModule native) {
 		Vector<IRNode> noArguments = [];
-		NativeNode descriptor = contract.objectiveCMethod;
+		NativeNode descriptor = self.objectiveCMethodDescriptor(contract, method);
 		FeNativeCallbackProjection callback = contract.callbacks.get(0);
 		string name = imported.declaration.name + "_" + method.name;
 		string prefix = "__btrc_objc_" + name;
@@ -2111,7 +2116,7 @@ class DeclarationLowerer {
 
 	private void emitStoredObjectiveCAdapter(FeNativeImportedDeclaration imported, Node method, FeNativeCallContract contract, IRModule module, IRModule native) {
 		Vector<IRNode> noArguments = [];
-		NativeNode descriptor = contract.objectiveCMethod;
+		NativeNode descriptor = self.objectiveCMethodDescriptor(contract, method);
 		FeNativeCallbackProjection callback = contract.callbacks.get(0);
 		/* `objectCallback` proves the slot getter and `action` the setter; the
 		 * resolver admits an action projection with all three accessors, so
@@ -2124,7 +2129,9 @@ class DeclarationLowerer {
 		string slotSelector = slotGetter == null ? "" : slotGetter.selector;
 		string actionGetterSelector = actionGetter == null ? "" : actionGetter.selector;
 		string actionSetterSelector = actionSetter == null ? "" : actionSetter.selector;
-		NativeNode cancellation = callback.unregister;
+		NativeNode? storedCancellation = callback.unregister;
+		if (storedCancellation == null) { throw "stored callback requires its unregister method"; }
+		NativeNode cancellation = storedCancellation;
 		string name = imported.declaration.name + "_" + method.name;
 		string prefix = "__btrc_objc_" + name;
 		Node contextType = method.returnType;
@@ -2442,8 +2449,9 @@ class DeclarationLowerer {
 			else { self.emitGlobalVar(imported.declaration, m, false); }
 			nativeConstants.put(imported.declaration.name, true);
 		}
-		if (imported.declaration.kind == NK_FUNCTION_DECL && imported.callContract != null && !nativeAdapters.has(imported.declaration.name)) {
-			self.emitNativeAdapter(imported.declaration, imported.callContract, m);
+		FeNativeCallContract? callContract = imported.callContract;
+		if (imported.declaration.kind == NK_FUNCTION_DECL && callContract != null && !nativeAdapters.has(imported.declaration.name)) {
+			self.emitNativeAdapter(imported.declaration, callContract, m);
 			nativeAdapters.put(imported.declaration.name, true);
 		}
 	}
@@ -2599,7 +2607,7 @@ class DeclarationLowerer {
 		int i = 0;
 		while (i < d.values().len) {
 			Node v = d.values().get(i);
-			IRNode value = null;
+			IRNode? value = null;
 			if (v.valueNode != null) {
 				Map<string, Node> empty = {};
 				self.context.enumInitializer = true;
@@ -2776,7 +2784,10 @@ class DeclarationLowerer {
 			} else if (inferredArray) {
 				global.arraySize = IRNode.literal(Strings.fromInt(d.initializer.elements().len));
 			} else {
-				global.arraySize = self.expressions.stringArrayExtent(d.initializer);
+				IRNode? stringExtent = self.expressions.stringArrayExtent(d.initializer);
+				if (stringExtent != null) {
+					global.arraySize = stringExtent;
+				}
 			}
 			/* Only an extern declaration without an initializer keeps an
 			 * empty bound; every other array has a complete type. */
@@ -4346,8 +4357,10 @@ class DeclarationLowerer {
 	private void appendInheritedFieldInitializers(Node declaration, Map<string, Node> variables, Vector<IRNode> body) {
 		Vector<Node> ancestors = [];
 		Node current = declaration;
-		while (current.parent != null && current.parent != "" && self.analyzed.classTable.has(current.parent)) {
-			current = self.analyzed.classTable.get(current.parent);
+		while (true) {
+			string? parentName = current.parent;
+			if (parentName == null || parentName == "" || !self.analyzed.classTable.has(parentName)) { break; }
+			current = self.analyzed.classTable.get(parentName);
 			ancestors.push(current);
 		}
 		Map<string, Node> noTypeMap = {};
@@ -4661,7 +4674,7 @@ class DeclarationLowerer {
 						global.arraySize = self.expressions.lowerExpr(field.type.arraySize, empty, callableFlow);
 					} else if (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)) {
 						global.arraySize = IRNode.literal(Strings.fromInt(field.initializer.elements().len));
-					} else {
+					} else if (stringExtent != null) {
 						global.arraySize = stringExtent;
 					}
 				}

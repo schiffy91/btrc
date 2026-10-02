@@ -14,6 +14,9 @@ which differences remain in the C the two compilers emit.
 | Runtime behaviour of every corpus program | the unified corpus runner, through both compilers |
 | Runtime behaviour of every SDK-free example | `src/tests/python/test_examples.py` |
 | Recorded outcome of every C-compatibility probe | `src/tests/btrc/test_c_compatibility_inventory.py` |
+| Analyzer warnings (message, file, line, column and rendering) of probe programs, and that a warning never changes the exit status | `src/tests/btrc/test_warning_parity_battery.py` |
+| Analyzer warnings of every corpus program, held to `expected/<Stem>.warnings` in both compilers | the unified corpus runner |
+| No analyzer warning in any SDK-free example, or in the compiler compiling itself | `src/tests/python/test_examples.py`, `src/tests/btrc/test_bootstrap.py` |
 
 A divergence found anywhere is fixed in both compilers in one commit, and its
 minimal program joins one of the batteries above.
@@ -52,13 +55,38 @@ minimal program joins one of the batteries above.
   already includes is emitted once by both compilers (`btrcc` always
   deduplicated; Python repeated it).
 
-### Nullable flow (Python only)
+### Nullable flow and the warning channel
 
-The nullable-access warning exists only in the Python compiler. Its flow
-analysis now drops facts that a call nested anywhere in an expression could
-kill, and it analyses a loop body from the facts that survive the loop's back
-edge, so a linked-list walk without a null guard is flagged. `btrcc` has no
-nullable flow yet; porting it is part of the deferred work below.
+Both compilers report the nullable-access warning (`Non-optional access '.f'
+on nullable type 'T?'`) from the same path-sensitive flow, and print every
+warning the same way: `warning: <message>`, then the file (the input as named
+on the command line, any other source by its absolute path), line and column,
+and the source line with a caret. A warning never changes the exit status.
+`btrcc` renders its warnings once analysis succeeds; a compile that fails
+prints only its first error, as it always has.
+
+The flow tracks stable access paths (a local, a parameter, `self` or a global,
+followed by field names) known to be non-null. A null comparison refines the
+branch it guards, `&&`, `||` and `?:` refine their right operands and arms, a
+store of a value known to be non-null refines its target, and a call, a store
+or an escaped address drops the facts it could change. A loop body is analysed
+once, from the facts that survive its back edge.
+
+A call can be known never to return: a hosted function listed in
+`hosted_abi.toml`'s `noreturn` set (`exit`, `abort`, `_Exit`, `quick_exit`,
+`longjmp`, `pthread_exit`), or a source function or method every path of whose
+body ends in a `throw` or in such a call. The second set is the least fixed
+point over a syntactic call graph: `f()` names a top-level function, `C.m()` a
+static method of class `C`, and `self.m()` every implementation a subclass can
+dispatch to; a local binding of the same name shadows the callee. Code after a
+return, a throw or such a call is unreachable and reports nothing, and a
+branch that never completes adds no facts to the code after it, so
+`if (x == null) { TypeValidator.fail(...); }` proves `x` afterwards. btrc has
+no `_Noreturn` marker of its own; `_Noreturn` stays a reserved C spelling.
+
+In `btrcc` the flow is `NullableFlow`, beside `ControlFlowValidator`, and
+module-unit validation records carry each body's warnings, so a replayed
+record reports what live validation did.
 
 ## Remaining differences in emitted C
 
@@ -88,24 +116,41 @@ Until then a test may require identical **behaviour** of the two compilers'
 output, or identical text of a narrow fragment it names (the WGSL modules, a
 diagnostic), but not identical translation units.
 
-## Deferred: nullable-to-non-nullable stores
+## Nullable-to-non-nullable stores
 
-`N n = make();`, where `make()` returns `N?`, is accepted silently by both
-compilers. The consistent rule would be the existing nullable-access one: a
-path-sensitive **warning**, silenced where the flow proves the value non-null.
-It is not implemented yet, for three reasons measured on 2026-10-01:
+Both compilers warn, from the same flow, where a value that may be null is
+stored into a non-nullable class, interface or `string` reference:
 
-1. A prototype of the warning in the Python analyzer reported 94 sites in the
-   self-hosted compiler alone, before the stdlib, examples and corpus. Almost
-   all are the deliberate `Node concreteX = maybeX;` narrowing written after
-   `TypeValidator.fail(...)`, which exits. The flow analysis does not know
-   that a call cannot return, so it cannot see these as proven.
-2. Self-host builds fail on any analyzer warning, so the warning cannot land
-   before every site is either rewritten or proven by a flow that understands
-   non-returning calls.
-3. `btrcc` has no warning channel and no nullable-flow analysis at all: the
-   existing nullable-access warning is reported by the Python compiler only.
+```
+warning: Possibly-null value stored in non-nullable <context> of type 'T' — check for null first
+```
 
-The order of work is therefore: teach the flow analysis non-returning calls
-(`exit`, and functions whose every path ends in one), port the nullable flow
-and a warning channel to `btrcc`, then add the store warning to both.
+The context is `variable 'n'` (a typed local or global's initializer),
+`assignment target` (`=` to a local or a field), `return value`,
+`argument <i> of '<callee>'`, `field 'C.f'` (a field default) or
+`parameter 'p'` (a parameter default). A value may be null when it is the
+`null` literal, has a nullable type `T?`, is a `?:` with such an arm, or is an
+`a ?? b` whose fallback `b` may be null. The warning is silenced where the flow
+proves the value non-null (a guard, an early `return`, `throw` or
+non-returning call, a store of a non-null value) and in unreachable code.
+
+An argument is checked against the parameter of the callee the call resolves
+to by the same rule in both compilers: by name to a top-level function with a
+body or a non-generic class's constructor, as a static `C.m()`, or through the
+receiver's type to a class, interface or generic-instance method, whose class
+type parameters take the instance's arguments. A positional argument only; a
+parameter typed by the method's own type parameter has no known target.
+
+Access paths include a class's static fields (`C.f`), which, like globals, any
+call can change, so `if (C.f == null) { ... return ...; } return C.f;` is
+proven. Code after `self.field.m()` is unreachable when every implementation
+of `m` in the field's declared class (and its subclasses) never returns.
+
+A prototype of the warning reported 94 sites in the self-hosted compiler on
+2026-10-01, before non-returning calls were understood; this rule reported
+187 in the compiler's self-host transpile (21 of them in the generated
+`Node` list accessors, which the static-field paths now prove), 28 more in the
+stdlib and 135 in the corpus (2026-10-02). Every site in the compiler, the stdlib and the examples is now
+proven or rewritten, so both self-host transpiles and the bootstrap stay
+warning-free; the corpus programs that store `null` on purpose to exercise
+the runtime's null handling keep their warning in `expected/<Stem>.warnings`.

@@ -432,7 +432,7 @@ class FunctionLowerer {
 				self.callableLowering.liftDepth = plan.depth + 1;
 				IRNode body = self.lowerLiftedCallableBody(plan.source, plan.bodyVariableTypes, plan.captures, plan.returnCType, plan.returnType);
 				self.callableLowering.liftDepth = enclosingDepth;
-				self.callableLowering.materializeLifted(plan, body, self.context.module);
+				self.callableLowering.materializeLifted(plan, body, self.context.activeModule());
 				index = index + 1;
 			}
 			index = 0;
@@ -442,7 +442,7 @@ class FunctionLowerer {
 				self.callableLowering.liftDepth = plan.depth + 1;
 				IRNode body = self.lowerLiftedCallableBody(plan.lambda, plan.bodyVariableTypes, plan.captures, plan.returnCType, plan.returnType);
 				self.callableLowering.liftDepth = enclosingDepth;
-				self.callableLowering.materializeSpawn(plan, body, self.context.module);
+				self.callableLowering.materializeSpawn(plan, body, self.context.activeModule());
 				index = index + 1;
 			}
 			lambdas = self.callableLowering.takePendingLambdas();

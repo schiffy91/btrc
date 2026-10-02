@@ -10,7 +10,7 @@ int alive = 0;
 
 class Node {
 	public int id;
-	public Node friend;
+	public Node? friend;
 
 	public Node(int id) {
 		self.id = id;
@@ -33,14 +33,14 @@ int main() {
 		m.set(1, a);
 		m.set(2, b);
 		assert(alive == 2);
-		assert(m.get(1).friend.id == 2);
-		assert(m.get(2).friend.id == 1);
+		assert(m.get(1).friend?.id == 2);
+		assert(m.get(2).friend?.id == 1);
 
 		// Free the map: releases the map's retained references, but the local
 		// handles + the field cross-references keep both objects alive.
 		m.free();
 		assert(alive == 2);
-		assert(a.friend.id == 2);
+		assert(a.friend?.id == 2);
 	}
 	// Scope exit drops the locals and the cycle collector reclaims the pair.
 	assert(alive == 0);

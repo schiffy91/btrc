@@ -81,6 +81,7 @@ class GeneratedHostedAbiData {
 	private Vector<string>? typedefNamesMemo = null;
 	private Vector<string>? ownedNamesMemo = null;
 	private Vector<string>? runtimeAdoptingHelpersMemo = null;
+	private Vector<string>? noreturnFunctionsMemo = null;
 
 	private Vector<GeneratedHostedParameterRow> emptyParameters() {
 		Vector<GeneratedHostedParameterRow> values = [];
@@ -95,7 +96,7 @@ class GeneratedHostedAbiData {
 	public GeneratedHostedAbiData() {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "c1adc59f8fcf3300e80203c6f87ce75d6db05877e500bcbb16d825ae8b46d097";
+		self.fingerprint = "ee0d07c4b6a3fcf3bb243fa3194a746c9e978c91bdd0d2b62807fb4f1ed73a77";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -16325,4 +16326,22 @@ class GeneratedHostedAbiData {
 	}
 
 	private void pushRuntimeAdoptingHelpers0(Vector<string> values) { values.push("__btrc_string_adopt"); }
+
+	public Vector<string> noreturnFunctions() {
+		Vector<string>? memo = self.noreturnFunctionsMemo;
+		if (memo != null) { return memo; }
+		Vector<string> built = [];
+		self.pushNoreturnFunctions0(built);
+		self.noreturnFunctionsMemo = built;
+		return built;
+	}
+
+	private void pushNoreturnFunctions0(Vector<string> values) {
+		values.push("_Exit");
+		values.push("abort");
+		values.push("exit");
+		values.push("longjmp");
+		values.push("pthread_exit");
+		values.push("quick_exit");
+	}
 }

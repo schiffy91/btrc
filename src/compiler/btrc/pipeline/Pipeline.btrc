@@ -1,6 +1,7 @@
 /* Instance-owned orchestration for the self-hosted compiler pipeline. */
 
 import Library.BackgroundJobs.WorkerPools;
+import Library.FileSystem;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
@@ -52,6 +53,28 @@ class CompilerPipeline {
 		while (index < diagnostics.len) {
 			rendered.push(diagnostics.get(index).render());
 			index++;
+		}
+		return Strings.join(rendered, "\n");
+	}
+
+	/* Analyzer warnings rendered exactly as the reference CLI renders them:
+	 * the message, the file (the input as named, any other source by its
+	 * absolute path), the line and column, and the source line with a caret. */
+	private string renderedWarnings(Analyzed analyzed, FeResolvedSource resolved, string sourcePath) {
+		Vector<string> rendered = [];
+		for warning in analyzed.warnings {
+			int line = warning.site.line;
+			int col = warning.site.col;
+			FeLine? source = resolved.userLineForCombined(line);
+			if (source == null) {
+				rendered.push(f"warning: {warning.message}\n --> {PathTools.basename(sourcePath)}:{line}:{col}");
+				continue;
+			}
+			string display = source.sourceFile.equals(resolved.rootSourcePath) ? sourcePath : source.sourceFile;
+			string lineText = f"{source.lineNumber}";
+			string pad = " ".repeat(lineText.length());
+			string caret = " ".repeat(col > 0 ? col - 1 : 0) + "^";
+			rendered.push(f"warning: {warning.message}\n {pad}--> {display}:{source.lineNumber}:{col}\n {pad} |\n {lineText} | {source.text}\n {pad} | {caret}");
 		}
 		return Strings.join(rendered, "\n");
 	}
@@ -182,7 +205,7 @@ class CompilerPipeline {
 			keep analyzer;
 			keep analyzed;
 			BtrccPhaseTimer.print();
-			BtrccCompilationResult moduleResult = BtrccCompilationResult(true, build.primary, "", packages.linkPlan.canonicalJson());
+			BtrccCompilationResult moduleResult = BtrccCompilationResult(true, build.primary, self.renderedWarnings(analyzed, resolved, sourcePath), packages.linkPlan.canonicalJson());
 			moduleResult.units = build.units;
 			moduleResult.unitKeys = build.unitKeys;
 			moduleResult.unitPaths = packages.linkPlan.emittedUnits;
@@ -269,7 +292,7 @@ class CompilerPipeline {
 		keep lowerer;
 		keep module;
 		BtrccPhaseTimer.print();
-		BtrccCompilationResult result = BtrccCompilationResult(true, emitted, "", packages.linkPlan.canonicalJson());
+		BtrccCompilationResult result = BtrccCompilationResult(true, emitted, self.renderedWarnings(analyzed, resolved, sourcePath), packages.linkPlan.canonicalJson());
 		result.units = units;
 		result.unitPaths = packages.linkPlan.emittedUnits;
 		result.inputPaths = input.inputPaths;

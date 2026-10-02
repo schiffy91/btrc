@@ -4,9 +4,10 @@ Each runnable ``.btrc`` corpus program is transpiled by the Python reference
 compiler, compiled with the runner's C compiler and flags (``BTRC_CC``,
 ``BTRC_CFLAGS``, and the GPU runtime flags), and run under the runner's time
 limit. A golden is written only for a program that exits 0 and prints PASS:
-``expected/<Stem>.stdout`` always, and ``expected/<Stem>.stderr`` when the
-program wrote to stderr (a stale ``.stderr`` golden is removed when it did
-not). A case the runner would skip is reported and left alone; any failure
+``expected/<Stem>.stdout`` always, ``expected/<Stem>.stderr`` when the
+program wrote to stderr, and ``expected/<Stem>.warnings`` when the compiler
+reported analyzer warnings (a stale ``.stderr`` or ``.warnings`` golden is
+removed when there is none). A case the runner would skip is reported and left alone; any failure
 leaves its goldens untouched and makes the command exit 1.
 
 Pass corpus-relative paths (``basics/Hello.btrc``) to regenerate only those.
@@ -52,7 +53,7 @@ class GoldenGenerator:
 
     def generate_one(self, relative: str) -> None:
         btrc_path = os.path.join(self.corpus, relative)
-        c_source = runner._transpile_python(btrc_path, relative)
+        c_source, warnings = runner._transpile_python_with_warnings(btrc_path, relative)
         with tempfile.TemporaryDirectory(prefix="btrc-golden-") as directory:
             c_path = os.path.join(directory, "program.c")
             binary = os.path.join(directory, "program")
@@ -82,6 +83,11 @@ class GoldenGenerator:
                 golden.write(ran.stderr)
         elif os.path.exists(stem + ".stderr"):
             os.unlink(stem + ".stderr")
+        if warnings:
+            with open(stem + ".warnings", "w") as golden:
+                golden.write("".join(line + "\n" for line in warnings))
+        elif os.path.exists(stem + ".warnings"):
+            os.unlink(stem + ".warnings")
 
 
 if __name__ == "__main__":

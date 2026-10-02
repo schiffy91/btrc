@@ -70,10 +70,11 @@ class GPUProgram implements ICallbackRegistration {
 	}
 
 	private WGPUPopErrorScopeCallbackInfoInput beginValidation() {
-		self._completion = GPUValidationCompletion();
+		GPUValidationCompletion completion = GPUValidationCompletion();
+		self._completion = completion;
 		var callback = WGPUPopErrorScopeCallbackInfoInput();
 		callback.mode = WGPUCallbackMode_AllowProcessEvents;
-		callback.callback = self._completion;
+		callback.callback = completion;
 		wgpuDevicePushErrorScope(self._device.nativeDevice(), WGPUErrorFilter_Validation);
 		return callback;
 	}

@@ -5,8 +5,8 @@ int nodeCount = 0;
 
 class TreeNode {
 	public int value;
-	public TreeNode left;
-	public TreeNode right;
+	public TreeNode? left;
+	public TreeNode? right;
 
 	public TreeNode(int value) {
 		self.value = value;
@@ -19,7 +19,7 @@ class TreeNode {
 }
 
 class BST {
-	public TreeNode root;
+	public TreeNode? root;
 
 	public BST() { self.root = null; }
 
@@ -28,7 +28,7 @@ class BST {
 			self.root = node;
 			return;
 		}
-		TreeNode cur = self.root;
+		TreeNode? cur = self.root;
 		while (cur != null) {
 			if (node.value < cur.value) {
 				if (cur.left == null) {
@@ -47,7 +47,7 @@ class BST {
 	}
 
 	public bool contains(int value) {
-		TreeNode cur = self.root;
+		TreeNode? cur = self.root;
 		while (cur != null) {
 			if (value == cur.value) {
 				return true;
@@ -62,7 +62,7 @@ class BST {
 
 	public int size() { return self._countNodes(self.root); }
 
-	private int _countNodes(TreeNode node) {
+	private int _countNodes(TreeNode? node) {
 		if (node == null) {
 			return 0;
 		}
@@ -99,11 +99,11 @@ int main() {
 	tree.insert(n40);
 
 	// ---- Phase 2: Verify structure ----
-	assert(tree.root.value == 50);
-	assert(tree.root.left.value == 30);
-	assert(tree.root.right.value == 70);
-	assert(tree.root.left.left.value == 20);
-	assert(tree.root.left.right.value == 40);
+	assert(tree.root?.value == 50);
+	assert(tree.root?.left?.value == 30);
+	assert(tree.root?.right?.value == 70);
+	assert(tree.root?.left?.left?.value == 20);
+	assert(tree.root?.left?.right?.value == 40);
 
 	assert(tree.contains(50) == true);
 	assert(tree.contains(30) == true);

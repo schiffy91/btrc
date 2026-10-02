@@ -257,8 +257,7 @@ class StringLowerer {
 			return PreparedValue(value, effective, sourceOwned, false);
 		}
 
-		self.operandPlanner.requireType(source, expression);
-		Node concreteSource = source;
+		Node concreteSource = self.operandPlanner.requireType(source, expression);
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		bool pinBorrowedReceiver = !sourceOwned && self.managedValues.isManaged(self.cTypes.resolveBodyType(concreteSource, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && expression.kind != NK_SELF_EXPR && expression.kind != NK_SUPER_EXPR;
 		boundary.addLoweredOperand(expression, concreteSource, lowered, sourceOwned, pinBorrowedReceiver);

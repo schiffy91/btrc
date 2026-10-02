@@ -1,0 +1,2 @@
+src/tests/stdlib/Process.btrc:50:21: Possibly-null value stored in non-nullable argument 1 of 'push' of type 'string' — check for null first
+src/tests/stdlib/Process.btrc:59:23: Possibly-null value stored in non-nullable argument 1 of 'push' of type 'string' — check for null first

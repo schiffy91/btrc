@@ -379,3 +379,249 @@ def test_a_loop_guard_still_refines_every_iteration():
     """)
 
     assert warnings == []
+
+
+def test_a_guard_ending_in_a_hosted_noreturn_call_refines_the_continuation():
+    warnings = _nullable_warnings("""
+        int afterExit(Box? box) {
+            if (box == null) { exit(1); }
+            return box.value;
+        }
+        int afterAbort(Box? box) {
+            if (box == null) { fprintf(stderr, "missing\\n"); abort(); }
+            return box.value;
+        }
+        int afterElseExit(Box? box) {
+            if (box != null) { } else { exit(2); }
+            return box.value;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_a_callable_whose_every_path_diverges_never_returns():
+    warnings = _nullable_warnings("""
+        void die(string message) {
+            fprintf(stderr, "%s\\n", message);
+            exit(1);
+        }
+        void dieTwice(string message) { die(message); }
+        void raise(string message) { throw message; }
+        void either(bool quiet) {
+            if (quiet) { exit(0); } else { die("loud"); }
+        }
+        int viaFunction(Box? box) {
+            if (box == null) { dieTwice("missing"); }
+            return box.value;
+        }
+        int viaThrow(Box? box) {
+            if (box == null) { raise("missing"); }
+            return box.value;
+        }
+        int viaBranches(Box? box) {
+            if (box == null) { either(true); }
+            return box.value;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_a_callable_that_can_return_or_only_recurses_still_returns():
+    warnings = _nullable_warnings("""
+        void maybe(bool stop) {
+            if (stop) { return; }
+            exit(1);
+        }
+        void ping(int depth) { pong(depth); }
+        void pong(int depth) { ping(depth); }
+        int afterMaybe(Box? box) {
+            if (box == null) { maybe(true); }
+            return box.value;
+        }
+        int afterRecursion(Box? box) {
+            if (box == null) { ping(0); }
+            return box.value;
+        }
+    """)
+
+    assert warnings == [
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 16:20",
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 20:20",
+    ]
+
+
+def test_static_and_self_methods_that_never_return_refine_their_callers():
+    warnings = _nullable_warnings("""
+        class Checks {
+            class void fail(string message) {
+                fprintf(stderr, "%s\\n", message);
+                exit(1);
+            }
+            private void stop(string message) { throw message; }
+            public int viaSelf(Box? box) {
+                if (box == null) { self.stop("missing"); }
+                return box.value;
+            }
+        }
+        int viaStatic(Box? box) {
+            if (box == null) { Checks.fail("missing"); }
+            return box.value;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_a_self_call_an_override_can_return_from_is_not_proof():
+    warnings = _nullable_warnings("""
+        class Base {
+            public void stop(string message) { throw message; }
+            public int read(Box? box) {
+                if (box == null) { self.stop("missing"); }
+                return box.value;
+            }
+        }
+        class Lenient extends Base {
+            public void stop(string message) { }
+        }
+    """)
+
+    assert warnings == [
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 12:24",
+    ]
+
+
+def test_code_after_a_call_that_never_returns_is_unreachable():
+    warnings = _nullable_warnings("""
+        int afterExit(Box? box) {
+            exit(1);
+            return box.value;
+        }
+        int afterDivergingBranches(Box? box, bool flag) {
+            if (flag) { exit(1); } else { throw "no"; }
+            return box.value;
+        }
+        int afterDivergingTry(Box? box) {
+            try { throw "no"; } catch (string error) { abort(); }
+            return box.value;
+        }
+        int reachedAgain(Box? box) {
+            int total = 0;
+            for (int index = 0; index < 2; index++) {
+                if (index > 5) { exit(1); }
+                total += box.value;
+            }
+            return total;
+        }
+    """)
+
+    assert warnings == [
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 24:26",
+    ]
+
+
+def _store_warnings(body: str) -> list[str]:
+    program = Parser(Lexer(PRELUDE + body, "<nullable-flow>").tokenize()).parse()
+    result = SemanticAnalyzer().analyze(program)
+    assert result.errors == []
+    return [warning for warning in result.warnings if warning.startswith("Possibly-null value stored")]
+
+
+def _store(context: str, type_name: str, line: int, col: int) -> str:
+    return (
+        f"Possibly-null value stored in non-nullable {context} of type '{type_name}' — check for null first"
+        f" at {line}:{col}"
+    )
+
+
+def test_a_possibly_null_value_stored_into_a_non_nullable_reference_warns():
+    warnings = _store_warnings("""
+        Box? maybe(int value) { if (value > 0) { return Box(value); } return null; }
+        void take(Box box) { }
+        class Holder {
+            public Box item = Box(0);
+            public void put(Box box) { self.item = box; }
+        }
+        Box stores(Holder holder, Box? box) {
+            Box local = maybe(1);
+            holder.item = box;
+            take(box);
+            holder.put(null);
+            Box chosen = local.value > 0 ? local : box;
+            Box fallback = box ?? maybe(2);
+            return box;
+        }
+    """)
+
+    assert warnings == [
+        _store("variable 'local'", "Box", 15, 25),
+        _store("assignment target", "Box", 16, 27),
+        _store("argument 1 of 'take'", "Box", 17, 18),
+        _store("argument 1 of 'put'", "Box", 18, 24),
+        _store("variable 'chosen'", "Box", 19, 26),
+        _store("variable 'fallback'", "Box", 20, 28),
+        _store("return value", "Box", 21, 20),
+    ]
+
+
+def test_a_store_the_flow_proves_or_that_targets_a_nullable_reference_is_silent():
+    warnings = _store_warnings("""
+        Box? maybe(int value) { if (value > 0) { return Box(value); } return null; }
+        void fail(string message) { fprintf(stderr, "%s\\n", message); exit(1); }
+        Box guarded(Box? box) {
+            if (box == null) { fail("missing"); }
+            Box local = box;
+            Box? optional = maybe(1);
+            Box chosen = optional != null ? optional : local;
+            Box fallback = maybe(2) ?? local;
+            Box fresh = Box(3);
+            optional = fresh;
+            Box again = optional;
+            return local;
+        }
+        Box exited(int value) {
+            Box? box = maybe(value);
+            if (box == null) { exit(1); }
+            return box;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_static_field_paths_carry_facts_until_a_call():
+    warnings = _store_warnings("""
+        class Shared {
+            class Box? cached = null;
+            class Box current() {
+                if (Shared.cached == null) { Box fresh = Box(1); Shared.cached = fresh; return fresh; }
+                return Shared.cached;
+            }
+            class Box afterCall() {
+                if (Shared.cached == null) { return Box(2); }
+                fprintf(stderr, "call\\n");
+                return Shared.cached;
+            }
+        }
+    """)
+
+    assert warnings == [_store("return value", "Box", 17, 24)]
+
+
+def test_a_failure_method_on_a_field_of_self_never_returns():
+    warnings = _nullable_warnings("""
+        class Reporter {
+            public void fail(string message) { fprintf(stderr, "%s\\n", message); exit(1); }
+        }
+        class User {
+            private Reporter reporter = Reporter();
+            public int read(Box? box) {
+                if (box == null) { self.reporter.fail("missing"); }
+                return box.value;
+            }
+        }
+    """)
+
+    assert warnings == []

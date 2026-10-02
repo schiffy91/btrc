@@ -143,7 +143,7 @@ def test_aggregate_ordering_uses_bounded_owners_and_typed_plans() -> None:
     assert "public bool requiresOrder(" in ordering
     assert "public bool hasEffect(" in ordering
     assert "public bool reorderInert(" in ordering
-    assert "public void requireType(" in ordering
+    assert "public Node requireType(" in ordering
 
     assert "class AggregateEvaluationPlan {" in aggregate
     assert "class AggregateOperandPlan {" in aggregate

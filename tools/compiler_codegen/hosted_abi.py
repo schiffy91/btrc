@@ -109,6 +109,7 @@ class HostedAbiNameSets:
     native: tuple[str, ...]
     native_internal: tuple[str, ...]
     runtime_adopting_helpers: tuple[str, ...]
+    noreturn: tuple[str, ...]
 
     def canonical(self) -> dict[str, object]:
         return {
@@ -121,6 +122,7 @@ class HostedAbiNameSets:
             "native": list(self.native),
             "native_internal": list(self.native_internal),
             "runtime_adopting_helpers": list(self.runtime_adopting_helpers),
+            "noreturn": list(self.noreturn),
         }
 
 
@@ -183,6 +185,7 @@ class HostedAbiManifest:
             "native",
             "native_internal",
             "runtime_adopting_helpers",
+            "noreturn",
         }
     )
     _PLATFORM_KEYS = frozenset({"functions", "macros", "objects", "types", "typedefs"})
@@ -273,6 +276,7 @@ class HostedAbiManifest:
             native=cls._name_tuple(names_table, "native", "names"),
             native_internal=cls._name_tuple(names_table, "native_internal", "names"),
             runtime_adopting_helpers=cls._name_tuple(names_table, "runtime_adopting_helpers", "names"),
+            noreturn=cls._name_tuple(names_table, "noreturn", "names"),
         )
 
         platform_table = cls._FIELDS.table(document, "platform", "hosted ABI manifest")
@@ -419,6 +423,8 @@ class HostedAbiManifest:
             raise HostedAbiManifestError("hosted typedef names must be included in type names")
         if not set(self.names.native) <= exact:
             raise HostedAbiManifestError("hosted native names must have exact function specs")
+        if not set(self.names.noreturn) <= declared_functions:
+            raise HostedAbiManifestError("hosted noreturn names must be hosted function names")
 
         final_sets = {
             "functions": set(self.names.functions),
@@ -653,6 +659,7 @@ class HostedAbiCatalogGenerator:
             "HOSTED_RUNTIME_ADOPTING_HELPERS",
             self._manifest.names.runtime_adopting_helpers,
         )
+        self._append_python_tuple(lines, "HOSTED_NORETURN_FUNCTIONS", self._manifest.names.noreturn)
         self._append_python_tuple(lines, "HOSTED_PLATFORM_FUNCTION_NAMES", self._manifest.platform.functions)
         self._append_python_tuple(lines, "HOSTED_PLATFORM_MACRO_NAMES", self._manifest.platform.macros)
         self._append_python_tuple(lines, "HOSTED_PLATFORM_OBJECT_NAMES", self._manifest.platform.objects)
@@ -971,8 +978,8 @@ class HostedAbiCatalogGenerator:
         """The name sets the self-hosted analyzer consults (HostedAbiRepository).
 
         The reference tables carry every set; the self-host only ever asks
-        whether a name is a hosted function, macro, typedef, owned name or
-        adopting helper, and its structure contract rejects accessors nothing
+        whether a name is a hosted function, macro, typedef, owned name,
+        adopting helper or non-returning function, and its structure contract rejects accessors nothing
         calls, so the other sets are not emitted for it.
         """
 
@@ -982,6 +989,7 @@ class HostedAbiCatalogGenerator:
             ("typedefNames", self._manifest.names.typedefs),
             ("ownedNames", self._manifest.names.owned),
             ("runtimeAdoptingHelpers", self._manifest.names.runtime_adopting_helpers),
+            ("noreturnFunctions", self._manifest.names.noreturn),
         )
 
     def _btrc_type(self, shape: HostedAbiTypeSpec) -> str:

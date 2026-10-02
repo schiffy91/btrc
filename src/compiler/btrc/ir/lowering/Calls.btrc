@@ -226,7 +226,8 @@ class CallTargetResolver {
 		Node parameter = Node();
 		parameter.kind = NK_PARAM;
 		parameter.name = name;
-		parameter.type = typeExpr;
+		/* A fresh node's type is already null when no type is given. */
+		if (typeExpr != null) { parameter.type = typeExpr; }
 		return parameter;
 	}
 
@@ -688,7 +689,8 @@ class CallLowerer {
 		Node parameter = Node();
 		parameter.kind = NK_PARAM;
 		parameter.name = Strings.fromInt(index);
-		parameter.type = typeExpr;
+		/* A fresh node's type is already null when no type is given. */
+		if (typeExpr != null) { parameter.type = typeExpr; }
 		return parameter;
 	}
 
@@ -894,7 +896,6 @@ class CallLowerer {
 			arguments.push(IRNode.cast("void*", IRNode.addressOf(IRNode.variable(target.closureStorage))));
 			return IRNode.call(target.closureFunction, arguments);
 		}
-		Node callableType = target.callableType;
 		string calleeKey = AstIdentity.key(target.call.callee);
 		if (self.context.hasExpressionOverrideKey(calleeKey)) {
 			return self.indirectCallableCall(target, self.context.expressionOverrideForKey(calleeKey), arguments);
@@ -908,7 +909,7 @@ class CallLowerer {
 		if (arguments.len == 0 || effectFreeArguments) {
 			return self.indirectCallableCall(target, callee, arguments);
 		}
-		Node concreteCallableType = self.cTypes.resolveBodyType(callableType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		Node concreteCallableType = self.cTypes.resolveBodyType(target.callableType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		Node storageType = TypeShape.copy(concreteCallableType);
 		storageType.isConst = false;
 		storageType.isStatic = false;

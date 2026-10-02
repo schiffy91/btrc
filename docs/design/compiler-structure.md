@@ -329,7 +329,7 @@ src/compiler/btrc/
       Borrows.btrc                # BorrowValidator
       Calls.btrc                  # CallValidator
       Expressions.btrc            # ExpressionValidator
-      ControlFlow.btrc           # ControlFlowValidator
+      ControlFlow.btrc           # ControlFlowValidator, NullableFlow
       Declarations.btrc           # DeclarationValidator
 
   ir/

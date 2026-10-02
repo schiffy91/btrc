@@ -16,7 +16,7 @@ class Obj {
 }
 
 class Sink {
-	public Obj held;
+	public Obj? held;
 
 	public Sink() { self.held = null; }
 }
@@ -30,7 +30,7 @@ int main() {
 
 	// The keep guard is call-scoped; the field store is persistent ownership.
 	stashInto(s, o);
-	assert(s.held.id == 1);
+	assert(s.held?.id == 1);
 
 	// Drop the local handle; the field keeps o alive.
 	release o;
