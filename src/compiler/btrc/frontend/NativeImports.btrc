@@ -1859,7 +1859,7 @@ class FeNativeDeclarationImporter {
 
 	private void importDeclaration(NativeNode declaration) {
 		if (self.callbackOperations.has(declaration.name)) { return; }
-		if (self.language == "objective-c" && declaration.kind != NNK_NATIVE_OBJECTIVE_C_METHOD && declaration.kind != NNK_NATIVE_CONSTANT && declaration.kind != NNK_NATIVE_GLOBAL) { self.fail("Objective-C header declarations require adapter lowering"); }
+		if (self.language == "objective-c" && declaration.kind != NNK_NATIVE_OBJECTIVE_C_METHOD && declaration.kind != NNK_NATIVE_CONSTANT && declaration.kind != NNK_NATIVE_STRING_CONSTANT && declaration.kind != NNK_NATIVE_GLOBAL) { self.fail("Objective-C header declarations require adapter lowering"); }
 		Node imported = Node();
 		FeNativeCallContract? contract = null;
 		if (declaration.kind == NNK_NATIVE_FUNCTION) {
@@ -2028,6 +2028,17 @@ class FeNativeDeclarationImporter {
 			NativeNode native = declaration.valueType;
 			while (native.kind == NNK_NATIVE_ALIAS || native.kind == NNK_NATIVE_QUALIFIED_TYPE || native.kind == NNK_NATIVE_ENUM_TYPE) { native = native.underlying; }
 			imported.initializer = self.integer(declaration.decimalValue, native.kind == NNK_NATIVE_BUILTIN && native.signedness == "unsigned" ? "U" : "");
+		} else if (declaration.kind == NNK_NATIVE_STRING_CONSTANT) {
+			// The C use names the macro, whose literal decays to `const char*`: the
+			// same projection, and the same read-only protection, as an SDK
+			// `const char* const` global.
+			NativeNode pointee = declaration.valueType.kind == NNK_NATIVE_POINTER ? declaration.valueType.pointee : null;
+			if (pointee == null || pointee.kind != NNK_NATIVE_BUILTIN || pointee.name != "char" || !pointee.qualifiers.isConst || declaration.valueType.qualifiers.isConst) { self.fail("native string constant requires its literal's const char pointer"); }
+			if (self.language == "objective-c") { self.fail("Objective-C string constants require adapter lowering"); }
+			imported = self.node(NK_VAR_DECL_STMT);
+			imported.name = declaration.name;
+			imported.type = self.type(declaration.valueType);
+			imported.type.isExtern = true;
 		} else if (declaration.kind == NNK_NATIVE_TYPEDEF) {
 			if (self.resources.has(declaration.name)) { return; }
 			self.alias(declaration.name, declaration.underlying);
@@ -2038,7 +2049,7 @@ class FeNativeDeclarationImporter {
 			return;
 		} else if (declaration.kind == NNK_NATIVE_OBJECTIVE_C_METHOD) { self.importObjectiveCMethod(declaration); return; }
 		else { self.fail("selected native records require native-type lowering"); }
-		self.add(declaration.name, imported, self.declarationIdentity(declaration), "", declaration.kind == NNK_NATIVE_GLOBAL && (declaration.readOnly || contract != null), contract);
+		self.add(declaration.name, imported, self.declarationIdentity(declaration), "", declaration.kind == NNK_NATIVE_STRING_CONSTANT || (declaration.kind == NNK_NATIVE_GLOBAL && (declaration.readOnly || contract != null)), contract);
 		if (declaration.kind == NNK_NATIVE_FUNCTION) { self.importResourceOutput(declaration, imported, contract); }
 	}
 
@@ -2050,6 +2061,7 @@ class FeNativeDeclarationImporter {
 			return identity;
 		}
 		identity = identity + self.typeIdentity(declaration.valueType);
+		if (declaration.kind == NNK_NATIVE_STRING_CONSTANT) { return identity + ":" + declaration.stringValue; }
 		return identity + (declaration.kind == NNK_NATIVE_GLOBAL ? f":{declaration.readOnly}" : ":" + declaration.decimalValue);
 	}
 
@@ -3399,7 +3411,7 @@ class FeNativeHeaderCodec {
 		else if (kind.equals("cxx_class")) { required = required + ",default_constructor,public_destructor,trivially_copyable,trivially_destructible"; }
 		else if (kind.equals("cxx_method")) { required = required + ",identity,owner,receiver,method_name,parameter_semantics,const_method"; }
 		else if (kind.equals("objc_method")) { required = required + ",identity,owner,receiver,selector,class_method,returned_ownership,parameter_semantics,method_family,consumes_self,related_result,returns_inner_pointer"; }
-		else if (kind.equals("enum_constant")) { required = required + ",value"; }
+		else if (kind.equals("enum_constant") || kind.equals("string_constant")) { required = required + ",value"; }
 		else if (kind.equals("global")) { required = required + ",read_only"; }
 		else if (!kind.equals("typedef") && !kind.equals("record")) { self.fail(f"unsupported native declaration '{kind}'"); }
 		self.fields(value, required, kind.equals("objc_method") ? "source,line,column,protocol_owner,optional" : (kind.equals("enum_constant") ? "source,line,column,enum_identity" : "source,line,column"));
@@ -3469,6 +3481,10 @@ class FeNativeHeaderCodec {
 			result.kind = NNK_NATIVE_GLOBAL;
 			result.valueType = nativeType;
 			result.readOnly = self.boolean(value.get("read_only"));
+		} else if (kind.equals("string_constant")) {
+			result.kind = NNK_NATIVE_STRING_CONSTANT;
+			result.valueType = nativeType;
+			result.stringValue = self.text(value.get("value"), true);
 		} else if (kind.equals("enum_constant")) {
 			result.kind = NNK_NATIVE_CONSTANT;
 			result.valueType = nativeType;
@@ -3632,7 +3648,7 @@ class FeNativeHeaderCodec {
 		for entry in result.exports {
 			if (entry.kind == NNK_NATIVE_FUNCTION || entry.kind == NNK_NATIVE_OBJECTIVE_C_METHOD || entry.kind == NNK_NATIVE_CXX_METHOD) { self.verifyLayoutReferences(entry.signature, layouts); }
 			else if (entry.kind == NNK_NATIVE_TYPEDEF) { self.verifyLayoutReferences(entry.underlying, layouts); }
-			else if (entry.kind == NNK_NATIVE_CONSTANT || entry.kind == NNK_NATIVE_GLOBAL) { self.verifyLayoutReferences(entry.valueType, layouts); }
+			else if (entry.kind == NNK_NATIVE_CONSTANT || entry.kind == NNK_NATIVE_STRING_CONSTANT || entry.kind == NNK_NATIVE_GLOBAL) { self.verifyLayoutReferences(entry.valueType, layouts); }
 			else { self.verifyLayoutReferences(entry.recordType, layouts); }
 		}
 		for record in result.records {
