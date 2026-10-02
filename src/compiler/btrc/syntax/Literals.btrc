@@ -342,6 +342,67 @@ class StringLiteral {
 
 	public StringLiteral(string value) { self.value = value; }
 
+	class bool hexDigit(char value) { return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F'); }
+
+	class int hexDigitValue(char value) {
+		if (value >= '0' && value <= '9') { return (int)value - (int)'0'; }
+		if (value >= 'a' && value <= 'f') { return (int)value - (int)'a' + 10; }
+		return (int)value - (int)'A' + 10;
+	}
+
+	/* Count the bytes a lexed narrow string literal stores, without its
+	 * terminator. The spelling is the lexer's: quoted, escapes preserved and
+	 * already validated. Simple, octal and hex escapes are one byte each, a
+	 * universal character name is its UTF-8 encoding, a line splice is
+	 * nothing, and source text counts its UTF-8 bytes. */
+	class int byteLength(string spelling) {
+		int end = spelling.length() - 1;
+		int count = 0;
+		int index = 1;
+		while (index < end) {
+			if (spelling[index] != '\\') {
+				count++;
+				index++;
+				continue;
+			}
+			char escaped = spelling[index + 1];
+			index = index + 2;
+			if (escaped == '\n') { continue; }
+			if (escaped == '\r') {
+				if (index < end && spelling[index] == '\n') { index++; }
+				continue;
+			}
+			if (escaped == 'u' || escaped == 'U') {
+				int digits = escaped == 'u' ? 4 : 8;
+				int codePoint = 0;
+				int digit = 0;
+				while (digit < digits) {
+					codePoint = codePoint * 16 + StringLiteral.hexDigitValue(spelling[index + digit]);
+					digit++;
+				}
+				index = index + digits;
+				if (codePoint < 0x80) {
+					count = count + 1;
+				} else if (codePoint < 0x800) {
+					count = count + 2;
+				} else if (codePoint < 0x10000) {
+					count = count + 3;
+				} else {
+					count = count + 4;
+				}
+				continue;
+			}
+			if (escaped == 'x') {
+				while (index < end && StringLiteral.hexDigit(spelling[index])) { index++; }
+			} else if (escaped >= '0' && escaped <= '7') {
+				int octalEnd = index + 2;
+				while (index < octalEnd && index < end && spelling[index] >= '0' && spelling[index] <= '7') { index++; }
+			}
+			count++;
+		}
+		return count;
+	}
+
 	public string cSource() {
 		string escaped = self.value.replace("\\", "\\\\");
 		escaped = escaped.replace("\"", "\\\"");

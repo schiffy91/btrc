@@ -35,6 +35,93 @@ class StorageValidator {
 		self.constants = constants;
 	}
 
+	/* Whether a string value initializes a char array, D20's C form.
+	 * validateCharArrayInitializer owns whether the value is a literal that
+	 * fits. */
+	public bool charArrayStringInitializer(Node? expected, Node? value, Map<string, Node> vars) {
+		if (value == null) { return false; }
+		Node? canonical = self.types.resolveAliases(expected);
+		if (canonical == null || !canonical.isArray || canonical.pointerDepth > 0) { return false; }
+		Node? element = self.types.resolveAliases(TypeShape.withoutOuterArray(canonical));
+		if (element == null || element.pointerDepth > 0) { return false; }
+		if (element.base != "char" && element.base != "signed char" && element.base != "unsigned char") { return false; }
+		if (value.kind == NK_BRACE_INITIALIZER || value.kind == NK_LIST_LITERAL) { return false; }
+		if (value.kind == NK_STRING_LITERAL || value.kind == NK_F_STRING_LITERAL) { return true; }
+		return SemanticTypeSystem.isString(self.types.resolveAliases(self.types.inferType(value, vars)));
+	}
+
+	/* The bytes a literal char-array initializer stores before its
+	 * terminator, or -1 when the initializer is not a literal. */
+	class int stringInitializerByteLength(Node value) {
+		if (value.kind == NK_STRING_LITERAL) { return StringLiteral.byteLength(value.valueString); }
+		return -1;
+	}
+
+	/* D20: only a narrow string literal initializes a char array. Unsized, it
+	 * takes the literal's bytes plus the terminator; sized, the bound must
+	 * hold both. Exactly filling the bound would drop the terminator, which C
+	 * allows silently and btrc refuses. */
+	public void validateCharArrayInitializer(Node? expected, Node? value, Map<string, Node> vars) {
+		if (!self.charArrayStringInitializer(expected, value, vars)) { return; }
+		Node initializer = value;
+		if (initializer.kind == NK_F_STRING_LITERAL) {
+			TypeValidator.fail("A char array cannot be initialized from an f-string; only a string literal initializes one", initializer);
+		}
+		int length = StorageValidator.stringInitializerByteLength(initializer);
+		if (length < 0) {
+			TypeValidator.fail("A char array can only be initialized from a string literal or a brace list, not a string value", initializer);
+		}
+		Node canonical = self.types.resolveAliases(expected);
+		if (canonical.arraySize == null) { return; }
+		Map<string, bool> unrestricted = {};
+		SemanticIntegerConstant bound = self.constants.integerConstant(canonical.arraySize, false, "", unrestricted);
+		if (!bound.valid || !bound.known || bound.value <= 0 || (long long)length < bound.value) { return; }
+		string elements = Strings.fromInt((int)bound.value);
+		if ((long long)length == bound.value) {
+			TypeValidator.fail("String literal fills all " + elements + " elements of the char array and leaves no room for its terminator; declare " + Strings.fromInt((int)bound.value + 1) + " elements or leave the bound empty", initializer);
+		}
+		TypeValidator.fail("String literal needs " + Strings.fromInt(length + 1) + " elements with its terminator but the char array has " + elements, initializer);
+	}
+
+	/* An assignment or call argument checks the char-array elements of its
+	 * brace initializer as a declaration does: through nested struct fields
+	 * and array elements down to each string-initialized char array. */
+	public void validateCharArrayElements(Node? expected, Node? initializer, Map<string, Node> vars) {
+		if (expected == null || initializer == null) { return; }
+		if (initializer.kind != NK_BRACE_INITIALIZER && initializer.kind != NK_LIST_LITERAL) { return; }
+		self.validateCharArrayElement(expected, initializer, vars);
+	}
+
+	private void validateCharArrayElement(Node expected, Node initializer, Map<string, Node> vars) {
+		Node? canonical = self.types.resolveAliases(self.types.arrayValueType(expected));
+		if (canonical == null) { return; }
+		if (initializer.kind != NK_BRACE_INITIALIZER && initializer.kind != NK_LIST_LITERAL) {
+			self.validateCharArrayInitializer(canonical, initializer, vars);
+			return;
+		}
+		if (canonical.isArray) {
+			Node element = TypeShape.withoutOuterArray(canonical);
+			int elementIndex = 0;
+			while (elementIndex < initializer.elements().len) {
+				self.validateCharArrayElement(element, initializer.elements().get(elementIndex), vars);
+				elementIndex = elementIndex + 1;
+			}
+			return;
+		}
+		string name = StorageValidator.structTypeName(canonical, self.state.analyzed);
+		if (name == "" || canonical.pointerDepth > 0 || initializer.kind != NK_BRACE_INITIALIZER || !self.state.analyzed.structTable.has(name)) { return; }
+		Node declaration = self.state.analyzed.structTable.get(name);
+		if (declaration.isForward) { return; }
+		int index = 0;
+		while (index < initializer.elements().len && index < declaration.fields().len) {
+			Node field = declaration.fields().get(index);
+			Node? fieldValueType = self.arrayFieldValueType(field);
+			if (fieldValueType == null) { fieldValueType = field.type; }
+			self.validateCharArrayElement(fieldValueType, initializer.elements().get(index), vars);
+			index = index + 1;
+		}
+	}
+
 	public bool staticArrayDesignator(Node? expression) {
 		if (expression == null) { return false; }
 		if (StringConstant.isNode(expression)) { return true; }
@@ -1364,6 +1451,7 @@ class StorageValidator {
 			self.validateReferenceQualifiers(qualifiedTarget, expression.valueNode, "Assignment", vars);
 			if (!gpuTargetHasCapacity && !genericNull) {
 				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars);
+				self.validateCharArrayElements(target, expression.valueNode, vars);
 			}
 		}
 		self.validatePropertyMutation(expression.target, expression.op != "=", gpuTargetHasCapacity, vars, expression);

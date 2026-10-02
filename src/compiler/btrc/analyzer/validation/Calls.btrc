@@ -740,6 +740,7 @@ class CallValidator {
              * compatibility path (and may decay at the ABI boundary). */
 			if (self.types.contextualAggregateInitializer(argument)) {
 				self.types.validateTypedInitializer(expected, argument, "Argument '" + parameter.name + "' to '" + label + "()'", vars);
+				self.storage.validateCharArrayElements(expected, argument, vars);
 			}
 			Node? actual = self.types.inferType(argument,  vars);
 			if (actual != null && gpuArrayParameter) {

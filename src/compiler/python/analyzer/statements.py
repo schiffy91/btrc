@@ -40,6 +40,7 @@ from src.compiler.python.syntax.ast.generated import (
     ForInitExpr,
     ForInitVar,
     ForInStmt,
+    FStringLiteral,
     FunctionDecl,
     Identifier,
     IfStmt,
@@ -485,6 +486,23 @@ class StatementAnalyzer:
                 declaration.col,
             )
 
+    def _validate_char_array_initializer(self, type_expr, initializer, *, is_global: bool) -> None:
+        """A local bound is analyzed after its initializer, so evaluate it here.
+
+        Storage validation owns a static-storage initializer that is not a
+        literal and a non-positive bound, and reports them first.
+        """
+        if not self.aggregates.char_array_string_initializer(type_expr, initializer):
+            return
+        if (is_global or type_expr.is_static) and not isinstance(initializer, StringLiteral):
+            return
+        bound = self.types.canonical_type(type_expr).array_size
+        value = None
+        if bound is not None:
+            constant, numeric = self.expressions.integer_constant_expression(bound)
+            value = numeric if constant else None
+        self.aggregates.validate_char_array_initializer(type_expr, initializer, value)
+
     def _validate_array_bound(self, type_expr, subject, context) -> None:
         if type_expr is None:
             return
@@ -509,6 +527,8 @@ class StatementAnalyzer:
         constant, numeric = self.expressions.integer_constant_expression(bound)
         if constant:
             self.session.constant_array_bound_ids.add(marker)
+            if numeric is not None:
+                self.session.record_array_bound_value(bound, numeric)
         if numeric is not None and numeric <= 0:
             self.session.error(
                 f"Array bound for {subject} must be positive",
@@ -549,6 +569,18 @@ class StatementAnalyzer:
                 f"{subject} has only temporary compound-literal backing; array-valued class field defaults require persistent backing storage",
                 field.line,
                 field.col,
+            )
+        if (
+            field.access != "class"
+            and isinstance(field.initializer, (StringLiteral, FStringLiteral))
+            and self.aggregates.char_array_string_initializer(field.type, field.initializer)
+        ):
+            # An instance field is initialized by assignment after allocation,
+            # which a C array cannot take.
+            self.session.error(
+                "A class field char array cannot take a string literal default; copy the text into it in the constructor",
+                field.initializer.line,
+                field.initializer.col,
             )
         if field.access == "class" and canonical and (canonical.base == "Mutex"):
             self.session.error(
@@ -1941,6 +1973,7 @@ class StatementAnalyzer:
             self.aggregates.validate_fixed_array_initializer(
                 stmt.type, stmt.initializer, f"Initializer for '{stmt.name}'", stmt.line, stmt.col
             )
+            self._validate_char_array_initializer(stmt.type, stmt.initializer, is_global=is_global)
             self.expressions.validate_value(
                 ExpressionValuePlan(
                     stmt.type,
@@ -1982,6 +2015,8 @@ class StatementAnalyzer:
             self.aggregates.validate_thread_handle_copy(stmt.type, stmt.initializer, stmt.line, stmt.col)
             if self.types.is_void_value(init_type):
                 self.session.error(f"Cannot assign void expression to variable '{stmt.name}'", stmt.line, stmt.col)
+            elif self.aggregates.char_array_string_initializer(stmt.type, stmt.initializer):
+                pass
             elif init_type and stmt.type and (not self.types.types_compatible(stmt.type, init_type)):
                 is_empty_literal = (
                     (isinstance(stmt.initializer, ListLiteral) and (not stmt.initializer.elements))

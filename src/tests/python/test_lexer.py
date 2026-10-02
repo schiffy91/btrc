@@ -681,6 +681,29 @@ class TestTripleQuoteStrings:
         assert tokens[4].type == TokenKind.SEMICOLON
 
 
+class TestStringByteLength:
+    """A char array's extent counts the bytes a lexed literal stores (PLAN.md D20)."""
+
+    @pytest.mark.parametrize(
+        ("source", "length"),
+        [
+            ('"abc"', 3),
+            ('""', 0),
+            ('"a\\nb"', 3),
+            ('"\\x41\\101\\0"', 3),
+            ('"\\1234"', 2),
+            ('"\\x41g"', 2),
+            ('"caf\\u00e9"', 5),
+            ('"\\U0001F600"', 4),
+            ('"café"', 5),
+            ('"""two\nlines"""', 9),
+            ('"ab\\\ncd"', 4),
+        ],
+    )
+    def test_counts_decoded_bytes(self, source, length):
+        assert LiteralDecoder.string_byte_length(lex(source)[0].value) == length
+
+
 def test_lexer_uses_its_explicit_immutable_vocabulary():
     grammar = GRAMMAR_PARSER.parse('@lexical { @keywords { class } @operators { "+" } @annotations { gpu } }')
     vocabulary = TokenVocabulary(grammar)

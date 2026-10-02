@@ -46,6 +46,7 @@ from src.compiler.python.syntax.ast.generated import (
     PreprocessorDirective,
     PropertyDecl,
     RichEnumDecl,
+    StringLiteral,
     StructDecl,
     ThrowStmt,
     TryCatchStmt,
@@ -780,7 +781,7 @@ class TranslationUnitLowerer:
             and type_expr.is_array
             and (
                 type_expr.array_size is not None
-                or isinstance(declaration.initializer, (BraceInitializer, ListLiteral))
+                or isinstance(declaration.initializer, (BraceInitializer, ListLiteral, StringLiteral))
                 or type_expr.is_extern
             )
         )
@@ -813,9 +814,11 @@ class TranslationUnitLowerer:
                 )
                 if type_expr.array_size is not None
                 else IRLiteral(text=str(len(initializer.elements)))
-                if initializer is not None
+                if isinstance(initializer, (BraceInitializer, ListLiteral))
                 else None,
-                is_unsized_array=type_expr.array_size is None and initializer is None,
+                # An unsized char array takes its extent from its string literal.
+                is_unsized_array=type_expr.array_size is None
+                and not isinstance(initializer, (BraceInitializer, ListLiteral)),
                 is_static=not (is_extern or force_external),
                 is_extern=is_extern,
                 is_volatile=bool(type_expr.is_volatile),

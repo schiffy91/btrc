@@ -120,6 +120,9 @@ class CallAnalyzer:
                     self.aggregates.validate_fixed_array_initializer(
                         step.expected, step.value, step.subject, step.line, step.col
                     )
+                    self.aggregates.validate_char_array_initializer(
+                        step.expected, step.value, self.aggregates.recorded_array_bound(step.expected)
+                    )
                 if step.contextualize_constructor:
                     self.contextualize_generic_constructor(step.expected, step.value)
             elif isinstance(step, InitializerArrayFieldCheck):
@@ -137,6 +140,8 @@ class CallAnalyzer:
                     self.session.error(
                         f"{step.subject} cannot be initialized from a void expression", step.line, step.col
                     )
+                elif self.aggregates.char_array_string_initializer(step.expected, step.value):
+                    continue
                 elif not self.types.types_compatible(step.expected, actual):
                     suffix = " elements" if step.element else ""
                     self.session.error(
