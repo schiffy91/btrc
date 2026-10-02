@@ -244,6 +244,7 @@ class NativeRecordLayout:
     size_bits: str = ""
     alignment_bits: str = ""
     fields: list[NativeField] = _dc_field(default_factory=list)
+    transparent_union: bool = False
 
 
 @dataclass(kw_only=True)

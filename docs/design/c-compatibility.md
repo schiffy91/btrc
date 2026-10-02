@@ -215,8 +215,8 @@ The main session lands two serial commits before the lanes fork: the schema comm
   - a value.
 
   Python adopts btrc's `long long` overflow rule. r10 indexes, r12 widths and r17 inner extents all use this query, so Stage 19's layout evaluator (D20) can later lift the middle case without changing any diagnostic.
-- **C tag aliases** change behavior, so they land with r09 rather than in the shared-owner commit. r09 brings:
-  - the alias rows for btrc and native records;
+- **C tag aliases** change behavior, so they land with r09 rather than in the shared-owner commit. The native-record rows landed first (Stage 4, D039): each analyzer's struct registration enters `struct X`/`union X` for a tagged native record imported under its tag (Python `TopLevelRegistrar._alias_native_tag`, btrc `DeclarationRegistry.aliasNativeTag`), and r09 extends that one owner to btrc records. r09 brings:
+  - the alias rows for btrc records;
   - the wrong-keyword validator;
   - both import reference collectors counting `struct X`, `union X` and `enum X` as references to `X` for strict imports. Today Python `ImportReferenceCollector` records the whole spelled base, so `struct X` requires no import.
 

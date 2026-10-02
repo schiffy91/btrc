@@ -702,6 +702,7 @@ class FeNativeCallContract {
 	public int boundParameter = -1;
 	public string boundConstant = "";
 	public Vector<string> variadicArguments = [];
+	public Vector<bool> transparentParameters = [];
 	public FeNativeOwnedOutput? ownedOutput = null;
 	public FeNativeRecordOutput? recordOutput = null;
 	public string executor = "";
@@ -736,7 +737,10 @@ class FeNativeCallContract {
 
 	public string adapterSymbol(string name) {
 		if (self.recordSnapshot != null) { return "__btrc_native_" + name; }
-		if (self.boundParameter >= 0) { return "__btrc_native_" + name; }
+		if (self.boundParameter >= 0 || self.variadicArguments.len > 0) { return "__btrc_native_" + name; }
+		// The SDK prototype takes a GNU transparent union, so only an
+		// adapter gives a function value the projected member signature.
+		if (self.transparentParameters.contains(true)) { return "__btrc_native_" + name; }
 		if (self.recordOutput != null || self.ownedOutput != null || self.copiedResult != null || self.copiedInput != null) { return "__btrc_native_" + name; }
 		if (self.callbacks.len > 0) { return "__btrc_native_" + name; }
 		if (!self.resourceResult.isEmpty()) { return "__btrc_native_" + name; }

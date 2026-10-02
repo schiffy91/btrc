@@ -17,12 +17,22 @@ Unix sockets and verify peer credentials through `LocalPeerCredentials`, whose
 `[[package.providers]]` select `MacOS/LocalPeerCredentialsProvider`
 (`getpeereid`) or `Linux/LocalPeerCredentialsProvider` (`SO_PEERCRED`).
 `Socket.h` holds only SDK includes and the `LocalSocketAddress` typedef. The
-typed binding imports `socket`, `listen`, `getsockopt`, `recv`, `send`,
-`shutdown` and `close`; `connect`, `bind` and `accept` (glibc declares their
-address argument as a transparent union), the variadic `fcntl` and `poll`
-(whose `struct pollfd` collides with the hosted declaration) still arrive
-through hosted includes until the native reader lowers those shapes. Linux's
-`_GNU_SOURCE` requirement belongs to the package build plan. No handwritten C
+typed binding imports every socket and poll declaration the channel uses:
+`socket`, `connect`, `bind`, `listen`, `accept`, `getsockopt`, `recv`, `send`,
+`shutdown`, `close`, `poll`, the `pollfd` record and the `AF_UNIX`,
+`SOCK_STREAM`, `SOL_SOCKET`, `SO_ERROR`, `MSG_NOSIGNAL`, `SHUT_RDWR`, `POLLIN`
+and `POLLOUT` constants. glibc declares the `connect`/`bind`/`accept` address
+as a transparent union; the importer projects it as `const sockaddr*`, the type
+macOS declares, so the channel passes `(struct sockaddr*)&address` on both. An
+imported tagged record answers to its C spelling, so `struct sockaddr` and
+`struct pollfd` are the imported records, not the hosted declarations they
+once collided with. Descriptor flags (`fcntl`) belong
+to `Library.IO`'s `DescriptorFlags`. Only `sys/stat.h` (for the `S_ISSOCK` and
+`S_ISDIR` function-like macros), `errno.h`, `time.h` and `limits.h` remain
+hosted includes; `geteuid` and `unlink` keep their hosted rows (the compiler
+reserves those names) and are declared by `Socket.h`'s `unistd.h`, which the
+binding includes for `close`. Linux's `_GNU_SOURCE` requirement belongs to the package build
+plan. No handwritten C
 implementation, hosted channel ABI, or channel archive remains. Windows has no
 provider yet; its open and request outcomes are added with one.
 

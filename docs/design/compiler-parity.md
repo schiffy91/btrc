@@ -60,6 +60,16 @@ kill, and it analyses a loop body from the facts that survive the loop's back
 edge, so a linked-list walk without a null guard is flagged. `btrcc` has no
 nullable flow yet; porting it is part of the deferred work below.
 
+### Call arity wording
+
+Both compilers refuse a call with the wrong number of arguments, but word it
+differently: Python reports the expected range (`'f()' expects at least 2
+argument(s) but got 1`, or `at most`), and `btrcc` names the first missing
+parameter (`'f()' missing required argument 'b'`) and reports only the first
+such call. Found while proving whole-function variadic shapes
+(`test_native_linux_call_shapes.py` pins the refusal, not the text); it applies
+to every function, not only native imports.
+
 ## Remaining differences in emitted C
 
 The two compilers' C is not byte-identical, so `test_examples.py` and the

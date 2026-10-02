@@ -584,6 +584,7 @@ class NativeCallContract:
     copied_input: NativeCopiedInput | None = None
     cxx_method: NativeCxxProjection | None = None
     callback_table: NativeCallbackTableProjection | None = None
+    transparent_parameters: tuple[bool, ...] = ()
 
     @property
     def returns_owned(self):
@@ -610,9 +611,13 @@ class NativeCallContract:
             or self.record_output
             or self.owned_output
             or self.bound_parameter >= 0
+            or self.variadic_arguments
             or self.copied_result
             or self.record_snapshot
             or self.copied_input
+            # The SDK prototype takes a GNU transparent union, so only an
+            # adapter gives a function value the projected member signature.
+            or any(self.transparent_parameters)
             else name
         )
 
@@ -2989,8 +2994,10 @@ class NativeDeclarationImporter:
                 raise NativeImportError("record-outputs requires one output parameter per selected function")
             functions.add(name)
             contract = declaration.source_file.call_contract
-            if contract.bound_parameter >= 0:
+            if contract.variadic_arguments:
                 raise NativeImportError("record-outputs cannot combine a selected variadic-calls shape")
+            if any(contract.transparent_parameters):
+                raise NativeImportError("record-outputs cannot combine transparent-union parameters")
             if contract.callbacks or contract.realtime_safe or contract.resource_result:
                 raise NativeImportError("record-outputs cannot combine callbacks, realtime or a managed native result")
             indices = [index for index, value in enumerate(declaration.params) if value.name == parameter]
@@ -3162,6 +3169,7 @@ class NativeDeclarationImporter:
     def _layout_identity(self, record):
         return (
             record.record_kind,
+            record.transparent_union,
             record.size_bits,
             record.alignment_bits,
             tuple(
@@ -4037,7 +4045,9 @@ class NativeDeclarationImporter:
 
     def _project_variadic(self, declaration, parameter_names):
         selected = [
-            (key, shape) for key, shape in self._variadic_calls.items() if key.startswith(declaration.name + ".")
+            (key, shape)
+            for key, shape in self._variadic_calls.items()
+            if key == declaration.name or key.startswith(declaration.name + ".")
         ]
         if not selected:
             if declaration.signature.variadic:
@@ -4046,6 +4056,30 @@ class NativeDeclarationImporter:
         key, shape = selected[0]
         if not declaration.signature.variadic:
             raise NativeImportError("variadic-calls requires an SDK variadic function")
+        if key == declaration.name:
+            # A whole-function shape keeps every fixed parameter visible and
+            # fixes the tail for every call, whatever the fixed arguments say.
+            index, bound = -1, ""
+        else:
+            index, bound = self._variadic_selector(declaration, parameter_names, key, shape), shape.value
+        parameters = []
+        occupied = set(parameter_names)
+        for position, spelling in enumerate(shape.arguments):
+            pointer = spelling.endswith("*")
+            scalar = spelling[:-1].strip() if pointer else spelling
+            const = scalar.startswith("const ")
+            base = scalar[6:] if const else scalar
+            name = f"variadicArgument{position}"
+            while name in occupied:
+                name += "_"
+            occupied.add(name)
+            parameters.append(
+                ast.Param(type=ast.TypeExpr(base=base, is_const=const, pointer_depth=int(pointer)), name=name)
+            )
+        self._variadic_calls.pop(key)
+        return index, bound, tuple(parameters), shape.arguments
+
+    def _variadic_selector(self, declaration, parameter_names, key, shape):
         parameter = key.split(".", 1)[1]
         if parameter not in parameter_names:
             raise NativeImportError("variadic-calls names an unknown selector parameter")
@@ -4070,22 +4104,26 @@ class NativeDeclarationImporter:
             bases.append(native.name)
         if bases[0] != bases[1]:
             raise NativeImportError("variadic-calls selector and value must have the same SDK integer type")
-        parameters = []
-        occupied = set(parameter_names)
-        for position, spelling in enumerate(shape.arguments):
-            pointer = spelling.endswith("*")
-            scalar = spelling[:-1].strip() if pointer else spelling
-            const = scalar.startswith("const ")
-            base = scalar[6:] if const else scalar
-            name = f"variadicArgument{position}"
-            while name in occupied:
-                name += "_"
-            occupied.add(name)
-            parameters.append(
-                ast.Param(type=ast.TypeExpr(base=base, is_const=const, pointer_depth=int(pointer)), name=name)
-            )
-        self._variadic_calls.pop(key)
-        return index, shape.value, tuple(parameters), shape.arguments
+        return index
+
+    def _transparent_union_member(self, native):
+        """The first member of a GNU transparent-union parameter, else None.
+
+        GCC passes such an argument with its first member's convention and
+        converts any member type at the call, so that member is the projected
+        parameter type (glibc's `__CONST_SOCKADDR_ARG` becomes the portable
+        `const struct sockaddr*`). Every other by-value union stays refused.
+        """
+        record = self._unqualified_native(native)
+        if not isinstance(record, NativeRecordType) or record.opaque:
+            return None
+        layout = self._layouts.get(record.identity)
+        if layout is None or not layout.transparent_union:
+            return None
+        member = layout.fields[0]
+        if member.is_anonymous or member.is_bitfield:
+            raise NativeImportError("transparent-union parameters require a named first member")
+        return member.field_type
 
     def _parameter_names(self, semantics):
         occupied = {parameter.name for parameter in semantics if parameter.name}
@@ -4171,22 +4209,18 @@ class NativeDeclarationImporter:
                 or copied_result
                 or resource_result
                 or declaration.name in self._realtime
-                or bound_parameter >= 0
+                or variadic_arguments
             ):
                 raise NativeImportError(
                     "copied-inputs cannot combine callbacks, other result mappings or realtime calls"
                 )
             if copied_result and (
-                callbacks
-                or owned_output
-                or resource_result
-                or declaration.name in self._realtime
-                or bound_parameter >= 0
+                callbacks or owned_output or resource_result or declaration.name in self._realtime or variadic_arguments
             ):
                 raise NativeImportError(
                     "copied-results does not support callbacks, other owned results, variadic, or realtime calls"
                 )
-            if bound_parameter >= 0 and (
+            if variadic_arguments and (
                 callbacks or owned_output or resource_result or declaration.name in self._realtime
             ):
                 raise NativeImportError(
@@ -4196,6 +4230,7 @@ class NativeDeclarationImporter:
                 raise NativeImportError("owned-outputs does not support callbacks or realtime calls")
             callback_parameters = {projection.parameter_index: projection for projection in callbacks}
             callback_contexts = {projection.context_index for projection in callbacks if projection.context_index >= 0}
+            transparent = []
             for index, (native, _) in enumerate(
                 zip(signature.parameters, declaration.parameter_semantics, strict=True)
             ):
@@ -4205,6 +4240,7 @@ class NativeDeclarationImporter:
                     parameters.append(ast.Param(type=ast.TypeExpr(base="void", pointer_depth=1), name=name))
                     resource_parameters.append("")
                     borrows.append(False)
+                    transparent.append(False)
                     continue
                 resource_parameter = self._project_resource_position(key, native)
                 if resource_parameter:
@@ -4216,13 +4252,15 @@ class NativeDeclarationImporter:
                         raise NativeImportError(f"resource parameter {key} requires borrowed-parameters")
                     self._resource_borrows.remove(key)
                 resource_parameters.append(resource_parameter)
+                member = self._transparent_union_member(native)
+                transparent.append(member is not None)
                 parameters.append(
                     ast.Param(
                         type=ast.TypeExpr(base=callback_parameters[index].interface)
                         if index in callback_parameters and not callback_parameters[index].field
                         else self._resource_call_type(native, resource_parameter)
                         if resource_parameter
-                        else self._call_type(native, parameter=True),
+                        else self._call_type(native if member is None else member, parameter=True),
                         name=name,
                     )
                 )
@@ -4246,9 +4284,24 @@ class NativeDeclarationImporter:
                 raise NativeImportError("callback context cannot also declare a borrow or resource mapping")
             if bound_parameter >= 0 and (borrows[bound_parameter] or resource_parameters[bound_parameter]):
                 raise NativeImportError("variadic-calls selector cannot carry a resource or borrow mapping")
+            if any(transparent) and (
+                callbacks
+                or owned_output
+                or copied_input
+                or copied_result
+                or resource_result
+                or any(borrows)
+                or any(resource_parameters)
+                or declaration.name in self._realtime
+            ):
+                raise NativeImportError(
+                    "transparent-union parameters do not support callbacks, borrows, resources, "
+                    "owned or copied results, or realtime calls"
+                )
             parameters.extend(variadic_parameters)
             borrows.extend(False for _ in variadic_parameters)
             resource_parameters.extend("" for _ in variadic_parameters)
+            transparent.extend(False for _ in variadic_parameters)
             visible = [
                 index
                 for index in range(len(parameters))
@@ -4291,6 +4344,7 @@ class NativeDeclarationImporter:
                 variadic_arguments=variadic_arguments,
                 copied_result=copied_result,
                 copied_input=copied_input,
+                transparent_parameters=tuple(transparent[index] for index in visible),
             )
             if any(callback.one_shot for callback in callbacks):
                 if borrowed_owner is not None:
@@ -5159,7 +5213,9 @@ class NativeHeaderCodec:
         return NativeRecordDeclaration(**position, record_type=native_type)
 
     def _record(self, value):
-        self._object(value, {"identity", "name", "kind", "size_bits", "alignment_bits", "fields"})
+        self._object(
+            value, {"identity", "name", "kind", "size_bits", "alignment_bits", "fields"}, {"transparent_union"}
+        )
         size = self._decimal(value["size_bits"])
         alignment = self._decimal(value["alignment_bits"])
         size_value = self._layout_integer(size)
@@ -5182,13 +5238,19 @@ class NativeHeaderCodec:
                     width_bits=width,
                 )
             )
+        record_kind = self._choice(value["kind"], {"struct", "union"})
+        # Present only on a GNU transparent union, and then only as true.
+        transparent = "transparent_union" in value
+        if transparent and (not self._boolean(value["transparent_union"]) or record_kind != "union" or not fields):
+            raise NativeImportError("a transparent native record must be a union with members")
         return NativeRecordLayout(
             identity=self._text(value["identity"]),
             name=self._text(value["name"], empty=True),
-            record_kind=self._choice(value["kind"], {"struct", "union"}),
+            record_kind=record_kind,
             size_bits=size,
             alignment_bits=alignment,
             fields=fields,
+            transparent_union=transparent,
         )
 
     def _verify_layout_references(self, native_type, layouts):

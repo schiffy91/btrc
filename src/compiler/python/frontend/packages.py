@@ -368,7 +368,7 @@ class NativeStringViewBinding:
 
 @dataclass(frozen=True)
 class NativeVariadicBinding:
-    """One fixed C variadic shape selected by an SDK opcode constant."""
+    """One fixed C variadic tail, bound to an SDK opcode constant or to the whole function."""
 
     parameter: str
     value: str
@@ -2035,12 +2035,18 @@ class PackageManifestValidator:
         promoted = {"int", "unsigned int", "long", "unsigned long", "long long", "unsigned long long", "double"}
         pointees = promoted | {"char", "signed char", "unsigned char", "short", "unsigned short", "float"}
         for parameter, value in sorted(values.items()):
-            self._resource_functions([parameter], symbols, context, "variadic-calls", parameters=True)
-            if not isinstance(value, dict) or set(value) != {"value", "arguments"}:
-                raise ValueError(f"{context}.variadic-calls requires value and arguments")
-            constant = value["value"]
+            # `function.selector` binds an opcode constant; a bare `function`
+            # fixes one tail for every call and keeps the selector visible.
+            whole = "." not in parameter
+            self._resource_functions([parameter], symbols, context, "variadic-calls", parameters=not whole)
+            if not isinstance(value, dict) or set(value) != ({"arguments"} if whole else {"value", "arguments"}):
+                raise ValueError(
+                    f"{context}.variadic-calls requires "
+                    + ("only arguments for a whole function" if whole else "value and arguments")
+                )
+            constant = "" if whole else value["value"]
             arguments = value["arguments"]
-            if not isinstance(constant, str) or constant not in symbols:
+            if not whole and (not isinstance(constant, str) or constant not in symbols):
                 raise ValueError(f"{context}.variadic-calls value must name a selected SDK constant")
             if (
                 not isinstance(arguments, list)
