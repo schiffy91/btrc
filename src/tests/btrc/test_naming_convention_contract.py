@@ -44,12 +44,16 @@ _PLATFORM_STRUCT_MEMBERS = frozenset(
         "c_lflag",  # struct termios
         "it_interval",
         "it_value",  # struct itimerval
+        "pti_threadnum",  # struct proc_taskinfo
         "pw_dir",
         "pw_name",
         "pw_uid",  # struct passwd
         "rlim_cur",  # struct rlimit
         "rm_eo",
         "rm_so",  # regmatch_t
+        "ru_maxrss",
+        "ru_stime",
+        "ru_utime",  # struct rusage
         "s_addr",  # struct in_addr
         "sin_addr",
         "sin_family",

@@ -388,6 +388,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("gather", "void", "method", (("Span<float>", "physical"), ("int", "physicalChannels"), ("Span<int>", "channels"), ("Span<float>", "selected"), ("int", "frames"),), "gather"),
         BuiltinMemberSpec("scatter", "void", "method", (("Span<float>", "selected"), ("Span<int>", "channels"), ("Span<float>", "physical"), ("int", "physicalChannels"), ("int", "frames"),), "scatter"),
     )),
+    ("ProcessThreads", (
+        BuiltinMemberSpec("count", "int", "method", (), "count"),
+    )),
     ("BitPattern32", (
         BuiltinMemberSpec("signedInteger", "int", "method", (("uint", "bits"),), "signedInteger"),
         BuiltinMemberSpec("floatingPoint", "float", "method", (("uint", "bits"),), "floatingPoint"),

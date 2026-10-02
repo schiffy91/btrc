@@ -100,7 +100,7 @@ class CompilerOptions:
     module_units: bool = False
     # Module-unit worker processes. One keeps the compile in this process,
     # which is what an embedding host with threads needs; the CLI, a process
-    # of its own, asks for one per CPU.
+    # of its own, asks for one per online CPU, at most four, as btrcc does.
     module_jobs: int = 1
 
     @property
@@ -110,11 +110,7 @@ class CompilerOptions:
     @property
     def cacheable(self) -> bool:
         return (
-            self.use_cache
-            and self.output is CompilerOutput.C
-            and self.stdlib_archive is None
-            and not self.freestanding
-            and not self.profile
+            self.use_cache and self.output is CompilerOutput.C and self.stdlib_archive is None and not self.freestanding
         )
 
 

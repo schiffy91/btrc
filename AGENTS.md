@@ -120,14 +120,18 @@ went. `tools/perf.py`'s `phase_times` sums the owner's line only and
 `worker_phase_times` reads the worker lines. An inline pool (`--jobs 1`, or
 fewer than two stale groups) prints no worker line: its work is the owner's,
 and its marks fold into the owner's line, which is enough to attribute a cold
-build without attaching a profiler. Per-worker resource usage is not reported
-yet.
+build without attaching a profiler. The owner reaps each worker with `wait4`
+and ends that worker's line with what the process used over its whole life,
+`usage=user:Nus,sys:Nus,maxrss:NKiB` (peak resident memory in KiB on macOS
+too, where the kernel reports bytes); a host without `wait4` omits the field,
+and `tools/perf.py`'s `worker_usage` reads it.
 
 With forked workers, `/usr/bin/time -l` mixes scopes: instructions retired,
 cycles and peak memory footprint describe the owner process only, user and sys
 time are summed over the reaped workers, and maxrss is the largest single
-process. Compare forked builds on the owner's figures plus the worker lines, or
-measure with `--jobs 1`.
+process. Compare forked builds on the owner's figures plus the worker lines,
+whose `usage` gives each worker's own CPU time and peak memory but not its
+instructions retired, or measure with `--jobs 1`.
 
 ### Performance changes already measured and rejected
 

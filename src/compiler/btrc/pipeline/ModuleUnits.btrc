@@ -1265,6 +1265,13 @@ class ModuleUnitCompiler {
 				}
 			}
 			WorkerReply reply = workers.awaitReply();
+			/* What a worker's request threw, such as a lowering diagnostic, is
+			 * thrown again here, whether the worker is a forked process or the
+			 * owner itself, so it surfaces as it would from one compile. */
+			if (reply.kind == WorkerReplyKind.WORKER_REPLY_RAISED) {
+				workers.terminate();
+				throw reply.error;
+			}
 			if (reply.kind != WorkerReplyKind.WORKER_REPLY_READY) {
 				self.workersFailed(workers, reply.kind == WorkerReplyKind.WORKER_REPLY_EMPTY ? "no module-unit request could be delivered" : reply.error);
 			}
@@ -1288,6 +1295,14 @@ class ModuleUnitCompiler {
 		}
 		Vector<int> assigned = [];
 		return self.exchange(workers, requests, affinity, assigned);
+	}
+
+	/* A worker's report with `usage=user:Nus,sys:Nus,maxrss:NKiB` appended:
+	 * what the worker process used over its whole life, as close() reaped
+	 * it. A host that reports no usage leaves the report as it was. */
+	class string withUsage(string report, WorkerUsage? used) {
+		if (used == null) { return report; }
+		return f"{report} usage=user:{used.userMicros}us,sys:{used.systemMicros}us,maxrss:{used.maxResidentKibibytes}KiB";
 	}
 
 	private int solveGeneration = 0;
@@ -2040,7 +2055,9 @@ class ModuleUnitCompiler {
 			fprintf(stderr, "error: module-unit worker failed: a worker exited abnormally\n");
 			exit(1);
 		}
-		for (int index = 0; index < workerTimings.len; index++) { BtrccPhaseTimer.worker(index, workerTimings.get(index)); }
+		if (started != null) {
+			for (int index = 0; index < workerTimings.len; index++) { BtrccPhaseTimer.worker(index, ModuleUnitCompiler.withUsage(workerTimings.get(index), started.usage(index))); }
+		}
 		BtrccPhaseTimer.mark("u-records");
 		/* The program unit gathers every helper any unit uses; the runtime
 		 * unit defines them. */
