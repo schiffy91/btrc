@@ -627,12 +627,13 @@ class IRParam {
 class IRStructField {
 	public string cType;
 	public string name;
-	public IRNode arraySize;    /* optional; left null (zeroed storage) until a bound is set */
+	public IRNode? arraySize;    /* optional array bound */
 	public bool isVolatile;
 	public bool effectiveIsVolatile;
 	public IRStructField(string cType, string name) {
 		self.cType = cType;
 		self.name = name;
+		self.arraySize = null;
 		self.isVolatile = false;
 		self.effectiveIsVolatile = false;
 	}
