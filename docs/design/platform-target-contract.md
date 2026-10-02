@@ -131,7 +131,7 @@ frameworks = true                 # [[native.frameworks]] allowed
 - `operating_system` ∈ {linux, macos, windows, ios, android}; `architecture` ∈ {x86_64, aarch64}.
 - The environment fits the OS: linux takes `gnu`; windows takes `gnu` or `msvc`; macos and android take `""`; ios takes `""` or `simulator`.
 - `default_environments` names only OSes that have rows. Each OS with a default environment has exactly one row per architecture in that default.
-- `triple` is in the form clang's cc1 uses (`-###`): `arm64`/`x86_64` for Apple, `aarch64`/`x86_64` elsewhere, a three-part Apple version, and the `unknown` vendor on linux and android. A version in the triple equals `minimum_version`:
+- `triple` is in the form clang's cc1 uses (`-###`): `arm64`/`x86_64` for Apple, `aarch64`/`x86_64` elsewhere, a three-part Apple version, and the `unknown` vendor on linux and android. The one exception is the `msvc` environment: clang appends its default MSVC compatibility version (`aarch64-pc-windows-msvc19.33.0`), which is a toolchain fact, not a target fact, so the row records the unversioned `aarch64-pc-windows-msvc`. A version in the triple equals `minimum_version`:
   - Apple: `macosx<minimum_version>.0` or `ios<minimum_version>.0`;
   - Android: `android<minimum_version>`.
 - `triple_aliases` are other spellings that clang maps to the same cc1 triple. They are unique across rows, and none equals a row's `triple`.
@@ -187,7 +187,8 @@ Every value below is clang 21.1.8 `-std=c11 -dM -E` for the row's triple.
 
 **New hand rows.**
 - `__APPLE_EMBEDDED_SIMULATOR__`: ios with `simulator`.
-- `__MINGW32__` and `__MINGW64__`: windows with `gnu`. With the environment axis, these name an ABI, not a toolchain version, and `#ifdef __MINGW32__` is common in real headers.
+- `__MINGW32__`, `__MINGW64__` and `__SEH__`: windows with `gnu`. With the environment axis, these name an ABI, not a toolchain version, and `#ifdef __MINGW32__` is common in real headers. zig and clang agree on all three.
+- `_M_ARM64`=1: windows with `msvc` and aarch64. clang defines `_M_*` only for the msvc environment, never for gnu, so the row is exact. (`_M_X64`/`_M_AMD64`=100 would join it with a `windows-x86_64-msvc` row; there is none.)
 - `TARGET_OS_MAC`: macos and ios.
 - `TARGET_OS_OSX`: macos.
 - `TARGET_OS_IPHONE` and `TARGET_OS_IOS`: ios.
@@ -216,8 +217,8 @@ Every value below is clang 21.1.8 `-std=c11 -dM -E` for the row's triple.
 
 **Still left out (I2).** These are toolchain identity, invocation identity or CPU feature sets, as C4 decided:
 - `__GNUC__`, `__clang__`, `_MSC_VER`, `__STDC_HOSTED__`, `__OPTIMIZE__`, `__gnu_linux__` (still left out: Android does not define it);
-- the `_M_X64`, `_M_AMD64` and `_M_ARM64` family (§1.9);
-- `__SEH__`;
+- `_MSC_FULL_VER`, `_MSC_EXTENSIONS`, `_MSC_BUILD`, `_INTEGRAL_MAX_BITS` and `__MSVCRT__`: clang's values are its own MSVC emulation (19.33), not a real toolchain's;
+- `__STDC_NO_THREADS__` (msvc), `__STRICT_ANSI__` and the gnu-only `__WIN32__`/`__WINNT__` spellings;
 - `__ARM_FEATURE_*`, `__SSE*__` and `__NO_MATH_ERRNO__`;
 - `__OBJC_BOOL_IS_BOOL`.
 
@@ -315,7 +316,7 @@ Both compilers infer the host only when `--target` is absent. Both map the host 
 D21 adopts MSVC only where wgpu-native forces it. The matrix shows that it does for Windows ARM64: wgpu-native ships only `windows-aarch64-msvc`. So `windows-aarch64-msvc` is a row, the environment axis is real, and C4's deferred "`__STDC__` row, if MSVC is adopted" is decided in §1.3.
 
 - **Not a compiler host.** btrcc for Windows ARM64 stays `aarch64-windows-gnu` (`compiler_host` is false on the MSVC row).
-- **Toolchain identity stays out.** `_MSC_VER` and the `_M_*` family name the MSVC toolchain and CPU, so they stay out (I2). Code that needs the architecture tests `__aarch64__` or `__x86_64__`, which clang defines on both environments.
+- **Toolchain identity stays out.** `_MSC_VER` and its relatives name the MSVC toolchain version, so they stay out (I2). `_M_ARM64` is a row (§1.3). Portable code tests `__aarch64__` or `__x86_64__`, which clang defines in both environments.
 - **Mac-bound and runner-bound evidence.** A link of a btrc program against the MSVC CRT needs the Windows SDK, which only the `windows-11-arm` runner has (`tooling-windows-ci-arm64-llvm`, Stage 23). Before that, Linux checks the macro table and a header-free `-c` compile for the row. Its `windows-sdk` sysroot validation is runner-bound.
 
 ### 1.10 LSP target setting
@@ -437,7 +438,7 @@ The check runs in **Stage 5**, after reachability, not in the analyzer. A stdlib
 | macos, ios | `--target=<triple> -isysroot <sysroot>`; Objective-C adds `-fblocks -fobjc-arc` |
 | linux | `--target=<triple> -isysroot <sysroot> -isystem <sysroot>/usr/include` (unchanged) |
 | android | `--target=<triple> --sysroot=<sysroot>` (clang then searches `usr/local/include`, `usr/include/<arch>-linux-android` and `usr/include`, checked with `-###`) |
-| windows gnu | `--target=<triple> -nostdinc -isystem <clang resource>/include -isystem <sysroot>/include/any-windows-any -isystem <repo>/src/runtime/windows`, where `<sysroot>` is zig's `lib/libc` |
+| windows gnu | `--target=<triple> -nostdinc -isystem <zig lib>/include -isystem <sysroot>/include/any-windows-any -isystem <repo>/src/runtime/windows`, where `<sysroot>` is zig's `lib/libc` and `<zig lib>/include` is zig's bundled clang resource headers, searched first as `zig cc -v -E` shows |
 | windows msvc | `--target=<triple> -isystem <VC include> -isystem <SDK ucrt/um/shared>`, all from `windows-sdk` validation (runner-bound) |
 
 - **Objective-C** is allowed when `row.objective_c` is true: macOS and iOS. The error at `:1068` becomes `Objective-C adapters require an Apple target`.
