@@ -1453,7 +1453,7 @@ class StorageValidator {
 			/* A value of the wrong type is reported as such before any
 			 * representation or ownership rule for the stored value. */
 			if (target != null && source != null && !gpuTargetHasCapacity && !genericNull && !self.types.contextualAggregateInitializer(expression.valueNode) && !self.types.assignmentCompatible(target, source)) {
-				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'", expression);
+				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target), expression);
 			}
 			if (!gpuTargetHasCapacity && !genericNull) {
 				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars);

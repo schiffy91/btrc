@@ -174,9 +174,9 @@ or adjacent string.
   and cleanup slot. btrcc now reports a duplicate local at its name with the
   reference's wording and words a duplicate struct field as it does, and it
   checks a C-`for` initializer's declarators for duplicates (it used to emit
-  C that redeclared the name). A duplicate class field or typedef and an
-  unknown name keep the two compilers' existing wordings; the refusal test
-  pins each per compiler. The parity review found that btrcc never checked a
+  C that redeclared the name). A duplicate class field keeps the two
+  compilers' existing wordings, pinned per compiler; a duplicate typedef and
+  an unknown name match since main's analyzer-diagnostic alignment. The parity review found that btrcc never checked a
   `switch` case's own declarations for duplicates (`case 1: int a, a;`); it
   now does, as the reference does, with each case its own scope in both. A C-`for` initializer with several declarators keeps them
   in `ForInitVar.declarations`, and both compilers lower every for-init
@@ -232,10 +232,8 @@ or adjacent string.
 - **Diagnostics.** A tuple literal assigned to or initializing a non-tuple
   adds `; btrc reads a parenthesized comma list as a tuple, not C's comma
   operator` in both compilers (`TypeSystem.comma_tuple_hint`,
-  `TypeValidator.commaTupleHint`). The initializer diagnostic is identical;
-  the assignment diagnostic keeps each compiler's existing wording
-  (`Cannot assign … to 'int'` against btrcc's `Assignment expects 'int' but
-  got …`), both with the hint, pinned per compiler.
+  `TypeValidator.commaTupleHint`), identically for an initializer and an
+  assignment.
 - **Tests.** `c_compat/CommaForHeaders.btrc` (two-index loops with assignment
   and declaration initializers, operand order including `continue`, managed
   operands); the realtime suites accept multi-update loops and refuse a double
