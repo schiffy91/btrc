@@ -42,6 +42,12 @@ minimal program joins one of the batteries above.
 - **Trigraph spelling in emitted C.** Both C emitters escape a `?` that
   follows another inside literal text, so `"a??'b"` stays three characters
   under a strict C11 compiler instead of becoming `a^b`.
+- **Empty collection literals.** An empty `[]` or `{}`, bare or as either
+  branch of a ternary, takes its type from the target (declared local, field
+  default, assignment, return, call argument) in both compilers. Python used
+  to reject the return and argument positions and most ternaries; `btrcc`
+  lowered ternary branches as `Vector<int>`; both lowered a `{}` ternary
+  branch to `NULL`.
 - **Duplicate includes.** A source `#include` of a header the compiler
   already includes is emitted once by both compilers (`btrcc` always
   deduplicated; Python repeated it).
