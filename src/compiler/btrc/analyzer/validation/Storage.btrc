@@ -37,7 +37,7 @@ class StorageValidator {
 
 	public bool staticArrayDesignator(Node? expression) {
 		if (expression == null) { return false; }
-		if (expression.kind == NK_STRING_LITERAL) { return true; }
+		if (StringConstant.isNode(expression)) { return true; }
 		if (expression.kind == NK_IDENTIFIER && self.state.analyzed.globalVarTypes.has(expression.name)) {
 			Node typeExpr = self.state.analyzed.globalVarTypes.get(expression.name);
 			return typeExpr.isArray;
@@ -47,7 +47,7 @@ class StorageValidator {
 
 	public bool staticAddressOperand(Node? expression) {
 		if (expression == null) { return false; }
-		if (expression.kind == NK_STRING_LITERAL) { return true; }
+		if (StringConstant.isNode(expression)) { return true; }
 		if (expression.kind == NK_IDENTIFIER) {
 			if (self.state.analyzed.isObjectiveCGlobal(expression.name)) { return false; }
 			return self.state.analyzed.funcNames.has(expression.name) || self.state.analyzed.globalVarTypes.has(expression.name);
@@ -85,7 +85,7 @@ class StorageValidator {
 		if (expression.kind == NK_FLOAT_LITERAL) {
 			return STATIC_INITIALIZER_ARITHMETIC;
 		}
-		if (expression.kind == NK_STRING_LITERAL || expression.kind == NK_NULL_LITERAL) {
+		if (StringConstant.isNode(expression) || expression.kind == NK_NULL_LITERAL) {
 			return STATIC_INITIALIZER_ADDRESS;
 		}
 		if (expression.kind == NK_IDENTIFIER) {
@@ -1449,7 +1449,7 @@ class StorageValidator {
              * creates a fresh managed result that a borrowed target cannot own. */
 			return true;
 		}
-		if (source.kind == NK_NULL_LITERAL || source.kind == NK_STRING_LITERAL || source.kind == NK_CHAR_LITERAL) {
+		if (source.kind == NK_NULL_LITERAL || StringConstant.isNode(source) || source.kind == NK_CHAR_LITERAL) {
 			return false;
 		}
 		if (source.kind == NK_CAST_EXPR) {

@@ -72,6 +72,7 @@ from src.compiler.python.syntax.ast.generated import (
     SizeofExprOp,
     SizeofType,
     SpawnExpr,
+    StringConcat,
     StringLiteral,
     StructDecl,
     SuperExpr,
@@ -1831,13 +1832,15 @@ class Parser:
 
         if tok.type == TokenKind.STRING_LIT:
             self._advance()
-            return StringLiteral(value=tok.value, line=tok.line, col=tok.col)
+            return self._parse_adjacent_strings(StringLiteral(value=tok.value, line=tok.line, col=tok.col))
 
         if tok.type == TokenKind.CHAR_LIT:
             self._advance()
             return CharLiteral(value=tok.value, line=tok.line, col=tok.col)
 
         if tok.type == TokenKind.FSTRING_LIT:
+            if self._peek(1).type in (TokenKind.STRING_LIT, TokenKind.FSTRING_LIT):
+                raise ParseError(self._ADJACENT_FSTRING, tok.line, tok.col)
             self._advance()
             return self._parse_fstring(tok)
 
@@ -1895,9 +1898,52 @@ class Parser:
         if tok.type == TokenKind.IDENT:
             self._refuse_deferred_c_specifier(tok)
             self._advance()
-            return Identifier(name=tok.value, line=tok.line, col=tok.col)
+            identifier = Identifier(name=tok.value, line=tok.line, col=tok.col)
+            if self._check(TokenKind.STRING_LIT) and not self._is_encoding_prefix(tok, self._peek()):
+                return self._parse_adjacent_strings(identifier)
+            return identifier
 
         raise self._error(f"Unexpected token '{tok.value}' in expression")
+
+    _ADJACENT_FSTRING = "An f-string cannot be concatenated with an adjacent string literal"
+
+    @staticmethod
+    def _is_encoding_prefix(name, following) -> bool:
+        """Whether ``L``, ``u``, ``U`` or ``u8`` touches the literal after it.
+
+        An encoding prefix is part of its literal, not a macro piece, so it is
+        never absorbed into a concatenation; any other name is a piece.
+        """
+        return (
+            name.value in {"L", "u", "U", "u8"}
+            and following.type == TokenKind.STRING_LIT
+            and following.line == name.line
+            and following.col == name.col + len(name.value)
+        )
+
+    def _parse_adjacent_strings(self, first):
+        """Absorb the literals and macro names adjacent to ``first`` (C phase 6).
+
+        A lone literal stays a ``StringLiteral``. Each piece keeps its own token
+        spelling, so escapes never run across a piece boundary; the analyzer
+        resolves a name piece to the string literal its source macro expands to.
+        """
+        parts = [first]
+        while True:
+            tok = self._peek()
+            if tok.type == TokenKind.STRING_LIT:
+                self._advance()
+                parts.append(StringLiteral(value=tok.value, line=tok.line, col=tok.col))
+            elif tok.type == TokenKind.IDENT and not self._is_encoding_prefix(tok, self._peek(1)):
+                self._advance()
+                parts.append(Identifier(name=tok.value, line=tok.line, col=tok.col))
+            elif tok.type == TokenKind.FSTRING_LIT:
+                raise ParseError(self._ADJACENT_FSTRING, first.line, first.col)
+            else:
+                break
+        if len(parts) == 1:
+            return first
+        return StringConcat(parts=parts, line=first.line, col=first.col)
 
     # ---- Compound literals ----
 

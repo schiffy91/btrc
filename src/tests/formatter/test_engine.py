@@ -558,3 +558,20 @@ def test_invalid_source_reports_the_compiler_location() -> None:
 def test_style_config_rejects_invalid_values(values: dict[str, object]) -> None:
     with pytest.raises(ValueError):
         StyleConfig(**values)
+
+
+def test_adjacent_string_pieces_keep_their_lines() -> None:
+    source = """\
+#define TAIL "!"
+int main() {
+\tchar* message = "first, "
+\t\t"second, "
+\t\tTAIL;
+\tprintf("%s=%"
+\t\t"d\\n", "answer", 42);
+\treturn 0;
+}
+"""
+    assert formatted(source, indent_style="tabs") == source
+    collapsed = source.replace('"first, "\n\t\t"second, "\n\t\tTAIL', '"first, " "second, " TAIL')
+    assert formatted(collapsed, indent_style="tabs") == collapsed

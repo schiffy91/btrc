@@ -345,6 +345,15 @@ class NameValidator {
 			return left.valueString == right.valueString;
 		}
 		if (left.kind == NK_IDENTIFIER) { return left.name == right.name; }
+		if (left.kind == NK_STRING_CONCAT) {
+			if (left.parts().len != right.parts().len) { return false; }
+			int index = 0;
+			while (index < left.parts().len) {
+				if (!self.defaultExpressionSame(left.parts().get(index), right.parts().get(index))) { return false; }
+				index++;
+			}
+			return true;
+		}
 		if (left.kind == NK_UNARY_EXPR) {
 			return left.op == right.op && self.defaultExpressionSame(left.operand, right.operand);
 		}

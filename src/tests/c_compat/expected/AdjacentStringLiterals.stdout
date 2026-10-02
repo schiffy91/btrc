@@ -1,0 +1,6 @@
+PASS: escapes stop at a piece boundary
+PASS: sizeof sees the concatenated literal
+PASS: printf format concatenation
+PASS: multi-line message
+PASS: source-macro pieces
+PASS: globals and strings

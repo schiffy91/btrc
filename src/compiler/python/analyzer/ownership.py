@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from src.compiler.python.abi.declarations import ALIAS_EXACT, RETURN_ALIAS
 from src.compiler.python.abi.hosted import HOSTED_ABI
-from src.compiler.python.analyzer.program import DeclarationIndex
+from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, DeclarationIndex
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.syntax.ast.generated import (
@@ -32,7 +32,6 @@ from src.compiler.python.syntax.ast.generated import (
     ReturnStmt,
     SelfExpr,
     SpawnExpr,
-    StringLiteral,
     SuperExpr,
     TernaryExpr,
     ThrowStmt,
@@ -1340,7 +1339,7 @@ class OwnershipAnalyzer:
     def opaque_managed_origin_type(self, expression):
         if expression is None:
             return None
-        if isinstance(expression, StringLiteral):
+        if isinstance(expression, STRING_CONSTANT_NODES):
             return None
         direct = self._opaque_managed_type(self.type_of(expression))
         if direct is not None:
@@ -1383,7 +1382,7 @@ class OwnershipAnalyzer:
         if isinstance(expression, CastExpr):
             if not self._opaque_raw_carrier_type(expression.target_type):
                 return False
-            if isinstance(expression.expr, StringLiteral):
+            if isinstance(expression.expr, STRING_CONSTANT_NODES):
                 return False
             return bool(
                 self.opaque_managed_origin_type(expression.expr)
@@ -1449,7 +1448,7 @@ class OwnershipAnalyzer:
         return False
 
     def expression_is_opaque_borrow(self, expression) -> bool:
-        if isinstance(expression, StringLiteral):
+        if isinstance(expression, STRING_CONSTANT_NODES):
             return False
         return bool(
             self._opaque_managed_type(self.type_of(expression)) or self._expression_carries_opaque_borrow(expression)
@@ -1604,7 +1603,7 @@ class OwnershipAnalyzer:
         return bool(method and method.name == "set" and (len(method.params) == 2) and (method.params[1].name == name))
 
     def raw_lifetime_uses_static_string(self, expression) -> bool:
-        if isinstance(expression, StringLiteral):
+        if isinstance(expression, STRING_CONSTANT_NODES):
             return True
         if isinstance(expression, CastExpr):
             return self.raw_lifetime_uses_static_string(expression.expr)

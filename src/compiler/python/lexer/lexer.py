@@ -148,6 +148,98 @@ class LiteralDecoder:
         return None
 
     @classmethod
+    def decode_string(cls, raw: str) -> bytes:
+        """Decode one lexically valid ``"..."`` spelling to its execution bytes.
+
+        Each piece of an adjacent-literal sequence decodes on its own, as C's
+        translation phase 5 runs before phase 6 concatenates: ``"\\x4" "1"`` is
+        two characters, never the single escape ``\\x41``. The terminator is
+        not included.
+        """
+
+        content = raw[1:-1] if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"' else raw
+        decoded = bytearray()
+        index = 0
+        while index < len(content):
+            character = content[index]
+            if character != "\\" or index + 1 >= len(content):
+                decoded += character.encode("utf-8")
+                index += 1
+                continue
+            escaped = content[index + 1]
+            if escaped == "\n":
+                index += 2
+            elif escaped == "\r":
+                index += 3 if content[index + 2 : index + 3] == "\n" else 2
+            elif escaped in cls._SIMPLE_ESCAPES:
+                decoded.append(cls._SIMPLE_ESCAPES[escaped])
+                index += 2
+            elif "0" <= escaped <= "7":
+                end = index + 1
+                while end < len(content) and end < index + 4 and "0" <= content[end] <= "7":
+                    end += 1
+                decoded.append(int(content[index + 1 : end], 8) & 0xFF)
+                index = end
+            elif escaped == "x":
+                end = index + 2
+                while end < len(content) and content[end] in "0123456789abcdefABCDEF":
+                    end += 1
+                decoded.append(int(content[index + 2 : end] or "0", 16) & 0xFF)
+                index = end
+            elif escaped in "uU":
+                end = index + 2
+                limit = end + (4 if escaped == "u" else 8)
+                while end < min(limit, len(content)) and content[end] in "0123456789abcdefABCDEF":
+                    end += 1
+                point = min(int(content[index + 2 : end] or "0", 16), 0x10FFFF)
+                decoded += chr(point).encode("utf-8", "surrogatepass")
+                index = end
+            else:
+                decoded += escaped.encode("utf-8")
+                index += 2
+        return bytes(decoded)
+
+    @classmethod
+    def string_pieces(cls, text: str) -> tuple[str, ...] | None:
+        """Split a macro replacement into adjacent ``"..."`` spellings and names.
+
+        Returns ``None`` unless the text is one or more string-literal
+        spellings and identifiers separated by whitespace, the only
+        replacement that can stand as a piece of an adjacent-literal sequence.
+        """
+
+        pieces: list[str] = []
+        index = 0
+        while index < len(text):
+            character = text[index]
+            if character in " \t\r\n":
+                index += 1
+            elif text.startswith("//", index):
+                break
+            elif text.startswith("/*", index):
+                close = text.find("*/", index + 2)
+                if close < 0:
+                    break
+                index = close + 2
+            elif character == '"':
+                end = index + 1
+                while end < len(text) and text[end] != '"':
+                    end += 2 if text[end] == "\\" else 1
+                if end >= len(text):
+                    return None
+                pieces.append(text[index : end + 1])
+                index = end + 1
+            elif character == "_" or ("a" <= character <= "z") or ("A" <= character <= "Z"):
+                end = index + 1
+                while end < len(text) and (text[end] == "_" or (text[end].isascii() and text[end].isalnum())):
+                    end += 1
+                pieces.append(text[index:end])
+                index = end
+            else:
+                return None
+        return tuple(pieces) if pieces else None
+
+    @classmethod
     def is_simple_escape(cls, character: str) -> bool:
         return character in cls._SIMPLE_ESCAPES
 

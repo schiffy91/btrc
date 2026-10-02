@@ -1,7 +1,9 @@
 /* Source literal semantics and strict-C11 spelling. */
 
 import Library.Strings;
+import Library.Vector;
 
+import ../generated/ast/Node.btrc;
 #include <float.h>
 
 class IntegerLiteralInfo {
@@ -347,5 +349,123 @@ class StringLiteral {
 		escaped = Strings.replace(escaped, "\n", "\\n");
 		escaped = Strings.replace(escaped, "\t", "\\t");
 		return "\"" + escaped + "\"";
+	}
+}
+
+/* Adjacent string-literal pieces (C translation phases 5 and 6). */
+class StringConstant {
+	/* The string-constant expressions: one literal, or adjacent pieces that
+	 * the C compiler concatenates. Every literal predicate asks this. */
+	class bool isNode(Node? node) { return node != null && (node.kind == NK_STRING_LITERAL || node.kind == NK_STRING_CONCAT); }
+
+	class bool hexDigit(char value) { return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F'); }
+
+	class long long hexValue(char value) {
+		if (value >= '0' && value <= '9') { return (long long)value - (long long)'0'; }
+		if (value >= 'a' && value <= 'f') { return (long long)value - (long long)'a' + 10LL; }
+		return (long long)value - (long long)'A' + 10LL;
+	}
+
+	class int utf8Width(long long point) {
+		if (point < 128LL) { return 1; }
+		if (point < 2048LL) { return 2; }
+		if (point < 65536LL) { return 3; }
+		return 4;
+	}
+
+	/* The decoded byte length of one "..." spelling, without terminator.
+	 * Each piece of an adjacent sequence decodes on its own, as C's phase 5
+	 * runs before phase 6 concatenates: "\x4" "1" is two characters. */
+	class int decodedLength(string raw) {
+		int start = 0;
+		int end = raw.length();
+		if (end >= 2 && raw[0] == '"' && raw[end - 1] == '"') {
+			start = 1;
+			end = end - 1;
+		}
+		int length = 0;
+		int index = start;
+		while (index < end) {
+			if (raw[index] != '\\' || index + 1 >= end) {
+				length++;
+				index++;
+				continue;
+			}
+			char escaped = raw[index + 1];
+			if (escaped == '\n') {
+				index = index + 2;
+			} else if (escaped == '\r') {
+				index = index + 2;
+				if (index < end && raw[index] == '\n') { index++; }
+			} else if (escaped >= '0' && escaped <= '7') {
+				int stop = index + 1;
+				while (stop < end && stop < index + 4 && raw[stop] >= '0' && raw[stop] <= '7') { stop++; }
+				length++;
+				index = stop;
+			} else if (escaped == 'x') {
+				int stop = index + 2;
+				while (stop < end && StringConstant.hexDigit(raw[stop])) { stop++; }
+				length++;
+				index = stop;
+			} else if (escaped == 'u' || escaped == 'U') {
+				int width = escaped == 'u' ? 4 : 8;
+				int stop = index + 2;
+				long long point = 0LL;
+				while (stop < end && stop < index + 2 + width && StringConstant.hexDigit(raw[stop])) {
+					point = point * 16LL + StringConstant.hexValue(raw[stop]);
+					stop++;
+				}
+				length = length + StringConstant.utf8Width(point);
+				index = stop;
+			} else {
+				length++;
+				index = index + 2;
+			}
+		}
+		return length;
+	}
+
+	/* Split a macro replacement into adjacent "..." spellings and names.
+	 * Empty unless the text is one or more string-literal spellings and
+	 * identifiers separated by whitespace. */
+	class Vector<string> pieces(string text) {
+		Vector<string> pieces = [];
+		int index = 0;
+		while (index < text.length()) {
+			char current = text[index];
+			bool slash = current == '/' && index + 1 < text.length();
+			if (current == ' ' || current == '\t' || current == '\r' || current == '\n') {
+				index++;
+			} else if (slash && text[index + 1] == '/') {
+				break;
+			} else if (slash && text[index + 1] == '*') {
+				int close = index + 2;
+				while (close + 1 < text.length() && !(text[close] == '*' && text[close + 1] == '/')) { close++; }
+				if (close + 1 >= text.length()) { break; }
+				index = close + 2;
+			} else if (current == '"') {
+				int end = index + 1;
+				while (end < text.length() && text[end] != '"') {
+					end = end + (text[end] == '\\' ? 2 : 1);
+				}
+				if (end >= text.length()) {
+					Vector<string> none = [];
+					return none;
+				}
+				pieces.push(text.substring(index, end + 1 - index));
+				index = end + 1;
+			} else if (current == '_' || (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z')) {
+				int end = index + 1;
+				while (end < text.length() && (text[end] == '_' || (text[end] >= 'a' && text[end] <= 'z') || (text[end] >= 'A' && text[end] <= 'Z') || (text[end] >= '0' && text[end] <= '9'))) {
+					end++;
+				}
+				pieces.push(text.substring(index, end - index));
+				index = end;
+			} else {
+				Vector<string> none = [];
+				return none;
+			}
+		}
+		return pieces;
 	}
 }

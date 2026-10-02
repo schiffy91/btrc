@@ -354,6 +354,9 @@ class RealtimeAnalyzer:
             else:
                 self._visit(callable_, node.operand)
             return
+        if isinstance(node, ast.StringConcat):
+            self._effect(callable_, "strings", "string value", node)
+            return
         if isinstance(node, (ast.StringLiteral, ast.FStringLiteral)):
             self._effect(callable_, "strings", "string value", node)
         elif isinstance(node, (ast.ListLiteral, ast.MapLiteral)):

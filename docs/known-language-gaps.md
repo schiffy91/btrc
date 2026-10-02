@@ -102,6 +102,25 @@ in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
 20), so a jump into a VLA's scope cannot be written; Stage 20's negative
 fixtures must cover it.
 
+## Adjacent string literals (C row 5)
+
+Adjacent string literals concatenate as in C (`c_compat/AdjacentStringLiterals.btrc`):
+each piece decodes on its own before they join, so `"\x4" "1"` is two
+characters and `"\x1" "2"` never becomes `"\x12"`; `sizeof` and constant
+folding see the decoded total plus one terminator. A triple-quoted piece is
+allowed, and a piece may be the name of a source `#define` that expands to
+string literals (directly or through other such macros). The generated C keeps
+every piece's own spelling, so the C compiler performs the same concatenation.
+An import path and an `#include` never concatenate.
+
+Two forms are refused, with the same diagnostic in both compilers, at the
+first piece:
+
+| Source | Diagnostic |
+|--------|------------|
+| an f-string beside a literal (`f"{n}" " tail"`) | `An f-string cannot be concatenated with an adjacent string literal` |
+| a piece naming anything but a source macro that expands to string literals, including a native macro such as `PRId64` that the front end cannot resolve (D20) | `Cannot concatenate 'PRId64' with an adjacent string literal: it is not a source macro that expands to a string literal` |
+
 ## Closed gaps
 
 | # | Feature | Resolution | Regression test |

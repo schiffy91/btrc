@@ -32,6 +32,8 @@ class SourceMacroDefinition {
 
 	public string name() { return self.nameValue; }
 
+	public string replacement() { return self.replacementValue; }
+
 	public bool functionLike() { return self.functionLikeValue; }
 
 	public bool variadic() { return self.variadicValue; }

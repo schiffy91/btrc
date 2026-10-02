@@ -443,13 +443,34 @@ class BtrcFormatter:
                 edits.append((start, end, replacement))
         return self._apply_edits(source, edits)
 
-    @staticmethod
-    def _statement_has_protected_layout(lexemes: tuple[Lexeme, ...]) -> bool:
-        return any(
+    @classmethod
+    def _statement_has_protected_layout(cls, lexemes: tuple[Lexeme, ...]) -> bool:
+        return cls._splits_adjacent_strings(lexemes) or any(
             lexeme.kind in {LexemeKind.LINE_COMMENT, LexemeKind.BLOCK_COMMENT, LexemeKind.PREPROCESSOR}
             or (lexeme.kind is LexemeKind.STRING and lexeme.line != lexeme.end_line)
             for lexeme in lexemes
         )
+
+    @staticmethod
+    def _splits_adjacent_strings(lexemes: tuple[Lexeme, ...]) -> bool:
+        """Whether adjacent string-literal pieces sit on separate lines.
+
+        Breaking a long literal into pieces on their own lines is the author's
+        layout; collapsing it would undo the reason to concatenate.
+        """
+        previous = None
+        for lexeme in lexemes:
+            if lexeme.kind in {LexemeKind.WHITESPACE, LexemeKind.NEWLINE}:
+                continue
+            if (
+                previous is not None
+                and previous.kind is LexemeKind.STRING
+                and lexeme.kind in {LexemeKind.STRING, LexemeKind.WORD}
+                and lexeme.line > previous.end_line
+            ):
+                return True
+            previous = lexeme
+        return False
 
     @staticmethod
     def _statement_has_structural_data(view: SourceView, statement: StatementSpan) -> bool:
@@ -646,7 +667,9 @@ class BtrcFormatter:
             start = view.significant[construct.start_index].start
             end = view.significant[construct.close_index].end
             lexemes = view.lexemes_between(start, end)
-            if any(lexeme.kind is LexemeKind.LINE_COMMENT for lexeme in lexemes):
+            if any(lexeme.kind is LexemeKind.LINE_COMMENT for lexeme in lexemes) or self._splits_adjacent_strings(
+                lexemes
+            ):
                 continue
             wants_single_line = (
                 self.style.single_line_signatures
@@ -816,6 +839,16 @@ class BtrcFormatter:
         if first.text in cls._AMBIGUOUS_PREFIX_OPERATORS:
             return not cls._is_prefix_operator(previous)
         return True
+
+    @staticmethod
+    def _continues_adjacent_strings(first: Lexeme | None, previous: Lexeme | None) -> bool:
+        """A line continuing the string-literal pieces the previous line ended with."""
+        return (
+            first is not None
+            and previous is not None
+            and previous.kind is LexemeKind.STRING
+            and first.kind in {LexemeKind.STRING, LexemeKind.WORD}
+        )
 
     def _compact_trivial_functions(self, source: str) -> str:
         if not self.style.compact_trivial_functions:
@@ -998,6 +1031,7 @@ class BtrcFormatter:
                         (paren_depth > 0 and first not in {")", "]"})
                         or self._line_starts_with_continuation(first_token, previous_token)
                         or (previous_token is not None and previous_token.text in self._TRAILING_CONTINUATION_TOKENS)
+                        or self._continues_adjacent_strings(first_token, previous_token)
                     ):
                         level += 1
                 rendered.append(self.style.indentation(max(level, 0)) + text.lstrip(" \t").rstrip(" \t"))

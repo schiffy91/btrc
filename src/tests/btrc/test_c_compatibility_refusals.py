@@ -149,6 +149,93 @@ REFUSALS = [
 ]
 
 
+# Row 5: adjacent string literals concatenate (src/tests/c_compat/AdjacentStringLiterals.btrc);
+# a piece that is no string literal is refused at the first piece (D20).
+ADJACENT_FSTRING = "An f-string cannot be concatenated with an adjacent string literal"
+ADJACENT_PIECE = (
+    "Cannot concatenate '{}' with an adjacent string literal: it is not a source macro that expands to a string literal"
+)
+ADJACENT_STRING_REFUSALS = [
+    pytest.param(
+        'int main() { int n = 1; string text = f"{n}" " tail"; return 0; }',
+        (ADJACENT_FSTRING, 1, 39),
+        id="r05-fstring-then-literal",
+    ),
+    pytest.param(
+        'int main() { int n = 1; string text = "head " f"{n}"; return 0; }',
+        (ADJACENT_FSTRING, 1, 39),
+        id="r05-literal-then-fstring",
+    ),
+    pytest.param(
+        'int main() { int n = 1; string text = "a" "b" f"{n}"; return 0; }',
+        (ADJACENT_FSTRING, 1, 39),
+        id="r05-fstring-after-two-pieces",
+    ),
+    pytest.param(
+        'int main() { char* tail = "b"; char* text = "a" tail; return 0; }',
+        (ADJACENT_PIECE.format("tail"), 1, 45),
+        id="r05-variable-piece",
+    ),
+    pytest.param(
+        'int main() { char* text = "a" missing "c"; return 0; }',
+        (ADJACENT_PIECE.format("missing"), 1, 27),
+        id="r05-undeclared-piece",
+    ),
+    pytest.param(
+        '#define COUNT 3\nint main() { char* text = COUNT "a"; return 0; }',
+        (ADJACENT_PIECE.format("COUNT"), 2, 27),
+        id="r05-integer-macro-piece",
+    ),
+    pytest.param(
+        '#define QUOTE(x) "x"\nint main() { char* text = "a" QUOTE; return 0; }',
+        (ADJACENT_PIECE.format("QUOTE"), 2, 27),
+        id="r05-function-like-macro-piece",
+    ),
+    pytest.param(
+        '#define LOOP "a" LOOP\nint main() { char* text = "b" LOOP; return 0; }',
+        (ADJACENT_PIECE.format("LOOP"), 2, 27),
+        id="r05-self-referential-macro-piece",
+    ),
+    pytest.param(
+        '#include <inttypes.h>\nint main() { char* text = "%" PRId64; return 0; }',
+        (ADJACENT_PIECE.format("PRId64"), 2, 27),
+        id="r05-native-macro-piece",
+    ),
+    # A constant context that never analyzes its operand still refuses a piece.
+    pytest.param(
+        'int values[(int)sizeof("a" missing)];\nint main() { return 0; }',
+        (ADJACENT_PIECE.format("missing"), 1, 24),
+        id="r05-global-array-bound-piece",
+    ),
+    pytest.param(
+        'int main() { char text[sizeof("a" missing)]; return 0; }',
+        (ADJACENT_PIECE.format("missing"), 1, 31),
+        id="r05-local-array-bound-piece",
+    ),
+    pytest.param(
+        'struct Holder { char text[sizeof("a" missing)]; };\nint main() { return 0; }',
+        (ADJACENT_PIECE.format("missing"), 1, 34),
+        id="r05-struct-field-bound-piece",
+    ),
+    pytest.param(
+        'enum Size { SMALL = (int)sizeof("a" missing), LARGE };\nint main() { return 0; }',
+        (ADJACENT_PIECE.format("missing"), 1, 33),
+        id="r05-enum-value-piece",
+    ),
+    # Each piece decodes on its own, so the folded extent is the decoded total.
+    pytest.param(
+        'int main() { int extent[(int)sizeof("\\x4" "1") - 3]; return 0; }',
+        ("Array bound for Variable 'extent' must be positive", 1, 25),
+        id="r05-sizeof-folds-decoded-pieces",
+    ),
+    pytest.param(
+        '#define WORD "hello"\nint main() { int extent[(int)sizeof("a" WORD) - 7]; return 0; }',
+        ("Array bound for Variable 'extent' must be positive", 2, 25),
+        id="r05-sizeof-folds-macro-pieces",
+    ),
+]
+
+
 # Row 23: block-scope VLAs are supported (src/tests/c_compat/VariableLengthArrays.btrc);
 # every context that would need a constant extent or an initializer refuses one.
 VLA_REFUSALS = [
@@ -209,7 +296,7 @@ VLA_DIVERGENT_REFUSALS = [
 ]
 
 
-@pytest.mark.parametrize(("source", "expected"), REFUSALS + VLA_REFUSALS)
+@pytest.mark.parametrize(("source", "expected"), REFUSALS + ADJACENT_STRING_REFUSALS + VLA_REFUSALS)
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -286,8 +373,29 @@ def test_accepted_neighbour_runs_strictly_in_both_compilers(
         _strict_matrix(artifact, tmp_path)
 
 
-@pytest.mark.parametrize(("source", "reference_expected", "selfhost_expected"), VLA_DIVERGENT_REFUSALS)
-def test_divergent_vla_refusal_is_pinned_per_compiler(
+# Only expressions concatenate: an import path stays one literal, so a second
+# literal after it is refused. The two import parsers already reported this
+# differently before row 5 landed (btrcc has no same-line import check); the
+# pair is pinned so a change to either side is deliberate.
+IMPORT_PATH_REFUSALS = [
+    pytest.param(
+        'import "a.btrc" "b.btrc";\nint main() { return 0; }',
+        (
+            "import must be the only statement on its line "
+            "(an import sharing a line with other code is never resolved)",
+            1,
+            17,
+        ),
+        ("Expected IDENT, got SEMICOLON ';'", 1, 25),
+        id="r05-import-path",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("source", "reference_expected", "selfhost_expected"), VLA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS
+)
+def test_divergent_refusal_is_pinned_per_compiler(
     semantic_btrcc: Path,
     tmp_path: Path,
     source: str,

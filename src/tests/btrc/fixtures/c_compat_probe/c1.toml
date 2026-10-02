@@ -324,20 +324,11 @@ id = "r05-adjacent-string-literals"
 row = "5"
 construct = "\"a\" \"b\" concatenation"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"cat\"' at 4:23" }
-btrcc = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"cat\"' at 4:23" }
-source = '''
-#include <assert.h>
-#include <string.h>
-int main() {
-	char* joined = "con" "cat" "enated";
-	assert(strcmp(joined, "concatenated") == 0);
-	print("PASS: adjacent string literals");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: source-macro pieces\nPASS: globals and strings\n" }
+btrcc = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: source-macro pieces\nPASS: globals and strings\n" }
+corpus = "c_compat/AdjacentStringLiterals.btrc"
 
 [[probe]]
 id = "r05-adjacent-fstring"
@@ -345,9 +336,9 @@ row = "5"
 construct = "an f-string beside a literal (D20 refuses)"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\" tail\"' at 3:33" }
-btrcc = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\" tail\"' at 3:33" }
+revision = "5472f61"
+python = { diagnostic = "An f-string cannot be concatenated with an adjacent string literal at 3:16" }
+btrcc = { diagnostic = "An f-string cannot be concatenated with an adjacent string literal at 3:16" }
 source = '''
 int main() {
 	int value = 1;
