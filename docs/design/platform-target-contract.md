@@ -131,11 +131,11 @@ frameworks = true                 # [[native.frameworks]] allowed
 - `operating_system` ∈ {linux, macos, windows, ios, android}; `architecture` ∈ {x86_64, aarch64}.
 - The environment fits the OS: linux takes `gnu`; windows takes `gnu` or `msvc`; macos and android take `""`; ios takes `""` or `simulator`.
 - `default_environments` names only OSes that have rows. Each OS with a default environment has exactly one row per architecture in that default.
-- `triple` is in the form clang's cc1 uses (`-###`): `arm64`/`x86_64` for Apple, `aarch64`/`x86_64` elsewhere, a three-part Apple version, and the `unknown` vendor on linux and android. The one exception is the `msvc` environment: clang appends its default MSVC compatibility version (`aarch64-pc-windows-msvc19.33.0`), which is a toolchain fact, not a target fact, so the row records the unversioned `aarch64-pc-windows-msvc`. A version in the triple equals `minimum_version`:
+- `triple` is in the form clang's cc1 uses (`-###`): `arm64`/`x86_64` for Apple, `aarch64`/`x86_64` elsewhere, a three-part Apple version, and the `unknown` vendor on linux and android. For the `msvc` environment, cc1's form carries an MSVC compatibility version: without one, clang appends its own default (`aarch64-pc-windows-msvc19.33.0` here) or the installed Visual Studio's on a runner, so the reader's echo would vary by host. The row therefore pins it: `aarch64-pc-windows-msvc19.40.0` (Visual Studio 2022 17.10, the oldest the `windows-11-arm` image is expected to carry; a runner-bound check in `tooling-windows-ci-arm64-llvm` confirms `cl.exe` ≥ 19.40). A pinned triple fixes cc1's triple and `_MSC_VER` (checked: `--target=aarch64-pc-windows-msvc19.40.0` gives `-triple aarch64-pc-windows-msvc19.40.0` and `_MSC_VER 1940`). A version in the triple equals `minimum_version`, except this MSVC compatibility version, which is a toolchain floor and not a deployment minimum:
   - Apple: `macosx<minimum_version>.0` or `ios<minimum_version>.0`;
   - Android: `android<minimum_version>`.
 - `triple_aliases` are other spellings that clang maps to the same cc1 triple. They are unique across rows, and none equals a row's `triple`.
-- `target_arguments` is either empty or exactly `["--target=" + triple]`. It is empty only for rows with `compiler_host = true` and environment `gnu` (§4.4).
+- `target_arguments` is exactly `["--target=" + triple]` on every row. These are the **clang** arguments: the native reader, the hosted-platform extractor, the macro oracle and every clang-driven build use them. zig takes `-target <zig_target>` instead and never receives them (zig rejects `-target x86_64-windows-gnu --target=x86_64-w64-windows-gnu` with `UnknownOperatingSystem`); its cc1 triple, `x86_64-unknown-windows-gnu`, differs only in the vendor and gives a byte-identical `-dM` dump. The host's own `cc` (gcc on Linux) receives neither (§4.2).
 - `sizeof_pointer` is 8 in every row: there is no 32-bit row. `sizeof_long` ∈ {4, 8}, and it is 4 exactly when the OS is windows. `sizeof_wchar_t` ∈ {2, 4}, and it is 2 exactly when the OS is windows. `sizeof_long_double` ∈ {8, 16}.
 - `sysroot_name` is non-empty exactly when `sysroot_kind` is `xcrun`.
 - `compiler_host` rows are exactly the six desktop default-environment rows.
@@ -158,7 +158,7 @@ frameworks = true                 # [[native.frameworks]] allowed
 | `macos-aarch64` | `arm64-apple-macosx14.0.0` | `arm64-apple-macosx14.0`, `aarch64-apple-macosx14.0.0` | | 14.0 | 8 / 4 / 8 | signed | `xcrun` `macosx` | yes |
 | `windows-x86_64` | `x86_64-w64-windows-gnu` | `x86_64-w64-mingw32` | `x86_64-windows-gnu` | | 4 / 2 / 16 | signed | `zig-mingw` | yes |
 | `windows-aarch64` | `aarch64-w64-windows-gnu` | `aarch64-w64-mingw32` | `aarch64-windows-gnu` | | 4 / 2 / 8 | signed | `zig-mingw` | yes |
-| `windows-aarch64-msvc` | `aarch64-pc-windows-msvc` | `aarch64-windows-msvc` | `aarch64-windows-msvc` | | 4 / 2 / 8 | signed | `windows-sdk` | no |
+| `windows-aarch64-msvc` | `aarch64-pc-windows-msvc19.40.0` | | `aarch64-windows-msvc` | | 4 / 2 / 8 | signed | `windows-sdk` | no |
 | `ios-aarch64` | `arm64-apple-ios17.0.0` | `arm64-apple-ios17.0` | | 17.0 | 8 / 4 / 8 | signed | `xcrun` `iphoneos` | no |
 | `ios-aarch64-simulator` | `arm64-apple-ios17.0.0-simulator` | `arm64-apple-ios17.0-simulator` | | 17.0 | 8 / 4 / 8 | signed | `xcrun` `iphonesimulator` | no |
 | `android-aarch64` | `aarch64-unknown-linux-android29` | `aarch64-linux-android29` | | 29 | 8 / 4 / 16 | unsigned | `ndk` | no |
@@ -196,7 +196,8 @@ Every value below is clang 21.1.8 `-std=c11 -dM -E` for the row's triple.
 - `TARGET_OS_EMBEDDED`: ios with `""` (the device only).
 - Each of these names is also given a row with value 0 on the macos and ios rows where clang defines it as 0, because clang **defines** them there, so `defined(TARGET_OS_IOS)` is 1 on macOS.
 - The remaining clang names have value 0 on every macos and ios row: `TARGET_OS_DRIVERKIT`, `TARGET_OS_LINUX`, `TARGET_OS_MACCATALYST`, `TARGET_OS_NANO`, `TARGET_OS_TV`, `TARGET_OS_UEFI`, `TARGET_OS_UIKITFORMAC`, `TARGET_OS_UNIX`, `TARGET_OS_VISION`, `TARGET_OS_WATCH`, `TARGET_OS_WIN32` and `TARGET_OS_WINDOWS`.
-- C4's rule that rows sharing a name select disjoint targets holds: each name has one row for value 1 and one for value 0, over disjoint selections.
+- C4's rule that rows sharing a name select disjoint targets holds: each name has one row for value 1 and as many value-0 rows as its 0 set needs to be a union of `operating_systems × architectures × environments` products. `TARGET_OS_EMBEDDED` needs two (macos; ios with `simulator`).
+- **Selector spelling.** C4 reads an empty selector list as "every value". To select the empty environment, a list names `""` explicitly: the iOS device is `environments = [""]` with ios, and "every environment except `msvc`" is `environments = ["", "gnu", "simulator"]`. The generator accepts `""` as a list element only in `environments`.
 
 **Derived macros.** The generator emits these from row columns, and a hand row may not name them:
 
@@ -224,9 +225,9 @@ Every value below is clang 21.1.8 `-std=c11 -dM -E` for the row's triple.
 
 **`[conditionals]`.**
 - `undefined_macro_names` loses `__ANDROID__` and keeps `__cplusplus`.
-- `foreign_macro_names` loses the 19 `TARGET_OS_*` and `TARGET_IPHONE_SIMULATOR` names that became rows. It keeps `TARGET_OS_BRIDGE`, `TARGET_CPU_*` and `TARGET_RT_*`, which clang never defines, and gains `__BIONIC__` (bionic's `<sys/cdefs.h>`).
+- `foreign_macro_names` loses the 16 names of C4's list that became rows (15 `TARGET_OS_*` names, all but `BRIDGE`, plus `TARGET_IPHONE_SIMULATOR`). `TARGET_OS_NANO`, `TARGET_OS_UEFI` and `TARGET_OS_UIKITFORMAC` were never listed and are new rows. It keeps `TARGET_OS_BRIDGE`, `TARGET_CPU_*` and `TARGET_RT_*`, which clang never defines, and gains `__BIONIC__` (bionic's `<sys/cdefs.h>`).
 
-**C4's test 3** (`src/tests/python/test_target_macro_table.py`) takes its triples from `TARGET_ROWS[*].triple` instead of a list in the test. It covers all eleven rows on Linux, because clang needs no sysroot for `-dM`. It runs the **unwrapped** clang binary (the wrapper's `-fPIC` makes `*-pc-windows-msvc` fail with "unsupported option '-fPIC'", and it warns on every foreign target); the test reads its store path from the wrapper's `nix-support/orig-cc` and runs `<orig-cc>/bin/clang`. Two checks stay Mac-bound:
+**C4's test 3** (`src/tests/python/test_target_macro_table.py`) takes its triples from `TARGET_ROWS[*].triple` instead of a list in the test. It covers all eleven rows on Linux, because clang needs no sysroot for `-dM`. It runs the **unwrapped** clang binary (the wrapper's `-fPIC` makes `*-pc-windows-msvc` fail with "unsupported option '-fPIC'", and it warns on every foreign target); the test reads its store path from the wrapper's `nix-support/orig-cc` and runs `<orig-cc>/bin/clang`. clang dumps `#define __ANDROID_API__ __ANDROID_MIN_SDK_VERSION__`, so the test resolves an object-like alias to its target's value before comparing, as C4 already does for `__BYTE_ORDER__`. Two checks stay Mac-bound:
 - `xcrun clang` (Apple clang from Xcode 27A266a) defines the same `TARGET_OS_*` set for the four Apple rows.
 - `<TargetConditionals.h>` from the iOS 27.0 SDK accepts the predefined values.
 
@@ -281,7 +282,7 @@ The list is the sorted canonical labels. Python raises `ValueError` and the CLI 
   BTRC_NATIVE_TARGET '<value>' does not match target <label> (<triple>)
   ```
 
-  It no longer selects the triple; the row does. Today's macOS regex accepts any `N.N.N` version, so a value other than 14.0 now refuses. Every in-repo user spells 14.0.0 (`tools/bench/scripts/bsm_env.sh:29`, `src/tests/python/native_import_fixtures.py`).
+  It no longer selects the triple; the row does. The Stage 22 matrix proposes zig spellings (`x86_64-windows-gnu`) as triples; those are `zig_target` values, and clang maps them to a different vendor (`x86_64-unknown-windows-gnu`), so they are not aliases. The matrix's slice table is updated to the row triples when it merges. Today's macOS regex accepts any `N.N.N` version, so a value other than 14.0 now refuses. Every in-repo user spells 14.0.0 (`tools/bench/scripts/bsm_env.sh:29`, `src/tests/python/native_import_fixtures.py`).
 
 ### 1.7 Host inference
 
@@ -388,17 +389,17 @@ source = "ndk 29.0.14206865 sysroot, API 29, extracted 2026-10-.. by tools/compi
 
 ### 2.3 Extraction
 
-The extraction is a read-only `tools/compiler_codegen/hosted_platform_extract.py`, owned by the class `HostedPlatformExtractor`. It is a tool, not a production file, and the Stage 24 fan-out runs it. For one row, it compiles a probe translation unit and reads the declared names with the existing native header reader in a names-only mode, or with `clang -Xclang -ast-dump=json` when the reader is unavailable. The probe includes the row's automatic headers (the same list the C emitter's prologue includes, plus `src/runtime/windows/` overlays on windows rows), uses the row's `target_arguments` and resolved sysroot, and applies `-D__ANDROID_API__` from the triple only. The output is `[platform] − declared`.
+The extraction is a read-only `tools/compiler_codegen/hosted_platform_extract.py`, owned by the class `HostedPlatformExtractor`. It is a tool, not a production file, and the Stage 24 fan-out runs it. For one row, it compiles a probe translation unit and reads the declared names with the existing native header reader in a names-only mode, or with `clang -Xclang -ast-dump=json` when the reader is unavailable. The probe includes the row's automatic headers (the same list the C emitter's prologue includes, plus `src/runtime/windows/` overlays on windows rows), uses the row's `target_arguments` and resolved sysroot, and passes no `-D__ANDROID_API__`: the triple already sets `__ANDROID_MIN_SDK_VERSION__`, which current bionic gates on, and a `-D` would split the two macros. The output is `[platform] − declared`.
 
 | Row(s) | Sysroot | Where |
 |--------|---------|-------|
-| `linux-*` | the flake's glibc headers | Linux |
+| `linux-*` | the flake's glibc headers (the aarch64 row through zig's `aarch64-linux-gnu` glibc headers when the host is x86_64) | Linux |
 | `windows-x86_64`, `windows-aarch64` | zig 0.16.0's `lib/libc/include/any-windows-any` (MinGW-w64 `38c8142f`) plus `src/runtime/windows/` | Linux |
 | `android-*` | the NDK r29 sysroot (`toolchains/llvm/prebuilt/linux-x86_64/sysroot`) at API 29 | Linux after Stage 23 puts the NDK in `nix develop` (NDK-bound) |
 | `macos-*`, `ios-*` | `xcrun --sdk macosx|iphoneos|iphonesimulator --show-sdk-path` | Mac-bound |
 | `windows-aarch64-msvc` | the Windows SDK and MSVC headers on `windows-11-arm` | runner-bound. Until extracted, its table copies `windows-aarch64`'s list, and its `source` says so: `"copied from windows-aarch64 pending runner extraction"`. A Stage 24 exit row tracks it as **awaiting runner**. |
 
-**Bionic gating.** An API-gated bionic name hidden at API 29 is unavailable at the floor, which is correct (`__INTRODUCED_IN`). The researched examples are C11 `<threads.h>` (API 30) and the names introduced at 28–29 (`getrandom`, `posix_spawn`, `aligned_alloc`, `timespec_get`, `reallocarray`, and others). The extractor reads them through the triple, with no separate column.
+**Bionic gating.** An API-gated bionic name hidden at API 29 is unavailable at the floor, which is correct (`__INTRODUCED_IN`). C11 `<threads.h>` (API 30) is the researched example of a hidden one. The names introduced at 28–29 (`getrandom`, `posix_spawn`, `aligned_alloc`, `timespec_get`, `reallocarray`) are available at the floor and are the borderline cases the extraction test spot-checks. The extractor reads them through the triple, with no separate column.
 
 ### 2.4 Consumer: reachable references only
 
@@ -452,7 +453,7 @@ The check runs in **Stage 5**, after reachability, not in the analyzer. A stdlib
 |------|-------------------------------------|---------------|
 | `none` | the directory exists (today's rule) | `""` |
 | `xcrun` | `SDKSettings.json` parses; `CanonicalName` starts with `sysroot_name`; `Version` is at least the row's `minimum_version` | `SDKSettings.json` |
-| `ndk` | `usr/include/android/api-level.h` exists; `usr/lib/<arch>-linux-android/<minimum_version>/` is a directory; `../../../../source.properties` has `Pkg.Revision` | `source.properties` |
+| `ndk` | `usr/include/android/api-level.h` exists; `usr/lib/<arch>-linux-android/<minimum_version>/` is a directory; `../../../../../source.properties` (the NDK root above `toolchains/llvm/prebuilt/<host>/sysroot`) has `Pkg.Revision` | `source.properties` |
 | `zig-mingw` | `include/any-windows-any/windows.h` and `include/any-windows-any/_mingw_mac.h` exist | `include/any-windows-any/_mingw_mac.h` (it carries the MinGW-w64 version: `__MINGW64_VERSION_MAJOR` 13 in zig 0.16.0) |
 | `windows-sdk` | runner-bound; `Include/<version>/um/windows.h` exists | `Include/<version>` directory name plus the `SDKManifest.xml` digest |
 
@@ -542,11 +543,12 @@ Both compilers always write schema 5. Its JSON is the canonical form of today (s
 - **`ROOT_FIELDS` gains `toolchain`.** The schema check accepts `(1, 2, 4, 5)`. Field sets are exact per schema: `toolchain` is required at 5 and refused below.
 - **Target validation.** `TARGET_OPERATING_SYSTEMS` and `TARGET_ARCHITECTURES` are deleted. The builder imports `TARGET_ROWS` from `src.compiler.python.abi.generated` (it already imports the Python compiler's `artifacts.publication`). At schema 5, `target` must equal the row for `label` exactly. At schemas 1, 2 and 4, `{os, arch}` must map to a `compiler_host` row equal to `PackageTarget.host()`, or the plan is refused: `legacy native link plan for <os>-<arch> cannot be built on host <label>; regenerate it as schema 5`.
 - **Drivers.**
-  - When `target-arguments` is empty, the plan's row must equal the host row; otherwise it is refused (`plan for <label> needs its target arguments`). It builds with `cc`/`cxx` as today.
-  - Otherwise, the builder appends `target-arguments` to every compile and link, plus the sysroot argument for the kind (`-isysroot`, `--sysroot=`, or the zig/MSVC include set). The driver is:
-    - clang for `xcrun` and `ndk` rows: the NDK's `toolchains/llvm/prebuilt/<host>/bin/clang` for android, and `xcrun clang` for Apple;
-    - `zig cc -target <zig_target>` for `zig-mingw` rows (the `Makefile`'s cross builds already do this);
-    - clang-cl/clang for `windows-sdk` rows.
+  - **The plan's row is the host row** (`PackageTarget.host()`): the builder uses `cc`/`cxx` as today, with no target arguments. This keeps gcc on Linux and the `test-c11` matrix unchanged.
+  - **Otherwise**, the driver comes from the row, and the builder refuses a row whose driver it cannot find (`no toolchain for <label>: <what is missing>`), so it never falls back to the host compiler:
+    - `zig_target` non-empty (windows-gnu rows, linux rows cross-built from another host): `zig cc -target <zig_target>`, as the `Makefile`'s cross builds do. `target-arguments` are not passed.
+    - `xcrun` rows: `xcrun --sdk <name> clang` with `target-arguments` and `-isysroot`.
+    - `ndk` rows: `$NDK/toolchains/llvm/prebuilt/<host>/bin/clang` with `target-arguments` and `--sysroot=`.
+    - `windows-sdk` rows: clang with `target-arguments` and the SDK include and library set (runner-bound).
 - **Discovery.** Sysroot resolution, which lives only here and in the test harness, is a new class `TargetToolchain` in `tools/native_plan.py`:
   - `xcrun`: `xcrun --sdk <name> --show-sdk-path`;
   - `ndk`: `$ANDROID_NDK_HOME`, else `$ANDROID_HOME/ndk/29.0.14206865`;
