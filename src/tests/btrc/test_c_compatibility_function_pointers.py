@@ -154,6 +154,23 @@ TWINS = [
         """,
         id="nested-and-array-parameters",
     ),
+    pytest.param(
+        """
+        int add(int a, int b) { return a + b; }
+        static int (*plus)(int, int) = add, (*minus)(int, int) = add;
+        typedef int (*BinaryOp)(int, int), *Counter;
+        struct Ops { int (*first)(int, int), count, (*second)(void); };
+        int main() { int (*f)(int, int) = add, v = 1, *p = &v, (*g)(int, int) = f; return g(v, *p) - 2; }
+        """,
+        """
+        int add(int a, int b) { return a + b; }
+        static CFunction<int, int, int> plus = add; static CFunction<int, int, int> minus = add;
+        typedef CFunction<int, int, int> BinaryOp; typedef int* Counter;
+        struct Ops { CFunction<int, int, int> first; int count; CFunction<int> second; };
+        int main() { CFunction<int, int, int> f = add; int v = 1; int* p = &v; CFunction<int, int, int> g = f; return g(v, *p) - 2; }
+        """,
+        id="declarator-lists",
+    ),
 ]
 
 
@@ -185,6 +202,7 @@ def parse_tool(selfhost_driver) -> Path:
     [
         "FunctionPointerArray.btrc",
         "FunctionPointerCast.btrc",
+        "FunctionPointerDeclaratorLists.btrc",
         "FunctionPointerField.btrc",
         "FunctionPointerLocal.btrc",
         "FunctionPointerParameter.btrc",

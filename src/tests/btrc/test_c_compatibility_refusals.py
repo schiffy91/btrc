@@ -736,6 +736,16 @@ FUNCTION_POINTER_REFUSALS = [
         ("Cannot assign 'CFunction<int, int, int>' to variable 'unary' of type 'CFunction<int, int>'", 2, 14),
         id="r07-signature-mismatch",
     ),
+    pytest.param(
+        "int (*f)(int), g(int);\nint main() { return 0; }",
+        ("Function 'g' must be declared on its own, not beside other declarators", 1, 16),
+        id="r07-function-beside-function-pointer",
+    ),
+    pytest.param(
+        "int main() { int? (*f)(int), g; return 0; }",
+        ("A nullable declaration declares one variable: write one declaration per nullable variable", 1, 28),
+        id="r07-nullable-result-in-declarator-list",
+    ),
 ]
 
 # Row 23 refusals where the compilers agree on the refusal but not on its

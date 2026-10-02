@@ -367,6 +367,17 @@ btrcc = { exit = 0, stdout = "PASS: function pointer casts and sizeof\n" }
 corpus = "c_compat/FunctionPointerCast.btrc"
 
 [[probe]]
+id = "r07-function-pointer-declarator-list"
+row = "7"
+construct = "int (*f)(int, int) = add, value = 3, (*g)(void) = seven;"
+intent = "positive"
+status = "accepted"
+revision = "b4af234"
+python = { exit = 0, stdout = "PASS: function pointers in declarator lists\n" }
+btrcc = { exit = 0, stdout = "PASS: function pointers in declarator lists\n" }
+corpus = "c_compat/FunctionPointerDeclaratorLists.btrc"
+
+[[probe]]
 id = "r07-function-pointer-mismatch"
 row = "7"
 construct = "a function pointer of the wrong signature"
