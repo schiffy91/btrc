@@ -1040,6 +1040,13 @@ class ExpressionLowerer {
 			if (self.analyzed.funcTable.has(node.name) && !varTypes.has(node.name)) {
 				return IRNode.functionReference(self.declarations.sourceFunctionSymbol(node.name));
 			}
+			Node? constant = self.context.sourceLexicalBindings.has(node.name) ? null : self.analyzed.foldedNativeConstant(node.name);
+			if (constant != null) {
+				Node valueType = TypeShape.copy(constant.type);
+				valueType.isConst = false;
+				Node literal = constant.initializer.kind == NK_UNARY_EXPR ? constant.initializer.operand : constant.initializer;
+				return IRNode.cast(self.cTypes.lower(valueType), IRNode.literal((constant.initializer.kind == NK_UNARY_EXPR ? "-" : "") + literal.raw));
+			}
 			if (!self.context.sourceLexicalBindings.has(node.name) && self.analyzed.nativeGlobalReturnsOwned(node.name)) {
 				Vector<IRNode> noArguments = [];
 				string prefix = self.analyzed.isObjectiveCGlobal(node.name) ? "__btrc_objc_read_" : "__btrc_native_read_";

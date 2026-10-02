@@ -364,3 +364,110 @@ def test_webgpu_binding_names_the_sdk_depth_slice_macro(reader, tmp_path, reques
     ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "4294967295\n"
+
+
+SHARED = """#define SHARED_FLAG 0x20
+#define SHARED_WIDE (1UL << 40)
+"""
+CXX_VALUES = """#include "Shared.h"
+namespace demo { enum class Mode : long { off = -3, on = 4 }; }
+"""
+CXX_MANIFEST = """manifest-version = 1
+[package]
+name = "foldedConstants"
+
+[[native.bindings]]
+module = "Main"
+header = "Values.hpp"
+language = "c++"
+standard = "c++17"
+symbols = ["SHARED_FLAG", "SHARED_WIDE", "demo::Mode::off", "demo::Mode::on"]
+
+[[native.include-directories]]
+path = "."
+"""
+CXX_PROGRAM = """#include "Shared.h"
+int main() {
+\tunsigned long wide = SHARED_WIDE;
+\tlong mode = demo_Mode_off;
+\tprintf("%d %lu %ld %ld\\n", SHARED_FLAG, wide, mode, (long)demo_Mode_on);
+\treturn 0;
+}
+"""
+
+
+def _compile_cxx_constants(tmp_path: Path, request, frontend: str, program: str) -> tuple:
+    (tmp_path / "Shared.h").write_text(SHARED, encoding="utf-8")
+    (tmp_path / "Values.hpp").write_text(CXX_VALUES, encoding="utf-8")
+    (tmp_path / "btrc.toml").write_text(CXX_MANIFEST, encoding="utf-8")
+    source = tmp_path / "Main.btrc"
+    source.write_text(program, encoding="utf-8")
+    generated = tmp_path / "main.c"
+    plan = tmp_path / "plan.json"
+    flags = ["--no-cache", "--target", "linux-x64", "--emit-link-plan", str(plan), str(source)]
+    command = (
+        [sys.executable, "-m", "src.compiler.python.main", *flags, "-o", str(generated)]
+        if frontend == "python"
+        else [request.getfixturevalue("btrcc_bin"), *flags]
+    )
+    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=TRANSPILE_TIMEOUT)
+    if frontend == "selfhost" and compiled.returncode == 0:
+        generated.write_text(compiled.stdout, encoding="utf-8")
+    return compiled, generated, plan
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the folding proof builds against the Linux C toolchain")
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_foreign_binding_constants_fold_beside_a_visible_macro(reader, tmp_path, request, frontend) -> None:
+    """A C++ (or Objective-C) binding's C unit never declares a constant under its SDK name.
+
+    That unit does not include the binding's header, but it may see a macro of
+    the same name through another header, as AppKit's C unit sees IOLLEvent.h's
+    NX_DEVICE*KEYMASK through CoreGraphics. A `static const int SHARED_FLAG = 32;`
+    expands the macro inside its own declaration, so references fold to the
+    value cast to the projected type instead.
+    """
+    del reader  # The compilers locate it through BTRC_NATIVE_HEADER_READER.
+    compiled, generated, plan = _compile_cxx_constants(tmp_path, request, frontend, CXX_PROGRAM)
+    assert compiled.returncode == 0, compiled.stderr
+    text = generated.read_text(encoding="utf-8")
+    for name in ("SHARED_FLAG", "SHARED_WIDE", "demo_Mode_off", "demo_Mode_on"):
+        assert not re.search(rf"\b{name}\s*=", text), name
+    assert "unsigned long wide = ((unsigned long)1099511627776UL);" in text
+    assert "long mode = ((long)-3);" in text
+    assert '"%d %lu %ld %ld\\n", ((int)32), wide, mode, ((long)((long)4))' in text
+    executable = tmp_path / "program"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert ran.returncode == 0, ran.stderr
+    assert ran.stdout == "32 1099511627776 -3 4\n"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the macro proof builds against the Linux C toolchain")
+@pytest.mark.parametrize(
+    ("language", "statement", "name"),
+    [
+        ("c", "const long* slot = &SHIFTED;", "SHIFTED"),
+        ("c++", "const int* slot = &SHARED_FLAG;", "SHARED_FLAG"),
+        ("c++", "const long* slot = &demo_Mode_on;", "demo_Mode_on"),
+    ],
+)
+def test_native_constant_address_is_refused_identically(reader, tmp_path, request, language, statement, name):
+    """An imported enumerator or integer macro is a value: neither compiler gives it an address."""
+    del reader  # The compilers locate it through BTRC_NATIVE_HEADER_READER.
+    program = f"int main() {{\n\t{statement}\n\treturn 0;\n}}\n"
+    diagnostic = f"error: Native constant '{name}' is a value and has no address"
+    reports = []
+    for frontend in ("python", "selfhost"):
+        directory = tmp_path / frontend
+        directory.mkdir()
+        compiled, _, _ = (
+            _compile(directory, request, frontend, program, SELECTED)
+            if language == "c"
+            else _compile_cxx_constants(directory, request, frontend, program)
+        )
+        assert compiled.returncode != 0, frontend
+        lines = [line for line in compiled.stderr.splitlines() if diagnostic in line]
+        assert lines, (frontend, compiled.stderr)
+        reports.append(re.sub(r" at \d+:\d+$", "", lines[0][lines[0].index(diagnostic) :]))
+    assert reports[0] == reports[1]

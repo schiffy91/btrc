@@ -474,10 +474,10 @@ class TranslationUnitLowerer:
                         )
                         and decl.name not in emitted_globals
                     ):
+                        # An integer constant carries an initializer; its references
+                        # fold to the value, so nothing is declared under its name.
                         if decl.initializer is None:
                             self._functions.emit_native_global(decl)
-                        else:
-                            self._emit_global_var(decl)
                         emitted_globals.add(decl.name)
                     if isinstance(decl, ClassDecl):
                         if decl.source_file.invocation:

@@ -274,6 +274,19 @@ class ExpressionLowerer:
             and declaration.source_file.language == "objective-c"
             and declaration.initializer is None
         )
+        # An Objective-C or C++ binding's C11 unit never sees the SDK header, and
+        # the macros it does see through other SDK headers may share a constant's
+        # name. A reference therefore folds to the constant's value, cast to its
+        # projected type; the C unit declares nothing under the SDK name.
+        self._folded_native_constants = {}
+        for declaration in analyzed.program.declarations:
+            if (
+                isinstance(declaration, VarDeclStmt)
+                and isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+                and declaration.source_file.language in ("objective-c", "c++")
+                and declaration.initializer is not None
+            ):
+                self._folded_native_constants.setdefault(declaration.name, declaration)
         self._types = types
         self._default_arguments = default_context
         self._type_identity = type_identity
@@ -2091,6 +2104,12 @@ class ExpressionLowerer:
             return IRLiteral(text=predefined)
         if self._session.local_is_declared(name):
             return self._source_identifier_var(node, self._ownership.source_binding_c_name(name, provenance))
+        constant = self._folded_native_constants.get(name)
+        if constant is not None:
+            return IRCast(
+                target_type=CType(text=self._types.render(replace(constant.type, is_const=False))),
+                expr=IRLiteral(text=constant.initializer.raw),
+            )
         if name in self._analyzed.native_owned_globals:
             prefix = "__btrc_objc_read_" if name in self._objective_c_globals else "__btrc_native_read_"
             return IRCall(callee=prefix + name, args=[])

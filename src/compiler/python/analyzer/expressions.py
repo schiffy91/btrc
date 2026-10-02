@@ -49,6 +49,7 @@ from src.compiler.python.syntax.ast.generated import (
     TupleLiteral,
     TypeExpr,
     UnaryExpr,
+    VarDeclStmt,
 )
 
 _MANAGED_COLLECTION_BASES = frozenset({"Array", "List", "Map", "Set", "Vector"})
@@ -334,6 +335,11 @@ class ExpressionAnalyzer:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
+        if self._is_native_constant(operand):
+            self.session.error(
+                f"Native constant '{operand.name}' is a value and has no address", expression.line, expression.col
+            )
+            return
         operand_type = self.types.canonical_type(self.infer_type(operand))
         if (
             self._is_read_only_native_global(operand)
@@ -776,6 +782,20 @@ class ExpressionAnalyzer:
         declaration = self.index.global_declarations.get(target.name)
         origin = getattr(declaration, "source_file", None)
         return isinstance(origin, NativeHeaderSource) and origin.read_only
+
+    def _is_native_constant(self, target) -> bool:
+        """An imported enumerator or integer macro is a compile-time value, not storage."""
+        if not isinstance(target, Identifier):
+            return False
+        symbol = self.session.scope.lookup(target.name)
+        if symbol is None or symbol is not self.session.global_scope.lookup(target.name):
+            return False
+        declaration = self.index.global_declarations.get(target.name)
+        return (
+            isinstance(declaration, VarDeclStmt)
+            and isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            and declaration.initializer is not None
+        )
 
     def validate_mutable_target(self, target, line, col) -> bool:
         if self._is_read_only_native_global(target):

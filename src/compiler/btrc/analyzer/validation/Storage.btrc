@@ -574,6 +574,9 @@ class StorageValidator {
 	public bool readOnlyNativeGlobal(Node? target) { return target != null && target.kind == NK_IDENTIFIER && !self.state.localBindings.has(target.name) && self.state.analyzed.nativeGlobalReadOnly(target.name); }
 
 	public void validateNativeGlobalAddress(Node target, Map<string, Node> vars, Node site) {
+		if (target.kind == NK_IDENTIFIER && !self.state.localBindings.has(target.name) && self.state.analyzed.isNativeConstant(target.name)) {
+			TypeValidator.fail(f"Native constant '{target.name}' is a value and has no address", site);
+		}
 		if (!self.readOnlyNativeGlobal(target)) { return; }
 		Node? type = self.types.resolveAliases(self.types.inferType(target, vars));
 		if (type != null && (self.rawLvaluePointer(type) || type.base == "__fn_ptr" || self.state.analyzed.nativeGlobalReturnsOwned(target.name))) {
