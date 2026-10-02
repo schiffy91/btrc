@@ -6,10 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
 @pytest.mark.parametrize(
@@ -90,13 +88,13 @@ def test_scalar_and_exact_read_only_hosted_macros_run_strictly(
             return SQUARE(3) == 9 && LENGTH(text) == 3 ? 0 : 1;
         }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "source-macro-read-only",
     ):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_commented_exact_read_only_hosted_macro_preserves_borrow_parity(
@@ -110,13 +108,13 @@ def test_commented_exact_read_only_hosted_macro_preserves_borrow_parity(
             return LENGTH(text) == 3 ? 0 : 1;
         }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "source-macro-commented-read-only",
     ):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_commented_non_exact_hosted_macro_remains_fail_closed(

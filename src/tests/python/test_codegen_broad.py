@@ -5,7 +5,7 @@ captures, arrays) so coverage is broad; assertions check concrete emitted C.
 
 import re
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_inheritance_override_and_upcast():

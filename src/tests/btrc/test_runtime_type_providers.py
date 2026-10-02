@@ -8,10 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
@@ -145,7 +143,7 @@ def test_enum_value_irvar_roots_only_surviving_object_provider(
             return 0;
         }}
     """
-    result, emitted = _compile_source(
+    result, emitted = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
@@ -168,7 +166,7 @@ def test_live_type_only_sizeof_retains_catalog_provider(
     base: str,
     c_type: str,
 ) -> None:
-    result, generated = _compile_source(
+    result, generated = compile_source(
         semantic_btrcc,
         tmp_path,
         f"int main() {{ return (int)sizeof({base}<int>); }}",
@@ -192,7 +190,7 @@ def test_dead_type_only_sizeof_does_not_pin_catalog_provider(
     base: str,
     c_type: str,
 ) -> None:
-    result, generated = _compile_source(
+    result, generated = compile_source(
         semantic_btrcc,
         tmp_path,
         f"int dead() {{ return (int)sizeof({base}<int>); }} int main() {{ return 0; }}",
@@ -213,7 +211,7 @@ def test_live_runtime_object_reference_retains_catalog_provider(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    result, generated = _compile_source(
+    result, generated = compile_source(
         semantic_btrcc,
         tmp_path,
         EXTERN_MUTEX_SOURCE,
@@ -235,7 +233,7 @@ def test_dead_runtime_object_reference_does_not_pin_catalog_provider(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    result, generated = _compile_source(
+    result, generated = compile_source(
         semantic_btrcc,
         tmp_path,
         "extern Mutex<int> acquire(); int dead(){ Mutex<int> value = acquire(); return 0; } int main(){ return 0; }",

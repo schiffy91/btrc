@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _run,
-    _strict_build_and_run,
+from src.tests.btrc.selfhost_snippet_harness import (
+    compile_reference_source,
+    compile_source,
+    run_in_repo,
+    strict_build_and_run,
 )
 
 REPO = Path(__file__).resolve().parents[3]
@@ -78,9 +78,9 @@ def test_indexed_method_namespace_ignores_child_value_member(
             return result == 42 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "indexed-member-namespace")
+    strict_build_and_run(generated, tmp_path / "indexed-member-namespace")
 
 
 def test_native_class_queries_do_not_scan_sdk_declarations() -> None:
@@ -172,12 +172,12 @@ int main() {{
 }}
 '''
     if frontend == "reference":
-        result, generated = _compile_reference_source(tmp_path, source)
+        result, generated = compile_reference_source(tmp_path, source)
     else:
-        result, generated = _compile_source(semantic_btrcc, tmp_path, source, no_stdlib=False)
+        result, generated = compile_source(semantic_btrcc, tmp_path, source, no_stdlib=False)
     assert result.returncode == 0, result.stderr
     executable = tmp_path / "native-class-index"
-    _strict_build_and_run(generated, executable, optimization="-O2")
-    measured = _run([str(executable)], timeout=30)
+    strict_build_and_run(generated, executable, optimization="-O2")
+    measured = run_in_repo([str(executable)], timeout=30)
     assert measured.returncode == 0, measured.stderr
     print(f"{frontend}: {measured.stderr.strip()}")

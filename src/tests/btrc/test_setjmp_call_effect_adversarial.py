@@ -4,19 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 
 def _compile_both(compiler: Path, tmp_path: Path, source: str):
     return (
-        _compile_source(compiler, tmp_path, source),
-        _compile_reference_source(tmp_path, source),
+        compile_source(compiler, tmp_path, source),
+        compile_reference_source(tmp_path, source),
     )
 
 
@@ -269,7 +263,7 @@ def test_non_writing_alias_paths_remain_precise(
     for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stderr
         assert "volatile int value" not in generated.read_text()
-        _strict_build_and_run(
+        strict_build_and_run(
             generated,
             tmp_path / f"setjmp-precise-{index}",
             optimization="-O3",

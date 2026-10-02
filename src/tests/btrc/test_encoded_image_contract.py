@@ -9,8 +9,6 @@ from pathlib import Path
 
 import pytest
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "EncodedImageContract.btrc"
 API = REPOSITORY / "src" / "stdlib" / "Image" / "EncodedImage.btrc"

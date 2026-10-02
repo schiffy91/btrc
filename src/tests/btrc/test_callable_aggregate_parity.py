@@ -4,13 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_callable_return_abi_contract import _compile_both
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_both
 
 FOREIGN_CALLBACK_DEFINITION = """
 static char *aggregate_foreign_value;
@@ -44,10 +39,10 @@ def test_nested_borrowed_callback_literals_are_proved_safe(
                 && map.len == 1 ? 0 : 1;
         }
     """
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
         generated.write_text(generated.read_text() + FOREIGN_CALLBACK_DEFINITION)
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             (f"nested-borrowed-callback-literals-{index}", generated),
             tmp_path,
         )
@@ -70,10 +65,10 @@ def test_recursive_struct_borrowed_callback_balances_promoted_result(
             return copy[0] == 'b' ? 0 : 1;
         }
     """
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
         generated.write_text(generated.read_text() + FOREIGN_CALLBACK_DEFINITION)
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             (f"recursive-struct-borrowed-callback-{index}", generated),
             tmp_path,
         )
@@ -147,7 +142,7 @@ def test_unknown_callback_aggregate_fails_closed_at_escape_boundaries(
         struct Branch {{ struct Branch* next; Slot leaf; }};
         {body}
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert diagnostic in result.stdout + result.stderr
 
@@ -179,7 +174,7 @@ def test_omitted_owned_callback_defaults_are_validated(
         void consume({parameter}) {{}}
         int main() {{ consume(); return 0; }}
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert diagnostic in result.stdout + result.stderr
 
@@ -197,6 +192,6 @@ def test_lexical_function_pointer_signature_enforces_callback_boundary(
             return 0;
         }
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "bare __fn_ptr parameters accept only borrowed C callbacks" in (result.stdout + result.stderr)

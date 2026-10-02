@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -16,15 +15,11 @@ import pytest
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.btrc.gpu_stub_harness import CC, FIXTURES, REPO, compile_with_stub, run_in_repo
 from src.tests.process_limits import TRANSPILE_TIMEOUT
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
-REPO = Path(__file__).resolve().parents[3]
-CC = configured_c_compiler()
 BTRCC_SOURCE = REPO / "src/compiler/btrc/BtrccMain.btrc"
-FIXTURES = REPO / "src/tests/btrc/fixtures"
-GPU_INCLUDE = REPO / "src/runtime/gpu"
 NAGA = shutil.which("naga")
 if NAGA is None:
     shared_naga = Path("/tmp/btrc-naga-validator/bin/naga")
@@ -35,16 +30,6 @@ pytestmark = pytest.mark.skipif(
     sys.platform == "win32" or not CC or shutil.which(CC[0]) is None,
     reason="requires a hosted C11 compiler",
 )
-
-
-def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        **kwargs,
-    )
 
 
 GPU_RUN = r"\b[A-Za-z_][A-Za-z0-9_]*_run"
@@ -79,7 +64,7 @@ def test_unused_gpu_kernel_is_proven_dead_and_erased(
     tmp_path: Path,
 ) -> None:
     source = REPO / "src/tests/gpu/GpuSquare.btrc"
-    generated = _run([str(btrcc_driver), str(source)], timeout=120)
+    generated = run_in_repo([str(btrcc_driver), str(source)], timeout=120)
 
     assert generated.returncode == 0 and generated.stderr == ""
     assert all(marker not in generated.stdout for marker in ("squareElements", "gpu_id", "btrc_gpu", "wgsl"))
@@ -87,7 +72,7 @@ def test_unused_gpu_kernel_is_proven_dead_and_erased(
     c_path = tmp_path / "unused_gpu.c"
     binary = tmp_path / "unused_gpu"
     c_path.write_text(generated.stdout)
-    compile_result = _run(
+    compile_result = run_in_repo(
         [
             *CC,
             "-std=c11",
@@ -104,60 +89,13 @@ def test_unused_gpu_kernel_is_proven_dead_and_erased(
         timeout=60,
     )
     assert compile_result.returncode == 0, compile_result.stderr
-    executed = _run([str(binary)], timeout=15)
+    executed = run_in_repo([str(binary)], timeout=15)
     assert executed.returncode == 0
     assert executed.stdout == "PASS: test_gpu_square\n"
 
 
-def _compile_with_stub(
-    generated: str,
-    tmp_path: Path,
-    stub: str,
-    *defines: str,
-    extra_sources: tuple[Path, ...] = (),
-    sanitize: bool = False,
-) -> Path:
-    c_path = tmp_path / "generated.c"
-    binary = tmp_path / "generated"
-    c_path.write_text(generated)
-    effective_sanitize = sanitize and sys.platform != "darwin"
-    compiler = (
-        shlex.split(
-            os.environ.get(
-                "BTRC_ASAN_CC",
-                "/usr/bin/clang" if sys.platform == "darwin" else CC[0],
-            )
-        )
-        if effective_sanitize
-        else CC
-    )
-    result = _run(
-        [
-            *compiler,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            *(("-fsanitize=address", "-fno-omit-frame-pointer") if effective_sanitize else ()),
-            *(f"-D{define}" for define in defines),
-            f"-I{GPU_INCLUDE}",
-            str(c_path),
-            *(str(source) for source in extra_sources),
-            str(FIXTURES / stub),
-            "-lm",
-            "-lpthread",
-            "-o",
-            str(binary),
-        ],
-        timeout=60,
-    )
-    assert result.returncode == 0, result.stderr
-    return binary
-
-
 def _lower_fixture(btrcc_driver: Path, kind: str) -> str:
-    result = _run(
+    result = run_in_repo(
         [
             str(btrcc_driver),
             "--no-stdlib",
@@ -172,7 +110,7 @@ def _lower_fixture(btrcc_driver: Path, kind: str) -> str:
 def _lower_source(btrcc_driver: Path, tmp_path: Path, source: str) -> str:
     source_path = tmp_path / "source.btrc"
     source_path.write_text(source)
-    result = _run(
+    result = run_in_repo(
         [str(btrcc_driver), "--no-stdlib", str(source_path)],
         timeout=120,
     )
@@ -277,8 +215,8 @@ def test_reachable_void_kernel_lowers_and_uses_checked_cpu_fallback(
     assert "struct BtrcStatus { code: atomic<u32>, }" in generated
     assert "btrc_gpu_read_buffer_checked" in generated
     assert generated.index("buf_status") < generated.index("status == 0U")
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stdout == ""
     assert result.stderr == ""
@@ -301,8 +239,8 @@ def test_array_kernel_lowers_with_capacity_guard_and_cpu_fallback(
         arguments=(rf"__gpu_arg_\d+, __gpu_len_\d+, output, {declaration.group(1)}"),
     )
     assert "int output[] = doubleValues(values)" not in generated
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -328,8 +266,8 @@ def test_array_kernel_may_write_a_fixed_output_buffer(
         ),
     )
     assert "output = doubled(values)" not in generated
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -359,12 +297,12 @@ def test_generic_specialization_dispatches_void_kernel_strictly(
         )
     )
     assert "bump(values)" not in generated
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -395,12 +333,12 @@ def test_generic_specialization_dispatches_array_declaration_and_assignment(
     )
     assert "int first[] = copy(values);" not in generated
     assert "second = copy(first)" not in generated
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -435,8 +373,8 @@ def test_array_kernel_may_write_a_fixed_struct_field(
         generated,
     )
     assert "output.values = doubled(input)" not in generated
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -479,8 +417,8 @@ def test_array_kernel_may_write_a_heap_collection_through_one_stable_target(
     assert released.group(1) in generated[release_at:]
     assert target_at < data_at < length_at < dispatch_at < save_at < clear_at < release_at
     assert "output = doubled(input)" not in generated
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -492,7 +430,7 @@ def test_array_kernel_may_write_a_heap_collection_through_one_stable_target(
         "Vector<int> output = new Vector<int>(outputData, 2); "
         "output = input; return 0; }"
     )
-    rejected = _run(
+    rejected = run_in_repo(
         [str(semantic_btrcc), "--no-stdlib", str(ordinary)],
         timeout=120,
     )
@@ -557,8 +495,8 @@ def test_array_kernel_may_write_inferred_global_and_static_backing(
         assert re.search(rf"\({re.escape(dispatch.group(2))} = {input_capacity}\)", prefix)
     assert "global_values = doubled(input)" not in generated
     assert "Outputs.values = doubled(input)" not in generated
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -585,8 +523,8 @@ def test_gpu_fixed_struct_and_static_array_inputs_keep_physical_capacity(
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
     assert "sizeof(StaticInput_values)" in generated
     assert "sizeof(input.values)" in generated
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -613,13 +551,13 @@ def test_array_kernel_may_write_complete_global_and_block_extern_arrays(
     assert "extern int block_output[2];" in generated
     companion = tmp_path / "gpu_extern_outputs.c"
     companion.write_text("int global_output[2] = {1, 2};\nint block_output[2] = {1, 2};\n")
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         extra_sources=(companion,),
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -670,8 +608,8 @@ def test_gpu_heap_collection_input_is_evaluated_once_and_passes_data_length(
     )
     release_at = generated.index("__btrc_arc_release", dispatch_at)
     assert stable_at < data_at < length_at < dispatch_at < release_at
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -695,13 +633,13 @@ def test_checked_shader_status_cleans_up_then_exits_with_exact_diagnostic(
     cleanup = generated.index("btrc_gpu_buffer_destroy")
     failure = generated.index(f"status == {status}")
     assert cleanup < failure
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_checked_stub.c",
         f"STUB_STATUS_CODE={status}",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 1
     assert result.stderr == diagnostic
 
@@ -711,13 +649,13 @@ def test_status_readback_failure_after_submit_cleans_up_and_fails_closed(
     tmp_path: Path,
 ) -> None:
     generated = _lower_fixture(btrcc_driver, "void")
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_checked_stub.c",
         "STUB_FAIL_READBACK=1",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 1
     assert result.stderr == ("[btrc-gpu] GPU dispatch or result transfer failed after submission\n")
 
@@ -727,13 +665,13 @@ def test_dispatch_rejection_before_any_submit_uses_cpu_fallback(
     tmp_path: Path,
 ) -> None:
     generated = _lower_fixture(btrcc_driver, "void")
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_checked_stub.c",
         "STUB_DISPATCH_FAIL=1",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
 
@@ -743,13 +681,13 @@ def test_unknown_shader_status_fails_closed_with_exact_diagnostic(
     tmp_path: Path,
 ) -> None:
     generated = _lower_fixture(btrcc_driver, "void")
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_checked_stub.c",
         "STUB_STATUS_CODE=99",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 1
     assert result.stderr == ("[btrc-gpu] GPU kernel reported an unknown failure status\n")
 
@@ -778,8 +716,8 @@ def test_cpu_fallback_checked_failures_match_language_diagnostics(
         "int main() { int[] xs = {-2147483648}; "
         f"checked(xs, {divisor}); return 0; }}",
     )
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 1
     assert result.stderr == diagnostic
 
@@ -795,8 +733,8 @@ def test_cpu_fallback_min_mod_minus_one_is_defined_zero(
         "xs[i] = xs[i] % divisor; } int main() { "
         "int[] xs = {-2147483648}; checked(xs, -1); return xs[0]; }",
     )
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -816,12 +754,12 @@ def test_round_uses_gpu_float_signature_and_hosted_double_signature(
     )
     assert "roundf(" in generated
     assert "round(" in generated
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -837,8 +775,8 @@ def test_cpu_fallback_return_only_ends_the_current_invocation(
         "int[] xs = {1, 2}; early(xs); "
         "return xs[0] == 1 && xs[1] == 3 ? 0 : 1; }",
     )
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -875,12 +813,12 @@ def test_hosted_macro_parameter_names_cross_gpu_host_and_cpu_paths(
         arguments=(rf"{input_value}, {input_length}, {stdout_value}, {stderr_value}"),
     )
     assert stderr_assignment.start() < input_assignment.start() < stdout_assignment.start() < dispatch
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -916,12 +854,12 @@ def test_type_named_parameters_cross_gpu_host_and_cpu_paths(
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
     assert "int* __btrc_source_values" in generated
     assert "int __btrc_source_scale" in generated
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
     )
-    result = _run([str(binary)], timeout=15)
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -945,8 +883,8 @@ def test_contextual_float_results_match_wgsl_and_cpu_fallback(
     assert "1.0" in shader and "sqrt(4.0)" in shader
     assert "1.0f" in generated and "sqrtf(4.0f)" in generated
     assert "float adjusted" in generated
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -962,7 +900,7 @@ def test_contextual_float_rejects_f32_overflow_and_underflow(
         f"xs[i] = {literal}; }} int main() {{ float[] xs = {{1.0f}}; "
         "invalid(xs); return 0; }"
     )
-    result = _run([str(btrcc_driver), "--no-stdlib", str(source)], timeout=120)
+    result = run_in_repo([str(btrcc_driver), "--no-stdlib", str(source)], timeout=120)
     assert result.returncode == 1
     assert "floating literal is outside the WGSL f32 range" in result.stderr
 
@@ -991,8 +929,8 @@ def test_named_and_default_gpu_arguments_preserve_declared_parameter_order(
     default_call = generated.index("__btrc_default_affine_2", explicit_bias)
     dispatch = _gpu_dispatch_index(generated, default_call)
     assert explicit_extra < explicit_bias < default_call < dispatch
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -1019,8 +957,8 @@ def test_named_gpu_arguments_preserve_source_order_for_direct_call_forms(
         "return trace == 65 && assigned[0] == 22 ? 0 : 3; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -1044,8 +982,8 @@ def test_generic_direct_gpu_outputs_preserve_named_argument_source_order(
         "int result = harness.run(); delete harness; return result; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -1063,8 +1001,8 @@ def test_capacity_known_omitted_gpu_array_default_has_frontend_parity(
         "return output[0] == 3 && output[1] == 5 ? 0 : 1; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -1079,7 +1017,7 @@ def test_selfhost_rejects_unknown_capacity_gpu_array_default_before_ir(
         "int i = gpu_id(); return values[i]; } "
         "int main() { int[] output = copy(); return output[0]; }"
     )
-    result = _run(
+    result = run_in_repo(
         [str(semantic_btrcc), "--no-stdlib", str(source)],
         timeout=120,
     )
@@ -1099,8 +1037,8 @@ def test_scalar_only_gpu_array_result_uses_one_dispatch_element(
         "return output[0] == 7 ? 0 : 1; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -1125,8 +1063,8 @@ def test_gpu_array_parameter_return_copies_the_current_element(
         "return output[0] == 1 && output[1] == 4 ? 0 : 1; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0
 
 
@@ -1155,7 +1093,7 @@ def test_array_parameter_return_diagnostics_match_reference(
     reference = SemanticAnalyzer().analyze(Parser(Lexer(source, "<test>").tokenize()).parse())
     program = tmp_path / "program.btrc"
     program.write_text(source)
-    selfhost = _run([str(semantic_btrcc), "--no-stdlib", str(program)], timeout=120)
+    selfhost = run_in_repo([str(semantic_btrcc), "--no-stdlib", str(program)], timeout=120)
 
     assert reference.errors == [diagnostic]
     assert selfhost.returncode == 1
@@ -1203,13 +1141,13 @@ def test_owned_gpu_output_receiver_lives_through_dispatch(
     cleanup = cleanup_match.start()
     assert main.count(f"{stable} = makeHolder()") == 1
     assert max(assignment, cleanup) < data < dispatch < clear < release
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1259,13 +1197,13 @@ def test_borrowed_fixed_array_gpu_input_is_pinned_and_snapshotted(
         assert run_body.count("self->owner") == 1
         assert run_body.count("Holder_replace(self)") == 1
         assert root_assignment < retain < projection < later_effect < dispatch < clear < release
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1311,13 +1249,13 @@ def test_borrowed_fixed_array_gpu_input_projection_is_exception_safe(
     release = run_body.index("__btrc_arc_release", clear)
     assert run_body.count("self->owner") == 1
     assert registration < projection < later_effect < dispatch < clear < release
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1363,13 +1301,13 @@ def test_owned_fixed_array_gpu_input_projection_lives_through_dispatch(
     assert f"__btrc_arc_retain({root})" not in main_body
     assert "__btrc_register_cleanup" in main_body
     assert make < projection < later_effect < dispatch < clear < release
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1401,13 +1339,13 @@ def test_borrowed_collection_gpu_input_is_pinned_and_snapshotted(
         "return ok && drops == 2 ? 0 : 1; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1452,8 +1390,8 @@ def test_borrowed_gpu_output_receiver_uses_a_void_result_boundary(
     release = main.index("__btrc_arc_release", clear)
     assert main.count(f"{stable} = holder") == 1
     assert assignment < retain < data < dispatch < clear < release
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -1472,8 +1410,8 @@ def test_gpu_vla_capacity_does_not_replay_the_declared_bound(
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
     assert generated.count("size()") == 1
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -1496,8 +1434,8 @@ def test_owned_gpu_collection_input_is_released_after_dispatch(
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
     assert generated.count("makeValues()") == 1
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -1539,8 +1477,8 @@ def test_owned_custom_property_gpu_output_is_consumed_without_a_leak(
         assert main_body.count("Holder_get_output(") == 1
         assert f"__btrc_arc_retain({target})" not in main_body
         assert getter < data < length < dispatch < clear < release
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -1593,13 +1531,13 @@ def test_borrowed_auto_property_gpu_output_is_pinned_before_rhs_effect(
     assert run_body.count("Holder_mutate(self)") == 1
     assert "__btrc_register_cleanup" in run_body
     assert getter < retain < data < length < later_effect < dispatch < clear < release
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1648,13 +1586,13 @@ def test_owned_receiver_custom_property_gpu_output_is_single_evaluation(
     assert f"__btrc_arc_retain({target})" not in main_body
     assert "__btrc_register_cleanup" in main_body
     assert make < getter < dispatch < clear < release
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1676,8 +1614,8 @@ def test_gpu_dependent_defaults_bind_stable_earlier_parameters(
         "return declared[0] == 8 && assigned[0] == 17 ? 0 : 1; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -1699,8 +1637,8 @@ def test_gpu_array_default_inherits_an_earlier_buffer_snapshot(
         "&& explicit[0] == 3 && explicit[1] == 5 ? 0 : 1; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -1730,8 +1668,8 @@ def test_empty_gpu_result_keeps_zero_logical_length_when_chained(
         "@gpu int[] copy(int[] values) { int i = gpu_id(); return values[i]; } " + harness
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -1749,13 +1687,13 @@ def test_gpu_array_capacity_shadowing_is_lexically_scoped(
         "return values[0] == 2 && values[1] == 3 ? 0 : 2; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1782,8 +1720,8 @@ def test_generic_embedded_class_array_is_a_gpu_input_and_output(
         "int result = harness.run(); delete harness; return result == 32 ? 0 : 1; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
-    result = _run([str(binary)], timeout=15)
+    binary = compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
+    result = run_in_repo([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -1822,13 +1760,13 @@ def test_temporary_fixed_array_gpu_projections_have_stable_storage(
         assert f"__btrc_arc_release({root}" not in generated
         assert f"__btrc_arc_release_acyclic({root}" not in generated
         assert assignment < data < length < dispatch
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1879,13 +1817,13 @@ def test_gpu_collection_output_target_is_snapshotted_before_rhs_mutation(
         assert run_body.count("self->output") == 1
         assert run_body.count("Holder_mutate(self)") == 1
         assert assignment < retain < data < length < mutation < dispatch < clear < release
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1933,13 +1871,13 @@ def test_owned_receiver_collection_field_gpu_output_is_single_evaluation(
     assert f"__btrc_arc_retain({target})" not in main_body
     assert "__btrc_register_cleanup" in main_body
     assert make < data < dispatch < clear < release
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1970,13 +1908,13 @@ def test_gpu_fixed_array_output_projection_is_chosen_before_rhs_mutation(
         "delete router; return result; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated,
         tmp_path,
         "gpu_unavailable_stub.c",
         sanitize=True,
     )
-    result = _run(
+    result = run_in_repo(
         [str(binary)],
         env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
         timeout=15,
@@ -1988,7 +1926,7 @@ def test_gpu_fixed_array_output_projection_is_chosen_before_rhs_mutation(
 def test_selfhost_checked_shader_validates_with_naga(
     btrcc_driver: Path,
 ) -> None:
-    result = _run(
+    result = run_in_repo(
         [
             str(btrcc_driver),
             "--no-stdlib",
@@ -2046,7 +1984,7 @@ def test_float_remainder_assignment_fails_closed(
 ) -> None:
     source = tmp_path / "invalid_gpu.btrc"
     source.write_text("@gpu void invalid(float[] xs) { int i = gpu_id(); xs[i] %= 2.0; } int main() { return 0; }")
-    result = _run([str(btrcc_driver), "--no-stdlib", str(source)], timeout=120)
+    result = run_in_repo([str(btrcc_driver), "--no-stdlib", str(source)], timeout=120)
     assert result.returncode == 1
     assert (
         "error: @gpu function 'invalid': remainder assignment target must be int, got 'float' at 1:51" in result.stderr

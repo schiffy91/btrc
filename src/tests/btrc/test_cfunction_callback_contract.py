@@ -5,20 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 _RECURSIVE_CONST_ALIAS_SOURCE = Path(__file__).parents[1] / "basics" / "CfunctionRecursiveConstAlias.btrc"
 
 
 def _compile_pair(semantic_btrcc: Path, tmp_path: Path, source: str):
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_reference_source(tmp_path, source)
     return (selfhost, selfhost_c), (reference, reference_c)
 
 
@@ -56,8 +50,8 @@ def test_recursive_const_callback_aliases_preserve_declaration_layers_through_bo
         assert re.search(r"OutputChannels __btrc_(?:call_)?operand_\d+;", generated)
         assert "const float**" not in generated
 
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-recursive-const-alias")
-    _strict_build_and_run(reference_c, tmp_path / "reference-recursive-const-alias")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-recursive-const-alias")
+    strict_build_and_run(reference_c, tmp_path / "reference-recursive-const-alias")
 
 
 def test_ordered_call_storage_does_not_retain_alias_across_class_upcast(
@@ -112,8 +106,8 @@ def test_ordered_call_storage_does_not_retain_alias_across_class_upcast(
     for generated in (selfhost_generated, reference_generated):
         assert not re.search(r"ChildAlias __btrc_(?:call_)?operand_\d+;", generated)
 
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-ordered-upcast")
-    _strict_build_and_run(reference_c, tmp_path / "reference-ordered-upcast")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-ordered-upcast")
+    strict_build_and_run(reference_c, tmp_path / "reference-ordered-upcast")
 
 
 def test_cfunction_qsort_bsearch_compiles_and_runs_through_both_compilers(
@@ -145,8 +139,8 @@ def test_cfunction_qsort_bsearch_compiles_and_runs_through_both_compilers(
     (selfhost, selfhost_c), (reference, reference_c) = _compile_pair(semantic_btrcc, tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-cfunction")
-    _strict_build_and_run(reference_c, tmp_path / "reference-cfunction")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-cfunction")
+    strict_build_and_run(reference_c, tmp_path / "reference-cfunction")
 
 
 @pytest.mark.parametrize(

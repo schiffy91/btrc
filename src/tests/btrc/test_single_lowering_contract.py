@@ -8,8 +8,6 @@ from src.tests.btrc.production_readiness_harness import (
     run_strict_pair,
 )
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 # One lifted body per lambda expression. Count definitions rather than every
 # mention: a frontend may additionally forward-declare its static helpers, and
 # that choice says nothing about how many times the argument was lowered.

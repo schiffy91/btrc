@@ -12,8 +12,6 @@ import pytest
 
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "RealtimeClipTransportContract.btrc"
 CONTRACT = REPOSITORY / "src" / "stdlib" / "Realtime" / "RealtimeClipTransport.btrc"

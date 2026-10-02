@@ -4,12 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 @pytest.mark.parametrize(
@@ -107,7 +102,7 @@ def test_selfhost_rejects_nested_volatile_loss(
     tmp_path: Path,
     source: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert "would discard volatile storage qualification" in result.stderr
     assert "unsupported layered pointer qualifiers" in result.stderr
@@ -134,7 +129,7 @@ def test_selfhost_rejects_callable_outer_cv_results(
     source: str,
     subject: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert subject in result.stderr
     assert "C discards qualifiers" in result.stderr
@@ -144,7 +139,7 @@ def test_selfhost_rejects_const_rich_enum_payload(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    result, _ = _compile_source(
+    result, _ = compile_source(
         semantic_btrcc,
         tmp_path,
         "enum class Payload { Some(const int value), None } int main(){ return 0; }",
@@ -178,7 +173,7 @@ def test_selfhost_preserves_typedef_qualified_pointees(
                 && distance == 0 && !absent ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     assert "volatile V" not in generated.read_text()
-    _strict_build_and_run(generated, tmp_path / "qualifier-provenance")
+    strict_build_and_run(generated, tmp_path / "qualifier-provenance")

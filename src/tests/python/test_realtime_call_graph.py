@@ -10,7 +10,7 @@ from src.compiler.python.analyzer.program import AnalysisSession, DeclarationInd
 from src.compiler.python.analyzer.realtime import RealtimeAnalyzer, RealtimeCallable, RealtimeEdge, RealtimeEffect
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast import generated as ast
-from src.tests.python.test_realtime import realtime_errors
+from src.tests.python.reference_pipeline import realtime_errors
 
 
 def graph_analyzer(adjacency: dict[str, list[str]]) -> RealtimeAnalyzer:

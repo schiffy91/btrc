@@ -3,7 +3,7 @@ in a single transpile each: vtables + globals + structs + try/catch + nested
 blocks + GPU kernels; a generic class touching every statement/expression form;
 and a rich GPU kernel for the WGSL expression emitter."""
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_emitter_vtables_globals_structs_trycatch_blocks():

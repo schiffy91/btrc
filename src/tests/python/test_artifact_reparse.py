@@ -23,7 +23,7 @@ ARCHIVE_CODEC = ArchiveCodec()
 write_tar_gz = ARCHIVE_CODEC.write_tar_gz
 write_zip = ARCHIVE_CODEC.write_zip
 from src.tests.process_limits import TOOL_TIMEOUT
-from src.tests.python.test_btrcc_bundle import _fixture
+from src.tests.python.btrcc_binary_fixtures import bundle_fixture
 
 
 def _classify_path_as_reparse(
@@ -139,7 +139,7 @@ def test_artifact_boundaries_apply_the_shared_reparse_policy(
     monkeypatch: pytest.MonkeyPatch,
     boundary: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     output = tmp_path / "dist"
     output.mkdir()
     marked = {

@@ -5,10 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
 @pytest.mark.parametrize(
@@ -245,13 +243,13 @@ def test_magic_methods_and_nonprefix_btrc_names_run_strictly(
                 && btrcTestValue() == 22 ? 0 : 1;
         }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "reserved-name-magic-methods",
     ):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_named_enum_value_in_hosted_macro_namespace_runs_strictly(
@@ -263,13 +261,13 @@ def test_named_enum_value_in_hosted_macro_namespace_runs_strictly(
         enum Error { EINVAL = 7 };
         int main() { return EINVAL == 7 ? 0 : 1; }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "named-enum-hosted-macro",
     ):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_hosted_macro_parameter_names_preserve_named_argument_api(
@@ -284,13 +282,13 @@ def test_hosted_macro_parameter_names_preserve_named_argument_api(
             return ordered(stderr=3, stdin=1, stdout=2) == 123 ? 0 : 1;
         }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "hosted-macro-parameter-api",
     ):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_hosted_macro_parameter_names_cover_generated_c_boundaries(
@@ -361,7 +359,7 @@ def test_hosted_macro_parameter_names_cover_generated_c_boundaries(
                 && threadPath(stderr=40) == 41 ? 0 : 1;
         }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
@@ -379,4 +377,4 @@ def test_hosted_macro_parameter_names_cover_generated_c_boundaries(
         )
         assert wrapper is not None
         assert len(re.findall(r"^\s*return\b", wrapper.group(1), re.MULTILINE)) == 1
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)

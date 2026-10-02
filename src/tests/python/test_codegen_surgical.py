@@ -3,7 +3,7 @@ over a runtime-sized Vector (->len/->data), operator overloading on generic
 class instances, and the exported AnalyzerError exception."""
 
 from src.compiler.python.analyzer.program import AnalyzerError
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_array_list_literal_initializer():

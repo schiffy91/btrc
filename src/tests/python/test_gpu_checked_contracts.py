@@ -18,13 +18,12 @@ from src.compiler.python.backend.wgsl_emitter import WgslEmitter
 from src.compiler.python.ir.nodes import IRNode
 from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
-from src.tests.python.test_codegen import emit_c
-from src.tests.python.test_gpu_dispatch_failures import _compile_with_gpu_stubs
-from src.tests.python.test_gpu_dispatch_ir import _generate
+from src.tests.python.gpu_stub_fixtures import compile_with_gpu_stubs
+from src.tests.python.reference_pipeline import emit_c, lower_gpu_dispatch
 
 
 def test_shader_declares_lengths_and_final_atomic_status_binding() -> None:
-    module = _generate(
+    module = lower_gpu_dispatch(
         "@gpu int[] checked(int[] xs, int[] ys, int divisor) { int i = gpu_id(); "
         "return xs[i] / divisor + ys[i] % divisor; } "
         "int main() { int[] xs = {4}; int[] ys = {3}; int[] out = checked(xs, ys, 2); return out[0]; }"
@@ -67,7 +66,7 @@ def test_host_status_codes_fail_with_exact_language_diagnostic(
     c_compiler: str,
     status_code: int,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu void checked(int[] xs) { int i = gpu_id(); xs[i] += 1; } "
         "int main() { int[] xs = {1}; checked(xs); return 0; }",
@@ -89,7 +88,7 @@ def test_unknown_host_status_has_a_generic_diagnostic(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu void checked(int[] xs) { int i = gpu_id(); xs[i] += 1; } "
         "int main() { int[] xs = {1}; checked(xs); return 0; }",
@@ -121,7 +120,7 @@ def test_cpu_fallback_uses_the_same_checked_failure_contract(
     kernel_body: str,
     diagnostic: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         f"@gpu void checked(int[] xs, int divisor) {{ int i = gpu_id(); {kernel_body} }} "
         "int main() { int[] xs = {4}; checked(xs, 0); return 0; }",
@@ -139,7 +138,7 @@ def test_cpu_fallback_uses_the_same_checked_failure_contract(
 @pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
 @pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_cpu_fallback_min_mod_minus_one_is_defined_zero(tmp_path: Path, c_compiler: str) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu void checked(int[] xs, int divisor) { int i = gpu_id(); xs[i] %= divisor; } "
         "int main() { int[] xs = {-2147483648}; checked(xs, -1); return xs[0]; }",
@@ -156,7 +155,7 @@ def test_status_readback_failure_after_submission_fails_closed(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu void bump(int[] xs) { int i = gpu_id(); xs[i] += 1; } "
         "int main() { int[] xs = {1}; bump(xs); return xs[0] == 2 ? 0 : 1; }",
@@ -177,7 +176,7 @@ def test_partial_multi_buffer_readback_never_runs_cpu_fallback(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu void bump(int[] xs, int[] ys) { int i = gpu_id(); "
         "xs[i] += 1; ys[i] += 1; } "
@@ -200,7 +199,7 @@ NAGA = shutil.which("naga")
 
 @pytest.mark.skipif(NAGA is None, reason="naga WGSL validator is not installed")
 def test_checked_shader_validates_with_naga() -> None:
-    module = _generate(
+    module = lower_gpu_dispatch(
         "@gpu int[] checked(int[] xs, int divisor) { int i = gpu_id(); "
         "return xs[i + 1] / divisor + xs[i] % divisor; } int main() { return 0; }"
     )

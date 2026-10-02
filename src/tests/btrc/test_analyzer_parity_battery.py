@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_gpu_diagnostics_parity import REFERENCE_DIAGNOSTIC, SELFHOST_DIAGNOSTIC, GpuDiagnostic
+from src.tests.btrc.diagnostic_harness import REFERENCE_DIAGNOSTIC, SELFHOST_DIAGNOSTIC, GpuDiagnostic
 
 REPO = Path(__file__).resolve().parents[3]
 INCLUDE = re.compile(r"^#include [<\"]([^>\"]+)[>\"]$", re.MULTILINE)

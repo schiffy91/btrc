@@ -6,13 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 FIXTURES = Path(__file__).with_name("fixtures")
 
@@ -71,7 +65,7 @@ def test_storage_collisions_fail_closed(
     source: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert result.stdout == ""
     assert diagnostic in result.stderr
@@ -94,16 +88,16 @@ def test_custom_property_does_not_reserve_a_backing_name(semantic_btrcc: Path, t
             return value.read() == 9 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     struct = result.stdout.split("struct Value {", 1)[1].split("};", 1)[0]
     assert struct.count("_prop_item") == 1
-    _strict_build_and_run(generated, tmp_path / "custom-property")
+    strict_build_and_run(generated, tmp_path / "custom-property")
 
 
 def test_inherited_wrappers_and_managed_backing_run_strictly(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = (FIXTURES / "PropertyLayoutRuntime.btrc").read_text()
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
 
     base_struct = result.stdout.split("struct Base {", 1)[1].split("};", 1)[0]
@@ -124,7 +118,7 @@ def test_inherited_wrappers_and_managed_backing_run_strictly(semantic_btrcc: Pat
     assert "__btrc_arc_replace_edge" in guarded_setter
     assert "_prop_guarded" in guarded_setter
 
-    _strict_build_and_run(generated, tmp_path / "property-layout")
+    strict_build_and_run(generated, tmp_path / "property-layout")
 
 
 @pytest.mark.parametrize(
@@ -160,7 +154,7 @@ def test_generic_property_shapes_fail_closed(
     source: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert result.stdout == ""
     assert diagnostic in result.stderr
@@ -168,7 +162,7 @@ def test_generic_property_shapes_fail_closed(
 
 def test_generic_properties_compile_strictly_and_run(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = (FIXTURES / "GenericPropertyLayoutRuntime.btrc").read_text()
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
 
     int_struct = result.stdout.split("struct btrc_Box_int {", 1)[1].split("};", 1)[0]
@@ -191,10 +185,10 @@ def test_generic_properties_compile_strictly_and_run(semantic_btrcc: Path, tmp_p
     assert "_prop_mixed" in item_mixed_setter
     assert "Item_destroy" in item_mixed_setter
 
-    _strict_build_and_run(generated, tmp_path / "generic-property-layout")
-    reference, reference_generated = _compile_reference_source(tmp_path, source)
+    strict_build_and_run(generated, tmp_path / "generic-property-layout")
+    reference, reference_generated = compile_reference_source(tmp_path, source)
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_generated,
         tmp_path / "generic-property-layout-reference",
     )

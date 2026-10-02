@@ -27,10 +27,10 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.diagnostic_harness import REFERENCE_DIAGNOSTIC, SELFHOST_DIAGNOSTIC, GpuDiagnostic
+
 REPO = Path(__file__).resolve().parents[3]
 NAGA = shutil.which("naga")
-REFERENCE_DIAGNOSTIC = re.compile(r"^error: (.*)\n\s*--> .*?:(\d+):(\d+)", re.MULTILINE)
-SELFHOST_DIAGNOSTIC = re.compile(r"^error: (.*) at (\d+):(\d+)$", re.MULTILINE)
 SHADER = re.compile(r'static (?:const )?char\* (\w+)_wgsl = ("(?:\\.|[^"])*");')
 UNREACHABLE_MAIN = "int main() { return 0; }"
 CORPUS = (
@@ -40,15 +40,6 @@ CORPUS = (
 )
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires the POSIX self-host driver")
-
-
-@dataclass(frozen=True)
-class GpuDiagnostic:
-    """The first diagnostic both compilers must report for an invalid probe."""
-
-    message: str
-    line: int
-    col: int
 
 
 @dataclass(frozen=True)

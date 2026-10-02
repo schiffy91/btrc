@@ -14,9 +14,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import REPO
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import REPO
 
 FIXTURE = REPO / "src/tests/btrc/fixtures/CforInitializerOwnershipRuntime.btrc"
 

@@ -2,18 +2,12 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 
 def _compile_pair(semantic_btrcc: Path, tmp_path: Path, source: str):
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_reference_source(tmp_path, source)
     return (selfhost, selfhost_c), (reference, reference_c)
 
 
@@ -80,8 +74,8 @@ def test_owned_closure_survives_return_alias_and_field_then_destroys_once(
     (selfhost, selfhost_c), (reference, reference_c) = _compile_pair(semantic_btrcc, tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-owned-closure")
-    _strict_build_and_run(reference_c, tmp_path / "reference-owned-closure")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-owned-closure")
+    strict_build_and_run(reference_c, tmp_path / "reference-owned-closure")
 
 
 def test_owned_closure_cannot_decay_to_cfunction(
@@ -198,5 +192,5 @@ def test_generic_owned_closure_accepts_exact_cfunction_specialization(
     (selfhost, selfhost_c), (reference, reference_c) = _compile_pair(semantic_btrcc, tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-generic-owned-closure")
-    _strict_build_and_run(reference_c, tmp_path / "reference-generic-owned-closure")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-generic-owned-closure")
+    strict_build_and_run(reference_c, tmp_path / "reference-generic-owned-closure")

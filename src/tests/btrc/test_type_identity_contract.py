@@ -4,37 +4,26 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _strict_build_and_run,
+from src.tests.btrc.selfhost_snippet_harness import (
+    CC,
+    REPO,
+    compile_reference_source,
+    run_in_repo,
+    strict_build_and_run,
 )
-from src.tests.c_toolchains import configured_c_compiler
 
-REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src" / "compiler" / "btrc"
-CC = configured_c_compiler()
 STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 pytestmark = pytest.mark.skipif(
     not CC or shutil.which(CC[0]) is None,
     reason="needs a C compiler",
 )
-
-
-def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        **kwargs,
-    )
 
 
 def _struct_body(source: str, name: str) -> str:
@@ -44,7 +33,7 @@ def _struct_body(source: str, name: str) -> str:
 
 def _build_driver(source: Path, output: Path, cache: Path) -> Path:
     generated = output.with_suffix(".c")
-    transpile = _run(
+    transpile = run_in_repo(
         [
             sys.executable,
             "-m",
@@ -58,7 +47,7 @@ def _build_driver(source: Path, output: Path, cache: Path) -> Path:
         timeout=300,
     )
     assert transpile.returncode == 0 and generated.exists(), transpile.stderr
-    compile_result = _run(
+    compile_result = run_in_repo(
         [
             *CC,
             "-std=c11",
@@ -146,7 +135,7 @@ def test_identity_contract_has_one_shared_implementation() -> None:
 
 
 def test_identity_atoms_run_under_strict_c11(identity_driver) -> None:
-    result = _run([str(identity_driver)], timeout=30)
+    result = run_in_repo([str(identity_driver)], timeout=30)
 
     assert result.returncode == 0
     assert result.stdout == "PASS: type_identity_driver\n"
@@ -234,7 +223,7 @@ def test_writable_specializations_fail_closed(
 ) -> None:
     program = tmp_path / "invalid_identity.btrc"
     program.write_text(source)
-    result = _run(
+    result = run_in_repo(
         [str(selfhost_compiler), "--no-stdlib", "--no-dce", str(program)],
         timeout=30,
     )
@@ -258,7 +247,7 @@ def test_structural_qualified_types_remain_allowed(
             return holder == null ? 0 : 1;
         }
     """)
-    result = _run(
+    result = run_in_repo(
         [str(selfhost_compiler), "--no-stdlib", "--no-dce", str(program)],
         timeout=30,
     )
@@ -272,7 +261,7 @@ def test_declared_one_letter_class_does_not_capture_template_parameter(
     selfhost_compiler,
 ) -> None:
     program = REPO / "src/tests/btrc/fixtures/TypeIdentityDeclaredT.btrc"
-    result = _run(
+    result = run_in_repo(
         [str(selfhost_compiler), "--no-stdlib", str(program)],
         timeout=30,
     )
@@ -288,11 +277,11 @@ def test_nullable_generic_substitution_has_dual_runtime_parity(
 ) -> None:
     program = REPO / "src/tests/btrc/fixtures/NullableGenericSubstitutionRuntime.btrc"
     source = program.read_text()
-    selfhost = _run(
+    selfhost = run_in_repo(
         [str(selfhost_compiler), "--no-stdlib", str(program)],
         timeout=30,
     )
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    reference, reference_source = compile_reference_source(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
@@ -310,11 +299,11 @@ def test_nullable_generic_substitution_has_dual_runtime_parity(
             body = _struct_body(emitted, f"btrc_Empty_{alias}")
             assert f"{alias} stored;" in body
             assert f"{alias}* stored;" not in body
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_source,
         tmp_path / "selfhost-nullable-substitution",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_source,
         tmp_path / "reference-nullable-substitution",
     )
@@ -327,8 +316,8 @@ def test_nullable_generic_parameter_accepts_unlifted_value_on_both_frontends(
 ) -> None:
     program = REPO / "src/tests/btrc/fixtures/NullableGenericPromotion.btrc"
     source = program.read_text()
-    selfhost = _run([str(selfhost_compiler), "--no-stdlib", str(program)], timeout=30)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost = run_in_repo([str(selfhost_compiler), "--no-stdlib", str(program)], timeout=30)
+    reference, reference_source = compile_reference_source(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
@@ -344,7 +333,7 @@ def test_nullable_generic_parameter_accepts_unlifted_value_on_both_frontends(
     for frontend, emitted in generated.items():
         for compiler in STRICT_COMPILERS:
             executable = tmp_path / f"NullableGenericPromotion-{frontend}-{Path(compiler).name}"
-            built = _run(
+            built = run_in_repo(
                 [
                     compiler,
                     "-std=c11",
@@ -362,7 +351,7 @@ def test_nullable_generic_parameter_accepts_unlifted_value_on_both_frontends(
                 timeout=60,
             )
             assert built.returncode == 0, built.stderr
-            ran = _run([str(executable)], timeout=30)
+            ran = run_in_repo([str(executable)], timeout=30)
             assert ran.returncode == 0, ran.stderr
             assert ran.stdout == "PASS NullableGenericPromotion\n"
             assert ran.stderr == ""

@@ -11,20 +11,13 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRCommaExpr, IRStmtExpr
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path, source: str):
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     return selfhost_c, reference_c
@@ -129,7 +122,7 @@ def test_calls_binary_constructors_and_generic_bodies_run_left_to_right(
     for index, generated in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         emitted = generated.read_text()
         assert "__btrc_call_operand" in emitted or "__btrc_operand" in emitted
-        _strict_build_and_run(generated, tmp_path / f"sequencing-{index}")
+        strict_build_and_run(generated, tmp_path / f"sequencing-{index}")
 
 
 def test_managed_receivers_survive_later_operands_and_unwind(
@@ -233,7 +226,7 @@ def test_managed_receivers_survive_later_operands_and_unwind(
     for index, generated in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         emitted = generated.read_text()
         assert "__btrc_kept_operand" in emitted
-        _strict_build_and_run(generated, tmp_path / f"receiver-pin-{index}")
+        strict_build_and_run(generated, tmp_path / f"receiver-pin-{index}")
 
 
 def test_borrowed_receiver_is_pinned_only_across_later_effects(
@@ -300,7 +293,7 @@ def test_borrowed_receiver_is_pinned_only_across_later_effects(
         )
         assert effectful is not None
         assert "__btrc_kept_operand" in effectful.group("body")
-        _strict_build_and_run(
+        strict_build_and_run(
             generated,
             tmp_path / f"receiver-pin-minimal-{index}",
             optimization="-O3",

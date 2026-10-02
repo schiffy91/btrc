@@ -8,17 +8,13 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.allocation_tracking_harness import compiler_environment
+from src.tests.btrc.dual_frontend_harness import REPO, compile_snippet_pair
 from src.tests.btrc.production_readiness_harness import (
     compile_diagnostic_pair,
 )
 from src.tests.btrc.string_coercion_harness import compile_pair
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _compiler_environment,
-)
-from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 DECLARATION_SCOPE = FIXTURES / "DefaultArgumentDeclarationScopeRuntime.btrc"
@@ -37,7 +33,7 @@ def _strict_optimization_matrix(
     for compiler in HOST_C_COMPILERS:
         for optimization in optimizations:
             executable = tmp_path / (f"{frontend}-{Path(compiler).name}-{optimization[1:]}")
-            environment = _compiler_environment(compiler)
+            environment = compiler_environment(compiler)
             build = subprocess.run(
                 [
                     compiler,
@@ -76,7 +72,7 @@ def test_defaults_use_declaration_scope_and_stable_operand_order(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         DECLARATION_SCOPE.read_text(),
@@ -92,7 +88,7 @@ def test_bodyless_declaration_defaults_run_in_declaration_scope(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         BODYLESS_SCOPE.read_text(),

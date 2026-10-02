@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_ownership_semantics_contract import _compile_reference_source
-from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 @pytest.mark.parametrize("operation", ("keep", "release", "delete"))
@@ -39,8 +37,8 @@ def test_ownership_ops_reject_virtual_targets(
             return 0;
         }}
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     diagnostic = "cannot target a property or protocol index"
     assert selfhost.returncode != 0
     assert reference.returncode != 0
@@ -63,8 +61,8 @@ def test_ownership_ops_reject_owned_receiver_fields(
         Holder makeHolder() {{ return new Holder(); }}
         int main() {{ {operation} makeHolder().item; return 0; }}
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     diagnostic = "requires storage rooted in a stable owner"
     assert selfhost.returncode != 0
     assert reference.returncode != 0
@@ -88,9 +86,9 @@ def test_delete_side_effectful_physical_lvalue_runs_once(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-delete-once")
-    _strict_build_and_run(reference_source, tmp_path / "reference-delete-once")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-delete-once")
+    strict_build_and_run(reference_source, tmp_path / "reference-delete-once")

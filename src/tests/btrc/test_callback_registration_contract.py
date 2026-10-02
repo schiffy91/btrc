@@ -8,10 +8,9 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.runtime_ownership_harness import SANITIZER_FLAGS, require_sanitizers, sanitizer_environment
-from src.tests.btrc.test_semantic_validation import REPO, _compile_reference_source, _compile_source
+from src.tests.btrc.selfhost_snippet_harness import REPO, compile_reference_source, compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 pytestmark = pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 
 
@@ -933,8 +932,8 @@ int main(int argc, char** argv) {
 def _compile_pair(semantic_btrcc: Path, tmp_path: Path, source: str, stem: str) -> dict[str, Path]:
     source_dir = tmp_path / stem
     source_dir.mkdir()
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, source_dir, source)
-    reference, reference_c = _compile_reference_source(source_dir, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, source_dir, source)
+    reference, reference_c = compile_reference_source(source_dir, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     return {"selfhost": selfhost_c, "reference": reference_c}
@@ -1109,9 +1108,9 @@ void abandonScopedCycle() {
 """
     program += f"int main() {{ {scenario}(); assert(unregistered == 1 && closed == 1 && destroyed == 1); return 0; }}\n"
     compile_result, source = (
-        _compile_source(semantic_btrcc, tmp_path, program)
+        compile_source(semantic_btrcc, tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "empty.c"
@@ -1275,9 +1274,9 @@ int main() {
 }
 """
     compile_result, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "empty.c"
@@ -1462,9 +1461,9 @@ int main() {
 }
 """
     compile_result, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "empty.c"
@@ -1516,9 +1515,9 @@ void wrongExecutor() {
         + f"int main() {{ {scenario}(); return 0; }}\n"
     )
     compile_result, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "empty.c"
@@ -1663,9 +1662,9 @@ int main() {
 }
 """
     compile_result, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "empty.c"
@@ -1784,9 +1783,9 @@ int main() {
 }
 """
     compile_result, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "empty.c"
@@ -1846,9 +1845,9 @@ int main() {
 """
     )
     compile_result, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "StoredCallback.c"
@@ -1900,9 +1899,9 @@ void wrongExecutor() {
         + f"int main() {{ {scenario}(); return 0; }}\n"
     )
     compile_result, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "empty.c"
@@ -1939,9 +1938,9 @@ void abandon() {
 int main() { abandon(); return 0; }
 """
     compile_result, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compile_result.returncode == 0, (frontend, compile_result.stderr)
     fake = tmp_path / "empty.c"
@@ -2014,9 +2013,9 @@ int main() { terminal(); return 0; }
         "THROWS", "true" if throws else "false"
     )
     compiled, source = (
-        _compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
+        compile_source(request.getfixturevalue("semantic_btrcc"), tmp_path, program)
         if frontend == "selfhost"
-        else _compile_reference_source(tmp_path, program)
+        else compile_reference_source(tmp_path, program)
     )
     assert compiled.returncode == 0, compiled.stderr
     fake = tmp_path / "empty.c"
@@ -2168,8 +2167,8 @@ def test_registration_rejects_unproven_or_null_invoke_values(
     """
     case = tmp_path / invoke
     case.mkdir()
-    selfhost, _ = _compile_source(semantic_btrcc, case, source)
-    reference, _ = _compile_reference_source(case, source)
+    selfhost, _ = compile_source(semantic_btrcc, case, source)
+    reference, _ = compile_reference_source(case, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert diagnostic in selfhost.stderr
@@ -2211,8 +2210,8 @@ def test_realtime_invoke_cannot_change_registration_lifecycle(
         }
     """
     source = source.replace("registration.close()", f"registration.{operation}()")
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     for diagnostic in (selfhost.stderr, reference.stderr):
@@ -2231,8 +2230,8 @@ def test_raw_c_atomic_name_is_not_a_realtime_certificate(
         }
         int main() { return 0; }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     for diagnostic in (selfhost.stderr, reference.stderr):
@@ -2268,8 +2267,8 @@ def test_registration_never_exposes_racy_raw_parts_after_activation(
     """
     case = tmp_path / getter
     case.mkdir()
-    selfhost, _ = _compile_source(semantic_btrcc, case, source)
-    reference, _ = _compile_reference_source(case, source)
+    selfhost, _ = compile_source(semantic_btrcc, case, source)
+    reference, _ = compile_reference_source(case, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert getter in selfhost.stderr

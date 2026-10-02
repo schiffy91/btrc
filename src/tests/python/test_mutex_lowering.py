@@ -9,7 +9,7 @@ import pytest
 from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def _emit_with_stdlib(source: str) -> str:

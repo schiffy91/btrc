@@ -7,15 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import REPO, build_and_run_strict, compile_snippet_pair
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
     sanitizer_environment,
 )
-from src.tests.btrc.test_mutex_value_contract import REPO, _build_and_run, _compile_pair
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 pytestmark = pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a C11 compiler")
 
 FIXTURE = Path(__file__).with_name("fixtures") / "CycleSuspectChurn.btrc"
@@ -24,13 +23,13 @@ EXPECTED_STDOUT = "total=37495500\nPASS: cycle suspect churn\n"
 
 def test_forgetting_a_suspect_uses_its_hash_slot_index(semantic_btrcc: Path, tmp_path: Path) -> None:
     """Both compilers materialize the indexed suspect buffer and the program runs clean."""
-    for frontend, generated in _compile_pair(semantic_btrcc, tmp_path, FIXTURE.read_text(), FIXTURE.stem):
+    for frontend, generated in compile_snippet_pair(semantic_btrcc, tmp_path, FIXTURE.read_text(), FIXTURE.stem):
         emitted = generated.read_text()
         assert "__btrc_suspect_slots" in emitted, frontend
         assert "__btrc_suspect_slots[key] = __btrc_suspect_count;" in emitted, frontend
         for compiler in HOST_C_COMPILERS:
             output = tmp_path / f"{frontend}-{Path(compiler).name}"
-            _build_and_run(generated, output, compiler)
+            build_and_run_strict(generated, output, compiler)
             executed = subprocess.run(
                 [str(output)],
                 cwd=REPO,
@@ -45,7 +44,7 @@ def test_forgetting_a_suspect_uses_its_hash_slot_index(semantic_btrcc: Path, tmp
 def test_suspect_churn_is_sanitizer_clean(semantic_btrcc: Path, tmp_path: Path) -> None:
     """The swap-removal keeps the hash and buffer in sync under AddressSanitizer."""
     toolchain = require_sanitizers(tmp_path)
-    for frontend, generated in _compile_pair(semantic_btrcc, tmp_path, FIXTURE.read_text(), FIXTURE.stem):
+    for frontend, generated in compile_snippet_pair(semantic_btrcc, tmp_path, FIXTURE.read_text(), FIXTURE.stem):
         output = tmp_path / f"{frontend}-asan"
         sanitized_build_and_run(generated, output, toolchain)
         executed = subprocess.run(

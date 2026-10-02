@@ -7,11 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair, _compile_reference, _strict_matrix
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.dual_frontend_harness import (
+    REPO,
+    compile_reference_snippet,
+    compile_snippet_pair,
+    strict_c11_matrix,
+)
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 pytestmark = pytest.mark.skipif(
     not HOST_C_COMPILERS,
@@ -31,14 +34,14 @@ def test_direct_repeated_destroy_is_idempotent(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "mutex-repeated-destroy",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_consumed_mutex_access_fails_deterministically(
@@ -52,7 +55,7 @@ def test_consumed_mutex_access_fails_deterministically(
             return value.get();
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
@@ -161,14 +164,14 @@ def test_mutex_supports_arc_ownership_operations(
             return 0;
         }}
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "mutex-arc-operation",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_destroy_releases_only_the_current_mutex_alias(
@@ -187,14 +190,14 @@ def test_destroy_releases_only_the_current_mutex_alias(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "mutex-alias-destroy",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_destroy_must_be_a_standalone_expression_statement(
@@ -210,8 +213,8 @@ def test_destroy_must_be_a_standalone_expression_statement(
             return 0;
         }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(
         tmp_path,
         source,
         "mutex-nested-destroy",

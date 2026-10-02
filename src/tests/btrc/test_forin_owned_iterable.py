@@ -7,13 +7,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import (
-    REPO,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source, strict_build_and_run
 
 FIXTURE = REPO / "src/tests/btrc/fixtures/ForinOwnedIterableRuntime.btrc"
 BINDING_FIXTURE = REPO / "src/tests/btrc/fixtures/ForinManagedBindingRuntime.btrc"
@@ -23,7 +17,7 @@ NESTED_UNUSED_FIXTURE = REPO / "src/tests/btrc/fixtures/ForinNestedGenericUnused
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path, fixture=FIXTURE):
     source = fixture.read_text()
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
     reference, reference_source = compile_reference_source(tmp_path, source, "forin-owned-iterable")
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
@@ -32,8 +26,8 @@ def _compile_both(semantic_btrcc: Path, tmp_path: Path, fixture=FIXTURE):
 
 def test_fresh_forin_iterables_release_on_every_exit(semantic_btrcc: Path, tmp_path: Path) -> None:
     selfhost_source, reference_source = _compile_both(semantic_btrcc, tmp_path)
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-owned")
-    _strict_build_and_run(reference_source, tmp_path / "reference-forin-owned")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-owned")
+    strict_build_and_run(reference_source, tmp_path / "reference-forin-owned")
 
 
 def test_fresh_forin_iterables_are_sanitizer_clean(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -48,8 +42,8 @@ def test_borrowed_forin_iterables_survive_destructive_body_effects(
     tmp_path: Path,
 ) -> None:
     selfhost_source, reference_source = _compile_both(semantic_btrcc, tmp_path, BORROWED_FIXTURE)
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-borrowed")
-    _strict_build_and_run(reference_source, tmp_path / "reference-forin-borrowed")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-borrowed")
+    strict_build_and_run(reference_source, tmp_path / "reference-forin-borrowed")
 
 
 def test_borrowed_forin_iterables_are_sanitizer_clean(
@@ -64,8 +58,8 @@ def test_borrowed_forin_iterables_are_sanitizer_clean(
 
 def test_managed_forin_bindings_release_on_every_exit(semantic_btrcc: Path, tmp_path: Path) -> None:
     selfhost_source, reference_source = _compile_both(semantic_btrcc, tmp_path, BINDING_FIXTURE)
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-bindings")
-    _strict_build_and_run(reference_source, tmp_path / "reference-forin-bindings")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-bindings")
+    strict_build_and_run(reference_source, tmp_path / "reference-forin-bindings")
 
 
 def test_nested_generic_and_unused_forin_bindings_compile_strictly(
@@ -77,8 +71,8 @@ def test_nested_generic_and_unused_forin_bindings_compile_strictly(
         tmp_path,
         NESTED_UNUSED_FIXTURE,
     )
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-unused")
-    _strict_build_and_run(reference_source, tmp_path / "reference-forin-unused")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-forin-unused")
+    strict_build_and_run(reference_source, tmp_path / "reference-forin-unused")
 
 
 def test_managed_forin_bindings_are_sanitizer_clean(semantic_btrcc: Path, tmp_path: Path) -> None:

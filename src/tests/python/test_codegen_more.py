@@ -2,7 +2,7 @@
 tuple literals/types, enum-value references, char formatting, and a rich GPU
 kernel exercising the WGSL emitter (local decls, void return, loops, literals)."""
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_vector_construction_and_methods():

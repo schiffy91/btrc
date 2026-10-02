@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import stat
 import tarfile
@@ -13,37 +12,11 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
-from src.tests.python.btrcc_binary_fixtures import binary_payload
-
-
-def _binary_payload(target: str) -> bytes:
-    return binary_payload(target)
-
-
-def _fixture(root: Path, target: str = "linux-x64") -> tuple[Path, Path]:
-    (root / "src/language").mkdir(parents=True)
-    (root / "src/language/grammar.ebnf").write_text("@lexical\n", encoding="utf-8")
-    (root / "src/stdlib/GUI").mkdir(parents=True)
-    (root / "src/stdlib/Vector.btrc").write_text("class Vector {}\n", encoding="utf-8")
-    (root / "src/stdlib/Strings.btrc").write_text("class Strings {}\n", encoding="utf-8")
-    (root / "src/stdlib/GUI/GUI.btrc").write_text("class GUI {}\n", encoding="utf-8")
-    (root / "src/stdlib/GUI/runtime.h").write_text("#pragma once\n", encoding="utf-8")
-    (root / "src/stdlib/GUI/README.md").write_text("gui\n", encoding="utf-8")
-    (root / "src/stdlib/build").mkdir()
-    (root / "src/stdlib/build/runtime.o").write_bytes(b"not-runtime-source")
-    (root / "pyproject.toml").write_text('[project]\nversion = "9.8.7"\n', encoding="utf-8")
-    (root / "LICENSE").write_text("fixture license\n", encoding="utf-8")
-    binary = root / "built-btrcc"
-    binary.write_bytes(_binary_payload(target))
-    return root, binary
-
-
-def _manifest(bundle: Path) -> dict[str, object]:
-    return json.loads((bundle / "share/btrc/manifest.json").read_text(encoding="utf-8"))
+from src.tests.python.btrcc_binary_fixtures import binary_payload, bundle_fixture, bundle_manifest
 
 
 def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     result = SelfhostBundleBuilder().build(
         binary=binary,
         target="linux-x64",
@@ -55,7 +28,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
     executable = result.bundle / "bin/btrcc"
     grammar = result.bundle / "share/btrc/language/grammar.ebnf"
     nested = result.bundle / "share/btrc/stdlib/GUI/GUI.btrc"
-    expected_binary = _binary_payload("linux-x64")
+    expected_binary = binary_payload("linux-x64")
     assert executable.read_bytes() == expected_binary
     assert (result.bundle / "LICENSE").read_text(encoding="utf-8") == "fixture license\n"
     assert grammar.is_file() and nested.is_file()
@@ -65,7 +38,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
     assert stat.S_IMODE(executable.stat().st_mode) == 0o755
     assert stat.S_IMODE(nested.stat().st_mode) == 0o644
 
-    manifest = _manifest(result.bundle)
+    manifest = bundle_manifest(result.bundle)
     assert manifest["format_version"] == 1
     assert manifest["version"] == "9.8.7"
     assert manifest["target"] == "linux-x64"
@@ -83,7 +56,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
 
 
 def test_tar_archive_is_byte_reproducible_and_metadata_normalized(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source", "linux-arm64")
+    source_root, binary = bundle_fixture(tmp_path / "source", "linux-arm64")
     first = SelfhostBundleBuilder().build(
         binary=binary,
         target="linux-arm64",
@@ -116,7 +89,7 @@ def test_tar_archive_is_byte_reproducible_and_metadata_normalized(tmp_path: Path
 
 
 def test_windows_bundle_uses_exe_and_deterministic_zip(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source", "windows-x64")
+    source_root, binary = bundle_fixture(tmp_path / "source", "windows-x64")
     first = SelfhostBundleBuilder().build(
         binary=binary,
         target="windows-x64",
@@ -146,7 +119,7 @@ def test_windows_bundle_uses_exe_and_deterministic_zip(tmp_path: Path) -> None:
     with zipfile.ZipFile(first.archive) as archive:
         file_modes = {stat.S_IMODE(entry.external_attr >> 16) for entry in archive.infolist() if not entry.is_dir()}
     assert file_modes <= {0o644, 0o755}
-    assert _manifest(first.bundle)["executable"] == "bin/btrcc.exe"
+    assert bundle_manifest(first.bundle)["executable"] == "bin/btrcc.exe"
 
 
 @pytest.mark.parametrize("target", ["linux-x64", "windows-x64"])
@@ -154,7 +127,7 @@ def test_archive_order_is_canonical_when_file_and_directory_share_a_stem(
     tmp_path: Path,
     target: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source", target)
+    source_root, binary = bundle_fixture(tmp_path / "source", target)
     stdlib = source_root / "src/stdlib"
     (stdlib / "feature.btrc").write_text("class Feature {}\n", encoding="utf-8")
     (stdlib / "feature").mkdir()
@@ -181,7 +154,7 @@ def test_archive_order_is_canonical_when_file_and_directory_share_a_stem(
 
 @pytest.mark.parametrize("target", ["../escape", "linux/x64", "", ".."])
 def test_invalid_target_names_are_rejected(tmp_path: Path, target: str) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     with pytest.raises(ValueError, match="invalid target"):
         SelfhostBundleBuilder().build(
             binary=binary, target=target, output_dir=tmp_path / "dist", source_root=source_root
@@ -189,7 +162,7 @@ def test_invalid_target_names_are_rejected(tmp_path: Path, target: str) -> None:
 
 
 def test_unknown_well_formed_target_is_rejected(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     with pytest.raises(ValueError, match="unsupported bundle target"):
         SelfhostBundleBuilder().build(
             binary=binary,
@@ -214,7 +187,7 @@ def test_mislabeled_binary_format_or_architecture_is_rejected(
     binary_target: str,
     bundle_target: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source", binary_target)
+    source_root, binary = bundle_fixture(tmp_path / "source", binary_target)
     output = tmp_path / "dist"
     with pytest.raises(ValueError, match=f"does not match target {bundle_target!r}"):
         SelfhostBundleBuilder().build(
@@ -228,7 +201,7 @@ def test_mislabeled_binary_format_or_architecture_is_rejected(
 
 @pytest.mark.parametrize("target", ["macos-x64", "macos-arm64"])
 def test_macos_target_formats_are_accepted(tmp_path: Path, target: str) -> None:
-    source_root, binary = _fixture(tmp_path / "source", target)
+    source_root, binary = bundle_fixture(tmp_path / "source", target)
     result = SelfhostBundleBuilder().build(
         binary=binary,
         target=target,
@@ -236,12 +209,12 @@ def test_macos_target_formats_are_accepted(tmp_path: Path, target: str) -> None:
         source_root=source_root,
     )
     assert result.archive.name == f"btrcc-{target}.tar.gz"
-    assert _manifest(result.bundle)["executable"] == "bin/btrcc"
+    assert bundle_manifest(result.bundle)["executable"] == "bin/btrcc"
 
 
 @pytest.mark.parametrize("epoch", [-1, 0x100000000])
 def test_epoch_outside_archive_metadata_range_is_rejected(tmp_path: Path, epoch: int) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     with pytest.raises(ValueError, match="archive epoch"):
         SelfhostBundleBuilder().build(
             binary=binary,
@@ -253,7 +226,7 @@ def test_epoch_outside_archive_metadata_range_is_rejected(tmp_path: Path, epoch:
 
 
 def test_missing_or_symlinked_runtime_inputs_are_rejected(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     grammar = source_root / "src/language/grammar.ebnf"
     grammar.unlink()
     with pytest.raises(ValueError, match="required grammar"):
@@ -278,7 +251,7 @@ def test_missing_or_symlinked_runtime_inputs_are_rejected(tmp_path: Path) -> Non
 
 
 def test_missing_or_symlinked_license_is_rejected(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     license_file = source_root / "LICENSE"
     license_file.unlink()
     with pytest.raises(ValueError, match="required license"):
@@ -302,7 +275,7 @@ def test_missing_or_symlinked_license_is_rejected(tmp_path: Path) -> None:
 
 
 def test_unknown_runtime_source_types_fail_closed(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     unknown = source_root / "src/stdlib/runtime.wgsl"
     unknown.write_text("runtime asset\n", encoding="utf-8")
     with pytest.raises(ValueError, match="unknown stdlib runtime source type"):
@@ -315,7 +288,7 @@ def test_unknown_runtime_source_types_fail_closed(tmp_path: Path) -> None:
 
 
 def test_incomplete_stdlib_is_rejected_before_packaging(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     (source_root / "src/stdlib/Strings.btrc").unlink()
     with pytest.raises(ValueError, match="required stdlib runtime source is missing"):
         SelfhostBundleBuilder().build(
@@ -327,7 +300,7 @@ def test_incomplete_stdlib_is_rejected_before_packaging(tmp_path: Path) -> None:
 
 
 def test_archive_and_checksum_replace_symlinks_without_following_them(tmp_path: Path) -> None:
-    source_root, binary = _fixture(tmp_path / "source")
+    source_root, binary = bundle_fixture(tmp_path / "source")
     output = tmp_path / "dist"
     first = SelfhostBundleBuilder().build(
         binary=binary,
@@ -365,7 +338,7 @@ def test_archive_writers_do_not_follow_predictable_temporary_symlinks(
     target: str,
     archive_name: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source", target)
+    source_root, binary = bundle_fixture(tmp_path / "source", target)
     output = tmp_path / "dist"
     output.mkdir()
     sentinel = tmp_path / "sentinel"

@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import _compile_reference
-from src.tests.btrc.test_semantic_validation import REPO, _compile_source
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_reference_snippet
+from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source
 
 
 @pytest.mark.parametrize(
@@ -68,8 +66,8 @@ def test_mutex_payload_shapes_are_fail_closed(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(
         tmp_path,
         source,
         "mutex-payload-diagnostic",
@@ -85,8 +83,8 @@ def test_registered_class_backed_collection_payload_is_a_managed_reference(
     tmp_path: Path,
 ) -> None:
     source = "class Vector<T> { public int marker; } int main() { Mutex<Vector<int>> value; return 0; }"
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(
         tmp_path,
         source,
         "mutex-managed-vector",
@@ -100,8 +98,8 @@ def test_unimported_stdlib_mutex_collection_is_rejected_by_visibility(
     tmp_path: Path,
 ) -> None:
     source = "int main() { Mutex<Vector<int>> value; return 0; }"
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(
         tmp_path,
         source,
         "mutex-vector-visibility",
@@ -117,8 +115,8 @@ def test_imported_stdlib_mutex_collection_is_a_registered_managed_class(
     tmp_path: Path,
 ) -> None:
     source = "import Library.Vector;\nint main() { Mutex<Vector<int>> value; return 0; }"
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(
         tmp_path,
         source,
         "mutex-imported-vector",

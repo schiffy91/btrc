@@ -11,9 +11,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import REPO, _compile_source
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source
 
 FIXTURE = REPO / "src/tests/btrc/fixtures/PolymorphicArcRuntime.btrc"
 STRICT_COMPILERS = tuple(compiler for name in ("gcc", "clang") if (compiler := shutil.which(name)) is not None)
@@ -21,7 +19,7 @@ STRICT_COMPILERS = tuple(compiler for name in ("gcc", "clang") if (compiler := s
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path):
     source = FIXTURE.read_text()
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         source,

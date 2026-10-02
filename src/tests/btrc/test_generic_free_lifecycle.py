@@ -10,12 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair, _strict_matrix
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.dual_frontend_harness import REPO, compile_snippet_pair, strict_c11_matrix
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 GENERIC_FIXTURE = FIXTURES / "GenericFreeLifecycleRuntime.btrc"
@@ -98,7 +96,7 @@ def compiled_generic_contract(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> tuple[Path, tuple[tuple[str, Path], ...]]:
     output = tmp_path_factory.mktemp("generic-free-lifecycle")
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         output,
         GENERIC_FIXTURE.read_text(),
@@ -120,7 +118,7 @@ def test_generic_free_lifecycle_runs_strictly_through_both_compilers(
 ) -> None:
     output, compiled = compiled_generic_contract
     for artifact in compiled:
-        _strict_matrix(artifact, output)
+        strict_c11_matrix(artifact, output)
 
 
 def _compile_reference_with_stdlib(
@@ -156,7 +154,7 @@ def compiled_collection_contract(
 ) -> tuple[Path, tuple[tuple[str, Path], ...]]:
     output = tmp_path_factory.mktemp("collection-explicit-free")
     source = COLLECTION_FIXTURE.read_text()
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         output,
         source,
@@ -176,4 +174,4 @@ def test_explicit_free_then_scope_is_safe_for_all_stdlib_collections(
 ) -> None:
     output, compiled = compiled_collection_contract
     for artifact in compiled:
-        _strict_matrix(artifact, output)
+        strict_c11_matrix(artifact, output)

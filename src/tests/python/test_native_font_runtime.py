@@ -230,9 +230,13 @@ def _linux_test_font() -> Path | None:
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_freetype_draws_into_owned_pixels(tmp_path, request, frontend, sanitized):
     """Linux runs the same FreeType conformance as macOS, on a fontconfig font."""
-    from src.tests.python.test_native_linux_providers import _build, _environment, _require_linux_reader
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
 
-    _require_linux_reader()
+    require_linux_reader()
     if (
         not shutil.which("pkg-config")
         or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
@@ -243,9 +247,9 @@ def test_linux_freetype_draws_into_owned_pixels(tmp_path, request, frontend, san
         pytest.skip("requires BTRC_TEST_FONT or a fontconfig sans-serif font")
     source = tmp_path / "GUIFontConformance.btrc"
     source.write_text((REPO / "src/tests/native/gui/GUIFontConformance.btrc").read_text())
-    executable = _build(source, tmp_path, frontend, sanitized, request)
+    executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
     result = subprocess.run(
-        [str(executable), str(font)], capture_output=True, text=True, timeout=60, env=_environment(sanitized)
+        [str(executable), str(font)], capture_output=True, text=True, timeout=60, env=provider_environment(sanitized)
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS: FreeType draws into BTRC-owned pixels" in result.stdout

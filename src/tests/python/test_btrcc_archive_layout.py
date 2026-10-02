@@ -17,7 +17,7 @@ from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder, Selfho
 
 ARCHIVE_CODEC = ArchiveCodec()
 write_checksum = ARCHIVE_CODEC.write_checksum
-from src.tests.python.test_btrcc_bundle import _fixture
+from src.tests.python.btrcc_binary_fixtures import bundle_fixture
 
 
 def test_bundle_archive_validation_behavior_has_one_explicit_owner() -> None:
@@ -38,7 +38,7 @@ def test_bundle_archive_validation_behavior_has_one_explicit_owner() -> None:
 
 
 def _bundle(tmp_path: Path, target: str):
-    source_root, binary = _fixture(tmp_path / "source", target)
+    source_root, binary = bundle_fixture(tmp_path / "source", target)
     return SelfhostBundleBuilder().build(
         binary=binary,
         target=target,

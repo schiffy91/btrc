@@ -9,13 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import REPO, compile_snippet_pair
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 LAMBDA_CONSTRUCTOR = FIXTURES / "LifecycleLambdaConstructorAbandonRuntime.btrc"
@@ -31,14 +27,14 @@ def test_lambda_only_exceptions_abandon_constructors_in_both_frontends(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         LAMBDA_CONSTRUCTOR.read_text(),
         LAMBDA_CONSTRUCTOR.stem,
     )
     for artifact in compiled:
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)
 
 
 def test_freestanding_exceptions_cleanup_across_calls_and_constructors(
@@ -68,4 +64,4 @@ def test_freestanding_exceptions_cleanup_across_calls_and_constructors(
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "btrc_rt.h").exists()
     assert "#define BTRC_RT_NEEDS_SETJMP 1" in generated.read_text()
-    _tracked_strict_matrix(("freestanding", generated), tmp_path)
+    tracked_strict_matrix(("freestanding", generated), tmp_path)

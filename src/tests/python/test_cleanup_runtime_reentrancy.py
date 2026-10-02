@@ -7,7 +7,7 @@ import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.python.test_runtime_helpers_c11 import HEADERS
+from src.tests.python.c11_runtime_sources import RUNTIME_HELPER_HEADERS
 
 ROOTS = {
     "__btrc_register_direct_cleanup",
@@ -115,7 +115,7 @@ def _compile(tmp_path: Path, compiler: str) -> Path:
     helpers = "\n\n".join(declaration.c_source for declaration in RuntimeHelperCatalog().definitions_for(ROOTS))
     source = tmp_path / "cleanup_reentrancy.c"
     executable = tmp_path / "cleanup_reentrancy"
-    source.write_text(f"{HEADERS}\n{helpers}\n\n{RUNTIME}")
+    source.write_text(f"{RUNTIME_HELPER_HEADERS}\n{helpers}\n\n{RUNTIME}")
     compiled = subprocess.run(
         [
             compiler,

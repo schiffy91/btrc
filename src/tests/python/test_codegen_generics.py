@@ -6,7 +6,7 @@ call, storage, and ownership owners used by non-generic declarations.
 
 import re
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_generic_method_all_control_flow():

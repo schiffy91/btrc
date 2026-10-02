@@ -14,9 +14,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import REPO, _compile_source
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source
 
 FIXTURE = REPO / "src/tests/btrc/fixtures/PolymorphicExceptionCycleCleanupRuntime.btrc"
 STRICT_COMPILERS = tuple(compiler for name in ("gcc", "clang") if (compiler := shutil.which(name)) is not None)
@@ -42,7 +40,7 @@ def test_polymorphic_exception_cleanup_collects_runtime_subclass_cycles(
     tmp_path: Path,
 ) -> None:
     source = FIXTURE.read_text()
-    selfhost_result, selfhost_generated = _compile_source(
+    selfhost_result, selfhost_generated = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
@@ -98,7 +96,7 @@ def test_polymorphic_exception_cleanup_is_sanitizer_clean(
 ) -> None:
     toolchain = require_sanitizers(tmp_path)
     source = FIXTURE.read_text()
-    selfhost_result, selfhost_generated = _compile_source(
+    selfhost_result, selfhost_generated = compile_source(
         semantic_btrcc,
         tmp_path,
         source,

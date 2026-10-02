@@ -7,11 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_mutex_value_contract import _compile_pair
-from src.tests.btrc.test_semantic_validation import REPO, _compile_source
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair
+from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 
@@ -25,9 +23,9 @@ def compile_pair(
 ) -> tuple[tuple[str, Path], tuple[str, Path]]:
     """Compile one source through both production frontends."""
     if not include_stdlib:
-        return _compile_pair(semantic_btrcc, tmp_path, source, name)
+        return compile_snippet_pair(semantic_btrcc, tmp_path, source, name)
 
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
@@ -77,7 +75,7 @@ def assert_tracked_strict_pair(
         include_stdlib=include_stdlib,
     )
     for artifact in compiled:
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             artifact,
             tmp_path,
             expected_stdout=expected_stdout,

@@ -9,7 +9,7 @@ import pytest
 
 from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import C_COMPILE_TIMEOUT
-from src.tests.python.test_arc_ownership_contracts import _emit
+from src.tests.python.reference_pipeline import emit_ownership_c
 
 LEXICAL_BLOCK_SOURCE = r"""
     #include <assert.h>
@@ -36,7 +36,7 @@ LEXICAL_BLOCK_SOURCE = r"""
 
 
 def test_standalone_blocks_remain_structured_ir_scopes():
-    emitted = _emit(LEXICAL_BLOCK_SOURCE)
+    emitted = emit_ownership_c(LEXICAL_BLOCK_SOURCE)
 
     assert "void checkConcrete(void) {\n    {" in emitted
     assert "    {\n        int value = first;" in emitted
@@ -51,7 +51,7 @@ def test_sibling_lexical_declarations_compile_and_run(
 ):
     source = tmp_path / f"lexical-blocks-{Path(c_compiler).name}.c"
     executable = source.with_suffix("")
-    source.write_text(_emit(LEXICAL_BLOCK_SOURCE))
+    source.write_text(emit_ownership_c(LEXICAL_BLOCK_SOURCE))
     compiled = subprocess.run(
         [
             c_compiler,

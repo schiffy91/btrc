@@ -9,6 +9,7 @@ import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.python.c11_runtime_sources import RUNTIME_HELPER_HEADERS
 
 RUNTIME_CATALOG = RuntimeHelperCatalog()
 ALLOC = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("alloc")}
@@ -18,19 +19,6 @@ HASH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_categor
 THREADS = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("threads")}
 TRYCATCH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("trycatch")}
 
-HEADERS = """\
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdatomic.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
-#include <math.h>
-#include <setjmp.h>
-#include <pthread.h>
-"""
 
 HELPER_ORDER = (
     *((ALLOC, name) for name in ALLOC),
@@ -70,7 +58,7 @@ NO_C11_RUNTIME = not HOST_C_COMPILERS or sys.platform == "win32"
 def _source(main: str) -> str:
     roots = {name for _registry, name in HELPER_ORDER}
     helpers = "\n\n".join(helper.c_source for helper in RUNTIME_CATALOG.definitions_for(roots))
-    return f"{HEADERS}\n{helpers}\n\n{main}\n"
+    return f"{RUNTIME_HELPER_HEADERS}\n{helpers}\n\n{main}\n"
 
 
 def _compile(tmp_path: Path, compiler: str, main: str, *, ubsan=False) -> Path:
@@ -183,7 +171,7 @@ def test_direct_cleanup_helper_is_warning_clean_without_indirect_wrapper(tmp_pat
     source = tmp_path / "direct_cleanup.c"
     binary = tmp_path / "direct_cleanup"
     source.write_text(
-        f"{HEADERS}\n{runtime}\n"
+        f"{RUNTIME_HELPER_HEADERS}\n{runtime}\n"
         "static void cleanup(void* value) { (void)value; }\n"
         "static void* take(void* raw) {\n"
         "    void* volatile* slot = (void* volatile*)raw;\n"
@@ -227,7 +215,7 @@ def test_retain_only_string_registry_is_warning_clean(tmp_path: Path):
     source = tmp_path / "string_retain.c"
     binary = tmp_path / "string_retain"
     source.write_text(
-        f"{HEADERS}\n{runtime}\n"
+        f"{RUNTIME_HELPER_HEADERS}\n{runtime}\n"
         "int main(void) {\n"
         '    char literal[] = "borrowed";\n'
         "    return __btrc_string_retain(literal) == literal ? 0 : 1;\n"

@@ -6,18 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import compile_both, strict_compile_and_run
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_callable_return_abi_contract import _compile_both
-from src.tests.btrc.test_global_reachability import (
-    _strict_build_and_run,
-)
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
 @pytest.mark.parametrize(
@@ -189,7 +184,7 @@ def test_selfhost_callable_fail_closed_contracts(
     source: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(
+    result, _ = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
@@ -243,7 +238,7 @@ def test_selfhost_persistent_callable_checks_follow_source_order(
     source: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode != 0
     assert diagnostic.lower() in (result.stdout + result.stderr).lower()
@@ -253,7 +248,7 @@ def test_pointer_to_callable_slot_remains_an_object_pointer_cast(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    result, generated = _compile_source(
+    result, generated = compile_source(
         semantic_btrcc,
         tmp_path,
         """
@@ -267,7 +262,7 @@ def test_pointer_to_callable_slot_remains_an_object_pointer_cast(
 
     assert result.returncode == 0, result.stdout + result.stderr
     for compiler in HOST_C_COMPILERS:
-        _strict_build_and_run(
+        strict_compile_and_run(
             generated,
             tmp_path / f"callable-slot-{Path(compiler).name}",
             compiler,
@@ -302,7 +297,7 @@ def test_interface_bound_method_values_fail_closed_in_both_compilers(
     tmp_path: Path,
     source: str,
 ) -> None:
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "capture the receiver in a closure" in (result.stdout + result.stderr).lower()
 
@@ -348,7 +343,7 @@ def test_builtin_bound_method_values_fail_closed_in_contextual_aggregates(
             return 0;
         }}
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "environment-requiring callable value" in (result.stdout + result.stderr).lower()
 
@@ -364,7 +359,7 @@ def test_string_bound_method_value_stays_fail_closed_in_both_compilers(
             return 0;
         }
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         diagnostics = (result.stdout + result.stderr).lower()
         assert "string" in diagnostics
@@ -586,7 +581,7 @@ def test_selfhost_callable_runtime_is_strict_c11_clean(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    result, generated = _compile_source(
+    result, generated = compile_source(
         semantic_btrcc,
         tmp_path,
         CALLABLE_RUNTIME_SOURCE,
@@ -596,7 +591,7 @@ def test_selfhost_callable_runtime_is_strict_c11_clean(
     _instrument_callable_runtime(generated)
 
     for compiler in HOST_C_COMPILERS:
-        _strict_build_and_run(
+        strict_compile_and_run(
             generated,
             tmp_path / f"callable-runtime-{Path(compiler).name}",
             compiler,

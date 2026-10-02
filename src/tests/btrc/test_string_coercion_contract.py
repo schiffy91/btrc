@@ -6,16 +6,12 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 from src.tests.btrc.string_coercion_harness import (
     assert_tracked_strict_pair,
 )
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 pytestmark = pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a C11 compiler")
 
 FIXTURES = Path(__file__).with_name("fixtures")
@@ -80,8 +76,8 @@ def test_runtime_string_conversion_is_rejected_in_static_storage(
     tmp_path: Path,
     source: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     for result in (selfhost, reference):
         assert result.returncode != 0
         assert "initializer" in result.stderr.lower()
@@ -143,8 +139,8 @@ def test_pointer_and_array_shapes_do_not_inherit_scalar_string_conversion(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     for result in (selfhost, reference):
         assert result.returncode != 0
         assert diagnostic in result.stderr
@@ -164,8 +160,8 @@ def test_converted_value_cannot_rebind_borrowed_string_parameter(
         }
         int main() { return 0; }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     for result in (selfhost, reference):
         assert result.returncode != 0
         assert "Borrowed managed bindings cannot be rebound" in result.stderr
@@ -185,8 +181,8 @@ def test_converted_value_cannot_hide_in_shallow_array_field(
             return 0;
         }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     for result in (selfhost, reference):
         diagnostic = result.stderr.lower()
         assert result.returncode != 0

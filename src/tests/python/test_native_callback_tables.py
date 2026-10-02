@@ -6,7 +6,7 @@ from src.tests.python.native_import_fixtures import native_compile as native_com
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.native_import_fixtures import resource_project as resource_project
 from src.tests.python.native_import_fixtures import run_native_executable
-from src.tests.python.test_native_unique_resources import unique_project as unique_project
+from src.tests.python.native_import_fixtures import unique_project as unique_project
 
 HEADER = """
 #include <string.h>

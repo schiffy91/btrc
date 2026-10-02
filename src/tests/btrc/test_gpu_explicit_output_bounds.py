@@ -2,13 +2,8 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_gpu_boundary import _compile_with_stub, _run
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.gpu_stub_harness import compile_with_stub, run_in_repo
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 
 
 def _frontend_outputs(
@@ -20,12 +15,12 @@ def _frontend_outputs(
     reference_dir = tmp_path / "reference"
     selfhost_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         selfhost_dir,
         source,
     )
-    reference, reference_c = _compile_reference_source(
+    reference, reference_c = compile_reference_source(
         reference_dir,
         source,
     )
@@ -37,12 +32,12 @@ def _frontend_outputs(
 def _stub_result(generated: Path, tmp_path: Path, name: str):
     build_dir = tmp_path / name
     build_dir.mkdir()
-    binary = _compile_with_stub(
+    binary = compile_with_stub(
         generated.read_text(),
         build_dir,
         "gpu_unavailable_stub.c",
     )
-    return _run([str(binary)], timeout=15)
+    return run_in_repo([str(binary)], timeout=15)
 
 
 def test_explicit_gpu_bound_runs_before_initializer_arguments(

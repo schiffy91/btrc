@@ -10,8 +10,6 @@ from pathlib import Path
 
 import pytest
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
 REALTIME_AUDIO = FIXTURES / "RealtimeAudioProgram.btrc"

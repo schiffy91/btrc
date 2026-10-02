@@ -3,13 +3,7 @@
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-
-
-def analyze(source: str):
-    tokens = Lexer(source).tokenize()
-    program = Parser(tokens).parse()
-    analyzer = SemanticAnalyzer()
-    return analyzer.analyze(program)
+from src.tests.python.reference_pipeline import analyze
 
 
 def errors(source: str) -> list[str]:

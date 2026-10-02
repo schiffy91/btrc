@@ -9,7 +9,7 @@ from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 TRYCATCH = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("trycatch")}
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def _strict_build_and_run(
