@@ -126,20 +126,11 @@ class Parser:
     def __init__(self, tokens: list[Token]):
         self.tokens = tokens
         self.pos = 0
-        # Type names this file declared so far: a statement `T (*name)(...);`
-        # whose head is one of them is a declaration (D20). Imported names
-        # stay invisible, because a file's parse is cached context-free.
-        self._file_type_names: set[str] = set()
 
     def parse(self):
         decls = []
         while not self._at_end():
-            decl = self._parse_top_level_item()
-            if isinstance(decl, (ClassDecl, InterfaceDecl, StructDecl, EnumDecl, RichEnumDecl)):
-                self._file_type_names.add(decl.name)
-            elif isinstance(decl, TypedefDecl):
-                self._file_type_names.add(decl.alias)
-            decls.append(decl)
+            decls.append(self._parse_top_level_item())
         return Program(declarations=decls)
 
     # ---- Token helpers ----
@@ -719,11 +710,11 @@ class Parser:
                 raise self._error(VARIADIC_FUNCTION_POINTER)
             tok = self._peek()
             param = self._parse_type_expr()
-            if param.base == "void" and param.pointer_depth == 0 and not param.generic_args:
-                raise ParseError(VOID_PARAMETER_LIST, tok.line, tok.col)
             if self._is_function_pointer_declarator(self.pos):
                 _, param = self._parse_function_pointer_declarator(param, name=None)
             else:
+                if self._is_plain_void(param):
+                    raise ParseError(VOID_PARAMETER_LIST, tok.line, tok.col)
                 if self._check(TokenKind.IDENT):
                     self._expect(TokenKind.IDENT)
                 self._parse_declarator_array_suffix(param)
@@ -738,11 +729,17 @@ class Parser:
         self._expect(TokenKind.RPAREN)
         return params
 
+    @staticmethod
+    def _is_plain_void(type_expr: TypeExpr) -> bool:
+        """A ``void`` parameter type; ``void (*f)(...)`` is a function pointer's result."""
+        return type_expr.base == "void" and type_expr.pointer_depth == 0 and not type_expr.generic_args
+
     def _is_function_pointer_declaration(self, declarator: int) -> bool:
         """Decide a statement ``T (*name)(...)`` per D20.
 
-        It declares when ``T`` names a type: a built-in or qualified type, a
-        type this file declared earlier, or a head followed by an initializer
+        The rule is syntactic, so every parse of a file agrees, whatever
+        else was parsed with it. It declares when ``T`` is not a bare
+        identifier (a built-in or qualified type), or an initializer follows
         (a call result is never assignable). A bare identifier head with
         ``;`` declares only when the parenthesized list is unmistakably a
         parameter-type list; otherwise the statement is an expression.
@@ -755,8 +752,6 @@ class Parser:
         if self._token_kind_at(end) != TokenKind.SEMICOLON:
             return False
         if not self._is_bare_type_name(self.pos, declarator):
-            return True
-        if self.tokens[self.pos].value in self._file_type_names:
             return True
         params = self._scan_group(declarator)
         assert params is not None
@@ -836,10 +831,10 @@ class Parser:
             has_keep = True
             self._advance()
         type_expr = self._parse_type_expr()
-        if type_expr.base == "void" and type_expr.pointer_depth == 0 and not type_expr.generic_args:
+        function_pointer = self._is_function_pointer_declarator(self.pos)
+        if not function_pointer and self._is_plain_void(type_expr):
             raise ParseError(VOID_PARAMETER_LIST, tok.line, tok.col)
         name_tok = None
-        function_pointer = self._is_function_pointer_declarator(self.pos)
         if function_pointer:
             name_tok, type_expr = self._parse_function_pointer_declarator(type_expr, name=None)
         elif not self._check(TokenKind.COMMA, TokenKind.RPAREN, TokenKind.LBRACKET, TokenKind.EQ):

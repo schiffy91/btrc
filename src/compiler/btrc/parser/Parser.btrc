@@ -24,10 +24,6 @@ class Parser {
 	public GrammarInfo grammar;
 	public bool failed;
 	public string diagnostic;
-	/* Type names this file declared so far: a statement `T (*name)(...);`
-	 * whose head is one of them is a declaration (D20). Imported names stay
-	 * invisible, because a file's parse is cached context-free. */
-	public Vector<string> fileTypeNames;
 
 	public Parser(Vector<Token> tokens, GrammarInfo grammar) {
 		self.tokens = tokens;
@@ -35,7 +31,6 @@ class Parser {
 		self.grammar = grammar;
 		self.failed = false;
 		self.diagnostic = "";
-		self.fileTypeNames = [];
 	}
 
 	/* ---- Token helpers ---- */
@@ -164,11 +159,6 @@ class Parser {
 		while (!self.atEnd() && !self.failed) {
 			Node d = self.parseTopLevelItem();
 			if (!self.failed) {
-				if (d.kind == NK_CLASS_DECL || d.kind == NK_INTERFACE_DECL || d.kind == NK_STRUCT_DECL || d.kind == NK_ENUM_DECL || d.kind == NK_RICH_ENUM_DECL) {
-					self.fileTypeNames.push(d.name);
-				} else if (d.kind == NK_TYPEDEF_DECL) {
-					self.fileTypeNames.push(d.alias);
-				}
 				prog.declarationsMut().push(d);
 			}
 		}
@@ -1322,14 +1312,14 @@ class Parser {
 			}
 			Token tok = self.peek();
 			Node param = self.parseType();
-			if (param.base == "void" && param.pointerDepth == 0 && param.genericArgs().len == 0) {
-				self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
-				return;
-			}
 			if (self.isFunctionPointerDeclarator(self.pos)) {
 				Node inner = self.parseFunctionPointerDeclarator(param, -1);
 				param = inner.type;
 			} else {
+				if (Parser.isPlainVoid(param)) {
+					self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
+					return;
+				}
 				if (self.check("IDENT")) { self.expect("IDENT"); }
 				self.parseDeclaratorArraySuffix(param);
 				if (param.isArray) {
@@ -1346,19 +1336,22 @@ class Parser {
 		self.expect("RPAREN");
 	}
 
-	/* Decide a statement `T (*name)(...)` per D20. It declares when T names
-	 * a type: a built-in or qualified type, a type this file declared
-	 * earlier, or a head followed by an initializer (a call result is never
-	 * assignable). A bare identifier head with `;` declares only when the
-	 * parenthesized list is unmistakably a parameter-type list; otherwise
-	 * the statement is an expression. */
+	/* A void parameter type; `void (*f)(...)` is a function pointer's result. */
+	class bool isPlainVoid(Node typeExpr) { return typeExpr.base == "void" && typeExpr.pointerDepth == 0 && typeExpr.genericArgs().len == 0; }
+
+	/* Decide a statement `T (*name)(...)` per D20. The rule is syntactic,
+	 * so every parse of a file agrees, whatever else was parsed with it. It
+	 * declares when T is not a bare identifier (a built-in or qualified
+	 * type), or an initializer follows (a call result is never assignable).
+	 * A bare identifier head with `;` declares only when the parenthesized
+	 * list is unmistakably a parameter-type list; otherwise the statement is
+	 * an expression. */
 	public bool isFunctionPointerDeclaration(int declarator) {
 		int end = self.scanFunctionPointerDeclarator(declarator, true);
 		if (end < 0) { return false; }
 		if (self.tokenTypeAt(end) == "EQ") { return true; }
 		if (self.tokenTypeAt(end) != "SEMICOLON") { return false; }
 		if (!self.isBareTypeName(self.pos, declarator)) { return true; }
-		if (self.fileTypeNames.contains(self.tokens.get(self.pos).value)) { return true; }
 		return self.isParameterTypeList(self.scanGroup(declarator));
 	}
 
@@ -1442,11 +1435,11 @@ class Parser {
 		p.type = typeExpr;
 		p.line = tok.line;
 		p.col = tok.col;
-		if (typeExpr.base == "void" && typeExpr.pointerDepth == 0 && typeExpr.genericArgs().len == 0) {
+		bool functionPointer = self.isFunctionPointerDeclarator(self.pos);
+		if (!functionPointer && Parser.isPlainVoid(typeExpr)) {
 			self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
 			return p;
 		}
-		bool functionPointer = self.isFunctionPointerDeclarator(self.pos);
 		p.name = "";
 		if (functionPointer) {
 			Node declarator = self.parseFunctionPointerDeclarator(typeExpr, -1);

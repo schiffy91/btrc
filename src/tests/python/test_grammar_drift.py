@@ -490,6 +490,8 @@ class TestFunctionPointerDeclarators:
         param = parse("int f(int (*g)(int (*)(int), int values[3]));").declarations[0].params[0]
         inner, array = param.type.generic_args[1:]
         assert _cfunction(inner) == ("int", "int") and array.pointer_depth == 1 and not array.is_array
+        callback = parse("void f(void (*cb)(void (*)(int)), void (*)(int));").declarations[0].params
+        assert _cfunction(callback[0].type)[0] == "void" and _cfunction(callback[1].type) == ("void", "int")
         assert parse("int f(int (*g)());").declarations[0].params[0].type.generic_args[1:] == []
 
     def test_a_head_that_is_not_a_type_stays_an_expression(self):
@@ -498,8 +500,10 @@ class TestFunctionPointerDeclarators:
         assert parse_stmt("Count (*scale)(Count value);").name == "scale"
         assert parse_stmt("Count (*scale)(const Count*);").name == "scale"
         assert parse_stmt("Count (*scale)(Count) = twice;").name == "scale"
+        # The rule is syntactic: a type declared earlier does not change it,
+        # so a parse of one file agrees with a parse of the files it joins.
         prog = parse("typedef int Count;\nvoid __t__() { Count (*scale)(Count); }")
-        assert prog.declarations[1].body.statements[0].name == "scale"
+        assert isinstance(prog.declarations[1].body.statements[0], ExprStmt)
 
     @pytest.mark.parametrize(
         "source",
@@ -512,6 +516,7 @@ class TestFunctionPointerDeclarators:
             "int size = sizeof(int (*[3])(int));",
             "int apply(int (*)(int)) { return 0; }",
             "int apply(int (*g)(void, int));",
+            "int apply(int (*g)(int, void));",
         ],
     )
     def test_refused_declarator_forms(self, source):

@@ -89,6 +89,7 @@ TWINS = [
         void sortInts(int* values, size_t count, int (*compare)(const void* left, const void* right)) { qsort(values, count, sizeof(int), compare); }
         int run(int (*)(int), int);
         int run(int (*entry)(int), int value) { return entry(value); }
+        void each(void (*visit)(int), void (*)(void (*)(int)));
         int same(int value) { return value; }
         int main() { int values[2] = {2, 1}; sortInts(values, 2, ascending); return run(same, values[0]) - 1; }
         """,
@@ -98,6 +99,7 @@ TWINS = [
         void sortInts(int* values, size_t count, CFunction<int, const void*, const void*> compare) { qsort(values, count, sizeof(int), compare); }
         int run(CFunction<int, int>, int);
         int run(CFunction<int, int> entry, int value) { return entry(value); }
+        void each(CFunction<void, int> visit, CFunction<void, CFunction<void, int>>);
         int same(int value) { return value; }
         int main() { int values[2] = {2, 1}; sortInts(values, 2, ascending); return run(same, values[0]) - 1; }
         """,
@@ -204,9 +206,10 @@ def test_canonical_ast_and_positions_match_the_reference(parse_tool: Path, corpu
     assert parsed.stdout == reference.stdout
 
 
-# D20: `T (*name)(...)` declares only when T names a type. A head that this
-# file declared, or a list only a parameter-type list can spell, declares; an
-# initializer always does, because a call result is never assignable.
+# D20: `T (*name)(...)` declares only when T names a type. The parser's rule
+# is syntactic: a head that is not a bare identifier, or a list only a
+# parameter-type list can spell, declares; an initializer always does,
+# because a call result is never assignable.
 DISAMBIGUATION = [
     pytest.param(
         """
@@ -235,8 +238,7 @@ DISAMBIGUATION = [
             size_t (*measure)(const char*);
             measure = one;
             assert(measure("x") == (size_t)1);
-            Count (*scale)(Count);
-            scale = twice;
+            Count (*scale)(Count) = twice;
             Count (*named)(Count value) = twice;
             int (*total)(struct Pair);
             total = sum;
@@ -245,7 +247,7 @@ DISAMBIGUATION = [
             return 0;
         }
         """,
-        id="declared-types-and-parameter-type-lists",
+        id="parameter-type-lists-and-initializers",
     ),
 ]
 

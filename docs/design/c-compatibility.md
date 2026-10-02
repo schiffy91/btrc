@@ -49,12 +49,14 @@ Further rules fixed now so no construct needs a second schema commit:
   refused with a targeted diagnostic (write one declaration per nullable
   variable); generic arguments are part of the specifier and are copied.
 - **Function-pointer declarators (r07).** `T (*name)(...)` is a declaration
-  when `T` is a built-in type keyword or a type declared earlier in the same
-  file, when an initializer follows, or when the parenthesized list that
+  when `T` is not a bare identifier (a built-in type keyword or a qualified
+  type), when an initializer follows, or when the parenthesized list that
   follows is a parameter-type list; otherwise it is an expression (the exact
-  rule is in "Stage 16 r07" below). Per-file parse results are cached under a
-  context-free digest, so the parser cannot consult imported type names; the
-  analyzer refuses a parsed declaration whose head does not resolve to a type.
+  rule is in "Stage 16 r07" below). The rule is purely syntactic: the
+  compilers parse a file joined with its imports while the editor parses it
+  alone, and per-file parse results are cached under a context-free digest,
+  so no parse may consult type names; the analyzer refuses a parsed
+  declaration whose head does not resolve to a type.
   A function-pointer type is the existing `CFunction<...>` type, never a
   `Param` list.
 - **Kind coverage.** btrc's analyzer and validators dispatch on `kind` and
@@ -156,15 +158,19 @@ or adjacent string.
   `T (*name[n])(...)` followed by `=` or `;` is a declaration when the head
   `T` is not a bare identifier (a keyword, qualifier, `struct`/`enum`/`union`
   or generic arguments), or an `=` follows (a call result is never
-  assignable), or this file declared `T` earlier (a class, interface,
-  struct, enum or typedef parsed before the statement's top-level item), or
-  the pointee list is `(void)` or has an element an expression cannot spell
-  (a non-bare type, or an identifier followed by a name). Anything else is an
-  expression, such as the call `pick (*pointer)(4);`. File scope, fields,
-  parameters and typedefs have no expression reading. Per-file parse caching
-  hides imported names, so `size_t (*f)(size_t);` with no initializer stays
-  an expression; the analyzer refuses a declaration whose head names no type
-  with its ordinary unknown-type diagnostic.
+  assignable), or the pointee list is `(void)` or has an element an
+  expression cannot spell (a non-bare type, or an identifier followed by a
+  name). Anything else is an expression, such as the call
+  `pick (*pointer)(4);`. File scope, fields, parameters and typedefs have no
+  expression reading. The rule never consults type names: the compilers
+  parse a file joined with the sources it imports, the editor (LSP) parses
+  it alone, and the parse cache is keyed by the file's text, so a
+  name-dependent rule would let them disagree. `Count (*f)(Count);` with no
+  initializer therefore stays an expression even after `typedef int Count;`;
+  the analyzer refuses a declaration whose head names no type with its
+  ordinary unknown-type diagnostic. The one accepted change to an existing
+  program: `foo (*p)(a < b, c > d);` now reads `a<b, c>` as generic
+  arguments and declares `p`, as `foo (*p)(Box<int>);` would.
 - **Refused, with one diagnostic in both compilers**
   (`test_c_compatibility_refusals.py`): a function returning a function
   pointer (`int (*pick(int))(int)`) and a pointer to (`(**p)`), qualified

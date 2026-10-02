@@ -106,10 +106,12 @@ the same diagnostic in both compilers:
 | `typedef int F(int);` | `A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer` |
 | `void (*log)(const char*, ...)` | `A variadic function-pointer type is not supported until variadic definitions (C row 14)` |
 
-Still open: a statement `T (*name)(list);` whose head is an imported type
-and whose list an expression could also spell (`size_t (*f)(size_t);`) parses
-as an expression, because a file's parse cannot see imported names; add an
-initializer or write `CFunction<...>`.
+Still open: a statement `T (*name)(list);` whose head is a bare type name and
+whose list an expression could also spell (`size_t (*f)(size_t);`, or
+`Count (*f)(Count);` after `typedef int Count;`) parses as an expression,
+because the parser's rule never consults type names; add an initializer or
+write `CFunction<...>`. An abstract declarator is not a generic argument
+(`Vector<int (*)(int)>`); write `Vector<CFunction<int, int>>`.
 
 ## Variable-length arrays (C row 23)
 

@@ -247,6 +247,24 @@ def test_pointer_declarations_dereferences_and_multiplication_use_operator_conte
     assert BtrcFormatter().format(result, str(fixture)) == result
 
 
+def test_function_pointer_declarators_keep_their_space_and_calls_stay_tight() -> None:
+    source = (
+        "void sortInts(int* values, size_t count, int (*compare)(const void* left, const void* right)) {}\n"
+        "\n"
+        "void* run(void* (*)(void*), void*);\n"
+        "\n"
+        "int main() {\n"
+        "\tint (*operation)(int, int) = add;\n"
+        "\treturn pick(*pointer)(4);\n"
+        "}\n"
+    )
+
+    result = BtrcFormatter().format(source, "FunctionPointers.btrc")
+
+    assert result == source
+    assert BtrcFormatter().format(result, "FunctionPointers.btrc") == result
+
+
 def test_braceless_bodies_indent_one_level_past_their_header() -> None:
     fixture = Path(__file__).with_name("fixtures") / "BracelessBodies.btrc"
     source = fixture.read_text(encoding="utf-8")

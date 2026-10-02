@@ -788,7 +788,10 @@ class BtrcFormatter:
             previous = meaningful[index - 1]
             before_previous = meaningful[index - 2] if index > 1 else None
             gap_had_space = previous.end < current.start
-            if BtrcFormatter._needs_space(
+            following = meaningful[index + 1] if index + 1 < len(meaningful) else None
+            if BtrcFormatter._keeps_declarator_space(
+                previous, current, following, gap_had_space
+            ) or BtrcFormatter._needs_space(
                 before_previous,
                 previous,
                 current,
@@ -798,6 +801,20 @@ class BtrcFormatter:
                 pieces.append(" ")
             pieces.append(current.text)
         return "".join(pieces).strip()
+
+    @staticmethod
+    def _keeps_declarator_space(
+        previous: Lexeme, current: Lexeme, following: Lexeme | None, gap_had_space: bool
+    ) -> bool:
+        """Keep a written space in ``int (*cb)(int)``: a C function-pointer
+        declarator, which a call such as ``f(*p)`` writes without one."""
+        return (
+            gap_had_space
+            and previous.kind is LexemeKind.WORD
+            and current.text == "("
+            and following is not None
+            and following.text == "*"
+        )
 
     @staticmethod
     def _needs_space(

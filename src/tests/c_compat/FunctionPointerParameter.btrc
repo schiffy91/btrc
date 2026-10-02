@@ -9,7 +9,17 @@ int descending(const void* left, const void* right) { return *(const int*)right 
 
 void* passThrough(void* value) { return value; }
 
-void sortInts(int* values, size_t count, int(*compare)(const void* left, const void* right)) { qsort(values, count, sizeof(int), compare); }
+int visited = 0;
+
+void visit(int value) { visited += value; }
+
+void forEach(int* values, int count, void (*callback)(int value)) {
+	for (int i = 0; i < count; i++) {
+		callback(values[i]);
+	}
+}
+
+void sortInts(int* values, size_t count, int (*compare)(const void* left, const void* right)) { qsort(values, count, sizeof(int), compare); }
 
 void* runEntry(void* (*)(void*), void*);
 
@@ -25,6 +35,8 @@ int main(void) {
 	assert(values[0] == 5 && values[4] == 1);
 	int marker = 7;
 	assert(runEntry(passThrough, &marker) == &marker);
+	forEach(values, 5, visit);
+	assert(visited == 15);
 	print("PASS: function pointer parameters");
 	return 0;
 }

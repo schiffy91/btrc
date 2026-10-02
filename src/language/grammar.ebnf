@@ -417,9 +417,9 @@
                      For typed declarations, parser uses lookahead to check
                      if the token sequence matches "type_expr IDENT" pattern
                      vs an expression statement. "T (*name)(...)" declares
-                     when T names a type (D20): T is not a bare identifier
-                     (a keyword, qualifier, struct/enum/union or generic
-                     arguments), or this file declared T earlier, or an "="
+                     when T names a type (D20), decided syntactically: T is
+                     not a bare identifier (a keyword, qualifier,
+                     struct/enum/union or generic arguments), or an "="
                      follows, or the pointee list holds "void" alone or an
                      element an expression cannot spell (a non-bare type or
                      "IDENT IDENT"). Otherwise it is an expression, such as

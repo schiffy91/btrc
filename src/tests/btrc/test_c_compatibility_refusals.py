@@ -604,6 +604,11 @@ FUNCTION_POINTER_REFUSALS = [
         id="r07-void-beside-pointee-parameter",
     ),
     pytest.param(
+        "int apply(int (*callback)(int, void));\nint main() { return 0; }",
+        (VOID_LIST, 1, 32),
+        id="r07-void-after-pointee-parameter",
+    ),
+    pytest.param(
         "int apply(int (*)(int)) { return 0; }\nint main() { return 0; }",
         (UNNAMED, 1, 11),
         id="r07-unnamed-definition-parameter",
