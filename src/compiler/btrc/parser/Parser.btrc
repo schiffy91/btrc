@@ -1649,7 +1649,7 @@ class Parser {
 				self.parseVarDeclStmtsInto(ivar.declarationsMut());
 				n.init = ivar;
 			} else {
-				Node e = self.parseExpression();
+				Node e = self.parseForHeaderExpression();
 				Node ie = Node();
 				ie.kind = NK_FOR_INIT_EXPR;
 				ie.expression = e;
@@ -1665,7 +1665,7 @@ class Parser {
 		self.expect("SEMICOLON");
 
 		if (!self.check("RPAREN")) {
-			Node upd = self.parseExpression();
+			Node upd = self.parseForHeaderExpression();
 			n.update = upd;
 		}
 		self.expect("RPAREN");
@@ -1673,6 +1673,25 @@ class Parser {
 		Node body = self.parseBody();
 		n.bodyNode = body;
 		return n;
+	}
+
+	/* A C-for initializer or update: C's comma operator (D19 row 19). Two or
+	 * more operands become a CommaExpr positioned at its first operand; one
+	 * operand stays a plain expression. The condition and every other
+	 * position keep `(a, b)` a tuple. */
+	public Node parseForHeaderExpression() {
+		Node first = self.parseExpression();
+		if (!self.check("COMMA")) { return first; }
+		Node comma = Node();
+		comma.kind = NK_COMMA_EXPR;
+		comma.line = first.line;
+		comma.col = first.col;
+		comma.elementsMut().push(first);
+		while (!self.failed && self.matchTok("COMMA")) {
+			Node next = self.parseExpression();
+			comma.elementsMut().push(next);
+		}
+		return comma;
 	}
 
 	public Node parseParallelForStmt() {

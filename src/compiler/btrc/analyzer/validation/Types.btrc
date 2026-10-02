@@ -99,6 +99,16 @@ class TypeValidator {
 		exit(1);
 	}
 
+	/* Explain a tuple literal flowing into a non-tuple (D19 row 19): btrc reads
+	 * a parenthesized comma list as a tuple; C's comma operator exists only in
+	 * for headers. */
+	class string commaTupleHint(Node? value, Node? target) {
+		if (value != null && value.kind == NK_TUPLE_LITERAL && target != null && target.base != "Tuple") {
+			return "; btrc reads a parenthesized comma list as a tuple, not C's comma operator";
+		}
+		return "";
+	}
+
 	/* A declaration's name token, where the reference reports a duplicate. */
 	class void failAtName(string message, Node declaration) {
 		int line = declaration.nameLine != 0 ? declaration.nameLine : declaration.line;
@@ -560,7 +570,8 @@ class TypeValidator {
 		self.validateRealtimeFunctionValue(expected, initializer, variables);
 		Node? actual = self.inferType(initializer, variables);
 		if (actual != null && !self.assignmentCompatible(expected, actual)) {
-			TypeValidator.fail(subject + " expects '" + self.formatType(expected) + "' but got '" + self.formatType(actual) + "'", initializer);
+			string hint = subject == "Assignment" ? TypeValidator.commaTupleHint(initializer, expected) : "";
+			TypeValidator.fail(subject + " expects '" + self.formatType(expected) + "' but got '" + self.formatType(actual) + "'" + hint, initializer);
 		}
 	}
 

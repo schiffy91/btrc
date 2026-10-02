@@ -393,6 +393,9 @@ class GenericSpecializer {
 			self.collectMethodGenericsExpr(e.args().get(i), a, operators, vt);
 			i = i + 1;
 		}
+		if (e.kind == NK_COMMA_EXPR) {
+			for element in e.elements() { self.collectMethodGenericsExpr(element, a, operators, vt); }
+		}
 	}
 
 	/* If `call` is an instance method call to a generic method, infer its method
@@ -1098,6 +1101,9 @@ class GenericSpecializer {
 		while (i < e.args().len) {
 			self.collectGenericsExpr(e.args().get(i), a, unresolved);
 			i = i + 1;
+		}
+		if (e.kind == NK_COMMA_EXPR) {
+			for element in e.elements() { self.collectGenericsExpr(element, a, unresolved); }
 		}
 	}
 

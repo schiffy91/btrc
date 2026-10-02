@@ -23,6 +23,7 @@ from src.compiler.python.syntax.ast.generated import (
     CallExpr,
     CastExpr,
     CharLiteral,
+    CommaExpr,
     FieldAccessExpr,
     FloatLiteral,
     FStringExpr,
@@ -667,7 +668,8 @@ class ExpressionAnalyzer:
                 return
             if not self.types.types_compatible(target, source):
                 self.session.error(
-                    f"Cannot assign '{self.types.format_type(source)}' to '{self.types.format_type(target)}'",
+                    f"Cannot assign '{self.types.format_type(source)}' to '{self.types.format_type(target)}'"
+                    f"{self.types.comma_tuple_hint(expression.value, target)}",
                     expression.line,
                     expression.col,
                 )
@@ -1358,6 +1360,9 @@ class ExpressionAnalyzer:
             return operand_type
         elif isinstance(expr, TernaryExpr):
             return self._infer_ternary_type(expr)
+        elif isinstance(expr, CommaExpr):
+            # C's comma operator (for headers only): the last operand's value.
+            return self._infer_type(expr.elements[-1])
         elif isinstance(expr, AssignExpr):
             return self._infer_type(expr.target)
         elif isinstance(expr, LambdaExpr):
@@ -1871,6 +1876,11 @@ class ExpressionAnalyzer:
             self.ownership.validate_opaque_borrow_storage(
                 self._infer_type(expr.target), expr.value, "Assignment", expr.line, expr.col
             )
+        elif isinstance(expr, CommaExpr):
+            # Each operand runs in order; every value but the last is discarded.
+            for element in expr.elements:
+                self._analyze_expr(element)
+                self.aggregates.reject_thread_observation(element)
         elif isinstance(expr, TernaryExpr):
             self._analyze_expr(expr.condition)
             self.aggregates.reject_thread_observation(expr.condition)

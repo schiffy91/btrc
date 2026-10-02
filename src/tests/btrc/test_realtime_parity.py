@@ -339,3 +339,56 @@ def test_implicit_operator_call_has_the_same_path(
     assert selfhost.returncode == 1
     assert expected in reference.stderr
     assert expected in selfhost.stderr
+
+
+def test_multi_update_c_for_is_bounded_in_both_compilers(semantic_btrcc: Path, tmp_path: Path) -> None:
+    """A comma update steps the induction once; its other operands are guarded (D19 row 19)."""
+    source = tmp_path / "multi_update.btrc"
+    source.write_text(
+        "@realtime int mirror(int* values, int count) {\n"
+        "\tint total = 0;\n"
+        "\tfor (int index = 0, back = count - 1; index < count; index++, back--) { total += values[back]; }\n"
+        "\tfor (int seen = 0, index = 4; 0 < index; index--, seen++) { total += seen; }\n"
+        "\treturn total;\n"
+        "}\n"
+        "int main() {\n"
+        "\tint values[3] = {1, 2, 3};\n"
+        "\treturn mirror(values, 3) == 6 + 0 + 1 + 2 + 3 ? 0 : 1;\n"
+        "}\n"
+    )
+    reference_output = tmp_path / "multi_update_reference.c"
+    selfhost_output = tmp_path / "multi_update_selfhost.c"
+    reference = run_reference(source, reference_output)
+    selfhost = run_selfhost(semantic_btrcc, source)
+
+    assert reference.returncode == 0, reference.stderr
+    assert selfhost.returncode == 0, selfhost.stderr
+    selfhost_output.write_text(selfhost.stdout)
+    assert compile_and_run(reference_output, tmp_path / "multi_update_reference").returncode == 0
+    assert compile_and_run(selfhost_output, tmp_path / "multi_update_selfhost").returncode == 0
+
+
+@pytest.mark.parametrize(
+    "loop",
+    (
+        "for (int index = 0, other = 0; index < count; index++, index++) {}",
+        "for (int index = 0, other = 0; index < count; index++, count--) {}",
+        "for (int index = 0, other = (index = 7); index < count; index++) {}",
+        "for (int index = 0, limit = 10, *alias = &limit; index < limit; index++) { (*alias)++; }",
+    ),
+)
+def test_multi_update_c_for_guard_has_reference_selfhost_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    loop: str,
+) -> None:
+    source = tmp_path / "multi_update_unproven.btrc"
+    source.write_text(f"@realtime void audio(int count) {{ {loop} }}\n")
+    reference = run_reference(source, tmp_path / "multi_update_unproven.c")
+    selfhost = run_selfhost(semantic_btrcc, source)
+    expected = "forbidden blocking operation 'unproven C-style loop' via audio"
+
+    assert reference.returncode == 1
+    assert selfhost.returncode == 1
+    assert expected in reference.stderr
+    assert expected in selfhost.stderr

@@ -74,11 +74,15 @@ class RealtimeLoopProof {
 	public bool valid;
 	public string induction;
 	public string bound;
+	public int inductionIndex; /* The induction declarator in the initializer. */
+	public int stepIndex; /* Its step among the update's operands. */
 
 	public RealtimeLoopProof() {
 		self.valid = false;
 		self.induction = "";
 		self.bound = "";
+		self.inductionIndex = -1;
+		self.stepIndex = -1;
 	}
 }
 
@@ -411,13 +415,42 @@ class RealtimeAnalyzer {
 				self.collectChildren(node, callable, false);
 				return;
 			}
-			self.visit(node.init, callable);
+			Vector<Node> declarations = node.init.declarations();
+			Vector<Node> updates = RealtimeAnalyzer.forUpdateOperands(node.update);
+			self.visit(declarations.get(proof.inductionIndex), callable);
+			/* The other declarators run before the loop. Each may declare the
+			 * bound but never write, or take the address of, the induction
+			 * variable or a bound declared before it. */
+			bool violated = false;
+			int declarationIndex = 0;
+			while (declarationIndex < declarations.len) {
+				Node declaration = declarations.get(declarationIndex);
+				if (declarationIndex != proof.inductionIndex) {
+					RealtimeLoopGuard initializer = RealtimeLoopGuard(node);
+					initializer.violated = violated;
+					if (declaration.name != proof.induction) { initializer.names.put(proof.induction, true); }
+					if (proof.bound != "" && declaration.name != proof.bound) { initializer.names.put(proof.bound, true); }
+					self.loopGuards.push(initializer);
+					self.visit(declaration, callable);
+					self.loopGuards.pop();
+					violated = initializer.violated;
+				}
+				declarationIndex++;
+			}
 			self.visit(node.condition, callable);
-			self.visit(node.update, callable);
+			self.visit(updates.get(proof.stepIndex), callable);
 			RealtimeLoopGuard guard = RealtimeLoopGuard(node);
+			guard.violated = violated;
 			guard.names.put(proof.induction, true);
 			if (proof.bound != "") { guard.names.put(proof.bound, true); }
 			self.loopGuards.push(guard);
+			/* Every other update operand runs each iteration, so like the body
+			 * it may write neither the induction variable nor its bound. */
+			int updateIndex = 0;
+			while (updateIndex < updates.len) {
+				if (updateIndex != proof.stepIndex) { self.visit(updates.get(updateIndex), callable); }
+				updateIndex++;
+			}
 			self.visit(node.bodyNode, callable);
 			self.loopGuards.pop();
 			if (!guard.violated) {
@@ -894,13 +927,54 @@ class RealtimeAnalyzer {
 		}
 	}
 
-	private RealtimeLoopProof canonicalCFor(Node loop, RealtimeCallable callable) {
-		RealtimeLoopProof proof = RealtimeLoopProof();
-		if (loop.init == null || loop.init.kind != NK_FOR_INIT_VAR || loop.init.declarations().len != 1) {
-			return proof;
+	/* A for update's operands: a comma expression's elements, or the one expression. */
+	class Vector<Node> forUpdateOperands(Node? update) {
+		Vector<Node> operands = [];
+		if (update == null) { return operands; }
+		if (update.kind == NK_COMMA_EXPR) {
+			for element in update.elements() { operands.push(element); }
+			return operands;
 		}
-		Node declaration = loop.init.declarations().get(0);
-		if (declaration.kind != NK_VAR_DECL_STMT || declaration.initializer == null || declaration.initializer.kind != NK_INT_LITERAL) {
+		operands.push(update);
+		return operands;
+	}
+
+	/* Prove `for (T i = literal, ...; i < bound; ..., i++, ...)` bounded. The
+	 * induction variable is the declarator the condition compares; the update
+	 * must step it exactly once in the condition's direction. */
+	private RealtimeLoopProof canonicalCFor(Node loop, RealtimeCallable callable) {
+		if (loop.init == null || loop.init.kind != NK_FOR_INIT_VAR) {
+			return RealtimeLoopProof();
+		}
+		Node? condition = loop.condition;
+		if (condition == null || condition.kind != NK_BINARY_EXPR || condition.op != "<" && condition.op != ">") {
+			return RealtimeLoopProof();
+		}
+		/* Either side may name the induction variable; with a declarator on
+		 * each side, the one the update steps is it. */
+		if (condition.left.kind == NK_IDENTIFIER) {
+			RealtimeLoopProof leftProof = self.canonicalInduction(loop, callable, condition.left.name, condition.right, condition.op == "<" ? "++" : "--");
+			if (leftProof.valid) { return leftProof; }
+		}
+		if (condition.right.kind == NK_IDENTIFIER) {
+			return self.canonicalInduction(loop, callable, condition.right.name, condition.left, condition.op == "<" ? "--" : "++");
+		}
+		return RealtimeLoopProof();
+	}
+
+	private RealtimeLoopProof canonicalInduction(Node loop, RealtimeCallable callable, string name, Node bound, string direction) {
+		RealtimeLoopProof proof = RealtimeLoopProof();
+		Vector<Node> declarations = loop.init.declarations();
+		int inductionIndex = -1;
+		int index = 0;
+		while (index < declarations.len) {
+			Node candidate = declarations.get(index);
+			if (candidate.kind == NK_VAR_DECL_STMT && candidate.name == name) { inductionIndex = index; }
+			index++;
+		}
+		if (inductionIndex < 0) { return proof; }
+		Node declaration = declarations.get(inductionIndex);
+		if (declaration.initializer == null || declaration.initializer.kind != NK_INT_LITERAL) {
 			return proof;
 		}
 		Node? inductionType = declaration.type;
@@ -908,21 +982,6 @@ class RealtimeAnalyzer {
 			inductionType = self.expressionTypes.infer(declaration.initializer, callable.variables);
 		}
 		if (!self.integralScalar(inductionType, {})) { return proof; }
-
-		Node? condition = loop.condition;
-		if (condition == null || condition.kind != NK_BINARY_EXPR || condition.op != "<" && condition.op != ">") {
-			return proof;
-		}
-		Node? bound = null;
-		string direction = "";
-		if (condition.left.kind == NK_IDENTIFIER && condition.left.name == declaration.name) {
-			bound = condition.right;
-			direction = condition.op == "<" ? "++" : "--";
-		} else if (condition.right.kind == NK_IDENTIFIER && condition.right.name == declaration.name) {
-			bound = condition.left;
-			direction = condition.op == "<" ? "--" : "++";
-		}
-		if (bound == null) { return proof; }
 
 		string boundName = "";
 		if (bound.kind == NK_IDENTIFIER) {
@@ -934,13 +993,24 @@ class RealtimeAnalyzer {
 			return proof;
 		}
 
-		Node? update = loop.update;
-		if (update == null || update.kind != NK_UNARY_EXPR || update.op != direction || update.operand.kind != NK_IDENTIFIER || update.operand.name != declaration.name) {
-			return proof;
+		Vector<Node> updates = RealtimeAnalyzer.forUpdateOperands(loop.update);
+		int stepIndex = -1;
+		int steps = 0;
+		index = 0;
+		while (index < updates.len) {
+			Node update = updates.get(index);
+			if (update.kind == NK_UNARY_EXPR && update.op == direction && update.operand.kind == NK_IDENTIFIER && update.operand.name == declaration.name) {
+				stepIndex = index;
+				steps++;
+			}
+			index++;
 		}
+		if (steps != 1) { return proof; }
 		proof.valid = true;
 		proof.induction = declaration.name;
 		proof.bound = boundName;
+		proof.inductionIndex = inductionIndex;
+		proof.stepIndex = stepIndex;
 		return proof;
 	}
 

@@ -75,6 +75,45 @@ def test_safe_pointer_c_for_is_accepted() -> None:
     assert realtime_errors(source) == []
 
 
+@pytest.mark.parametrize(
+    "loop",
+    (
+        "for (int index = 0, mirror = count - 1; index < count; index++, mirror--) { samples[mirror] = 0.0f; }",
+        "for (int mirror = count, index = 0; index < count; mirror--, index++) {}",
+        "for (int index = 0, limit = 4; index < limit; index++) {}",
+        "for (int index = 9, floor = 0, seen = 0; floor < index; index--, seen++) {}",
+        "for (int index = 0, limit = 8, scale = limit * 2; index < limit; index++) {}",
+    ),
+)
+def test_multi_update_c_for_is_accepted(loop: str) -> None:
+    # C's comma operator in the header (D19 row 19): the induction variable is
+    # the declarator the condition compares, stepped exactly once.
+    source = f"@realtime void clear(float* samples, int count) {{ {loop} }}"
+    _, result = analyze(source)
+    assert result.errors == []
+    assert len(result.realtime_bounded_loop_ids) == 1
+
+
+@pytest.mark.parametrize(
+    "loop",
+    (
+        "for (int index = 0, mirror = 0; index < count; index++, index++) {}",
+        "for (int index = 0, mirror = 0; index < count; mirror++, mirror--) {}",
+        "for (int index = 0, mirror = 0; index < count; index++, count++) {}",
+        "for (int index = 0, mirror = 0; index < count; index++, index = mirror) {}",
+        "for (int index = 0, mirror = (index = 9); index < count; index++) {}",
+        "for (int index = 0, mirror = (count = 4); index < count; index++) {}",
+        "for (int index = 0, limit = 10, *alias = &limit; index < limit; index++) { (*alias)++; }",
+        "for (int index = 9, floor = 0; floor < index; index--, floor = floor) {}",
+    ),
+)
+def test_multi_update_c_for_must_step_only_its_induction(loop: str) -> None:
+    errors = realtime_errors(f"@realtime void audio(int count) {{ {loop} }}")
+
+    assert len(errors) == 1
+    assert "forbidden blocking operation 'unproven C-style loop' via audio" in errors[0]
+
+
 def test_reachable_recursive_scc_fails_with_the_closing_call_path() -> None:
     errors = realtime_errors(
         """

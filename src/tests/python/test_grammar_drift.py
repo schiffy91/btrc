@@ -16,6 +16,7 @@ from src.compiler.python.syntax.ast.generated import (
     CastExpr,
     CForStmt,
     ClassDecl,
+    CommaExpr,
     ElseBlock,
     EnumDecl,
     ExprStmt,
@@ -31,6 +32,7 @@ from src.compiler.python.syntax.ast.generated import (
     StringLiteral,
     StructDecl,
     TryCatchStmt,
+    TupleLiteral,
     TypedefDecl,
     UnaryExpr,
 )
@@ -504,3 +506,30 @@ class TestMultipleDeclarators:
     def test_refused_declarator_lists(self, source, message):
         with pytest.raises(ParseError, match=message):
             parse(source)
+
+
+# ---- comma_expr: C's comma operator in for headers only (D19 row 19) ----
+
+
+class TestForHeaderComma:
+    def test_initializer_and_update_take_comma_lists(self):
+        loop = parse_stmt("for (i = 0, j = 9; i < j; i++, j--) {}")
+        assert isinstance(loop.init.expression, CommaExpr)
+        assert isinstance(loop.update, CommaExpr)
+        assert [type(e) for e in loop.update.elements] == [UnaryExpr, UnaryExpr]
+        first = loop.init.expression.elements[0]
+        assert (loop.init.expression.line, loop.init.expression.col) == (first.line, first.col)
+
+    def test_one_operand_stays_a_plain_expression(self):
+        loop = parse_stmt("for (i = 0; i < 3; i++) {}")
+        assert isinstance(loop.update, UnaryExpr)
+        assert not isinstance(loop.init.expression, CommaExpr)
+
+    def test_parenthesized_comma_list_stays_a_tuple(self):
+        assert isinstance(parse_expr("(1, 2)"), TupleLiteral)
+        loop = parse_stmt("for (t = (1, 2); i < 3; i++) {}")
+        assert isinstance(loop.init.expression.value, TupleLiteral)
+
+    def test_condition_takes_one_expression(self):
+        with pytest.raises(ParseError, match="Expected SEMICOLON, got COMMA"):
+            parse_stmt("for (i = 0; i < 2, j < 3; i++) {}")

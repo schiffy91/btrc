@@ -21,6 +21,7 @@ from src.compiler.python.syntax.ast.generated import (
     CastExpr,
     CForStmt,
     CharLiteral,
+    CommaExpr,
     ContinueStmt,
     DeleteStmt,
     DoWhileStmt,
@@ -256,6 +257,11 @@ class GpuKernelValidator:
         validation.error(f"{label} statement is not allowed in GPU functions", statement)
 
     def _validate_update(self, validation: GpuKernelValidation, expression) -> None:
+        if isinstance(expression, CommaExpr):
+            # A for-header comma list: each operand is its own update.
+            for element in expression.elements:
+                self._validate_update(validation, element)
+            return
         update = self._expressions.is_update_statement(expression)
         if not update:
             validation.error("for-loop initializer/update must update a variable or buffer element", expression)

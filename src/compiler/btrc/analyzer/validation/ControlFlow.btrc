@@ -602,7 +602,7 @@ class ControlFlowValidator {
 			}
 			declared = self.storage.inferredBindingValueType(actual, declaration.initializer, vars);
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer) && !self.storage.charArrayStringInitializer(declared, declaration.initializer, vars)) {
-			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'", declaration);
+			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared), declaration);
 		}
 		self.ownership.rejectThreadHandleCopy(declared, actual, declaration.initializer, declaration);
 		vars.put(declaration.name, declared);

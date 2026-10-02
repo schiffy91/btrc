@@ -129,6 +129,10 @@
 --   UPPER_CASE   = terminal token from @literals
 --   lower_case   = non-terminal production rule
 --   (* ... *)    = disambiguation comment
+--
+-- C's comma operator exists only in a C-style for initializer and update
+-- (comma_expr); everywhere else a parenthesized comma list is a tuple
+-- literal, a deliberate refusal (docs/known-language-gaps.md, row 19).
 
 @syntax {
 
@@ -420,9 +424,18 @@
                      second-next is "in" or ",", it is for-in.
                      Otherwise it is C-style for. *) ;
 
-  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ expr ] ")" body ;
+  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ comma_expr ] ")" body ;
 
-  for_init = var_decl_no_semi | expr ;
+  for_init = var_decl_no_semi | comma_expr ;
+
+  comma_expr = expr { "," expr }
+               (* C's comma operator, accepted only in a C-style for
+                  initializer and update (D19 row 19): operands run left to
+                  right and every value but the last is discarded. Two or
+                  more operands form a CommaExpr; the condition takes one
+                  expr. Everywhere else "(a, b)" is a tuple literal, and
+                  assigning one to a non-tuple names that in its
+                  diagnostic. *) ;
   var_decl_no_semi = "var" IDENT "=" expr
                    | type_expr IDENT [ array_suffix ] [ "=" expr ] { "," init_declarator }
                      (* Several declarators share the loop's scope; they lower

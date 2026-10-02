@@ -7,22 +7,11 @@ id = "r19-comma-in-for-header"
 row = "19"
 construct = "for (i = 0, j = 9; i < j; i++, j--)"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 6:12" }
-btrcc = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 6:12" }
-source = '''
-#include <assert.h>
-int main() {
-	int i;
-	int j;
-	int steps = 0;
-	for (i = 0, j = 9; i < j; i++, j--) { steps++; }
-	assert(steps == 5);
-	print("PASS: comma in for header");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "3f294e0"
+python = { exit = 0, stdout = "PASS: two-index loops\nPASS: left-to-right operands\nPASS: managed operands\n" }
+btrcc = { exit = 0, stdout = "PASS: two-index loops\nPASS: left-to-right operands\nPASS: managed operands\n" }
+corpus = "c_compat/CommaForHeaders.btrc"
 
 [[probe]]
 id = "r19-comma-operator-expression"
@@ -30,9 +19,9 @@ row = "19"
 construct = "int x = (1, 2); comma operator outside for"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "cf28fe7"
-python = { diagnostic = "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int' at 2:2" }
-btrcc = { diagnostic = "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int' at 2:2" }
+revision = "3f294e0"
+python = { diagnostic = "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'; btrc reads a parenthesized comma list as a tuple, not C's comma operator at 2:2" }
+btrcc = { diagnostic = "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'; btrc reads a parenthesized comma list as a tuple, not C's comma operator at 2:2" }
 source = '''
 int main() {
 	int value = (1, 2);

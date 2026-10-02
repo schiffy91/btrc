@@ -419,6 +419,12 @@ class GpuWgslEmitter {
 	}
 
 	private void gpuEmitExpressionStatement(Node expression) {
+		if (expression.kind == NK_COMMA_EXPR) {
+			/* WGSL has no comma operator: a for-header comma list becomes one
+			 * statement per operand, in order. */
+			for element in expression.elements() { self.gpuEmitExpressionStatement(element); }
+			return;
+		}
 		bool update = expression.kind == NK_ASSIGN_EXPR || (expression.kind == NK_UNARY_EXPR && (expression.op == "++" || expression.op == "--"));
 		if (!update && expression.kind != NK_CALL_EXPR) {
 			self.gpuLoweringFail(expression, "unsupported WGSL expression statement");

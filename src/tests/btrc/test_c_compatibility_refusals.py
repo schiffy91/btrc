@@ -26,6 +26,7 @@ COMPLEX = "C11 '_Complex' is not supported; btrc has no complex types"
 
 VOID_LIST = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'"
 UNNAMED = "Parameter name required: only a function prototype without a body may omit it"
+TUPLE_HINT = "; btrc reads a parenthesized comma list as a tuple, not C's comma operator"
 
 REFUSALS = [
     # Row 1: `(void)` is the only void parameter list, and only a prototype
@@ -110,11 +111,17 @@ REFUSALS = [
         (UNNAMED, 1, 27),
         id="r01-unnamed-variant",
     ),
-    # Row 19: a parenthesized comma list is a tuple literal, not the comma operator.
+    # Row 19: outside a for header a parenthesized comma list is a tuple
+    # literal, not the comma operator, and the diagnostic says so.
     pytest.param(
         "int main() { int value = (1, 2); return value; }",
-        ("Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'", 1, 14),
+        ("Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'" + TUPLE_HINT, 1, 14),
         id="r19-comma-operator",
+    ),
+    pytest.param(
+        "int main() { int i; int j = 0; for (i = 0; i < 2, j < 3; i++) {} return 0; }",
+        ("Expected SEMICOLON, got COMMA ','", 1, 49),
+        id="r19-comma-in-for-condition",
     ),
     # Row 20: grammar keywords never name a declaration.
     pytest.param(
@@ -807,6 +814,25 @@ DECLARATOR_DIVERGENT_REFUSALS = [
     ),
 ]
 
+# Row 19: each compiler words a mistyped assignment and a missing expression
+# its own way; the tuple hint is the same in both.
+COMMA_DIVERGENT_REFUSALS = [
+    # Each compiler words a mistyped assignment its own way; both add the hint.
+    pytest.param(
+        "int main() { int value = 0; value = (1, 2); return value; }",
+        ("Cannot assign 'Tuple<int, int>' to 'int'" + TUPLE_HINT, 1, 29),
+        ("Assignment expects 'int' but got 'Tuple<int, int>'" + TUPLE_HINT, 1, 37),
+        id="r19-comma-operator-assignment",
+    ),
+    # A missing operand is each parser's ordinary expression error.
+    pytest.param(
+        "int main() { int i; for (i = 0, ; i < 2; i++) {} return 0; }",
+        ("Unexpected token ';' in expression", 1, 33),
+        ("Expected expression, got SEMICOLON ';'", 1, 33),
+        id="r19-missing-comma-operand",
+    ),
+]
+
 IMPORT_PATH_REFUSALS = [
     pytest.param(
         'import "a.btrc" "b.btrc";\nint main() { return 0; }',
@@ -824,7 +850,7 @@ IMPORT_PATH_REFUSALS = [
 
 @pytest.mark.parametrize(
     ("source", "reference_expected", "selfhost_expected"),
-    VLA_DIVERGENT_REFUSALS + DECLARATOR_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS,
+    VLA_DIVERGENT_REFUSALS + DECLARATOR_DIVERGENT_REFUSALS + COMMA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS,
 )
 def test_divergent_refusal_is_pinned_per_compiler(
     semantic_btrcc: Path,

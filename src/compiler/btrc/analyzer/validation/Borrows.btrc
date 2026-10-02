@@ -536,6 +536,12 @@ class BorrowValidator {
 		if (expression.kind == NK_CAST_EXPR) {
 			return self.rawParamExprSafe(expression.expr, parameterName, owner, locals, vars);
 		}
+		if (expression.kind == NK_COMMA_EXPR) {
+			for element in expression.elements() {
+				if (!self.rawParamExprSafe(element, parameterName, owner, locals, vars)) { return false; }
+			}
+			return true;
+		}
 		if (expression.kind == NK_CALL_EXPR || expression.kind == NK_NEW_EXPR) {
 			int index = 0;
 			while (index < expression.args().len) {

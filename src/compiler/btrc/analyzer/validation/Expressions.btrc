@@ -668,6 +668,12 @@ class ExpressionValidator {
 				self.validateExpr(expression.obj,  vars);
 			}
 			self.validateField(expression, true,  vars);
+		} else if (expression.kind == NK_COMMA_EXPR) {
+			// Each operand runs in order; every value but the last is discarded.
+			for element in expression.elements() {
+				self.validateExpr(element,  vars);
+				self.rejectThreadObservation(element,  vars);
+			}
 		} else if (expression.kind == NK_TERNARY_EXPR) {
 			self.validateExpr(expression.condition,  vars);
 			self.validateCondition(expression.condition, "Ternary expression", vars);

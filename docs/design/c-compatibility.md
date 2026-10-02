@@ -193,6 +193,55 @@ or adjacent string.
   `r03-multiple-local-declarators`, `r03-pointer-declarator-binding` and
   `r03-multiple-field-declarators` are PASS.
 
+## Stage 16 r19: the comma operator in `for` headers
+
+- **Parser.** `Parser._parse_for_header_expr` / `Parser.parseForHeaderExpression`
+  read the C-`for` initializer (when it is not a declaration) and the update:
+  two or more operands become `CommaExpr(elements)` positioned at the first
+  operand, one stays a plain expression. The condition still takes one
+  expression (`Expected SEMICOLON, got COMMA`), and `(a, b)` everywhere else
+  stays a `TupleLiteral` (D19 row 19).
+- **Analyzer.** A `CommaExpr` types as its last operand. Each operand is
+  analyzed in order and refused if it observes a `Thread` handle, as the
+  single header expression always was, and the reference's nullable-flow
+  effects (an assignment recording or clearing a non-null fact) apply per
+  operand, in order. In btrcc the comma is handled by the
+  type resolver, the expression validator, the raw-parameter safety walk
+  (`Borrows.rawParamExprSafe`) and the method-generic and generic-instance
+  collectors; the value-origin and ownership classifiers never see one,
+  because a `CommaExpr` is only ever the discarded root of a header.
+- **Lowering.** Both compilers lower it to `IRCommaExpr`, each operand exactly
+  as that header position lowers one expression, with every operand cast to
+  `void`: both positions discard the value, and strict C11 otherwise warns
+  about an unused operand. A
+  discarded fresh managed result in a header is not released, with or
+  without a comma; that predates r19 and is recorded in
+  `docs/known-language-gaps.md`'s open gaps.
+- **Realtime.** The bounded-loop proof (`RealtimeAnalyzer._canonical_c_for`,
+  btrc `canonicalCFor`) now takes the induction variable from the declarator
+  the condition compares, among any number of declarators, and accepts an
+  update with exactly one canonical step of it. Every other declarator and
+  update operand is checked, like the body, under a guard that forbids
+  writing or taking the address of the induction variable or its bound (a
+  declarator may declare the bound itself), so
+  `for (int i = 0, n = 10, *q = &n; i < n; i++) { (*q)++; }` stays unproven.
+- **GPU.** A kernel's comma header validates each operand as an update and
+  emits one WGSL statement per operand.
+- **Diagnostics.** A tuple literal assigned to or initializing a non-tuple
+  adds `; btrc reads a parenthesized comma list as a tuple, not C's comma
+  operator` in both compilers (`TypeSystem.comma_tuple_hint`,
+  `TypeValidator.commaTupleHint`). The initializer diagnostic is identical;
+  the assignment diagnostic keeps each compiler's existing wording
+  (`Cannot assign … to 'int'` against btrcc's `Assignment expects 'int' but
+  got …`), both with the hint, pinned per compiler.
+- **Tests.** `c_compat/CommaForHeaders.btrc` (two-index loops with assignment
+  and declaration initializers, operand order including `continue`, managed
+  operands); the realtime suites accept multi-update loops and refuse a double
+  step, a guarded write and an induction write in another initializer, in
+  both compilers; a GPU probe emits identical WGSL; inventory row
+  `r19-comma-in-for-header` is PASS and `r19-comma-operator-expression` carries
+  the hint.
+
 ## Stage 16 integration notes (`ccompat-c1-integrate`)
 
 The four C1 lanes (r02/r06 bodies, r01 parameters, r05 adjacent strings, r04

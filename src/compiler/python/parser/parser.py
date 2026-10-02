@@ -19,6 +19,7 @@ from src.compiler.python.syntax.ast.generated import (
     CForStmt,
     CharLiteral,
     ClassDecl,
+    CommaExpr,
     ContinueStmt,
     DeleteStmt,
     DoWhileStmt,
@@ -1570,7 +1571,7 @@ class Parser:
             if self._is_var_decl_start():
                 init = ForInitVar(declarations=self._parse_declaration_head(self._peek()))
             else:
-                init = ForInitExpr(expression=self._parse_expr())
+                init = ForInitExpr(expression=self._parse_for_header_expr())
         self._expect(TokenKind.SEMICOLON)
 
         condition = None
@@ -1580,11 +1581,26 @@ class Parser:
 
         update = None
         if not self._check(TokenKind.RPAREN):
-            update = self._parse_expr()
+            update = self._parse_for_header_expr()
         self._expect(TokenKind.RPAREN)
 
         body = self._parse_body()
         return CForStmt(init=init, condition=condition, update=update, body=body, line=tok.line, col=tok.col)
+
+    def _parse_for_header_expr(self):
+        """A C-``for`` initializer or update: C's comma operator (D19 row 19).
+
+        Two or more operands become a ``CommaExpr`` positioned at its first
+        operand; a single operand stays a plain expression. The condition and
+        every other position keep ``(a, b)`` a tuple.
+        """
+        first = self._parse_expr()
+        if not self._check(TokenKind.COMMA):
+            return first
+        elements = [first]
+        while self._match(TokenKind.COMMA):
+            elements.append(self._parse_expr())
+        return CommaExpr(elements=elements, line=first.line, col=first.col)
 
     def _parse_parallel_for_stmt(self) -> ParallelForStmt:
         tok = self._expect(TokenKind.PARALLEL)

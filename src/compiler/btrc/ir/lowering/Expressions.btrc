@@ -1109,6 +1109,17 @@ class ExpressionLowerer {
 			}
 			return IRNode.cast(targetC, self.lowerExpr(node.expr, varTypes, callableFlow));
 		}
+		if (node.kind == NK_COMMA_EXPR) {
+			/* C's comma operator in a for header: each operand in order,
+			 * lowered as that header position lowers one expression. Both
+			 * header positions discard the value, so every operand is cast
+			 * to void. */
+			Vector<IRNode> operands = [];
+			for element in node.elements() {
+				operands.push(IRNode.cast("void", self.lowerExpr(element, varTypes, callableFlow)));
+			}
+			return IRNode.commaExpression(operands);
+		}
 		if (node.kind == NK_TERNARY_EXPR) {
 			return self.lowerTypedTernary(node, varTypes, callableFlow);
 		}

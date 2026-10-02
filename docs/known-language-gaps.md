@@ -13,6 +13,9 @@ gap ID.
 | — | Static storage on generic classes | Static fields and properties do not yet have a per-definition versus per-specialization storage model. Both backends reject them explicitly. | `python/analyzer/storage.py`, `btrc/analyzer/validation/Storage.btrc` |
 | — | Static methods on generic classes | A class-qualified static method call or method value has no specialization target for the class type parameters. Both analyzers reject the declaration instead of emitting an ambiguous unspecialized symbol. | `python/analyzer/declarations.py`, `btrc/analyzer/validation/Storage.btrc` |
 | — | Lambda expressions inside generic declarations | Generic-body lowering does not yet lift lambda declarations and their capture environments for each specialization. Inline lambdas passed to an ordinary generic method are supported; a lambda declared inside a generic class or method body is rejected. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
+| — | A discarded managed result in a C-`for` header | A `for` initializer or update operand that returns a fresh managed value (`for (make(); …; make())`, or one operand of a comma list) is never released, in both compilers; an expression statement releases the same call. Found while adding row 19, which keeps that behavior per operand rather than changing it. | `python/ir/lowering/statements.py`, `btrc/ir/lowering/Statements.btrc` |
+| — | Realtime loop bounds the proof does not see | A `@realtime` C-`for` is certified when the bound's address escapes before the loop (`int* q = &n;` then `(*q)++` in the body), or when a narrow induction type cannot reach a literal bound (`for (signed char i = 0; i < 200; i++)`). Both compilers agree; found by the Stage 16 r19 review. | `python/analyzer/realtime.py`, `btrc/analyzer/Realtime.btrc` |
+| — | A discarded tuple literal in btrcc | `(j = 1, i = i + 1);` as a statement, or as a for-update operand, makes btrcc emit C naming an undeclared tuple struct; the reference compiles it. Found by the Stage 16 r19 review. | `btrc/ir/lowering` tuple instance collection |
 | — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/Expressions.btrc` |
 
 ## Open native-platform defects
@@ -59,7 +62,7 @@ C-compatibility table in `docs/design/plan-reference.md`.
 | Row | C source | btrc's rule | Diagnostic |
 |-----|----------|-------------|------------|
 | 4 | `char s[3] = "abc";` — the exact fit | A narrow string literal initializes a `char`, `signed char` or `unsigned char` array: `char s[] = "abc"` takes four elements and `char s[4] = "abc"` holds the terminator (`c_compat/CharArrayStringInit.btrc`, locals, statics, globals and struct-field elements). C drops the terminator silently when the literal exactly fills the bound; btrc refuses it (D20). Extents count bytes: a UTF-8 character or universal character name is its encoded length. Only a literal initializes a char array: an f-string or a `string` value is refused, and wide literals wait for row 16. A bound the front end cannot evaluate, such as a C preprocessor macro or a `sizeof`, is left to the C compiler, whose strict flags may or may not catch the exact fit (gcc 15 refuses it; C11 itself allows it). | `String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty` |
-| 19 | `int x = (1, 2);` — the comma operator | A parenthesized comma list is a tuple literal, so `(1, 2)` is a `Tuple<int, int>`. Only `for` headers will accept comma-separated expressions (PLAN.md Stage 16). | `Cannot assign 'Tuple<int, int>' to variable 'x' of type 'int'` |
+| 19 | `int x = (1, 2);` — the comma operator | A parenthesized comma list is a tuple literal, so `(1, 2)` is a `Tuple<int, int>`. Only a C-`for` initializer and update accept the comma operator (`c_compat/CommaForHeaders.btrc`). | `Cannot assign 'Tuple<int, int>' to variable 'x' of type 'int'; btrc reads a parenthesized comma list as a tuple, not C's comma operator` |
 | 20 | `int string = 0;`, `int f(int self)`, `struct S { int new; };` | Every word in `src/language/grammar.ebnf`'s `@keywords` is reserved, including the btrc words C programs commonly use as names: `in`, `string`, `keep`, `self`, `class`, `interface`, `spawn`, `new`, `var`, `null`, `true`, `false`. There is no quoting syntax for identifiers. | `'string' is a reserved word and cannot be used as a name` |
 | 21 | `strlen(s) == 2` | An ABI-dependent integer (`size_t`, `ptrdiff_t`, `intptr_t`, …) never mixes implicitly with a built-in integer type whose width can differ from it; write the conversion: `(int)strlen(s) == 2` or `strlen(s) == (size_t)2`. Covered by `python/test_numeric_comparison_c11.py`, `python/test_numeric_semantics_contract.py` and their `btrc/` counterparts. | `Operator '==' mixes ABI-dependent integer type 'size_t' with 'int'; cast explicitly to a fixed-width or built-in integer type` |
 | 22 | `_Bool b = 1;`, `bool b = 1;` | `_Bool` is accepted as a spelling of `bool`, but an integer never converts to `bool` implicitly; write `b = n != 0` or a `true`/`false` literal. | `Cannot assign 'int' to variable 'b' of type 'bool'` |
@@ -113,6 +116,18 @@ in both compilers:
 
 A typedef declarator takes no array suffix yet (`typedef int Row[3];` waits
 for PLAN.md Stage 18), and a property declares one name.
+
+## The comma operator in `for` headers (C row 19)
+
+A C-`for` initializer and update take a comma list
+(`for (i = 0, j = n - 1; i < j; i++, j--)`, `c_compat/CommaForHeaders.btrc`):
+operands run left to right and every value but the last is discarded. The
+condition takes one expression, and a declaration list in the initializer is
+row 3's (`for (int i = 0, j = 9; …)`). A `@realtime` loop stays provably
+bounded when its update steps the induction variable exactly once among other
+operands that write neither it nor its bound; a `@gpu` kernel emits one WGSL
+statement per operand. Everywhere else `(a, b)` is a tuple, and assigning one
+to a non-tuple says so in the diagnostic (table above).
 
 ## Variable-length arrays (C row 23)
 

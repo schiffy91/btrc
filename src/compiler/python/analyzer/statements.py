@@ -26,6 +26,7 @@ from src.compiler.python.syntax.ast.generated import (
     Capture,
     CastExpr,
     CForStmt,
+    CommaExpr,
     ClassDecl,
     ContinueStmt,
     DeleteStmt,
@@ -686,7 +687,11 @@ class StatementAnalyzer:
                 self._prepare_expression(child, facts)
 
     def _apply_expression_flow_effects(self, expression) -> None:
-        if isinstance(expression, UnaryExpr) and expression.op == "&":
+        if isinstance(expression, CommaExpr):
+            # A for-header comma list: each operand's effects, in order.
+            for element in expression.elements:
+                self._apply_expression_flow_effects(element)
+        elif isinstance(expression, UnaryExpr) and expression.op == "&":
             self.flow.record_nullable_address_escape(expression.operand)
         elif isinstance(expression, AssignExpr):
             stores_nonnull = (
@@ -2026,7 +2031,8 @@ class StatementAnalyzer:
                 if not is_empty_literal:
                     self.session.error(
                         f"Cannot assign '{self.types.format_type(init_type)}' to variable '{stmt.name}' "
-                        f"of type '{self.types.format_type(stmt.type)}'",
+                        f"of type '{self.types.format_type(stmt.type)}'"
+                        f"{self.types.comma_tuple_hint(stmt.initializer, stmt.type)}",
                         stmt.line,
                         stmt.col,
                     )
