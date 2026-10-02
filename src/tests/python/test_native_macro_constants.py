@@ -46,6 +46,10 @@ enum Color { RED = 3 };
 #define STRING_ARITH ("x" + 1)
 #define FUNCTION_LIKE(x) ((x) + 1)
 #define USES_FUNCTION FUNCTION_LIKE(2)
+#define U32C(x) x##U
+#define WIDE_VIA U32C(4294967295)
+#define BARE_FUNCTION FUNCTION_LIKE
+#define UNTERMINATED FUNCTION_LIKE(1
 #define UNSELECTED 99
 """
 PROGRAM = """#include <assert.h>
@@ -126,6 +130,8 @@ def _type_name(value: dict) -> str:
         ("FOURCC", "int", "1684370979"),
         ("FROM_ENUM", "int", "4"),
         ("CHOSEN", "unsigned int", "7"),
+        ("WIDE_VIA", "unsigned int", "4294967295"),
+        ("USES_FUNCTION", "int", "3"),
     ],
 )
 def test_integer_macro_imports_with_its_c_type(reader, tmp_path, symbol, type_name, value) -> None:
@@ -174,7 +180,8 @@ def test_unselected_macro_is_not_exported(reader, tmp_path) -> None:
         ("NUL_STRING", "is a string literal with an embedded NUL"),
         ("STRING_ARITH", "is not an integer or string constant"),
         ("FUNCTION_LIKE", "is a function-like macro"),
-        ("USES_FUNCTION", "uses function-like macro FUNCTION_LIKE"),
+        ("BARE_FUNCTION", "names FUNCTION_LIKE, which is not an enumerator"),
+        ("UNTERMINATED", "expands to no tokens"),
     ],
 )
 def test_non_integer_macros_refuse(reader, tmp_path, symbol, reason) -> None:
