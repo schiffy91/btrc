@@ -1,0 +1,31 @@
+/* A foreign thread created with pthread_create enters btrc code through
+ * __btrc_native_thread_invoke, which runs the callback and then releases that
+ * thread's runtime state; the callback's result crosses back by pointer. */
+#include <assert.h>
+#include <pthread.h>
+
+int addFortyOne(void* raw) {
+	int* value = (int*)raw;
+	string note = f"adding to {*value}";
+	assert(note == "adding to 1");
+	*value = *value + 41;
+	return 7;
+}
+
+void* foreignEntry(void* raw) {
+	int result = 0;
+	if (__btrc_native_thread_invoke(addFortyOne, raw, &result) != 0) { return null; }
+	return result == 7 ? raw : null;
+}
+
+int main() {
+	int value = 1;
+	pthread_t thread;
+	assert(pthread_create(&thread, null, foreignEntry, &value) == 0);
+	void* joined = null;
+	assert(pthread_join(thread, &joined) == 0);
+	assert(joined == (void*)&value);
+	assert(value == 42);
+	print("PASS: test_native_thread_invoke");
+	return 0;
+}

@@ -301,15 +301,14 @@ def test_every_golden_belongs_to_a_corpus_source() -> None:
 
 
 def test_stdlib_package_directories_and_modules_use_pascal_case_acronyms() -> None:
-    """Owned packages use exact case; POSIX header include paths are foreign."""
+    """Owned packages use exact case; the Windows POSIX overlays live in src/runtime/windows."""
     library = REPO / "src/stdlib"
-    foreign_headers = {Path("Windows/sys"), Path("Windows/arpa"), Path("Windows/netinet")}
     acronyms = re.compile(r"(?:MacOs|Gui|Gpu|Ui|Http|Html|Jsonx?|Toml|Cli|Io|Dds|Spsc|Sha)(?=[A-Z0-9]|$)")
     offenders = []
     for relative in _tracked("src/stdlib/*"):
         source = Path(relative).relative_to("src/stdlib")
         for directory in source.parents:
-            if directory == Path(".") or directory in foreign_headers:
+            if directory == Path("."):
                 continue
             if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", directory.name) or acronyms.search(directory.name):
                 offenders.append(str(directory))
@@ -325,7 +324,7 @@ def test_stdlib_package_directories_and_modules_use_pascal_case_acronyms() -> No
         # Inspect the actual directory spelling too: APFS lookup alone hides a bad rename.
         assert (library / source).is_file(), f"missing stdlib file: {source}"
     for directory in library.rglob("*"):
-        if directory.is_dir() and directory.relative_to(library) not in foreign_headers:
+        if directory.is_dir():
             assert re.fullmatch(r"[A-Z][A-Za-z0-9]*", directory.name), directory
     assert not offenders, "stdlib package/module spelling: " + ", ".join(sorted(set(offenders)))
 

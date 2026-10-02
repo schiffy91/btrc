@@ -1,0 +1,38 @@
+/* `delete` of an object held in another object's field destroys it through
+ * that owner's edge (__btrc_arc_destroy_edge) and leaves the field null. */
+#include <assert.h>
+
+int alive = 0;
+
+class Leaf {
+	public int id;
+
+	public Leaf(int id) {
+		self.id = id;
+		alive++;
+	}
+
+	public void __del__() { alive--; }
+}
+
+class Holder {
+	public Leaf? child = null;
+	public Leaf? sibling = null;
+}
+
+int main() {
+	Holder holder = new Holder();
+	holder.child = new Leaf(1);
+	holder.sibling = new Leaf(2);
+	assert(alive == 2);
+
+	delete holder.child;
+	assert(holder.child == null);
+	assert(alive == 1);
+	assert(holder.sibling?.id == 2);
+
+	holder = null;
+	assert(alive == 0);
+	print("PASS: test_delete_field_edge");
+	return 0;
+}
