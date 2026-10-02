@@ -58,9 +58,9 @@ def include_fixtures(test_directory: str | Path) -> frozenset[str]:
 def language_test_files(test_directory: str | Path) -> list[str]:
     """Return convention-named runnable paths relative to ``test_directory``.
 
-    The legacy corpus uses ``test_*.btrc``. New type/capability-focused tests
-    use UpperCamelCase filenames matching their primary contract. Native
-    programs have dedicated harnesses that provide their required ABI units.
+    Corpus programs use PascalCase filenames matching their primary contract.
+    Native programs have dedicated harnesses that provide their required ABI
+    units.
     """
     root = Path(test_directory)
     fixtures = include_fixtures(root)
@@ -70,7 +70,7 @@ def language_test_files(test_directory: str | Path) -> list[str]:
         relative_posix = relative.as_posix()
         if relative.parts[0] in NON_CORPUS_DIRECTORIES:
             continue
-        if not path.name.startswith("test_") and not path.name[0].isupper():
+        if not path.name[0].isupper():
             continue
         if relative_posix in fixtures:
             continue

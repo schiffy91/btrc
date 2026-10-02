@@ -217,9 +217,9 @@ int main() {
 	assert(cv.containsValue(20) == true);
 	assert(cv.containsValue(99) == false);
 
-	// ---- List.removeAt() alias ----
+	// ---- Vector.remove(index) ----
 	Vector<int> rat = [10, 20, 30, 40];
-	rat.removeAt(1);
+	rat.remove(1);
 	assert(rat.size() == 3);
 	assert(rat.get(0) == 10);
 	assert(rat.get(1) == 30);

@@ -2,16 +2,16 @@
 
 import pytest
 
-from src.tests.python.test_native_import_consumer import (
+from src.tests.python.native_import_fixtures import (
     native_compile as native_compile,
 )
-from src.tests.python.test_native_import_consumer import (
+from src.tests.python.native_import_fixtures import (
     native_project as native_project,
 )
-from src.tests.python.test_native_import_consumer import (
+from src.tests.python.native_import_fixtures import (
     resource_project as resource_project,
 )
-from src.tests.python.test_native_import_consumer import (
+from src.tests.python.native_import_fixtures import (
     run_native_executable,
 )
 

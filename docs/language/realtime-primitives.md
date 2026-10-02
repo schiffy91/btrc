@@ -139,8 +139,8 @@ SPSCQueueOpenKind opened = SPSCQueues.tryOpen(
 `tryOpen` returns `SPSC_QUEUE_OPENED`, `SPSC_QUEUE_INVALID_ARGUMENT`,
 `SPSC_QUEUE_CAPACITY_OUT_OF_RANGE`, `SPSC_QUEUE_SIZE_OVERFLOW`, or
 `SPSC_QUEUE_OUT_OF_MEMORY`. On every failure it leaves the output null. On
-success the caller owns the returned pointer and must call `SPSCQueues.close`
-off the realtime path after both participating threads stop. A callback only
+success the caller owns the returned pointer and must call
+`SPSCQueues.close(&queue)`, which nulls it, off the realtime path after both participating threads stop. A callback only
 borrows the pointer; it may call `tryPushBorrowed` or `tryPopBorrowed` but may
 not close it.
 

@@ -432,36 +432,8 @@ class JSONValue {
 				continue;
 			}
 
-			int width = 0;
-			if (code >= 0xc2 && code <= 0xdf) {
-				width = 2;
-			} else if (code >= 0xe0 && code <= 0xef) {
-				width = 3;
-			} else if (code >= 0xf0 && code <= 0xf4) {
-				width = 4;
-			}
-
-			bool valid = width > 0 && width <= n - i;
-			for (int offset = 1; valid && offset < width; offset++) {
-				int continuation = (int)((unsigned char)text[i + offset]);
-				if ((continuation & 0xc0) != 0x80) {
-					valid = false;
-				}
-			}
-
-			if (valid && width == 3) {
-				int second = (int)((unsigned char)text[i + 1]);
-				if ((code == 0xe0 && second < 0xa0) || (code == 0xed && second > 0x9f)) {
-					valid = false;
-				}
-			} else if (valid && width == 4) {
-				int second = (int)((unsigned char)text[i + 1]);
-				if ((code == 0xf0 && second < 0x90) || (code == 0xf4 && second > 0x8f)) {
-					valid = false;
-				}
-			}
-
-			if (!valid) {
+			int width = UTF8.width(text, n, i);
+			if (width == 0) {
 				output.append("\xef\xbf\xbd");
 				i++;
 				continue;

@@ -360,7 +360,7 @@ class SetjmpTypeFacts {
 		return self.singleAliasWord(text, aliases);
 	}
 
-	private string pointerBaseAlias(string cType, Map<string, bool> aliases) { return self.singleAliasWord(Strings.replace(cType, "*", " "), aliases); }
+	private string pointerBaseAlias(string cType, Map<string, bool> aliases) { return self.singleAliasWord(cType.replace("*", " "), aliases); }
 
 	private int pointerDepth(string cType) {
 		int count = 0;

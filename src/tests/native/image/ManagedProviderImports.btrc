@@ -1,4 +1,4 @@
-import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.MacOS.MacOSAudioDevice;
 import Library.Image.MacOS.MacOSEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSSystemText;
 

@@ -9,14 +9,39 @@ ABI and the same ownership atoms.
 Every managed object starts with one real header member:
 
 ```c
+/* src/runtime/c/cycles.c, helper __btrc_arc_callback_types */
 typedef int __btrc_arc_count;
-
-typedef struct {
+typedef struct __btrc_arc_type __btrc_arc_type;
+typedef struct __btrc_arc_incoming __btrc_arc_incoming;
+typedef enum {
+    __BTRC_ARC_LIVE = 1,
+    __BTRC_ARC_QUEUED = 2,
+    __BTRC_ARC_DESTROYING = 3
+} __btrc_arc_state;
+typedef struct __btrc_arc_header {
     __btrc_arc_count rc;
     __btrc_arc_count edge_rc;
+    /* One current incoming-edge owner, or self as a full-snapshot sentinel. */
+    void* live_witness;
     const __btrc_arc_type* type;
+    __btrc_arc_incoming* incoming;
+    void* deferred_next;
+    unsigned char suppress_hook;
+    __btrc_arc_state state;
 } __btrc_arc_header;
+struct __btrc_arc_incoming {
+    void* owner;
+    __btrc_arc_incoming* next;
+};
 ```
+
+`incoming` is the singly linked list of managed owners currently holding an
+edge to the object, with `live_witness` caching one of them (or the object
+itself as a full-snapshot sentinel); `deferred_next` links the object into the
+thread's deferred-destruction queue, `state` records whether it is live, queued
+or being destroyed, and `suppress_hook` makes that queue skip the type's
+destruction hook, which the collector sets on unreachable roots of a partial
+construction.
 
 `type` points to one immutable, process-lifetime descriptor for the object's
 concrete type. It is never inferred from a base-typed release site. This keeps

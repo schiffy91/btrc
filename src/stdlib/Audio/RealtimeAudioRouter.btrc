@@ -271,7 +271,7 @@ struct BtrcRealtimeAudioRouterContext {
 	callbackGateLeave(lifetimeGate);
 }
 
-class RealtimeAudioProgramRouter {
+class RealtimeAudioRouter {
 	private OwnedBuffer<struct BtrcRealtimeAudioRouteSlot> _slotsOwner;
 	private AtomicBuffer<uint> _atomicsOwner;
 	private OwnedBuffer<struct BtrcRealtimeAudioRouterContext> _contextOwner;
@@ -287,7 +287,7 @@ class RealtimeAudioProgramRouter {
 	private unsigned long long _latestActivationAttachmentGeneration;
 	private bool _closed;
 
-	public RealtimeAudioProgramRouter(int capacity = 4, int handoffFrames = 240) {
+	public RealtimeAudioRouter(int capacity = 4, int handoffFrames = 240) {
 		self._closed = true;
 		if (capacity < 1 || capacity > 16 || handoffFrames < 0 || handoffFrames > 48000) { throw "invalid realtime audio router capacity or handoff"; }
 		self._slotsOwner = new OwnedBuffer<struct BtrcRealtimeAudioRouteSlot>((size_t)capacity);
@@ -443,8 +443,9 @@ class RealtimeAudioProgramRouter {
 		self._context->commands = null;
 		self._context->slots = null;
 		self._context->atomics = null;
-		SPSCQueues.close(self._commands);
+		struct SPSCQueueStorage* commands = self._commands;
 		self._commands = null;
+		SPSCQueues.close(&commands);
 		self._contextOwner.close();
 		self._atomicsOwner.close();
 		self._slotsOwner.close();
@@ -454,6 +455,6 @@ class RealtimeAudioProgramRouter {
 	}
 
 	public void __del__() {
-		if (!self._closed) { Console.fatal("RealtimeAudioProgramRouter destroyed before closeAfterProviderDrain"); }
+		if (!self._closed) { Console.fatal("RealtimeAudioRouter destroyed before closeAfterProviderDrain"); }
 	}
 }

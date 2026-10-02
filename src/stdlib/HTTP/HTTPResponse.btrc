@@ -1,0 +1,53 @@
+/* An HTTP response a handler returns. */
+import Library.Bytes;
+import Library.Vector;
+
+class HTTPResponse {
+	public int status;
+	public string contentType;
+	public string body;
+	public Bytes? bodyBytes;   /* binary-safe body; when set it replaces body on the wire */
+	public Vector<string> extraHeaders;
+
+	public HTTPResponse(int status, string contentType, string body) {
+		self.status = status;
+		self.contentType = contentType;
+		self.body = body;
+		self.bodyBytes = null;
+		self.extraHeaders = [];
+	}
+
+	/* A response whose body is arbitrary bytes (images, archives): the length
+	 * comes from the buffer, never from a NUL scan. */
+	class HTTPResponse bytes(int status, string contentType, Bytes body) {
+		HTTPResponse response = HTTPResponse(status, contentType, "");
+		response.bodyBytes = body;
+		return response;
+	}
+
+	public bool isBinary() { return self.bodyBytes != null; }
+
+	public long long bodyLength() {
+		if (self.bodyBytes != null) { return (long long)self.bodyBytes.len; }
+		return self.body == null ? 0LL : (long long)strlen(self.body);
+	}
+
+	public HTTPResponse addHeader(string line) {
+		if (line != null) { self.extraHeaders.push(line); }
+		return self;
+	}
+
+	class HTTPResponse text(string body) { return HTTPResponse(200, "text/plain; charset=utf-8", body); }
+
+	class HTTPResponse html(string body) { return HTTPResponse(200, "text/html; charset=utf-8", body); }
+
+	class HTTPResponse json(string body) { return HTTPResponse(200, "application/json; charset=utf-8", body); }
+
+	class HTTPResponse js(string body) { return HTTPResponse(200, "application/javascript; charset=utf-8", body); }
+
+	class HTTPResponse css(string body) { return HTTPResponse(200, "text/css; charset=utf-8", body); }
+
+	class HTTPResponse notFound() { return HTTPResponse(404, "text/plain; charset=utf-8", "Not Found"); }
+
+	class HTTPResponse error(int code, string message) { return HTTPResponse(code, "text/plain; charset=utf-8", message); }
+}

@@ -52,19 +52,21 @@ def test_no_action_for_resolved_local():
 
 
 def test_import_insert_for_stdlib_name():
-    # Shadow stdlib DateTime so Datetime.btrc is filtered out of the
-    # composition; the sibling stdlib class Timer is then unresolved and the
-    # import action offers 'import Library.Datetime;'.
-    src = "class DateTime {\n    public int y;\n}\nint main() {\n    var t = Timer();\n    return 0;\n}\n"
+    # Shadow stdlib JSONParser so JSON.btrc is filtered out of the
+    # composition; the sibling stdlib class JSONValue is then unresolved and
+    # the import action offers 'import Library.JSON;'.
+    src = (
+        "class JSONParser {\n    public int y;\n}\nint main() {\n    var t = JSONValue.makeNull();\n    return 0;\n}\n"
+    )
     uri = "file:///stdimp.btrc"
     r = compute_diagnostics(uri, src)
-    assert not (r.analyzed and "Timer" in r.analyzed.class_table)
+    assert not (r.analyzed and "JSONValue" in r.analyzed.class_table)
     acts = _actions(r, uri, 4)
     imp = [a for a in acts if a.title.startswith("Add import")]
     assert imp, [a.title for a in acts]
-    assert "Library.Datetime" in imp[0].title
+    assert "Library.JSON" in imp[0].title
     edits = imp[0].edit.changes[uri]
-    assert edits[0].new_text == "import Library.Datetime;\n"
+    assert edits[0].new_text == "import Library.JSON;\n"
     assert edits[0].range.start.line == 0  # inserted at top (no existing imports)
 
 

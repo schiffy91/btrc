@@ -5,8 +5,12 @@ each input with the compiler frontend, formats through a lossless token/trivia
 model, then proves the result preserves compiler tokens and comment contents.
 
 ```bash
-# From this checkout.
-nix develop -c btrc-format check src tests
+# From this checkout: the repository gate (`src` and `examples`, minus the
+# intentional fixtures in the Makefile's BTRC_FORMAT_EXCLUDES).
+make format-btrc-check
+make format-btrc        # rewrite the same set in place
+
+# Individual files or directories.
 nix develop -c btrc-format check --diff App.btrc
 nix develop -c btrc-format write App.btrc
 
@@ -38,10 +42,10 @@ false green through a broad glob.
   `public int getNumber() { return 0; }`.
 - Consecutive functions have one blank line. Consecutive fields and both class
   edges have none.
-- Imports form two stable groups: `std` imports first, then user BTRC imports
-  and compatibility `#include` directives. Relative order within each group is
-  retained, groups have one blank line between them, and entries within a group
-  have none. C extern declarations are ordinary declarations, not imports.
+- Imports form two stable groups: standard-library `Library.*` imports first,
+  then user BTRC imports and compatibility `#include` directives. Relative
+  order within each group is retained, groups have one blank line between
+  them, and entries within a group have none. C extern declarations are ordinary declarations, not imports.
 
 ## Overrides
 

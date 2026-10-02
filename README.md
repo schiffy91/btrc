@@ -171,7 +171,8 @@ CPU, the weight update on the GPU, 300 epochs:
 Every frame of that animation was drawn by
 [`examples/sgd-render`](examples/sgd-render/), which runs the training loop and
 rasterizes each epoch to an offscreen surface -- no window, no display server.
-[`examples/sgd`](examples/sgd/Sgd.btrc) is the same model without the drawing.
+[`examples/sgd`](examples/sgd/Sgd.btrc) is a heavier variant without the
+drawing: momentum SGD with a decaying learning rate, logged to the terminal.
 
 ### Hardware-accelerated 3D
 
@@ -228,7 +229,7 @@ The GPU view renders into an offscreen target that the window composites with
 the native controls around it, so the tablature, transport and fretboard above
 are ordinary widgets and the highway is just another child. Closing the window
 drains the GPU work and its callbacks in order. For a self-contained example,
-[`examples/game`](examples/game/) is an SDF-raymarched ball game in about 760
+[`examples/game`](examples/game/) is an SDF-raymarched ball game in about 750
 lines of btrc.
 
 ### Native UI
@@ -362,9 +363,12 @@ The real bindings look the same, only longer:
 and [`src/stdlib/GUI/FreeType/FreeTypeFace.btrc`](src/stdlib/GUI/FreeType/FreeTypeFace.btrc)
 is the btrc side of it. C++ and Objective-C work the same way, projected
 through one generated `extern "C"` adapter, which is how CoreAudio, AppKit,
-ImageIO, libdbus and WebGPU are all reached -- there is no hand-written bridge
-anywhere in the tree. See
-[docs/design/native-interop.md](docs/design/native-interop.md).
+ImageIO, libdbus and WebGPU are all reached. A few hand-written C pieces
+remain where the header reader cannot yet express an API: `static inline`
+adapters in the Linux SDL, ALSA, D-Bus and image-codec headers, and the
+`@gpu` compute runtime in `src/runtime/gpu`.
+[docs/design/native-interop.md](docs/design/native-interop.md) inventories
+them and tracks their migration.
 
 ## What You Get Over C
 
@@ -447,121 +451,28 @@ portable digest path, so cross builds do not gain a macOS SDK requirement.
 explicit target-selected provider and implements the managed `ISHA256Digest`
 interface. Its Linux and Windows implementations use portable SHA-256.
 
-Inside the nix shell, `btrcpy`, `btrcc`, `btrc-format`, `btrc-lsp`, and
-`btrc-native-plan` are all on the path. The flake also exports the compiler and
-source formatter as `packages.<system>.btrc`, `apps.<system>.btrc`,
-`packages.<system>.btrc-format`, and `apps.<system>.btrc-format`, so downstream
-flakes can depend on BTRC directly instead of shelling into this repository.
+Inside the nix shell, `btrc-format` and `btrc-lsp` are on the path; the
+compilers come from the checkout: `make build` writes `bin/btrcpy`, `make
+btrcc` builds `bin/btrcc`, and `python3 -m tools.native_plan` (or `nix run
+.#btrc-native-plan`) runs the native-plan adapter. The flake exports each tool
+as a package and app (`btrc` -- which runs `btrcpy` and whose package bundles
+`btrcpy`, `btrcc`, `btrc-format` and `btrc-native-plan` -- plus `btrcc`,
+`btrc-format`, `btrc-lsp` and `btrc-native-plan`), so downstream flakes can
+depend on BTRC directly instead of shelling into this repository.
 The formatter's complete style and exit-code contract is in
 [the devex guide](docs/devex/formatter.md).
 
+Both CLIs cache complete emitted generations (C units, link plan, diagnostics)
+and import-directive spans, and publish their outputs as one recoverable
+generation under directory locks. The reference compiler's cache follows
+`BTRC_CACHE_DIR`, the nearest package's `.btrc-cache`, then the user cache;
+the self-hosted CLI's lives under `$BTRC_CACHE_DIR` or `~/.cache/btrc`.
+Recovery state lives under `BTRC_STATE_DIR` or the platform's state directory.
+`--no-cache` runs the full pipeline. The cache keys, publication protocol, recovery and lock
+coordination with `btrc-native-plan` are specified in
+[Compilation caches and artifact publication](docs/design/artifact-publication.md).
+
 Useful compiler modes include:
-
-The reference compiler caches complete emitted generations, including split C
-units and debug source maps, after resolving current sources and imports. Each
-generation contains checksummed C files, its native link plan and diagnostics;
-missing or corrupt payloads cause recompilation. Native SDK builds can reuse
-output after the actual reader validates current headers and binding contracts;
-the reader's identity and admitted semantics participate in the key. Warnings
-and source locations survive reuse. Profiling, freestanding output,
-prebuilt-stdlib builds and unavailable native reader identity bypass this cache.
-The default aggregate artifact limit is 512 MiB; a larger successful build
-forgoes caching.
-Use `--no-cache` to run the full pipeline. Cache placement follows
-`BTRC_CACHE_DIR`, the nearest package's `.btrc-cache`, then the user cache.
-
-The self-hosted CLI also caches complete emitted generations for named outputs
-on POSIX hosts. It resolves current sources, packages and native declarations
-before lookup, verifies the compiler and native reader contents, and checks the
-cached plan against current package facts. Missing, corrupt or unsupported
-entries fall back to compilation. Its private cache lives under
-`$BTRC_CACHE_DIR/selfhost-artifacts-v1`, or
-`$HOME/.cache/btrc/selfhost-artifacts-v1`; the aggregate limit is 512 MiB.
-`btrcc --no-cache` disables compilation-cache reuse. Cached results still pass
-through output publication. Both CLIs can retain a complete owned generation
-when its current bytes, modes, paths and ownership record match the requested
-outputs. They recover first and verify under directory locks with fresh source
-and path guards, preserving output inodes and timestamps without staging new
-payloads. This also applies after a full `--no-cache` compilation. Changed,
-missing or unowned output uses normal publication. Cache eviction and Windows
-artifact storage remain unfinished.
-
-The reference CLI now publishes regular primary C, secondary units and the
-requested link plan as one recoverable generation. A failed replacement rolls
-back; the next successful compilation recovers an interrupted attempt before
-publishing its own layout. Obsolete owned units/plans are removed only when
-their recorded contents are unchanged, and resolved compiler inputs are
-protected from replacement and retirement. Output symlinks keep their targets
-and existing file permissions are preserved.
-
-Recovery state is durable and separate from compilation caches, including with
-`--no-cache`. Set `BTRC_STATE_DIR` to an absolute private state directory, or use
-the default: `~/Library/Application Support/btrc/generations` on macOS,
-`$LOCALAPPDATA/btrc/generations` on Windows, and
-`${XDG_STATE_HOME:-~/.local/state}/btrc/generations` on Linux. Retain this state
-while its outputs may require recovery. Inspection-only requests do not create
-it. Freestanding header creation and output requests containing devices retain
-their separate I/O behavior; they are not covered by the regular-file
-transaction. The POSIX self-host CLI uses the same generation protocol; native
-Windows publication support and the complete release/product matrix remain open.
-
-`btrc-native-plan` holds the publication directory locks while reading the plan,
-compiling its generated C units and linking. Generated primary/secondary C and
-link-plan paths may be symlinks to regular files: discovery locks both the
-requested parent and resolved target parent, then rechecks those bindings before
-starting tools. C compilation retains the requested filenames so relative quoted
-includes keep their meaning. Native package/header inputs retain their no-follow
-validation. A pending publication journal stops the build
-with a recovery-required error; rerun the owning compiler with its retained
-state to recover before building. The reader never recovers paths from an
-untrusted journal. Lock files remain in place after successful builds. This
-coordinates with both CLIs' named-primary regular-file generations. Direct
-external writes do not participate. The self-host writer acquires the same
-private per-primary generation owner, then the sorted union of current and
-interrupted output directories and the shared publication lock. It validates
-private authority and path bindings after waiting, recovers the authorized
-journal, then writes durable intent before replacing public files. The committed
-ownership manifest is the final validator. Retirement requires the previous
-owned digest; changed files and current source inputs are preserved with an
-explicit error. Invalid journals never enlarge recovery authority.
-
-Both frontends can recover the other's regular-file generation. The self-host
-validates all requested primary, secondary and link-plan paths before writing,
-stages and flushes the payloads, and checks prepared bytes and permissions before
-journaling. Existing output symlinks and target permissions are preserved through
-validated canonical targets. Recovery restores the previous validator last and
-retains journals when durability or cleanup is uncertain. A failed directory
-flush never counts as successful publication. Snapshot-close and lock-release
-failures also produce a nonzero self-host CLI result, preserving the original
-diagnostic when cleanup fails too. A cleanup error after commit can leave the
-complete new generation installed; rerunning the owning compiler validates and
-recovers state before another publication. Self-host stdout/secondary-only
-requests retain their separate staging path; native Windows private-state and
-locking support remains unfinished. Retirement digests are computed through one
-immutable file snapshot in 64 KiB reads. The self-host writer revalidates resolved
-outputs after waiting for the generation owner, before persisting recovery intent;
-outputs redirected into private state are rejected without creating that intent.
-
-Source text read by the CLI/reference import resolver and the POSIX self-host
-source reader now carries the identity of the stream that supplied its bytes.
-Version and requested-path checks run after reading and again in publication
-guards, including after lock contention. A detected edit, replacement,
-retarget or removal rejects publication instead of treating a replacement at
-the same filename as the original input. Metadata is copied; source descriptors
-do not stay open throughout compilation. The reference library API still
-accepts in-memory root text and exposes identities for file-backed dependencies.
-These checks do not lock out uncooperative external writers, and they do not
-yet cover every reference metadata/SDK reader or native Windows publication.
-
-Both CLIs also cache import-directive spans by source content, compiler identity
-and grammar. They reparse those small fragments while still reading current
-sources and resolving paths, packages, directory imports and native SDK
-declarations afresh. Corrupt entries, unavailable storage and fragments needing
-surrounding comment context fall back to full scanning. `--no-cache` bypasses
-directive reuse in both CLIs; the reference CLI's `--profile` also bypasses it.
-This does not cache an old filesystem dependency graph. For self-host named
-outputs on POSIX, spans live under `$BTRC_CACHE_DIR/selfhost-directives-v1` or
-`$HOME/.cache/btrc/selfhost-directives-v1`, with an 8 MiB limit per entry.
 
 ```bash
 # Build the stdlib once, then emit program-only C against that archive.
@@ -641,18 +552,20 @@ layout is part of the API. The complete rules are in
   primitive imported as `Library.<Name>`, and a root module imports only other
   root modules. Nothing with a native binding or a nested source graph lives
   here. The 26 root modules are `Array`, `BitPattern`, `Bytes`, `CLI`,
-  `Callback`, `Console`, `Datetime`, `Error`, `IO`, `Iterable`, `JSON`,
-  `List`, `Map`, `Math`, `OwnedBuffer`, `Pattern`, `Platform`, `Process`,
-  `Random`, `Regex`, `Result`, `SPSC`, `Set`, `Strings`, `TOML`, and
+  `Callback`, `Console`, `DateTime`, `IO`, `Iterable`, `JSON`, `List`,
+  `Map`, `Math`, `OwnedBuffer`, `Pattern`, `Platform`, `Process`, `Random`,
+  `Regex`, `Result`, `SPSC`, `Set`, `Strings`, `TOML`, `Timer`, and
   `Vector`.
 - **A group with more than one module is a folder** with a same-named facade
   inside it, so `import Library.HTTP;` selects the facade and the group's other
   modules are addressed by path (`Library.HTTP.HTTPClient`,
   `Library.FileSystem.FileTree`, `Library.Digest.SHA256`).
 - **Platform code lives in a platform subfolder of its group**
-  (`Audio/MacOS`, `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `GUI/FreeType`,
-  `Image/MacOS`, `Image/Linux`, `Tray/Linux`,
-  `Tray/MacOS`) and implements that group's portable contract. Interfaces are
+  (`Audio/MacOS`, `Audio/Linux`, `BackgroundJobs/Unix`, `Digest/MacOS`,
+  `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`, `Image/Linux`,
+  `LocalApplicationChannel/MacOS`, `LocalApplicationChannel/Linux`,
+  `Tray/MacOS`, `Tray/Linux`) and implements that group's portable contract;
+  `GUI/FreeType` is the shared FreeType text provider the Linux GUI uses. Interfaces are
   `I`-prefixed (`IView`, `IWindow`, `IDirectoryPicker`); providers are
   `<Platform><Capability>`. Consumers never name a platform module.
 - **Each group is its own package** with its own `btrc.toml` declaring exports,
@@ -1174,7 +1087,7 @@ int sum = nums.reduce(0, int function(int acc, int x) { return acc + x; });
 nums.free();
 ```
 
-Also available: `.insert()`, `.remove()`, `.removeAt()`, `.removeAll()`,
+Also available: `.insert()`, `.remove()`, `.removeAll()`,
 `.indexOf()`, `.lastIndexOf()`, `.swap()`, `.fill()`, `.clear()`, `.first()`,
 `.last()`, `.min()`, `.max()`, `.count()`, `.distinct()`, `.take()`, `.drop()`,
 `.copy()`, `.extend()`, `.all()`, `.findIndex()`, `.join()`,
@@ -1466,8 +1379,9 @@ failure fails closed, while a pre-submit failure uses the CPU worker. The
 native compute context is acquired through an atomic process singleton.
 
 For rendering rather than compute, `Library.GPU` exposes a typed WebGPU surface:
-`Device`, `Program`, `UniformBuffer`, `ImageTexture`, `SurfaceRenderer`, and
-`Readback`. For a full example that combines `@gpu` kernels with btrc classes,
+`GPUDevice`, `GPUProgram`, `GPUUniformBuffer`, `GPUImageTexture`,
+`GPUSurfaceRenderer`, `GPUOffscreenTarget`, and `GPUReadback`, each its own
+module (`import Library.GPU.GPUSurfaceRenderer;`). For a full example that combines `@gpu` kernels with btrc classes,
 see [`examples/sgd/Sgd.btrc`](examples/sgd/Sgd.btrc) -- GPU-accelerated
 stochastic gradient descent that learns `y = 2x + 3` from training data.
 
@@ -1549,7 +1463,8 @@ strings through one generated `extern "C"` adapter unit in both compilers.
 
 This is how the standard library's platform providers are written -- CoreAudio,
 AppKit, ImageIO, FreeType, libdbus, Metal through WebGPU -- with lifetimes and
-failure paths modelled in BTRC rather than in hand-written bridges. A package
+failure paths modelled in BTRC; the few remaining hand-written C adapters are
+listed in the native-interop design. A package
 declares its native units, headers, frameworks, and pkg-config requirements in
 its `btrc.toml`, and `btrc-native-plan` (or `--emit-link-plan`) turns that into
 a canonical build plan. See
@@ -1559,13 +1474,13 @@ a canonical build plan. See
 
 btrc includes a Unity-inspired 3D game engine built on WebGPU rendering. A ball
 on a ground plane with WASD movement, space to jump, real-time shadows, and SDF
-raymarching -- about 660 lines of btrc across 11 engine modules, driven by a
-105-line `Game.btrc`.
+raymarching -- about 640 lines of btrc across 11 engine modules, driven by a
+106-line `Game.btrc`.
 
 The engine is modular: `GameObject` with physics, `Camera` with follow
 behavior, `Light` and `Material` for shading, `Ground` checkerboard and `Sky`
 gradient, `Scene` compositing with a WGSL raymarching shader, `Input` for
-keyboard, `Time` for frame timing, and `Renderer` tying it all together. The
+keyboard, `Time` for frame timing, and `Engine` tying it all together. The
 game implements `IApplicationWork` and schedules its own frames through the
 native application loop (`GUI.postAfter`) rather than spinning a `while` loop,
 so window shutdown can drain the GPU child and its callbacks deterministically.
@@ -1640,7 +1555,8 @@ Also available: `E()`, `TAU()`, `INF()`, `exp`, `log`, `power`, `round`,
 #### DateTime and Timer
 
 ```
-import Library.Datetime;
+import Library.DateTime;
+import Library.Timer;
 
 DateTime now = DateTime.now();
 string date = now.dateString();     // "2025-01-15"
@@ -1760,11 +1676,14 @@ when used on the wrong case.
 - `Library.JSON` -- `JSONValue`, `JSONParser`, with compact, pretty, and canonical serialization
 - `Library.TOML` -- manifest-grade TOML reading
 - `Library.Regex` / `Library.Pattern` -- compiled regular expressions and glob-style patterns
+- `Library.Strings` -- `Strings`, `StringBuilder`, and `UTF8`, the one owner of UTF-8 decoding, validation, scalar boundaries and word navigation
 - `Library.Bytes` -- byte buffers; `Library.Digest.SHA256` for hashing
-- `Library.Process` -- `Command`, `ChildProcess`, `UnixShell`, `ShellWords`
+- `Library.DateTime` -- `DateTime`; `Library.Timer` -- `Timer` and `MonotonicClock` saturating deadlines
+- `Library.Process` -- `Command`, `ChildProcess`, `UnixShell`, `ShellWords`, `CStringArray`
 - `Library.CLI` -- `CLIArgs`, `CLICommand`, `CLICommandLine`, `CLIHelp`
 - `Library.HTTP` -- client, server, framing, and typed response headers
-- `Library.Platform` -- `Platform` and `Environment` host integration
+- `Library.Platform` -- `Platform` (including `currentDirectory`) and `Environment` host integration
+- `Library.IO` -- `File` and `DescriptorFlags` (close-on-exec, nonblocking)
 
 ---
 
@@ -1833,9 +1752,9 @@ not construct runtime C source.
 
 ## Self-Hosting
 
-btrc compiles itself. Alongside the reference compiler in Python (about 93k
+btrc compiles itself. Alongside the reference compiler in Python (about 98k
 lines), the same six-stage pipeline is implemented in btrc under
-[`src/compiler/btrc/`](src/compiler/btrc/) (about 81k lines of btrc): lexer,
+[`src/compiler/btrc/`](src/compiler/btrc/) (about 89k lines of btrc): lexer,
 parser, analyzer, structured IR lowering, optimizer, and C emitter. Its
 front-end resolves directed `import` dependencies and textual `#include`
 composition with strict imports enabled by default. Implicit whole-stdlib
@@ -1884,7 +1803,7 @@ src/
     windows/                   # MinGW-w64 POSIX compatibility layer
 
   compiler/
-    python/                    # Reference compiler btrcpy (~93k lines)
+    python/                    # Reference compiler btrcpy (~98k lines)
       __init__.py              # Stable Compiler/Options/Result API
       main.py                  # Thin process entry point
       application/             # Compiler, CompilationPipeline, immutable results
@@ -1910,10 +1829,10 @@ src/
       runtime/                 # Generated helper data and RuntimeHelperCatalog
       artifacts/               # Archive, cache, publication, stdlib, selfhost
 
-    btrc/                      # Self-hosted compiler btrcc (~81k lines of btrc)
+    btrc/                      # Self-hosted compiler btrcc (~89k lines of btrc)
       BtrccMain.btrc           # Thin process entry point
       Compiler.btrc            # Public Compiler application object
-      cli/                     # BtrccDriver and the Windows host entry point
+      cli/                     # BtrccDriver and the Windows/macOS host entry points
       pipeline/                # CompilerPipeline, options, and result models
       syntax/                  # Grammar, token, identity, type, literal owners
       lexer/                   # Lexer and imports-only stage manifest
@@ -1923,25 +1842,24 @@ src/
       ir/                      # Structured model, CEmitter, runtime/, lowering/,
                                #   lowering/ownership/, gpu/, optimization/, optimization/setjmp/
       generated/               # Data-only AST, hosted-ABI, native-ABI, runtime catalogs
-      tools/                   # Five entry points plus the ASDL schema owner
+      tools/                   # Lexer, parser and frontend inspection entry points
 
   stdlib/                      # Standard library: closed root prelude + package groups
     btrc.toml btrc.lock btrc.symbols
     README.md                  # Normative layout rules for the library
     Vector.btrc Map.btrc Set.btrc List.btrc Array.btrc Iterable.btrc
-    Strings.btrc Bytes.btrc Math.btrc Random.btrc Datetime.btrc
+    Strings.btrc Bytes.btrc Math.btrc Random.btrc DateTime.btrc Timer.btrc
     JSON.btrc TOML.btrc Regex.btrc Pattern.btrc BitPattern.btrc
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
     Result.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
     App/ Audio/ BackgroundJobs/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
     Graph/ HTTP/ Image/ LocalApplicationChannel/ Realtime/ Terminal/ Tray/ UI/
-    Windows/                   # POSIX header overlays for the MinGW toolchain
 
   tests/                       # One framework for both compilers
     runner.py                  # Unified runner: each .btrc test through BOTH compilers
     generate_expected.py       # Regenerate golden .stdout files
     conftest.py                # --compilers option + shared fixtures
-    corpus_files.py            # INCLUDE_FIXTURES / NON_CORPUS_DIRECTORIES
+    corpus_files.py            # include_fixtures() / NON_CORPUS_DIRECTORIES
     python/                    # Python reference-compiler unit tests
     btrc/                      # Self-hosted-compiler-specific tests
     lsp/ debug/ formatter/ vscode/    # Developer-tooling suites
@@ -1961,20 +1879,23 @@ tools/
   compiler_codegen/            # Generates both compilers' catalogs from shared specs
   NativeHeaderReader.cpp       # Clang-based C/C++/ObjC header reader
   native_plan.py               # btrc-native-plan adapter
+  perf.py                      # One program's cold build through both frontends (make perf-self)
+  budget_bench.py              # BTRSmith compile budgets (make perf-budget / perf-btrsmith)
+  qualification/               # Qualification ledger: denominators, skips, reports
   linux-ci.sh                  # Runs CI targets in the devcontainer
 
 examples/
   callback/                    # Owned callback closures over raw C contexts
   realtime-primitives/         # Standalone @realtime raw-buffer kernel
   todo/                        # Todo board -- classes, generics, collections
-  gui/                         # Portable native GUI, font smoke test
+  gui/                         # Portable native GUI (Native.btrc), font smoke test
   tray/                        # System tray application
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
     engine/                    # Camera, Light, Material, Ground, Sky, Scene,
-                               #   Input, Time, Gameobject, Renderer, Engine
+                               #   Input, Time, GameObject, Vector3, Engine
     Game.btrc                  # The ball game (WASD + space to jump)
-  sgd/                         # GPU-accelerated SGD -- @gpu, classes, Vector
-  sgd-render/                  # The same training loop, drawn frame by frame
+  sgd/                         # GPU-accelerated momentum SGD -- @gpu, classes, Vector
+  sgd-render/                  # Plain SGD on y = 2x + 3, drawn frame by frame
   triangle/                    # WebGPU triangle -- raw WGSL render pipeline
   native-package/              # Recursive native package built from its canonical plan
   make_gif.py                  # Turns rendered PPM frames into the README animations
@@ -1987,18 +1908,15 @@ nix/, flake.nix                # Packages, dev shell, and the Linux CI container
 
 `make test` is the gate: it runs the frozen compiler-boundary check, then the
 whole suite across both compilers, then the bootstrap fixed point serially.
-The last recorded green run (see [AGENTS.md](AGENTS.md)) is 7,274 passing tests
-and 20 skips, and `make bootstrap` proves the self-hosted compiler reproduces
-itself byte-for-byte. The corpus itself is 1,177 `.btrc` programs with golden
-output, alongside 449 pytest files.
+`make bootstrap` proves the self-hosted compiler reproduces itself
+byte-for-byte. [AGENTS.md](AGENTS.md) records the last green run of each gate
+with its pass and skip counts.
 
-Two things are worth knowing before you trust a green run. The skips are
+One thing is worth knowing before you trust a green run. The skips are
 missing tools rather than product defects -- `naga`, `lldb`, `pkg-config`, and
 platform-specific paths -- but they are still coverage you did not get, and the
 run looks identical either way: install those and the GPU/WGSL validation, the
-debugger, and the tray runtime all start testing for real. And the daemon test
-asserts a wall-clock deadline, so it can fail on a saturated machine and pass
-on a quiet one.
+debugger, and the tray runtime all start testing for real.
 
 ```bash
 make all                    # Build and verify the complete developer tree
@@ -2026,18 +1944,26 @@ make lint                   # Run generated-policy checks and the ruff linter
 make format                 # Format Python and BTRC sources
 make format-check           # Check Python and BTRC formatting (CI)
 make format-btrc            # Format canonical BTRC source, preserving intentional fixtures
+make format-btrc-check      # Check only the BTRC formatting
 make test-generate-goldens  # Regenerate golden .stdout files
 make compiler-codegen-generate # Regenerate compiler/devex data from shared specs
 make extension              # Package VS Code extension (.vsix)
 make extension-install      # Install VS Code extension (dev)
 make examples               # Build and run the example set (callback, realtime-primitives,
                             #   todo, gui, game, triangle, sgd, sgd-render)
+make examples-todo          # Also examples-game, examples-triangle, examples-sgd
+make examples-gui           # Build + run the headless GUI example
 make examples-native-package TARGET=linux-x64   # Build the recursive native package
-make gpu                    # Build compiler-only WebGPU compute runtime
+make gpu                    # Build the headless @gpu compute runtime (skips if WebGPU is missing)
 make gpu-required           # Require WebGPU compute dependencies and build runtime
 make bench                  # Measure compile time, startup, C size, cc time, generated-code speed
 make bench-check            # The same, failing on regressions against the tracked baseline
 make bench-baseline         # Record this platform's baseline in src/tests/fixtures/benchmarks
+make bench-peak             # Gate the cold --jobs 1 BTRSmith compile's peak memory
+make perf-self              # Profile btrcc's own cold build through both compilers
+make perf-budget            # Measure BTRSmith's compile budgets (also perf-btrsmith)
+make skip-gate              # Fail on a skip the expected-skip manifest does not explain
+make qualification-report   # Render the support/coverage report from gate outputs
 make devcontainer           # Generate .devcontainer/ and build image
 make linux-ci               # Run LINUX_CI_TARGETS in that container, as Linux CI does
 make clean                  # Remove build artifacts

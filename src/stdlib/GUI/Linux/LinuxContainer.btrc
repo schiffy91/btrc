@@ -50,5 +50,5 @@ class LinuxContainerView extends LinuxNodeView {
 class LinuxContainer extends LinuxContainerView implements IContainer {
 	public LinuxContainer(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); }
 
-	public void __del__() { if (self.node() != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native container destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native container destroyed before subtree cleanup completed"); } }
 }

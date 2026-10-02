@@ -676,19 +676,6 @@ class GeneratedRuntimeCatalogData {
 			"unknown"));
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
-			"__btrc_join",
-			[
-			"static inline char* __btrc_join(char** items, int count, const char* sep) {\n    if (count <= 0 || !items) return __btrc_string_alloc(0);\n    if (!sep) sep = \"\";\n    int separator_len = __btrc_string_length(sep);\n    long long total = (long long)separator_len * (long long)(count - 1);\n    if (total > INT_MAX) {\n        fprintf(stderr, \"btrc: string join overflow\\n\"); exit(1);\n    }\n    for (int i = 0; i < count; i++) {\n        int item_len = __btrc_string_length(items[i]);\n        if (item_len > INT_MAX - (int)total) {\n            fprintf(stderr, \"btrc: string join overflow\\n\"); exit(1);\n        }\n        total += item_len;\n    }\n    char* result = __btrc_string_alloc((int)total);\n    int position = 0;\n    for (int i = 0; i < count; i++) {\n        if (i > 0) {\n            memcpy(result + position, sep, (size_t)separator_len);\n            position += separator_len;\n        }\n        const char* item = items[i] ? items[i] : \"\";\n        int item_len = __btrc_string_length(item);\n        memcpy(result + position, ",
-			"item, (size_t)item_len);\n        position += item_len;\n    }\n    return result;\n}",
-		],
-			["__btrc_string_length", "__btrc_string_alloc"],
-			self.emptyStrings(),
-			self.emptyStrings(),
-			self.emptyStrings(),
-			false,
-			"unknown"));
-		self.rows.push(GeneratedRuntimeHelperRow(
-			"string",
 			"__btrc_charAt",
 			[
 			"static inline char __btrc_charAt(const char* s, int idx) {\n    if (!s) { fprintf(stderr, \"String index on NULL\\n\"); exit(1); }\n    int len = __btrc_string_length(s);\n    if (idx < 0 || idx >= len) { fprintf(stderr, \"String index out of bounds: %d (length %d)\\n\", idx, len); exit(1); }\n    return s[idx];\n}",
@@ -699,9 +686,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows6() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_indexOf",
@@ -714,6 +698,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows6() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_lastIndexOf",
@@ -798,9 +785,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows7() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_isDigitStr",
@@ -813,6 +797,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows7() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_isAlphaStr",
@@ -898,9 +885,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows8() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_parseLong",
@@ -913,6 +897,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows8() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_parseInt",
@@ -997,9 +984,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows9() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_ulongLongToString",
@@ -1012,6 +996,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows9() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"string",
 			"__btrc_floatToString",
@@ -1097,9 +1084,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows10() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_try_level",
@@ -1112,6 +1096,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows10() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_trycatch_globals",
@@ -1197,9 +1184,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows11() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"hash",
 			"__btrc_hash_real",
@@ -1212,6 +1196,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows11() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"hash",
 			"__btrc_hash_str",
@@ -1299,9 +1286,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows12() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_snapshot_state",
@@ -1314,6 +1298,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows12() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_snapshot_gate_state",
@@ -1398,9 +1385,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows13() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_destroyed_tracking_scope",
@@ -1414,6 +1398,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows13() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_is_destroyed",
@@ -1502,9 +1489,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows14() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_suspect",
@@ -1517,6 +1501,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows14() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_topology_state",
@@ -1606,9 +1593,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows15() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_graph_primitives",
@@ -1629,6 +1613,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows15() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_unregister_incoming",
@@ -1732,9 +1719,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows16() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_topology_cleanup",
@@ -1747,6 +1731,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows16() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_topology_complete",
@@ -1836,9 +1823,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows17() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_adopt_edge",
@@ -1852,6 +1836,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows17() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_unlink_edge",
@@ -1940,9 +1927,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows18() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_destroy_slot",
@@ -1956,6 +1940,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows18() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"cycles",
 			"__btrc_arc_destroy_edge",
@@ -2046,9 +2033,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows19() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_register_cleanup_kind",
@@ -2064,6 +2048,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows19() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_register_cleanup",
@@ -2148,9 +2135,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows20() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_run_cleanup_guarded",
@@ -2163,6 +2147,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows20() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"trycatch",
 			"__btrc_flush_cycles_guarded",
@@ -2249,9 +2236,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
-	}
-
-	private void pushRows21() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_close_descriptors_except_many",
@@ -2264,6 +2248,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
+	}
+
+	private void pushRows21() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_move_descriptor_outside_stdio",
@@ -2351,9 +2338,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
-	}
-
-	private void pushRows22() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_exec_signal_guard_parent_end",
@@ -2366,6 +2350,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"unknown"));
+	}
+
+	private void pushRows22() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_exec_signal_guard_child_end",
@@ -2452,9 +2439,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows23() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_thread_arc_dispose",
@@ -2467,6 +2451,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows23() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_thread_string_dispose",
@@ -2551,9 +2538,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows24() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_mutex_arc_retain",
@@ -2566,6 +2550,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows24() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_mutex_arc_release",
@@ -2654,9 +2641,6 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
-	}
-
-	private void pushRows25() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"threads",
 			"__btrc_mutex_val_set",
@@ -2670,6 +2654,9 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+	}
+
+	private void pushRows25() {
 		self.rows.push(GeneratedRuntimeHelperRow(
 			"process",
 			"__btrc_controlling_terminal_descriptor",
@@ -2755,5 +2742,17 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			false,
 			"unknown"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"runtime",
+			"__btrc_target_architecture",
+			[
+			"static inline int __btrc_target_architecture(void) {\n#if defined(BTRC_TARGET_ARCHITECTURE_OVERRIDE)\n    return BTRC_TARGET_ARCHITECTURE_OVERRIDE;\n#elif defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)\n    return 1;\n#elif defined(__aarch64__) || defined(_M_ARM64)\n    return 2;\n#else\n    return 0;\n#endif\n}",
+		],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"safe"));
 	}
 }

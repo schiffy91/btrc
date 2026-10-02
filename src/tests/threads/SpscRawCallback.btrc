@@ -34,11 +34,11 @@ int main() {
 
 	struct CallbackPacket output = {-1, 99ULL};
 	if (SPSCQueues.tryPopBorrowed(packets, &output) || output.sequence != -1 || output.token != 99ULL) {
-		SPSCQueues.close(packets);
+		SPSCQueues.close(&packets);
 		return 6;
 	}
 	if (SPSCQueues.tryPushBorrowed(packets, null) || SPSCQueues.tryPopBorrowed(packets, null)) {
-		SPSCQueues.close(packets);
+		SPSCQueues.close(&packets);
 		return 7;
 	}
 
@@ -47,27 +47,31 @@ int main() {
 	struct CallbackPacket third = {3, 33ULL};
 	struct CallbackPacket fourth = {4, 44ULL};
 	if (!SPSCQueues.tryPushBorrowed(packets, &first) || !SPSCQueues.tryPushBorrowed(packets, &second) || !SPSCQueues.tryPushBorrowed(packets, &third) || SPSCQueues.tryPushBorrowed(packets, &fourth)) {
-		SPSCQueues.close(packets);
+		SPSCQueues.close(&packets);
 		return 8;
 	}
 
 	struct CallbackContext context = {packets};
 	if (!consumePacket(&context, &output) || output.sequence != 1 || output.token != 11ULL || !SPSCQueues.tryPushBorrowed(packets, &fourth)) {
-		SPSCQueues.close(packets);
+		SPSCQueues.close(&packets);
 		return 9;
 	}
 	for (int expected = 2; expected <= 4; expected++) {
 		if (!consumePacket(&context, &output) || output.sequence != expected || output.token != (unsigned long long)expected * 11ULL) {
-			SPSCQueues.close(packets);
+			SPSCQueues.close(&packets);
 			return 10;
 		}
 	}
 	if (consumePacket(&context, &output)) {
-		SPSCQueues.close(packets);
+		SPSCQueues.close(&packets);
 		return 11;
 	}
 
-	SPSCQueues.close(packets);
+	SPSCQueues.close(&packets);
+	if (packets != null) {
+		return 12;
+	}
+	SPSCQueues.close(&packets);
 	SPSCQueues.close(null);
 	print("PASS spsc_raw_callback");
 	return 0;

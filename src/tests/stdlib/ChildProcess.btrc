@@ -1,7 +1,7 @@
 /* Structured child execution: argv stays tokenized, cwd/environment are
  * applied without a shell, stdout/stderr and status are captured separately,
  * and a timeout kills the whole process group. */
-import Library.Datetime;
+import Library.Timer;
 import Library.FileSystem;
 import Library.Platform;
 import Library.Process;
@@ -90,8 +90,6 @@ int main(int argc, char** argv) {
 	assert((fcntl(cloexecPipe[0], F_GETFD) & FD_CLOEXEC) != 0);
 	assert((fcntl(cloexecPipe[1], F_GETFD) & FD_CLOEXEC) != 0);
 	ChildProcess.closePipe(cloexecPipe);
-	assert(ChildProcessClock.milliseconds() >= 0LL);
-	assert(ChildProcessClock.deadline(LLONG_MAX - 2LL, 10) == LLONG_MAX);
 
 	string secret = "pa'ss word";
 	string renderedSecret = "tool --token " + ShellWords.quote(secret);

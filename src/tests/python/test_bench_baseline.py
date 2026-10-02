@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,6 +12,8 @@ import pytest
 from tools.bench import baseline
 from tools.bench.main import main
 from tools.bench.suite import PROGRAMS, Workload, discover, host_target, measure_peak, peak_counter, phase_times
+
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_metric_kinds_are_declared_by_the_name() -> None:
@@ -115,6 +118,27 @@ def test_render_lists_regressions_first() -> None:
 def test_phase_times_sum_repeated_marks() -> None:
     stderr = "btrcc timing: grammar=500us m-read=100us m-read=200us lower=1500us\nother line\n"
     assert phase_times(stderr) == pytest.approx({"grammar": 0.5, "m-read": 0.3, "lower": 1.5})
+
+
+def test_phase_times_read_annotated_marks_and_skip_counters() -> None:
+    stderr = (
+        "btrcc timing: a-records-stored(replayed=2,journaled=1)=1000us module-units=lowered:3,reused:2 "
+        "setjmp-analyses=2/3,rounds=1,levels=2 a-records-stored(replayed=0,journaled=4)=500us\n"
+    )
+    assert phase_times(stderr) == pytest.approx({"a-records-stored": 1.5})
+
+
+def test_no_tracked_file_spells_the_retired_timing_variable() -> None:
+    retired = "BTRC" + "C_TIMING"
+    tracked = (
+        subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True, timeout=60)
+        .stdout.decode()
+        .split("\0")
+    )
+    spelled = [
+        name for name in tracked if name and (ROOT / name).is_file() and retired.encode() in (ROOT / name).read_bytes()
+    ]
+    assert spelled == []
 
 
 def test_workloads_are_discovered_and_run_kinds_are_named() -> None:
@@ -235,7 +259,7 @@ def _stand_in_compiler(directory: Path) -> Path:
         "import json, os, sys\n"
         "with open(os.environ['BENCH_LOG'], 'a') as log:\n"
         "    run = {'argv': sys.argv[1:], 'cwd': os.getcwd(), 'cache': os.environ.get('BTRC_CACHE_DIR'),\n"
-        "           'timing': 'BTRC_TIMING' in os.environ or 'BTRCC_TIMING' in os.environ}\n"
+        "           'timing': 'BTRC_TIMING' in os.environ}\n"
         "    log.write(json.dumps(run) + '\\n')\n"
         "block = b'x' * ((48 + int(os.environ.get('BENCH_INJECT_MIB', '0'))) << 20)\n"
     )

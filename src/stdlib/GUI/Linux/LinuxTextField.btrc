@@ -44,34 +44,13 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 
 	private bool hasSelection() { return self._caret != self._anchor; }
 
-	private int previousBoundary(int offset) {
-		if (offset <= 0) { return 0; }
-		int index = offset - 1;
-		while (index > 0 && ((int)(unsigned char)self._text[index] & 0xc0) == 0x80) { index--; }
-		return index;
-	}
+	private int previousBoundary(int offset) { return UTF8.previous(self._text, self._text.len(), offset); }
 
-	private int nextBoundary(int offset) {
-		if (offset >= self._text.len()) { return self._text.len(); }
-		return LinuxScalar.decode(self._text, offset).next;
-	}
+	private int nextBoundary(int offset) { return UTF8.next(self._text, self._text.len(), offset); }
 
-	private bool wordByte(int index) { char c = self._text[index]; return Strings.isAlnum(c) || c == '_' || ((int)(unsigned char)c) >= 0x80; }
+	private int previousWord(int offset) { return UTF8.previousWord(self._text, self._text.len(), offset); }
 
-	private int previousWord(int offset) {
-		int index = self.previousBoundary(offset);
-		while (index > 0 && !self.wordByte(index)) { index = self.previousBoundary(index); }
-		while (index > 0 && self.wordByte(self.previousBoundary(index))) { index = self.previousBoundary(index); }
-		return index;
-	}
-
-	private int nextWord(int offset) {
-		int length = self._text.len();
-		int index = offset;
-		while (index < length && !self.wordByte(index)) { index = self.nextBoundary(index); }
-		while (index < length && self.wordByte(index)) { index = self.nextBoundary(index); }
-		return index;
-	}
+	private int nextWord(int offset) { return UTF8.nextWord(self._text, self._text.len(), offset); }
 
 	private double advanceTo(int offset) { return self.node().context.fonts.textWidth(self._text.substring(0, offset), self._size, self.node().scale(), false); }
 

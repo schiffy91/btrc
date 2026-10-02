@@ -171,7 +171,14 @@ class _BtrcFieldDeclaration:
 
 
 class BtrcAstRenderer:
-    """Render a schema as the self-hosted compiler's data-only fat AST node."""
+    """Render a schema as the self-hosted compiler's fat AST node.
+
+    The node is data/schema declarations plus one generated storage concern:
+    the list fields named in ``_LAZY_LIST_FIELDS`` keep nullable storage with a
+    generated reader (``name()``) and, unless read-only, a mutator
+    (``nameMut()``). Those accessors own allocation of that storage only; the
+    node owns no lookup, validation, selection or canonical formatting.
+    """
 
     _BUILTIN_TYPES: ClassVar[dict[str, str]] = {
         "identifier": "string",
@@ -205,8 +212,10 @@ class BtrcAstRenderer:
             f" * Auto-generated from {self._schema_path} by tools/compiler_codegen/ast.py.",
             " * DO NOT EDIT BY HAND. btrc lacks dynamic dispatch/downcast, so the AST",
             " * is one Node with a `kind` tag + the union of all fields.",
-            " * This file contains data/schema declarations only; canonical formatting",
-            " * belongs to the handwritten owner in syntax/Identity.btrc.",
+            " * This file contains data/schema declarations plus the generated",
+            " * accessors of its lazily allocated list fields, which own that storage",
+            " * only; canonical formatting belongs to the handwritten owner in",
+            " * syntax/Identity.btrc.",
             " */",
             "",
             "import Library.Vector;",
@@ -226,6 +235,7 @@ class BtrcAstRenderer:
         declarations = self._build_declarations()
 
         lazy = self._lazy_list_names()
+        self._validate_lazy_list_fields(declarations, lazy)
         lines.append(f"class {self._node_name} {{")
         lines.append("    public int kind;")
         for declaration in declarations:
@@ -303,7 +313,8 @@ class BtrcAstRenderer:
 
     # List fields converted to lazy storage. Renaming the backing field makes
     # the compiler name every site that still reads it directly, so a field is
-    # added here only together with its call sites.
+    # added here only together with its call sites. Each name is the btrc
+    # spelling of an ASDL sequence field; generation fails on any other name.
     _LAZY_LIST_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
             "segments",
@@ -340,6 +351,27 @@ class BtrcAstRenderer:
         """Lazy list fields, which only the source AST node carries."""
 
         return self._LAZY_LIST_FIELDS if self._node_name == "Node" else frozenset()
+
+    def _validate_lazy_list_fields(self, declarations: tuple[_BtrcFieldDeclaration, ...], lazy: frozenset[str]) -> None:
+        """Reject a lazy name that is not a generated ASDL list field."""
+
+        if not lazy:
+            return
+        list_fields = frozenset(
+            declaration.name for declaration in declarations if declaration.declared_type.startswith("Vector<")
+        )
+        unknown = sorted(lazy - list_fields)
+        if unknown:
+            raise GeneratedSourceError(
+                f"{type(self).__name__}._LAZY_LIST_FIELDS names fields that are not ASDL list fields of "
+                f"{self._node_name} in {self._schema_path}: " + ", ".join(unknown)
+            )
+        stray = sorted(self._LAZY_READ_ONLY_FIELDS - lazy)
+        if stray:
+            raise GeneratedSourceError(
+                f"{type(self).__name__}._LAZY_READ_ONLY_FIELDS names fields missing from _LAZY_LIST_FIELDS: "
+                + ", ".join(stray)
+            )
 
     @staticmethod
     def _storage_name(name: str) -> str:

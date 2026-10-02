@@ -164,7 +164,7 @@ class MacOSActionBinding {
 
 	public void close() {
 		if (self._closed) { return; }
-		if (self._scope.cancel() != CallbackCancellation.Complete) { throw "Native actions must drain before closing their binding"; }
+		if (self._scope.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Native actions must drain before closing their binding"; }
 		self._action.close();
 		self._closed = true;
 	}

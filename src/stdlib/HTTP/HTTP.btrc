@@ -1,13 +1,16 @@
 /* btrc standard library — HTTP
  *
  * HTTP/1.1 is separated by responsibility:
- *   framing (wire boundaries), socket I/O, public types, server, and client.
+ *   framing (wire boundaries), socket I/O, URL and status codecs, request
+ *   and response values, server, and client.
  * Importing Library.HTTP selects the whole group.
  */
 import Library.HTTP.HTTPClient;
 import Library.HTTP.HTTPFraming;
-import Library.HTTP.HTTPProtocol;
+import Library.HTTP.HTTPRequest;
+import Library.HTTP.HTTPResponse;
 import Library.HTTP.HTTPResponseHeaders;
 import Library.HTTP.HTTPServer;
 import Library.HTTP.HTTPSocket;
-import Library.HTTP.HTTPTypes;
+import Library.HTTP.HTTPStatus;
+import Library.HTTP.HTTPUrl;

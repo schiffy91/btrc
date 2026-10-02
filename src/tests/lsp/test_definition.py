@@ -87,12 +87,12 @@ import Library.*;
 
 int main() {
     string path = "/tmp";
-    string command = f"stat {UnixShell.quote(path)}";
+    string command = f"stat {ShellWords.quote(path)}";
     return 0;
 }
 """
     result = analyze(source)
-    loc = get_definition(result, pos_of(source, "UnixShell.quote", offset=10))
+    loc = get_definition(result, pos_of(source, "ShellWords.quote", offset=11))
 
     assert loc is not None
     assert loc.uri.endswith("/src/stdlib/Process.btrc")

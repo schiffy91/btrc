@@ -10,7 +10,7 @@ import Library.GUI.IView;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.TextRun;
 import Library.GUI.IImageHandle;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.GUI.MacOS.MacOSDirectoryPicker;
 import Library.Image.MacOS.MacOSEncodedImageDecoder;
 

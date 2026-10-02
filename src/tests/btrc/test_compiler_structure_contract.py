@@ -140,9 +140,7 @@ PUBLIC_ENTRY_POINTS = frozenset(
 )
 
 # Public APIs exercised by external probes, not yet by compiler call sites.
-# Identity: fixtures/TypeIdentityDriver.btrc. Objective-C IR constructors:
-# native/objective_c/ObjectiveCEmitter.btrc executes generated Foundation units;
-# remove those entries when native source-adapter lowering becomes their owner.
+# The two identity entries are driven by fixtures/TypeIdentityDriver.btrc.
 INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
