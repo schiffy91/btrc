@@ -88,6 +88,32 @@ row 7; a prototype whose parameter names differ from its definition's
 accepts it; `typedef void V; int f(V);` is refused although C reads it as
 `(void)`; and a diagnostic about an unnamed parameter names it `''`.
 
+## Several declarators (C row 3)
+
+One declaration may declare several names, as in C
+(`c_compat/MultipleDeclarators.btrc`): locals, globals, struct fields, class
+fields (`public int x = 1, y;`, each its own field with the same access),
+typedefs (`typedef int Count, *CountPointer;`) and the C-`for` initializer.
+`*` and a suffix `[n]` bind to their own declarator, so `int *p, v;` makes `v`
+an `int` (PLAN.md D20). Qualifiers, the base type, generic arguments and
+btrc's prefix `[]` are the specifier and are copied, so `int[] a = {1}, b =
+{2};` declares two arrays. Each declarator keeps its own initializer, its name
+is in scope only after its own declarator, initializers run left to right, and
+a managed declarator owns its own reference. Refused, with the same diagnostic
+in both compilers:
+
+| Source | Diagnostic |
+|--------|------------|
+| `int a, ;` | `Expected declarator name, got SEMICOLON ';'` |
+| `int f(), x;` (legal C) or `int x, f();` | `Function 'f' must be declared on its own, not beside other declarators` |
+| `int? a, b;` | `A nullable declaration declares one variable: write one declaration per nullable variable` |
+| `var a = 1, b = 2;` | `'var' declares one variable: write one 'var' declaration per variable` |
+| `int a, a;` | the ordinary duplicate-name diagnostic for locals, globals, fields and typedefs |
+| `int a[], b;` | `Variable 'a' requires an array bound or initializer` |
+
+A typedef declarator takes no array suffix yet (`typedef int Row[3];` waits
+for PLAN.md Stage 18), and a property declares one name.
+
 ## Variable-length arrays (C row 23)
 
 A block-scope array whose bound is not a constant expression is a C

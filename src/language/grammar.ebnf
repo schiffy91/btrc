@@ -201,7 +201,7 @@
   method_or_field_or_property
               = type_expr IDENT method_rest        (* method: has ( *)
               | type_expr IDENT property_rest       (* property: has { get/set *)
-              | type_expr IDENT field_rest          (* field: has ; or = *)
+              | type_expr IDENT field_rest          (* field: has ; , or = *)
               | type_expr "(" param_list ")" block  (* constructor: name matches class *)
               (* Disambiguation: peek at tokens after "type IDENT" to decide.
                  If "(": method or constructor.
@@ -210,7 +210,9 @@
 
   method_rest     = "(" param_list ")" ( block | ";" ) ;
   property_rest   = "{" { property_accessor } "}" ;
-  field_rest      = [ "=" expr ] ";" ;
+  field_rest      = [ array_suffix ] [ "=" expr ] { "," init_declarator } ";"
+                    (* Each declarator is its own field with the same access
+                       and its own initializer; a property declares one. *) ;
 
   property_accessor = ( "get" | "set" ) ( ";" | block ) ;
 
@@ -236,7 +238,7 @@
                    (struct { int x; };). A named struct with no body is a
                    forward declaration (struct Foo;). *) ;
 
-  struct_field = type_expr IDENT [ "[" expr "]" ] ";" ;
+  struct_field = type_expr IDENT [ array_suffix ] { "," declarator } ";" ;
 
   -- ----------------------------------------------------------------
   -- Enum declarations
@@ -256,7 +258,8 @@
   -- Typedef
   -- ----------------------------------------------------------------
 
-  typedef_decl = "typedef" type_expr IDENT ";" ;
+  typedef_decl = "typedef" type_expr IDENT { "," { "*" } IDENT } ";"
+                 (* One alias per declarator, each binding its own "*". *) ;
 
   -- ----------------------------------------------------------------
   -- Function declaration
@@ -280,6 +283,22 @@
                  as a suffix on the declared name (e.g. int arr[10]). *) ;
 
   type_qualifier = "const" | "static" | "extern" | "volatile" ;
+
+  -- Several declarators (C11 6.7.6, PLAN.md D20). The first declarator's
+  -- "*"s are the ones type_expr reads; every later declarator writes its own,
+  -- so `int *p, v;` makes v an int. Everything else type_expr reads is the
+  -- specifier and is copied to each declarator: qualifiers, the base type,
+  -- generic arguments and btrc's prefix "[]" (`int[] a, b;` declares two
+  -- arrays). A suffix "[n]" and an initializer belong to their own
+  -- declarator, whose scope starts after it; initializers run left to right.
+  -- Each declarator becomes its own declaration node, spliced in source
+  -- order. Refused: a function declarator beside others (`int f(), x;`), a
+  -- nullable specifier ("?") with several declarators, and several "var"
+  -- declarators.
+
+  declarator      = { "*" } IDENT [ array_suffix ] ;
+  init_declarator = declarator [ "=" expr ] ;
+  array_suffix    = "[" [ expr ] "]" ;
 
   base_type = "void" | "int" | "float" | "double" | "char" | "bool" | "string"
             | "short" [ "int" ]
@@ -373,7 +392,7 @@
             | expr_stmt ;
 
   var_decl_stmt = ( "var" IDENT "=" expr
-                  | type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
+                  | type_expr IDENT [ array_suffix ] [ "=" expr ] { "," init_declarator }
                   ) ";"
                   (* Disambiguation: "var" keyword is unambiguous.
                      For typed declarations, parser uses lookahead to check
@@ -405,7 +424,9 @@
 
   for_init = var_decl_no_semi | expr ;
   var_decl_no_semi = "var" IDENT "=" expr
-                   | type_expr IDENT [ "=" expr ] ;
+                   | type_expr IDENT [ array_suffix ] [ "=" expr ] { "," init_declarator }
+                     (* Several declarators share the loop's scope; they lower
+                        to declarations in a block enclosing the loop. *) ;
 
   parallel_for_stmt = "parallel" "for" IDENT "in" expr block ;
 

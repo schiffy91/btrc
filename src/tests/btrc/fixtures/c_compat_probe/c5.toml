@@ -249,9 +249,9 @@ row = "19"
 construct = "for (int i = 0, int j = 0; ...) repeats a specifier"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 2:16" }
-btrcc = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 2:16" }
+revision = "35e6b91"
+python = { diagnostic = "Expected declarator name, got INT 'int' at 2:18" }
+btrcc = { diagnostic = "Expected declarator name, got INT 'int' at 2:18" }
 source = '''
 int main() {
 	for (int i = 0, int j = 0; i < 2; i++) {}

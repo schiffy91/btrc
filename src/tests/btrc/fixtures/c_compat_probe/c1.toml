@@ -138,67 +138,33 @@ id = "r03-multiple-local-declarators"
 row = "3"
 construct = "int a = 1, b = 2;"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 3:15" }
-btrcc = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 3:15" }
-source = '''
-#include <assert.h>
-int main() {
-	int first = 1, second = first + 1;
-	int x, y;
-	x = 3;
-	y = 4;
-	assert(first == 1 && second == 2);
-	assert(x + y == 7);
-	print("PASS: multiple local declarators");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
+btrcc = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
+corpus = "c_compat/MultipleDeclarators.btrc"
 
 [[probe]]
 id = "r03-pointer-declarator-binding"
 row = "3"
 construct = "int *p, value; binds * per declarator"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 3:2" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 3:2" }
-source = '''
-#include <assert.h>
-int main() {
-	int *pointer, value;
-	value = 5;
-	pointer = &value;
-	*pointer = 6;
-	assert(value == 6);
-	assert(sizeof(value) == sizeof(int));
-	print("PASS: pointer declarator binding");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
+btrcc = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
+corpus = "c_compat/MultipleDeclarators.btrc"
 
 [[probe]]
 id = "r03-multiple-field-declarators"
 row = "3"
 construct = "int x, y; in a struct"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 2:21" }
-btrcc = { diagnostic = "Expected SEMICOLON, got COMMA ',' at 2:21" }
-source = '''
-#include <assert.h>
-struct Point { int x, y; };
-int main() {
-	struct Point point = {1, 2};
-	assert(point.x + point.y == 3);
-	print("PASS: multiple field declarators");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "35e6b91"
+python = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
+btrcc = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
+corpus = "c_compat/MultipleDeclarators.btrc"
 
 [[probe]]
 id = "r03-missing-declarator"
@@ -206,10 +172,9 @@ row = "3"
 construct = "int a, ; is invalid C"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token 'int' in expression at 2:2" }
-btrcc = { diagnostic = "Expected expression, got INT 'int' at 2:2" }
+revision = "35e6b91"
+python = { diagnostic = "Expected declarator name, got SEMICOLON ';' at 2:13" }
+btrcc = { diagnostic = "Expected declarator name, got SEMICOLON ';' at 2:13" }
 source = '''
 int main() {
 	int first, ;

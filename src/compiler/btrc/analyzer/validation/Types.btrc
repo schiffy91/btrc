@@ -99,6 +99,14 @@ class TypeValidator {
 		exit(1);
 	}
 
+	/* A declaration's name token, where the reference reports a duplicate. */
+	class void failAtName(string message, Node declaration) {
+		int line = declaration.nameLine != 0 ? declaration.nameLine : declaration.line;
+		int col = declaration.nameLine != 0 ? declaration.nameCol : declaration.col;
+		fprintf(stderr, "error: %s at %d:%d\n", message, line, col);
+		exit(1);
+	}
+
 	class Map<string, Node> cloneTypes(Map<string, Node> source) {
 		Map<string, Node> result = {};
 		result.merge(source);

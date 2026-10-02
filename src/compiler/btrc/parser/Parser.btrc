@@ -156,24 +156,25 @@ class Parser {
 	public Node parseProgram() {
 		Node prog = Node();
 		prog.kind = NK_PROGRAM;
+		Vector<Node> declarations = prog.declarationsMut();
 		while (!self.atEnd() && !self.failed) {
-			Node d = self.parseTopLevelItem();
-			if (!self.failed) {
-				prog.declarationsMut().push(d);
-			}
+			self.parseTopLevelItemInto(declarations);
 		}
 		return prog;
 	}
 
-	public Node parseTopLevelItem() {
+	/* One top-level item; a declaration contributes one node per declarator. */
+	public void parseTopLevelItemInto(Vector<Node> declarations) {
 		Token tok = self.peek();
 
 		if (tok.type == "PREPROCESSOR") {
-			return self.parsePreprocessor();
+			declarations.push(self.parsePreprocessor());
+			return;
 		}
 
 		if (tok.type == "IMPORT") {
-			return self.parseImportDecl();
+			declarations.push(self.parseImportDecl());
+			return;
 		}
 
 		bool isGpu = false;
@@ -199,12 +200,14 @@ class Parser {
 		}
 
 		if (tok.type == "INTERFACE" && !isGpu && !isRealtime && !keepReturn) {
-			return self.parseInterfaceDecl();
+			declarations.push(self.parseInterfaceDecl());
+			return;
 		}
 
 		if (tok.type == "ABSTRACT" && !isGpu && !isRealtime && !keepReturn) {
 			if (self.peekAt(1).type == "CLASS") {
-				return self.parseClassDecl(true);
+				declarations.push(self.parseClassDecl(true));
+				return;
 			}
 		}
 
@@ -212,7 +215,8 @@ class Parser {
 			if (self.peekAt(1).type == "IDENT") {
 				string after = self.peekAt(2).type;
 				if (after == "LBRACE" || after == "LT" || after == "EXTENDS" || after == "IMPLEMENTS") {
-					return self.parseClassDecl(false);
+					declarations.push(self.parseClassDecl(false));
+					return;
 				}
 			}
 		}
@@ -222,36 +226,42 @@ class Parser {
 			if (nt == "IDENT") {
 				string after2 = self.peekAt(2).type;
 				if (after2 == "LBRACE" || after2 == "SEMICOLON") {
-					return self.parseStructDecl();
+					declarations.push(self.parseStructDecl());
+					return;
 				}
 			} else if (nt == "LBRACE") {
-				return self.parseStructDecl();
+				declarations.push(self.parseStructDecl());
+				return;
 			}
 		}
 
 		if (tok.type == "ENUM" && !isGpu && !isRealtime && !keepReturn) {
 			if (self.peekAt(1).type == "CLASS") {
-				return self.parseRichEnumDecl();
+				declarations.push(self.parseRichEnumDecl());
+				return;
 			}
-			return self.parseEnumDecl();
+			declarations.push(self.parseEnumDecl());
+			return;
 		}
 
 		if (tok.type == "TYPEDEF" && !isGpu && !isRealtime && !keepReturn) {
-			return self.parseTypedefDecl();
+			self.parseTypedefDeclsInto(declarations);
+			return;
 		}
 
 		if (self.isTypeStartTok(tok)) {
-			return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
+			self.parseFunctionOrVarDeclInto(declarations, isGpu, isRealtime, keepReturn);
+			return;
 		}
 
 		// A stray file-scope `;` is not ISO C (C11 6.9).
 		if (tok.type == "SEMICOLON") {
 			self.failAt("Unexpected token ';' at top level", tok);
-			return Node();
+			return;
 		}
 
 		// Fallback: treat as function/var.
-		return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
+		self.parseFunctionOrVarDeclInto(declarations, isGpu, isRealtime, keepReturn);
 	}
 
 	/* ---- Import declaration ---- */
@@ -373,14 +383,14 @@ class Parser {
 
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
-			Node m = self.parseClassMember(isAbstract);
-			n.membersMut().push(m);
+			self.parseClassMemberInto(n.membersMut(), isAbstract);
 		}
 		self.expect("RBRACE");
 		return n;
 	}
 
-	public Node parseClassMember(bool allowAbstract) {
+	/* One class member declaration; a field declaration adds one per declarator. */
+	public void parseClassMemberInto(Vector<Node> members, bool allowAbstract) {
 		Token tok = self.peek();
 		string access = "";
 		if (tok.type == "PUBLIC") {
@@ -427,37 +437,37 @@ class Parser {
 		if (self.check("LPAREN")) {
 			Node constructor = self.parseMethodRest(access, typeExpr, typeExpr.base, isGpu, isRealtime, tok.line, tok.col, typeExpr.line, typeExpr.col, isAbstractMethod, keepReturn);
 			constructor.isConstructor = true;
-			return constructor;
+			members.push(constructor);
+			return;
 		}
 
 		Token nameTok = self.expect("IDENT");
 		string name = nameTok.value;
 
 		if (self.check("LT") || self.check("LPAREN")) {
-			return self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, keepReturn);
+			members.push(self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, keepReturn));
+			return;
 		}
 		if (isRealtime) {
 			self.failAt("@realtime cannot be applied to fields or properties", nameTok);
 		}
+		bool prefixArray = typeExpr.isArray;
 		self.parseDeclaratorArraySuffix(typeExpr);
 		if (self.check("LBRACE") && self.isPropertyStart()) {
-			return self.parseProperty(access, typeExpr, name, tok.line, tok.col, nameTok.line, nameTok.col);
-		} else {
-			Node fd = Node();
-			fd.kind = NK_FIELD_DECL;
-			fd.access = access;
-			fd.type = typeExpr;
-			fd.name = name;
-			fd.line = tok.line;
-			fd.col = tok.col;
-			fd.nameLine = nameTok.line;
-			fd.nameCol = nameTok.col;
-			if (self.matchTok("EQ")) {
-				Node init = self.parseExpression();
-				fd.initializer = init;
-			}
-			self.expect("SEMICOLON");
-			return fd;
+			members.push(self.parseProperty(access, typeExpr, name, tok.line, tok.col, nameTok.line, nameTok.col));
+			return;
+		}
+		// `public int x, y;` declares one field per declarator, each with its
+		// own initializer; the access specifier is copied to every one.
+		int first = members.len;
+		self.parseDeclarators(members, typeExpr, nameTok, tok, prefixArray, true, true);
+		self.expect("SEMICOLON");
+		int index = first;
+		while (index < members.len) {
+			Node field = members.get(index);
+			field.kind = NK_FIELD_DECL;
+			field.access = access;
+			index++;
 		}
 	}
 
@@ -573,8 +583,7 @@ class Parser {
 		if (self.matchTok("LBRACE")) {
 			n.isForward = false;
 			while (!self.check("RBRACE") && !self.atEnd()) {
-				Node fdef = self.parseStructField();
-				n.fieldsMut().push(fdef);
+				self.parseStructFieldsInto(n.fieldsMut());
 			}
 			self.expect("RBRACE");
 			self.expect("SEMICOLON");
@@ -585,18 +594,26 @@ class Parser {
 		return n;
 	}
 
-	public Node parseStructField() {
+	public void parseStructFieldsInto(Vector<Node> fields) {
+		Token start = self.peek();
 		Node ftype = self.parseType();
+		bool prefixArray = ftype.isArray;
 		Token fnameTok = self.expect("IDENT");
 		self.parseDeclaratorArraySuffix(ftype);
-		Node fd = Node();
-		fd.kind = NK_FIELD_DEF;
-		fd.type = ftype;
-		fd.name = fnameTok.value;
-		fd.line = fnameTok.line;
-		fd.col = fnameTok.col;
+		int first = fields.len;
+		self.parseDeclarators(fields, ftype, fnameTok, start, prefixArray, false, true);
 		self.expect("SEMICOLON");
-		return fd;
+		// A struct field is positioned at its name.
+		int index = first;
+		while (index < fields.len) {
+			Node field = fields.get(index);
+			field.kind = NK_FIELD_DEF;
+			field.line = field.nameLine;
+			field.col = field.nameCol;
+			field.nameLine = 0;
+			field.nameCol = 0;
+			index++;
+		}
 	}
 
 	/* ---- Interface declaration ---- */
@@ -739,20 +756,25 @@ class Parser {
 
 	/* ---- Typedef declaration ---- */
 
-	public Node parseTypedefDecl() {
+	/* `typedef int A, *B;` declares one alias per declarator, `*` bound to each. */
+	public void parseTypedefDeclsInto(Vector<Node> declarations) {
 		Token tok = self.expect("TYPEDEF");
 		Node original = self.parseType();
+		bool prefixArray = original.isArray;
 		Token aliasTok = self.expect("IDENT");
+		int first = declarations.len;
+		self.parseDeclarators(declarations, original, aliasTok, tok, prefixArray, false, false);
 		self.expect("SEMICOLON");
-		Node n = Node();
-		n.kind = NK_TYPEDEF_DECL;
-		n.original = original;
-		n.alias = aliasTok.value;
-		n.line = tok.line;
-		n.col = tok.col;
-		n.nameLine = aliasTok.line;
-		n.nameCol = aliasTok.col;
-		return n;
+		int index = first;
+		while (index < declarations.len) {
+			Node alias = declarations.get(index);
+			alias.kind = NK_TYPEDEF_DECL;
+			alias.original = alias.type;
+			alias.type = null;
+			alias.alias = alias.name;
+			alias.name = "";
+			index++;
+		}
 	}
 
 	public Node parsePreprocessor() {
@@ -765,7 +787,7 @@ class Parser {
 		return n;
 	}
 
-	public Node parseFunctionOrVarDecl(bool isGpu, bool isRealtime, bool keepReturn) {
+	public void parseFunctionOrVarDeclInto(Vector<Node> declarations, bool isGpu, bool isRealtime, bool keepReturn) {
 		Token start = self.peek();
 
 		if (self.check("VAR")) {
@@ -776,6 +798,7 @@ class Parser {
 			Token nameTok = self.expect("IDENT");
 			self.expect("EQ");
 			Node init = self.parseExpression();
+			self.refuseVarDeclarators();
 			self.expect("SEMICOLON");
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
@@ -786,10 +809,12 @@ class Parser {
 			vd.col = start.col;
 			vd.nameLine = nameTok.line;
 			vd.nameCol = nameTok.col;
-			return vd;
+			declarations.push(vd);
+			return;
 		}
 
 		Node typeExpr = self.parseType();
+		bool prefixArray = typeExpr.isArray;
 		Token nameTok = self.expect("IDENT");
 		string name = nameTok.value;
 		self.parseDeclaratorArraySuffix(typeExpr);
@@ -798,6 +823,9 @@ class Parser {
 			self.expect("LPAREN");
 			Vector<Node> params = self.parseParamList(true);
 			self.expect("RPAREN");
+			if (self.check("COMMA")) {
+				self.failAt(Parser.functionBesideDeclaratorsMessage(name), nameTok);
+			}
 			Node fn = Node();
 			fn.kind = NK_FUNCTION_DECL;
 			fn.returnType = typeExpr;
@@ -810,33 +838,21 @@ class Parser {
 			fn.col = start.col;
 			fn.nameLine = nameTok.line;
 			fn.nameCol = nameTok.col;
+			declarations.push(fn);
 			if (self.matchTok("SEMICOLON")) {
 				fn.bodyNode = null;
-				return fn;
+				return;
 			}
 			if (self.check("LBRACE")) { self.refuseUnnamedDefinition(params); }
 			Node body = self.parseBlock();
 			fn.bodyNode = body;
-			return fn;
-		} else {
-			if (isGpu || isRealtime) {
-				self.failAt((isGpu ? "@gpu" : "@realtime") + " cannot be applied to variables", start);
-			}
-			Node vd = Node();
-			vd.kind = NK_VAR_DECL_STMT;
-			vd.type = typeExpr;
-			vd.name = name;
-			vd.line = start.line;
-			vd.col = start.col;
-			vd.nameLine = nameTok.line;
-			vd.nameCol = nameTok.col;
-			if (self.matchTok("EQ")) {
-				Node init = self.parseExpression();
-				vd.initializer = init;
-			}
-			self.expect("SEMICOLON");
-			return vd;
+			return;
 		}
+		if (isGpu || isRealtime) {
+			self.failAt((isGpu ? "@gpu" : "@realtime") + " cannot be applied to variables", start);
+		}
+		self.parseDeclarators(declarations, typeExpr, nameTok, start, prefixArray, true, true);
+		self.expect("SEMICOLON");
 	}
 
 	/* ---- Types ---- */
@@ -1126,6 +1142,107 @@ class Parser {
 		}
 	}
 
+	/* A declaration's declarators, the first one's name and array suffix
+	 * already read, appended to `into` as VarDeclStmt records in source order;
+	 * field, member and typedef callers re-shape them in place. `typeExpr` is
+	 * the specifier plus the first declarator's `*`s and suffix; `prefixArray`
+	 * says whether btrc's `T[]` spelling, which belongs to the specifier, was
+	 * written before the name. Each later declarator binds its own `*`s,
+	 * array suffix and initializer to a deep copy of the specifier (C11 6.7.6,
+	 * PLAN.md D20), so `int *p, v;` makes `v` an `int`. */
+	public void parseDeclarators(Vector<Node> into, Node typeExpr, Token nameTok, Token start, bool prefixArray, bool initializers, bool arraySuffixes) {
+		Node first = Node();
+		first.kind = NK_VAR_DECL_STMT;
+		first.type = typeExpr;
+		first.name = nameTok.value;
+		first.line = start.line;
+		first.col = start.col;
+		first.nameLine = nameTok.line;
+		first.nameCol = nameTok.col;
+		if (initializers && self.matchTok("EQ")) {
+			Node init = self.parseExpression();
+			first.initializer = init;
+		}
+		into.push(first);
+		if (!self.check("COMMA")) { return; }
+		if (typeExpr.isNullable) {
+			self.failAt(Parser.nullableDeclaratorsMessage(), self.peek());
+			return;
+		}
+		Node specifier = Parser.copySpecifier(typeExpr);
+		specifier.pointerDepth = 0;
+		specifier.isArray = prefixArray;
+		specifier.arraySize = null;
+		specifier.nullableOuterDepth = 0;
+		while (!self.failed && self.matchTok("COMMA")) {
+			Token declaratorStart = self.peek();
+			Node declaratorType = Parser.copySpecifier(specifier);
+			while (self.matchTok("STAR")) {
+				declaratorType.pointerDepth = declaratorType.pointerDepth + 1;
+			}
+			Token declaratorName = self.expectDeclaratorName();
+			if (self.check("LPAREN")) {
+				self.failAt(Parser.functionBesideDeclaratorsMessage(declaratorName.value), declaratorName);
+				return;
+			}
+			if (arraySuffixes) { self.parseDeclaratorArraySuffix(declaratorType); }
+			Node declarator = Node();
+			declarator.kind = NK_VAR_DECL_STMT;
+			declarator.type = declaratorType;
+			declarator.name = declaratorName.value;
+			declarator.line = declaratorStart.line;
+			declarator.col = declaratorStart.col;
+			declarator.nameLine = declaratorName.line;
+			declarator.nameCol = declaratorName.col;
+			if (initializers && self.matchTok("EQ")) {
+				Node init = self.parseExpression();
+				declarator.initializer = init;
+			}
+			into.push(declarator);
+		}
+	}
+
+	/* A deep copy of a declaration specifier (TypeExpr) for one more declarator. */
+	class Node copySpecifier(Node source) {
+		Node duplicate = Node();
+		duplicate.kind = NK_TYPE_EXPR;
+		duplicate.base = source.base;
+		duplicate.pointerDepth = source.pointerDepth;
+		duplicate.isArray = source.isArray;
+		duplicate.arraySize = source.arraySize;
+		duplicate.isConst = source.isConst;
+		duplicate.isNullable = source.isNullable;
+		duplicate.nullableOuterDepth = source.nullableOuterDepth;
+		duplicate.isStatic = source.isStatic;
+		duplicate.isExtern = source.isExtern;
+		duplicate.isVolatile = source.isVolatile;
+		duplicate.line = source.line;
+		duplicate.col = source.col;
+		Vector<Node> arguments = [];
+		for argument in source.genericArgs() { arguments.push(Parser.copySpecifier(argument)); }
+		duplicate.genericArgsStorage = arguments;
+		return duplicate;
+	}
+
+	/* A later declarator's name; a keyword there is the reserved-word refusal. */
+	public Token expectDeclaratorName() {
+		Token tok = self.peek();
+		if (tok.type == "IDENT" || self.isReservedName(self.pos)) { return self.expect("IDENT"); }
+		self.failExpected("declarator name", tok);
+		return tok;
+	}
+
+	/* `var` infers one variable's type from its one initializer. */
+	public void refuseVarDeclarators() {
+		if (self.check("COMMA")) { self.failAt(Parser.varDeclaratorsMessage(), self.peek()); }
+	}
+
+	class string nullableDeclaratorsMessage() { return "A nullable declaration declares one variable: write one declaration per nullable variable"; }
+
+	class string varDeclaratorsMessage() { return "'var' declares one variable: write one 'var' declaration per variable"; }
+
+	class string functionBesideDeclaratorsMessage(string name) { return f"Function '{name}' must be declared on its own, not beside other declarators"; }
+
 	/* ---- Parameters ---- */
 
 	/* `(void)` is C's spelling of an empty list. Only a body-less function
@@ -1213,11 +1330,20 @@ class Parser {
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			// An empty statement inside a statement list produces nothing.
 			if (self.matchTok("SEMICOLON")) { continue; }
-			Node s = self.parseStatement();
-			blk.statementsMut().push(s);
+			self.parseBlockItemInto(blk.statementsMut());
 		}
 		self.expect("RBRACE");
 		return blk;
+	}
+
+	/* One block item; a declaration splices one statement per declarator. */
+	public void parseBlockItemInto(Vector<Node> statements) {
+		if (self.isVarDeclStart()) {
+			self.parseVarDeclStmtsInto(statements);
+			self.expect("SEMICOLON");
+			return;
+		}
+		statements.push(self.parseStatement());
 	}
 
 	/* The substatement of if/else/while/C-for/do. A braced body is its own
@@ -1309,10 +1435,6 @@ class Parser {
 			return n;
 		}
 
-		if (self.isVarDeclStart()) {
-			return self.parseVarDeclStmt();
-		}
-
 		return self.parseExprStmt();
 	}
 
@@ -1370,16 +1492,18 @@ class Parser {
 			// `int string = 0;` is a declaration the name check refuses;
 			// `int function(...)` stays a verbose lambda.
 			string follower = self.tokenTypeAt(typeEnd + 1);
-			return self.isReservedName(typeEnd) && (follower == "EQ" || follower == "SEMICOLON" || follower == "LBRACKET");
+			return self.isReservedName(typeEnd) && (follower == "EQ" || follower == "SEMICOLON" || follower == "LBRACKET" || follower == "COMMA");
 		}
 		if (self.deferredCSpecifierMessage(self.tokens.get(typeEnd).value) != "") {
 			return true;
 		}
 		string afterName = self.tokenTypeAt(typeEnd + 1);
-		return afterName == "EQ" || afterName == "SEMICOLON" || afterName == "LBRACKET";
+		return afterName == "EQ" || afterName == "SEMICOLON" || afterName == "LBRACKET" || afterName == "COMMA";
 	}
 
-	public Node parseVarDeclStmt() {
+	/* A block-scope or C-for declaration up to its terminator, one
+	 * VarDeclStmt per declarator. */
+	public void parseVarDeclStmtsInto(Vector<Node> statements) {
 		Token tok = self.peek();
 
 		if (self.check("VAR")) {
@@ -1387,7 +1511,7 @@ class Parser {
 			Token nameTok = self.expect("IDENT");
 			self.expect("EQ");
 			Node init = self.parseExpression();
-			self.expect("SEMICOLON");
+			self.refuseVarDeclarators();
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
 			vd.type = null;
@@ -1397,26 +1521,15 @@ class Parser {
 			vd.col = tok.col;
 			vd.nameLine = nameTok.line;
 			vd.nameCol = nameTok.col;
-			return vd;
+			statements.push(vd);
+			return;
 		}
 
 		Node typeExpr = self.parseType();
+		bool prefixArray = typeExpr.isArray;
 		Token nameTok = self.expect("IDENT");
-		Node vd = Node();
-		vd.kind = NK_VAR_DECL_STMT;
-		vd.type = typeExpr;
-		vd.name = nameTok.value;
-		vd.line = tok.line;
-		vd.col = tok.col;
-		vd.nameLine = nameTok.line;
-		vd.nameCol = nameTok.col;
 		self.parseDeclaratorArraySuffix(typeExpr);
-		if (self.matchTok("EQ")) {
-			Node init = self.parseExpression();
-			vd.initializer = init;
-		}
-		self.expect("SEMICOLON");
-		return vd;
+		self.parseDeclarators(statements, typeExpr, nameTok, tok, prefixArray, true, true);
 	}
 
 	/* ---- Control flow ---- */
@@ -1531,45 +1644,10 @@ class Parser {
 
 		if (!self.check("SEMICOLON")) {
 			if (self.isVarDeclStart()) {
-				Token start = self.peek();
-				if (self.check("VAR")) {
-					self.advance();
-					Token nameTok = self.expect("IDENT");
-					self.expect("EQ");
-					Node initVal = self.parseExpression();
-					Node vd = Node();
-					vd.kind = NK_VAR_DECL_STMT;
-					vd.type = null;
-					vd.name = nameTok.value;
-					vd.initializer = initVal;
-					vd.line = start.line;
-					vd.col = start.col;
-					vd.nameLine = nameTok.line;
-					vd.nameCol = nameTok.col;
-					Node iv = Node();
-					iv.kind = NK_FOR_INIT_VAR;
-					iv.declarationsMut().push(vd);
-					n.init = iv;
-				} else {
-					Node typeExpr = self.parseType();
-					Token nameTok = self.expect("IDENT");
-					Node vd = Node();
-					vd.kind = NK_VAR_DECL_STMT;
-					vd.type = typeExpr;
-					vd.name = nameTok.value;
-					vd.line = start.line;
-					vd.col = start.col;
-					vd.nameLine = nameTok.line;
-					vd.nameCol = nameTok.col;
-					if (self.matchTok("EQ")) {
-						Node iv2 = self.parseExpression();
-						vd.initializer = iv2;
-					}
-					Node ivar = Node();
-					ivar.kind = NK_FOR_INIT_VAR;
-					ivar.declarationsMut().push(vd);
-					n.init = ivar;
-				}
+				Node ivar = Node();
+				ivar.kind = NK_FOR_INIT_VAR;
+				self.parseVarDeclStmtsInto(ivar.declarationsMut());
+				n.init = ivar;
 			} else {
 				Node e = self.parseExpression();
 				Node ie = Node();
@@ -1648,8 +1726,7 @@ class Parser {
 		self.expect("COLON");
 		while (!self.check("CASE") && !self.check("DEFAULT") && !self.check("RBRACE") && !self.atEnd()) {
 			if (self.matchTok("SEMICOLON")) { continue; }
-			Node s = self.parseStatement();
-			n.bodyNodeListMut().push(s);
+			self.parseBlockItemInto(n.bodyNodeListMut());
 		}
 		return n;
 	}

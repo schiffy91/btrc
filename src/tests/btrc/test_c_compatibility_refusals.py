@@ -293,6 +293,102 @@ C_REFUSALS = [
     ),
 ]
 
+FUNCTION_BESIDE = "Function '{}' must be declared on its own, not beside other declarators"
+
+# Row 3: several declarators (src/tests/c_compat/MultipleDeclarators.btrc). C
+# itself rejects a missing declarator and a repeated name; btrc also refuses a
+# function declarator beside others (legal C), several declarators on a
+# nullable specifier and on `var`. Each declarator is checked on its own, so
+# `int a[], b;` meets the unsized-array rule and a later name is not yet in
+# scope in an earlier initializer.
+DECLARATOR_REFUSALS = [
+    pytest.param(
+        "int main() {\n\tint first, ;\n\treturn 0;\n}",
+        ("Expected declarator name, got SEMICOLON ';'", 2, 13),
+        id="r03-missing-declarator",
+    ),
+    pytest.param(
+        "int main() { for (int i = 0, ; i < 2; i++) {} return 0; }",
+        ("Expected declarator name, got SEMICOLON ';'", 1, 30),
+        id="r03-missing-for-declarator",
+    ),
+    pytest.param(
+        "int main() { for (int i = 0, int j = 0; i < 2; i++) {} return 0; }",
+        ("Expected declarator name, got INT 'int'", 1, 30),
+        id="r03-repeated-specifier",
+    ),
+    pytest.param(
+        "int f(), x;\nint main() { return 0; }",
+        (FUNCTION_BESIDE.format("f"), 1, 5),
+        id="r03-function-first",
+    ),
+    pytest.param(
+        "int x, f();\nint main() { return 0; }",
+        (FUNCTION_BESIDE.format("f"), 1, 8),
+        id="r03-function-later",
+    ),
+    pytest.param(
+        "int main() { int x, f(); return 0; }",
+        (FUNCTION_BESIDE.format("f"), 1, 21),
+        id="r03-block-function-later",
+    ),
+    pytest.param(
+        "int main() { int a, a; return 0; }",
+        ("Duplicate variable name 'a' in the same scope", 1, 21),
+        id="r03-duplicate-local",
+    ),
+    pytest.param(
+        "int main() { int *a, *a; return 0; }",
+        ("Duplicate variable name 'a' in the same scope", 1, 23),
+        id="r03-duplicate-local-at-name",
+    ),
+    pytest.param(
+        "int main() { for (int i = 0, i = 1; i < 2; i++) {} return 0; }",
+        ("Duplicate variable name 'i' in the same scope", 1, 30),
+        id="r03-duplicate-for-declarator",
+    ),
+    pytest.param(
+        "int g, g;\nint main() { return 0; }",
+        ("Duplicate definition of global 'g'", 1, 8),
+        id="r03-duplicate-global",
+    ),
+    pytest.param(
+        "struct P { int x, x; };\nint main() { return 0; }",
+        ("Duplicate field 'x' in struct 'P'", 1, 19),
+        id="r03-duplicate-struct-field",
+    ),
+    pytest.param(
+        "int main() { int a[], b; return 0; }",
+        ("Variable 'a' requires an array bound or initializer", 1, 14),
+        id="r03-unsized-array-declarator",
+    ),
+    pytest.param(
+        "int main() { int a = 1, *b = a; return 0; }",
+        ("Cannot assign 'int' to variable 'b' of type 'int*'", 1, 25),
+        id="r03-star-binds-per-declarator",
+    ),
+    pytest.param(
+        "int main() { int x = 1, string = 2; return x; }",
+        (RESERVED.format("string"), 1, 25),
+        id="r03-reserved-later-declarator",
+    ),
+    pytest.param(
+        "int main() { int? a, b; return 0; }",
+        ("A nullable declaration declares one variable: write one declaration per nullable variable", 1, 20),
+        id="r03-nullable-declarators",
+    ),
+    pytest.param(
+        "int main() { var a = 1, b = 2; return 0; }",
+        ("'var' declares one variable: write one 'var' declaration per variable", 1, 23),
+        id="r03-var-declarators",
+    ),
+    pytest.param(
+        "var a = 1, b = 2;\nint main() { return 0; }",
+        ("'var' declares one variable: write one 'var' declaration per variable", 1, 10),
+        id="r03-global-var-declarators",
+    ),
+]
+
 # Row 5: adjacent string literals concatenate (src/tests/c_compat/AdjacentStringLiterals.btrc);
 # a piece that is no string literal is refused at the first piece (D20).
 ADJACENT_FSTRING = "An f-string cannot be concatenated with an adjacent string literal"
@@ -576,7 +672,8 @@ VLA_DIVERGENT_REFUSALS = [
 
 
 @pytest.mark.parametrize(
-    ("source", "expected"), REFUSALS + C_REFUSALS + ADJACENT_STRING_REFUSALS + CHAR_ARRAY_REFUSALS + VLA_REFUSALS
+    ("source", "expected"),
+    REFUSALS + C_REFUSALS + DECLARATOR_REFUSALS + ADJACENT_STRING_REFUSALS + CHAR_ARRAY_REFUSALS + VLA_REFUSALS,
 )
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,
@@ -686,6 +783,30 @@ def test_accepted_neighbour_runs_strictly_in_both_compilers(
 # literal after it is refused. The two import parsers already reported this
 # differently before row 5 landed (btrcc has no same-line import check); the
 # pair is pinned so a change to either side is deliberate.
+# The two compilers word these general diagnostics differently for single
+# declarations too (a duplicate member or typedef, an unknown name); several
+# declarators reach the same checks, so the divergence is pinned, not new.
+DECLARATOR_DIVERGENT_REFUSALS = [
+    pytest.param(
+        "class C { public int a, a; }\nint main() { return 0; }",
+        ("Duplicate field 'a' in class 'C'", 1, 25),
+        ("Duplicate member 'C.a'", 1, 25),
+        id="r03-duplicate-class-field",
+    ),
+    pytest.param(
+        "typedef int A, A;\nint main() { return 0; }",
+        ("Duplicate typedef name 'A'", 1, 16),
+        ("Duplicate top-level declaration 'A'", 1, 16),
+        id="r03-duplicate-typedef",
+    ),
+    pytest.param(
+        "int main() { int a = b, b = 1; return a; }",
+        ("Unresolved identifier 'b' used as a value", 1, 22),
+        ("Unknown identifier 'b'", 1, 22),
+        id="r03-later-declarator-not-in-scope",
+    ),
+]
+
 IMPORT_PATH_REFUSALS = [
     pytest.param(
         'import "a.btrc" "b.btrc";\nint main() { return 0; }',
@@ -702,7 +823,8 @@ IMPORT_PATH_REFUSALS = [
 
 
 @pytest.mark.parametrize(
-    ("source", "reference_expected", "selfhost_expected"), VLA_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS
+    ("source", "reference_expected", "selfhost_expected"),
+    VLA_DIVERGENT_REFUSALS + DECLARATOR_DIVERGENT_REFUSALS + IMPORT_PATH_REFUSALS,
 )
 def test_divergent_refusal_is_pinned_per_compiler(
     semantic_btrcc: Path,

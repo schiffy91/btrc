@@ -649,7 +649,12 @@ class ControlFlowValidator {
 		Map<string, Node> loopVars = TypeValidator.cloneTypes(vars);
 		if (statement.init != null) {
 			if (statement.init.kind == NK_FOR_INIT_VAR) {
+				Map<string, bool> initNames = {};
 				for declaration in statement.init.declarations() {
+					if (initNames.has(declaration.name)) {
+						TypeValidator.failAtName("Duplicate variable name '" + declaration.name + "' in the same scope", declaration);
+					}
+					initNames.put(declaration.name, true);
 					self.validateVariable(declaration,  loopVars);
 					Node? declarationType = declaration.type;
 					if (declarationType == null) {

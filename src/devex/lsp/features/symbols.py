@@ -18,6 +18,7 @@ from src.compiler.python.syntax.ast.generated import (
     RichEnumDecl,
     StructDecl,
     TypedefDecl,
+    VarDeclStmt,
 )
 from src.devex.lsp.analysis.document import DocumentAnalysis, DocumentText
 from src.devex.lsp.analysis.resolution import LexicalScopeIndex, SemanticResolver
@@ -245,6 +246,21 @@ class SymbolProvider:
                         range=decl_range,
                         selection_range=decl_selection,
                         detail=self.resolver.type_repr(decl.original),
+                    )
+                )
+            elif isinstance(decl, VarDeclStmt):
+                # A global declaration with several declarators is spliced
+                # into one node per declarator, so each name is its own symbol.
+                decl_selection = self._selection_range(result, decl)
+                if decl_selection is None:
+                    continue
+                symbols.append(
+                    lsp.DocumentSymbol(
+                        name=decl.name,
+                        kind=lsp.SymbolKind.Variable,
+                        range=decl_selection,
+                        selection_range=decl_selection,
+                        detail=self.resolver.type_repr(decl.type) if decl.type is not None else "var",
                     )
                 )
         return symbols

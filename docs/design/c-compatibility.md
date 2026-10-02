@@ -127,6 +127,72 @@ or adjacent string.
   both compilers. A `(` list not followed by `;` or `{` is the ordinary
   `Expected LBRACE` error, not an unnamed-parameter refusal.
 
+## Stage 16 r03: several declarators
+
+- **One declarator parser per compiler.** `Parser._parse_declarators` and
+  `Parser.parseDeclarators` read a declaration's declarator list once the
+  first name and its array suffix are read: the first declarator's
+  initializer, then per `,` its own `{*}`, name, array suffix and
+  initializer. Locals and the C-`for` initializer (`_parse_declaration_head`,
+  `parseVarDeclStmtsInto`), globals (`_parse_function_or_var_decl`,
+  `parseFunctionOrVarDeclInto`), struct fields, class fields and typedefs all
+  call it, and the declarators come back as `VarDeclStmt`s that the field,
+  member and typedef callers re-shape into `FieldDef`, `FieldDecl` and
+  `TypedefDecl`. Statement lists splice through `_parse_block_item` /
+  `parseBlockItemInto`; `_lookahead_is_var_decl` / `lookaheadIsVarDecl` treat
+  `,` after the first name as a declaration boundary.
+- **Specifier versus declarator.** `_parse_type_expr` still reads the first
+  declarator's `*`s greedily. Each later declarator starts from a deep copy of
+  the specifier (`copy.deepcopy`; btrc's `Parser.copySpecifier`) with no
+  pointer level and no suffix extent, then binds its own `*`s and `[n]`, so
+  `int *p, v;` makes `v` an `int` (D20). The specifier is everything else
+  `_parse_type_expr` reads: qualifiers and storage class, the base, generic
+  arguments, and btrc's prefix `[]`, so `int[] a, b;` and `Vector<int> a, b;`
+  declare two arrays and two vectors. The copied `TypeExpr` keeps the
+  specifier's position.
+- **Positions.** The first declarator keeps the declaration's start (the
+  access keyword for a class field, `typedef` for an alias); each later one
+  starts at its first token, `*` or its name. A `FieldDef` stays positioned at
+  its name, as before. A single declarator parses byte-identically to before.
+- **Decisions.** Class fields are in scope: `public int x = 1, y;` declares two
+  fields with the same access, each with its own initializer; a property
+  declares one name. `typedef int A, *B;` declares one alias per declarator,
+  `*` bound to each; a typedef declarator takes no array suffix until Stage
+  18. `T? a, b` is refused at the `,` (`A nullable declaration declares one
+  variable: write one declaration per nullable variable`), and so is a second
+  `var` declarator (`'var' declares one variable: write one 'var' declaration
+  per variable`). A function declarator beside others is legal C and refused
+  at its name either way round (`Function 'f' must be declared on its own, not
+  beside other declarators`). A missing later name is `Expected declarator
+  name, got …`; a keyword there is the reserved-word refusal. `int a[], b;`
+  meets the ordinary unsized-array refusal for `a` alone.
+- **Semantics.** Splicing makes each declarator an ordinary declaration, so
+  the analyzer and lowering need no change: duplicates use the existing
+  per-scope, global, field and typedef checks; a name enters scope after its
+  own declarator (`int a = b, b = 1;` is `Unresolved identifier 'b'`);
+  initializers lower in source order; each declarator gets its own `IRVarDecl`
+  and cleanup slot. btrcc now reports a duplicate local at its name with the
+  reference's wording and words a duplicate struct field as it does, and it
+  checks a C-`for` initializer's declarators for duplicates (it used to emit
+  C that redeclared the name). A duplicate class field or typedef and an
+  unknown name keep the two compilers' existing wordings; the refusal test
+  pins each per compiler. A C-`for` initializer with several declarators keeps them
+  in `ForInitVar.declarations`, and both compilers lower every for-init
+  declaration (one or many) to declarations in a block enclosing the `IRFor`,
+  as single declarations already did, so the loop variables keep the loop's
+  scope.
+- **Tooling.** LSP document symbols list every spliced field and typedef with
+  its own range, and global variables as `Variable` symbols. The formatter
+  needed no change (it lays out tokens).
+- **Tests.** `c_compat/MultipleDeclarators.btrc` covers locals, `int
+  *pointer, value;`, globals, struct and class fields, typedefs, the C-`for`
+  initializer, left-to-right side effects and per-declarator ARC (creation and
+  destruction counts across a block and a loop with `continue`). The refusals
+  above and the duplicate, scope and binding cases are pinned in
+  `btrc/test_c_compatibility_refusals.py`; inventory rows
+  `r03-multiple-local-declarators`, `r03-pointer-declarator-binding` and
+  `r03-multiple-field-declarators` are PASS.
+
 ## Stage 16 integration notes (`ccompat-c1-integrate`)
 
 The four C1 lanes (r02/r06 bodies, r01 parameters, r05 adjacent strings, r04

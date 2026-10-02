@@ -1,0 +1,4 @@
+PASS: local declarators
+PASS: globals, fields and typedefs
+PASS: left-to-right initialization
+PASS: managed declarators

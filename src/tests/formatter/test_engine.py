@@ -592,3 +592,20 @@ int main() {
     assert formatted(source, indent_style="tabs") == source
     collapsed = source.replace('"first, "\n\t\t"second, "\n\t\tTAIL', '"first, " "second, " TAIL')
     assert formatted(collapsed, indent_style="tabs") == collapsed
+
+
+def test_declarator_lists_keep_each_declarators_pointer() -> None:
+    # `*` binds to its own declarator (C row 3, PLAN.md D20): the formatter
+    # never moves it onto the type, where it would misread `int* p, v;`.
+    source = (
+        "struct Link { int *target, value; };\n"
+        "typedef int Count, *CountPointer;\n"
+        "int first = 1, *second;\n"
+        "int main() {\n"
+        "\tint *pointer, value = 2 * 3, *other;\n"
+        "\tfor (int i = 0, *p = null; i < 2; i++) {}\n"
+        "\treturn 0;\n"
+        "}\n"
+    )
+
+    assert formatted(source) == source

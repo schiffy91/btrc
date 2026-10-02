@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 from types import MappingProxyType
 
 from src.compiler.python.syntax.ast.generated import (
@@ -96,6 +98,9 @@ VOID_PARAMETER_LIST = "A 'void' parameter must be the only one, unnamed and unqu
 UNNAMED_PARAMETER = "Parameter name required: only a function prototype without a body may omit it"
 UNNAMED_KEEP_PARAMETER = "A 'keep' parameter requires a name"
 UNNAMED_DEFAULT_PARAMETER = "An unnamed parameter cannot have a default value"
+NULLABLE_DECLARATORS = "A nullable declaration declares one variable: write one declaration per nullable variable"
+VAR_DECLARATORS = "'var' declares one variable: write one 'var' declaration per variable"
+FUNCTION_BESIDE_DECLARATORS = "Function '{}' must be declared on its own, not beside other declarators"
 
 
 class ParseError(Exception):
@@ -115,7 +120,7 @@ class Parser:
     def parse(self):
         decls = []
         while not self._at_end():
-            decls.append(self._parse_top_level_item())
+            decls.extend(self._parse_top_level_items())
         return Program(declarations=decls)
 
     # ---- Token helpers ----
@@ -572,6 +577,79 @@ class Parser:
         if self._check(TokenKind.LBRACKET):
             raise self._error("Multi-dimensional arrays require an AST/IR representation for every dimension")
 
+    def _parse_declarators(
+        self,
+        type_expr: TypeExpr,
+        name_tok: Token,
+        start: Token,
+        *,
+        prefix_array: bool,
+        initializers: bool = True,
+        array_suffixes: bool = True,
+    ) -> list[VarDeclStmt]:
+        """Parse a declaration's declarators, the first one's name and suffix already read.
+
+        ``type_expr`` is the specifier plus the first declarator's ``*``s and
+        array suffix; ``prefix_array`` says whether btrc's ``T[]`` spelling,
+        which belongs to the specifier, was written before the name. Each later
+        declarator binds its own ``*``s, array suffix and initializer to a deep
+        copy of the specifier (C11 6.7.6, PLAN.md D20), so ``int *p, v;``
+        makes ``v`` an ``int``. Initializers parse in source order. The
+        declarators come back as ``VarDeclStmt`` records for the caller to
+        splice; field, member and typedef callers re-shape them.
+        """
+        initializer = self._parse_expr() if initializers and self._match(TokenKind.EQ) else None
+        declarators = [
+            VarDeclStmt(
+                type=type_expr,
+                name=name_tok.value,
+                initializer=initializer,
+                line=start.line,
+                col=start.col,
+                name_line=name_tok.line,
+                name_col=name_tok.col,
+            )
+        ]
+        if not self._check(TokenKind.COMMA):
+            return declarators
+        if type_expr.is_nullable:
+            raise self._error(NULLABLE_DECLARATORS)
+        specifier = dataclasses.replace(
+            type_expr, pointer_depth=0, is_array=prefix_array, array_size=None, nullable_outer_depth=0
+        )
+        while self._match(TokenKind.COMMA):
+            declarator_start = self._peek()
+            declarator_type = copy.deepcopy(specifier)
+            while self._match(TokenKind.STAR):
+                declarator_type.pointer_depth += 1
+            declarator_name = self._expect(TokenKind.IDENT, "declarator name")
+            if self._check(TokenKind.LPAREN):
+                raise ParseError(
+                    FUNCTION_BESIDE_DECLARATORS.format(declarator_name.value),
+                    declarator_name.line,
+                    declarator_name.col,
+                )
+            if array_suffixes:
+                self._parse_declarator_array_suffix(declarator_type)
+            initializer = self._parse_expr() if initializers and self._match(TokenKind.EQ) else None
+            declarators.append(
+                VarDeclStmt(
+                    type=declarator_type,
+                    name=declarator_name.value,
+                    initializer=initializer,
+                    line=declarator_start.line,
+                    col=declarator_start.col,
+                    name_line=declarator_name.line,
+                    name_col=declarator_name.col,
+                )
+            )
+        return declarators
+
+    def _refuse_var_declarators(self) -> None:
+        """``var`` infers one variable's type from its one initializer."""
+        if self._check(TokenKind.COMMA):
+            raise self._error(VAR_DECLARATORS)
+
     # ---- Parameters ----
 
     def _parse_param_list(self, *, allow_unnamed: bool = False) -> list[Param]:
@@ -633,12 +711,13 @@ class Parser:
             if not param.name:
                 raise ParseError(UNNAMED_PARAMETER, param.line, param.col)
 
-    def _parse_top_level_item(self):
+    def _parse_top_level_items(self) -> list:
+        """Parse one top-level item; a declaration contributes one node per declarator."""
         tok = self._peek()
         if tok.type == TokenKind.PREPROCESSOR:
-            return self._parse_preprocessor()
+            return [self._parse_preprocessor()]
         if tok.type == TokenKind.IMPORT:
-            return self._parse_import_decl()
+            return [self._parse_import_decl()]
 
         is_gpu = False
         is_realtime = False
@@ -659,10 +738,10 @@ class Parser:
             tok = self._peek()
 
         if tok.type == TokenKind.INTERFACE and not is_gpu and not is_realtime and not keep_return:
-            return self._parse_interface_decl()
+            return [self._parse_interface_decl()]
         if tok.type == TokenKind.ABSTRACT and not is_gpu and not is_realtime and not keep_return:
             if self._peek(1).type == TokenKind.CLASS:
-                return self._parse_class_decl(is_abstract=True)
+                return [self._parse_class_decl(is_abstract=True)]
         if tok.type == TokenKind.CLASS and not is_gpu and not is_realtime and not keep_return:
             if self._peek(1).type == TokenKind.IDENT:
                 after = self._peek(2)
@@ -672,20 +751,20 @@ class Parser:
                     TokenKind.EXTENDS,
                     TokenKind.IMPLEMENTS,
                 ):
-                    return self._parse_class_decl()
+                    return [self._parse_class_decl()]
         if tok.type == TokenKind.STRUCT and not is_gpu and not is_realtime and not keep_return:
             next_tok = self._peek(1)
             if next_tok.type == TokenKind.IDENT:
                 if self._peek(2).type in (TokenKind.LBRACE, TokenKind.SEMICOLON):
-                    return self._parse_struct_decl()
+                    return [self._parse_struct_decl()]
             elif next_tok.type == TokenKind.LBRACE:
-                return self._parse_struct_decl()
+                return [self._parse_struct_decl()]
         if tok.type == TokenKind.ENUM and not is_gpu and not is_realtime and not keep_return:
             if self._peek(1).type == TokenKind.CLASS:
-                return self._parse_rich_enum_decl()
-            return self._parse_enum_decl()
+                return [self._parse_rich_enum_decl()]
+            return [self._parse_enum_decl()]
         if tok.type == TokenKind.TYPEDEF and not is_gpu and not is_realtime and not keep_return:
-            return self._parse_typedef_decl()
+            return self._parse_typedef_decls()
         if self._is_type_start(tok):
             return self._parse_function_or_var_decl(is_gpu, is_realtime=is_realtime, keep_return=keep_return)
         raise self._error(f"Unexpected token '{tok.value}' at top level")
@@ -776,16 +855,18 @@ class Parser:
 
         fields = []
         while not self._check(TokenKind.RBRACE) and not self._at_end():
+            field_start = self._peek()
             field_type = self._parse_type_expr()
+            prefix_array = field_type.is_array
             name_tok = self._expect(TokenKind.IDENT, "field name")
             self._parse_declarator_array_suffix(field_type)
-            fields.append(
-                FieldDef(
-                    type=field_type,
-                    name=name_tok.value,
-                    line=name_tok.line,
-                    col=name_tok.col,
-                )
+            declarators = self._parse_declarators(
+                field_type, name_tok, field_start, prefix_array=prefix_array, initializers=False
+            )
+            # A struct field is positioned at its name.
+            fields.extend(
+                FieldDef(type=declarator.type, name=declarator.name, line=declarator.name_line, col=declarator.name_col)
+                for declarator in declarators
             )
             self._expect(TokenKind.SEMICOLON)
         self._expect(TokenKind.RBRACE)
@@ -875,7 +956,7 @@ class Parser:
         self._expect(TokenKind.LBRACE)
         members = []
         while not self._check(TokenKind.RBRACE) and not self._at_end():
-            members.append(self._parse_class_member(allow_abstract=is_abstract))
+            members.extend(self._parse_class_members(allow_abstract=is_abstract))
         self._expect(TokenKind.RBRACE)
         return ClassDecl(
             name=name,
@@ -890,8 +971,8 @@ class Parser:
             name_col=name_tok.col,
         )
 
-    def _parse_class_member(self, allow_abstract: bool = False):
-        """Parse a class member: access specifier followed by its declaration."""
+    def _parse_class_members(self, allow_abstract: bool = False) -> list:
+        """Parse one class member declaration; a field declaration yields one per declarator."""
         tok = self._peek()
         if tok.type == TokenKind.PUBLIC:
             access = "public"
@@ -918,63 +999,75 @@ class Parser:
         type_expr = self._parse_type_expr()
 
         if self._check(TokenKind.LPAREN):
-            return self._parse_method_rest(
-                access,
-                type_expr,
-                type_expr.base,
-                is_gpu,
-                is_realtime,
-                tok.line,
-                tok.col,
-                type_expr.line,
-                type_expr.col,
-                is_constructor=True,
-                is_abstract=is_abstract_method,
-                keep_return=keep_return,
-            )
+            return [
+                self._parse_method_rest(
+                    access,
+                    type_expr,
+                    type_expr.base,
+                    is_gpu,
+                    is_realtime,
+                    tok.line,
+                    tok.col,
+                    type_expr.line,
+                    type_expr.col,
+                    is_constructor=True,
+                    is_abstract=is_abstract_method,
+                    keep_return=keep_return,
+                )
+            ]
 
         name_tok = self._expect(TokenKind.IDENT, "member name")
         name = name_tok.value
         if self._check(TokenKind.LT, TokenKind.LPAREN):
-            return self._parse_method_rest(
-                access,
-                type_expr,
-                name,
-                is_gpu,
-                is_realtime,
-                tok.line,
-                tok.col,
-                name_tok.line,
-                name_tok.col,
-                is_abstract=is_abstract_method,
-                keep_return=keep_return,
-            )
+            return [
+                self._parse_method_rest(
+                    access,
+                    type_expr,
+                    name,
+                    is_gpu,
+                    is_realtime,
+                    tok.line,
+                    tok.col,
+                    name_tok.line,
+                    name_tok.col,
+                    is_abstract=is_abstract_method,
+                    keep_return=keep_return,
+                )
+            ]
         if is_realtime:
             raise self._error("@realtime cannot be applied to fields or properties")
+        prefix_array = type_expr.is_array
         self._parse_declarator_array_suffix(type_expr)
         if self._check(TokenKind.LBRACE) and self._is_property_start():
-            return self._parse_property(
-                access,
-                type_expr,
-                name,
-                tok.line,
-                tok.col,
-                name_tok.line,
-                name_tok.col,
-            )
+            return [
+                self._parse_property(
+                    access,
+                    type_expr,
+                    name,
+                    tok.line,
+                    tok.col,
+                    name_tok.line,
+                    name_tok.col,
+                )
+            ]
 
-        init = self._parse_expr() if self._match(TokenKind.EQ) else None
+        # `public int x, y;` declares one field per declarator, each with its
+        # own initializer; the access specifier is copied to every one.
+        declarators = self._parse_declarators(type_expr, name_tok, tok, prefix_array=prefix_array)
         self._expect(TokenKind.SEMICOLON)
-        return FieldDecl(
-            access=access,
-            type=type_expr,
-            name=name,
-            initializer=init,
-            line=tok.line,
-            col=tok.col,
-            name_line=name_tok.line,
-            name_col=name_tok.col,
-        )
+        return [
+            FieldDecl(
+                access=access,
+                type=declarator.type,
+                name=declarator.name,
+                initializer=declarator.initializer,
+                line=declarator.line,
+                col=declarator.col,
+                name_line=declarator.name_line,
+                name_col=declarator.name_col,
+            )
+            for declarator in declarators
+        ]
 
     def _parse_method_rest(
         self,
@@ -1135,22 +1228,34 @@ class Parser:
 
     # ---- Typedef declaration ----
 
-    def _parse_typedef_decl(self) -> TypedefDecl:
+    def _parse_typedef_decls(self) -> list[TypedefDecl]:
+        """``typedef int A, *B;`` declares one alias per declarator, ``*`` bound to each."""
         tok = self._expect(TokenKind.TYPEDEF)
         original = self._parse_type_expr()
+        prefix_array = original.is_array
         alias_tok = self._expect(TokenKind.IDENT, "typedef alias")
-        alias = alias_tok.value
-        self._expect(TokenKind.SEMICOLON)
-        return TypedefDecl(
-            original=original, alias=alias, line=tok.line, col=tok.col, name_line=alias_tok.line, name_col=alias_tok.col
+        declarators = self._parse_declarators(
+            original, alias_tok, tok, prefix_array=prefix_array, initializers=False, array_suffixes=False
         )
+        self._expect(TokenKind.SEMICOLON)
+        return [
+            TypedefDecl(
+                original=declarator.type,
+                alias=declarator.name,
+                line=declarator.line,
+                col=declarator.col,
+                name_line=declarator.name_line,
+                name_col=declarator.name_col,
+            )
+            for declarator in declarators
+        ]
 
     # ---- Function or variable declaration ----
 
     def _parse_function_or_var_decl(
         self, is_gpu: bool = False, *, is_realtime: bool = False, keep_return: bool = False
-    ):
-        """Disambiguate function vs variable at top level."""
+    ) -> list:
+        """Disambiguate function vs variables at top level."""
         start = self._peek()
 
         if self._check(TokenKind.VAR):
@@ -1162,18 +1267,22 @@ class Parser:
             name = name_tok.value
             self._expect(TokenKind.EQ, "'=' (var requires an initializer)")
             init = self._parse_expr()
+            self._refuse_var_declarators()
             self._expect(TokenKind.SEMICOLON)
-            return VarDeclStmt(
-                type=None,
-                name=name,
-                initializer=init,
-                line=start.line,
-                col=start.col,
-                name_line=name_tok.line,
-                name_col=name_tok.col,
-            )
+            return [
+                VarDeclStmt(
+                    type=None,
+                    name=name,
+                    initializer=init,
+                    line=start.line,
+                    col=start.col,
+                    name_line=name_tok.line,
+                    name_col=name_tok.col,
+                )
+            ]
 
         type_expr = self._parse_type_expr()
+        prefix_array = type_expr.is_array
         name_tok = self._expect(TokenKind.IDENT, "name")
         name = name_tok.value
         self._parse_declarator_array_suffix(type_expr)
@@ -1182,12 +1291,33 @@ class Parser:
             self._expect(TokenKind.LPAREN)
             params = self._parse_param_list(allow_unnamed=True)
             self._expect(TokenKind.RPAREN)
+            if self._check(TokenKind.COMMA):
+                raise ParseError(FUNCTION_BESIDE_DECLARATORS.format(name), name_tok.line, name_tok.col)
             if self._match(TokenKind.SEMICOLON):
-                return FunctionDecl(
+                return [
+                    FunctionDecl(
+                        return_type=type_expr,
+                        name=name,
+                        params=params,
+                        body=None,
+                        is_gpu=is_gpu,
+                        is_realtime=is_realtime,
+                        keep_return=keep_return,
+                        line=start.line,
+                        col=start.col,
+                        name_line=name_tok.line,
+                        name_col=name_tok.col,
+                    )
+                ]
+            if self._check(TokenKind.LBRACE):
+                self._refuse_unnamed_definition(params)
+            body = self._parse_block()
+            return [
+                FunctionDecl(
                     return_type=type_expr,
                     name=name,
                     params=params,
-                    body=None,
+                    body=body,
                     is_gpu=is_gpu,
                     is_realtime=is_realtime,
                     keep_return=keep_return,
@@ -1196,39 +1326,13 @@ class Parser:
                     name_line=name_tok.line,
                     name_col=name_tok.col,
                 )
-            if self._check(TokenKind.LBRACE):
-                self._refuse_unnamed_definition(params)
-            body = self._parse_block()
-            return FunctionDecl(
-                return_type=type_expr,
-                name=name,
-                params=params,
-                body=body,
-                is_gpu=is_gpu,
-                is_realtime=is_realtime,
-                keep_return=keep_return,
-                line=start.line,
-                col=start.col,
-                name_line=name_tok.line,
-                name_col=name_tok.col,
-            )
-        else:
-            if is_gpu or is_realtime:
-                annotation = "@gpu" if is_gpu else "@realtime"
-                raise self._error(f"{annotation} cannot be applied to variables")
-            init = None
-            if self._match(TokenKind.EQ):
-                init = self._parse_expr()
-            self._expect(TokenKind.SEMICOLON)
-            return VarDeclStmt(
-                type=type_expr,
-                name=name,
-                initializer=init,
-                line=start.line,
-                col=start.col,
-                name_line=name_tok.line,
-                name_col=name_tok.col,
-            )
+            ]
+        if is_gpu or is_realtime:
+            annotation = "@gpu" if is_gpu else "@realtime"
+            raise self._error(f"{annotation} cannot be applied to variables")
+        declarators = self._parse_declarators(type_expr, name_tok, start, prefix_array=prefix_array)
+        self._expect(TokenKind.SEMICOLON)
+        return declarators
 
     def _parse_block(self) -> Block:
         tok = self._expect(TokenKind.LBRACE)
@@ -1237,9 +1341,16 @@ class Parser:
             # An empty statement inside a statement list produces nothing.
             if self._match(TokenKind.SEMICOLON):
                 continue
-            stmts.append(self._parse_statement())
+            self._parse_block_item(stmts)
         self._expect(TokenKind.RBRACE)
         return Block(statements=stmts, line=tok.line, col=tok.col)
+
+    def _parse_block_item(self, statements: list) -> None:
+        """Append one block item; a declaration splices one statement per declarator."""
+        if self._is_var_decl_start():
+            statements.extend(self._parse_var_decl_stmts())
+        else:
+            statements.append(self._parse_statement())
 
     def _parse_body(self) -> Block:
         """Parse the substatement of ``if``/``else``/``while``/C-``for``/``do``.
@@ -1308,9 +1419,6 @@ class Parser:
             self._expect(TokenKind.SEMICOLON)
             return KeepStmt(expr=expr, line=tok.line, col=tok.col)
 
-        if self._is_var_decl_start():
-            return self._parse_var_decl_stmt()
-
         return self._parse_expr_stmt()
 
     # ---- Variable declaration detection ----
@@ -1335,6 +1443,7 @@ class Parser:
                 TokenKind.EQ,
                 TokenKind.SEMICOLON,
                 TokenKind.LBRACKET,
+                TokenKind.COMMA,
             )
         if self.tokens[type_end].value in self._DEFERRED_C_SPECIFIERS:
             return True
@@ -1345,47 +1454,44 @@ class Parser:
             TokenKind.EQ,
             TokenKind.SEMICOLON,
             TokenKind.LBRACKET,
+            TokenKind.COMMA,
         )
 
     # ---- Variable declaration ----
 
-    def _parse_var_decl_stmt(self) -> VarDeclStmt:
+    def _parse_var_decl_stmts(self) -> list[VarDeclStmt]:
+        """Parse one block-scope declaration into one statement per declarator."""
         tok = self._peek()
+        declarators = self._parse_declaration_head(tok)
+        self._expect(TokenKind.SEMICOLON)
+        return declarators
 
+    def _parse_declaration_head(self, tok: Token) -> list[VarDeclStmt]:
+        """Parse a block-scope or C-for declaration up to its terminator."""
         if self._check(TokenKind.VAR):
             self._advance()
             name_tok = self._expect(TokenKind.IDENT, "variable name")
             name = name_tok.value
             self._expect(TokenKind.EQ, "'=' (var requires an initializer)")
             init = self._parse_expr()
-            self._expect(TokenKind.SEMICOLON)
-            return VarDeclStmt(
-                type=None,
-                name=name,
-                initializer=init,
-                line=tok.line,
-                col=tok.col,
-                name_line=name_tok.line,
-                name_col=name_tok.col,
-            )
+            self._refuse_var_declarators()
+            return [
+                VarDeclStmt(
+                    type=None,
+                    name=name,
+                    initializer=init,
+                    line=tok.line,
+                    col=tok.col,
+                    name_line=name_tok.line,
+                    name_col=name_tok.col,
+                )
+            ]
 
         type_expr = self._parse_type_expr()
+        prefix_array = type_expr.is_array
         name_tok = self._expect(TokenKind.IDENT, "variable name")
-        name = name_tok.value
         self._parse_declarator_array_suffix(type_expr)
-        init = None
-        if self._match(TokenKind.EQ):
-            init = self._parse_expr()
-        self._expect(TokenKind.SEMICOLON)
-        return VarDeclStmt(
-            type=type_expr,
-            name=name,
-            initializer=init,
-            line=tok.line,
-            col=tok.col,
-            name_line=name_tok.line,
-            name_col=name_tok.col,
-        )
+        return self._parse_declarators(type_expr, name_tok, tok, prefix_array=prefix_array)
 
     def _parse_return_stmt(self) -> ReturnStmt:
         tok = self._expect(TokenKind.RETURN)
@@ -1462,46 +1568,7 @@ class Parser:
         init = None
         if not self._check(TokenKind.SEMICOLON):
             if self._is_var_decl_start():
-                start = self._peek()
-                if self._check(TokenKind.VAR):
-                    self._advance()
-                    name_tok = self._expect(TokenKind.IDENT, "variable name")
-                    name = name_tok.value
-                    self._expect(TokenKind.EQ, "'=' (var requires an initializer)")
-                    init_val = self._parse_expr()
-                    init = ForInitVar(
-                        declarations=[
-                            VarDeclStmt(
-                                type=None,
-                                name=name,
-                                initializer=init_val,
-                                line=start.line,
-                                col=start.col,
-                                name_line=name_tok.line,
-                                name_col=name_tok.col,
-                            )
-                        ]
-                    )
-                else:
-                    type_expr = self._parse_type_expr()
-                    name_tok = self._expect(TokenKind.IDENT, "variable name")
-                    name = name_tok.value
-                    init_val = None
-                    if self._match(TokenKind.EQ):
-                        init_val = self._parse_expr()
-                    init = ForInitVar(
-                        declarations=[
-                            VarDeclStmt(
-                                type=type_expr,
-                                name=name,
-                                initializer=init_val,
-                                line=start.line,
-                                col=start.col,
-                                name_line=name_tok.line,
-                                name_col=name_tok.col,
-                            )
-                        ]
-                    )
+                init = ForInitVar(declarations=self._parse_declaration_head(self._peek()))
             else:
                 init = ForInitExpr(expression=self._parse_expr())
         self._expect(TokenKind.SEMICOLON)
@@ -1554,7 +1621,7 @@ class Parser:
         while not self._check(TokenKind.CASE, TokenKind.DEFAULT, TokenKind.RBRACE) and not self._at_end():
             if self._match(TokenKind.SEMICOLON):
                 continue
-            body.append(self._parse_statement())
+            self._parse_block_item(body)
         return CaseClause(value=value, body=body, line=tok.line, col=tok.col)
 
     def _parse_try_catch(self) -> TryCatchStmt:
