@@ -4,6 +4,22 @@ import Library.Vector;
 
 #include <assert.h>
 
+UISelect requireSelect(UISelect? descriptor) {
+	if (descriptor == null) {
+		fprintf(stderr, "FAIL: missing select descriptor\n");
+		exit(1);
+	}
+	return descriptor;
+}
+
+UIVirtualGrid requireVirtualGrid(UIVirtualGrid? descriptor) {
+	if (descriptor == null) {
+		fprintf(stderr, "FAIL: missing virtual grid descriptor\n");
+		exit(1);
+	}
+	return descriptor;
+}
+
 int main() {
 	Image artwork = Image(2, 2);
 	artwork.setRGBA(0, 0, 10, 20, 30, 255);
@@ -48,7 +64,7 @@ int main() {
 	assert(monitor.kind() == UI_SELECT);
 	assert(monitor.contentText() == "Song effects");
 	assert(monitor.selectDescriptor() != null);
-	UISelect resolvedMonitorDescriptor = monitor.selectDescriptor();
+	UISelect resolvedMonitorDescriptor = requireSelect(monitor.selectDescriptor());
 	assert(resolvedMonitorDescriptor.selectedValue() == "song-effects");
 	UIEvent selected = UIEvent.selectionChanged("monitor", "raw-signal");
 	assert(selected.kind() == UI_SELECTION_CHANGED);
@@ -108,7 +124,7 @@ int main() {
 	UIElement virtualGrid = UIElement.virtualGrid("virtual-albums", virtualLayout).child(UIElement.button("album:1984", "Album 1984")).child(UIElement.button("album:1985", "Album 1985"));
 	assert(virtualGrid.kind() == UI_VIRTUAL_GRID);
 	assert(virtualGrid.virtualGridDescriptor() != null);
-	UIVirtualGrid resolvedLayout = virtualGrid.virtualGridDescriptor();
+	UIVirtualGrid resolvedLayout = requireVirtualGrid(virtualGrid.virtualGridDescriptor());
 	assert(resolvedLayout.ok());
 	assert(resolvedLayout.totalCount() == 2000);
 	assert(resolvedLayout.columns() == 4);

@@ -476,8 +476,9 @@ class CEmitter {
 		while (index < definition.values.len) {
 			IREnumValue value = definition.values.get(index);
 			string suffix = "";
-			if (value.value != null) {
-				suffix = " = " + self.expr(value.value);
+			IRNode? explicitValue = value.value;
+			if (explicitValue != null) {
+				suffix = " = " + self.expr(explicitValue);
 			}
 			if (index < definition.values.len - 1) { suffix = suffix + ","; }
 			self.line(value.name + suffix);

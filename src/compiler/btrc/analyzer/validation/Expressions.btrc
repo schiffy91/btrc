@@ -90,7 +90,7 @@ class ExpressionValidator {
 	private void validateCondition(Node? expression, string subject, Map<string, Node> variables) {
 		self.rejectThreadObservation(expression, variables);
 		Node? condition = self.types.inferType(expression, variables);
-		if (condition != null && !self.types.scalarConditionType(condition)) {
+		if (expression != null && condition != null && !self.types.scalarConditionType(condition)) {
 			TypeValidator.fail(subject + " requires a scalar condition, got '" + self.types.formatType(condition) + "'", expression);
 		}
 	}

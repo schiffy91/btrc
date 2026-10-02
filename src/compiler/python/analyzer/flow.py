@@ -37,6 +37,7 @@ from src.compiler.python.syntax.ast.generated import (
     SwitchStmt,
     ThrowStmt,
     TryCatchStmt,
+    TypeExpr,
     UnaryExpr,
     VarDeclStmt,
     WhileStmt,
@@ -70,6 +71,8 @@ class ControlFlowAnalyzer:
         self.index = index
         # Identities of the function and method declarations no call to which returns.
         self._nonreturning_callables: set[int] = set()
+        # One root per class whose static fields a path names, global like a global variable.
+        self._class_roots: dict[str, SymbolInfo] = {}
 
     def compute_nonreturning_callables(self, program) -> None:
         """Find every function and method that cannot return to its caller.
@@ -79,9 +82,10 @@ class ControlFlowAnalyzer:
         function such as ``exit``, or another such callable. The set is the
         least fixed point over the call graph, so mutual recursion with no exit
         is not assumed to diverge. Calls resolve syntactically: ``f()`` to a
-        top-level function, ``C.m()`` to a static method of class ``C``, and
+        top-level function, ``C.m()`` to a static method of class ``C``,
         ``self.m()`` to every implementation of ``m`` the receiver's class or a
-        subclass of it can dispatch to. A local binding of the same name
+        subclass of it can dispatch to, and ``self.field.m()`` likewise through
+        the class the field is declared as. A local binding of the same name
         shadows the callee.
         """
         self._nonreturning_callables = set()
@@ -126,13 +130,13 @@ class ControlFlowAnalyzer:
             and self.call_never_returns(statement.expr)
         )
 
-    def _is_local_binding(self, name: str) -> bool:
+    def is_local_binding(self, name: str) -> bool:
         symbol = self.session.scope.lookup(name)
         return symbol is not None and symbol.kind != "function"
 
     def _shadowed(self, name: str, local_names: frozenset[str] | None) -> bool:
         """Whether a local binding hides a callee: one the pre-pass collected, or (None) one in scope now."""
-        return self._is_local_binding(name) if local_names is None else name in local_names
+        return self.is_local_binding(name) if local_names is None else name in local_names
 
     def _call_diverges(self, call, owner: str | None, local_names: frozenset[str] | None) -> bool:
         callee = call.callee
@@ -147,6 +151,9 @@ class ControlFlowAnalyzer:
             return False
         if isinstance(callee.obj, SelfExpr):
             return owner is not None and self._dispatch_never_returns(owner, callee.field)
+        if isinstance(callee.obj, FieldAccessExpr) and isinstance(callee.obj.obj, SelfExpr):
+            field_class = self._self_field_class(owner, callee.obj) if owner is not None else None
+            return field_class is not None and self._dispatch_never_returns(field_class, callee.field)
         if isinstance(callee.obj, Identifier) and (not self._shadowed(callee.obj.name, local_names)):
             info = self.index.class_table.get(callee.obj.name)
             method = info.methods.get(callee.field) if info is not None else None
@@ -166,6 +173,18 @@ class ControlFlowAnalyzer:
                 return False
             found = True
         return found
+
+    def _self_field_class(self, owner: str, access) -> str | None:
+        """The class `self.field` is declared as in non-generic class `owner`, if it is one."""
+        info = self.index.class_table.get(owner)
+        if info is None or info.generic_params or access.optional or access.arrow:
+            return None
+        field = info.fields.get(access.field)
+        declared = field.type if field is not None and field.access != "class" else None
+        if declared is None or declared.is_array:
+            return None
+        target = self.index.class_table.get(declared.base)
+        return declared.base if target is not None and not target.generic_params else None
 
     def _descends_from(self, info, owner: str) -> bool:
         seen = set()
@@ -309,6 +328,8 @@ class ControlFlowAnalyzer:
     def access_path(self, expression) -> AccessPath | None:
         if isinstance(expression, Identifier):
             symbol = self.session.scope.lookup(expression.name)
+            if symbol is None and expression.name in self.index.class_table:
+                symbol = self._class_root(expression.name)
             return AccessPath(symbol) if symbol is not None else None
         if isinstance(expression, SelfExpr):
             symbol = self.session.scope.lookup("self")
@@ -318,6 +339,14 @@ class ControlFlowAnalyzer:
             if parent is not None:
                 return AccessPath(parent.root, (*parent.fields, expression.field))
         return None
+
+    def _class_root(self, name: str) -> SymbolInfo:
+        """The root of `C.field` paths: a class's static storage, which any call can change."""
+        root = self._class_roots.get(name)
+        if root is None:
+            root = SymbolInfo(name, TypeExpr(base=name), "class")
+            self._class_roots[name] = root
+        return root
 
     def is_known_nonnull(self, expression) -> bool:
         path = self.access_path(expression)
@@ -425,7 +454,11 @@ class ControlFlowAnalyzer:
         root = target
         while isinstance(root, (FieldAccessExpr, IndexExpr)):
             root = root.obj
-        return isinstance(root, Identifier) and self.session.scope.lookup(root.name) is None
+        return (
+            isinstance(root, Identifier)
+            and self.session.scope.lookup(root.name) is None
+            and root.name not in self.index.class_table
+        )
 
     def _facts_surviving(self, facts: set[AccessPath], expression) -> set[AccessPath]:
         return self._facts_surviving_nodes(facts, self._walk_effect_nodes(expression))
@@ -490,7 +523,9 @@ class ControlFlowAnalyzer:
                     stack.append(child)
 
     def _is_global_symbol(self, symbol: SymbolInfo) -> bool:
-        return any(candidate is symbol for candidate in self.session.global_scope.symbols.values())
+        return symbol.kind == "class" or any(
+            candidate is symbol for candidate in self.session.global_scope.symbols.values()
+        )
 
     def _forget_nonnull_symbols(self, symbols) -> None:
         forgotten = tuple(symbols)

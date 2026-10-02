@@ -236,7 +236,7 @@ class OwnershipSemantics {
 				return null;
 			}
 			Node? setter = StorageValidator.indexedMethod(receiver, "set", self.analyzed);
-			if (!StorageValidator.validIndexedSetter(setter)) {
+			if (setter == null || !StorageValidator.validIndexedSetter(setter)) {
 				return null;
 			}
 			Node concreteSetter = setter;
@@ -245,7 +245,7 @@ class OwnershipSemantics {
 		if (target.kind != NK_FIELD_ACCESS_EXPR) { return null; }
 		Node? receiver = self.expressionType(target.obj, environment);
 		Node? member = DeclarationRegistry.instanceMemberForType(self.analyzed, receiver, target.field);
-		if (member == null || member.kind != NK_PROPERTY_DECL) {
+		if (receiver == null || member == null || member.kind != NK_PROPERTY_DECL) {
 			return null;
 		}
 		Node property = member;

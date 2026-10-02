@@ -45,7 +45,7 @@ class CallValidator {
 
 	private void rejectThreadValueEscape(Node? expression, string destination, Map<string, Node> variables) {
 		Node? valueType = self.types.inferType(expression, variables);
-		if (valueType != null && valueType.base == "Thread") {
+		if (expression != null && valueType != null && valueType.base == "Thread") {
 			TypeValidator.fail("Thread handles cannot be " + destination + "; join or return the unique owner instead", expression);
 		}
 	}

@@ -520,3 +520,108 @@ def test_code_after_a_call_that_never_returns_is_unreachable():
     assert warnings == [
         "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 24:26",
     ]
+
+
+def _store_warnings(body: str) -> list[str]:
+    program = Parser(Lexer(PRELUDE + body, "<nullable-flow>").tokenize()).parse()
+    result = SemanticAnalyzer().analyze(program)
+    assert result.errors == []
+    return [warning for warning in result.warnings if warning.startswith("Possibly-null value stored")]
+
+
+def _store(context: str, type_name: str, line: int, col: int) -> str:
+    return (
+        f"Possibly-null value stored in non-nullable {context} of type '{type_name}' — check for null first"
+        f" at {line}:{col}"
+    )
+
+
+def test_a_possibly_null_value_stored_into_a_non_nullable_reference_warns():
+    warnings = _store_warnings("""
+        Box? maybe(int value) { if (value > 0) { return Box(value); } return null; }
+        void take(Box box) { }
+        class Holder {
+            public Box item = Box(0);
+            public void put(Box box) { self.item = box; }
+        }
+        Box stores(Holder holder, Box? box) {
+            Box local = maybe(1);
+            holder.item = box;
+            take(box);
+            holder.put(null);
+            Box chosen = local.value > 0 ? local : box;
+            Box fallback = box ?? maybe(2);
+            return box;
+        }
+    """)
+
+    assert warnings == [
+        _store("variable 'local'", "Box", 15, 25),
+        _store("assignment target", "Box", 16, 27),
+        _store("argument 1 of 'take'", "Box", 17, 18),
+        _store("argument 1 of 'put'", "Box", 18, 24),
+        _store("variable 'chosen'", "Box", 19, 26),
+        _store("variable 'fallback'", "Box", 20, 28),
+        _store("return value", "Box", 21, 20),
+    ]
+
+
+def test_a_store_the_flow_proves_or_that_targets_a_nullable_reference_is_silent():
+    warnings = _store_warnings("""
+        Box? maybe(int value) { if (value > 0) { return Box(value); } return null; }
+        void fail(string message) { fprintf(stderr, "%s\\n", message); exit(1); }
+        Box guarded(Box? box) {
+            if (box == null) { fail("missing"); }
+            Box local = box;
+            Box? optional = maybe(1);
+            Box chosen = optional != null ? optional : local;
+            Box fallback = maybe(2) ?? local;
+            Box fresh = Box(3);
+            optional = fresh;
+            Box again = optional;
+            return local;
+        }
+        Box exited(int value) {
+            Box? box = maybe(value);
+            if (box == null) { exit(1); }
+            return box;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_static_field_paths_carry_facts_until_a_call():
+    warnings = _store_warnings("""
+        class Shared {
+            class Box? cached = null;
+            class Box current() {
+                if (Shared.cached == null) { Box fresh = Box(1); Shared.cached = fresh; return fresh; }
+                return Shared.cached;
+            }
+            class Box afterCall() {
+                if (Shared.cached == null) { return Box(2); }
+                fprintf(stderr, "call\\n");
+                return Shared.cached;
+            }
+        }
+    """)
+
+    assert warnings == [_store("return value", "Box", 17, 24)]
+
+
+def test_a_failure_method_on_a_field_of_self_never_returns():
+    warnings = _nullable_warnings("""
+        class Reporter {
+            public void fail(string message) { fprintf(stderr, "%s\\n", message); exit(1); }
+        }
+        class User {
+            private Reporter reporter = Reporter();
+            public int read(Box? box) {
+                if (box == null) { self.reporter.fail("missing"); }
+                return box.value;
+            }
+        }
+    """)
+
+    assert warnings == []

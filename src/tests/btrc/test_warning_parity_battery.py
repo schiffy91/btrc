@@ -24,10 +24,13 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 WARNING = re.compile(r"^warning: (.*)\n\s*--> (.*?):(\d+):(\d+)$", re.MULTILINE)
 ACCESS = re.compile(r"^Non-optional access '\.(\w+)' on nullable type '(\w+)\?' — use '\?\.\1' or check for null$")
+STORE = re.compile(r"^Possibly-null value stored in non-nullable (.+) of type '(\w+)' — check for null first$")
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires the POSIX self-host driver")
 
-PRELUDE = """class Box {
+PRELUDE = """import Library.Vector;
+
+class Box {
     public int value;
     public Box? next;
     public Box(int value) { self.value = value; self.next = null; }
@@ -42,7 +45,11 @@ PRELUDE_LINES = PRELUDE.count("\n")
 
 @dataclass(frozen=True)
 class WarningProbe:
-    """A program after the Box prelude, and the (line, column, field) of every access it warns on."""
+    """A program after the Box prelude, and every warning it reports.
+
+    A warning is (line, column, label): the field of a nullable access, or
+    `store <context>` for a possibly-null store.
+    """
 
     name: str
     body: str
@@ -172,6 +179,61 @@ PROBES = (
         (_at(13, 20, "value"), _at(13, 40)),
     ),
     WarningProbe(
+        "possibly-null-stores",
+        "class Holder {\n"
+        "    public Box item = Box(0);\n"
+        "    public void put(Box box) { self.item = box; }\n"
+        "}\n"
+        "void take(Box box) { }\n"
+        "Box stores(Holder holder, Box? box) {\n"
+        "    Box local = maybeBox(1);\n"
+        "    holder.item = box;\n"
+        "    take(box);\n"
+        "    holder.put(null);\n"
+        "    Vector<Box> boxes = [];\n"
+        "    boxes.push(maybeBox(2));\n"
+        "    Box chosen = local.value > 0 ? local : box;\n"
+        "    Box fallback = box ?? maybeBox(3);\n"
+        "    return box;\n"
+        "}\n",
+        (
+            _at(7, 17, "store variable 'local'"),
+            _at(8, 19, "store assignment target"),
+            _at(9, 10, "store argument 1 of 'take'"),
+            _at(10, 16, "store argument 1 of 'put'"),
+            _at(12, 16, "store argument 1 of 'push'"),
+            _at(13, 18, "store variable 'chosen'"),
+            _at(14, 20, "store variable 'fallback'"),
+            _at(15, 12, "store return value"),
+        ),
+    ),
+    WarningProbe(
+        "proven-stores",
+        "class Shared {\n"
+        "    class Box? cached = null;\n"
+        "    class Box current() {\n"
+        "        if (Shared.cached == null) { Box fresh = Box(1); Shared.cached = fresh; return fresh; }\n"
+        "        return Shared.cached;\n"
+        "    }\n"
+        "}\n"
+        "class Reporter {\n"
+        '    public void fail(string message) { fprintf(stderr, "%s\\n", message); exit(1); }\n'
+        "}\n"
+        "class User {\n"
+        "    private Reporter reporter = Reporter();\n"
+        "    public Box read(Box? box, Box? other) {\n"
+        '        if (box == null) { self.reporter.fail("missing"); }\n'
+        "        Box local = box;\n"
+        "        Box chosen = other != null ? other : local;\n"
+        "        Box fallback = other ?? local;\n"
+        "        Box? optional = maybeBox(1);\n"
+        "        optional = Box(2);\n"
+        "        Box again = optional;\n"
+        "        return chosen;\n"
+        "    }\n"
+        "}\n",
+    ),
+    WarningProbe(
         "lambda-body",
         "int read(Box? box) {\n"
         "    var get = (Box? item) => { return item.value; };\n"
@@ -244,10 +306,11 @@ def test_both_compilers_report_the_same_nullable_warnings(
     assert selfhost.blocks == reference.blocks
     reported = []
     for match in WARNING.finditer(reference.stderr):
-        access = ACCESS.match(match.group(1))
-        assert access is not None and access.group(2) == "Box", match.group(1)
+        access, store = ACCESS.match(match.group(1)), STORE.match(match.group(1))
+        assert (access or store) is not None and (access or store).group(2) == "Box", match.group(1)
         assert match.group(2) == str(source)
-        reported.append((int(match.group(3)), int(match.group(4)), access.group(1)))
+        label = access.group(1) if access is not None else f"store {store.group(1)}"
+        reported.append((int(match.group(3)), int(match.group(4)), label))
     assert sorted(reported) == sorted(probe.warnings)
 
 

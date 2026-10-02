@@ -517,7 +517,8 @@ class BtrccPublicationLocks {
 		}
 		for directory in self.directories {
 			var current = FileSystem.inspectExact(directory.path);
-			if (!current.ok() || current.snapshot().kind() != FILE_DIRECTORY || !current.snapshot().sameObject(directory.snapshot)) {
+			FileSnapshot? expected = directory.snapshot;
+			if (expected == null || !current.ok() || current.snapshot().kind() != FILE_DIRECTORY || !current.snapshot().sameObject(expected)) {
 				return "publication directory changed while acquiring locks: " + directory.path;
 			}
 			var opened = FileSystem.openDirectoryExact(directory.path);

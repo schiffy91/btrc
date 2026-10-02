@@ -569,9 +569,10 @@ class OwnershipValidator {
 		if (!self.state.parameterNames.has(statement.expr.name)) {
 			TypeValidator.fail("Borrowed managed receiver, capture, or loop bindings cannot be " + "released or deleted; bind an owned local first", statement);
 		}
-		if (self.state.callable == null) { return; }
+		Node? currentCallable = self.state.callable;
+		if (currentCallable == null) { return; }
 		int index = self.currentParameterIndex(statement.expr.name);
-		Node callable = self.state.callable;
+		Node callable = currentCallable;
 		bool virtualSetterValue = index >= 0 && ((callable.name == "set" && index == 1) || (callable.name.startsWith("set_") && index == 0));
 		if (virtualSetterValue) {
 			TypeValidator.fail("Property/index setter value parameters cannot consume their " + "argument because assignment results must remain valid", statement);

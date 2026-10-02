@@ -291,7 +291,7 @@ class BorrowValidator {
 
 	public void validateOpaqueBorrowStorage(Node? expected, Node? value, string subject, Map<string, Node> vars) {
 		if (self.state.allowOwnedOpaqueVariable && self.ownership.expressionOwnsResult(value, vars)) { return; }
-		if (!self.opaqueRawCarrierType(expected) || !self.expressionIsOpaqueBorrow(value, vars)) {
+		if (value == null || !self.opaqueRawCarrierType(expected) || !self.expressionIsOpaqueBorrow(value, vars)) {
 			return;
 		}
 		TypeValidator.fail(subject + " cannot persist a managed value as a raw representation; use it " + "only in a non-persisting expression or a proven borrow-only FFI call", value);

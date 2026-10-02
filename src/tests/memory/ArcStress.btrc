@@ -22,7 +22,7 @@ class Task {
 }
 
 class TaskHolder {
-	public Task task;
+	public Task? task;
 	public int seq;
 
 	public TaskHolder(int seq) {
@@ -58,18 +58,18 @@ int main() {
 
 	// The keep parameter guards the call; h1.task retains t1 persistently.
 	h1.setTask(t1);
-	assert(h1.task.id == 1);
+	assert(h1.task?.id == 1);
 
 	// Store t2 in h2
 	h2.setTask(t2);
-	assert(h2.task.id == 2);
+	assert(h2.task?.id == 2);
 
 	// ---- Phase 2: Reassignment (replace stored task) ----
 
 	// h1 gets a new task — old t1 is released from h1's field,
 	// but still alive through the t1 local owner
 	h1.setTask(t3);
-	assert(h1.task.id == 3);
+	assert(h1.task?.id == 3);
 	assert(taskCount == 3); // all three still alive
 
 	// ---- Phase 3: Delete holders ----
@@ -108,8 +108,8 @@ int main() {
 	assert(taskCount == 1);
 
 	h3.setTask(f1);
-	assert(h3.task.id == 100);
-	assert(h3.task.priority == 5);
+	assert(h3.task?.id == 100);
+	assert(h3.task?.priority == 5);
 
 	// Delete holder first
 	delete h3;
@@ -153,7 +153,7 @@ int main() {
 	h4.setTask(s1);
 	h4.setTask(s2);
 	h4.setTask(s3);
-	assert(h4.task.id == 403);
+	assert(h4.task?.id == 403);
 	assert(taskCount == 4); // all still alive
 
 	delete h4;

@@ -1,3 +1,4 @@
+src/tests/stdlib/ImagePixels.btrc:180:27: Possibly-null value stored in non-nullable argument 1 of 'fadeRegion' of type 'Image' — check for null first
 src/tests/stdlib/ImagePixels.btrc:196:33: Non-optional access '.height' on nullable type 'Image?' — use '?.height' or check for null
 src/tests/stdlib/ImagePixels.btrc:196:58: Non-optional access '.pixel' on nullable type 'Image?' — use '?.pixel' or check for null
 src/tests/stdlib/ImagePixels.btrc:196:9: Non-optional access '.width' on nullable type 'Image?' — use '?.width' or check for null

@@ -1164,6 +1164,10 @@ class UILayout {
 			}
 
 			if (virtualGrid) {
+				if (optionalVirtual == null) {
+					context.fail(UI_FRAME_INVALID_TREE, "virtual grid requires a descriptor");
+					return null;
+				}
 				UIVirtualGrid descriptor = optionalVirtual;
 				long long totalRows = descriptor.totalCount() == 0 ? 0LL : ((long long)descriptor.totalCount() + (long long)columns - 1LL) / (long long)columns;
 				long long contentHeight = totalRows * (long long)descriptor.rowHeight() + (totalRows > 0 ? totalRows - 1LL : 0LL) * (long long)style.gap() + (long long)inset;
@@ -1251,7 +1255,9 @@ class UILayout {
 		int innerWidth = width - node.style.horizontalPadding();
 		if (innerWidth < 1) { innerWidth = 1; }
 		if (node.element.kind() == UI_VIRTUAL_GRID) {
-			UIVirtualGrid descriptor = node.element.virtualGridDescriptor();
+			UIVirtualGrid? optionalDescriptor = node.element.virtualGridDescriptor();
+			if (optionalDescriptor == null) { throw "virtual grid requires a descriptor"; }
+			UIVirtualGrid descriptor = optionalDescriptor;
 			int columns = descriptor.columns();
 			int childWidth = (innerWidth - node.style.gap() * (columns - 1)) / columns;
 			if (childWidth < 1) { childWidth = 1; }
@@ -1347,7 +1353,9 @@ class UILayout {
 		for box in boxes {
 			if (box.kind() != UI_VIRTUAL_GRID) { continue; }
 			viewportTop = (long long)viewport.scrollY() + (long long)box.scrollClipTop;
-			UIVirtualGrid descriptor = box.element.virtualGridDescriptor();
+			UIVirtualGrid? optionalDescriptor = box.element.virtualGridDescriptor();
+			if (optionalDescriptor == null) { throw "virtual grid requires a descriptor"; }
+			UIVirtualGrid descriptor = optionalDescriptor;
 			int rowPitch = descriptor.rowHeight() + box.style.gap();
 			long long contentTop = (long long)box.bounds.y + (long long)box.style.paddingTop();
 			long long contentBottom = (long long)box.bounds.y + (long long)box.bounds.height - (long long)box.style.paddingBottom();
@@ -2827,8 +2835,10 @@ class UIRenderer {
 	private UIEventBatch wheelSelect(int pixels) {
 		Vector<UIEvent> events = [];
 		UILayoutBox? box = self.selectBoxFor(self.expandedSelectIdentity);
-		if (box == null || box.element.selectDescriptor() == null || pixels == 0) { return UIEventBatch(self.frameValue, events); }
-		UISelect descriptor = box.element.selectDescriptor();
+		if (box == null) { return UIEventBatch(self.frameValue, events); }
+		UISelect? optionalSelect = box.element.selectDescriptor();
+		if (optionalSelect == null || pixels == 0) { return UIEventBatch(self.frameValue, events); }
+		UISelect descriptor = optionalSelect;
 		long long distance = (long long)self.selectWheelRemainder + (long long)pixels;
 		int rowHeight = self.selectPopupValue.rowHeight();
 		if (rowHeight <= 0) { return UIEventBatch(self.frameValue, events); }

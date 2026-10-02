@@ -195,10 +195,13 @@ class OwnershipOperandPlanner {
 		return false;
 	}
 
-	public void requireType(Node? typeExpr, Node expression) {
-		if (typeExpr != null) { return; }
-		fprintf(stderr, "error: managed ownership boundary at %d:%d " + "requires a concrete type\n", expression.line, expression.col);
-		exit(1);
+	/* The concrete type of a managed operand; a boundary without one cannot be lowered. */
+	public Node requireType(Node? typeExpr, Node expression) {
+		if (typeExpr == null) {
+			fprintf(stderr, "error: managed ownership boundary at %d:%d " + "requires a concrete type\n", expression.line, expression.col);
+			exit(1);
+		}
+		return typeExpr;
 	}
 
 	public string operandCType(Node expression, Node typeExpr) {

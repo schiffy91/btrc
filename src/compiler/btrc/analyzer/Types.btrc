@@ -326,7 +326,7 @@ class SemanticTypeSystem {
 			Node argument = current.genericArgs().get(index);
 			Node? resolved = SemanticTypeSystem.resolveTypedefType(argument, typedefs);
 			if (resolved == null) {
-				SemanticTypeSystem.typedefSemanticFail("Invalid null generic type", typeExpr);
+				SemanticTypeSystem.typedefSemanticFail("Invalid null generic type", typeExpr != null ? typeExpr : current);
 			}
 			Node concrete = resolved;
 			if (concrete != argument) { changed = true; }

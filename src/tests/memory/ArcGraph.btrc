@@ -5,7 +5,7 @@ int nodeCount = 0;
 
 class GraphNode {
 	public int id;
-	public GraphNode next;
+	public GraphNode? next;
 
 	public GraphNode(int id) {
 		self.id = id;
@@ -17,7 +17,7 @@ class GraphNode {
 }
 
 class Container {
-	public GraphNode held;
+	public GraphNode? held;
 
 	public Container() { self.held = null; }
 
@@ -38,8 +38,8 @@ int main() {
 		n1.next = n2;   // n2.rc: 1(new) + 1(field) = 2
 		n2.next = n3;   // n3.rc: 1(new) + 1(field) = 2
 
-		assert(n1.next.id == 2);
-		assert(n1.next.next.id == 3);
+		assert(n1.next?.id == 2);
+		assert(n1.next?.next?.id == 3);
 
 		// Scope exit (phased):
 		// Phase 1: --n3.rc(2→1), --n2.rc(2→1), --n1.rc(1→0)
@@ -54,7 +54,7 @@ int main() {
 		assert(nodeCount == 2);
 
 		p.next = q;  // q.rc: 1(new) + 1(field) = 2
-		assert(p.next.id == 20);
+		assert(p.next?.id == 20);
 
 		// delete p: force destroy, p=NULL
 		// p destructor releases q: q.rc = 2 - 1 = 1
@@ -75,7 +75,7 @@ int main() {
 		ctr.store(gn);
 		// After return: gn.rc = 1 (local) + 1 (field) = 2.
 
-		assert(ctr.held.id == 100);
+		assert(ctr.held?.id == 100);
 
 		delete ctr;
 		// ctr destructor releases ctr.held (gn) → gn.rc = 2 - 1 = 1
@@ -97,8 +97,8 @@ int main() {
 		ca.next = cb;   // cb.rc: 1(new) + 1(field) = 2
 		cb.next = ca;   // ca.rc: 1(new) + 1(field) = 2
 
-		assert(ca.next.id == 302);
-		assert(cb.next.id == 301);
+		assert(ca.next?.id == 302);
+		assert(cb.next?.id == 301);
 
 		// Scope exit (phased):
 		// Phase 1: --cb.rc(2→1), --ca.rc(2→1)

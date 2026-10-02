@@ -116,26 +116,41 @@ Until then a test may require identical **behaviour** of the two compilers'
 output, or identical text of a narrow fragment it names (the WGSL modules, a
 diagnostic), but not identical translation units.
 
-## Deferred: nullable-to-non-nullable stores
+## Nullable-to-non-nullable stores
 
-`N n = make();`, where `make()` returns `N?`, is accepted silently by both
-compilers. The consistent rule would be the existing nullable-access one: a
-path-sensitive **warning**, silenced where the flow proves the value non-null.
-It is not implemented yet, for three reasons measured on 2026-10-01:
+Both compilers warn, from the same flow, where a value that may be null is
+stored into a non-nullable class, interface or `string` reference:
 
-1. A prototype of the warning in the Python analyzer reported 94 sites in the
-   self-hosted compiler alone, before the stdlib, examples and corpus. Almost
-   all are the deliberate `Node concreteX = maybeX;` narrowing written after
-   `TypeValidator.fail(...)`, which exits. The flow analysis does not know
-   that a call cannot return, so it cannot see these as proven.
-2. Self-host builds fail on any analyzer warning, so the warning cannot land
-   before every site is either rewritten or proven by a flow that understands
-   non-returning calls.
-3. `btrcc` has no warning channel and no nullable-flow analysis at all: the
-   existing nullable-access warning is reported by the Python compiler only.
+```
+warning: Possibly-null value stored in non-nullable <context> of type 'T' — check for null first
+```
 
-The order of work is therefore: teach the flow analysis non-returning calls
-(`exit`, and functions whose every path ends in one), port the nullable flow
-and a warning channel to `btrcc`, then add the store warning to both. The
-first two are done (see "Nullable flow and the warning channel" above); the
-store warning remains.
+The context is `variable 'n'` (a typed local or global's initializer),
+`assignment target` (`=` to a local or a field), `return value`,
+`argument <i> of '<callee>'`, `field 'C.f'` (a field default) or
+`parameter 'p'` (a parameter default). A value may be null when it is the
+`null` literal, has a nullable type `T?`, is a `?:` with such an arm, or is an
+`a ?? b` whose fallback `b` may be null. The warning is silenced where the flow
+proves the value non-null (a guard, an early `return`, `throw` or
+non-returning call, a store of a non-null value) and in unreachable code.
+
+An argument is checked against the parameter of the callee the call resolves
+to by the same rule in both compilers: by name to a top-level function with a
+body or a non-generic class's constructor, as a static `C.m()`, or through the
+receiver's type to a class, interface or generic-instance method, whose class
+type parameters take the instance's arguments. A positional argument only; a
+parameter typed by the method's own type parameter has no known target.
+
+Access paths include a class's static fields (`C.f`), which, like globals, any
+call can change, so `if (C.f == null) { ... return ...; } return C.f;` is
+proven. Code after `self.field.m()` is unreachable when every implementation
+of `m` in the field's declared class (and its subclasses) never returns.
+
+A prototype of the warning reported 94 sites in the self-hosted compiler on
+2026-10-01, before non-returning calls were understood; this rule reported
+187 in the compiler's self-host transpile (21 of them in the generated
+`Node` list accessors, which the static-field paths now prove), 28 more in the
+stdlib and 135 in the corpus (2026-10-02). Every site in the compiler, the stdlib and the examples is now
+proven or rewritten, so both self-host transpiles and the bootstrap stay
+warning-free; the corpus programs that store `null` on purpose to exercise
+the runtime's null handling keep their warning in `expected/<Stem>.warnings`.

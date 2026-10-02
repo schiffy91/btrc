@@ -63,6 +63,8 @@ class ControlFlowValidator {
 		/* A lambda body is always reached and knows no outer facts. */
 		NullableFlowState outerFlow = self.flow.snapshot();
 		Map<string, string> outerBindings = self.flow.saveBindings();
+		Node? outerReturnTarget = self.flow.returnTarget;
+		self.flow.returnTarget = expression.returnType;
 		self.flow.enterBody();
 		for parameter in expression.params() { self.flow.bind(parameter.name); }
 		if (body.kind == NK_LAMBDA_BLOCK) {
@@ -77,6 +79,7 @@ class ControlFlowValidator {
 		}
 		self.flow.restoreBindings(outerBindings);
 		self.flow.restore(outerFlow);
+		self.flow.returnTarget = outerReturnTarget;
 		self.state.returnType = previousReturn;
 		self.state.loopDepth = previousLoop;
 		self.state.breakDepth = previousBreak;
@@ -457,21 +460,27 @@ class ControlFlowValidator {
 			self.state.borrowedBindings.remove(statement.varName);
 		}
 
-		if (statement.varName2 != null) {
-			self.names.validateLexicalBindingName(statement.varName2, "Loop variable", statement);
-			if (loopNames.has(statement.varName2)) {
-				TypeValidator.fail("Duplicate loop variable name '" + statement.varName2 + "'", statement);
+		string? secondName = statement.varName2;
+		if (secondName != null) {
+			string valueName = secondName;
+			self.names.validateLexicalBindingName(valueName, "Loop variable", statement);
+			if (loopNames.has(valueName)) {
+				TypeValidator.fail("Duplicate loop variable name '" + valueName + "'", statement);
 			}
-			loopNames.put(statement.varName2, true);
+			loopNames.put(valueName, true);
+			/* Only a range form leaves no iterable type, and it has one loop variable. */
+			if (iterableType == null) {
+				TypeValidator.fail("range iteration has exactly one loop variable", statement);
+			}
 			Node second = self.iterableElementType(iterableType, statement, true);
-			self.ownership.rejectThreadOwnerShadow(statement.varName2, second, vars, statement);
+			self.ownership.rejectThreadOwnerShadow(valueName, second, vars, statement);
 			if (self.ownership.containsThreadStorage(second)) {
 				TypeValidator.fail("for-in loop variables cannot own a Thread handle; declare " + "a fresh local owner inside the loop", statement);
 			}
-			bodyVars.put(statement.varName2, second);
-			self.flow.bind(statement.varName2);
-			self.state.borrowedBindings.remove(statement.varName2);
-			self.state.localBindings.put(statement.varName2, true);
+			bodyVars.put(valueName, second);
+			self.flow.bind(valueName);
+			self.state.borrowedBindings.remove(valueName);
+			self.state.localBindings.put(valueName, true);
 		}
 
 		self.names.validateDirectLocalNames(statement.bodyNode, loopNames);
@@ -670,11 +679,15 @@ class ControlFlowValidator {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
 			}
 			declared = self.storage.inferredBindingValueType(actual, declaration.initializer, vars);
+			if (declared == null) {
+				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
+			}
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer)) {
 			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'", declaration);
 		}
 		self.ownership.rejectThreadHandleCopy(declared, actual, declaration.initializer, declaration);
 		self.flow.expression(declaration.initializer, vars);
+		if (declaration.type != null) { self.flow.checkStore(declaration.type, declaration.initializer, "variable '" + declaration.name + "'", vars); }
 		vars.put(declaration.name, declared);
 		self.state.borrowedBindings.remove(declaration.name);
 		if (self.state.owner != "") {
@@ -687,6 +700,7 @@ class ControlFlowValidator {
 	public void validateReturn(Node statement, Map<string, Node> vars) {
 		self.expressions.contextualizeGenericConstructor(self.state.returnType, statement.valueNode, vars);
 		self.validateExpression(statement.valueNode,  vars);
+		self.flow.checkStore(self.flow.returnTarget, statement.valueNode, "return value", vars);
 		self.validateThreadTransferSource(statement.valueNode,  vars);
 		if (self.state.returnType == null) { return; }
 		Node expectedReturn = self.state.returnType;
@@ -909,8 +923,9 @@ class NullableFlowEffects {
 
 /* Path-sensitive nullable-access warnings, the self-hosted counterpart of
  * the reference ControlFlowAnalyzer. A fact is a stable access path known to
- * be non-null: a binding key (one per lexical binding, or `g:` and a global's
- * name) followed by field names. Statement validation drives it in the
+ * be non-null: a binding key (one per lexical binding, `g:` and a global's
+ * name, or `g:@` and a class whose static fields follow) followed by field
+ * names. Statement validation drives it in the
  * reference's order: each analyzed expression is checked against the facts,
  * then its stores, calls and escaped addresses kill the facts they can
  * change; branches join, and loop bodies start from the facts their back
@@ -930,6 +945,9 @@ class NullableFlow {
 	private Map<Node, bool> nonreturning = {};
 	private Map<string, Node> functionDefinitions = {};
 	private Map<Node, bool> warned = {};
+	private Map<Node, bool> storeWarned = {};
+	/* The declared type a `return` in the body being validated stores into. */
+	public Node? returnTarget = null;
 
 	public NullableFlow(SemanticValidationState state, TypeValidator types, HostedAbiRepository hostedAbi) {
 		self.state = state;
@@ -1031,6 +1049,8 @@ class NullableFlow {
 		if (expression.kind == NK_IDENTIFIER) {
 			if (self.bindings.has(expression.name)) { return self.bindings.get(expression.name); }
 			if (self.state.analyzed.globalVarTypes.has(expression.name)) { return "g:" + expression.name; }
+			/* A class's static storage is global storage any call can change. */
+			if (self.state.analyzed.isClass(expression.name) || self.state.analyzed.isGenericClass(expression.name)) { return "g:@" + expression.name; }
 			return "";
 		}
 		if (expression.kind == NK_SELF_EXPR) { return self.bindings.has("self") ? self.bindings.get("self") : ""; }
@@ -1083,7 +1103,7 @@ class NullableFlow {
 	private bool undeclaredStore(Node? target) {
 		Node? rootNode = target;
 		while (rootNode != null && (rootNode.kind == NK_FIELD_ACCESS_EXPR || rootNode.kind == NK_INDEX_EXPR)) { rootNode = rootNode.obj; }
-		return rootNode != null && rootNode.kind == NK_IDENTIFIER && !self.resolvesLocally(rootNode.name);
+		return rootNode != null && rootNode.kind == NK_IDENTIFIER && !self.resolvesLocally(rootNode.name) && !self.state.analyzed.isClass(rootNode.name) && !self.state.analyzed.isGenericClass(rootNode.name);
 	}
 
 	private Map<string, bool> surviving(Map<string, bool> facts, NullableFlowEffects effects) {
@@ -1211,6 +1231,11 @@ class NullableFlow {
 	private void check(Node? expression, Map<string, bool> facts, Map<string, Node> vars) {
 		if (expression == null || expression.kind == NK_LAMBDA_EXPR) { return; }
 		if (expression.kind == NK_FIELD_ACCESS_EXPR) { self.checkAccess(expression, facts, vars); }
+		if (expression.kind == NK_ASSIGN_EXPR && expression.op == "=") {
+			self.checkStoreWith(self.types.inferType(expression.target, vars), false, expression.valueNode, "assignment target", facts, vars);
+		} else if (expression.kind == NK_CALL_EXPR) {
+			self.checkArguments(expression, facts, vars);
+		}
 		if (expression.kind == NK_BINARY_EXPR && (expression.op == "&&" || expression.op == "||")) {
 			self.check(expression.left, facts, vars);
 			self.check(expression.right, NullableFlow.unite(facts, self.outcome(expression.left, expression.op == "&&")), vars);
@@ -1238,6 +1263,112 @@ class NullableFlow {
 	}
 
 	private bool nullableType(Node? typeExpr) { return typeExpr != null && typeExpr.isNullable; }
+
+	/* ---- stores ---- */
+
+	/* Warn when a value that may be null is stored into a non-nullable reference. */
+	public void checkStore(Node? targetType, Node? value, string context, Map<string, Node> vars) { self.checkStoreWith(targetType, false, value, context, self.facts, vars); }
+
+	private void checkStoreWith(Node? targetType, bool targetNullable, Node? value, string context, Map<string, bool> facts, Map<string, Node> vars) {
+		if (value == null || targetType == null || targetNullable || !self.nonnullReference(targetType) || self.storeWarned.has(value)) { return; }
+		if (!self.mayBeNull(value, facts, vars)) { return; }
+		self.storeWarned.put(value, true);
+		self.state.analyzed.recordWarning("Possibly-null value stored in non-nullable " + context + " of type '" + targetType.base + "' — check for null first", value);
+	}
+
+	/* A source reference that may not hold null: a class, interface or string, not declared nullable. */
+	private bool nonnullReference(Node typeExpr) {
+		Analyzed analyzed = self.state.analyzed;
+		return !typeExpr.isNullable && !typeExpr.isArray && typeExpr.pointerDepth <= 1 && (typeExpr.base == "string" || analyzed.isClass(typeExpr.base) || analyzed.isGenericClass(typeExpr.base) || analyzed.isInterface(typeExpr.base));
+	}
+
+	private bool mayBeNull(Node value, Map<string, bool> facts, Map<string, Node> vars) {
+		if (self.unreachable) { return false; }
+		if (NullableFlow.nullLiteral(value)) { return true; }
+		/* `a ?? b` is null only when its fallback `b` may be. */
+		Node? rightOperand = value.right;
+		if (value.kind == NK_BINARY_EXPR && value.op == "??" && rightOperand != null) { return self.mayBeNull(rightOperand, facts, vars); }
+		Node? leftOperand = value.left;
+		if (value.kind == NK_BINARY_EXPR && value.op == "+" && leftOperand != null && rightOperand != null) {
+			Node? concatenated = self.types.inferType(value, vars);
+			if (concatenated != null && concatenated.base == "string" && concatenated.pointerDepth <= 1) {
+				/* A concatenation is null only when one of its operands may be. */
+				return self.mayBeNull(leftOperand, facts, vars) || self.mayBeNull(rightOperand, facts, vars);
+			}
+		}
+		if (value.kind == NK_TERNARY_EXPR) {
+			Node? whenTrue = value.trueExpr;
+			Node? whenFalse = value.falseExpr;
+			if (whenTrue != null && self.mayBeNull(whenTrue, NullableFlow.unite(facts, self.outcome(value.condition, true)), vars)) { return true; }
+			return whenFalse != null && self.mayBeNull(whenFalse, NullableFlow.unite(facts, self.outcome(value.condition, false)), vars);
+		}
+		string known = self.path(value);
+		if (!known.isEmpty() && facts.has(known)) { return false; }
+		return self.nullableType(self.types.inferType(value, vars));
+	}
+
+	/* The positional arguments of a call to a source callable, each checked
+	 * against the parameter it is stored into. Calls resolve by name (a
+	 * top-level function with a body, or a non-generic class's constructor),
+	 * as a static `C.m()`, or through the receiver's type to a class,
+	 * interface or generic-instance method, whose class type parameters take
+	 * the instance's arguments. A parameter typed by a method's own type
+	 * parameter has no known target. */
+	private void checkArguments(Node call, Map<string, bool> facts, Map<string, Node> vars) {
+		Node? callee = call.callee;
+		if (callee == null) { return; }
+		Analyzed analyzed = self.state.analyzed;
+		Node? callable = null;
+		Map<string, Node> substitutions = {};
+		string name = "";
+		if (callee.kind == NK_IDENTIFIER) {
+			name = callee.name;
+			if (self.resolvesLocally(callee.name)) { return; }
+			if (self.functionDefinitions.has(callee.name)) {
+				callable = self.functionDefinitions.get(callee.name);
+			} else if (analyzed.isClass(callee.name)) {
+				callable = analyzed.classConstructor(callee.name);
+			}
+		} else if (callee.kind == NK_FIELD_ACCESS_EXPR && !callee.optional) {
+			name = callee.field;
+			Node? receiver = callee.obj;
+			if (receiver == null) { return; }
+			if (receiver.kind == NK_IDENTIFIER && !self.resolvesLocally(receiver.name) && (analyzed.isClass(receiver.name) || analyzed.isGenericClass(receiver.name))) {
+				Node? candidate = self.method(receiver.name, callee.field);
+				if (candidate != null && candidate.access == "class") { callable = candidate; }
+			} else {
+				Node? receiverType = self.types.inferType(receiver, vars);
+				if (receiverType == null || receiverType.isArray) { return; }
+				if (analyzed.isClass(receiverType.base)) {
+					Node? candidate = analyzed.classMethod(receiverType.base, callee.field);
+					if (candidate != null && candidate.access != "class") { callable = candidate; }
+				} else if (analyzed.isGenericClass(receiverType.base)) {
+					Vector<string> parameters = analyzed.genericClassTable.get(receiverType.base).genericParams();
+					if (receiverType.genericArgs().len != parameters.len) { return; }
+					Node? candidate = analyzed.genericClassMethod(receiverType.base, callee.field);
+					if (candidate != null && candidate.access != "class") { callable = candidate; }
+					for (int index = 0; index < parameters.len; index++) { substitutions.put(parameters.get(index), receiverType.genericArgs().get(index)); }
+				} else if (analyzed.isInterface(receiverType.base)) {
+					callable = analyzed.interfaceMethod(receiverType.base, callee.field);
+				}
+			}
+		}
+		if (callable == null) { return; }
+		Map<string, bool> methodParameters = {};
+		for parameter in callable.genericParams() { methodParameters.put(parameter, true); }
+		Vector<Node> parameters = callable.params();
+		Vector<string> names = call.argNames();
+		for (int index = 0; index < call.args().len && index < parameters.len; index++) {
+			if (index < names.len && names.get(index) != "") { continue; }
+			Node? declared = parameters.get(index).type;
+			if (declared == null || methodParameters.has(declared.base)) { continue; }
+			if (substitutions.has(declared.base)) {
+				self.checkStoreWith(substitutions.get(declared.base), declared.isNullable, call.args().get(index), "argument " + Strings.fromInt(index + 1) + " of '" + name + "'", facts, vars);
+			} else {
+				self.checkStoreWith(declared, false, call.args().get(index), "argument " + Strings.fromInt(index + 1) + " of '" + name + "'", facts, vars);
+			}
+		}
+	}
 
 	/* Whether a stored value cannot be null: a path the flow proved, or a
 	 * non-nullable reference. */
@@ -1303,7 +1434,10 @@ class NullableFlow {
 	/* Find every function and method no call to which returns: every path
 	 * through its body ends in a throw or in such a call (a hosted noreturn
 	 * function, or another such callable). The least fixed point over the
-	 * syntactic call graph, as the reference computes it. */
+	 * syntactic call graph, as the reference computes it: `f()` names a
+	 * top-level function, `C.m()` a static method, and `self.m()` and
+	 * `self.field.m()` every implementation the receiver's class (or the
+	 * field's declared class) and its subclasses dispatch to. */
 	public void computeNonreturning(Node program) {
 		self.nonreturning = {};
 		self.functionDefinitions = {};
@@ -1375,9 +1509,24 @@ class NullableFlow {
 		Node? receiver = callee.obj;
 		if (receiver == null) { return false; }
 		if (receiver.kind == NK_SELF_EXPR) { return owner != "" && self.dispatchNeverReturns(owner, callee.field); }
+		if (receiver.kind == NK_FIELD_ACCESS_EXPR && receiver.obj != null && receiver.obj.kind == NK_SELF_EXPR) {
+			string fieldClass = self.selfFieldClass(owner, receiver);
+			return fieldClass != "" && self.dispatchNeverReturns(fieldClass, callee.field);
+		}
 		if (receiver.kind != NK_IDENTIFIER || self.shadowed(receiver.name, locals, scoped)) { return false; }
 		Node? method = self.method(receiver.name, callee.field);
 		return method != null && method.access == "class" && self.nonreturning.has(method);
+	}
+
+	/* The class `self.field` is declared as in non-generic class `owner`, or "". */
+	private string selfFieldClass(string owner, Node access) {
+		Analyzed analyzed = self.state.analyzed;
+		if (owner == "" || !analyzed.isClass(owner) || access.optional || access.arrow) { return ""; }
+		Node? field = analyzed.classMember(owner, access.field);
+		if (field == null || field.kind != NK_FIELD_DECL || field.access == "class") { return ""; }
+		Node? declared = field.type;
+		if (declared == null || declared.isArray || !analyzed.isClass(declared.base)) { return ""; }
+		return declared.base;
 	}
 
 	private bool shadowed(string name, Map<string, bool> locals, bool scoped) {

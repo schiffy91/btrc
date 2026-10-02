@@ -102,6 +102,22 @@ in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
 20), so a jump into a VLA's scope cannot be written; Stage 20's negative
 fixtures must cover it.
 
+## Nullable references are checked by warnings
+
+A nullable reference (`T?`) and a non-nullable one (`T`) share one
+representation, and the type system does not refuse a store of one into the
+other. Both compilers instead report path-sensitive **warnings**: a
+non-optional access on a value of nullable type (`x.f` where `x` is `T?`), and
+a possibly-null value (`null`, a `T?` value, a `?:` with such an arm, an
+`a ?? b` whose fallback may be null) stored into a non-nullable class,
+interface or `string` reference by an initializer, `=`, `return`, a call
+argument, or a field or parameter default. A null check, an early `return`,
+`throw` or call that never returns (`exit`, `abort`, or a function every path
+of which ends in one), or a store of a non-null value silences them on the
+paths it proves. A warning never fails a compile; the compiler, the stdlib and
+the examples are kept free of them. `docs/design/compiler-parity.md` records
+the exact rule.
+
 ## Closed gaps
 
 | # | Feature | Resolution | Regression test |
