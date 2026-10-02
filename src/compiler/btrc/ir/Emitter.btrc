@@ -85,7 +85,7 @@ class CEmitter {
 
 	public string emit(IRModule m) {
 		self.lineFilenames = {};
-		return self.emitUnit(m, -1, 0, m.functions.len);
+		return self.emitUnit(m, IRTypeDeclarationPlanner.plan(m), -1, 0, m.functions.len);
 	}
 
 	/* Emit one compilation group's unit of a module-unit program. Lowering
@@ -95,7 +95,7 @@ class CEmitter {
 	public string emitModuleUnit(IRModule m) {
 		self.lineFilenames = {};
 		self.moduleUnitState = 0;
-		string text = self.emitUnit(m, -1, 0, m.functions.len);
+		string text = self.emitUnit(m, IRTypeDeclarationPlanner.plan(m), -1, 0, m.functions.len);
 		self.moduleUnitState = -1;
 		return text;
 	}
@@ -106,7 +106,7 @@ class CEmitter {
 	public string emitRuntimeUnit(IRModule m) {
 		self.lineFilenames = {};
 		self.moduleUnitState = 1;
-		string text = self.emitUnit(m, -1, 0, m.functions.len);
+		string text = self.emitUnit(m, IRTypeDeclarationPlanner.plan(m), -1, 0, m.functions.len);
 		self.moduleUnitState = -1;
 		return text;
 	}
@@ -133,11 +133,13 @@ class CEmitter {
 			total = total + self.lines.len;
 		}
 		Vector<int> starts = self.unitStarts(m, sizes, total, targetLines);
+		/* Every unit declares the same types, so the module is planned once. */
+		Vector<IRTypeDeclarationRef> plan = IRTypeDeclarationPlanner.plan(m);
 		int unit = 0;
 		while (unit < starts.len) {
 			int first = starts.get(unit);
 			int end = unit + 1 < starts.len ? starts.get(unit + 1) : sizes.len;
-			units.push(self.emitUnit(m, unit, first, end, unitsPrefix));
+			units.push(self.emitUnit(m, plan, unit, first, end, unitsPrefix));
 			unit = unit + 1;
 		}
 		return units;
@@ -175,8 +177,9 @@ class CEmitter {
 	}
 
 	/* unitIndex -1 is the whole program as one unit; 0 the primary of a split
-	 * program; higher indices are secondaries. [first, end) selects functions. */
-	private string emitUnit(IRModule m, int unitIndex, int first, int end, string unitsPrefix = "") {
+	 * program; higher indices are secondaries. [first, end) selects functions.
+	 * `plan` is the module's IRTypeDeclarationPlanner order. */
+	private string emitUnit(IRModule m, Vector<IRTypeDeclarationRef> plan, int unitIndex, int first, int end, string unitsPrefix = "") {
 		if (m.language != "c" && m.language != "objective-c" && m.language != "c++") { throw "unsupported IR translation-unit language"; }
 		self.language = m.language;
 		self.resetLines();
@@ -232,7 +235,7 @@ class CEmitter {
 		}
 		if (m.structForwards.len > 0) { self.line(""); }
 
-		for declaration in IRTypeDeclarationPlanner.plan(m) { self.emitTypeDeclaration(m, declaration); }
+		for declaration in plan { self.emitTypeDeclaration(m, declaration); }
 
 		i = 0;
 		while (i < m.functionDecls.len) {

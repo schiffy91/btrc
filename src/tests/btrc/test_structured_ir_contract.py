@@ -391,12 +391,11 @@ def test_type_declarations_follow_the_reference_plan() -> None:
     ]
 
     forwards = unit.index("self.emitStructForward(")
-    planned = unit.index(
-        "for declaration in IRTypeDeclarationPlanner.plan(m) { self.emitTypeDeclaration(m, declaration); }"
-    )
+    planned = unit.index("for declaration in plan { self.emitTypeDeclaration(m, declaration); }")
     prototypes = unit.index("self.emitFunctionDecl(")
     globals_ = unit.index("self.emitGlobal(")
     assert forwards < planned < prototypes < globals_
+    assert emitter.count("IRTypeDeclarationPlanner.plan(m)") == 4
     for retired in ("emitOrderedAliases", "self.emitStruct(m.", "self.emitEnum(m.", "self.emitTaggedUnion(m."):
         assert retired not in unit
     assert "class IRTypeDeclarationPlanner {" in optimizer

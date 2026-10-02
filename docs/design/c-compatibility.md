@@ -783,7 +783,7 @@ Each lane changes Python first and then ports to btrc in the same commit. The li
   - Frontend: `Visibility.btrc`, whose `TypeExpr` branch must visit `elements`.
   - Lowering: the `CTypeLowerer` registry; `DeclarationLowerer`; `StatementLowerer`; `ExpressionLowerer`; `AggregateValueLowerer`.
   - Units and optimizer: `ModuleUnitDeclarations`; `ir/runtime/References.btrc`; `IROptimizer`; setjmp `Safety.btrc` and `Analysis.btrc`; `ir/gpu/Pipeline.btrc`.
-  - Emission: `CEmitter.emitTypedef`, `emitOrderedAliases` and the module emission order.
+  - Emission: `CEmitter.emitTypedef` and `IRTypeDeclarationPlanner` (which mirrors `IROptimizer.plan_type_declarations`, including the array-typedef complete-type context).
 - **Tests and docs:**
   - Probes and corpus: the `c2.toml` r17 rows; `c_compat/TwoDimensionalArrays.btrc`.
   - Inverted tests: `test_parser_decls.py::test_multidimensional_array_has_architecture_error` and the one-dimension case in `test_parser_diagnostics.py`.

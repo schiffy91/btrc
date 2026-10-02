@@ -969,6 +969,7 @@ class IRTypeDeclarationPlanner {
 		if (!node.cType.isEmpty()) { out.push(node.cType); }
 		if (!node.targetType.isEmpty()) { out.push(node.targetType); }
 		if (node.params != null) { for parameter in node.params { out.push(parameter.cType); } }
+		if (node.cleanupSlot != null) { out.push(node.cleanupSlot.cType); }
 		IRTypeDeclarationPlanner.expressionTypes(node.left, out);
 		IRTypeDeclarationPlanner.expressionTypes(node.right, out);
 		IRTypeDeclarationPlanner.expressionTypes(node.operand, out);
