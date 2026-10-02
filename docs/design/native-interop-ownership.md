@@ -632,6 +632,23 @@ clone = "Clone"
 result = "StreamClone"
 status = "hresult"
 
+[native.bindings.resources.ICounterEvents]
+ownership = "com"
+iid = "IID_ICounterEvents"
+release-executor = "apartment"
+
+[native.bindings.resources.ICounter]
+ownership = "com"
+iid = "IID_ICounter"
+release-executor = "apartment"
+[native.bindings.resources.ICounter.dispatch]
+table = "lpVtbl"
+executor = "apartment"
+failure = "abort"
+[native.bindings.resources.ICounter.dispatch.methods]
+advise = "Advise"
+unadvise = "Unadvise"
+
 [native.bindings.com-sinks.ICounterEvents]
 name = "makeCounterEvents"
 interface = "ICounterEventsHandler"
@@ -918,14 +935,14 @@ every other key keeps its existing closed set.
 | Key or value | Where | Step |
 |---|---|---|
 | `dispatch` subtable: `table`, `context`, `context-index`, `executor`, `failure`, `release`, `methods` | resources | 2 |
-| `"<R>.<method>"` names | result maps: `owned-results`, `status-results`, `sunk-results` | 2 |
+| `"<R>.<method>"` names | result maps (`owned-results`, `status-results`; `sunk-results` from step 8) and `com-sinks` `register`/`unregister` values | 2 |
 | `"<R>.<method>.<parameter>"` names | parameter maps: `borrowed-parameters`, `owned-outputs`, `copied-outputs`, `error-outputs` | 2 |
 | `release-executor` with `caller`/`any` | resources | 2 |
 | `executor = "main"`; `release-executor = "main"`, derived from `main_actor` | Objective-C callbacks and resources | 3 |
 | `language = "java"` (no `header` or `standard`); descriptor symbols | `[[native.bindings]]` | 4 |
 | `dispatch-records` (`receiver = "environment"`, `executor`, `failure`, `methods`) | binding map | 4 |
 | `ownership = "com"`, `iid`, `base` | resources | 5 |
-| `executor` and `release-executor` = `apartment` | COM resources, dispatch, sinks | 5 |
+| `executor` and `release-executor` = `apartment` | COM resources (both keys); dispatch and sinks (`executor` only) | 5 |
 | `status-results` | binding map | 5 |
 | `status = "hresult"` | `owned-outputs` | 5 |
 | `copied-outputs` (`encoding`, `free`) | binding map | 5 |
@@ -1156,8 +1173,8 @@ the owner can overturn it.
 2. **`failure = "throw"` for Java entry.** Every other R3 boundary aborts. JNI
    is the one foreign runtime with an exception channel that the adapter can
    use safely, so the plan allows `throw` for Java-entry thunks only.
-3. **Free-threaded COM sinks.** Both MTA sinks and `release-executor = "any"`
-   holders wait for the atomic ARC runtime (arc-runtime.md, "Cross-thread
+3. **Free-threaded COM sinks.** MTA sinks, like any holder that would need
+   a free-threaded release, wait for the atomic ARC runtime (arc-runtime.md, "Cross-thread
    design").
 4. **Timing of the iOS slice.** Step 3's simulator evidence needs Stage 24's
    iOS target and Stage 25's simulator host. If either slips, step 3 lands
@@ -1256,6 +1273,14 @@ blocking gaps, all resolved in this commit:
 | N7 | `JNI_OnLoad` would abort on a host JVM with no main `Looper`. | `main` is captured lazily, at the first `main` check. |
 | N8 | Capturing the GLib context thread at first use could capture a worker. | Captured only by an explicit bind on the loop thread. |
 | N9 | Objective-C stored blocks released by GCD off-thread still abort under `caller`. | Documented in rule 4: such bindings declare `main`. |
+
+A last focused re-check of N1–N4 found N1, N2 and N4 consistent throughout
+the body, and confirmed against `native_imports.py:3408-3419` that fields
+marked private skip `_callback_field`. It found the N3 TOML example still
+naming undeclared `ICounterEvents` and `ICounter` resources. The example now
+declares both as `com` resources, with `ICounter`'s `advise`/`unadvise`
+dispatch. Its three wording notes (the apartment-key row, the `<R>.<method>`
+row and open question 3) are applied too.
 
 **Approval.** Under PLAN.md's standing approvals ("Design and interface
 approvals ... Stage 27's ownership plan ... approved when its two adversarial
