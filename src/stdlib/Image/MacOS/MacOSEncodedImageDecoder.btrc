@@ -35,13 +35,13 @@ class MacOSEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFor
 class ImageIODecodeSession {
 	private Bytes _encoded;
 	private Image? _pixels;
-	private CFDataRef _data;
-	private CFMutableDictionaryRef _options;
-	private CGImageSourceRef _source;
-	private CFDictionaryRef _properties;
-	private CGImageRef _image;
-	private CGColorSpaceRef _colorSpace;
-	private CGContextRef _context;
+	private CFDataRef? _data;
+	private CFMutableDictionaryRef? _options;
+	private CGImageSourceRef? _source;
+	private CFDictionaryRef? _properties;
+	private CGImageRef? _image;
+	private CGColorSpaceRef? _colorSpace;
+	private CGContextRef? _context;
 
 	private ImageIODecodeSession(Bytes encoded) {
 		self._encoded = encoded;
@@ -68,44 +68,60 @@ class ImageIODecodeSession {
 	class EncodedImageDecodeOutcome run(Bytes encoded, string format, EncodedImageDecodeLimits limits) { return ImageIODecodeSession(encoded).decode(format, limits); }
 
 	private EncodedImageDecodeOutcome decode(string format, EncodedImageDecodeLimits limits) {
-		self._data = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, (const unsigned char*)self._encoded.data, self._encoded.length(), kCFAllocatorNull);
-		if (self._data == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
-		self._options = CFDictionaryCreateMutable(kCFAllocatorDefault, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		if (self._options == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
-		CFDictionarySetValue(self._options, kCGImageSourceShouldCache, kCFBooleanFalse);
-		self._source = CGImageSourceCreateWithData(self._data, self._options);
-		if (self._source == null || !self.typeMatches(format) || CGImageSourceGetCount(self._source) == 0) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
-		self._properties = CGImageSourceCopyPropertiesAtIndex(self._source, 0, self._options);
-		long long width = self.dimension(kCGImagePropertyPixelWidth);
-		long long height = self.dimension(kCGImagePropertyPixelHeight);
+		var data = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, (const unsigned char*)self._encoded.data, self._encoded.length(), kCFAllocatorNull);
+		if (data == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
+		self._data = data;
+		var options = CFDictionaryCreateMutable(kCFAllocatorDefault, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		if (options == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
+		self._options = options;
+		CFDictionarySetValue(options, kCGImageSourceShouldCache, kCFBooleanFalse);
+		var source = CGImageSourceCreateWithData(data, options);
+		if (source == null) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		self._source = source;
+		if (!ImageIODecodeSession.typeMatches(source, format) || CGImageSourceGetCount(source) == 0) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		var properties = CGImageSourceCopyPropertiesAtIndex(source, 0, options);
+		if (properties == null) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		self._properties = properties;
+		long long width = ImageIODecodeSession.dimension(properties, kCGImagePropertyPixelWidth);
+		long long height = ImageIODecodeSession.dimension(properties, kCGImagePropertyPixelHeight);
 		if (width <= 0 || height <= 0) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
 		if (!Image.validDimensions(width, height) || !limits.allowsDimensions((int)width, (int)height)) { return self.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED); }
-		self._image = CGImageSourceCreateImageAtIndex(self._source, 0, self._options);
-		if (self._image == null || CGImageGetWidth(self._image) != (size_t)width || CGImageGetHeight(self._image) != (size_t)height) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		var image = CGImageSourceCreateImageAtIndex(source, 0, options);
+		if (image == null) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
+		self._image = image;
+		if (CGImageGetWidth(image) != (size_t)width || CGImageGetHeight(image) != (size_t)height) { return self.rejected(ENCODED_IMAGE_DECODE_CORRUPT); }
 		var pixels = Image.tryCreate((int)width, (int)height);
 		if (pixels == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
 		self._pixels = pixels;
-		self._colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-		if (self._colorSpace == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
-		self._context = CGBitmapContextCreate(pixels.data, (size_t)width, (size_t)height, 8, (size_t)width * 4, self._colorSpace, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-		if (self._context == null) { return self.rejected(ENCODED_IMAGE_DECODE_FAILED); }
-		CGContextSetBlendMode(self._context, kCGBlendModeCopy);
-		CGContextDrawImage(self._context, CGRectMake(0.0, 0.0, (double)width, (double)height), self._image);
-		self._context = null;
+		var colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+		if (colorSpace == null) { return self.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY); }
+		self._colorSpace = colorSpace;
+		if (!self.draw(image, colorSpace, pixels, width, height)) { return self.rejected(ENCODED_IMAGE_DECODE_FAILED); }
 		if (!pixels.tryCopyPremultipliedRgba(pixels.data, (unsigned long long)width * (unsigned long long)height * 4ULL)) { return self.rejected(ENCODED_IMAGE_DECODE_FAILED); }
 		return EncodedImageDecodeOutcome.decoded(pixels, self._encoded.length());
 	}
 
-	private bool typeMatches(string expected) {
-		var type = CGImageSourceGetType(self._source);
+	/* The bitmap context is released before the pixels are read. */
+	private bool draw(CGImageRef image, CGColorSpaceRef colorSpace, Image pixels, long long width, long long height) {
+		var context = CGBitmapContextCreate(pixels.data, (size_t)width, (size_t)height, 8, (size_t)width * 4, colorSpace, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+		if (context == null) { return false; }
+		self._context = context;
+		CGContextSetBlendMode(context, kCGBlendModeCopy);
+		CGContextDrawImage(context, CGRectMake(0.0, 0.0, (double)width, (double)height), image);
+		self._context = null;
+		return true;
+	}
+
+	class bool typeMatches(CGImageSourceRef source, string expected) {
+		var type = CGImageSourceGetType(source);
 		if (type == null) { return false; }
 		char name[32];
 		return CFStringGetCString(type, name, 32, kCFStringEncodingUTF8) != 0 && strcmp(name, expected) == 0;
 	}
 
-	private long long dimension(CFStringRef key) {
-		if (self._properties == null) { return 0LL; }
-		var value = CFDictionaryGetValue(self._properties, key);
+	class long long dimension(CFDictionaryRef properties, CFStringRef? key) {
+		if (key == null) { return 0LL; }
+		var value = CFDictionaryGetValue(properties, key);
 		if (value == null) { return 0LL; }
 		var number = (CFNumberRef?)value;
 		if (number == null) { return 0LL; }

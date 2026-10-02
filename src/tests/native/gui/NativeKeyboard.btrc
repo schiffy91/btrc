@@ -21,7 +21,7 @@ void sendKey(MacOSWindow window, unsigned short code, string characters) {
 	location.x = 0.0; location.y = 0.0;
 	var text = AppKitText.nativeValue(characters);
 	var event = NSEvent.keyEventWithType(NSEventTypeKeyDown, location, 0UL, 0.0, window.nativeWindow().windowNumber(), null, text, text, false, code);
-	assert(event != null);
+	if (event == null) { throw "Cannot create a synthetic key event"; }
 	NSApplication.sharedApplication().sendEvent(event);
 }
 
