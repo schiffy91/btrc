@@ -51,7 +51,7 @@ class Compiler {
 		 * a stored generation. */
 		var cached = getenv("BTRC_VERIFY_VALIDATION_RECORDS") == null ? cache.load(identity) : null;
 		if (cached != null && cached.success) {
-			var restored = input.packages.linkPlan.withCachedArtifacts(cached.linkPlan, cached.units.len, options.unitsPrefix);
+			var restored = input.packages.linkPlan.withCachedArtifacts(cached.linkPlan, cached.units.len, options.unitsPrefix, cached.units);
 			/* A no-op build reuses every unit of the stored generation. */
 			if (restored != null) {
 				cached.inputPaths = input.inputPaths;

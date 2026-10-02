@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import hashlib
 import json
 import multiprocessing
 import os
@@ -1899,3 +1900,32 @@ def test_unwritten_schema_three_link_plans_are_rejected(tmp_path):
 
     with pytest.raises(NativePlanError, match="schema must be integer 1, 2 or 4"):
         NativePlanReader().read(plan)
+
+
+@pytest.mark.parametrize("digests", ["absent", "matching", "short", "uppercase", "missing-unit"])
+def test_emitted_unit_digests_name_one_sha256_per_unit(tmp_path, digests):
+    """Plans record each secondary unit's digest; older plans omit the field."""
+    units = [tmp_path / "program.unit-1.c", tmp_path / "program.unit-2.c"]
+    for unit in units:
+        unit.write_text(f"int {unit.stem.replace('.', '_').replace('-', '_')}(void) {{ return 0; }}\n")
+    plan = NativeLinkPlan.empty(PackageTarget.parse(None)).with_emitted_units(
+        str(tmp_path / "program"), 2, tuple(unit.read_text() for unit in units)
+    )
+    payload = plan.as_dict()
+    assert payload["emitted-unit-digests"] == [hashlib.sha256(unit.read_bytes()).hexdigest() for unit in units]
+    if digests == "absent":
+        del payload["emitted-unit-digests"]
+    elif digests == "short":
+        payload["emitted-unit-digests"][0] = payload["emitted-unit-digests"][0][:63]
+    elif digests == "uppercase":
+        payload["emitted-unit-digests"][1] = payload["emitted-unit-digests"][1].upper()
+    elif digests == "missing-unit":
+        payload["emitted-unit-digests"].pop()
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+
+    if digests in ("absent", "matching"):
+        assert NativePlanReader().read(path).emitted_paths == tuple(units)
+    else:
+        with pytest.raises(NativePlanError, match="emitted-unit-digests must give one SHA-256 per emitted unit"):
+            NativePlanReader().read(path)

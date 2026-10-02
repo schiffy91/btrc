@@ -506,6 +506,9 @@ class NativeLinkPlan:
     generated_units: tuple[NativeGeneratedUnit, ...] = ()
     # Ordered absolute paths of secondary compiler outputs (schema 4).
     emitted_units: tuple[str, ...] = ()
+    # SHA-256 of each secondary output's text, in `emitted_units` order, so
+    # the plan changes whenever any unit of the program does.
+    emitted_unit_digests: tuple[str, ...] = ()
 
     @property
     def bindings(self) -> tuple[NativeBinding, ...]:
@@ -617,6 +620,7 @@ class NativeLinkPlan:
         if self.emitted_units:
             result["schema"] = 4
             result["emitted-units"] = list(self.emitted_units)
+            result["emitted-unit-digests"] = list(self.emitted_unit_digests)
         return result
 
     def canonical_json(self) -> str:
@@ -646,11 +650,14 @@ class NativeLinkPlan:
     def numbered_unit_names(count: int) -> tuple[str, ...]:
         return tuple(f"unit-{index}" for index in range(1, count + 1))
 
-    def with_emitted_units(self, prefix: str | None, units: int | Sequence[str]) -> NativeLinkPlan:
+    def with_emitted_units(
+        self, prefix: str | None, units: int | Sequence[str], sources: Sequence[str] = ()
+    ) -> NativeLinkPlan:
         """Name secondary outputs independently of the primary C destination.
 
         `units` is a count of numbered units or the units' explicit names;
-        each is written as <prefix>.<name>.c.
+        each is written as <prefix>.<name>.c. `sources` are the units' texts
+        in the same order, whose digests the plan records.
         """
         if type(units) is int:
             if units < 0:
@@ -662,11 +669,19 @@ class NativeLinkPlan:
                 raise ValueError("emitted unit names must be distinct portable file-name components")
         if names and not prefix:
             raise ValueError("emitted units require a nonnegative count and an output prefix")
+        if len(sources) != len(names):
+            raise ValueError("emitted units require one source text per unit")
         absolute_prefix = self.output_prefix(prefix) if names else ""
         return replace(
             self,
             emitted_units=tuple(f"{absolute_prefix}.{name}.c" for name in names),
+            emitted_unit_digests=tuple(self.unit_digest(source) for source in sources),
         )
+
+    @staticmethod
+    def unit_digest(source: str) -> str:
+        """The SHA-256 of one emitted unit's text, as the plan records it."""
+        return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
     @classmethod
     def cached_unit_names(cls, serialized: str, units_prefix: str | None, count: int) -> tuple[str, ...] | None:
@@ -698,7 +713,11 @@ class NativeLinkPlan:
         return tuple(names) if len(set(names)) == len(names) else None
 
     def with_cached_artifacts(
-        self, serialized: str, emitted_units: int | Sequence[str], units_prefix: str | None = None
+        self,
+        serialized: str,
+        emitted_units: int | Sequence[str],
+        units_prefix: str | None = None,
+        unit_sources: Sequence[str] = (),
     ) -> NativeLinkPlan | None:
         """Restore generated adapters only when all resolved plan facts match."""
         if type(emitted_units) is int and emitted_units < 0:
@@ -731,7 +750,9 @@ class NativeLinkPlan:
                 )
             if len({unit.name for unit in units}) != len(units):
                 return None
-            restored = replace(self, generated_units=tuple(units)).with_emitted_units(units_prefix, emitted_units)
+            restored = replace(self, generated_units=tuple(units)).with_emitted_units(
+                units_prefix, emitted_units, unit_sources
+            )
             # Canonical equality rejects unknown/duplicate fields, wrong unit
             # count, stale package roots/flags/target, and changed schema/order.
             return restored if restored.canonical_json() == serialized else None

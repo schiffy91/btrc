@@ -1936,6 +1936,15 @@ class FeNativeLinkPlan {
 	public Vector<FeNativeGeneratedUnit> generatedUnits;
 	/* Ordered absolute paths of secondary compiler outputs (schema 4). */
 	public Vector<string> emittedUnits = [];
+	/* SHA-256 of each secondary output's text, in `emittedUnits` order, so
+	 * the plan changes whenever any unit of the program does. */
+	public Vector<string> emittedUnitDigests = [];
+
+	/* Record one secondary output and the digest of its text. */
+	public void addEmittedUnit(string path, string source) {
+		self.emittedUnits.push(path);
+		self.emittedUnitDigests.push(SHA256.digest(source));
+	}
 
 	/* Resolve a complete filename before removing its suffix: '/', '.' and
 	 * '..' at the end of a prefix are not yet directory components. Resolve the
@@ -2299,8 +2308,8 @@ class FeNativeLinkPlan {
 
 	/* Reconstruct generated parts over today's resolved package facts. Exact
 	 * canonical equality rejects stale targets, roots, flags and unknown fields. */
-	public FeNativeLinkPlan? withCachedArtifacts(string serialized, int count, string prefix) {
-		if (count < 0 || (count > 0 && prefix.isEmpty())) { return null; }
+	public FeNativeLinkPlan? withCachedArtifacts(string serialized, int count, string prefix, Vector<string> unitSources) {
+		if (count < 0 || (count > 0 && prefix.isEmpty()) || unitSources.len != count) { return null; }
 		var document = JSONValue.parse(serialized);
 		if (!document.isObject()) { return null; }
 		var restored = FeNativeLinkPlan(self.target, self.packages, self.declarations);
@@ -2326,7 +2335,7 @@ class FeNativeLinkPlan {
 		}
 		Vector<string>? units = FeNativeLinkPlan.cachedUnitPaths(document, prefix, count);
 		if (units == null) { return null; }
-		for path in units { restored.emittedUnits.push(path); }
+		for (int index = 0; index < units.len; index++) { restored.addEmittedUnit(units.get(index), unitSources.get(index)); }
 		return restored.canonicalJson().equals(serialized) ? restored : null;
 	}
 
@@ -2377,6 +2386,9 @@ class FeNativeLinkPlan {
 		JSONValue root = JSONValue.makeObject();
 		root.set("defines", self.defineRecords());
 		if (self.emittedUnits.len > 0) {
+			var digests = JSONValue.makeArray();
+			for digest in self.emittedUnitDigests { digests.push(JSONValue.makeString(digest)); }
+			root.set("emitted-unit-digests", digests);
 			var emitted = JSONValue.makeArray();
 			for path in self.emittedUnits { emitted.push(JSONValue.makeString(path)); }
 			root.set("emitted-units", emitted);

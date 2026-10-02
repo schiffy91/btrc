@@ -199,7 +199,7 @@ class CompilerPipeline {
 				}
 			}
 			string modulePrefix = FeNativeLinkPlan.outputPrefix(options.unitsPrefix);
-			for name in build.unitNames { packages.linkPlan.emittedUnits.push(modulePrefix + "." + name + ".c"); }
+			for (int unitIndex = 0; unitIndex < build.unitNames.len; unitIndex++) { packages.linkPlan.addEmittedUnit(modulePrefix + "." + build.unitNames.get(unitIndex) + ".c", build.units.get(unitIndex)); }
 			keep program;
 			keep resolved;
 			keep analyzer;
@@ -277,7 +277,7 @@ class CompilerPipeline {
 			emitted = units.get(0);
 			units.remove(0);
 			for (int index = 0; index < units.len; index++) {
-				packages.linkPlan.emittedUnits.push(unitsPrefix + ".unit-" + Strings.fromInt(index + 1) + ".c");
+				packages.linkPlan.addEmittedUnit(unitsPrefix + ".unit-" + Strings.fromInt(index + 1) + ".c", units.get(index));
 			}
 		}
 		BtrccPhaseTimer.mark("emit");

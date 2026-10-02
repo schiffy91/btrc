@@ -1822,6 +1822,17 @@ The plan's existing total-byte bound applies; schema 4 adds no fixed unit-count
 ceiling. Reference cache restoration validates these exact paths and their order
 against the current emission options and cached unit count.
 
+Alongside `emitted-units`, both compilers write `emitted-unit-digests`: the
+lowercase hexadecimal SHA-256 of each unit's text, in the same order. The plan's
+text therefore changes whenever any unit of the program changes, even when
+every path stays the same, and the primary C output is published again (new
+inode and mtime, same bytes when its own text did not change) whenever any
+other output of the compile was replaced. A build rule that depends only on the
+primary C file or only on the plan relinks after a change confined to one
+secondary unit; when nothing changed, nothing is rewritten. The builder accepts
+schema-4 plans without the field (older compilers), and when it is present
+requires exactly one 64-digit digest per emitted unit.
+
 The builder continues to read schema 3, whose `emitted-units` is an integer
 count from 1 through 4096. Only that legacy schema derives secondary paths as
 `<generated>.unit-<k>.c` beside the primary C supplied to the builder. New

@@ -682,7 +682,7 @@ class CompilationPipeline:
         module = values.get("ir_module")
         if values.get("c_units"):
             native_plan = native_plan.with_emitted_units(
-                options.units_prefix, values.get("c_unit_names") or len(values["c_units"])
+                options.units_prefix, values.get("c_unit_names") or len(values["c_units"]), values["c_units"]
             )
         if module is not None and module.native_units:
             native_plan = replace(

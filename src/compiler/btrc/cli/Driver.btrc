@@ -1033,13 +1033,20 @@ class BtrccFilePublication {
 			try {
 				/* The validator (last) always commits the generation; any other
 				 * output whose bytes are already current stays in place. Recovery
-				 * leaves a previously existing target without a backup untouched. */
+				 * leaves a previously existing target without a backup untouched.
+				 * The primary (first) stays only while every other output does
+				 * and nothing is retired: a build rule that depends on the
+				 * primary alone still sees each change. */
 				Vector<FileSnapshot?> kept = [];
 				int last = self.targets.len - 1;
+				bool othersKept = true;
 				for (int index = 0; index < self.targets.len; index++) {
 					var target = self.targets.get(index);
-					kept.push(index != last && !target.absent ? self.unchangedRevision(target.path, contents.get(index), modes.get(index)) : null);
+					FileSnapshot? revision = index != last && !target.absent ? self.unchangedRevision(target.path, contents.get(index), modes.get(index)) : null;
+					if (index > 0 && index < last && revision == null) { othersKept = false; }
+					kept.push(revision);
 				}
+				if (!othersKept && last > 0) { kept.set(0, null); }
 				for (int index = 0; index < self.targets.len; index++) {
 					var target = self.targets.get(index);
 					if (target.absent || kept.get(index) != null) { continue; }

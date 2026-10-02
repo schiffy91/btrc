@@ -1,5 +1,6 @@
 """`--emit-units` splits a program into translation units that link and run like the single unit."""
 
+import hashlib
 import json
 import os
 import platform
@@ -257,7 +258,15 @@ def test_split_generated_debug_locations_use_secondary_prefix(tmp_path, stdout):
         assert locations and all(line.endswith(f'"{expected}"') for line in locations)
 
 
-def _compile(frontend: str, out: Path, plan: Path, request, *extra: str, units_prefix: str | None = None) -> None:
+def _compile(
+    frontend: str,
+    out: Path,
+    plan: Path,
+    request,
+    *extra: str,
+    units_prefix: str | None = None,
+    program: Path = PROGRAM,
+) -> None:
     env = {**os.environ, "BTRC_HOME": str(ROOT / "src"), "BTRC_UNIT_LINES": "120"}
     if frontend == "btrcpy":
         command = [
@@ -273,7 +282,7 @@ def _compile(frontend: str, out: Path, plan: Path, request, *extra: str, units_p
             "--emit-units",
             units_prefix if units_prefix is not None else str(out),
             *extra,
-            str(PROGRAM),
+            str(program),
             "-o",
             str(out),
         ]
@@ -290,7 +299,7 @@ def _compile(frontend: str, out: Path, plan: Path, request, *extra: str, units_p
             *extra,
             "-o",
             str(out),
-            str(PROGRAM),
+            str(program),
         ]
     completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=600)
     assert completed.returncode == 0, completed.stderr
@@ -323,6 +332,50 @@ def test_explicit_unit_paths_stay_stable_when_outputs_already_exist(tmp_path, re
     _compile(frontend, out, plan, request, "--debug", units_prefix=prefix)
     assert plan.read_bytes() == baseline
     assert {path: Path(path).read_bytes() for path in paths} == contents
+
+
+@pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
+def test_a_change_confined_to_a_secondary_unit_changes_the_primary_outputs(tmp_path, request, frontend):
+    """Build rules that depend only on the primary C file or the link plan
+    must relink when one secondary unit changes, and nothing is rewritten
+    when nothing changed. The publication state directory is the CLI's
+    default one, as for any compile."""
+    program = tmp_path / "Program.btrc"
+    program.write_text(PROGRAM.read_text())
+    out = tmp_path / "program.c"
+    plan = tmp_path / "program.json"
+    _compile(frontend, out, plan, request, program=program)
+    payload = json.loads(plan.read_text())
+    units = [Path(path) for path in payload["emitted-units"]]
+    assert payload["schema"] == 4
+    assert payload["emitted-unit-digests"] == [hashlib.sha256(unit.read_bytes()).hexdigest() for unit in units]
+    literal = "PASS: test_forin_interface_list_literal"
+    holder = next(unit for unit in units if literal in unit.read_text())
+    assert literal not in out.read_text()
+
+    def snapshot():
+        return {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (out, plan, *units)}
+
+    before = snapshot()
+    _compile(frontend, out, plan, request, program=program)
+    assert snapshot() == before, "an unchanged program rewrote an output"
+
+    program.write_text(program.read_text().replace(literal, literal + " (edited)"))
+    _compile(frontend, out, plan, request, program=program)
+    after = snapshot()
+    assert after[holder][0] != before[holder][0]
+    # The plan's text records every unit's digest; the primary's text is
+    # unchanged, so it keeps its native object, but it is published again.
+    assert after[plan][0] != before[plan][0]
+    assert after[out][0] == before[out][0]
+    for primary in (out, plan):
+        assert after[primary][1] != before[primary][1], f"{primary.name} was not republished with its secondary unit"
+    for unit in units:
+        if unit != holder:
+            assert after[unit] == before[unit], "an unaffected unit was rewritten"
+    assert json.loads(plan.read_text())["emitted-unit-digests"] == [
+        hashlib.sha256(unit.read_bytes()).hexdigest() for unit in units
+    ]
 
 
 @pytest.mark.skipif(sys.platform != "linux" or shutil.which("cc") is None, reason="needs a Linux C toolchain")
