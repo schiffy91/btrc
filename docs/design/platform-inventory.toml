@@ -153,6 +153,19 @@ android-x86_64 = { parity = "missing", implementation = "source-only", owner = "
 
 [[rows]]
 kind = "operation"
+id = "Library.BackgroundJobs.NativeWorker"
+group = "stdlib/BackgroundJobs"
+title = "Joinable pthread worker over a managed body"
+regression = ["src/tests/python/test_background_jobs_runtime.py::test_native_worker_retains_its_body_until_join", "src/tests/python/test_background_jobs_runtime.py::test_background_jobs_sdk_failures_and_retry"]
+windows-x64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthread code is winpthreads-portable but NativeThreads.h binding is os=[linux,macos]; symbols unresolved on windows" }
+windows-arm64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthread code is winpthreads-portable but NativeThreads.h binding is os=[linux,macos]; symbols unresolved on windows" }
+ios-device = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthreads exist on iOS but NativeThreads.h binding is os=[linux,macos]; no ios target or os spelling" }
+ios-simulator = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthreads exist on iOS but NativeThreads.h binding is os=[linux,macos]; no ios target or os spelling" }
+android-arm64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "bionic pthreads suffice but NativeThreads.h binding is os=[linux,macos]; no android target or os spelling" }
+android-x86_64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "bionic pthreads suffice but NativeThreads.h binding is os=[linux,macos]; no android target or os spelling" }
+
+[[rows]]
+kind = "operation"
 id = "Library.BackgroundJobs.HostWorkerPools"
 group = "stdlib/BackgroundJobs"
 title = "Host worker pool provider (forked or inline)"

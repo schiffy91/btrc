@@ -46,11 +46,11 @@ source = { document = "docs/design/native-ui-parity.md", pattern = '^\| (E\d{2})
 
 [[denominators]]
 kind = "operation"
-release = "p0-inventory-2026-10-02"
+release = "p0-inventory-2026-10-02-native-worker"
 platforms = ["windows", "ios", "android"]
 slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
 frontends = []
-ids = 323
-slots = 1938
-sha256 = "da390d262e3a50841b6018c47c780aaf4eb527908f3b185d70eb4c5d06f60452"
+ids = 324
+slots = 1944
+sha256 = "ea227c8c7fc98726ab016cd6110e3bc567f0bd23f1998377989ed87611fda7ac"
 source = { ledger = "docs/design/platform-inventory.toml" }

@@ -74,7 +74,8 @@ class NativeWorker {
 		return NATIVE_WORKER_STARTED;
 	}
 
-	/* Called on the worker thread only, through nativeWorkerEntry. */
+	/* Internal: the thread entry's hook, called on the worker thread only
+	 * through nativeWorkerEntry. Owners never call it. */
 	public int runBody() {
 		INativeWorkerBody? body = self._body;
 		if (body == null) { return 1; }

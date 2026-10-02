@@ -213,7 +213,7 @@ These also ship in the same pin bump.
 
 | Old | New |
 | --- | --- |
-| `DaemonSpec.renderStartCommand()` (canonicalized and rewrote `controlFile`/`logFile`) | `DaemonSpec.renderStartCommand(controlFile, logFile)` taking the already canonical paths (`DaemonControlFiles.canonicalFilePath`); the spec is never rewritten. `DaemonController.start` is unchanged |
+| `DaemonSpec.renderStartCommand()` (canonicalized and rewrote `controlFile`/`logFile`) | `DaemonSpec.renderStartCommand(controlFile, logFile)` taking the already canonical paths (`DaemonControlFiles.canonicalFilePath`); the spec is never rewritten. `DaemonController.start(spec)` keeps its signature but no longer rewrites `spec.controlFile`/`spec.logFile` to canonical paths; canonicalize them yourself if you read them back |
 | `Strings.capitalize(s)`, `Strings.title(s)`, `Strings.swapCase(s)` | `s.capitalize()`, `s.title()`, `s.swapCase()` |
 | `Strings.padLeft(s, width, fill)`, `Strings.padRight(s, width, fill)` | `s.padLeft(width, fill)`, `s.padRight(width, fill)` |
 | `Strings.lstrip(s)`, `Strings.rstrip(s)`, `Strings.removePrefix(s, prefix)` | `s.lstrip()`, `s.rstrip()`, `s.removePrefix(prefix)` |
@@ -431,8 +431,8 @@ types that still exist; a removed type takes its members with it.
 - BackgroundJobSubmitOutcome: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobTicket: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobWork: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
-- BackgroundJobWorker: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
-- BackgroundJobWorkerContext: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
+- BackgroundJobWorker: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor (later removed; see btrc-D053 in section 1: `NativeWorker`)
+- BackgroundJobWorkerContext: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor (later removed; see btrc-D053 in section 1: `NativeWorker`)
 - BackgroundJobsCloseKind: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobsCloseMode: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobsCloseOutcome: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
