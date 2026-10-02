@@ -150,10 +150,9 @@ step did and still owes, in both compilers:
   compiler compares raw IR.
 - **Deferred by r04, all existing behavior shared with `int` arrays:** a bound
   the front end cannot evaluate (a C `#define` or `sizeof`) leaves the exact
-  fit to the C compiler; a line splice inside a literal gains the emitter's
-  indentation; a global used only through `sizeof(g)` is dropped by the
-  optimizer; `const int N = 3; char t[N] = "abc";` is emitted as a VLA with an
-  initializer.
+  fit to the C compiler; a global used only through `sizeof(g)` is dropped by
+  the optimizer; `const int N = 3; char t[N] = "abc";` is emitted as a VLA with
+  an initializer.
 - **Editor tooling (done after integration, `stage16/devex-c1-fixes`).** A
   braceless body is a Block synthesized at its first token, so the LSP's
   lexical scopes now end it with its single statement rather than at a later
@@ -172,6 +171,45 @@ step did and still owes, in both compilers:
   three switch corpus files (whitespace only). Still deferred: case bodies are
   not modelled, so statements after a case's first line stay at the label's
   level. Neither compiler changed.
+
+The read-only review of the integration (workflow `wf_1ce4083f-71c`) confirmed
+six defects; lane `stage16/c1-integrate-fixes` fixed each in both compilers,
+with a regression test that runs through both
+(`src/tests/btrc/test_c_compatibility_integration.py` unless named):
+
+- **F7, a concatenation opening with macro pieces (done).** `string_concat`
+  may start with any run of `IDENT` pieces, so `A B "c"` is one
+  `StringConcat`. Both parsers look past a run of names to a literal that the
+  run's last name does not prefix as its encoding (`_begins_adjacent_strings`
+  / `beginsAdjacentStrings`); a run that ends anywhere else stays a plain
+  expression. Covered by `test_grammar_drift.py`, the self-host AST parity
+  check in `test_parser_diagnostics.py`, and `LEAD MID "tail"` in
+  `c_compat/AdjacentStringLiterals.btrc`.
+- **F8, a typed catch in btrcc (done; a pre-existing parity gap).** btrcc
+  ignored `catch (Exception e)`; its `validateTry` now refuses any catch type
+  but `string` with the reference compiler's message, at the type's position.
+- **F9, an unsized class static char array (done).** `class char t[] = "ab"
+  "cd";` was emitted as a `char*` to the literal, so writing it crashed and
+  `sizeof` was a pointer's. It now takes the string's extent, as a global does.
+- **F10, a complete type in every unit (done).** An unsized global or class
+  static initialized from a string constant gets an explicit extent at
+  lowering, the decoded bytes plus the terminator, read through the analyzed
+  program's source-macro namespace (`AnalyzedProgram.source_macros` /
+  `Analyzed.sourceMacros`). A split or module-unit build therefore declares
+  `extern char g[5];`, never the incomplete `extern char g[];`; only an
+  `extern` declaration without an initializer keeps an empty bound.
+- **F11, a line splice inside a literal (done).** Both lexers delete a
+  backslash-newline (or backslash-CR-LF) inside a literal, as C translation
+  phase 2 does, while the line counter still advances. The emitted literal no
+  longer gains indentation or a `#line` directive under `--debug`, and r04's
+  extent agrees with the C compiler's. `c_compat/CharArrayStringInit.btrc`
+  covers it without `--debug`, and the integration test covers it with.
+- **F12, an array bound is an expression (done).** btrcc now validates each
+  bound expression in full before folding it
+  (`ExpressionValidator.validateArrayBound`), so `int g[sizeof("abc") - 1];`
+  reports the ABI-dependent integer mix in both compilers. A local's bound is
+  validated after its initializer, where the reference compiler checks it, so
+  `char t[sizeof("abc") - 1] = "abc";` reports r04's exact fit first in both.
 
 ## C2 aggregates (Stage 17) and array dimensions (Stage 18)
 

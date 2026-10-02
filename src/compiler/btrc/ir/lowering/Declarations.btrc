@@ -2756,8 +2756,11 @@ class DeclarationLowerer {
 			} else if (inferredArray) {
 				global.arraySize = IRNode.literal(Strings.fromInt(d.initializer.elements().len));
 			} else {
-				global.isUnsizedArray = true;
+				global.arraySize = self.expressions.stringArrayExtent(d.initializer);
 			}
+			/* Only an extern declaration without an initializer keeps an
+			 * empty bound; every other array has a complete type. */
+			global.isUnsizedArray = global.arraySize == null;
 			if (d.initializer != null) {
 				global.init = self.expressions.lowerStaticInitializer(d.initializer, d.type, empty, callableFlow);
 			}
@@ -4624,7 +4627,9 @@ class DeclarationLowerer {
 			if (field.kind == NK_FIELD_DECL && field.access == "class") {
 				Node storageType = field.type;
 				IRGlobalDecl global;
-				bool materializedArray = field.type.isArray && (field.type.arraySize != null || (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)));
+				IRNode? stringExtent = null;
+				if (field.type.isArray && field.type.arraySize == null) { stringExtent = self.expressions.stringArrayExtent(field.initializer); }
+				bool materializedArray = field.type.isArray && (field.type.arraySize != null || stringExtent != null || (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)));
 				if (materializedArray) {
 					storageType = TypeShape.withoutOuterArray(field.type);
 				}
@@ -4638,6 +4643,8 @@ class DeclarationLowerer {
 						global.arraySize = self.expressions.lowerExpr(field.type.arraySize, empty, callableFlow);
 					} else if (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)) {
 						global.arraySize = IRNode.literal(Strings.fromInt(field.initializer.elements().len));
+					} else {
+						global.arraySize = stringExtent;
 					}
 				}
 				if (field.initializer != null) {
