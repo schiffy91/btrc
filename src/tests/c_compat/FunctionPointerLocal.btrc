@@ -1,0 +1,37 @@
+// C row 7: a local or global `T (*name)(params)` is `CFunction<T, params...>`.
+#include <assert.h>
+
+int add(int a, int b) { return a + b; }
+
+int multiply(int a, int b) { return a * b; }
+
+void noop(void) {}
+
+char* skipSpaces(char* text) {
+	while (*text == ' ') {
+		text++;
+	}
+	return text;
+}
+
+int (*defaultOperation)(int, int) = add;
+static void (*hook)(void) = noop;
+
+int main(void) {
+	int (*operation)(int, int) = add;
+	assert(operation(2, 3) == 5);
+	operation = multiply;
+	assert(operation(6, 7) == 42);
+	char* (*skipper)(char*);
+	skipper = skipSpaces;
+	char text[] = "  ab";
+	assert(*skipper(text) == 'a');
+	assert(defaultOperation(1, 1) == 2);
+	int calls = 0;
+	for (int (*step)(int, int) = add; calls < 2; calls++) {
+		assert(step(calls, 1) == calls + 1);
+	}
+	hook();
+	print("PASS: function pointer locals and globals");
+	return 0;
+}

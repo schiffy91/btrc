@@ -1,0 +1,20 @@
+// C row 7: abstract declarators `T (*)(params)` in casts and sizeof.
+#include <assert.h>
+#include <stdlib.h>
+
+int compareInts(const int* left, const int* right) { return *left - *right; }
+
+int twice(int value) { return value * 2; }
+
+int main(void) {
+	int (*generic)(const void*, const void*) = (int (*)(const void*, const void*))compareInts;
+	int (*back)(const int*, const int*) = (int (*)(const int*, const int*))generic;
+	int a = 1;
+	int b = 2;
+	assert(back(&a, &b) < 0);
+	assert(sizeof(int (*)(const int*, const int*)) == sizeof(back));
+	int (*doubler)(int) = twice;
+	assert(doubler(4) == 8);
+	print("PASS: function pointer casts and sizeof");
+	return 0;
+}

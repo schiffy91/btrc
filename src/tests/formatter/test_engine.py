@@ -247,6 +247,24 @@ def test_pointer_declarations_dereferences_and_multiplication_use_operator_conte
     assert BtrcFormatter().format(result, str(fixture)) == result
 
 
+def test_function_pointer_declarators_keep_their_space_and_calls_stay_tight() -> None:
+    source = (
+        "void sortInts(int* values, size_t count, int (*compare)(const void* left, const void* right)) {}\n"
+        "\n"
+        "void* run(void* (*)(void*), void*);\n"
+        "\n"
+        "int main() {\n"
+        "\tint (*operation)(int, int) = add;\n"
+        "\treturn pick(*pointer)(4);\n"
+        "}\n"
+    )
+
+    result = BtrcFormatter().format(source, "FunctionPointers.btrc")
+
+    assert result == source
+    assert BtrcFormatter().format(result, "FunctionPointers.btrc") == result
+
+
 def test_braceless_bodies_indent_one_level_past_their_header() -> None:
     fixture = Path(__file__).with_name("fixtures") / "BracelessBodies.btrc"
     source = fixture.read_text(encoding="utf-8")
@@ -592,6 +610,23 @@ int main() {
     assert formatted(source, indent_style="tabs") == source
     collapsed = source.replace('"first, "\n\t\t"second, "\n\t\tTAIL', '"first, " "second, " TAIL')
     assert formatted(collapsed, indent_style="tabs") == collapsed
+
+
+def test_declarator_lists_keep_each_declarators_pointer() -> None:
+    # `*` binds to its own declarator (C row 3, PLAN.md D20): the formatter
+    # never moves it onto the type, where it would misread `int* p, v;`.
+    source = (
+        "struct Link { int *target, value; };\n"
+        "typedef int Count, *CountPointer;\n"
+        "int first = 1, *second;\n"
+        "int main() {\n"
+        "\tint *pointer, value = 2 * 3, *other;\n"
+        "\tfor (int i = 0, *p = null; i < 2; i++) {}\n"
+        "\treturn 0;\n"
+        "}\n"
+    )
+
+    assert formatted(source) == source
 
 
 def _in_main(body: str) -> str:

@@ -383,6 +383,10 @@ class ExpressionTypeResolver {
 		if (node.kind == NK_ASSIGN_EXPR) {
 			return self.inferSpecializationType(node.target, a, operators, varTypes);
 		}
+		// C's comma operator (for headers only): the last operand's value.
+		if (node.kind == NK_COMMA_EXPR) {
+			return self.inferTypeRaw(node.elements().get(node.elements().len - 1), a, operators, varTypes);
+		}
 		if (node.kind == NK_UNARY_EXPR) {
 			Node? declaredOperandType = self.inferTypeRaw(node.operand, a, operators, varTypes);
 			Node? operandType = self.inferSpecializationType(node.operand, a, operators, varTypes);

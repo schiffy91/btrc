@@ -21,6 +21,7 @@ from src.compiler.python.syntax.ast.generated import (
     CallExpr,
     CastExpr,
     CForStmt,
+    CommaExpr,
     ContinueStmt,
     ExprStmt,
     FloatLiteral,
@@ -368,6 +369,12 @@ class WgslEmitter:
         self._line("}")
 
     def _emit_expression_statement(self, expression) -> None:
+        if isinstance(expression, CommaExpr):
+            # WGSL has no comma operator: a for-header comma list becomes one
+            # statement per operand, in order.
+            for element in expression.elements:
+                self._emit_expression_statement(element)
+            return
         if not isinstance(expression, (AssignExpr, CallExpr)) and not (
             isinstance(expression, UnaryExpr) and expression.op in ("++", "--")
         ):

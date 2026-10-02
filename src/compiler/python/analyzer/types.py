@@ -23,6 +23,7 @@ from src.compiler.python.syntax.ast.generated import (
     PropertyDecl,
     RichEnumDecl,
     StructDecl,
+    TupleLiteral,
     TypedefDecl,
     TypeExpr,
     VarDeclStmt,
@@ -2118,6 +2119,17 @@ class TypeSystem:
         if spec.return_type == "string*":
             return TypeExpr(base="string", pointer_depth=1)
         return TypeExpr(base=spec.return_type)
+
+    @staticmethod
+    def comma_tuple_hint(value, target) -> str:
+        """Explain a tuple literal flowing into a non-tuple (D19 row 19).
+
+        btrc reads a parenthesized comma list as a tuple; C's comma operator
+        exists only in for headers.
+        """
+        if isinstance(value, TupleLiteral) and target is not None and target.base != "Tuple":
+            return "; btrc reads a parenthesized comma list as a tuple, not C's comma operator"
+        return ""
 
     def format_source_type(self, t) -> str:
         """Format a type as source spells it, without a class or interface's implicit pointer."""

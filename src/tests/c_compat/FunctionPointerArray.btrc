@@ -1,0 +1,25 @@
+// C row 7: `T (*name[n])(params)` is an array of function pointers.
+#include <assert.h>
+
+int add(int a, int b) { return a + b; }
+
+int subtract(int a, int b) { return a - b; }
+
+int multiply(int a, int b) { return a * b; }
+
+int divide(int a, int b) { return a / b; }
+
+int (*operations[4])(int, int) = {add, subtract, multiply, divide};
+
+int main(void) {
+	int expected[4] = {10, 6, 16, 4};
+	for (int i = 0; i < 4; i++) {
+		assert(operations[i](8, 2) == expected[i]);
+	}
+	int (*pair[])(int, int) = {multiply, add};
+	assert(pair[0](3, 4) == 12);
+	assert(pair[1](3, 4) == 7);
+	assert(sizeof(pair) == (size_t)2 * sizeof(pair[0]));
+	print("PASS: function pointer arrays");
+	return 0;
+}
