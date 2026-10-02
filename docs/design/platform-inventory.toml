@@ -410,8 +410,8 @@ id = "Library.FileSystem.ApplicationDirectories"
 group = "stdlib/FileSystem"
 title = "Per-user state/cache/config directories"
 regression = ["src/tests/python/test_application_directories_contract.py::test_application_directory_platform_policies_are_bounded_and_normalized", "src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns APP_DIRECTORY_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns APP_DIRECTORY_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns FS_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns FS_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
 ios-device = { parity = "adapted", implementation = "missing", owner = "I1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; iOS needs NSFileManager Application Support/Caches in the app container" }
 ios-simulator = { parity = "adapted", implementation = "missing", owner = "I1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; iOS needs NSFileManager Application Support/Caches in the app container" }
 android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; Android needs Context.getFilesDir/getCacheDir via JNI" }

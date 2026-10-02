@@ -30,37 +30,37 @@ int exactMode(string path) {
 }
 
 int main() {
-	TemporaryDirectoryOpenOutcome temporaryOpen = FileSystem.createTemporaryDirectory("btrc_private_directory_child");
+	FileSystemOutcome<TemporaryDirectory> temporaryOpen = FileSystem.createTemporaryDirectory("btrc_private_directory_child");
 	assert(temporaryOpen.ok());
-	TemporaryDirectory temporary = temporaryOpen.directory();
+	TemporaryDirectory temporary = temporaryOpen.value();
 	string rootPath = PathTools.join(temporary.path(), "root");
-	PrivateDirectoryOpenOutcome rootOpen = FileSystem.openPrivateDirectory(rootPath);
+	FileSystemOutcome<PrivateDirectory> rootOpen = FileSystem.openPrivateDirectory(rootPath);
 	assert(rootOpen.ok());
-	PrivateDirectory root = rootOpen.directory();
+	PrivateDirectory root = rootOpen.value();
 	int baseline = descriptorCount();
 
-	PrivateDirectoryOpenOutcome created = root.openChildDirectory("entry");
+	FileSystemOutcome<PrivateDirectory> created = root.openChildDirectory("entry");
 	assert(created.ok());
-	PrivateDirectory entry = created.directory();
+	PrivateDirectory entry = created.value();
 	assert(entry.path().equals(PathTools.join(rootPath, "entry")));
 	assert(exactMode(entry.path()) == 448);
 	assert(entry.validatePath().ok());
-	ExclusiveFileLeaseOpenOutcome leaseOpen = entry.acquireExclusiveLease(".lock", true);
+	FileSystemOutcome<ExclusiveFileLease> leaseOpen = entry.acquireExclusiveLease(".lock", true);
 	assert(leaseOpen.ok());
-	ExclusiveFileLease lease = leaseOpen.lease();
+	ExclusiveFileLease lease = leaseOpen.value();
 	assert(lease.replaceRegularChildDurably("data.bin", Bytes.fromString("kept")).committed());
 	assert(lease.close().ok());
 	assert(entry.close().ok());
 	assert(descriptorCount() == baseline);
 
-	PrivateDirectoryOpenOutcome reopened = root.openChildDirectory("entry");
+	FileSystemOutcome<PrivateDirectory> reopened = root.openChildDirectory("entry");
 	assert(reopened.ok());
-	PrivateDirectory again = reopened.directory();
-	ExclusiveFileLeaseOpenOutcome againLease = again.acquireExclusiveLease(".lock", true);
+	PrivateDirectory again = reopened.value();
+	FileSystemOutcome<ExclusiveFileLease> againLease = again.acquireExclusiveLease(".lock", true);
 	assert(againLease.ok());
-	PrivateFileReadOutcome read = againLease.lease().readRegularChild("data.bin", 64);
+	PrivateFileReadOutcome read = againLease.value().readRegularChild("data.bin", 64);
 	assert(read.ok() && read.found() && read.bytes().toString().equals("kept"));
-	assert(againLease.lease().close().ok());
+	assert(againLease.value().close().ok());
 	assert(again.close().ok());
 
 	assert(root.openChildDirectory("").error().kind() == FS_INVALID_ARGUMENT);

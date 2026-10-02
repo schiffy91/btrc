@@ -26,13 +26,13 @@ int main() {
 	assert(first.cacheToken().equals(same.cacheToken()));
 	assert(!first.cacheToken().equals(changed.cacheToken()));
 
-	FileOpenOutcome fileFailure = FileOpenOutcome.failed(denied);
+	FileSystemOutcome<FileHandle> fileFailure = new FileSystemOutcome<FileHandle>(null, denied);
 	assert(!fileFailure.ok());
 	assert(fileFailure.error() == denied);
-	DirectoryOpenOutcome directoryFailure = DirectoryOpenOutcome.failed(denied);
+	FileSystemOutcome<DirectoryHandle> directoryFailure = new FileSystemOutcome<DirectoryHandle>(null, denied);
 	assert(!directoryFailure.ok());
 	assert(directoryFailure.error() == denied);
-	FileSnapshotOutcome snapshotFailure = FileSnapshotOutcome.failed(denied);
+	FileSystemOutcome<FileSnapshot> snapshotFailure = new FileSystemOutcome<FileSnapshot>(null, denied);
 	assert(!snapshotFailure.ok());
 	assert(snapshotFailure.error() == denied);
 
@@ -52,13 +52,13 @@ int main() {
 	assert(readFailure.error() == denied);
 
 	Bytes exactEmptyBytes = Bytes();
-	ExactFileReadOutcome exactEmpty = ExactFileReadOutcome.data(exactEmptyBytes);
+	FileSystemOutcome<Bytes> exactEmpty = new FileSystemOutcome<Bytes>(exactEmptyBytes, null);
 	assert(exactEmpty.ok());
-	assert(exactEmpty.bytes().isEmpty());
-	ExactFileReadOutcome exactFailure = ExactFileReadOutcome.failed(denied);
+	assert(exactEmpty.value().isEmpty());
+	FileSystemOutcome<Bytes> exactFailure = new FileSystemOutcome<Bytes>(null, denied);
 	assert(!exactFailure.ok());
 	assert(exactFailure.error() == denied);
-	RegularFileSnapshotOpenOutcome regularFailure = RegularFileSnapshotOpenOutcome.failed(denied);
+	FileSystemOutcome<RegularFileSnapshot> regularFailure = new FileSystemOutcome<RegularFileSnapshot>(null, denied);
 	assert(!regularFailure.ok());
 	assert(regularFailure.error() == denied);
 
@@ -86,10 +86,10 @@ int main() {
 	assert(FileSystemCloseOutcome.alreadyClosed().ok());
 	assert(!FileSystemCloseOutcome.failed(denied).ok());
 
-	PrivateDirectoryOpenOutcome privateFailure = PrivateDirectoryOpenOutcome.failed(denied);
+	FileSystemOutcome<PrivateDirectory> privateFailure = new FileSystemOutcome<PrivateDirectory>(null, denied);
 	assert(!privateFailure.ok());
 	assert(privateFailure.error() == denied);
-	ExclusiveFileLeaseOpenOutcome leaseFailure = ExclusiveFileLeaseOpenOutcome.failed(denied);
+	FileSystemOutcome<ExclusiveFileLease> leaseFailure = new FileSystemOutcome<ExclusiveFileLease>(null, denied);
 	assert(!leaseFailure.ok());
 	assert(leaseFailure.error() == denied);
 

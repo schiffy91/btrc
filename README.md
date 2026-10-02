@@ -1634,12 +1634,13 @@ Console.fatal("unrecoverable");    // stderr + exit
 
 ```btrc
 import Library.FileSystem.ApplicationDirectories;
+import Library.FileSystem.FileSystemHandles;
 
-ApplicationDirectoryRootsOutcome resolved = ApplicationDirectories.resolveStandard();
+FileSystemOutcome<ApplicationDirectoryRoots> resolved = ApplicationDirectories.resolveStandard();
 if (resolved.ok()) {
-	string state = resolved.roots().stateRoot();
-	string cache = resolved.roots().cacheRoot();
-	string config = resolved.roots().configRoot();
+	string state = resolved.value().stateRoot();
+	string cache = resolved.value().cacheRoot();
+	string config = resolved.value().configRoot();
 }
 ```
 

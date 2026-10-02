@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import subprocess
@@ -15,14 +16,15 @@ ROOT = Path(__file__).resolve().parents[3]
 C_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 PROGRAM = """
     import Library.FileSystem.ApplicationDirectories;
+    import Library.FileSystem.FileSystemHandles;
 
     int main() {
-        ApplicationDirectoryRootsOutcome outcome = ApplicationDirectories.resolve(ApplicationDirectoryLimits(128));
+        FileSystemOutcome<ApplicationDirectoryRoots> outcome = ApplicationDirectories.resolve(ApplicationDirectoryLimits(128));
         if (!outcome.ok()) {
             print(f"ERR|{(int)outcome.error().kind()}|{outcome.error().nativeCode()}|{outcome.error().message()}");
             return 0;
         }
-        ApplicationDirectoryRoots roots = outcome.roots();
+        ApplicationDirectoryRoots roots = outcome.value();
         print(f"OK|{roots.stateRoot()}|{roots.cacheRoot()}|{roots.configRoot()}");
         return 0;
     }
@@ -140,7 +142,7 @@ def test_application_directory_platform_policies_are_bounded_and_normalized(
         == "OK|/home/example/.local/state|/home/example/.cache|/home/example/.config"
     )
     assert _run(linux, XDG_STATE_HOME="relative").startswith("ERR|1|0|")
-    assert _run(linux, HOME="/" + "x" * 128).startswith("ERR|2|0|")
+    assert _run(linux, HOME="/" + "x" * 128).startswith(f"ERR|0|{errno.ENAMETOOLONG}|")
 
     unsupported = _build(generated_application_directories, tmp_path, c_compiler, 3)
-    assert _run(unsupported, HOME="/ignored").startswith("ERR|3|0|")
+    assert _run(unsupported, HOME="/ignored").startswith("ERR|9|0|")

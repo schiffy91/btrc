@@ -166,6 +166,13 @@ CALLBACKREGISTRATION_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("close", "bool", "method", (), "close"),
 )
 
+# Generated from src/stdlib/filesystemoutcome.btrc
+FILESYSTEMOUTCOME_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("ok", "bool", "method", (), "ok"),
+    BuiltinMemberSpec("value", "T", "method", (), "value"),
+    BuiltinMemberSpec("error", "FileSystemError", "method", (), "error"),
+)
+
 # Generated from src/stdlib/listnode.btrc
 LISTNODE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("value", "T", "field", doc="value"),
@@ -355,6 +362,7 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("CallbackContext", CALLBACKCONTEXT_MEMBERS),
     ("CallbackRequest", CALLBACKREQUEST_MEMBERS),
     ("CallbackRegistration", CALLBACKREGISTRATION_MEMBERS),
+    ("FileSystemOutcome", FILESYSTEMOUTCOME_MEMBERS),
     ("ListNode", LISTNODE_MEMBERS),
     ("List", LIST_MEMBERS),
     ("Map", MAP_MEMBERS),
@@ -442,8 +450,8 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("waitForRemoval", "bool", "method", (("string", "controlFile"), ("DaemonControlRecord", "original"), ("int", "timeoutMilliseconds"),), "waitForRemoval"),
     )),
     ("ApplicationDirectories", (
-        BuiltinMemberSpec("resolve", "ApplicationDirectoryRootsOutcome", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
-        BuiltinMemberSpec("resolveStandard", "ApplicationDirectoryRootsOutcome", "method", (), "resolveStandard"),
+        BuiltinMemberSpec("resolve", "FileSystemOutcome<ApplicationDirectoryRoots>", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
+        BuiltinMemberSpec("resolveStandard", "FileSystemOutcome<ApplicationDirectoryRoots>", "method", (), "resolveStandard"),
     )),
     ("PathTools", (
         BuiltinMemberSpec("isSeparatorFor", "bool", "method", (("char", "value"), ("bool", "windows"),), "isSeparatorFor"),
@@ -460,13 +468,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("FileSystem", (
         BuiltinMemberSpec("revision", "FileRevision", "method", (("FileSnapshot", "snapshot"),), "revision"),
-        BuiltinMemberSpec("openFileTreeSnapshot", "FileTreeSnapshotOpenOutcome", "method", (("string", "path"), ("FileTreeLimits", "limits"),), "openFileTreeSnapshot"),
-        BuiltinMemberSpec("inspectExact", "FileSnapshotOutcome", "method", (("string", "path"),), "inspectExact"),
-        BuiltinMemberSpec("openFileExact", "FileOpenOutcome", "method", (("string", "path"),), "openFileExact"),
-        BuiltinMemberSpec("openRegularFileSnapshot", "RegularFileSnapshotOpenOutcome", "method", (("string", "path"), ("long long", "maximumBytes"),), "openRegularFileSnapshot"),
-        BuiltinMemberSpec("openDirectoryExact", "DirectoryOpenOutcome", "method", (("string", "path"),), "openDirectoryExact"),
-        BuiltinMemberSpec("createTemporaryDirectory", "TemporaryDirectoryOpenOutcome", "method", (("string", "prefix"),), "createTemporaryDirectory"),
-        BuiltinMemberSpec("openPrivateDirectory", "PrivateDirectoryOpenOutcome", "method", (("string", "absolutePath"),), "openPrivateDirectory"),
+        BuiltinMemberSpec("openFileTreeSnapshot", "FileSystemOutcome<FileTreeSnapshot>", "method", (("string", "path"), ("FileTreeLimits", "limits"),), "openFileTreeSnapshot"),
+        BuiltinMemberSpec("inspectExact", "FileSystemOutcome<FileSnapshot>", "method", (("string", "path"),), "inspectExact"),
+        BuiltinMemberSpec("openFileExact", "FileSystemOutcome<FileHandle>", "method", (("string", "path"),), "openFileExact"),
+        BuiltinMemberSpec("openRegularFileSnapshot", "FileSystemOutcome<RegularFileSnapshot>", "method", (("string", "path"), ("long long", "maximumBytes"),), "openRegularFileSnapshot"),
+        BuiltinMemberSpec("openDirectoryExact", "FileSystemOutcome<DirectoryHandle>", "method", (("string", "path"),), "openDirectoryExact"),
+        BuiltinMemberSpec("createTemporaryDirectory", "FileSystemOutcome<TemporaryDirectory>", "method", (("string", "prefix"),), "createTemporaryDirectory"),
+        BuiltinMemberSpec("openPrivateDirectory", "FileSystemOutcome<PrivateDirectory>", "method", (("string", "absolutePath"),), "openPrivateDirectory"),
         BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
         BuiltinMemberSpec("exists", "bool", "method", (("string", "path"),), "exists"),
         BuiltinMemberSpec("isDir", "bool", "method", (("string", "path"),), "isDir"),

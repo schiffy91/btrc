@@ -7,9 +7,9 @@ import Library.IO;
 #include <assert.h>
 
 FileRevision snapshotTree(string path, FileTreeLimits limits) {
-	FileTreeSnapshotOpenOutcome opened = FileSystem.openFileTreeSnapshot(path, limits);
+	FileSystemOutcome<FileTreeSnapshot> opened = FileSystem.openFileTreeSnapshot(path, limits);
 	assert(opened.ok());
-	FileTreeSnapshot snapshot = opened.snapshot();
+	FileTreeSnapshot snapshot = opened.value();
 	for (int stepCount = 0; stepCount < 256; stepCount++) {
 		FileTreeSnapshotStep step = snapshot.advance();
 		assert(step.ok());
@@ -21,9 +21,9 @@ FileRevision snapshotTree(string path, FileTreeLimits limits) {
 }
 
 FileSystemError boundedFailure(string path, FileTreeLimits limits) {
-	FileTreeSnapshotOpenOutcome opened = FileSystem.openFileTreeSnapshot(path, limits);
+	FileSystemOutcome<FileTreeSnapshot> opened = FileSystem.openFileTreeSnapshot(path, limits);
 	assert(opened.ok());
-	FileTreeSnapshot snapshot = opened.snapshot();
+	FileTreeSnapshot snapshot = opened.value();
 	for (int stepCount = 0; stepCount < 256; stepCount++) {
 		FileTreeSnapshotStep step = snapshot.advance();
 		if (step.kind() == FILE_TREE_SNAPSHOT_FAILED) {
@@ -35,9 +35,9 @@ FileSystemError boundedFailure(string path, FileTreeLimits limits) {
 }
 
 int main() {
-	TemporaryDirectoryOpenOutcome temporaryOpen = FileSystem.createTemporaryDirectory("btrc_file_tree_real");
+	FileSystemOutcome<TemporaryDirectory> temporaryOpen = FileSystem.createTemporaryDirectory("btrc_file_tree_real");
 	assert(temporaryOpen.ok());
-	TemporaryDirectory temporary = temporaryOpen.directory();
+	TemporaryDirectory temporary = temporaryOpen.value();
 	string root = temporary.path();
 	string child = PathTools.join(root, "child");
 	assert(FileSystem.mkdir(child, 448) == 0);
@@ -76,19 +76,19 @@ int main() {
 	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
 	assert(FileSystem.removeRecursive(link) == 0);
 
-	FileTreeSnapshotOpenOutcome cancelledOpen = FileSystem.openFileTreeSnapshot(root, limits);
+	FileSystemOutcome<FileTreeSnapshot> cancelledOpen = FileSystem.openFileTreeSnapshot(root, limits);
 	assert(cancelledOpen.ok());
-	FileTreeSnapshot cancelled = cancelledOpen.snapshot();
+	FileTreeSnapshot cancelled = cancelledOpen.value();
 	assert(cancelled.advance().kind() == FILE_TREE_SNAPSHOT_ADVANCED);
 	assert(cancelled.close().kind() == FS_CLOSED_NOW);
 	assert(cancelled.close().kind() == FS_ALREADY_CLOSED);
 	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
 
-	FileSnapshotOutcome nestedSnapshot = FileSystem.inspectExact(nested);
+	FileSystemOutcome<FileSnapshot> nestedSnapshot = FileSystem.inspectExact(nested);
 	assert(nestedSnapshot.ok());
-	FileRevision direct = FileSystem.revision(nestedSnapshot.snapshot());
+	FileRevision direct = FileSystem.revision(nestedSnapshot.value());
 	FileRevisionBuilder builder = FileRevisionBuilder();
-	builder.appendSnapshot(nestedSnapshot.snapshot());
+	builder.appendSnapshot(nestedSnapshot.value());
 	assert(direct.equals(builder.revision()));
 
 	assert(temporary.close().kind() == FS_CLOSED_NOW);
