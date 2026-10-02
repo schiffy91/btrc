@@ -46,7 +46,8 @@ specification or a supervisor that failed to start or answer.
 - `stop(spec, timeoutMilliseconds = 7500)` writes a stop file named and filled
   with the record's token; the supervisor sends `TERM` to the command's process
   group, escalates to `KILL` after about a second, removes its control files
-  and exits. `stop` waits for the record to disappear.
+  once no member of the group is still running, and exits. `stop` waits for
+  the record to disappear.
 - `status(spec)` succeeds when the supervisor answers a fresh probe.
 
 The token, not the PID, is the capability. The record's PID is informational,
@@ -54,5 +55,14 @@ and controller code never signals a process. Control files are created and
 read only inside owner-only directories reached without symlinks, so another
 local user cannot forge a record or redirect a stop.
 
-The corpus test is `src/tests/stdlib/Daemon.btrc`. It asserts wall-clock bounds
-on its stop deadlines, so it can fail on a saturated machine.
+A group member whose parent died first is reparented to init and remains a
+zombie until init reaps it. Some container inits reap late or never, and
+`kill -0` still reaches a zombie, so the supervisor judges a group finished
+once its leader is reaped and `ps` lists no member in a state other than `Z`.
+Without a working `ps` it keeps waiting for the group to empty, as before.
+
+The corpus test is `src/tests/stdlib/Daemon.btrc`. It runs in under six
+seconds, almost all of it deliberate waiting: a one-second paused supervisor,
+the one-second `TERM` grace before `KILL`, and `status`'s 1.5-second probe of
+a stale record. Its wall-clock bounds leave several seconds of slack under
+load.

@@ -8,6 +8,7 @@ from src.tests.lsp.lsphelp import (
     RESOLVER,
     analyze,
     get_definition,
+    get_document_symbols,
     get_hover_info,
     get_references,
     get_rename_edits,
@@ -312,6 +313,65 @@ def test_body_range_uses_real_block_end():
     g = next(d for d in decls if d.name == "g")
     assert LexicalScopeIndex.body_range(f.body, f.line, r.tokens) == (1, 1)  # empty body, no +1000 slop
     assert LexicalScopeIndex.body_range(g.body, g.line, r.tokens) == (2, 5)  # real closing brace line
+
+
+# ------------------------------------------------------------ braceless bodies
+
+# A braceless body is a Block synthesized at the body's first token, not at a
+# '{': its scope ends with its single statement, not at a later brace.
+BRACELESS_FOR = (
+    "int i = 7;\nint main() {\n\tint total = 0;\n\tfor (int i = 0; i < 3; i++)\n\t\ttotal += i;\n"
+    "\treturn total;\n}\nint helper() {\n\treturn i + 1;\n}\n"
+)
+
+
+def test_braceless_for_variable_rename_stays_in_its_loop():
+    edits = _edits(BRACELESS_FOR, pos_of(BRACELESS_FOR, "int i = 0", offset=4))
+    assert next(iter(edits.values())) == [(3, 10), (3, 17), (3, 24), (4, 11)]
+
+
+def test_braceless_for_variable_does_not_capture_a_later_function():
+    loc = get_definition(analyze(BRACELESS_FOR), pos_of(BRACELESS_FOR, "return i", offset=7))
+    assert loc is not None and (loc.range.start.line, loc.range.start.character) == (0, 4)
+
+
+def test_braceless_for_variable_matches_the_braced_twin():
+    braced = BRACELESS_FOR.replace("i++)\n\t\ttotal += i;\n", "i++) {\n\t\ttotal += i;\n\t}\n")
+    loc = get_definition(analyze(braced), pos_of(braced, "return i", offset=7))
+    assert loc is not None and (loc.range.start.line, loc.range.start.character) == (0, 4)
+
+
+def test_braceless_for_nested_in_braceless_if_else_ends_with_its_statement():
+    src = (
+        "int j = 9;\nint main() {\n\tint x = 0;\n\tif (x == 0)\n\t\tfor (int j = 0; j < 2; j++) x += j;\n"
+        "\telse\n\t\tx = j;\n\treturn x;\n}\n"
+    )
+    r = analyze(src)
+    edits = _edits(src, pos_of(src, "int j = 0", offset=4))
+    assert next(iter(edits.values())) == [(4, 11), (4, 18), (4, 25), (4, 35)]
+    loc = get_definition(r, pos_of(src, "x = j", offset=4))
+    assert loc is not None and (loc.range.start.line, loc.range.start.character) == (0, 4)
+
+
+def test_braceless_bodies_end_at_their_statement():
+    src = (
+        "int f(int n) {\n\twhile (n > 0)\n\t\tn--;\n\tdo\n\t\tn++;\n\twhile (n < 3);\n"
+        "\tif (n) ;\n\tswitch (n) {\n\tcase 1:\n\t\tbreak;\n\t}\n\treturn n;\n}\n"
+    )
+    r = analyze(src)
+    body = next(d for d in r.ast.declarations if getattr(d, "name", None) == "f").body.statements
+    ends = [LexicalScopeIndex._block_end(r.tokens, s.body, 0) for s in body[:2]]
+    assert ends == [3, 5]  # the while body's `n--;`, the do body's `n++;`
+    assert LexicalScopeIndex._block_end(r.tokens, body[2].then_block, 0) == 7  # the empty `;` body
+    assert LexicalScopeIndex._statement_end_index(r.tokens, body[1]) is not None
+    assert r.tokens[LexicalScopeIndex._statement_end_index(r.tokens, body[1])].line == 6
+    assert r.tokens[LexicalScopeIndex._statement_end_index(r.tokens, body[3])].line == 11
+
+
+def test_prototype_symbol_range_stays_on_its_line():
+    src = "int helper(int a);\n\nint main() {\n\treturn helper(1);\n}\nint helper(int a) {\n\treturn a;\n}\n"
+    ranges = [(s.name, s.range.start.line, s.range.end.line) for s in get_document_symbols(analyze(src))]
+    assert ranges == [("helper", 0, 0), ("main", 2, 4), ("helper", 5, 7)]
 
 
 def test_find_matching_brace_line_token_space():
