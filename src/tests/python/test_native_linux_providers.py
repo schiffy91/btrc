@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
 from src.tests.runner_capabilities import linux_audio_backend_error, linux_display_error
 from tools.native_plan import NativePlanBuilder
@@ -23,6 +24,21 @@ ROOT = Path(__file__).resolve().parents[3]
 TARGET = "linux-x86_64" if platform.machine() in ("x86_64", "AMD64") else "linux-aarch64"
 # The devcontainer image installs this as /etc/asound.conf.
 DEVCONTAINER_ALSA_CONFIG = ROOT / "nix/asound.conf"
+# The fault fixture's test controls LinuxAudioFaults.btrc binds from AlsaFaults.h.
+ALSA_FAULT_CONTROLS = (
+    "unitReset",
+    "unitFail",
+    "allowSessionCleanup",
+    "pendingSessions",
+    "unitDisposals",
+    "unitStops",
+    "unitRenders",
+    "unitReads",
+    "unitDeviceChannels",
+    "unitFixedChannels",
+    "unitConfiguredChannels",
+    "unitExclusive",
+)
 
 
 def _require_linux_reader():
@@ -194,13 +210,19 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
     """The ALSA provider over the fault fixture: no hardware, every failure point,
     and the retained indeterminate close that ends the process on destruction."""
     _require_linux_reader()
+    faults = ROOT / "src/tests/native/audio/linux/AlsaFaults"
     executable = _build(
-        ROOT / "src/tests/native/audio/linux/LinuxAudioFaults.btrc",
+        NativeBindingPackage.write(
+            ROOT / "src/tests/native/audio/linux/LinuxAudioFaults.btrc",
+            tmp_path / "package",
+            faults.with_suffix(".h"),
+            ALSA_FAULT_CONTROLS,
+        ),
         tmp_path,
         frontend,
         sanitized,
         request,
-        faults=ROOT / "src/tests/native/audio/linux/AlsaFaults",
+        faults=faults,
     )
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=120, env=_environment(sanitized))
     assert result.returncode == 0, result.stderr

@@ -14,18 +14,8 @@ import Library.Console;
 #include <assert.h>
 #include <stdlib.h>
 
-void unitReset(int failure);
-void unitFail(int failure);
-void allowSessionCleanup();
-int pendingSessions();
-int unitDisposals();
-int unitStops();
-int unitRenders();
-int unitReads();
-void unitDeviceChannels(int input, int output);
-void unitFixedChannels(int fixed);
-int unitConfiguredChannels(int capture);
-void unitExclusive(int exclusive);
+/* unit* comes from AlsaFaults.h, which the harness binds through
+ * [[native.bindings]]. */
 
 struct BlockLog { int blocks; int inputBlocks; };
 
