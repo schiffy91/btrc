@@ -356,9 +356,12 @@ class FunctionLowerer {
 			string storage = DeclarationRegistry.instanceStorageName(mem);
 			if (storage != "") {
 				Node rt = SemanticTypeSystem.resolveGenericType(mem.type, typeMap, self.analyzed);
-				if (self.managedValues.isManaged(self.cTypes.resolveBodyType(rt, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+				Node concrete = self.cTypes.resolveBodyType(rt, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+				if (self.managedValues.isManaged(concrete)) {
 					body.push(self.managedTypes.releaseField(storage, rt));
-					emitted = true;
+					/* Only an ARC field can cascade into a destruction that
+					 * must be marked, as in emitFieldReleases. */
+					if (self.managedValues.isArc(concrete)) { emitted = true; }
 				}
 			}
 			i = i + 1;
@@ -425,14 +428,20 @@ class FunctionLowerer {
 			int index = 0;
 			while (index < lambdas.len) {
 				CallableLambdaPlan plan = lambdas.get(index);
+				int enclosingDepth = self.callableLowering.liftDepth;
+				self.callableLowering.liftDepth = plan.depth + 1;
 				IRNode body = self.lowerLiftedCallableBody(plan.source, plan.bodyVariableTypes, plan.captures, plan.returnCType, plan.returnType);
+				self.callableLowering.liftDepth = enclosingDepth;
 				self.callableLowering.materializeLifted(plan, body, self.context.module);
 				index = index + 1;
 			}
 			index = 0;
 			while (index < spawns.len) {
 				CallableSpawnPlan plan = spawns.get(index);
+				int enclosingDepth = self.callableLowering.liftDepth;
+				self.callableLowering.liftDepth = plan.depth + 1;
 				IRNode body = self.lowerLiftedCallableBody(plan.lambda, plan.bodyVariableTypes, plan.captures, plan.returnCType, plan.returnType);
+				self.callableLowering.liftDepth = enclosingDepth;
 				self.callableLowering.materializeSpawn(plan, body, self.context.module);
 				index = index + 1;
 			}
@@ -519,6 +528,7 @@ class FunctionLowerer {
 			self.materializePendingCallables();
 			defaults = self.calls.takePendingDefaultHelpers();
 		}
+		self.callableLowering.placeLifted(self.context.activeModule());
 	}
 
 	public IRNode lowerBody(Node body, Map<string, Node> variableTypes) {
