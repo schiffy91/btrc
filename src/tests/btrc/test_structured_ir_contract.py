@@ -377,3 +377,30 @@ def test_pragma_pack_is_struct_metadata_not_a_raw_section() -> None:
     assert "if (self.isPackPragma(text)) { return; }" in declarations
     assert 'self.line("#pragma pack(push, "' in emitter
     assert 'self.line("#pragma pack(pop)")' in emitter
+
+
+def test_type_declarations_follow_the_reference_plan() -> None:
+    """btrcc emits forwards, then planned type declarations, then prototypes,
+    as `CEmitter._emit_unit` does, from one planner that mirrors
+    `IROptimizer.plan_type_declarations`."""
+    emitter = _source("ir/Emitter.btrc")
+    optimizer = _source("ir/optimization/Optimizer.btrc")
+    module_units = _source("pipeline/ModuleUnits.btrc")
+    unit = emitter[
+        emitter.index("private string emitUnit(") : emitter.index("private string objectiveCMethodSignature(")
+    ]
+
+    forwards = unit.index("self.emitStructForward(")
+    planned = unit.index("for declaration in plan { self.emitTypeDeclaration(m, declaration); }")
+    prototypes = unit.index("self.emitFunctionDecl(")
+    globals_ = unit.index("self.emitGlobal(")
+    assert forwards < planned < prototypes < globals_
+    assert emitter.count("IRTypeDeclarationPlanner.plan(m)") == 4
+    for retired in ("emitOrderedAliases", "self.emitStruct(m.", "self.emitEnum(m.", "self.emitTaggedUnion(m."):
+        assert retired not in unit
+    assert "class IRTypeDeclarationPlanner {" in optimizer
+    for owner in ("aliasCompleteTargets(", "enumValueProviders(", "typeDependencies(", "stableOrder("):
+        assert owner in optimizer
+    assert "cyclic typed C declaration dependency involving " in optimizer
+    # The plan orders every struct, so module units keep the merge order.
+    assert "orderStructs" not in module_units
