@@ -204,7 +204,7 @@ def test_undef_remains_a_deterministic_fail_closed_codegen_boundary(
     for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "unsupported preprocessor directive '#undef'" in result.stderr
-        assert "Unknown identifier 'WRAP'" not in result.stderr
+        assert "Unresolved identifier 'WRAP'" not in result.stderr
 
 
 @pytest.mark.parametrize(

@@ -72,11 +72,11 @@ INVALID_PROGRAMS = [
     ),
     (
         'int main() { var s = f"{(1 + 2}"; return 0; }',
-        "error: Expected RPAREN, got SEMICOLON ';' at 1:7\n",
+        "error: Expected RPAREN, got SEMICOLON ';' at 1:31\n",
     ),
     (
         'int main() { var s = f"{1 2}"; return 0; }',
-        "error: Expected SEMICOLON, got INT_LIT '2' at 1:3\n",
+        "error: Expected SEMICOLON, got INT_LIT '2' at 1:27\n",
     ),
     (
         "int main() { var value = 18446744073709551616ULL; }",

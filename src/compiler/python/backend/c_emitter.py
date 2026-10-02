@@ -634,12 +634,22 @@ class CEmitter:
 
         return self._compound("(void)(", [self._expr(expression)], ")")
 
+    @staticmethod
+    def _without_trigraphs(text: str) -> str:
+        """Escape every '?' that follows another, so literal text never spells a C11 trigraph."""
+        if "??" not in text:
+            return text
+        pieces: list[str] = []
+        for index, character in enumerate(text):
+            pieces.append("\\?" if character == "?" and index > 0 and text[index - 1] == "?" else character)
+        return "".join(pieces)
+
     def _expr(self, expression: IRExpr) -> str:
         if expression is None:
             raise TypeError("cannot emit a null IR expression")
 
         if isinstance(expression, IRLiteral):
-            return expression.text
+            return self._without_trigraphs(expression.text)
         if isinstance(expression, (IRVar, IRFunctionRef)):
             return expression.name
         if isinstance(expression, IRBinOp):

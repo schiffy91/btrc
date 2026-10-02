@@ -31,7 +31,7 @@ INVALID_OPERATORS = (
     ),
     (
         "TypedOperatorInvalidReferenceOrder.btrc",
-        "operator '<' is not defined",
+        "Operator '<' is not defined",
     ),
     (
         "TypedOperatorInvalidGenericOrder.btrc",
@@ -43,7 +43,7 @@ INVALID_OPERATORS = (
     ),
     (
         "TypedOperatorInvalidCharPointerPointer.btrc",
-        "operator '==' is not defined",
+        "Operator '==' is not defined",
     ),
     (
         "TypedOperatorMatchingGenericInheritance.btrc",

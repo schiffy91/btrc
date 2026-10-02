@@ -10,7 +10,6 @@
 #include <math.h>
 #include <assert.h>
 #include <limits.h>
-#include <assert.h>
 #include <stdatomic.h>
 
 static inline void* __btrc_safe_realloc(void* ptr, size_t size) {

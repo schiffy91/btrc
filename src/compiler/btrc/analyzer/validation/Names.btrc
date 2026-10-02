@@ -433,6 +433,38 @@ class NameValidator {
 		return declaration.name;
 	}
 
+	public string topLevelKind(Node declaration) {
+		if (declaration.kind == NK_CLASS_DECL) { return "class"; }
+		if (declaration.kind == NK_INTERFACE_DECL) { return "interface"; }
+		if (declaration.kind == NK_FUNCTION_DECL) { return "function"; }
+		if (declaration.kind == NK_STRUCT_DECL) { return "struct"; }
+		if (declaration.kind == NK_TYPEDEF_DECL) { return "typedef"; }
+		if (declaration.kind == NK_VAR_DECL_STMT) { return "global"; }
+		return "enum";
+	}
+
+	/* Report a second top-level declaration of a name that is not a compatible
+	 * prototype/definition pair, naming what the two declarations are. */
+	private void rejectDuplicateTopLevel(string name, Node declaration, Node previous) {
+		string kind = self.topLevelKind(declaration);
+		string previousKind = self.topLevelKind(previous);
+		Node site = Node();
+		site.line = declaration.nameLine > 0 ? declaration.nameLine : declaration.line;
+		site.col = declaration.nameCol > 0 ? declaration.nameCol : declaration.col;
+		if (kind != previousKind) {
+			TypeValidator.fail("Top-level name '" + name + "' is declared as both " + previousKind + " and " + kind, site);
+		}
+		if (kind != "function") {
+			TypeValidator.fail("Duplicate " + kind + " name '" + name + "'", site);
+		}
+		if (!self.callableSignatureSame(declaration, previous)) {
+			TypeValidator.fail("Conflicting declarations for function '" + name + "'", declaration);
+		}
+		if (declaration.bodyNode != null && previous.bodyNode != null) {
+			TypeValidator.fail("Duplicate definition of function '" + name + "'", declaration);
+		}
+	}
+
 	public void validateTopLevelDuplicates(Node program) {
 		Map<string, Node> declarations = {};
 		Map<string, Node> globalDefinitions = {};
@@ -481,10 +513,8 @@ class NameValidator {
 						index = index + 1;
 						continue;
 					}
+					self.rejectDuplicateTopLevel(name, declaration, previous);
 					bool functionPair = declaration.kind == NK_FUNCTION_DECL && previous.kind == NK_FUNCTION_DECL;
-					if (functionPair && !self.callableSignatureSame(declaration, previous)) {
-						TypeValidator.fail("Conflicting declarations for function '" + name + "'", declaration);
-					}
 					if (functionPair && declaration.bodyNode == null && previous.bodyNode == null) {
 						/* C allows repeated prototypes. A named one supersedes an
                          * unnamed one, so a later definition is checked against
@@ -501,10 +531,6 @@ class NameValidator {
 						self.state.analyzed.funcRetTypes.put(name, kept.returnType);
 						index = index + 1;
 						continue;
-					}
-					bool forwardPair = functionPair && ((declaration.bodyNode == null) != (previous.bodyNode == null));
-					if (!forwardPair) {
-						TypeValidator.fail("Duplicate top-level declaration '" + name + "'", declaration);
 					}
 					Node definition = previous;
 					Node prototype = declaration;
@@ -964,7 +990,7 @@ class NameValidator {
 		if (self.sourceRuntimeSymbols.compilerOwnedUnresolved(symbol)) {
 			TypeValidator.fail("Source reference to compiler-owned C symbol '" + symbol + "' is not allowed", identifier);
 		}
-		TypeValidator.fail("Unknown identifier '" + symbol + "'", identifier);
+		TypeValidator.fail("Unresolved identifier '" + symbol + "' used as a value", identifier);
 	}
 
 	private void validateGeneratedSymbolReference(DeferredGeneratedSymbolReference reference) {
@@ -979,7 +1005,7 @@ class NameValidator {
 			TypeValidator.fail(action + " compiler-owned C symbol '" + symbol + "' is not allowed", identifier);
 		}
 		if (!reference.directCall && !reference.sourceKnown && !supported) {
-			TypeValidator.fail("Unknown identifier '" + symbol + "'", identifier);
+			TypeValidator.fail("Unresolved identifier '" + symbol + "' used as a value", identifier);
 		}
 	}
 

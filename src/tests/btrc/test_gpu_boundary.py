@@ -497,7 +497,7 @@ def test_array_kernel_may_write_a_heap_collection_through_one_stable_target(
         timeout=120,
     )
     assert rejected.returncode != 0
-    assert "expects 'Vector<int>' but got 'int[]'" in rejected.stderr
+    assert "Cannot assign 'int[]' to 'Vector<int>'" in rejected.stderr
 
 
 @pytest.mark.parametrize("frontend", ["python", "btrc"])

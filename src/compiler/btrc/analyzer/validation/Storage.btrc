@@ -1194,6 +1194,9 @@ class StorageValidator {
 			method = self.indexedMethodInState(concreteObject, "set");
 			if (!StorageValidator.validIndexedSetter(method)) { method = null; }
 		}
+		if (method == null && requireGetter && !self.state.analyzed.isClass(concreteObject.base) && !self.state.analyzed.isGenericClass(concreteObject.base)) {
+			TypeValidator.fail("Type '" + self.types.formatType(concreteObject) + "' is not indexable", expression);
+		}
 		if (method == null) {
 			TypeValidator.fail("Type '" + self.types.formatType(concreteObject) + (requireGetter ? "' has no indexed getter; indexing requires an instance " + "get(index) method" : "' has no indexed setter; it has no void instance " + "set(index, value) method"), expression);
 		}
@@ -1447,6 +1450,11 @@ class StorageValidator {
 			Node? qualifiedTarget = self.qualifierDeclaredType(expression.target, vars);
 			if (setterType != null) { qualifiedTarget = setterType; }
 			self.validateReferenceQualifiers(qualifiedTarget, expression.valueNode, "Assignment", vars);
+			/* A value of the wrong type is reported as such before any
+			 * representation or ownership rule for the stored value. */
+			if (target != null && source != null && !gpuTargetHasCapacity && !genericNull && !self.types.contextualAggregateInitializer(expression.valueNode) && !self.types.assignmentCompatible(target, source)) {
+				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'", expression);
+			}
 			if (!gpuTargetHasCapacity && !genericNull) {
 				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars);
 				self.validateCharArrayElements(target, expression.valueNode, vars);
