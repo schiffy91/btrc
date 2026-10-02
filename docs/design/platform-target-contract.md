@@ -49,6 +49,7 @@ This document is Stage 24's serial **Spec** step: the design that the fan-out im
 - **The compilers never discover a toolchain.** A compiler process does not run `xcrun`, scan for an NDK or guess a sysroot. It reads the selected row and the sysroot it is given, and it validates that sysroot by reading files. Discovery belongs to the tools that start builds (the test harness, `tools/native_plan.py`, `tools/bench/scripts/bsm_env.sh`).
 - **Never the host by accident.** A plan or a compile for a non-host row carries its target arguments explicitly. A row whose target arguments are empty, which is the native Linux and Windows-GNU behaviour of today, builds only on a host of that same row.
 - **Parity by construction.** Both compilers parse the same labels, give the same diagnostics, infer the same host and write byte-identical link plans. One parity test covers each of these.
+- **Build mode stays out of the row.** platform-parity P1 lists build mode in target identity. Debug/release and DCE are already compile options in every cache key (`--debug`, `--no-dce`; `application/compiler.py:205-222`, `Compiler.btrc:30-41`), and artifact kind is Stage 28's. A row is the target, not the build.
 - **Inventories unchanged.** Every change lands in existing files and owners. The 88 Python and 97 btrc production files stay as they are (D21).
 
 ## Current state
@@ -77,7 +78,7 @@ This document is Stage 24's serial **Spec** step: the design that the fan-out im
 | Label grammar | `OS-ARCH[-ENVIRONMENT]`. The environment suffix is omitted when it is the OS's default (`gnu` for linux and windows; none for the others). The existing aliases `x64` → `x86_64` and `arm64` → `aarch64` stay. An explicit default (`windows-x86_64-gnu`) is accepted, and the canonical label omits it. |
 | Environment axis | `environment` ∈ {`""`, `gnu`, `msvc`, `simulator`}. linux and windows rows are `gnu` or `msvc`; macOS, iOS device and Android are `""`; the iOS simulator is `simulator`. |
 | Deployment minimum | One `minimum_version` column. It is fixed by the row, appears in the triple, and drives the derived version macros. There is no per-build override in Stage 24 (§1.6). |
-| Data model | Explicit per-row columns. The generator derives `__SIZEOF_LONG__`, `__SIZEOF_WCHAR_T__`, `__SIZEOF_LONG_DOUBLE__`, `__LP64__`, `_LP64` and `__CHAR_UNSIGNED__` from them, and both analyzers take their widths from the selected row. |
+| Data model | Explicit per-row columns. The generator derives `__SIZEOF_LONG__`, `__SIZEOF_WCHAR_T__`, `__SIZEOF_LONG_DOUBLE__`, `__LP64__`, `_LP64`, `__CHAR_UNSIGNED__` and `__WCHAR_UNSIGNED__` from them, and both analyzers take their widths from the selected row. |
 | `__ANDROID_API__` | **Defined, not refused.** It equals `__ANDROID_MIN_SDK_VERSION__`, which equals the row's `minimum_version` (29). clang computes exactly this from the `android29` triple. |
 | `TARGET_OS_*` | **Rows, not foreign.** clang 21 predefines 18 `TARGET_OS_*` names and `TARGET_IPHONE_SIMULATOR` for every Darwin triple, and nothing for other triples. They become rows selected on macOS and iOS. `TARGET_CPU_*`, `TARGET_RT_*` and `TARGET_OS_BRIDGE` stay foreign. |
 | MSVC `__STDC__` | clang does not define `__STDC__` for `*-pc-windows-msvc`. The `__STDC__` row therefore excludes the `msvc` environment, and `#if __STDC__` on that row reads 0, as in C. |
@@ -168,7 +169,7 @@ The research agents read every value from clang 21.1.8 (`-dM -E`, `-###`). `wcha
 - `long double` is binary128 on Android x86_64 (`__LDBL_MANT_DIG__` 113), unlike x87 on Linux x86_64 (64). Both have size 16.
 - `long double` is the same as `double` on every Apple arm64 row, on Windows ARM64 (both environments) and on MSVC generally.
 
-**Slices.** Each `TARGET_SLICES` entry in `tools/qualification/schema.py` maps to exactly one row: `windows-x64` → `windows-x86_64`; `windows-arm64` → `windows-aarch64`, plus `windows-aarch64-msvc` for GPU-linked artifacts; `ios-device` → `ios-aarch64`; `ios-simulator` → `ios-aarch64-simulator`; `android-arm64` → `android-aarch64`; `android-x86_64` → `android-x86_64`. The slice names stay qualification vocabulary. `test_target_contract.py` checks the mapping, so a new row without a slice, or a slice without a row, fails.
+**Slices.** Each `TARGET_SLICES` entry in `tools/qualification/schema.py` maps to one or more rows: `windows-x64` → `windows-x86_64`; `windows-arm64` → `windows-aarch64`, plus `windows-aarch64-msvc` for GPU-linked artifacts; `ios-device` → `ios-aarch64`; `ios-simulator` → `ios-aarch64-simulator`; `android-arm64` → `android-aarch64`; `android-x86_64` → `android-x86_64`. The slice names stay qualification vocabulary. `test_target_contract.py` checks the mapping: a slice without a row fails, and so does a non-desktop row that no slice names. The six desktop rows are exempt, because P0's slices cover only the new platforms.
 
 ### 1.3 Predefined-macro deltas
 
@@ -198,6 +199,7 @@ Every value below is clang 21.1.8 `-std=c11 -dM -E` for the row's triple.
 - The remaining clang names have value 0 on every macos and ios row: `TARGET_OS_DRIVERKIT`, `TARGET_OS_LINUX`, `TARGET_OS_MACCATALYST`, `TARGET_OS_NANO`, `TARGET_OS_TV`, `TARGET_OS_UEFI`, `TARGET_OS_UIKITFORMAC`, `TARGET_OS_UNIX`, `TARGET_OS_VISION`, `TARGET_OS_WATCH`, `TARGET_OS_WIN32` and `TARGET_OS_WINDOWS`.
 - C4's rule that rows sharing a name select disjoint targets holds: each name has one row for value 1 and as many value-0 rows as its 0 set needs to be a union of `operating_systems × architectures × environments` products. `TARGET_OS_EMBEDDED` needs two (macos; ios with `simulator`).
 - **Selector spelling.** C4 reads an empty selector list as "every value". To select the empty environment, a list names `""` explicitly: the iOS device is `environments = [""]` with ios, and "every environment except `msvc`" is `environments = ["", "gnu", "simulator"]`. The generator accepts `""` as a list element only in `environments`.
+- **Reserved for `#define`/`#undef`.** Before Stage 24 every predefined name started with `_` and was refused by the existing underscore rule. The `TARGET_*` rows do not, so C4's M3 gains one clause: `#define` or `#undef` of any predefined-macro row name or derived name, on any row, is refused with M3's message. Otherwise `#define TARGET_OS_IPHONE 1` would change `#if` in that file and redefine a clang predefine in C. Conditioning and the analyzer apply it through the same predicate (C4, "Source macro rules"); `test_preprocessor_conditionals.py` gains the refusal.
 
 **Derived macros.** The generator emits these from row columns, and a hand row may not name them:
 
@@ -257,7 +259,7 @@ The test names them as classified skips off the Mac.
 
 ### 1.5 One accepted set, one message
 
-Both compilers accept exactly the eleven labels, each optional explicit default environment, and each architecture alias. That is 11 canonical labels plus 18 alias spellings:
+Both compilers accept exactly the eleven labels, each optional explicit default environment, and each architecture alias. That is 11 canonical labels plus 19 alias spellings:
 - `x64` or `arm64` on each of the 11 rows;
 - `-gnu` on each of the 4 linux and windows-gnu rows;
 - both forms together on those 4 rows.
@@ -299,22 +301,27 @@ Both compilers infer the host only when `--target` is absent. Both map the host 
   This replaces btrcc's empty target, `Packages.btrc:38-49`. The empty target is no longer possible because from Stage 24 every compile needs a row: the analyzer widths come from it (§1.8). It also replaces C4's lazy D13: C4 made the LSP and btrcc complete the environment only at the first conditional, so that a file without conditionals compiled on an unknown host. With a row required for widths, that laziness has nothing left to protect.
   - **btrcc's `<system>-<machine>`** comes from `uname()` through the existing `Library.Platform`.
   - **The LSP** keeps one exception: a file opened on an unrecognized host without `btrc.target` shows the message once as a workspace diagnostic and parses without conditioning or widths. It does not crash (C4's LSP test).
-  - **Testing.** CI has no unsupported host, so both compilers expose the inference through a unit seam: Python `PackageTarget.host(system=…, machine=…)`, and btrc `FePackageTarget.hostFrom(int platform, int architecture)`. `test_target_contract.py` drives the seam with the same table in both.
+  - **Spelling.** `<system>` and `<machine>` are lowercased in both compilers: Python's `platform.system()`/`platform.machine()` and btrcc's `uname()` `sysname`/`machine` (`Darwin`, `Linux`, `arm64`, `x86_64`, Windows `ARM64`/`AMD64`) agree once lowercased.
+- **Testing.** CI has no unsupported host, so both compilers expose the inference through a unit seam: Python `PackageTarget.host(system=…, machine=…)`, and btrc `FePackageTarget.hostFrom(int platform, int architecture, string system, string machine)`, whose integers are `__btrc_target_platform()`'s codes. `test_target_contract.py` holds one table of `(system, machine, platform code, architecture code, expected label or message)` rows and drives both seams with it. A real unknown-host btrcc is also built once with `-DBTRC_TARGET_PLATFORM_OVERRIDE=0` (`core.c:170-171`), which already exists for exactly this.
 
 ### 1.8 Data model in both analyzers
 
 - **Python.** `analyzer/types.py::CIntegerWidths` gains `for_target(row)`, built from `sizeof_long`, with char 8, short 16, int 32 and long long 64 (a generator rule pins these four across every row). `NumericLiteralSemantics` takes the widths of the selected target from `SemanticAnalyzer`. `CIntegerWidths.native()` is deleted, so no analysis depends on the compiler's process.
-- **btrc.** `analyzer/validation/Constants.btrc` replaces `LONG_MIN`/`LONG_MAX`/`ULONG_MAX` with values computed from the row's `sizeofLong`. The owner is `ConstantRangeValidator` or its current name at that revision. The selected row reaches it through the analyzer's context, which `CompilerPipeline` fills.
+- **btrc.** `analyzer/validation/Constants.btrc::ConstantValidator` (`:38`) replaces its uses of the C `LONG_MIN`/`LONG_MAX`/`ULONG_MAX` (`builtinCastRange`, `:333-337`) with values computed from the row's `sizeofLong`. The selected row reaches it through the analyzer's context, which `CompilerPipeline` fills.
 - **Widths contract.** C4's widths check (`__CHAR_BIT__`, `__SIZEOF_SHORT__`, `__SIZEOF_INT__` and `__SIZEOF_LONG_LONG__` equal both analyzers' widths) gains `__SIZEOF_LONG__` against `for_target` for every row. It stays in `test_hosted_abi_contract.py`.
 - **Observable change.** A Linux → `windows-x86_64` compile now types `long` as 32 bits:
   - `long x = 3000000000;` is refused, with the existing out-of-range message;
-  - `LONG_MAX` folds to 2147483647.
+  - the constant cast-range checks for `long` and `unsigned long` use the 32-bit range.
+
+  Neither analyzer folds the hosted `LONG_MAX` macro; it reaches C unchanged and C's `<limits.h>` gives the target's value.
 
   `test_target_data_model.py` pins both in both compilers.
 
 ### 1.9 MSVC
 
-D21 adopts MSVC only where wgpu-native forces it. The matrix shows that it does for Windows ARM64: wgpu-native ships only `windows-aarch64-msvc`. So `windows-aarch64-msvc` is a row, the environment axis is real, and C4's deferred "`__STDC__` row, if MSVC is adopted" is decided in §1.3.
+D21 adopts MSVC only where wgpu-native forces it. The Stage 22 matrix (lane `stage22/p0-matrix`) records that it does for Windows ARM64: wgpu-native v27.0.4.0 and v29.0.1.1 publish no `windows-aarch64-gnu` asset, only `wgpu-windows-aarch64-msvc-release.zip` ("Windows builds are built using MSVC on all architectures and GNU on x64"). So `windows-aarch64-msvc` is a row, the environment axis is real, and C4's deferred "`__STDC__` row, if MSVC is adopted" is decided in §1.3.
+
+**The row is provisional.** PLAN Stage 28's `platforms-w1-toolchain-abi-route` owns the Windows ABI-route decision. Stage 24 adds the row so the environment axis, the `__STDC__` row and the cache matrix are exercised by a real second environment; Stage 28 confirms or removes it. Removing it is one row, its macro selections and its availability table; no consumer names it. This is recorded as a PLAN.md amendment in the Stage 24 progress entry.
 
 - **Not a compiler host.** btrcc for Windows ARM64 stays `aarch64-windows-gnu` (`compiler_host` is false on the MSVC row).
 - **Toolchain identity stays out.** `_MSC_VER` and its relatives name the MSVC toolchain version, so they stay out (I2). `_M_ARM64` is a row (§1.3). Portable code tests `__aarch64__` or `__x86_64__`, which clang defines in both environments.
@@ -340,10 +347,10 @@ The LSP owner is `src/devex/lsp/workspace/workspace.py`:
 
 | Test | What it proves |
 |------|----------------|
-| `src/tests/btrc/test_target_contract.py` (new; both compilers) | The accepted set: the 11 labels and their 18 aliases, and a rejection battery (`linux-x86`, `ios-x86_64-simulator`, `macos-arm64-gnu`, `windows-x86_64-msvc`, `android-arm64-29`, `ios-aarch64-device`, `""`, `-`, `linux-`). Accepted labels give identical canonical labels and rejected ones identical messages, through `btrcc --target X --emit-link-plan` and `btrcpy`, with no source read. Host inference: the seam table in both compilers and the unknown-host message. Every spelling accepted today round-trips (§1.5). Slices map to rows (§1.2). Only `compiler_host` rows reach `TargetCatalog`. |
+| `src/tests/btrc/test_target_contract.py` (new; both compilers) | The accepted set: the 11 labels and their 19 aliases, and a rejection battery (`linux-x86`, `ios-x86_64-simulator`, `macos-arm64-gnu`, `windows-x86_64-msvc`, `android-arm64-29`, `ios-aarch64-device`, `""`, `-`, `linux-`). Accepted labels give identical canonical labels and rejected ones identical messages, through `btrcc --target X --emit-link-plan` and `btrcpy`, with no source read. Host inference: the seam table in both compilers and the unknown-host message. Every spelling accepted today round-trips (§1.5). Slices map to rows (§1.2). Only `compiler_host` rows reach `TargetCatalog`. |
 | `src/tests/python/test_hosted_abi_contract.py` (extended) | Each generator rule in §1.1 has a failing fixture. The generated rows equal the spec. Derived macros come only from columns. The widths contract covers `__SIZEOF_LONG__`. |
 | `src/tests/python/test_target_macro_table.py` (C4's test 3, extended) | All 11 triples from the rows against clang 21. Mac-bound: Apple clang and `TargetConditionals.h`. |
-| `src/tests/btrc/test_target_data_model.py` (new; both compilers) | For each of `linux-x86_64`, `windows-x86_64` and `windows-aarch64-msvc`: `long` range refusals and `LONG_MAX` folding are the same in both compilers, and they follow the row, not the host. |
+| `src/tests/btrc/test_target_data_model.py` (new; both compilers) | For each of `linux-x86_64`, `windows-x86_64` and `windows-aarch64-msvc`: `long` literal and cast-range refusals are the same in both compilers, and they follow the row, not the host. |
 | `src/tests/btrc/test_preprocessor_conditionals.py` (C4's, extended) | The per-target selection fixture runs over all 11 rows. `TARGET_OS_IPHONE` and `__ANDROID_API__ >= 29` select. `TARGET_CPU_ARM64` is I3. |
 | `src/tests/lsp/test_target_setting.py` (new) | §1.10. |
 
@@ -370,7 +377,7 @@ unavailable_macros = ["..."]
 unavailable_objects = ["..."]
 unavailable_types = ["..."]
 unavailable_typedefs = ["..."]
-source = "ndk 29.0.14206865 sysroot, API 29, extracted 2026-10-.. by tools/compiler_codegen/hosted_platform_extract.py"
+source = "ndk 29.0.14206865 sysroot, API 29, extracted <date> by tools/hosted_platform.py"
 ```
 
 **Representation.** Each row lists the `[platform]` names **unavailable** on it, rather than the available ones. The lists stay short for the Unix-like rows. Each extraction is then one reviewable diff, and the union stays where it is.
@@ -389,7 +396,7 @@ source = "ndk 29.0.14206865 sysroot, API 29, extracted 2026-10-.. by tools/compi
 
 ### 2.3 Extraction
 
-The extraction is a read-only `tools/compiler_codegen/hosted_platform_extract.py`, owned by the class `HostedPlatformExtractor`. It is a tool, not a production file, and the Stage 24 fan-out runs it. For one row, it compiles a probe translation unit and reads the declared names with the existing native header reader in a names-only mode, or with `clang -Xclang -ast-dump=json` when the reader is unavailable. The probe includes the row's automatic headers (the same list the C emitter's prologue includes, plus `src/runtime/windows/` overlays on windows rows), uses the row's `target_arguments` and resolved sysroot, and passes no `-D__ANDROID_API__`: the triple already sets `__ANDROID_MIN_SDK_VERSION__`, which current bionic gates on, and a `-D` would split the two macros. The output is `[platform] − declared`.
+The extraction is a read-only `tools/hosted_platform.py`, owned by the class `HostedPlatformExtractor`. It sits beside `tools/native_plan.py`, outside `tools/compiler_codegen/`, whose file list is normative in `compiler-structure.md`; the generator never runs it. The Stage 24 fan-out runs it. For one row, it compiles a probe translation unit and reads the declared names with the existing native header reader in a names-only mode, or with `clang -Xclang -ast-dump=json` when the reader is unavailable. The probe includes the row's automatic headers (the same list the C emitter's prologue includes) with exactly the flags the row's real C build uses, including `-I src/runtime/windows -include src/runtime/windows/btrc_win_compat.h` on windows-gnu rows (`Makefile:121`). The rule is that availability equals what the row's C compile declares, so the check (§2.4) is never stricter than C on a toolchain that builds today, uses the row's `target_arguments` and resolved sysroot, and passes no `-D__ANDROID_API__`: the triple already sets `__ANDROID_MIN_SDK_VERSION__`, which current bionic gates on, and a `-D` would split the two macros. The output is `[platform] − declared`.
 
 | Row(s) | Sysroot | Where |
 |--------|---------|-------|
@@ -397,13 +404,13 @@ The extraction is a read-only `tools/compiler_codegen/hosted_platform_extract.py
 | `windows-x86_64`, `windows-aarch64` | zig 0.16.0's `lib/libc/include/any-windows-any` (MinGW-w64 `38c8142f`) plus `src/runtime/windows/` | Linux |
 | `android-*` | the NDK r29 sysroot (`toolchains/llvm/prebuilt/linux-x86_64/sysroot`) at API 29 | Linux after Stage 23 puts the NDK in `nix develop` (NDK-bound) |
 | `macos-*`, `ios-*` | `xcrun --sdk macosx|iphoneos|iphonesimulator --show-sdk-path` | Mac-bound |
-| `windows-aarch64-msvc` | the Windows SDK and MSVC headers on `windows-11-arm` | runner-bound. Until extracted, its table copies `windows-aarch64`'s list, and its `source` says so: `"copied from windows-aarch64 pending runner extraction"`. A Stage 24 exit row tracks it as **awaiting runner**. |
+| `windows-aarch64-msvc` | the Windows SDK and MSVC headers on `windows-11-arm` | runner-bound. Until extracted, its table is conservative: `windows-aarch64`'s list plus every name that only MinGW, winpthreads or the btrc compat overlay provides (POSIX and pthread names), so the row can only refuse too much, never too little. Its `source` says `"conservative copy pending runner extraction"`. A Stage 24 exit row tracks it as **awaiting runner**. |
 
 **Bionic gating.** An API-gated bionic name hidden at API 29 is unavailable at the floor, which is correct (`__INTRODUCED_IN`). C11 `<threads.h>` (API 30) is the researched example of a hidden one. The names introduced at 28–29 (`getrandom`, `posix_spawn`, `aligned_alloc`, `timespec_get`, `reallocarray`) are available at the floor and are the borderline cases the extraction test spot-checks. The extractor reads them through the triple, with no separate column.
 
 ### 2.4 Consumer: reachable references only
 
-The check runs in **Stage 5**, after reachability, not in the analyzer. A stdlib function that names a macOS-only symbol and is unreachable from a Linux program is removed before emission today, and the analyzer cannot know that.
+The check runs in the **optimizer stage** (pipeline stage 5, not PLAN Stage 5), after reachability, not in the analyzer. A stdlib function that names a macOS-only symbol and is unreachable from a Linux program is removed before emission today, and the analyzer cannot know that.
 
 - **Python.** `ir/optimizer.py::IROptimizer` gains `refuse_unavailable_hosted(target)`. Once the reachability graph is final, it walks the reachable functions' calls and identifier references to hosted names, the reachable globals' initializers and the kept extern declarations. On the first reference whose name is in `HOSTED_PLATFORM_UNAVAILABLE[label]`, in emission order, it raises `CompilerFailureKind.SEMANTIC`:
 
@@ -414,7 +421,7 @@ The check runs in **Stage 5**, after reachability, not in the analyzer. A stdlib
 - **btrc.** The same check lives in `ir/optimization/Optimizer.btrc`'s reachability owner (`IROptimizer`), with the same message and order.
 - **Scope.** Live `#include` lines and `.c` imports are not inspected; the C compiler owns them. A user-declared prototype of a hosted name (`extern int fork(void);`) is still a hosted-name reference: btrc already refuses redeclaring hosted names in user code.
 - **`--no-dce`** keeps every function, so the check sees every reference. That matches C, where an undeclared call in an emitted function already fails under `-std=c11`.
-- **Stdlib on new targets.** A stdlib module that names an unavailable symbol, inside a function a program reaches, now fails at btrc time with the name and the target. The mobile and Windows stdlib adaptations (Stages 25–26, `platform-adaptations.md`) clear these with C4 `#if` guards or providers. The check is the safety net that platform-parity P1 asks for ("minimum-version code must not reference an unavailable symbol unguarded").
+- **Stdlib on new targets.** A stdlib module that names an unavailable symbol, inside a function a program reaches, now fails at btrc time with the name and the target. The mobile and Windows stdlib adaptations (Stages 25–26, `platform-adaptations.md`) clear these with C4 `#if` guards or providers. For bionic, this is the safety net that platform-parity P1 asks for ("minimum-version code must not reference an unavailable symbol unguarded"), because `__INTRODUCED_IN` hides a declaration above the triple's API level. For Apple it is weaker: the iOS 27.0 SDK declares newer APIs with `API_AVAILABLE(ios(18.0))` rather than hiding them, so names-only extraction reports them available at 17.0. Stage 24 relies on clang's `-Wunguarded-availability` in the C compile for those; reading availability attributes into the tables is left to a later stage and recorded as a gap.
 
 ### 2.5 Tests (sub-batch 2)
 
@@ -472,7 +479,7 @@ The Stage 24 exit's "five new triples" are:
 
 Windows has a row today, but no reader triple. `aarch64-w64-windows-gnu` comes along with x64 at no extra cost. MSVC extraction is W1 (platform-parity P1: "full Windows SDK extraction is W1").
 
-`src/tests/btrc/test_native_import_targets.py` (new; both compilers) imports one C fixture package per row. Its header, `src/tests/native/target_import/TargetImport.h`, declares:
+`src/tests/btrc/test_native_import_targets.py` (new; both compilers) imports one C fixture package per row. Its header, `src/tests/native/target_import/target_import.h`, declares:
 - a record with `long`, `wchar_t`, `size_t`, `bool` and a nested array;
 - an enum;
 - a callback typedef;
@@ -572,7 +579,7 @@ The JSON in §4.1 is the **frozen** schema for the fan-out's native-plan owner a
 - link-plan parity green for all 11 rows on Linux;
 - the cross builds: windows on Linux, android with the NDK, ios on the Mac;
 - `test_native_plan_builder.py` and every existing link-plan consumer test updated to schema 5, which flips the `"schema": 1` goldens;
-- BTRSmith's Makefiles read plans only through `tools/native_plan.py`, so they need no change. The cross-repo check is BTRSmith's `application-frontend-check` on the Mac.
+- BTRSmith's Makefiles read plans only through `tools/native_plan.py`, so the reader change is invisible to them. Host-row builds keep today's driver and flags (§4.2: no `--target` on the host row), so BTRSmith's macOS objects keep today's minimum OS, which comes from `MACOSX_DEPLOYMENT_TARGET` or the SDK default (`tools/perf.py:288` lists it as a build input). The builder records the effective deployment target in `NativeBuildReport` and, when it differs from the row's `minimum_version`, reports it as a warning, not a failure: Stage 28's "host builds byte-identical to before" stays true. Evidence: BTRSmith's Mac objects built before and after sub-batch 3 compare equal (`LC_BUILD_VERSION` included), plus its `application-frontend-check`. Owner question Q1 decides whether the row minimum later becomes binding on host builds.
 
 ## 5. `platforms-p1-provider-filters`
 
@@ -581,9 +588,9 @@ The JSON in §4.1 is the **frozen** schema for the fan-out's native-plan owner a
 These predicate rules hold for `[[package.providers]]` and every `[[native.*]]` table:
 - `os` ∈ the five operating systems (from `TARGET_ROWS`, not a list in the manifest owner).
 - `arch` is unchanged.
-- The new `env` is a string array over {`gnu`, `msvc`, `simulator`, `device`}. `device` names the empty environment of iOS, so a binding can select the device alone. An omitted or empty array matches every value, as for `os`.
+- The new `env` is a string array over the environment values of `targets.toml`, generated into both parsers as `TARGET_ENVIRONMENTS` (`""`, `gnu`, `msvc`, `simulator`). `""` selects the empty environment, so `os = ["ios"], env = [""]` selects the iOS device alone, with the same spelling as `targets.toml` selectors (§1.3). An omitted or empty array matches every value, as for `os`.
 
-The owners are `NativeDeclaration`, `NativeBinding` and the provider record in `packages.py`, and `FeNativeDeclaration`, `FeNativeBinding` and the provider record in `Packages.btrc`. Each gains `environments`, and `selected_for` tests it. The env values are spelled once, in the manifest spec (`src/language/package-manifest.md`). Both parsers refuse unknown values with `unsupported env '<value>' in <table>; expected device, gnu, msvc or simulator`.
+The owners are `NativeDeclaration`, `NativeBinding` and the provider record in `packages.py`, and `FeNativeDeclaration`, `FeNativeBinding` and the provider record in `Packages.btrc`. Each gains `environments`, and `selected_for` tests it. The env values are spelled once, in `targets.toml`; `package-manifest.md` documents them by reference. Both parsers refuse unknown values with `unsupported env '<value>' in <table>; expected "", gnu, msvc or simulator`.
 
 **Disjointness.** The existing rule that providers for one module are disjoint "even on inactive targets" is checked over all rows (the label set), not over the old 3 × 2 grid.
 
@@ -669,7 +676,7 @@ The counters are those of C4's test plan: Python `module_units_lowered`/`reused`
 
 The program uses `#if defined(_WIN32)`, `long`, a hosted name unavailable on one side, and one native binding. Every step's emitted C or error is compared, not only the counters. The prebuilt stdlib archive is exercised through `build_stdlib_archive` under A and B.
 
-**Quiet re-measure** (Mac, PLAN Stage 24 exit). After this sub-batch, Stage 3's `budget_bench` runs no-op and edit, on both frontends, measuring instructions retired and peak footprint at `--jobs 1`. ≤0.3% passes (standing approvals). Each run names the C compiler that built btrcc.
+**Quiet re-measure** (Mac, PLAN Stage 24 exit). After this sub-batch, Stage 3's `budget_bench` runs no-op, edit and the cold transpile (the data-model and optimizer changes touch cold paths), on both frontends, measuring instructions retired and peak footprint at `--jobs 1`. ≤0.3% passes (standing approvals). Each run names the C compiler that built btrcc.
 
 **Exit evidence:** the matrix is green on Linux for every row that needs no SDK, and on the Mac for the iOS native-read row; the quiet re-measure is recorded in PLAN.md.
 
@@ -678,7 +685,7 @@ The program uses `#if defined(_WIN32)`, `long`, a hosted name unavailable on one
 The fixture is the Stage 25 "ABI fixture runs on every host" input. Stage 24 builds and statically checks it; Stage 25 runs it.
 
 **Files.** `native/` is a non-corpus directory (`corpus_files.NON_CORPUS_DIRECTORIES`) with a dedicated driver:
-- `src/tests/native/target_abi/TargetAbi.btrc` is the program. It imports `TargetAbi.h` through a package `btrc.toml` binding, and it calls and receives the following:
+- `src/tests/native/target_abi/TargetAbi.btrc` is the program. It imports `target_abi.h` through the package's `btrc.toml` binding, and it calls and receives the following:
   - `long`, `unsigned long`, `size_t`, `ptrdiff_t`, `wchar_t`, `bool`, `char`, `signed char` and `long double` (passed through `double` helpers where btrc lacks a `long double` value type);
   - a record with mixed widths;
   - a packed record (`#pragma pack(1)`), passed and returned by value;
@@ -689,8 +696,8 @@ The fixture is the Stage 25 "ABI fixture runs on every host" input. Stage 24 bui
   - an enum.
 
   It prints one line per check.
-- `src/tests/native/target_abi/target_abi.c` and `TargetAbi.h` are the C side. They include `_Static_assert`s generated from the row (§7.1).
-- `src/tests/native/target_abi/expected/TargetAbi.stdout` holds the golden lines. They are the same on every row, because the program prints facts it checked, not raw sizes.
+- `src/tests/native/target_abi/target_abi.c` and `target_abi.h` are the C side (one casing per pair, as `background_job_probe.c/.h`), declared by `src/tests/native/target_abi/btrc.toml` (`[[native.sources]]`, `[[native.headers]]`, `[[native.bindings]]`). They include `_Static_assert`s generated from the row (§7.1).
+- `src/tests/native/target_abi/target_abi.expected` holds the golden lines, in the native drivers' `<name>.expected` convention. They are the same on every row, because the program prints facts it checked, not raw sizes.
 
 ### 7.1 Static half (Stage 24)
 
@@ -732,18 +739,21 @@ The same files are run by each Stage 25 host lane, and the golden is compared. N
 
 ## Sub-batches and gates
 
-PLAN.md Stage 24 fixes the order: spec; ABI names; importers plus native plan; filters plus cache. Each sub-batch is gated before the next merges (D5). Every behaviour commit changes Python first and then its btrc twin, in one commit, by one agent.
+PLAN.md Stage 24 fixes the order: spec; ABI names; importers plus native plan; filters plus cache. Each sub-batch is gated before the next merges (D5). Every behaviour commit changes Python first and then its btrc twin, in one commit. Where PLAN's fan-out names a pair ("2 consumer writers (Python, btrc)", "an importer pair"), the Python writer hands its finished, tested change to the btrc writer on one branch, and the btrc writer lands both as one commit; neither half merges alone.
 
 1. **Spec** (`platforms-p1-target-spec`). Serial: the spec owner is the only writer of `targets.toml` and of `tools/compiler_codegen/hosted_abi.py`'s `TargetManifest`.
    - **Commit 1a:** the schema-2 spec, the generator, the generated modules, and the `test_hosted_abi_contract.py` and `test_target_macro_table.py` extensions. No behaviour change.
    - **Commit 1b:** `PackageTarget`/`FePackageTarget` reading the rows, the unified message, host inference, `TargetCatalog`, and `test_target_contract.py`.
    - **Commit 1c:** the data model in both analyzers, `test_target_data_model.py`, and the C4 test extension.
    - **Commit 1d:** the LSP setting.
-   - **Gate:** the generated-source check, lint, format-check, the btrcc fixture rebuild, `make test`, the bootstrap fixed point, zero analyzer warnings, and `boundary-check`.
+   - **Gate:** the generated-source check, lint, format-check, the btrcc fixture rebuild, `make test`, the bootstrap fixed point, zero analyzer warnings, `boundary-check`, and, for commit 1d, `make extension` and the VS Code tests (`src/tests/vscode/target_setting.test.js`, new).
 2. **ABI names** (`platforms-p1-hosted-abi-targets`). Three read-only extractors (iOS SDK on the Mac, NDK bionic, MinGW) hand their lists to one integrator, the only writer of `hosted_abi.toml`.
    - **Commit 2a:** the schema-3 spec and generated tables.
    - **Commit 2b:** the optimizer check in both compilers.
-   - **Gate:** as sub-batch 1, plus the corpus through both compilers and BTRSmith's `application-frontend-check` on the Mac.
+   - **Gate:** as sub-batch 1, plus:
+     - the corpus through both compilers on linux-x86_64, and on `windows-x86_64` emitted on Linux and compiled with zig (no run);
+     - transpiles with zero diagnostics of `cli/WindowsMain.btrc` under `--target windows-x86_64` and `windows-aarch64` (what `windows.yml:109` builds), `BtrccMain.btrc` under both linux rows, and `cli/MacOSMain.btrc` under both macOS rows. The stdlib selects platforms with runtime branches (`FileSystemHandles.btrc:1551-1560` calls `open(… O_DIRECTORY | O_NOFOLLOW …)` after `if (Platform.isWindows()) return`), so those calls are reachable on every row, and only the compat-overlay extraction rule (§2.3) keeps them available on windows-gnu;
+     - BTRSmith's `application-frontend-check` on the Mac.
 3. **Importers plus native plan** (`platforms-p1-native-import-targets`, `platforms-p1-native-plan-toolchain`, `platforms-p1-abi-fixture`).
    - **Commit 3a** (the importer pair): readers, sysroots and identity.
    - **Commit 3b** (the native-plan owner, against the frozen §4.1 schema): v5 writers, the builder, `package-manifest.md` and the plan goldens.
@@ -780,10 +790,16 @@ PLAN.md Stage 24 fixes the order: spec; ABI names; importers plus native plan; f
 - **Stage 25 host lanes** run §7's dynamic half.
 - **Stage 27 (W1)** owns MSVC header extraction and the Windows SDK sysroot beyond validation.
 - **Stage 28 (P4)** owns artifact kinds (static and shared libraries, PIC, exports). Link plan v5 deliberately carries none, so P4 adds them as schema 6 rather than reshaping v5.
-- **C4's document** gains, in Stage 24's spec commit:
-  - this file's §1.3 deltas, replacing its "Left out on purpose" data-model bullet;
-  - its `TARGET_OS_*` foreign-list sentence;
-  - D13's lazy host completion, now superseded by §1.7.
+- **C4's document** gains, in Stage 24's spec commit, a pointer to this file at each amended rule:
+  - its "Left out on purpose" data-model bullet and `__SIZEOF_LONG_DOUBLE__` bullet (now derived, §1.3);
+  - `__MINGW32__`/`__MINGW64__` leaving "toolchain identity" (§1.3);
+  - the `__STDC__`, `__CHAR_UNSIGNED__`, `__linux__`-family, `__APPLE__`/`__MACH__` and `__arm64__` selections (§1.3);
+  - `__ANDROID__` leaving `undefined_macro_names`, and the `TARGET_OS_*` foreign-list sentence (§1.3);
+  - the generator rules "`environments` is absent or empty" and "every predefined name is reserved" (§1.1, §1.3);
+  - M3/M4: every predefined-macro row name and derived name is refused by `#define`/`#undef` (§1.3);
+  - the cache table's prebuilt-stdlib-archive and module-unit rows (§6.2);
+  - D13's lazy host completion and its message, superseded by §1.7;
+  - test 3's "the triples live in the test until Stage 24" (§1.3).
 
 ## Owner questions
 
@@ -804,7 +820,7 @@ None of these blocks the spec commit. Each has a default that the design uses.
 | `TARGET_OS_*` stay foreign | clang 21 predefines them for every Darwin triple. Refusing them would make `#if TARGET_OS_IPHONE`, the most common Apple conditional, impossible, while the C compiler sees a definite value. |
 | Refuse `__ANDROID_API__` | It would make the NDK's standard `#if __ANDROID_API__ >= N` pattern an error, although the value is fixed by the triple. |
 | Hosted availability as an analyzer error | It would refuse stdlib functions that are unreachable from the program and are removed before C emission today. |
-| Per-target available-name lists | Ten copies of about 3,300 names. Unavailable lists are short for the Unix rows, and each extraction is one diff. |
+| Per-target available-name lists | Eleven copies of about 3,300 names. Unavailable lists are short for the Unix rows, and each extraction is one diff. |
 | Link plan v5 only when the row is not the host | Two writer paths and two reader paths. The builder still could not tell a host plan from an accidental cross plan. |
 | A sysroot path in the plan | It differs per host and checkout. The identity proves that both are the same SDK without embedding a path. |
 | Map `linux` to Android with an `android` environment | platform-parity §1: "Android is not a Linux GNU target". Its macros, libc and API level differ. Rows sharing `__linux__` select both OSes explicitly instead. |
