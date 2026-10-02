@@ -14,13 +14,15 @@ from tools.native_plan import NativePlanBuilder
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_macos_gpu_surface_owner_resize_and_close(native_project, native_compile, sanitize):
+def test_macos_gpu_surface_owner_resize_and_close(native_project, native_compile, gui_provider_root, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
     source.write_text(
         """import Library.Math;
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSTextField;
 import Library.GUI.MacOS.MacOSScrollView;
 import Library.GUI.MacOS.MacOSGPUSurface;
@@ -31,21 +33,24 @@ import Library.GUI.MacOS.MetalLayer;
 int main() {
 	var app = MacOSApplication();
 	var window = MacOSWindow("Native composition", 640.0, 480.0);
+	var content = MacOSContainer();
+	window.attachRoot(content);
 	var field = MacOSTextField("Preserved editor", "Search");
 	var scroll = MacOSScrollView();
-	window.contentView().addSubview(field.nativeControl());
-	window.contentView().addSubview(scroll.nativeControl());
-	field.setFrame(20.0, 430.0, 600.0, 30.0);
-	scroll.setFrame(0.0, 0.0, 640.0, 400.0);
+	content.attach(field);
+	content.attach(scroll);
+	field.arrange(20.0, 20.0, 600.0, 30.0);
+	scroll.arrange(0.0, 80.0, 640.0, 400.0);
 	scroll.setContentSize(640.0, 800.0);
 	for (int iteration = 0; iteration < 8; iteration++) {
 		var surface = MacOSGPUSurface();
-		scroll.documentView().addSubview(surface.nativeView());
+		var view = MacOSView(surface.nativeView());
+		scroll.attach(view);
 		assert(surface.nativeInstance() != null && surface.nativeSurface() != null);
 		for (int step = 0; step < 5; step++) {
 			double width = 320.25 + 40.0 * (double)step;
 			double height = 180.25 + 20.0 * (double)step;
-			surface.setFrame(0.0, 0.0, width, height);
+			view.arrange(0.0, 0.0, width, height);
 			surface.refreshBackingSize();
 			var bounds = surface.nativeView().bounds();
 			var backing = surface.nativeView().convertRectToBacking(bounds);
@@ -53,10 +58,14 @@ int main() {
 			assert(surface.pixelHeight() == (int)Math.ceilDouble(backing.size.height));
 			assert(surface.backingScale() == backing.size.width / bounds.size.width);
 		}
-		surface.setFrame(0.0, 0.0, 0.0, 0.0);
+		view.arrange(0.0, 0.0, 0.0, 0.0);
+		surface.refreshBackingSize();
 		assert(surface.pixelWidth() == 0 && surface.pixelHeight() == 0);
 		assert(surface.backingScale() == 1.0);
-		surface.setFrame(0.0, 0.0, 480.0, 300.0);
+		view.arrange(0.0, 0.0, 480.0, 300.0);
+		surface.refreshBackingSize();
+		scroll.detach(view);
+		view.close();
 		if (iteration % 2 == 0) {
 			surface.close();
 			surface.close();
@@ -65,9 +74,10 @@ int main() {
 			assert(rejected);
 		}
 	}
-	assert(app.pumpEvents(1) <= 1);
 	assert(field.text() == "Preserved editor");
+	content.detach(field);
 	field.close();
+	content.detach(scroll);
 	scroll.close();
 	window.close();
 	return 0;
@@ -75,7 +85,7 @@ int main() {
 """
     )
     plan = root / "Program.link.json"
-    compiled = native_compile(source, plan_path=plan)
+    compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
     generated = root / "Program.c"
     generated.write_text(compiled.c_source)
@@ -95,7 +105,7 @@ int main() {
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_native_window_keyboard_monitor(native_project, native_compile, sanitize):
+def test_native_window_keyboard_monitor(native_project, native_compile, gui_provider_root, sanitize):
     source, _, _ = native_project
     source.write_text((REPO / "src/tests/native/gui/NativeKeyboard.btrc").read_text())
     root = source.parent.parent
@@ -105,11 +115,11 @@ def test_native_window_keyboard_monitor(native_project, native_compile, sanitize
     manifest.write_text(
         manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "KeyboardInput.h"\n'
         'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
-        'symbols = ["-[NSWindow windowNumber]", '
+        'symbols = ["-[NSWindow windowNumber]", "-[NSApplication sendEvent:]", '
         '"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]"]\n'
     )
     plan = source.parent / "Keyboard.link.json"
-    compiled = native_compile(source, plan_path=plan)
+    compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
     assert not compiled.diagnostics
     generated = source.with_suffix(".c")
@@ -163,15 +173,74 @@ def test_native_gui_factory_keeps_application_owner_private(
     [
         "import Library.GUI.MacOS.MacOSRunLoop;",
         '#include "GUI/MacOS/MacOSRunLoop.btrc"',
-        "import Library.GUI;",
     ],
 )
-def test_native_gui_exports_run_loop_signal(native_project, native_compile, declaration):
+def test_native_gui_exports_only_the_tray_appkit_seam(native_project, native_compile, declaration):
+    # Library.Tray composes its status item with the GUI provider's run-loop
+    # wakeup and text bridge; these two modules are its documented seam.
     source, _sdk, _triple = native_project
     source.write_text(f"{declaration}\nint main() {{ var signal = MacOSRunLoopSignal(); signal.close(); return 0; }}\n")
     compiled = native_compile(source)
     assert compiled.successful and compiled.c_source, (compiled.failure, compiled.diagnostics)
     assert not compiled.diagnostics
+
+
+@pytest.mark.parametrize(
+    "declaration, body, diagnostic",
+    [
+        ("import Library.GUI.MacOS.MacOSApplication;", "return 0;", "private to package"),
+        ('#include "GUI/MacOS/MacOSApplication.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.MacOS.MacOSWindow;", "return 0;", "private to package"),
+        ("import Library.GUI.MacOS.MacOSPanel;", "return 0;", "private to package"),
+        ("import Library.GUI.MacOS.MacOSButton;", "return 0;", "private to package"),
+        ("import Library.GUI.MacOS.MacOSView;", "return 0;", "private to package"),
+        ("import Library.GUI.MacOS.MacOSViewCapture;", "return 0;", "private to package"),
+        ("import Library.GUI.MacOS.MacOSSystemText;", "return 0;", "private to package"),
+        ("import Library.GUI.MacOS.AppKitEvents;", "return 0;", "private to package"),
+        ("import Library.GUI;", 'var window = MacOSWindow("Native", 100.0, 100.0); return 0;', "MacOSWindow"),
+        ("import Library.GUI;", "var queue = MacOSActionQueue(); return 0;", "MacOSActionQueue"),
+    ],
+)
+def test_native_gui_keeps_provider_modules_private(native_project, native_compile, declaration, body, diagnostic):
+    # Consumers mount and drive views through Library.GUI; the provider's own
+    # conformance fixtures reach these modules through gui_provider_root.
+    source, _sdk, _triple = native_project
+    source.write_text(f"{declaration}\nint main() {{ {body} }}\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert not compiled.c_source
+    assert diagnostic in str(compiled.failure) + str(compiled.diagnostics)
+
+
+GRID_ADAPTER_SOURCE = """import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSGrid;
+import Library.GUI.MacOS.MacOSLabel;
+import Library.GUI.MacOS.MacOSSelect;
+
+int main() {
+	var app = MacOSApplication();
+	var form = MacOSGrid(2, 2, 20.0, 15.0);
+	var input = MacOSSelect();
+	form.setChild(1, 0, input);
+	form.layout();
+	var frame = input.nativeView().frame();
+	double width = form.nativeView().fittingSize().width;
+	return frame.size.width > width ? 1 : 0;
+}
+"""
+
+
+PROVIDER_GUI_FIXTURES = {
+    "NativePanel",
+    "NativeButtons",
+    "NativeContainers",
+    "NativeApplication",
+    "NativeWindowLoop",
+    "NativeSlider",
+    "NativeGrid",
+}
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
@@ -195,7 +264,9 @@ def test_native_gui_exports_run_loop_signal(native_project, native_compile, decl
         ("NativeLevelIndicator", "native level value"),
     ],
 )
-def test_macos_panel_and_progress_controls(native_project, native_compile, sanitize, fixture_name, expected):
+def test_macos_panel_and_progress_controls(
+    native_project, native_compile, gui_provider_root, sanitize, fixture_name, expected
+):
     source, _sdk, _triple = native_project
     root = source.parent.parent
     source.write_text((REPO / f"src/tests/native/gui/{fixture_name}.btrc").read_text())
@@ -208,7 +279,7 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
             'symbols = ["+[StackProbe verifyLayout:]", "+[StackProbe beginEditing]", "+[StackProbe verifyEditing]", '
             '"+[StackProbe undoEditing]", "+[StackProbe observeViews]", "+[StackProbe remainingViews]", "+[StackProbe reset]", '
-            '"+[StackProbe contentView]", "+[StackProbe verifyDetachedButton]", "+[StackProbe verifyHiddenButton]"]\n'
+            '"+[StackProbe verifyDetachedButton]", "+[StackProbe verifyHiddenButton]"]\n'
             '[[native.sources]]\npath = "StackProbe.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if fixture_name == "NativePanel":
@@ -350,7 +421,10 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
             )
         )
     plan = root / "Panel.link.json"
-    compiled = native_compile(source, plan_path=plan)
+    # These fixtures read AppKit state through the provider's own modules; the
+    # others mount and assert through Library.GUI as a product does.
+    provider = fixture_name in PROVIDER_GUI_FIXTURES
+    compiled = native_compile(source, data_root=gui_provider_root if provider else None, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
     if fixture_name == "NativeButtons":
         adapter = json.loads(plan.read_text())["generated-units"][0]["source"]
@@ -362,7 +436,15 @@ def test_macos_panel_and_progress_controls(native_project, native_compile, sanit
                 f"[((__bridge NSButton*){receiver}) action]"
             )
     if fixture_name == "NativeGrid":
-        adapter = json.loads(plan.read_text())["generated-units"][0]["source"]
+        # Through Library.GUI the program also reaches CoreText's C declarations,
+        # which then own CGRect, so no Objective-C value records exist there.
+        # The form's ordering needs the AppKit-only declaration set it used.
+        form = source.parent / "GridAdapter.btrc"
+        form.write_text(GRID_ADAPTER_SOURCE)
+        form_plan = root / "GridAdapter.link.json"
+        declared = native_compile(form, data_root=gui_provider_root, plan_path=form_plan)
+        assert declared.successful, (declared.failure, declared.diagnostics)
+        adapter = json.loads(form_plan.read_text())["generated-units"][0]["source"]
         # Match the self-hosted dependency order, including forward declarations.
         # The real Settings form exposed reference ordering CGRect before CGPoint.
         assert adapter.index("typedef struct __btrc_value_CGPoint ") < adapter.index(
@@ -481,12 +563,12 @@ def test_portable_native_example_edit_apply_and_quit(native_project, native_comp
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_system_text_uses_owned_btrc_rasters(native_project, native_compile, sanitize):
+def test_system_text_uses_owned_btrc_rasters(native_project, native_compile, gui_provider_root, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
     source.write_text((REPO / "src/tests/native/gui/NativeSystemText.btrc").read_text())
     plan = root / "Text.link.json"
-    compiled = native_compile(source, plan_path=plan)
+    compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
     assert "btrc_gpu_ui_text_rasterize" not in compiled.c_source
     generated = root / "Text.c"
@@ -510,12 +592,12 @@ def test_system_text_uses_owned_btrc_rasters(native_project, native_compile, san
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_macos_view_capture_owns_native_pixels(native_project, native_compile, sanitize):
+def test_macos_view_capture_owns_native_pixels(native_project, native_compile, gui_provider_root, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
     source.write_text((REPO / "src/tests/native/gui/ViewCapture.btrc").read_text())
     plan = root / "Capture.link.json"
-    compiled = native_compile(source, plan_path=plan)
+    compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
     generated = root / "Capture.c"
     generated.write_text(compiled.c_source)
@@ -566,12 +648,13 @@ def test_macos_view_capture_owns_native_pixels(native_project, native_compile, s
 
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("sanitize", [False, True])
-def test_native_capture_composes_with_image_io(native_project, native_compile, reverse, sanitize):
+def test_native_capture_composes_with_image_io(native_project, native_compile, gui_provider_root, reverse, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
     imports = [
         "import Library.GUI.MacOS.MacOSApplication;",
         "import Library.GUI.MacOS.MacOSWindow;",
+        "import Library.GUI.MacOS.MacOSContainer;",
         "import Library.GUI.MacOS.MacOSTextField;",
         "import Library.GUI.MacOS.MacOSScrollView;",
         "import Library.GUI.MacOS.MacOSViewCapture;",
@@ -585,14 +668,16 @@ import Library.Image.EncodedImage;
 int main() {
 	var app = MacOSApplication();
 	var window = MacOSWindow("Capture and decode", 320.0, 240.0);
+	var content = MacOSContainer();
+	window.attachRoot(content);
 	var editor = MacOSTextField("Native pixels through ImageIO", "");
-	editor.setFrame(10.0, 190.0, 300.0, 30.0);
-	window.contentView().addSubview(editor.nativeControl());
+	content.attach(editor);
+	editor.arrange(10.0, 20.0, 300.0, 30.0);
 	var bounds = window.contentView().bounds();
 	var backing = window.contentView().convertRectToBacking(bounds);
 	var captured = MacOSViewCapture.captureTiff(window.contentView());
-	editor.close();
 	window.close();
+	assert(!editor.isOpen());
 	var result = MacOSEncodedImageDecoder().decode(captured, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
 	assert(result.succeeded());
 	var image = result.image();
@@ -605,7 +690,7 @@ int main() {
 """
     )
     plan = root / "Program.link.json"
-    compiled = native_compile(source, plan_path=plan)
+    compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
     generated = root / "Program.c"
     generated.write_text(compiled.c_source)

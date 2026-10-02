@@ -1,49 +1,98 @@
 import Library.Bytes;
 import Library.IO;
-import Library.GUI.MacOS.MacOSApplication;
-import Library.GUI.MacOS.MacOSWindow;
-import Library.GUI.MacOS.MacOSTextField;
-import Library.GUI.MacOS.MacOSScrollView;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.IScrollView;
+import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSViewCapture;
 
 #include <assert.h>
 
+NSView nativeOf(IView view) {
+	IMacOSView? native = (IMacOSView?)view;
+	if (native == null) { throw "View has no macOS implementation"; }
+	return native.nativeView();
+}
+
+/* Captures on the native loop, then tears the window down before the owned
+ * TIFF bytes are written. */
+class CaptureWork implements IApplicationWork {
+	private IWindow _window;
+	private IContainer _root;
+	private ITextField _field;
+	private IScrollView _scroll;
+	private ITextField _child;
+	public Bytes initial;
+	public Bytes changed;
+	public Bytes scrolled;
+
+	public CaptureWork(IWindow window, IContainer root, ITextField field, IScrollView scroll, ITextField child) {
+		self._window = window;
+		self._root = root;
+		self._field = field;
+		self._scroll = scroll;
+		self._child = child;
+	}
+
+	public void run() {
+		var content = nativeOf(self._root);
+		bool pixelLimit = false;
+		try { MacOSViewCapture.captureTiff(content, 1); } catch (string error) { pixelLimit = true; }
+		assert(pixelLimit);
+		bool byteLimit = false;
+		try { MacOSViewCapture.captureTiff(content, 4000000, 1); } catch (string error) { byteLimit = true; }
+		assert(byteLimit);
+		self.initial = MacOSViewCapture.captureTiff(content);
+		self._field.setText("Changed native text");
+		self.changed = MacOSViewCapture.captureTiff(content);
+		assert(!self.initial.equals(self.changed));
+		self._scroll.scrollTo(510.0);
+		self.scrolled = MacOSViewCapture.captureTiff(content);
+		assert(!self.changed.equals(self.scrolled));
+		assert(self._field.text() == "Changed native text");
+		self._scroll.detach(self._child);
+		self._child.close();
+		self._root.detach(self._field);
+		self._field.close();
+		self._root.detach(self._scroll);
+		self._scroll.close();
+		self._window.close();
+		GUI.requestQuit();
+	}
+}
+
 int main() {
-	var app = MacOSApplication();
-	var window = MacOSWindow("Native capture", 640.0, 480.0);
-	var field = MacOSTextField("Actual native text — captured without the desktop", "Search");
+	GUI.initialize();
+	var window = GUI.createWindow("Native capture", 640.0, 480.0);
+	var root = GUI.createContainer();
+	window.attachRoot(root);
+	var field = GUI.createTextField("Actual native text — captured without the desktop", "Search");
 	field.setFont(18.0);
 	bool invalidFont = false;
 	try { field.setFont(0.0); } catch (string error) { invalidFont = true; }
 	assert(invalidFont);
-	field.setFrame(20.0, 430.0, 600.0, 30.0);
-	var scroll = MacOSScrollView();
-	scroll.setFrame(20.0, 20.0, 600.0, 390.0);
+	// Native frames (20, 430, 600, 30) and (20, 20, 600, 390) from the bottom
+	// of the 480-point content area.
+	root.attach(field);
+	field.arrange(20.0, 20.0, 600.0, 30.0);
+	var scroll = GUI.createScrollView();
+	root.attach(scroll);
+	scroll.arrange(20.0, 70.0, 600.0, 390.0);
 	scroll.setContentSize(600.0, 900.0);
-	var child = MacOSTextField("Native scrolling content", "");
-	child.setFrame(20.0, 850.0, 400.0, 30.0);
-	window.contentView().addSubview(field.nativeControl());
-	window.contentView().addSubview(scroll.nativeControl());
-	scroll.documentView().addSubview(child.nativeControl());
-	app.pumpEvents(4);
-	bool pixelLimit = false;
-	try { MacOSViewCapture.captureTiff(window.contentView(), 1); } catch (string error) { pixelLimit = true; }
-	assert(pixelLimit);
-	bool byteLimit = false;
-	try { MacOSViewCapture.captureTiff(window.contentView(), 4000000, 1); } catch (string error) { byteLimit = true; }
-	assert(byteLimit);
-	var initial = MacOSViewCapture.captureTiff(window.contentView());
-	field.setText("Changed native text");
-	var changed = MacOSViewCapture.captureTiff(window.contentView());
-	assert(!initial.equals(changed));
-	scroll.scrollTo(510.0);
-	var scrolled = MacOSViewCapture.captureTiff(window.contentView());
-	assert(!changed.equals(scrolled));
-	assert(field.text() == "Changed native text");
-	child.close();
-	field.close();
-	scroll.close();
-	window.close();
+	var child = GUI.createTextField("Native scrolling content", "");
+	// Native frame (20, 850, 400, 30) from the bottom of the 900-point document.
+	scroll.attach(child);
+	child.arrange(20.0, 20.0, 400.0, 30.0);
+	var work = CaptureWork(window, root, field, scroll, child);
+	GUI.post(work);
+	GUI.run();
+	var initial = work.initial;
+	var changed = work.changed;
+	var scrolled = work.scrolled;
 	File before = File("Initial.tiff", "wb");
 	assert(before.ok() && before.writeBytes(initial) && before.close());
 	File after = File("Scrolled.tiff", "wb");
