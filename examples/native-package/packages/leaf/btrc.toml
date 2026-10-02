@@ -16,3 +16,10 @@ modules = ["Api"]
 [[native.include-directories]]
 path = "native"
 modules = ["Api"]
+
+[[native.bindings]]
+module = "Api"
+header = "native/leaf.h"
+language = "c"
+standard = "c11"
+symbols = ["leaf_value"]

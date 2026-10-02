@@ -19,6 +19,7 @@ import pytest
 from src.compiler.python.artifacts.cache import CompilerGenerationPublisher, CompilerOutput
 from src.compiler.python.artifacts.publication import ArtifactPublisher, PublicationLock, PublishedArtifact
 from src.compiler.python.frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
+from src.tests.native_targets import cross_target_environment
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.python.native_plan_fixtures import publish_native_generation
 from tools.native_plan import (
@@ -842,6 +843,7 @@ def _emit_plan(root: Path, generated: Path, plan: Path) -> None:
             str(generated),
         ],
         cwd=REPO,
+        env=cross_target_environment(generated.parent, "linux-x64"),
         capture_output=True,
         text=True,
         timeout=TRANSPILE_TIMEOUT,
@@ -981,13 +983,13 @@ def test_reader_rejects_frameworks_for_non_macos_target(tmp_path: Path) -> None:
         NativePlanReader().read(plan)
 
 
-def test_example_makefile_realizes_the_canonical_plan() -> None:
+def test_example_makefile_realizes_the_canonical_plan(tmp_path: Path) -> None:
     cc = shutil.which("cc")
     cxx = shutil.which("c++")
     make = shutil.which("make")
     if cc is None or cxx is None or make is None:
         pytest.skip("native Make proof needs make, C, and C++ compilers")
-    environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    environment = cross_target_environment(tmp_path, "linux-x64", {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
     try:
         completed = subprocess.run(
             [
@@ -1386,7 +1388,7 @@ def test_emitted_native_plan_cache_through_both_frontends(tmp_path, request, fro
             str(generated),
         ],
         cwd=REPO,
-        env={**os.environ, "BTRC_UNIT_LINES": "1"},
+        env=cross_target_environment(tmp_path, "linux-x64", {**os.environ, "BTRC_UNIT_LINES": "1"}),
         capture_output=True,
         text=True,
         timeout=TRANSPILE_TIMEOUT,

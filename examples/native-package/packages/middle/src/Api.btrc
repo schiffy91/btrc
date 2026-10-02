@@ -1,5 +1,4 @@
 import leaf.Api
 
-extern int middle_scale(int value);
-
+/* middle_scale is imported from native/middle.h through the binding in btrc.toml. */
 int middleAnswer() { return middle_scale(leaf_value()); }

@@ -103,6 +103,7 @@ class NativeNode {
 	public string sizeBits;
 	public string alignmentBitsString;
 	public Vector<NativeNode> fields;
+	public bool transparentUnion;
 	public NativeNode fieldType;
 	public string offsetBits;
 	public bool isAnonymous;
@@ -170,6 +171,7 @@ class NativeNode {
 		self.sizeBits = "";
 		self.alignmentBitsString = "";
 		self.fields = [];
+		self.transparentUnion = false;
 		self.offsetBits = "";
 		self.isAnonymous = false;
 		self.isBitfield = false;

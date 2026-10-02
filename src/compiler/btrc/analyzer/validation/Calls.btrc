@@ -69,7 +69,7 @@ class CallValidator {
 			Node argument = call.args().get(index);
 			self.storage.validateReferenceQualifiers(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to '" + label + "()'", vars);
 			Node? actual = self.types.inferType(argument, vars);
-			if (actual != null && !self.types.assignmentCompatible(expected, actual)) {
+			if (actual != null && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
 				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to '" + label + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
 			}
 			index = index + 1;
@@ -588,7 +588,7 @@ class CallValidator {
 			Node argument = call.args().get(index);
 			self.storage.validateReferenceQualifiers(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()'", vars);
 			Node? actual = self.types.inferType(argument,  vars);
-			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && !self.types.assignmentCompatible(expected, actual)) {
+			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
 				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
 			}
 			self.validateSourceHelperConsumer(name, index, argument, vars);
@@ -751,7 +751,7 @@ class CallValidator {
 				if (!self.storage.gpuInputHasCompatibleStorage(argument, expected, actual, vars)) {
 					TypeValidator.fail("Argument '" + parameter.name + "' to '" + label + "()' does not have an " + "ABI-compatible GPU buffer element type", argument);
 				}
-			} else if (actual != null && !self.types.contextualAggregateInitializer(argument) && !self.types.assignmentCompatible(expected, actual)) {
+			} else if (actual != null && !self.types.contextualAggregateInitializer(argument) && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
 				TypeValidator.fail("Argument '" + parameter.name + "' to '" + label + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
 			}
 			argumentIndex = argumentIndex + 1;

@@ -163,6 +163,18 @@
       "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows and the GPU view, so the devcontainer runs all seven."
     },
     {
+      "id": "linux-glibc-call-shapes",
+      "files": [
+        "src/tests/python/test_native_linux_call_shapes.py"
+      ],
+      "reason": "^the call shapes are proven against glibc$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "glibc's transparent-union socket addresses, its variadic fcntl and the native tag aliases are proven against the Linux dev shell's sysroot through both frontends; the devcontainer's unit shard runs every case."
+    },
+    {
       "id": "linux-freetype-macro-constants",
       "files": [
         "src/tests/python/test_native_macro_constants.py"

@@ -602,6 +602,10 @@ class NativeHeaderReader {
 				fields.push_back(std::move(entry));
 			}
 			llvm::json::Object description{{"identity", next.key()}, {"name", record->getQualifiedNameAsString()}, {"kind", record->isUnion() ? "union" : "struct"}, {"size_bits", std::to_string(layout.getSize().getQuantity() * characterBits)}, {"alignment_bits", std::to_string(layout.getAlignment().getQuantity() * characterBits)}, {"fields", std::move(fields)}};
+			// GNU transparent unions (glibc's __SOCKADDR_ARG) are passed with
+			// the first member's convention; the importers lower such a
+			// parameter, so the record says so rather than looking by-value.
+			if (record->isUnion() && record->hasAttr<clang::TransparentUnionAttr>()) { description["transparent_union"] = true; }
 			records.emplace(next.key(), std::move(description));
 		}
 	}

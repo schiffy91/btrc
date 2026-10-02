@@ -797,12 +797,17 @@ are allowed. Bindings participate in manifest locking but are compiler inputs,
 not schema-1 linker records or native source units.
 
 Both compiler consumers require explicit `BTRC_NATIVE_HEADER_READER` (built with
-`nix build .#btrc-native-header`), `BTRC_NATIVE_SYSROOT` (an available macOS SDK
-or Linux GNU sysroot with `usr/include`), and `BTRC_NATIVE_TARGET` (a matching
-triple, e.g. `arm64-apple-macosx14.0.0` or `aarch64-unknown-linux-gnu`).
-The Nix development shell and packaged compilers supply these from
+`nix build .#btrc-native-header`), `BTRC_NATIVE_SYSROOT` (an available macOS SDK,
+a Linux GNU sysroot with `usr/include`, or a MinGW-w64 sysroot with `include`),
+and `BTRC_NATIVE_TARGET` (a triple matching `--target`: `arm64-apple-macosx14.0.0`,
+`aarch64-unknown-linux-gnu`, or Clang's normalized MinGW spelling
+`x86_64-w64-windows-gnu`; the alias `x86_64-w64-mingw32` and MSVC triples are
+rejected). The Nix development shell and packaged compilers supply these from
 their pinned reader, SDK and host platform; explicit caller values override
-the package defaults. A raw standalone compiler still requires configuration.
+the package defaults. A cross build supplies the target's triple and sysroot
+the same way; a binding whose header includes no SDK header reads identically
+from an empty sysroot directory, which is how the native-package example's
+macOS and Windows plans are proven from any host. A raw standalone compiler still requires configuration.
 `btrcc` also requires `--target OS-ARCH` when a reached stdlib module imports
 native headers, even without a project manifest. Omitting it is an error, not
 permission to drop target-scoped bindings and use approximate hosted declarations.
@@ -1679,6 +1684,47 @@ uses precisely that tail signature; headers cannot prove a varargs convention.
 Only C and one shape per selected function are supported. Callback, realtime,
 owned-result/output and record-output combinations are rejected. An unselected
 variadic function remains an error, not an unchecked escape hatch.
+
+A table keyed by the bare function name is a whole-function shape. It keeps
+every fixed parameter, selector included, visible and fixes one tail for every
+call, so it takes only `arguments`:
+
+```toml
+[native.bindings.variadic-calls.fcntl]
+arguments = ["int"]
+```
+
+BTRC then calls `fcntl(descriptor, F_SETFL, flags | O_NONBLOCK)` as a
+three-argument function: arity and every argument are checked against the fixed
+parameters and the declared tail, the adapter passes them to the SDK prototype,
+and a function value has the same signature. The binding promises that every
+selector the program passes reads exactly that tail (true of `fcntl`'s integer
+commands, not of `F_GETLK`, which reads a pointer); a function with
+selector-dependent tails needs a selector shape instead. The tail rules and the
+rejected combinations are the selector shape's, and a function takes either a
+whole-function shape or one selector shape, never both.
+
+### GNU transparent-union parameters
+
+A C parameter whose type is a GNU transparent union (glibc's
+`__CONST_SOCKADDR_ARG` and `__SOCKADDR_ARG` under `_GNU_SOURCE`, for `connect`,
+`bind`, `accept` and their neighbours) is passed with its first member's calling
+convention, and C converts any member type at the call. The header reader marks
+such a record `transparent_union`, and the importer projects the parameter as
+that first member: `connect` takes `const sockaddr*` on Linux exactly as on
+macOS, where the SDK spells it that way. Calls and function values go through a
+generated adapter whose parameter is the member type, so the SDK prototype owns
+the conversion. C11 forbids converting an argument to a union, and compilers
+waive that only for a union a system header declares, as SDK headers do.
+Callback, borrow, resource, owned- or copied-result, record-output and realtime
+combinations are rejected; every other by-value union remains refused.
+
+A tagged record imported under its tag also answers to its C spelling:
+`struct sockaddr` and `struct pollfd` name the imported `sockaddr` and `pollfd`
+(the analyzers enter `struct X` or `union X` in the typedef alias index), so C
+spellings in BTRC code and hosted declarations of the same tag cannot become a
+second, incompatible type. A tag written with the other keyword stays a distinct
+foreign tag.
 
 ### Realtime native functions
 

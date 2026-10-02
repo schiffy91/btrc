@@ -13,11 +13,7 @@ import Library.IO;
 import Library.LocalApplicationChannel.LocalPeerCredentials;
 import Library.Vector;
 
-#include <sys/socket.h>
 #include <sys/stat.h>
-#include <unistd.h>
-#include <poll.h>
-#include <fcntl.h>
 #include <errno.h>
 #include <time.h>
 #include <limits.h>

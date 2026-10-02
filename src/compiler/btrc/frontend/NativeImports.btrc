@@ -1752,23 +1752,27 @@ class FeNativeDeclarationImporter {
 
 	private Vector<Node> projectVariadic(NativeNode declaration, Vector<string> parameterNames, FeNativeCallContract contract) {
 		string selected = "";
-		for key in self.variadicCalls.keys() { if (key.startsWith(declaration.name + ".")) { selected = key; break; } }
+		for key in self.variadicCalls.keys() { if (key == declaration.name || key.startsWith(declaration.name + ".")) { selected = key; break; } }
 		if (selected.isEmpty()) {
 			if (declaration.signature.variadic) { self.fail("variadic native calls require a selected variadic-calls shape"); }
 			Vector<Node> empty = [];
 			return empty;
 		}
 		if (!declaration.signature.variadic) { self.fail("variadic-calls requires an SDK variadic function"); }
-		string name = selected.substring(declaration.name.length() + 1, selected.length() - declaration.name.length() - 1);
-		int position = -1;
-		for index in range(parameterNames.len) { if (parameterNames.get(index) == name) { position = index; } }
-		if (position < 0) { self.fail("variadic-calls names an unknown selector parameter"); }
 		FeNativeVariadicBinding binding = self.variadicCalls.get(selected);
-		if (!self.callbackExports.has(binding.value)) { self.fail("variadic-calls value must be a selected read-only SDK integer constant"); }
-		NativeNode constant = self.callbackExports.get(binding.value);
-		if (constant.kind != NNK_NATIVE_CONSTANT && !(constant.kind == NNK_NATIVE_GLOBAL && constant.readOnly)) { self.fail("variadic-calls value must be a selected read-only SDK integer constant"); }
-		if (self.variadicIntegerType(declaration.signature.parameters.get(position)) != self.variadicIntegerType(constant.valueType)) { self.fail("variadic-calls selector and value must have the same SDK integer type"); }
-		contract.boundParameter = position; contract.boundConstant = binding.value;
+		/* A whole-function shape keeps every fixed parameter visible and
+		 * fixes the tail for every call, whatever the fixed arguments say. */
+		if (selected != declaration.name) {
+			string name = selected.substring(declaration.name.length() + 1, selected.length() - declaration.name.length() - 1);
+			int position = -1;
+			for index in range(parameterNames.len) { if (parameterNames.get(index) == name) { position = index; } }
+			if (position < 0) { self.fail("variadic-calls names an unknown selector parameter"); }
+			if (!self.callbackExports.has(binding.value)) { self.fail("variadic-calls value must be a selected read-only SDK integer constant"); }
+			NativeNode constant = self.callbackExports.get(binding.value);
+			if (constant.kind != NNK_NATIVE_CONSTANT && !(constant.kind == NNK_NATIVE_GLOBAL && constant.readOnly)) { self.fail("variadic-calls value must be a selected read-only SDK integer constant"); }
+			if (self.variadicIntegerType(declaration.signature.parameters.get(position)) != self.variadicIntegerType(constant.valueType)) { self.fail("variadic-calls selector and value must have the same SDK integer type"); }
+			contract.boundParameter = position; contract.boundConstant = binding.value;
+		}
 		contract.variadicArguments = binding.arguments;
 		Vector<Node> parameters = [];
 		Map<string, bool> occupied = {};
@@ -1788,6 +1792,21 @@ class FeNativeDeclarationImporter {
 		}
 		self.variadicCalls.remove(selected);
 		return parameters;
+	}
+
+	/* The first member of a GNU transparent-union parameter, else null. GCC
+	 * passes such an argument with its first member's convention and converts
+	 * any member type at the call, so that member is the projected parameter
+	 * type (glibc's `__CONST_SOCKADDR_ARG` becomes the portable
+	 * `const struct sockaddr*`). Every other by-value union stays refused. */
+	private NativeNode? transparentUnionMember(NativeNode native) {
+		NativeNode record = self.unqualifiedNative(native);
+		if (record.kind != NNK_NATIVE_RECORD_TYPE || record.opaque || !self.layouts.has(record.identity)) { return null; }
+		NativeNode layout = self.layouts.get(record.identity);
+		if (!layout.transparentUnion) { return null; }
+		NativeNode member = layout.fields.get(0);
+		if (member.isAnonymous || member.isBitfield) { self.fail("transparent-union parameters require a named first member"); }
+		return member.fieldType;
 	}
 
 	private Vector<string> parameterNames(NativeNode declaration) {
@@ -1904,9 +1923,9 @@ class FeNativeDeclarationImporter {
 			imported = self.node(NK_FUNCTION_DECL);
 			imported.name = declaration.name;
 			callContract.callbacks = self.projectCallbacks(declaration);
-			if (callContract.copiedInput != null && (callContract.callbacks.len > 0 || callContract.ownedOutput != null || callContract.copiedResult != null || !callContract.resourceResult.isEmpty() || callContract.realtimeSafe || callContract.boundParameter >= 0)) { self.fail("copied-inputs cannot combine callbacks, other result mappings or realtime calls"); }
-			if (callContract.copiedResult != null && (callContract.callbacks.len > 0 || callContract.ownedOutput != null || !callContract.resourceResult.isEmpty() || callContract.realtimeSafe || callContract.boundParameter >= 0)) { self.fail("copied-results does not support callbacks, other owned results, variadic, or realtime calls"); }
-			if (callContract.boundParameter >= 0 && (callContract.callbacks.len > 0 || callContract.ownedOutput != null || !callContract.resourceResult.isEmpty() || callContract.realtimeSafe)) { self.fail("variadic-calls does not support callbacks, owned outputs/results, or realtime calls"); }
+			if (callContract.copiedInput != null && (callContract.callbacks.len > 0 || callContract.ownedOutput != null || callContract.copiedResult != null || !callContract.resourceResult.isEmpty() || callContract.realtimeSafe || callContract.variadicArguments.len > 0)) { self.fail("copied-inputs cannot combine callbacks, other result mappings or realtime calls"); }
+			if (callContract.copiedResult != null && (callContract.callbacks.len > 0 || callContract.ownedOutput != null || !callContract.resourceResult.isEmpty() || callContract.realtimeSafe || callContract.variadicArguments.len > 0)) { self.fail("copied-results does not support callbacks, other owned results, variadic, or realtime calls"); }
+			if (callContract.variadicArguments.len > 0 && (callContract.callbacks.len > 0 || callContract.ownedOutput != null || !callContract.resourceResult.isEmpty() || callContract.realtimeSafe)) { self.fail("variadic-calls does not support callbacks, owned outputs/results, or realtime calls"); }
 			if (callContract.ownedOutput != null && (callContract.callbacks.len > 0 || callContract.realtimeSafe)) { self.fail("owned-outputs does not support callbacks or realtime calls"); }
 			Map<int, FeNativeCallbackProjection> callbackParameters = {};
 			Map<int, bool> callbackContexts = {};
@@ -1936,10 +1955,14 @@ class FeNativeDeclarationImporter {
 				}
 				callContract.resourceParameters.push(resourceParameter);
 				if (index == borrowedOwnerIndex) { callContract.borrowedResultOwner = imported.params().len; }
+				NativeNode? member = self.transparentUnionMember(signature.parameters.get(index));
+				callContract.transparentParameters.push(member != null);
 				if (callbackParameters.has(index) && callbackParameters.get(index).field.isEmpty()) {
 					parameter.type = self.node(NK_TYPE_EXPR);
 					parameter.type.base = callbackParameters.get(index).interfaceName;
-				} else { parameter.type = resourceParameter.isEmpty() ? self.callType(signature.parameters.get(index), true) : self.resourceCallType(signature.parameters.get(index), resourceParameter); }
+				} else if (!resourceParameter.isEmpty()) { parameter.type = self.resourceCallType(signature.parameters.get(index), resourceParameter); }
+				else if (member != null) { parameter.type = self.callType(member, true); }
+				else { parameter.type = self.callType(signature.parameters.get(index), true); }
 				bool borrowed = self.borrows.has(key);
 				if (borrowed) {
 					NativeNode scalar = signature.parameters.get(index);
@@ -1953,8 +1976,14 @@ class FeNativeDeclarationImporter {
 				callContract.nonnullParameters.push(callbackParameters.has(index) || (!(callContract.copiedInput != null && index == callContract.copiedInput.inputIndex) && self.callNullability(signature.parameters.get(index)).equals("nonnull")));
 				imported.paramsMut().push(parameter);
 			}
+			if (callContract.transparentParameters.contains(true)) {
+				bool borrowed = callContract.readOnlyBorrows.contains(true);
+				bool resource = false;
+				for value in callContract.resourceParameters { if (!value.isEmpty()) { resource = true; } }
+				if (callContract.callbacks.len > 0 || callContract.ownedOutput != null || callContract.copiedInput != null || callContract.copiedResult != null || !callContract.resourceResult.isEmpty() || borrowed || resource || callContract.realtimeSafe) { self.fail("transparent-union parameters do not support callbacks, borrows, resources, owned or copied results, or realtime calls"); }
+			}
 			for parameter in variadicParameters {
-				imported.paramsMut().push(parameter); callContract.resourceParameters.push(""); callContract.readOnlyBorrows.push(false); callContract.nonnullParameters.push(false);
+				imported.paramsMut().push(parameter); callContract.resourceParameters.push(""); callContract.readOnlyBorrows.push(false); callContract.nonnullParameters.push(false); callContract.transparentParameters.push(false);
 			}
 			imported.returnType = self.resourceCallType(signature.returnType, callContract.resourceResult);
 			if (callContract.copiedInput != null) { imported.returnType = self.node(NK_TYPE_EXPR); imported.returnType.base = "bool"; }
@@ -2269,7 +2298,7 @@ class FeNativeDeclarationImporter {
 	}
 
 	private string layoutIdentity(NativeNode layout) {
-		string identity = layout.recordKind + ":" + layout.sizeBits + ":" + layout.alignmentBitsString;
+		string identity = layout.recordKind + f":{layout.transparentUnion}:" + layout.sizeBits + ":" + layout.alignmentBitsString;
 		for field in layout.fields { identity = identity + ":" + field.name + ":" + self.typeIdentity(field.fieldType) + f":{field.offsetBits}:{field.isAnonymous}:{field.isBitfield}:{field.widthBits}"; }
 		return identity;
 	}
@@ -2291,7 +2320,9 @@ class FeNativeDeclarationImporter {
 		else if (left.callbackTable.identity() != right.callbackTable.identity()) { return false; }
 		if (left.cxxMethod == null || right.cxxMethod == null) { if (left.cxxMethod != right.cxxMethod) { return false; } }
 		else if (left.cxxMethod.identity() != right.cxxMethod.identity()) { return false; }
-		if (left.variadicArguments.len != right.variadicArguments.len) { return false; }
+		if (left.variadicArguments.len != right.variadicArguments.len || left.transparentParameters.len != right.transparentParameters.len) { return false; }
+		for index in range(left.transparentParameters.len) { if (left.transparentParameters.get(index) != right.transparentParameters.get(index)) { return false; } }
+
 		for index in range(left.variadicArguments.len) { if (left.variadicArguments.get(index) != right.variadicArguments.get(index)) { return false; } }
 		if (left.executor != right.executor || left.borrowedResultOwner != right.borrowedResultOwner) { return false; }
 		if (left.ownedOutput == null || right.ownedOutput == null) {
@@ -2534,6 +2565,9 @@ class FeNativeDeclarationImporter {
 		if (target.operatingSystem.equals("linux")) {
 			return triple.equals(target.architecture + "-linux-gnu") || triple.equals(target.architecture + "-unknown-linux-gnu");
 		}
+		// Clang's normalized MinGW-w64 spelling; the reader reports that
+		// spelling, so an alias such as x86_64-w64-mingw32 cannot match.
+		if (target.operatingSystem.equals("windows")) { return triple.equals(target.architecture + "-w64-windows-gnu"); }
 		if (!target.operatingSystem.equals("macos")) { return false; }
 		string architecture = target.architecture.equals("aarch64") ? "arm64" : "x86_64";
 		string prefix = architecture + "-apple-macosx";
@@ -2844,7 +2878,8 @@ class FeNativeDeclarationImporter {
 			functions.put(name, true);
 			FeNativeCallContract? contract = imported.callContract;
 			if (contract == null) { self.fail(f"internal compiler error: record-outputs function {name} has no call contract"); }
-			if (contract.boundParameter >= 0) { self.fail("record-outputs cannot combine a selected variadic-calls shape"); }
+			if (contract.variadicArguments.len > 0) { self.fail("record-outputs cannot combine a selected variadic-calls shape"); }
+			if (contract.transparentParameters.contains(true)) { self.fail("record-outputs cannot combine transparent-union parameters"); }
 			if (contract.callbacks.len > 0 || contract.realtimeSafe || !contract.resourceResult.isEmpty()) { self.fail("record-outputs cannot combine callbacks, realtime or a managed native result"); }
 			int index = -1;
 			for position in range(declaration.params().len) { if (declaration.params().get(position).name == parameterName) { index = position; } }
@@ -3110,6 +3145,7 @@ class FeNativeDeclarationImporter {
 			arguments.extend(["-fblocks", "-fobjc-arc"]);
 		}
 		if (plan.target.operatingSystem.equals("linux")) { arguments.extend(["-isystem", PathTools.join(sysroot, "usr/include")]); }
+		else if (plan.target.operatingSystem.equals("windows")) { arguments.extend(["-isystem", PathTools.join(sysroot, "include")]); }
 		if (binding.language == "c++") { for directory in self.cxxToolchainIncludes(binding.standard, target, sysroot) { arguments.extend(["-isystem", directory]); } }
 		for declaration in plan.declarations {
 			if (!declaration.selectedFor(plan.target)) { continue; }
@@ -3150,7 +3186,7 @@ class FeNativeDeclarationImporter {
 		self.resolvedIdentity.appendText(readerIdentity);
 		string target = Environment.get("BTRC_NATIVE_TARGET", "");
 		string sysroot = Environment.get("BTRC_NATIVE_SYSROOT", "");
-		if (!self.matchesTarget(plan.target, target)) { throw "native imports require an explicit matching macOS or Linux GNU BTRC_NATIVE_TARGET triple"; }
+		if (!self.matchesTarget(plan.target, target)) { throw "native imports require an explicit matching macOS, Linux GNU or Windows MinGW BTRC_NATIVE_TARGET triple"; }
 		if (!FileSystem.isDir(sysroot)) { throw "native imports require an explicit available BTRC_NATIVE_SYSROOT"; }
 		Vector<Vector<string>> commands = [];
 		Map<string, Vector<int>> groups = {};
@@ -3503,7 +3539,7 @@ class FeNativeHeaderCodec {
 	}
 
 	private NativeNode record(JSONValue value) {
-		self.fields(value, "identity,name,kind,size_bits,alignment_bits,fields");
+		self.fields(value, "identity,name,kind,size_bits,alignment_bits,fields", "transparent_union");
 		var result = self.node(NNK_NATIVE_RECORD_LAYOUT);
 		result.identity = self.text(value.get("identity"));
 		result.name = self.text(value.get("name"), true);
@@ -3526,6 +3562,9 @@ class FeNativeHeaderCodec {
 			if (offset > size || width > size - offset) { self.fail("native field extends beyond its record"); }
 			result.fields.push(field);
 		}
+		// Present only on a GNU transparent union, and then only as true.
+		result.transparentUnion = value.has("transparent_union");
+		if (result.transparentUnion && (!self.boolean(value.get("transparent_union")) || result.recordKind != "union" || result.fields.len == 0)) { self.fail("a transparent native record must be a union with members"); }
 		return result;
 	}
 
