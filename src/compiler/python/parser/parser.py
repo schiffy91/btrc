@@ -2110,6 +2110,19 @@ class Parser:
 
     # ---- F-string parsing ----
 
+    @staticmethod
+    def _fstring_position(tok, raw: str, index: int) -> tuple[int, int]:
+        """Map an offset in an f-string's body to its line and column in the source."""
+        line = tok.line
+        col = tok.col + 2
+        for ch in raw[:index]:
+            if ch == "\n":
+                line += 1
+                col = 1
+            else:
+                col += 1
+        return line, col
+
     def _parse_fstring(self, tok) -> FStringLiteral:
         """Parse f-string content into text and expression parts."""
         raw = tok.value
@@ -2127,6 +2140,7 @@ class Parser:
                     parts.append(FStringText(text="".join(text_buf)))
                     text_buf = []
                 i += 1
+                expr_line, expr_col = self._fstring_position(tok, raw, i)
                 depth = 1
                 expr_chars = []
                 while i < len(raw) and depth > 0:
@@ -2141,7 +2155,7 @@ class Parser:
                 i += 1
                 expr_src = "".join(expr_chars)
                 expr_src = expr_src.replace('\\"', '"')
-                sub_tokens = Lexer(expr_src + ";").tokenize()
+                sub_tokens = Lexer(expr_src + ";", line=expr_line, col=expr_col).tokenize()
                 sub_parser = Parser(sub_tokens)
                 expr_node = sub_parser._parse_expr()
                 sub_parser._expect(TokenKind.SEMICOLON)

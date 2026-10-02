@@ -985,13 +985,29 @@ class CEmitter {
 		return self.compound("(void)(", values, ")", "", "\n");
 	}
 
+	/* Escape every '?' that follows another, so literal text never spells a C11 trigraph. */
+	private string withoutTrigraphs(string text) {
+		if (!text.contains("??")) { return text; }
+		string result = "";
+		int index = 0;
+		while (index < text.length()) {
+			if (text[index] == '?' && index > 0 && text[index - 1] == '?') {
+				result = result + "\\?";
+			} else {
+				result = result + text.substring(index, 1);
+			}
+			index = index + 1;
+		}
+		return result;
+	}
+
 	private string expr(IRNode e) {
 		if (e == null) {
 			print("internal compiler error: null IR expression");
 			exit(1);
 			return "";
 		}
-		if (e.kind == IRK_LITERAL) { return e.text; }
+		if (e.kind == IRK_LITERAL) { return self.withoutTrigraphs(e.text); }
 		if (e.kind == IRK_VAR || e.kind == IRK_FUNCTION_REF) {
 			return e.name;
 		}

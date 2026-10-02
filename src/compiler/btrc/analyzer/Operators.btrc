@@ -411,5 +411,8 @@ class OperatorSemantics {
      * coalesces, not null tests on their scalar results.  The optional expression
      * already carries the presence condition as structured IR; lowering replaces
      * only its absent value definition. */
+	/* An optional-chain left operand that is not a reference: `??` then needs a numeric fallback. */
+	public bool isOptionalValueOperand(Node? leftExpression, Node? leftType) { return self.isOptionalValueExpression(leftExpression) && !self.isReferenceType(leftType); }
+
 	public bool isOptionalValueCoalesce(Node? leftExpression, Node? leftType, Node? rightType) { return self.isOptionalValueExpression(leftExpression) && NumericSemantics.isType(leftType, self.analyzed) && NumericSemantics.isType(rightType, self.analyzed); }
 }

@@ -1,0 +1,314 @@
+# Device registry: every physical qualification gate mapped to a named device
+# or to an explicit unavailable record (PLAN.md Stage 22, `qualification-device-lab`).
+#
+# Decision D8: no procurement and no account creation by an agent. A device
+# the owner does not have is recorded `status = "unavailable"` with the
+# provisioning or account item that blocks it; it is never counted as met.
+# Simulators, emulators and hosted CI runners are recorded as `stand_in` on
+# the physical row they partly cover, never as the physical device itself.
+#
+# Checked by src/tests/python/test_device_registry.py. Every id in `gates`,
+# `blocked_by` and `[physical_gates]` is a PLAN.md item id.
+#
+# Fields of a [[device]]:
+#   id          stable kebab-case key
+#   class       a [device_class] key
+#   status      "available" (named, owner has it), "unverified" (named, a
+#               fact still needs one read-only probe on the Mac) or
+#               "unavailable" (no device; blocked_by names why)
+#   name        what the device is; for an unavailable row, what is needed
+#   gates       PLAN.md item ids this device carries evidence for
+#   blocked_by  (unavailable, unverified) PLAN.md item ids that must close first
+#   reason      (unavailable, unverified) one line: why, citing D8 where it applies
+#   verify      (unverified) the read-only command that settles it
+#   stand_in    (optional) what runs meanwhile; never physical evidence
+
+schema = "btrc.qualification.devices/1"
+recorded_at = "2026-10-02"
+host = "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0"
+
+# The physical gates of PLAN.md Stages 23 and 39-43, with their stage.
+# Every one must be carried by at least one [[device]] row.
+[physical_gates]
+"tooling-ios-physical-devices" = 23
+"tooling-android-physical-devices" = 23
+"tooling-windows-vm" = 23
+"tooling-apple-signing" = 23
+"qualification-signing-accounts" = 23
+"tooling-windows-physical" = 39
+"btrsmith-macos-mvp-automatable" = 39
+"qualification-p5-runs-macos-linux" = 39
+"qualification-p5-runs-windows" = 39
+"qualification-p5-runs-ios" = 39
+"qualification-p5-runs-android" = 39
+"qualification-p5-physical-audio-visual" = 40
+"btrsmith-macos-mvp-physical" = 40
+"tooling-audio-loopback-rig" = 40
+"qualification-p6-audio-latency-rig" = 40
+"qualification-p6-build-measure" = 41
+"qualification-p6-runtime-runs" = 41
+"qualification-p7-os-version-matrix" = 42
+"qualification-p7-install-upgrade" = 42
+"qualification-p7-stress-faults" = 42
+"qualification-p7-devtools-targets" = 42
+"qualification-p7-macos-notarization" = 42
+"tooling-release-signing-mobile-store" = 42
+"qualification-final-w2-exit" = 43
+"qualification-final-i2-exit" = 43
+"qualification-final-a2-exit" = 43
+"qualification-p7-release-candidate-run" = 43
+
+# The device classes platform-parity.md (P7 "Physical release qualification",
+# P6) and native-ui-parity.md (UI10 layout and 120 Hz rows) require.
+[device_class]
+mac-host = "the macOS acceptance and build host"
+linux-desktop = "x86_64 Linux desktop with a GPU and PipeWire"
+windows-x64 = "Windows 11 x64 hardware"
+windows-arm64 = "Windows 11 ARM64 hardware"
+iphone-floor = "physical iPhone at the iOS 17 floor"
+iphone-current = "physical iPhone on the current iOS"
+ipad-floor = "physical iPad at the iPadOS 17 floor"
+ipad-current = "physical iPad on the current iPadOS"
+android-floor = "Android vendor A, API 29 floor representative"
+android-current-16k = "Android vendor B, current API with 16 KiB pages"
+refresh-120hz = "120 Hz reference display device"
+multi-monitor-scaled = "multi-monitor desktop at 100/150/200% scale"
+usb-audio-interface = "wired class-compliant USB audio interface with a loopback cable"
+guitar-di = "guitar DI into the audio interface"
+quad-cortex = "Neural DSP Quad Cortex"
+signing-identity = "a signing identity or store account (not hardware, but a physical-gate prerequisite)"
+
+[[device]]
+id = "mac-m1-max"
+class = "mac-host"
+status = "available"
+name = "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0, Xcode 27.0 (27A266a)"
+gates = [
+  "btrsmith-macos-mvp-automatable",
+  "btrsmith-macos-mvp-physical",
+  "qualification-p5-runs-macos-linux",
+  "qualification-p5-runs-ios",
+  "qualification-p5-runs-android",
+  "qualification-p6-build-measure",
+  "qualification-p6-runtime-runs",
+  "qualification-p7-os-version-matrix",
+  "qualification-p7-install-upgrade",
+  "qualification-p7-stress-faults",
+  "qualification-p7-devtools-targets",
+  "qualification-p7-release-candidate-run",
+  "tooling-windows-vm",
+]
+stand_in = "drives iOS simulators and Android emulators (D8); hosts the Windows 11 ARM VM only if tooling-windows-vm provisions one, which D8 declines"
+
+[[device]]
+id = "linux-fractal-north"
+class = "linux-desktop"
+status = "unverified"
+name = "FRACTAL-NORTH.local, x86_64 KDE/NVIDIA/PipeWire (last seen 2026-09-18)"
+gates = ["qualification-p5-runs-macos-linux", "qualification-p6-runtime-runs"]
+blocked_by = ["tooling-x86-acceptance-host"]
+reason = "did not resolve on 2026-09-30; D7 re-probes it at Stage 10"
+verify = "ssh FRACTAL-NORTH.local 'nproc; free -g; lscpu; nix --version'"
+stand_in = "GitHub-hosted ubuntu-24.04 x86_64 runners for correctness, instructions and memory (D7)"
+
+[[device]]
+id = "windows-11-x64-hardware"
+class = "windows-x64"
+status = "unavailable"
+name = "Windows 11 x64 PC with a discrete or integrated GPU"
+gates = [
+  "tooling-windows-physical",
+  "qualification-p5-runs-windows",
+  "qualification-p6-runtime-runs",
+  "qualification-p7-os-version-matrix",
+  "qualification-final-w2-exit",
+]
+blocked_by = ["tooling-windows-physical"]
+reason = "no Windows hardware; D8 forbids procurement by an agent"
+stand_in = "GitHub-hosted windows-latest runner (D8): build, corpus and bootstrap, no GUI/audio evidence"
+
+[[device]]
+id = "windows-11-arm64-hardware"
+class = "windows-arm64"
+status = "unavailable"
+name = "Windows 11 ARM64 PC (native, not Prism-emulated x64)"
+gates = ["tooling-windows-physical", "qualification-p5-runs-windows", "qualification-final-w2-exit"]
+blocked_by = ["tooling-windows-physical"]
+reason = "no Windows ARM64 hardware; D8 forbids procurement and rules out a local Windows VM"
+stand_in = "GitHub-hosted windows-11-arm runner (D8), availability to this repository unverified"
+
+[[device]]
+id = "iphone-ios17"
+class = "iphone-floor"
+status = "unavailable"
+name = "iPhone running iOS 17.x"
+gates = [
+  "tooling-ios-physical-devices",
+  "qualification-p5-runs-ios",
+  "qualification-p7-os-version-matrix",
+  "qualification-final-i2-exit",
+]
+blocked_by = ["tooling-ios-physical-devices"]
+reason = "no physical iPhone; D8 forbids procurement"
+stand_in = "iOS simulator: the iOS 17 runtime if Xcode 27 installs it, else the oldest installable runtime with the iOS 17 deployment target compile-checked (D8)"
+
+[[device]]
+id = "iphone-current"
+class = "iphone-current"
+status = "unavailable"
+name = "ProMotion iPhone running the current iOS"
+gates = [
+  "tooling-ios-physical-devices",
+  "qualification-p5-runs-ios",
+  "qualification-p5-physical-audio-visual",
+  "qualification-p6-runtime-runs",
+  "qualification-p6-audio-latency-rig",
+  "qualification-final-i2-exit",
+]
+blocked_by = ["tooling-ios-physical-devices"]
+reason = "no physical iPhone; D8 forbids procurement"
+stand_in = "the current iOS simulator runtime (26.4.1 installed on the host); no GPU or audio evidence"
+
+[[device]]
+id = "ipad-ipados17"
+class = "ipad-floor"
+status = "unavailable"
+name = "iPad running iPadOS 17.x"
+gates = ["tooling-ios-physical-devices", "qualification-p7-os-version-matrix", "qualification-final-i2-exit"]
+blocked_by = ["tooling-ios-physical-devices"]
+reason = "no physical iPad; D8 forbids procurement"
+stand_in = "iPad simulator at the oldest installable runtime"
+
+[[device]]
+id = "ipad-current"
+class = "ipad-current"
+status = "unavailable"
+name = "ProMotion iPad running the current iPadOS, with a USB-C port for class-compliant audio"
+gates = [
+  "tooling-ios-physical-devices",
+  "qualification-p5-runs-ios",
+  "qualification-p5-physical-audio-visual",
+  "qualification-p6-audio-latency-rig",
+  "qualification-final-i2-exit",
+]
+blocked_by = ["tooling-ios-physical-devices"]
+reason = "no physical iPad; D8 forbids procurement"
+stand_in = "iPad simulator on the current runtime"
+
+[[device]]
+id = "android-api29-vendor-a"
+class = "android-floor"
+status = "unavailable"
+name = "arm64-v8a phone from vendor A running Android 10 (API 29)"
+gates = [
+  "tooling-android-physical-devices",
+  "qualification-p5-runs-android",
+  "qualification-p7-os-version-matrix",
+  "qualification-final-a2-exit",
+]
+blocked_by = ["tooling-android-physical-devices"]
+reason = "no Android device; D8 forbids procurement"
+stand_in = "API 29 emulator AVD (D8)"
+
+[[device]]
+id = "android-current-16k-vendor-b"
+class = "android-current-16k"
+status = "unavailable"
+name = "arm64-v8a phone from a second vendor on the current API with 16 KiB pages and USB-C audio"
+gates = [
+  "tooling-android-physical-devices",
+  "qualification-p5-runs-android",
+  "qualification-p5-physical-audio-visual",
+  "qualification-p6-runtime-runs",
+  "qualification-p6-audio-latency-rig",
+  "qualification-final-a2-exit",
+]
+blocked_by = ["tooling-android-physical-devices"]
+reason = "no Android device; D8 forbids procurement"
+stand_in = "current-API and 16 KiB-page emulator AVDs (D8)"
+
+[[device]]
+id = "mac-builtin-display-120hz"
+class = "refresh-120hz"
+status = "unverified"
+name = "the Mac's built-in display, if it is a ProMotion (120 Hz) panel"
+gates = ["qualification-p6-runtime-runs"]
+blocked_by = ["tooling-ios-physical-devices"]
+reason = "a 14/16-inch M1 Max MacBook Pro panel is ProMotion, but the host's model and refresh rate are not recorded; the mobile 120 Hz rows still need a ProMotion iPhone or iPad"
+verify = "system_profiler SPDisplaysDataType | grep -i -E 'Display Type|Refresh|Resolution'"
+
+[[device]]
+id = "multi-monitor-scaled-desktop"
+class = "multi-monitor-scaled"
+status = "unavailable"
+name = "a desktop with at least two monitors set to 100%, 150% and 200% scale (Windows per-monitor DPI and macOS/Linux scaling)"
+gates = ["qualification-p6-runtime-runs", "qualification-p7-os-version-matrix", "qualification-final-w2-exit"]
+blocked_by = ["tooling-windows-physical"]
+reason = "no external monitor is recorded for the host and no Windows hardware exists; D8 forbids procurement"
+
+[[device]]
+id = "usb-audio-interface-loopback"
+class = "usb-audio-interface"
+status = "unavailable"
+name = "wired class-compliant USB audio interface with a line-out to line-in loopback cable"
+gates = [
+  "tooling-audio-loopback-rig",
+  "qualification-p6-audio-latency-rig",
+  "qualification-p5-physical-audio-visual",
+  "btrsmith-macos-mvp-physical",
+]
+blocked_by = ["tooling-audio-loopback-rig"]
+reason = "no interface model is recorded in either repository; the owner names it at the Stage 40 session (D8: no procurement)"
+
+[[device]]
+id = "guitar-di"
+class = "guitar-di"
+status = "unavailable"
+name = "guitar with a DI into the interface's instrument input"
+gates = ["qualification-p5-physical-audio-visual", "btrsmith-macos-mvp-physical"]
+blocked_by = ["tooling-audio-loopback-rig"]
+reason = "physical sessions need the owner in the loop (standing approvals: Stage 40 is recorded as awaiting you)"
+
+[[device]]
+id = "quad-cortex"
+class = "quad-cortex"
+status = "unavailable"
+name = "Neural DSP Quad Cortex as a USB audio interface"
+gates = ["qualification-p5-physical-audio-visual", "qualification-p6-audio-latency-rig"]
+blocked_by = ["tooling-audio-loopback-rig"]
+reason = "awaiting hardware (D8); class compliance on iPad/Android and a WASAPI driver are unverified assumptions in PLAN.md Status"
+
+[[device]]
+id = "apple-adhoc-signing"
+class = "signing-identity"
+status = "available"
+name = "ad-hoc Apple code signing (codesign -s -) on the host"
+gates = ["tooling-apple-signing", "qualification-signing-accounts"]
+
+[[device]]
+id = "apple-developer-id-and-app-store"
+class = "signing-identity"
+status = "unavailable"
+name = "Apple Developer ID identity, notarization credentials and an App Store Connect account"
+gates = ["qualification-p7-macos-notarization", "tooling-release-signing-mobile-store", "tooling-ios-physical-devices"]
+blocked_by = ["qualification-signing-accounts"]
+reason = "security find-identity reports 0 valid identities; D8 forbids account creation by an agent"
+
+[[device]]
+id = "android-release-keystore-and-play"
+class = "signing-identity"
+status = "unavailable"
+name = "Google Play Console account (the debug keystore and a local release keystore need no account)"
+gates = ["tooling-release-signing-mobile-store"]
+blocked_by = ["qualification-signing-accounts"]
+reason = "no store account; D8 forbids account creation by an agent"
+stand_in = "debug keystore plus a release keystore generated in ~/.cache/btrsmith/signing, never committed (D8)"
+
+[[device]]
+id = "windows-code-signing"
+class = "signing-identity"
+status = "unavailable"
+name = "a Windows code-signing certificate"
+gates = ["qualification-signing-accounts", "qualification-final-w2-exit"]
+blocked_by = ["qualification-signing-accounts"]
+reason = "no certificate; D8: Windows builds are test-signed or unsigned"
