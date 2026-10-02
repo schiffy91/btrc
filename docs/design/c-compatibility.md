@@ -125,18 +125,20 @@ or adjacent string.
 
 The four C1 lanes (r02/r06 bodies, r01 parameters, r05 adjacent strings, r04
 char arrays) landed in that order as separate merges. What the integration
-step still owes, in both compilers:
+step did and still owes, in both compilers:
 
-- **Adjacent strings into a char array.** `char s[6] = "ab" "c";` is refused
-  with "A char array can only be initialized from a string literal or a brace
-  list". r04's extent goes through one owner
-  (`string_initializer_byte_length` / `stringInitializerByteLength`), which
-  must accept a `StringConcat` whose parts are string literals and sum their
-  decoded bytes. C allows this, and neither compiler accepted it before C1.
-- **One decoder.** The Python lexer has both r05's `decode_string` and r04's
-  `string_byte_length`. On a lexically valid literal they agree: the byte length
-  equals `len(decode_string(raw))`. Keep one owner per compiler and test that
-  the two compilers agree on escapes, `\u`/`\U`, line splices and UTF-8.
+- **Adjacent strings into a char array (done at integration).** r04's
+  predicates and its extent owner (`string_initializer_byte_length` /
+  `stringInitializerByteLength`) take any string constant, and the extent is
+  the source-macro namespace's decoded length (`string_constant` /
+  `stringConstantLength`), so `char s[] = "ab" "cd";`, a macro piece and a
+  global all work, and the exact fit and overflow refuse with r04's
+  diagnostics. `c_compat/CharArrayStringInit.btrc` and the refusal tests cover
+  them through both compilers.
+- **One decoder (done at integration).** r04's duplicate byte counters
+  (`LiteralDecoder.string_byte_length`, `StringLiteral.byteLength`) are gone;
+  r05's decoder is the one owner in each compiler, and the lexer test checks
+  its byte counts.
 - **Body IR proof in btrcc.** btrcc has no `--emit-ir`, so r02's
   braced-versus-braceless proof compares btrcc's C output, while the Python
   compiler compares raw IR.

@@ -5,4 +5,5 @@ PASS: escapes count bytes
 PASS: global
 PASS: static local
 PASS: struct field
+PASS: adjacent literals
 PASS: xbc abcd jello Tag

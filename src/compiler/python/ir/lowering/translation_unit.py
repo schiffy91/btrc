@@ -46,6 +46,7 @@ from src.compiler.python.syntax.ast.generated import (
     PreprocessorDirective,
     PropertyDecl,
     RichEnumDecl,
+    StringConcat,
     StringLiteral,
     StructDecl,
     ThrowStmt,
@@ -781,7 +782,7 @@ class TranslationUnitLowerer:
             and type_expr.is_array
             and (
                 type_expr.array_size is not None
-                or isinstance(declaration.initializer, (BraceInitializer, ListLiteral, StringLiteral))
+                or isinstance(declaration.initializer, (BraceInitializer, ListLiteral, StringLiteral, StringConcat))
                 or type_expr.is_extern
             )
         )

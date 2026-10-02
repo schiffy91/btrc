@@ -46,6 +46,10 @@ class ConstantValidator {
 		self.sourceMacros = sourceMacros;
 	}
 
+	/* The decoded byte length of a string constant, without terminator; -1
+	 * for anything else. */
+	public int stringConstantLength(Node? value) { return self.sourceMacros.stringConstantLength(value); }
+
 	public SemanticIntegerConstant invalidConstant() { return SemanticIntegerConstant(false, false, 0); }
 
 	public SemanticIntegerConstant unknownConstant() { return SemanticIntegerConstant(true, false, 0); }

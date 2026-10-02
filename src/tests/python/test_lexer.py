@@ -701,7 +701,7 @@ class TestStringByteLength:
         ],
     )
     def test_counts_decoded_bytes(self, source, length):
-        assert LiteralDecoder.string_byte_length(lex(source)[0].value) == length
+        assert len(LiteralDecoder.decode_string(lex(source)[0].value)) == length
 
 
 def test_lexer_uses_its_explicit_immutable_vocabulary():

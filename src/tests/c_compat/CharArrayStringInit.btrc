@@ -13,6 +13,8 @@ struct Label {
 
 char greeting[] = "hello";
 const char motto[16] = "stay";
+#define SUFFIX "!"
+char joinedGlobal[] = "abc" "def";
 
 int countCalls() {
 	static char calls[4] = "a";
@@ -73,6 +75,17 @@ int main() {
 	struct Label labels[2] = {{1, "one", "a"}, {2, "two", "b"}};
 	assert(strcmp(labels[1].tag, "two") == 0 && labels[0].code[0] == 'a');
 	print("PASS: struct field");
+
+	// Adjacent literals (C row 5) initialize a char array as one literal, and
+	// each piece decodes on its own: "\x4" "1" is two characters.
+	char joined[] = "ab" "cd";
+	assert((int)sizeof(joined) == 5 && strcmp(joined, "abcd") == 0);
+	char pieces[6] = "\x4" "1";
+	assert((int)sizeof(pieces) == 6 && pieces[0] == 4 && pieces[1] == '1' && pieces[2] == '\0');
+	char shout[] = "hi" SUFFIX;
+	assert((int)sizeof(shout) == 4 && strcmp(shout, "hi!") == 0);
+	assert((int)sizeof(joinedGlobal) == 7 && strcmp(joinedGlobal, "abcdef") == 0);
+	print("PASS: adjacent literals");
 
 	string text = "managed";
 	char copy[8] = "managed";

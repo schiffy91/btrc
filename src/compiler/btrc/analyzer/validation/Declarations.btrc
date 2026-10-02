@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
+import ../../syntax/Literals.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
 import ../GPU.btrc;
@@ -590,7 +591,7 @@ class DeclarationValidator {
 					}
 					/* An instance field is initialized by assignment after
 					 * allocation, which a C array cannot take. */
-					if (member.access != "class" && (member.initializer.kind == NK_STRING_LITERAL || member.initializer.kind == NK_F_STRING_LITERAL) && self.storage.charArrayStringInitializer(member.type, member.initializer, fieldVars)) {
+					if (member.access != "class" && (StringConstant.isNode(member.initializer) || member.initializer.kind == NK_F_STRING_LITERAL) && self.storage.charArrayStringInitializer(member.type, member.initializer, fieldVars)) {
 						TypeValidator.fail("A class field char array cannot take a string literal default; copy the text into it in the constructor", member.initializer);
 					}
 					if (member.access == "class" && !self.storage.staticInitializer(member.initializer, member.type)) {

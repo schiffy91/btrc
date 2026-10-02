@@ -46,16 +46,14 @@ class StorageValidator {
 		if (element == null || element.pointerDepth > 0) { return false; }
 		if (element.base != "char" && element.base != "signed char" && element.base != "unsigned char") { return false; }
 		if (value.kind == NK_BRACE_INITIALIZER || value.kind == NK_LIST_LITERAL) { return false; }
-		if (value.kind == NK_STRING_LITERAL || value.kind == NK_F_STRING_LITERAL) { return true; }
+		if (StringConstant.isNode(value) || value.kind == NK_F_STRING_LITERAL) { return true; }
 		return SemanticTypeSystem.isString(self.types.resolveAliases(self.types.inferType(value, vars)));
 	}
 
-	/* The bytes a literal char-array initializer stores before its
-	 * terminator, or -1 when the initializer is not a literal. */
-	class int stringInitializerByteLength(Node value) {
-		if (value.kind == NK_STRING_LITERAL) { return StringLiteral.byteLength(value.valueString); }
-		return -1;
-	}
+	/* The bytes a string-constant char-array initializer (one literal or
+	 * adjacent literals) stores before its terminator, or -1 when the
+	 * initializer is not a string constant. */
+	public int stringInitializerByteLength(Node value) { return self.constants.stringConstantLength(value); }
 
 	/* D20: only a narrow string literal initializes a char array. Unsized, it
 	 * takes the literal's bytes plus the terminator; sized, the bound must
@@ -67,7 +65,7 @@ class StorageValidator {
 		if (initializer.kind == NK_F_STRING_LITERAL) {
 			TypeValidator.fail("A char array cannot be initialized from an f-string; only a string literal initializes one", initializer);
 		}
-		int length = StorageValidator.stringInitializerByteLength(initializer);
+		int length = self.stringInitializerByteLength(initializer);
 		if (length < 0) {
 			TypeValidator.fail("A char array can only be initialized from a string literal or a brace list, not a string value", initializer);
 		}

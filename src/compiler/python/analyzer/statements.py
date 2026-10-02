@@ -60,7 +60,6 @@ from src.compiler.python.syntax.ast.generated import (
     ReturnStmt,
     RichEnumDecl,
     SelfExpr,
-    StringLiteral,
     StructDecl,
     SwitchStmt,
     TernaryExpr,
@@ -495,7 +494,7 @@ class StatementAnalyzer:
         """
         if not self.aggregates.char_array_string_initializer(type_expr, initializer):
             return
-        if (is_global or type_expr.is_static) and not isinstance(initializer, StringLiteral):
+        if (is_global or type_expr.is_static) and not isinstance(initializer, STRING_CONSTANT_NODES):
             return
         bound = self.types.canonical_type(type_expr).array_size
         value = None
@@ -573,7 +572,7 @@ class StatementAnalyzer:
             )
         if (
             field.access != "class"
-            and isinstance(field.initializer, (StringLiteral, FStringLiteral))
+            and isinstance(field.initializer, (*STRING_CONSTANT_NODES, FStringLiteral))
             and self.aggregates.char_array_string_initializer(field.type, field.initializer)
         ):
             # An instance field is initialized by assignment after allocation,

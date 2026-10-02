@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.compiler.python.analyzer.program import AnalysisContext, AnalysisSession, DeclarationIndex
+from src.compiler.python.analyzer.program import (
+    STRING_CONSTANT_NODES,
+    AnalysisContext,
+    AnalysisSession,
+    DeclarationIndex,
+)
 from src.compiler.python.analyzer.types import TypeSystem
-from src.compiler.python.lexer.lexer import LiteralDecoder
 from src.compiler.python.syntax.ast.generated import (
     BraceInitializer,
     CallExpr,
@@ -27,7 +31,6 @@ from src.compiler.python.syntax.ast.generated import (
     SizeofExprOp,
     SizeofType,
     SpawnExpr,
-    StringLiteral,
     StructDecl,
     TernaryExpr,
     TypedefDecl,
@@ -582,7 +585,7 @@ class AggregateAnalyzer:
             return False
         if isinstance(initializer, (BraceInitializer, ListLiteral)):
             return False
-        return isinstance(initializer, (StringLiteral, FStringLiteral)) or self.types.is_scalar_string_value(
+        return isinstance(initializer, (*STRING_CONSTANT_NODES, FStringLiteral)) or self.types.is_scalar_string_value(
             self.type_of(initializer)
         )
 
@@ -598,12 +601,11 @@ class AggregateAnalyzer:
             return canonical.array_size.value
         return self.session.array_bound_value(canonical.array_size)
 
-    @staticmethod
-    def string_initializer_byte_length(initializer) -> int | None:
-        """The bytes a literal char-array initializer stores before its terminator."""
-        if isinstance(initializer, StringLiteral):
-            return LiteralDecoder.string_byte_length(initializer.value)
-        return None
+    def string_initializer_byte_length(self, initializer) -> int | None:
+        """The bytes a string-constant char-array initializer (one literal or
+        adjacent literals) stores before its terminator; ``None`` otherwise."""
+        decoded = self.index.source_macros.string_constant(initializer)
+        return None if decoded is None else len(decoded)
 
     def validate_char_array_initializer(self, expected, initializer, bound: int | None) -> None:
         """Apply D20's char-array rule given the array's constant bound, if any.

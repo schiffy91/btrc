@@ -403,6 +403,16 @@ CHAR_ARRAY_REFUSALS = [
         id="r04-overflow",
     ),
     pytest.param(
+        'int main() { char text[3] = "ab" "c"; return 0; }',
+        (EXACT_FIT.format(3, 4), 1, 29),
+        id="r04-adjacent-literals-exact-fit",
+    ),
+    pytest.param(
+        'int main() { char text[4] = "ab" "\\x4" "1" "z"; return 0; }',
+        (OVERFLOW.format(6, 4), 1, 29),
+        id="r04-adjacent-literals-overflow",
+    ),
+    pytest.param(
         'int main() { char text[4] = "caf\\u00e9"; return 0; }',
         (OVERFLOW.format(6, 4), 1, 29),
         id="r04-universal-character-counts-bytes",
