@@ -3882,7 +3882,7 @@ class DeclarationLowerer {
 				self.appendEnumToStringForwardDecl(d, functionDeclarations);
 			} else if (d.kind == NK_FUNCTION_DECL && !d.isGpu && d.bodyNode != null && d.name != "main") {
 				string ret = self.cTypes.lower(d.returnType);
-				IRFunctionDecl functionDeclaration = IRFunctionDecl(self.semanticDeclarations.sourceFunctionSymbol(d.name), ret, false);
+				IRFunctionDecl functionDeclaration = IRFunctionDecl(self.semanticDeclarations.sourceFunctionSymbol(d.name), ret, d.returnType != null && d.returnType.isStatic);
 				int parameter = 0;
 				while (parameter < d.params().len) {
 					Node sourceParameter = d.params().get(parameter);
