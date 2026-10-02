@@ -8,7 +8,7 @@ against POSIX: the supervisor is a `/bin/sh` script, and tokens come from
 | Module | Owns |
 |--------|------|
 | `Library.Daemon` (`Daemon.btrc`) | `DaemonSpec` and `DaemonController`, the API applications use. |
-| `Library.Daemon.DaemonControl` | `DaemonControlRecord`, `DaemonControlClock` and `DaemonControlPaths`. |
+| `Library.Daemon.DaemonControl` | `DaemonControlRecord` and `DaemonControlPaths`. Deadlines use `MonotonicClock` from `Library.Timer`. |
 | `Library.Daemon.DaemonControlFiles` | The owner-only filesystem boundary for control files and logs. |
 | `Library.Daemon.DaemonControlProtocol` | Random capability tokens and the liveness handshake. |
 
@@ -21,7 +21,7 @@ applications use `DaemonController`.
 `DaemonSpec(name, command)` names the service and the `Command` it runs. The
 name is limited to letters, digits, `-`, `_` and `.`. By default its control
 record is `<name>.control` and its log `<name>.log` in `~/.btrc/daemons`, or in
-`$TMPDIR/btrc-daemons-<euid>` when `HOME` is not absolute. `pid(path)`,
+`$TMPDIR/btrc-daemons-<euid>` when `HOME` is not absolute. `control(path)`,
 `log(path)`, `cwd(path)` and `restart(enabled)` override those fields and
 return the spec. The fields stay declarative, so a platform service manager can
 consume a `DaemonSpec` directly; `renderStartCommand()` renders the local
@@ -54,6 +54,5 @@ and controller code never signals a process. Control files are created and
 read only inside owner-only directories reached without symlinks, so another
 local user cannot forge a record or redirect a stop.
 
-The corpus tests are `src/tests/stdlib/Daemon.btrc` and `DaemonClock.btrc`.
-`Daemon.btrc` asserts wall-clock bounds on its stop deadlines, so it can fail
-on a saturated machine.
+The corpus test is `src/tests/stdlib/Daemon.btrc`. It asserts wall-clock bounds
+on its stop deadlines, so it can fail on a saturated machine.

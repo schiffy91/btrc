@@ -174,6 +174,26 @@ became `MacOSEncodedImageDecoderConformance.btrc`;
 (and goldens) became `UI*.btrc`; `test_btrc_text_field_appkit` became
 `test_btrc_text_field_and_scroll_view_appkit`.
 
+### btrc-D050, btrc-D051: shared UTF-8 and clock primitives (`stage4/w2-primitives`)
+
+These ship in the same pin bump. The integration put `MonotonicClock` in
+`Library.Timer`, beside `Timer`.
+
+| Old | New |
+| --- | --- |
+| `UnixShell.quote(raw)`, `PathTools.shellQuote(raw)` | `ShellWords.quote(raw)` (`Library.Process`) |
+| `UnixShell.redactText(text, sensitive)` | `ShellWords.redact(text, sensitive)` |
+| `FileSystem.currentDirectory()`, `ChildProcessExecutable.currentDirectory()` | `Platform.currentDirectory()` |
+| module `Library.Terminal.TerminalClock` (class `TerminalClock`: `milliseconds()`, `deadlineAfter(ms)`) | `MonotonicClock` in `Library.Timer`: `milliseconds()`, `deadlineAfter(ms)` |
+| `ChildProcessClock`, `DaemonControlClock` (`millisecondsFrom`, `milliseconds`, `deadline`) | `MonotonicClock` (same three methods; `deadline` takes a `long long` duration) |
+| `HTTPSocket.nowMilliseconds()`, `LocalChannelSocket.nowMilliseconds()` | `MonotonicClock.milliseconds()` |
+| `HTTPSocket.configureDescriptor(fd, nonblocking)`, `TerminalPasswordInput.configureSignalDescriptor(fd)` | `DescriptorFlags.configure(fd, nonblocking)` / `DescriptorFlags.closeOnExec(fd)` (`Library.IO`) |
+| `ChildProcessEnvironment.freeEntries(entries)`, `ChildProcessArguments.freeEntries(entries)` | `CStringArray.freeAll(entries)` (`Library.Process`) |
+| `UIText.byteAt`, `UIText.continuation`, `UIText.scalarWidth` | `UTF8.continuation(value)`, `UTF8.width(data, length, offset)` (`Library.Strings`) |
+| `UITextInput.wordCharacter`, `UITextInput.previousWord`, `UITextInput.nextWord` | `UTF8.wordScalar`, `UTF8.previousWord`, `UTF8.nextWord`, each taking `(data, length, offset)` |
+| `UISemanticText.valid(value, maximumBytes)` | `UIText.valid(value, maximumBytes)` |
+| `GUIRaster.nextCodepoint(text, length, &offset)` | `UTF8.decode(text, length, &offset)` |
+
 ## 2. Mechanical substitutions
 
 Apply in this order over BTRSmith's `.btrc` sources, `btrc.toml` files and
@@ -193,6 +213,11 @@ docs (word boundaries matter: `CoreAudioDeviceProvider` must not hit
 \bLibrary\.Audio\.MacOS\.CoreAudioDevice\b              -> Library.Audio.MacOS.MacOSAudioDevice
 \bLibrary\.Audio\.Linux\.AlsaDevice\b                   -> Library.Audio.Linux.LinuxAudioDevice
 \bLibrary\.Datetime\b                                   -> Library.DateTime and/or Library.Timer (by use)
+\bLibrary\.Terminal\.TerminalClock\b                     -> Library.Timer (MonotonicClock)
+\b(TerminalClock|ChildProcessClock|DaemonControlClock)\b -> MonotonicClock
+\bUnixShell\.quote\(|\bPathTools\.shellQuote\(            -> ShellWords.quote(
+\bUnixShell\.redactText\(                               -> ShellWords.redact(
+\b(FileSystem|ChildProcessExecutable)\.currentDirectory\( -> Platform.currentDirectory(
 \b(CoreAudioDeviceProviderOpenOutcome|AlsaDeviceProviderOpenOutcome)\b -> AudioDeviceProviderOpenOutcome
 \bCoreAudioDeviceProvider\b                             -> MacOSAudioDevice
 \bAlsaDeviceProvider\b                                  -> LinuxAudioDevice

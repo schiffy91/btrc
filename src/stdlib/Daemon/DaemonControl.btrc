@@ -1,4 +1,4 @@
-/* Daemon-control value types: the control record, clock and paths.
+/* Daemon-control value types: the control record and paths.
  *
  * Applications use DaemonController (Library.Daemon). This module, with
  * DaemonControlFiles and DaemonControlProtocol, is the exported lower layer

@@ -18,9 +18,9 @@ other modules are addressed by their folder path.
 `dirname`, `isAbsolute`, `absolute`); its `*For(..., windows)` variants apply
 Windows separator and drive rules explicitly. `FileSystem` covers the common
 cases as class methods: `exists`, `isDir`, `isFile`, `isSymlink`, `mkdir`,
-`mkdirp`, `chmod`, `removeRecursive`, `symlink`, `readLink`,
-`currentDirectory`, `realPath`, `absolutePath`, `tempDir`, `listDir`,
-`readText`, `readBytes` and `writeText`. `DirectoryStream` reads one directory
+`mkdirp`, `chmod`, `removeRecursive`, `symlink`, `readLink`, `realPath`,
+`absolutePath`, `tempDir`, `listDir`, `readText`, `readBytes` and
+`writeText`; the working directory is `Platform.currentDirectory()`. `DirectoryStream` reads one directory
 as a stream of names, so a caller that filters entries never materializes the
 whole listing; `close()` reports read or close failure, and a dropped stream
 closes itself.

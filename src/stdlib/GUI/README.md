@@ -292,8 +292,8 @@ clicks, typing, clipboard paste, a select choice, a slider drag, wheel
 scrolling, subscription capture, worker-made image handles, contract errors
 and readback pixel checks on a real window. `LinuxGUIShutdown.btrc` proves a
 subtree that never finishes closing fails `run()` after the drain deadline.
-Linux CI offers no display, so both skip there; locally they run under Xvfb
-with Mesa's lavapipe Vulkan driver.
+Linux CI runs every shard under `tools/virtual-display.sh`, which starts Xvfb
+with Mesa's lavapipe Vulkan driver, so both run there as they do locally.
 
 ## Raster surfaces
 
@@ -404,7 +404,7 @@ The face owns the FreeType library and face handles privately and releases the
 face before the library. `FreeType/FreeTypeFace.btrc` records the full
 ownership and snapshot contract. Allocation fault injection and overlapping
 native-thread admission are not qualified. `FontSnapshotConformance.btrc`
-and `GuiFontConformance.btrc` in `src/tests/native/gui/` cover the snapshot
+and `GUIFontConformance.btrc` in `src/tests/native/gui/` cover the snapshot
 domain and the real loader.
 
 ## Dynamic resizing

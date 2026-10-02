@@ -551,11 +551,11 @@ layout is part of the API. The complete rules are in
 - **The root is a closed prelude.** Each root file is one self-contained
   primitive imported as `Library.<Name>`, and a root module imports only other
   root modules. Nothing with a native binding or a nested source graph lives
-  here. The 27 root modules are `Array`, `BitPattern`, `Bytes`, `CLI`,
-  `Callback`, `Console`, `DateTime`, `Error`, `IO`, `Iterable`, `JSON`,
-  `List`, `Map`, `Math`, `OwnedBuffer`, `Pattern`, `Platform`, `Process`,
-  `Random`, `Regex`, `Result`, `SPSC`, `Set`, `Strings`, `TOML`, `Timer`,
-  and `Vector`.
+  here. The 26 root modules are `Array`, `BitPattern`, `Bytes`, `CLI`,
+  `Callback`, `Console`, `DateTime`, `IO`, `Iterable`, `JSON`, `List`,
+  `Map`, `Math`, `OwnedBuffer`, `Pattern`, `Platform`, `Process`, `Random`,
+  `Regex`, `Result`, `SPSC`, `Set`, `Strings`, `TOML`, `Timer`, and
+  `Vector`.
 - **A group with more than one module is a folder** with a same-named facade
   inside it, so `import Library.HTTP;` selects the facade and the group's other
   modules are addressed by path (`Library.HTTP.HTTPClient`,
@@ -1379,8 +1379,9 @@ failure fails closed, while a pre-submit failure uses the CPU worker. The
 native compute context is acquired through an atomic process singleton.
 
 For rendering rather than compute, `Library.GPU` exposes a typed WebGPU surface:
-`Device`, `Program`, `UniformBuffer`, `ImageTexture`, `SurfaceRenderer`, and
-`Readback`. For a full example that combines `@gpu` kernels with btrc classes,
+`GPUDevice`, `GPUProgram`, `GPUUniformBuffer`, `GPUImageTexture`,
+`GPUSurfaceRenderer`, `GPUOffscreenTarget`, and `GPUReadback`, each its own
+module (`import Library.GPU.GPUSurfaceRenderer;`). For a full example that combines `@gpu` kernels with btrc classes,
 see [`examples/sgd/Sgd.btrc`](examples/sgd/Sgd.btrc) -- GPU-accelerated
 stochastic gradient descent that learns `y = 2x + 3` from training data.
 
@@ -1473,7 +1474,7 @@ a canonical build plan. See
 
 btrc includes a Unity-inspired 3D game engine built on WebGPU rendering. A ball
 on a ground plane with WASD movement, space to jump, real-time shadows, and SDF
-raymarching -- about 640 lines of btrc across 10 engine modules, driven by a
+raymarching -- about 640 lines of btrc across 11 engine modules, driven by a
 106-line `Game.btrc`.
 
 The engine is modular: `GameObject` with physics, `Camera` with follow
@@ -1858,7 +1859,7 @@ src/
     runner.py                  # Unified runner: each .btrc test through BOTH compilers
     generate_expected.py       # Regenerate golden .stdout files
     conftest.py                # --compilers option + shared fixtures
-    corpus_files.py            # INCLUDE_FIXTURES / NON_CORPUS_DIRECTORIES
+    corpus_files.py            # include_fixtures() / NON_CORPUS_DIRECTORIES
     python/                    # Python reference-compiler unit tests
     btrc/                      # Self-hosted-compiler-specific tests
     lsp/ debug/ formatter/ vscode/    # Developer-tooling suites

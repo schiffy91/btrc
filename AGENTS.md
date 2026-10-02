@@ -376,10 +376,11 @@ and in the examples. A stdlib module's import name is its stem, so
 `Array.btrc` is `import Library.Array;`, and `expected/<Stem>.stdout` is the golden
 output for `<Stem>.btrc`.
 
-The corpus runner discovers a file whose name begins with a capital, so a
-source that is imported rather than run is listed in `INCLUDE_FIXTURES`, and
-the benchmark directory -- whose programs `tools/bench` times instead --
-is listed in `NON_CORPUS_DIRECTORIES`. Both lists live in
+The corpus runner discovers a file whose name begins with a capital. A
+source that another corpus source includes or imports by path is a fixture,
+not a program: `include_fixtures()` derives that set from the references
+themselves. The benchmark directory -- whose programs `tools/bench` times
+instead -- is listed in `NON_CORPUS_DIRECTORIES`. Both live in
 `src/tests/corpus_files.py`.
 
 Stdlib package directories are PascalCase too: `Audio/MacOS`, `GUI/MacOS`,

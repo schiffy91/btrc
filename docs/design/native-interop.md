@@ -465,7 +465,7 @@ Each checkpoint includes focused reference/self-host parity, native execution an
 
 ## Migration inventory
 
-The initial tracked-file inventory (2026-09-09) counted 58 native stdlib sources/headers (about 12.5k lines); that figure is historical. The current inventory below (2026-10-01) is regenerated from the tracked tree, and is still not a completed semantic audit: BTRC has 19 native stdlib headers (458 lines, no `.c`/`.m` sources) holding 36 `static inline` adapters, ten `src/runtime/c/` files, six `src/runtime/gpu/` files, 17 `src/runtime/windows/` files, one Clang reader, six native-package example files and 69 test fixtures/probes. Inspect every file within each owner; a directory classification alone does not justify retaining its contents.
+The initial tracked-file inventory (2026-09-09) counted 58 native stdlib sources/headers (about 12.5k lines); that figure is historical. The current inventory below (2026-10-02) is regenerated from the tracked tree, and is still not a completed semantic audit: BTRC has 19 native stdlib headers (442 lines, no `.c`/`.m` sources) holding 37 `static inline` adapters, ten `src/runtime/c/` files, six `src/runtime/gpu/` files, 17 `src/runtime/windows/` files, one Clang reader, six native-package example files and 69 test fixtures/probes. Inspect every file within each owner; a directory classification alone does not justify retaining its contents.
 
 "Native files" counts tracked C, C++ and Objective-C sources and headers; "`static inline`" counts lines containing `static inline` in them, i.e. the remaining hand-written C adapters. Reproduce both with:
 
@@ -478,7 +478,7 @@ git ls-files src/stdlib | grep -E '\.(c|h|m|mm|cpp|cc|hpp)$' \
 | Owner | Native files | `static inline` | BTRC destination / required proof |
 |---|---:|---:|---|
 | `src/stdlib/Audio/Linux/` | 1 | 12 | `Alsa.h` keeps ALSA's enum-typed setters, the hint list's triple pointer and the scheduler call behind plain adapters; device policy lives in `LinuxAudioDevice.btrc`. |
-| `src/stdlib/Audio/MacOS/` | 1 | 0 | `Hardware.h` includes SDK headers and read-only aliases for SDK string macros. BTRC owns inventory, configuration/rollback, aggregates, AUHAL setup/render/drain and retryable cleanup. Old session C/header/ABI removed; both-compiler runtime checks pass. |
+| `src/stdlib/Audio/MacOS/` | 1 | 0 | `Hardware.h` includes SDK headers only; the binding imports CoreAudio's string-key macros directly. BTRC owns inventory, configuration/rollback, aggregates, AUHAL setup/render/drain and retryable cleanup. Old session C/header/ABI removed; both-compiler runtime checks pass. |
 | `src/stdlib/BackgroundJobs/` | 1 | 0 | `NativeThreads.h` includes pthread/errno SDK headers only. `BackgroundJobs` owns queues, cancellation, completion, worker joins and disposal; old C executor/header/ABI/archive target removed. |
 | `src/stdlib/Digest/MacOS/` | 1 | 0 | `CommonDigest.h` includes CommonCrypto only; `MacOS.NativeSHA256Provider` binds `CC_SHA256` directly. Linux and Windows use the portable BTRC `NativeSHA256Provider`. |
 | `src/stdlib/GPU/` | 1 | 0 | `WebGPUImports.h` includes SDK headers only. WebGPU owners hold resource lifetimes and async completion (`GPUCompletionPump`). The compiler-only `@gpu` compute runtime (six files) lives in `src/runtime/gpu/`. |

@@ -152,14 +152,15 @@
         "*::test_linux_audio_session*",
         "*::test_linux_freetype_draws_into_owned_pixels*",
         "*::test_linux_gui_controls*",
-        "*::test_linux_gui_shutdown_deadline*"
+        "*::test_linux_gui_shutdown_deadline*",
+        "*::test_linux_gui_gpu_view_reparent*"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows, so the devcontainer runs all six."
+      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows and the GPU view, so the devcontainer runs all seven."
     },
     {
       "id": "linux-freetype-macro-constants",
@@ -167,14 +168,17 @@
         "src/tests/python/test_native_macro_constants.py"
       ],
       "nodes": [
-        "*::test_freetype_macro_constants_build_and_run*"
+        "*::test_freetype_macro_constants_build_and_run*",
+        "*::test_string_and_integer_macro_constants_build_and_run*",
+        "*::test_macro_constant_diagnostics_match_across_compilers*",
+        "*::test_webgpu_binding_names_the_sdk_depth_slice_macro*"
       ],
-      "reason": "^the FreeType proof builds against the Linux SDK$",
+      "reason": "^the (FreeType proof builds against the Linux SDK|macro proof builds against the Linux C toolchain|WebGPU proof builds against the Linux SDK)$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "The FreeType macro-constant proof reads freetype2 through the Linux dev shell's pkg-config; the devcontainer's unit shard runs both frontends (CI run 36935218617)."
+      "note": "The macro-constant proofs build against the Linux dev shell's C toolchain, freetype2 (pkg-config) and WebGPU headers; the devcontainer's unit shard runs both frontends (CI run 36935218617 for FreeType)."
     },
     {
       "id": "linux-native-reader-uncovered",
