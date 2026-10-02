@@ -163,7 +163,7 @@ class OwnershipOperandPlanner {
 
 	public bool reorderInert(Node expression, OwnershipOperandEnvironment environment) {
 		int kind = expression.kind;
-		if (kind == NK_INT_LITERAL || kind == NK_FLOAT_LITERAL || kind == NK_STRING_LITERAL || kind == NK_CHAR_LITERAL || kind == NK_BOOL_LITERAL || kind == NK_NULL_LITERAL) {
+		if (kind == NK_INT_LITERAL || kind == NK_FLOAT_LITERAL || kind == NK_STRING_LITERAL || kind == NK_STRING_CONCAT || kind == NK_CHAR_LITERAL || kind == NK_BOOL_LITERAL || kind == NK_NULL_LITERAL) {
 			return true;
 		}
 		if (kind == NK_CAST_EXPR) {

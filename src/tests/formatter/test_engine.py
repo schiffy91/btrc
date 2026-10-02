@@ -247,6 +247,23 @@ def test_pointer_declarations_dereferences_and_multiplication_use_operator_conte
     assert BtrcFormatter().format(result, str(fixture)) == result
 
 
+def test_braceless_bodies_indent_one_level_past_their_header() -> None:
+    fixture = Path(__file__).with_name("fixtures") / "BracelessBodies.btrc"
+    source = fixture.read_text(encoding="utf-8")
+    flattened = "\n".join(line.lstrip("\t") for line in source.split("\n"))
+
+    result = BtrcFormatter().format(flattened, str(fixture))
+
+    # Each unbraced body sits one level past its header and stays on its own
+    # line; a dangling else aligns with the nearest if, and a closing brace
+    # with the header line that opened it.
+    assert "\n\tif (a)\n\t\tif (b)\n\t\t\tresult = 1;\n\t\telse\n\t\t\tresult = 2;\n\telse if (b)\n" in result
+    assert "\n\tdo\n\t\ttotal--;\n\twhile (total > 4);\n" in result
+    assert "\n\t\tfor (int i = 0; i < 2; i++) {\n\t\t\ttotal += i;\n\t\t}\n\telse\n" in result
+    assert result == source
+    assert BtrcFormatter().format(source, str(fixture)) == source
+
+
 def test_unary_dereference_and_binary_multiplication_keep_distinct_multiline_indentation() -> None:
     source = """\
 void update(int* value, int left, int right) {
@@ -558,3 +575,133 @@ def test_invalid_source_reports_the_compiler_location() -> None:
 def test_style_config_rejects_invalid_values(values: dict[str, object]) -> None:
     with pytest.raises(ValueError):
         StyleConfig(**values)
+
+
+def test_adjacent_string_pieces_keep_their_lines() -> None:
+    source = """\
+#define TAIL "!"
+int main() {
+\tchar* message = "first, "
+\t\t"second, "
+\t\tTAIL;
+\tprintf("%s=%"
+\t\t"d\\n", "answer", 42);
+\treturn 0;
+}
+"""
+    assert formatted(source, indent_style="tabs") == source
+    collapsed = source.replace('"first, "\n\t\t"second, "\n\t\tTAIL', '"first, " "second, " TAIL')
+    assert formatted(collapsed, indent_style="tabs") == collapsed
+
+
+def _in_main(body: str) -> str:
+    return "int main() {\n\tint a = 1;\n\tint b = 1;\n\tint x = 0;\n" + body + "\treturn x;\n}\n"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\tif (a)\n\t\tif (b) x = 1;\n\t\telse x = 2;\n",
+        "\tif (a)\n\t\tif (b) { x = 1; }\n\t\telse x = 2;\n",
+        "\tif (a)\n\t\tif (b) {\n\t\t\tx = 1;\n\t\t}\n\t\telse x = 2;\n",
+        "\twhile (a)\n\t\tif (b) x = 1;\n\t\telse x = 2;\n",
+        "\tif (a)\n\t\twhile (b)\n\t\t\tif (x) x = 1;\n\t\t\telse x = 2;\n\telse\n\t\tx = 3;\n",
+        "\tif (a)\n\t\tif (b) {\n\t\t\tx = 1;\n\t\t} else {\n\t\t\tx = 2;\n\t\t}\n\telse\n\t\tx = 3;\n",
+        "\tif (a)\n\t\tif (b) x = 1; else x = 2;\n\telse\n\t\tx = 3;\n",
+        "\tif (a) {\n\t\tx = 1;\n\t}\n\telse if (b)\n\t\tx = 2;\n\telse\n\t\tx = 3;\n",
+    ],
+)
+def test_dangling_else_aligns_with_an_inner_if_whose_body_shares_its_line(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\twhile (a)\n\t\tdo\n\t\t\tx++;\n\t\twhile (x < 3);\n",
+        "\tif (a)\n\t\tdo\n\t\t\tx++;\n\t\twhile (x < 3);\n",
+        "\tif (a)\n\t\tdo {\n\t\t\tx++;\n\t\t}\n\t\twhile (x < 6);\n",
+        "\tif (a)\n\t\tdo\n\t\t{\n\t\t\tx++;\n\t\t}\n\t\twhile (x < 6);\n",
+        "\tif (a)\n\t\tdo\n\t\t\tx++;\n\t\twhile (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tdo\n\t\t\tdo x++; while (x < 2);\n\t\twhile (x < 3);\n\tx = 4;\n",
+        "\tif (a)\n\t\tdo\n\t\t\twhile (x < 2)\n\t\t\t\tx++;\n\t\twhile (x < 3);\n\tx = 4;\n",
+        "\tdo {\n\t\tx++;\n\t} while (x < 3);\n\twhile (x < 5)\n\t\tx++;\n",
+    ],
+)
+def test_do_while_closing_while_aligns_with_an_unbraced_do(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '\tif (x)\n\t\tprintf("%s\\n"\n\t\t\t"tail %d\\n",\n\t\t\t"head",\n\t\t\tx\n\t\t);\n',
+        "\tint[] v = [1];\n\tif (x)\n\t\tv = [\n\t\t\t1,\n\t\t\t2\n\t\t];\n",
+        '\tif (a)\n\t\tif (x)\n\t\t\tprintf(\n\t\t\t\t"%d\\n",\n\t\t\t\tx\n\t\t\t);\n\t\telse\n\t\t\tx = 2;\n',
+    ],
+)
+def test_closing_bracket_line_in_an_unbraced_body_stays_with_its_statement(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs", single_line_statements=False) == source
+
+
+def test_wrapped_call_in_an_unbraced_body_closes_at_the_body_level() -> None:
+    source = _in_main('\tif (x)\n\t\tprintf("%d %d %d\\n", alpha, beta, gamma);\n')
+    result = formatted(source, indent_style="tabs", line_width=40)
+    assert "\n\t\t);\n" in result
+    assert "\n\t);\n" not in result
+    assert formatted(result, indent_style="tabs", line_width=40) == result
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import "relhelpers/QuotedMsg.btrc"\n\nint main() { return 0; }\n',
+        'import "a.btrc"\nimport "b.btrc"\n\nint main() { return 0; }\n',
+    ],
+)
+def test_line_after_a_semicolon_less_quoted_import_is_not_a_string_continuation(source: str) -> None:
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'string usage() {\n\treturn "usage: tool [options]\\n"\n\t\t"  -h  help\\n"\n\t\t"  -v  verbose\\n";\n}\n',
+        'class Tool {\n\tpublic string usage() {\n\t\treturn "usage: tool\\n"\n\t\t\t"  -h  help\\n";\n\t}\n}\n',
+        'string usage() { return "usage: tool [options]\\n" "  -h  help\\n"; }\n',
+    ],
+)
+def test_trivial_function_compaction_keeps_split_string_pieces(source: str) -> None:
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\tif (a)\n\t\tdo if (b) x++; while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tdo if (b) { x++; } while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tdo\n\t\t\tif (b) x++; while (x < 3);\n\telse\n\t\tx = 2;\n",
+        "\tif (a)\n\t\tif (b) do\n\t\t\tif (x) x++;\n\t\twhile (x < 0);\n\t\telse x = 2;\n",
+    ],
+)
+def test_ifs_inside_an_unbraced_do_body_close_with_its_while(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\tswitch (x) {\n\t\tcase 0:\n\t\t\tif (a)\n\t\t\t\tx = 1;\n\t\tdefault: break;\n\t}\n",
+        "\tswitch (x) {\n\t\tcase 0:\n\t\t\ttry {\n\t\t\t\tx = 1;\n\t\t\t} catch (string error) {\n"
+        "\t\t\t\tx = 2;\n\t\t\t}\n\t\tdefault: break;\n\t}\n",
+        "\tvar f = (int y) => y;\n\tf =\n\t\t(int y) => {\n\t\t\treturn y;\n\t\t};\n",
+        "\tThread<int> t = a > 0\n\t\t? spawn(() => { return 1; })\n\t\t: spawn(() => { return 2; });\n",
+    ],
+)
+def test_a_body_opened_on_a_continuation_line_nests_past_it(body: str) -> None:
+    source = _in_main(body)
+    assert formatted(source, indent_style="tabs") == source

@@ -134,7 +134,7 @@ CALLBACKCONTEXT_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("activate", "void", "method", (("CallbackScope", "scope"),), "activate"),
     BuiltinMemberSpec("publish", "void", "method", (("TToken", "token"),), "publish"),
     BuiltinMemberSpec("abortActivation", "void", "method", (), "abortActivation"),
-    BuiltinMemberSpec("enter", "TReceiver*", "method", (), "enter"),
+    BuiltinMemberSpec("enter", "TReceiver?", "method", (), "enter"),
     BuiltinMemberSpec("leave", "void", "method", (), "leave"),
     BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
     BuiltinMemberSpec("cancel", "CallbackCancellation", "method", (), "cancel"),
@@ -148,7 +148,7 @@ CALLBACKREQUEST_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("activate", "void", "method", (("CallbackScope", "scope"),), "activate"),
     BuiltinMemberSpec("publish", "void", "method", (), "publish"),
     BuiltinMemberSpec("abortActivation", "void", "method", (), "abortActivation"),
-    BuiltinMemberSpec("enter", "TReceiver*", "method", (), "enter"),
+    BuiltinMemberSpec("enter", "TReceiver?", "method", (), "enter"),
     BuiltinMemberSpec("leave", "void", "method", (), "leave"),
     BuiltinMemberSpec("complete", "CallbackCancellation", "method", (), "complete"),
     BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
@@ -169,14 +169,14 @@ CALLBACKREGISTRATION_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
 # Generated from src/stdlib/listnode.btrc
 LISTNODE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("value", "T", "field", doc="value"),
-    BuiltinMemberSpec("next", "ListNode<T>", "field", doc="next"),
+    BuiltinMemberSpec("next", "ListNode<T>?", "field", doc="next"),
     BuiltinMemberSpec("copiedValue", "T", "method", (), "copiedValue"),
 )
 
 # Generated from src/stdlib/list.btrc
 LIST_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
-    BuiltinMemberSpec("head", "ListNode<T>", "field", doc="head"),
-    BuiltinMemberSpec("tail", "ListNode<T>", "field", doc="tail"),
+    BuiltinMemberSpec("head", "ListNode<T>?", "field", doc="head"),
+    BuiltinMemberSpec("tail", "ListNode<T>?", "field", doc="tail"),
     BuiltinMemberSpec("len", "int", "field", doc="len"),
     BuiltinMemberSpec("pushBack", "void", "method", (("T", "val"),), "pushBack"),
     BuiltinMemberSpec("pushFront", "void", "method", (("T", "val"),), "pushFront"),
@@ -495,10 +495,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
     )),
     ("ExactFileSnapshot", (
-        BuiltinMemberSpec("validate", "FileSystemError*", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
+        BuiltinMemberSpec("validate", "FileSystemError?", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
     )),
     ("DirectoryTreeRemoval", (
-        BuiltinMemberSpec("removeAt", "int", "method", (("int", "parentDescriptor"), ("string", "name"), ("FileSnapshot*", "expected"),), "removeAt"),
+        BuiltinMemberSpec("removeAt", "int", "method", (("int", "parentDescriptor"), ("string", "name"), ("FileSnapshot?", "expected"),), "removeAt"),
     )),
     ("FreeType", (
         BuiltinMemberSpec("load", "Font", "method", (("string", "path"), ("int", "pixelSize"),), "load"),
@@ -592,16 +592,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("AppKitText", (
         BuiltinMemberSpec("nativeValue", "NSString", "method", (("string", "text"),), "nativeValue"),
         BuiltinMemberSpec("ownedValue", "string", "method", (("NSString", "text"),), "ownedValue"),
-    )),
-    ("MacOSComposedCapture", (
-        BuiltinMemberSpec("captureTiff", "Bytes", "method", (("NSView", "root"), ("Vector<MacOSCaptureLayer>", "layers"), ("int", "maximumPixels"), ("int", "maximumBytes"),), "captureTiff"),
-    )),
-    ("MacOSSystemText", (
-        BuiltinMemberSpec("rasterize", "void", "method", (("TextRasterization", "request"),), "rasterize"),
-        BuiltinMemberSpec("raster", "Image", "method", (("TextRun", "run"),), "raster"),
-    )),
-    ("MacOSViewCapture", (
-        BuiltinMemberSpec("captureTiff", "Bytes", "method", (("NSView", "view"), ("int", "maximumPixels"), ("int", "maximumBytes"),), "captureTiff"),
     )),
     ("GUIRaster", (
         BuiltinMemberSpec("glyph", "unsigned long long", "method", (("int", "codepoint"),), "glyph"),
@@ -980,8 +970,8 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("minimum", "int", "method", (("int", "left"), ("int", "right"),), "minimum"),
         BuiltinMemberSpec("gridColumns", "int", "method", (("int", "width"), ("int", "gap"),), "gridColumns"),
         BuiltinMemberSpec("intrinsicWidth", "int", "method", (("UIElement", "element"), ("UIResolvedStyle", "style"), ("int", "availableWidth"), ("UITypography", "typography"),), "intrinsicWidth"),
-        BuiltinMemberSpec("measure", "UIMeasuredNode*", "method", (("UIElement", "element"), ("int", "availableWidth"), ("int", "depth"), ("UIBuildContext", "context"),), "measure"),
-        BuiltinMemberSpec("measureFresh", "UIMeasuredNode*", "method", (("UIElement", "element"), ("int", "availableWidth"), ("int", "depth"), ("UIBuildContext", "context"),), "measureFresh"),
+        BuiltinMemberSpec("measure", "UIMeasuredNode?", "method", (("UIElement", "element"), ("int", "availableWidth"), ("int", "depth"), ("UIBuildContext", "context"),), "measure"),
+        BuiltinMemberSpec("measureFresh", "UIMeasuredNode?", "method", (("UIElement", "element"), ("int", "availableWidth"), ("int", "depth"), ("UIBuildContext", "context"),), "measureFresh"),
         BuiltinMemberSpec("place", "void", "method", (("UIMeasuredNode", "node"), ("int", "x"), ("int", "y"), ("int", "width"), ("int", "depth"), ("Vector<UILayoutBox>", "boxes"), ("bool", "freezeStyles"), ("int", "assignedHeight"),), "place"),
         BuiltinMemberSpec("pinHeaders", "Vector<UILayoutBox>", "method", (("Vector<UILayoutBox>", "boxes"), ("int", "scrollY"),), "pinHeaders"),
         BuiltinMemberSpec("virtualGridViewports", "Vector<UIVirtualGridViewport>", "method", (("Vector<UILayoutBox>", "boxes"), ("UIViewportMetrics", "viewport"),), "virtualGridViewports"),
@@ -992,16 +982,16 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("covers", "bool", "method", (("float", "x"), ("float", "y"), ("int", "width"), ("int", "height"), ("bool", "expanded"),), "covers"),
     )),
     ("UIRaster", (
-        BuiltinMemberSpec("textMenu", "void", "method", (("Image", "image"), ("UITextMenu*", "menu"), ("UITheme", "theme"), ("UITypography", "typography"),), "textMenu"),
+        BuiltinMemberSpec("textMenu", "void", "method", (("Image", "image"), ("UITextMenu?", "menu"), ("UITheme", "theme"), ("UITypography", "typography"),), "textMenu"),
         BuiltinMemberSpec("chevron", "void", "method", (("Image", "image"), ("UIRect", "bounds"), ("UIColor", "color"), ("bool", "expanded"),), "chevron"),
         BuiltinMemberSpec("pixel", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("UIColor", "color"),), "pixel"),
-        BuiltinMemberSpec("fillRect", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("int", "width"), ("int", "height"), ("UIColor", "color"), ("int", "radius"), ("UILinearGradient*", "gradient"),), "fillRect"),
+        BuiltinMemberSpec("fillRect", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("int", "width"), ("int", "height"), ("UIColor", "color"), ("int", "radius"), ("UILinearGradient?", "gradient"),), "fillRect"),
         BuiltinMemberSpec("text", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("string", "value"), ("UIColor", "color"), ("UIResolvedStyle", "style"), ("UITypography", "typography"),), "text"),
-        BuiltinMemberSpec("panel", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("int", "width"), ("int", "height"), ("UIColor", "fill"), ("UIResolvedStyle", "style"), ("UILinearGradient*", "gradient"),), "panel"),
+        BuiltinMemberSpec("panel", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("int", "width"), ("int", "height"), ("UIColor", "fill"), ("UIResolvedStyle", "style"), ("UILinearGradient?", "gradient"),), "panel"),
         BuiltinMemberSpec("glyphRun", "void", "method", (("Image", "image"), ("int", "x"), ("int", "y"), ("string", "value"), ("UIColor", "color"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UITypography", "typography"), ("bool", "composite"),), "glyphRun"),
-        BuiltinMemberSpec("image", "void", "method", (("Image", "target"), ("Image", "source"), ("UIRect", "bounds"), ("int", "scrollX"), ("int", "scrollY"), ("int", "padding"), ("UIImageRegion*", "region"),), "image"),
+        BuiltinMemberSpec("image", "void", "method", (("Image", "target"), ("Image", "source"), ("UIRect", "bounds"), ("int", "scrollX"), ("int", "scrollY"), ("int", "padding"), ("UIImageRegion?", "region"),), "image"),
         BuiltinMemberSpec("selectPopup", "void", "method", (("Image", "image"), ("Vector<UILayoutBox>", "boxes"), ("UISelectPopup", "popup"), ("int", "highlightedOption"), ("UITheme", "theme"), ("UITypography", "typography"),), "selectPopup"),
-        BuiltinMemberSpec("frame", "void", "method", (("Image", "image"), ("Vector<UILayoutBox>", "boxes"), ("UITheme", "theme"), ("UITypography", "typography"), ("string", "hovered"), ("string", "focused"), ("string", "focusedValue"), ("int", "caretByteOffset"), ("int", "scrollX"), ("int", "scrollY"), ("UISelectPopup", "popup"), ("int", "highlightedOption"), ("UIScrollbar*", "scrollbar"), ("int", "anchorByteOffset"), ("bool", "caretVisible"),), "frame"),
+        BuiltinMemberSpec("frame", "void", "method", (("Image", "image"), ("Vector<UILayoutBox>", "boxes"), ("UITheme", "theme"), ("UITypography", "typography"), ("string", "hovered"), ("string", "focused"), ("string", "focusedValue"), ("int", "caretByteOffset"), ("int", "scrollX"), ("int", "scrollY"), ("UISelectPopup", "popup"), ("int", "highlightedOption"), ("UIScrollbar?", "scrollbar"), ("int", "anchorByteOffset"), ("bool", "caretVisible"),), "frame"),
     )),
     ("UIText", (
         BuiltinMemberSpec("valid", "bool", "method", (("string", "value"), ("int", "maximumBytes"),), "valid"),

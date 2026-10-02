@@ -11,11 +11,17 @@ already exists (`declarations`, `parts`, `elements`).
 
 User-facing refusals stay in `docs/known-language-gaps.md`.
 
+The later C rows have their own design documents, each drafted and
+adversarially reviewed by workflow `wf_926e5dfc-b6e` (2026-10-02):
+[`c-preprocessor-conditionals.md`](c-preprocessor-conditionals.md) (C4, the
+end of Stage 16), [`c-vocabulary-specifiers.md`](c-vocabulary-specifiers.md)
+(C3, Stage 19) and [`c-goto-labels.md`](c-goto-labels.md) (Stage 20).
+
 ## Decisions
 
 | Item | Representation | Schema change |
 |------|----------------|---------------|
-| (a) Unnamed parameters, `(void)` | An unnamed prototype parameter is `Param(name="")` with `name_line`/`name_col` 0 and `line`/`col` at its type, as an anonymous `StructDecl` uses `""`. `(void)` is an empty `params` list with no `Param`. Unnamed parameters are accepted only in a body-less `FunctionDecl`; methods, interface signatures, lambdas, rich-enum variants and definitions refuse them (C11 6.9.1p5). `f(void, int)`, `f(void x)` and qualified `void` are refused. A prototype parameter without a name emits no C name. | none (comment only) |
+| (a) Unnamed parameters, `(void)` | An unnamed prototype parameter is `Param(name="")` with `name_line`/`name_col` 0 and `line`/`col` at its type, as an anonymous `StructDecl` uses `""`. `(void)` is an empty `params` list with no `Param`. Unnamed parameters are accepted only in a body-less `FunctionDecl`; methods, interface signatures, lambdas, rich-enum variants and definitions refuse them (C11 6.9.1p5). `f(void, int)`, `f(void x)` and qualified `void` are refused. A prototype parameter without a name emits no C name. `(void)` is accepted as an empty list wherever a parameter list appears (Stage 16, r01). | none (comment only) |
 | (b) Several declarators | Each declarator becomes its own complete node (`VarDeclStmt`, `FieldDef`, `FieldDecl`, `TypedefDecl`) with its own deep copy of the specifier type, spliced in source order into the list that holds the declaration (`Block`, `CaseClause`, `Program`, `StructDecl.fields`, `ClassDecl.members`). `*`, `[n]` and a function-pointer declarator bind to their own declarator (PLAN.md D20); specifiers, qualifiers and generic arguments are copied. The C-for initializer is the only single-statement slot, so `ForInitVar` holds a list. | `ForInitVar(stmt* declarations)` replaces `ForInitVar(stmt var_decl)` |
 | (c) Empty statement | No node. A `;` inside a statement list produces nothing; a `;` used as a body becomes an empty synthesized `Block` at the `;`. A stray file-scope `;` stays refused. Stage 20 (`goto` and labels) adds its own label and jump nodes. | none |
 | (d) Braceless bodies | A non-block body of `if`/`else`/`while`/C-`for`/`do` is wrapped in a synthesized `Block` through one shared helper per parser. A declaration as the sole body is refused (C does not treat a declaration as a statement). A dangling `else` binds to the nearest `if`. `for`-in, parallel `for`, `try`/`catch`/`finally` and `switch` stay braced. | none |
@@ -66,6 +72,106 @@ collection, generic closures) read the shared `declarations` storage. The
 realtime canonical-loop proof accepts exactly one declaration. No frozen
 boundary record changes: the boundary source contains no C-for, parameter,
 or adjacent string.
+
+## Stage 16 progress
+
+- **r02 and r06 (braceless bodies, empty statement).** One body helper per
+  parser (`Parser._parse_body`, `Parser.parseBody`) serves `if`, `else`,
+  `while`, `do` and the C-`for`; `_parse_block`/`parseBlock` and the case-clause
+  loop drop a `;` from statement lists. A declaration body and a file-scope
+  `;` are refused with one diagnostic in both compilers. No analyzer or
+  lowering change: `src/tests/btrc/test_c_compatibility_bodies.py` proves raw
+  IR and C (with and without `--debug`) identical to the braced twin,
+  including managed temporaries. The formatter indents an unbraced body one
+  level past its header, keeps it on its own line, and aligns a dangling
+  `else` with its `if`. Lanes that add to `_parse_for_stmt`/`parseForStmt`
+  call the helper only for the body, after `)`.
+
+## Stage 16 r01: `(void)` and unnamed parameters
+
+- **`(void)` everywhere.** Exactly `void` followed by `)` is an empty
+  parameter list in every parameter-list position: functions, prototypes,
+  methods, constructors, interface signatures, both lambda forms and rich-enum
+  variants. It is unambiguous and produces the same AST as `()`, so nothing
+  downstream can tell them apart. Any other plain `void` parameter (named,
+  qualified, `keep`, or beside another parameter) is refused at the
+  parameter's first token: `A 'void' parameter must be the only one, unnamed
+  and unqualified: write '(void)'`. `void*` and other derived types are
+  ordinary parameter types.
+- **Unnamed parameters.** A parameter is unnamed when its type is followed by
+  `,`, `)`, `[` or `=`. Only a `FunctionDecl` (including `extern` and
+  `static` ones) may have them, and only when it ends in `;`. The parser
+  checks this once the `)` is read: a body after an unnamed parameter, or an
+  unnamed parameter in any other list, is refused at that parameter's first
+  token with `Parameter name required: only a function prototype without a
+  body may omit it`. An unnamed parameter takes no `keep` (`A 'keep'
+  parameter requires a name`, at the `keep`) and no default (`An unnamed
+  parameter cannot have a default value`, at the `=`), because a default
+  belongs to the name named arguments use.
+- **Semantics.** Name validation and duplicate checks skip `""`. A prototype
+  and a definition are compatible when each parameter's name matches or
+  either side is unnamed; arity, types and `keep` must still agree, and a
+  mismatch reports `Conflicting declarations for function 'f'` at the later
+  declaration in both compilers. The definition stays the function's
+  registered owner, so named arguments and defaults use its names; a function
+  declared only by an unnamed prototype can be called positionally.
+  `int main(void)` is `int main()`.
+- **Lowering.** An unnamed `IRParam` has the empty name and both emitters print
+  its type alone (`int f(int, char*);`). An empty list still prints `(void)`.
+- **Not in r01.** Abstract function-pointer declarators (`int (*)(int)`) are
+  r07's.
+- **Repeated prototypes.** Both compilers accept any number of compatible
+  prototypes (btrcc used to refuse a second one). A named prototype
+  supersedes an unnamed one as the registered declaration, so
+  `int f(int); int f(int a); int f(int b) {}` conflicts at the definition in
+  both compilers. A `(` list not followed by `;` or `{` is the ordinary
+  `Expected LBRACE` error, not an unnamed-parameter refusal.
+
+## Stage 16 integration notes (`ccompat-c1-integrate`)
+
+The four C1 lanes (r02/r06 bodies, r01 parameters, r05 adjacent strings, r04
+char arrays) landed in that order as separate merges. What the integration
+step did and still owes, in both compilers:
+
+- **Adjacent strings into a char array (done at integration).** r04's
+  predicates and its extent owner (`string_initializer_byte_length` /
+  `stringInitializerByteLength`) take any string constant, and the extent is
+  the source-macro namespace's decoded length (`string_constant` /
+  `stringConstantLength`), so `char s[] = "ab" "cd";`, a macro piece and a
+  global all work, and the exact fit and overflow refuse with r04's
+  diagnostics. `c_compat/CharArrayStringInit.btrc` and the refusal tests cover
+  them through both compilers.
+- **One decoder (done at integration).** r04's duplicate byte counters
+  (`LiteralDecoder.string_byte_length`, `StringLiteral.byteLength`) are gone;
+  r05's decoder is the one owner in each compiler, and the lexer test checks
+  its byte counts.
+- **Body IR proof in btrcc.** btrcc has no `--emit-ir`, so r02's
+  braced-versus-braceless proof compares btrcc's C output, while the Python
+  compiler compares raw IR.
+- **Deferred by r04, all existing behavior shared with `int` arrays:** a bound
+  the front end cannot evaluate (a C `#define` or `sizeof`) leaves the exact
+  fit to the C compiler; a line splice inside a literal gains the emitter's
+  indentation; a global used only through `sizeof(g)` is dropped by the
+  optimizer; `const int N = 3; char t[N] = "abc";` is emitted as a VLA with an
+  initializer.
+- **Editor tooling (done after integration, `stage16/devex-c1-fixes`).** A
+  braceless body is a Block synthesized at its first token, so the LSP's
+  lexical scopes now end it with its single statement rather than at a later
+  `}` (a braceless C-for variable no longer captures a later function's uses;
+  `src/tests/lsp/test_scope_aware.py`), and a prototype's symbol range stays
+  on its line. The formatter keeps an if open for an else from its
+  condition's `)`, so an inner if whose body shares its line keeps the else;
+  aligns a do-while's closing `while` with an unbraced `do`; keeps a closing
+  `)` or `]` line inside an unbraced body at the body's level; does not treat
+  the line after a semicolon-less `import "x.btrc"` as a string continuation;
+  and does not compact a trivial function whose string pieces are split across
+  lines (`src/tests/formatter/test_engine.py`). A follow-up fuzz pass found
+  two more: ifs inside an unbraced `do` body now close with its `while`, and a
+  header or `{` on a continuation line outside parentheses (after `case X:`,
+  a lambda after `=`) nests its body past the continuation, which reindented
+  three switch corpus files (whitespace only). Still deferred: case bodies are
+  not modelled, so statements after a case's first line stay at the label's
+  level. Neither compiler changed.
 
 ## C2 aggregates (Stage 17) and array dimensions (Stage 18)
 
@@ -783,7 +889,7 @@ Each lane changes Python first and then ports to btrc in the same commit. The li
   - Frontend: `Visibility.btrc`, whose `TypeExpr` branch must visit `elements`.
   - Lowering: the `CTypeLowerer` registry; `DeclarationLowerer`; `StatementLowerer`; `ExpressionLowerer`; `AggregateValueLowerer`.
   - Units and optimizer: `ModuleUnitDeclarations`; `ir/runtime/References.btrc`; `IROptimizer`; setjmp `Safety.btrc` and `Analysis.btrc`; `ir/gpu/Pipeline.btrc`.
-  - Emission: `CEmitter.emitTypedef`, `emitOrderedAliases` and the module emission order.
+  - Emission: `CEmitter.emitTypedef` and `IRTypeDeclarationPlanner` (which mirrors `IROptimizer.plan_type_declarations`, including the array-typedef complete-type context).
 - **Tests and docs:**
   - Probes and corpus: the `c2.toml` r17 rows; `c_compat/TwoDimensionalArrays.btrc`.
   - Inverted tests: `test_parser_decls.py::test_multidimensional_array_has_architecture_error` and the one-dimension case in `test_parser_diagnostics.py`.
@@ -881,6 +987,8 @@ Outside the manifest:
 **Stage 18** (serial first, then 2 lanes, 2 reviewers):
 
 1. **btrc emission-order parity commit.** The btrc `CEmitter` today prints every alias and prototype before struct definitions. It changes to emit planned type declarations, then prototypes, as Python does. The commit gets its own bootstrap fixed point and a byte-diff review of btrcc's C. The Python planner treats an `IRTypedefDef` with `array_size` as a complete-type context.
+
+   **Landed (lane `stage18/emit-order`).** `IRTypeDeclarationPlanner` in `ir/optimization/Optimizer.btrc` ports `IROptimizer.plan_type_declarations`. btrcc now emits struct forwards, then the planned enums, function-pointer typedefs, typedefs, tagged unions and structs, then prototypes, as `CEmitter._emit_unit` does. Module units dropped their own struct ordering. Before the change, btrcc printed enums before the forwards, every alias and tagged union before the prototypes, and struct definitions after them. Over the 964-program corpus, Python's C is unchanged, and 546 of btrcc's outputs changed, each a pure reordering. btrcc's layout of user declarations and prototypes now matches Python's in 960 programs, up from 446. In a 120-program module-unit sample it matches in all 496 unit files, up from 286. Only 3 whole programs are byte-identical between the compilers, both before and after, because of lowering differences outside emission order: temporary naming, the include set, unused function-pointer typedefs btrcc keeps, the GPU uniforms struct, and generic-instance list order. The `array_size` complete-type context waits for item 3.
 2. **Representation and analyzer:** the parsers accept extents; rank helpers; extent values; decay, argument, `sizeof` and initializer rules; refusals; the `--module-units` rank-2 regression.
 3. **Storage lowering:** `IRTypedefDef.array_size`; the row-typedef registry in both `CTypeLowerer`s; declarations; qualifier casts.
 4. **In parallel:**

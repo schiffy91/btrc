@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.lexer.lexer import Lexer, LexerError
+from src.compiler.python.lexer.lexer import Lexer, LexerError, LiteralDecoder
 from src.compiler.python.syntax.grammar import EbnfGrammarParser
 from src.compiler.python.syntax.tokens import TokenKind, TokenVocabulary
 
@@ -681,6 +681,29 @@ class TestTripleQuoteStrings:
         assert tokens[4].type == TokenKind.SEMICOLON
 
 
+class TestStringByteLength:
+    """A char array's extent counts the bytes a lexed literal stores (PLAN.md D20)."""
+
+    @pytest.mark.parametrize(
+        ("source", "length"),
+        [
+            ('"abc"', 3),
+            ('""', 0),
+            ('"a\\nb"', 3),
+            ('"\\x41\\101\\0"', 3),
+            ('"\\1234"', 2),
+            ('"\\x41g"', 2),
+            ('"caf\\u00e9"', 5),
+            ('"\\U0001F600"', 4),
+            ('"café"', 5),
+            ('"""two\nlines"""', 9),
+            ('"ab\\\ncd"', 4),
+        ],
+    )
+    def test_counts_decoded_bytes(self, source, length):
+        assert len(LiteralDecoder.decode_string(lex(source)[0].value)) == length
+
+
 def test_lexer_uses_its_explicit_immutable_vocabulary():
     grammar = GRAMMAR_PARSER.parse('@lexical { @keywords { class } @operators { "+" } @annotations { gpu } }')
     vocabulary = TokenVocabulary(grammar)
@@ -695,3 +718,46 @@ def test_lexer_uses_its_explicit_immutable_vocabulary():
     ]
     with pytest.raises(TypeError):
         vocabulary.keywords["while"] = TokenKind.WHILE
+
+
+@pytest.mark.parametrize(
+    ("raw", "decoded"),
+    [
+        ('"\\x4"', b"\x04"),
+        ('"\\x41"', b"A"),
+        ('"\\1"', b"\x01"),
+        ('"\\1234"', b"S4"),
+        ('"a\\tb\\\\"', b"a\tb\\"),
+        ('"\\u00e9"', "é".encode()),
+        ('"\\U0001F600"', "😀".encode()),
+        ('"é"', "é".encode()),
+        ('"a\\\nb"', b"ab"),
+        ('""', b""),
+    ],
+)
+def test_string_spelling_decodes_to_its_execution_bytes(raw, decoded):
+    assert LiteralDecoder.decode_string(raw) == decoded
+
+
+def test_adjacent_pieces_decode_separately():
+    tokens = Lexer('"\\x4" "1" "\\x1" "2"').tokenize()
+    pieces = [token.value for token in tokens if token.type == TokenKind.STRING_LIT]
+    assert b"".join(LiteralDecoder.decode_string(piece) for piece in pieces) == b"\x041\x012"
+
+
+@pytest.mark.parametrize(
+    ("text", "pieces"),
+    [
+        ('"a" "b"', ('"a"', '"b"')),
+        ('GREETING " \\"x\\" "', ("GREETING", '" \\"x\\" "')),
+        ("  NAME_2\t", ("NAME_2",)),
+        ("", None),
+        ('("a")', None),
+        ('"a" 3', None),
+        ('"unterminated', None),
+        ('"a" // trailing comment', ('"a"',)),
+        ('"a" /* note */ NAME', ('"a"', "NAME")),
+    ],
+)
+def test_macro_replacement_splits_into_string_pieces(text, pieces):
+    assert LiteralDecoder.string_pieces(text) == pieces

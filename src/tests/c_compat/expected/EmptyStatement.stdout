@@ -1,0 +1,3 @@
+PASS: empty loop bodies
+PASS: empty statements in lists and branches
+PASS: empty statements after return, in cases and in do

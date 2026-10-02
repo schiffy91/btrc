@@ -6,6 +6,7 @@ import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
+import ../../syntax/Literals.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
 import ../HostedAbi.btrc;
@@ -124,7 +125,7 @@ class OwnershipValidator {
 	}
 
 	private Node? opaqueManagedOrigin(Node? expression, Map<string, Node> variables) {
-		if (expression == null || expression.kind == NK_STRING_LITERAL) {
+		if (expression == null || StringConstant.isNode(expression)) {
 			return null;
 		}
 		Node? direct = self.types.inferType(expression, variables);
@@ -1046,7 +1047,7 @@ class OwnershipValidator {
 
 	public bool rawLifetimeUsesStaticString(Node? expression, Map<string, Node> vars) {
 		if (expression == null) { return false; }
-		if (expression.kind == NK_STRING_LITERAL) { return true; }
+		if (StringConstant.isNode(expression)) { return true; }
 		if (expression.kind == NK_CAST_EXPR) {
 			return self.rawLifetimeUsesStaticString(expression.expr, vars);
 		}

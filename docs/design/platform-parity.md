@@ -115,6 +115,39 @@ with an owner, regression and current evidence status for every row.
    Carry over existing stricter BTRSmith runtime budgets instead of relaxing
    them to meet this document.
 
+#### P0 inventory
+
+The parity inventory is [`platform-inventory.toml`](platform-inventory.toml):
+one record per operation and target slice, in the qualification ledger format
+(`tools/qualification/schema.py`, written compactly as one row per operation
+with a cell per slice). Its 323 operations are derived rather than chosen: the
+84 exports of the root and group stdlib manifests outside UI0's groups, the
+223 helpers of the runtime manifest and the 16 corpus topic directories.
+`src/tests/python/test_platform_inventory.py` recomputes that set from the
+manifests, exports and corpus and fails on drift, and the `operation` entry of
+`tools/qualification/denominators.toml` freezes it (release
+`p0-inventory-2026-10-02`, 323 ids × 6 slices = 1938 slots). Every row
+carries a class, an implementation state, an owner (a milestone of this
+document), the tests that pin it, and its evidence status. No slice result has
+been ingested, so no row is `passed`.
+
+| Slice | Slots | Equivalent | Adapted | OS-restricted | Missing |
+| --- | --- | --- | --- | --- | --- |
+| `windows-x64` | 323 | 271 | 36 | 4 | 12 |
+| `windows-arm64` | 323 | 271 | 36 | 4 | 12 |
+| `ios-device` | 323 | 281 | 16 | 23 | 3 |
+| `ios-simulator` | 323 | 281 | 16 | 23 | 3 |
+| `android-arm64` | 323 | 294 | 15 | 11 | 3 |
+| `android-x86_64` | 323 | 294 | 15 | 11 | 3 |
+
+The `App`, `GUI`, `Tray` and `UI` groups are UI0's: their operations are
+referenced through the frozen family-cell, ui-operation and ui-case
+denominators ([native-ui-parity.md](native-ui-parity.md)), not inventoried
+again here. BTRSmith's journeys and native package contracts are classified in
+the private BTRSmith repository under `btrsmith-p0-inventory`; they are pending
+there and are not part of these totals. The P0 entry gate, the item-3
+adaptation decisions and the item-4 matrix pin are still open.
+
 ### P1 — Target identity, ABI and native build artifacts
 
 Dependencies: P0. Exit: both frontends build and run an ABI/callback fixture
@@ -599,3 +632,14 @@ applicable stdlib APIs, native packages, BTRSmith journeys, numeric budgets and
 installable artifacts are qualified. A narrower checkpoint must state its exact
 subset and remaining missing/restricted counts. Maintain one ownership model,
 one structured compiler pipeline and platform-selected providers throughout.
+
+## Stage 22 planning artifacts
+
+P0 steps 3 and 4 are recorded in their own files. The toolchain matrix
+([platform-toolchain-matrix.md](platform-toolchain-matrix.md)) pins every
+slice's OS floor, SDK, toolchain, wgpu-native archive and FreeType version
+with sources; Xcode is pinned by build number (27A266a). The device registry
+([../qualification/devices.toml](../qualification/devices.toml)) maps every
+physical gate to a device or an unavailable record. The desktop-only
+adaptations ([platform-adaptations.md](platform-adaptations.md)) are a draft
+awaiting the owner's sign-off.

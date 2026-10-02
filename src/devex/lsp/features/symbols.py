@@ -55,7 +55,8 @@ class SymbolProvider:
             return None
         line, col = mapped
         start = self._pos(result.source, line, col)
-        if isinstance(node, (ClassDecl, FunctionDecl, MethodDecl)):
+        # A prototype has no body, so a brace scan would reach the next definition.
+        if isinstance(node, ClassDecl) or (isinstance(node, (FunctionDecl, MethodDecl)) and node.body is not None):
             end_line = LexicalScopeIndex.find_closing_brace_line(source_lines, line - 1)
             if end_line is not None:
                 end_col = DocumentText.utf16_length(source_lines[end_line]) if end_line < len(source_lines) else 0
@@ -160,7 +161,11 @@ class SymbolProvider:
                 decl_selection = self._selection_range(result, decl)
                 if decl_range is None or decl_selection is None:
                     continue
-                params = ", ".join(f"{self.resolver.type_repr(p.type)} {p.name}" for p in decl.params)
+                # An unnamed prototype parameter is listed by its type alone.
+                params = ", ".join(
+                    f"{self.resolver.type_repr(p.type)} {p.name}" if p.name else self.resolver.type_repr(p.type)
+                    for p in decl.params
+                )
                 ret = self.resolver.type_repr(decl.return_type)
                 symbols.append(
                     lsp.DocumentSymbol(

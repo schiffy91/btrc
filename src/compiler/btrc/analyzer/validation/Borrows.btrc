@@ -6,6 +6,7 @@ import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
+import ../../syntax/Literals.btrc;
 import ../Expressions.btrc;
 import ../HostedAbi.btrc;
 import ../Models.btrc;
@@ -194,7 +195,7 @@ class BorrowValidator {
 
 	public Node? opaqueManagedOrigin(Node? expression, Map<string, Node> vars) {
 		if (expression == null) { return null; }
-		if (expression.kind == NK_STRING_LITERAL) { return null; }
+		if (StringConstant.isNode(expression)) { return null; }
 		Node? direct = self.types.inferType(expression,  vars);
 		if (self.opaqueManagedType(direct)) { return direct; }
 		if (expression.kind == NK_CAST_EXPR) {
@@ -242,7 +243,7 @@ class BorrowValidator {
 		if (expression == null) { return false; }
 		if (expression.kind == NK_CAST_EXPR) {
 			if (!self.opaqueRawCarrierType(expression.targetType)) { return false; }
-			if (expression.expr.kind == NK_STRING_LITERAL) { return false; }
+			if (StringConstant.isNode(expression.expr)) { return false; }
 			return self.opaqueManagedOrigin(expression.expr, vars) != null || self.expressionCarriesOpaqueBorrow(expression.expr, vars);
 		}
 		if (expression.kind == NK_UNARY_EXPR) {
@@ -285,7 +286,7 @@ class BorrowValidator {
 
 	public bool expressionIsOpaqueBorrow(Node? expression, Map<string, Node> vars) {
 		if (expression == null) { return false; }
-		if (expression.kind == NK_STRING_LITERAL) { return false; }
+		if (StringConstant.isNode(expression)) { return false; }
 		return self.opaqueManagedType(self.types.inferType(expression, vars)) || self.expressionCarriesOpaqueBorrow(expression, vars);
 	}
 

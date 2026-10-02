@@ -377,6 +377,11 @@ class TopLevelRegistrar:
         if declaration.body is not None:
             registry.merge_defaults(declaration, existing)
             self.index.function_table[declaration.name] = declaration
+        elif existing.body is None and any(not parameter.name for parameter in existing.params):
+            # A named prototype supersedes an unnamed one, so a later
+            # definition is checked against the names it declares.
+            registry.merge_defaults(declaration, existing)
+            self.index.function_table[declaration.name] = declaration
         else:
             registry.merge_defaults(existing, declaration)
 
@@ -853,6 +858,9 @@ class DeclarationRegistry:
     def validate_parameter_names(self, parameters, owner) -> None:
         seen = set()
         for parameter in parameters:
+            if not parameter.name:
+                # An unnamed prototype parameter (C11 6.7.6.3) declares no name.
+                continue
             line = parameter.name_line or parameter.line
             col = parameter.name_col or parameter.col
             self.validate_name(parameter.name, "Parameter", line, col, c_name_generated=True)
@@ -991,7 +999,7 @@ class DeclarationRegistry:
         ):
             return False
         return all(
-            first.name == second.name
+            (first.name == second.name or not first.name or not second.name)
             and first.keep == second.keep
             and self._type_identity.shape_key(first.type) == self._type_identity.shape_key(second.type)
             and self._compatible_defaults(first.default, second.default)

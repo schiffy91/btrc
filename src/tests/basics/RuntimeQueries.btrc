@@ -1,0 +1,19 @@
+/* Source-visible runtime queries: the compiled target's architecture code
+ * (__btrc_target_architecture: 0 other, 1 x86_64, 2 arm64) and the number of
+ * live managed strings (__btrc_string_live_count). */
+#include <assert.h>
+
+int main() {
+	int architecture = __btrc_target_architecture();
+	assert(architecture >= 0 && architecture <= 2);
+
+	size_t before = __btrc_string_live_count();
+	string? built = f"architecture {architecture}";
+	assert(built.len() > 0);
+	assert(__btrc_string_live_count() == before + (size_t)1);
+	built = null;
+	assert(__btrc_string_live_count() == before);
+
+	print("PASS: test_runtime_queries");
+	return 0;
+}

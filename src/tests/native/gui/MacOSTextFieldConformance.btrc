@@ -1,88 +1,104 @@
+import Library.GUI;
+import Library.GUI.IApplication;
 import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.IWindow;
 import Library.GUI.ITextField;
-import Library.GUI.MacOS.MacOSApplication;
-import Library.GUI.MacOS.MacOSTextField;
-import Library.GUI.MacOS.MacOSWindow;
-import Library.GUI.MacOS.MacOSView;
 
 import ./ControlProbe.btrc;
 #include <assert.h>
 
+/* A queued key reaches the field editor through the running native loop. */
+class KeyDelivery implements IApplicationWork {
+	private IWindow _window;
+	private IContainer _root;
+	private ITextField _field;
+	private int _polls = 0;
+
+	public KeyDelivery(IWindow window, IContainer root, ITextField field) { self._window = window; self._root = root; self._field = field; }
+
+	public void run() {
+		if (self._polls == 0) { assert(NativeTextFieldProbe.queueKey()); }
+		self._polls++;
+		if (!self._field.text().equals("n 🎸")) {
+			assert(self._polls < 200);
+			GUI.postAfter(0.01, self);
+			return;
+		}
+		self.finish();
+	}
+
+	private void finish() {
+		Thread<int> applicationWorker = spawn(() => {
+				try { GUI.initialize(); } catch (string error) { return error.equals("GUI requires the main thread") ? 0 : 1; }
+				return 2;
+			});
+		assert(applicationWorker.join() == 0);
+		IView view = self._field;
+		self._root.detach(view);
+		view.close();
+		assert(!self._field.isOpen() && !view.isOpen());
+		self._field.close();
+		assert(NativeTextFieldProbe.finish());
+		self._window.close();
+		self._window.close();
+		bool windowClosed = false;
+		try { self._window.title(); } catch (string error) { windowClosed = error.equals("Window is closed"); }
+		assert(windowClosed);
+		bool invalidSize = false;
+		try { var invalid = GUI.createWindow("Invalid", -1.0, 180.0); } catch (string error) { invalidSize = error.equals("Invalid window content size"); }
+		assert(invalidSize);
+		bool closed = false;
+		try { self._field.text(); } catch (string error) { closed = error.equals("Text field is closed"); }
+		assert(closed);
+		Thread<int> worker = spawn(() => {
+				try { var invalid = GUI.createTextField(); } catch (string error) { return error.equals("GUI requires the main thread") ? 0 : 1; }
+				return 2;
+			});
+		assert(worker.join() == 0);
+		Thread<int> windowWorker = spawn(() => {
+				try { var invalid = GUI.createWindow("Worker", 480.0, 180.0); } catch (string error) { return error.equals("GUI requires the main thread") ? 0 : 1; }
+				return 2;
+			});
+		assert(windowWorker.join() == 0);
+		GUI.requestQuit();
+	}
+}
+
 int main() {
-	var app = MacOSApplication();
-	var window = MacOSWindow("Library Música 🎸", 480.0, 180.0);
-	NativeTextFieldProbe.prepare(window.nativeWindow());
-	var field = MacOSTextField("Library Música 🎸", "Search library");
-	ITextField textField = field;
-	IView view = textField;
-	assert(textField.text().equals("Library Música 🎸") && view.isOpen());
+	GUI.initialize();
+	var window = GUI.createWindow("Library Música 🎸", 480.0, 180.0);
+	var root = GUI.createContainer();
+	window.attachRoot(root);
+	assert(NativeTextFieldProbe.prepare());
+	var field = GUI.createTextField("Library Música 🎸", "Search library");
+	IView view = field;
+	assert(field.text().equals("Library Música 🎸") && view.isOpen());
 	assert(view.fittingWidth() >= 0.0 && view.fittingHeight() > 0.0);
-	textField.setEnabled(false);
-	assert(!textField.isEnabled());
-	textField.setEnabled(true);
-	assert(textField.isEnabled());
+	field.setEnabled(false);
+	assert(!field.isEnabled());
+	field.setEnabled(true);
+	assert(field.isEnabled());
 	view.setVisible(false);
 	assert(!view.isVisible());
 	view.setVisible(true);
-	var parent = window.contentView();
-	IMacOSView? native = (IMacOSView?)view;
-	assert(native != null);
-	NSView child = native.nativeView();
-	assert(view.fittingWidth() == child.fittingSize().width && view.fittingHeight() == child.fittingSize().height);
-	parent.addSubview(child);
+	root.attach(field);
+	assert(NativeTextFieldProbe.matchesFittingWidth(view.fittingWidth(), view.fittingHeight()));
 	view.arrange(24.25, 77.375, 431.75, 30.125);
-	var frame = field.nativeControl().frame();
-	assert(frame.origin.x == 24.25 && frame.origin.y == 72.5 && frame.size.width == 431.75 && frame.size.height == 30.125);
 	bool invalidFrame = false;
-	try { field.setFrame(0.0, 0.0, -1.0, 30.0); } catch (string error) { invalidFrame = error.equals("Invalid text field frame"); }
+	try { view.arrange(0.0, 0.0, -1.0, 30.0); } catch (string error) { invalidFrame = error.equals("Invalid native view frame"); }
 	assert(invalidFrame);
-	assert(NativeTextFieldProbe.mount(field.nativeControl()));
+	assert(NativeTextFieldProbe.mount());
 	assert(NativeTextFieldProbe.replaceSelection());
-	assert(textField.text().equals("Guitar 🎸"));
-	textField.setText("Guitar 🎸");
+	assert(field.text().equals("Guitar 🎸"));
+	field.setText("Guitar 🎸");
 	assert(NativeTextFieldProbe.selectionUnchanged());
 	assert(NativeTextFieldProbe.undo());
-	assert(textField.text().equals("Library Música 🎸"));
+	assert(field.text().equals("Library Música 🎸"));
 	assert(NativeTextFieldProbe.redo());
-	assert(textField.text().equals("Guitar 🎸"));
-	for (int drain = 0; drain < 20; drain++) { if (app.pumpEvents() == 0) { break; } }
-	assert(NativeTextFieldProbe.queueKey());
-	assert(app.pumpEvents(1) == 1);
-	assert(textField.text().equals("n 🎸"));
-	bool invalidLimit = false;
-	try { app.pumpEvents(0); } catch (string error) { invalidLimit = error.equals("Event dispatch limit must be positive"); }
-	assert(invalidLimit);
-	Thread<int> applicationWorker = spawn(() => {
-			try { var invalid = MacOSApplication(); } catch (string error) { return error.equals("AppKit application dispatch requires the main thread") ? 0 : 1; }
-			return 2;
-		});
-	assert(applicationWorker.join() == 0);
-	var control = field.nativeControl();
-	view.close();
-	assert(!textField.isOpen() && !field.isOpen());
-	field.close();
-	assert(NativeTextFieldProbe.finish(control));
-	window.close();
-	window.close();
-	bool windowClosed = false;
-	try { window.contentView(); } catch (string error) { windowClosed = error.equals("Window is closed"); }
-	assert(windowClosed);
-	bool invalidSize = false;
-	try { var invalid = MacOSWindow("Invalid", -1.0, 180.0); } catch (string error) { invalidSize = error.equals("Invalid window content size"); }
-	assert(invalidSize);
-	bool closed = false;
-	try { field.text(); } catch (string error) { closed = error.equals("Text field is closed"); }
-	assert(closed);
-	Thread<int> worker = spawn(() => {
-			try { var invalid = MacOSTextField(); } catch (string error) { return error.equals("AppKit text fields require the main thread") ? 0 : 1; }
-			return 2;
-		});
-	assert(worker.join() == 0);
-	Thread<int> windowWorker = spawn(() => {
-			try { var invalid = MacOSWindow("Worker", 480.0, 180.0); } catch (string error) { return error.equals("AppKit windows require the main thread") ? 0 : 1; }
-			return 2;
-		});
-	assert(windowWorker.join() == 0);
+	assert(field.text().equals("Guitar 🎸"));
+	GUI.post(KeyDelivery(window, root, field));
+	GUI.run();
 	print("PASS: AppKit text field editing from BTRC");
 	return 0;
 }

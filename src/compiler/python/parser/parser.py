@@ -72,6 +72,7 @@ from src.compiler.python.syntax.ast.generated import (
     SizeofExprOp,
     SizeofType,
     SpawnExpr,
+    StringConcat,
     StringLiteral,
     StructDecl,
     SuperExpr,
@@ -89,6 +90,12 @@ from src.compiler.python.syntax.ast.generated import (
 
 from ..lexer.lexer import Lexer, LiteralDecoder
 from ..syntax.tokens import TYPE_KEYWORDS, Token, TokenKind, TokenVocabulary
+
+# C parameter-list refusals (docs/design/c-compatibility.md, item (a)).
+VOID_PARAMETER_LIST = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'"
+UNNAMED_PARAMETER = "Parameter name required: only a function prototype without a body may omit it"
+UNNAMED_KEEP_PARAMETER = "A 'keep' parameter requires a name"
+UNNAMED_DEFAULT_PARAMETER = "An unnamed parameter cannot have a default value"
 
 
 class ParseError(Exception):
@@ -567,22 +574,42 @@ class Parser:
 
     # ---- Parameters ----
 
-    def _parse_param_list(self) -> list[Param]:
+    def _parse_param_list(self, *, allow_unnamed: bool = False) -> list[Param]:
+        """Parse a parameter list; `(void)` is C's spelling of an empty one.
+
+        Only a body-less function prototype may omit parameter names (C11
+        6.9.1p5): its caller passes ``allow_unnamed`` and refuses a body that
+        follows an unnamed parameter.
+        """
         params = []
         if self._check(TokenKind.RPAREN):
             return params
-        params.append(self._parse_param())
+        if self._check(TokenKind.VOID) and self._peek(1).type == TokenKind.RPAREN:
+            self._advance()
+            return params
+        params.append(self._parse_param(allow_unnamed))
         while self._match(TokenKind.COMMA):
-            params.append(self._parse_param())
+            params.append(self._parse_param(allow_unnamed))
         return params
 
-    def _parse_param(self) -> Param:
+    def _parse_param(self, allow_unnamed: bool = False) -> Param:
         tok = self._peek()
         has_keep = False
         if self._check(TokenKind.KEEP):
             has_keep = True
             self._advance()
         type_expr = self._parse_type_expr()
+        if type_expr.base == "void" and type_expr.pointer_depth == 0 and not type_expr.generic_args:
+            raise ParseError(VOID_PARAMETER_LIST, tok.line, tok.col)
+        if self._check(TokenKind.COMMA, TokenKind.RPAREN, TokenKind.LBRACKET, TokenKind.EQ):
+            if not allow_unnamed:
+                raise ParseError(UNNAMED_PARAMETER, tok.line, tok.col)
+            if has_keep:
+                raise ParseError(UNNAMED_KEEP_PARAMETER, tok.line, tok.col)
+            self._parse_declarator_array_suffix(type_expr)
+            if self._check(TokenKind.EQ):
+                raise self._error(UNNAMED_DEFAULT_PARAMETER)
+            return Param(type=type_expr, name="", default=None, keep=False, line=tok.line, col=tok.col)
         name_tok = self._expect(TokenKind.IDENT, "parameter name")
         name = name_tok.value
         self._parse_declarator_array_suffix(type_expr)
@@ -599,6 +626,12 @@ class Parser:
             name_line=name_tok.line,
             name_col=name_tok.col,
         )
+
+    @staticmethod
+    def _refuse_unnamed_definition(params: list[Param]) -> None:
+        for param in params:
+            if not param.name:
+                raise ParseError(UNNAMED_PARAMETER, param.line, param.col)
 
     def _parse_top_level_item(self):
         tok = self._peek()
@@ -1147,7 +1180,7 @@ class Parser:
 
         if self._check(TokenKind.LPAREN):
             self._expect(TokenKind.LPAREN)
-            params = self._parse_param_list()
+            params = self._parse_param_list(allow_unnamed=True)
             self._expect(TokenKind.RPAREN)
             if self._match(TokenKind.SEMICOLON):
                 return FunctionDecl(
@@ -1163,6 +1196,8 @@ class Parser:
                     name_line=name_tok.line,
                     name_col=name_tok.col,
                 )
+            if self._check(TokenKind.LBRACE):
+                self._refuse_unnamed_definition(params)
             body = self._parse_block()
             return FunctionDecl(
                 return_type=type_expr,
@@ -1199,9 +1234,32 @@ class Parser:
         tok = self._expect(TokenKind.LBRACE)
         stmts = []
         while not self._check(TokenKind.RBRACE) and not self._at_end():
+            # An empty statement inside a statement list produces nothing.
+            if self._match(TokenKind.SEMICOLON):
+                continue
             stmts.append(self._parse_statement())
         self._expect(TokenKind.RBRACE)
         return Block(statements=stmts, line=tok.line, col=tok.col)
+
+    def _parse_body(self) -> Block:
+        """Parse the substatement of ``if``/``else``/``while``/C-``for``/``do``.
+
+        A braced body is its own block. Any other statement is wrapped in a
+        synthesized ``Block`` positioned at the statement's first token, so
+        the body keeps exactly the scope a braced body has; an empty
+        statement ``;`` becomes an empty ``Block`` positioned at the ``;``.
+        A declaration is not a statement in C (C11 6.8), so it is refused as
+        a body. ``for``-in, parallel ``for``, ``try``/``catch``/``finally``
+        and ``switch`` keep requiring braces through ``_parse_block``.
+        """
+        tok = self._peek()
+        if tok.type == TokenKind.LBRACE:
+            return self._parse_block()
+        if self._match(TokenKind.SEMICOLON):
+            return Block(statements=[], line=tok.line, col=tok.col)
+        if self._is_var_decl_start():
+            raise self._error("A declaration cannot be the body of a control statement; enclose it in braces")
+        return Block(statements=[self._parse_statement()], line=tok.line, col=tok.col)
 
     def _parse_statement(self):
         tok = self._peek()
@@ -1342,13 +1400,13 @@ class Parser:
         self._expect(TokenKind.LPAREN)
         condition = self._parse_expr()
         self._expect(TokenKind.RPAREN)
-        then_block = self._parse_block()
+        then_block = self._parse_body()
         else_block = None
         if self._match(TokenKind.ELSE):
             if self._check(TokenKind.IF):
                 else_block = ElseIf(if_stmt=self._parse_if_stmt())
             else:
-                else_block = ElseBlock(body=self._parse_block())
+                else_block = ElseBlock(body=self._parse_body())
         return IfStmt(condition=condition, then_block=then_block, else_block=else_block, line=tok.line, col=tok.col)
 
     def _parse_while_stmt(self) -> WhileStmt:
@@ -1356,12 +1414,12 @@ class Parser:
         self._expect(TokenKind.LPAREN)
         condition = self._parse_expr()
         self._expect(TokenKind.RPAREN)
-        body = self._parse_block()
+        body = self._parse_body()
         return WhileStmt(condition=condition, body=body, line=tok.line, col=tok.col)
 
     def _parse_do_while_stmt(self) -> DoWhileStmt:
         tok = self._expect(TokenKind.DO)
-        body = self._parse_block()
+        body = self._parse_body()
         self._expect(TokenKind.WHILE)
         self._expect(TokenKind.LPAREN)
         condition = self._parse_expr()
@@ -1458,7 +1516,7 @@ class Parser:
             update = self._parse_expr()
         self._expect(TokenKind.RPAREN)
 
-        body = self._parse_block()
+        body = self._parse_body()
         return CForStmt(init=init, condition=condition, update=update, body=body, line=tok.line, col=tok.col)
 
     def _parse_parallel_for_stmt(self) -> ParallelForStmt:
@@ -1494,6 +1552,8 @@ class Parser:
         self._expect(TokenKind.COLON)
         body = []
         while not self._check(TokenKind.CASE, TokenKind.DEFAULT, TokenKind.RBRACE) and not self._at_end():
+            if self._match(TokenKind.SEMICOLON):
+                continue
             body.append(self._parse_statement())
         return CaseClause(value=value, body=body, line=tok.line, col=tok.col)
 
@@ -1831,13 +1891,15 @@ class Parser:
 
         if tok.type == TokenKind.STRING_LIT:
             self._advance()
-            return StringLiteral(value=tok.value, line=tok.line, col=tok.col)
+            return self._parse_adjacent_strings(StringLiteral(value=tok.value, line=tok.line, col=tok.col))
 
         if tok.type == TokenKind.CHAR_LIT:
             self._advance()
             return CharLiteral(value=tok.value, line=tok.line, col=tok.col)
 
         if tok.type == TokenKind.FSTRING_LIT:
+            if self._peek(1).type in (TokenKind.STRING_LIT, TokenKind.FSTRING_LIT):
+                raise ParseError(self._ADJACENT_FSTRING, tok.line, tok.col)
             self._advance()
             return self._parse_fstring(tok)
 
@@ -1895,9 +1957,52 @@ class Parser:
         if tok.type == TokenKind.IDENT:
             self._refuse_deferred_c_specifier(tok)
             self._advance()
-            return Identifier(name=tok.value, line=tok.line, col=tok.col)
+            identifier = Identifier(name=tok.value, line=tok.line, col=tok.col)
+            if self._check(TokenKind.STRING_LIT) and not self._is_encoding_prefix(tok, self._peek()):
+                return self._parse_adjacent_strings(identifier)
+            return identifier
 
         raise self._error(f"Unexpected token '{tok.value}' in expression")
+
+    _ADJACENT_FSTRING = "An f-string cannot be concatenated with an adjacent string literal"
+
+    @staticmethod
+    def _is_encoding_prefix(name, following) -> bool:
+        """Whether ``L``, ``u``, ``U`` or ``u8`` touches the literal after it.
+
+        An encoding prefix is part of its literal, not a macro piece, so it is
+        never absorbed into a concatenation; any other name is a piece.
+        """
+        return (
+            name.value in {"L", "u", "U", "u8"}
+            and following.type == TokenKind.STRING_LIT
+            and following.line == name.line
+            and following.col == name.col + len(name.value)
+        )
+
+    def _parse_adjacent_strings(self, first):
+        """Absorb the literals and macro names adjacent to ``first`` (C phase 6).
+
+        A lone literal stays a ``StringLiteral``. Each piece keeps its own token
+        spelling, so escapes never run across a piece boundary; the analyzer
+        resolves a name piece to the string literal its source macro expands to.
+        """
+        parts = [first]
+        while True:
+            tok = self._peek()
+            if tok.type == TokenKind.STRING_LIT:
+                self._advance()
+                parts.append(StringLiteral(value=tok.value, line=tok.line, col=tok.col))
+            elif tok.type == TokenKind.IDENT and not self._is_encoding_prefix(tok, self._peek(1)):
+                self._advance()
+                parts.append(Identifier(name=tok.value, line=tok.line, col=tok.col))
+            elif tok.type == TokenKind.FSTRING_LIT:
+                raise ParseError(self._ADJACENT_FSTRING, first.line, first.col)
+            else:
+                break
+        if len(parts) == 1:
+            return first
+        return StringConcat(parts=parts, line=first.line, col=first.col)
 
     # ---- Compound literals ----
 

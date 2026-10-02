@@ -360,7 +360,13 @@ class BuiltinStdlibScanner:
         return tuple(fields), tuple(methods)
 
     def _is_hidden_field(self, member: FieldDecl) -> bool:
-        return member.name in self._ALWAYS_HIDDEN_FIELDS or bool(member.type and member.type.pointer_depth > 0)
+        return member.name in self._ALWAYS_HIDDEN_FIELDS or bool(member.type and self._raw_depth(member.type) > 0)
+
+    @staticmethod
+    def _raw_depth(type_expression: TypeExpr) -> int:
+        """Raw pointer levels: a nullable reference (`T?`) spends one level on its nullability."""
+        nullable = 1 if type_expression.is_nullable and type_expression.pointer_depth > 0 else 0
+        return type_expression.pointer_depth - nullable
 
     def _type_name(self, type_expression: TypeExpr | None) -> str:
         if type_expression is None:
@@ -369,8 +375,9 @@ class BuiltinStdlibScanner:
         if type_expression.generic_args:
             arguments = ", ".join(self._type_name(argument) for argument in type_expression.generic_args)
             result += f"<{arguments}>"
-        if type_expression.pointer_depth > 0:
-            result += "*" * type_expression.pointer_depth
+        result += "*" * self._raw_depth(type_expression)
+        if type_expression.is_nullable:
+            result += "?"
         return result
 
 

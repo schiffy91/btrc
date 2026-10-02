@@ -1,6 +1,7 @@
 /* Whole-module reachability and parameter normalization. */
 
 import Library.Map;
+import Library.Strings;
 import Library.Vector;
 
 import ../../frontend/Timing.btrc;
@@ -850,5 +851,294 @@ class IROptimizer {
 			}
 			f = f + 1;
 		}
+	}
+}
+
+/* The canonical group order of typed declarations, which the plan keeps
+ * among declarations that are ready together. */
+enum IRTypeDeclarationGroup {
+	IR_TYPE_DECLARATION_ENUM = 0,
+	IR_TYPE_DECLARATION_FUNCTION_POINTER = 1,
+	IR_TYPE_DECLARATION_TYPEDEF = 2,
+	IR_TYPE_DECLARATION_TAGGED_UNION = 3,
+	IR_TYPE_DECLARATION_STRUCT = 4
+};
+
+/* One planned typed declaration: its group and its position in that group's
+ * module list. */
+class IRTypeDeclarationRef {
+	public int group;
+	public int index;
+
+	public IRTypeDeclarationRef(int group, int index) {
+		self.group = group;
+		self.index = index;
+	}
+}
+
+/* The stable strict-C dependency order of a module's typed declarations.
+ * Mirrors IROptimizer.plan_type_declarations: a declaration follows every
+ * declaration it names, except that a struct or tagged union named through a
+ * pointer, or outside a complete-type context, needs only its forward. A
+ * struct, tagged union or enum is a complete-type context, and it also
+ * follows each aggregate a non-pointer typedef it uses resolves to. Ready
+ * declarations keep the canonical group order. */
+class IRTypeDeclarationPlanner {
+	class Vector<IRTypeDeclarationRef> plan(IRModule module) {
+		Vector<IRTypeDeclarationRef> declarations = [];
+		for (int index = 0; index < module.enumDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_ENUM, index)); }
+		for (int index = 0; index < module.functionPointerTypedefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_FUNCTION_POINTER, index)); }
+		for (int index = 0; index < module.typedefDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_TYPEDEF, index)); }
+		for (int index = 0; index < module.taggedUnionDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_TAGGED_UNION, index)); }
+		for (int index = 0; index < module.structDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_STRUCT, index)); }
+		if (declarations.len == 0) { return declarations; }
+		Map<string, int> providers = IRTypeDeclarationPlanner.typeProviders(module, declarations);
+		Map<string, int> valueProviders = IRTypeDeclarationPlanner.enumValueProviders(module, declarations);
+		Vector<Vector<int>> aliasTargets = IRTypeDeclarationPlanner.aliasCompleteTargets(module, declarations, providers);
+		Vector<Vector<int>> dependencies = [];
+		for (int index = 0; index < declarations.len; index++) {
+			dependencies.push(IRTypeDeclarationPlanner.typeDependencies(module, index, declarations, providers, valueProviders, aliasTargets));
+		}
+		return IRTypeDeclarationPlanner.stableOrder(module, declarations, dependencies);
+	}
+
+	class string declarationName(IRModule module, IRTypeDeclarationRef declaration) {
+		if (declaration.group == IR_TYPE_DECLARATION_ENUM) { return module.enumDefs.get(declaration.index).name; }
+		if (declaration.group == IR_TYPE_DECLARATION_FUNCTION_POINTER) { return module.functionPointerTypedefs.get(declaration.index).name; }
+		if (declaration.group == IR_TYPE_DECLARATION_TYPEDEF) { return module.typedefDefs.get(declaration.index).name; }
+		if (declaration.group == IR_TYPE_DECLARATION_TAGGED_UNION) { return module.taggedUnionDefs.get(declaration.index).name; }
+		return module.structDefs.get(declaration.index).name;
+	}
+
+	class bool isAggregate(IRTypeDeclarationRef declaration) { return declaration.group == IR_TYPE_DECLARATION_TAGGED_UNION || declaration.group == IR_TYPE_DECLARATION_STRUCT; }
+
+	class void provide(Map<string, int> providers, string name, int index, string kind) {
+		if (providers.has(name) && providers.get(name) != index) { throw "duplicate typed C " + kind + " provider '" + name + "'"; }
+		providers.put(name, index);
+	}
+
+	class Map<string, int> typeProviders(IRModule module, Vector<IRTypeDeclarationRef> declarations) {
+		Map<string, int> providers = {};
+		for (int index = 0; index < declarations.len; index++) {
+			IRTypeDeclarationRef declaration = declarations.get(index);
+			string name = IRTypeDeclarationPlanner.declarationName(module, declaration);
+			if (declaration.group == IR_TYPE_DECLARATION_ENUM && name.isEmpty()) { continue; }
+			IRTypeDeclarationPlanner.provide(providers, name, index, "declaration");
+			if (declaration.group == IR_TYPE_DECLARATION_TAGGED_UNION) {
+				for variant in module.taggedUnionDefs.get(declaration.index).variants {
+					if (variant.fields.len > 0) { IRTypeDeclarationPlanner.provide(providers, name + "_" + variant.name + "_Data", index, "declaration"); }
+				}
+			}
+		}
+		return providers;
+	}
+
+	class Map<string, int> enumValueProviders(IRModule module, Vector<IRTypeDeclarationRef> declarations) {
+		Map<string, int> providers = {};
+		for (int index = 0; index < declarations.len; index++) {
+			IRTypeDeclarationRef declaration = declarations.get(index);
+			if (declaration.group != IR_TYPE_DECLARATION_ENUM) { continue; }
+			for value in module.enumDefs.get(declaration.index).values { IRTypeDeclarationPlanner.provide(providers, value.name, index, "enum-value"); }
+		}
+		return providers;
+	}
+
+	/* The providers each whole identifier of C type text names. */
+	class Vector<int> typeReferences(string text, Map<string, int> providers) {
+		Vector<int> references = [];
+		int length = text.length();
+		int index = 0;
+		while (index < length) {
+			while (index < length && !IRTypeDeclarationPlanner.isIdentifierChar(text[index])) { index = index + 1; }
+			int start = index;
+			while (index < length && IRTypeDeclarationPlanner.isIdentifierChar(text[index])) { index = index + 1; }
+			if (start < index) {
+				string name = text.substring(start, index - start);
+				if (providers.has(name)) { references.push(providers.get(name)); }
+			}
+		}
+		return references;
+	}
+
+	class bool isIdentifierChar(char value) { return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == '_'; }
+
+	/* Every C type text an expression spells, as the reference walks each
+	 * CType node of a declaration. */
+	class void expressionTypes(IRNode? node, Vector<string> out) {
+		if (node == null) { return; }
+		if (!node.cType.isEmpty()) { out.push(node.cType); }
+		if (!node.targetType.isEmpty()) { out.push(node.targetType); }
+		if (node.params != null) { for parameter in node.params { out.push(parameter.cType); } }
+		if (node.cleanupSlot != null) { out.push(node.cleanupSlot.cType); }
+		IRTypeDeclarationPlanner.expressionTypes(node.left, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.right, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.operand, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.expr, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.obj, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.index, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.condition, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.trueExpr, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.falseExpr, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.init, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.value, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.target, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.thenBlock, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.elseBlock, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.body, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.update, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.result, out);
+		IRTypeDeclarationPlanner.expressionTypes(node.arraySize, out);
+		for argument in node.args() { IRTypeDeclarationPlanner.expressionTypes(argument, out); }
+		for statement in node.stmts() { IRTypeDeclarationPlanner.expressionTypes(statement, out); }
+	}
+
+	class void fieldTypes(Vector<IRStructField> fields, Vector<string> out) {
+		for field in fields {
+			out.push(field.cType);
+			IRTypeDeclarationPlanner.expressionTypes(field.arraySize, out);
+		}
+	}
+
+	/* Every C type text one declaration spells. */
+	class Vector<string> declarationTypes(IRModule module, IRTypeDeclarationRef declaration) {
+		Vector<string> types = [];
+		if (declaration.group == IR_TYPE_DECLARATION_ENUM) {
+			for value in module.enumDefs.get(declaration.index).values { IRTypeDeclarationPlanner.expressionTypes(value.value, types); }
+		} else if (declaration.group == IR_TYPE_DECLARATION_FUNCTION_POINTER) {
+			IRFunctionPointerTypedef pointer = module.functionPointerTypedefs.get(declaration.index);
+			types.push(pointer.returnType);
+			for parameter in pointer.paramTypes { types.push(parameter); }
+		} else if (declaration.group == IR_TYPE_DECLARATION_TYPEDEF) {
+			types.push(module.typedefDefs.get(declaration.index).targetType);
+		} else if (declaration.group == IR_TYPE_DECLARATION_TAGGED_UNION) {
+			IRTaggedUnionDef tagged = module.taggedUnionDefs.get(declaration.index);
+			types.push(tagged.tagType);
+			for variant in tagged.variants { IRTypeDeclarationPlanner.fieldTypes(variant.fields, types); }
+		} else {
+			IRTypeDeclarationPlanner.fieldTypes(module.structDefs.get(declaration.index).fields, types);
+		}
+		return types;
+	}
+
+	/* The aggregates each non-pointer typedef resolves to through any chain
+	 * of typedefs, which a complete-type context needs complete. */
+	class Vector<Vector<int>> aliasCompleteTargets(IRModule module, Vector<IRTypeDeclarationRef> declarations, Map<string, int> providers) {
+		Vector<Vector<int>> memo = [];
+		Vector<int> state = [];
+		for (int index = 0; index < declarations.len; index++) {
+			Vector<int> empty = [];
+			memo.push(empty);
+			state.push(0);
+		}
+		for (int index = 0; index < declarations.len; index++) {
+			IRTypeDeclarationPlanner.resolveAliasTargets(module, index, declarations, providers, memo, state);
+		}
+		return memo;
+	}
+
+	/* state: 0 unresolved, 1 resolving, 2 resolved. */
+	class Vector<int> resolveAliasTargets(IRModule module, int index, Vector<IRTypeDeclarationRef> declarations, Map<string, int> providers, Vector<Vector<int>> memo, Vector<int> state) {
+		Vector<int> targets = [];
+		if (state.get(index) == 2) { return memo.get(index); }
+		if (state.get(index) == 1) { return targets; }
+		IRTypeDeclarationRef declaration = declarations.get(index);
+		if (declaration.group != IR_TYPE_DECLARATION_TYPEDEF) { return targets; }
+		string text = module.typedefDefs.get(declaration.index).targetType;
+		if (text.indexOf("*") >= 0) {
+			memo.set(index, targets);
+			state.set(index, 2);
+			return targets;
+		}
+		state.set(index, 1);
+		for provider in IRTypeDeclarationPlanner.typeReferences(text, providers) {
+			IRTypeDeclarationRef provided = declarations.get(provider);
+			if (IRTypeDeclarationPlanner.isAggregate(provided)) { targets.push(provider); }
+			else if (provided.group == IR_TYPE_DECLARATION_TYPEDEF) {
+				for target in IRTypeDeclarationPlanner.resolveAliasTargets(module, provider, declarations, providers, memo, state) { targets.push(target); }
+			}
+		}
+		memo.set(index, targets);
+		state.set(index, 2);
+		return targets;
+	}
+
+	class void enumValueReferences(IRNode? node, Map<string, int> valueProviders, Vector<string> out) {
+		if (node == null) { return; }
+		if (node.kind == IRK_VAR && valueProviders.has(node.name)) { out.push(node.name); }
+		IRTypeDeclarationPlanner.enumValueReferences(node.left, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.right, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.operand, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.expr, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.obj, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.index, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.condition, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.trueExpr, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.falseExpr, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.init, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.value, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.target, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.thenBlock, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.elseBlock, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.body, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.update, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.result, valueProviders, out);
+		IRTypeDeclarationPlanner.enumValueReferences(node.arraySize, valueProviders, out);
+		for argument in node.args() { IRTypeDeclarationPlanner.enumValueReferences(argument, valueProviders, out); }
+		for statement in node.stmts() { IRTypeDeclarationPlanner.enumValueReferences(statement, valueProviders, out); }
+	}
+
+	class Vector<int> typeDependencies(IRModule module, int declarationIndex, Vector<IRTypeDeclarationRef> declarations, Map<string, int> providers, Map<string, int> valueProviders, Vector<Vector<int>> aliasTargets) {
+		Vector<int> dependencies = [];
+		IRTypeDeclarationRef declaration = declarations.get(declarationIndex);
+		bool completeTypeContext = declaration.group != IR_TYPE_DECLARATION_FUNCTION_POINTER && declaration.group != IR_TYPE_DECLARATION_TYPEDEF;
+		for text in IRTypeDeclarationPlanner.declarationTypes(module, declaration) {
+			bool requiresComplete = completeTypeContext && text.indexOf("*") < 0;
+			for provider in IRTypeDeclarationPlanner.typeReferences(text, providers) {
+				IRTypeDeclarationRef provided = declarations.get(provider);
+				if (!IRTypeDeclarationPlanner.isAggregate(provided) || requiresComplete) { dependencies.push(provider); }
+				if (requiresComplete && provided.group == IR_TYPE_DECLARATION_TYPEDEF) {
+					for target in aliasTargets.get(provider) { dependencies.push(target); }
+				}
+			}
+		}
+		if (declaration.group == IR_TYPE_DECLARATION_ENUM && valueProviders.len > 0) {
+			Vector<string> references = [];
+			for value in module.enumDefs.get(declaration.index).values { IRTypeDeclarationPlanner.enumValueReferences(value.value, valueProviders, references); }
+			for name in references {
+				int provider = valueProviders.get(name);
+				if (provider != declarationIndex) { dependencies.push(provider); }
+			}
+		}
+		return dependencies;
+	}
+
+	class Vector<IRTypeDeclarationRef> stableOrder(IRModule module, Vector<IRTypeDeclarationRef> declarations, Vector<Vector<int>> dependencies) {
+		Vector<IRTypeDeclarationRef> ordered = [];
+		Vector<bool> completed = [];
+		for (int index = 0; index < declarations.len; index++) { completed.push(false); }
+		while (ordered.len < declarations.len) {
+			bool progressed = false;
+			for (int index = 0; index < declarations.len; index++) {
+				if (completed.get(index)) { continue; }
+				bool ready = true;
+				for dependency in dependencies.get(index) {
+					if (!completed.get(dependency)) { ready = false; }
+				}
+				if (!ready) { continue; }
+				completed.set(index, true);
+				ordered.push(declarations.get(index));
+				progressed = true;
+			}
+			if (!progressed) {
+				Vector<string> names = [];
+				for (int index = 0; index < declarations.len; index++) {
+					if (completed.get(index)) { continue; }
+					string name = IRTypeDeclarationPlanner.declarationName(module, declarations.get(index));
+					names.push(name.isEmpty() ? "<anonymous enum>" : name);
+				}
+				throw "cyclic typed C declaration dependency involving " + Strings.join(names, ", ");
+			}
+		}
+		return ordered;
 	}
 }

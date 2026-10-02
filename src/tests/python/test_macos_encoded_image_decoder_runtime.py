@@ -52,8 +52,14 @@ def sdk_environment():
 def _transpile(frontend, fixture, generated, plan, request, environment, *, with_text=False, with_audio=False):
     target = "macos-arm64" if platform.machine() == "arm64" else "macos-x86_64"
     flags = ["--strict-imports", "--target", target, "--emit-link-plan", str(plan), str(fixture)]
+    # The CoreText rasterizer is the GUI provider's own module; the provider
+    # exports it only to the conformance fixtures compiled against this root.
+    data_root = request.getfixturevalue("gui_provider_root") if with_text else None
+    if data_root is not None:
+        environment = {**environment, "BTRC_HOME": str(data_root)}
     if frontend == "python":
-        command = [sys.executable, "-B", "-m", "src.compiler.python.main", "--no-cache", *flags, "-o", str(generated)]
+        entry = ["src.compiler.python.main"] if data_root is None else ["src.tests.gui_provider_root", str(data_root)]
+        command = [sys.executable, "-B", "-m", *entry, "--no-cache", *flags, "-o", str(generated)]
     else:
         command = [str(request.getfixturevalue("immutable_btrcc")), *flags]
     completed = subprocess.run(

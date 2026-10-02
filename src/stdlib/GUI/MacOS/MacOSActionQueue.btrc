@@ -1,9 +1,11 @@
 import Library.Callback;
 import Library.Vector;
 import Library.GUI.IButton;
+import Library.GUI.ActionMailbox;
 import Library.GUI.MacOS.MacOSRunLoop;
 
-interface IMacOSAction {}
+/* The provider's projection of a queued action, compared by identity. */
+interface IMacOSAction extends IQueuedAction {}
 
 /* Stable BTRC identity, not a native sender. It has no path back to the scope
  * that owns its subscription. Each queued entry snapshots its generation. */
@@ -62,23 +64,18 @@ class MacOSAction implements IMacOSAction, IAppKitButtonAction {
 	}
 }
 
-/* Preallocated ordered storage. Overflow is latched for the consumer to report
- * after native dispatch; throwing from an AppKit callback would terminate it. */
+/* The portable ring confined to AppKit's main thread. Only the run-loop
+ * wakeup is provider-specific; overflow stays latched in the ring for the
+ * consumer to report after native dispatch, since throwing from an AppKit
+ * callback would terminate the process. */
 class MacOSActionMailbox {
-	private Vector<MacOSAction?> _pending = [];
-	private Vector<int> _generations = [];
-	private int _capacity;
-	private int _head = 0;
-	private int _count = 0;
-	private bool _overflow = false;
+	private ActionMailbox _ring;
 	private MacOSRunLoopSignal? _signal;
 
 	public MacOSActionMailbox(int capacity, MacOSRunLoopSignal? signal) {
 		self.requireMainThread();
-		if (capacity <= 0 || capacity > 65536) { throw "Native action capacity must be between 1 and 65536"; }
-		self._capacity = capacity;
+		self._ring = ActionMailbox(capacity);
 		self._signal = signal;
-		for (int index = 0; index < capacity; index++) { self._pending.push(null); self._generations.push(0); }
 	}
 
 	public void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native actions require the main thread"; } }
@@ -87,58 +84,27 @@ class MacOSActionMailbox {
 
 	public void stopDispatch() { self.requireMainThread(); self._signal = null; }
 
-	public int pendingCount() { self.requireMainThread(); self.requireCapacity(); return self._count; }
-
-	private void requireCapacity() { if (self._overflow) { throw "Native action capacity exceeded; close this action queue before continuing"; } }
+	public int pendingCount() { self.requireMainThread(); return self._ring.pendingCount(); }
 
 	public void wake() {
 		self.requireMainThread();
-		if (self._signal != null && self._count > 0) { self._signal.wake(); }
+		var signal = self._signal;
+		if (signal != null && self._ring.hasPending()) { signal.wake(); }
 	}
 
-	public void prune() {
-		self.requireMainThread();
-		int retained = 0;
-		for (int offset = 0; offset < self._count; offset++) {
-			int index = (self._head + offset) % self._capacity;
-			var action = self._pending.get(index);
-			int generation = self._generations.get(index);
-			self._pending.set(index, null);
-			if (action != null && action.accepts(generation)) {
-				int destination = (self._head + retained) % self._capacity;
-				self._pending.set(destination, action);
-				self._generations.set(destination, generation);
-				retained++;
-			}
-		}
-		self._count = retained;
-	}
+	public void prune() { self.requireMainThread(); self._ring.prune(); }
 
 	public void enqueue(MacOSAction action, int generation) {
 		self.requireMainThread();
-		if (self._overflow) { return; }
-		if (self._count == self._capacity) { self.prune(); }
-		if (self._count == self._capacity) { self._overflow = true; return; }
-		int index = (self._head + self._count) % self._capacity;
-		self._pending.set(index, action);
-		self._generations.set(index, generation);
-		self._count++;
 		// Only the wakeup coalesces. Every ordered click stays in the ring.
-		self.wake();
+		if (self._ring.enqueue(action, generation)) { self.wake(); }
 	}
 
-	public MacOSAction? take() {
+	public IMacOSAction? take() {
 		self.requireMainThread();
-		self.requireCapacity();
-		while (self._count > 0) {
-			var action = self._pending.get(self._head);
-			int generation = self._generations.get(self._head);
-			self._pending.set(self._head, null);
-			self._head = (self._head + 1) % self._capacity;
-			self._count--;
-			if (action != null && action.accepts(generation)) { return action; }
-		}
-		return null;
+		var action = self._ring.take();
+		if (action == null) { return null; }
+		return (IMacOSAction?)action;
 	}
 }
 

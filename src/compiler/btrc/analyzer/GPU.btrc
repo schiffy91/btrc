@@ -431,7 +431,7 @@ class GpuKernelValidator {
 	private bool isExpressionStatement(Node? expression) { return self.isUpdateStatement(expression) || (expression != null && expression.kind == NK_CALL_EXPR); }
 
 	private string expressionLabel(Node expression) {
-		if (expression.kind == NK_STRING_LITERAL) { return "string literal"; }
+		if (StringConstant.isNode(expression)) { return "string literal"; }
 		if (expression.kind == NK_CHAR_LITERAL) { return "character literal"; }
 		if (expression.kind == NK_SELF_EXPR) { return "self"; }
 		if (expression.kind == NK_SUPER_EXPR) { return "super"; }

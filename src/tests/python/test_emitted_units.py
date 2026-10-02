@@ -483,7 +483,10 @@ def test_cached_split_cli_restores_complete_executable_generation(tmp_path, debu
     assert "(cached)" in compile_program().stdout
     assert {path: path.read_bytes() for path in baseline} == baseline
     assert "(cached)" not in compile_program("--no-cache").stdout
-    assert "(cached)" not in compile_program("--profile").stdout
+    # Profiling keeps the artifact cache, as btrcc's timing does, and marks the hit.
+    profiled = compile_program("--profile")
+    assert "(cached)" in profiled.stdout
+    assert "artifact-hit" in profiled.stderr
     # Source edits must resolve again and change actual executable behavior.
     dependency.write_text(dependency.read_text().replace("return 39;", "return 49;"))
     assert "(cached)" not in compile_program().stdout

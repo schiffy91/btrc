@@ -1,0 +1,3 @@
+PASS: unnamed prototype parameters
+PASS: prototype defaults and names come from the definition
+PASS: (void) parameter lists

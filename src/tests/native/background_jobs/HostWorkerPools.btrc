@@ -150,6 +150,15 @@ int main() {
 	gate.set(1);
 	waiting.join();
 	gate.destroy();
+	// pthread_join returns once the kernel clears the thread's id, which can
+	// be before /proc/self/task drops the exiting thread, so the pool may
+	// still see two threads for a moment: wait for the count to settle.
+	int settleMilliseconds = 0;
+	while (ProcessThreads.count() != 1 && settleMilliseconds < 5000) {
+		usleep(1000);
+		settleMilliseconds++;
+	}
+	print(f"single threaded after join {ProcessThreads.count() == 1}");
 	IWorkerPool? reopened = pools.open(2, ProbeHandler(configuration));
 	print(f"reopened after join {reopened != null}");
 	if (reopened != null) { print(f"reopened closed cleanly {reopened.close()}"); }
