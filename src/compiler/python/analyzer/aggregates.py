@@ -585,10 +585,15 @@ class AggregateAnalyzer:
         )
 
     def recorded_array_bound(self, expected) -> int | None:
-        """The value of a declaration bound analyzed before bodies (fields, globals, typedefs)."""
+        """The value of a declaration bound analyzed before bodies (fields, globals, typedefs).
+
+        A native record's bound is never analyzed; its literal is its value.
+        """
         canonical = self.types.canonical_type(expected)
         if canonical is None or canonical.array_size is None:
             return None
+        if isinstance(canonical.array_size, IntLiteral):
+            return canonical.array_size.value
         return self.session.array_bound_value(canonical.array_size)
 
     @staticmethod

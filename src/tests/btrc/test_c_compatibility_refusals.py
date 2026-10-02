@@ -248,6 +248,11 @@ CHAR_ARRAY_REFUSALS = [
         id="r04-class-field-default",
     ),
     pytest.param(
+        'int main() { int count = 4; char text[count] = "abc"; return 0; }',
+        ("Variable 'text' is a variable-length array and cannot have an initializer", 1, 29),
+        id="r04-variable-length-array",
+    ),
+    pytest.param(
         'int main() { char text[] = L"abc"; return 0; }',
         ("Expected SEMICOLON, got STRING_LIT '\"abc\"'", 1, 29),
         id="r04-wide-literal",
