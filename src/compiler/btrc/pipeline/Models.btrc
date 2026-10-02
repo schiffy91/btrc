@@ -82,6 +82,7 @@ class BtrccOptions {
 class BtrccCompilationResult {
 	public bool success;
 	public string output;
+	/* The error on failure; on success the rendered warnings, or "". */
 	public string diagnostic;
 	public string linkPlan;
 	/* Secondary units in order; empty for a single-unit program. */

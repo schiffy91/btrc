@@ -1917,6 +1917,8 @@ class BtrccDriver {
 			fprintf(stderr, "%s\n", result.diagnostic);
 			return 1;
 		}
+		/* Warnings never change the exit status. */
+		if (!result.diagnostic.isEmpty()) { fprintf(stderr, "%s\n", result.diagnostic); }
 		if (result.unitPaths.len != result.units.len) { return self.fail("translation-unit output inventory is inconsistent"); }
 		Vector<string> outputPaths = [];
 		Vector<string> contents = [];

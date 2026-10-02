@@ -14,6 +14,9 @@ which differences remain in the C the two compilers emit.
 | Runtime behaviour of every corpus program | the unified corpus runner, through both compilers |
 | Runtime behaviour of every SDK-free example | `src/tests/python/test_examples.py` |
 | Recorded outcome of every C-compatibility probe | `src/tests/btrc/test_c_compatibility_inventory.py` |
+| Analyzer warnings (message, file, line, column and rendering) of probe programs, and that a warning never changes the exit status | `src/tests/btrc/test_warning_parity_battery.py` |
+| Analyzer warnings of every corpus program, held to `expected/<Stem>.warnings` in both compilers | the unified corpus runner |
+| No analyzer warning in any SDK-free example, or in the compiler compiling itself | `src/tests/python/test_examples.py`, `src/tests/btrc/test_bootstrap.py` |
 
 A divergence found anywhere is fixed in both compilers in one commit, and its
 minimal program joins one of the batteries above.
@@ -52,13 +55,38 @@ minimal program joins one of the batteries above.
   already includes is emitted once by both compilers (`btrcc` always
   deduplicated; Python repeated it).
 
-### Nullable flow (Python only)
+### Nullable flow and the warning channel
 
-The nullable-access warning exists only in the Python compiler. Its flow
-analysis now drops facts that a call nested anywhere in an expression could
-kill, and it analyses a loop body from the facts that survive the loop's back
-edge, so a linked-list walk without a null guard is flagged. `btrcc` has no
-nullable flow yet; porting it is part of the deferred work below.
+Both compilers report the nullable-access warning (`Non-optional access '.f'
+on nullable type 'T?'`) from the same path-sensitive flow, and print every
+warning the same way: `warning: <message>`, then the file (the input as named
+on the command line, any other source by its absolute path), line and column,
+and the source line with a caret. A warning never changes the exit status.
+`btrcc` renders its warnings once analysis succeeds; a compile that fails
+prints only its first error, as it always has.
+
+The flow tracks stable access paths (a local, a parameter, `self` or a global,
+followed by field names) known to be non-null. A null comparison refines the
+branch it guards, `&&`, `||` and `?:` refine their right operands and arms, a
+store of a value known to be non-null refines its target, and a call, a store
+or an escaped address drops the facts it could change. A loop body is analysed
+once, from the facts that survive its back edge.
+
+A call can be known never to return: a hosted function listed in
+`hosted_abi.toml`'s `noreturn` set (`exit`, `abort`, `_Exit`, `quick_exit`,
+`longjmp`, `pthread_exit`), or a source function or method every path of whose
+body ends in a `throw` or in such a call. The second set is the least fixed
+point over a syntactic call graph: `f()` names a top-level function, `C.m()` a
+static method of class `C`, and `self.m()` every implementation a subclass can
+dispatch to; a local binding of the same name shadows the callee. Code after a
+return, a throw or such a call is unreachable and reports nothing, and a
+branch that never completes adds no facts to the code after it, so
+`if (x == null) { TypeValidator.fail(...); }` proves `x` afterwards. btrc has
+no `_Noreturn` marker of its own; `_Noreturn` stays a reserved C spelling.
+
+In `btrcc` the flow is `NullableFlow`, beside `ControlFlowValidator`, and
+module-unit validation records carry each body's warnings, so a replayed
+record reports what live validation did.
 
 ## Remaining differences in emitted C
 
@@ -108,4 +136,6 @@ It is not implemented yet, for three reasons measured on 2026-10-01:
 
 The order of work is therefore: teach the flow analysis non-returning calls
 (`exit`, and functions whose every path ends in one), port the nullable flow
-and a warning channel to `btrcc`, then add the store warning to both.
+and a warning channel to `btrcc`, then add the store warning to both. The
+first two are done (see "Nullable flow and the warning channel" above); the
+store warning remains.

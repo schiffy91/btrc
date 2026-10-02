@@ -557,6 +557,8 @@ class DeclarationValidator {
 	public void validateClassBodies(Node declaration) {
 		Map<string, Node> fieldVars = self.globalTypes(self.state.analyzed);
 		fieldVars.put("self", self.selfType(declaration));
+		string previousFlowOwner = self.controlFlow.flow.ownerClass;
+		self.controlFlow.flow.ownerClass = declaration.name;
 		Map<string, bool> previousParams = self.types.cloneFlags(self.state.typeParams);
 		self.state.typeParams = self.types.typeParamSet(declaration.genericParams());
 		int index = 0;
@@ -594,6 +596,7 @@ class DeclarationValidator {
 					self.expressions.contextualizeGenericConstructor(member.type, member.initializer, fieldVars);
 					self.controlFlow.prepareExpression(member.initializer, fieldVars);
 					self.expressions.validateExpr(member.initializer,  fieldVars);
+					self.controlFlow.flow.expression(member.initializer, fieldVars);
 					self.expressions.validateTypedInitializer(fieldValueType, member.initializer, "Field '" + declaration.name + "." + member.name + "'", fieldVars);
 					Node? actual = self.types.inferType(member.initializer, fieldVars);
 					if (actual != null && !self.expressions.contextualAggregateInitializer(member.initializer) && !self.types.assignmentCompatible(fieldValueType, actual)) {
@@ -617,6 +620,7 @@ class DeclarationValidator {
 			index = index + 1;
 		}
 		self.state.typeParams = previousParams;
+		self.controlFlow.flow.ownerClass = previousFlowOwner;
 	}
 
 	public Map<string, Node> globalTypes(Analyzed analyzed) { return TypeValidator.cloneTypes(analyzed.globalVarTypes); }
@@ -651,6 +655,7 @@ class DeclarationValidator {
 				self.state.inParameterDefault = true;
 				self.controlFlow.prepareExpression(parameter.default_, vars);
 				self.expressions.validateExpr(parameter.default_,  vars);
+				self.controlFlow.flow.expression(parameter.default_, vars);
 				self.state.inParameterDefault = previousDefault;
 				self.expressions.validateTypedInitializer(parameterValueType, parameter.default_, "Default for parameter '" + parameter.name + "'", vars);
 				Node? actual = self.types.inferType(parameter.default_, vars);
@@ -668,6 +673,7 @@ class DeclarationValidator {
 			if (bindingType != null) {
 				vars.put(parameter.name, bindingType);
 			}
+			self.controlFlow.flow.bind(parameter.name);
 			index = index + 1;
 		}
 	}
@@ -750,6 +756,12 @@ class DeclarationValidator {
 		Map<string, bool> previousParameterNames = self.types.cloneFlags(self.state.parameterNames);
 		Map<string, bool> previousBorrowedBindings = self.types.cloneFlags(self.state.borrowedBindings);
 		Map<string, bool> previousLocalBindings = self.types.cloneFlags(self.state.localBindings);
+		/* Each callable body starts reachable, knowing no non-null facts. */
+		NullableFlowState previousFlow = self.controlFlow.flow.snapshot();
+		Map<string, string> previousFlowBindings = self.controlFlow.flow.saveBindings();
+		string previousFlowOwner = self.controlFlow.flow.ownerClass;
+		self.controlFlow.flow.enterBody();
+		self.controlFlow.flow.ownerClass = classDeclaration == null ? "" : classDeclaration.name;
 		Map<string, Node> vars = self.globalTypes(self.state.analyzed);
 		Vector<string> classParams = [];
 		if (classDeclaration != null) {
@@ -761,6 +773,7 @@ class DeclarationValidator {
 			self.state.owner = classDeclaration.name + "." + callable.name;
 			if (callable.access != "class") {
 				vars.put("self", self.selfType(classDeclaration));
+				self.controlFlow.flow.bind("self");
 			}
 		} else {
 			self.state.owner = callable.name;
@@ -811,6 +824,9 @@ class DeclarationValidator {
 		self.state.parameterNames = previousParameterNames;
 		self.state.borrowedBindings = previousBorrowedBindings;
 		self.state.localBindings = previousLocalBindings;
+		self.controlFlow.flow.restore(previousFlow);
+		self.controlFlow.flow.restoreBindings(previousFlowBindings);
+		self.controlFlow.flow.ownerClass = previousFlowOwner;
 	}
 
 	public void validateRichEnumDefaults(Node declaration) {
@@ -829,7 +845,9 @@ class DeclarationValidator {
 			self.state.borrowedBindings = self.types.cloneFlags(parameterNames);
 			self.state.localBindings = self.types.cloneFlags(parameterNames);
 			Map<string, Node> vars = self.globalTypes(self.state.analyzed);
+			Map<string, string> previousFlowBindings = self.controlFlow.flow.saveBindings();
 			self.validateParameterDefaults(variant.params(), vars, variant);
+			self.controlFlow.flow.restoreBindings(previousFlowBindings);
 			variantIndex = variantIndex + 1;
 		}
 		self.state.owner = previousOwner;

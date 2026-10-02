@@ -52,7 +52,7 @@ class SemanticValidator {
 		self.calls = CallValidator(self.state, hostedAbi, operators, gpu, sourceMacros, sourceRuntimeSymbols, self.types, self.storage, self.ownership, self.borrows);
 		self.names = NameValidator(self.state, hostedAbi, cycles, sourceRuntimeSymbols, self.types, self.storage, self.calls);
 		self.expressions = ExpressionValidator(self.state, operators, sourceMacros, sourceRuntimeSymbols, expressionTypes, self.types, self.names, self.storage, self.ownership, self.borrows, self.calls);
-		self.controlFlow = ControlFlowValidator(self.state, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.borrows, self.expressions);
+		self.controlFlow = ControlFlowValidator(self.state, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.borrows, self.expressions, NullableFlow(self.state, self.types, hostedAbi));
 		self.declarations = DeclarationValidator(self.state, hostedAbi, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.expressions, self.controlFlow, GpuKernelValidator(analyzed, gpu));
 	}
 
@@ -101,6 +101,7 @@ class SemanticValidator {
 			index = index + 1;
 		}
 
+		self.controlFlow.flow.computeNonreturning(self.program);
 		BtrccPhaseTimer.mark("v-program");
 		Map<string, Node> globals = self.declarations.globalTypes(self.state.analyzed);
 		/* Field and global array bounds before any body, so every body sees
@@ -131,6 +132,8 @@ class SemanticValidator {
 		index = 0;
 		while (index < self.program.declarations().len) {
 			Node declaration = self.program.declarations().get(index);
+			/* Each declaration's bodies start reachable and know no non-null facts. */
+			self.controlFlow.flow.enterBody();
 			if (declaration.kind == NK_FUNCTION_DECL || declaration.kind == NK_CLASS_DECL) {
 				self.validateBodies(declaration);
 			} else if (declaration.kind == NK_VAR_DECL_STMT) {
@@ -213,6 +216,8 @@ class SemanticValidator {
 				}
 			} else if (fact.kind == VALIDATION_CALL_ARGUMENTS) {
 				self.state.analyzed.recordMethodCallArguments(node, fact.arguments);
+			} else if (fact.kind == VALIDATION_WARNING) {
+				self.state.analyzed.recordWarning(fact.detail, node);
 			} else {
 				self.names.truncateDeferredReferences(references);
 				return false;
