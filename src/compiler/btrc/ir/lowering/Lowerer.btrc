@@ -223,6 +223,7 @@ class IRLowerer {
 		}
 		BtrccPhaseTimer.mark("l-generic-methods");
 
+		self.declarations.emitEnums(program, module);
 		self.declarations.emitDeclarations(program, module);
 		BtrccPhaseTimer.mark("l-declarations");
 		self.functions.materializeDeferredClosure();

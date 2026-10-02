@@ -485,10 +485,9 @@ class CollectionLowerer:
         action = self._cycles.visit_action(type_expr, set())
         if action is None:
             return []
-        emitted_name = self._values.runtime_name(type_expr)
-        access = self._cleanup_slots.ensure_arc_slot_adapter(
-            CType(text=self._values.emitted_value_c_type(emitted_name))
-        )
+        # The slot's own C spelling, as every other slot-adapter request (and
+        # btrcc's visitor) names it, so one type never gets two adapters.
+        access = self._cleanup_slots.ensure_arc_slot_adapter(CType(text=self._types.render(type_expr)))
         call = IRCall(
             callee=IRVar(name="fn"),
             args=[

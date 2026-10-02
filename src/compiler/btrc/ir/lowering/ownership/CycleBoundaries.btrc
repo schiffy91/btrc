@@ -232,7 +232,7 @@ class CycleBoundaryLowerer {
 		arguments.push(self.lifetime.runtimeDescriptor(self.managedValues.runtimeType(resolved)));
 		arguments.push(IRNode.variable("context"));
 		Vector<IRNode> thenBody = [];
-		thenBody.push(IRNode.expressionStatement(IRNode.call("fn", arguments)));
+		thenBody.push(IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("fn"), arguments)));
 		output.push(IRNode.ifStatement(slot, IRNode.block(thenBody), null));
 	}
 

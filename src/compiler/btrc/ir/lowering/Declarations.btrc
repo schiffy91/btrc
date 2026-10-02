@@ -2479,10 +2479,8 @@ class DeclarationLowerer {
 		} else if (d.kind == NK_STRUCT_DECL) {
 			/* Forward tags were emitted in phase one; complete definitions
                  * were lowered above in by-value dependency order. */
-		} else if (d.kind == NK_ENUM_DECL) {
-			self.emitEnumDecl(d, m);
-		} else if (d.kind == NK_RICH_ENUM_DECL) {
-			self.emitRichEnumDecl(d, m);
+		} else if (d.kind == NK_ENUM_DECL || d.kind == NK_RICH_ENUM_DECL) {
+			/* Emitted ahead of every other declaration by emitEnums. */
 		} else if (d.kind == NK_TYPEDEF_DECL) {
 			/* Already lowered above in dependency order. */
 		} else if (d.kind == NK_VAR_DECL_STMT) {
@@ -2492,6 +2490,29 @@ class DeclarationLowerer {
 			}
 		} else if (d.kind == NK_PREPROCESSOR_DIRECTIVE) {
 			self.emitPreprocessor(d, m);
+		}
+	}
+
+	/* Emit every enum before the other declarations, as Python's
+	 * TranslationUnitLowerer._emit_enums does. In module-unit lowering an
+	 * enum's group owns its program-wide toString and rich-enum functions. */
+	public void emitEnums(Node prog, IRModule m) {
+		StdlibReachability? reachability = self.context.reachability;
+		for d in prog.declarations() {
+			if (d.kind != NK_ENUM_DECL && d.kind != NK_RICH_ENUM_DECL) { continue; }
+			if (self.analyzed.isNativeDeclaration(d)) { continue; }
+			if (reachability != null && d.kind == NK_RICH_ENUM_DECL && !reachability.reaches(d)) { continue; }
+			string owner = self.context.groupOfLine(d.line);
+			if (self.context.declarationsElsewhere && !owner.equals(self.context.ownedGroup)) { continue; }
+			int stampedFrom = m.functions.len;
+			DeclarationOwnershipScope scope = self.context.beginOwnership(m, owner);
+			if (d.kind == NK_ENUM_DECL) {
+				self.emitEnumDecl(d, m);
+			} else {
+				self.emitRichEnumDecl(d, m);
+			}
+			self.context.endOwnership(m, scope);
+			self.context.stampFunctionSources(m, stampedFrom, d.line);
 		}
 	}
 
@@ -2919,10 +2940,8 @@ class DeclarationLowerer {
 			while (b < blk.stmts().len) { ctorBodyStmts.push(blk.stmts().get(b)); b = b + 1; }
 		}
 		self.context.restoreSourceBindings(constructorSourceBindings);
-		/* Empty ctor body -> (void)self; to avoid unused-param warning. */
-		if (ctorBodyStmts.len == 0) {
-			ctorBodyStmts.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("self"))));
-		}
+		/* An initializer whose body never names self still initializes its
+		 * ARC header; the optimizer normalizes any parameter left unused. */
 		int cb = 0;
 		while (cb < ctorBodyStmts.len) { ibody.push(ctorBodyStmts.get(cb)); cb = cb + 1; }
 		initFn.body = IRNode.block(ibody);
