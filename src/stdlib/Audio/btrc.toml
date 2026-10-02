@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_audio"
-exports = ["Audio", "AudioDevice", "MacOS.CoreAudioDevice", "Linux.AlsaDevice", "RealtimeAudio", "RealtimeAudioRouter"]
+exports = ["Audio", "AudioDevice", "MacOS.MacOSAudioDevice", "Linux.LinuxAudioDevice", "RealtimeAudio", "RealtimeAudioRouter"]
 
 [[package.providers]]
 module = "Audio"
@@ -16,11 +16,11 @@ os = ["linux"]
 
 [[native.pkg-config]]
 name = "alsa"
-modules = ["Linux.AlsaDevice"]
+modules = ["Linux.LinuxAudioDevice"]
 os = ["linux"]
 
 [[native.bindings]]
-module = "Linux.AlsaDevice"
+module = "Linux.LinuxAudioDevice"
 header = "Linux/Alsa.h"
 language = "c"
 standard = "c11"
@@ -39,7 +39,7 @@ read-only-borrows = ["btrcAlsaOpen.name", "btrcAlsaHintValue.key"]
 os = ["linux"]
 
 [[native.bindings]]
-module = "MacOS.CoreAudioDevice"
+module = "MacOS.MacOSAudioDevice"
 header = "MacOS/Hardware.h"
 language = "c"
 standard = "c11"
@@ -160,15 +160,15 @@ release = "CFRelease"
 
 [[native.frameworks]]
 name = "CoreFoundation"
-modules = ["MacOS.CoreAudioDevice"]
+modules = ["MacOS.MacOSAudioDevice"]
 os = ["macos"]
 
 [[native.frameworks]]
 name = "CoreAudio"
-modules = ["MacOS.CoreAudioDevice"]
+modules = ["MacOS.MacOSAudioDevice"]
 os = ["macos"]
 
 [[native.frameworks]]
 name = "AudioToolbox"
-modules = ["MacOS.CoreAudioDevice"]
+modules = ["MacOS.MacOSAudioDevice"]
 os = ["macos"]

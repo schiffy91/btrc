@@ -1,7 +1,7 @@
 /* Strict-C11 boundary coverage for the shared saturating monotonic clock
  * that every library timeout (child processes, daemon control, HTTP sockets,
  * local channels) derives its deadlines from. */
-import Library.Datetime;
+import Library.Timer;
 
 #include <assert.h>
 

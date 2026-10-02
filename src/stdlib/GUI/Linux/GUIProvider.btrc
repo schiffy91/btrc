@@ -5,7 +5,7 @@ import Library.GUI.IView;
 import Library.GUI.IApplication;
 import Library.GUI.IImageHandle;
 import Library.GUI.IDirectoryPicker;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.LinuxView;

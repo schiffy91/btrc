@@ -63,7 +63,7 @@ class Visitor implements IVisitor {
 	public Visitor(CallbackScope scope) { self.scope = scope; }
 	public void invoke(int value) {
 		deliveries += value;
-		if (value == 1) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (value == 1) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	}
 	public void __del__() { destroyed++; }
 }
@@ -76,7 +76,7 @@ void exercise(int mode) {
 		try { var registration = NativeSubscription.listen(mode, Visitor(scope), scope); }
 		catch (string error) { failed = true; }
 		assert(failed && NativeSubscription.live() == 0);
-		assert(scope.cancel() == CallbackCancellation.Complete);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(destroyed == before + 1 && NativeSubscription.cancelled() == cancelled);
 		return;
 	}
@@ -91,8 +91,8 @@ void exercise(int mode) {
 		NativeSubscription.fire(1);
 		assert(!registration.isOpen());
 	}
-	assert(scope.cancel() == CallbackCancellation.Complete);
-	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(NativeSubscription.live() == 0 && destroyed == before + 1);
 	assert(NativeSubscription.cancelled() == cancelled + 1);
 	NativeSubscription.fire(1000);
@@ -199,7 +199,7 @@ class Delegate implements IDelegate {
 	private CallbackScope scope;
 	public Delegate(CallbackScope scope) { self.scope = scope; }
 	public bool shouldClose(NativeOwner owner) { queries++; return true; }
-	public void didClose(NativeOwner owner) { notifications++; assert(self.scope.cancel() == CallbackCancellation.Pending); }
+	public void didClose(NativeOwner owner) { notifications++; assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	public void __del__() { destroyed++; }
 }
 void exercise() {
@@ -217,15 +217,15 @@ void exercise() {
 	try { var other = owner.setDelegate(Delegate(otherScope), otherScope); }
 	catch (string error) { rejected = true; }
 	assert(rejected && destroyed == 1 && registration.isOpen());
-	assert(otherScope.cancel() == CallbackCancellation.Complete);
+	assert(otherScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(owner.requestClose());
 """,
             "replaced": '\towner.replaceDelegate();\n\tscope.cancel();\n\tfprintf(stderr, "unexpected delegate cancellation success\\n");\n\tassert(false);\n',
             "throw": '\tfprintf(stderr, "unexpected delegate publication success\\n");\n\tassert(false);\n',
         }[scenario]
         + f"""
-	assert(scope.cancel() == CallbackCancellation.Complete);
-	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(queries == 1 && notifications == 1 && destroyed == {2 if scenario == "occupied" else 1});
 	assert(!owner.requestClose());
 }}
@@ -349,8 +349,8 @@ void exercise() {
 	events.allowClose = true;
 	window.performClose(null);
 	assert(events.queries == 2 && events.closed == 1);
-	assert(scope.cancel() == CallbackCancellation.Complete);
-	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 }
 int main() { exercise(); assert(destroyed == 1); return 0; }
 """)
@@ -819,7 +819,7 @@ class Action implements IAction {
 	public void invoke() {
 		calls++;
 		if (self.mode == 14) { throw "Action callback failed"; }
-		if (self.mode == 11 || self.mode == 16) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (self.mode == 11 || self.mode == 16) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	}
 	public void __del__() { destroyed++; }
 }
@@ -831,15 +831,15 @@ void exercise(int mode) {
 		try { source.setTarget(Action(scope, mode), scope); }
 		catch (string error) { rejected = true; }
 		assert(rejected && destroyed == 1 && calls == 0 && source.untouched());
-		assert(scope.cancel() == CallbackCancellation.Complete);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		return;
 	}
 	ICallbackRegistration registration = source.setTarget(Action(scope, mode), scope);
 	if (mode == 7) { source.replaceTarget(); }
 	else if (mode == 8) { source.replaceAction(); }
 	else if (mode != 11) { source.fire(); }
-	assert(scope.cancel() == CallbackCancellation.Complete);
-	assert(registration.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(calls == 1 && destroyed == 1);
 	assert(source.slotsCleared());
 	source.fire();
@@ -984,7 +984,7 @@ int main() {
 	button.performClick(null);
 	button.performClick(null);
 	assert(calls == 2 && destroyed == 0);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(destroyed == 1);
 	button.performClick(null);
 	assert(calls == 2);
@@ -1040,7 +1040,7 @@ class TimerCallback implements ITimerCallback {
 		assert(timer.isValid());
 		observed = timer;
 		deliveries++;
-		assert(self.scope.cancel() == CallbackCancellation.Pending);
+		assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 		assert(!timer.isValid());
 	}
 	public void __del__() { destroyed++; }
@@ -1053,7 +1053,7 @@ int main() {
 		for (int attempt = 0; attempt < 100 && observed == null; attempt++) { loop.runUntilDate(NSDate.dateWithTimeIntervalSinceNow(0.01)); }
 		assert(observed != null && !observed.isValid());
 		assert(!subscription.isOpen() && deliveries == index + 1);
-		assert(scope.pollCompletion() == CallbackCancellation.Complete);
+		assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(destroyed == index + 1);
 		observed = null;
 	}
@@ -1125,7 +1125,7 @@ class NotificationCallback implements INotificationCallback {
 	public void invoke(NSNotification notification) {
 		observed = notification;
 		deliveries++;
-		assert(self.scope.cancel() == CallbackCancellation.Pending);
+		assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 	}
 	public void __del__() { destroyed++; }
 }
@@ -1138,7 +1138,7 @@ int main() {
 		NSNotificationCenter.defaultCenter().postNotificationName(name, null);
 		assert(observed != null && observed.name().length() == name.length());
 		assert(!subscription.isOpen() && deliveries == index + 1);
-		assert(scope.pollCompletion() == CallbackCancellation.Complete);
+		assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(destroyed == index + 1);
 		NSNotificationCenter.defaultCenter().postNotificationName(name, null);
 		assert(deliveries == index + 1);

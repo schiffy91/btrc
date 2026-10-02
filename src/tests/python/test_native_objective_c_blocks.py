@@ -510,7 +510,7 @@ class Work implements IWork {
 	public CallbackScope? scope;
 	public void invoke() {
 		delivered++;
-		if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+		if (self.scope != null) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	}
 	public void __del__() { destroyed++; }
 }
@@ -523,17 +523,17 @@ void run(bool inlineWork, bool cancelled) {
 	var request = inlineWork ? OneShotProbe.inlineWork(work, scope) : NSRunLoop.currentRunLoop().performBlock(work, scope);
 	work = null;
 	if (inlineWork) {
-		assert(request.pollCompletion() == CallbackCancellation.Complete);
+		assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(delivered == before + 1);
 	} else {
 		assert(delivered == before && destroyed == beforeDestroyed);
-		if (cancelled) { assert(scope.cancel() == CallbackCancellation.Pending); }
+		if (cancelled) { assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 		OneShotProbe.drain();
-		assert(request.pollCompletion() == CallbackCancellation.Complete);
+		assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(delivered == before + (cancelled ? 0 : 1));
 	}
 	assert(destroyed == beforeDestroyed + 1);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(scope.pendingCount() == 0);
 }
 int main() {
@@ -643,7 +643,7 @@ def test_one_shot_native_failure_boundaries(one_shot_project, native_compile, sa
     callback = 'throw "expected one-shot error";' if scenario == "callback-throw" else "delivered++;"
     verification = (
         f"assert(caught && destroyed == 1 && delivered == {int(scenario == 'inline-unpublished-throw')}); "
-        "assert(scope.cancel() == CallbackCancellation.Complete); return 0;"
+        "assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); return 0;"
         if recoverable
         else "return 99;"
     )
@@ -766,10 +766,10 @@ void run(bool cancelled) {
 	var receiver = Work();
 	var request = OneShotProbe.objectWork(receiver, scope);
 	assert(OneShotProbe.liveObjects() == 1);
-	if (cancelled) { assert(scope.cancel() == CallbackCancellation.Pending); }
+	if (cancelled) { assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	OneShotProbe.drain();
-	assert(request.pollCompletion() == CallbackCancellation.Complete);
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert((receiver.value == null) == cancelled);
 	assert(OneShotProbe.liveObjects() == (cancelled ? 0 : 1));
 	receiver.value = null;

@@ -318,7 +318,7 @@ def test_macro_constant_diagnostics_match_across_compilers(reader, tmp_path, req
     assert reports[0] == reports[1]
 
 
-WEBGPU_PROGRAM = """import Library.GPU.SurfaceRenderer;
+WEBGPU_PROGRAM = """import Library.GPU.GPUSurfaceRenderer;
 
 void frame(GPUSurfaceRenderer renderer) {
 \trenderer.beginFrame(0.0, 0.0, 0.0);

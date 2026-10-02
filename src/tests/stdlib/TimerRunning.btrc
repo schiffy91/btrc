@@ -2,10 +2,10 @@
  * : end_time), stop() freezing the value, and reset() returning both clocks to
  * zero so elapsed() reads exactly 0. Deterministic: no wall-clock assertions
  * beyond monotonicity (elapsed never decreases, never negative). */
-import Library.Datetime;
+import Library.Timer;
 
 #include <assert.h>
-#include "../../stdlib/Datetime.btrc"
+#include "../../stdlib/Timer.btrc"
 
 int main() {
 	Timer t = Timer();

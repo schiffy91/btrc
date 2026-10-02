@@ -8,7 +8,7 @@
  * Build + run (macOS or Linux):   make            (this folder)
  * Native initialization failures are reported explicitly.
  */
-import Library.Tray.Tray;
+import Library.Tray;
 
 int main() {
 	SystemTray tray = SystemTray("btrc")

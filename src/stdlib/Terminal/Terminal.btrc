@@ -1,7 +1,7 @@
 /* btrc standard library — Unix terminal helpers */
 
 import Library.Bytes;
-import Library.Terminal.TerminalPassword;
+import Library.Terminal.TerminalPasswordInput;
 
 #include <stdio.h>
 

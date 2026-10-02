@@ -325,3 +325,24 @@ def test_stdlib_package_directories_and_modules_use_pascal_case_acronyms() -> No
         if directory.is_dir() and directory.relative_to(library) not in foreign_headers:
             assert re.fullmatch(r"[A-Z][A-Za-z0-9]*", directory.name), directory
     assert not offenders, "stdlib package/module spelling: " + ", ".join(sorted(set(offenders)))
+
+
+def test_a_package_facade_is_imported_by_its_package_name() -> None:
+    """`Library.GUI` names the GUI facade; `Library.GUI.GUI` is the same file twice.
+
+    A package whose facade module shares its name resolves `import Library.<G>;`
+    to `<G>/<G>.btrc`, so the doubled spelling is a second name for one module.
+    """
+
+    doubled = re.compile(r"\bLibrary\.([A-Z][A-Za-z0-9]*)\.\1\b")
+    # Records of old spellings: the frozen plan and the cross-repo rename table.
+    records = {"docs/design/plan-reference.md", "docs/design/btrsmith-rename-table-w2.md"}
+    offenders = sorted(
+        f"{relative}: {match.group(0)}"
+        for pattern in ("*.btrc", "*.md", "*.toml")
+        for relative in _tracked(pattern)
+        if relative not in records
+        for match in doubled.finditer((REPO / relative).read_text())
+    )
+
+    assert not offenders, "import the package facade as Library.<G>: " + ", ".join(offenders)

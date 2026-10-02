@@ -178,7 +178,13 @@ class OwnedClosure<Invoke> implements ICallbackContext {
 	}
 }
 
-enum CallbackCancellation { NotRequested, Pending, Complete, RetryableFailure, Failed };
+enum CallbackCancellation {
+	CALLBACK_CANCELLATION_NOT_REQUESTED,
+	CALLBACK_CANCELLATION_PENDING,
+	CALLBACK_CANCELLATION_COMPLETE,
+	CALLBACK_CANCELLATION_RETRYABLE_FAILURE,
+	CALLBACK_CANCELLATION_FAILED
+};
 
 interface ICallbackRegistration {
 	bool isOpen();
@@ -292,7 +298,7 @@ class CallbackState implements ICallbackRegistration {
 		if (observed != 2u && observed != 4u) { callbackGateCloseAdmission(self._gateState.borrow()); }
 		observed = self._state.load(MemoryOrder.ACQUIRE);
 		if (observed != 0u && observed != 3u) { return self.pollCompletion(); }
-		if (!self.claimOperation(observed)) { return CallbackCancellation.Pending; }
+		if (!self.claimOperation(observed)) { return CALLBACK_CANCELLATION_PENDING; }
 		self.beginOperation();
 		bool barrier = false;
 		try {
@@ -300,18 +306,18 @@ class CallbackState implements ICallbackRegistration {
 		} finally {
 			self.endOperation(barrier ? 5u : (self._retryableUnregister ? 3u : 4u));
 		}
-		if (!barrier) { return self._retryableUnregister ? CallbackCancellation.RetryableFailure : CallbackCancellation.Failed; }
+		if (!barrier) { return self._retryableUnregister ? CALLBACK_CANCELLATION_RETRYABLE_FAILURE : CALLBACK_CANCELLATION_FAILED; }
 		return self.pollCompletion();
 	}
 
 	public CallbackCancellation pollCompletion() {
 		uint observed = self._state.load(MemoryOrder.ACQUIRE);
-		if (observed == 0u) { return CallbackCancellation.NotRequested; }
-		if (observed == 2u) { return CallbackCancellation.Complete; }
-		if (observed == 3u) { return CallbackCancellation.RetryableFailure; }
-		if (observed == 4u) { return CallbackCancellation.Failed; }
-		if (observed != 5u || self._gateState.borrow()->load(MemoryOrder.ACQUIRE) != 1u) { return CallbackCancellation.Pending; }
-		if (!self.claimOperation(observed)) { return CallbackCancellation.Pending; }
+		if (observed == 0u) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (observed == 2u) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (observed == 3u) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		if (observed == 4u) { return CALLBACK_CANCELLATION_FAILED; }
+		if (observed != 5u || self._gateState.borrow()->load(MemoryOrder.ACQUIRE) != 1u) { return CALLBACK_CANCELLATION_PENDING; }
+		if (!self.claimOperation(observed)) { return CALLBACK_CANCELLATION_PENDING; }
 		self.beginOperation();
 		bool destroyed = false;
 		try {
@@ -322,18 +328,18 @@ class CallbackState implements ICallbackRegistration {
 		} finally {
 			self.endOperation(destroyed ? 2u : 4u);
 		}
-		return destroyed ? CallbackCancellation.Complete : CallbackCancellation.Failed;
+		return destroyed ? CALLBACK_CANCELLATION_COMPLETE : CALLBACK_CANCELLATION_FAILED;
 	}
 
 	public bool close() {
 		CallbackCancellation result = self.cancel();
 		uint attempt = 0u;
-		while (result == CallbackCancellation.Pending) {
+		while (result == CALLBACK_CANCELLATION_PENDING) {
 			self.rejectReentrantClose();
 			attempt = callbackBackoff(attempt);
 			result = self.pollCompletion();
 		}
-		return result == CallbackCancellation.Complete;
+		return result == CALLBACK_CANCELLATION_COMPLETE;
 	}
 
 	public void __del__() {
@@ -411,40 +417,40 @@ class CallbackScope implements ICallbackRegistration {
 	private CallbackCancellation advance(bool cancel) {
 		self.requireExecutor();
 		if (cancel) { self._closing = true; }
-		if (self._dispatching) { return CallbackCancellation.Pending; }
+		if (self._dispatching) { return CALLBACK_CANCELLATION_PENDING; }
 		self._dispatching = true;
-		CallbackCancellation result = CallbackCancellation.Complete;
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		string firstError = "";
 		bool raised = false;
 		try {
 			int index = 0;
 			while (index < self._registrations.len) {
 				var registration = self._registrations.get(index);
-				CallbackCancellation status = CallbackCancellation.Pending;
+				CallbackCancellation status = CALLBACK_CANCELLATION_PENDING;
 				try {
 					status = cancel ? registration.cancel() : registration.pollCompletion();
-					if (self._closing && status == CallbackCancellation.NotRequested) { status = registration.cancel(); }
+					if (self._closing && status == CALLBACK_CANCELLATION_NOT_REQUESTED) { status = registration.cancel(); }
 				}
 				catch (string error) {
 					if (!raised) { firstError = error; raised = true; }
 					try { status = registration.pollCompletion(); }
-					catch (string unavailable) { status = CallbackCancellation.Pending; }
+					catch (string unavailable) { status = CALLBACK_CANCELLATION_PENDING; }
 				}
-				if (status == CallbackCancellation.Complete) {
+				if (status == CALLBACK_CANCELLATION_COMPLETE) {
 					self._registrations.remove(index);
 					self._retained--;
 					continue;
 				}
-				if (status == CallbackCancellation.Failed) { result = status; }
-				else if (result != CallbackCancellation.Failed) {
-					if (status == CallbackCancellation.RetryableFailure) { result = status; }
-					else if (result != CallbackCancellation.RetryableFailure) { result = CallbackCancellation.Pending; }
+				if (status == CALLBACK_CANCELLATION_FAILED) { result = status; }
+				else if (result != CALLBACK_CANCELLATION_FAILED) {
+					if (status == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = status; }
+					else if (result != CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = CALLBACK_CANCELLATION_PENDING; }
 				}
 				index++;
 			}
 		} finally { self._dispatching = false; }
 		if (raised) { throw firstError; }
-		return self._closing ? result : CallbackCancellation.NotRequested;
+		return self._closing ? result : CALLBACK_CANCELLATION_NOT_REQUESTED;
 	}
 
 	public CallbackCancellation cancel() { return self.advance(true); }
@@ -463,10 +469,10 @@ class CallbackScope implements ICallbackRegistration {
 			fprintf(stderr, "Callback scope collected before independent cancellation\n");
 			abort();
 		}
-		CallbackCancellation result = CallbackCancellation.Failed;
+		CallbackCancellation result = CALLBACK_CANCELLATION_FAILED;
 		try { result = self.cancel(); }
 		catch (string error) { fprintf(stderr, "Callback scope cancellation failed: %s\n", error); }
-		if (result != CallbackCancellation.Complete) {
+		if (result != CALLBACK_CANCELLATION_COMPLETE) {
 			fprintf(stderr, "Callback scope released before cancellation completed\n");
 			abort();
 		}

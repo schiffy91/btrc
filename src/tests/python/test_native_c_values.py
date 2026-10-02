@@ -447,8 +447,8 @@ def test_native_record_input_object_survives_reentrant_mutation(
     )
     invoke = (
         "var scope = CallbackScope(); var started = action(input, change, scope); var result = started.value; "
-        "if (started.request.pollCompletion() != CallbackCancellation.Complete) { return 5; } "
-        "if (scope.cancel() != CallbackCancellation.Complete) { return 6; }"
+        "if (started.request.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { return 5; } "
+        "if (scope.cancel() != CALLBACK_CANCELLATION_COMPLETE) { return 6; }"
         if one_shot
         else "var result = action(input, change);"
     )

@@ -54,9 +54,9 @@ class LinuxDelayedWork implements ICallbackRegistration {
 
 	public bool isOpen() { return self._open; }
 
-	public CallbackCancellation cancel() { self._open = false; self._work = null; return CallbackCancellation.Complete; }
+	public CallbackCancellation cancel() { self._open = false; self._work = null; return CALLBACK_CANCELLATION_COMPLETE; }
 
-	public CallbackCancellation pollCompletion() { return self._open ? CallbackCancellation.NotRequested : CallbackCancellation.Complete; }
+	public CallbackCancellation pollCompletion() { return self._open ? CALLBACK_CANCELLATION_NOT_REQUESTED : CALLBACK_CANCELLATION_COMPLETE; }
 }
 
 /* One application owner on the UI thread. run() pumps SDL events, delivers
@@ -168,7 +168,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private void rememberView(IView view) {
 		for (int index = self._views.len - 1; index >= 0; index--) {
 			var previous = self._views.get(index);
-			if (!previous.isOpen() && previous.pollClose() == CallbackCancellation.Complete) { self._views.remove(index); }
+			if (!previous.isOpen() && previous.pollClose() == CALLBACK_CANCELLATION_COMPLETE) { self._views.remove(index); }
 		}
 		self._views.push(view);
 	}
@@ -284,7 +284,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		for (int index = self._windows.len - 1; index >= 0; index--) {
 			var window = self._windows.get(index);
 			if (window.isOpen()) { continue; }
-			if (window.pollClose() == CallbackCancellation.Complete) { self._windows.remove(index); }
+			if (window.pollClose() == CALLBACK_CANCELLATION_COMPLETE) { self._windows.remove(index); }
 		}
 	}
 
@@ -318,33 +318,33 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		 * fails the run after one deadline; its pending owners stay retained. */
 		var result = self.close();
 		unsigned long long deadline = LinuxClock.after(LinuxApplication.shutdownSeconds());
-		while (result == CallbackCancellation.Pending) {
+		while (result == CALLBACK_CANCELLATION_PENDING) {
 			if (SDL_GetTicksNS() >= deadline) { throw "Native subtree shutdown did not complete"; }
 			self.pumpOnce(10);
 			result = self.pollClose();
 		}
-		if (result != CallbackCancellation.Complete) { throw "Native subtree shutdown failed without completion"; }
+		if (result != CALLBACK_CANCELLATION_COMPLETE) { throw "Native subtree shutdown failed without completion"; }
 		if (self._workFailed) { throw self._workFailure; }
 	}
 
 	private CallbackCancellation combine(CallbackCancellation result, CallbackCancellation state) {
-		if (result == CallbackCancellation.Failed || state == CallbackCancellation.Failed) { return CallbackCancellation.Failed; }
-		if (result == CallbackCancellation.RetryableFailure || state == CallbackCancellation.RetryableFailure) { return CallbackCancellation.RetryableFailure; }
-		return result == CallbackCancellation.Complete && state == CallbackCancellation.Complete ? CallbackCancellation.Complete : CallbackCancellation.Pending;
+		if (result == CALLBACK_CANCELLATION_FAILED || state == CALLBACK_CANCELLATION_FAILED) { return CALLBACK_CANCELLATION_FAILED; }
+		if (result == CALLBACK_CANCELLATION_RETRYABLE_FAILURE || state == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		return result == CALLBACK_CANCELLATION_COMPLETE && state == CALLBACK_CANCELLATION_COMPLETE ? CALLBACK_CANCELLATION_COMPLETE : CALLBACK_CANCELLATION_PENDING;
 	}
 
 	private CallbackCancellation closeViews() {
-		CallbackCancellation result = CallbackCancellation.Complete;
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		for (int index = self._windows.len - 1; index >= 0; index--) {
 			var window = self._windows.get(index);
 			var state = window.isOpen() ? window.close() : window.pollClose();
-			if (state == CallbackCancellation.Complete) { self._windows.remove(index); }
+			if (state == CALLBACK_CANCELLATION_COMPLETE) { self._windows.remove(index); }
 			else { result = self.combine(result, state); }
 		}
 		if (!self._viewsClosing) {
 			self._viewsClosing = true;
 			for view in self._views {
-				if (!view.isOpen()) { if (view.pollClose() != CallbackCancellation.Complete) { self._closingRoots.push(view); } continue; }
+				if (!view.isOpen()) { if (view.pollClose() != CALLBACK_CANCELLATION_COMPLETE) { self._closingRoots.push(view); } continue; }
 				var native = (ILinuxView?)view;
 				if (native == null) { throw "GUI view belongs to another provider"; }
 				if (!native.node().attached) { self._closingRoots.push(view); }
@@ -353,20 +353,20 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		for (int index = self._closingRoots.len - 1; index >= 0; index--) {
 			var view = self._closingRoots.get(index);
 			var state = view.isOpen() ? view.close() : view.pollClose();
-			if (state == CallbackCancellation.Complete) { self._closingRoots.remove(index); }
+			if (state == CALLBACK_CANCELLATION_COMPLETE) { self._closingRoots.remove(index); }
 			else { result = self.combine(result, state); }
 		}
-		if (result == CallbackCancellation.Complete) {
+		if (result == CALLBACK_CANCELLATION_COMPLETE) {
 			for view in self._views { if (view.isOpen()) { throw "GUI view remains attached outside application ownership"; } }
 			self._views.clear();
 		}
 		return result;
 	}
 
-	public CallbackCancellation pollClose() { return self._closed ? CallbackCancellation.Complete : (self._closing ? self.close() : CallbackCancellation.NotRequested); }
+	public CallbackCancellation pollClose() { return self._closed ? CALLBACK_CANCELLATION_COMPLETE : (self._closing ? self.close() : CALLBACK_CANCELLATION_NOT_REQUESTED); }
 
 	public CallbackCancellation close() {
-		if (self._closed) { return CallbackCancellation.Complete; }
+		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		self.requireUIThread();
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (self._dispatching) { throw "Native event dispatch is already active"; }
@@ -375,7 +375,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		self._quitRequested = true;
 		self._closing = true;
 		var views = self.closeViews();
-		if (views != CallbackCancellation.Complete) { return views; }
+		if (views != CALLBACK_CANCELLATION_COMPLETE) { return views; }
 		try {
 			self._work.clear();
 			self._pendingWork = 0;
@@ -384,8 +384,8 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			self._context.actions.close();
 		} catch (string error) { self._closeFailure = error; throw error; }
 		self._closed = true;
-		return CallbackCancellation.Complete;
+		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
-	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native application destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native application destroyed before subtree cleanup completed"); } }
 }

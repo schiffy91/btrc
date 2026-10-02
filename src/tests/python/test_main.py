@@ -621,7 +621,7 @@ def test_native_adapters_live_outside_relaxed_composition():
     assert "class UIElement" not in source
     assert "class UIAppSession" not in source
     assert "class SystemImageDecoder" not in source
-    assert "SystemImageProvider" not in source
+    assert "SystemImageDecoderProvider" not in source
 
 
 def test_get_stdlib_source_skips_redefined():

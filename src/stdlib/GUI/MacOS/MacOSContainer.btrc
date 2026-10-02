@@ -212,7 +212,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
-		if (self._view == null) { return CallbackCancellation.Complete; }
+		if (self._view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
 		if (!self._closing) { self._closing = true; self._input.cancel(); }
@@ -223,28 +223,28 @@ class MacOSContainer implements IContainer, IMacOSView {
 		self.requireMainThread();
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		var view = self._view;
-		if (view == null) { return CallbackCancellation.Complete; }
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var input = self._input.pollCompletion();
-		if (input != CallbackCancellation.Complete) { return input; }
+		if (input != CALLBACK_CANCELLATION_COMPLETE) { return input; }
 		self._mutating = true;
-		CallbackCancellation result = CallbackCancellation.Complete;
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		try {
 			for (int index = self._children.len - 1; index >= 0; index--) {
 				var child = self._children.get(index);
 				if (child.failed) { continue; }
 				try {
-					CallbackCancellation state = CallbackCancellation.Pending;
+					CallbackCancellation state = CALLBACK_CANCELLATION_PENDING;
 					if (!child.closing) {
 						self.detachChild(child, view);
 						child.closing = true;
 						state = child.view.close();
 					} else { state = child.view.pollClose(); }
-					if (state == CallbackCancellation.Complete) { self._children.remove(index); }
-					else if (state == CallbackCancellation.Failed) { result = state; }
-					else if (result != CallbackCancellation.Failed) {
-						if (state == CallbackCancellation.RetryableFailure) { result = state; }
-						else if (result != CallbackCancellation.RetryableFailure) { result = CallbackCancellation.Pending; }
+					if (state == CALLBACK_CANCELLATION_COMPLETE) { self._children.remove(index); }
+					else if (state == CALLBACK_CANCELLATION_FAILED) { result = state; }
+					else if (result != CALLBACK_CANCELLATION_FAILED) {
+						if (state == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = state; }
+						else if (result != CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = CALLBACK_CANCELLATION_PENDING; }
 					}
 				} catch (string error) {
 					child.failed = true;
@@ -260,5 +260,5 @@ class MacOSContainer implements IContainer, IMacOSView {
 		return result;
 	}
 
-	public void __del__() { if (self.close() != CallbackCancellation.Complete) { Console.fatal("Native container destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native container destroyed before subtree cleanup completed"); } }
 }

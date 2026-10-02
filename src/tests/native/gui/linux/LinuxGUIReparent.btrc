@@ -1,17 +1,17 @@
 /* A GPU view moved between two windows, each with its own WebGPU device: the
  * new window composes nothing for it until poll() rebuilds the offscreen
  * target on the new device, and never samples the old window's texture. */
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IContainer;
 import Library.GUI.IGPUView;
 import Library.GUI.IView;
 import Library.GUI.IWindow;
-import Library.GUI.Capture;
-import Library.GPU.SurfaceRenderer;
+import Library.GUI.GUICaptureLayer;
+import Library.GPU.GPUSurfaceRenderer;
 import Library.Image;
 import Library.Vector;
-import Library.Datetime;
+import Library.Timer;
 import Library.Console;
 import Library.Callback;
 
@@ -91,7 +91,7 @@ int main() {
 	GUI.post(journey);
 	GUI.run();
 	assert(journey.passed);
-	assert(GUI.close() == CallbackCancellation.Complete);
+	assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE);
 	Console.log("PASS: linux gui reparent");
 	return 0;
 }

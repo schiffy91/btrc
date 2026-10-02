@@ -1,7 +1,7 @@
 import Library.Map;
 import Library.Math;
 import Library.Strings;
-import Library.GUI.FontFace;
+import Library.GUI.IFontFace;
 import Library.GUI.FreeType.FreeTypeFace;
 
 /* A rendered glyph shared by every window: metrics in backing pixels plus the
@@ -56,7 +56,7 @@ class LinuxFace {
 		if (self._glyphs.size() > 4096) { self._glyphs.clear(); }
 		var rendered = self._face.glyph(codepoint, true);
 		if (rendered == null && codepoint != 0xfffd && codepoint != 63) { rendered = self._face.glyph(63, true); }
-		LinuxGlyph glyph = rendered == null ? LinuxGlyph(codepoint, (double)self.pixelSize * 0.5, 0, 0, 0, 0, null) : LinuxGlyph(codepoint, (double)rendered.advanceX26_6() / 64.0, rendered.bitmapLeft(), rendered.bitmapTop(), rendered.width(), rendered.rows(), rendered);
+		LinuxGlyph glyph = rendered == null ? LinuxGlyph(codepoint, (double)self.pixelSize * 0.5, 0, 0, 0, 0, null) : LinuxGlyph(codepoint, (double)rendered.advanceFixed() / 64.0, rendered.bitmapLeft(), rendered.bitmapTop(), rendered.width(), rendered.rows(), rendered);
 		self._glyphs.put(codepoint, glyph);
 		return glyph;
 	}

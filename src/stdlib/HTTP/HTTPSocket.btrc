@@ -1,6 +1,6 @@
 /* Bounded socket I/O for the HTTP server. */
 import Library.Bytes;
-import Library.Datetime;
+import Library.Timer;
 import Library.IO;
 import Library.HTTP.HTTPFraming;
 

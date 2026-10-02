@@ -120,7 +120,7 @@ def _host_clang() -> str | None:
 
 def test_router_contract_is_product_neutral_and_exposes_explicit_generation_barriers() -> None:
     source = API.read_text()
-    assert "class RealtimeAudioProgramRouter" in source
+    assert "class RealtimeAudioRouter" in source
     assert "RealtimeAudioProgram providerProgram()" in source
     assert "RealtimeAudioRouteAttachOutcome attach(RealtimeAudioProgram? program)" in source
     assert "RealtimeAudioRouteActivateOutcome activate(RealtimeAudioRouteAttachment? attachment)" in source

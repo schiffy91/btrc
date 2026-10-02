@@ -1,0 +1,160 @@
+/* btrc standard library — Timer
+ * The monotonic clock, a monotonic stopwatch and thread sleep helpers.
+ */
+import Library.Math;
+
+#include <errno.h>
+#include <limits.h>
+#include <stdint.h>
+#include <time.h>
+
+/* The one monotonic clock: saturating milliseconds and deadlines for every
+ * timeout in the library. A reading the clock cannot provide (an error, a
+ * negative or out-of-range timespec) is -1; a deadline derived from it is -1
+ * and is always expired, so waits fail closed. Arithmetic past LLONG_MAX
+ * saturates there instead of overflowing. */
+class MonotonicClock {
+	/* Milliseconds for a timespec reading: -1 for an invalid nanosecond
+	 * field, saturating at LLONG_MAX. */
+	class long long millisecondsFrom(uintmax_t seconds, long nanoseconds) {
+		if (nanoseconds < 0L || nanoseconds >= 1000000000L) { return -1LL; }
+		if (seconds > (uintmax_t)(LLONG_MAX / 1000LL)) { return LLONG_MAX; }
+		long long milliseconds = (long long)seconds * 1000LL;
+		long long fraction = (long long)nanoseconds / 1000000LL;
+		return milliseconds > (long long)LLONG_MAX - fraction ? LLONG_MAX : milliseconds + fraction;
+	}
+
+	/* Current monotonic milliseconds, or -1 when the clock is unavailable. */
+	class long long milliseconds() {
+		struct timespec now;
+		now.tv_sec = (time_t)0;
+		now.tv_nsec = 0L;
+		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_sec < (time_t)0) { return -1LL; }
+		return MonotonicClock.millisecondsFrom((uintmax_t)now.tv_sec, now.tv_nsec);
+	}
+
+	/* Current monotonic nanoseconds, or -1 when the clock is unavailable or
+	 * the reading does not fit in a long long. */
+	class long long nanoseconds() {
+		struct timespec now;
+		now.tv_sec = (time_t)0;
+		now.tv_nsec = 0L;
+		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_sec < (time_t)0 || now.tv_nsec < 0L || now.tv_nsec >= 1000000000L) { return -1LL; }
+		if ((uintmax_t)now.tv_sec > (uintmax_t)(LLONG_MAX / 1000000000LL)) { return -1LL; }
+		long long whole = (long long)now.tv_sec * 1000000000LL;
+		if (whole > (long long)LLONG_MAX - (long long)now.tv_nsec) { return -1LL; }
+		return whole + (long long)now.tv_nsec;
+	}
+
+	/* now plus a duration, saturating at LLONG_MAX. A negative duration is
+	 * zero; an unavailable reading (now < 0) gives the expired deadline -1. */
+	class long long deadline(long long now, long long durationMilliseconds) {
+		if (now < 0LL) { return -1LL; }
+		long long duration = durationMilliseconds > 0LL ? durationMilliseconds : 0LL;
+		return duration > (long long)LLONG_MAX - now ? LLONG_MAX : now + duration;
+	}
+
+	class long long deadlineAfter(long long durationMilliseconds) { return MonotonicClock.deadline(MonotonicClock.milliseconds(), durationMilliseconds); }
+
+	/* Milliseconds left before deadline; 0 once it has passed, when the
+	 * deadline is the expired -1, or when the clock is unavailable. */
+	class long long remaining(long long deadline) {
+		long long now = MonotonicClock.milliseconds();
+		if (now < 0LL || deadline <= now) { return 0LL; }
+		return deadline - now;
+	}
+
+	class bool before(long long deadline) { return MonotonicClock.remaining(deadline) > 0LL; }
+}
+
+/* A monotonic wall-clock stopwatch.
+ *
+ * Backed by CLOCK_MONOTONIC (POSIX) rather than clock(): clock() measures CPU
+ * time, so timing anything that sleeps or blocks on I/O reported near-zero.
+ * start/end are stored as monotonic nanoseconds in a fixed-width-capable
+ * `long long`; C `long` is only 32 bits on LLP64 and many 32-bit targets. */
+class Timer {
+	private long long startTime;
+	private long long endTime;
+	private bool running;
+
+	public Timer() {
+		self.startTime = 0;
+		self.endTime = 0;
+		self.running = false;
+	}
+
+	/* Current monotonic clock value, in nanoseconds. */
+	private long long monoNanos() {
+		long long nanoseconds = MonotonicClock.nanoseconds();
+		if (nanoseconds < 0LL) { throw "failed to read monotonic clock"; }
+		return nanoseconds;
+	}
+
+	public void start() {
+		self.startTime = self.monoNanos();
+		self.running = true;
+	}
+
+	public void stop() {
+		self.endTime = self.monoNanos();
+		self.running = false;
+	}
+
+	/* Elapsed wall time in seconds. */
+	public float elapsed() {
+		long long end = self.running ? self.monoNanos() : self.endTime;
+		if (end < self.startTime) {
+			throw "monotonic clock moved backwards";
+		}
+		return (float)(end - self.startTime) / 1000000000.0f;
+	}
+
+	/* Elapsed wall time in milliseconds. */
+	public float elapsedMillis() {
+		long long end = self.running ? self.monoNanos() : self.endTime;
+		if (end < self.startTime) {
+			throw "monotonic clock moved backwards";
+		}
+		return (float)(end - self.startTime) / 1000000.0f;
+	}
+
+	public void reset() {
+		self.startTime = 0;
+		self.endTime = 0;
+		self.running = false;
+	}
+
+	/* Suspend the calling thread for the given number of seconds (fractional
+     * seconds allowed), using nanosleep (POSIX). */
+	class void sleep(double seconds) {
+		/* Converting NaN/infinity or an out-of-range floating value to time_t
+         * is undefined in C.  Keep the established non-positive no-op contract
+         * and fail closed for values that are not portable to signed 32-bit
+         * time_t implementations. */
+		if (!Math.isFinite(seconds) || seconds <= 0.0 || seconds >= 2147483647.0) {
+			return;
+		}
+		struct timespec req;
+		req.tv_sec = (time_t)seconds;
+		double frac = seconds - (double)((time_t)seconds);
+		req.tv_nsec = (long)(frac * 1000000000.0);
+		if (req.tv_nsec < 0L || req.tv_nsec >= 1000000000L) {
+			return;
+		}
+		while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+		}
+	}
+
+	/* Suspend the calling thread for the given number of milliseconds. */
+	class void sleepMillis(int ms) {
+		if (ms <= 0) {
+			return;
+		}
+		struct timespec req;
+		req.tv_sec = ms / 1000;
+		req.tv_nsec = (long)(ms % 1000) * 1000000L;
+		while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+		}
+	}
+}

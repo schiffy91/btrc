@@ -24,7 +24,7 @@ the API surface, so the layout follows a few fixed rules.
   `DDSEncodedImageDecoder`, and `UI/UI.btrc` imports the six UI modules.
   Two groups are documented exceptions. `GPU` has no facade: every module
   binds the native WebGPU SDK, so a consumer imports only the owners it uses
-  (`Library.GPU.Device`, `Library.GPU.SurfaceRenderer`, ...) rather than
+  (`Library.GPU.GPUDevice`, `Library.GPU.GPUSurfaceRenderer`, ...) rather than
   linking all of them through one import. `App` is a folder holding one
   module, like `Graph`: its application event and window-description
   values belong beside the GUI groups, not in the closed prelude and its
@@ -35,7 +35,7 @@ the API surface, so the layout follows a few fixed rules.
   and `BackgroundJobs/Unix` for code shared by linux and macOS) and implements the group's portable
   contract: `GUI/MacOS/MacOSDirectoryPicker` implements `GUI/IDirectoryPicker`,
   `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
-  (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/CoreAudioDevice`
+  (declared in `Image/EncodedImage.btrc`), `Audio/MacOS/MacOSAudioDevice`
   implements `Audio/AudioDevice`'s provider contract. A Linux or Windows
   provider is the sibling folder (`GUI/Linux/LinuxDirectoryPicker`) selected by
   the same `[[package.providers]]` entry in `btrc.toml`; consumers never name a
@@ -64,8 +64,15 @@ the API surface, so the layout follows a few fixed rules.
   graph. A group folder therefore never carries its own `btrc.lock`.
   `Windows/` is the toolchain compatibility layer, not a module group.
 - **Interfaces are `I`-prefixed** (`IView`, `IWindow`, `IDirectoryPicker`,
-  `IEncodedImageDecoder`); providers are `<Platform><Capability>`; facades keep
-  the group name. Value types carry no platform prefix.
+  `IEncodedImageDecoder`, `IAudioDeviceProvider`, `IRealtimeClipTransport`);
+  providers are `<Platform><Capability>`; facades keep the group name. Value
+  types carry no platform prefix. The one exemption is the root `Iterable<T>`:
+  it is the language's for-in protocol, named for the loop it enables, not a
+  stdlib capability.
+- **Enum members are prefixed constants** (`AUDIO_DEVICE_BUSY`,
+  `STACK_ALIGN_START`, `CALLBACK_CANCELLATION_PENDING`): upper snake case
+  carrying their enum's stem, named unqualified. A bare `Pending` or `Start`
+  would claim a root symbol every importer sees.
 
 Current groups: `App`, `Audio`, `BackgroundJobs`, `Daemon`, `Digest`,
 `FileSystem`, `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`), `HTTP`, `Image`

@@ -14,7 +14,7 @@ import Library.Realtime.RealtimeClipPractice;
 	for (size_t sampleIndex = 0u; sampleIndex < outputSampleCount; sampleIndex++) { outputs.trySet(sampleIndex, 0.0f); }
 }
 
-class DeterministicClipTransportContractFake implements RealtimeClipTransportPort {
+class DeterministicClipTransportContractFake implements IRealtimeClipTransport {
 	private RealtimeClipTransportConfiguration _configuration;
 	private RealtimeClipTransportLifecycle _lifecycle;
 	private RealtimeClipToken? _staged;

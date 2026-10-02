@@ -96,7 +96,7 @@ def test_native_class_index_preserves_lookup_and_replacement(
     semantic_btrcc: Path, tmp_path: Path, frontend: str
 ) -> None:
     source = f'''
-import Library.Datetime;
+import Library.Timer;
 import Library.Vector;
 import "{SELFHOST / "analyzer/Models.btrc"}";
 import "{SELFHOST / "frontend/Models.btrc"}";

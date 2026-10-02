@@ -1,6 +1,6 @@
 # FreeType provider boundary
 
-The BTRC font domain is implemented in `FontFace.btrc`, `Font.btrc` and
+The BTRC font domain is implemented in `IFontFace.btrc`, `Font.btrc` and
 `Raster.btrc`. `FontSnapshotConformance.btrc` exercises copied signed-pitch
 bitmap data, coverage, UTF-8, metrics, layout and explicit surface ownership.
 Those deterministic snapshots do not qualify the native FreeType adapter.
@@ -77,7 +77,7 @@ underflow/overflow. Optimized and ASan/UBSan runs pass. Allocation fault
 injection and overlapping native thread admission are not yet qualified.
 
 The fresh snapshot-enabled selfhost gate passed. The real factory drives
-`GuiFontConformance.btrc` and `examples/gui/FontSmoke.btrc`. The old C loader,
+`GUIFontConformance.btrc` and `examples/gui/FontSmoke.btrc`. The old C loader,
 process-global font dispatcher, color helper, old boundary test, archive build
 rules, hosted ABI entries and runtime feature hooks have been removed. Existing
 global-font thread synchronization was deliberately replaced by explicit

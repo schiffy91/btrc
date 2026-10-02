@@ -101,21 +101,21 @@ class MacOSTextField implements ITextField, IMacOSView {
 	public CallbackCancellation pollClose() {
 		self.requireMainThread();
 		var state = self._view.pollClose();
-		if (state == CallbackCancellation.Complete) { self._control = null; }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._control = null; }
 		return state;
 	}
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
 		var control = self._control;
-		if (control == null) { return CallbackCancellation.Complete; }
+		if (control == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._view.isOpen()) {
 			self._view.requireDetached();
 			// End any field-editor session while the control is still in its window.
 			control.abortEditing();
 		}
 		var state = self._view.close();
-		if (state == CallbackCancellation.Complete) { self._control = null; }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._control = null; }
 		return state;
 	}
 }

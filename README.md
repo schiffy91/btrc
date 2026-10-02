@@ -640,11 +640,11 @@ layout is part of the API. The complete rules are in
 - **The root is a closed prelude.** Each root file is one self-contained
   primitive imported as `Library.<Name>`, and a root module imports only other
   root modules. Nothing with a native binding or a nested source graph lives
-  here. The 26 root modules are `Array`, `BitPattern`, `Bytes`, `CLI`,
-  `Callback`, `Console`, `Datetime`, `Error`, `IO`, `Iterable`, `JSON`,
+  here. The 27 root modules are `Array`, `BitPattern`, `Bytes`, `CLI`,
+  `Callback`, `Console`, `DateTime`, `Error`, `IO`, `Iterable`, `JSON`,
   `List`, `Map`, `Math`, `OwnedBuffer`, `Pattern`, `Platform`, `Process`,
-  `Random`, `Regex`, `Result`, `SPSC`, `Set`, `Strings`, `TOML`, and
-  `Vector`.
+  `Random`, `Regex`, `Result`, `SPSC`, `Set`, `Strings`, `TOML`, `Timer`,
+  and `Vector`.
 - **A group with more than one module is a folder** with a same-named facade
   inside it, so `import Library.HTTP;` selects the facade and the group's other
   modules are addressed by path (`Library.HTTP.HTTPClient`,
@@ -1174,7 +1174,7 @@ int sum = nums.reduce(0, int function(int acc, int x) { return acc + x; });
 nums.free();
 ```
 
-Also available: `.insert()`, `.remove()`, `.removeAt()`, `.removeAll()`,
+Also available: `.insert()`, `.remove()`, `.removeAll()`,
 `.indexOf()`, `.lastIndexOf()`, `.swap()`, `.fill()`, `.clear()`, `.first()`,
 `.last()`, `.min()`, `.max()`, `.count()`, `.distinct()`, `.take()`, `.drop()`,
 `.copy()`, `.extend()`, `.all()`, `.findIndex()`, `.join()`,
@@ -1640,7 +1640,8 @@ Also available: `E()`, `TAU()`, `INF()`, `exp`, `log`, `power`, `round`,
 #### DateTime and Timer
 
 ```
-import Library.Datetime;
+import Library.DateTime;
+import Library.Timer;
 
 DateTime now = DateTime.now();
 string date = now.dateString();     // "2025-01-15"
@@ -1762,7 +1763,7 @@ when used on the wrong case.
 - `Library.Regex` / `Library.Pattern` -- compiled regular expressions and glob-style patterns
 - `Library.Strings` -- `Strings`, `StringBuilder`, and `UTF8`, the one owner of UTF-8 decoding, validation, scalar boundaries and word navigation
 - `Library.Bytes` -- byte buffers; `Library.Digest.SHA256` for hashing
-- `Library.Datetime` -- `DateTime`, `Timer`, and `MonotonicClock` saturating deadlines
+- `Library.DateTime` -- `DateTime`; `Library.Timer` -- `Timer` and `MonotonicClock` saturating deadlines
 - `Library.Process` -- `Command`, `ChildProcess`, `UnixShell`, `ShellWords`, `CStringArray`
 - `Library.CLI` -- `CLIArgs`, `CLICommand`, `CLICommandLine`, `CLIHelp`
 - `Library.HTTP` -- client, server, framing, and typed response headers
@@ -1932,7 +1933,7 @@ src/
     btrc.toml btrc.lock btrc.symbols
     README.md                  # Normative layout rules for the library
     Vector.btrc Map.btrc Set.btrc List.btrc Array.btrc Iterable.btrc
-    Strings.btrc Bytes.btrc Math.btrc Random.btrc Datetime.btrc
+    Strings.btrc Bytes.btrc Math.btrc Random.btrc DateTime.btrc Timer.btrc
     JSON.btrc TOML.btrc Regex.btrc Pattern.btrc BitPattern.btrc
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
     Result.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
@@ -1974,7 +1975,7 @@ examples/
   tray/                        # System tray application
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
     engine/                    # Camera, Light, Material, Ground, Sky, Scene,
-                               #   Input, Time, Gameobject, Renderer, Engine
+                               #   Input, Time, GameObject, Vector3, Renderer, Engine
     Game.btrc                  # The ball game (WASD + space to jump)
   sgd/                         # GPU-accelerated SGD -- @gpu, classes, Vector
   sgd-render/                  # The same training loop, drawn frame by frame

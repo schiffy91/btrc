@@ -5,7 +5,7 @@
  */
 
 import Library.Bytes;
-import Library.Datetime;
+import Library.Timer;
 import Library.IO;
 import Library.Platform;
 import Library.Strings;

@@ -99,7 +99,7 @@ class UITheme {
 		self.textSelection = textSelection == null ? UIColor(64, 135, 245, 150) : textSelection;
 	}
 
-	class UITheme nativeDefault() { return UITheme(UIColor(246, 246, 248), UIColor(255, 255, 255), UIColor(31, 31, 34), UIColor(99, 99, 105), UIColor(24, 105, 222), UIColor(255, 255, 255), UIColor(205, 205, 211)); }
+	class UITheme standard() { return UITheme(UIColor(246, 246, 248), UIColor(255, 255, 255), UIColor(31, 31, 34), UIColor(99, 99, 105), UIColor(24, 105, 222), UIColor(255, 255, 255), UIColor(205, 205, 211)); }
 
 	/* A dark pair of the native default: near-black window, charcoal panels,
 	 * light text, quiet accent. */
@@ -505,7 +505,7 @@ class UILinearGradient {
 
 	class UILinearGradient parse(string source) {
 		Vector<string> colors = UIStyle.gradientColors(source);
-		if (colors.len != 2) { throw "invalid native UI linear gradient"; }
+		if (colors.len != 2) { throw "invalid UI linear gradient"; }
 		return UILinearGradient(UIColor.hex(colors.get(0)), UIColor.hex(colors.get(1)));
 	}
 
@@ -651,7 +651,7 @@ class UIResolvedStyle {
 	/* Apply declarations in order; css UIStyle.validate would reject throws
 	 * that UIStyleError's message and changes nothing. */
 	public void apply(string source) {
-		if (self._frozen) { throw "cannot edit a frozen native UI style; copy it first"; }
+		if (self._frozen) { throw "cannot edit a frozen UI style; copy it first"; }
 		UIStyleDeclarations parsed = UIStyle.parse(source);
 		if (!parsed.ok()) { throw parsed.issue().message(); }
 		for (int index = 0; index < parsed.count(); index++) {
@@ -868,7 +868,7 @@ class UIBuildContext {
 		self.imagePixels += node.subtreeImagePixels;
 		self.metadataBytes += node.subtreeMetadataBytes;
 		if (self.nodes > 4096 || self.imagePixels > 67108864LL || self.metadataBytes > 4194304LL) {
-			self.fail(UI_FRAME_LIMIT_EXCEEDED, "retained native UI tree exceeds aggregate resource bounds");
+			self.fail(UI_FRAME_LIMIT_EXCEEDED, "retained UI tree exceeds aggregate resource bounds");
 			return false;
 		}
 		self.reusedNodes += node.subtreeNodes;
@@ -884,11 +884,11 @@ class UIBuildContext {
 
 	public bool addIdentity(string identity) {
 		if (identity == null || identity.isEmpty() || identity.len() > 512) {
-			self.fail(UI_FRAME_INVALID_TREE, "native UI element IDs must contain 1..512 bytes");
+			self.fail(UI_FRAME_INVALID_TREE, "UI element IDs must contain 1..512 bytes");
 			return false;
 		}
 		if (self.identities.contains(identity)) {
-			self.fail(UI_FRAME_INVALID_TREE, f"duplicate native UI element ID: {identity}");
+			self.fail(UI_FRAME_INVALID_TREE, f"duplicate UI element ID: {identity}");
 			return false;
 		}
 		self.identities.add(identity);
@@ -960,16 +960,16 @@ class UILayout {
 
 	class UIMeasuredNode? measureFresh(UIElement element, int availableWidth, int depth, UIBuildContext context) {
 		if (element == null) {
-			context.fail(UI_FRAME_INVALID_TREE, "native UI trees cannot contain null children");
+			context.fail(UI_FRAME_INVALID_TREE, "UI trees cannot contain null children");
 			return null;
 		}
 		if (depth > 64) {
-			context.fail(UI_FRAME_LIMIT_EXCEEDED, "native UI tree exceeds 64 levels");
+			context.fail(UI_FRAME_LIMIT_EXCEEDED, "UI tree exceeds 64 levels");
 			return null;
 		}
 		context.nodes++;
 		if (context.nodes > 4096) {
-			context.fail(UI_FRAME_LIMIT_EXCEEDED, "native UI tree exceeds 4096 elements");
+			context.fail(UI_FRAME_LIMIT_EXCEEDED, "UI tree exceeds 4096 elements");
 			return null;
 		}
 		if (!context.addIdentity(element.id())) { return null; }
@@ -985,7 +985,7 @@ class UILayout {
 		for (int index = 0; index < element.childCount(); index++) {
 			UIElement child = element.childAt(index);
 			if (child == null) {
-				context.fail(UI_FRAME_INVALID_TREE, "native UI trees cannot contain null children");
+				context.fail(UI_FRAME_INVALID_TREE, "UI trees cannot contain null children");
 				return null;
 			}
 			if (!child.isFloating()) { flowCount++; }
@@ -1008,41 +1008,41 @@ class UILayout {
 			}
 		}
 		if (element.kind() == UI_TEXT_INPUT && (element.contentText() == null || element.placeholderText() == null)) {
-			context.fail(UI_FRAME_INVALID_TREE, f"native UI text input requires non-null UTF-8 text: " + f"{element.id()}");
+			context.fail(UI_FRAME_INVALID_TREE, f"UI text input requires non-null UTF-8 text: " + f"{element.id()}");
 			return null;
 		}
 		UISelect? optionalSelect = element.selectDescriptor();
 		if (element.kind() == UI_SELECT && (optionalSelect == null || !optionalSelect.valid())) {
-			context.fail(UI_FRAME_INVALID_TREE, f"native UI select requires unique options and an exact selected value: {element.id()}");
+			context.fail(UI_FRAME_INVALID_TREE, f"UI select requires unique options and an exact selected value: {element.id()}");
 			return null;
 		}
 		if ((element.kind() == UI_TEXT || element.kind() == UI_BUTTON) && !UIText.valid(element.contentText())) {
-			context.fail(UI_FRAME_INVALID_TREE, f"native UI content requires valid UTF-8 text: " + f"{element.id()}");
+			context.fail(UI_FRAME_INVALID_TREE, f"UI content requires valid UTF-8 text: " + f"{element.id()}");
 			return null;
 		}
 		if (element.inlineStyle().len() > 4096 || element.cssClass().len() > 128 || element.contentText().len() > 4096 || element.placeholderText().len() > 4096 || element.imageAlt().len() > 4096) {
-			context.fail(UI_FRAME_LIMIT_EXCEEDED, f"native UI element metadata exceeds its bound: {element.id()}");
+			context.fail(UI_FRAME_LIMIT_EXCEEDED, f"UI element metadata exceeds its bound: {element.id()}");
 			return null;
 		}
 		if (element.kind() == UI_TEXT_INPUT && (element.textInputMaxBytes() < 1 || element.textInputMaxBytes() > 4096 || element.contentText().len() > element.textInputMaxBytes() || !UIText.valid(element.contentText()) || !UIText.valid(element.placeholderText()))) {
-			context.fail(UI_FRAME_INVALID_TREE, f"native UI text input is invalid or exceeds its byte bound: " + f"{element.id()}");
+			context.fail(UI_FRAME_INVALID_TREE, f"UI text input is invalid or exceeds its byte bound: " + f"{element.id()}");
 			return null;
 		}
 		UISemantics semantics = element.semanticDescriptor();
 		if (!semantics.valid()) {
-			context.fail(UI_FRAME_INVALID_TREE, f"native UI semantics are invalid: {element.id()}");
+			context.fail(UI_FRAME_INVALID_TREE, f"UI semantics are invalid: {element.id()}");
 			return null;
 		}
 		UISemanticRange? optionalRange = element.semanticRangeDescriptor();
 		if (optionalRange != null && (!optionalRange.valid() || !UIText.valid(optionalRange.label(), 512))) {
-			context.fail(UI_FRAME_INVALID_TREE, f"native UI semantic range is invalid: {element.id()}");
+			context.fail(UI_FRAME_INVALID_TREE, f"UI semantic range is invalid: {element.id()}");
 			return null;
 		}
 		int rangeLabelBytes = optionalRange == null ? 0 : optionalRange.label().len();
 		long long selectMetadataBytes = optionalSelect == null ? 0LL : optionalSelect.metadataBytes();
 		context.metadataBytes += (long long)element.id().len() + (long long)element.inlineStyle().len() + (long long)element.cssClass().len() + (long long)element.contentText().len() + (long long)element.placeholderText().len() + (long long)element.imageAlt().len() + (long long)semantics.label().len() + (long long)semantics.hint().len() + (long long)semantics.value().len() + (long long)rangeLabelBytes + selectMetadataBytes;
 		if (context.metadataBytes > 4194304LL) {
-			context.fail(UI_FRAME_LIMIT_EXCEEDED, "native UI tree metadata exceeds 4 MiB");
+			context.fail(UI_FRAME_LIMIT_EXCEEDED, "UI tree metadata exceeds 4 MiB");
 			return null;
 		}
 
@@ -1051,7 +1051,7 @@ class UILayout {
 		if (contentImage != null && !contentImage.isEmpty()) {
 			long long pixels = (long long)contentImage.width * (long long)contentImage.height;
 			if (contentImage.width > 4096 || contentImage.height > 4096 || pixels > 16777216LL || context.imagePixels + pixels > 67108864LL) {
-				context.fail(UI_FRAME_LIMIT_EXCEEDED, f"native UI image exceeds renderer bounds: {element.id()}");
+				context.fail(UI_FRAME_LIMIT_EXCEEDED, f"UI image exceeds renderer bounds: {element.id()}");
 				return null;
 			}
 			context.imagePixels += pixels;
@@ -1074,7 +1074,7 @@ class UILayout {
 				measured.textLayout = textLayout;
 				context.metadataBytes += textLayout.metadataBytes();
 				if (context.metadataBytes > 4194304LL) {
-					context.fail(UI_FRAME_LIMIT_EXCEEDED, "native UI wrapped text exceeds tree metadata bounds");
+					context.fail(UI_FRAME_LIMIT_EXCEEDED, "UI wrapped text exceeds tree metadata bounds");
 					return null;
 				}
 				measured.width = availableWidth;
@@ -1143,7 +1143,7 @@ class UILayout {
 				}
 				UIVirtualGrid descriptor = optionalVirtual;
 				if (descriptor.columns() > 64 || descriptor.rowHeight() > 4096 || descriptor.totalCount() > 100000000) {
-					context.fail(UI_FRAME_LIMIT_EXCEEDED, "virtual grid geometry exceeds native UI bounds");
+					context.fail(UI_FRAME_LIMIT_EXCEEDED, "virtual grid geometry exceeds UI bounds");
 					return null;
 				}
 				if ((long long)descriptor.firstDataIndex() + (long long)flowCount > (long long)descriptor.totalCount()) {
@@ -1188,7 +1188,7 @@ class UILayout {
 					}
 				}
 				if (rowsHeight + (long long)inset > 1000000000LL) {
-					context.fail(UI_FRAME_LIMIT_EXCEEDED, "native UI grid content exceeds 1 billion pixels");
+					context.fail(UI_FRAME_LIMIT_EXCEEDED, "UI grid content exceeds 1 billion pixels");
 					return null;
 				}
 				measured.width = availableWidth;
@@ -1213,12 +1213,12 @@ class UILayout {
 					measured.textLayout = fitted;
 					labelWidth = fitted.width();
 					context.metadataBytes += fitted.metadataBytes();
-					if (context.metadataBytes > 4194304LL) { context.fail(UI_FRAME_LIMIT_EXCEEDED, "native UI ellipsis exceeds tree metadata bounds"); return null; }
+					if (context.metadataBytes > 4194304LL) { context.fail(UI_FRAME_LIMIT_EXCEEDED, "UI ellipsis exceeds tree metadata bounds"); return null; }
 				}
 				measured.width = element.kind() == UI_BUTTON ? UILayout.minimum(availableWidth, UILayout.maximum(labelWidth + horizontalInset, childrenWidth + horizontalInset)) : availableWidth;
 				long long totalHeight = (long long)labelHeight + childrenHeight + (long long)inset;
 				if (totalHeight > 1000000000LL) {
-					context.fail(UI_FRAME_LIMIT_EXCEEDED, "native UI column content exceeds 1 billion pixels");
+					context.fail(UI_FRAME_LIMIT_EXCEEDED, "UI column content exceeds 1 billion pixels");
 					return null;
 				}
 				measured.height = (int)totalHeight;
@@ -1757,9 +1757,7 @@ class UIRaster {
 						if (textY >= image.height || textY + metrics.height() <= 0) { continue; }
 						int textX = typography.alignedX(x + style.paddingLeft(), box.bounds.width - style.horizontalPadding(), 0, metrics.width(), style.textAlignment());
 						UIColor color = style.hasForeground() ? style.foreground() : theme.text;
-						Image? platform = typography.platformRasterizes() ? typography.tintedPlatformRaster(value, style.fontSize(), style.lineHeight(), style.fontWeight(), color.rgba()) : null;
-						if (platform != null) { image.compositeImage(platform, textX, textY); }
-						else { UIRaster.text(image, textX, textY, value, color, style, typography); }
+						UIRaster.text(image, textX, textY, value, color, style, typography);
 					}
 				} else if (box.element.kind() == UI_IMAGE) {
 					Image? optionalImage = box.element.contentImage();
@@ -1841,7 +1839,7 @@ class UIRenderer {
 	public UIRenderer(UITheme? theme = null, UIStyleSheet? styleSheet = null, UITypography? typography = null) {
 		self.styleCache = UIStyleCache();
 		self.measurements = new Map<string, UIMeasuredNode>();
-		self.themeValue = theme == null ? UITheme.nativeDefault() : theme;
+		self.themeValue = theme == null ? UITheme.standard() : theme;
 		self.sheetValue = styleSheet == null ? UIStyleSheet() : styleSheet;
 		self.typographyValue = typography == null ? UITypography() : typography;
 		self.rootValue = null;
@@ -1867,7 +1865,7 @@ class UIRenderer {
 		self.pressedSelectWasExpanded = false;
 		self.selectPopupValue = UISelectPopup.hidden();
 		self.proofRasterValue = false;
-		self.frameValue = UIFrame.failed(UI_FRAME_INVALID_VIEWPORT, "native UI has not rendered a viewport", UIStyleError.valid(), 0, 0, 0, 0);
+		self.frameValue = UIFrame.failed(UI_FRAME_INVALID_VIEWPORT, "UI has not rendered a viewport", UIStyleError.valid(), 0, 0, 0, 0);
 	}
 
 	class UIRenderer styled(UIStyleSheet styleSheet) { return UIRenderer(null, styleSheet); }
@@ -2215,7 +2213,7 @@ class UIRenderer {
 		self.widthValue = width;
 		self.heightValue = height;
 		if (width <= 0 || height <= 0 || width > 4096 || height > 4096 || (long long)width * (long long)height > 16777216LL) {
-			self.frameValue = UIFrame.failed(UI_FRAME_INVALID_VIEWPORT, "native UI viewport must be positive and at most 16M pixels", UIStyleError.valid(), width, height, self.scrollXValue, self.scrollYValue);
+			self.frameValue = UIFrame.failed(UI_FRAME_INVALID_VIEWPORT, "UI viewport must be positive and at most 16M pixels", UIStyleError.valid(), width, height, self.scrollXValue, self.scrollYValue);
 			return self.frameValue;
 		}
 		if (!self.sheetValue.ok()) {

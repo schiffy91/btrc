@@ -163,7 +163,7 @@ int main() {
 	release adapterInfo;
 	for (int poll = 0; poll < 1000000 && !adapter.delivered; poll++) { wgpuInstanceProcessEvents(instance); }
 	assert(adapter.delivered && adapter.value != null);
-	assert(adapterRequest.request.pollCompletion() == CallbackCancellation.Complete);
+	assert(adapterRequest.request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	var device = DeviceCompletion();
 	var deviceInfo = WGPURequestDeviceCallbackInfoInput();
 	deviceInfo.mode = WGPUCallbackMode_AllowProcessEvents; deviceInfo.callback = device;
@@ -171,7 +171,7 @@ int main() {
 	release deviceInfo;
 	for (int poll = 0; poll < 1000000 && !device.delivered; poll++) { wgpuInstanceProcessEvents(instance); }
 	assert(device.delivered && device.value != null);
-	assert(deviceRequest.request.pollCompletion() == CallbackCancellation.Complete);
+	assert(deviceRequest.request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	var queue = wgpuDeviceGetQueue(device.value); assert(queue != null);
 	var frame = ProbeTexture(device.value);
 	assert(frame.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal && frame.texture != null);
@@ -188,7 +188,7 @@ int main() {
 	release vertex;
 	var pipeline = wgpuDeviceCreateRenderPipeline(device.value, pipelineInfo); assert(pipeline != null);
 	release pipelineInfo; release pipeline;
-	assert(scope.cancel() == CallbackCancellation.Complete);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	release queue; device.value = null; adapter.value = null;
 	print("PASS: real WebGPU adapter/device completion through managed bindings");
 	return 0;

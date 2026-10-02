@@ -2,7 +2,7 @@
  *
  * Surface owns pixels, resizing, fills and readback in BTRC, including
  * scalable text drawn from owned font glyph snapshots. Native windows and
- * controls use Library.GUI.GUI; painted widget trees use Library.UI. Raster
+ * controls use Library.GUI; painted widget trees use Library.UI. Raster
  * surfaces remain independent offscreen image buffers.
  *
  * NOT auto-included. Use: import Library.GUI.Raster;
@@ -17,8 +17,8 @@ import Library.OwnedBuffer;
 import Library.Strings;
 import Library.Image;
 import Library.GUI.Font;
-import Library.GUI.FontFace;
-import Library.GUI.Geometry;
+import Library.GUI.IFontFace;
+import Library.GUI.GUIInt;
 
 /* Borrowed pixels for one synchronous raster operation, packed as uint32
  * in 0xRRGGBBAA order. Never retain this view. */
@@ -196,7 +196,7 @@ class GUIRaster {
 			if (codepoint == 10) { if (current > maximum) { maximum = current; } current = 0; continue; }
 			var glyph = font.glyph(codepoint, false);
 			if (glyph == null) { continue; }
-			int advance = GUIRaster.fontPixels(glyph.advanceX26_6());
+			int advance = GUIRaster.fontPixels(glyph.advanceFixed());
 			if (advance > 0) { current = GUIInt.clamp((long long)current + (long long)advance); }
 		}
 		return current > maximum ? current : maximum;
@@ -227,7 +227,7 @@ class GUIRaster {
 					}
 				}
 			}
-			penX = GUIRaster.signedAdvance(penX, (long long)GUIRaster.fontPixels(glyph.advanceX26_6()));
+			penX = GUIRaster.signedAdvance(penX, (long long)GUIRaster.fontPixels(glyph.advanceFixed()));
 		}
 	}
 }

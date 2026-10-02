@@ -747,16 +747,16 @@ void exercise(bool inlineCancel) {
 	int before = NativeToken.cancelled();
 	IReceiver? receiver = context.enter();
 	assert(receiver != null && receiver.invoke() == 42);
-	if (inlineCancel) { assert(context.cancel() == CallbackCancellation.Pending); }
+	if (inlineCancel) { assert(context.cancel() == CALLBACK_CANCELLATION_PENDING); }
 	context.publish(NativeToken.make());
 	assert(NativeToken.live() == 1);
-	assert(scope.cancel() == CallbackCancellation.Pending);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING);
 	assert(NativeToken.cancelled() == before + 1);
 	assert(NativeToken.live() == 1);
 	context.leave(); receiver = null;
-	assert(scope.pollCompletion() == CallbackCancellation.Complete);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(NativeToken.live() == 0);
-	assert(context.cancel() == CallbackCancellation.Complete);
+	assert(context.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(NativeToken.cancelled() == before + 1);
 }
 int main() {

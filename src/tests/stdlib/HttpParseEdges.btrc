@@ -4,7 +4,7 @@
  *                  empty header value, duplicate header (later wins in the map),
  *                  header name lower-cased for lookup. */
 import Library.HTTP.HTTPServer;
-import Library.HTTP.HTTPTypes;
+import Library.HTTP.HTTPRequest;
 import Library.Map;
 
 #include <assert.h>

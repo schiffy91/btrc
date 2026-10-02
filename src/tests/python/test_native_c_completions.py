@@ -55,7 +55,7 @@ class Receiver implements ICompletion {
     public void invoke(int value) {
         assert(value == 7); delivered++;
         if (self.fail) { throw "C completion receiver failed"; }
-        if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+        if (self.scope != null) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
     }
     public void __del__() { destroyed++; }
 }
@@ -67,14 +67,14 @@ void verify(bool inlineCall, bool cancel) {
     var request = inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope);
     receiver = null;
     if (!inlineCall) {
-        if (cancel) { assert(scope.cancel() == CallbackCancellation.Pending); }
+        if (cancel) { assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
         assert(destroyed == freed);
         Drain();
     }
-    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     assert(delivered == before + ((!inlineCall && cancel) ? 0 : 1));
     assert(destroyed == freed + 1);
-    assert(scope.cancel() == CallbackCancellation.Complete);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 int main() {
     verify(true, false); verify(false, false); verify(false, true);
@@ -82,17 +82,17 @@ int main() {
     int before = delivered;
     var abandoned = CallbackScope();
     FinishLater(7, Receiver(), abandoned);
-    assert(abandoned.cancel() == CallbackCancellation.Pending);
+    assert(abandoned.cancel() == CALLBACK_CANCELLATION_PENDING);
     assert(destroyed == freed);
     Drain();
     assert(destroyed == freed + 1 && delivered == before);
-    assert(abandoned.pollCompletion() == CallbackCancellation.Complete);
+    assert(abandoned.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     var scope = CallbackScope();
     var receiver = Receiver();
     receiver.scope = scope;
     var request = FinishNow(7, receiver, scope);
     receiver = null;
-    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     assert(destroyed == freed + 2 && delivered == before + 1);
     var cancelled = CallbackScope();
     cancelled.cancel();
@@ -318,9 +318,9 @@ def test_c_record_completion_snapshots_reused_input(
         f"\trelease info; assert(freed == 0 && mask == 0); {cancellation} Drain();\n"
         f"\tassert(freed == 2 && mask == {0 if cancel else 3});\n"
         f"\t{check_future}\n"
-        f"\tassert(first{request}.pollCompletion() == CallbackCancellation.Complete);\n"
-        f"\tassert(second{request}.pollCompletion() == CallbackCancellation.Complete);\n"
-        "\tassert(scope.cancel() == CallbackCancellation.Complete); return 0;\n}\n"
+        f"\tassert(first{request}.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);\n"
+        f"\tassert(second{request}.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);\n"
+        "\tassert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); return 0;\n}\n"
     )
     plan = root / "Program.link.json"
     result = native_compile(source, plan_path=plan)
@@ -560,7 +560,7 @@ class Receiver implements ICompletion {
         delivered++;
         if (value != null) { assert(WidgetRead(value) == 7); }
         self.saved = value;
-        if (self.scope != null) { assert(self.scope.cancel() == CallbackCancellation.Pending); }
+        if (self.scope != null) { assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
     }
 }
 void verify(bool inlineCall, bool abandon, bool selfCancel) {
@@ -571,16 +571,16 @@ void verify(bool inlineCall, bool abandon, bool selfCancel) {
     var request = inlineCall ? FinishNow(7, receiver, scope) : FinishLater(7, receiver, scope);
     if (!inlineCall) {
         assert(LiveWidgets() == 0);
-        if (abandon) { assert(scope.cancel() == CallbackCancellation.Pending); }
+        if (abandon) { assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); }
         Drain();
     }
-    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     assert(delivered == before + (abandon ? 0 : 1));
     assert(LiveWidgets() == (abandon ? 0 : 1));
     if (!abandon) { assert(receiver.saved != null && WidgetRead(receiver.saved) == 7); }
     receiver.saved = null;
     assert(LiveWidgets() == 0);
-    assert(scope.cancel() == CallbackCancellation.Complete);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 }
 int main() {
     verify(true, false, false); verify(false, false, false);
@@ -589,11 +589,11 @@ int main() {
     var receiver = Receiver();
     var request = FinishNow(0, receiver, scope);
     assert(receiver.saved == null && LiveWidgets() == 0);
-    assert(request.pollCompletion() == CallbackCancellation.Complete);
+    assert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
     FinishLater(7, Receiver(), scope);
     Drain();
     assert(LiveWidgets() == 0);
-    assert(scope.cancel() == CallbackCancellation.Complete);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
     print("PASS: claimed and abandoned native resource completions");
     return 0;
 }
@@ -866,8 +866,8 @@ def test_c_completion_copies_borrowed_string(
         f"\t\tvar schedule = Schedule; var request = schedule(info, scope); release info; {cancel} Complete({mode});\n"
         f"\t\tassert(receiver.saved == {json.dumps(expected, ensure_ascii=False)});\n"
         f"\t\tassert(delivered == {'0' if canceled else 'index + 1'});\n"
-        "\t\tassert(request.pollCompletion() == CallbackCancellation.Complete);\n"
-        '\t\tassert(scope.cancel() == CallbackCancellation.Complete); receiver.saved = "";\n'
+        "\t\tassert(request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);\n"
+        '\t\tassert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); receiver.saved = "";\n'
         "\t\tassert(__btrc_string_live_count() == baseline);\n\t}\n\treturn 0;\n}\n"
     )
     plan = root / "Text.link.json"
@@ -1140,7 +1140,7 @@ void throwAfterCompletion() {
 	var scope = CallbackScope(); var receiver = Receiver();
 	var started = FinishNow(7, receiver, scope);
 	assert(started.value.id == 4294967303ULL);
-	assert(started.request.pollCompletion() == CallbackCancellation.Complete);
+	assert(started.request.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	throw "expected";
 }
 void exerciseExceptions() {

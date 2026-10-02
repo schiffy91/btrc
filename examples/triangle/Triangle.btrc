@@ -1,13 +1,13 @@
 import Library.CLI;
-import Library.Datetime;
-import Library.GUI.GUI;
+import Library.Timer;
+import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.IGPUView;
-import Library.GPU.Program;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.Readback;
-import Library.GPU.UniformBuffer;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUReadback;
+import Library.GPU.GPUUniformBuffer;
 
 /* Native application work schedules frames while the view owns asynchronous
  * preparation/readback and drains them during ordinary window shutdown. */

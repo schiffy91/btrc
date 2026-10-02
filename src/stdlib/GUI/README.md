@@ -25,7 +25,7 @@ or display-synchronization API. Native GPU completion required for shutdown
 must not use a domain callback that Quit intentionally abandons.
 `run()` closes owned windows and detached views before returning or propagating
 a work error. `GUI.close()` covers setup without loop entry and returns a
-`CallbackCancellation`; `Pending` keeps the application owner. Enter `GUI.run()`
+`CallbackCancellation`; `CALLBACK_CANCELLATION_PENDING` keeps the application owner. Enter `GUI.run()`
 to drain that shutdown on the native executor. Closed aliases remain closed
 after reinitialization.
 `button.onAction(receiver, scope)` registers an `IButtonAction.invoke()` receiver
@@ -50,7 +50,7 @@ uses native intrinsic sizes, not manually assigned control frames.
 `GUI.createRow(spacing)` and `GUI.createColumn(spacing)` return `IStack`.
 Attach ordinary controls or nested stacks; AppKit performs recursive layout.
 Spacing defaults to eight logical points; `setPadding(top, right, bottom, left)`
-sets nonnegative insets. `StackAlignment.Start/Center/End` controls cross-axis
+sets nonnegative insets. `STACK_ALIGN_START`/`_CENTER`/`_END` control cross-axis
 alignment. Native control sizes and reading order are retained. Hidden children
 keep their space and parent; detach removes them from layout and restores their
 previous Auto Layout policy. `layout()` flushes pending native layout without
@@ -114,9 +114,9 @@ row/column layout, `IGrid` for grids and `IGPUView` for GPU composition.
 
 `IView.close()` starts shutdown once and reports completion. `pollClose()` advances
 already-started cleanup without retrying failed native operations; it reports
-`NotRequested` on a live view. Native controls complete immediately. A container
+`CALLBACK_CANCELLATION_NOT_REQUESTED` on a live view. Native controls complete immediately. A container
 retains pending children and its native backing, closes siblings independently,
-and removes a child only after `Complete`. `isOpen() == false` means admission
+and removes a child only after `CALLBACK_CANCELLATION_COMPLETE`. `isOpen() == false` means admission
 has stopped, not that native cleanup finished. Dropping an unfinished subtree
 owner is a diagnosed lifecycle error, not permission to free native borrowers.
 
@@ -259,7 +259,7 @@ does not yet constitute the portable declarative layout API.
 The APIs documented below are the offscreen raster surface. `Surface` owns its
 pixel buffer, resizing, fills, bitmap text, blending and readback in BTRC.
 Optional FreeType loading uses checked SDK owners and copied glyph snapshots.
-Native windows and product controls use `Library.GUI.GUI`; painted widget
+Native windows and product controls use `Library.GUI`; painted widget
 trees use `Library.UI`. The legacy immediate-mode widgets (`RasterGUI`,
 `GUIApp`, `Theme`, `GUIInput`, `Color`) and the declarative `View` tree were
 removed: they duplicated `Library.UI` and `Library.Image` inside the
@@ -269,9 +269,9 @@ OS-native group.
 
 | File | Role |
 |------|------|
-| `Geometry.btrc` | Saturating integer geometry for raster measurement. |
+| `GUIInt.btrc` | Saturating integer geometry for raster measurement. |
 | `Raster.btrc` | BTRC-owned `Surface` storage, resize, clear/fill/blend, bitmap and scalable text, readback/PPM. Colors are `Library.Image` `RGBA` values. |
-| `Font.btrc` / `FontFace.btrc` | Managed per-surface selection and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
+| `Font.btrc` / `IFontFace.btrc` | Managed per-surface selection and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
 | `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional factory, private unique SDK owners and serialized copied glyph snapshots. |
 
 Not auto-included. Opt in with `import Library.GUI.Raster;`; no native raster

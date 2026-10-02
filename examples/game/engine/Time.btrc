@@ -1,6 +1,6 @@
 /* btrc 3D Engine -- monotonic frame timing. */
 
-import Library.Datetime;
+import Library.Timer;
 
 class Time {
 	public float deltaTime;

@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
     if snapshot:
         source.write_text("""import ./FreeTypeFace.btrc;
 import Library.Bytes;
-import Library.GUI.FontFace;
+import Library.GUI.IFontFace;
 #include <assert.h>
 int main(int argc, char** argv) {
     assert(argc == 2);
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
     assert(rendered.width() > 0 && rendered.rows() > 0);
     var measured = provider.glyph(0xe9, false);
     if (measured == null) { throw "Cannot measure accented glyph"; }
-    assert(measured.advanceX26_6() == rendered.advanceX26_6());
+    assert(measured.advanceFixed() == rendered.advanceFixed());
     print("PASS: actual FreeType unique setup");
     return 0;
 }
@@ -198,7 +198,7 @@ def _compile_and_run(source, native_compile, sanitize, arguments):
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
-@pytest.mark.parametrize("consumer", ["GuiFontConformance", "FontSmoke"])
+@pytest.mark.parametrize("consumer", ["GUIFontConformance", "FontSmoke"])
 def test_optional_freetype_factory(font_project, native_compile, sanitize, consumer):
     if (
         not shutil.which("pkg-config")
@@ -206,12 +206,12 @@ def test_optional_freetype_factory(font_project, native_compile, sanitize, consu
     ):
         pytest.skip("requires the optional FreeType SDK through pkg-config")
     font = _test_font()
-    if consumer == "GuiFontConformance" and not font.is_file():
+    if consumer == "GUIFontConformance" and not font.is_file():
         pytest.skip("requires BTRC_TEST_FONT, the system Arial font or fontconfig")
     source, _, _ = font_project
-    directory = REPO / ("src/tests/native/gui" if consumer == "GuiFontConformance" else "examples/gui")
+    directory = REPO / ("src/tests/native/gui" if consumer == "GUIFontConformance" else "examples/gui")
     source.write_text((directory / f"{consumer}.btrc").read_text())
-    arguments = [str(font)] if consumer == "GuiFontConformance" else []
+    arguments = [str(font)] if consumer == "GUIFontConformance" else []
     result = _compile_and_run(source, native_compile, sanitize, arguments)
     assert ("PASS: FreeType draws into BTRC-owned pixels" if arguments else "FONT SMOKE TEST PASSED") in result.stdout
 
@@ -242,8 +242,8 @@ def test_linux_freetype_draws_into_owned_pixels(tmp_path, request, frontend, san
     font = _linux_test_font()
     if font is None or not font.is_file():
         pytest.skip("requires BTRC_TEST_FONT or a fontconfig sans-serif font")
-    source = tmp_path / "GuiFontConformance.btrc"
-    source.write_text((REPO / "src/tests/native/gui/GuiFontConformance.btrc").read_text())
+    source = tmp_path / "GUIFontConformance.btrc"
+    source.write_text((REPO / "src/tests/native/gui/GUIFontConformance.btrc").read_text())
     executable = _build(source, tmp_path, frontend, sanitized, request)
     result = subprocess.run(
         [str(executable), str(font)], capture_output=True, text=True, timeout=60, env=_environment(sanitized)
