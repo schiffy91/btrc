@@ -11,6 +11,13 @@ survey`` measures the whole corpus and prints the byte-identical count and the
 first-difference histogram; ``--write-manifest`` records the identical set in
 ``IDENTICAL_MANIFEST``, which ``test_c_output_parity.py`` pins: a program
 listed there must keep transpiling to identical C through both compilers.
+
+Two narrower views are measured beside the whole translation unit. The
+*user declarations* view removes every pre-authored runtime helper, whose text
+both compilers copy from the shared runtime catalog, so it compares only what
+each compiler lowered from the program. ``--module-units`` also builds every
+program with ``--module-units --emit-units`` through both command lines and
+compares each emitted unit.
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -30,6 +38,7 @@ REPO = Path(__file__).resolve().parents[2]
 TEST_DIRECTORY = REPO / "src" / "tests"
 IDENTICAL_MANIFEST = TEST_DIRECTORY / "fixtures" / "c_output_parity" / "identical.txt"
 CHECKOUT_TOKEN = "<checkout>"
+UNITS_TOKEN = "<units>"
 
 # A compiler-generated temporary: `__btrc_<role>_<counter>`.
 _TEMPORARY = re.compile(r"\b__btrc_[A-Za-z_]*?_\d+\b")
@@ -37,6 +46,17 @@ _FUNCTION_POINTER_TYPEDEF = re.compile(r"^typedef\b.*\(\s*\*")
 # Lines only the pre-authored runtime assets emit at file scope: their
 # comments, their preprocessor conditionals, and their `__btrc_` definitions.
 _RUNTIME_LINE = re.compile(r"^(/\*| \*|#(if|elif|else|endif|define|undef)\b|static\b.*\b__btrc_\w+\s*[(=;\[])")
+_BLANK_RUNS = re.compile(r"\n{3,}")
+
+
+def _runtime_helper_texts() -> tuple[str, ...]:
+    from src.compiler.python.runtime.generated import RUNTIME_HELPER_ROWS
+
+    # Longest first, so a helper that contains another is removed whole.
+    return tuple(sorted({row.c_source for row in RUNTIME_HELPER_ROWS if row.c_source}, key=len, reverse=True))
+
+
+_RUNTIME_HELPER_TEXTS = _runtime_helper_texts()
 
 
 @dataclass(frozen=True)
@@ -48,6 +68,7 @@ class ParityResult:
     python_line: str = ""
     btrcc_line: str = ""
     line_number: int = 0
+    user_identical: bool = False
 
     @property
     def identical(self) -> bool:
@@ -112,10 +133,59 @@ class COutputParitySurvey:
             return ParityResult(program, "failure", python_line=str(error))
         return self.classify(program, python_source, btrcc_source)
 
+    @staticmethod
+    def user_declarations(c_source: str) -> str:
+        """The translation unit without the runtime catalog's helper definitions."""
+        for helper in _RUNTIME_HELPER_TEXTS:
+            c_source = c_source.replace(helper, "")
+        return _BLANK_RUNS.sub("\n\n", c_source)
+
+    def module_units(self, program: str, command: list[str]) -> dict[str, str]:
+        """Build one program as module units; return each unit's normalized text."""
+        with tempfile.TemporaryDirectory(prefix="btrc-units-") as scratch:
+            output = Path(scratch) / "out"
+            output.mkdir()
+            completed = subprocess.run(
+                [
+                    *command,
+                    str(TEST_DIRECTORY / program),
+                    "-o",
+                    str(output / "program.c"),
+                    "--emit-units",
+                    str(output / "program"),
+                    "--module-units",
+                    "--jobs",
+                    "1",
+                ],
+                cwd=REPO,
+                env={**os.environ, "BTRC_CACHE_DIR": str(Path(scratch).resolve() / "cache")},
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+            if completed.returncode != 0:
+                raise RuntimeError(f"{command[-1]}: {completed.stderr[:500]}")
+            return {
+                path.name: self.normalize(path.read_text(encoding="utf-8")).replace(str(output), UNITS_TOKEN)
+                for path in sorted(output.glob("program*.c"))
+            }
+
+    def compare_units(self, program: str) -> tuple[int, int]:
+        """Identical and total module units of one program, failures counting as different."""
+        try:
+            python_units = self.module_units(program, [sys.executable, "-m", "src.compiler.python.main"])
+            btrcc_units = self.module_units(program, [str(self.btrcc)])
+        except (RuntimeError, subprocess.TimeoutExpired):
+            return 0, 1
+        names = sorted(set(python_units) | set(btrcc_units))
+        identical = sum(1 for name in names if python_units.get(name) == btrcc_units.get(name))
+        return identical, len(names)
+
     @classmethod
     def classify(cls, program: str, python_source: str, btrcc_source: str) -> ParityResult:
         if python_source == btrcc_source:
-            return ParityResult(program, "identical")
+            return ParityResult(program, "identical", user_identical=True)
+        user_identical = cls.user_declarations(python_source) == cls.user_declarations(btrcc_source)
         python_lines = python_source.split("\n")
         btrcc_lines = btrcc_source.split("\n")
         index = 0
@@ -129,6 +199,7 @@ class COutputParitySurvey:
             python_line=python_line,
             btrcc_line=btrcc_line,
             line_number=index + 1,
+            user_identical=user_identical,
         )
 
     @staticmethod
@@ -165,6 +236,12 @@ class COutputParityCommand:
         survey = cls._worker_surveys.setdefault(btrcc, COutputParitySurvey(Path(btrcc)))
         return survey.compare(program)
 
+    @classmethod
+    def compare_units_in_worker(cls, arguments: tuple[str, str]) -> tuple[int, int]:
+        btrcc, program = arguments
+        survey = cls._worker_surveys.setdefault(btrcc, COutputParitySurvey(Path(btrcc)))
+        return survey.compare_units(program)
+
     def run(self, argv: list[str]) -> int:
         parser = argparse.ArgumentParser(prog="python3 -m src.tests.c_output_parity")
         parser.add_argument("operation", choices=["survey"])
@@ -173,6 +250,7 @@ class COutputParityCommand:
         parser.add_argument("--filter", default="", help="only programs whose path contains this text")
         parser.add_argument("--details", type=Path, help="write every difference to this file")
         parser.add_argument("--write-manifest", action="store_true")
+        parser.add_argument("--module-units", action="store_true", help="also compare every emitted module unit")
         arguments = parser.parse_args(argv)
         os.environ.setdefault("BTRC_HOME", str(REPO / "src"))
         programs = [program for program in COutputParitySurvey.corpus_programs() if arguments.filter in program]
@@ -186,8 +264,23 @@ class COutputParityCommand:
         histogram = Counter(result.category for result in results)
         identical = sorted(result.program for result in results if result.identical)
         print(f"byte-identical: {len(identical)} of {len(results)}")
+        print(f"user declarations identical: {sum(result.user_identical for result in results)} of {len(results)}")
         for category, count in histogram.most_common():
             print(f"  {category:28} {count}")
+        if arguments.module_units:
+            with ProcessPoolExecutor(max_workers=max(1, arguments.jobs)) as pool:
+                units = list(
+                    pool.map(
+                        COutputParityCommand.compare_units_in_worker,
+                        [(btrcc, program) for program in programs],
+                        chunksize=4,
+                    )
+                )
+            identical_units = sum(identical for identical, _total in units)
+            total_units = sum(total for _identical, total in units)
+            whole = sum(1 for identical, total in units if identical == total)
+            print(f"module units identical: {identical_units} of {total_units}")
+            print(f"programs with every module unit identical: {whole} of {len(units)}")
         if arguments.details:
             with arguments.details.open("w", encoding="utf-8") as details:
                 for result in sorted(results, key=lambda item: (item.category, item.program)):
