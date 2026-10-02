@@ -1154,7 +1154,9 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
         SubjectKind.FAMILY_CELL: 300,
         SubjectKind.UI_OPERATION: 1620,
         SubjectKind.UI_CASE: 470,
+        SubjectKind.OPERATION: 1938,
     }
+    assert sum(row["slots"] for row in evidence if row["kind"] == "operation") == 1938
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-operation") == 1620
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-case") == 470
     assert sum(row["slots"] for row in evidence if row["kind"] == "family-cell") == 300
@@ -1164,6 +1166,7 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
         ("family-cell", 0, 0),
         ("ui-operation", 0, 0),
         ("ui-case", 0, 0),
+        ("operation", 0, 0),
     ]
     implementation = {row["platform"]: row for row in report.implementation_rows()}
     assert (implementation["macos"]["partial"], implementation["linux"]["custom"]) == (1, 1)
@@ -1190,7 +1193,12 @@ def test_the_tracked_denominators_match_their_sources():
         denominator.kind.value: (len(denominator.ids), denominator.frozen_slots)
         for denominator in manifest.denominators
     }
-    assert counts == {"family-cell": (60, 300), "ui-operation": (162, 1620), "ui-case": (47, 470)}
+    assert counts == {
+        "family-cell": (60, 300),
+        "ui-operation": (162, 1620),
+        "ui-case": (47, 470),
+        "operation": (323, 1938),
+    }
     ids = manifest.by_kind()[SubjectKind.UI_CASE].ids
     assert (ids[0], ids[-1], len(set(ids))) == ("E01", "E47", 47)
 
@@ -1200,7 +1208,8 @@ def _frozen_copy(tmp_path: Path, *, drop: str | None = None, rewrite=None) -> Pa
 
     from tools.qualification.denominators import MANIFEST, REPO
 
-    for document in ("docs/design/native-ui-parity.md", "docs/design/native-ui-api-inventory.md"):
+    documents = ("docs/design/native-ui-parity.md", "docs/design/native-ui-api-inventory.md")
+    for document in (*documents, "docs/design/platform-inventory.toml"):
         text = (REPO / document).read_text(encoding="utf-8")
         if drop is not None:
             text = "\n".join(line for line in text.splitlines() if not line.startswith(drop))
@@ -1347,6 +1356,57 @@ source = {{ ledger = "p0-inventory.toml" }}
         manifest.write_text(broken)
         with pytest.raises(LedgerSchemaError, match=message):
             DenominatorManifest.load(manifest, repo=tmp_path)
+
+
+def test_inventory_rows_expand_to_one_record_per_slice_cell(tmp_path: Path):
+    ledger = tmp_path / "inventory.toml"
+    ledger.write_text(
+        f'''schema = "{SCHEMA}"
+provenance = {{ recorded_at = "2026-10-02T00:00:00+00:00", btrc_revision = "c7f785e" }}
+
+[[rows]]
+kind = "operation"
+id = "Library.Process"
+group = "stdlib"
+regression = ["src/tests/python/test_stdlib_process_security.py::test_x"]
+owner = "P3"
+windows-x64 = {{ parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "no Win32 backend" }}
+ios-simulator = {{ parity = "os-restricted", implementation = "missing", status = "source-only", reason = "no fork" }}
+android-arm64 = {{ parity = "equivalent", implementation = "implemented", status = "implemented-unverified" }}
+''',
+        encoding="utf-8",
+    )
+
+    records = LedgerDocument.load(ledger)
+
+    assert [(r.subject.platform.value, r.subject.variant) for r in records] == [
+        ("windows", "x86_64"),
+        ("ios", "arm64-simulator"),
+        ("android", "arm64"),
+    ]
+    assert [r.classification.owner for r in records] == ["W1", "P3", "P3"]
+    assert {r.classification.regression for r in records} == {
+        ("src/tests/python/test_stdlib_process_security.py::test_x",)
+    }
+    assert records[1].evidence.reason == "no fork" and records[1].subject.group == "stdlib"
+    assert all(r.provenance.btrc_revision == "c7f785e" for r in records)
+
+    for edit, message in (
+        ('windows-x64 = {{', "unknown field"),
+        ('status = "implemented-unverified"', "a missing slot cannot be implemented-unverified"),
+        ("provenance = {{", "needs provenance btrc_revision and recorded_at"),
+    ):
+        text = ledger.read_text(encoding="utf-8")
+        if edit.startswith("windows"):
+            text = text.replace("windows-x64 = {", "windows-x86 = {")
+        elif edit.startswith("status"):
+            text = text.replace('parity = "equivalent"', 'parity = "missing"')
+        else:
+            text = text.replace("provenance = {", "# provenance = {")
+        broken = tmp_path / "broken.toml"
+        broken.write_text(text, encoding="utf-8")
+        with pytest.raises(LedgerSchemaError, match=message):
+            LedgerDocument.load(broken)
 
 
 def test_unavailable_slots_are_listed_with_their_coverage():

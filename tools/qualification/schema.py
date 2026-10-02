@@ -24,6 +24,8 @@ Encodings
 ``*.json``   ``{"schema": "btrc.qualification.ledger/1", "records": [...]}``
 ``*.toml``   ``schema = "btrc.qualification.ledger/1"`` then one
              ``[[records]]`` table per record, with ``[records.subject]`` etc.
+             An inventory can instead write one ``[[rows]]`` table per
+             subject with one cell per target slice (`InventoryRows`).
 
 TOML has no null, so an optional field is always expressed by omitting it; in
 JSON, ``null`` means the same as absent. Unknown keys are rejected at every
@@ -905,7 +907,7 @@ class LedgerDocument:
 
     @staticmethod
     def from_document(document: object, where: str) -> list[LedgerRecord]:
-        fields = FieldReader(document, where, ("schema", "records"))
+        fields = FieldReader(document, where, ("schema", "records", *InventoryRows.DOCUMENT_FIELDS))
         schema = fields.text("schema", required=True)
         if schema != SCHEMA:
             raise LedgerSchemaError(f"{where}.schema: {schema!r} is not {SCHEMA!r}")
@@ -917,8 +919,80 @@ class LedgerDocument:
             if isinstance(record, Mapping) and "schema" not in record:
                 record = {"schema": SCHEMA, **record}
             loaded.append(LedgerRecord.from_mapping(record, f"{where}.records[{index}]"))
-        return loaded
+        return loaded + InventoryRows.expand(fields, where)
 
     @staticmethod
     def dumps_jsonl(records: Iterable[LedgerRecord]) -> str:
         return "".join(json.dumps(record.to_mapping(), sort_keys=True) + "\n" for record in records)
+
+
+class InventoryRows:
+    """The compact TOML form of a sliced inventory: one table per subject, one cell per target slice.
+
+    A P0 inventory repeats its subject, regression and provenance on every
+    slice, so a ledger document may also hold::
+
+        provenance = { recorded_at = "2026-10-02T00:00:00+00:00", btrc_revision = "c7f785e" }
+
+        [[rows]]
+        kind = "operation"
+        id = "Library.Process"
+        group = "stdlib"
+        regression = ["src/tests/python/test_stdlib_process_security.py::test_..."]
+        windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "..." }
+        ...
+
+    Each row is the subject's ``kind``, ``id``, ``group`` and ``title``, any
+    classification field the slices share, and a cell named for each slice in
+    `TARGET_SLICES`. A cell holds that slice's classification fields and its
+    evidence fields (``status`` for the evidence status), so a cell field
+    overrides the row's. Every row expands, in slice order, to one ordinary
+    `LedgerRecord` per cell -- the slice's family plus its artifact variant --
+    carrying the document's ``provenance``, and is validated as one. Rows
+    follow the document's ``records``.
+    """
+
+    DOCUMENT_FIELDS = ("provenance", "rows")
+    SUBJECT_FIELDS = ("kind", "id", "group", "title")
+    EVIDENCE_FIELDS = ("status", "observed", "reason", "artifact")
+
+    @classmethod
+    def expand(cls, document: FieldReader, where: str) -> list[LedgerRecord]:
+        rows = document.data.get("rows") or []
+        if not isinstance(rows, Sequence) or isinstance(rows, str):
+            raise LedgerSchemaError(f"{where}.rows: expected a list of tables")
+        provenance = document.data.get("provenance")
+        if provenance is not None:
+            Provenance.from_mapping(provenance, f"{where}.provenance")
+        records = []
+        for index, row in enumerate(rows):
+            records += cls.records(row, provenance, f"{where}.rows[{index}]")
+        return records
+
+    @classmethod
+    def records(cls, row: object, provenance: object, where: str) -> list[LedgerRecord]:
+        fields = FieldReader(row, where, (*cls.SUBJECT_FIELDS, *Classification.FIELDS, *TARGET_SLICES))
+        shared = {name: value for name, value in fields.data.items() if name in Classification.FIELDS}
+        subject = {name: value for name, value in fields.data.items() if name in cls.SUBJECT_FIELDS}
+        cells = [name for name in TARGET_SLICES if name in fields.data]
+        if not cells:
+            raise LedgerSchemaError(f"{where}: a row needs at least one slice cell ({', '.join(TARGET_SLICES)})")
+        records = []
+        for name in cells:
+            cell = FieldReader(fields.data[name], f"{where}.{name}", (*Classification.FIELDS, *cls.EVIDENCE_FIELDS))
+            platform, variant = TARGET_SLICES[name]
+            record: dict[str, Any] = {
+                "schema": SCHEMA,
+                "subject": {**subject, "platform": platform.value, "variant": variant},
+                "classification": {
+                    **shared,
+                    **{key: value for key, value in cell.data.items() if key in Classification.FIELDS},
+                },
+            }
+            evidence = {key: value for key, value in cell.data.items() if key in cls.EVIDENCE_FIELDS}
+            if evidence:
+                record["evidence"] = evidence
+            if provenance is not None:
+                record["provenance"] = provenance
+            records.append(LedgerRecord.from_mapping(record, f"{where}.{name}"))
+        return records
