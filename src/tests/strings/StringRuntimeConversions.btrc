@@ -1,0 +1,26 @@
+/* Runtime string helpers no other corpus program reaches: the built-in
+ * string split method (__btrc_split) and toString on unsigned long
+ * (__btrc_ulongToString) and long double (__btrc_longDoubleToString). */
+#include <assert.h>
+
+int main() {
+	string csv = "red,green,blue";
+	string* parts = csv.split(",");
+	assert(parts[0] == "red");
+	assert(parts[1] == "green");
+	assert(parts[2] == "blue");
+	print(f"{parts[0]} {parts[1]} {parts[2]}");
+
+	unsigned long largest = 18446744073709551615UL;
+	string widest = largest.toString();
+	assert(widest == "18446744073709551615");
+	print(widest);
+
+	long double half = (long double)2.5;
+	string precise = half.toString();
+	// %Lg's spelling of a long double is the C library's, so only its presence is checked.
+	assert(precise.len() > 0);
+
+	print("PASS: test_string_runtime_conversions");
+	return 0;
+}

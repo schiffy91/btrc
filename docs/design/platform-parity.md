@@ -154,6 +154,8 @@ Dependencies: P0. Exit: both frontends build and run an ABI/callback fixture
 on **Windows x64, iOS arm64 simulator/device, Android arm64/device + x86_64
 emulator**; Windows arm64 joins no later than W2. No provider alias to a host OS.
 
+Stage 24's design for this milestone is [platform-target-contract.md](platform-target-contract.md).
+
 - Extend shared target contracts, both package resolvers, provider filters,
   native semantic extraction, link-plan codec/reader and artifact cache keys.
   Specify target triple, environment, deployment/API minimum, sysroot/SDK,
@@ -300,6 +302,8 @@ that works outside the checkout with Unicode/space-containing paths.
   GUIDs, calling conventions, COM AddRef/Release, out parameters, callbacks,
   apartment/thread affinity and asynchronous cancellation. Verify actual SDK
   types rather than manually transcribing layouts or vtables.
+  The ownership model and implementation order are in
+  [native-interop-ownership.md](native-interop-ownership.md).
 - Keep the working Zig/MinGW route first. Qualify a Windows SDK/clang-cl or
   equivalent MSVC-ABI route when required by dependencies; state what remains
   unsupported with MSVC itself rather than implying toolchain interchangeability.
@@ -632,3 +636,14 @@ applicable stdlib APIs, native packages, BTRSmith journeys, numeric budgets and
 installable artifacts are qualified. A narrower checkpoint must state its exact
 subset and remaining missing/restricted counts. Maintain one ownership model,
 one structured compiler pipeline and platform-selected providers throughout.
+
+## Stage 22 planning artifacts
+
+P0 steps 3 and 4 are recorded in their own files. The toolchain matrix
+([platform-toolchain-matrix.md](platform-toolchain-matrix.md)) pins every
+slice's OS floor, SDK, toolchain, wgpu-native archive and FreeType version
+with sources; Xcode is pinned by build number (27A266a). The device registry
+([../qualification/devices.toml](../qualification/devices.toml)) maps every
+physical gate to a device or an unavailable record. The desktop-only
+adaptations ([platform-adaptations.md](platform-adaptations.md)) are a draft
+awaiting the owner's sign-off.

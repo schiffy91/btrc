@@ -799,27 +799,22 @@ class TranslationUnitLowerer:
         element_type = TypeSystem.strip_outer_storage(type_expr, array=True)
         is_extern = bool(type_expr.is_extern and (not force_external))
         initializer = declaration.initializer
+        init = self._expressions.lower_static_initializer(initializer, provenance) if initializer else None
+        if type_expr.array_size is not None:
+            array_size = self._expressions.lower_expr(type_expr.array_size, provenance)
+        elif isinstance(initializer, (BraceInitializer, ListLiteral)):
+            array_size = IRLiteral(text=str(len(initializer.elements)))
+        else:
+            array_size = self._expressions.string_array_extent(initializer)
         self._session.module.global_decls.append(
             IRGlobalDecl(
                 c_type=CType(text=self._types.render(element_type)),
                 name=declaration.name,
-                init=self._expressions.lower_static_initializer(
-                    initializer,
-                    provenance,
-                )
-                if initializer
-                else None,
-                array_size=self._expressions.lower_expr(
-                    type_expr.array_size,
-                    provenance,
-                )
-                if type_expr.array_size is not None
-                else IRLiteral(text=str(len(initializer.elements)))
-                if isinstance(initializer, (BraceInitializer, ListLiteral))
-                else None,
-                # An unsized char array takes its extent from its string literal.
-                is_unsized_array=type_expr.array_size is None
-                and not isinstance(initializer, (BraceInitializer, ListLiteral)),
+                init=init,
+                array_size=array_size,
+                # Only an extern declaration without an initializer keeps an
+                # empty bound; every other array has a complete type.
+                is_unsized_array=array_size is None,
                 is_static=not (is_extern or force_external),
                 is_extern=is_extern,
                 is_volatile=bool(type_expr.is_volatile),

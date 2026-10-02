@@ -514,7 +514,8 @@ class NameValidator {
 						continue;
 					}
 					self.rejectDuplicateTopLevel(name, declaration, previous);
-					if (declaration.bodyNode == null && previous.bodyNode == null) {
+					bool functionPair = declaration.kind == NK_FUNCTION_DECL && previous.kind == NK_FUNCTION_DECL;
+					if (functionPair && declaration.bodyNode == null && previous.bodyNode == null) {
 						/* C allows repeated prototypes. A named one supersedes an
                          * unnamed one, so a later definition is checked against
                          * the names it declares. */

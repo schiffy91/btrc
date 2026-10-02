@@ -867,13 +867,20 @@ class BtrcFormatter:
         return True
 
     @staticmethod
-    def _continues_adjacent_strings(first: Lexeme | None, previous: Lexeme | None) -> bool:
-        """A line continuing the string-literal pieces the previous line ended with."""
+    def _continues_adjacent_strings(
+        first: Lexeme | None, previous: Lexeme | None, previous_first: Lexeme | None
+    ) -> bool:
+        """A line continuing the string-literal pieces the previous line ended with.
+
+        A quoted import may omit its ';', so the path a previous ``import``
+        line ends with is never a piece the next line continues.
+        """
         return (
             first is not None
             and previous is not None
             and previous.kind is LexemeKind.STRING
             and first.kind in {LexemeKind.STRING, LexemeKind.WORD}
+            and not (previous_first is not None and previous_first.text == "import")
         )
 
     def _compact_trivial_functions(self, source: str) -> str:
@@ -893,11 +900,9 @@ class BtrcFormatter:
                 continue
             start = view.significant[construct.start_index].start
             end = view.significant[span.body_close_index].end
-            protected = view.lexemes_between(start, end)
-            if any(
-                lexeme.kind in {LexemeKind.LINE_COMMENT, LexemeKind.BLOCK_COMMENT, LexemeKind.PREPROCESSOR}
-                for lexeme in protected
-            ):
+            # Comments, directives and string pieces the author split across
+            # lines keep the function's layout.
+            if self._statement_has_protected_layout(tuple(view.lexemes_between(start, end))):
                 continue
             header_end = view.significant[construct.close_index].end
             header = self._collapse_lexemes(view.lexemes_between(start, header_end), "signature")
@@ -1036,8 +1041,10 @@ class BtrcFormatter:
             tokens_by_line.setdefault(lexeme.line, []).append(lexeme)
 
         last_index_by_line: dict[int, int] = {}
+        index_of: dict[int, int] = {}
         for index, lexeme in enumerate(view.significant):
             last_index_by_line[lexeme.line] = index
+            index_of[id(lexeme)] = index
 
         brace_depth = 0
         paren_depth = 0
@@ -1047,14 +1054,23 @@ class BtrcFormatter:
         # set while the previous line ended a header (``if (...)``, ``else``,
         # ``do``); ``pending_ifs`` holds the extra of each unbraced ``if`` that
         # a later ``else`` may still bind to. Each brace saves and restores them.
+        # ``pending_dos`` holds, for each ``do`` whose closing ``while`` is still
+        # to come, its extra and how many ifs were pending at the ``do``: the
+        # ifs opened inside its body close with it. ``line_extra`` is the
+        # current line's extra, plus one on a continuation line outside
+        # parentheses, which is what a header or '{' on that line nests past;
+        # a brace frame keeps it with the ``body_extra`` to restore.
         body_extra = 0
         header_extra: int | None = None
         pending_ifs: list[int] = []
-        brace_frames: list[tuple[int, list[int]]] = []
+        pending_dos: list[tuple[int, int]] = []
+        brace_frames: list[tuple[int, int, list[int], list[tuple[int, int]]]] = []
+        previous_first: Lexeme | None = None
         rendered: list[str] = []
         for line in view.lines:
             text = line.text
             line_tokens = tokens_by_line.get(line.number, [])
+            line_extra = 0
             if line.number in protected:
                 rendered.append(text)
             elif not text.strip():
@@ -1069,51 +1085,84 @@ class BtrcFormatter:
                         (paren_depth > 0 and first not in {")", "]"})
                         or self._line_starts_with_continuation(first_token, previous_token)
                         or (previous_token is not None and previous_token.text in self._TRAILING_CONTINUATION_TOKENS)
-                        or self._continues_adjacent_strings(first_token, previous_token)
+                        or self._continues_adjacent_strings(first_token, previous_token, previous_first)
                     )
-                    if continued or first == "}":
+                    if continued or first == "}" or (paren_depth > 0 and first in {")", "]"}):
+                        # A closing ')' or ']' line stays with its statement.
                         pass
                     elif header_extra is not None:
                         body_extra = header_extra + (0 if first == "{" else 1)
                     elif first == "else":
-                        # The nearest unbraced ``if``; after a ``}``, its own line.
+                        # The nearest if still open for an else.
                         if pending_ifs:
                             body_extra = pending_ifs.pop()
+                    elif first == "while" and pending_dos:
+                        # A do-while's closing ``while`` aligns with its ``do``;
+                        # the ifs enclosing that do stay open for an else.
+                        body_extra, open_ifs = pending_dos.pop()
+                        del pending_ifs[open_ifs:]
                     else:
                         body_extra = 0
                         pending_ifs.clear()
-                    outer_extra = sum(extra for extra, _ in brace_frames)
+                    outer_extra = sum(frame[0] for frame in brace_frames)
                     level = brace_depth - (1 if first == "}" else 0) + outer_extra
                     if first != "}":
                         level += body_extra
                     if continued:
                         level += 1
+                    if continued and paren_depth == 0:
+                        # A header or '{' on a continuation line outside any
+                        # parentheses (after ``case X:``, a lambda after ``=``)
+                        # nests its body past the continuation; inside
+                        # parentheses every body line is already continued.
+                        line_extra += 1
                 rendered.append(self.style.indentation(max(level, 0)) + text.lstrip(" \t").rstrip(" \t"))
 
-            for lexeme in line_tokens:
+            line_extra += body_extra
+            for position, lexeme in enumerate(line_tokens):
+                index = index_of[id(lexeme)]
+                if lexeme.kind is LexemeKind.WORD:
+                    if lexeme.text == "do":
+                        pending_dos.append((line_extra, len(pending_ifs)))
+                    elif position == 0:
+                        # A line-first else or while was bound above.
+                        continue
+                    elif lexeme.text == "else" and pending_ifs:
+                        pending_ifs.pop()
+                    elif lexeme.text == "while" and pending_dos and view.significant[index - 1].text in {";", "}"}:
+                        # A while right after a statement closes the open do.
+                        del pending_ifs[pending_dos.pop()[1] :]
+                    continue
                 if lexeme.kind is not LexemeKind.SYMBOL:
                     continue
                 if lexeme.text == "{":
                     brace_depth += 1
-                    brace_frames.append((body_extra, pending_ifs))
-                    body_extra = 0
+                    brace_frames.append((line_extra, body_extra, pending_ifs, pending_dos))
+                    body_extra = line_extra = 0
                     pending_ifs = []
+                    pending_dos = []
                 elif lexeme.text == "}":
                     brace_depth = max(brace_depth - 1, 0)
                     if brace_frames:
-                        body_extra, pending_ifs = brace_frames.pop()
+                        line_extra, body_extra, pending_ifs, pending_dos = brace_frames.pop()
                 elif lexeme.text in {"(", "["}:
                     paren_depth += 1
                 elif lexeme.text in {")", "]"}:
                     paren_depth = max(paren_depth - 1, 0)
+                    # An if may take an else from its condition's ')' on, so a
+                    # body on the header's line, or a braced one, keeps it open.
+                    if (
+                        lexeme.text == ")"
+                        and view.ends_body_header(index)
+                        and view.significant[view.pairs[index] - 1].text == "if"
+                    ):
+                        pending_ifs.append(line_extra)
             if line_tokens and line_tokens[0].kind is not LexemeKind.PREPROCESSOR:
                 last_index = last_index_by_line[line.number]
-                header_extra = body_extra if view.ends_body_header(last_index) else None
-                if header_extra is not None and view.significant[last_index].text == ")":
-                    if view.significant[view.pairs[last_index] - 1].text == "if":
-                        pending_ifs.append(header_extra)
+                header_extra = line_extra if view.ends_body_header(last_index) else None
             if line_tokens:
                 previous_token = line_tokens[-1]
+                previous_first = line_tokens[0]
 
         had_final_newline = source.endswith("\n")
         result = "\n".join(rendered)

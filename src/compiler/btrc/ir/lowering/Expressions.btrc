@@ -10,6 +10,7 @@ import ../../analyzer/Models.btrc;
 import ../../analyzer/Operators.btrc;
 import ../../analyzer/ownership/Cycles.btrc;
 import ../../analyzer/ownership/Values.btrc;
+import ../../analyzer/SourceMacros.btrc;
 import ../../analyzer/Types.btrc;
 import ../../analyzer/validation/Declarations.btrc;
 import ../../analyzer/validation/Storage.btrc;
@@ -3498,6 +3499,17 @@ class ExpressionLowerer {
 			result.storageRoot = IRNode.directStorageRoot(object);
 		}
 		return result;
+	}
+
+	/* The extent of an unsized char array a string constant initializes: its
+	 * decoded bytes plus the terminator, so every unit that declares the
+	 * array sees a complete type (C11 6.7.9p22). Null for anything else. */
+	public IRNode? stringArrayExtent(Node? initializer) {
+		SourceMacroNamespace? sourceMacros = self.analyzed.sourceMacros;
+		if (sourceMacros == null || !StringConstant.isNode(initializer)) { return null; }
+		int length = sourceMacros.stringConstantLength(initializer);
+		if (length < 0) { return null; }
+		return IRNode.literal(Strings.fromInt(length + 1));
 	}
 
 	public IRNode lowerStaticInitializer(Node node, Node? expected, Map<string, Node> varTypes, CallableFlowState callableFlow) {

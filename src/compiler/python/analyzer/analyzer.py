@@ -197,6 +197,7 @@ class SemanticAnalyzer:
             rich_enum_unsafe_default_ids=set(state.rich_enum_unsafe_default_ids),
             array_iteration_capacity_ids=set(state.array_iteration_capacity_ids),
             constant_array_bound_ids=set(state.constant_array_bound_ids),
+            source_macros=self.index.source_macros,
             errors=state.errors,
             warnings=state.warnings,
             diags=state.diagnostics,
