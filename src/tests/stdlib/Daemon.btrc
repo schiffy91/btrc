@@ -25,6 +25,15 @@ bool waitForTextLength(string path, int length, int timeoutMilliseconds) {
 	return false;
 }
 
+/* Terminated: gone, or a zombie that an orphan's late-reaping init has not
+ * collected yet. kill(pid, 0) still reaches a zombie, so ps tells them apart. */
+bool processTerminated(int pid) {
+	errno = 0;
+	if (kill((pid_t)pid, 0) != 0) { return errno == ESRCH; }
+	ExecResult state = UnixShell().run(f"ps -o stat= -p {pid}", logFailure=false, timeoutMilliseconds=5000);
+	return state.ok() && state.trimmed().startsWith("Z");
+}
+
 void writeControlRecord(string path, string token, int pid) {
 	assert(Path.writeAll(path, f"btrc-daemon-v1\n{token}\n{pid}\n"));
 	assert(FileSystem.chmod(path, 384) == 0); // 0600
@@ -150,7 +159,7 @@ int main() {
 	DaemonControlRecord pausedRecord = DaemonControlProtocol.record(paused.controlFile);
 	assert(pausedRecord.valid);
 	assert(kill((pid_t)pausedRecord.supervisorPid, SIGSTOP) == 0);
-	ExecResult resumeScheduled = UnixShell().run(f"(sleep 2; kill -CONT {pausedRecord.supervisorPid}) " + "</dev/null >/dev/null 2>&1 &", logFailure=false);
+	ExecResult resumeScheduled = UnixShell().run(f"(sleep 1; kill -CONT {pausedRecord.supervisorPid}) " + "</dev/null >/dev/null 2>&1 &", logFailure=false);
 	if (!resumeScheduled.ok()) {
 		kill((pid_t)pausedRecord.supervisorPid, SIGCONT);
 	}
@@ -159,7 +168,7 @@ int main() {
 	pausedTimer.start();
 	assert(controller.stop(paused, timeoutMilliseconds=5000).ok());
 	pausedTimer.stop();
-	assert(pausedTimer.elapsedMillis() >= 1500.0f);
+	assert(pausedTimer.elapsedMillis() >= 700.0f);
 	assert(pausedTimer.elapsedMillis() < 5000.0f);
 	assert(!FileSystem.exists(paused.controlFile));
 
@@ -219,12 +228,11 @@ int main() {
 	assert(timer.elapsedMillis() < 8000.0f);
 	assert(!FileSystem.exists(stubbornControl));
 	int goneAttempts = 50;
-	while (goneAttempts > 0 && kill((pid_t)descendantPid, 0) == 0) {
+	while (goneAttempts > 0 && !processTerminated(descendantPid)) {
 		Timer.sleepMillis(20);
 		goneAttempts--;
 	}
-	errno = 0;
-	assert(kill((pid_t)descendantPid, 0) != 0 && errno == ESRCH);
+	assert(processTerminated(descendantPid));
 
 	// A syntactically valid forged record pointing at an unrelated process
 	// cannot redirect stop(): there is no capability acknowledgement.

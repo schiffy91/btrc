@@ -1,0 +1,2 @@
+from thread
+PASS: test_mutex_string_value
