@@ -219,6 +219,23 @@ a build; BTRSmith sees new warnings until it guards the values.
 | a possibly-null value stored into a non-nullable variable, field, parameter, return or default | new warning `Possibly-null value stored in non-nullable <context> of type 'T' — check for null first`; guard first or declare the target nullable |
 | calls after `exit`, `abort`, `_Exit`, `quick_exit`, `longjmp`, `pthread_exit` | treated as unreachable; a null guard ending in one proves the value non-null after it |
 
+### btrc-D028, btrc-D052, btrc-D053: residual stdlib drift (`stage4/residual-stdlib`)
+
+These also ship in the same pin bump.
+
+| Old | New |
+| --- | --- |
+| `DaemonSpec.renderStartCommand()` (canonicalized and rewrote `controlFile`/`logFile`) | `DaemonSpec.renderStartCommand(controlFile, logFile)` taking the already canonical paths (`DaemonControlFiles.canonicalFilePath`); the spec is never rewritten. `DaemonController.start(spec)` keeps its signature but no longer rewrites `spec.controlFile`/`spec.logFile` to canonical paths; canonicalize them yourself if you read them back |
+| `Strings.capitalize(s)`, `Strings.title(s)`, `Strings.swapCase(s)` | `s.capitalize()`, `s.title()`, `s.swapCase()` |
+| `Strings.padLeft(s, width, fill)`, `Strings.padRight(s, width, fill)` | `s.padLeft(width, fill)`, `s.padRight(width, fill)` |
+| `Strings.lstrip(s)`, `Strings.rstrip(s)`, `Strings.removePrefix(s, prefix)` | `s.lstrip()`, `s.rstrip()`, `s.removePrefix(prefix)` |
+| `Strings.isDigitStr(s)`, `Strings.isAlphaStr(s)`, `Strings.isBlank(s)` | `s.isDigit()`, `s.isAlpha()`, `s.isBlank()` |
+| `BackgroundJobWorker`, `BackgroundJobWorkerContext` (`Library.BackgroundJobs.BackgroundJobExecutor`) | `NativeWorker`, `INativeWorkerBody`, `NativeWorkerStartKind` (`Library.BackgroundJobs.NativeWorker`); `start(body)` returns a `NativeWorkerStartKind` instead of `bool` |
+
+`Strings.repeat`, `Strings.replace`, `Strings.count` and `Strings.find` remain
+as delegates to the built-ins of the same meaning; new code calls the
+built-ins.
+
 ## 2. Mechanical substitutions
 
 Apply in this order over BTRSmith's `.btrc` sources, `btrc.toml` files and
@@ -263,6 +280,10 @@ docs (word boundaries matter: `CoreAudioDeviceProvider` must not hit
 \bbtrcSpscCopy\(                                        -> SPSCQueues.copyBytes(
 \.removeAt\(  (Vector receivers only)                   -> .remove(
 DaemonSpec: \.pid\(  -> .control(   and   \bpidFile\b -> controlFile   (not Platform.pid())
+\bStrings\.(capitalize|title|swapCase|lstrip|rstrip)\((\w+)\) -> \2.\1()   (simple receivers; others by hand)
+\bStrings\.isDigitStr\( / isAlphaStr\( / isBlank\(        -> receiver .isDigit() / .isAlpha() / .isBlank()   (by hand)
+\bStrings\.(padLeft|padRight|removePrefix)\(            -> receiver .\1(...)   (by hand)
+DaemonSpec.renderStartCommand()                         -> renderStartCommand(canonicalControl, canonicalLog)   (by hand, see D028)
 SPSCQueues.close(x); x = null;                          -> SPSCQueues.close(&x);   (by hand, see D062)
 UITypography / UITextRaster / App removals             -> by hand, see D057
 RealtimeClipTransport runtime imports                   -> by hand, see D031 (bsm-D013)
@@ -422,8 +443,8 @@ types that still exist; a removed type takes its members with it.
 - BackgroundJobSubmitOutcome: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobTicket: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobWork: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
-- BackgroundJobWorker: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
-- BackgroundJobWorkerContext: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
+- BackgroundJobWorker: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor (later removed; see btrc-D053 in section 1: `NativeWorker`)
+- BackgroundJobWorkerContext: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor (later removed; see btrc-D053 in section 1: `NativeWorker`)
 - BackgroundJobsCloseKind: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobsCloseMode: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobsCloseOutcome: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor

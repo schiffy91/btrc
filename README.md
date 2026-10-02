@@ -1191,9 +1191,8 @@ Also available: `.toLower()`, `.capitalize()`, `.title()`, `.swapCase()`,
 `.removeSuffix()`, `.padLeft()`, `.padRight()`, `.center()`, `.charAt()`,
 `.charLen()`, `.byteLen()`, `.length()`, `.lastIndexOf()`, `.endsWith()`,
 `.count()`, `.find()`, `.isEmpty()`, `.equals()`, `.split()`, `.isDigit()`,
-`.isAlpha()`, `.isAlnum()`, `.isDigitStr()`, `.isAlphaStr()`, `.isAlnumStr()`,
-`.isUpper()`, `.isLower()`, `.isBlank()`, `.toInt()`, `.toFloat()`,
-`.toDouble()`, `.toLong()`, `.toBool()`.
+`.isAlpha()`, `.isAlnum()`, `.isUpper()`, `.isLower()`, `.isBlank()`,
+`.toInt()`, `.toFloat()`, `.toDouble()`, `.toLong()`, `.toBool()`.
 
 String ownership across call boundaries is specified in
 [docs/design/string-lifetime.md](docs/design/string-lifetime.md).

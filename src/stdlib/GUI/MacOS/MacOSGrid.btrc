@@ -7,7 +7,9 @@ import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSView;
 
 /* AppKit owns cell layout and intrinsic sizing. Children may themselves be
- * containers; their BTRC owners remain responsible for their lifecycle. */
+ * containers. Cells own their attached subtrees as IGrid specifies: replacing
+ * or clearing a cell detaches its old child, and closing the grid closes every
+ * occupied cell. */
 class MacOSGridLayout implements IMacOSContainerLayout {
 	private NSGridView? _grid;
 	private int _column = 0;

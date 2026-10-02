@@ -6,7 +6,7 @@ import Library.Strings;
 #include <assert.h>
 
 class JsonClosureFixture {
-	class string storePath(int index) { return "/nix/store/" + Strings.padLeft(Strings.fromInt(index), 4, '0') + "-semu-runtime-dependency"; }
+	class string storePath(int index) { return "/nix/store/" + Strings.fromInt(index).padLeft(4, '0') + "-semu-runtime-dependency"; }
 
 	class JSONValue build(int count) {
 		JSONValue closure = JSONValue.makeObject();
