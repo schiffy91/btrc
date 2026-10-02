@@ -28,7 +28,9 @@ The verification matrix last recorded green on `1cadaf4`: `make test` at
 bootstrap` reaching its byte-stable fixed point. Caveats when you read a green
 run:
 
-- The boundary manifest holds **309** records (`test_boundary_manifest.py`).
+- The boundary manifest holds **311** records
+  (`src/tests/fixtures/compiler_boundaries/manifest.toml`, checked by
+  `test_boundary_manifest.py`).
   Some observed-behavior capabilities are skipped inside the nix shell as
   incompatible; PLAN.md Stage 2 records how many are checked there.
 - The skips are missing tools and environment-gated providers — `naga`,
@@ -36,8 +38,11 @@ run:
   paths — not product defects. They are still coverage the run did not get, and
   a green result looks identical either way; PLAN.md Stage 2's skip ledger
   classifies every one.
-- `stdlib/StdlibDaemon.btrc` asserts a wall-clock daemon-stop deadline,
-  so it can fail on a saturated machine and pass on a quiet one.
+- `stdlib/Daemon.btrc` used to fail under load with a daemon-stop deadline
+  error. That was a stop race, not a deadline too tight for a saturated
+  machine: `4c9af96` closed it (the record is read before its absence is
+  judged) and added a deterministic deadline-path check. A failure there now
+  is a real defect, not load.
 
 ### Host capacity and agent rules
 
@@ -57,9 +62,9 @@ JSON.
 - **Gates** run from a clone outside Google Drive, one at a time, holding
   `~/.cache/btrc/locks/gate`. `make bootstrap` never runs beside the parallel
   suite, another build or a guest.
-- **Load rules.** Until the daemon-deadline fix lands, only read-only agents run
-  while any gate runs. After it, at most one agent build beside `make test`,
-  and none beside `make test-c11` or `make bootstrap`. At most one guest beside
+- **Load rules.** The daemon-deadline fix has landed (`4c9af96`), so at most
+  one agent build runs beside `make test`, and none beside `make test-c11` or
+  `make bootstrap`; other agents stay read-only while a gate runs. At most one guest beside
   a gate, none during bootstrap or a measurement.
 - **Measurements** need the automated quiet check (PLAN.md standing
   approvals), every guest stopped, and a workspace under
@@ -324,7 +329,12 @@ PIPELINE:
 - `src/language/hosted_abi.toml` generates
   `src/compiler/python/abi/generated.py` and
   `src/compiler/btrc/generated/hosted_abi/Tables.btrc`.
-- Generated modules contain data/schema declarations only. Generated Python
+- Generated modules contain data/schema declarations only, with one
+  exception: the self-hosted `generated/ast/Node.btrc` also carries generated
+  `name()`/`nameMut()` accessors for the lazily allocated list fields named in
+  `_LAZY_LIST_FIELDS` (`tools/compiler_codegen/ast.py`, which rejects a name
+  that is not an ASDL list field). Those accessors own only that storage's
+  allocation and its shared-empty guard. Generated Python
   rows use immutable value types; generated btrc rows expose public fields
   required by the language and consumers treat them as read-only by
   convention. Generated modules never own lookup, validation, selection,
@@ -376,9 +386,10 @@ Stdlib package directories are PascalCase too: `Audio/MacOS`, `GUI/MacOS`,
 `GPU`, and `BackgroundJobs`. Imports use their exact spelling, for example
 `import Library.Audio.RealtimeAudio;`. Capitalize acronyms in stdlib module
 and type names: `MacOS`, `GUI`, `GPU`, `UI`, `HTTP`, `JSON`, `IO`, and `CLI`.
-C symbols and SDK names retain their external spelling. The only lowercase
-stdlib directories are the Windows POSIX header overlays `Windows/sys`,
-`Windows/arpa`, and `Windows/netinet`, whose include paths are external API.
+C symbols and SDK names retain their external spelling. Every stdlib directory
+is PascalCase. The Windows POSIX header overlays are not stdlib: they live in
+`src/runtime/windows/` (`sys/`, `arpa/`, `netinet/`), whose lowercase include
+paths are external API.
 
 ---
 
@@ -544,7 +555,8 @@ and their golden output live alongside the topic-organized corpus in
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
 AST and IR nodes. Its destination contains exactly 97 `.btrc` files: 94
-compiler/generated files and three stage-inspection tool files. Only
+compiler/generated files (including the three `cli/` host entries) and three
+stage-inspection tool files. Only
 `Compiler.btrc` and the thin `BtrccMain.btrc` process entry point remain at the
 package root. The owned packages are:
 
@@ -552,7 +564,7 @@ package root. The owned packages are:
 cli/                              BtrccDriver and Windows/macOS host entry points
 pipeline/                         stage manifest, mutable options/results, CompilerPipeline, ModuleUnitCompiler
 syntax/                           grammar, tokens, identity/canonical rendering, types, literals
-generated/ast/                    ASDL-generated Node data/schema only
+generated/ast/                    ASDL-generated Node data/schema plus lazy list accessors
 generated/hosted_abi/             generated ABI data
 generated/native_abi/             ASDL-generated native-header semantic data
 generated/runtime/                generated runtime catalog data
@@ -592,10 +604,10 @@ Host capabilities are composed at the process entry point. `BtrccMain.btrc`
 supplies the bounded Unix SDK-reader process; `cli/WindowsMain.btrc` uses the
 same driver and pipeline without SDK scanning, until a real Windows process
 provider exists. Native semantics depend only on `FeNativeHeaderReader`, not
-on Unix process APIs. The explicit `cli/MacOSMain.btrc` entry additionally composes the SDK-backed
-artifact digest provider. It intentionally adds one host-composition file to
-the previously checked 98-file inventory; the six stage owners are unchanged. The portable
-Unix entry remains usable without SDK hashing, including cross releases.
+on Unix process APIs. The explicit `cli/MacOSMain.btrc` entry additionally
+composes the SDK-backed artifact digest provider; it is a host-composition
+file only, and the six stage owners are unchanged. The portable Unix entry
+remains usable without SDK hashing, including cross releases.
 Build and bootstrap the entry point for the compiler's
 host, not for the target of an arbitrary program it later compiles.
 
@@ -639,6 +651,9 @@ src/tests/
   runner.py                test runner (pytest parametrized)
   generate_expected.py     regenerate golden files
 
+  corpus_files.py          which .btrc files are runnable programs
+  conftest.py              --compilers option + shared fixtures
+
   basics/                  types, vars, print, nullable, casting, sizeof, etc.
   control_flow/            if/for/while/switch/try-catch, range, includes
   classes/                 classes, inheritance, interfaces, abstract, operators
@@ -651,12 +666,21 @@ src/tests/
   memory/                  ARC: keep/release, cycle detection, auto-release
   threads/                 spawn, Thread<T>, Mutex<T>, ARC captures
   gpu/                     @gpu kernels, WGSL generation, dispatch
-  stdlib/                  Math, DateTime, Random
+  stdlib/                  stdlib modules and packages
   algorithms/              quicksort, BST, hash table, linked list (pure C)
+  imports/                 strict imports, directory imports, C sources
+  c_compat/                C11 constructs btrc accepts unchanged
 
-Each subdirectory has:
-  test_*.btrc              test files (compile → gcc → run → assert PASS)
-  expected/                golden .stdout files for output comparison
+Each corpus directory has:
+  <Name>.btrc              PascalCase programs (compile → C11 → run → assert PASS)
+  expected/                golden <Name>.stdout (and .stderr) files
+
+Not corpus (corpus_files.NON_CORPUS_DIRECTORIES):
+  native/                  native-provider programs and C harnesses, each with
+                           a dedicated pytest driver that supplies its ABI units
+  benchmarks/              programs tools/bench compiles, runs and times
+  python/ btrc/            per-compiler pytest suites
+  formatter/               formatter tests and fixtures
 ```
 
 ### Makefile Targets
@@ -670,20 +694,25 @@ make test-btrc            Run the corpus through the Python compiler
 make test-btrc-selfhost   Run the corpus through btrcc plus self-host tests
 make bootstrap            Prove the self-hosted compiler's fixed point
 make test-c11             Strict C11: gcc + clang at -O0 through -O3
-make lint                 Run ruff linter
-make format               Format with ruff
-make format-check         Check formatting without modifying files
+make lint                 Run generated-policy checks and the ruff linter
+make format               Format Python (ruff) and BTRC (btrc-format) sources
+make format-check         Check both formattings without modifying files
+make format-btrc-check    Check only the BTRC formatting
 make test-generate-goldens  Regenerate golden .stdout files
 make compiler-codegen-generate
                           Regenerate compiler and devex data from shared specs
 make extension            Package VSCode extension (.vsix)
 make extension-install    Install VSCode extension (dev)
 make examples             Build and run examples
-make gpu                  Install WebGPU and build the compute runtime
+make gpu                  Build the headless @gpu compute runtime (skips if WebGPU is missing)
+make gpu-required         Fail unless that runtime built
 make examples-game        Build the 3D engine game
 make examples-triangle    Build the GPU triangle example
 make examples-sgd         Build the GPU SGD example
 make examples-todo        Build the todo example
+make examples-gui         Build and run the headless GUI example
+make examples-native-package TARGET=linux-x64
+                          Build the recursive native package from its plan
 make devcontainer         Generate .devcontainer/ and build image
 make linux-ci             Run LINUX_CI_TARGETS in that container, as Linux CI does
 make clean                Remove build artifacts

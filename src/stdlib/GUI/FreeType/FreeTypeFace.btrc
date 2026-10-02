@@ -2,9 +2,29 @@ import Library.Bytes;
 import Library.GUI.IFontFace;
 import Library.OwnedBuffer;
 
-/* Private face ownership and mutation admission. The generated snapshots
- * retain the native owner through copying; this gate additionally prevents
- * FT_Load_Char from invalidating the glyph slot during that copy. */
+/* Private FreeType face behind Library.GUI.FreeType's FreeType.load; this
+ * module is not exported, and Font and Raster stay SDK-free.
+ *
+ * Setup is FT_Init_FreeType, FT_New_Face with face index zero, then
+ * FT_Set_Pixel_Sizes(face, 0, pixelSize); any failure throws instead of
+ * falling back to the bitmap font. The library and face are unique native
+ * owners (see the FreeType binding in GUI/btrc.toml): no raw handle crosses
+ * this class, and the destructor closes the face before its library. The
+ * release policy relies on a freshly created valid claim having reference
+ * count one, so FT_Done_Face and FT_Done_FreeType consume it; this provider
+ * imports no FT_Reference_* function.
+ *
+ * Face metrics (size.metrics ascender and height, signed 26.6) are copied
+ * once at construction. Each glyph call claims the gate below, runs
+ * FT_Load_Char and copies everything it needs through the generated
+ * record-path snapshots before the gate opens again: the glyph slot is
+ * mutable face state, so retaining the face does not stabilize its buffer.
+ * An overlapping call on the same face throws rather than waits. A rendered
+ * glyph copies abs(pitch) * rows bitmap bytes, preserving signed pitch and
+ * row padding, under an explicit 64 MiB bound; dimensions are validated
+ * before narrowing to BTRC ints. Unsupported pixel modes keep their advance
+ * and carry no ink. Allocation fault injection and overlapping native-thread
+ * admission are not qualified. */
 class FreeTypeFace implements IFontFace {
 	private FT_Library? library = null;
 	private FT_Face? face = null;

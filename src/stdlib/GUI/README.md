@@ -1,181 +1,206 @@
 # BTRC GUI
 
-`import Library.GUI;` selects the native provider for the compilation target.
-Call `GUI.initialize()`, create a window and controls with `GUI.createWindow`,
-`GUI.createColumn`, `GUI.createRow`, `GUI.createButton` and `GUI.createTextField`, attach them,
-then enter `GUI.run()`. macOS and Linux are implemented; other targets fail explicitly.
-The factory returns portable interfaces and its application owner is package-private.
-`IApplication` declares every view factory, so providers agree on one contract.
-`GUI` owns capacity validation, the single application slot (`ApplicationSlot`)
-and run/close; a provider's private `GUIProvider` supplies only the application
-and the native services (image handles, the directory picker, text
-rasterization and capture). On macOS, `run()` drains a closing subtree for at
-most 10 s, then throws `Native subtree shutdown did not complete` and keeps the
-pending owners retained so a later `GUI.close()` can finish them.
+`import Library.GUI;` selects the native provider for the compilation target
+through the `[[package.providers]]` entries in `btrc.toml`: `MacOS.GUIProvider`
+(AppKit) for `macos` and `Linux.GUIProvider` (SDL3 windows drawn with WebGPU)
+for `linux`. Any other target, Windows included, fails at compile time with a
+missing-provider error. Call `GUI.initialize()`, create a window and controls
+with `GUI.createWindow`, `GUI.createColumn`, `GUI.createRow`,
+`GUI.createButton`, `GUI.createTextField` and the other `GUI.create*`
+factories, attach them, then enter `GUI.run()`.
+
+The facade returns portable `I*` interfaces. `IApplication` declares every
+view factory, so providers agree on one contract. `GUI` owns capacity
+validation, the single application slot (`ApplicationSlot`) and run/close; a
+provider's private `GUIProvider` supplies only the application and the native
+services (image handles, the directory picker, text rasterization and
+capture). Both providers drain a closing subtree in `run()` for at most 10 s,
+then throw `Native subtree shutdown did not complete`; on macOS the pending
+owners stay retained so a later `GUI.close()` can finish them.
+
+## Application and scheduling
+
 `GUI.post(work)` schedules UI-thread work; `GUI.requestQuit()` stops admission.
 `GUI.postAfter(delaySeconds, work)` schedules one cancellable delayed delivery
-and returns an `ICallbackRegistration`. It shares the immediate-work capacity;
-overflow rejects new work. Canceling its alias or closing the application
-releases a waiting receiver without waiting for its deadline. Delivery is never
-inline, errors propagate from `run()` after teardown, and native views remain
-alive through the admitted call. Delay must be finite and nonnegative.
-On macOS this uses a checked `NSTimer` stored-block binding in the default
-run-loop mode. It may run late during tracking/modal work and is not a real-time
-or display-synchronization API. Native GPU completion required for shutdown
-must not use a domain callback that Quit intentionally abandons.
+and returns an `ICallbackRegistration`. It shares the immediate-work capacity
+(`GUI.initialize(workCapacity)`, default 256, 1 to 65536); overflow rejects
+the new work without losing accepted work. Canceling its alias or closing the
+application releases a waiting receiver without waiting for its deadline.
+Delivery is never inline, errors propagate from `run()` after teardown, and
+native views remain alive through the admitted call. Delay must be finite and
+nonnegative. Delayed work may run late and is not a real-time or
+display-synchronization API. Native GPU completion required for shutdown must
+not use a domain callback that Quit intentionally abandons. Work must be posted
+from the UI thread; worker-thread publication is a separate capability that
+does not exist yet.
+
 `run()` closes owned windows and detached views before returning or propagating
 a work error. `GUI.close()` covers setup without loop entry and returns a
 `CallbackCancellation`; `CALLBACK_CANCELLATION_PENDING` keeps the application owner. Enter `GUI.run()`
 to drain that shutdown on the native executor. Closed aliases remain closed
-after reinitialization.
+after reinitialization. A work exception requests orderly quit and is rethrown
+by `run()` after teardown.
+
 `button.onAction(receiver, scope)` registers an `IButtonAction.invoke()` receiver
 in a normal `CallbackScope` and returns an `ICallbackRegistration`. Keep that
 scope with the independent component/application owner. Cancel before replacing
 the receiver; scope cancellation and button close discard queued old clicks.
-Model setters never synthesize actions. Native delivery is queued automatically
-on the UI executor; callers do not poll an action queue. Legacy provider modules
-stay public until their remaining direct consumers migrate.
+Model setters never synthesize actions. Native delivery is queued in click
+order (a bounded `ActionMailbox`) and dispatched on the UI executor after
+native event dispatch; callers do not poll an action queue.
 
-Native bordered buttons and selects use macOS regular/large control metrics;
-fonts above 20pt are explicitly unsupported instead of overflowing a fixed-height
-bezel. Borderless buttons support larger text, but cannot be re-bordered until
-their font is supported. `setBordered(false)` hides only the bezel;
-`setTransparent(true)` hides all button drawing and is for hit targets, not labels.
+Button and select typography is portable: bordered buttons and selects accept
+fonts up to 20 points (`ButtonTypography.borderedMaximumSize()`,
+`SelectTypography.maximumSize()`) and reject larger sizes instead of
+overflowing the bezel; borderless buttons accept up to
+`ButtonTypography.maximumSize()`, and cannot be re-bordered until their font
+fits. `setBordered(false)` hides only the bezel; `setTransparent(true)` hides
+all button drawing and is for hit targets, not labels.
 
 [Native.btrc](../../../examples/gui/Native.btrc) is a portable application example:
 edit a native text field, apply the window title through a queued button action,
 then quit through the same application lifecycle. Its nested row/column layout
 uses native intrinsic sizes, not manually assigned control frames.
 
+## Views and layout
+
+`IWindow`, `IView`, `IContainer`, `IStack`, `IGrid`, `IPanel`,
+`IScrollView`, `IButton`, `ITextField`, `ILabel`, `ISelect`, `ISlider`,
+`IImageView`, `IProgressIndicator`, `ILevelIndicator` and `IGPUView` are the
+portable view contracts; they expose no SDK objects. Interface conversion
+preserves the same owner: closing through a detached `IView` invalidates its
+control aliases. `arrange(x, y, width, height)` uses logical points from the
+parent's top-left and requires attachment first. Fitting sizes are native
+minima, so a flexible text field may report zero minimum width. Visibility
+denotes the control's own flag, not actual on-screen exposure.
+
 `GUI.createRow(spacing)` and `GUI.createColumn(spacing)` return `IStack`.
-Attach ordinary controls or nested stacks; AppKit performs recursive layout.
-Spacing defaults to eight logical points; `setPadding(top, right, bottom, left)`
-sets nonnegative insets. `STACK_ALIGN_START`/`_CENTER`/`_END` control cross-axis
-alignment. Native control sizes and reading order are retained. Hidden children
-keep their space and parent; detach removes them from layout and restores their
-previous Auto Layout policy. `layout()` flushes pending native layout without
-rebuilding controls, reading active editors, or replacing their undo state.
-`GUI.createContainer()` remains the plain grouping primitive for explicit placement.
-`GUI.createGrid` and `GUI.createPanel` support explicit grid and layered composition.
+Attach ordinary controls or nested stacks; the provider performs recursive
+layout. Spacing defaults to eight logical points; `setPadding(top, right,
+bottom, left)` sets nonnegative insets. `STACK_ALIGN_START`/`_CENTER`/`_END`
+control cross-axis alignment. Native control sizes and reading order are
+retained. Hidden children keep their space and parent; detach removes them
+from layout. `layout()` flushes pending layout without rebuilding controls,
+reading active editors, or replacing their undo state.
+`GUI.createContainer()` remains the plain grouping primitive for explicit
+placement. `GUI.createPanel(fill, radius)` is a filled container that can also
+switch its descendants to a dark or light appearance.
 
-`GUI.createGPUView(capture = true)` returns `IGPUView`, an ordinary native child
-for `IContainer`/`IWindow`. Its private macOS provider owns the surface, device,
-frame renderer and callback scope. Call `poll()` from scheduled UI work until
-ready, then `beginFrame(...)` refreshes backing-pixel dimensions after layout and
-skips hidden/empty views. `frameRenderer()` supplies the existing portable GPU
-drawing API. Create programs with `view.createProgram(...)` and captures with
-`view.readback(...)` so their pending native callbacks belong to this subtree.
-Shutdown closes renderer aliases immediately, drains asynchronous work, then
-releases the device and native surface. The existing application shutdown loop
-continues polling pending views; product code must not spin on the UI thread.
-`IView.onPointer` and `onScroll` register synchronous, scoped native handlers;
-return true to consume an event. A consumed press captures drag/release until
-release, focus loss, detach, cancellation or close. Coordinates are view-local,
-top-left logical points. `GUI.capture` composes native controls with completed GPU
-readback images; it does not depend on capturing an unlocked desktop.
+`GUI.createGrid(columns, rows, columnSpacing, rowSpacing)` returns `IGrid`.
+Set cells to detached child views; nested grids are ordinary children. Cells
+own their attached subtrees: replacing or clearing a cell detaches its
+previous view without closing it, allowing explicit reuse, and closing the
+grid closes every occupied cell. A child must be detached before it moves to
+another cell or container. Explicit row/column sizes return to content sizing
+with `fitRow`/`fitColumn`; hidden rows and columns take no space.
 
-The native-control API is being implemented for macOS. Portable controls and
-recursive layout belong at this package root; AppKit providers and SDK headers
-belong under `MacOS/`. `IWindow`, `IView`, `IContainer`, `IButton` and `ITextField` are portable interfaces
-implemented by the existing native window, view, button and text-field owners. They
-expose no SDK objects. Interface conversion preserves the same owner: closing
-through a detached `IView` invalidates its control aliases. `arrange(x, y, width, height)`
-uses logical points from the parent's top-left and requires attachment first;
-native parent flipping and bounds origins stay inside the provider. Fitting
-sizes are native minima, so a flexible text field may report zero minimum width.
-Visibility denotes the control's own flag, not actual on-screen exposure.
+Containers (`IContainer` and its stack, panel, scroll and grid forms) take
+subtree lifecycle responsibility on `attach`; `detach` returns the same open
+child. Closing an attached child through an alias is rejected. Parent close
+and ordinary scope cleanup close descendants despite surviving aliases;
+detached children remain independent. Multiple parents, ancestor cycles and
+reentrant mutations are rejected. Children do not strongly retain their parent.
 
-The provider's `IMacOSView` interface lives with `MacOSView`. A checked
-`(IMacOSView?)view` query projects the existing native owner for composition;
-an incompatible implementation returns null. Portable signatures still expose
-no SDK objects. This is a provider integration boundary, not a product API or
-a substitute for the portable API. The factory's `GUIProvider` and
-`ApplicationSlot` modules are private, including named references through
-transitive imports.
-
-Export policy: consumers import `Library.GUI` and the portable `I*` contracts,
-never a platform module. Two provider modules stay exported on purpose as the
-AppKit seam for `Library.Tray`: `MacOS.AppKitText` and `MacOS.MacOSRunLoop`.
-The other `MacOS.*` exports remain only until the macOS native fixtures that
-still mount provider classes directly move to the factory with
-attach/arrange; they are not API, and new code must not import them.
-
-`MacOSContainer` implements `IContainer` with real native children. `attach`
-transfers subtree lifecycle responsibility; `detach` returns the same open child.
-Closing an attached child is rejected before actions/editing are changed.
-Parent close and ordinary scope cleanup close descendants despite surviving
-aliases; detached children remain independent. Multiple parents, ancestor cycles
-and reentrant mutations are rejected. A failed close remains unavailable and
-reports its original error without retrying the child. Native attachment errors
-roll back; an unsuccessful rollback leaves the container failed and retaining
-the potentially attached child. Children do not strongly retain their parent.
-This primitive only groups explicitly placed children; use `IStack` for recursive
-row/column layout, `IGrid` for grids and `IGPUView` for GPU composition.
-
-`IView.close()` starts shutdown once and reports completion. `pollClose()` advances
-already-started cleanup without retrying failed native operations; it reports
-`CALLBACK_CANCELLATION_NOT_REQUESTED` on a live view. Native controls complete immediately. A container
-retains pending children and its native backing, closes siblings independently,
-and removes a child only after `CALLBACK_CANCELLATION_COMPLETE`. `isOpen() == false` means admission
-has stopped, not that native cleanup finished. Dropping an unfinished subtree
+`IView.close()` starts shutdown once and reports completion. `pollClose()`
+advances already-started cleanup without retrying failed native operations; it
+reports `CALLBACK_CANCELLATION_NOT_REQUESTED` on a live view. Native controls complete immediately. A
+container retains pending children, closes siblings independently, and removes
+a child only after `CALLBACK_CANCELLATION_COMPLETE`. `isOpen() == false` means admission has
+stopped, not that native cleanup finished. Dropping an unfinished subtree
 owner is a diagnosed lifecycle error, not permission to free native borrowers.
 
 `IWindow.attachRoot(view)` transfers a detached root to the window; replace it
 explicitly with `detachRoot()` first. `root()` returns an alias, not another
-lifecycle owner. The root fills the content area and AppKit resizes it with the
-window. Detach restores the root's previous native autoresizing policy and
-returns it open. Explicit window close and ordinary owner scope cleanup close
-the root subtree, including controls held by aliases. Failed attachment rolls
-back frame and resize policy; indeterminate detach/shutdown failure remains
-unavailable without retrying native cleanup. Provider queries and attachment
-reject reentrant tree mutation. Dimensions exclude native window chrome.
+lifecycle owner. The root fills the content area and resizes with the window.
+Explicit window close and ordinary owner scope cleanup close the root subtree,
+including controls held by aliases. Dimensions exclude native window chrome.
 `isOpen()` and `isVisible()` remain safe after native or explicit close and
 return false; operations needing a live native window still reject access.
+The native close button closes an application-owned window's subtree from the
+application loop, outside the native callback; consumers need not poll a
+closing application-owned window themselves.
 
-The native close button is observed through a checked NSWindow delegate.
-For application-created windows it marks the window closed immediately and signals the native run loop; application
-dispatch subsequently closes the owned subtree outside the callback, without
-waiting for application quit or a manually pumped event. Closed windows are
-cleaned up before queued commands, cancelling their stale button actions.
-`MacOSApplication.createWindow()` returns
-an `IWindow` and retains lifecycle responsibility. Application `close()` cancels
-window subscriptions and closes their trees; one failure does not skip siblings
-or retry an indeterminate native close. The callback receiver contains only
-close state and the wake signal, not a strong reference back to the window owner.
+`IView.onPointer` and `onScroll` register synchronous, scoped native handlers;
+return true to consume an event. A consumed press captures drag/release until
+release, focus loss, detach, cancellation or close. Coordinates are view-local,
+top-left logical points. `IWindow.onKey` routes keys before the focused control.
 
-`IApplication` is the portable application lifecycle. `MacOSApplication.run()`
-enters the real AppKit loop; `requestQuit()` requests exit without tearing down
-controls inside the calling native callback. Native application Quit uses the
-same request through a generated delegate. Owned subtrees close before the loop
-stops; final application subscriptions drain after loop return. A wake event is
-posted because AppKit observes `stop:`
-after dispatching an event, not merely after running a timer. A pre-run request
-skips loop entry only when no work remains to drain. The owner cannot be restarted
+`GUI.chooseDirectory(request)` runs the provider's modal directory picker
+(see `IDirectoryPicker.btrc`). `GUI.createImageHandle(pixels)` converts decoded
+pixels to a native image on any thread, before or after `GUI.initialize`.
+
+## GPU views and capture
+
+`GUI.createGPUView(capture = false)` returns `IGPUView`, an ordinary native child
+for `IContainer`/`IWindow`. The view owns its frame renderer and the
+asynchronous programs and readbacks created through it. Call `poll()` from
+scheduled UI work until it returns true, then `beginFrame(...)` refreshes
+backing-pixel dimensions after layout and skips hidden/empty views.
+`frameRenderer()` supplies the existing portable GPU drawing API. Create
+programs with `view.createProgram(...)` and captures with `view.readback(...)`
+so their pending native callbacks belong to this subtree. On macOS a frame is
+capturable only when the view was created with `capture = true` or after
+`requestCapture()`; Linux GPU views render offscreen and are always
+capturable. Shutdown closes renderer aliases immediately, drains asynchronous
+work, then releases the GPU resources; the application shutdown loop keeps
+polling pending views, and product code must not spin on the UI thread.
+
+`GUI.capture(root, layers)` returns an image of a view subtree with each
+`GUICaptureLayer`'s completed GPU readback composed in. It does not depend on
+capturing an unlocked desktop. The Linux window already composites its GPU
+children, so there the layers are only validated (see the Linux provider).
+
+## macOS provider
+
+AppKit providers and SDK headers live under `MacOS/`. Each GPU view owns its
+own surface, device and frame renderer. Stacks and grids use AppKit layout
+(`NSStackView`, `NSGridView`); detaching a stack child restores its previous
+Auto Layout policy, and detaching a window root restores its previous
+autoresizing policy. Failed attachment rolls back frame and resize policy;
+indeterminate detach/shutdown failure remains unavailable without retrying
+native cleanup. A failed container close remains unavailable and reports its
+original error without retrying the child; native attachment errors roll back,
+and an unsuccessful rollback leaves the container failed and retaining the
+potentially attached child.
+
+`MacOSApplication.run()` enters the real AppKit loop; `requestQuit()` requests
+exit without tearing down controls inside the calling native callback. Native
+application Quit uses the same request through a generated delegate. Owned
+subtrees close before the loop stops; final application subscriptions drain
+after loop return. A wake event is posted because AppKit observes `stop:` after
+dispatching an event, not merely after running a timer. A pre-run request skips
+loop entry only when no work remains to drain. The owner cannot be restarted
 after closing. New windows are rejected as soon as Quit is requested, before
 loop exit. Reentrant run/close and a second concurrent application owner are
 rejected; failed construction cancels its unpublished subscription.
 
-`IApplication.post(work)` accepts an `IApplicationWork` on the UI thread and
-invokes `run()` later through an actual `NSRunLoop` one-shot block. Capacity
-includes queued and currently executing work (default 256, configurable on the
-provider). Exhaustion rejects the new submission without losing accepted work.
-Completed callback states are pruned on submission; work delivery uses no polling timer.
-Quit stops admission and skips queued domain work, but keeps native completion
-callbacks alive until they return. Closing with pending work is rejected: enter
-`run()` to drain it. Work may retain the application until completion. A work
-exception requests orderly quit and is rethrown by `run()` after teardown.
-Worker-thread publication remains unfinished.
+Posted work runs through an actual `NSRunLoop` one-shot block; completed
+callback states are pruned on submission and delivery uses no polling timer.
+Quit stops admission and skips queued domain work, but keeps native
+completion callbacks alive until they return. Closing with pending work is
+rejected: enter `run()` to drain it. Work may retain the application until
+completion. `postAfter` uses a checked `NSTimer` stored-block binding in the
+default run-loop mode, so it may run late during tracking/modal work.
 
-Factory button actions retain their order in a bounded ring. The private
-`MacOSRunLoopSignal` uses AppKit's default notification queue and a private sender
-identity to coalesce only wakeups for window cleanup and action delivery;
-it never coalesces clicks. Each delivery batch is bounded by its starting size;
-remaining clicks schedule another run-loop pass. Cancellation invalidates
-queued generations. Overflow is a persistent error even if cancelled entries
-are subsequently pruned. Handler failure requests quit and is rethrown after
-normal application teardown. The application owns the wake subscription outside
-its receiver graph; ordinary callback scopes own user subscriptions. Action delivery
-uses no polling timer, raw receiver pointer or second reference-counting system.
+The native close button is observed through a checked `NSWindow` delegate. For
+application-created windows it marks the window closed immediately and signals
+the run loop; closed windows are cleaned up before queued commands, cancelling
+their stale button actions. Application `close()` cancels window subscriptions
+and closes their trees; one failure does not skip siblings or retry an
+indeterminate native close. The callback receiver contains only close state
+and the wake signal, not a strong reference back to the window owner.
+
+Button actions wake the loop through `MacOSRunLoopSignal`
+(`MacOS/MacOSRunLoop.btrc`), which posts a notification with its own sender
+identity on AppKit's default notification queue, coalescing only wakeups for
+window cleanup and action delivery; it never coalesces clicks. Each delivery
+batch is bounded by its starting size; remaining clicks schedule another
+run-loop pass. Cancellation invalidates queued generations. Overflow is a
+persistent error even if cancelled entries are subsequently pruned. Handler
+failure requests quit and is rethrown after normal application teardown. The
+application owns the wake subscription outside its receiver graph; ordinary
+callback scopes own user subscriptions. Action delivery uses no polling timer,
+raw receiver pointer or second reference-counting system.
 
 If native modal work is active, Quit first stops that modal with the SDK abort
 response so its caller can return. Views remain alive until callbacks drain;
@@ -184,79 +209,95 @@ the directory picker reports abort as cancellation. This uses AppKit's
 not a nested polling pump. Asynchronous sheets and arbitrary nested-modal stacks
 still need lifecycle integration and qualification.
 
-Bounded embedded dispatch remains for existing hosts and is prohibited while
-the native loop is running. New portable applications use the target-selected
-factory and native scheduling described above. GPU subtree shutdown, worker
-publication and broader dialog handling still prevent full GUI qualification.
-
 Pending window/subtree closure uses one application-owned native timer, armed
 only while cleanup needs progress. It is independent of canceled domain work
 and does not keep polling while idle. Closing one window retains its unfinished
-tree without closing other windows; Quit also drains detached roots. The timer
-uses the existing checked stored-block binding and callback scope. This is the
-shutdown foundation for GPU hosting, not a completed portable GPU view or a
-display-synchronization API.
-Programmatic `window.close()` wakes the same application owner as the native
-close button, including from ordinary posted work. Consumers need not poll a
-closing application-owned window themselves; direct standalone window owners
-still carry their own completion responsibility.
+tree without closing other windows; Quit also drains detached roots. Bounded
+embedded dispatch remains for existing hosts and is prohibited while the native
+loop is running.
 
-Composed capture uses temporary native image views only during the synchronous
-snapshot. Successful and failed captures remove them before returning; a capture
-must not leave a frozen image obscuring subsequent GPU frames. Native regression
-tests check the child hierarchy as well as rendered pixels. This uses view-backed
-capture and renderer readback, independent of desktop visibility or screen lock.
+Composed capture (`MacOSComposedCapture`) inserts temporary native image views
+for the GPU layers only during the synchronous snapshot. Successful and failed
+captures remove them before returning, so a capture never leaves a frozen
+image obscuring later GPU frames. Native regression tests check the child
+hierarchy as well as rendered pixels. Capture over an opaque native background
+so dark-mode controls can composite their title and bezel correctly.
 
-`Library.GUI.MacOS.MacOSTextField` owns a real AppKit
-text field. `MacOSWindow` owns an AppKit window, title, content size and explicit
-close; `AppKitText` copies strings at the SDK boundary. Raw native children outside
-the managed root still require explicit child-before-window close. `MacOSApplication` owns
-main-thread startup and bounded nonblocking event dispatch for a shared UI/GPU
-loop. Its native run/quit/delegate path is implemented above; actual GPU embedding remains unfinished.
-`MacOSScrollView` owns a native vertical viewport and document,
-with overlay scrollers, top-relative logical-point offsets and resize clamping.
-Native document children retain AppKit's unflipped coordinates; this is not yet
-the portable recursive layout or recycled collection API. Native/GPU composition
-is unfinished. The Linux provider is the sibling `Linux/` package below; Windows is unimplemented;
-they are outside the current implementation scope.
+The provider's `IMacOSView` interface lives with `MacOSView`. A checked
+`(IMacOSView?)view` query projects the existing native owner for composition;
+an incompatible implementation returns null. This is a provider integration
+boundary, not a product API. The factory's `GUIProvider` and `ApplicationSlot`
+modules are private, including named references through transitive imports.
 
-`MacOSButton(title, actions)` creates an AppKit momentary button. After native
-dispatch, consume `MacOSActionQueue.take()` and identify the opaque BTRC action with
-`button.matches(action)`. No native sender or selector is exposed. A checked
-target/action binding delivers into preallocated ordered storage; queued entries
-carry a generation so rebinding cancels old activations without changing order.
-Close buttons before the queue. Dropping a queue also cancels its subscriptions:
-their independent scopes are not retained by native callback receivers.
+Export policy: consumers import `Library.GUI` and the portable `I*` contracts,
+never a platform module. Two provider modules stay exported on purpose as the
+AppKit seam for `Library.Tray`: `MacOS.AppKitText` and `MacOS.MacOSRunLoop`.
+The other `MacOS.*` and `Linux.*` exports remain only until the native
+fixtures that still mount provider classes directly move to the factory with
+attach/arrange; they are not API, and new code must not import them. Those
+legacy direct classes keep their own contracts: `MacOSButton(title, actions)`
+reports clicks through a `MacOSActionQueue(capacity = 256)` (1 to 65536,
+ordered, never coalesced, overflow latched and reported by `take()` after
+native dispatch) and `button.matches(action)`; close buttons before their
+queue. `MacOSScrollView` keeps AppKit's unflipped coordinates for native
+document children while its public offsets count down from the top.
 
-`MacOSActionQueue(capacity = 256)` accepts capacities from 1 to 65536. Ordered
-clicks are never coalesced. Exhaustion latches an error reported by `take()` after
-native dispatch and stops further admission; close the controls and queue rather
-than continuing with a silently incomplete command stream. This is not a realtime
-queue or a value-changing control's coalescing policy. Keep application commands
-outside AppKit's dispatch stack; standalone-loop scheduling still needs integration.
-Capture over an opaque native background so dark-mode controls can composite
-their title and bezel correctly.
+## Linux provider
 
-`MacOSLabel` defaults to one line with native tail ellipsis. `setWrapping(true)`
-enables word wrapping; `setWrapping(false)` restores the single-line layout.
-Neither mode truncates the stored text returned by `text()`.
+`Linux/GUIProvider` is selected for `linux` targets. There is no single native
+toolkit to inherit, so the provider draws every control itself: each `IWindow`
+is one SDL3 window whose whole content is a WebGPU surface, the view tree is
+composed over one `LinuxViewNode` per control, and `LinuxPainter` records
+rounded rectangles, rings, glyph runs, images and clips into one vertex
+stream that replays inside the window's render pass. Text comes from the
+fontconfig `sans-serif` match rendered through FreeType at the window's
+backing scale, so measurement and drawing agree at fractional scales.
 
-`MacOSSelect` owns an AppKit popup and menu. Replace its titles and selected
-index together with `setItems`; duplicate labels keep distinct indices. Items
-may be disabled individually. Read `selectedIndex()` after native dispatch;
-this is current selection state, not an ordered history of value changes.
-`setFont(size)` uses the system font without replacing the native popup/menu.
+- `LinuxApplication.run()` pumps SDL events, delivers posted and delayed
+  work, dispatches queued button actions in click order, and renders every
+  window whose own invalidation revision moved. Blinking carets and spinners ask
+  the host for a wake instead of redrawing continuously.
+- Pointer input is routed by hit-testing the tree: subscriptions along the
+  path see the event first, leaf to root, then the controls' own behavior. A
+  consumed press captures its drag and release. Keyboard input goes to
+  window `onKey` handlers, then the focused control; SDL text input reaches
+  the focused text field, which owns caret, selection and clipboard editing.
+- `IGPUView` renders into a `GPUOffscreenTarget` on the window's device and
+  is composited by the window frame; `poll()` asks the window to advance its
+  device request, so a child polled before the first loop turn still becomes
+  ready. `GUI.capture` paints the whole window into an offscreen target and
+  reads it back, so a window captures before it is shown and presentation is
+  never reconfigured. It fails at once if the window's device is not ready
+  yet rather than waiting on the UI thread, and it checks that every layer
+  names a GPU view inside the capture root; the layer pixels are unused
+  because the frame already composes every GPU child.
+- Every provider and application entry point except `createImageHandle`
+  requires SDL's main thread, the one that called `GUI.initialize`.
+- `ISelect` opens a window overlay that receives pointer and keyboard input
+  first; `IWindow.showAlert` is SDL's message box; `GUI.chooseDirectory` is
+  the desktop folder dialog (portal or zenity) pumped like a modal.
+- The manifest binds SDL and fontconfig functions directly. `SDL.h` keeps
+  only what the typed importer cannot express: flattening the `SDL_Event`
+  union, the folder dialog's cross-thread transaction, and `btrcSdlPush*`
+  synthetic input so automation and the native tests drive windows through
+  SDL's own queue.
+- SDL is initialized once, by the first `GUI.initialize`, and stays
+  initialized for the process: a later `GUI.initialize` reuses it, the main
+  thread SDL reports stays fixed, and an abandoned folder dialog's callback
+  may still run after close. Process exit reclaims it; `SDL_Quit` is not
+  bound.
 
-`MacOSGrid(columns, rows, columnSpacing, rowSpacing)` is a native recursive
-layout container. Set cells to unattached child views; nested grids are ordinary
-children. AppKit supplies intrinsic sizing and aligned cell bounds. Explicit
-row/column sizes can be returned to content sizing with `fitRow`/`fitColumn`.
-Replacing or clearing a cell detaches its previous view, allowing explicit reuse;
-attached children and hierarchy cycles are rejected before calling AppKit.
-`close()` clears cells but does not close borrowed child owners. This provider
-does not yet constitute the portable declarative layout API.
+`src/tests/native/gui/linux/LinuxGUIControls.btrc` is the live regression:
+clicks, typing, clipboard paste, a select choice, a slider drag, wheel
+scrolling, subscription capture, worker-made image handles, contract errors
+and readback pixel checks on a real window. `LinuxGUIShutdown.btrc` proves a
+subtree that never finishes closing fails `run()` after the drain deadline.
+Linux CI offers no display, so both skip there; locally they run under Xvfb
+with Mesa's lavapipe Vulkan driver.
 
-The APIs documented below are the offscreen raster surface. `Surface` owns its
+## Raster surfaces
+
+The rest of this file covers the offscreen raster surface. `Surface` owns its
 pixel buffer, resizing, fills, bitmap text, blending and readback in BTRC.
 Optional FreeType loading uses checked SDK owners and copied glyph snapshots.
 Native windows and product controls use `Library.GUI`; painted widget
@@ -265,21 +306,36 @@ trees use `Library.UI`. The legacy immediate-mode widgets (`RasterGUI`,
 removed: they duplicated `Library.UI` and `Library.Image` inside the
 OS-native group.
 
+Raster is opt-in: import it with `import Library.GUI.Raster;`; no native
+raster archive or header is needed. `Surface.opened()` reports invalid
+dimensions or backing-allocation failure. Failed resize preserves the old
+image; successful resize preserves overlapping pixels and clears newly exposed
+pixels. `pixels()` is a synchronous borrow, invalidated by resize or owner
+destruction; there is no opaque `Surface.handle` or native surface destructor.
+
 ## Layout
 
 | File | Role |
 |------|------|
+| `GUI.btrc` | The `GUI` facade: application slot, view factories, scheduling, directory picker, text rasterization and capture. |
+| `ApplicationSlot.btrc` | Package-private single application owner the facade publishes and clears. |
+| `IApplication.btrc` | `IApplication` lifecycle and view-factory contract, `IApplicationWork`. |
+| `IWindow.btrc`, `IView.btrc` | Window and view contracts, pointer/scroll/key handler interfaces. |
+| `IContainer.btrc`, `IStack.btrc`, `IGrid.btrc`, `IPanel.btrc`, `IScrollView.btrc` | Container contracts: plain grouping, rows/columns, grids, filled panels, vertical scrolling. |
+| `IButton.btrc`, `ITextField.btrc`, `ILabel.btrc`, `ISelect.btrc`, `ISlider.btrc` | Control contracts, with the portable `ButtonTypography` and `SelectTypography` limits. |
+| `IImageView.btrc`, `IImageHandle.btrc` | Image presentation and worker-safe native image handles. |
+| `IProgressIndicator.btrc`, `ILevelIndicator.btrc` | Indicator contracts. |
+| `IGPUView.btrc` | WebGPU child view contract. |
+| `IDirectoryPicker.btrc` | Directory-picker request/outcome values and contract. |
+| `GUICaptureLayer.btrc` | `GUICaptureLayer`: completed GPU readback pixels for `GUI.capture`. |
+| `TextRun.btrc` | `TextRun` and `TextRasterization`: one shaped line rasterized by the provider's system text. |
+| `ActionMailbox.btrc` | Bounded, ordered click storage both providers deliver button actions from. |
 | `GUIInt.btrc` | Saturating integer geometry for raster measurement. |
 | `Raster.btrc` | BTRC-owned `Surface` storage, resize, clear/fill/blend, bitmap and scalable text, readback/PPM. Colors are `Library.Image` `RGBA` values. |
-| `Font.btrc` / `IFontFace.btrc` | Managed per-surface selection and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
-| `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional factory, private unique SDK owners and serialized copied glyph snapshots. |
-
-Not auto-included. Opt in with `import Library.GUI.Raster;`; no native raster
-archive or header is needed. `Surface.opened()` reports invalid dimensions
-or backing-allocation failure. Failed resize preserves the old image; successful
-resize preserves overlapping pixels and clears newly exposed pixels.
-`pixels()` is a synchronous borrow, invalidated by resize or owner destruction;
-there is no opaque `Surface.handle` or native surface destructor.
+| `Font.btrc` / `IFontFace.btrc` | Managed per-surface selection, the `IFontFace` contract and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
+| `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional `FreeType.load` factory and the private FreeType face (unique SDK owners, admitted glyph snapshots). |
+| `MacOS/` | AppKit provider: `GUIProvider`, `MacOS*` views and application, run-loop signal, composed capture, SDK headers. |
+| `Linux/` | SDL3/WebGPU provider: `GUIProvider`, `Linux*` views and application, painter, fonts, SDL and surface bindings. |
 
 ## Quick start
 
@@ -338,12 +394,18 @@ import Library.GUI.FreeType;
 surface.setFont(FreeType.load("/path/to/font.ttf", 18));
 ```
 
-Loading reports invalid paths/sizes instead of silently selecting a bitmap
-fallback. The private provider serializes glyph loading through the complete
-owned snapshot copy; each bitmap has an explicit 64 MiB allocation limit.
-Both compilers pass native optimized and sanitizer tests. The old C loader,
-global font dispatch and archive registrations have been removed; qualification
-details are recorded in [FontNativeMigration.md](FontNativeMigration.md).
+`FreeType.load(path, pixelSize)` throws on a missing path, an unloadable face
+or a nonpositive size instead of silently selecting the bitmap fallback. Face
+metrics are copied at load. Each glyph call admits one `FT_Load_Char` at a
+time per face (an overlapping call throws) and copies the glyph, including its
+signed-pitch bitmap, into owned storage before the next load can reuse
+FreeType's glyph slot; each bitmap has an explicit 64 MiB allocation limit.
+The face owns the FreeType library and face handles privately and releases the
+face before the library. `FreeType/FreeTypeFace.btrc` records the full
+ownership and snapshot contract. Allocation fault injection and overlapping
+native-thread admission are not qualified. `FontSnapshotConformance.btrc`
+and `GuiFontConformance.btrc` in `src/tests/native/gui/` cover the snapshot
+domain and the real loader.
 
 ## Dynamic resizing
 
@@ -361,56 +423,3 @@ make -C examples/gui   # build + run the FontSmoke example
 - Surfaces draw into CPU-owned offscreen pixels. Native window/control
   presentation belongs to the portable GUI factory and its selected provider.
 - Drawing is rectangles, blending and text; it is intentionally minimal.
-
-## Linux provider
-
-`Linux/GUIProvider` is selected for `linux` targets. There is no single native
-toolkit to inherit, so the provider draws every control itself: each `IWindow`
-is one SDL3 window whose whole content is a WebGPU surface, the view tree is
-composed over one `LinuxViewNode` per control, and `LinuxPainter` records
-rounded rectangles, rings, glyph runs, images and clips into one vertex
-stream that replays inside the window's render pass. Text comes from the
-fontconfig `sans-serif` match rendered through FreeType at the window's
-backing scale, so measurement and drawing agree at fractional scales.
-
-- `LinuxApplication.run()` pumps SDL events, delivers posted and delayed
-  work, dispatches queued button actions in click order, and renders every
-  window whose own invalidation revision moved. Blinking carets and spinners ask
-  the host for a wake instead of redrawing continuously.
-- Pointer input is routed by hit-testing the tree: subscriptions along the
-  path see the event first, leaf to root, then the controls' own behavior. A
-  consumed press captures its drag and release. Keyboard input goes to
-  window `onKey` handlers, then the focused control; SDL text input reaches
-  the focused text field, which owns caret, selection and clipboard editing.
-- `IGPUView` renders into a `GPUOffscreenTarget` on the window's device and
-  is composited by the window frame; `poll()` asks the window to advance its
-  device request, so a child polled before the first loop turn still becomes
-  ready. `GUI.capture` paints the whole window into an offscreen target and
-  reads it back, so a window captures before it is shown and presentation is
-  never reconfigured. It fails at once if the window's device is not ready
-  yet rather than waiting on the UI thread, and it checks that every layer
-  names a GPU view inside the capture root; the layer pixels are unused
-  because the frame already composes every GPU child.
-- Every provider and application entry point except `createImageHandle`
-  requires SDL's main thread, the one that called `GUI.initialize`.
-- `ISelect` opens a window overlay that receives pointer and keyboard input
-  first; `IWindow.showAlert` is SDL's message box; `GUI.chooseDirectory` is
-  the desktop folder dialog (portal or zenity) pumped like a modal.
-- The manifest binds SDL and fontconfig functions directly. `SDL.h` keeps
-  only what the typed importer cannot express: flattening the `SDL_Event`
-  union, the folder dialog's cross-thread transaction, and `btrcSdlPush*`
-  synthetic input so automation and the native tests drive windows through
-  SDL's own queue.
-- SDL is initialized once, by the first `GUI.initialize`, and stays
-  initialized for the process: a later `GUI.initialize` reuses it, the main
-  thread SDL reports stays fixed, and an abandoned folder dialog's callback
-  may still run after close. Process exit reclaims it; `SDL_Quit` is not
-  bound.
-
-`src/tests/native/gui/linux/LinuxGUIControls.btrc` is the live regression:
-clicks, typing, clipboard paste, a select choice, a slider drag, wheel
-scrolling, subscription capture, worker-made image handles, contract errors
-and readback pixel checks on a real window. `LinuxGUIShutdown.btrc` proves a
-subtree that never finishes closing fails `run()` after the drain deadline.
-Linux CI offers no display, so both skip there; locally they run under Xvfb
-with Mesa's lavapipe Vulkan driver.

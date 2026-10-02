@@ -84,11 +84,15 @@ class FontGlyph {
 	}
 }
 
-/* Each glyph operation serializes native face mutation and copies all fields
- * and bitmap bytes before admitting another FT_Load_Char. Null means the load
- * failed, not a request to substitute another font. render=false measures via
- * FT_LOAD_DEFAULT; render=true uses FT_LOAD_RENDER. The native owner retains
- * the library and face and destroys the face before its library. */
+/* A scalable face as Font and Raster consume it: metrics() and glyph()
+ * return immutable owned snapshots, never views into provider storage, so a
+ * returned glyph outlives later loads and the face itself. render=false asks
+ * for measurement only (the advance, with no bitmap); render=true also
+ * returns the coverage bitmap. Null means the face could not load a glyph
+ * for that codepoint; callers skip it rather than substitute another font.
+ * A codepoint that is not a Unicode scalar value is rejected. A face
+ * need not admit overlapping glyph calls: FreeTypeFace throws when another
+ * load on the same face is in progress. */
 interface IFontFace {
 	FontMetrics metrics();
 	FontGlyph? glyph(int codepoint, bool render);

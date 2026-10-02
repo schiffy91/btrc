@@ -441,11 +441,10 @@ class File {
 }
 
 class Path {
-	/* Stat-based existence check. Delegates to FileSystem.exists so Path and
-     * FileSystem agree on every case: directories count as existing, and a file
-     * that exists but is unreadable still reports true. (The old fopen("r")
-     * probe returned false for unreadable-but-existing files and depended on
-     * read permission — a silent inconsistency with FileSystem.exists.) */
+	/* Stat-based existence check. It calls stat(2) directly, as
+     * FileSystem.exists does through FileStatus, so the two agree: a symlink is
+     * followed, directories count as existing, and a file that exists but is
+     * unreadable still reports true. IO does not import FileSystem. */
 	class bool exists(string path) {
 		if (path == null) { return false; }
 		struct stat st;

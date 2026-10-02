@@ -1,7 +1,7 @@
 """Unified pytest runner: every .btrc language test runs through BOTH compilers.
 
-For each test_*.btrc under src/tests/ (the shared language corpus — excluding the
-compiler-specific python/ and btrc/ subtrees), and for each selected compiler
+For each PascalCase .btrc program under src/tests/ (the shared language corpus —
+excluding the subtrees in corpus_files.NON_CORPUS_DIRECTORIES), and for each selected compiler
 (--compilers, default "python,btrc"):
 
 1. Transpile to C -- via the Python reference compiler's API, or by running the
@@ -64,7 +64,7 @@ BTRC_RUN_TIMEOUT = RUN_TIMEOUT
 
 
 def get_btrc_test_files():
-    """Recursively find all test_*.btrc files in the shared language corpus."""
+    """Recursively find every runnable program in the shared language corpus."""
     return language_test_files(BTRC_TEST_DIR)
 
 

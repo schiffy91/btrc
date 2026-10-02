@@ -108,8 +108,9 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 
 	public void recordFailure(string error) { if (!self._workFailed) { self._workFailure = error; self._workFailed = true; } }
 
-	/* run() drains a pending subtree for at most this long, then reports it
-	 * and leaves the pending owners retained for a later close(). */
+	/* run() drains a pending subtree for at most 10 seconds from this call
+	 * (see shutdownExpired), then reports it and leaves the pending owners
+	 * retained for a later close(). */
 	public void startShutdownDeadline() {
 		if (self._shutdownTimed) { return; }
 		self._shutdownClock.start();

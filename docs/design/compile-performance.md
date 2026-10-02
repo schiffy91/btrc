@@ -1,6 +1,12 @@
 # Compile performance: where the time goes and what to do about it
 
-**Current priority, September 22:** unchanged latency is closed at ≤5 s.
+Status: **historical record** (2026-09-19 to 2026-09-22). The priorities,
+measurements and plans below describe the compiler as it was then and are not
+current direction; `PLAN.md` owns what remains, and `AGENTS.md` ("Measuring a
+compile" and "Performance changes already measured and rejected") holds the
+current measurement rules and rejected experiments.
+
+**Priority as of September 22 (historical):** unchanged latency is closed at ≤5 s.
 The latest edit/cold campaign is recorded at the end of this document; the
 September 19 profiles below are historical and use a different host/mode.
 

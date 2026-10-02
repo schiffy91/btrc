@@ -231,7 +231,7 @@ ImageIO decoding, BackgroundJobs, CoreAudio, LocalApplicationChannel and the mac
 
 Objective-C methods now accept/return complete nested mutable scalar records, enabling native frame geometry. Generated C-compatible value structs cross the adapter boundary; structured field-by-field conversions preserve SDK values without assuming native packing or copying object storage. These are value projections, not a native buffer-layout/borrowing contract. Const/pointer/object/array/union/bitfield members remain explicitly unsupported. `MacOSTextField.setFrame(x, y, width, height)` uses parent-view logical points, rejects nonfinite coordinates and negative dimensions, and positions the actual AppKit control. Both compilers pass fractional-frame, editing and unsupported-record tests on the same frozen source. Recursive layout, collection recycling and native/GPU composition are still to be implemented.
 
-Platform packages expose neutral APIs and isolate concrete SDK providers. Audio contracts live under `Audio`, with the CoreAudio implementation/header under `Audio/MacOS`; native control providers live under `GUI/MacOS`. Nested imports such as `Library.Audio.AudioDevice` resolve exact package paths. macOS is the only platform implementation currently in scope; Windows/Linux are future provider boundaries, not working stubs. BTRSmith's approved `docs/NativePlatformPlan.md` owns the consolidated UI/API delivery plan.
+Platform packages expose neutral APIs and isolate concrete SDK providers. Audio contracts live under `Audio`, with the CoreAudio implementation/header under `Audio/MacOS`; native control providers live under `GUI/MacOS`. Nested imports such as `Library.Audio.AudioDevice` resolve exact package paths. Linux providers exist alongside the macOS ones and are selected by `[[package.providers]]` `os = ["linux"]` rows: `Audio/Linux` (ALSA), `GUI/Linux` (SDL, fontconfig, WebGPU surface), `Image/Linux` (libpng/libjpeg-turbo), `Tray/Linux` (D-Bus) and `LocalApplicationChannel/Linux` (`SO_PEERCRED`); `Digest` and `BackgroundJobs` use portable BTRC providers on Linux. Windows has no stdlib platform provider beyond the portable `Digest` and `BackgroundJobs` fallbacks. BTRSmith's approved `docs/NativePlatformPlan.md` owns the consolidated UI/API delivery plan.
 
 The legacy GUI `Surface` owns packed pixels through `OwnedBuffer<unsigned int>`, resize rollback, fills and readback in BTRC. Remaining font functions import their real header declarations, with explicit read-only string borrows. FreeType and font dispatch still require migration. The unused standalone GLFW/OpenGL presenter and its build wiring have been removed; native application windows and GPU views use the portable GUI interfaces and typed SDK providers. This is not BTRSmith visual acceptance.
 
@@ -465,22 +465,38 @@ Each checkpoint includes focused reference/self-host parity, native execution an
 
 ## Migration inventory
 
-Initial tracked-file inventory (2026-09-09), not a completed semantic audit: BTRC has 58 native stdlib sources/headers (about 12.5k lines), ten runtime files, one Clang reader, six native-package example files and 56 test fixtures/probes. Inspect every file within each owner; a directory classification alone does not justify retaining its contents.
+The initial tracked-file inventory (2026-09-09) counted 58 native stdlib sources/headers (about 12.5k lines); that figure is historical. The current inventory below (2026-10-01) is regenerated from the tracked tree, and is still not a completed semantic audit: BTRC has 19 native stdlib headers (458 lines, no `.c`/`.m` sources) holding 36 `static inline` adapters, ten `src/runtime/c/` files, six `src/runtime/gpu/` files, 17 `src/runtime/windows/` files, one Clang reader, six native-package example files and 69 test fixtures/probes. Inspect every file within each owner; a directory classification alone does not justify retaining its contents.
 
-| Owner | Native files | BTRC destination / required proof |
-|---|---:|---|
-| `src/stdlib/Image/MacOS/` | 1 remaining | `ImageIO.h` includes SDK headers only. Decode policy and cleanup moved to `MacOSEncodedImageDecoder`; old C implementation/header removed. |
-| `src/stdlib/Audio/MacOS/` | 1 native header | `Hardware.h` includes SDK headers only; the binding imports CoreAudio's string-key macros directly. BTRC owns inventory, configuration/rollback, aggregates, AUHAL setup/render/drain and retryable cleanup. Old session C/header/ABI removed; both-compiler runtime checks pass. |
-| `src/stdlib/App/` | 9 | Existing app/window owners; platform objects, pickers, event delivery and shutdown. |
-| `src/stdlib/GPU/` | 1 | `WebGPUImports.h` includes SDK headers only. WebGPU owners hold resource lifetimes and async completion (`GPUCompletionPump`). The compiler-only `@gpu` compute runtime (six files) lives in `src/runtime/gpu/`. |
-| `src/stdlib/GUI/` | 7 | Existing GUI/font/window owners; layout, glyph metrics and real window behavior. |
-| `src/stdlib/BackgroundJobs/` | 1 remaining | `NativeThreads.h` includes pthread/errno SDK headers only. `BackgroundJobs` owns queues, cancellation, completion, worker joins and disposal; old C executor/header/ABI/archive target removed. |
-| `src/stdlib/LocalApplicationChannel/` | 1 remaining | `Socket.h` holds SDK includes and the `LocalSocketAddress` typedef only. Peer credentials are a `LocalPeerCredentials` contract with macOS (`getpeereid`) and Linux (`SO_PEERCRED`) providers selected by `[[package.providers]]`. `connect`/`bind`/`accept` (glibc transparent-union address), variadic `fcntl` and `poll` (`struct pollfd` collides with the hosted row) still come from hosted includes. Client/server ownership, framing, budgets, deadlines, permissions and conditional endpoint cleanup moved to BTRC; old C/header/hosted ABI/archive target removed. A Windows provider and Linux self-hosted qualification remain open. |
-| `src/stdlib/Tray/` | 3 | Platform tray providers; event callbacks, menus and teardown. |
-| `src/runtime/windows/` | 17 | Typed Windows providers; audit compatibility headers individually, no success-only POSIX shims. |
-| `src/runtime/c/` | 10 | Separate unavoidable runtime machinery from movable stdlib policy; preserve bootstrap, ARC, exceptions and threading semantics. |
-| `tools/NativeHeaderReader.cpp` | 1 | Build-time Clang AST access remains justified C++; no product policy here. |
-| Native tests/examples | 62 | Keep genuine foreign-ABI oracles; update consumers and remove fixtures for retired bridges, not independent correctness coverage. |
+"Native files" counts tracked C, C++ and Objective-C sources and headers; "`static inline`" counts lines containing `static inline` in them, i.e. the remaining hand-written C adapters. Reproduce both with:
+
+```sh
+git ls-files src/stdlib | grep -E '\.(c|h|m|mm|cpp|cc|hpp)$' \
+  | while read f; do printf '%s %s\n' "$(dirname "$f")" "$(grep -c 'static inline' "$f")"; done \
+  | awk '{files[$1]++; inl[$1]+=$2} END {for (d in files) print d, files[d], inl[d]}' | sort
+```
+
+| Owner | Native files | `static inline` | BTRC destination / required proof |
+|---|---:|---:|---|
+| `src/stdlib/Audio/Linux/` | 1 | 12 | `Alsa.h` keeps ALSA's enum-typed setters, the hint list's triple pointer and the scheduler call behind plain adapters; device policy lives in `LinuxAudioDevice.btrc`. |
+| `src/stdlib/Audio/MacOS/` | 1 | 0 | `Hardware.h` includes SDK headers and read-only aliases for SDK string macros. BTRC owns inventory, configuration/rollback, aggregates, AUHAL setup/render/drain and retryable cleanup. Old session C/header/ABI removed; both-compiler runtime checks pass. |
+| `src/stdlib/BackgroundJobs/` | 1 | 0 | `NativeThreads.h` includes pthread/errno SDK headers only. `BackgroundJobs` owns queues, cancellation, completion, worker joins and disposal; old C executor/header/ABI/archive target removed. |
+| `src/stdlib/Digest/MacOS/` | 1 | 0 | `CommonDigest.h` includes CommonCrypto only; `MacOS.NativeSHA256Provider` binds `CC_SHA256` directly. Linux and Windows use the portable BTRC `NativeSHA256Provider`. |
+| `src/stdlib/GPU/` | 1 | 0 | `WebGPUImports.h` includes SDK headers only. WebGPU owners hold resource lifetimes and async completion (`GPUCompletionPump`). The compiler-only `@gpu` compute runtime (six files) lives in `src/runtime/gpu/`. |
+| `src/stdlib/GUI/FreeType/` | 1 | 0 | `FreeType.h` includes the FreeType SDK only; declarations and `FT_LOAD_*` constants come from the installed SDK. |
+| `src/stdlib/GUI/Linux/` | 3 | 13 | `SDL.h` keeps the `SDL_Event` union flattening, the cross-thread folder-dialog transaction and synthetic-input pushes; `Fontconfig.h` and `WebGPUSurface.h` include SDK headers only. |
+| `src/stdlib/GUI/MacOS/` | 5 | 0 | `AppKit.h`, `AppKitEvents.h`, `CoreText.h`, `QuartzCore.h` and `WebGPUSurface.h` include SDK headers; controls, windows and fonts are BTRC owners over generated Objective-C adapters. |
+| `src/stdlib/Image/Linux/` | 1 | 2 | `Codecs.h` exposes libpng's simplified-API header read and RGBA decode as plain scalars and buffers; `LinuxEncodedImageDecoder` owns policy and libjpeg-turbo calls. |
+| `src/stdlib/Image/MacOS/` | 1 | 0 | `ImageIO.h` includes SDK headers only. Decode policy and cleanup moved to `MacOSEncodedImageDecoder`; old C implementation/header removed. |
+| `src/stdlib/LocalApplicationChannel/` | 1 | 0 | `Socket.h` holds SDK includes and the `LocalSocketAddress` typedef only. Peer credentials are a `LocalPeerCredentials` contract with macOS (`getpeereid`) and Linux (`SO_PEERCRED`, `Linux/LocalPeerCredentialsProvider.btrc`) providers selected by `[[package.providers]]`. `connect`/`bind`/`accept` (glibc transparent-union address), variadic `fcntl` and `poll` (`struct pollfd` collides with the hosted row) still come from hosted includes. Client/server ownership, framing, budgets, deadlines, permissions and conditional endpoint cleanup moved to BTRC; old C/header/hosted ABI/archive target removed. A Windows provider and Linux self-hosted qualification remain open. |
+| `src/stdlib/Tray/Linux/` | 1 | 10 | `DBus.h` keeps two kinds of adapter: the four calls that report through `DBusError` (whose bitfields the typed importer cannot lower), and typed basic-value append/read through libdbus's `void*` address; every other libdbus call is bound directly. |
+| `src/stdlib/Tray/MacOS/` | 1 | 0 | `AppKit.h` includes the SDK only; menus, callbacks and teardown are BTRC. |
+| `src/runtime/windows/` | 17 | — | Typed Windows providers; audit compatibility headers individually, no success-only POSIX shims. |
+| `src/runtime/c/` | 10 | — | Separate unavoidable runtime machinery from movable stdlib policy; preserve bootstrap, ARC, exceptions and threading semantics. |
+| `src/runtime/gpu/` | 6 | — | Compiler-only `@gpu` compute runtime. |
+| `tools/NativeHeaderReader.cpp` | 1 | — | Build-time Clang AST access remains justified C++; no product policy here. |
+| Native tests/examples | 75 | — | 69 under `src/tests/` and six in `examples/native-package/`. Keep genuine foreign-ABI oracles; update consumers and remove fixtures for retired bridges, not independent correctness coverage. |
+
+`src/stdlib/App/` holds no native files: it is BTRC only.
 
 **Named importer exception (2026-10-01): record-typedef resources.** A
 `[native.bindings.resources.X]` entry must name a record-pointer typedef

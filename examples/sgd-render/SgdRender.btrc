@@ -1,9 +1,9 @@
 /* Renders the GPU SGD example.
  *
- * The same @gpu kernel as examples/sgd, but every epoch is drawn to an
- * offscreen surface and written out as a PPM frame, so the training run can be
- * turned into the animation in the README. Runs headless: no window, no
- * display. When no GPU adapter is present the compiler's CPU fallback runs the
+ * A plain-SGD sibling of examples/sgd (which adds momentum and learning-rate
+ * decay): every epoch is drawn to an offscreen surface and written out as a
+ * PPM frame, so the training run can be turned into the animation in the
+ * README. Runs headless: no window, no display. When no GPU adapter is present the compiler's CPU fallback runs the
  * kernel instead, and the output is identical.
  */
 import Library.Vector;

@@ -37,7 +37,7 @@ class HTTPRequest {
      * percent-decoded name -> value pairs. req.query is kept raw (so the
      * separators '&' and '=' are interpreted here, not pre-mangled by decoding);
      * each individual name and value is urlDecode'd. A bare key ("flag") maps to
-     * "". Later duplicates Windows. */
+     * "". Later duplicates win. */
 	public Map<string, string> queryParams() {
 		Map<string, string> out = {};
 		if (self.query == null || self.query.isEmpty()) { return out; }

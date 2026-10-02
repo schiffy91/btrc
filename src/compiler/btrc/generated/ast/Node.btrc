@@ -3,8 +3,10 @@
  * Auto-generated from src/language/ast.asdl by tools/compiler_codegen/ast.py.
  * DO NOT EDIT BY HAND. btrc lacks dynamic dispatch/downcast, so the AST
  * is one Node with a `kind` tag + the union of all fields.
- * This file contains data/schema declarations only; canonical formatting
- * belongs to the handwritten owner in syntax/Identity.btrc.
+ * This file contains data/schema declarations plus the generated
+ * accessors of its lazily allocated list fields, which own that storage
+ * only; canonical formatting belongs to the handwritten owner in
+ * syntax/Identity.btrc.
  */
 
 import Library.Vector;

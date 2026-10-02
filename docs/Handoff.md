@@ -3,8 +3,9 @@
 **Checkpoint:** 2026-09-30, work is on `main`. [`PLAN.md`](../PLAN.md) is the sequential roadmap for everything that remains, with every decision resolved.
 
 Read [`AGENTS.md`](../AGENTS.md) completely first. For product context, read
-the sibling repository's [`docs/Handoff.md`](../../btrsmith/docs/Handoff.md)
-and its MVP epic (schiffy91/btrsmith issue #15, which replaced `GOAL.md`). The native contract is specified here and in
+BTRSmith's [`docs/Handoff.md`](https://github.com/schiffy91/btrsmith/blob/main/docs/Handoff.md)
+and its MVP epic ([schiffy91/btrsmith issue #15](https://github.com/schiffy91/btrsmith/issues/15),
+which replaced `GOAL.md`). The native contract is specified here and in
 [`design/native-interop.md`](design/native-interop.md) plus
 [`../src/language/package-manifest.md`](../src/language/package-manifest.md).
 

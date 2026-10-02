@@ -612,13 +612,6 @@ class CallbackContext<TReceiver, TToken> implements ICallbackContext, ICallbackR
 	}
 }
 
-/* One-shot caller-executor context for generated adapters. The native request
- * owns one gate admission from activation through terminal completion. Consumer
- * cancellation closes admission but cannot revoke that outstanding native lease.
- * There is no synthetic native token or unregister operation. The copied native
- * holder must additionally retain this ordinary managed object until release.
- * A callback-completion binding promises exactly one terminal callback; a timeout
- * or native block disposal is not completion. */
 /* A native value and its request need owning storage; language tuples are
  * shallow borrowed aggregates. All ownership here is ordinary class-field ARC. */
 class CallbackResult<TValue, TRequest> {
@@ -627,6 +620,13 @@ class CallbackResult<TValue, TRequest> {
 	public CallbackResult(TRequest request) { self.request = request; }
 }
 
+/* One-shot caller-executor context for generated adapters. The native request
+ * owns one gate admission from activation through terminal completion. Consumer
+ * cancellation closes admission but cannot revoke that outstanding native lease.
+ * There is no synthetic native token or unregister operation. The copied native
+ * holder must additionally retain this ordinary managed object until release.
+ * A callback-completion binding promises exactly one terminal callback; a timeout
+ * or native block disposal is not completion. */
 class CallbackRequest<TReceiver> implements ICallbackContext, ICallbackRegistration {
 	private TReceiver? _receiver;
 	private CallbackState _registration;
@@ -755,9 +755,11 @@ class CallbackRequest<TReceiver> implements ICallbackContext, ICallbackRegistrat
 	}
 }
 
-/* Raw realtime seam retained for existing native audio providers. Typed native
- * imports will construct CallbackState with a generated managed context; both
- * paths share exactly the same cancellation and drain implementation. */
+/* Raw stored-callback seam for C APIs that keep an invoke/context pair. Both
+ * compilers require its `invoke` argument to be a proven @realtime root. Typed
+ * native imports construct CallbackState with a generated managed context
+ * instead; both paths share exactly the same cancellation and drain
+ * implementation. */
 class CallbackRegistration<Invoke> implements ICallbackRegistration {
 	private CallbackState _state;
 
