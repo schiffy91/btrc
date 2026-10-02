@@ -786,9 +786,27 @@ class StatementLowerer {
 			return;
 		}
 		if (node.kind == NK_THROW_STMT) {
-			/* throw expr -> __btrc_throw(expr) (mirrors control_flow._lower_throw). */
+			/* throw expr -> __btrc_throw(expr). An owned message stays
+			 * registered for cleanup until the throw unwinds it, as Python's
+			 * materialize_terminal_operand keeps it. */
 			self.context.referenceHelper("__btrc_throw");
-			IRNode e = self.expressions.lowerExpr(node.expr, varTypes, callableFlow);
+			Node messageType = SemanticTypeSystem.primitive("string");
+			PreparedValue prepared = self.expressions.prepareTargetValue(node.expr, messageType, varTypes, callableFlow);
+			IRNode e = prepared.value;
+			if (prepared.owned) {
+				Node concreteMessage = messageType;
+				if (prepared.effectiveType != null) { concreteMessage = prepared.effectiveType; }
+				string terminalName = self.context.freshTemporary("__btrc_terminal_operand");
+				IRNode terminal = IRNode.variableDeclaration(self.cTypes.lower(concreteMessage), terminalName, e);
+				self.context.recordLocal(terminal);
+				Vector<IRNode> terminalDeclarations = [];
+				terminalDeclarations.push(terminal);
+				Vector<IRNode> registrations = [];
+				self.managedLifetime.protectTemporary(terminal, self.managedValues.runtimeType(concreteMessage), "__btrc_terminal_operand_cleanup", terminalDeclarations, registrations, true);
+				for declaration in terminalDeclarations { out.push(declaration); }
+				for registration in registrations { out.push(IRNode.expressionStatement(registration)); }
+				e = IRNode.variable(terminalName);
+			}
 			Vector<IRNode> targs = [];
 			targs.push(e);
 			IRNode throwCall = IRNode.call("__btrc_throw", targs);

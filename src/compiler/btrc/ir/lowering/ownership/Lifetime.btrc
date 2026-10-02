@@ -475,9 +475,10 @@ class ManagedLifetimeLowerer {
 		if (runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType)) {
 			return self.cleanupSlots.registerSlot(self.context, declaration, IRNode.functionReference(cleanup), null, true);
 		}
+		/* Any type with a visitor passes it, as Python's visitor_for does. */
 		IRNode visitor = IRNode.literal("NULL");
 		string visitorSymbol = self.cycles.visitorSymbol(runtimeType);
-		if (self.cycles.runtimeTypeMayCycle(runtimeType) && visitorSymbol != "") {
+		if (visitorSymbol != "") {
 			visitor = IRNode.functionReference(visitorSymbol);
 		}
 		return self.cleanupSlots.registerSlot(self.context, declaration, IRNode.functionReference(cleanup), visitor, false);
@@ -490,8 +491,8 @@ class ManagedLifetimeLowerer {
 
 	/* Register one staged slot for exception cleanup at most once, behind a
 	 * local flag, as Python's OwnershipLowerer.protect_temporary does. */
-	public void protectTemporary(IRNode declaration, string runtimeType, string flagPrefix, Vector<IRNode> declarations, Vector<IRNode> sequence) {
-		if (!self.context.exceptionsAreEnabled()) { return; }
+	public void protectTemporary(IRNode declaration, string runtimeType, string flagPrefix, Vector<IRNode> declarations, Vector<IRNode> sequence, bool always = false) {
+		if (!always && !self.context.exceptionsAreEnabled()) { return; }
 		string flagName = self.context.freshTemporary(flagPrefix);
 		IRNode flagDeclaration = IRNode.variableDeclaration("bool", flagName, IRNode.literal("false"));
 		declarations.push(flagDeclaration);
