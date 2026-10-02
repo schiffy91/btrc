@@ -143,4 +143,4 @@ void unitDeliver(int frames, int timestamps, int fail_input) {
 }
 float unitOutput(int sample) { assert(sample >= 0 && sample < 65536 * 3); return output[sample + 1]; }
 unsigned long long unitHost(void) { return host; }
-unsigned int unitFlags(void) { return output_flags; }
+unsigned int unitProbeFlags(void) { return output_flags; }

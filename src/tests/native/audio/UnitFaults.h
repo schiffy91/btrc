@@ -21,7 +21,7 @@ void allowSessionCleanup(void);
 void unitDeliver(int frames, int timestamps, int input_failure);
 float unitOutput(int sample);
 unsigned long long unitHost(void);
-unsigned int unitFlags(void);
+unsigned int unitProbeFlags(void);
 int unitUninitializations(void);
 int unitDisposals(void);
 int unitRegistrations(void);

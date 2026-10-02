@@ -59,7 +59,7 @@ void checkUnit(int frames, int limit, bool timestamps, bool input, bool inputFai
 	assert(unitRegistrations() == 1);
 	unitDeliver(frames, timestamps ? 1 : 0, inputFailure ? 1 : 0);
 	assert(!probe.failed && probe.frames == frames && probe.calls == (frames + limit - 1) / limit && probe.host == unitHost());
-	assert((unitFlags() & (uint)kAudioUnitRenderAction_OutputIsSilence) == 0u);
+	assert((unitProbeFlags() & (uint)kAudioUnitRenderAction_OutputIsSilence) == 0u);
 	for (int frame = 0; frame < frames; frame++) {
 		assert(unitOutput(frame * 3) == (float)(frame + 1));
 		assert(unitOutput(frame * 3 + 1) == 0.0f);
@@ -101,7 +101,7 @@ void checkTerminal(int phase) {
 	unitDeliver(1, 1, 0);
 	assert(probe.calls == 0 && unitOutput(0) == 0.0f && unitOutput(1) == 0.0f && unitOutput(2) == 0.0f);
 	assert(unitRenders() == 0 && unitStops() == 1 && unitUninitializations() == 0 && unitDisposals() == 0);
-	assert((unitFlags() & (uint)kAudioUnitRenderAction_OutputIsSilence) != 0u);
+	assert((unitProbeFlags() & (uint)kAudioUnitRenderAction_OutputIsSilence) != 0u);
 	fprintf(stderr, "PASS: failed stop retains lease and silences late entry without retry\n");
 	fflush(stderr);
 }

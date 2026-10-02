@@ -30,7 +30,7 @@ FAULT_BINDINGS = {
             "unitDeliver",
             "unitOutput",
             "unitHost",
-            "unitFlags",
+            "unitProbeFlags",
             "unitUninitializations",
             "unitDisposals",
             "unitRegistrations",
