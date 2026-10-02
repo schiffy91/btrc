@@ -118,6 +118,20 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - **Sent to a lane.** One minor parity divergence went to `w2-analyzer-parity`. btrcc types an empty `[]` from its target in return and argument positions (bare, or both branches of a ternary); the reference compiler does so only for declared locals. Probing showed the bare-literal half predates wave 2.
   - **Gates on the merged tree.** Clean: generated-source check, lint, format-check, `git diff --check`, and the self-host transpile of `BtrccMain`, `cli/WindowsMain` and `cli/MacOSMain` with zero analyzer warnings. `boundary-check` checked 287 of 311 records. The 65 changed test modules plus the 64 corpus programs the lanes touched, through both compilers: 1,046 passed. The 16 initial failures were the dev shell's header reader, which builds from the primary checkout and predated native-constants; all 34 macro-constant tests pass on the current reader.
 - **Wave 2, second batch** (from `35e6b91`): `stage4/w2-macos-gui` closes D033/D055/D056/D008. The macOS fixtures mount through the GUI factory, and the provider's raw mounting paths, `setFrame`, `MacOSPanel.addChild` and the embedded event pump are gone. Every `MacOS.*` module except the Tray seam is private; tests that inspect provider internals compile against a test-only stdlib root (`src/tests/gui_provider_root.py`). The macOS action mailbox wraps the shared `ActionMailbox`, and the typography limits are named constants. It passed three macOS dispatches on the lane. Landed with `stage18/emit-order` and `stage22/p0-inventory`; its removed provider APIs were added to the BTRSmith rename table. Local gates on the batch: the generated-source check, lint, format-check, zero-warning self-host transpiles and `boundary-check` (287 of 311) are clean. Changed tests plus the full corpus through both compilers: 2,129 passed. The bootstrap reached its fixed point (20 min). The review (workflow `wf_1ce4083f-71c`) found one stale native-interop line, now fixed.
+- **Wave 2, analyzer parity** (`stage4/w2-analyzer-parity`, merged onto `cf68f93`): 8 of the 9 assigned divergences are closed in both compilers:
+  - GPU `var` float typing;
+  - bool operators;
+  - `new` on non-classes;
+  - access specifiers on class members;
+  - unreachable GPU rejects;
+  - f-string diagnostic positions;
+  - the duplicate `assert.h` include;
+  - one rule for empty `[]`/`{}` taking the target's type.
+
+  It also fixed a trigraph-escaping bug in both C emitters and added a parity battery. `docs/design/compiler-parity.md` records what is held equal and what remains: emitted-C gaps, btrcc's missing nullable flow, and nullable-to-non-nullable stores. Lanes `stage4/nullable-flow-parity` and `stage4/c-output-parity` own those. Two merge conflicts were resolved: btrc keeps r05's `StringConcat` piece check after the lane moved `validateAssignment`, and the lane's `rejectDuplicateTopLevel` composes with r01's repeated-prototype rule. Local gates on the merged tree:
+  - clean: generated-source check, lint, format-check, zero-warning self-host transpiles, `boundary-check` (287 of 311);
+  - `src/tests/btrc`, the changed tests and the full corpus through both compilers: 5,982 passed. The one failure was `stdlib/Daemon.btrc`'s wall-clock limit under load; it passes alone, and lane `stage2/daemon-runtime` owns the cause;
+  - the bootstrap reached its fixed point.
 
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
