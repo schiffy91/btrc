@@ -8,10 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair
+from src.tests.btrc.dual_frontend_harness import REPO, compile_snippet_pair
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 pytestmark = pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a C11 compiler")
 
 FIXTURES = (
@@ -33,7 +32,7 @@ def test_fstring_allocation_is_warning_clean_after_optimization(
     fixture: Path,
     expected_stdout: str,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),

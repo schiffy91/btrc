@@ -76,7 +76,9 @@ enumerates PCM hints, keeps the shared server entry points (`default`,
 probes each direction for channel, rate and period ranges, and reports
 `default` as both defaults. A session opens interleaved float capture and
 playback handles configured to the requested period with two periods of
-buffer, then runs a worker thread that reads one capture period, calls the
+buffer, then runs a worker thread (a `NativeWorker` from
+`Library.BackgroundJobs.NativeWorker`, the same start/join owner the
+background-job executor uses) that reads one capture period, calls the
 realtime program on the selected channels and writes one playback period in
 lock step; xruns are recovered in place and reported as discontinuities, and
 the worker asks for `SCHED_FIFO` when the system allows it. Channel counts are

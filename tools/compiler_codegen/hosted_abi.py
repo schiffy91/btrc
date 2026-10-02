@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import GeneratedArtifact, format_generated_btrc
+from . import GeneratedArtifact, GeneratedSourceStyle
 from .manifest_fields import ManifestFields
 from .runtime import RuntimeManifest
 
@@ -600,7 +600,7 @@ class HostedAbiCatalogGenerator:
     def artifacts(self) -> tuple[GeneratedArtifact, ...]:
         return (
             GeneratedArtifact(self._PYTHON_PATH, self._render_python().encode("utf-8")),
-            GeneratedArtifact(self._BTRC_PATH, format_generated_btrc(self._render_btrc(), self._BTRC_PATH)),
+            GeneratedArtifact(self._BTRC_PATH, GeneratedSourceStyle.format_btrc(self._render_btrc(), self._BTRC_PATH)),
         )
 
     def _render_python(self) -> str:
@@ -646,25 +646,31 @@ class HostedAbiCatalogGenerator:
         for function in self._manifest.functions:
             lines.extend(self._python_function(function))
         lines.extend([")", ""])
-        self._append_python_tuple(lines, "HOSTED_FUNCTION_NAMES", self._manifest.names.functions)
-        self._append_python_tuple(lines, "HOSTED_MACRO_NAMES", self._manifest.names.macros)
-        self._append_python_tuple(lines, "HOSTED_OBJECT_NAMES", self._manifest.names.objects)
-        self._append_python_tuple(lines, "HOSTED_TYPE_NAMES", self._manifest.names.types)
-        self._append_python_tuple(lines, "HOSTED_TYPEDEF_NAMES", self._manifest.names.typedefs)
-        self._append_python_tuple(lines, "HOSTED_OWNED_NAMES", self._manifest.names.owned)
-        self._append_python_tuple(lines, "HOSTED_NATIVE_NAMES", self._manifest.names.native)
-        self._append_python_tuple(lines, "HOSTED_NATIVE_INTERNAL_NAMES", self._manifest.names.native_internal)
-        self._append_python_tuple(
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_FUNCTION_NAMES", self._manifest.names.functions)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_MACRO_NAMES", self._manifest.names.macros)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_OBJECT_NAMES", self._manifest.names.objects)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_TYPE_NAMES", self._manifest.names.types)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_TYPEDEF_NAMES", self._manifest.names.typedefs)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_OWNED_NAMES", self._manifest.names.owned)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_NATIVE_NAMES", self._manifest.names.native)
+        GeneratedSourceStyle.append_python_tuple(
+            lines, "HOSTED_NATIVE_INTERNAL_NAMES", self._manifest.names.native_internal
+        )
+        GeneratedSourceStyle.append_python_tuple(
             lines,
             "HOSTED_RUNTIME_ADOPTING_HELPERS",
             self._manifest.names.runtime_adopting_helpers,
         )
-        self._append_python_tuple(lines, "HOSTED_NORETURN_FUNCTIONS", self._manifest.names.noreturn)
-        self._append_python_tuple(lines, "HOSTED_PLATFORM_FUNCTION_NAMES", self._manifest.platform.functions)
-        self._append_python_tuple(lines, "HOSTED_PLATFORM_MACRO_NAMES", self._manifest.platform.macros)
-        self._append_python_tuple(lines, "HOSTED_PLATFORM_OBJECT_NAMES", self._manifest.platform.objects)
-        self._append_python_tuple(lines, "HOSTED_PLATFORM_TYPE_NAMES", self._manifest.platform.types)
-        self._append_python_tuple(lines, "HOSTED_PLATFORM_TYPEDEF_NAMES", self._manifest.platform.typedefs)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_NORETURN_FUNCTIONS", self._manifest.names.noreturn)
+        GeneratedSourceStyle.append_python_tuple(
+            lines, "HOSTED_PLATFORM_FUNCTION_NAMES", self._manifest.platform.functions
+        )
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_PLATFORM_MACRO_NAMES", self._manifest.platform.macros)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_PLATFORM_OBJECT_NAMES", self._manifest.platform.objects)
+        GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_PLATFORM_TYPE_NAMES", self._manifest.platform.types)
+        GeneratedSourceStyle.append_python_tuple(
+            lines, "HOSTED_PLATFORM_TYPEDEF_NAMES", self._manifest.platform.typedefs
+        )
         lines.extend(
             [
                 f"HOSTED_STDLIB_SOURCE_MARKER = {self._manifest.provenance.stdlib_source_marker!r}",
@@ -714,12 +720,6 @@ class HostedAbiCatalogGenerator:
         arguments = ", ".join(cls._python_type(argument) for argument in shape.generic_args)
         generic_args = f"({arguments},)" if arguments else "()"
         return f"GeneratedAbiTypeRow({shape.base!r}, {shape.pointer_depth}, {shape.is_const!r}, {generic_args})"
-
-    @staticmethod
-    def _append_python_tuple(lines: list[str], name: str, values: tuple[str, ...]) -> None:
-        lines.append(f"{name}: tuple[str, ...] = (")
-        lines.extend(f"    {value!r}," for value in values)
-        lines.extend([")", ""])
 
     def _render_btrc(self) -> str:
         lines = [
@@ -830,9 +830,9 @@ class HostedAbiCatalogGenerator:
                 "",
                 "    public GeneratedHostedAbiData() {",
                 "        self.stdlibSourceMarker = "
-                f"{self._btrc_string(self._manifest.provenance.stdlib_source_marker)};",
-                f"        self.userSourceMarker = {self._btrc_string(self._manifest.provenance.user_source_marker)};",
-                f"        self.fingerprint = {self._btrc_string(self._manifest.fingerprint)};",
+                f"{GeneratedSourceStyle.btrc_string(self._manifest.provenance.stdlib_source_marker)};",
+                f"        self.userSourceMarker = {GeneratedSourceStyle.btrc_string(self._manifest.provenance.user_source_marker)};",
+                f"        self.fingerprint = {GeneratedSourceStyle.btrc_string(self._manifest.fingerprint)};",
                 "    }",
                 "",
                 "    /* Every table builds on first use. A compile that never asks for a",
@@ -907,7 +907,9 @@ class HostedAbiCatalogGenerator:
         for chunk, start_index in enumerate(index_chunks):
             lines.append(f"    private void indexFunctions{chunk}(Map<string, int> slots) {{")
             for offset, function in enumerate(functions[start_index : start_index + self.BTRC_NAMES_PER_METHOD]):
-                lines.append(f"        slots.put({self._btrc_string(function.name)}, {start_index + offset});")
+                lines.append(
+                    f"        slots.put({GeneratedSourceStyle.btrc_string(function.name)}, {start_index + offset});"
+                )
             lines.extend(["    }", ""])
         for field, values in name_fields:
             method = f"push{field[:1].upper()}{field[1:]}"
@@ -925,7 +927,7 @@ class HostedAbiCatalogGenerator:
             for chunk, start_index in enumerate(value_chunks):
                 lines.append(f"    private void {method}{chunk}(Vector<string> values) {{")
                 lines.extend(
-                    f"        values.push({self._btrc_string(value)});"
+                    f"        values.push({GeneratedSourceStyle.btrc_string(value)});"
                     for value in values[start_index : start_index + self.BTRC_NAMES_PER_METHOD]
                 )
                 lines.extend(["    }", ""])
@@ -939,8 +941,8 @@ class HostedAbiCatalogGenerator:
         semantic = function.semantic_result or function.result
         lines = [
             "            return GeneratedHostedFunctionRow(",
-            f"            {self._btrc_string(function.name)},",
-            f"            {self._btrc_string(function.origin)},",
+            f"            {GeneratedSourceStyle.btrc_string(function.name)},",
+            f"            {GeneratedSourceStyle.btrc_string(function.origin)},",
             f"            {self._btrc_type(function.result)},",
             f"            {'true' if function.parameters_known else 'false'},",
         ]
@@ -949,7 +951,7 @@ class HostedAbiCatalogGenerator:
             lines.extend(
                 "                GeneratedHostedParameterRow("
                 f"{self._btrc_type(parameter.type_shape)}, "
-                f"{self._btrc_string(parameter.effect)}, "
+                f"{GeneratedSourceStyle.btrc_string(parameter.effect)}, "
                 f"{self._btrc_optional(parameter.callback_lifetime)}),"
                 for parameter in function.parameters
             )
@@ -961,7 +963,7 @@ class HostedAbiCatalogGenerator:
                 f"            {'true' if function.variadic else 'false'},",
                 f"            {'true' if function.semantic_result is not None else 'false'},",
                 f"            {self._btrc_type(semantic)},",
-                f"            {self._btrc_string(function.return_effect)},",
+                f"            {GeneratedSourceStyle.btrc_string(function.return_effect)},",
                 f"            {function.return_alias_parameter if function.return_alias_parameter is not None else -1},",
                 f"            {self._btrc_optional(function.return_alias_null_effect)},",
                 f"            {'true' if function.raw_lifetime else 'false'},",
@@ -969,7 +971,7 @@ class HostedAbiCatalogGenerator:
                 f"            {self._btrc_optional(function.return_alias_shape)},",
                 f"            {self._btrc_optional(function.consume_deallocator)},",
                 f"            {self._btrc_optional(function.return_alias_null_deallocator)},",
-                f"            {self._btrc_string(function.realtime_effect)});",
+                f"            {GeneratedSourceStyle.btrc_string(function.realtime_effect)});",
             ]
         )
         return lines
@@ -997,21 +999,9 @@ class HostedAbiCatalogGenerator:
         generic_args = f"[{arguments}]" if arguments else "self.emptyTypes()"
         return (
             "GeneratedAbiTypeRow("
-            f"{self._btrc_string(shape.base)}, {shape.pointer_depth}, "
+            f"{GeneratedSourceStyle.btrc_string(shape.base)}, {shape.pointer_depth}, "
             f"{'true' if shape.is_const else 'false'}, {generic_args})"
         )
 
     def _btrc_optional(self, value: str | None) -> str:
-        return self._btrc_string(value or "")
-
-    @staticmethod
-    def _btrc_string(value: str) -> str:
-        escaped = (
-            value.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\t", "\\t")
-            .replace("\b", "\\b")
-            .replace("\f", "\\f")
-        )
-        return f'"{escaped}"'
+        return GeneratedSourceStyle.btrc_string(value or "")

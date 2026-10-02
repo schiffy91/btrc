@@ -7,8 +7,8 @@ import pytest
 
 from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import C_COMPILE_TIMEOUT
-from src.tests.python.test_codegen import emit_c
-from src.tests.python.test_typed_operator_contract import RUNTIME_SOURCE
+from src.tests.python.c11_runtime_sources import TYPED_OPERATOR_RUNTIME
+from src.tests.python.reference_pipeline import emit_c
 
 
 @pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
@@ -19,7 +19,7 @@ def test_typed_operator_runtime_is_strict_c11(
 ):
     c_path = tmp_path / "typed_operators.c"
     binary = tmp_path / "typed_operators"
-    c_path.write_text(emit_c(RUNTIME_SOURCE))
+    c_path.write_text(emit_c(TYPED_OPERATOR_RUNTIME))
     subprocess.run(
         [
             c_compiler,

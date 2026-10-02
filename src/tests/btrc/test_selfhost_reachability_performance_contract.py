@@ -3,10 +3,7 @@
 import re
 from pathlib import Path
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
@@ -50,7 +47,7 @@ def test_exact_function_references_survive_without_rooting_substrings(
         int exact_target_suffix_unused() { return 99; }
         int main() { return exact_target_suffix() == 42 ? 0 : 1; }
     """
-    result, generated = _compile_source(
+    result, generated = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
@@ -63,4 +60,4 @@ def test_exact_function_references_survive_without_rooting_substrings(
         r"\bint exact_target_suffix_unused\s*\(",
         emitted,
     )
-    _strict_build_and_run(generated, tmp_path / "exact-reachability")
+    strict_build_and_run(generated, tmp_path / "exact-reachability")

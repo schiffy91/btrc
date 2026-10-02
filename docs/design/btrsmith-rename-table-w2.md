@@ -219,6 +219,61 @@ a build; BTRSmith sees new warnings until it guards the values.
 | a possibly-null value stored into a non-nullable variable, field, parameter, return or default | new warning `Possibly-null value stored in non-nullable <context> of type 'T' — check for null first`; guard first or declare the target nullable |
 | calls after `exit`, `abort`, `_Exit`, `quick_exit`, `longjmp`, `pthread_exit` | treated as unreachable; a null guard ending in one proves the value non-null after it |
 
+### btrc-D028, btrc-D052, btrc-D053: residual stdlib drift (`stage4/residual-stdlib`)
+
+These also ship in the same pin bump.
+
+| Old | New |
+| --- | --- |
+| `DaemonSpec.renderStartCommand()` (canonicalized and rewrote `controlFile`/`logFile`) | `DaemonSpec.renderStartCommand(controlFile, logFile)` taking the already canonical paths (`DaemonControlFiles.canonicalFilePath`); the spec is never rewritten. `DaemonController.start(spec)` keeps its signature but no longer rewrites `spec.controlFile`/`spec.logFile` to canonical paths; canonicalize them yourself if you read them back |
+| `Strings.capitalize(s)`, `Strings.title(s)`, `Strings.swapCase(s)` | `s.capitalize()`, `s.title()`, `s.swapCase()` |
+| `Strings.padLeft(s, width, fill)`, `Strings.padRight(s, width, fill)` | `s.padLeft(width, fill)`, `s.padRight(width, fill)` |
+| `Strings.lstrip(s)`, `Strings.rstrip(s)`, `Strings.removePrefix(s, prefix)` | `s.lstrip()`, `s.rstrip()`, `s.removePrefix(prefix)` |
+| `Strings.isDigitStr(s)`, `Strings.isAlphaStr(s)`, `Strings.isBlank(s)` | `s.isDigit()`, `s.isAlpha()`, `s.isBlank()` |
+| `BackgroundJobWorker`, `BackgroundJobWorkerContext` (`Library.BackgroundJobs.BackgroundJobExecutor`) | `NativeWorker`, `INativeWorkerBody`, `NativeWorkerStartKind` (`Library.BackgroundJobs.NativeWorker`); `start(body)` returns a `NativeWorkerStartKind` instead of `bool` |
+
+`Strings.repeat`, `Strings.replace`, `Strings.count` and `Strings.find` remain
+as delegates to the built-ins of the same meaning; new code calls the
+built-ins.
+
+### btrc-D061: one FileSystem outcome (`stage4/residual-filesystem-outcomes`)
+
+Every two-state FileSystem result is now the generic
+`FileSystemOutcome<T>` (`Library.FileSystem.FileSystemHandles`): `ok()`,
+`value()` and `error()`. Name the type explicitly or keep `var`; a file that
+spells `FileSystemOutcome` imports `Library.FileSystem.FileSystemHandles`.
+The three-state outcomes (`FileReadOutcome`, `DirectoryStepOutcome`,
+`FileTreeSnapshotStep`, `FileSystemCloseOutcome`, `PrivateFileReadOutcome`,
+`DurableReplaceOutcome`) are unchanged.
+
+| Old | New |
+| --- | --- |
+| `FileSnapshotOutcome`, `.snapshot()` | `FileSystemOutcome<FileSnapshot>`, `.value()` |
+| `FileOpenOutcome`, `.file()` | `FileSystemOutcome<FileHandle>`, `.value()` |
+| `DirectoryOpenOutcome`, `.directory()` | `FileSystemOutcome<DirectoryHandle>`, `.value()` |
+| `ExactFileReadOutcome`, `.bytes()` | `FileSystemOutcome<Bytes>`, `.value()` |
+| `RegularFileSnapshotOpenOutcome`, `.snapshot()` | `FileSystemOutcome<RegularFileSnapshot>`, `.value()` |
+| `TemporaryDirectoryOpenOutcome`, `.directory()` | `FileSystemOutcome<TemporaryDirectory>`, `.value()` |
+| `PrivateDirectoryOpenOutcome`, `.directory()` | `FileSystemOutcome<PrivateDirectory>`, `.value()` |
+| `ExclusiveFileLeaseOpenOutcome`, `.lease()` | `FileSystemOutcome<ExclusiveFileLease>`, `.value()` |
+| `AdvisoryFileLockOpenOutcome`, `.lock()` | `FileSystemOutcome<AdvisoryFileLock>`, `.value()` |
+| `FileTreeSnapshotOpenOutcome`, `.snapshot()` | `FileSystemOutcome<FileTreeSnapshot>`, `.value()` |
+| `ApplicationDirectoryRootsOutcome`, `.roots()` | `FileSystemOutcome<ApplicationDirectoryRoots>`, `.value()` |
+| `X.opened(v)` / `.available(v)` / `.data(v)` / `.acquired(v)` / `ApplicationDirectoryRootsOutcome.resolved(v)` | `new FileSystemOutcome<T>(v, null)` |
+| `X.failed(error)` | `new FileSystemOutcome<T>(null, error)` |
+| `ApplicationDirectoryRootsOutcome.rejected(kind, message)` | `new FileSystemOutcome<ApplicationDirectoryRoots>(null, FileSystemError(...))` |
+| `ApplicationDirectoryError` (`kind()`, `nativeCode()`, `message()`) | `FileSystemError` (same three accessors plus `operation()` = `"resolve application directories"` and `path()` = `""`) |
+| `ApplicationDirectoryErrorKind`: `APP_DIRECTORY_INVALID_ARGUMENT` | `FS_INVALID_ARGUMENT`, `nativeCode() == 0` |
+| `APP_DIRECTORY_PATH_TOO_LONG` | `FS_INVALID_ARGUMENT`, `nativeCode() == ENAMETOOLONG` |
+| `APP_DIRECTORY_UNAVAILABLE` | `FS_NOT_FOUND` |
+| `APP_DIRECTORY_UNSUPPORTED` | `FS_UNSUPPORTED` |
+| `FileSystemOutcomeKind` (`FS_VALUE`, `FS_ERROR`) | removed; use `ok()` |
+
+The accessor rename is by receiver type, not by name: `DirectoryEntry.snapshot()`,
+`FileHandle.snapshot()`, `FileReadOutcome.bytes()` and
+`PrivateFileReadOutcome.bytes()` are unchanged. Compile and replace each
+`no field or method` error on a `FileSystemOutcome` with `.value()`.
+
 ## 2. Mechanical substitutions
 
 Apply in this order over BTRSmith's `.btrc` sources, `btrc.toml` files and
@@ -244,6 +299,19 @@ docs (word boundaries matter: `CoreAudioDeviceProvider` must not hit
 \bUnixShell\.redactText\(                               -> ShellWords.redact(
 \b(FileSystem|ChildProcessExecutable)\.currentDirectory\( -> Platform.currentDirectory(
 \b(CoreAudioDeviceProviderOpenOutcome|AlsaDeviceProviderOpenOutcome)\b -> AudioDeviceProviderOpenOutcome
+\bFileSnapshotOutcome\b                                -> FileSystemOutcome<FileSnapshot>
+\bFileOpenOutcome\b                                    -> FileSystemOutcome<FileHandle>
+\bDirectoryOpenOutcome\b                               -> FileSystemOutcome<DirectoryHandle>
+\bExactFileReadOutcome\b                               -> FileSystemOutcome<Bytes>
+\bRegularFileSnapshotOpenOutcome\b                     -> FileSystemOutcome<RegularFileSnapshot>
+\bTemporaryDirectoryOpenOutcome\b                      -> FileSystemOutcome<TemporaryDirectory>
+\bPrivateDirectoryOpenOutcome\b                        -> FileSystemOutcome<PrivateDirectory>
+\bExclusiveFileLeaseOpenOutcome\b                      -> FileSystemOutcome<ExclusiveFileLease>
+\bAdvisoryFileLockOpenOutcome\b                        -> FileSystemOutcome<AdvisoryFileLock>
+\bFileTreeSnapshotOpenOutcome\b                        -> FileSystemOutcome<FileTreeSnapshot>
+\bApplicationDirectoryRootsOutcome\b                   -> FileSystemOutcome<ApplicationDirectoryRoots>
+FileSystemOutcome accessors (.snapshot/.file/.directory/.bytes/.lease/.lock/.roots) -> .value()   (by hand, see D061)
+APP_DIRECTORY_* error kinds                             -> FileSystemErrorKind (by hand, see D061)
 \bCoreAudioDeviceProvider\b                             -> MacOSAudioDevice
 \bAlsaDeviceProvider\b                                  -> LinuxAudioDevice
 \bAudioDeviceProvider\b                                 -> IAudioDeviceProvider
@@ -263,6 +331,10 @@ docs (word boundaries matter: `CoreAudioDeviceProvider` must not hit
 \bbtrcSpscCopy\(                                        -> SPSCQueues.copyBytes(
 \.removeAt\(  (Vector receivers only)                   -> .remove(
 DaemonSpec: \.pid\(  -> .control(   and   \bpidFile\b -> controlFile   (not Platform.pid())
+\bStrings\.(capitalize|title|swapCase|lstrip|rstrip)\((\w+)\) -> \2.\1()   (simple receivers; others by hand)
+\bStrings\.isDigitStr\( / isAlphaStr\( / isBlank\(        -> receiver .isDigit() / .isAlpha() / .isBlank()   (by hand)
+\bStrings\.(padLeft|padRight|removePrefix)\(            -> receiver .\1(...)   (by hand)
+DaemonSpec.renderStartCommand()                         -> renderStartCommand(canonicalControl, canonicalLog)   (by hand, see D028)
 SPSCQueues.close(x); x = null;                          -> SPSCQueues.close(&x);   (by hand, see D062)
 UITypography / UITextRaster / App removals             -> by hand, see D057
 RealtimeClipTransport runtime imports                   -> by hand, see D031 (bsm-D013)
@@ -422,8 +494,8 @@ types that still exist; a removed type takes its members with it.
 - BackgroundJobSubmitOutcome: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobTicket: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobWork: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
-- BackgroundJobWorker: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
-- BackgroundJobWorkerContext: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
+- BackgroundJobWorker: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor (later removed; see btrc-D053 in section 1: `NativeWorker`)
+- BackgroundJobWorkerContext: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor (later removed; see btrc-D053 in section 1: `NativeWorker`)
 - BackgroundJobsCloseKind: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobsCloseMode: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor
 - BackgroundJobsCloseOutcome: BackgroundJobs.BackgroundJobs -> BackgroundJobs.BackgroundJobExecutor

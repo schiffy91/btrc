@@ -16,12 +16,9 @@ from src.tests.btrc.production_readiness_harness import (
     compile_diagnostic_pair,
     run_strict_pair,
 )
+from src.tests.btrc.selfhost_snippet_harness import REPO
 from src.tests.btrc.string_coercion_harness import compile_pair
-from src.tests.btrc.test_semantic_validation import REPO
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 
 CALLABLE_SHADOW_SOURCE = """
     int combine(int left, int right) { return left + right; }

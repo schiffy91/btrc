@@ -4,18 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path, source: str):
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_reference_source(tmp_path, source)
     return (selfhost, selfhost_source), (reference, reference_source)
 
 
@@ -73,7 +67,7 @@ def test_pointer_backed_array_bindings_rebind_and_index_in_both_frontends(
     """
     for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stderr
-        _strict_build_and_run(generated, tmp_path / f"array-pointer-slots-{index}")
+        strict_build_and_run(generated, tmp_path / f"array-pointer-slots-{index}")
 
 
 def test_array_typedefs_are_pointer_values_across_storage_boundaries(
@@ -127,7 +121,7 @@ def test_array_typedefs_are_pointer_values_across_storage_boundaries(
     """
     for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stderr
-        _strict_build_and_run(generated, tmp_path / f"array-typedef-values-{index}")
+        strict_build_and_run(generated, tmp_path / f"array-typedef-values-{index}")
 
 
 def test_gpu_outputs_accept_exact_element_storage_with_provable_capacity(

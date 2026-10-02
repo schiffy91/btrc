@@ -4,13 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 pytestmark = pytest.mark.skipif(
     not HOST_C_COMPILERS,
@@ -51,14 +47,14 @@ def test_lambda_borrowed_class_returns_transfer_one_reference(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "lambda-borrowed-class-return",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_lambda_borrowed_mutex_returns_transfer_one_reference(
@@ -101,11 +97,11 @@ def test_lambda_borrowed_mutex_returns_transfer_one_reference(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "lambda-borrowed-mutex-return",
     )
     for artifact in compiled:
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)

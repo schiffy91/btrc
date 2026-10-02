@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -20,19 +19,11 @@ from src.compiler.python.ir.nodes import (
 from src.compiler.python.ir.verifier import IRVerifier
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import ParseError, Parser
-
-
-def analyze(source: str):
-    program = Parser(Lexer(source, "realtime-test.btrc").tokenize()).parse()
-    return program, SemanticAnalyzer().analyze(program)
-
-
-def realtime_errors(source: str) -> list[str]:
-    return [error for error in analyze(source)[1].errors if "@realtime" in error]
+from src.tests.python.reference_pipeline import analyze_realtime, realtime_errors
 
 
 def test_parser_retains_realtime_on_functions_and_methods() -> None:
-    program, result = analyze(
+    program, result = analyze_realtime(
         """
         @realtime int render(int value) { return value; }
         class Engine { public @realtime int tick(int value) { return value; } }
@@ -57,8 +48,8 @@ def test_parser_rejects_invalid_realtime_placement(source: str) -> None:
 
 
 def test_realtime_is_part_of_a_function_declaration_contract() -> None:
-    _, matching = analyze("@realtime int tick(int value); @realtime int tick(int value) { return value; }")
-    _, mismatched = analyze("@realtime int tick(int value); int tick(int value) { return value; }")
+    _, matching = analyze_realtime("@realtime int tick(int value); @realtime int tick(int value) { return value; }")
+    _, mismatched = analyze_realtime("@realtime int tick(int value); int tick(int value) { return value; }")
 
     assert matching.errors == []
     assert any("Conflicting declarations" in error for error in mismatched.errors)

@@ -3,7 +3,7 @@ The walk short-circuits on the first
 try/catch, so each branch is isolated in its own function with the try/catch
 reachable only via that one control-structure path."""
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_trycatch_detected_through_each_control_structure():

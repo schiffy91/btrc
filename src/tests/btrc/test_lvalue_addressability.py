@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_ownership_semantics_contract import _compile_reference_source
-from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 def test_owned_receiver_nested_projection_assignment_has_runtime_parity(
@@ -33,12 +31,12 @@ def test_owned_receiver_nested_projection_assignment_has_runtime_parity(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-nested-owned-lvalue")
-    _strict_build_and_run(reference_source, tmp_path / "reference-nested-owned-lvalue")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-nested-owned-lvalue")
+    strict_build_and_run(reference_source, tmp_path / "reference-nested-owned-lvalue")
 
 
 def test_owned_index_preserves_borrowed_receiver_evaluation_order(
@@ -81,12 +79,12 @@ def test_owned_index_preserves_borrowed_receiver_evaluation_order(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-owned-index-order")
-    _strict_build_and_run(reference_source, tmp_path / "reference-owned-index-order")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-owned-index-order")
+    strict_build_and_run(reference_source, tmp_path / "reference-owned-index-order")
 
 
 TARGET_SHAPES = (
@@ -177,8 +175,8 @@ def test_by_value_projection_mutation_is_rejected_with_compiler_parity(
 ) -> None:
     del shape, operation
     program = source.replace("MUTATION", mutation.replace("TARGET", target))
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, program)
-    reference, _ = _compile_reference_source(tmp_path, program)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, program)
+    reference, _ = compile_ownership_reference(tmp_path, program)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert diagnostic in selfhost.stderr
@@ -203,15 +201,15 @@ def test_address_preserving_storage_controls_have_runtime_parity(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     expected_initializer = "static Box globalBox = {{0, 0}};"
     assert expected_initializer in selfhost_source.read_text()
     assert expected_initializer in reference_source.read_text()
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-addressable-controls")
-    _strict_build_and_run(reference_source, tmp_path / "reference-addressable-controls")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-addressable-controls")
+    strict_build_and_run(reference_source, tmp_path / "reference-addressable-controls")
 
 
 def test_address_of_owned_temporary_projection_is_rejected(
@@ -226,8 +224,8 @@ def test_address_of_owned_temporary_projection_is_rejected(
         Item makeItem() { return new Item(7); }
         int main() { int* address = &makeItem().value; return 0; }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "Unary operator '&'" in selfhost.stderr
@@ -253,8 +251,8 @@ def test_const_receiver_chain_mutation_is_rejected_with_compiler_parity(
             return 0;
         }}
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "const" in selfhost.stderr.lower()
@@ -275,8 +273,8 @@ def test_nonstorage_designators_are_rejected_with_compiler_parity(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert diagnostic in selfhost.stderr

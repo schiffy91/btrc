@@ -1,6 +1,6 @@
 """Generic-method bodies lowered through the ordinary expression/statement owners."""
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_generic_method_with_collection_literals_and_sizeof():

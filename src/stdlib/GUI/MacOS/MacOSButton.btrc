@@ -150,9 +150,10 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public CallbackCancellation close() {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
-		if (self._button == null) { return self._view.pollClose(); }
+		var button = self._button;
+		if (button == null) { return self._view.pollClose(); }
 		self._view.requireDetached();
-		if (self._actions != null) { self._actions.unbind(self._button); }
+		if (self._actions != null) { self._actions.unbind(button); }
 		var state = self._view.close();
 		self._button = null;
 		return state;

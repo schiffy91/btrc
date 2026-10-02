@@ -39,15 +39,15 @@ void createRegular(string path, string content, int mode) {
 }
 
 int main() {
-	TemporaryDirectoryOpenOutcome temporaryOpen = FileSystem.createTemporaryDirectory("btrc_private_directory_real");
+	FileSystemOutcome<TemporaryDirectory> temporaryOpen = FileSystem.createTemporaryDirectory("btrc_private_directory_real");
 	assert(temporaryOpen.ok());
-	TemporaryDirectory temporary = temporaryOpen.directory();
+	TemporaryDirectory temporary = temporaryOpen.value();
 	string parent = temporary.path();
 	string privatePath = PathTools.join(parent, "private");
 
-	PrivateDirectoryOpenOutcome privateOpen = FileSystem.openPrivateDirectory(privatePath);
+	FileSystemOutcome<PrivateDirectory> privateOpen = FileSystem.openPrivateDirectory(privatePath);
 	assert(privateOpen.ok());
-	PrivateDirectory privateDirectory = privateOpen.directory();
+	PrivateDirectory privateDirectory = privateOpen.value();
 	assert(privateDirectory.isOpen());
 	assert(privateDirectory.path().equals(privatePath));
 	assert(exactMode(privatePath) == 448);
@@ -57,18 +57,18 @@ int main() {
 	assert(FileSystem.chmod(privatePath, 448) == 0);
 	assert(privateDirectory.validatePath().ok());
 
-	PrivateDirectoryOpenOutcome secondOpen = FileSystem.openPrivateDirectory(privatePath);
+	FileSystemOutcome<PrivateDirectory> secondOpen = FileSystem.openPrivateDirectory(privatePath);
 	assert(secondOpen.ok());
-	PrivateDirectory secondDirectory = secondOpen.directory();
+	PrivateDirectory secondDirectory = secondOpen.value();
 
 	assert(!privateDirectory.acquireExclusiveLease("../escape").ok());
 	assert(privateDirectory.acquireExclusiveLease("../escape").error().kind() == FS_INVALID_ARGUMENT);
 
 	mode_t priorMask = umask((mode_t)0777);
-	ExclusiveFileLeaseOpenOutcome firstLeaseOpen = privateDirectory.acquireExclusiveLease("state.lock");
+	FileSystemOutcome<ExclusiveFileLease> firstLeaseOpen = privateDirectory.acquireExclusiveLease("state.lock");
 	umask(priorMask);
 	assert(firstLeaseOpen.ok());
-	ExclusiveFileLease firstLease = firstLeaseOpen.lease();
+	ExclusiveFileLease firstLease = firstLeaseOpen.value();
 	assert(firstLease.validate().ok());
 	assert(firstLease.isOpen());
 	assert(firstLease.removeRegularChildDurably("missing.bin").committed());
@@ -80,7 +80,7 @@ int main() {
 	assert(firstLease.removeRegularChildDurably("remove.bin").committed());
 	assert(exactMode(PathTools.join(privatePath, "state.lock")) == 384);
 
-	ExclusiveFileLeaseOpenOutcome contended = secondDirectory.acquireExclusiveLease("state.lock");
+	FileSystemOutcome<ExclusiveFileLease> contended = secondDirectory.acquireExclusiveLease("state.lock");
 	assert(!contended.ok());
 	assert(contended.error().kind() == FS_RESOURCE_EXHAUSTED);
 
@@ -110,9 +110,9 @@ int main() {
 	assert(readFirst.found());
 	assert(readFirst.bytes().equals(firstBytes));
 
-	FileOpenOutcome pinnedOldOpen = FileSystem.openFileExact(statePath);
+	FileSystemOutcome<FileHandle> pinnedOldOpen = FileSystem.openFileExact(statePath);
 	assert(pinnedOldOpen.ok());
-	FileHandle pinnedOld = pinnedOldOpen.file();
+	FileHandle pinnedOld = pinnedOldOpen.value();
 	Bytes secondBytes = Bytes.fromString("replacement");
 	assert(firstLease.replaceRegularChildDurably("state.bin", secondBytes).committed());
 	FileReadOutcome pinnedRead = pinnedOld.readAt(0LL, 32);
@@ -161,9 +161,9 @@ int main() {
 	assert(firstLease.readRegularChild("state.bin", 64).error().kind() == FS_CLOSED);
 	assert(firstLease.removeRegularChildDurably("state.bin").error().kind() == FS_CLOSED);
 
-	ExclusiveFileLeaseOpenOutcome afterRelease = secondDirectory.acquireExclusiveLease("state.lock");
+	FileSystemOutcome<ExclusiveFileLease> afterRelease = secondDirectory.acquireExclusiveLease("state.lock");
 	assert(afterRelease.ok());
-	assert(afterRelease.lease().close().kind() == FS_CLOSED_NOW);
+	assert(afterRelease.value().close().kind() == FS_CLOSED_NOW);
 
 	string unsafeDirectory = PathTools.join(parent, "unsafe-directory");
 	assert(FileSystem.mkdir(unsafeDirectory, 493) == 0);
@@ -193,9 +193,9 @@ int main() {
 	assert(!FileSystem.openPrivateDirectory(privatePath).ok());
 	assert(FileSystem.openPrivateDirectory(privatePath).error().kind() == FS_SYMLINK);
 
-	ExclusiveFileLeaseOpenOutcome pinnedLeaseOpen = privateDirectory.acquireExclusiveLease("pinned.lock");
+	FileSystemOutcome<ExclusiveFileLease> pinnedLeaseOpen = privateDirectory.acquireExclusiveLease("pinned.lock");
 	assert(pinnedLeaseOpen.ok());
-	ExclusiveFileLease pinnedLease = pinnedLeaseOpen.lease();
+	ExclusiveFileLease pinnedLease = pinnedLeaseOpen.value();
 	Bytes pinnedBytes = Bytes.fromString("pinned");
 	assert(pinnedLease.replaceRegularChildDurably("pinned.bin", pinnedBytes).committed());
 	assert(FileSystem.exists(PathTools.join(movedPrivate, "pinned.bin")));
@@ -210,12 +210,12 @@ int main() {
 
 	int descriptorBaseline = descriptorCount();
 	for i in range(32) {
-		PrivateDirectoryOpenOutcome repeated = FileSystem.openPrivateDirectory(movedPrivate);
+		FileSystemOutcome<PrivateDirectory> repeated = FileSystem.openPrivateDirectory(movedPrivate);
 		assert(repeated.ok());
-		ExclusiveFileLeaseOpenOutcome repeatedLease = repeated.directory().acquireExclusiveLease("repeat.lock");
+		FileSystemOutcome<ExclusiveFileLease> repeatedLease = repeated.value().acquireExclusiveLease("repeat.lock");
 		assert(repeatedLease.ok());
-		assert(repeatedLease.lease().close().kind() == FS_CLOSED_NOW);
-		assert(repeated.directory().close().kind() == FS_CLOSED_NOW);
+		assert(repeatedLease.value().close().kind() == FS_CLOSED_NOW);
+		assert(repeated.value().close().kind() == FS_CLOSED_NOW);
 	}
 	assert(descriptorCount() == descriptorBaseline);
 

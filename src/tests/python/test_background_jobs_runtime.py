@@ -8,17 +8,62 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.native_bindings import NativeBindingPackage
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "BackgroundJobs"
 FIXTURE = ROOT / "src" / "tests" / "native" / "background_jobs"
 CONFORMANCE = FIXTURE / "BackgroundJobsConformance.btrc"
+FAILURES = FIXTURE / "BackgroundJobsFailures.btrc"
 EXPECTED = FIXTURE / "background_jobs_conformance.expected"
 WORKER_POOLS = FIXTURE / "HostWorkerPools.btrc"
 WORKER_POOLS_EXPECTED = FIXTURE / "host_worker_pools.expected"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
+# Each probe program binds its fixture's header; it re-spells no prototype.
+BINDINGS = {
+    CONFORMANCE: (
+        FIXTURE / "background_job_probe.h",
+        (
+            "job_probe_reset",
+            "job_probe_release",
+            "job_probe_released",
+            "job_probe_mark_started",
+            "job_probe_mark_finished",
+            "job_probe_record_disposal",
+            "job_probe_started",
+            "job_probe_finished",
+            "job_probe_runs",
+            "job_probe_disposals",
+            "job_probe_yield",
+            "JobProbeBehavior",
+            "JOB_PROBE_COMPLETE",
+            "JOB_PROBE_HOLD",
+            "JOB_PROBE_CANCEL",
+            "JOB_PROBE_FAIL",
+            "JOB_PROBE_THROW",
+            "JOB_PROBE_CLEANUP_THROW",
+        ),
+    ),
+    FAILURES: (
+        FIXTURE / "NativeThreadFaultControl.h",
+        (
+            "job_fault_reset",
+            "job_fault_at",
+            "job_fault_calls",
+            "job_fault_live_threads",
+            "job_fault_disposals",
+            "job_fault_dispose",
+            "FAULT_MUTEX_INIT",
+            "FAULT_COND_INIT",
+            "FAULT_CREATE",
+            "FAULT_JOIN",
+            "FAULT_MUTEX_DESTROY",
+            "FAULT_COND_DESTROY",
+        ),
+    ),
+}
 
 PLANNED_CONSUMER = """\
 #include <assert.h>
@@ -46,6 +91,9 @@ def _transpile(
     *,
     threads: bool = True,
 ) -> None:
+    if source in BINDINGS:
+        NativeBindingPackage.require_reader()
+        source = NativeBindingPackage.write(source, output.parent / f"{output.stem}-package", *BINDINGS[source])
     target = PackageTarget.parse(None)
     target_text = f"{target.operating_system}-{target.architecture}"
     environment = {
@@ -215,7 +263,7 @@ def test_background_jobs_sdk_failures_and_retry(compiler, tmp_path, request, san
         pytest.skip("requires a supported POSIX sanitizer toolchain")
     generated = tmp_path / f"background-jobs-failures-{compiler}.c"
     executable = tmp_path / f"background-jobs-failures-{compiler}"
-    _transpile(compiler, generated, request, FIXTURE / "BackgroundJobsFailures.btrc")
+    _transpile(compiler, generated, request, FAILURES)
     _compile(
         "/usr/bin/clang" if sanitized and sys.platform == "darwin" else "clang",
         generated,
@@ -226,6 +274,29 @@ def test_background_jobs_sdk_failures_and_retry(compiler, tmp_path, request, san
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert result.returncode == 0, result.stderr
     assert result.stdout == "PASS: background jobs failure recovery\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_native_worker_retains_its_body_until_join(compiler, tmp_path, request, sanitized):
+    """NativeWorker owns the start/join envelope BackgroundJobExecutor and the
+    ALSA stream share: it retains the body only while the thread lives and
+    survives SDK create and join failures."""
+    if sanitized and sys.platform not in {"darwin", "linux"}:
+        pytest.skip("requires a supported POSIX sanitizer toolchain")
+    generated = tmp_path / f"native-worker-{compiler}.c"
+    executable = tmp_path / f"native-worker-{compiler}"
+    _transpile(compiler, generated, request, FIXTURE / "NativeWorkerFailures.btrc")
+    _compile(
+        "/usr/bin/clang" if sanitized and sys.platform == "darwin" else "clang",
+        generated,
+        executable,
+        sanitized=sanitized,
+        faults=True,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: native worker failure recovery\n"
     assert result.stderr == ""
 
 

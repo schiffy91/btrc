@@ -1,46 +1,15 @@
 """Ownership validation contracts for managed allocation shapes."""
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
+from src.tests.btrc.dual_frontend_harness import REPO, compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-REPO = Path(__file__).resolve().parents[3]
 OWNERSHIP_RUNTIME = REPO / "src/tests/btrc/fixtures/ManagedReturnOwnershipRuntime.btrc"
 GENERIC_LOCAL_RUNTIME = REPO / "src/tests/btrc/fixtures/GenericLocalOwnershipRuntime.btrc"
 SWITCH_CLEANUP_RUNTIME = REPO / "src/tests/btrc/fixtures/SwitchManagedCleanupRuntime.btrc"
-
-
-def _compile_reference_source(tmp_path: Path, source: str):
-    program = tmp_path / "reference-Ownership.btrc"
-    generated = tmp_path / "reference-ownership.c"
-    program.write_text(source)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "src.compiler.python.main",
-            str(program),
-            "--no-stdlib",
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
-        cwd=REPO,
-        env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")},
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    return result, generated
 
 
 def test_generic_method_receiver_cleanup_uses_expression_ir(
@@ -59,12 +28,12 @@ def test_generic_method_receiver_cleanup_uses_expression_ir(
             return 0;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_generated = _compile_reference_source(tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_generated = compile_ownership_reference(tmp_path, source)
     assert result.returncode == 0, result.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(generated, tmp_path / "generic-method-receiver-cleanup")
-    _strict_build_and_run(
+    strict_build_and_run(generated, tmp_path / "generic-method-receiver-cleanup")
+    strict_build_and_run(
         reference_generated,
         tmp_path / "reference-generic-method-receiver-cleanup",
     )
@@ -133,12 +102,12 @@ def test_managed_instance_field_stores_have_runtime_parity(
             return 0;
         }}
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-managed-instance-field")
-    _strict_build_and_run(reference_source, tmp_path / "reference-managed-instance-field")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-managed-instance-field")
+    strict_build_and_run(reference_source, tmp_path / "reference-managed-instance-field")
 
 
 def test_delete_of_parameterized_generic_class_runs_strictly(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -164,12 +133,12 @@ def test_delete_of_parameterized_generic_class_runs_strictly(semantic_btrcc: Pat
             return 0;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_generated = _compile_reference_source(tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_generated = compile_ownership_reference(tmp_path, source)
     assert result.returncode == 0, result.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(generated, tmp_path / "generic-delete")
-    _strict_build_and_run(
+    strict_build_and_run(generated, tmp_path / "generic-delete")
+    strict_build_and_run(
         reference_generated,
         tmp_path / "reference-generic-delete",
     )
@@ -190,15 +159,15 @@ def test_bare_generic_constructor_transfers_fresh_result_to_local(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     emitted = selfhost_source.read_text()
     assert "btrc_Box_int_new(1)" in emitted
     assert "__btrc_arc_retain(value)" not in emitted
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-bare-generic-constructor")
-    _strict_build_and_run(reference_source, tmp_path / "reference-bare-generic-constructor")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-bare-generic-constructor")
+    strict_build_and_run(reference_source, tmp_path / "reference-bare-generic-constructor")
 
 
 def test_delete_of_bare_type_parameter_stays_rejected(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -208,7 +177,7 @@ def test_delete_of_bare_type_parameter_stays_rejected(semantic_btrcc: Path, tmp_
         }
         int main() { return 0; }
     """
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert result.stdout == ""
     assert "delete requires a concrete allocation type" in result.stderr
@@ -244,13 +213,13 @@ def test_generic_scalar_result_is_not_misclassified_as_owned(
             return result == 42 ? 0 : 1;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-scalar")
-    _strict_build_and_run(reference_source, tmp_path / "reference-generic-scalar")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-scalar")
+    strict_build_and_run(reference_source, tmp_path / "reference-generic-scalar")
 
 
 @pytest.mark.parametrize(
@@ -291,8 +260,8 @@ def test_shallow_aggregate_temporaries_fail_with_compiler_parity(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, _selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _reference_source = compile_ownership_reference(tmp_path, source)
 
     assert selfhost.returncode != 0
     assert reference.returncode != 0
@@ -325,12 +294,12 @@ def test_shallow_aggregates_accept_prebound_borrowed_references(semantic_btrcc: 
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-borrowed")
-    _strict_build_and_run(reference_source, tmp_path / "reference-borrowed")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-borrowed")
+    strict_build_and_run(reference_source, tmp_path / "reference-borrowed")
 
 
 def test_omitted_owned_rich_enum_default_fails_with_compiler_parity(
@@ -345,8 +314,8 @@ def test_omitted_owned_rich_enum_default_fails_with_compiler_parity(
             return 0;
         }
     """
-    selfhost, _selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, _selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _reference_source = compile_ownership_reference(tmp_path, source)
     diagnostic = "Omitted default for rich-enum payload 'Payload.Some.value' produces a caller-owned temporary"
 
     assert selfhost.returncode != 0
@@ -369,8 +338,8 @@ def test_borrowed_rich_enum_default_remains_valid_with_compiler_parity(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
@@ -379,8 +348,8 @@ def test_borrowed_rich_enum_default_remains_valid_with_compiler_parity(
     assert f"static char* {helper}(void);" in emitted
     assert f"static char* {helper}(void) {{" in emitted
     assert emitted.count(f"{helper}(") == 3
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-borrowed-default")
-    _strict_build_and_run(reference_source, tmp_path / "reference-borrowed-default")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-borrowed-default")
+    strict_build_and_run(reference_source, tmp_path / "reference-borrowed-default")
 
 
 def test_generic_simple_enum_tostring_has_typed_forward_with_compiler_parity(
@@ -402,43 +371,43 @@ def test_generic_simple_enum_tostring_has_typed_forward_with_compiler_parity(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-enum-forward")
-    _strict_build_and_run(reference_source, tmp_path / "reference-enum-forward")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-enum-forward")
+    strict_build_and_run(reference_source, tmp_path / "reference-enum-forward")
 
 
 def test_managed_return_and_call_ownership_has_runtime_parity(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = OWNERSHIP_RUNTIME.read_text()
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-managed-returns")
-    _strict_build_and_run(reference_source, tmp_path / "reference-managed-returns")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-managed-returns")
+    strict_build_and_run(reference_source, tmp_path / "reference-managed-returns")
 
 
 def test_generic_method_locals_have_runtime_ownership_parity(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = GENERIC_LOCAL_RUNTIME.read_text()
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-local-ownership")
-    _strict_build_and_run(reference_source, tmp_path / "reference-generic-local-ownership")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-local-ownership")
+    strict_build_and_run(reference_source, tmp_path / "reference-generic-local-ownership")
 
 
 def test_switch_control_cleanup_has_runtime_parity(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = SWITCH_CLEANUP_RUNTIME.read_text()
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-switch-cleanup")
-    _strict_build_and_run(reference_source, tmp_path / "reference-switch-cleanup")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-switch-cleanup")
+    strict_build_and_run(reference_source, tmp_path / "reference-switch-cleanup")
 
 
 def test_unmanaged_c_call_operands_do_not_require_arc_types(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -457,12 +426,12 @@ def test_unmanaged_c_call_operands_do_not_require_arc_types(semantic_btrcc: Path
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-c-operands")
-    _strict_build_and_run(reference_source, tmp_path / "reference-c-operands")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-c-operands")
+    strict_build_and_run(reference_source, tmp_path / "reference-c-operands")
 
 
 def test_owned_call_receiver_field_assignment_has_runtime_parity(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -477,9 +446,9 @@ def test_owned_call_receiver_field_assignment_has_runtime_parity(semantic_btrcc:
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-owned-lvalue")
-    _strict_build_and_run(reference_source, tmp_path / "reference-owned-lvalue")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-owned-lvalue")
+    strict_build_and_run(reference_source, tmp_path / "reference-owned-lvalue")

@@ -341,7 +341,7 @@ int main() {
 	var renderer = GPUSurfaceRenderer(owner, surface, true);
 	assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_EMPTY);
 	NativeGpuChildTest.verifyIdleFrame(renderer);
-	Image initialCapture = null;
+	Image? initialCapture = null;
 	for (int step = 0; step < 3; step++) {
 		scroll.scrollTo(100.0 * (double)step);
 		// Native frame (0, 400 + 50 * step) in the 800-point document: its top edge.

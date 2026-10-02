@@ -5,23 +5,19 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-)
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
-from src.tests.python.test_numeric_comparison_c11 import RUNTIME_SOURCE
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.python.c11_runtime_sources import NUMERIC_COMPARISON_RUNTIME
 
 
 def test_selfhost_mixed_comparisons_compile_strictly(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    result, generated = _compile_source(
+    result, generated = compile_source(
         semantic_btrcc,
         tmp_path,
-        RUNTIME_SOURCE,
+        NUMERIC_COMPARISON_RUNTIME,
     )
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
@@ -64,7 +60,7 @@ def test_selfhost_abi_dependent_mixed_comparison_still_fails_closed(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    result, _ = _compile_source(
+    result, _ = compile_source(
         semantic_btrcc,
         tmp_path,
         "int main() { size_t value = 1; return value < 2; }",

@@ -6,14 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    CC,
-    _compile_source,
-    _run,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import CC, compile_source, run_in_repo, strict_build_and_run
 
 FIXTURES = Path(__file__).with_name("fixtures")
 
@@ -105,7 +98,7 @@ def test_invalid_executable_shapes_fail_closed(
     source: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert result.stdout == ""
     assert diagnostic in result.stderr
@@ -124,17 +117,17 @@ def test_executable_contracts_compile_strictly_and_run(
     fixture_name: str,
 ) -> None:
     source = (FIXTURES / fixture_name).read_text()
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / Path(fixture_name).stem)
+    strict_build_and_run(generated, tmp_path / Path(fixture_name).stem)
 
 
 def test_dynamic_zero_range_step_exits_before_iteration(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = (FIXTURES / "RangeZeroRuntime.btrc").read_text()
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     binary = tmp_path / "range-zero"
-    build = _run(
+    build = run_in_repo(
         [
             *CC,
             "-std=c11",
@@ -151,6 +144,6 @@ def test_dynamic_zero_range_step_exits_before_iteration(semantic_btrcc: Path, tm
         timeout=60,
     )
     assert build.returncode == 0, build.stderr
-    run = _run([str(binary)], timeout=30)
+    run = run_in_repo([str(binary)], timeout=30)
     assert run.returncode == 1
     assert "range step cannot be zero" in run.stderr

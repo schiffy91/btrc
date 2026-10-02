@@ -9,11 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_type_identity_contract import (
-    CC,
-    REPO,
-    _run,
-)
+from src.tests.btrc.selfhost_snippet_harness import CC, REPO, run_in_repo
 
 FIXTURES = REPO / "src/tests/btrc/fixtures"
 COMPILER_ENV = {**os.environ, "BTRC_HOME": str(REPO / "src")}
@@ -61,7 +57,7 @@ def test_operator_owner_runtime_matches_both_frontends(
     program = FIXTURES / "OperatorOwnerRuntime.btrc"
     c_path = tmp_path / f"operator_owner_runtime.{frontend}.c"
     if frontend == "python":
-        compiled_source = _run(
+        compiled_source = run_in_repo(
             [
                 # The reference compiler is invoked as a module, exactly as every
                 # other test does: bin/btrcpy is an untracked build product that
@@ -81,7 +77,7 @@ def test_operator_owner_runtime_matches_both_frontends(
         )
         assert compiled_source.returncode == 0, compiled_source.stderr
     else:
-        compiled_source = _run(
+        compiled_source = run_in_repo(
             [
                 str(operator_compiler),
                 "--no-stdlib",
@@ -95,7 +91,7 @@ def test_operator_owner_runtime_matches_both_frontends(
         c_path.write_text(compiled_source.stdout)
 
     binary = tmp_path / f"operator_owner_runtime.{frontend}"
-    compiled = _run(
+    compiled = run_in_repo(
         [
             *CC,
             "-std=c11",
@@ -112,7 +108,7 @@ def test_operator_owner_runtime_matches_both_frontends(
         timeout=60,
     )
     assert compiled.returncode == 0, compiled.stderr
-    run = _run([str(binary)], timeout=10)
+    run = run_in_repo([str(binary)], timeout=10)
     assert run.returncode == 0, run.stderr
 
 
@@ -124,7 +120,7 @@ def test_invalid_typed_operators_fail_closed(
 ) -> None:
     program = FIXTURES / fixture_name
 
-    result = _run(
+    result = run_in_repo(
         [str(operator_compiler), "--no-stdlib", str(program)],
         env=COMPILER_ENV,
         timeout=30,
@@ -149,7 +145,7 @@ def test_valid_generic_operator_specializations_compile_strictly(
     fixture_name: str,
 ) -> None:
     program = FIXTURES / fixture_name
-    emitted = _run(
+    emitted = run_in_repo(
         [str(operator_compiler), "--no-stdlib", str(program)],
         env=COMPILER_ENV,
         timeout=30,
@@ -159,7 +155,7 @@ def test_valid_generic_operator_specializations_compile_strictly(
     c_path = tmp_path / f"{program.stem}.c"
     binary = tmp_path / program.stem
     c_path.write_text(emitted.stdout)
-    compiled = _run(
+    compiled = run_in_repo(
         [
             *CC,
             "-std=c11",

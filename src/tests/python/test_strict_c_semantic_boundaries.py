@@ -1,6 +1,5 @@
 """SemanticAnalyzer and IR boundaries required for valid strict-C output."""
 
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -12,7 +11,7 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
+from src.tests.python.strict_c_fixtures import compile_and_run
 
 
 def _analyze(source: str):
@@ -35,35 +34,6 @@ def _emit(source: str):
     pipeline = CompilationPipeline()
     module = pipeline.optimize(module, CompilerOptions())
     return module, pipeline.emit(module)
-
-
-def _compile_and_run(c_source: str, tmp_path: Path, compiler: str):
-    source_path = tmp_path / "program.c"
-    binary_path = tmp_path / "program"
-    source_path.write_text(c_source)
-    compiled = subprocess.run(
-        [
-            compiler,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            str(source_path),
-            "-o",
-            str(binary_path),
-            "-lm",
-            "-lpthread",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=C_COMPILE_TIMEOUT,
-    )
-    assert compiled.returncode == 0, compiled.stderr
-    ran = subprocess.run([str(binary_path)], capture_output=True, text=True, check=False, timeout=RUN_TIMEOUT)
-    assert ran.returncode == 0, ran.stderr
-    return ran
 
 
 def test_known_struct_rejects_unknown_field_but_preserves_c_opaque_structs():
@@ -169,7 +139,7 @@ def test_empty_fixed_array_initializer_is_normalized_to_strict_c11(
     """)
     declaration = next(line.strip() for line in generated.splitlines() if "int values[" in line)
     assert declaration.endswith("] = {0};")
-    _compile_and_run(generated, tmp_path, c_compiler)
+    compile_and_run(generated, tmp_path, c_compiler)
 
 
 def test_fixed_array_assignment_is_rejected():
@@ -284,7 +254,7 @@ def test_preserved_valid_boundaries_compile_as_strict_c11(tmp_path: Path, c_comp
         }
     """)
 
-    _compile_and_run(c_source, tmp_path, c_compiler)
+    compile_and_run(c_source, tmp_path, c_compiler)
 
 
 @requires_host_c_compiler
@@ -295,4 +265,4 @@ def test_anonymous_enum_compiles_as_strict_c11(tmp_path: Path, c_compiler: str):
         int main() { return B - 1; }
     """)
 
-    _compile_and_run(c_source, tmp_path, c_compiler)
+    compile_and_run(c_source, tmp_path, c_compiler)

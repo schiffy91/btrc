@@ -8,19 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    REPO,
-    _compile_reference_source,
-    _compile_source,
-)
+from src.tests.btrc.selfhost_snippet_harness import REPO, compile_reference_source, compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
 def _compile_pair(semantic_btrcc: Path, tmp_path: Path, source: str):
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_reference_source(tmp_path, source)
     return (("selfhost", selfhost, selfhost_c), ("reference", reference, reference_c))
 
 

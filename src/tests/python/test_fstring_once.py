@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def _snprintf_calls(c: str) -> list[str]:

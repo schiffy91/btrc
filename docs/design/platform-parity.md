@@ -120,25 +120,25 @@ with an owner, regression and current evidence status for every row.
 The parity inventory is [`platform-inventory.toml`](platform-inventory.toml):
 one record per operation and target slice, in the qualification ledger format
 (`tools/qualification/schema.py`, written compactly as one row per operation
-with a cell per slice). Its 323 operations are derived rather than chosen: the
-84 exports of the root and group stdlib manifests outside UI0's groups, the
+with a cell per slice). Its 324 operations are derived rather than chosen: the
+85 exports of the root and group stdlib manifests outside UI0's groups, the
 223 helpers of the runtime manifest and the 16 corpus topic directories.
 `src/tests/python/test_platform_inventory.py` recomputes that set from the
 manifests, exports and corpus and fails on drift, and the `operation` entry of
 `tools/qualification/denominators.toml` freezes it (release
-`p0-inventory-2026-10-02`, 323 ids × 6 slices = 1938 slots). Every row
+`p0-inventory-2026-10-02-native-worker`, 324 ids × 6 slices = 1944 slots). Every row
 carries a class, an implementation state, an owner (a milestone of this
 document), the tests that pin it, and its evidence status. No slice result has
 been ingested, so no row is `passed`.
 
 | Slice | Slots | Equivalent | Adapted | OS-restricted | Missing |
 | --- | --- | --- | --- | --- | --- |
-| `windows-x64` | 323 | 271 | 36 | 4 | 12 |
-| `windows-arm64` | 323 | 271 | 36 | 4 | 12 |
-| `ios-device` | 323 | 281 | 16 | 23 | 3 |
-| `ios-simulator` | 323 | 281 | 16 | 23 | 3 |
-| `android-arm64` | 323 | 294 | 15 | 11 | 3 |
-| `android-x86_64` | 323 | 294 | 15 | 11 | 3 |
+| `windows-x64` | 324 | 271 | 36 | 4 | 13 |
+| `windows-arm64` | 324 | 271 | 36 | 4 | 13 |
+| `ios-device` | 324 | 281 | 16 | 23 | 4 |
+| `ios-simulator` | 324 | 281 | 16 | 23 | 4 |
+| `android-arm64` | 324 | 294 | 15 | 11 | 4 |
+| `android-x86_64` | 324 | 294 | 15 | 11 | 4 |
 
 The `App`, `GUI`, `Tray` and `UI` groups are UI0's: their operations are
 referenced through the frozen family-cell, ui-operation and ui-case

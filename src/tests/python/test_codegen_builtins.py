@@ -2,7 +2,7 @@
 and int methods, property getters, Mutex<T> operations, typed thread join, and
 f-string interpolation with expressions."""
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_sizeof_expression_and_type():

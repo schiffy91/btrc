@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.tests.btrc.test_mutex_value_contract import (
-    _compile_pair,
-    _strict_matrix,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 
 FIXTURE = Path(__file__).with_name("fixtures") / "DeleteTakeClearRuntime.btrc"
 
@@ -18,7 +13,7 @@ def test_delete_takes_and_clears_before_throwing_destructor(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         FIXTURE.read_text(),
@@ -33,7 +28,7 @@ def test_delete_takes_and_clears_before_throwing_destructor(
         assert owner < destroy
         assert "__btrc_arc_slot_access_" in main[destroy : destroy + 300]
         assert "__btrc_arc_destroy(" not in generated
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_raw_pointer_delete_compiles_without_releasing_uninitialized_ir(
@@ -47,11 +42,11 @@ def test_raw_pointer_delete_compiles_without_releasing_uninitialized_ir(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "delete-null-raw-pointer",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)

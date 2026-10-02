@@ -20,6 +20,7 @@ from src.compiler.python.artifacts.cache import CompilerGenerationPublisher, Com
 from src.compiler.python.artifacts.publication import ArtifactPublisher, PublicationLock, PublishedArtifact
 from src.compiler.python.frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
+from src.tests.python.native_plan_fixtures import publish_native_generation
 from tools.native_plan import (
     NativeBuildReport,
     NativePlanBuilder,
@@ -65,61 +66,6 @@ def test_pending_generation_rejects_build_before_tools(tmp_path, participant):
     with pytest.raises(NativePlanError, match="publication requires recovery"):
         NativePlanBuilder(runner=never_run).build(plan_path=plan, generated_c=primary, output=tmp_path / "program")
     assert {path: path.read_bytes() for path in before} == before
-
-
-def _publish_native_generation(root, value, secondary_name="secondary", *, boundary="", ready=None, done=None):
-    root = Path(root)
-    state = root / "state"
-    state.mkdir(mode=0o700, exist_ok=True)
-    primary = root / "primary" / "main.c"
-    secondary = root / secondary_name / "part.c"
-    plan = root / "plan" / "plan.json"
-    payload = NativeLinkPlan.empty(PackageTarget.parse(None)).as_dict()
-    payload.update(schema=4)
-    payload["emitted-units"] = [str(secondary)]
-    outputs = []
-    for destination, role, content in (
-        (primary, "primary", f"int answer(void); int main(void) {{ return answer() == {value} ? 0 : 1; }}\n"),
-        (secondary, "secondary", f"int answer(void) {{ return {value}; }}\n"),
-        (plan, "link-plan", json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"),
-    ):
-        destination.parent.mkdir(exist_ok=True)
-        staged = destination.with_name(f"candidate-{value}")
-        staged.write_text(content)
-        outputs.append(CompilerOutput(staged, destination, role))
-    publisher = CompilerGenerationPublisher(state)
-    replace = os.replace
-    lock = PublicationLock._lock_descriptor
-
-    def replacing(source, destination):
-        replace(source, destination)
-        destination = Path(destination)
-        if (
-            (boundary == "primary" and destination == primary)
-            or (boundary == "secondary" and destination == secondary)
-            or (boundary == "plan" and destination == plan)
-            or (
-                boundary == "commit"
-                and destination.name.endswith(".publish.journal")
-                and json.loads(destination.read_text())["state"] == "committed"
-            )
-        ):
-            os._exit(91)
-
-    def locking(owner):
-        if ready is not None and owner._name is None:
-            ready.set()
-        return lock(owner)
-
-    os.replace = replacing
-    PublicationLock._lock_descriptor = locking
-    try:
-        publisher.publish(outputs)
-    finally:
-        os.replace = replace
-        PublicationLock._lock_descriptor = lock
-    if done is not None:
-        done.set()
 
 
 def test_receipt_requests_are_chunked_within_the_protocol_bound():
@@ -180,7 +126,7 @@ def test_unchanged_generation_outputs_keep_their_files(tmp_path):
     Native preprocessing receipts are bound to a unit's inode and mtime, so a
     rewrite of an unchanged unit would force it to be preprocessed again.
     """
-    _publish_native_generation(tmp_path, 41)
+    publish_native_generation(tmp_path, 41)
     secondary, plan, primary = tmp_path / "secondary/part.c", tmp_path / "plan/plan.json", tmp_path / "primary/main.c"
     before = {path: path.stat() for path in (primary, secondary, plan)}
     state = tmp_path / "state"
@@ -210,9 +156,9 @@ def test_unchanged_generation_outputs_keep_their_files(tmp_path):
 def test_crashed_generation_requires_owner_recovery_before_native_build(tmp_path, boundary):
     # The link plan is identical across both generations and is kept in place,
     # so the interrupted replacement is a unit whose bytes differ.
-    _publish_native_generation(tmp_path, 41)
+    publish_native_generation(tmp_path, 41)
     child = multiprocessing.get_context("spawn").Process(
-        target=_publish_native_generation, args=(tmp_path, 42), kwargs={"boundary": boundary}
+        target=publish_native_generation, args=(tmp_path, 42), kwargs={"boundary": boundary}
     )
     child.start()
     child.join(20)
@@ -237,11 +183,11 @@ def test_crashed_generation_requires_owner_recovery_before_native_build(tmp_path
 
 @pytest.mark.parametrize("cached", [False, True])
 def test_native_build_holds_generation_through_compilation_and_link(tmp_path, cached):
-    _publish_native_generation(tmp_path, 41)
+    publish_native_generation(tmp_path, 41)
     context = multiprocessing.get_context("spawn")
     ready, done = context.Event(), context.Event()
     writer = context.Process(
-        target=_publish_native_generation, args=(tmp_path, 42), kwargs={"ready": ready, "done": done}
+        target=publish_native_generation, args=(tmp_path, 42), kwargs={"ready": ready, "done": done}
     )
     primary, plan = tmp_path / "primary/main.c", tmp_path / "plan/plan.json"
     output = tmp_path / "program"
@@ -284,7 +230,7 @@ def test_native_build_holds_generation_through_compilation_and_link(tmp_path, ca
 
 
 def test_native_reader_rediscovers_changed_secondary_directories(tmp_path, monkeypatch):
-    _publish_native_generation(tmp_path, 41)
+    publish_native_generation(tmp_path, 41)
     read = ArtifactPublisher.read_directories
     attempts = []
 
@@ -294,7 +240,7 @@ def test_native_reader_rediscovers_changed_secondary_directories(tmp_path, monke
         with read(owner, directories):
             yield
         if len(attempts) == 1:
-            _publish_native_generation(tmp_path, 42, "moved")
+            publish_native_generation(tmp_path, 42, "moved")
 
     monkeypatch.setattr(ArtifactPublisher, "read_directories", changed_between_locks)
     output = tmp_path / "program"
@@ -495,7 +441,7 @@ def _publish_secondary(destination, ready, done):
 
 @pytest.mark.parametrize("fail_build", [False, True])
 def test_secondary_only_publisher_waits_for_reader_and_failed_build_releases_it(tmp_path, fail_build):
-    _publish_native_generation(tmp_path, 41)
+    publish_native_generation(tmp_path, 41)
     context = multiprocessing.get_context("spawn")
     ready, done = context.Event(), context.Event()
     writer = context.Process(target=_publish_secondary, args=(tmp_path / "secondary/part.c", ready, done))

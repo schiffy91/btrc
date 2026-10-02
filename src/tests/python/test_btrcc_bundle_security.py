@@ -21,7 +21,7 @@ from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder, Selfho
 ARCHIVE_CODEC = ArchiveCodec()
 write_tar_gz = ARCHIVE_CODEC.write_tar_gz
 write_zip = ARCHIVE_CODEC.write_zip
-from src.tests.python.test_btrcc_bundle import _fixture, _manifest
+from src.tests.python.btrcc_binary_fixtures import bundle_fixture, bundle_manifest
 
 
 class _MutatingReader:
@@ -360,7 +360,7 @@ def test_archive_is_created_from_private_staging(
     monkeypatch: pytest.MonkeyPatch,
     target: str,
 ) -> None:
-    source_root, binary = _fixture(tmp_path / "source", target)
+    source_root, binary = bundle_fixture(tmp_path / "source", target)
     output = tmp_path / "dist"
     codec = ArchiveCodec()
     original = codec.write_zip if target.startswith("windows-") else codec.write_tar_gz
@@ -384,7 +384,7 @@ def test_archive_is_created_from_private_staging(
     )
 
     assert observed
-    manifest = _manifest(result.bundle)
+    manifest = bundle_manifest(result.bundle)
     expected = {entry["path"]: entry["sha256"] for entry in manifest["files"]}
     prefix = f"btrcc-{target}/"
     if target.startswith("windows-"):

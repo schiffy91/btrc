@@ -7,14 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURE = Path(__file__).with_name("fixtures") / "OpaqueCOperandContextRuntime.btrc"
 LEADING_FIXTURE = Path(__file__).with_name("fixtures") / "OpaqueCOperandLeadingInvalid.btrc"
@@ -46,7 +41,7 @@ def test_opaque_c_operands_preserve_type_and_single_evaluation(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         FIXTURE.read_text(),
@@ -69,7 +64,7 @@ def test_opaque_c_operands_preserve_type_and_single_evaluation(
         # longer untyped: materializing it as the declared FILE* parameter type
         # is the same conversion the C call performs and preserves ordering.
         _assert_contextually_typed_once(generated, "OPAQUE_STREAM", "FILE*")
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_native_field_macro_boundary_requires_explicit_type_in_both_frontends(
@@ -84,8 +79,8 @@ def test_native_field_macro_boundary_requires_explicit_type_in_both_frontends(
             return 0;
         }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     for result in (selfhost, reference):
         assert result.returncode != 0
         assert "opaque C operand at" in result.stderr
@@ -107,7 +102,7 @@ def test_typed_native_field_macro_boundary_runs_strictly_in_both_frontends(
             return attributes.c_lflag == (tcflag_t)0 ? 0 : 1;
         }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
@@ -118,7 +113,7 @@ def test_typed_native_field_macro_boundary_runs_strictly_in_both_frontends(
             r"\btcflag_t\s+__btrc_(?:call_)?operand_\d+\s*;",
             generated,
         )
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -136,8 +131,8 @@ def test_leading_opaque_c_operand_requires_an_explicit_type(
     context: str,
 ) -> None:
     source = fixture.read_text()
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     for result in (selfhost, reference):
         assert result.returncode != 0
         assert "opaque C operand at" in result.stderr

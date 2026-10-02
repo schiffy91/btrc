@@ -840,12 +840,12 @@ def test_selfhost_recovers_reference_generation_then_retires_previous_layout(
     import multiprocessing
 
     from src.compiler.python.artifacts.cache import CompilerGenerationPublisher
-    from src.tests.python.test_native_plan_builder import _publish_native_generation
+    from src.tests.python.native_plan_fixtures import publish_native_generation
 
     monkeypatch.setenv("BTRC_STATE_DIR", str(tmp_path / "state"))
-    _publish_native_generation(tmp_path, 41)
+    publish_native_generation(tmp_path, 41)
     process = multiprocessing.get_context("spawn").Process(
-        target=_publish_native_generation,
+        target=publish_native_generation,
         args=(tmp_path, 42, "changed-secondary"),
         kwargs={"boundary": boundary},
     )
@@ -877,10 +877,10 @@ def test_selfhost_recovers_reference_generation_then_retires_previous_layout(
 def test_selfhost_retirement_preserves_modified_files_and_current_inputs(
     immutable_btrcc, tmp_path, monkeypatch, conflict
 ):
-    from src.tests.python.test_native_plan_builder import _publish_native_generation
+    from src.tests.python.native_plan_fixtures import publish_native_generation
 
     monkeypatch.setenv("BTRC_STATE_DIR", str(tmp_path / "state"))
-    _publish_native_generation(tmp_path, 41)
+    publish_native_generation(tmp_path, 41)
     primary = tmp_path / "primary/main.c"
     retired = tmp_path / "secondary/part.c"
     source = tmp_path / "Main.btrc"

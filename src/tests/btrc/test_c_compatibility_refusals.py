@@ -14,11 +14,9 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.diagnostic_harness import diagnostic_identity
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
-from src.tests.btrc.test_realtime_primitives_parity import _diagnostic_identity
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 RESERVED = "'{}' is a reserved word and cannot be used as a name"
 ATOMIC = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage"
@@ -835,8 +833,8 @@ def test_refusal_is_identical_in_both_compilers(
     selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
 
     assert selfhost.returncode != 0 and reference.returncode != 0
-    assert _diagnostic_identity(selfhost.stderr) == expected
-    assert _diagnostic_identity(reference.stderr) == expected
+    assert diagnostic_identity(selfhost.stderr) == expected
+    assert diagnostic_identity(reference.stderr) == expected
 
 
 ACCEPTED = [
@@ -926,8 +924,8 @@ def test_accepted_neighbour_runs_strictly_in_both_compilers(
     source: str,
 ) -> None:
     name = request.node.callspec.id
-    for artifact in _compile_pair(semantic_btrcc, tmp_path, source, name):
-        _strict_matrix(artifact, tmp_path)
+    for artifact in compile_snippet_pair(semantic_btrcc, tmp_path, source, name):
+        strict_c11_matrix(artifact, tmp_path)
 
 
 # Only expressions concatenate: an import path stays one literal, so a second
@@ -986,8 +984,8 @@ def test_divergent_refusal_is_pinned_per_compiler(
     selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
 
     assert selfhost.returncode != 0 and reference.returncode != 0
-    assert _diagnostic_identity(reference.stderr) == reference_expected
-    assert _diagnostic_identity(selfhost.stderr) == selfhost_expected
+    assert diagnostic_identity(reference.stderr) == reference_expected
+    assert diagnostic_identity(selfhost.stderr) == selfhost_expected
 
 
 def test_managed_vla_elements_are_borrowed_storage(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -1001,4 +999,4 @@ def test_managed_vla_elements_are_borrowed_storage(semantic_btrcc: Path, tmp_pat
     assert selfhost.returncode != 0 and reference.returncode != 0
     # The reference raises this during lowering, where it has no source position.
     assert reference.stderr.startswith(f"error: {message}\n")
-    assert _diagnostic_identity(selfhost.stderr) == (message, 1, 61)
+    assert diagnostic_identity(selfhost.stderr) == (message, 1, 61)

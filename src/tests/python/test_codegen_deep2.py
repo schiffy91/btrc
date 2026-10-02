@@ -2,7 +2,7 @@
 collection of class instances and calling through a field, plus GPU kernels with
 unary operators, function calls, and integer locals with expression-init loops."""
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_generic_method_iterates_collection_of_class_instances():

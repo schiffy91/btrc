@@ -245,7 +245,7 @@ command runs under a fresh Python interpreter that reads its `wait4` rusage
 The interpreter must be fresh: Linux carries the replaced image's high-water
 RSS across `exec`, so a command forked from a large parent reports at least
 the parent's resident set. That floor was live in two places. The bench
-suite's `measure_peak` reported 63 MB for a 16 MiB child under pytest, and
+suite's `Peak.measure` reported 63 MB for a 16 MiB child under pytest, and
 CI's recorded program peaks were 52,973,568 or 71,479,296 bytes for
 unrelated programs, the size of the suite's own process. The corpus scenario
 forked each transpile from the harness and had the same floor. Both now go

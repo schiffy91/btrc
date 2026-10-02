@@ -8,13 +8,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 
 def _source(*, generic: bool) -> str:
@@ -179,13 +173,13 @@ def test_borrowed_projection_owner_outlives_ordinary_call(
     reference_dir = tmp_path / "reference"
     self_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, self_dir, source)
-    reference, reference_c = _compile_reference_source(reference_dir, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, self_dir, source)
+    reference, reference_c = compile_reference_source(reference_dir, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     for index, generated in enumerate((selfhost_c, reference_c)):
-        _strict_build_and_run(
+        strict_build_and_run(
             generated,
             tmp_path / f"borrowed-projection-call-{index}",
         )
@@ -202,8 +196,8 @@ def test_borrowed_projection_backing_survives_later_call_operand(
     reference_dir = tmp_path / "reference"
     self_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, self_dir, source)
-    reference, reference_c = _compile_reference_source(reference_dir, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, self_dir, source)
+    reference, reference_c = compile_reference_source(reference_dir, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     toolchain = require_sanitizers(tmp_path)
@@ -226,8 +220,8 @@ def test_raw_projection_carriers_pin_backing_across_later_operands(
     reference_dir = tmp_path / "reference"
     self_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, self_dir, source)
-    reference, reference_c = _compile_reference_source(reference_dir, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, self_dir, source)
+    reference, reference_c = compile_reference_source(reference_dir, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     toolchain = require_sanitizers(tmp_path)
@@ -254,8 +248,8 @@ def test_readonly_hosted_projection_does_not_overpin(
     reference_dir = tmp_path / "reference"
     self_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, self_dir, source)
-    reference, reference_c = _compile_reference_source(reference_dir, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, self_dir, source)
+    reference, reference_c = compile_reference_source(reference_dir, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     for index, generated in enumerate((selfhost_c, reference_c)):
@@ -266,7 +260,7 @@ def test_readonly_hosted_projection_does_not_overpin(
         assert 'strncmp((((char*)text) + offset), "x", 1)' in body
         assert "__btrc_kept_operand" not in body
         assert "__btrc_string_release" not in body
-        _strict_build_and_run(
+        strict_build_and_run(
             generated,
             tmp_path / f"readonly-hosted-projection-{index}",
         )
@@ -283,8 +277,8 @@ def test_conditional_raw_projection_requires_branch_local_storage(
     reference_dir = tmp_path / "reference"
     self_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, _ = _compile_source(semantic_btrcc, self_dir, source)
-    reference, _ = _compile_reference_source(reference_dir, source)
+    selfhost, _ = compile_source(semantic_btrcc, self_dir, source)
+    reference, _ = compile_reference_source(reference_dir, source)
     message = "Conditional raw projection call arguments require branch-local backing storage"
     assert selfhost.returncode != 0
     assert reference.returncode != 0

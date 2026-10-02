@@ -2,9 +2,7 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 def test_method_lookup_ignores_same_named_field(
@@ -46,6 +44,6 @@ def test_method_lookup_ignores_same_named_field(
             return 0;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "method-field-collision")
+    strict_build_and_run(generated, tmp_path / "method-field-collision")

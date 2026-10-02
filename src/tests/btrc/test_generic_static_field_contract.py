@@ -2,15 +2,8 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 def test_generic_method_lowers_scalar_and_managed_static_fields(
@@ -49,8 +42,8 @@ def test_generic_method_lowers_scalar_and_managed_static_fields(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     emitted = selfhost_c.read_text()
@@ -61,8 +54,8 @@ def test_generic_method_lowers_scalar_and_managed_static_fields(
     )
     assert "__btrc_arc_retain(" in borrowed_store
     assert "__btrc_arc_replace_edge" not in emitted
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-static-fields")
-    _strict_build_and_run(reference_c, tmp_path / "reference-static-fields")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-static-fields")
+    strict_build_and_run(reference_c, tmp_path / "reference-static-fields")
 
 
 def test_static_managed_strong_slot_preserves_exact_ownership(
@@ -113,8 +106,8 @@ def test_static_managed_strong_slot_preserves_exact_ownership(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     emitted = selfhost_c.read_text()
@@ -135,5 +128,5 @@ def test_static_managed_strong_slot_preserves_exact_ownership(
     assert emitted.count("makeItem(2)") == 1
     assert emitted.count("makeItem(3)") == 1
     assert "__btrc_arc_replace_edge" not in emitted
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-static-managed-strong-slot")
-    _strict_build_and_run(reference_c, tmp_path / "reference-static-managed-strong-slot")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-static-managed-strong-slot")
+    strict_build_and_run(reference_c, tmp_path / "reference-static-managed-strong-slot")

@@ -8,8 +8,6 @@ from pathlib import Path
 
 import pytest
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 REPO = Path(__file__).resolve().parents[3]
 
 

@@ -45,12 +45,12 @@ class FeNativeHeaderProcess {
 		if (!descriptor.get("path").asString().equals(path)) { return missing; }
 		var opened = RegularFileSnapshot.open(path, (long long)maximumBytes);
 		if (!opened.ok()) { return missing; }
-		var file = opened.snapshot();
+		var file = opened.value();
 		if (file.size() != (long long)size) { file.close(); return missing; }
 		var read = file.readExactAt(0LL, size);
 		bool closed = file.close().ok();
 		if (!read.ok() || !closed) { return missing; }
-		var bytes = read.bytes();
+		var bytes = read.value();
 		if (!SHA256.digestBytes(bytes).equals(hash) || !bytes.isNulFreeUtf8()) { return missing; }
 		return new Result<string, string>(true, bytes.toStringLossy(), "");
 	}

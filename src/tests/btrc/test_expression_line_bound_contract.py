@@ -7,18 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.allocation_tracking_harness import compiler_environment
+from src.tests.btrc.dual_frontend_harness import REPO
 from src.tests.btrc.production_readiness_harness import (
     compile_fixture_pair,
     run_strict_pair,
 )
 from src.tests.btrc.string_coercion_harness import compile_pair
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _compiler_environment,
-)
-from src.tests.btrc.test_mutex_value_contract import REPO
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURE = Path(__file__).parents[1] / "classes" / "InstanceMethodChain.btrc"
 MAX_LOGICAL_LINE = 1024
@@ -99,7 +95,7 @@ def test_assert_argument_runs_once_under_ndebug_in_generic_methods(
         assert "bool __btrc_assert_condition_" in source
         for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"{frontend}-{Path(compiler).name}-ndebug"
-            environment = _compiler_environment(compiler)
+            environment = compiler_environment(compiler)
             build = subprocess.run(
                 [
                     compiler,

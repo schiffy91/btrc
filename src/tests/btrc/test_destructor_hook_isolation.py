@@ -7,12 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import (
-    _compile_pair,
-    _strict_matrix,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 
 FIXTURE = Path(__file__).with_name("fixtures") / "DestructorHookIsolationRuntime.btrc"
 FUNCTION_START = re.compile(r"(?m)^(?:static\s+)?void\s+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*\{")
@@ -80,7 +75,7 @@ def compiled_lifecycle_contract(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> tuple[Path, tuple[tuple[str, Path], ...]]:
     output = tmp_path_factory.mktemp("destructor-hook-isolation")
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         output,
         FIXTURE.read_text(),
@@ -104,4 +99,4 @@ def test_destructor_hook_return_preserves_explicit_and_scope_cleanup(
 ) -> None:
     output, compiled = compiled_lifecycle_contract
     for artifact in compiled:
-        _strict_matrix(artifact, output)
+        strict_c11_matrix(artifact, output)

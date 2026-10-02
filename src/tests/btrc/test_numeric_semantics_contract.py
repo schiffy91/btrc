@@ -7,12 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.types import NumericLiteralSemantics
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 @pytest.mark.parametrize(
@@ -25,7 +20,7 @@ def test_abi_dependent_integer_typedef_mixes_require_explicit_cast(
     typedef_name: str,
 ) -> None:
     source = f"int main() {{ {typedef_name} value = 1; return value + 1 == 2 ? 0 : 1; }}"
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert "mixes ABI-dependent integer type" in result.stderr
     assert "cast explicitly" in result.stderr
@@ -44,9 +39,9 @@ def test_same_abi_typedef_and_explicit_cast_compile_strictly(semantic_btrcc: Pat
                 && floating == 22.0 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "abi-numeric")
+    strict_build_and_run(generated, tmp_path / "abi-numeric")
 
 
 def test_fixed_and_least_width_typedef_mixes_are_deterministic(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -58,9 +53,9 @@ def test_fixed_and_least_width_typedef_mixes_are_deterministic(semantic_btrcc: P
             return result == 42 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "portable-numeric")
+    strict_build_and_run(generated, tmp_path / "portable-numeric")
 
 
 @pytest.mark.parametrize(
@@ -71,7 +66,7 @@ def test_fixed_and_least_width_typedef_mixes_are_deterministic(semantic_btrcc: P
     ],
 )
 def test_abi_dependent_compound_and_ternary_mixes_are_rejected(semantic_btrcc: Path, tmp_path: Path, body: str) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, f"int main() {{ {body} }}")
+    result, _ = compile_source(semantic_btrcc, tmp_path, f"int main() {{ {body} }}")
     assert result.returncode == 1
     assert "mixes ABI-dependent integer type" in result.stderr
 
@@ -84,20 +79,20 @@ def test_float_literal_suffix_controls_inferred_c_type(semantic_btrcc: Path, tmp
             return wide == narrow ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert "double wide = 1.0;" in emitted
     assert "float narrow = 1.0f;" in emitted
-    _strict_build_and_run(generated, tmp_path / "float-literals")
+    strict_build_and_run(generated, tmp_path / "float-literals")
 
 
 def test_sizeof_infers_its_strict_c_size_type(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = "int main() { var amount = sizeof(int); return amount == sizeof(int) ? 0 : 1; }"
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     assert "size_t amount = sizeof(int);" in generated.read_text()
-    _strict_build_and_run(generated, tmp_path / "sizeof-type")
+    strict_build_and_run(generated, tmp_path / "sizeof-type")
 
 
 def test_integer_literal_inference_uses_c_candidate_order(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -115,19 +110,19 @@ def test_integer_literal_inference_uses_c_candidate_order(semantic_btrcc: Path, 
                 && explicitLongLong == 1 && explicitUnsigned == 1 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert f"{decimal_type} decimal = 2147483648;" in emitted
     assert "unsigned int hexadecimal = 0xffffffff;" in emitted
     assert "long long explicitLongLong = 1LL;" in emitted
     assert "unsigned int explicitUnsigned = 1U;" in emitted
-    _strict_build_and_run(generated, tmp_path / "integer-candidates")
+    strict_build_and_run(generated, tmp_path / "integer-candidates")
 
 
 def test_integer_literal_outside_all_c_candidates_is_rejected(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = "int main() { var value = 18446744073709551616ULL; return 0; }"
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert result.stdout == ""
     assert "Invalid integer literal '18446744073709551616ULL'" in result.stderr
@@ -148,7 +143,7 @@ def test_nonrepresentable_float_literal_is_rejected_before_emission(
     literal: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(
+    result, _ = compile_source(
         semantic_btrcc,
         tmp_path,
         f"int main() {{ var value = {literal}; return 0; }}",
@@ -174,6 +169,6 @@ def test_integral_ice_casts_and_greedy_hex_character_values(semantic_btrcc: Path
                 && HexCharacter == 65 && AfterHexCharacter == 66 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "numeric-ice-casts")
+    strict_build_and_run(generated, tmp_path / "numeric-ice-casts")

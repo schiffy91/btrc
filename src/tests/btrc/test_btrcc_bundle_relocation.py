@@ -13,8 +13,6 @@ from src.compiler.python.artifacts.archive import TargetCatalog
 from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
 from src.tests.c_toolchains import configured_c_compiler
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 REPO = Path(__file__).resolve().parents[3]
 CC = configured_c_compiler()
 

@@ -8,9 +8,6 @@ from src.tests.btrc.production_readiness_harness import (
 )
 from src.tests.btrc.string_coercion_harness import compile_pair
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
-
 STORED_POINTER_SOURCE = r"""
 #include <stdlib.h>
 

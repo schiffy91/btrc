@@ -166,6 +166,13 @@ CALLBACKREGISTRATION_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("close", "bool", "method", (), "close"),
 )
 
+# Generated from src/stdlib/filesystemoutcome.btrc
+FILESYSTEMOUTCOME_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("ok", "bool", "method", (), "ok"),
+    BuiltinMemberSpec("value", "T", "method", (), "value"),
+    BuiltinMemberSpec("error", "FileSystemError", "method", (), "error"),
+)
+
 # Generated from src/stdlib/listnode.btrc
 LISTNODE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("value", "T", "field", doc="value"),
@@ -355,6 +362,7 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("CallbackContext", CALLBACKCONTEXT_MEMBERS),
     ("CallbackRequest", CALLBACKREQUEST_MEMBERS),
     ("CallbackRegistration", CALLBACKREGISTRATION_MEMBERS),
+    ("FileSystemOutcome", FILESYSTEMOUTCOME_MEMBERS),
     ("ListNode", LISTNODE_MEMBERS),
     ("List", LIST_MEMBERS),
     ("Map", MAP_MEMBERS),
@@ -442,8 +450,8 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("waitForRemoval", "bool", "method", (("string", "controlFile"), ("DaemonControlRecord", "original"), ("int", "timeoutMilliseconds"),), "waitForRemoval"),
     )),
     ("ApplicationDirectories", (
-        BuiltinMemberSpec("resolve", "ApplicationDirectoryRootsOutcome", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
-        BuiltinMemberSpec("resolveStandard", "ApplicationDirectoryRootsOutcome", "method", (), "resolveStandard"),
+        BuiltinMemberSpec("resolve", "FileSystemOutcome<ApplicationDirectoryRoots>", "method", (("ApplicationDirectoryLimits", "limits"),), "resolve"),
+        BuiltinMemberSpec("resolveStandard", "FileSystemOutcome<ApplicationDirectoryRoots>", "method", (), "resolveStandard"),
     )),
     ("PathTools", (
         BuiltinMemberSpec("isSeparatorFor", "bool", "method", (("char", "value"), ("bool", "windows"),), "isSeparatorFor"),
@@ -460,13 +468,13 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("FileSystem", (
         BuiltinMemberSpec("revision", "FileRevision", "method", (("FileSnapshot", "snapshot"),), "revision"),
-        BuiltinMemberSpec("openFileTreeSnapshot", "FileTreeSnapshotOpenOutcome", "method", (("string", "path"), ("FileTreeLimits", "limits"),), "openFileTreeSnapshot"),
-        BuiltinMemberSpec("inspectExact", "FileSnapshotOutcome", "method", (("string", "path"),), "inspectExact"),
-        BuiltinMemberSpec("openFileExact", "FileOpenOutcome", "method", (("string", "path"),), "openFileExact"),
-        BuiltinMemberSpec("openRegularFileSnapshot", "RegularFileSnapshotOpenOutcome", "method", (("string", "path"), ("long long", "maximumBytes"),), "openRegularFileSnapshot"),
-        BuiltinMemberSpec("openDirectoryExact", "DirectoryOpenOutcome", "method", (("string", "path"),), "openDirectoryExact"),
-        BuiltinMemberSpec("createTemporaryDirectory", "TemporaryDirectoryOpenOutcome", "method", (("string", "prefix"),), "createTemporaryDirectory"),
-        BuiltinMemberSpec("openPrivateDirectory", "PrivateDirectoryOpenOutcome", "method", (("string", "absolutePath"),), "openPrivateDirectory"),
+        BuiltinMemberSpec("openFileTreeSnapshot", "FileSystemOutcome<FileTreeSnapshot>", "method", (("string", "path"), ("FileTreeLimits", "limits"),), "openFileTreeSnapshot"),
+        BuiltinMemberSpec("inspectExact", "FileSystemOutcome<FileSnapshot>", "method", (("string", "path"),), "inspectExact"),
+        BuiltinMemberSpec("openFileExact", "FileSystemOutcome<FileHandle>", "method", (("string", "path"),), "openFileExact"),
+        BuiltinMemberSpec("openRegularFileSnapshot", "FileSystemOutcome<RegularFileSnapshot>", "method", (("string", "path"), ("long long", "maximumBytes"),), "openRegularFileSnapshot"),
+        BuiltinMemberSpec("openDirectoryExact", "FileSystemOutcome<DirectoryHandle>", "method", (("string", "path"),), "openDirectoryExact"),
+        BuiltinMemberSpec("createTemporaryDirectory", "FileSystemOutcome<TemporaryDirectory>", "method", (("string", "prefix"),), "createTemporaryDirectory"),
+        BuiltinMemberSpec("openPrivateDirectory", "FileSystemOutcome<PrivateDirectory>", "method", (("string", "absolutePath"),), "openPrivateDirectory"),
         BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
         BuiltinMemberSpec("exists", "bool", "method", (("string", "path"),), "exists"),
         BuiltinMemberSpec("isDir", "bool", "method", (("string", "path"),), "isDir"),
@@ -495,7 +503,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
     )),
     ("ExactFileSnapshot", (
-        BuiltinMemberSpec("validate", "FileSystemError?", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
+        BuiltinMemberSpec("validate", "FileSystemError?", "method", (("FileSnapshot", "expected"), ("FileSystemOutcome<FileSnapshot>", "held"), ("string", "path"), ("string", "operation"),), "validate"),
     )),
     ("DirectoryTreeRemoval", (
         BuiltinMemberSpec("removeAt", "int", "method", (("int", "parentDescriptor"), ("string", "name"), ("FileSnapshot?", "expected"),), "removeAt"),
@@ -548,46 +556,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("SelectTypography", (
         BuiltinMemberSpec("maximumSize", "double", "method", (), "maximumSize"),
-    )),
-    ("LinuxComposite", (
-        BuiltinMemberSpec("projection", "ILinuxView", "method", (("IView", "view"),), "projection"),
-        BuiltinMemberSpec("paintChildren", "void", "method", (("LinuxViewNode", "node"), ("LinuxPainter", "painter"), ("double", "x"), ("double", "y"),), "paintChildren"),
-    )),
-    ("LinuxTheme", (
-        BuiltinMemberSpec("darkTheme", "LinuxTheme", "method", (), "darkTheme"),
-        BuiltinMemberSpec("lightTheme", "LinuxTheme", "method", (), "lightTheme"),
-    )),
-    ("LinuxMetrics", (
-        BuiltinMemberSpec("controlHeight", "double", "method", (("double", "fontSize"),), "controlHeight"),
-        BuiltinMemberSpec("horizontalPadding", "double", "method", (), "horizontalPadding"),
-        BuiltinMemberSpec("cornerRadius", "double", "method", (), "cornerRadius"),
-        BuiltinMemberSpec("defaultFontSize", "double", "method", (), "defaultFontSize"),
-        BuiltinMemberSpec("sliderHeight", "double", "method", (), "sliderHeight"),
-        BuiltinMemberSpec("sliderWidth", "double", "method", (), "sliderWidth"),
-        BuiltinMemberSpec("levelHeight", "double", "method", (), "levelHeight"),
-        BuiltinMemberSpec("levelWidth", "double", "method", (), "levelWidth"),
-        BuiltinMemberSpec("spinnerSize", "double", "method", (), "spinnerSize"),
-    )),
-    ("LinuxTextLines", (
-        BuiltinMemberSpec("wrap", "Vector<string>", "method", (("LinuxFonts", "fonts"), ("string", "text"), ("double", "size"), ("double", "scale"), ("bool", "bold"), ("double", "width"),), "wrap"),
-    )),
-    ("LinuxSymbols", (
-        BuiltinMemberSpec("symbol", "int", "method", (("string", "name"),), "symbol"),
-        BuiltinMemberSpec("paint", "void", "method", (("LinuxPainter", "painter"), ("int", "symbol"), ("double", "x"), ("double", "y"), ("double", "size"), ("RGBA", "color"),), "paint"),
-        BuiltinMemberSpec("arc", "void", "method", (("LinuxPainter", "painter"), ("double", "cx"), ("double", "cy"), ("double", "radius"), ("double", "from"), ("double", "to"), ("double", "stroke"), ("RGBA", "color"),), "arc"),
-    )),
-    ("LinuxSystemText", (
-        BuiltinMemberSpec("rasterize", "void", "method", (("LinuxFonts", "fonts"), ("TextRasterization", "request"),), "rasterize"),
-        BuiltinMemberSpec("raster", "Image", "method", (("LinuxFonts", "fonts"), ("TextRun", "run"),), "raster"),
-    )),
-    ("LinuxClock", (
-        BuiltinMemberSpec("nanoseconds", "unsigned long long", "method", (("double", "seconds"),), "nanoseconds"),
-        BuiltinMemberSpec("after", "unsigned long long", "method", (("double", "seconds"),), "after"),
-    )),
-    ("LinuxKeys", (
-        BuiltinMemberSpec("keyCode", "AppKeyCode", "method", (("unsigned int", "key"), ("unsigned int", "scancode"),), "keyCode"),
-        BuiltinMemberSpec("modifiers", "AppKeyModifiers", "method", (("unsigned int", "mod"),), "modifiers"),
-        BuiltinMemberSpec("button", "AppPointerButton", "method", (("unsigned int", "button"),), "button"),
     )),
     ("AppKitText", (
         BuiltinMemberSpec("nativeValue", "NSString", "method", (("string", "text"),), "nativeValue"),
@@ -880,17 +848,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("rfind", "int", "method", (("string", "s"), ("string", "sub"),), "rfind"),
         BuiltinMemberSpec("compare", "int", "method", (("string", "left"), ("string", "right"),), "compare"),
         BuiltinMemberSpec("lessThan", "bool", "method", (("string", "left"), ("string", "right"),), "lessThan"),
-        BuiltinMemberSpec("capitalize", "string", "method", (("string", "s"),), "capitalize"),
-        BuiltinMemberSpec("title", "string", "method", (("string", "s"),), "title"),
-        BuiltinMemberSpec("swapCase", "string", "method", (("string", "s"),), "swapCase"),
-        BuiltinMemberSpec("padLeft", "string", "method", (("string", "s"), ("int", "width"), ("char", "fill"),), "padLeft"),
-        BuiltinMemberSpec("padRight", "string", "method", (("string", "s"), ("int", "width"), ("char", "fill"),), "padRight"),
-        BuiltinMemberSpec("lstrip", "string", "method", (("string", "s"),), "lstrip"),
-        BuiltinMemberSpec("rstrip", "string", "method", (("string", "s"),), "rstrip"),
-        BuiltinMemberSpec("removePrefix", "string", "method", (("string", "s"), ("string", "prefix"),), "removePrefix"),
-        BuiltinMemberSpec("isDigitStr", "bool", "method", (("string", "s"),), "isDigitStr"),
-        BuiltinMemberSpec("isAlphaStr", "bool", "method", (("string", "s"),), "isAlphaStr"),
-        BuiltinMemberSpec("isBlank", "bool", "method", (("string", "s"),), "isBlank"),
         BuiltinMemberSpec("fromInt", "string", "method", (("int", "n"),), "fromInt"),
         BuiltinMemberSpec("fromFloat", "string", "method", (("float", "f"),), "fromFloat"),
     )),

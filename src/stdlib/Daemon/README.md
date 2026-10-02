@@ -24,8 +24,11 @@ record is `<name>.control` and its log `<name>.log` in `~/.btrc/daemons`, or in
 `$TMPDIR/btrc-daemons-<euid>` when `HOME` is not absolute. `control(path)`,
 `log(path)`, `cwd(path)` and `restart(enabled)` override those fields and
 return the spec. The fields stay declarative, so a platform service manager can
-consume a `DaemonSpec` directly; `renderStartCommand()` renders the local
-supervisor the controller launches.
+consume a `DaemonSpec` directly. `renderStartCommand(controlFile, logFile)`
+renders the local supervisor the controller launches for the canonical control
+and log paths the caller already prepared; it never rewrites the spec, and a
+path that is not canonical, a control record that already exists, or an unsafe
+log renders `exit 125` instead.
 
 ## Supervising it
 

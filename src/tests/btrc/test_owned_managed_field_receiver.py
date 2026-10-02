@@ -2,10 +2,8 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_ownership_semantics_contract import _compile_reference_source
-from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 def test_owned_managed_field_receiver_is_released_once(
@@ -45,9 +43,9 @@ def test_owned_managed_field_receiver_is_released_once(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-owned-managed-field")
-    _strict_build_and_run(reference_source, tmp_path / "reference-owned-managed-field")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-owned-managed-field")
+    strict_build_and_run(reference_source, tmp_path / "reference-owned-managed-field")

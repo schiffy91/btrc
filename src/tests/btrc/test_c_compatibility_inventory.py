@@ -45,14 +45,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import _compiler_environment
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
+from src.tests.btrc.allocation_tracking_harness import compiler_environment
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS as COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 TESTS = REPO / "src/tests"
@@ -129,7 +124,7 @@ def _strict_outcome(generated: Path, tmp_path: Path, frontend: str) -> dict:
     for compiler in COMPILERS:
         name = Path(compiler).name
         executable = tmp_path / f"{frontend}-{name}"
-        environment = _compiler_environment(compiler)
+        environment = compiler_environment(compiler)
         build = subprocess.run(
             [
                 compiler,
@@ -231,8 +226,8 @@ def test_recorded_outcome_holds_in_both_compilers(
     probe: dict,
 ) -> None:
     source = _source(probe)
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_reference_source(tmp_path, source)
 
     observed = {
         "python": _outcome(reference, reference_c, tmp_path, "python"),

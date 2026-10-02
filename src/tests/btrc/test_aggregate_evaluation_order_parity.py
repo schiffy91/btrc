@@ -6,13 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_callable_return_abi_contract import _compile_both
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_both
 
 FOREIGN_CALLBACK_DEFINITION = """
 static char *aggregate_foreign_value;
@@ -232,7 +227,7 @@ def test_aggregate_operands_run_once_in_source_order(
     tmp_path: Path,
 ) -> None:
     for index, (result, generated) in enumerate(
-        _compile_both(
+        compile_both(
             semantic_btrcc,
             tmp_path,
             ORDERED_AGGREGATE_SOURCE,
@@ -240,7 +235,7 @@ def test_aggregate_operands_run_once_in_source_order(
     ):
         assert result.returncode == 0, result.stdout + result.stderr
         generated.write_text(generated.read_text() + FOREIGN_CALLBACK_DEFINITION)
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             (f"aggregate-evaluation-order-{index}", generated),
             tmp_path,
         )
@@ -271,7 +266,7 @@ def test_generic_method_uses_declared_struct_for_brace_value(
             return 0;
         }
     """
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
         emitted = generated.read_text()
         method_start = emitted.rindex("static int btrc_GenericStruct_int_sum(")
@@ -279,7 +274,7 @@ def test_generic_method_uses_declared_struct_for_brace_value(
         method = method[: method.index("\n}\n") + 3]
         assert "btrc_GenericStruct_int_new(" not in method
         assert "(Pair){" in method
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             (f"generic-struct-brace-value-{index}", generated),
             tmp_path,
         )
@@ -323,7 +318,7 @@ def test_nonempty_heap_class_brace_is_rejected(
 
         {body}
     """
-    for result, _ in _compile_both(
+    for result, _ in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
@@ -359,9 +354,9 @@ def test_empty_heap_class_brace_keeps_constructor_semantics(
             return 0;
         }
     """
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             (f"empty-heap-class-brace-{index}", generated),
             tmp_path,
         )
@@ -385,7 +380,7 @@ def test_vla_initializer_is_rejected_before_lowering(
             return 0;
         }}
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert (
             "Variable 'values' is a variable-length array and cannot have an initializer"

@@ -2,6 +2,7 @@
  * state, and adversarial control-file cases. */
 import Library.Daemon;
 import Library.Daemon.DaemonControl;
+import Library.Daemon.DaemonControlFiles;
 import Library.Daemon.DaemonControlProtocol;
 import Library.Timer;
 import Library.FileSystem;
@@ -70,7 +71,19 @@ int main() {
 	string logFile = PathTools.join(dir, "live.log");
 	DaemonSpec rendered = DaemonSpec("btrctest", Command("echo").arg("hello world")).cwd("/tmp/with space").control(controlFile).log(logFile).restart(true);
 	assert(rendered.autoRestart);
-	string command = rendered.renderStartCommand();
+	string canonicalControl = DaemonControlFiles.canonicalFilePath(controlFile);
+	string canonicalLog = DaemonControlFiles.canonicalFilePath(logFile);
+	assert(!canonicalControl.isEmpty() && !canonicalLog.isEmpty());
+	string command = rendered.renderStartCommand(canonicalControl, canonicalLog);
+	// Rendering consumes the prepared paths and leaves the spec as written.
+	assert(rendered.controlFile.equals(controlFile));
+	assert(rendered.logFile.equals(logFile));
+	assert(command.contains(ShellWords.quote(canonicalControl)));
+	assert(command.contains(ShellWords.quote(canonicalLog)));
+	// Only prepared canonical, distinct paths render a launch.
+	assert(rendered.renderStartCommand(dir + "/./live.control", canonicalLog).equals("exit 125"));
+	assert(rendered.renderStartCommand(canonicalControl, canonicalControl).equals("exit 125"));
+	assert(rendered.renderStartCommand(canonicalControl, "").equals("exit 125"));
 	assert(command.contains("btrc-daemon-supervisor"));
 	assert(command.contains("hello world"));
 	assert(command.contains("set -C"));

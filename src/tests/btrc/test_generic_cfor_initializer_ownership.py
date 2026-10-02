@@ -10,9 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _compiler_environment,
-)
+from src.tests.btrc.allocation_tracking_harness import compiler_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
 REPO = Path(__file__).resolve().parents[3]
@@ -107,7 +105,7 @@ def test_generic_cfor_initializer_owners_run_strictly(
                 str(executable),
             ],
             cwd=REPO,
-            env=_compiler_environment(compiler),
+            env=compiler_environment(compiler),
             capture_output=True,
             text=True,
             timeout=90,
@@ -116,7 +114,7 @@ def test_generic_cfor_initializer_owners_run_strictly(
         run = subprocess.run(
             [str(executable)],
             cwd=REPO,
-            env=_compiler_environment(compiler),
+            env=compiler_environment(compiler),
             capture_output=True,
             text=True,
             timeout=60,

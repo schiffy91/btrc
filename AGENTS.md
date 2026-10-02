@@ -717,7 +717,7 @@ make examples-game        Build the 3D engine game
 make examples-triangle    Build the GPU triangle example
 make examples-sgd         Build the GPU SGD example
 make examples-todo        Build the todo example
-make examples-gui         Build and run the headless GUI example
+make examples-gui         Build the portable native GUI example
 make examples-native-package TARGET=linux-x64
                           Build the recursive native package from its plan
 make devcontainer         Generate .devcontainer/ and build image

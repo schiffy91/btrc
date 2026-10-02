@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from . import GeneratedArtifact, format_generated_btrc
+from . import GeneratedArtifact, GeneratedSourceStyle
 from .intrinsic_effects import IntrinsicEffectManifest
 from .manifest_fields import ManifestFields
 
@@ -562,7 +562,7 @@ class RuntimeCatalogGenerator:
     def artifacts(self) -> tuple[GeneratedArtifact, ...]:
         return (
             GeneratedArtifact(self._PYTHON_PATH, self._render_python().encode("utf-8")),
-            GeneratedArtifact(self._BTRC_PATH, format_generated_btrc(self._render_btrc(), self._BTRC_PATH)),
+            GeneratedArtifact(self._BTRC_PATH, GeneratedSourceStyle.format_btrc(self._render_btrc(), self._BTRC_PATH)),
         )
 
     def _render_python(self) -> str:
@@ -625,10 +625,10 @@ class RuntimeCatalogGenerator:
                 f"{method.c_callee!r}, {method.provenance!r}),"
             )
         lines.extend([")", ""])
-        self._append_python_tuple(lines, "C_RUNTIME_CALLS", self._manifest.freestanding.calls)
-        self._append_python_tuple(lines, "C_RUNTIME_OBJECTS", self._manifest.freestanding.objects)
-        self._append_python_tuple(lines, "C_RUNTIME_TYPES", self._manifest.freestanding.types)
-        self._append_python_tuple(lines, "C_RUNTIME_LITERALS", self._manifest.freestanding.literals)
+        GeneratedSourceStyle.append_python_tuple(lines, "C_RUNTIME_CALLS", self._manifest.freestanding.calls)
+        GeneratedSourceStyle.append_python_tuple(lines, "C_RUNTIME_OBJECTS", self._manifest.freestanding.objects)
+        GeneratedSourceStyle.append_python_tuple(lines, "C_RUNTIME_TYPES", self._manifest.freestanding.types)
+        GeneratedSourceStyle.append_python_tuple(lines, "C_RUNTIME_LITERALS", self._manifest.freestanding.literals)
         self._append_python_pairs(
             lines,
             "RUNTIME_CALL_FEATURES",
@@ -726,12 +726,12 @@ class RuntimeCatalogGenerator:
         for helper in self._manifest.helpers_for("btrc"):
             block = [
                 "        self.rows.push(GeneratedRuntimeHelperRow(",
-                f"            {self._btrc_string(helper.category)},",
-                f"            {self._btrc_string(helper.name)},",
+                f"            {GeneratedSourceStyle.btrc_string(helper.category)},",
+                f"            {GeneratedSourceStyle.btrc_string(helper.name)},",
                 "            [",
             ]
             for chunk in self._btrc_chunks(helper.source):
-                block.append(f"                {self._btrc_string(chunk)},")
+                block.append(f"                {GeneratedSourceStyle.btrc_string(chunk)},")
             block.extend(
                 [
                     "            ],",
@@ -740,7 +740,7 @@ class RuntimeCatalogGenerator:
                     f"            {self._btrc_vector(helper.provided_types)},",
                     f"            {self._btrc_vector(helper.provided_objects)},",
                     f"            {'true' if helper.source_visible else 'false'},",
-                    f"            {self._btrc_string(helper.realtime_effect)}));",
+                    f"            {GeneratedSourceStyle.btrc_string(helper.realtime_effect)}));",
                 ]
             )
             blocks.append(block)
@@ -756,10 +756,10 @@ class RuntimeCatalogGenerator:
         for method in self._intrinsic_effects.methods:
             lines.append(
                 "        self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("
-                f"{self._btrc_string(method.receiver)}, {self._btrc_string(method.method)}, "
-                f"{self._btrc_string(method.realtime_effect)}, "
-                f"{self._btrc_string(method.c_callee or '')}, "
-                f"{self._btrc_string(method.provenance)}));"
+                f"{GeneratedSourceStyle.btrc_string(method.receiver)}, {GeneratedSourceStyle.btrc_string(method.method)}, "
+                f"{GeneratedSourceStyle.btrc_string(method.realtime_effect)}, "
+                f"{GeneratedSourceStyle.btrc_string(method.c_callee or '')}, "
+                f"{GeneratedSourceStyle.btrc_string(method.provenance)}));"
             )
         lines.extend(["    }", ""])
         lines.extend(methods)
@@ -776,12 +776,6 @@ class RuntimeCatalogGenerator:
             f"{prefix}{value[index : index + self._PYTHON_STRING_CHUNK]!r}"
             for index in range(0, len(value), self._PYTHON_STRING_CHUNK)
         ]
-
-    @staticmethod
-    def _append_python_tuple(lines: list[str], name: str, values: tuple[str, ...]) -> None:
-        lines.append(f"{name}: tuple[str, ...] = (")
-        lines.extend(f"    {value!r}," for value in values)
-        lines.extend([")", ""])
 
     @staticmethod
     def _append_python_pairs(lines: list[str], name: str, values: tuple[tuple[str, str], ...]) -> None:
@@ -805,20 +799,8 @@ class RuntimeCatalogGenerator:
             chunks.append("".join(current))
         return tuple(chunks)
 
-    @staticmethod
-    def _btrc_string(value: str) -> str:
-        escaped = (
-            value.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\t", "\\t")
-            .replace("\b", "\\b")
-            .replace("\f", "\\f")
-        )
-        return f'"{escaped}"'
-
     @classmethod
     def _btrc_vector(cls, values: tuple[str, ...]) -> str:
         if not values:
             return "self.emptyStrings()"
-        return "[" + ", ".join(cls._btrc_string(value) for value in values) + "]"
+        return "[" + ", ".join(GeneratedSourceStyle.btrc_string(value) for value in values) + "]"

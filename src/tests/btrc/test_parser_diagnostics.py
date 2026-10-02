@@ -10,14 +10,11 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.syntax.tokens import TokenVocabulary
+from src.tests.btrc.parser_driver_harness import DRIVER_SOURCES, REPO
+from src.tests.btrc.parser_driver_harness import selfhost_drivers as selfhost_drivers
 from src.tests.c_toolchains import configured_c_compiler
 
-REPO = Path(__file__).resolve().parents[3]
 CC = configured_c_compiler()
-DRIVER_SOURCES = {
-    "parser": "src/compiler/btrc/tools/ParseMain.btrc",
-    "compiler": "src/compiler/btrc/BtrccMain.btrc",
-}
 
 pytestmark = pytest.mark.skipif(
     not CC or shutil.which(CC[0]) is None,
@@ -33,24 +30,6 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
         text=True,
         **kwargs,
     )
-
-
-@pytest.fixture(scope="module")
-def selfhost_drivers(selfhost_driver, immutable_btrcc: Path) -> dict[str, Path]:
-    """The parser-stage and production self-host drivers.
-
-    The production driver is the compiler the suite already shares; the parser
-    tool driver comes from the shared session cache, so it is built once per
-    revision rather than once per xdist worker reaching this module.
-    """
-
-    drivers = {
-        name: selfhost_driver(REPO / source, compile_flags=("-pedantic-errors",))
-        for name, source in DRIVER_SOURCES.items()
-        if name != "compiler"
-    }
-    drivers["compiler"] = immutable_btrcc
-    return drivers
 
 
 INVALID_PROGRAMS = [

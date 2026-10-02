@@ -14,7 +14,7 @@ void verifyReleased(JSONValue configuration, FileSystemHandleInventory initial) 
 	for (int index = 0; index < paths.size(); index++) {
 		var acquired = AdvisoryFileLock.acquire(paths.at(index).asString());
 		if (!acquired.ok()) { throw "publication retained a lock after cleanup"; }
-		if (!acquired.lock().close().ok()) { throw "cannot close cleanup probe lock"; }
+		if (!acquired.value().close().ok()) { throw "cannot close cleanup probe lock"; }
 	}
 	if (!FileSystem.ownedHandleInventory().sameAs(initial)) { throw "cleanup probe leaked filesystem handles"; }
 }

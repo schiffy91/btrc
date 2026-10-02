@@ -4,15 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 BALANCED_PARAMETER_RUNTIME = Path(__file__).parent / "fixtures/BalancedParameterOwnershipRuntime.btrc"
 
@@ -23,8 +16,8 @@ def _assert_rejected_by_both(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert diagnostic in selfhost.stderr
@@ -74,12 +67,12 @@ def test_consuming_call_promotes_mixed_owned_conditionals(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-mixed-consume")
-    _strict_build_and_run(reference_c, tmp_path / "reference-mixed-consume")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-mixed-consume")
+    strict_build_and_run(reference_c, tmp_path / "reference-mixed-consume")
 
 
 def test_balanced_generic_parameter_release_preserves_the_borrow(
@@ -87,12 +80,12 @@ def test_balanced_generic_parameter_release_preserves_the_borrow(
     tmp_path: Path,
 ) -> None:
     source = BALANCED_PARAMETER_RUNTIME.read_text()
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-balanced-borrow")
-    _strict_build_and_run(reference_c, tmp_path / "reference-balanced-borrow")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-balanced-borrow")
+    strict_build_and_run(reference_c, tmp_path / "reference-balanced-borrow")
 
 
 def test_conditional_generic_parameter_release_is_rejected(
@@ -185,8 +178,8 @@ def test_managed_string_pointer_arithmetic_is_rejected(
         }
         int main() { return 0; }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "operator '+' is not defined" in selfhost.stderr.lower()
@@ -206,8 +199,8 @@ def test_managed_receiver_cannot_be_consumed(
         }}
         int main() {{ Item value = new Item(); value.consume(); return 0; }}
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "cannot" in selfhost.stderr.lower()
@@ -273,9 +266,9 @@ def test_consuming_handoff_is_cleared_before_a_throwing_call(
             return 1;
         }
     """
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-throwing-handoff")
-    _strict_build_and_run(reference_c, tmp_path / "reference-throwing-handoff")
+    strict_build_and_run(selfhost_c, tmp_path / "selfhost-throwing-handoff")
+    strict_build_and_run(reference_c, tmp_path / "reference-throwing-handoff")
