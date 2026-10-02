@@ -19,7 +19,7 @@ class Obj {
 }
 
 class Holder {
-	public Obj item;
+	public Obj? item;
 
 	public Holder() { self.item = null; }
 
@@ -33,7 +33,7 @@ int main() {
 	Obj x = new Obj(1);      // rc 1
 	h.item = x;              // field assign of a local -> rc 1 -> 2
 	assert(alive == 1);
-	assert(h.item.id == 1);
+	assert(h.item?.id == 1);
 
 	release h.item;          // rc 2 -> 1, not destroyed; h.item nulled
 	assert(h.item == null);

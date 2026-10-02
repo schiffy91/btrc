@@ -214,7 +214,7 @@ interface ICallbackRegistration {
  * Neither policy may report success before the foreign entry barrier.
  */
 class CallbackState implements ICallbackRegistration {
-	private ICallbackContext _context;
+	private ICallbackContext? _context;
 	private bool _retryableUnregister;
 	private AtomicBuffer<uint> _gateState;
 	private Atomic<uint> _state;
@@ -255,9 +255,14 @@ class CallbackState implements ICallbackRegistration {
 			throw "Unpublished callback activation still has admitted calls";
 		}
 		self._state.store(1u, MemoryOrder.RELEASE);
+		ICallbackContext? context = self._context;
+		if (context == null) {
+			fprintf(stderr, "CallbackRegistration lost its context before close\n");
+			abort();
+		}
 		bool destroyed = false;
 		try {
-			destroyed = self._context.close();
+			destroyed = context.close();
 			if (destroyed) { self._context = null; }
 		}
 		finally { self.endOperation(destroyed ? 2u : 4u); }
@@ -300,9 +305,14 @@ class CallbackState implements ICallbackRegistration {
 		if (observed != 0u && observed != 3u) { return self.pollCompletion(); }
 		if (!self.claimOperation(observed)) { return CALLBACK_CANCELLATION_PENDING; }
 		self.beginOperation();
+		ICallbackContext? context = self._context;
+		if (context == null) {
+			fprintf(stderr, "CallbackRegistration lost its context before unregister\n");
+			abort();
+		}
 		bool barrier = false;
 		try {
-			barrier = self._context.unregister();
+			barrier = context.unregister();
 		} finally {
 			self.endOperation(barrier ? 5u : (self._retryableUnregister ? 3u : 4u));
 		}
@@ -319,9 +329,14 @@ class CallbackState implements ICallbackRegistration {
 		if (observed != 5u || self._gateState.borrow()->load(MemoryOrder.ACQUIRE) != 1u) { return CALLBACK_CANCELLATION_PENDING; }
 		if (!self.claimOperation(observed)) { return CALLBACK_CANCELLATION_PENDING; }
 		self.beginOperation();
+		ICallbackContext? context = self._context;
+		if (context == null) {
+			fprintf(stderr, "CallbackRegistration lost its context before close\n");
+			abort();
+		}
 		bool destroyed = false;
 		try {
-			destroyed = self._context.close();
+			destroyed = context.close();
 			// Break the terminal context/backreference cycle on the cleanup
 			// executor, not during a later collection on an unrelated worker.
 			if (destroyed) { self._context = null; }

@@ -515,7 +515,7 @@ class Parser {
 		n.paramsStorage = params;
 		if (isAbstract) {
 			self.expect("SEMICOLON");
-			n.bodyNode = null;
+			// An abstract method has no body; a fresh Node leaves bodyNode null.
 		} else {
 			Node body = self.parseBlock();
 			n.bodyNode = body;
@@ -553,7 +553,7 @@ class Parser {
 				self.advance();
 				n.hasGetter = true;
 				if (self.matchTok("SEMICOLON")) {
-					n.getterBody = null;
+					// An auto getter has no body; getterBody stays null.
 				} else if (self.check("LBRACE")) {
 					Node gb = self.parseBlock();
 					n.getterBody = gb;
@@ -566,7 +566,7 @@ class Parser {
 				self.advance();
 				n.hasSetter = true;
 				if (self.matchTok("SEMICOLON")) {
-					n.setterBody = null;
+					// An auto setter has no body; setterBody stays null.
 				} else if (self.check("LBRACE")) {
 					Node sb = self.parseBlock();
 					n.setterBody = sb;
@@ -828,7 +828,6 @@ class Parser {
 			self.expect("SEMICOLON");
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
-			vd.type = null;
 			vd.name = nameTok.value;
 			vd.initializer = init;
 			vd.line = start.line;
@@ -868,7 +867,7 @@ class Parser {
 			fn.nameCol = nameTok.col;
 			declarations.push(fn);
 			if (self.matchTok("SEMICOLON")) {
-				fn.bodyNode = null;
+				// A forward declaration has no body; bodyNode stays null.
 				return;
 			}
 			if (self.check("LBRACE")) { self.refuseUnnamedDefinition(params); }
@@ -1814,7 +1813,6 @@ class Parser {
 			self.refuseVarDeclarators();
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
-			vd.type = null;
 			vd.name = nameTok.value;
 			vd.initializer = init;
 			vd.line = tok.line;
@@ -2039,7 +2037,7 @@ class Parser {
 			Node v = self.parseExpression();
 			n.valueNode = v;
 		} else if (self.matchTok("DEFAULT")) {
-			n.valueNode = null;
+			// The default clause has no value; valueNode stays null.
 		}
 		self.expect("COLON");
 		while (!self.check("CASE") && !self.check("DEFAULT") && !self.check("RBRACE") && !self.atEnd()) {
@@ -2888,7 +2886,6 @@ class Parser {
 		self.expect("FAT_ARROW");
 		Node n = Node();
 		n.kind = NK_LAMBDA_EXPR;
-		n.returnType = null;
 		n.paramsStorage = params;
 		n.line = tok.line;
 		n.col = tok.col;

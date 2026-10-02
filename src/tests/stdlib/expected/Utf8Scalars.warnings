@@ -1,0 +1,2 @@
+src/tests/stdlib/Utf8Scalars.btrc:116:21: Possibly-null value stored in non-nullable argument 1 of 'valid' of type 'string' — check for null first
+src/tests/stdlib/Utf8Scalars.btrc:86:20: Possibly-null value stored in non-nullable argument 1 of 'width' of type 'string' — check for null first

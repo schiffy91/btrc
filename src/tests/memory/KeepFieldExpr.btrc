@@ -18,7 +18,7 @@ class Obj {
 }
 
 class Holder {
-	public Obj item;
+	public Obj? item;
 
 	public Holder() { self.item = null; }
 }

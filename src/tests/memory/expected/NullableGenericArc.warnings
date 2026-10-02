@@ -1,0 +1,1 @@
+src/tests/memory/NullableGenericArc.btrc:29:10: Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null

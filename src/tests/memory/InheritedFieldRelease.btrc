@@ -19,7 +19,7 @@ class Item {
 
 // Managed field lives on the base class.
 class Base {
-	public Item held;
+	public Item? held;
 
 	public Base() { self.held = null; }
 }
@@ -39,7 +39,7 @@ int main() {
 	Item it = new Item(1);   // rc 1
 	d.held = it;             // field assign rc++ -> rc 2
 	assert(itemAlive == 1);
-	assert(d.held.id == 1);
+	assert(d.held?.id == 1);
 
 	delete d;                // inherited managed field released: rc 2 -> 1
 	assert(itemAlive == 1); // still alive via local `it`

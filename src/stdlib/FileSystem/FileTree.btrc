@@ -358,9 +358,10 @@ class FileTreeSnapshot {
 			return FileTreeSnapshotStep.advanced();
 		}
 		self._revision.appendU64((unsigned long long)self._entryCount);
-		self._completedRevision = self._revision.revision();
+		FileRevision revision = self._revision.revision();
+		self._completedRevision = revision;
 		self._closed = true;
-		return FileTreeSnapshotStep.complete(self._completedRevision);
+		return FileTreeSnapshotStep.complete(revision);
 	}
 
 	public FileSystemCloseOutcome close() {

@@ -37,8 +37,8 @@ class LoweredCallableLoopBody {
 	public CallableLoopCapture exits;
 	public bool fallsThrough;
 
+	/* body is always set by lowerLoopBodyRaw, the only producer. */
 	public LoweredCallableLoopBody() {
-		self.body = null;
 		self.head = CallableFlowSnapshot();
 		self.fallthrough = CallableFlowSnapshot();
 		self.exits = CallableLoopCapture();
@@ -354,9 +354,10 @@ class StatementLowerer {
 		GpuStatementPlan gpuPlan = self.gpuPipeline.planStatement(node, varTypes);
 		if (gpuPlan.handled) {
 			GpuStatementOperands gpuOperands = GpuStatementOperands();
+			Node? plannedCall = gpuPlan.call;
 			if (gpuPlan.cpuReturn && gpuPlan.value != null) {
 				gpuOperands.cpuReturnValue = self.expressions.lowerExpr(gpuPlan.value, varTypes, callableFlow);
-			} else if (gpuPlan.call != null) {
+			} else if (plannedCall != null) {
 				if (gpuPlan.outputCollection && gpuPlan.outputTarget != null && gpuPlan.outputType != null) {
 					Node collectionTarget = gpuPlan.outputTarget;
 					Node collectionType = gpuPlan.outputType;
@@ -372,11 +373,11 @@ class StatementLowerer {
 				if ((gpuPlan.outputDeclaration || gpuPlan.outputProjection) && gpuPlan.outputSize != null) {
 					gpuOperands.outputSize = self.expressions.lowerExpr(gpuPlan.outputSize, varTypes, callableFlow);
 				}
-				Node gpuCall = gpuPlan.call;
+				Node gpuCall = plannedCall;
 				GpuArgumentLedger arguments = self.expressions.lowerGpuArguments(gpuCall, varTypes, callableFlow);
 				gpuOperands.callInputs = self.gpuPipeline.loweredCallInputs(gpuPlan, arguments);
 			}
-			GpuStatementResult gpuResult = self.gpuPipeline.materializeStatement(gpuPlan, gpuOperands, self.context.module, varTypes);
+			GpuStatementResult gpuResult = self.gpuPipeline.materializeStatement(gpuPlan, gpuOperands, self.context.activeModule(), varTypes);
 			int gpuStatementIndex = 0;
 			while (gpuStatementIndex < gpuResult.statements.len) {
 				out.push(gpuResult.statements.get(gpuStatementIndex));
@@ -457,7 +458,7 @@ class StatementLowerer {
 					AggregateDeclarationPlan concretePlan = aggregatePlan;
 					concretePlan.emitAfter(out);
 				}
-				IRNode arrayLength = null;
+				IRNode? arrayLength = null;
 				if (logicalArrayLength != null) {
 					arrayLength = logicalArrayLength;
 				} else if (node.type.arraySize != null || (node.initializer != null && (node.initializer.kind == NK_LIST_LITERAL || node.initializer.kind == NK_BRACE_INITIALIZER))) {
@@ -678,7 +679,7 @@ class StatementLowerer {
 			IRNode cond = self.expressions.lowerExpr(node.condition, varTypes, callableFlow);
 			CallableFlowSnapshot conditionExit = callableFlow.snapshot();
 			callableFlow.requireInvariant(conditionEntry, conditionExit, "condition");
-			IRNode body = null;
+			IRNode? body = null;
 			if (self.loopConditionCanRepeat(node.condition)) {
 				body = self.lowerLoopBody(node.bodyNode, varTypes, callableFlow);
 			} else {
@@ -758,7 +759,7 @@ class StatementLowerer {
 			if (self.context.genericBody) {
 				kt = SemanticTypeSystem.resolveGenericType(kt, self.context.activeTypeMap, self.analyzed);
 			}
-			if (self.managedValues.isManaged(self.cTypes.resolveBodyType(kt, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+			if (kt != null && self.managedValues.isManaged(self.cTypes.resolveBodyType(kt, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
 				string valueName = self.context.freshTemporary("__btrc_keep_value");
 				out.push(IRNode.variableDeclaration(self.cTypes.lower(kt), valueName, self.expressions.lowerExpr(node.expr, varTypes, callableFlow)));
 				IRNode value = IRNode.variable(valueName);
@@ -978,7 +979,7 @@ class StatementLowerer {
 		}
 		/* Primitive values have no ownership unit. Managed strings and class
          * references both dispatch through the shared ownership domain. */
-		if (!self.managedValues.isManaged(self.cTypes.resolveBodyType(et, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+		if (et == null || !self.managedValues.isManaged(self.cTypes.resolveBodyType(et, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
 			if (self.context.genericBody) { return; }
 			print("internal compiler error: non-managed release reached IR generation");
 			exit(1);
@@ -1479,6 +1480,10 @@ class StatementLowerer {
 
 		Node? iterType = self.expressions.resolvedExpressionType(iterable, loopTypes);
 		if (self.analyzed.arrayIterationCapacityKeys.has(AstIdentity.key(iterable))) {
+			if (iterType == null) {
+				fprintf(stderr, "internal compiler error: fixed-array for-in at %d:%d has no resolved iterable type\n", node.line, node.col);
+				exit(1);
+			}
 			self.lowerFixedArrayForIn(node, iterType, loopTypes, out, callableFlow);
 			self.context.restoreSourceBindings(sourceBindings);
 			return;
@@ -1545,7 +1550,11 @@ class StatementLowerer {
 		string iterVar = self.context.freshTemporary("__iter");
 		out.push(IRNode.variableDeclaration(self.cTypes.lower(iterType), iterVar, irIter));
 		string ownedRuntimeType = self.expressions.beginOwnedIteration(node.iterable, iterType, varTypes, iterVar, out, callableFlow);
-		Node getMethod = ControlFlowValidator.iterableMethod(iterType, "iterGet", self.analyzed);
+		Node? getMethod = ControlFlowValidator.iterableMethod(iterType, "iterGet", self.analyzed);
+		if (getMethod == null) {
+			fprintf(stderr, "internal compiler error: iterable '%s' at %d:%d has no iterGet method\n", iterType.base, node.line, node.col);
+			exit(1);
+		}
 		Node elemT = ControlFlowValidator.iterableResolvedType(getMethod.returnType, iterType, self.analyzed);
 		string elemC = self.iterValueC(elemT);
 		varTypes.put(varName, elemT);
@@ -1583,7 +1592,11 @@ class StatementLowerer {
 		IRNode body = self.loopBodyWithPrefix(node.bodyNode, varTypes, bindings, bindingSourceNames, bindingTypes, bindingOwned, callableFlow);
 		Vector<IRNode> nargs = [];
 		nargs.push(IRNode.variable(iterVar));
-		Node lenMethod = ControlFlowValidator.iterableMethod(iterType, "iterLen", self.analyzed);
+		Node? lenMethod = ControlFlowValidator.iterableMethod(iterType, "iterLen", self.analyzed);
+		if (lenMethod == null) {
+			fprintf(stderr, "internal compiler error: iterable '%s' at %d:%d has no iterLen method\n", iterType.base, node.line, node.col);
+			exit(1);
+		}
 		Node lenType = ControlFlowValidator.iterableResolvedType(lenMethod.returnType, iterType, self.analyzed);
 		out.push(IRNode.variableDeclaration(self.cTypes.lower(lenType), nVar, IRNode.call(calleePrefix + "_iterLen", nargs)));
 		IRNode forInit = IRNode.variableDeclaration("int", idx, IRNode.literal("0"));
@@ -1692,11 +1705,11 @@ class StatementLowerer {
 		while (rootIndex < roots.len) {
 			Node root = roots.get(rootIndex);
 			Node? rootType = self.expressions.resolvedExpressionType(root, varTypes);
-			self.operandPlanner.requireType(rootType, root);
+			Node concreteRootType = self.operandPlanner.requireType(rootType, root);
 			string rootName = self.context.freshTemporary("__array_storage");
-			IRNode rootDeclaration = IRNode.variableDeclaration(self.cTypes.lower(rootType), rootName, self.expressions.lowerExpr(root, varTypes, callableFlow));
+			IRNode rootDeclaration = IRNode.variableDeclaration(self.cTypes.lower(concreteRootType), rootName, self.expressions.lowerExpr(root, varTypes, callableFlow));
 			output.push(rootDeclaration);
-			string runtimeType = self.expressions.beginOwnedIteration(root, rootType, varTypes, rootName, output, callableFlow);
+			string runtimeType = self.expressions.beginOwnedIteration(root, concreteRootType, varTypes, rootName, output, callableFlow);
 			rootNames.push(rootName);
 			runtimeTypes.push(runtimeType);
 

@@ -170,6 +170,8 @@ def _transpile_with_python(project_root: str, data_root: str, in_btrc: str, out_
         timeout=BOOTSTRAP_TIMEOUT,
     )
     assert r.returncode == 0 and os.path.exists(out_c), f"btrcpy failed to transpile btrcc:\n{r.stderr[:2000]}"
+    # The compiler's own sources analyze clean, as its C builds with -Werror.
+    assert "warning:" not in r.stderr, r.stderr[:2000]
 
 
 def _cc(src_c: str, out_bin: str, *, workdir: str) -> None:
@@ -199,6 +201,8 @@ def _btrcc(binary: str, in_btrc: str, out_c: str, *, data_root: str, workdir: st
     assert r.returncode == 0 and os.path.getsize(output) > 0, (
         f"{os.path.basename(binary)} failed on {in_btrc}:\n{r.stderr[:2000]}"
     )
+    # btrcc reports the reference analyzer's warnings, so compiling itself is warning-free too.
+    assert "warning:" not in r.stderr, r.stderr[:2000]
 
 
 def _snapshot_compiler_inputs(tmp_dir: str) -> tuple[str, str, str]:

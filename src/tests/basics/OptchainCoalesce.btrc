@@ -16,7 +16,7 @@ int main() {
 	delete present;
 
 	// Null receiver: ?. short-circuits (no crash), ?? supplies the fallback.
-	Node missing = null;
+	Node? missing = null;
 	int fallback = missing?.value ?? -1;
 	assert(fallback == -1);
 

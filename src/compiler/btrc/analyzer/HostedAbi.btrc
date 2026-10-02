@@ -59,6 +59,7 @@ class HostedAbiRepository {
 	private Map<string, bool>? typedefNames = null;
 	private Map<string, bool>? ownedNames = null;
 	private Map<string, bool>? adoptingHelpers = null;
+	private Map<string, bool>? noreturnFunctions = null;
 	private string stdlibMarker;
 	private string userMarker;
 	private FeSourcePathPolicy sourcePaths;
@@ -121,6 +122,15 @@ class HostedAbiRepository {
 		if (existing != null) { return existing.has(name); }
 		Map<string, bool> built = self.indexNames(self.data.runtimeAdoptingHelpers());
 		self.adoptingHelpers = built;
+		return built.has(name);
+	}
+
+	/* Hosted functions that never return to their caller. */
+	public bool noreturnFunction(string name) {
+		Map<string, bool>? existing = self.noreturnFunctions;
+		if (existing != null) { return existing.has(name); }
+		Map<string, bool> built = self.indexNames(self.data.noreturnFunctions());
+		self.noreturnFunctions = built;
 		return built.has(name);
 	}
 

@@ -116,7 +116,7 @@ class ExpressionLowerer {
 	}
 
 	/* Recursive AST integration around ownership-domain lifetime atoms. */
-	public void lowerTakenDelete(IRNode target, Node typeNode, IRNode edgeOwner, bool persistent, Vector<IRNode> statements) {
+	public void lowerTakenDelete(IRNode target, Node? typeNode, IRNode edgeOwner, bool persistent, Vector<IRNode> statements) {
 		Node resolvedType = self.cTypes.resolveBodyType(typeNode, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		string valueC = self.cTypes.lower(resolvedType);
 		string slotName = self.context.freshTemporary("__btrc_delete_slot");
@@ -166,8 +166,7 @@ class ExpressionLowerer {
 		while (index < plan.expressions.len) {
 			Node expression = plan.expressions.get(index);
 			Node? typeExpr = self.resolvedExpressionType(expression, varTypes);
-			self.operandPlanner.requireType(typeExpr, expression);
-			Node concreteType = typeExpr;
+			Node concreteType = self.operandPlanner.requireType(typeExpr, expression);
 			boundary.addLoweredOperand(expression, concreteType, self.lowerExpr(expression, varTypes, callableFlow), plan.owned.get(index), plan.retained.get(index));
 			index = index + 1;
 		}
@@ -216,7 +215,7 @@ class ExpressionLowerer {
 			return null;
 		}
 		Node? setter = StorageValidator.indexedMethod(receiver, "set", self.analyzed);
-		if (!StorageValidator.validIndexedSetter(setter)) {
+		if (setter == null || !StorageValidator.validIndexedSetter(setter)) {
 			return null;
 		}
 		Node concreteSetter = setter;
@@ -237,13 +236,13 @@ class ExpressionLowerer {
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		if (indexConverted) {
 			PreparedValue preparedIndex = self.prepareCallTargetValue(target.index, indexType, varTypes, callableFlow);
-			self.operandPlanner.requireType(preparedIndex.effectiveType, target.index);
-			boundary.addLoweredCallOperand(target.index, preparedIndex.effectiveType, preparedIndex.value, preparedIndex.owned, false, false);
+			Node preparedIndexType = self.operandPlanner.requireType(preparedIndex.effectiveType, target.index);
+			boundary.addLoweredCallOperand(target.index, preparedIndexType, preparedIndex.value, preparedIndex.owned, false, false);
 		}
 		PreparedValue prepared = self.prepareCallTargetValue(expression.valueNode, valueType, varTypes, callableFlow);
-		self.operandPlanner.requireType(prepared.effectiveType, expression.valueNode);
+		Node preparedType = self.operandPlanner.requireType(prepared.effectiveType, expression.valueNode);
 		bool pinBorrowed = targetManaged && !prepared.owned;
-		boundary.addLoweredCallOperand(expression.valueNode, prepared.effectiveType, prepared.value, prepared.owned, keepValue || pinBorrowed, false);
+		boundary.addLoweredCallOperand(expression.valueNode, preparedType, prepared.value, prepared.owned, keepValue || pinBorrowed, false);
 		IRNode? lowered = self.lowerIndirectAssignmentCore(expression, varTypes, callableFlow);
 		boundary.restore();
 		if (lowered == null) {
@@ -260,8 +259,7 @@ class ExpressionLowerer {
 		while (index < roots.len) {
 			Node root = roots.get(index);
 			Node? typeExpr = self.resolvedExpressionType(root, varTypes);
-			self.operandPlanner.requireType(typeExpr, root);
-			Node concreteType = typeExpr;
+			Node concreteType = self.operandPlanner.requireType(typeExpr, root);
 			boundary.addLoweredOperand(root, concreteType, self.lowerExpr(root, varTypes, callableFlow), true, false);
 			index = index + 1;
 		}
@@ -283,8 +281,7 @@ class ExpressionLowerer {
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		self.addOwnedProjectionRoots(boundary, expression.obj, varTypes, callableFlow);
 		if (receiverOwned || receiverPinned) {
-			self.operandPlanner.requireType(receiverType, expression.obj);
-			Node concreteReceiverType = receiverType;
+			Node concreteReceiverType = self.operandPlanner.requireType(receiverType, expression.obj);
 			boundary.addLoweredOperand(expression.obj, concreteReceiverType, self.lowerExpr(expression.obj, varTypes, callableFlow), receiverOwned, receiverPinned);
 		}
 		IRNode lowered = self.lowerFieldAccessCore(expression, varTypes, callableFlow);
@@ -313,7 +310,7 @@ class ExpressionLowerer {
 		}
 		bool sourceGetter = StorageValidator.validIndexedGetter(getter);
 		Node? expectedIndexType = indexType;
-		if (sourceGetter) {
+		if (objectType != null && getter != null && sourceGetter) {
 			Node concreteGetter = getter;
 			expectedIndexType = StorageValidator.resolvedIndexedType(concreteGetter.params().get(0).type, objectType, self.analyzed);
 		}
@@ -327,17 +324,15 @@ class ExpressionLowerer {
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		self.addOwnedProjectionRoots(boundary, expression.obj, varTypes, callableFlow);
 		if (objectOwned || objectPinned || roots.len > 0 || orderingRequired) {
-			self.operandPlanner.requireType(objectType, expression.obj);
-			Node concreteObjectType = objectType;
+			Node concreteObjectType = self.operandPlanner.requireType(objectType, expression.obj);
 			boundary.addLoweredOperand(expression.obj, concreteObjectType, self.lowerExpr(expression.obj, varTypes, callableFlow), objectOwned, objectPinned);
 		}
 		if (indexConverted) {
 			PreparedValue preparedIndex = self.prepareCallTargetValue(expression.index, expectedIndexType, varTypes, callableFlow);
-			self.operandPlanner.requireType(preparedIndex.effectiveType, expression.index);
-			boundary.addLoweredCallOperand(expression.index, preparedIndex.effectiveType, preparedIndex.value, preparedIndex.owned, false, false);
+			Node preparedIndexType = self.operandPlanner.requireType(preparedIndex.effectiveType, expression.index);
+			boundary.addLoweredCallOperand(expression.index, preparedIndexType, preparedIndex.value, preparedIndex.owned, false, false);
 		} else {
-			self.operandPlanner.requireType(indexType, expression.index);
-			Node concreteIndexType = indexType;
+			Node concreteIndexType = self.operandPlanner.requireType(indexType, expression.index);
 			boundary.addLoweredOperand(expression.index, concreteIndexType, self.lowerExpr(expression.index, varTypes, callableFlow), indexOwned, false);
 		}
 		IRNode lowered = self.lowerIndexCore(expression, varTypes, callableFlow);
@@ -392,8 +387,8 @@ class ExpressionLowerer {
 		boundary.addLoweredOperand(expression.left, concreteLeftType, self.lowerExpr(expression.left, varTypes, callableFlow), leftOwned, leftPinned);
 		if (rightType != null || rightTargetType != null) {
 			PreparedValue prepared = self.prepareCallTargetValue(expression.right, rightTargetType, varTypes, callableFlow);
-			self.operandPlanner.requireType(prepared.effectiveType, expression.right);
-			boundary.addLoweredOperand(expression.right, prepared.effectiveType, prepared.value, prepared.owned, rightKeep);
+			Node preparedType = self.operandPlanner.requireType(prepared.effectiveType, expression.right);
+			boundary.addLoweredOperand(expression.right, preparedType, prepared.value, prepared.owned, rightKeep);
 		}
 		IRNode lowered = self.lowerBinaryCore(expression, varTypes, callableFlow);
 		boundary.resultOwned = self.ownershipSemantics.expressionOwnsResult(expression, environment, callableFlow);
@@ -427,8 +422,7 @@ class ExpressionLowerer {
 		if (omitBorrowedGuard && !owned) { return false; }
 		if (boundary != null) {
 			Node? rootType = self.resolvedExpressionType(root.expression, varTypes);
-			self.operandPlanner.requireType(rootType, root.expression);
-			Node concreteRootType = rootType;
+			Node concreteRootType = self.operandPlanner.requireType(rootType, root.expression);
 			boundary.addLoweredOperand(root.expression, concreteRootType, self.lowerExpr(root.expression, varTypes, callableFlow), owned, root.managed && !owned);
 		}
 		return true;
@@ -523,14 +517,13 @@ class ExpressionLowerer {
 			return;
 		}
 		if (operand.defaultArgument) {
-			Node effectiveType = operand.targetType;
+			Node effectiveType = self.operandPlanner.requireType(operand.targetType, operand.expression);
 			bool managed = self.managedValues.isManaged(self.cTypes.resolveBodyType(effectiveType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 			boundary.addLoweredCallOperand(operand.expression, effectiveType, self.lowerDefaultArgumentCall(call, plan, operand, varTypes, callableFlow), managed, operand.keepValue, managed && operand.transferred);
 			return;
 		}
 		PreparedValue prepared = self.prepareCallTargetValue(operand.expression, operand.targetType, varTypes, callableFlow);
-		self.operandPlanner.requireType(prepared.effectiveType, operand.expression);
-		Node storageType = self.callOperandStorageType(operand, prepared.effectiveType, varTypes);
+		Node storageType = self.callOperandStorageType(operand, self.operandPlanner.requireType(prepared.effectiveType, operand.expression), varTypes);
 		boundary.addLoweredCallOperand(operand.expression, storageType, prepared.value, prepared.owned, operand.keepValue, prepared.owned && operand.transferred);
 	}
 
@@ -625,13 +618,15 @@ class ExpressionLowerer {
 			return self.strings.lowerRequestedHostedStringResult(call, self.lowerCallCore(call, varTypes, callableFlow));
 		}
 		OwnershipBoundary boundary = self.callOwnership.boundary();
-		if (plan.receiver != null) {
-			self.callProjectionRoot(boundary, plan.receiver, varTypes, false, callableFlow);
-			if (plan.receiverType == null) {
-				self.ownershipSemantics.failOpaqueOperand(plan.receiver, "call arguments", true);
+		Node? receiver = plan.receiver;
+		if (receiver != null) {
+			self.callProjectionRoot(boundary, receiver, varTypes, false, callableFlow);
+			Node? receiverType = plan.receiverType;
+			if (receiverType == null) {
+				self.ownershipSemantics.failOpaqueOperand(receiver, "call arguments", true);
 			}
-			Node concreteReceiverType = plan.receiverType;
-			boundary.addLoweredOperand(plan.receiver, concreteReceiverType, self.lowerExpr(plan.receiver, varTypes, callableFlow), plan.receiverOwned, plan.receiverPinned);
+			Node concreteReceiverType = receiverType;
+			boundary.addLoweredOperand(receiver, concreteReceiverType, self.lowerExpr(receiver, varTypes, callableFlow), plan.receiverOwned, plan.receiverPinned);
 		}
 		int index = 0;
 		while (index < plan.operands.len) {
@@ -707,7 +702,7 @@ class ExpressionLowerer {
 					expectedType = expectedTypes.get(index);
 				}
 				PreparedValue prepared = self.prepareCallTargetValue(operand, expectedType, varTypes, callableFlow);
-				self.operandPlanner.requireType(prepared.effectiveType, operand);
+				Node preparedType = self.operandPlanner.requireType(prepared.effectiveType, operand);
 				bool laterEffect = false;
 				int laterIndex = index + 1;
 				while (laterIndex < operands.len) {
@@ -716,8 +711,8 @@ class ExpressionLowerer {
 					}
 					laterIndex = laterIndex + 1;
 				}
-				bool pinBorrowed = laterEffect && !prepared.owned && self.managedValues.isManaged(self.cTypes.resolveBodyType(prepared.effectiveType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
-				boundary.addLoweredOperand(operand, prepared.effectiveType, prepared.value, prepared.owned, pinBorrowed);
+				bool pinBorrowed = laterEffect && !prepared.owned && self.managedValues.isManaged(self.cTypes.resolveBodyType(preparedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+				boundary.addLoweredOperand(operand, preparedType, prepared.value, prepared.owned, pinBorrowed);
 				index = index + 1;
 			}
 		}
@@ -789,8 +784,7 @@ class ExpressionLowerer {
 	public IRNode lowerOptionalCallWithOwnership(Node call, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node receiverExpression = call.callee.obj;
 		Node? receiverType = self.resolvedExpressionType(receiverExpression, varTypes);
-		self.operandPlanner.requireType(receiverType, receiverExpression);
-		Node concreteReceiverType = receiverType;
+		Node concreteReceiverType = self.operandPlanner.requireType(receiverType, receiverExpression);
 		OwnershipOperandEnvironment environment = self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive());
 		bool receiverOwned = self.ownershipSemantics.unconsumedOwnedResult(receiverExpression, environment, callableFlow);
 
@@ -847,8 +841,7 @@ class ExpressionLowerer {
 		if (argumentBoundary) {
 			if (callableField) {
 				Node? projectedType = self.resolvedExpressionType(call.callee, varTypes);
-				self.operandPlanner.requireType(projectedType, call.callee);
-				Node concreteProjectedType = projectedType;
+				Node concreteProjectedType = self.operandPlanner.requireType(projectedType, call.callee);
 				bool wasOptional = call.callee.optional;
 				call.callee.optional = false;
 				IRNode projected = self.lowerExpr(call.callee, varTypes, callableFlow);
@@ -949,8 +942,8 @@ class ExpressionLowerer {
 		}
 		if (plan.expression.kind == NK_INDEX_EXPR) {
 			if (plan.orderedIndex) {
-				Node objectType = plan.objectType;
-				Node indexType = plan.indexType;
+				Node objectType = self.operandPlanner.requireType(plan.objectType, plan.expression.obj);
+				Node indexType = self.operandPlanner.requireType(plan.indexType, plan.expression.index);
 				boundary.addLoweredOperand(plan.expression.obj, objectType, self.lowerExpr(plan.expression.obj, varTypes, callableFlow), false, false);
 				boundary.addLoweredOperand(plan.expression.index, indexType, self.lowerExpr(plan.expression.index, varTypes, callableFlow), false, false);
 			}
@@ -1392,14 +1385,14 @@ class ExpressionLowerer {
 				Node? valueType = self.resolvedExpressionType(target, varTypes);
 				if (node.op == "=") {
 					Node? setter = StorageValidator.indexedMethod(receiverType, "set", self.analyzed);
-					if (StorageValidator.validIndexedSetter(setter)) {
+					if (setter != null && StorageValidator.validIndexedSetter(setter)) {
 						Node concreteSetter = setter;
 						valueType = StorageValidator.resolvedIndexedType(concreteSetter.params().get(1).type, receiverType, self.analyzed);
 					}
 				}
 				Node? indexType = self.resolvedExpressionType(target.index, varTypes);
 				Node? setterForIndex = StorageValidator.indexedMethod(receiverType, "set", self.analyzed);
-				if (StorageValidator.validIndexedSetter(setterForIndex)) {
+				if (setterForIndex != null && StorageValidator.validIndexedSetter(setterForIndex)) {
 					Node concreteSetterForIndex = setterForIndex;
 					indexType = StorageValidator.resolvedIndexedType(concreteSetterForIndex.params().get(0).type, receiverType, self.analyzed);
 				}
@@ -1805,10 +1798,10 @@ class ExpressionLowerer {
 		bool falsePromotable = node.falseExpr.kind == NK_NULL_LITERAL || falseOwned || self.managedValues.isManaged(self.cTypes.resolveBodyType(falseType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 		bool conditionalOwned = self.managedValues.isManaged(self.cTypes.resolveBodyType(self.resolvedExpressionType(node, varTypes), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && (trueOwned || falseOwned) && truePromotable && falsePromotable;
 		if (conditionalOwned) {
-			if (node.trueExpr.kind != NK_NULL_LITERAL && self.managedValues.isManaged(self.cTypes.resolveBodyType(trueType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !trueOwned) {
+			if (trueType != null && node.trueExpr.kind != NK_NULL_LITERAL && self.managedValues.isManaged(self.cTypes.resolveBodyType(trueType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !trueOwned) {
 				trueValue = self.promoteBorrowedValue(trueValue, trueType);
 			}
-			if (node.falseExpr.kind != NK_NULL_LITERAL && self.managedValues.isManaged(self.cTypes.resolveBodyType(falseType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !falseOwned) {
+			if (falseType != null && node.falseExpr.kind != NK_NULL_LITERAL && self.managedValues.isManaged(self.cTypes.resolveBodyType(falseType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !falseOwned) {
 				falseValue = self.promoteBorrowedValue(falseValue, falseType);
 			}
 		}
@@ -2015,10 +2008,10 @@ class ExpressionLowerer {
 		bool rightPromotable = node.right.kind == NK_NULL_LITERAL || rightOwned || self.managedValues.isManaged(self.cTypes.resolveBodyType(rightType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 		bool coalesceOwned = op == "??" && self.managedValues.isManaged(self.cTypes.resolveBodyType(self.resolvedExpressionType(node, varTypes), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && (leftOwned || rightOwned) && leftPromotable && rightPromotable;
 		if (coalesceOwned) {
-			if (node.left.kind != NK_NULL_LITERAL && self.managedValues.isManaged(self.cTypes.resolveBodyType(leftType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !leftOwned) {
+			if (leftType != null && node.left.kind != NK_NULL_LITERAL && self.managedValues.isManaged(self.cTypes.resolveBodyType(leftType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !leftOwned) {
 				left = self.promoteBorrowedValue(left, leftType);
 			}
-			if (node.right.kind != NK_NULL_LITERAL && self.managedValues.isManaged(self.cTypes.resolveBodyType(rightType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !rightOwned) {
+			if (rightType != null && node.right.kind != NK_NULL_LITERAL && self.managedValues.isManaged(self.cTypes.resolveBodyType(rightType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !rightOwned) {
 				right = self.promoteBorrowedValue(right, rightType);
 			}
 		}
@@ -2263,8 +2256,7 @@ class ExpressionLowerer {
 		int index = 0;
 		while (index < plan.operands.len) {
 			AggregateOperandPlan operand = plan.operands.get(index);
-			self.operandPlanner.requireType(operand.effectiveType, operand.expression);
-			Node concreteType = operand.effectiveType;
+			Node concreteType = self.operandPlanner.requireType(operand.effectiveType, operand.expression);
 			bool owned = self.ownershipSemantics.unconsumedOwnedResult(operand.expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
 			boundary.addLoweredOperand(operand.expression, concreteType, self.lowerExpr(operand.expression, varTypes, callableFlow), owned, !owned && operand.pinBorrowed);
 			index = index + 1;
@@ -2541,8 +2533,7 @@ class ExpressionLowerer {
 
 	private IRNode lowerSpanConstructor(Node node, Vector<IRNode> args, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node? resultType = self.resolvedExpressionType(node, varTypes);
-		self.operandPlanner.requireType(resultType, node);
-		Node spanType = resultType;
+		Node spanType = self.operandPlanner.requireType(resultType, node);
 		Node element = spanType.genericArgs().get(0);
 		IRNode extent = IRNode.literal("0");
 		if (args.len == 1) {
@@ -2601,7 +2592,7 @@ class ExpressionLowerer {
 			declarations.push(IRNode.variableDeclaration("size_t", indexName, null));
 			sequence.push(IRNode.binary(index, "=", args.get(0)));
 			IRNode condition = IRNode.binary(IRNode.binary(data, "!=", IRNode.literal("NULL")), "&&", IRNode.binary(index, "<", length));
-			IRNode success = null;
+			IRNode? success = null;
 			if (method == "tryGet") {
 				Node outputElement = TypeShape.copy(element);
 				outputElement.isConst = false;
@@ -2633,7 +2624,7 @@ class ExpressionLowerer {
 			string name = callee.name;
 			if (self.gpuPipeline.hasKernel(name) && !callableFlow.hasEnvironment(name) && !varTypes.has(name)) {
 				GpuArgumentLedger gpuArgs = self.lowerGpuArguments(node, varTypes, callableFlow);
-				return self.gpuPipeline.dispatchExpression(name, node, gpuArgs, self.context.module);
+				return self.gpuPipeline.dispatchExpression(name, node, gpuArgs, self.context.activeModule());
 			}
 			CallTarget target = self.callTargets.resolve(node, varTypes, self.callableContext(varTypes, callableFlow));
 			Vector<IRNode> args = self.lowerResolvedCallArguments(target, node, varTypes, callableFlow);
@@ -2809,8 +2800,13 @@ class ExpressionLowerer {
 		}
 		if (target.kind == CALL_TARGET_METHOD) {
 			IRNode? receiver = null;
+			Node? receiverNode = target.receiver;
 			if (target.receiverRequired) {
-				receiver = self.lowerExpr(target.receiver, varTypes, callableFlow);
+				if (receiverNode == null) {
+					fprintf(stderr, "internal compiler error: a method call target that requires its receiver has none\n");
+					exit(1);
+				}
+				receiver = self.lowerExpr(receiverNode, varTypes, callableFlow);
 			}
 			IRNode? methodCall = self.calls.materializeDispatch(target, null, receiver, arguments);
 			if (methodCall != null) { return methodCall; }
@@ -3039,8 +3035,7 @@ class ExpressionLowerer {
 			RawProjectionStorageRoot? storage = self.ownershipSemantics.projectionStorageRoot(argument, environment);
 			if (storage != null) {
 				Node? rootType = self.resolvedExpressionType(storage.expression, varTypes);
-				self.operandPlanner.requireType(rootType, storage.expression);
-				Node concreteRootType = rootType;
+				Node concreteRootType = self.operandPlanner.requireType(rootType, storage.expression);
 				bool rootOwned = storage.managed && self.ownershipSemantics.unconsumedOwnedResult(storage.expression, environment, callableFlow);
 				result.sourceProjectionRoots.put(key, GpuArgumentProjectionRoot(storage, concreteRootType, rootOwned));
 			}
@@ -3126,8 +3121,7 @@ class ExpressionLowerer {
 				bool pinBorrowed = laterEffect && !owns && !converts && self.managedValues.isManaged(self.cTypes.resolveBodyType(sourceType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 				if (owns || converts || pinBorrowed) {
 					PreparedValue prepared = self.prepareCallTargetValue(interpolation, targetType, varTypes, callableFlow);
-					self.operandPlanner.requireType(prepared.effectiveType, interpolation);
-					Node effectiveType = prepared.effectiveType;
+					Node effectiveType = self.operandPlanner.requireType(prepared.effectiveType, interpolation);
 					interpolationBoundary.addLoweredOperand(interpolation, effectiveType, prepared.value, prepared.owned, pinBorrowed);
 					hasInterpolationBoundary = true;
 				}
@@ -3333,8 +3327,7 @@ class ExpressionLowerer {
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		boundary.addLoweredOperand(target.obj, receiverType, self.lowerExpr(target.obj, varTypes, callableFlow), receiverOwned, false);
 		PreparedValue prepared = self.prepareCallTargetValue(assignment.valueNode, propertyType, varTypes, callableFlow);
-		self.operandPlanner.requireType(prepared.effectiveType, assignment.valueNode);
-		Node effectiveType = prepared.effectiveType;
+		Node effectiveType = self.operandPlanner.requireType(prepared.effectiveType, assignment.valueNode);
 		bool pinBorrowed = managedResult && !prepared.owned;
 		boundary.addLoweredCallOperand(assignment.valueNode, effectiveType, prepared.value, prepared.owned, pinBorrowed, false);
 		IRNode lowered = self.lowerPropertyStoreCore(assignment, receiverType, property, propertyType, varTypes, callableFlow);
@@ -3590,8 +3583,7 @@ class ExpressionLowerer {
 		Vector<Node> leaves = self.irLeftStringConcatLeaves(node, varTypes);
 		if (leaves.len < 32) { return null; }
 		Node? resultOptional = self.resolvedExpressionType(node, varTypes);
-		self.operandPlanner.requireType(resultOptional, node);
-		Node resultType = resultOptional;
+		Node resultType = self.operandPlanner.requireType(resultOptional, node);
 		string cType = self.cTypes.lower(resultType);
 		Vector<IRNode> declarations = [];
 		Vector<IRNode> values = [];
@@ -3902,10 +3894,11 @@ class ExpressionLowerer {
 		/* A typed `=` coerces its value against the target type. Lowering has
          * side effects — lifted lambdas, temporaries, helper references — so
          * the value is lowered exactly once, through whichever path applies. */
-		bool coercedValue = assignment.op == "=" && plan.targetType != null;
+		Node? coercedType = plan.targetType;
+		bool coercedValue = assignment.op == "=" && coercedType != null;
 		IRNode value = coercedValue ? self.strings.upcastClassPointer(plan.targetType, plan.valueType, self.lowerAssignedValue(assignment.valueNode, plan.targetType, variableTypes, callableFlow)) : self.lowerExpr(assignment.valueNode, variableTypes, callableFlow);
-		if (coercedValue && assignment.target.kind != NK_IDENTIFIER) {
-			return self.lowerDirectStore(target, value, plan.targetType, self.directGenericTargetC(assignment.target, plan.targetType, variableTypes));
+		if (coercedValue && coercedType != null && assignment.target.kind != NK_IDENTIFIER) {
+			return self.lowerDirectStore(target, value, coercedType, self.directGenericTargetC(assignment.target, coercedType, variableTypes));
 		}
 		if (plan.callableTarget && assignment.op == "=") {
 			callableFlow.setBindingAbi(assignment.target.name, plan.callableAbi);

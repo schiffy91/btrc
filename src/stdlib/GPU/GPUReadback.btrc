@@ -97,10 +97,11 @@ class GPUReadback implements ICallbackRegistration {
 		if (self._state != GPU_READBACK_ENCODED) { throw "GPU readback has already been submitted or closed"; }
 		if (!self._surface.frameActive(self._frame)) { self.fail("GPU readback frame was discarded or submitted elsewhere"); return false; }
 		if (!self._surface.present()) { self.fail(self._surface.error()); return false; }
-		self._completion = GPUReadbackCompletion();
+		GPUReadbackCompletion completion = GPUReadbackCompletion();
+		self._completion = completion;
 		var callback = WGPUBufferMapCallbackInfoInput();
 		callback.mode = WGPUCallbackMode_AllowProcessEvents;
-		callback.callback = self._completion;
+		callback.callback = completion;
 		wgpuBufferMapAsync(self._buffer, WGPUMapMode_Read, (size_t)0, (size_t)self._byteCount, callback, self._pump.scope());
 		self._mapping = true;
 		self._state = GPU_READBACK_MAPPING;

@@ -1050,6 +1050,7 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         "analyzer/Realtime.btrc",
         "analyzer/validation/Borrows.btrc",
         "analyzer/validation/Calls.btrc",
+        "analyzer/validation/ControlFlow.btrc",
         "analyzer/validation/Declarations.btrc",
         "analyzer/validation/Names.btrc",
         "analyzer/validation/Ownership.btrc",

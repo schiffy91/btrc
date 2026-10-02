@@ -8104,6 +8104,16 @@ native_internal = [
 runtime_adopting_helpers = [
   "__btrc_string_adopt",
 ]
+# Hosted functions that never return to their caller (C11 `_Noreturn`, or the
+# POSIX equivalent). Nullable flow treats code after a call to one as unreachable.
+noreturn = [
+  "_Exit",
+  "abort",
+  "exit",
+  "longjmp",
+  "pthread_exit",
+  "quick_exit",
+]
 
 [platform]
 functions = [

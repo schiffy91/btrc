@@ -14296,6 +14296,15 @@ HOSTED_RUNTIME_ADOPTING_HELPERS: tuple[str, ...] = (
     '__btrc_string_adopt',
 )
 
+HOSTED_NORETURN_FUNCTIONS: tuple[str, ...] = (
+    '_Exit',
+    'abort',
+    'exit',
+    'longjmp',
+    'pthread_exit',
+    'quick_exit',
+)
+
 HOSTED_PLATFORM_FUNCTION_NAMES: tuple[str, ...] = (
     'GetFileAttributesA',
     'RemoveDirectoryA',
@@ -17594,4 +17603,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = 'c1adc59f8fcf3300e80203c6f87ce75d6db05877e500bcbb16d825ae8b46d097'
+HOSTED_ABI_FINGERPRINT = 'ee0d07c4b6a3fcf3bb243fa3194a746c9e978c91bdd0d2b62807fb4f1ed73a77'

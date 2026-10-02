@@ -60,7 +60,7 @@ class StorageValidator {
 	 * hold both. Exactly filling the bound would drop the terminator, which C
 	 * allows silently and btrc refuses. */
 	public void validateCharArrayInitializer(Node? expected, Node? value, Map<string, Node> vars) {
-		if (!self.charArrayStringInitializer(expected, value, vars)) { return; }
+		if (value == null || !self.charArrayStringInitializer(expected, value, vars)) { return; }
 		Node initializer = value;
 		if (initializer.kind == NK_F_STRING_LITERAL) {
 			TypeValidator.fail("A char array cannot be initialized from an f-string; only a string literal initializes one", initializer);
@@ -69,8 +69,8 @@ class StorageValidator {
 		if (length < 0) {
 			TypeValidator.fail("A char array can only be initialized from a string literal or a brace list, not a string value", initializer);
 		}
-		Node canonical = self.types.resolveAliases(expected);
-		if (canonical.arraySize == null) { return; }
+		Node? canonical = self.types.resolveAliases(expected);
+		if (canonical == null || canonical.arraySize == null) { return; }
 		Map<string, bool> unrestricted = {};
 		SemanticIntegerConstant bound = self.constants.integerConstant(canonical.arraySize, false, "", unrestricted);
 		if (!bound.valid || !bound.known || bound.value <= 0 || (long long)length < bound.value) { return; }
@@ -1138,14 +1138,12 @@ class StorageValidator {
 		}
 		Node? getter = self.indexedMethodInState(objectType, "get");
 		Node? result = null;
-		if (StorageValidator.validIndexedGetter(getter)) {
-			Node concreteGetter = getter;
-			result = concreteGetter.returnType;
+		if (getter != null && StorageValidator.validIndexedGetter(getter)) {
+			result = getter.returnType;
 		} else {
 			Node? setter = self.indexedMethodInState(objectType, "set");
-			if (StorageValidator.validIndexedSetter(setter)) {
-				Node concreteSetter = setter;
-				result = concreteSetter.params().get(1).type;
+			if (setter != null && StorageValidator.validIndexedSetter(setter)) {
+				result = setter.params().get(1).type;
 			}
 		}
 		if (result == null) { return null; }
@@ -1164,9 +1162,8 @@ class StorageValidator {
 			return null;
 		}
 		Node? setter = self.indexedMethodInState(receiver, "set");
-		if (!StorageValidator.validIndexedSetter(setter)) { return null; }
-		Node concreteSetter = setter;
-		return StorageValidator.resolvedIndexedType(concreteSetter.params().get(1).type, receiver, self.state.analyzed);
+		if (setter == null || !StorageValidator.validIndexedSetter(setter)) { return null; }
+		return StorageValidator.resolvedIndexedType(setter.params().get(1).type, receiver, self.state.analyzed);
 	}
 
 	public void validateIndex(Node expression, Map<string, Node> vars, bool requireGetter) {
@@ -1202,7 +1199,11 @@ class StorageValidator {
 		}
 		Node concreteMethod = method;
 		self.validateMethodAccess(concreteObject.base, concreteMethod, expression);
-		Node expected = self.indexParameterType(concreteObject, concreteMethod, self.state.analyzed);
+		Node? indexParameter = self.indexParameterType(concreteObject, concreteMethod, self.state.analyzed);
+		if (indexParameter == null) {
+			TypeValidator.fail("Indexed method of type '" + self.types.formatType(concreteObject) + "' has no index parameter", expression);
+		}
+		Node expected = indexParameter;
 		if (indexType != null && !self.types.assignmentCompatible(expected, indexType)) {
 			TypeValidator.fail("Index expression expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(indexType) + "'", expression.index);
 		}
@@ -1215,28 +1216,29 @@ class StorageValidator {
 			return;
 		}
 		Node? setter = self.indexedMethodInState(receiver, "set");
-		if (!StorageValidator.validIndexedSetter(setter)) {
+		if (setter == null || !StorageValidator.validIndexedSetter(setter)) {
 			TypeValidator.fail("Type '" + self.types.formatType(receiver) + "' has no void instance set(index, value) method", site);
 			return;
 		}
 		Node concreteSetter = setter;
 		self.validateMethodAccess(receiver.base, concreteSetter, site);
 		Node? getter = self.indexedMethodInState(receiver, "get");
-		if (requireGetter && !StorageValidator.validIndexedGetter(getter)) {
-			TypeValidator.fail("Type '" + self.types.formatType(receiver) + "' has no indexed getter", site);
-		}
+		Node? requiredGetter = null;
 		if (requireGetter) {
+			if (getter == null || !StorageValidator.validIndexedGetter(getter)) {
+				TypeValidator.fail("Type '" + self.types.formatType(receiver) + "' has no indexed getter", site);
+			}
 			Node concreteGetter = getter;
 			self.validateMethodAccess(receiver.base, concreteGetter, site);
+			requiredGetter = concreteGetter;
 		}
 		Node expectedIndex = StorageValidator.resolvedIndexedType(concreteSetter.params().get(0).type, receiver, self.state.analyzed);
 		Node? actualIndex = self.types.inferType(target.index,  vars);
 		if (actualIndex != null && !self.types.assignmentCompatible(expectedIndex, actualIndex)) {
 			TypeValidator.fail("Indexed setter expects index type '" + self.types.formatType(expectedIndex) + "' but got '" + self.types.formatType(actualIndex) + "'", target.index);
 		}
-		if (requireGetter) {
-			Node concreteGetter = getter;
-			Node getterIndex = StorageValidator.resolvedIndexedType(concreteGetter.params().get(0).type, receiver, self.state.analyzed);
+		if (requiredGetter != null) {
+			Node getterIndex = StorageValidator.resolvedIndexedType(requiredGetter.params().get(0).type, receiver, self.state.analyzed);
 			if (actualIndex != null && !self.types.assignmentCompatible(getterIndex, actualIndex)) {
 				TypeValidator.fail("Indexed getter expects index type '" + self.types.formatType(getterIndex) + "' but got '" + self.types.formatType(actualIndex) + "'", target.index);
 			}

@@ -1,0 +1,1 @@
+src/tests/classes/NullableFieldOptionalChain.btrc:26:2: Non-optional access '.next' on nullable type 'Node?' — use '?.next' or check for null

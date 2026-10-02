@@ -426,14 +426,14 @@ class FunctionLowerer {
 			while (index < lambdas.len) {
 				CallableLambdaPlan plan = lambdas.get(index);
 				IRNode body = self.lowerLiftedCallableBody(plan.source, plan.bodyVariableTypes, plan.captures, plan.returnCType, plan.returnType);
-				self.callableLowering.materializeLifted(plan, body, self.context.module);
+				self.callableLowering.materializeLifted(plan, body, self.context.activeModule());
 				index = index + 1;
 			}
 			index = 0;
 			while (index < spawns.len) {
 				CallableSpawnPlan plan = spawns.get(index);
 				IRNode body = self.lowerLiftedCallableBody(plan.lambda, plan.bodyVariableTypes, plan.captures, plan.returnCType, plan.returnType);
-				self.callableLowering.materializeSpawn(plan, body, self.context.module);
+				self.callableLowering.materializeSpawn(plan, body, self.context.activeModule());
 				index = index + 1;
 			}
 			lambdas = self.callableLowering.takePendingLambdas();

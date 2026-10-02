@@ -1,0 +1,2 @@
+src/tests/memory/DeleteNullSafe.btrc:23:10: Possibly-null value stored in non-nullable variable 'o' of type 'Obj' — check for null first
+src/tests/memory/DeleteNullSafe.btrc:32:6: Possibly-null value stored in non-nullable assignment target of type 'Obj' — check for null first

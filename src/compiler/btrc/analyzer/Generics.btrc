@@ -1212,8 +1212,9 @@ class GenericSpecializer {
 			Node? elementType = self.genericClosureIterationType(iterableType, analyzed);
 			Map<string, Node> nested = self.genericClosureCopyTypes(variables);
 			if (elementType != null) { nested.put(node.varName, elementType); }
-			if (node.varName2 != null && iterableType != null && iterableType.genericArgs().len > 1) {
-				nested.put(node.varName2, iterableType.genericArgs().get(1));
+			string? valueName = node.varName2;
+			if (valueName != null && iterableType != null && iterableType.genericArgs().len > 1) {
+				nested.put(valueName, iterableType.genericArgs().get(1));
 			}
 			self.genericClosureWalkNode(node.bodyNode, substitutions, unresolved, analyzed, operators, nested);
 			return;

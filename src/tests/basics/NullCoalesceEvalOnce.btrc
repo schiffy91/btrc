@@ -19,17 +19,17 @@ int main() {
 	assert(calls == 1);
 
 	// Null LHS falls through to the RHS.
-	string a = null;
+	string? a = null;
 	string r2 = a ?? "fallback";
 	assert(strcmp(r2, "fallback") == 0);
 
 	// Chained ?? : first non-null wins.
-	string x = null;
-	string y = null;
+	string? x = null;
+	string? y = null;
 	string r3 = x ?? y ?? "third";
 	assert(strcmp(r3, "third") == 0);
 
-	string m = null;
+	string? m = null;
 	string n = "second";
 	string r4 = m ?? n ?? "third";
 	assert(strcmp(r4, "second") == 0);

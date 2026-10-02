@@ -37,7 +37,7 @@ class MacOSComposedCapture {
 			if (totalPixels > (long long)maximumPixels || totalPixels * 4LL + (long long)layers.len * 70LL > (long long)maximumBytes) { throw "GPU readbacks exceed capture limits"; }
 		}
 		Vector<NSImageView> proxies = [];
-		Bytes captured = null;
+		Bytes? captured = null;
 		try {
 			for layer in layers {
 				var image = MacOSImageHandle.nativeImageOf(layer.pixels);
@@ -54,6 +54,7 @@ class MacOSComposedCapture {
 		} finally {
 			for proxy in proxies { proxy.removeFromSuperview(); }
 		}
+		if (captured == null) { throw "Composed capture produced no image"; }
 		return captured;
 	}
 }

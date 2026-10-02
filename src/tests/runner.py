@@ -11,6 +11,9 @@ excluding the subtrees in corpus_files.NON_CORPUS_DIRECTORIES), and for each sel
 4. Compare stdout against the required golden expected/<name>.stdout.
 5. Require empty stderr, or compare it against expected/<name>.stderr when
    that explicit golden exists.
+6. Require no analyzer warnings, or exactly the warnings in
+   expected/<name>.warnings when that golden exists. Both compilers are held
+   to the same file, so they report the same warnings at the same positions.
 
 The same corpus and the same goldens hold both compilers to identical behavior,
 so the self-hosted compiler is verified against the reference for free. Select a
@@ -21,6 +24,7 @@ single compiler with `pytest --compilers=python` (or `=btrc`); the Makefile wire
 import json
 import os
 import platform
+import re
 import shlex
 import subprocess
 import tempfile
@@ -79,8 +83,54 @@ def _require_test_capabilities(btrc_path):
             pytest.skip(error)
 
 
+# One rendered warning: the message, then the location line the reference
+# CLI and btrcc both print.
+_RENDERED_WARNING = re.compile(r"^warning: (.*)\n\s*--> (.*?):(\d+):(\d+)$", re.MULTILINE)
+
+
+def _warning_line(path, line, col, message):
+    """A warning as a golden line, `<repository-relative file>:<line>:<col>: <message>`."""
+    relative = os.path.relpath(os.path.join(_REPO_ROOT, path), _REPO_ROOT).replace(os.sep, "/")
+    return f"{relative}:{line}:{col}: {message}"
+
+
+def _python_warnings(result, btrc_path):
+    """The reference compiler's warnings, located exactly as its CLI renders them."""
+    lines = []
+    for diagnostic in result.diagnostics:
+        if diagnostic.severity != "warning":
+            continue
+        location = result.map_diagnostic(diagnostic)
+        path, line = location if location is not None else (btrc_path, diagnostic.line)
+        lines.append(_warning_line(path, line, diagnostic.col, diagnostic.message))
+    return sorted(lines)
+
+
+def _selfhost_warnings(stderr):
+    """btrcc's warnings, parsed from the rendering it shares with the reference CLI."""
+    return sorted(
+        _warning_line(match.group(2), int(match.group(3)), int(match.group(4)), match.group(1))
+        for match in _RENDERED_WARNING.finditer(stderr)
+    )
+
+
+def expected_warnings(btrc_path):
+    """The program's warning golden, or none when it has no `.warnings` file."""
+    stem = os.path.basename(btrc_path).removesuffix(".btrc")
+    golden = os.path.join(os.path.dirname(btrc_path), "expected", stem + ".warnings")
+    if not os.path.isfile(golden):
+        return []
+    with open(golden) as handle:
+        return [line for line in handle.read().splitlines() if line]
+
+
 def _transpile_python(btrc_path, btrc_file):
     """Transpile a .btrc file to C through the reference compiler's public API."""
+    return _transpile_python_with_warnings(btrc_path, btrc_file)[0]
+
+
+def _transpile_python_with_warnings(btrc_path, btrc_file):
+    """The reference compiler's C for a .btrc file, and its sorted warning lines."""
     with open(btrc_path) as f:
         source = f.read()
     result = _PYTHON_COMPILER.compile(
@@ -91,11 +141,11 @@ def _transpile_python(btrc_path, btrc_file):
     assert result.failure is None, f"{btrc_file}: compile failed: {result.failure}"
     assert result.analyzed is None or not result.analyzed.errors, f"Analyzer errors: {result.analyzed.errors}"
     assert result.c_source is not None, f"{btrc_file}: the compiler emitted no C"
-    return result.c_source
+    return result.c_source, _python_warnings(result, btrc_path)
 
 
 def _transpile_python_module_units(btrc_path, directory):
-    """Transpile through the public compiler API into module units."""
+    """Transpile through the public compiler API into module units, with the sorted warning lines."""
     with open(btrc_path) as f:
         source = f.read()
     prefix = os.path.join(directory, "program")
@@ -107,11 +157,16 @@ def _transpile_python_module_units(btrc_path, directory):
     )
     result = _PYTHON_COMPILER.compile(source, btrc_path, options)
     assert result.failure is None, f"module-unit compile failed: {result.failure}"
-    return (result.c_source, *result.c_units)
+    return (result.c_source, *result.c_units), _python_warnings(result, btrc_path)
 
 
 def _transpile_btrc(btrcc, btrc_path):
-    """Transpile a .btrc file to C by running the self-hosted compiler binary.
+    """Transpile a .btrc file to C by running the self-hosted compiler binary."""
+    return _transpile_btrc_with_warnings(btrcc, btrc_path)[0]
+
+
+def _transpile_btrc_with_warnings(btrcc, btrc_path):
+    """btrcc's C for a .btrc file, and its sorted warning lines.
 
     btrcc composes the stdlib + resolves includes itself (default mode) and
     writes the C to stdout. The shared fixture supplies an explicit runtime data
@@ -125,7 +180,7 @@ def _transpile_btrc(btrcc, btrc_path):
         timeout=BTRC_TRANSPILE_TIMEOUT,
     )
     assert r.returncode == 0 and r.stdout.strip(), f"btrcc failed to transpile:\nstderr: {r.stderr[:2000]}"
-    return r.stdout
+    return r.stdout, _selfhost_warnings(r.stderr)
 
 
 def _transpile_btrc_module_units(btrcc, btrc_path, directory):
@@ -160,7 +215,7 @@ def _transpile_btrc_module_units(btrcc, btrc_path, directory):
     for path in (primary, *units):
         with open(path) as unit_file:
             texts.append(unit_file.read())
-    return tuple(texts)
+    return tuple(texts), _selfhost_warnings(r.stderr)
 
 
 def _gcc_flags(c_source, c_path, bin_path):
@@ -253,13 +308,14 @@ def test_btrc_file(compiler, btrc_file, request, tmp_path):
     """Run one language test through the selected compiler."""
     btrc_path = os.path.join(BTRC_TEST_DIR, btrc_file)
     if compiler == "python" and MODULE_UNITS:
-        c_source = _transpile_python_module_units(btrc_path, str(tmp_path))
+        c_source, warnings = _transpile_python_module_units(btrc_path, str(tmp_path))
     elif compiler == "python":
-        c_source = _transpile_python(btrc_path, btrc_file)
+        c_source, warnings = _transpile_python_with_warnings(btrc_path, btrc_file)
     elif MODULE_UNITS:
         btrcc = request.getfixturevalue("btrcc_bin")
-        c_source = _transpile_btrc_module_units(btrcc, btrc_path, str(tmp_path))
+        c_source, warnings = _transpile_btrc_module_units(btrcc, btrc_path, str(tmp_path))
     else:
         btrcc = request.getfixturevalue("btrcc_bin")
-        c_source = _transpile_btrc(btrcc, btrc_path)
+        c_source, warnings = _transpile_btrc_with_warnings(btrcc, btrc_path)
+    assert warnings == expected_warnings(btrc_path), f"{compiler} warnings differ from the program's warning golden"
     _compile_run_check(c_source, btrc_path, btrc_file)

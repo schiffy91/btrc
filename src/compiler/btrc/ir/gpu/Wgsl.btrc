@@ -14,7 +14,7 @@ import ../Model.btrc;
 class GpuScopeBinding {
 	public string source;
 	public string previousName;
-	public Node previousType;
+	public Node? previousType;
 	public bool hadName;
 	public bool hadType;
 
@@ -107,8 +107,9 @@ class GpuWgslEmitter {
 			} else {
 				self.names.remove(binding.source);
 			}
-			if (binding.hadType) {
-				self.varTypes.put(binding.source, binding.previousType);
+			Node? previousType = binding.previousType;
+			if (binding.hadType && previousType != null) {
+				self.varTypes.put(binding.source, previousType);
 			} else {
 				self.varTypes.remove(binding.source);
 			}
@@ -592,8 +593,9 @@ class GpuWgslEmitter {
 			if (!returnType.isArray) {
 				self.gpuLoweringFail(returnType, "unsupported WGSL return type");
 			}
-			self.kernel.outputBuffer = IRGpuBuffer("_output", self.gpuWgslElementType(returnType), binding);
-			self.lines.push("@group(0) @binding(" + Strings.fromInt(binding) + ") var<storage, read_write> _output: array<" + self.kernel.outputBuffer.elemType + ">;");
+			IRGpuBuffer outputBuffer = IRGpuBuffer("_output", self.gpuWgslElementType(returnType), binding);
+			self.kernel.outputBuffer = outputBuffer;
+			self.lines.push("@group(0) @binding(" + Strings.fromInt(binding) + ") var<storage, read_write> _output: array<" + outputBuffer.elemType + ">;");
 			binding = binding + 1;
 			self.hasOutput = true;
 		}

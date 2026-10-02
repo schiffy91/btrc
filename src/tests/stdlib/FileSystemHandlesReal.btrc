@@ -11,6 +11,14 @@ import Library.IO;
 #include <fcntl.h>
 #include <unistd.h>
 
+DirectoryEntry requireEntry(DirectoryEntry? entry, string name) {
+	if (entry == null) {
+		fprintf(stderr, "FAIL: missing directory entry '%s'\n", name);
+		exit(1);
+	}
+	return entry;
+}
+
 int openDescriptorCount() {
 	int count = 0;
 	for (int descriptor = 0; descriptor < 4096; descriptor++) {
@@ -117,7 +125,7 @@ int main() {
 	assert(raceEntry != null);
 	assert(root.next().kind() == DIRECTORY_STEP_END);
 
-	DirectoryEntry regular = fileEntry;
+	DirectoryEntry regular = requireEntry(fileEntry, "blob.bin");
 	FileOpenOutcome heldOpen = root.openFile(regular);
 	assert(heldOpen.ok());
 	FileHandle held = heldOpen.file();
@@ -138,7 +146,7 @@ int main() {
 	assert(!held.readAt(-1LL, 1).ok());
 	assert(held.readAt(-1LL, 1).error().kind() == FS_INVALID_ARGUMENT);
 
-	DirectoryEntry child = childEntry;
+	DirectoryEntry child = requireEntry(childEntry, "child");
 	DirectoryOpenOutcome childOpen = root.openDirectory(child);
 	assert(childOpen.ok());
 	DirectoryHandle childDirectory = childOpen.directory();
@@ -149,14 +157,14 @@ int main() {
 	assert(childDirectory.close().kind() == FS_CLOSED_NOW);
 	assert(childDirectory.close().kind() == FS_ALREADY_CLOSED);
 
-	DirectoryEntry symbolic = linkEntry;
+	DirectoryEntry symbolic = requireEntry(linkEntry, "link");
 	assert(!root.openFile(symbolic).ok());
 	assert(root.openFile(symbolic).error().kind() == FS_SYMLINK);
 
 	string racedOriginal = PathTools.join(rootPath, "race-original.txt");
 	assert(rename(racePath, racedOriginal) == 0);
 	assert(FileSystem.symlink(filePath, racePath) == 0);
-	DirectoryEntry raced = raceEntry;
+	DirectoryEntry raced = requireEntry(raceEntry, "race.txt");
 	FileOpenOutcome racedOpen = root.openFile(raced);
 	assert(!racedOpen.ok());
 	assert(racedOpen.error().kind() == FS_CHANGED);

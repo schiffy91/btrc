@@ -15,7 +15,7 @@ class Resource {
 }
 
 class Manager {
-	public Resource res;
+	public Resource? res;
 
 	public Manager() { self.res = null; }
 

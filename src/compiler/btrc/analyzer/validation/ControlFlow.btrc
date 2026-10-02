@@ -7,6 +7,7 @@ import Library.Vector;
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
+import ../HostedAbi.btrc;
 import ../Models.btrc;
 import ../Operators.btrc;
 import ../Types.btrc;
@@ -28,8 +29,9 @@ class ControlFlowValidator {
 	private OwnershipValidator ownership;
 	private BorrowValidator borrows;
 	private ExpressionValidator expressions;
+	public NullableFlow flow;
 
-	public ControlFlowValidator(SemanticValidationState state, OperatorSemantics operators, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, ExpressionValidator expressions) {
+	public ControlFlowValidator(SemanticValidationState state, OperatorSemantics operators, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, ExpressionValidator expressions, NullableFlow flow) {
 		self.state = state;
 		self.operators = operators;
 		self.types = types;
@@ -39,6 +41,7 @@ class ControlFlowValidator {
 		self.ownership = ownership;
 		self.borrows = borrows;
 		self.expressions = expressions;
+		self.flow = flow;
 	}
 
 	private void prepareLambdaBody(Node expression, Map<string, Node> variables) {
@@ -57,6 +60,13 @@ class ControlFlowValidator {
 		self.state.parameterNames = {};
 		self.state.borrowedBindings = self.types.cloneFlags(plan.borrowedBindings);
 		self.state.localBindings = self.types.cloneFlags(plan.localBindings);
+		/* A lambda body is always reached and knows no outer facts. */
+		NullableFlowState outerFlow = self.flow.snapshot();
+		Map<string, string> outerBindings = self.flow.saveBindings();
+		Node? outerReturnTarget = self.flow.returnTarget;
+		self.flow.returnTarget = expression.returnType;
+		self.flow.enterBody();
+		for parameter in expression.params() { self.flow.bind(parameter.name); }
 		if (body.kind == NK_LAMBDA_BLOCK) {
 			self.validateBlock(body.bodyNode, plan.variables);
 			bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
@@ -65,7 +75,11 @@ class ControlFlowValidator {
 			}
 		} else if (body.kind == NK_LAMBDA_EXPR_BODY) {
 			self.prepareExpression(body.expression, plan.variables);
+			self.flow.expression(body.expression, plan.variables);
 		}
+		self.flow.restoreBindings(outerBindings);
+		self.flow.restore(outerFlow);
+		self.flow.returnTarget = outerReturnTarget;
 		self.state.returnType = previousReturn;
 		self.state.loopDepth = previousLoop;
 		self.state.breakDepth = previousBreak;
@@ -115,6 +129,7 @@ class ControlFlowValidator {
 	private void validateExpression(Node? expression, Map<string, Node> variables) {
 		self.prepareExpression(expression, variables);
 		self.expressions.validateExpr(expression, variables);
+		self.flow.expression(expression, variables);
 	}
 
 	public bool scalarConditionType(Node? typeExpr) {
@@ -434,6 +449,8 @@ class ControlFlowValidator {
 			TypeValidator.fail("for-in loop variables cannot own a Thread handle; declare a " + "fresh local owner inside the loop", statement);
 		}
 		bodyVars.put(statement.varName, first);
+		Map<string, string> previousFlowBindings = self.flow.saveBindings();
+		self.flow.bind(statement.varName);
 		Map<string, bool> previousBorrowedBindings = self.types.cloneFlags(self.state.borrowedBindings);
 		Map<string, bool> previousLocalBindings = self.types.cloneFlags(self.state.localBindings);
 		self.state.localBindings.put(statement.varName, true);
@@ -443,20 +460,27 @@ class ControlFlowValidator {
 			self.state.borrowedBindings.remove(statement.varName);
 		}
 
-		if (statement.varName2 != null) {
-			self.names.validateLexicalBindingName(statement.varName2, "Loop variable", statement);
-			if (loopNames.has(statement.varName2)) {
-				TypeValidator.fail("Duplicate loop variable name '" + statement.varName2 + "'", statement);
+		string? secondName = statement.varName2;
+		if (secondName != null) {
+			string valueName = secondName;
+			self.names.validateLexicalBindingName(valueName, "Loop variable", statement);
+			if (loopNames.has(valueName)) {
+				TypeValidator.fail("Duplicate loop variable name '" + valueName + "'", statement);
 			}
-			loopNames.put(statement.varName2, true);
+			loopNames.put(valueName, true);
+			/* Only a range form leaves no iterable type, and it has one loop variable. */
+			if (iterableType == null) {
+				TypeValidator.fail("range iteration has exactly one loop variable", statement);
+			}
 			Node second = self.iterableElementType(iterableType, statement, true);
-			self.ownership.rejectThreadOwnerShadow(statement.varName2, second, vars, statement);
+			self.ownership.rejectThreadOwnerShadow(valueName, second, vars, statement);
 			if (self.ownership.containsThreadStorage(second)) {
 				TypeValidator.fail("for-in loop variables cannot own a Thread handle; declare " + "a fresh local owner inside the loop", statement);
 			}
-			bodyVars.put(statement.varName2, second);
-			self.state.borrowedBindings.remove(statement.varName2);
-			self.state.localBindings.put(statement.varName2, true);
+			bodyVars.put(valueName, second);
+			self.flow.bind(valueName);
+			self.state.borrowedBindings.remove(valueName);
+			self.state.localBindings.put(valueName, true);
 		}
 
 		self.names.validateDirectLocalNames(statement.bodyNode, loopNames);
@@ -464,24 +488,57 @@ class ControlFlowValidator {
 		int previousBreak = self.state.breakDepth;
 		self.state.loopDepth = previousLoop + 1;
 		self.state.breakDepth = previousBreak + 1;
-		self.validateBlock(statement.bodyNode,  bodyVars);
+		Map<string, bool> none = {};
+		self.validateLoopBody(statement.bodyNode, bodyVars, none, [], null);
 		self.state.borrowedBindings = previousBorrowedBindings;
 		self.state.localBindings = previousLocalBindings;
+		self.flow.restoreBindings(previousFlowBindings);
 		self.state.loopDepth = previousLoop;
 		self.state.breakDepth = previousBreak;
 	}
 
+	/* A loop body analyzed once from the facts that hold on every iteration:
+	 * a later iteration enters from the back edge, so every fact the body or
+	 * `backEdge` (a do-while condition) could kill is dropped first. `entry`
+	 * is the flow before the loop when its head was already narrowed. */
+	private void validateLoopBody(Node? body, Map<string, Node> vars, Map<string, bool> proven, Vector<Node> backEdge, NullableFlowState? entry) {
+		NullableFlowState before = self.flow.snapshot();
+		if (entry != null) { before = entry; }
+		Vector<Node> parts = [];
+		if (body != null) { parts.push(body); }
+		for part in backEdge { parts.push(part); }
+		NullableFlowState head = self.flow.snapshot();
+		head.facts = self.flow.survivingLoop(head.facts, parts);
+		self.flow.enter(head, proven);
+		self.validateBlock(body, vars);
+		NullableFlowState iteration = self.flow.snapshot();
+		self.flow.restore(head);
+		self.flow.replaceFacts(iteration.reachable ? NullableFlow.intersect(before.facts, iteration.facts) : before.facts);
+	}
+
 	public void validateLoop(Node statement, Map<string, Node> vars) {
 		bool isDoWhile = statement.kind == NK_DO_WHILE_STMT;
+		NullableFlowState? entry = null;
+		Map<string, bool> proven = {};
+		Vector<Node> backEdge = [];
 		if (!isDoWhile) {
+			NullableFlowState before = self.flow.snapshot();
+			entry = before;
+			Vector<Node> parts = [];
+			if (statement.bodyNode != null) { parts.push(statement.bodyNode); }
+			if (statement.condition != null) { parts.push(statement.condition); }
+			self.flow.replaceFacts(self.flow.survivingLoop(before.facts, parts));
 			self.validateExpression(statement.condition,  vars);
 			self.validateCondition(statement.condition, "Loop", vars);
+			proven = self.flow.outcome(statement.condition, true);
+		} else if (statement.condition != null) {
+			backEdge.push(statement.condition);
 		}
 		int previousLoop = self.state.loopDepth;
 		int previousBreak = self.state.breakDepth;
 		self.state.loopDepth = previousLoop + 1;
 		self.state.breakDepth = previousBreak + 1;
-		self.validateBlock(statement.bodyNode,  vars);
+		self.validateLoopBody(statement.bodyNode, vars, proven, backEdge, entry);
 		self.state.loopDepth = previousLoop;
 		self.state.breakDepth = previousBreak;
 		if (isDoWhile) {
@@ -493,6 +550,8 @@ class ControlFlowValidator {
 	public void validateSwitch(Node statement, Map<string, Node> vars) {
 		self.validateExpression(statement.valueNode,  vars);
 		self.validateSwitchContracts(statement,  vars);
+		Map<string, bool> beforeCases = self.flow.currentFacts();
+		Vector<NullableFlowState> caseFlows = [];
 		int previousBreak = self.state.breakDepth;
 		self.state.breakDepth = previousBreak + 1;
 		int caseIndex = 0;
@@ -501,6 +560,8 @@ class ControlFlowValidator {
 			self.validateExpression(caseClause.valueNode,  vars);
 			Map<string, bool> noCaseReservedNames = {};
 			self.names.validateDirectLocalNameList(caseClause.bodyNodeList(), noCaseReservedNames);
+			NullableFlowState caseEntry = self.flow.snapshot();
+			Map<string, string> previousFlowBindings = self.flow.saveBindings();
 			Map<string, Node> caseVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> previousCaseLocals = self.types.cloneFlags(self.state.localBindings);
 			Map<string, bool> previousCaseBorrowed = self.types.cloneFlags(self.state.borrowedBindings);
@@ -513,17 +574,32 @@ class ControlFlowValidator {
 				if (terminal) {
 					TypeValidator.fail("Unreachable code after return/throw/break/continue", bodyStatement);
 				}
-				self.validateStmt(bodyStatement,  caseVars);
+				self.validateSequenced(bodyStatement,  caseVars);
 				self.state.previousStatement = bodyStatement;
 				terminal = self.directTerminal(bodyStatement);
 				statementIndex = statementIndex + 1;
 			}
+			caseFlows.push(self.flow.snapshot());
+			self.flow.restore(caseEntry);
+			self.flow.restoreBindings(previousFlowBindings);
 			self.state.localBindings = previousCaseLocals;
 			self.state.borrowedBindings = previousCaseBorrowed;
 			self.state.previousStatement = previousStatement;
 			caseIndex = caseIndex + 1;
 		}
 		self.state.breakDepth = previousBreak;
+		/* A case that never completes reaches nothing after the switch. */
+		NullableFlowState joined = NullableFlow.join(caseFlows);
+		self.flow.replaceFacts(joined.reachable ? NullableFlow.intersect(beforeCases, joined.facts) : beforeCases);
+	}
+
+	/* One statement of a sequence. Code after a return, a throw or a call
+	 * that never returns is unreachable, and so is everything after
+	 * unreachable code. */
+	private void validateSequenced(Node statement, Map<string, Node> vars) {
+		bool reached = self.flow.reachable();
+		self.validateStmt(statement, vars);
+		if (!reached || self.flow.endsFlow(statement)) { self.flow.markUnreachable(); }
 	}
 
 	public bool directTerminal(Node statement) { return statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT || statement.kind == NK_BREAK_STMT || statement.kind == NK_CONTINUE_STMT; }
@@ -537,6 +613,7 @@ class ControlFlowValidator {
 		Map<string, bool> noReservedNames = {};
 		self.names.validateDirectLocalNames(block, noReservedNames);
 		Map<string, Node> vars = TypeValidator.cloneTypes(outerVars);
+		Map<string, string> previousFlowBindings = self.flow.saveBindings();
 		bool terminal = false;
 		int index = 0;
 		while (index < block.statements().len) {
@@ -544,11 +621,12 @@ class ControlFlowValidator {
 			if (terminal) {
 				TypeValidator.fail("Unreachable code after return/throw/break/continue", statement);
 			}
-			self.validateStmt(statement,  vars);
+			self.validateSequenced(statement,  vars);
 			self.state.previousStatement = statement;
 			terminal = self.directTerminal(statement);
 			index = index + 1;
 		}
+		self.flow.restoreBindings(previousFlowBindings);
 		self.state.borrowedBindings = previousBorrowedBindings;
 		self.state.localBindings = previousLocalBindings;
 		self.state.previousStatement = previousStatement;
@@ -603,6 +681,9 @@ class ControlFlowValidator {
 				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
 			}
 			declared = self.storage.inferredBindingValueType(actual, declaration.initializer, vars);
+			if (declared == null) {
+				TypeValidator.fail("Cannot infer type for 'var' declaration of '" + declaration.name + "'", declaration);
+			}
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer) && !self.storage.charArrayStringInitializer(declared, declaration.initializer, vars)) {
 			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared), declaration);
 		}
@@ -613,16 +694,21 @@ class ControlFlowValidator {
 		if (self.state.owner != "" && declaration.type != null && declaration.type.isArray && declaration.type.arraySize != null) {
 			self.expressions.validateExpr(declaration.type.arraySize, vars);
 		}
+		self.flow.expression(declaration.initializer, vars);
+		if (declaration.type != null) { self.flow.checkStore(declaration.type, declaration.initializer, "variable '" + declaration.name + "'", vars); }
 		vars.put(declaration.name, declared);
 		self.state.borrowedBindings.remove(declaration.name);
 		if (self.state.owner != "") {
 			self.state.localBindings.put(declaration.name, true);
+			self.flow.bind(declaration.name);
+			self.flow.declared(declaration.name, declared, declaration.initializer, vars);
 		}
 	}
 
 	public void validateReturn(Node statement, Map<string, Node> vars) {
 		self.expressions.contextualizeGenericConstructor(self.state.returnType, statement.valueNode, vars);
 		self.validateExpression(statement.valueNode,  vars);
+		self.flow.checkStore(self.flow.returnTarget, statement.valueNode, "return value", vars);
 		self.validateThreadTransferSource(statement.valueNode,  vars);
 		if (self.state.returnType == null) { return; }
 		Node expectedReturn = self.state.returnType;
@@ -654,6 +740,7 @@ class ControlFlowValidator {
 
 	public void validateCFor(Node statement, Map<string, Node> vars) {
 		Map<string, bool> previousLocalBindings = self.types.cloneFlags(self.state.localBindings);
+		Map<string, string> previousFlowBindings = self.flow.saveBindings();
 		Map<string, Node> loopVars = TypeValidator.cloneTypes(vars);
 		if (statement.init != null) {
 			if (statement.init.kind == NK_FOR_INIT_VAR) {
@@ -680,23 +767,40 @@ class ControlFlowValidator {
 				self.rejectThreadObservation(statement.init.expression, loopVars);
 			}
 		}
+		NullableFlowState beforeIteration = self.flow.snapshot();
+		Vector<Node> parts = [];
+		if (statement.bodyNode != null) { parts.push(statement.bodyNode); }
+		if (statement.update != null) { parts.push(statement.update); }
+		if (statement.condition != null) { parts.push(statement.condition); }
+		self.flow.replaceFacts(self.flow.survivingLoop(beforeIteration.facts, parts));
 		self.validateExpression(statement.condition,  loopVars);
 		self.validateCondition(statement.condition, "C-style for loop", loopVars);
 		int previousLoop = self.state.loopDepth;
 		int previousBreak = self.state.breakDepth;
 		self.state.loopDepth = previousLoop + 1;
 		self.state.breakDepth = previousBreak + 1;
+		NullableFlowState head = self.flow.snapshot();
+		self.flow.enter(head, self.flow.outcome(statement.condition, true));
 		self.validateBlock(statement.bodyNode,  loopVars);
 		self.validateExpression(statement.update,  loopVars);
 		self.rejectThreadObservation(statement.update,  loopVars);
+		NullableFlowState iteration = self.flow.snapshot();
+		self.flow.restore(head);
+		self.flow.replaceFacts(iteration.reachable ? NullableFlow.intersect(beforeIteration.facts, iteration.facts) : beforeIteration.facts);
 		self.state.loopDepth = previousLoop;
 		self.state.breakDepth = previousBreak;
 		self.state.localBindings = previousLocalBindings;
+		self.flow.restoreBindings(previousFlowBindings);
 	}
 
 	public void validateTry(Node statement, Map<string, Node> vars) {
+		NullableFlowState beforeTry = self.flow.snapshot();
 		self.validateBlock(statement.tryBlock,  vars);
+		NullableFlowState tryFlow = self.flow.snapshot();
+		self.flow.restore(beforeTry);
+		NullableFlowState catchFlow = beforeTry;
 		if (statement.catchBlock != null) {
+			Map<string, string> previousFlowBindings = self.flow.saveBindings();
 			Map<string, bool> previousCatchLocals = self.types.cloneFlags(self.state.localBindings);
 			Map<string, Node> catchVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> catchNames = {};
@@ -712,14 +816,54 @@ class ControlFlowValidator {
 				catchNames.put(statement.catchVar, true);
 				catchVars.put(statement.catchVar, catchType);
 				self.state.localBindings.put(statement.catchVar, true);
+				self.flow.bind(statement.catchVar);
 			}
 			self.names.validateDirectLocalNames(statement.catchBlock, catchNames);
 			self.validateBlock(statement.catchBlock,  catchVars);
 			self.state.localBindings = previousCatchLocals;
+			self.flow.restoreBindings(previousFlowBindings);
+			catchFlow = self.flow.snapshot();
+			self.flow.restore(beforeTry);
 		}
 		if (statement.finallyBlock != null) {
+			/* The finally block runs on every exit, so a body that never
+			 * completes still reaches it, from facts no stronger than the entry. */
+			Map<string, bool> finallyFacts = tryFlow.reachable ? tryFlow.facts : beforeTry.facts;
+			finallyFacts = NullableFlow.intersect(finallyFacts, statement.catchBlock != null && catchFlow.reachable ? catchFlow.facts : beforeTry.facts);
+			self.flow.replaceFacts(finallyFacts);
 			self.validateBlock(statement.finallyBlock,  vars);
+			if (!tryFlow.reachable && (statement.catchBlock == null || !catchFlow.reachable)) { self.flow.markUnreachable(); }
+			return;
 		}
+		Vector<NullableFlowState> continuing = [];
+		if (!NullableFlow.blockStopsFallthrough(statement.tryBlock)) { continuing.push(tryFlow); }
+		if (statement.catchBlock != null && !NullableFlow.blockStopsFallthrough(statement.catchBlock)) { continuing.push(catchFlow); }
+		self.flow.restore(NullableFlow.join(continuing));
+	}
+
+	/* A branch that never completes (it returns, throws, exits, breaks or
+	 * continues) contributes no facts to the code after the statement. */
+	private void validateIf(Node statement, Map<string, Node> vars) {
+		self.validateExpression(statement.condition,  vars);
+		self.validateCondition(statement.condition, "If statement", vars);
+		NullableFlowState entry = self.flow.snapshot();
+		Vector<NullableFlowState> continuing = [];
+		self.flow.enter(entry, self.flow.outcome(statement.condition, true));
+		self.validateBlock(statement.thenBlock,  vars);
+		NullableFlowState thenFlow = self.flow.snapshot();
+		if (!NullableFlow.blockStopsFallthrough(statement.thenBlock)) { continuing.push(thenFlow); }
+		Node? elseNode = statement.elseBlock;
+		self.flow.enter(entry, self.flow.outcome(statement.condition, false));
+		if (elseNode != null) {
+			self.validateStmt(elseNode,  vars);
+			NullableFlowState elseFlow = self.flow.snapshot();
+			bool stops = NullableFlow.stopsFallthrough(elseNode.ifStmt);
+			if (elseNode.kind == NK_ELSE_BLOCK) { stops = NullableFlow.blockStopsFallthrough(elseNode.bodyNode); }
+			if (!stops) { continuing.push(elseFlow); }
+		} else {
+			continuing.push(self.flow.snapshot());
+		}
+		self.flow.restore(NullableFlow.join(continuing));
 	}
 
 	public void validateStmt(Node statement, Map<string, Node> vars) {
@@ -734,13 +878,9 @@ class ControlFlowValidator {
 			self.expressions.validateGpuResultStatement(statement.expr, vars);
 			self.state.standaloneExpression = previousStandalone;
 			self.validateThreadExpressionDiscard(statement.expr, vars);
+			self.flow.expression(statement.expr, vars);
 		} else if (statement.kind == NK_IF_STMT) {
-			self.validateExpression(statement.condition,  vars);
-			self.validateCondition(statement.condition, "If statement", vars);
-			self.validateBlock(statement.thenBlock,  vars);
-			if (statement.elseBlock != null) {
-				self.validateStmt(statement.elseBlock,  vars);
-			}
+			self.validateIf(statement, vars);
 		} else if (statement.kind == NK_ELSE_BLOCK) {
 			self.validateBlock(statement.bodyNode,  vars);
 		} else if (statement.kind == NK_ELSE_IF) {
@@ -757,6 +897,7 @@ class ControlFlowValidator {
 			self.validateTry(statement,  vars);
 		} else if (statement.kind == NK_DELETE_STMT || statement.kind == NK_KEEP_STMT || statement.kind == NK_RELEASE_STMT) {
 			self.ownership.validateOwnership(statement,  vars);
+			self.flow.expression(statement.expr, vars);
 		} else if (statement.kind == NK_THROW_STMT) {
 			self.validateExpression(statement.expr,  vars);
 			self.rejectThreadObservation(statement.expr,  vars);
@@ -771,5 +912,732 @@ class ControlFlowValidator {
 		} else if (statement.kind == NK_BLOCK) {
 			self.validateBlock(statement,  vars);
 		}
+	}
+}
+
+/* One point of the nullable flow: the access paths known to be non-null
+ * there, or no execution at all (after a return, a throw or an exit). */
+class NullableFlowState {
+	public Map<string, bool> facts;
+	public bool reachable;
+
+	public NullableFlowState(Map<string, bool> facts, bool reachable) {
+		self.facts = facts;
+		self.reachable = reachable;
+	}
+}
+
+/* What evaluating an expression can do to non-null facts: stores (a path, or
+ * an unknown target), calls, and addresses taken as call arguments. */
+class NullableFlowEffects {
+	public Vector<string> assignments = [];
+	public bool unknownAssignment = false;
+	public Vector<string> addressEscapes = [];
+	public bool hasCall = false;
+
+	public NullableFlowEffects() {}
+}
+
+/* Path-sensitive nullable-access warnings, the self-hosted counterpart of
+ * the reference ControlFlowAnalyzer. A fact is a stable access path known to
+ * be non-null: a binding key (one per lexical binding, `g:` and a global's
+ * name, or `g:@` and a class whose static fields follow) followed by field
+ * names. Statement validation drives it in the
+ * reference's order: each analyzed expression is checked against the facts,
+ * then its stores, calls and escaped addresses kill the facts they can
+ * change; branches join, and loop bodies start from the facts their back
+ * edge preserves. */
+class NullableFlow {
+	private SemanticValidationState state;
+	private TypeValidator types;
+	private HostedAbiRepository hostedAbi;
+	private Map<string, bool> facts = {};
+	private bool unreachable = false;
+	private Map<string, bool> escaped = {};
+	/* Name -> binding key of the binding it resolves to in the current scope. */
+	private Map<string, string> bindings = {};
+	private int nextBinding = 0;
+	/* The class whose member is being validated, or "". */
+	public string ownerClass = "";
+	private Map<Node, bool> nonreturning = {};
+	private Map<string, Node> functionDefinitions = {};
+	private Map<Node, bool> warned = {};
+	private Map<Node, bool> storeWarned = {};
+	/* The declared type a `return` in the body being validated stores into. */
+	public Node? returnTarget = null;
+
+	public NullableFlow(SemanticValidationState state, TypeValidator types, HostedAbiRepository hostedAbi) {
+		self.state = state;
+		self.types = types;
+		self.hostedAbi = hostedAbi;
+	}
+
+	class Map<string, bool> copyFacts(Map<string, bool> source) {
+		Map<string, bool> result = {};
+		result.merge(source);
+		return result;
+	}
+
+	/* ---- bindings ---- */
+
+	public Map<string, string> saveBindings() {
+		Map<string, string> saved = {};
+		saved.merge(self.bindings);
+		return saved;
+	}
+
+	public void restoreBindings(Map<string, string> saved) { self.bindings = saved; }
+
+	public void bind(string name) {
+		self.bindings.put(name, "#" + Strings.fromInt(self.nextBinding));
+		self.nextBinding = self.nextBinding + 1;
+	}
+
+	private bool resolvesLocally(string name) { return self.bindings.has(name) || self.state.analyzed.globalVarTypes.has(name); }
+
+	/* ---- flow state ---- */
+
+	public NullableFlowState snapshot() { return NullableFlowState(NullableFlow.copyFacts(self.facts), !self.unreachable); }
+
+	public void restore(NullableFlowState flow) {
+		self.facts = NullableFlow.copyFacts(flow.facts);
+		self.unreachable = !flow.reachable;
+	}
+
+	/* Analyze a branch from `base` plus the facts its condition proves. */
+	public void enter(NullableFlowState base, Map<string, bool> proven) {
+		self.facts = NullableFlow.copyFacts(base.facts);
+		self.facts.merge(proven);
+		self.unreachable = !base.reachable;
+	}
+
+	/* A body that is always reached and knows nothing: a callable or a lambda. */
+	public void enterBody() {
+		self.facts = {};
+		self.unreachable = false;
+	}
+
+	public bool reachable() { return !self.unreachable; }
+
+	public void markUnreachable() {
+		self.facts = {};
+		self.unreachable = true;
+	}
+
+	public Map<string, bool> currentFacts() { return NullableFlow.copyFacts(self.facts); }
+
+	public void replaceFacts(Map<string, bool> facts) { self.facts = NullableFlow.copyFacts(facts); }
+
+	/* The flows that reach one point, joined; unreachable when none does. */
+	class NullableFlowState join(Vector<NullableFlowState> flows) {
+		Map<string, bool> joined = {};
+		bool first = true;
+		for flow in flows {
+			if (!flow.reachable) { continue; }
+			if (first) {
+				joined = NullableFlow.copyFacts(flow.facts);
+				first = false;
+			} else {
+				joined = NullableFlow.intersect(joined, flow.facts);
+			}
+		}
+		Map<string, bool> none = {};
+		return first ? NullableFlowState(none, false) : NullableFlowState(joined, true);
+	}
+
+	class Map<string, bool> intersect(Map<string, bool> left, Map<string, bool> right) {
+		Map<string, bool> result = {};
+		for key in left.keys() {
+			if (right.has(key)) { result.put(key, true); }
+		}
+		return result;
+	}
+
+	class Map<string, bool> unite(Map<string, bool> left, Map<string, bool> right) {
+		Map<string, bool> result = NullableFlow.copyFacts(left);
+		result.merge(right);
+		return result;
+	}
+
+	/* ---- access paths ---- */
+
+	public string path(Node? expression) {
+		if (expression == null) { return ""; }
+		if (expression.kind == NK_IDENTIFIER) {
+			if (self.bindings.has(expression.name)) { return self.bindings.get(expression.name); }
+			if (self.state.analyzed.globalVarTypes.has(expression.name)) { return "g:" + expression.name; }
+			/* A class's static storage is global storage any call can change. */
+			if (self.state.analyzed.isClass(expression.name) || self.state.analyzed.isGenericClass(expression.name)) { return "g:@" + expression.name; }
+			return "";
+		}
+		if (expression.kind == NK_SELF_EXPR) { return self.bindings.has("self") ? self.bindings.get("self") : ""; }
+		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+			string parent = self.path(expression.obj);
+			return parent.isEmpty() ? "" : parent + "." + expression.field;
+		}
+		return "";
+	}
+
+	class string root(string path) {
+		int dot = path.indexOf(".");
+		return dot < 0 ? path : path.substring(0, dot);
+	}
+
+	class bool hasFields(string path) { return path.indexOf(".") >= 0; }
+
+	class bool globalPath(string path) { return path.startsWith("g:"); }
+
+	/* Whether storing to `path` can change `fact`. */
+	class bool covers(string path, string fact) { return fact.equals(path) || fact.startsWith(path + "."); }
+
+	class bool nullLiteral(Node? expression) { return expression != null && (expression.kind == NK_NULL_LITERAL || (expression.kind == NK_IDENTIFIER && expression.name == "NULL")); }
+
+	/* ---- effects ---- */
+
+	private void collectEffects(Node? expression, NullableFlowEffects effects, bool skipUndeclaredStores) {
+		if (expression == null || expression.kind == NK_LAMBDA_EXPR) { return; }
+		if (expression.kind == NK_ASSIGN_EXPR) {
+			if (!skipUndeclaredStores || !self.undeclaredStore(expression.target)) {
+				string target = self.path(expression.target);
+				if (target.isEmpty()) { effects.unknownAssignment = true; }
+				else { effects.assignments.push(target); }
+			}
+		} else if (expression.kind == NK_CALL_EXPR) {
+			effects.hasCall = true;
+			for argument in expression.args() {
+				if (argument.kind == NK_UNARY_EXPR && argument.op == "&") {
+					string address = self.path(argument.operand);
+					if (!address.isEmpty()) { effects.addressEscapes.push(address); }
+				}
+			}
+		}
+		Vector<Node> children = [];
+		AstStructure.children(expression, children);
+		for child in children { self.collectEffects(child, effects, skipUndeclaredStores); }
+	}
+
+	/* A store to a local the loop body itself declares cannot kill an outer fact. */
+	private bool undeclaredStore(Node? target) {
+		Node? rootNode = target;
+		while (rootNode != null && (rootNode.kind == NK_FIELD_ACCESS_EXPR || rootNode.kind == NK_INDEX_EXPR)) { rootNode = rootNode.obj; }
+		return rootNode != null && rootNode.kind == NK_IDENTIFIER && !self.resolvesLocally(rootNode.name) && !self.state.analyzed.isClass(rootNode.name) && !self.state.analyzed.isGenericClass(rootNode.name);
+	}
+
+	private Map<string, bool> surviving(Map<string, bool> facts, NullableFlowEffects effects) {
+		Map<string, bool> result = NullableFlow.copyFacts(facts);
+		if (effects.unknownAssignment) {
+			result = self.survivingUnknownWrite(result);
+		} else {
+			bool fieldStore = false;
+			for assigned in effects.assignments { if (NullableFlow.hasFields(assigned)) { fieldStore = true; } }
+			if (fieldStore) { result = NullableFlow.withoutFieldPaths(result); }
+		}
+		Map<string, bool> kept = {};
+		for fact in result.keys() {
+			bool killed = false;
+			for assigned in effects.assignments { if (NullableFlow.covers(assigned, fact)) { killed = true; } }
+			for address in effects.addressEscapes { if (NullableFlow.covers(address, fact)) { killed = true; } }
+			if (killed) { continue; }
+			if (effects.hasCall && (NullableFlow.hasFields(fact) || NullableFlow.globalPath(fact))) { continue; }
+			kept.put(fact, true);
+		}
+		return kept;
+	}
+
+	class Map<string, bool> withoutFieldPaths(Map<string, bool> facts) {
+		Map<string, bool> result = {};
+		for fact in facts.keys() { if (!NullableFlow.hasFields(fact)) { result.put(fact, true); } }
+		return result;
+	}
+
+	/* An index, dereference or static-field store reaches a local only
+	 * through an escaped address, exactly as a call does. */
+	private Map<string, bool> survivingUnknownWrite(Map<string, bool> facts) {
+		Map<string, bool> result = {};
+		for fact in facts.keys() {
+			if (!NullableFlow.hasFields(fact) && !NullableFlow.globalPath(fact) && !self.escaped.has(fact)) { result.put(fact, true); }
+		}
+		return result;
+	}
+
+	private Map<string, bool> survivingExpression(Map<string, bool> facts, Node? expression) {
+		NullableFlowEffects effects = NullableFlowEffects();
+		self.collectEffects(expression, effects, false);
+		return self.surviving(facts, effects);
+	}
+
+	private void invalidateEffects(Node? expression) {
+		Map<string, bool> kept = {};
+		for fact in self.survivingExpression(self.facts, expression).keys() {
+			if (!self.escaped.has(NullableFlow.root(fact))) { kept.put(fact, true); }
+		}
+		self.facts = kept;
+	}
+
+	private void invalidateTarget(Node? target) {
+		string assigned = self.path(target);
+		if (assigned.isEmpty()) {
+			self.facts = self.survivingUnknownWrite(self.facts);
+		} else if (NullableFlow.hasFields(assigned)) {
+			self.facts = NullableFlow.withoutFieldPaths(self.facts);
+		} else {
+			Map<string, bool> kept = {};
+			for fact in self.facts.keys() { if (!NullableFlow.covers(assigned, fact)) { kept.put(fact, true); } }
+			self.facts = kept;
+		}
+	}
+
+	private void recordPath(string path) {
+		if (!path.isEmpty() && !self.escaped.has(NullableFlow.root(path))) { self.facts.put(path, true); }
+	}
+
+	/* The facts that still hold at a loop head on every iteration: those no
+	 * part of the loop (body, condition, update) can kill. */
+	public Map<string, bool> survivingLoop(Map<string, bool> facts, Vector<Node> parts) {
+		NullableFlowEffects effects = NullableFlowEffects();
+		for part in parts { self.collectEffects(part, effects, true); }
+		return self.surviving(facts, effects);
+	}
+
+	/* ---- conditions ---- */
+
+	public Map<string, bool> outcome(Node? expression, bool truth) {
+		Map<string, bool> none = {};
+		if (expression == null) { return none; }
+		if (expression.kind == NK_UNARY_EXPR && expression.op == "!") { return self.outcome(expression.operand, !truth); }
+		if (expression.kind != NK_BINARY_EXPR) { return none; }
+		if (expression.op == "==" || expression.op == "!=") {
+			string compared = "";
+			if (NullableFlow.nullLiteral(expression.left)) { compared = self.path(expression.right); }
+			else if (NullableFlow.nullLiteral(expression.right)) { compared = self.path(expression.left); }
+			bool proves = (expression.op == "!=" && truth) || (expression.op == "==" && !truth);
+			if (!compared.isEmpty() && proves) { none.put(compared, true); }
+			return none;
+		}
+		if (expression.op == "&&" || expression.op == "||") {
+			Map<string, bool> left = self.outcome(expression.left, truth);
+			Map<string, bool> right = self.outcome(expression.right, truth);
+			bool sequential = (expression.op == "&&") == truth;
+			if (sequential) { return NullableFlow.unite(self.survivingExpression(left, expression.right), right); }
+			return NullableFlow.intersect(left, right);
+		}
+		return none;
+	}
+
+	/* ---- checks ---- */
+
+	/* Check one analyzed expression against the current facts, then apply
+	 * what it does to them. */
+	public void expression(Node? expression, Map<string, Node> vars) {
+		if (expression == null) { return; }
+		self.check(expression, self.facts, vars);
+		if (expression.kind == NK_UNARY_EXPR && expression.op == "&") {
+			string address = self.path(expression.operand);
+			if (!address.isEmpty() && !NullableFlow.hasFields(address)) { self.escaped.put(address, true); }
+		} else if (expression.kind == NK_ASSIGN_EXPR) {
+			bool storesNonnull = expression.op == "=" && self.nullableType(self.types.inferType(expression.target, vars)) && self.storesNonnull(expression.valueNode, vars);
+			/* A call or store inside the value runs before the store lands. */
+			self.invalidateEffects(expression.valueNode);
+			self.invalidateTarget(expression.target);
+			if (storesNonnull) { self.recordPath(self.path(expression.target)); }
+		} else {
+			self.invalidateEffects(expression);
+		}
+	}
+
+	private void check(Node? expression, Map<string, bool> facts, Map<string, Node> vars) {
+		if (expression == null || expression.kind == NK_LAMBDA_EXPR) { return; }
+		if (expression.kind == NK_FIELD_ACCESS_EXPR) { self.checkAccess(expression, facts, vars); }
+		if (expression.kind == NK_ASSIGN_EXPR && expression.op == "=") {
+			self.checkStoreWith(self.types.inferType(expression.target, vars), false, expression.valueNode, "assignment target", facts, vars);
+		} else if (expression.kind == NK_CALL_EXPR) {
+			self.checkArguments(expression, facts, vars);
+		}
+		if (expression.kind == NK_BINARY_EXPR && (expression.op == "&&" || expression.op == "||")) {
+			self.check(expression.left, facts, vars);
+			self.check(expression.right, NullableFlow.unite(facts, self.outcome(expression.left, expression.op == "&&")), vars);
+			return;
+		}
+		if (expression.kind == NK_TERNARY_EXPR) {
+			self.check(expression.condition, facts, vars);
+			self.check(expression.trueExpr, NullableFlow.unite(facts, self.outcome(expression.condition, true)), vars);
+			self.check(expression.falseExpr, NullableFlow.unite(facts, self.outcome(expression.condition, false)), vars);
+			return;
+		}
+		Vector<Node> children = [];
+		AstStructure.children(expression, children);
+		for child in children { self.check(child, facts, vars); }
+	}
+
+	private void checkAccess(Node access, Map<string, bool> facts, Map<string, Node> vars) {
+		if (access.optional || self.unreachable || self.warned.has(access)) { return; }
+		string known = self.path(access.obj);
+		if (!known.isEmpty() && facts.has(known)) { return; }
+		Node? objectType = self.types.inferType(access.obj, vars);
+		if (objectType == null || !objectType.isNullable) { return; }
+		self.warned.put(access, true);
+		self.state.analyzed.recordWarning("Non-optional access '." + access.field + "' on nullable type '" + objectType.base + "?' — use '?." + access.field + "' or check for null", access);
+	}
+
+	private bool nullableType(Node? typeExpr) { return typeExpr != null && typeExpr.isNullable; }
+
+	/* ---- stores ---- */
+
+	/* Warn when a value that may be null is stored into a non-nullable reference. */
+	public void checkStore(Node? targetType, Node? value, string context, Map<string, Node> vars) { self.checkStoreWith(targetType, false, value, context, self.facts, vars); }
+
+	private void checkStoreWith(Node? targetType, bool targetNullable, Node? value, string context, Map<string, bool> facts, Map<string, Node> vars) {
+		if (value == null || targetType == null || targetNullable || !self.nonnullReference(targetType) || self.storeWarned.has(value)) { return; }
+		if (!self.mayBeNull(value, facts, vars)) { return; }
+		self.storeWarned.put(value, true);
+		self.state.analyzed.recordWarning("Possibly-null value stored in non-nullable " + context + " of type '" + targetType.base + "' — check for null first", value);
+	}
+
+	/* A source reference that may not hold null: a class, interface or string, not declared nullable. */
+	private bool nonnullReference(Node typeExpr) {
+		Analyzed analyzed = self.state.analyzed;
+		return !typeExpr.isNullable && !typeExpr.isArray && typeExpr.pointerDepth <= 1 && (typeExpr.base == "string" || analyzed.isClass(typeExpr.base) || analyzed.isGenericClass(typeExpr.base) || analyzed.isInterface(typeExpr.base));
+	}
+
+	private bool mayBeNull(Node value, Map<string, bool> facts, Map<string, Node> vars) {
+		if (self.unreachable) { return false; }
+		if (NullableFlow.nullLiteral(value)) { return true; }
+		/* `a ?? b` is null only when its fallback `b` may be. */
+		Node? rightOperand = value.right;
+		if (value.kind == NK_BINARY_EXPR && value.op == "??" && rightOperand != null) { return self.mayBeNull(rightOperand, facts, vars); }
+		Node? leftOperand = value.left;
+		if (value.kind == NK_BINARY_EXPR && value.op == "+" && leftOperand != null && rightOperand != null) {
+			Node? concatenated = self.types.inferType(value, vars);
+			if (concatenated != null && concatenated.base == "string" && concatenated.pointerDepth <= 1) {
+				/* A concatenation is null only when one of its operands may be. */
+				return self.mayBeNull(leftOperand, facts, vars) || self.mayBeNull(rightOperand, facts, vars);
+			}
+		}
+		if (value.kind == NK_TERNARY_EXPR) {
+			Node? whenTrue = value.trueExpr;
+			Node? whenFalse = value.falseExpr;
+			if (whenTrue != null && self.mayBeNull(whenTrue, NullableFlow.unite(facts, self.outcome(value.condition, true)), vars)) { return true; }
+			return whenFalse != null && self.mayBeNull(whenFalse, NullableFlow.unite(facts, self.outcome(value.condition, false)), vars);
+		}
+		string known = self.path(value);
+		if (!known.isEmpty() && facts.has(known)) { return false; }
+		return self.nullableType(self.types.inferType(value, vars));
+	}
+
+	/* The positional arguments of a call to a source callable, each checked
+	 * against the parameter it is stored into. Calls resolve by name (a
+	 * top-level function with a body, or a non-generic class's constructor),
+	 * as a static `C.m()`, or through the receiver's type to a class,
+	 * interface or generic-instance method, whose class type parameters take
+	 * the instance's arguments. A parameter typed by a method's own type
+	 * parameter has no known target. */
+	private void checkArguments(Node call, Map<string, bool> facts, Map<string, Node> vars) {
+		Node? callee = call.callee;
+		if (callee == null) { return; }
+		Analyzed analyzed = self.state.analyzed;
+		Node? callable = null;
+		Map<string, Node> substitutions = {};
+		string name = "";
+		if (callee.kind == NK_IDENTIFIER) {
+			name = callee.name;
+			if (self.resolvesLocally(callee.name)) { return; }
+			if (self.functionDefinitions.has(callee.name)) {
+				callable = self.functionDefinitions.get(callee.name);
+			} else if (analyzed.isClass(callee.name)) {
+				callable = analyzed.classConstructor(callee.name);
+			}
+		} else if (callee.kind == NK_FIELD_ACCESS_EXPR && !callee.optional) {
+			name = callee.field;
+			Node? receiver = callee.obj;
+			if (receiver == null) { return; }
+			if (receiver.kind == NK_IDENTIFIER && !self.resolvesLocally(receiver.name) && (analyzed.isClass(receiver.name) || analyzed.isGenericClass(receiver.name))) {
+				Node? candidate = self.method(receiver.name, callee.field);
+				if (candidate != null && candidate.access == "class") { callable = candidate; }
+			} else {
+				Node? receiverType = self.types.inferType(receiver, vars);
+				if (receiverType == null || receiverType.isArray) { return; }
+				if (analyzed.isClass(receiverType.base)) {
+					Node? candidate = analyzed.classMethod(receiverType.base, callee.field);
+					if (candidate != null && candidate.access != "class") { callable = candidate; }
+				} else if (analyzed.isGenericClass(receiverType.base)) {
+					Vector<string> parameters = analyzed.genericClassTable.get(receiverType.base).genericParams();
+					if (receiverType.genericArgs().len != parameters.len) { return; }
+					Node? candidate = analyzed.genericClassMethod(receiverType.base, callee.field);
+					if (candidate != null && candidate.access != "class") { callable = candidate; }
+					for (int index = 0; index < parameters.len; index++) { substitutions.put(parameters.get(index), receiverType.genericArgs().get(index)); }
+				} else if (analyzed.isInterface(receiverType.base)) {
+					callable = analyzed.interfaceMethod(receiverType.base, callee.field);
+				}
+			}
+		}
+		if (callable == null) { return; }
+		Map<string, bool> methodParameters = {};
+		for parameter in callable.genericParams() { methodParameters.put(parameter, true); }
+		Vector<Node> parameters = callable.params();
+		Vector<string> names = call.argNames();
+		for (int index = 0; index < call.args().len && index < parameters.len; index++) {
+			if (index < names.len && names.get(index) != "") { continue; }
+			Node? declared = parameters.get(index).type;
+			if (declared == null || methodParameters.has(declared.base)) { continue; }
+			if (substitutions.has(declared.base)) {
+				self.checkStoreWith(substitutions.get(declared.base), declared.isNullable, call.args().get(index), "argument " + Strings.fromInt(index + 1) + " of '" + name + "'", facts, vars);
+			} else {
+				self.checkStoreWith(declared, false, call.args().get(index), "argument " + Strings.fromInt(index + 1) + " of '" + name + "'", facts, vars);
+			}
+		}
+	}
+
+	/* Whether a stored value cannot be null: a path the flow proved, or a
+	 * non-nullable reference. */
+	public bool storesNonnull(Node? expression, Map<string, Node> vars) {
+		if (expression == null || NullableFlow.nullLiteral(expression)) { return false; }
+		string known = self.path(expression);
+		if (!known.isEmpty() && self.facts.has(known)) { return true; }
+		if (expression.kind == NK_TERNARY_EXPR) { return self.storesNonnull(expression.trueExpr, vars) && self.storesNonnull(expression.falseExpr, vars); }
+		if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL || expression.kind == NK_BRACE_INITIALIZER) { return true; }
+		if (expression.kind == NK_FIELD_ACCESS_EXPR && expression.optional) { return false; }
+		Node? valueType = self.types.inferType(expression, vars);
+		if (valueType == null || valueType.isNullable) { return false; }
+		if (valueType.pointerDepth == 0) { return true; }
+		/* A raw C pointer may be NULL without being declared nullable; a
+		 * source reference (one level of class, interface, string or generic
+		 * instance) may not. */
+		Analyzed analyzed = self.state.analyzed;
+		return valueType.pointerDepth == 1 && (valueType.base == "string" || valueType.genericArgs().len > 0 || analyzed.isClass(valueType.base) || analyzed.isGenericClass(valueType.base) || analyzed.isInterface(valueType.base));
+	}
+
+	/* A local declared `name` was just bound with `initializer`. */
+	public void declared(string name, Node? declaredType, Node? initializer, Map<string, Node> vars) {
+		if (self.nullableType(declaredType) && self.storesNonnull(initializer, vars)) { self.recordPath(self.path(NullableFlow.identifier(name))); }
+	}
+
+	class Node identifier(string name) {
+		Node node = Node();
+		node.kind = NK_IDENTIFIER;
+		node.name = name;
+		return node;
+	}
+
+	/* ---- statements ---- */
+
+	/* Whether a statement certainly leaves its block without falling through:
+	 * a return, throw, break or continue, directly or in every branch. */
+	class bool stopsFallthrough(Node? statement) {
+		if (statement == null) { return false; }
+		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT || statement.kind == NK_BREAK_STMT || statement.kind == NK_CONTINUE_STMT) { return true; }
+		if (statement.kind == NK_BLOCK) { return NullableFlow.blockStopsFallthrough(statement); }
+		if (statement.kind != NK_IF_STMT || !NullableFlow.blockStopsFallthrough(statement.thenBlock)) { return false; }
+		Node? elseNode = statement.elseBlock;
+		if (elseNode == null) { return false; }
+		if (elseNode.kind == NK_ELSE_BLOCK) { return NullableFlow.blockStopsFallthrough(elseNode.bodyNode); }
+		return elseNode.kind == NK_ELSE_IF && NullableFlow.stopsFallthrough(elseNode.ifStmt);
+	}
+
+	class bool blockStopsFallthrough(Node? block) {
+		if (block == null) { return false; }
+		for statement in block.statements() { if (NullableFlow.stopsFallthrough(statement)) { return true; } }
+		return false;
+	}
+
+	/* Whether no statement after this one in its sequence can run. */
+	public bool endsFlow(Node statement) {
+		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT) { return true; }
+		Node? called = statement.expr;
+		return statement.kind == NK_EXPR_STMT && called != null && called.kind == NK_CALL_EXPR && self.callDiverges(called, self.ownerClass, {}, true);
+	}
+
+	/* ---- calls that never return ---- */
+
+	/* Find every function and method no call to which returns: every path
+	 * through its body ends in a throw or in such a call (a hosted noreturn
+	 * function, or another such callable). The least fixed point over the
+	 * syntactic call graph, as the reference computes it: `f()` names a
+	 * top-level function, `C.m()` a static method, and `self.m()` and
+	 * `self.field.m()` every implementation the receiver's class (or the
+	 * field's declared class) and its subclasses dispatch to. */
+	public void computeNonreturning(Node program) {
+		self.nonreturning = {};
+		self.functionDefinitions = {};
+		Vector<Node> callables = [];
+		Vector<string> owners = [];
+		for declaration in program.declarations() {
+			if (declaration.kind == NK_FUNCTION_DECL && declaration.bodyNode != null) {
+				callables.push(declaration);
+				owners.push("");
+				self.functionDefinitions.put(declaration.name, declaration);
+			} else if (declaration.kind == NK_CLASS_DECL) {
+				for member in declaration.members() {
+					if (member.kind == NK_METHOD_DECL && member.bodyNode != null && !member.isConstructor && member.name != "__del__") {
+						callables.push(member);
+						owners.push(declaration.name);
+					}
+				}
+			}
+		}
+		Vector<Map<string, bool>> locals = [];
+		for callable in callables { locals.push(NullableFlow.localNames(callable)); }
+		bool changed = true;
+		while (changed) {
+			changed = false;
+			for (int index = 0; index < callables.len; index++) {
+				Node callable = callables.get(index);
+				if (self.nonreturning.has(callable)) { continue; }
+				if (self.statementsDiverge(callable.bodyNode.statements(), owners.get(index), locals.get(index))) {
+					self.nonreturning.put(callable, true);
+					changed = true;
+				}
+			}
+		}
+	}
+
+	/* Every name a callable's parameters or body binds, which shadows a callee of that name. */
+	class Map<string, bool> localNames(Node callable) {
+		Map<string, bool> names = {};
+		for parameter in callable.params() { names.put(parameter.name, true); }
+		Vector<Node> pending = [callable.bodyNode];
+		while (pending.len > 0) {
+			Node node = pending.pop();
+			if (node.kind == NK_VAR_DECL_STMT) {
+				names.put(node.name, true);
+			} else if (node.kind == NK_FOR_IN_STMT || node.kind == NK_PARALLEL_FOR_STMT) {
+				names.put(node.varName, true);
+				if (node.kind == NK_FOR_IN_STMT && node.varName2 != null) { names.put(node.varName2, true); }
+			} else if (node.kind == NK_TRY_CATCH_STMT && node.catchVar != "") {
+				names.put(node.catchVar, true);
+			} else if (node.kind == NK_LAMBDA_EXPR) {
+				for parameter in node.params() { names.put(parameter.name, true); }
+			}
+			AstStructure.children(node, pending);
+		}
+		return names;
+	}
+
+	/* `locals` are the pre-pass's shadowing names; with `scoped`, a name
+	 * shadows when it resolves to a binding of the code being validated. */
+	private bool callDiverges(Node call, string owner, Map<string, bool> locals, bool scoped) {
+		Node? callee = call.callee;
+		if (callee == null) { return false; }
+		if (callee.kind == NK_IDENTIFIER) {
+			if (self.shadowed(callee.name, locals, scoped)) { return false; }
+			if (self.hostedAbi.noreturnFunction(callee.name)) { return true; }
+			return self.functionDefinitions.has(callee.name) && self.nonreturning.has(self.functionDefinitions.get(callee.name));
+		}
+		if (callee.kind != NK_FIELD_ACCESS_EXPR || callee.optional || callee.arrow) { return false; }
+		Node? receiver = callee.obj;
+		if (receiver == null) { return false; }
+		if (receiver.kind == NK_SELF_EXPR) { return owner != "" && self.dispatchNeverReturns(owner, callee.field); }
+		if (receiver.kind == NK_FIELD_ACCESS_EXPR && receiver.obj != null && receiver.obj.kind == NK_SELF_EXPR) {
+			string fieldClass = self.selfFieldClass(owner, receiver);
+			return fieldClass != "" && self.dispatchNeverReturns(fieldClass, callee.field);
+		}
+		if (receiver.kind != NK_IDENTIFIER || self.shadowed(receiver.name, locals, scoped)) { return false; }
+		Node? method = self.method(receiver.name, callee.field);
+		return method != null && method.access == "class" && self.nonreturning.has(method);
+	}
+
+	/* The class `self.field` is declared as in non-generic class `owner`, or "". */
+	private string selfFieldClass(string owner, Node access) {
+		Analyzed analyzed = self.state.analyzed;
+		if (owner == "" || !analyzed.isClass(owner) || access.optional || access.arrow) { return ""; }
+		Node? field = analyzed.classMember(owner, access.field);
+		if (field == null || field.kind != NK_FIELD_DECL || field.access == "class") { return ""; }
+		Node? declared = field.type;
+		if (declared == null || declared.isArray || !analyzed.isClass(declared.base)) { return ""; }
+		return declared.base;
+	}
+
+	private bool shadowed(string name, Map<string, bool> locals, bool scoped) {
+		if (scoped) { return self.resolvesLocally(name); }
+		return locals.has(name);
+	}
+
+	private Node? method(string owner, string name) {
+		Analyzed analyzed = self.state.analyzed;
+		if (analyzed.isClass(owner)) { return analyzed.classMethod(owner, name); }
+		if (analyzed.isGenericClass(owner)) { return analyzed.genericClassMethod(owner, name); }
+		return null;
+	}
+
+	/* Whether every method `self.name()` can dispatch to from class `owner` diverges. */
+	private bool dispatchNeverReturns(string owner, string name) {
+		Vector<string> classes = [];
+		if (self.state.analyzed.isGenericClass(owner)) { classes.push(owner); }
+		else { classes = self.state.analyzed.subclassesOf(owner); }
+		bool found = false;
+		for cls in classes {
+			Node? method = self.method(cls, name);
+			if (method == null) { continue; }
+			if (method.access == "class" || !self.nonreturning.has(method)) { return false; }
+			found = true;
+		}
+		return found;
+	}
+
+	private bool statementsDiverge(Vector<Node> statements, string owner, Map<string, bool> locals) {
+		for statement in statements {
+			if (self.statementDiverges(statement, owner, locals)) { return true; }
+			if (NullableFlow.containsReturn(statement)) { return false; }
+		}
+		return false;
+	}
+
+	private bool statementDiverges(Node? statement, string owner, Map<string, bool> locals) {
+		if (statement == null) { return false; }
+		if (statement.kind == NK_THROW_STMT) { return true; }
+		if (statement.kind == NK_EXPR_STMT) {
+			Node? called = statement.expr;
+			return called != null && called.kind == NK_CALL_EXPR && self.callDiverges(called, owner, locals, false);
+		}
+		if (statement.kind == NK_BLOCK) { return self.statementsDiverge(statement.statements(), owner, locals); }
+		if (statement.kind == NK_IF_STMT) {
+			if (!self.statementsDiverge(statement.thenBlock.statements(), owner, locals)) { return false; }
+			Node? elseNode = statement.elseBlock;
+			if (elseNode == null) { return false; }
+			if (elseNode.kind == NK_ELSE_BLOCK) { return self.statementsDiverge(elseNode.bodyNode.statements(), owner, locals); }
+			return elseNode.kind == NK_ELSE_IF && self.statementDiverges(elseNode.ifStmt, owner, locals);
+		}
+		if (statement.kind == NK_SWITCH_STMT) {
+			bool hasDefault = false;
+			for clause in statement.cases() {
+				if (clause.valueNode == null) { hasDefault = true; }
+				if (!self.statementsDiverge(clause.bodyNodeList(), owner, locals)) { return false; }
+			}
+			return hasDefault;
+		}
+		if (statement.kind == NK_TRY_CATCH_STMT) {
+			if (statement.finallyBlock != null && self.statementsDiverge(statement.finallyBlock.statements(), owner, locals)) { return true; }
+			if (!self.statementsDiverge(statement.tryBlock.statements(), owner, locals)) { return false; }
+			return statement.catchBlock == null || self.statementsDiverge(statement.catchBlock.statements(), owner, locals);
+		}
+		/* A loop whose body always runs once diverges with that body, unless a
+		 * break leaves the loop first. */
+		bool entersBody = statement.kind == NK_DO_WHILE_STMT || (statement.kind == NK_WHILE_STMT && statement.condition != null && statement.condition.kind == NK_BOOL_LITERAL && statement.condition.valueBool) || (statement.kind == NK_C_FOR_STMT && statement.condition == null);
+		return entersBody && !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && self.statementsDiverge(statement.bodyNode.statements(), owner, locals);
+	}
+
+	/* Whether a return statement (outside any lambda) is nested in a statement. */
+	class bool containsReturn(Node? statement) {
+		if (statement == null) { return false; }
+		if (statement.kind == NK_RETURN_STMT) { return true; }
+		if (statement.kind == NK_BLOCK) {
+			for child in statement.statements() { if (NullableFlow.containsReturn(child)) { return true; } }
+			return false;
+		}
+		if (statement.kind == NK_IF_STMT) {
+			if (NullableFlow.containsReturn(statement.thenBlock)) { return true; }
+			Node? elseNode = statement.elseBlock;
+			if (elseNode == null) { return false; }
+			if (elseNode.kind == NK_ELSE_BLOCK) { return NullableFlow.containsReturn(elseNode.bodyNode); }
+			return NullableFlow.containsReturn(elseNode.ifStmt);
+		}
+		if (statement.kind == NK_WHILE_STMT || statement.kind == NK_DO_WHILE_STMT || statement.kind == NK_C_FOR_STMT || statement.kind == NK_FOR_IN_STMT || statement.kind == NK_PARALLEL_FOR_STMT) { return NullableFlow.containsReturn(statement.bodyNode); }
+		if (statement.kind == NK_SWITCH_STMT) {
+			for clause in statement.cases() {
+				for child in clause.bodyNodeList() { if (NullableFlow.containsReturn(child)) { return true; } }
+			}
+			return false;
+		}
+		if (statement.kind == NK_TRY_CATCH_STMT) { return NullableFlow.containsReturn(statement.tryBlock) || NullableFlow.containsReturn(statement.catchBlock) || NullableFlow.containsReturn(statement.finallyBlock); }
+		return false;
 	}
 }

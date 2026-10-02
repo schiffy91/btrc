@@ -12,8 +12,8 @@ int liveNodes = 0;
 
 class SlotNode {
 	public int id;
-	public SlotNode direct;
-	public SlotNode adopted;
+	public SlotNode? direct;
+	public SlotNode? adopted;
 	public Vector<SlotNode?> vectorLinks;
 	public Array<SlotNode?> arrayLinks;
 	public Map<int, SlotNode?> mapValues;
@@ -125,7 +125,11 @@ void extractedCollectionAliasBecomesRootless() {
 	SlotNode holder = new SlotNode(36);
 	holder.vectorLinks.push(new SlotNode(37));
 	{
-		SlotNode alias = holder.vectorLinks.get(0);
+		SlotNode? alias = holder.vectorLinks.get(0);
+		if (alias == null) {
+			fprintf(stderr, "FAIL: vector lost its first node\n");
+			exit(1);
+		}
 		holder.vectorLinks.set(0, null);
 		alias.direct = alias;
 	}
@@ -162,7 +166,12 @@ void preserveExternalListNodeAlias() {
 	{
 		SlotNode owner = new SlotNode(48);
 		owner.listLinks.pushBack(new SlotNode(49));
-		alias = owner.listLinks.head;
+		ListNode<SlotNode?>? head = owner.listLinks.head;
+		if (head == null) {
+			fprintf(stderr, "FAIL: list lost its head node\n");
+			exit(1);
+		}
+		alias = head;
 		owner.direct = owner;
 	}
 	assert(alias.value != null);
@@ -230,6 +239,10 @@ void adoptedMethodReturnClosesOwnerCycle() {
 		b.direct = a;
 	}
 	assert(liveNodes == 3);
+	if (root.direct == null) {
+		fprintf(stderr, "FAIL: owner cycle lost its root edge\n");
+		exit(1);
+	}
 	root.direct.adopted = root.retainedAlias();
 }
 
