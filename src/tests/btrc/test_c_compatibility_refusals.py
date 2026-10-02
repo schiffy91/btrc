@@ -385,6 +385,16 @@ DECLARATOR_REFUSALS = [
         id="r03-unsized-array-declarator",
     ),
     pytest.param(
+        "typedef int A, A;\nint main() { return 0; }",
+        ("Duplicate typedef name 'A'", 1, 16),
+        id="r03-duplicate-typedef",
+    ),
+    pytest.param(
+        "int main() { int a = b, b = 1; return a; }",
+        ("Unresolved identifier 'b' used as a value", 1, 22),
+        id="r03-later-declarator-not-in-scope",
+    ),
+    pytest.param(
         "int main() { int a = 1, *b = a; return 0; }",
         ("Cannot assign 'int' to variable 'b' of type 'int*'", 1, 25),
         id="r03-star-binds-per-declarator",
@@ -924,9 +934,9 @@ def test_accepted_neighbour_runs_strictly_in_both_compilers(
 # literal after it is refused. The two import parsers already reported this
 # differently before row 5 landed (btrcc has no same-line import check); the
 # pair is pinned so a change to either side is deliberate.
-# The two compilers word these general diagnostics differently for single
-# declarations too (a duplicate member or typedef, an unknown name); several
-# declarators reach the same checks, so the divergence is pinned, not new.
+# The two compilers word a duplicate class member differently for single
+# declarations too; several declarators reach the same check, so the
+# divergence is pinned, not new.
 DECLARATOR_DIVERGENT_REFUSALS = [
     pytest.param(
         "class C { public int a, a; }\nint main() { return 0; }",
@@ -934,21 +944,9 @@ DECLARATOR_DIVERGENT_REFUSALS = [
         ("Duplicate member 'C.a'", 1, 25),
         id="r03-duplicate-class-field",
     ),
-    pytest.param(
-        "typedef int A, A;\nint main() { return 0; }",
-        ("Duplicate typedef name 'A'", 1, 16),
-        ("Duplicate top-level declaration 'A'", 1, 16),
-        id="r03-duplicate-typedef",
-    ),
-    pytest.param(
-        "int main() { int a = b, b = 1; return a; }",
-        ("Unresolved identifier 'b' used as a value", 1, 22),
-        ("Unknown identifier 'b'", 1, 22),
-        id="r03-later-declarator-not-in-scope",
-    ),
 ]
 
-# Row 19: each compiler words a missing expression its own way.
+# Row 19: each parser words a missing expression its own way.
 COMMA_DIVERGENT_REFUSALS = [
     # A missing operand is each parser's ordinary expression error.
     pytest.param(

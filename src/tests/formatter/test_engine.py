@@ -612,6 +612,23 @@ int main() {
     assert formatted(collapsed, indent_style="tabs") == collapsed
 
 
+def test_declarator_lists_keep_each_declarators_pointer() -> None:
+    # `*` binds to its own declarator (C row 3, PLAN.md D20): the formatter
+    # never moves it onto the type, where it would misread `int* p, v;`.
+    source = (
+        "struct Link { int *target, value; };\n"
+        "typedef int Count, *CountPointer;\n"
+        "int first = 1, *second;\n"
+        "int main() {\n"
+        "\tint *pointer, value = 2 * 3, *other;\n"
+        "\tfor (int i = 0, *p = null; i < 2; i++) {}\n"
+        "\treturn 0;\n"
+        "}\n"
+    )
+
+    assert formatted(source) == source
+
+
 def _in_main(body: str) -> str:
     return "int main() {\n\tint a = 1;\n\tint b = 1;\n\tint x = 0;\n" + body + "\treturn x;\n}\n"
 
@@ -723,20 +740,3 @@ def test_ifs_inside_an_unbraced_do_body_close_with_its_while(body: str) -> None:
 def test_a_body_opened_on_a_continuation_line_nests_past_it(body: str) -> None:
     source = _in_main(body)
     assert formatted(source, indent_style="tabs") == source
-
-
-def test_declarator_lists_keep_each_declarators_pointer() -> None:
-    # `*` binds to its own declarator (C row 3, PLAN.md D20): the formatter
-    # never moves it onto the type, where it would misread `int* p, v;`.
-    source = (
-        "struct Link { int *target, value; };\n"
-        "typedef int Count, *CountPointer;\n"
-        "int first = 1, *second;\n"
-        "int main() {\n"
-        "\tint *pointer, value = 2 * 3, *other;\n"
-        "\tfor (int i = 0, *p = null; i < 2; i++) {}\n"
-        "\treturn 0;\n"
-        "}\n"
-    )
-
-    assert formatted(source) == source

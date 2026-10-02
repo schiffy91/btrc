@@ -2120,12 +2120,6 @@ class TypeSystem:
             return TypeExpr(base="string", pointer_depth=1)
         return TypeExpr(base=spec.return_type)
 
-    def format_source_type(self, t) -> str:
-        """Format a type as source spells it, without a class or interface's implicit pointer."""
-        if t.pointer_depth and (t.base in self.index.class_table or t.base in self.index.interface_table):
-            t = replace(t, pointer_depth=t.pointer_depth - 1)
-        return self.format_type(t)
-
     @staticmethod
     def comma_tuple_hint(value, target) -> str:
         """Explain a tuple literal flowing into a non-tuple (D19 row 19).
@@ -2136,6 +2130,12 @@ class TypeSystem:
         if isinstance(value, TupleLiteral) and target is not None and target.base != "Tuple":
             return "; btrc reads a parenthesized comma list as a tuple, not C's comma operator"
         return ""
+
+    def format_source_type(self, t) -> str:
+        """Format a type as source spells it, without a class or interface's implicit pointer."""
+        if t.pointer_depth and (t.base in self.index.class_table or t.base in self.index.interface_table):
+            t = replace(t, pointer_depth=t.pointer_depth - 1)
+        return self.format_type(t)
 
     def format_type(self, t) -> str:
         """Format a TypeExpr for error messages."""
