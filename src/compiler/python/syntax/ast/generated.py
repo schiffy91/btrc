@@ -414,7 +414,7 @@ class ElseIf:
 
 @dataclass(kw_only=True)
 class ForInitVar:
-    var_decl: stmt
+    declarations: list[stmt] = _dc_field(default_factory=list)
 
 
 @dataclass(kw_only=True)
@@ -632,6 +632,20 @@ class SpawnExpr:
 
 
 @dataclass(kw_only=True)
+class StringConcat:
+    parts: list[expr] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
+class CommaExpr:
+    elements: list[expr] = _dc_field(default_factory=list)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
 class SizeofType:
     type: TypeExpr
 
@@ -681,7 +695,7 @@ class_member = Union[FieldDecl, MethodDecl, PropertyDecl]
 stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt]
 if_else = Union[ElseBlock, ElseIf]
 for_init = Union[ForInitVar, ForInitExpr]
-expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr, SpawnExpr]
+expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr, SpawnExpr, StringConcat, CommaExpr]
 sizeof_operand = Union[SizeofType, SizeofExprOp]
 fstring_part = Union[FStringText, FStringExpr]
 lambda_body = Union[LambdaBlock, LambdaExprBody]

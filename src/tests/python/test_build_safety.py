@@ -432,7 +432,7 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     for target in ("wheel", "package"):
         output = _make_dry_run(target, "NIX=")
         check = next(line for line in output.splitlines() if "zipfile.ZipFile" in line)
-        assert "src/stdlib/btrc.symbols src/stdlib/LocalApplicationChannel/btrc.lock" in check.replace("\\", "")
+        assert "src/language/grammar.ebnf src/stdlib/btrc.lock src/stdlib/btrc.symbols" in check.replace("\\", "")
     hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/Tables.btrc"
     assert hosted_tables.is_file()
     hosted_source = hosted_tables.read_text()

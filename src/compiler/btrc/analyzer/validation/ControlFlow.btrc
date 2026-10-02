@@ -649,17 +649,18 @@ class ControlFlowValidator {
 		Map<string, Node> loopVars = TypeValidator.cloneTypes(vars);
 		if (statement.init != null) {
 			if (statement.init.kind == NK_FOR_INIT_VAR) {
-				Node declaration = statement.init.varDecl;
-				self.validateVariable(declaration,  loopVars);
-				Node? declarationType = declaration.type;
-				if (declarationType == null) {
-					declarationType = self.types.inferType(declaration.initializer, loopVars);
-				}
-				if (declaration.type != null && (declaration.type.isStatic || declaration.type.isExtern)) {
-					TypeValidator.fail("C-style for initializer cannot use " + "static or extern storage", declaration);
-				}
-				if (declarationType != null && declarationType.isArray) {
-					TypeValidator.fail("C-style for initializer cannot " + "declare an array", declaration);
+				for declaration in statement.init.declarations() {
+					self.validateVariable(declaration,  loopVars);
+					Node? declarationType = declaration.type;
+					if (declarationType == null) {
+						declarationType = self.types.inferType(declaration.initializer, loopVars);
+					}
+					if (declaration.type != null && (declaration.type.isStatic || declaration.type.isExtern)) {
+						TypeValidator.fail("C-style for initializer cannot use " + "static or extern storage", declaration);
+					}
+					if (declarationType != null && declarationType.isArray) {
+						TypeValidator.fail("C-style for initializer cannot " + "declare an array", declaration);
+					}
 				}
 			} else if (statement.init.kind == NK_FOR_INIT_EXPR) {
 				self.validateExpression(statement.init.expression,  loopVars);

@@ -353,7 +353,7 @@ class TestStatements:
         stmt = parse_stmt("for (int i = 0; i < 10; i++) { }")
         assert isinstance(stmt, CForStmt)
         assert isinstance(stmt.init, ForInitVar)
-        assert stmt.init.var_decl.name == "i"
+        assert stmt.init.declarations[0].name == "i"
         assert isinstance(stmt.condition, BinaryExpr)
         assert isinstance(stmt.update, UnaryExpr)
 
@@ -838,8 +838,8 @@ class TestVarInference:
         stmt = parse_stmt("for (var i = 0; i < 10; i++) { }")
         assert isinstance(stmt, CForStmt)
         assert isinstance(stmt.init, ForInitVar)
-        assert stmt.init.var_decl.type is None
-        assert stmt.init.var_decl.name == "i"
+        assert stmt.init.declarations[0].type is None
+        assert stmt.init.declarations[0].name == "i"
 
     def test_parse_var_top_level(self):
         prog = parse("var x = 42;")

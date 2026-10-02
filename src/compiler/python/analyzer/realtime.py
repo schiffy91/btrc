@@ -558,9 +558,9 @@ class RealtimeAnalyzer:
                 self._source_call(callable_, declaration, loop)
 
     def _canonical_c_for(self, loop: ast.CForStmt, callable_: RealtimeCallable) -> frozenset[str] | None:
-        if not isinstance(loop.init, ast.ForInitVar):
+        if not isinstance(loop.init, ast.ForInitVar) or len(loop.init.declarations) != 1:
             return None
-        declaration = loop.init.var_decl
+        declaration = loop.init.declarations[0]
         if not isinstance(declaration, ast.VarDeclStmt) or not isinstance(declaration.initializer, ast.IntLiteral):
             return None
         induction_type = declaration.type or self.session.node_types.get(id(declaration.initializer))

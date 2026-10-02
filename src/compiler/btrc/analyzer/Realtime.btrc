@@ -607,7 +607,6 @@ class RealtimeAnalyzer {
 		if (node.catchBlock != null) { self.dispatchChild(node.catchBlock, callable, collecting); }
 		if (node.finallyBlock != null) { self.dispatchChild(node.finallyBlock, callable, collecting); }
 		if (node.ifStmt != null) { self.dispatchChild(node.ifStmt, callable, collecting); }
-		if (node.varDecl != null) { self.dispatchChild(node.varDecl, callable, collecting); }
 		if (node.expression != null) { self.dispatchChild(node.expression, callable, collecting); }
 		if (node.left != null) { self.dispatchChild(node.left, callable, collecting); }
 		if (node.right != null) { self.dispatchChild(node.right, callable, collecting); }
@@ -893,10 +892,10 @@ class RealtimeAnalyzer {
 
 	private RealtimeLoopProof canonicalCFor(Node loop, RealtimeCallable callable) {
 		RealtimeLoopProof proof = RealtimeLoopProof();
-		if (loop.init == null || loop.init.kind != NK_FOR_INIT_VAR) {
+		if (loop.init == null || loop.init.kind != NK_FOR_INIT_VAR || loop.init.declarations().len != 1) {
 			return proof;
 		}
-		Node declaration = loop.init.varDecl;
+		Node declaration = loop.init.declarations().get(0);
 		if (declaration.kind != NK_VAR_DECL_STMT || declaration.initializer == null || declaration.initializer.kind != NK_INT_LITERAL) {
 			return proof;
 		}
