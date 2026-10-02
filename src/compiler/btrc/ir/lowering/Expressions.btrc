@@ -2225,7 +2225,11 @@ class ExpressionLowerer {
 		string tmp = self.context.freshTemporary("__list");
 		Vector<IRNode> declarations = [];
 		Vector<IRNode> newArgs = [];
-		IRNode declaration = IRNode.variableDeclaration(mangled + "*", tmp, IRNode.literal("NULL"));
+		/* Outside exception cleanup the slot is assigned before anything reads
+		 * it, so it is declared without an initializer, as Python's
+		 * CollectionLowerer._collection_storage declares it. */
+		IRNode declaration = IRNode.variableDeclaration(mangled + "*", tmp, null);
+		if (self.context.exceptionsAreEnabled()) { declaration.init = IRNode.literal("NULL"); }
 		declarations.push(declaration);
 		self.context.recordLocal(declaration);
 		Vector<IRNode> sequence = [];
@@ -2406,7 +2410,11 @@ class ExpressionLowerer {
 		string tmp = self.context.freshTemporary("__map");
 		Vector<IRNode> declarations = [];
 		Vector<IRNode> newArgs = [];
-		IRNode declaration = IRNode.variableDeclaration(mangled + "*", tmp, IRNode.literal("NULL"));
+		/* Outside exception cleanup the slot is assigned before anything reads
+		 * it, so it is declared without an initializer, as Python's
+		 * CollectionLowerer._collection_storage declares it. */
+		IRNode declaration = IRNode.variableDeclaration(mangled + "*", tmp, null);
+		if (self.context.exceptionsAreEnabled()) { declaration.init = IRNode.literal("NULL"); }
 		declarations.push(declaration);
 		self.context.recordLocal(declaration);
 		Vector<IRNode> sequence = [];
@@ -3008,7 +3016,7 @@ class ExpressionLowerer {
          * update, or other side-effecting receiver must execute exactly once.
          * Property getters use the same guarded receiver path. */
 		if (node.optional) {
-			string receiverName = self.context.freshTemporary("__btrc_optional_obj");
+			string receiverName = self.context.freshTemporary("__btrc_optional");
 			string receiverType = "void*";
 			if (ot != null) {
 				receiverType = self.cTypes.lower(ot);

@@ -271,14 +271,19 @@ class CTypeLowerer {
 			module.structDefs.push(definition);
 			spanIndex = spanIndex + 1;
 		}
+		/* Lock-free proofs precede every declared enum, where Python's
+		 * TranslationUnitLowerer._emit_realtime_types places them. */
+		Vector<IREnumDef> enums = [];
 		int atomicIndex = 0;
 		while (atomicIndex < self.atomicTypeOrder.len) {
 			string name = self.atomicTypeOrder.get(atomicIndex);
 			Node payload = self.atomicTypes.get(name);
 			IREnumDef proof = IREnumDef("");
 			proof.values.push(IREnumValue("__btrc_atomic_lock_free_" + name, IRNode.binary(IRNode.literal("1"), "/", IRNode.binary(IRNode.variable(self.atomicLockFreeMacro(payload)), "==", IRNode.literal("2")))));
-			module.enumDefs.push(proof);
+			enums.push(proof);
 			atomicIndex = atomicIndex + 1;
 		}
+		for definition in module.enumDefs { enums.push(definition); }
+		module.enumDefs = enums;
 	}
 }
