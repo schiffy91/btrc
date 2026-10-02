@@ -1206,6 +1206,32 @@ class CallAnalyzer:
             cls.name,
         )
 
+    def _contextualize_empty_collection(self, expected, expression) -> bool:
+        """Give an empty ``[]`` or ``{}`` the collection type its target names.
+
+        An empty literal carries no element type of its own; wherever a target
+        type exists (declaration, field default, assignment, return, argument,
+        either ternary branch) it takes that type instead of the default.
+        """
+        if isinstance(expression, ListLiteral) and not expression.elements:
+            collection = "Vector"
+        elif isinstance(expression, MapLiteral) and not expression.entries:
+            collection = "Map"
+        elif isinstance(expression, BraceInitializer) and not expression.elements:
+            collection = ""
+        else:
+            return False
+        canonical = self.types.canonical_type(expected)
+        if canonical is None or not canonical.generic_args or canonical.is_array:
+            return False
+        if canonical.base != collection and not (collection == "" and canonical.base in ("Vector", "Map")):
+            return False
+        collection = canonical.base
+        literal_type = self.types.collection_literal_type(collection, list(canonical.generic_args))
+        self.session.record_node_type(expression, literal_type)
+        self.generics.collect_type_instances(literal_type)
+        return True
+
     def contextualize_generic_constructor(self, expected, expression) -> bool:
         """Stamp generic constructor calls with an exact expected type."""
         if expected is None:
@@ -1213,7 +1239,12 @@ class CallAnalyzer:
         if isinstance(expression, TernaryExpr):
             left = self.contextualize_generic_constructor(expected, expression.true_expr)
             right = self.contextualize_generic_constructor(expected, expression.false_expr)
+            if left and right and self.types.is_empty_contextual_literal(expression.true_expr):
+                # Both branches took the target's type, so the ternary has it too.
+                self.session.record_node_type(expression, self.session.node_types[id(expression.true_expr)])
             return left or right
+        if self._contextualize_empty_collection(expected, expression):
+            return True
         if not (isinstance(expression, CallExpr) and isinstance(expression.callee, Identifier)):
             return False
         if expression.callee.name in {"Atomic", "Span"} and expected.base == expression.callee.name:

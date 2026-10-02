@@ -1204,8 +1204,18 @@ class ExpressionLowerer {
 		if (valueNode.kind == NK_TUPLE_LITERAL) {
 			return self.lowerSequencedTuple(valueNode, targetType, varTypes, callableFlow);
 		}
+		/* An empty `[]`/`{}` takes its target's type in either ternary branch,
+		 * as it does bare; each branch is a fresh owned value, like the bare one. */
+		if (valueNode.kind == NK_TERNARY_EXPR && targetType != null && self.emptyCollectionLiteral(valueNode.trueExpr) && self.emptyCollectionLiteral(valueNode.falseExpr)) {
+			IRNode condition = self.lowerExpr(valueNode.condition, varTypes, callableFlow);
+			IRNode whenTrue = self.lowerAssignedValueRaw(valueNode.trueExpr, targetType, varTypes, callableFlow);
+			IRNode whenFalse = self.lowerAssignedValueRaw(valueNode.falseExpr, targetType, varTypes, callableFlow);
+			return IRNode.ternary(condition, whenTrue, whenFalse);
+		}
 		return self.lowerExpr(valueNode, varTypes, callableFlow);
 	}
+
+	private bool emptyCollectionLiteral(Node? node) { return node != null && ((node.kind == NK_LIST_LITERAL && node.elements().len == 0) || (node.kind == NK_MAP_LITERAL && node.entries().len == 0) || (node.kind == NK_BRACE_INITIALIZER && node.elements().len == 0)); }
 
 	public IRNode lowerAssignedValue(Node valueNode, Node? targetType, Map<string, Node> varTypes, CallableFlowState callableFlow) { return self.prepareTargetValue(valueNode, targetType, varTypes, callableFlow).value; }
 
