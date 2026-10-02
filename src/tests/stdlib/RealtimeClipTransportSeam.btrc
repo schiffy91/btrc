@@ -13,7 +13,7 @@ class SeamRig {
 	public RealtimeClipToken token;
 	public struct RealtimeClipTransportRenderer renderer;
 
-	public SeamRig(int countInBeats) {
+	public SeamRig(RealtimeClipPracticeConfiguration practice) {
 		RealtimeAudioFormat format = RealtimeAudioFormat(8000, 1);
 		RealtimeClipTransportLimits limits = RealtimeClipTransportLimits(16, 2, 16, 16, 2, 64, 16);
 		self.transport = RealtimeClipTransport.open(RealtimeClipTransportConfiguration(format, limits)).transport();
@@ -23,11 +23,13 @@ class SeamRig {
 		clip.tryWriteChannel(0, 0LL, Span(samples));
 		self.token = self.transport.stage(clip).token();
 		clip.close();
-		/* Practice runs at half the clip's 8 kHz: two clip frames per beat frame. */
-		self.transport.configurePractice(RealtimeClipPracticeConfiguration(RealtimeFrameRate(4000), 2LL, countInBeats, false, 0, 1, false, 0, 0));
+		self.transport.configurePractice(practice);
 		self.transport.activate(self.token);
 		self.renderer = self.transport.renderer();
 	}
+
+	/* Practice at half the clip's 8 kHz: two clip frames per practice frame. */
+	class SeamRig halfRate(int countInBeats) { return SeamRig(RealtimeClipPracticeConfiguration(RealtimeFrameRate(4000), 2LL, countInBeats, false, 0, 1, false, 0, 0)); }
 
 	public void finish() {
 		self.transport.suspend();
@@ -63,7 +65,7 @@ void printBlockClock(string label, bool rendered, struct RealtimeClipTransportBl
 /* Each command anchors the practice mapping at a clip frame; the mapping is
  * in practice frames, half the clip's. */
 void proveRateScaledAnchors() {
-	SeamRig rig = SeamRig(0);
+	SeamRig rig = SeamRig.halfRate(0);
 	rig.transport.play(rig.token);
 	rig.transport.seek(rig.token, 16LL);
 	renderBlock(rig, 4, 0ULL, 0ULL, 1ULL, 0u);
@@ -93,7 +95,7 @@ void proveRateScaledAnchors() {
 /* A two-beat count-in of two practice frames each, before clip frame 8:
  * eight device frames of count-in, then capture from practice frame 4. */
 void proveRateScaledCountIn() {
-	SeamRig rig = SeamRig(2);
+	SeamRig rig = SeamRig.halfRate(2);
 	rig.transport.seek(rig.token, 8LL);
 	rig.transport.play(rig.token);
 	renderBlock(rig, 12, 0ULL, 0ULL, 1ULL, 0u);
@@ -106,7 +108,7 @@ void proveRateScaledCountIn() {
  * the mapping, and a break in either re-anchors it without moving the
  * playhead. */
 void proveDeviceTimeline() {
-	SeamRig rig = SeamRig(0);
+	SeamRig rig = SeamRig.halfRate(0);
 	rig.transport.play(rig.token);
 	renderBlock(rig, 4, 1000ULL, 2000ULL, 7ULL, (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY);
 	printCaptures("epoch 7 first", rig);
@@ -134,8 +136,31 @@ void proveDeviceTimeline() {
 	rig.finish();
 }
 
+/* Practice at 6 kHz is three practice frames per four device frames, so each
+ * three-frame block ends mid-frame. A break after every block keeps the exact
+ * fraction: frame k still maps to floor(3k / 4). */
+void proveFractionalReanchor() {
+	SeamRig rig = SeamRig(RealtimeClipPracticeConfiguration(RealtimeFrameRate(6000), 3LL, 0, false, 0, 1, false, 0, 0));
+	rig.transport.play(rig.token);
+	for (int block = 0; block < 4; block++) { renderBlock(rig, 3, (unsigned long long)(block * 100), (unsigned long long)(block * 100), 1ULL, (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY); }
+	printCaptures("6 kHz breaks", rig);
+	rig.finish();
+}
+
+/* Two frames of known input latency: after a restart at output frame zero,
+ * the frames heard before the restart still map through the shifted anchor. */
+void proveLatencyAcrossRestart() {
+	SeamRig rig = SeamRig(RealtimeClipPracticeConfiguration(RealtimeFrameRate(8000), 4LL, 0, false, 0, 1, false, 0, 0, true, 2LL));
+	rig.transport.play(rig.token);
+	renderBlock(rig, 4, 100ULL, 100ULL, 1ULL, 0u);
+	printCaptures("latency 2 first", rig);
+	renderBlock(rig, 4, 0ULL, 0ULL, 2ULL, (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY);
+	printCaptures("latency 2 restart", rig);
+	rig.finish();
+}
+
 void proveBlockClock() {
-	SeamRig rig = SeamRig(0);
+	SeamRig rig = SeamRig.halfRate(0);
 	float inputs[16];
 	float outputs[16];
 	struct RealtimeClipTransportBlockClock clock = {0};
@@ -156,12 +181,19 @@ void proveBlockClock() {
 	printBlockClock("looping", rendered, clock);
 	print(f"looping output={outputs[0]} {outputs[1]} {outputs[2]} {outputs[3]}");
 
-	struct AudioBlockView wide = {0, 2, 4, 0ULL, 112ULL, 3ULL, 0ULL, 0u};
+	/* A seek past the loop's end wraps before the block's first frame: the
+	 * clock reports the wrapped frame and the generation captures carry. */
+	rig.transport.seek(rig.token, 50LL);
+	block.outputDeviceFrame = 112ULL;
+	rendered = composeBlock(rig.renderer, block, Span((const float*)inputs, (size_t)0), Span(outputs, (size_t)4), &clock);
+	printBlockClock("seek past loop", rendered, clock);
+
+	struct AudioBlockView wide = {0, 2, 4, 0ULL, 116ULL, 3ULL, 0ULL, 0u};
 	rendered = composeBlock(rig.renderer, wide, Span((const float*)inputs, (size_t)0), Span(outputs, (size_t)8), &clock);
 	printBlockClock("rejected", rendered, clock);
 
 	rig.transport.cancel(rig.token);
-	block.outputDeviceFrame = 112ULL;
+	block.outputDeviceFrame = 116ULL;
 	rendered = composeBlock(rig.renderer, block, Span((const float*)inputs, (size_t)0), Span(outputs, (size_t)4), &clock);
 	printBlockClock("cancelled", rendered, clock);
 	rig.finish();
@@ -171,6 +203,8 @@ int main() {
 	proveRateScaledAnchors();
 	proveRateScaledCountIn();
 	proveDeviceTimeline();
+	proveFractionalReanchor();
+	proveLatencyAcrossRestart();
 	proveBlockClock();
 	print("PASS: test_stdlib_realtime_clip_transport_seam");
 	return 0;

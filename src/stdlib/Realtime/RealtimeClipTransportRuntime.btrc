@@ -573,6 +573,9 @@ static bool btrcRealtimeClipTransportReadSnapshot(struct BtrcRealtimeClipTranspo
 		context->playbackState = REALTIME_CLIP_PAUSED;
 		btrcRealtimeClipPracticePause(&context->practice);
 	}
+	/* A seek past an active loop's end wraps before the first frame plays;
+	 * normalize it now so the block clock reports what was rendered. */
+	if (!suspended && btrcRealtimeClipTransportWrapLoop(context)) { btrcRealtimeClipPracticeDiscontinuity(&context->practice, blockDeviceFrame, context->position, context->speed, context->mappingGeneration, true); }
 	if (clock != null) {
 		clock->token = context->activeToken;
 		clock->state = context->playbackState;

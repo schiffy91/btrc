@@ -509,9 +509,11 @@ struct RealtimeClipTransportRenderer {
  * from. Frames are clip source frames, floored like RealtimeClipClock.frame();
  * a token of zero means no clip was active (state REALTIME_CLIP_STAGED).
  * deviceFrame and streamEpoch echo the block's output device frame and epoch;
- * mappingGeneration matches the generation captured input and practice
- * telemetry carry, and changes on every seek, loop wrap, speed change, play,
- * activation and device discontinuity. */
+ * mappingGeneration is the generation captured input and practice telemetry
+ * carry. It changes on activation, every seek, starting play from a paused
+ * or ended clip, a change of speed, entering or wrapping a loop,
+ * configurePractice while playing, and a device discontinuity while
+ * playing. */
 struct RealtimeClipTransportBlockClock {
 	unsigned long long token;
 	RealtimeClipPlaybackState state;

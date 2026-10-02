@@ -13,11 +13,15 @@ epoch 8 gap: 20->6@4 21->6@4 22->7@4 23->7@4
 epoch 8 input break: 24->8@5 25->8@5 26->9@5 27->9@5
 clock device=68 frame=20 generation=5
 telemetry device=68 violations=0
+6 kHz breaks: 0->0@2 1->0@2 2->1@2 100->2@3 101->3@3 102->3@3 200->4@4 201->5@4 202->6@4 300->6@5 301->7@5 302->8@5
+latency 2 first: 100->0@2 101->0@2 102->0@2 103->1@2
+latency 2 restart: 0->2@3 1->3@3 2->4@3 3->5@3
 paused: rendered=true token=1 state=1 frame=0 speed=1.000000 generation=1 device=100 epoch=3 end: token=1 state=1 frame=0 generation=1
 paused token matches=true
 playing: rendered=true token=1 state=2 frame=0 speed=1.000000 generation=2 device=104 epoch=3 end: token=1 state=2 frame=4 generation=2
 looping: rendered=true token=1 state=2 frame=40 speed=1.000000 generation=3 device=108 epoch=3 end: token=1 state=2 frame=40 generation=5
 looping output=0.625000 0.640625 0.625000 0.640625
-rejected: rendered=false token=0 state=0 frame=0 speed=1.000000 generation=0 device=112 epoch=3 end: token=0 state=0 frame=0 generation=0
-cancelled: rendered=true token=0 state=0 frame=0 speed=1.000000 generation=5 device=112 epoch=3 end: token=0 state=0 frame=0 generation=5
+seek past loop: rendered=true token=1 state=2 frame=40 speed=1.000000 generation=7 device=112 epoch=3 end: token=1 state=2 frame=40 generation=9
+rejected: rendered=false token=0 state=0 frame=0 speed=1.000000 generation=0 device=116 epoch=3 end: token=0 state=0 frame=0 generation=0
+cancelled: rendered=true token=0 state=0 frame=0 speed=1.000000 generation=9 device=116 epoch=3 end: token=0 state=0 frame=0 generation=9
 PASS: test_stdlib_realtime_clip_transport_seam
