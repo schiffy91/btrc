@@ -29,7 +29,9 @@ class MacOSRunLoopSignal {
 
 	public void wake() {
 		self.requireMainThread();
-		if (self._queue != null) { self._queue.enqueueNotification(self._notification, NSPostASAP); }
+		var queue = self._queue;
+		var notification = self._notification;
+		if (queue != null && notification != null) { queue.enqueueNotification(notification, NSPostASAP); }
 	}
 
 	/* Stop a running AppKit loop. stop: is observed only after an NSEvent, not
@@ -50,8 +52,10 @@ class MacOSRunLoopSignal {
 
 	public void close() {
 		self.requireMainThread();
-		if (self._queue == null) { return; }
-		self._queue.dequeueNotificationsMatching(self._notification, NSNotificationCoalescingOnName | NSNotificationCoalescingOnSender);
+		var queue = self._queue;
+		var notification = self._notification;
+		if (queue == null) { return; }
+		if (notification != null) { queue.dequeueNotificationsMatching(notification, NSNotificationCoalescingOnName | NSNotificationCoalescingOnSender); }
 		self._queue = null;
 		self._notification = null;
 	}
