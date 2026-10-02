@@ -760,3 +760,85 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
         timeout=120,
     )
     assert executed.returncode == 0, executed.stderr
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or not CC or shutil.which(CC[0]) is None,
+    reason="needs hard links and a C compiler",
+)
+def test_store_source_identity_survives_deduplicating_relinks(tmp_path: Path) -> None:
+    """Nix's auto-optimise-store relinks a store file without changing it."""
+
+    source_io = REPO / "src/compiler/btrc/frontend/SourceIo.btrc"
+    store = tmp_path / "store"
+    package = store / "0000-btrc-stdlib"
+    package.mkdir(parents=True)
+    stored = package / "Module.btrc"
+    stored.write_text("int stored;\n", encoding="utf-8")
+    local = tmp_path / "Local.btrc"
+    local.write_text("int local;\n", encoding="utf-8")
+    twins = []
+    for original in (stored, local):
+        twin = original.with_name(original.stem + ".twin")
+        twin.write_text(original.read_text(encoding="utf-8"), encoding="utf-8")
+        metadata = original.stat()
+        os.utime(twin, ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
+        os.chmod(twin, metadata.st_mode)
+        twins.append(twin)
+    program = tmp_path / "StoreIdentity.btrc"
+    generated = tmp_path / "StoreIdentity.c"
+    executable = tmp_path / "StoreIdentity"
+    program.write_text(
+        "#include <unistd.h>\n"
+        "import Library.FileSystem;\n"
+        f"import {json.dumps(str(source_io))};\n"
+        "\n"
+        "int main() {\n"
+        "    FeSourceFileReader storeFiles = FeSourceFileReader();\n"
+        f"    storeFiles.readRequired({json.dumps(str(stored))});\n"
+        "    FeSourceFileReader localFiles = FeSourceFileReader();\n"
+        f"    localFiles.readRequired({json.dumps(str(local))});\n"
+        f"    if (link({json.dumps(str(stored))}, {json.dumps(str(tmp_path / 'links-entry'))}) != 0) {{ return 10; }}\n"
+        "    if (!storeFiles.validateInputs().isEmpty()) { return 1; }\n"
+        f"    if (rename({json.dumps(str(twins[0]))}, {json.dumps(str(stored))}) != 0) {{ return 11; }}\n"
+        "    if (!storeFiles.validateInputs().isEmpty()) { return 2; }\n"
+        f"    if (rename({json.dumps(str(twins[1]))}, {json.dumps(str(local))}) != 0) {{ return 12; }}\n"
+        "    if (localFiles.validateInputs().isEmpty()) { return 3; }\n"
+        f'    if (!FileSystem.writeText({json.dumps(str(stored))}, "int rewritten;\\n")) {{ return 13; }}\n'
+        "    if (storeFiles.validateInputs().isEmpty()) { return 4; }\n"
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    transpile = _reference(program, generated, timeout=300)
+    assert transpile.returncode == 0, transpile.stderr
+    native = subprocess.run(
+        [
+            *CC,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(generated),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert native.returncode == 0, native.stderr
+    executed = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        env={**os.environ, "NIX_STORE_DIR": str(store)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert executed.returncode == 0, executed.stderr

@@ -206,3 +206,4 @@ __btrc_target_platform
 __btrc_native_thread_invoke
 __btrc_interface_try_methods
 __btrc_interface_methods
+__btrc_target_architecture

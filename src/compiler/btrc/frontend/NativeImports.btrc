@@ -919,7 +919,7 @@ class FeNativeDeclarationImporter {
 
 	/* A scoped C++ constant is visible under its `::`-joined identifier with its underlying scalar type. */
 	private void importCxxConstant(NativeNode declaration) {
-		string name = Strings.replace(declaration.name, "::", "_");
+		string name = declaration.name.replace("::", "_");
 		for existing in self.declarations {
 			Node prior = existing.declaration;
 			string priorName = prior.kind == NK_TYPEDEF_DECL ? prior.alias : prior.name;

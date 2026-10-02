@@ -958,3 +958,48 @@ def test_real_split_cli_retains_generation_after_unchanged_source_touch(tmp_path
     (tmp_path / "Values.btrc").touch()
     assert compiler_main() == 0
     assert {path: (path.stat().st_ino, path.stat().st_mtime_ns, path.read_bytes()) for path in files} == before
+
+
+@pytest.mark.skipif(not hasattr(os, "link"), reason="requires hard links")
+def test_store_source_identity_survives_deduplicating_relinks(tmp_path, monkeypatch):
+    """Nix's auto-optimise-store relinks a store file without changing it."""
+
+    store = tmp_path / "store"
+    package = store / "0000-btrc-stdlib"
+    package.mkdir(parents=True)
+    path = package / "Module.btrc"
+    path.write_text("int stored;\n")
+    monkeypatch.setenv("NIX_STORE_DIR", str(store))
+    source = SourceFileReader().read_source(str(path))
+    original = os.stat(path)
+
+    # A second link to the inode moves its link count and change time.
+    os.link(path, tmp_path / "links-entry")
+    source.identity.validate()
+
+    # Replacing the file with a link to an identical copy moves its inode too.
+    twin = tmp_path / "identical"
+    twin.write_text("int stored;\n")
+    os.utime(twin, ns=(original.st_atime_ns, original.st_mtime_ns))
+    os.chmod(twin, original.st_mode)
+    os.replace(twin, path)
+    assert os.stat(path).st_ino != original.st_ino
+    source.identity.validate()
+
+    path.write_text("int rewritten;\n")
+    with pytest.raises(SourceReadError, match="source input changed"):
+        source.identity.validate()
+
+
+def test_source_identity_outside_the_store_still_tracks_the_inode(tmp_path, monkeypatch):
+    monkeypatch.setenv("NIX_STORE_DIR", str(tmp_path / "store"))
+    path = tmp_path / "Module.btrc"
+    path.write_text("int local;\n")
+    source = SourceFileReader().read_source(str(path))
+    original = os.stat(path)
+    twin = tmp_path / "identical"
+    twin.write_text("int local;\n")
+    os.utime(twin, ns=(original.st_atime_ns, original.st_mtime_ns))
+    os.replace(twin, path)
+    with pytest.raises(SourceReadError, match="source input changed"):
+        source.identity.validate()
