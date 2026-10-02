@@ -235,11 +235,13 @@ modules are private, including named references through transitive imports.
 Export policy: consumers import `Library.GUI` and the portable `I*` contracts,
 never a platform module. Two provider modules stay exported on purpose as the
 AppKit seam for `Library.Tray`: `MacOS.AppKitText` and `MacOS.MacOSRunLoop`.
-Every other `MacOS.*` module is private to the package; the `Linux.*` exports
-remain until the Linux fixtures move to the factory. The provider's own
-conformance fixtures, which assert AppKit state through its modules, compile
-against a test data root whose copy of this manifest re-exports them
-(`src/tests/gui_provider_root.py`); products cannot. Inside the provider,
+Every other `MacOS.*` module and every `Linux.*` module is private to the
+package; the Linux Tray talks to the StatusNotifierItem bus itself and needs no
+GUI seam. The providers' own conformance fixtures, which assert native state
+through their modules (AppKit readback on macOS; synthetic SDL input and a
+stalled `LinuxNodeView` on Linux), compile against a test data root whose copy
+of this manifest re-exports them (`src/tests/gui_provider_root.py`); products
+cannot. Inside the provider,
 `MacOSButton(title, actions)` reports clicks through a
 `MacOSActionQueue(capacity = 256)` (1 to 65536) that wraps the portable
 `ActionMailbox` ring on the main thread and wakes the run loop: ordered, never

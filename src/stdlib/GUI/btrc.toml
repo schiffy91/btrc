@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["ActionMailbox", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Linux.SDL", "Linux.WebGPUSurface", "Linux.LinuxGPUSurface", "Linux.LinuxFonts", "Linux.LinuxPainter", "Linux.LinuxContext", "Linux.LinuxView", "Linux.LinuxActionQueue", "Linux.LinuxContainer", "Linux.LinuxPanel", "Linux.LinuxStack", "Linux.LinuxGrid", "Linux.LinuxScrollView", "Linux.LinuxLabel", "Linux.LinuxButton", "Linux.LinuxTextField", "Linux.LinuxSelect", "Linux.LinuxSlider", "Linux.LinuxImageView", "Linux.LinuxIndicators", "Linux.LinuxGPUView", "Linux.LinuxSymbols", "Linux.LinuxWindow", "Linux.LinuxApplication", "Linux.LinuxDirectoryPicker", "Linux.LinuxSystemText", "Raster", "TextRun"]
+exports = ["ActionMailbox", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Raster", "TextRun"]
 
 [[package.providers]]
 module = "GUI"

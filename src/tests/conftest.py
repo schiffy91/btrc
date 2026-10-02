@@ -164,7 +164,7 @@ def _selfhost_runtime_data():
 
 @pytest.fixture(scope="session")
 def gui_provider_root(tmp_path_factory) -> Path:
-    """A data root exporting the macOS GUI provider to its conformance fixtures."""
+    """A data root exporting the native GUI providers to their conformance fixtures."""
 
     from src.tests.gui_provider_root import GUIProviderRoot
 

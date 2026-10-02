@@ -549,46 +549,6 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("SelectTypography", (
         BuiltinMemberSpec("maximumSize", "double", "method", (), "maximumSize"),
     )),
-    ("LinuxComposite", (
-        BuiltinMemberSpec("projection", "ILinuxView", "method", (("IView", "view"),), "projection"),
-        BuiltinMemberSpec("paintChildren", "void", "method", (("LinuxViewNode", "node"), ("LinuxPainter", "painter"), ("double", "x"), ("double", "y"),), "paintChildren"),
-    )),
-    ("LinuxTheme", (
-        BuiltinMemberSpec("darkTheme", "LinuxTheme", "method", (), "darkTheme"),
-        BuiltinMemberSpec("lightTheme", "LinuxTheme", "method", (), "lightTheme"),
-    )),
-    ("LinuxMetrics", (
-        BuiltinMemberSpec("controlHeight", "double", "method", (("double", "fontSize"),), "controlHeight"),
-        BuiltinMemberSpec("horizontalPadding", "double", "method", (), "horizontalPadding"),
-        BuiltinMemberSpec("cornerRadius", "double", "method", (), "cornerRadius"),
-        BuiltinMemberSpec("defaultFontSize", "double", "method", (), "defaultFontSize"),
-        BuiltinMemberSpec("sliderHeight", "double", "method", (), "sliderHeight"),
-        BuiltinMemberSpec("sliderWidth", "double", "method", (), "sliderWidth"),
-        BuiltinMemberSpec("levelHeight", "double", "method", (), "levelHeight"),
-        BuiltinMemberSpec("levelWidth", "double", "method", (), "levelWidth"),
-        BuiltinMemberSpec("spinnerSize", "double", "method", (), "spinnerSize"),
-    )),
-    ("LinuxTextLines", (
-        BuiltinMemberSpec("wrap", "Vector<string>", "method", (("LinuxFonts", "fonts"), ("string", "text"), ("double", "size"), ("double", "scale"), ("bool", "bold"), ("double", "width"),), "wrap"),
-    )),
-    ("LinuxSymbols", (
-        BuiltinMemberSpec("symbol", "int", "method", (("string", "name"),), "symbol"),
-        BuiltinMemberSpec("paint", "void", "method", (("LinuxPainter", "painter"), ("int", "symbol"), ("double", "x"), ("double", "y"), ("double", "size"), ("RGBA", "color"),), "paint"),
-        BuiltinMemberSpec("arc", "void", "method", (("LinuxPainter", "painter"), ("double", "cx"), ("double", "cy"), ("double", "radius"), ("double", "from"), ("double", "to"), ("double", "stroke"), ("RGBA", "color"),), "arc"),
-    )),
-    ("LinuxSystemText", (
-        BuiltinMemberSpec("rasterize", "void", "method", (("LinuxFonts", "fonts"), ("TextRasterization", "request"),), "rasterize"),
-        BuiltinMemberSpec("raster", "Image", "method", (("LinuxFonts", "fonts"), ("TextRun", "run"),), "raster"),
-    )),
-    ("LinuxClock", (
-        BuiltinMemberSpec("nanoseconds", "unsigned long long", "method", (("double", "seconds"),), "nanoseconds"),
-        BuiltinMemberSpec("after", "unsigned long long", "method", (("double", "seconds"),), "after"),
-    )),
-    ("LinuxKeys", (
-        BuiltinMemberSpec("keyCode", "AppKeyCode", "method", (("unsigned int", "key"), ("unsigned int", "scancode"),), "keyCode"),
-        BuiltinMemberSpec("modifiers", "AppKeyModifiers", "method", (("unsigned int", "mod"),), "modifiers"),
-        BuiltinMemberSpec("button", "AppPointerButton", "method", (("unsigned int", "button"),), "button"),
-    )),
     ("AppKitText", (
         BuiltinMemberSpec("nativeValue", "NSString", "method", (("string", "text"),), "nativeValue"),
         BuiltinMemberSpec("ownedValue", "string", "method", (("NSString", "text"),), "ownedValue"),
