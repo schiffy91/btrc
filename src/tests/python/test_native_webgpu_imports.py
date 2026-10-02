@@ -219,12 +219,16 @@ int main() {
 
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("consumer", ["Main", "Portable"])
-def test_native_gpu_child_renders_and_reads_pixels(native_project, native_compile, sanitize, consumer):
+def test_native_gpu_child_renders_and_reads_pixels(
+    native_project, native_compile, gui_provider_root, sanitize, consumer
+):
     source, _sdk, _triple = native_project
     root = source.parent.parent / "render"
     shutil.copytree(REPO / "src/tests/native/gui/webgpu_child", root)
     plan = root / "Program.link.json"
-    compiled = native_compile(root / f"{consumer}.btrc", plan_path=plan)
+    # Main drives the provider's GPU surface; Portable is the product path.
+    data_root = gui_provider_root if consumer == "Main" else None
+    compiled = native_compile(root / f"{consumer}.btrc", data_root=data_root, plan_path=plan)
     assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
     assert not compiled.failure and not compiled.diagnostics, "native GPU consumer must compile without warnings"
     assert "btrc_gpu_compute_internal.h" not in compiled.c_source

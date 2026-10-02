@@ -61,8 +61,6 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public string title() { return AppKitText.ownedValue(self.control().title()); }
 
-	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
-
 	public void setTitle(string title) { self.control().setTitle(AppKitText.nativeValue(title)); self.placeSymbol(); }
 
 	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
@@ -73,7 +71,7 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public void setBordered(bool bordered) {
 		var button = self.control();
-		if (bordered && self._fontSize > 20.0) { throw "Native bordered buttons support font sizes up to 20 points"; }
+		if (bordered && self._fontSize > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
 		button.setBordered(bordered);
 		self._bordered = bordered;
 	}
@@ -83,9 +81,9 @@ class MacOSButton implements IButton, IMacOSView {
 	public void cancelPendingActions() { var control = self.control(); if (self._actions != null) { self._actions.discard(control); } }
 
 	public void setFont(double size) {
-		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native button font size"; }
+		if (!Math.isFinite(size) || size <= 0.0 || size > ButtonTypography.maximumSize()) { throw "Invalid native button font size"; }
 		var button = self.control();
-		if (self._bordered && size > 20.0) { throw "Native bordered buttons support font sizes up to 20 points"; }
+		if (self._bordered && size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
 		/* Rounded bezels keep a fixed native height even in a taller frame. */
 		button.setControlSize(size > 13.0 ? NSControlSizeLarge : NSControlSizeRegular);
 		button.setFont(NSFont.systemFontOfSize(size));

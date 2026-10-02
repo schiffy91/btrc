@@ -1,12 +1,13 @@
 #import <AppKit/AppKit.h>
 
 @interface NativeTextFieldProbe : NSObject
-+ (void)prepare:(NSWindow * _Nonnull)window;
-+ (BOOL)mount:(NSTextField * _Nonnull)field;
++ (BOOL)prepare;
++ (BOOL)matchesFittingWidth:(double)width height:(double)height;
++ (BOOL)mount;
 + (BOOL)replaceSelection;
 + (BOOL)selectionUnchanged;
 + (BOOL)undo;
 + (BOOL)redo;
 + (BOOL)queueKey;
-+ (BOOL)finish:(NSTextField * _Nonnull)field;
++ (BOOL)finish;
 @end

@@ -4,6 +4,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ./Model.btrc;
+import ./optimization/Optimizer.btrc;
 import ./RuntimeState.btrc;
 
 /* Stage 6 — C emitter (minimal).
@@ -84,7 +85,7 @@ class CEmitter {
 
 	public string emit(IRModule m) {
 		self.lineFilenames = {};
-		return self.emitUnit(m, -1, 0, m.functions.len);
+		return self.emitUnit(m, IRTypeDeclarationPlanner.plan(m), -1, 0, m.functions.len);
 	}
 
 	/* Emit one compilation group's unit of a module-unit program. Lowering
@@ -94,7 +95,7 @@ class CEmitter {
 	public string emitModuleUnit(IRModule m) {
 		self.lineFilenames = {};
 		self.moduleUnitState = 0;
-		string text = self.emitUnit(m, -1, 0, m.functions.len);
+		string text = self.emitUnit(m, IRTypeDeclarationPlanner.plan(m), -1, 0, m.functions.len);
 		self.moduleUnitState = -1;
 		return text;
 	}
@@ -105,7 +106,7 @@ class CEmitter {
 	public string emitRuntimeUnit(IRModule m) {
 		self.lineFilenames = {};
 		self.moduleUnitState = 1;
-		string text = self.emitUnit(m, -1, 0, m.functions.len);
+		string text = self.emitUnit(m, IRTypeDeclarationPlanner.plan(m), -1, 0, m.functions.len);
 		self.moduleUnitState = -1;
 		return text;
 	}
@@ -132,11 +133,13 @@ class CEmitter {
 			total = total + self.lines.len;
 		}
 		Vector<int> starts = self.unitStarts(m, sizes, total, targetLines);
+		/* Every unit declares the same types, so the module is planned once. */
+		Vector<IRTypeDeclarationRef> plan = IRTypeDeclarationPlanner.plan(m);
 		int unit = 0;
 		while (unit < starts.len) {
 			int first = starts.get(unit);
 			int end = unit + 1 < starts.len ? starts.get(unit + 1) : sizes.len;
-			units.push(self.emitUnit(m, unit, first, end, unitsPrefix));
+			units.push(self.emitUnit(m, plan, unit, first, end, unitsPrefix));
 			unit = unit + 1;
 		}
 		return units;
@@ -174,8 +177,9 @@ class CEmitter {
 	}
 
 	/* unitIndex -1 is the whole program as one unit; 0 the primary of a split
-	 * program; higher indices are secondaries. [first, end) selects functions. */
-	private string emitUnit(IRModule m, int unitIndex, int first, int end, string unitsPrefix = "") {
+	 * program; higher indices are secondaries. [first, end) selects functions.
+	 * `plan` is the module's IRTypeDeclarationPlanner order. */
+	private string emitUnit(IRModule m, Vector<IRTypeDeclarationRef> plan, int unitIndex, int first, int end, string unitsPrefix = "") {
 		if (m.language != "c" && m.language != "objective-c" && m.language != "c++") { throw "unsupported IR translation-unit language"; }
 		self.language = m.language;
 		self.resetLines();
@@ -222,15 +226,8 @@ class CEmitter {
 			h = h + 1;
 		}
 
-		/* Enum definitions (before forward decls, since functions and
-         * function-pointer typedefs may reference an enum type by name).
-         * Mirrors emitter.py's enum_defs loop. */
-		int e = 0;
-		while (e < m.enumDefs.len) {
-			self.emitEnum(m.enumDefs.get(e));
-			e = e + 1;
-		}
-
+		/* Type forwards precede the module's planned heterogeneous type
+		 * declarations. Ordinary function declarations follow complete types. */
 		int i = 0;
 		while (i < m.structForwards.len) {
 			self.emitStructForward(m.structForwards.get(i));
@@ -238,12 +235,7 @@ class CEmitter {
 		}
 		if (m.structForwards.len > 0) { self.line(""); }
 
-		self.emitOrderedAliases(m);
-		i = 0;
-		while (i < m.taggedUnionDefs.len) {
-			self.emitTaggedUnion(m.taggedUnionDefs.get(i));
-			i = i + 1;
-		}
+		for declaration in plan { self.emitTypeDeclaration(m, declaration); }
 
 		i = 0;
 		while (i < m.functionDecls.len) {
@@ -259,13 +251,6 @@ class CEmitter {
 				self.line(prefix + fn.returnType + " " + fn.name + "(" + self.paramList(fn.params) + ");");
 			}
 			if (m.functions.len > 0) { self.line(""); }
-		}
-
-		/* Struct definitions. */
-		i = 0;
-		while (i < m.structDefs.len) {
-			self.emitStruct(m.structDefs.get(i));
-			i = i + 1;
 		}
 
 		i = 0;
@@ -491,91 +476,16 @@ class CEmitter {
 
 	private void emitStructForward(IRStructForward declaration) { self.line("typedef struct " + declaration.name + " " + declaration.name + ";"); }
 
-	private bool aliasIdentifierChar(char value) { return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == '_'; }
-
-	private bool aliasDependenciesReady(string typeText, string ownName, Map<string, bool> providers, Map<string, bool> emitted) {
-		int length = typeText.length();
-		int index = 0;
-		while (index < length) {
-			while (index < length && !self.aliasIdentifierChar(typeText[index])) {
-				index = index + 1;
-			}
-			int start = index;
-			while (index < length && self.aliasIdentifierChar(typeText[index])) {
-				index = index + 1;
-			}
-			if (start < index) {
-				string name = typeText.substring(start, index - start);
-				if (name != ownName && providers.has(name) && !emitted.has(name)) {
-					return false;
-				}
-			}
+	/* Format one already-planned typed declaration. */
+	private void emitTypeDeclaration(IRModule module, IRTypeDeclarationRef declaration) {
+		if (declaration.group == IR_TYPE_DECLARATION_ENUM) { self.emitEnum(module.enumDefs.get(declaration.index)); }
+		else if (declaration.group == IR_TYPE_DECLARATION_FUNCTION_POINTER) {
+			self.emitFunctionPointerTypedef(module.functionPointerTypedefs.get(declaration.index));
+			self.line("");
 		}
-		return true;
-	}
-
-	private bool functionPointerDependenciesReady(IRFunctionPointerTypedef declaration, Map<string, bool> providers, Map<string, bool> emitted) {
-		if (!self.aliasDependenciesReady(declaration.returnType, declaration.name, providers, emitted)) {
-			return false;
-		}
-		int index = 0;
-		while (index < declaration.paramTypes.len) {
-			if (!self.aliasDependenciesReady(declaration.paramTypes.get(index), declaration.name, providers, emitted)) {
-				return false;
-			}
-			index = index + 1;
-		}
-		return true;
-	}
-
-	/* Function-pointer and ordinary typedef declarations form one dependency
-     * graph.  Preserve the reference frontend's stable group order whenever
-     * possible, while moving named aliases ahead of callbacks that use them. */
-	private void emitOrderedAliases(IRModule module) {
-		Map<string, bool> providers = {};
-		int index = 0;
-		while (index < module.functionPointerTypedefs.len) {
-			providers.put(module.functionPointerTypedefs.get(index).name, true);
-			index = index + 1;
-		}
-		index = 0;
-		while (index < module.typedefDefs.len) {
-			providers.put(module.typedefDefs.get(index).name, true);
-			index = index + 1;
-		}
-
-		Map<string, bool> emitted = {};
-		int remaining = module.functionPointerTypedefs.len + module.typedefDefs.len;
-		while (remaining > 0) {
-			bool progressed = false;
-			index = 0;
-			while (index < module.functionPointerTypedefs.len) {
-				IRFunctionPointerTypedef declaration = module.functionPointerTypedefs.get(index);
-				if (!emitted.has(declaration.name) && self.functionPointerDependenciesReady(declaration, providers, emitted)) {
-					self.emitFunctionPointerTypedef(declaration);
-					self.line("");
-					emitted.put(declaration.name, true);
-					remaining = remaining - 1;
-					progressed = true;
-				}
-				index = index + 1;
-			}
-			index = 0;
-			while (index < module.typedefDefs.len) {
-				IRTypedefDef declaration = module.typedefDefs.get(index);
-				if (!emitted.has(declaration.name) && self.aliasDependenciesReady(declaration.targetType, declaration.name, providers, emitted)) {
-					self.emitTypedef(declaration);
-					emitted.put(declaration.name, true);
-					remaining = remaining - 1;
-					progressed = true;
-				}
-				index = index + 1;
-			}
-			if (!progressed) {
-				fprintf(stderr, "error: cyclic typed C alias dependency\n");
-				exit(1);
-			}
-		}
+		else if (declaration.group == IR_TYPE_DECLARATION_TYPEDEF) { self.emitTypedef(module.typedefDefs.get(declaration.index)); }
+		else if (declaration.group == IR_TYPE_DECLARATION_TAGGED_UNION) { self.emitTaggedUnion(module.taggedUnionDefs.get(declaration.index)); }
+		else { self.emitStruct(module.structDefs.get(declaration.index)); }
 	}
 
 	private void emitFunctionPointerTypedef(IRFunctionPointerTypedef declaration) {
@@ -1075,13 +985,29 @@ class CEmitter {
 		return self.compound("(void)(", values, ")", "", "\n");
 	}
 
+	/* Escape every '?' that follows another, so literal text never spells a C11 trigraph. */
+	private string withoutTrigraphs(string text) {
+		if (!text.contains("??")) { return text; }
+		string result = "";
+		int index = 0;
+		while (index < text.length()) {
+			if (text[index] == '?' && index > 0 && text[index - 1] == '?') {
+				result = result + "\\?";
+			} else {
+				result = result + text.substring(index, 1);
+			}
+			index = index + 1;
+		}
+		return result;
+	}
+
 	private string expr(IRNode e) {
 		if (e == null) {
 			print("internal compiler error: null IR expression");
 			exit(1);
 			return "";
 		}
-		if (e.kind == IRK_LITERAL) { return e.text; }
+		if (e.kind == IRK_LITERAL) { return self.withoutTrigraphs(e.text); }
 		if (e.kind == IRK_VAR || e.kind == IRK_FUNCTION_REF) {
 			return e.name;
 		}

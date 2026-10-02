@@ -52,20 +52,6 @@ class MacOSScrollLayout implements IMacOSContainerLayout {
 
 	public void forgetChild(NSView child) {}
 
-	public void setFrame(double x, double y, double width, double height) {
-		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll view frame"; }
-		double offset = self.scrollOffset();
-		var scroll = self.nativeControl();
-		var frame = scroll.frame();
-		frame.origin.x = x;
-		frame.origin.y = y;
-		frame.size.width = width;
-		frame.size.height = height;
-		scroll.setFrame(frame);
-		scroll.tile();
-		self.scrollTo(offset);
-	}
-
 	public void setContentSize(double width, double height) {
 		if (!Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll content size"; }
 		double offset = self.scrollOffset();
@@ -159,8 +145,6 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 	public void cancelPointerCapture() { self._container.cancelPointerCapture(); }
 
 	public void setVisible(bool visible) { self._container.setVisible(visible); }
-
-	public void setFrame(double x, double y, double width, double height) { self.nativeView(); self._layout.setFrame(x, y, width, height); }
 
 	public void setContentSize(double width, double height) { self.nativeView(); self._layout.setContentSize(width, height); }
 

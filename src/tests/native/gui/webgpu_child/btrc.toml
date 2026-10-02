@@ -7,7 +7,7 @@ module = "Main"
 header = "CaptureProbe.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["+[CaptureProbe childCount:]"]
+symbols = ["+[CaptureProbe childCount:]", "+[CaptureProbe drainRunLoop]"]
 os = ["macos"]
 
 [[native.sources]]

@@ -761,9 +761,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
-accepted_sha256 = "4f46ef3c88cbcb69c88e1f4e2542d50068163b3a410704c27c53bdad47f5f56c"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py"]
+accepted_sha256 = "7307187cc202ea0fa99476564bfd2a240011e1d326bb78356f0d50a37b663696"
+reason = "Stage 4 analyzer-parity lane (PLAN.md D14): the Python lowerer deduplicates includes when it produces them, as btrcc always did, so this fixture's source #include <assert.h> no longer repeats the prelude's include. The include list loses one duplicate line; behavior is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/btrc/test_analyzer_parity_battery.py"]
 
 [[records]]
 id = "managed.python.raw-ir.status"
@@ -789,9 +789,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
-accepted_sha256 = "98f6ead9f896390f7e02c4db29c3d277efcb71ee8100e6b36a41d44f852cbaa2"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py"]
+accepted_sha256 = "f170b930e5a38764abc22dc7dd6e699e84b013c885d40780b4d63a0fa37718b9"
+reason = "Stage 4 analyzer-parity lane (PLAN.md D14): the Python lowerer deduplicates includes when it produces them, as btrcc always did, so this fixture's source #include <assert.h> no longer repeats the prelude's include. The include list loses one duplicate line; behavior is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/btrc/test_analyzer_parity_battery.py"]
 
 [[records]]
 id = "managed.python.optimized-ir.status"
@@ -817,9 +817,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.c.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.c.artifact.bin"
-accepted_sha256 = "a5f79251277dbc6d0e23a597ebed54e06e6477b536c836dd168aed68d96ec6e4"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py"]
+accepted_sha256 = "aaeae5cefc11ff946fa99301a3eff5c66b1e2efcdfcde6e2ace5cacfa68852a2"
+reason = "Stage 4 analyzer-parity lane (PLAN.md D14): the Python lowerer deduplicates includes when it produces them, as btrcc always did, so this fixture's source #include <assert.h> no longer repeats the prelude's include. The include list loses one duplicate line; behavior is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/btrc/test_analyzer_parity_battery.py"]
 
 [[records]]
 id = "managed.python.c.status"
@@ -1295,9 +1295,9 @@ channel = "stderr"
 baseline_path = "baseline/semantic-error.btrc.diagnostics.stderr.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/semantic-error.btrc.diagnostics.stderr.bin"
-accepted_sha256 = "92cc846667b5a32ba7514991bebd8f10a3b2c5842daf89b2746761f5b1cc855e"
-reason = "The current compiler now reports the stable phase diagnostic instead of failing inside an incomplete pipeline."
-regressions = ["src/tests/btrc/test_driver_frontend_parity.py"]
+accepted_sha256 = "f00c60233745eaab14522e9032ed3908d31dfdd485b41f87de03456fb4db4d7c"
+reason = "Stage 4 analyzer-parity lane (PLAN.md D14): btrcc reports an unresolved value identifier with the reference compiler's wording, \"Unresolved identifier 'x' used as a value\", instead of \"Unknown identifier 'x'\"."
+regressions = ["src/tests/btrc/test_driver_frontend_parity.py", "src/tests/btrc/test_analyzer_parity_battery.py", "src/tests/btrc/test_generated_symbol_call_boundary.py"]
 
 [[records]]
 id = "strict-import-error.python.diagnostics.status"

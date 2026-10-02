@@ -371,7 +371,7 @@ class TopLevelRegistrar:
             )
         if existing.body is not None and declaration.body is not None:
             self.session.error(
-                f"Duplicate function name '{declaration.name}': duplicate definition", declaration.line, declaration.col
+                f"Duplicate definition of function '{declaration.name}'", declaration.line, declaration.col
             )
             return
         if declaration.body is not None:

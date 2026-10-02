@@ -84,9 +84,10 @@ class FileLineReadOutcome {
 	}
 
 	public string lineText() {
-		if (self.linePayload == null) { throw "bounded line read has no line"; }
-		if (!self.linePayload.isNulFreeUtf8()) { throw "bounded line is not NUL-free UTF-8"; }
-		return self.linePayload.toStringLossy();
+		Bytes? payload = self.linePayload;
+		if (payload == null) { throw "bounded line read has no line"; }
+		if (!payload.isNulFreeUtf8()) { throw "bounded line is not NUL-free UTF-8"; }
+		return payload.toStringLossy();
 	}
 }
 

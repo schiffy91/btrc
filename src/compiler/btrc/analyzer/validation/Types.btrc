@@ -509,7 +509,7 @@ class TypeValidator {
 		return method != null && method.kind == NK_METHOD_DECL;
 	}
 
-	public void operatorFailure(Node expression, Node left, Node right) { TypeValidator.fail("operator '" + expression.op + "' is not defined for '" + self.formatType(left) + "' and '" + self.formatType(right) + "'", expression); }
+	public void operatorFailure(Node expression, Node left, Node right) { TypeValidator.fail("Operator '" + expression.op + "' is not defined for '" + self.formatType(left) + "' and '" + self.formatType(right) + "'", expression); }
 
 	public void validatePortableNumericMix(Node site, Node left, Node right, string context) {
 		if (NumericSemantics.isType(left, self.state.analyzed) && NumericSemantics.isType(right, self.state.analyzed) && !NumericSemantics.integerMixIsPortable(left, right)) {
