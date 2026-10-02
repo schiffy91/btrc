@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.native_targets import cross_target_environment
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
@@ -486,9 +487,10 @@ def test_selfhost_plan_is_reference_exact_and_builds_native_package(
     selfhost_c = tmp_path / "selfhost.c"
     selfhost_plan = tmp_path / "selfhost.link.json"
     lock_before = (EXAMPLE / "btrc.lock").read_bytes()
+    environment = cross_target_environment(tmp_path, "linux-x64", _environment())
 
-    reference = _reference(source, reference_c, reference_plan)
-    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan)
+    reference = _reference(source, reference_c, reference_plan, environment=environment)
+    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan, environment=environment)
 
     assert reference.returncode == 0, reference.stderr
     assert selfhost.returncode == 0, selfhost.stderr
@@ -512,8 +514,9 @@ def test_fresh_selfhost_lock_is_reference_exact(
     (reference_root / "btrc.lock").unlink()
     (selfhost_root / "btrc.lock").unlink()
 
-    reference = _reference(reference_root / "src/Main.btrc", tmp_path / "reference.c")
-    selfhost = _selfhost(semantic_btrcc, selfhost_root / "src/Main.btrc")
+    environment = cross_target_environment(tmp_path, "linux-x64", _environment())
+    reference = _reference(reference_root / "src/Main.btrc", tmp_path / "reference.c", environment=environment)
+    selfhost = _selfhost(semantic_btrcc, selfhost_root / "src/Main.btrc", environment=environment)
 
     assert reference.returncode == 0, reference.stderr
     assert selfhost.returncode == 0, selfhost.stderr
@@ -521,44 +524,17 @@ def test_fresh_selfhost_lock_is_reference_exact(
     assert not list(selfhost_root.glob(".btrc-package-*"))
 
 
-def _cross_target_environment(tmp_path: Path, triple: str) -> dict[str, str]:
-    """Header-reader inputs for a cross target, as a cross build supplies them.
-
-    The example's binding headers include no SDK header, so an empty sysroot
-    is a complete one: any SDK include would fail rather than silently read
-    the host's. The Windows plan selects the example's placeholder pkg-config
-    package, which the reader resolves like any other, so a stub `.pc` stands
-    in for the cross target's package.
-    """
-
-    sysroot = tmp_path / "sysroot"
-    sysroot.mkdir(exist_ok=True)
-    packages = tmp_path / "pkgconfig"
-    packages.mkdir(exist_ok=True)
-    (packages / "native-package-proof.pc").write_text(
-        "Name: native-package-proof\nDescription: cross-target plan proof\nVersion: 1\nCflags:\nLibs:\n",
-        encoding="utf-8",
-    )
-    return {
-        **_environment(),
-        "BTRC_NATIVE_TARGET": triple,
-        "BTRC_NATIVE_SYSROOT": str(sysroot),
-        "PKG_CONFIG_PATH": str(packages),
-    }
-
-
 @pytest.mark.parametrize(
-    ("target", "triple", "languages", "frameworks", "pkg_config"),
+    ("target", "languages", "frameworks", "pkg_config"),
     [
-        ("macos-arm64", "arm64-apple-macosx14.0.0", ["c", "c++", "objective-c", "objective-c++"], ["Foundation"], []),
-        ("windows-x64", "x86_64-w64-windows-gnu", ["c", "c++"], [], ["native-package-proof"]),
+        ("macos-arm64", ["c", "c++", "objective-c", "objective-c++"], ["Foundation"], []),
+        ("windows-x64", ["c", "c++"], [], ["native-package-proof"]),
     ],
 )
 def test_platform_native_plans_are_reference_exact(
     semantic_btrcc: Path,
     tmp_path: Path,
     target: str,
-    triple: str,
     languages: list[str],
     frameworks: list[str],
     pkg_config: list[str],
@@ -566,7 +542,7 @@ def test_platform_native_plans_are_reference_exact(
     source = EXAMPLE / "src/Main.btrc"
     reference_plan = tmp_path / f"reference-{target}.json"
     selfhost_plan = tmp_path / f"selfhost-{target}.json"
-    environment = _cross_target_environment(tmp_path, triple)
+    environment = cross_target_environment(tmp_path, target, _environment())
 
     reference = _reference(
         source,
@@ -602,7 +578,7 @@ def test_windows_binding_target_is_the_exact_mingw_triple(
     that spelling for the requested architecture can match its document."""
 
     source = _binding_source(tmp_path / "project", _BINDING, imported=True)
-    environment = _cross_target_environment(tmp_path, triple)
+    environment = {**cross_target_environment(tmp_path, target, _environment()), "BTRC_NATIVE_TARGET": triple}
     reference_plan = tmp_path / "reference.json"
     selfhost_plan = tmp_path / "selfhost.json"
     reference = _reference(source, tmp_path / "reference.c", reference_plan, target=target, environment=environment)

@@ -23,6 +23,7 @@ from src.compiler.python.frontend.packages import (
 )
 from src.compiler.python.frontend.sources import SourceDependencyGraph
 from src.compiler.python.main import main as compiler_main
+from src.tests.native_targets import cross_target_environment
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
@@ -628,8 +629,16 @@ def test_same_native_name_with_disjoint_platform_predicates_is_not_duplicate(
     assert linux["pkg-config"] == expected
 
 
-def test_reference_compiler_result_plan_compiles_links_and_runs(tmp_path: Path) -> None:
+def _read_headers_for(monkeypatch: pytest.MonkeyPatch, directory: Path, target: str) -> None:
+    for name, value in cross_target_environment(directory, target, {}).items():
+        monkeypatch.setenv(name, value)
+
+
+def test_reference_compiler_result_plan_compiles_links_and_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = EXAMPLE / "src" / "Main.btrc"
+    _read_headers_for(monkeypatch, tmp_path, "linux-x86_64")
     result = Compiler().compile(
         source.read_text(encoding="utf-8"),
         str(source),
@@ -648,6 +657,7 @@ def test_reference_compiler_result_plan_compiles_links_and_runs(tmp_path: Path) 
 
 def test_cli_atomically_emits_plan_sidecar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = EXAMPLE / "src" / "Main.btrc"
+    _read_headers_for(monkeypatch, tmp_path, "linux-x64")
     generated = tmp_path / "program.c"
     plan = tmp_path / "program.link.json"
     monkeypatch.setattr(
