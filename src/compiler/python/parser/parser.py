@@ -1199,9 +1199,32 @@ class Parser:
         tok = self._expect(TokenKind.LBRACE)
         stmts = []
         while not self._check(TokenKind.RBRACE) and not self._at_end():
+            # An empty statement inside a statement list produces nothing.
+            if self._match(TokenKind.SEMICOLON):
+                continue
             stmts.append(self._parse_statement())
         self._expect(TokenKind.RBRACE)
         return Block(statements=stmts, line=tok.line, col=tok.col)
+
+    def _parse_body(self) -> Block:
+        """Parse the substatement of ``if``/``else``/``while``/C-``for``/``do``.
+
+        A braced body is its own block. Any other statement is wrapped in a
+        synthesized ``Block`` positioned at the statement's first token, so
+        the body keeps exactly the scope a braced body has; an empty
+        statement ``;`` becomes an empty ``Block`` positioned at the ``;``.
+        A declaration is not a statement in C (C11 6.8), so it is refused as
+        a body. ``for``-in, parallel ``for``, ``try``/``catch``/``finally``
+        and ``switch`` keep requiring braces through ``_parse_block``.
+        """
+        tok = self._peek()
+        if tok.type == TokenKind.LBRACE:
+            return self._parse_block()
+        if self._match(TokenKind.SEMICOLON):
+            return Block(statements=[], line=tok.line, col=tok.col)
+        if self._is_var_decl_start():
+            raise self._error("A declaration cannot be the body of a control statement; enclose it in braces")
+        return Block(statements=[self._parse_statement()], line=tok.line, col=tok.col)
 
     def _parse_statement(self):
         tok = self._peek()
@@ -1342,13 +1365,13 @@ class Parser:
         self._expect(TokenKind.LPAREN)
         condition = self._parse_expr()
         self._expect(TokenKind.RPAREN)
-        then_block = self._parse_block()
+        then_block = self._parse_body()
         else_block = None
         if self._match(TokenKind.ELSE):
             if self._check(TokenKind.IF):
                 else_block = ElseIf(if_stmt=self._parse_if_stmt())
             else:
-                else_block = ElseBlock(body=self._parse_block())
+                else_block = ElseBlock(body=self._parse_body())
         return IfStmt(condition=condition, then_block=then_block, else_block=else_block, line=tok.line, col=tok.col)
 
     def _parse_while_stmt(self) -> WhileStmt:
@@ -1356,12 +1379,12 @@ class Parser:
         self._expect(TokenKind.LPAREN)
         condition = self._parse_expr()
         self._expect(TokenKind.RPAREN)
-        body = self._parse_block()
+        body = self._parse_body()
         return WhileStmt(condition=condition, body=body, line=tok.line, col=tok.col)
 
     def _parse_do_while_stmt(self) -> DoWhileStmt:
         tok = self._expect(TokenKind.DO)
-        body = self._parse_block()
+        body = self._parse_body()
         self._expect(TokenKind.WHILE)
         self._expect(TokenKind.LPAREN)
         condition = self._parse_expr()
@@ -1458,7 +1481,7 @@ class Parser:
             update = self._parse_expr()
         self._expect(TokenKind.RPAREN)
 
-        body = self._parse_block()
+        body = self._parse_body()
         return CForStmt(init=init, condition=condition, update=update, body=body, line=tok.line, col=tok.col)
 
     def _parse_parallel_for_stmt(self) -> ParallelForStmt:
@@ -1494,6 +1517,8 @@ class Parser:
         self._expect(TokenKind.COLON)
         body = []
         while not self._check(TokenKind.CASE, TokenKind.DEFAULT, TokenKind.RBRACE) and not self._at_end():
+            if self._match(TokenKind.SEMICOLON):
+                continue
             body.append(self._parse_statement())
         return CaseClause(value=value, body=body, line=tok.line, col=tok.col)
 

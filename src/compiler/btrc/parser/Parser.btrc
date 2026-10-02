@@ -244,6 +244,12 @@ class Parser {
 			return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
 		}
 
+		// A stray file-scope `;` is not ISO C (C11 6.9).
+		if (tok.type == "SEMICOLON") {
+			self.failAt("Unexpected token ';' at top level", tok);
+			return Node();
+		}
+
 		// Fallback: treat as function/var.
 		return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
 	}
@@ -1168,10 +1174,36 @@ class Parser {
 		blk.line = lb.line;
 		blk.col = lb.col;
 		while (!self.check("RBRACE") && !self.atEnd()) {
+			// An empty statement inside a statement list produces nothing.
+			if (self.matchTok("SEMICOLON")) { continue; }
 			Node s = self.parseStatement();
 			blk.statementsMut().push(s);
 		}
 		self.expect("RBRACE");
+		return blk;
+	}
+
+	/* The substatement of if/else/while/C-for/do. A braced body is its own
+	 * block. Any other statement is wrapped in a synthesized Block positioned
+	 * at the statement's first token, so the body keeps exactly the scope a
+	 * braced body has; an empty statement `;` becomes an empty Block
+	 * positioned at the `;`. A declaration is not a statement in C (C11 6.8),
+	 * so it is refused as a body. for-in, parallel for, try/catch/finally and
+	 * switch keep requiring braces through parseBlock. */
+	public Node parseBody() {
+		Token tok = self.peek();
+		if (tok.type == "LBRACE") { return self.parseBlock(); }
+		Node blk = Node();
+		blk.kind = NK_BLOCK;
+		blk.line = tok.line;
+		blk.col = tok.col;
+		if (self.matchTok("SEMICOLON")) { return blk; }
+		if (self.isVarDeclStart()) {
+			self.failAt("A declaration cannot be the body of a control statement; enclose it in braces", tok);
+			return blk;
+		}
+		Node s = self.parseStatement();
+		blk.statementsMut().push(s);
 		return blk;
 	}
 
@@ -1357,7 +1389,7 @@ class Parser {
 		self.expect("LPAREN");
 		Node cond = self.parseExpression();
 		self.expect("RPAREN");
-		Node thenBlock = self.parseBlock();
+		Node thenBlock = self.parseBody();
 		Node n = Node();
 		n.kind = NK_IF_STMT;
 		n.condition = cond;
@@ -1372,7 +1404,7 @@ class Parser {
 				eb.ifStmt = innerIf;
 				n.elseBlock = eb;
 			} else {
-				Node body = self.parseBlock();
+				Node body = self.parseBody();
 				Node eb2 = Node();
 				eb2.kind = NK_ELSE_BLOCK;
 				eb2.bodyNode = body;
@@ -1387,7 +1419,7 @@ class Parser {
 		self.expect("LPAREN");
 		Node cond = self.parseExpression();
 		self.expect("RPAREN");
-		Node body = self.parseBlock();
+		Node body = self.parseBody();
 		Node n = Node();
 		n.kind = NK_WHILE_STMT;
 		n.condition = cond;
@@ -1399,7 +1431,7 @@ class Parser {
 
 	public Node parseDoWhileStmt() {
 		Token tok = self.expect("DO");
-		Node body = self.parseBlock();
+		Node body = self.parseBody();
 		self.expect("WHILE");
 		self.expect("LPAREN");
 		Node cond = self.parseExpression();
@@ -1523,7 +1555,7 @@ class Parser {
 		}
 		self.expect("RPAREN");
 
-		Node body = self.parseBlock();
+		Node body = self.parseBody();
 		n.bodyNode = body;
 		return n;
 	}
@@ -1578,6 +1610,7 @@ class Parser {
 		}
 		self.expect("COLON");
 		while (!self.check("CASE") && !self.check("DEFAULT") && !self.check("RBRACE") && !self.atEnd()) {
+			if (self.matchTok("SEMICOLON")) { continue; }
 			Node s = self.parseStatement();
 			n.bodyNodeListMut().push(s);
 		}

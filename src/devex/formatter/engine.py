@@ -61,6 +61,10 @@ class SourceView:
     _CLOSE_TO_OPEN: ClassVar[dict[str, str]] = {close: open_ for open_, close in _OPEN_TO_CLOSE.items()}
     _TYPE_CONTAINERS = frozenset({"class", "interface", "struct", "enum"})
     _CONTROL_WORDS = frozenset({"if", "for", "while", "switch", "catch"})
+    # Headers whose body may be a single unbraced statement (C11 6.8.4, 6.8.5):
+    # the parenthesized condition of these words, or the bare keyword itself.
+    _BODY_CONDITION_WORDS = frozenset({"if", "for", "while"})
+    _BODY_KEYWORDS = frozenset({"else", "do"})
 
     def __init__(self, source: str) -> None:
         self.source = source
@@ -220,12 +224,34 @@ class SourceView:
             cursor -= 1
         return 0
 
+    def ends_body_header(self, index: int) -> bool:
+        """Whether the significant lexeme at *index* ends a header that a body follows.
+
+        That is ``else``, ``do``, or the ``)`` closing an ``if``/``while``/``for``
+        condition. A statement after it is the header's (possibly unbraced) body.
+        """
+        lexeme = self.significant[index]
+        if lexeme.kind is LexemeKind.WORD:
+            return lexeme.text in self._BODY_KEYWORDS
+        if lexeme.text != ")":
+            return False
+        open_index = self.pairs.get(index)
+        return (
+            open_index is not None
+            and open_index > 0
+            and self.significant[open_index - 1].kind is LexemeKind.WORD
+            and self.significant[open_index - 1].text in self._BODY_CONDITION_WORDS
+        )
+
     def _statement_start(self, end_index: int) -> int:
         balances = {")": 0, "]": 0}
         matching_close = {"(": ")", "[": "]"}
         cursor = end_index - 1
         while cursor >= 0:
             lexeme = self.significant[cursor]
+            if not any(balances.values()) and self.ends_body_header(cursor):
+                # An unbraced body starts after its header, never with it.
+                return cursor + 1
             if lexeme.text == "}":
                 open_index = self.pairs.get(cursor)
                 if open_index is None or not self._brace_is_expression(open_index):
@@ -976,9 +1002,22 @@ class BtrcFormatter:
         for lexeme in view.significant:
             tokens_by_line.setdefault(lexeme.line, []).append(lexeme)
 
+        last_index_by_line: dict[int, int] = {}
+        for index, lexeme in enumerate(view.significant):
+            last_index_by_line[lexeme.line] = index
+
         brace_depth = 0
         paren_depth = 0
         previous_token: Lexeme | None = None
+        # Unbraced bodies indent one level past their header. ``body_extra`` is
+        # the extra indentation of the current statement; ``header_extra`` is
+        # set while the previous line ended a header (``if (...)``, ``else``,
+        # ``do``); ``pending_ifs`` holds the extra of each unbraced ``if`` that
+        # a later ``else`` may still bind to. Each brace saves and restores them.
+        body_extra = 0
+        header_extra: int | None = None
+        pending_ifs: list[int] = []
+        brace_frames: list[tuple[int, list[int]]] = []
         rendered: list[str] = []
         for line in view.lines:
             text = line.text
@@ -993,12 +1032,27 @@ class BtrcFormatter:
                 if line_tokens and line_tokens[0].kind is LexemeKind.PREPROCESSOR:
                     level = 0
                 else:
-                    level = brace_depth - (1 if first == "}" else 0)
-                    if (
+                    continued = (
                         (paren_depth > 0 and first not in {")", "]"})
                         or self._line_starts_with_continuation(first_token, previous_token)
                         or (previous_token is not None and previous_token.text in self._TRAILING_CONTINUATION_TOKENS)
-                    ):
+                    )
+                    if continued or first == "}":
+                        pass
+                    elif header_extra is not None:
+                        body_extra = header_extra + (0 if first == "{" else 1)
+                    elif first == "else":
+                        # The nearest unbraced ``if``; after a ``}``, its own line.
+                        if pending_ifs:
+                            body_extra = pending_ifs.pop()
+                    else:
+                        body_extra = 0
+                        pending_ifs.clear()
+                    outer_extra = sum(extra for extra, _ in brace_frames)
+                    level = brace_depth - (1 if first == "}" else 0) + outer_extra
+                    if first != "}":
+                        level += body_extra
+                    if continued:
                         level += 1
                 rendered.append(self.style.indentation(max(level, 0)) + text.lstrip(" \t").rstrip(" \t"))
 
@@ -1007,12 +1061,23 @@ class BtrcFormatter:
                     continue
                 if lexeme.text == "{":
                     brace_depth += 1
+                    brace_frames.append((body_extra, pending_ifs))
+                    body_extra = 0
+                    pending_ifs = []
                 elif lexeme.text == "}":
                     brace_depth = max(brace_depth - 1, 0)
+                    if brace_frames:
+                        body_extra, pending_ifs = brace_frames.pop()
                 elif lexeme.text in {"(", "["}:
                     paren_depth += 1
                 elif lexeme.text in {")", "]"}:
                     paren_depth = max(paren_depth - 1, 0)
+            if line_tokens and line_tokens[0].kind is not LexemeKind.PREPROCESSOR:
+                last_index = last_index_by_line[line.number]
+                header_extra = body_extra if view.ends_body_header(last_index) else None
+                if header_extra is not None and view.significant[last_index].text == ")":
+                    if view.significant[view.pairs[last_index] - 1].text == "if":
+                        pending_ifs.append(header_extra)
             if line_tokens:
                 previous_token = line_tokens[-1]
 

@@ -149,6 +149,66 @@ REFUSALS = [
 ]
 
 
+DECLARATION_BODY = "A declaration cannot be the body of a control statement; enclose it in braces"
+
+# C itself rejects these (C11 6.8, 6.9): a declaration is not a statement, so
+# it cannot be an unbraced body (row 2), and a file-scope ';' is no external
+# declaration (row 6). The constructs that stay braced in btrc keep refusing
+# an unbraced body.
+C_REFUSALS = [
+    pytest.param(
+        "int main() { int flag = 1; if (flag) int hidden = 2; return 0; }",
+        (DECLARATION_BODY, 1, 38),
+        id="r02-declaration-if-body",
+    ),
+    pytest.param(
+        "int main() { int flag = 1; if (flag) {} else var hidden = 2; return 0; }",
+        (DECLARATION_BODY, 1, 46),
+        id="r02-declaration-else-body",
+    ),
+    pytest.param(
+        "int main() { int flag = 0; while (flag) string text; return 0; }",
+        (DECLARATION_BODY, 1, 41),
+        id="r02-declaration-while-body",
+    ),
+    pytest.param(
+        "int main() { for (int i = 0; i < 2; i++) int doubled = i * 2; return 0; }",
+        (DECLARATION_BODY, 1, 42),
+        id="r02-declaration-for-body",
+    ),
+    pytest.param(
+        "int main() { do int once = 1; while (false); return 0; }",
+        (DECLARATION_BODY, 1, 17),
+        id="r02-declaration-do-body",
+    ),
+    pytest.param(
+        "int main() { int total = 0; for value in [1, 2] total += value; return total; }",
+        ("Expected LBRACE, got IDENT 'total'", 1, 49),
+        id="r02-for-in-stays-braced",
+    ),
+    pytest.param(
+        "int main() { int total = 0; try total = 1; catch (e) {} return total; }",
+        ("Expected LBRACE, got IDENT 'total'", 1, 33),
+        id="r02-try-stays-braced",
+    ),
+    pytest.param(
+        "int main() { int total = 0; switch (total) total = 1; return total; }",
+        ("Expected LBRACE, got IDENT 'total'", 1, 44),
+        id="r02-switch-stays-braced",
+    ),
+    pytest.param(
+        "int main() { return 0; }\n;",
+        ("Unexpected token ';' at top level", 2, 1),
+        id="r06-file-scope-semicolon",
+    ),
+    pytest.param(
+        "int helper() { return 1; };\nint main() { return helper() - 1; }",
+        ("Unexpected token ';' at top level", 1, 27),
+        id="r06-semicolon-after-function",
+    ),
+]
+
+
 # Row 23: block-scope VLAs are supported (src/tests/c_compat/VariableLengthArrays.btrc);
 # every context that would need a constant extent or an initializer refuses one.
 VLA_REFUSALS = [
@@ -209,7 +269,7 @@ VLA_DIVERGENT_REFUSALS = [
 ]
 
 
-@pytest.mark.parametrize(("source", "expected"), REFUSALS + VLA_REFUSALS)
+@pytest.mark.parametrize(("source", "expected"), REFUSALS + C_REFUSALS + VLA_REFUSALS)
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,

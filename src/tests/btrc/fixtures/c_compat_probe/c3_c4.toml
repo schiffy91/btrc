@@ -590,10 +590,10 @@ id = "x-braceless-do"
 row = "x-braceless-do"
 construct = "do statement; while (cond);"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got IDENT 'count' at 4:5" }
-btrcc = { diagnostic = "Expected LBRACE, got IDENT 'count' at 4:5" }
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: braceless do\n" }
+btrcc = { exit = 0, stdout = "PASS: braceless do\n" }
 source = '''
 #include <assert.h>
 int main() {
@@ -611,9 +611,9 @@ row = "x-braceless-do"
 construct = "do without while"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got IDENT 'count' at 3:5" }
-btrcc = { diagnostic = "Expected LBRACE, got IDENT 'count' at 3:5" }
+revision = "5472f61"
+python = { diagnostic = "Expected WHILE, got RETURN 'return' at 4:2" }
+btrcc = { diagnostic = "Expected WHILE, got RETURN 'return' at 4:2" }
 source = '''
 int main() {
 	int count = 0;

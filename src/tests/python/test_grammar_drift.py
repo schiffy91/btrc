@@ -14,12 +14,17 @@ from src.compiler.python.syntax.ast.generated import (
     BinaryExpr,
     BraceInitializer,
     CastExpr,
+    CForStmt,
     ClassDecl,
+    ElseBlock,
     EnumDecl,
+    ExprStmt,
     FieldAccessExpr,
+    IfStmt,
     InterfaceDecl,
     ListLiteral,
     MapLiteral,
+    ReturnStmt,
     SpawnExpr,
     StructDecl,
     TryCatchStmt,
@@ -295,3 +300,51 @@ class TestTupleAccess:
         # Documented limitation: x.0.1 lexes `0.1` as a FLOAT_LIT.
         with pytest.raises(ParseError):
             parse_expr("x.0.1")
+
+
+# ---- C rows 2 and 6: braceless bodies and the empty statement ----
+
+
+class TestBracelessBodies:
+    def test_body_is_a_block_at_its_first_token(self):
+        stmt = parse("void t() {\n\tif (a)\n\t\tb = 1;\n\telse\n\t\tb = 2;\n}").declarations[0].body.statements[0]
+        assert isinstance(stmt, IfStmt)
+        assert (stmt.then_block.line, stmt.then_block.col) == (3, 3)
+        assert len(stmt.then_block.statements) == 1
+        assert isinstance(stmt.else_block, ElseBlock)
+        assert (stmt.else_block.body.line, stmt.else_block.body.col) == (5, 3)
+
+    def test_dangling_else_binds_to_the_nearest_if(self):
+        stmt = parse_stmt("if (a) if (b) c = 1; else c = 2;")
+        assert stmt.else_block is None
+        inner = stmt.then_block.statements[0]
+        assert isinstance(inner, IfStmt)
+        assert isinstance(inner.else_block, ElseBlock)
+
+    def test_loop_bodies(self):
+        assert isinstance(parse_stmt("while (a) a--;").body.statements[0], ExprStmt)
+        assert isinstance(parse_stmt("for (i = 0; i < 2; i++) a++;").body.statements[0], ExprStmt)
+        assert isinstance(parse_stmt("do a++; while (a < 2);").body.statements[0], ExprStmt)
+
+    def test_empty_statement_body_is_an_empty_block_at_the_semicolon(self):
+        stmt = parse_stmt("for (i = 0; i < 2; i++);")
+        assert isinstance(stmt, CForStmt)
+        assert stmt.body.statements == []
+        assert (stmt.body.line, stmt.body.col) == (1, 39)
+
+    def test_empty_statement_in_a_list_produces_nothing(self):
+        body = parse("int t() { ; a = 1;; ; return a;; }").declarations[0].body
+        assert [type(statement) for statement in body.statements] == [ExprStmt, ReturnStmt]
+
+    def test_declaration_body_is_refused(self):
+        with pytest.raises(ParseError, match="A declaration cannot be the body of a control statement"):
+            parse_stmt("if (a) int b = 1;")
+
+    def test_stray_file_scope_semicolon_is_refused(self):
+        with pytest.raises(ParseError, match="Unexpected token ';' at top level"):
+            parse("int t() { return 0; };")
+
+    def test_braced_only_statements_stay_braced(self):
+        for source in ("for x in xs x++;", "try x++; catch (e) {}", "switch (x) x++;"):
+            with pytest.raises(ParseError, match="Expected LBRACE"):
+                parse_stmt(source)

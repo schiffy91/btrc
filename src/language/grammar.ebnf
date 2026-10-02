@@ -324,7 +324,21 @@
   -- Statements
   -- ----------------------------------------------------------------
 
-  block = "{" { statement } "}" ;
+  block = "{" { statement | ";" } "}"
+          (* A ";" inside a statement list is an empty statement and
+             produces no node. *) ;
+
+  body = block
+       | ";"
+       | statement
+         (* The substatement of if, else, while, do and the C-style for
+            (C11 6.8.4, 6.8.5). Anything but a block is wrapped in a
+            synthesized block positioned at its first token, so it keeps the
+            scope a braced body has; a lone ";" is an empty block positioned
+            at the ";". A var_decl_stmt is not a statement in C and is
+            refused as a body. A dangling "else" binds to the nearest "if".
+            for-in, parallel for, try/catch/finally and switch stay
+            braced. *) ;
 
   statement = block
             | var_decl_stmt
@@ -353,9 +367,9 @@
                      vs an expression statement. *) ;
 
   return_stmt     = "return" [ expr ] ";" ;
-  if_stmt         = "if" "(" expr ")" block [ "else" ( if_stmt | block ) ] ;
-  while_stmt      = "while" "(" expr ")" block ;
-  do_while_stmt   = "do" block "while" "(" expr ")" ";" ;
+  if_stmt         = "if" "(" expr ")" body [ "else" ( if_stmt | body ) ] ;
+  while_stmt      = "while" "(" expr ")" body ;
+  do_while_stmt   = "do" body "while" "(" expr ")" ";" ;
   break_stmt      = "break" ";" ;
   continue_stmt   = "continue" ";" ;
   throw_stmt      = "throw" expr ";" ;
@@ -373,7 +387,7 @@
                      second-next is "in" or ",", it is for-in.
                      Otherwise it is C-style for. *) ;
 
-  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ expr ] ")" block ;
+  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ expr ] ")" body ;
 
   for_init = var_decl_no_semi | expr ;
   var_decl_no_semi = "var" IDENT "=" expr
@@ -382,7 +396,7 @@
   parallel_for_stmt = "parallel" "for" IDENT "in" expr block ;
 
   switch_stmt = "switch" "(" expr ")" "{" { case_clause } "}" ;
-  case_clause = ( "case" expr | "default" ) ":" { statement } ;
+  case_clause = ( "case" expr | "default" ) ":" { statement | ";" } ;
 
   try_catch_stmt = "try" block
                    [ "catch" "(" [ type_expr ] IDENT ")" block ]
