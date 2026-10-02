@@ -1,4 +1,4 @@
-import Library.GUI.FontFace;
+import Library.GUI.IFontFace;
 
 /* A scalable raster font owns a face, never a process-global activation.
  * Select it explicitly with surface.setFont(font). The surface retains the

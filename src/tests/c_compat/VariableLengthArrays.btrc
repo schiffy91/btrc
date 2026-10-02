@@ -72,6 +72,18 @@ int main() {
 	assert(sizeof(none) == sizeof(int));
 	assert(sizeof(below) == sizeof(int));
 
+	// ... but iteration sees no elements.
+	int seen = 0;
+	for item in none {
+		(void)item;
+		seen++;
+	}
+	for item in below {
+		(void)item;
+		seen++;
+	}
+	print(f"zero and negative bounds iterate {seen} elements");
+
 	print("PASS: variable-length arrays");
 	return 0;
 }

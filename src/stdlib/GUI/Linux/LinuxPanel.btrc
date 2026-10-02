@@ -8,8 +8,10 @@ import Library.GUI.Linux.LinuxContainer;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
 
-/* A filled, optionally rounded container that also selects the theme its
- * descendants draw with. Children clip to the rounded outline. */
+/* A filled, optionally rounded container. setDarkAppearance selects the
+ * dark or light theme its descendants draw with; inheritAppearance returns
+ * to the enclosing theme. Children clip to the panel's rectangular bounds;
+ * the corner radius shapes only the fill. */
 class LinuxPanel extends LinuxContainerView implements IPanel {
 	private RGBA _fill;
 	private double _radius;
@@ -49,5 +51,5 @@ class LinuxPanel extends LinuxContainerView implements IPanel {
 
 	public void inheritAppearance() { self.node().requireOpen(); self._appearance = 0; self.node().invalidate(); }
 
-	public void __del__() { if (self.node() != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native panel destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native panel destroyed before subtree cleanup completed"); } }
 }

@@ -20,6 +20,13 @@ class BaseReader {
 	public int wrap(void* value) { return self.inspect(value); }
 }
 
+class StaticReader {
+	class int peek(void* value) { return (int)(*(unsigned char*)value); }
+}
+
+/* A borrow-only parameter stays borrow-only through a static method. */
+int forwardStatic(void* value) { return StaticReader.peek(value); }
+
 class ChildMutator extends BaseReader {
 	public int inspect(void* value) {
 		memset(value, 0, 1);
@@ -33,6 +40,7 @@ int main() {
 	string text = "abc";
 	assert(strlen(text) == (size_t)3);
 	assert(first((char*)text) == (int)'a');
+	assert(forwardStatic((void*)text) == (int)'a');
 	ChildMutator reader = new ChildMutator();
 	assert(reader.wrap((void*)text) == (int)'a');
 	char* literalAlias = strstr((char*)"abc", "b");

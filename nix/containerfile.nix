@@ -18,7 +18,11 @@ in
         -o /tmp/determinate-nix-installer.sh && \
         echo '${cfg.nixInstallerSha256}  /tmp/determinate-nix-installer.sh' | sha256sum -c - && \
         sh /tmp/determinate-nix-installer.sh install linux --no-confirm --init none \
-        --extra-conf "experimental-features = nix-command flakes" && \
+        --extra-conf "experimental-features = nix-command flakes" \
+        --extra-conf "http2 = false" \
+        --extra-conf "download-attempts = 10" \
+        --extra-conf "connect-timeout = 15" \
+        --extra-conf "fallback = true" && \
         rm -f /tmp/determinate-nix-installer.sh && \
         chown -R ${uid}:${uid} /nix
     COPY --chown=${uid}:${uid} flake.nix flake.lock /tmp/flake/
@@ -39,8 +43,19 @@ in
     # The bind-mounted checkout keeps the host UID. Trust only this configured
     # workspace so Git-backed build provenance works for the container user.
     RUN git config --global --add safe.directory '${cfg.workspace}'
+    # The image fetches every store path from cache.nixos.org itself (the
+    # host's Magic Nix Cache is not reachable from the build), and CI has lost
+    # whole runs here to HTTP/2 framing errors and resumed downloads the cache
+    # answered with 416. The installer's nix.conf therefore uses HTTP/1.1,
+    # retries each download ten times and builds from source when a
+    # substitute still fails; a failed evaluation is retried twice more, and
+    # paths an earlier attempt copied are kept.
     RUN cd /tmp/flake && git init -q && git add -A && \
-        nix print-dev-env . > ${home}/.nix-devshell.sh && \
+        for attempt in 1 2 3; do \
+          nix print-dev-env . > ${home}/.nix-devshell.sh && break; \
+          [ "$attempt" -lt 3 ] || exit 1; \
+          echo "nix print-dev-env failed (attempt $attempt of 3); retrying" >&2; sleep 20; \
+        done && \
         rm -rf /tmp/flake
     RUN bash -c '. ${home}/.nix-devshell.sh && \
         mkdir -p ${home}/.local/bin && \

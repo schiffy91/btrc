@@ -175,8 +175,20 @@ def measure(command: list[str], env: dict[str, str], cwd: Path, stdout: Path, st
     return Measurement.from_usage(json.loads(completed.stdout), sys.platform)
 
 
+# One phase mark: everything before the last `=NNNus`. A mark may carry
+# counters in parentheses, `a-records-stored(replayed=3,journaled=1)=12us`,
+# which are dropped from the phase name so runs with different counts sum
+# into one phase.
+PHASE_MARK = re.compile(r"^(?P<name>[^()=]+)(?:\([^()]*\))?=(?P<micros>\d+)us$")
+
+
 def phase_times(stderr: str) -> dict[str, float]:
-    """Both compilers print `<name> timing: phase=NNNus ...`; sum per phase in seconds."""
+    """Both compilers print `<name> timing: phase=NNNus ...`; sum per phase in seconds.
+
+    Tokens that are not a phase mark -- counters such as
+    `module-units=lowered:3,reused:2` or `setjmp-analyses=2/3,rounds=1` --
+    are skipped rather than parsed.
+    """
 
     phases: dict[str, float] = {}
     for line in stderr.splitlines():
@@ -184,9 +196,9 @@ def phase_times(stderr: str) -> dict[str, float]:
         if not match:
             continue
         for item in match.group(2).split():
-            name, _, value = item.partition("=")
-            if value.endswith("us"):
-                phases[name] = phases.get(name, 0.0) + int(value[:-2]) / 1_000_000.0
+            if mark := PHASE_MARK.match(item):
+                name = mark.group("name")
+                phases[name] = phases.get(name, 0.0) + int(mark.group("micros")) / 1_000_000.0
     return phases
 
 
@@ -218,6 +230,34 @@ def worker_phase_times(stderr: str) -> dict[int, dict[str, float]]:
                         phases[key] = phases.get(key, 0.0) + int(found.group(1)) / 1_000_000.0
             elif found := MICROSECONDS.match(value):
                 phases[name] = phases.get(name, 0.0) + int(found.group(1)) / 1_000_000.0
+    return workers
+
+
+WORKER_USAGE = re.compile(r"^user:(\d+)us,sys:(\d+)us,maxrss:(\d+)KiB$")
+
+
+def worker_usage(stderr: str) -> dict[int, dict[str, float]]:
+    """Forked module-unit workers' own resource usage, by worker index.
+
+    A worker line's `usage=user:Nus,sys:Nus,maxrss:NKiB` field, which the
+    owner appends after reaping the worker, becomes `user` and `sys` in
+    seconds and `maxrss_kib`. A worker the host reported no usage for is
+    absent, as is every worker of a build that forked none.
+    """
+
+    workers: dict[int, dict[str, float]] = {}
+    for line in stderr.splitlines():
+        match = WORKER_TIMING_LINE.match(line.strip())
+        if not match:
+            continue
+        for item in match.group(2).split():
+            name, _, value = item.partition("=")
+            if name == "usage" and (found := WORKER_USAGE.match(value)):
+                workers[int(match.group(1))] = {
+                    "user": int(found.group(1)) / 1_000_000.0,
+                    "sys": int(found.group(2)) / 1_000_000.0,
+                    "maxrss_kib": float(found.group(3)),
+                }
     return workers
 
 

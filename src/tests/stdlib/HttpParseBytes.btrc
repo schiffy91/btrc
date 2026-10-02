@@ -8,7 +8,7 @@
  * Hermetic + deterministic: a request is assembled in memory; no sockets. */
 import Library.Bytes;
 import Library.HTTP.HTTPServer;
-import Library.HTTP.HTTPTypes;
+import Library.HTTP.HTTPRequest;
 
 #include <assert.h>
 

@@ -2,10 +2,12 @@
  *
  * RealtimeAudioProgram is the managed object exchanged between a prepared
  * processor and an audio-device provider. The producer owns its context until
- * the provider's suspend barrier drains. Only native/provider seams extract
- * the raw pair. AudioBlockView contains clocks and dimensions by value; input
- * and output samples arrive as nonescaping interleaved Span<T> borrows whose
- * storage cannot be retained in BTRC fields, globals, returns, or aggregates.
+ * the session's drain() completes: suspend() only closes callback admission,
+ * and drain() is the barrier after which no callback can touch the context.
+ * Only native/provider seams extract the raw pair. AudioBlockView contains
+ * clocks and dimensions by value; input and output samples arrive as
+ * nonescaping interleaved Span<T> borrows whose storage cannot be retained in
+ * BTRC fields, globals, returns, or aggregates.
  */
 
 import Library.Callback;

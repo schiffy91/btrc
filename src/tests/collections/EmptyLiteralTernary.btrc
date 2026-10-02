@@ -1,0 +1,36 @@
+/* An empty collection literal in a ternary takes the other branch's type, or
+ * the declared type when both branches are empty. */
+
+import Library.Map;
+import Library.Vector;
+
+class Holder {
+	public Vector<string> names() {
+		Vector<string> out = ["a", "b"];
+		return out;
+	}
+}
+
+int count(Vector<string> values) { return values.len; }
+
+int main() {
+	Holder? holder = Holder();
+	Holder? missing = null;
+	Vector<string> words = ["x"];
+	bool flag = words.len > 0;
+	Vector<string> first = flag ? [] : words;
+	Vector<string> second = !flag ? words : [];
+	var third = holder != null ? holder.names() : [];
+	print(f"{first.len} {second.len} {third.len}");
+	print(f"{count(missing != null ? missing.names() : [])} {count(holder != null ? holder.names() : [])}");
+	Map<string, int> table = {"k": 1};
+	Map<string, int> chosen = flag ? {} : table;
+	Map<string, int> kept = !flag ? {} : table;
+	print(f"{chosen.len} {kept.len}");
+	Vector<string> both = flag ? [] : [];
+	both.push("z");
+	Vector<string> nested = flag ? (missing != null ? missing.names() : []) : [];
+	print(f"{both.len} {both.get(0)} {nested.len}");
+	print("PASS: empty literal ternary");
+	return 0;
+}

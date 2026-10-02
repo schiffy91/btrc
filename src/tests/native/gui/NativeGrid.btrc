@@ -78,8 +78,8 @@ int main() {
 	form.setChild(1, 1, nested);
 	form.layout();
 	assert(monitor.nativeView().frame().size.width > 100.0);
-	assert(portable.close() == CallbackCancellation.Complete);
-	assert(portable.close() == CallbackCancellation.Complete);
+	assert(portable.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(portable.close() == CALLBACK_CANCELLATION_COMPLETE);
 	nested.close();
 	assert(!input.isOpen() && !monitor.isOpen() && !nested.isOpen());
 	input.close();

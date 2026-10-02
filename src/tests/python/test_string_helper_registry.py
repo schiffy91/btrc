@@ -24,7 +24,6 @@ EXPECTED_OPERATION_HELPERS = (
     "__btrc_rstrip",
     "__btrc_zfill",
     "__btrc_strcat",
-    "__btrc_join",
 )
 
 
@@ -75,9 +74,9 @@ def test_common_helpers_precede_public_string_operations() -> None:
 def test_string_families_are_generated_once_for_both_compilers() -> None:
     rows = {row.name: row for row in RUNTIME_HELPER_ROWS}
     catalog = RuntimeHelperCatalog()
-    selected = {row.name: row for row in catalog.definitions_for({"__btrc_join"})}
+    selected = {row.name: row for row in catalog.definitions_for({"__btrc_strcat"})}
 
-    assert selected["__btrc_join"] is rows["__btrc_join"]
+    assert selected["__btrc_strcat"] is rows["__btrc_strcat"]
     assert "__btrc_string_alloc" in selected
     assert "__btrc_string_adopt" in selected
     assert "__btrc_safe_realloc" in selected

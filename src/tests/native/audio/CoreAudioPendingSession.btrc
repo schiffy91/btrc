@@ -1,4 +1,4 @@
-import Library.Audio.MacOS.CoreAudioDevice;
+import Library.Audio.MacOS.MacOSAudioDevice;
 import Library.Audio.AudioDevice;
 import Library.Audio.RealtimeAudio;
 
@@ -17,7 +17,7 @@ float unitOutput(int sample);
 
 void verifyPublishedSession(int terminal) {
 	unitReset(0);
-	var provider = CoreAudioDeviceProvider.open().provider();
+	var provider = MacOSAudioDevice.open().provider();
 	var inventory = provider.inventory().inventory();
 	var request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), "device-b", AudioChannelSelection.leading(1), AudioStreamRequest(48000, 128));
 	var opened = provider.openDuplex(request, RealtimeAudioProgram(pendingProcess, null));
@@ -48,7 +48,7 @@ void verifyPublishedSession(int terminal) {
 
 void verifyPartialIndeterminate() {
 	unitReset(10);
-	var opened = CoreAudioDeviceProvider.open();
+	var opened = MacOSAudioDevice.open();
 	assert(opened.succeeded());
 	var provider = opened.provider();
 	var inventory = provider.inventory().inventory();

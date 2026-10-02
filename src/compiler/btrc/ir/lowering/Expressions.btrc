@@ -1204,6 +1204,10 @@ class ExpressionLowerer {
 		if (valueNode.kind == NK_TUPLE_LITERAL) {
 			return self.lowerSequencedTuple(valueNode, targetType, varTypes, callableFlow);
 		}
+		if (targetType != null && self.ternaryHasEmptyLiteral(valueNode)) {
+			self.context.diagnosticLine = valueNode.line;
+			return self.lowerTypedTernary(valueNode, varTypes, callableFlow, targetType);
+		}
 		return self.lowerExpr(valueNode, varTypes, callableFlow);
 	}
 
@@ -1745,15 +1749,37 @@ class ExpressionLowerer {
 		return null;
 	}
 
-	public IRNode lowerTypedTernary(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+	/* An empty `[]` or `{}` carries no element type of its own. */
+	private bool emptyContextualLiteral(Node? node) {
+		if (node == null) { return false; }
+		if (node.kind == NK_LIST_LITERAL || node.kind == NK_BRACE_INITIALIZER) { return node.elements().len == 0; }
+		return node.kind == NK_MAP_LITERAL && node.entries().len == 0;
+	}
+
+	private bool ternaryHasEmptyLiteral(Node? node) {
+		if (node == null || node.kind != NK_TERNARY_EXPR) { return false; }
+		return self.emptyContextualLiteral(node.trueExpr) || self.emptyContextualLiteral(node.falseExpr) || self.ternaryHasEmptyLiteral(node.trueExpr) || self.ternaryHasEmptyLiteral(node.falseExpr);
+	}
+
+	/* An empty literal branch takes the type the ternary produces: the other
+	 * branch's, or the declared type when every branch is empty. */
+	private IRNode lowerTernaryBranch(Node branch, Node? expected, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+		if (expected != null && self.emptyContextualLiteral(branch)) { return self.lowerAssignedValueRaw(branch, expected, varTypes, callableFlow); }
+		if (expected != null && self.ternaryHasEmptyLiteral(branch)) { return self.lowerTypedTernary(branch, varTypes, callableFlow, expected); }
+		return self.lowerExpr(branch, varTypes, callableFlow);
+	}
+
+	public IRNode lowerTypedTernary(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow, Node? expected = null) {
+		Node? branchExpected = expected;
+		if (branchExpected == null && self.ternaryHasEmptyLiteral(node)) { branchExpected = self.resolvedExpressionType(node, varTypes); }
 		IRNode condition = self.lowerExpr(node.condition, varTypes, callableFlow);
 		CallableFlowSnapshot branchEntry = callableFlow.snapshot();
 		bool trueOwned = self.ownershipSemantics.expressionOwnsResult(node.trueExpr, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
-		IRNode trueValue = self.lowerExpr(node.trueExpr, varTypes, callableFlow);
+		IRNode trueValue = self.lowerTernaryBranch(node.trueExpr, branchExpected, varTypes, callableFlow);
 		CallableFlowSnapshot trueFlow = callableFlow.snapshot();
 		callableFlow.restore(branchEntry);
 		bool falseOwned = self.ownershipSemantics.expressionOwnsResult(node.falseExpr, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
-		IRNode falseValue = self.lowerExpr(node.falseExpr, varTypes, callableFlow);
+		IRNode falseValue = self.lowerTernaryBranch(node.falseExpr, branchExpected, varTypes, callableFlow);
 		CallableFlowSnapshot falseFlow = callableFlow.snapshot();
 		callableFlow.restore(branchEntry);
 		Vector<CallableFlowSnapshot> branchFlows = [];

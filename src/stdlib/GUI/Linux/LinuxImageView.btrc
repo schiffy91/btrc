@@ -94,7 +94,7 @@ class LinuxImageView extends LinuxNodeView implements IImageView {
 		self.node().invalidate();
 	}
 
-	public CallbackCancellation close() { var state = self.node().close(); if (state == CallbackCancellation.Complete) { self._handle = null; } return state; }
+	public CallbackCancellation close() { var state = self.node().close(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._handle = null; } return state; }
 
-	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CallbackCancellation.Complete) { self._handle = null; } return state; }
+	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._handle = null; } return state; }
 }

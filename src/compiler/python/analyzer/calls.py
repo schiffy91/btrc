@@ -910,7 +910,9 @@ class CallAnalyzer:
         ):
             if not self.session.in_gpu_function:
                 self.session.error("gpu_id() can only be called inside @gpu functions", expr.line, expr.col)
-            if expr.args:
+            if any(expr.arg_names or []):
+                self.session.error("WGSL built-ins do not accept named arguments", expr.line, expr.col)
+            elif expr.args:
                 self.session.error("gpu_id() takes no arguments", expr.line, expr.col)
         if isinstance(expr.callee, Identifier):
             self._validate_source_macro_call(expr)

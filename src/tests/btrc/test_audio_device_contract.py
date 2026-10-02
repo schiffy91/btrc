@@ -83,7 +83,7 @@ def test_audio_device_contract_runs_with_both_frontends(semantic_btrcc: Path, tm
 
 def test_audio_device_contract_keeps_negotiation_and_barrier_explicit() -> None:
     source = API.read_text()
-    assert "interface AudioDeviceProvider" in source
+    assert "interface IAudioDeviceProvider" in source
     assert "class DuplexAudioSession" in source
     assert "AudioStreamCapability unknown()" in source
     assert "Vector<AudioSampleRateRange>" in source
@@ -95,7 +95,7 @@ def test_audio_device_contract_keeps_negotiation_and_barrier_explicit() -> None:
     assert "RealtimeAudioFormat _outputFormat" in source
     assert "public AudioDeviceOperationOutcome suspend()" in source
     assert "public AudioDeviceOperationOutcome drain()" in source
-    assert "interface AudioSessionBackend" in source
-    assert "private AudioSessionBackend? _backend;" in source
+    assert "interface IAudioSessionBackend" in source
+    assert "private IAudioSessionBackend? _backend;" in source
     assert "AudioDeviceSessionDispose" not in source
     assert source.index("self._state = DUPLEX_AUDIO_SESSION_DRAINED") < source.index("self._backend = null")

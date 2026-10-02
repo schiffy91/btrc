@@ -1,4 +1,4 @@
-import Library.FileSystem.FileSystem;
+import Library.FileSystem;
 import Library.Platform;
 import Library.Process;
 import Library.Strings;

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.python.test_native_import_consumer import native_project as native_project
+from src.tests.python.native_import_fixtures import native_project as native_project
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]

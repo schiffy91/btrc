@@ -1,0 +1,162 @@
+/* The shared UTF-8 primitive behind every library text consumer. Overlong
+ * forms, surrogates, scalars past U+10FFFF, invalid leads, stray
+ * continuations and truncated sequences are malformed: decode yields U+FFFD
+ * and advances one byte, and boundary walks agree with decoding. */
+import Library.Bytes;
+import Library.JSON;
+import Library.Strings;
+import Library.Vector;
+import Library.UI.Text;
+
+#include <assert.h>
+
+class Utf8ScalarsFixture {
+	class string bytes(Vector<int> values) {
+		StringBuilder output = StringBuilder();
+		for value in values {
+			output.appendChar((char)value);
+		}
+		return output.toString();
+	}
+
+	class int width(Vector<int> values) {
+		string text = Utf8ScalarsFixture.bytes(values);
+		return UTF8.width(text, text.len(), 0);
+	}
+
+	/* Every decoded scalar of text, comma-separated in decimal. */
+	class string scalars(string text) {
+		int length = text.len();
+		int offset = 0;
+		Vector<string> parts = [];
+		while (offset < length) {
+			int before = offset;
+			int codepoint = UTF8.decode(text, length, &offset);
+			assert(offset > before);
+			assert(offset == UTF8.next(text, length, before));
+			assert(UTF8.previous(text, length, offset) == before);
+			parts.push(f"{codepoint}");
+		}
+		return parts.join(",");
+	}
+}
+
+int main() {
+	/* Well-formed widths at every range edge. */
+	assert(Utf8ScalarsFixture.width([0x41]) == 1);
+	assert(Utf8ScalarsFixture.width([0x7f]) == 1);
+	assert(Utf8ScalarsFixture.width([0xc2, 0x80]) == 2);
+	assert(Utf8ScalarsFixture.width([0xdf, 0xbf]) == 2);
+	assert(Utf8ScalarsFixture.width([0xe0, 0xa0, 0x80]) == 3);
+	assert(Utf8ScalarsFixture.width([0xed, 0x9f, 0xbf]) == 3);
+	assert(Utf8ScalarsFixture.width([0xee, 0x80, 0x80]) == 3);
+	assert(Utf8ScalarsFixture.width([0xef, 0xbf, 0xbf]) == 3);
+	assert(Utf8ScalarsFixture.width([0xf0, 0x90, 0x80, 0x80]) == 4);
+	assert(Utf8ScalarsFixture.width([0xf4, 0x8f, 0xbf, 0xbf]) == 4);
+
+	/* Overlong forms, including E0 80 80, which once decoded as U+0000. */
+	assert(Utf8ScalarsFixture.width([0xc0, 0x80]) == 0);
+	assert(Utf8ScalarsFixture.width([0xc1, 0xbf]) == 0);
+	assert(Utf8ScalarsFixture.width([0xe0, 0x80, 0x80]) == 0);
+	assert(Utf8ScalarsFixture.width([0xe0, 0x9f, 0xbf]) == 0);
+	assert(Utf8ScalarsFixture.width([0xf0, 0x80, 0x80, 0x80]) == 0);
+	assert(Utf8ScalarsFixture.width([0xf0, 0x8f, 0xbf, 0xbf]) == 0);
+
+	/* Surrogates and scalars past U+10FFFF. */
+	assert(Utf8ScalarsFixture.width([0xed, 0xa0, 0x80]) == 0);
+	assert(Utf8ScalarsFixture.width([0xed, 0xbf, 0xbf]) == 0);
+	assert(Utf8ScalarsFixture.width([0xf4, 0x90, 0x80, 0x80]) == 0);
+	assert(Utf8ScalarsFixture.width([0xf5, 0x80, 0x80, 0x80]) == 0);
+
+	/* Invalid leads, stray continuations, broken and truncated sequences. */
+	assert(Utf8ScalarsFixture.width([0xf8, 0x88, 0x80, 0x80]) == 0);
+	assert(Utf8ScalarsFixture.width([0xfe]) == 0);
+	assert(Utf8ScalarsFixture.width([0xff]) == 0);
+	assert(Utf8ScalarsFixture.width([0x80]) == 0);
+	assert(Utf8ScalarsFixture.width([0xbf]) == 0);
+	assert(Utf8ScalarsFixture.width([0xc3, 0x41]) == 0);
+	assert(Utf8ScalarsFixture.width([0xe2, 0x28, 0xa1]) == 0);
+	assert(Utf8ScalarsFixture.width([0xc3]) == 0);
+	assert(Utf8ScalarsFixture.width([0xe2, 0x82]) == 0);
+	assert(Utf8ScalarsFixture.width([0xf0, 0x9f, 0x98]) == 0);
+
+	/* Out-of-range offsets and null data are never well-formed. */
+	assert(UTF8.width("a", 1, 1) == 0);
+	assert(UTF8.width("a", 1, -1) == 0);
+	assert(UTF8.width(null, 4, 0) == 0);
+
+	/* Decoding: each malformed byte is one U+FFFD (65533). */
+	assert(Utf8ScalarsFixture.scalars(Utf8ScalarsFixture.bytes([0x41, 0xe0, 0x80, 0x80, 0x42])).equals("65,65533,65533,65533,66"));
+	assert(Utf8ScalarsFixture.scalars(Utf8ScalarsFixture.bytes([0xed, 0xa0, 0x80])).equals("65533,65533,65533"));
+	assert(Utf8ScalarsFixture.scalars(Utf8ScalarsFixture.bytes([0xc3, 0xa9, 0xf0, 0x9f, 0x98, 0x80])).equals("233,128512"));
+	assert(Utf8ScalarsFixture.scalars(Utf8ScalarsFixture.bytes([0xf4, 0x8f, 0xbf, 0xbf, 0xf4, 0x90, 0x80, 0x80])).equals("1114111,65533,65533,65533,65533"));
+	assert(Utf8ScalarsFixture.scalars(Utf8ScalarsFixture.bytes([0x7a, 0xe2, 0x82])).equals("122,65533,65533"));
+	assert(Utf8ScalarsFixture.scalars(Utf8ScalarsFixture.bytes([0x80, 0xc3, 0xa9, 0xa9, 0xff])).equals("65533,233,65533,65533"));
+	assert(Utf8ScalarsFixture.scalars(Utf8ScalarsFixture.bytes([0xf8, 0x88, 0x80, 0x80, 0x80])).equals("65533,65533,65533,65533,65533"));
+	int end = 3;
+	assert(UTF8.decode("abc", 3, &end) == -1 && end == 3);
+	int negative = -2;
+	assert(UTF8.decode("abc", 3, &negative) == -1 && negative == 3);
+
+	/* Boundary walks: previous is the exact inverse of next, and clamps. */
+	string mixed = Utf8ScalarsFixture.bytes([0x61, 0xc3, 0xa9, 0x80, 0xe0, 0x80, 0x80, 0xf0, 0x9f, 0x98, 0x80, 0xed, 0xa0, 0x80, 0x7a]);
+	assert(Utf8ScalarsFixture.scalars(mixed).equals("97,233,65533,65533,65533,65533,128512,65533,65533,65533,122"));
+	assert(UTF8.previous(mixed, mixed.len(), 3) == 1);
+	assert(UTF8.previous(mixed, mixed.len(), 4) == 3);
+	assert(UTF8.previous(mixed, mixed.len(), 11) == 7);
+	assert(UTF8.previous(mixed, mixed.len(), 0) == 0);
+	assert(UTF8.previous(mixed, mixed.len(), 99) == mixed.len() - 1);
+	assert(UTF8.next(mixed, mixed.len(), -5) == 0);
+	assert(UTF8.next(mixed, mixed.len(), 99) == mixed.len());
+
+	/* Whole-text validation. */
+	assert(UTF8.valid("", 0));
+	assert(UTF8.valid(Utf8ScalarsFixture.bytes([0x61, 0xc3, 0xa9, 0xf0, 0x9f, 0x98, 0x80]), 7));
+	assert(!UTF8.valid(mixed, mixed.len()));
+	assert(!UTF8.valid(null, 0));
+
+	/* Word navigation over scalars: non-ASCII scalars are word scalars. */
+	string words = "hello, w" + Utf8ScalarsFixture.bytes([0xc3, 0xb6]) + "rld_1  x";
+	int length = words.len();
+	assert(length == 18);
+	assert(UTF8.nextWord(words, length, 0) == 5);
+	assert(UTF8.nextWord(words, length, 5) == 15);
+	assert(UTF8.nextWord(words, length, 15) == 18);
+	assert(UTF8.nextWord(words, length, -3) == 5);
+	assert(UTF8.previousWord(words, length, 18) == 17);
+	assert(UTF8.previousWord(words, length, 17) == 7);
+	assert(UTF8.previousWord(words, length, 7) == 0);
+	assert(UTF8.previousWord(words, length, 99) == 17);
+	assert(UTF8.wordScalar(words, length, 8));
+	assert(!UTF8.wordScalar(words, length, 5));
+	assert(!UTF8.wordScalar(words, length, 18));
+
+	/* Consumers built on the primitive agree with it. */
+	string overlong = Utf8ScalarsFixture.bytes([0xe0, 0x80, 0x80]);
+	string surrogate = Utf8ScalarsFixture.bytes([0xed, 0xa0, 0x80]);
+	string emoji = Utf8ScalarsFixture.bytes([0xf0, 0x9f, 0x98, 0x80]);
+	assert(Bytes.fromString("plain ascii text, longer than eight bytes").isNulFreeUtf8());
+	assert(Bytes.fromString("abcdefghij" + emoji).isNulFreeUtf8());
+	assert(!Bytes.fromString("abcdefghij" + overlong).isNulFreeUtf8());
+	assert(!Bytes.fromString(surrogate).isNulFreeUtf8());
+	char withNul[3];
+	withNul[0] = 'a';
+	withNul[1] = '\0';
+	withNul[2] = 'b';
+	assert(!Bytes.fromRaw(withNul, 3).isNulFreeUtf8());
+	assert(JSONValue.encodeString(overlong).equals("\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd"));
+	assert(JSONValue.encodeString(emoji).equals(emoji));
+	assert(!UIText.valid(overlong));
+	assert(!UIText.valid(surrogate));
+	assert(UIText.valid("a" + emoji, 5));
+	assert(!UIText.valid("a" + emoji, 4));
+	assert(UIText.floorBoundary(emoji, 2) == 0);
+	assert(UIText.floorBoundary(emoji, 3) == 0);
+	assert(UIText.previousBoundary(emoji, 4) == 0);
+	assert(UIText.nextBoundary(overlong, 0) == 0);
+	assert(UIText.scalarCount("a" + emoji + "b", 6) == 3);
+	assert(UIText.prefix("a" + emoji, 4).equals("a"));
+
+	print("PASS: test_stdlib_utf8_scalars");
+	return 0;
+}

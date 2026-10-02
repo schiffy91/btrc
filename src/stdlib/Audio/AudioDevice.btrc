@@ -442,7 +442,7 @@ enum DuplexAudioSessionState {
 /* Control-thread backend, retained by the session through native cleanup.
  * A failed close keeps ownership; a successful close leaves no native borrower.
  * Realtime processing remains a separate callback ABI, not interface dispatch. */
-interface AudioSessionBackend {
+interface IAudioSessionBackend {
 	AudioDeviceStatus start();
 	AudioDeviceStatus suspend();
 	AudioDeviceStatus drain();
@@ -463,11 +463,11 @@ interface AudioSessionBackend {
 class DuplexAudioSession {
 	private DuplexAudioNegotiatedFormat _format;
 	private RealtimeAudioProgram _program;
-	private AudioSessionBackend? _backend;
+	private IAudioSessionBackend? _backend;
 	private DuplexAudioSessionState _state;
 	private unsigned long long _streamEpoch;
 
-	public DuplexAudioSession(DuplexAudioNegotiatedFormat format, RealtimeAudioProgram program, AudioSessionBackend backend) {
+	public DuplexAudioSession(DuplexAudioNegotiatedFormat format, RealtimeAudioProgram program, IAudioSessionBackend backend) {
 		if (format == null || program == null || backend == null) { throw "duplex audio session backend is incomplete"; }
 		self._format = format;
 		self._program = program;
@@ -484,7 +484,7 @@ class DuplexAudioSession {
 
 	public bool isOpen() { return self._state != DUPLEX_AUDIO_SESSION_CLOSED; }
 
-	private AudioSessionBackend backend() {
+	private IAudioSessionBackend backend() {
 		if (self._backend == null) { throw "duplex audio session backend is closed"; }
 		return self._backend;
 	}
@@ -569,7 +569,7 @@ class DuplexAudioSessionOpenOutcome {
 
 /* inventory() is a fresh immutable snapshot. openDuplex() rejects a stale
  * generation and returns authoritative callback-facing formats before start. */
-interface AudioDeviceProvider {
+interface IAudioDeviceProvider {
 	bool isOpen();
 	AudioDeviceInventoryOutcome inventory();
 	DuplexAudioSessionOpenOutcome openDuplex(DuplexAudioOpenRequest request, RealtimeAudioProgram program);
@@ -577,13 +577,13 @@ interface AudioDeviceProvider {
 }
 
 /* The outcome owns an alias to the provider, not a second native resource.
- * Session lifetimes and failures use the AudioDeviceProvider contract. */
+ * Session lifetimes and failures use the IAudioDeviceProvider contract. */
 class AudioDeviceProviderOpenOutcome {
 	private AudioDeviceStatus _status;
-	private AudioDeviceProvider? _provider;
+	private IAudioDeviceProvider? _provider;
 	private string _message;
 
-	private AudioDeviceProviderOpenOutcome(AudioDeviceStatus status, AudioDeviceProvider? provider, string message) {
+	private AudioDeviceProviderOpenOutcome(AudioDeviceStatus status, IAudioDeviceProvider? provider, string message) {
 		if ((int)status < (int)AUDIO_DEVICE_OK || (int)status > (int)AUDIO_DEVICE_INDETERMINATE || message.len() > 1024 || !Bytes.fromString(message).isNulFreeUtf8()) { throw "invalid audio provider status"; }
 		if ((status == AUDIO_DEVICE_OK) != (provider != null && message.isEmpty())) { throw "invalid audio provider outcome"; }
 		self._status = status;
@@ -591,7 +591,7 @@ class AudioDeviceProviderOpenOutcome {
 		self._message = status == AUDIO_DEVICE_OK ? "" : (message.isEmpty() ? audioDeviceStatusMessage(status) : message);
 	}
 
-	class AudioDeviceProviderOpenOutcome opened(AudioDeviceProvider provider) { return AudioDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, provider, ""); }
+	class AudioDeviceProviderOpenOutcome opened(IAudioDeviceProvider provider) { return AudioDeviceProviderOpenOutcome(AUDIO_DEVICE_OK, provider, ""); }
 
 	class AudioDeviceProviderOpenOutcome failed(AudioDeviceStatus status, string message = "") {
 		if (status == AUDIO_DEVICE_OK) { throw "failed audio provider open requires an error status"; }
@@ -604,7 +604,7 @@ class AudioDeviceProviderOpenOutcome {
 
 	public string message() { return self._message; }
 
-	public AudioDeviceProvider provider() {
+	public IAudioDeviceProvider provider() {
 		if (self._provider == null) { throw "audio provider is unavailable"; }
 		return self._provider;
 	}
@@ -616,11 +616,11 @@ class AudioSessionLease {
 	public bool active = false;
 }
 
-class LeasedAudioSessionBackend implements AudioSessionBackend {
+class LeasedAudioSessionBackend implements IAudioSessionBackend {
 	private AudioSessionLease _lease;
-	private AudioSessionBackend _backend;
+	private IAudioSessionBackend _backend;
 
-	public LeasedAudioSessionBackend(AudioSessionLease lease, AudioSessionBackend backend) {
+	public LeasedAudioSessionBackend(AudioSessionLease lease, IAudioSessionBackend backend) {
 		if (lease == null || backend == null) { throw "leased audio session backend is incomplete"; }
 		self._lease = lease;
 		self._backend = backend;
@@ -648,10 +648,10 @@ class LeasedAudioSessionBackend implements AudioSessionBackend {
 class AudioSessionSetup {
 	private AudioDeviceStatus _status;
 	private string _message;
-	private AudioSessionBackend? _backend;
+	private IAudioSessionBackend? _backend;
 	private unsigned long long _generation;
 
-	private AudioSessionSetup(AudioDeviceStatus status, string message, AudioSessionBackend? backend, unsigned long long generation) {
+	private AudioSessionSetup(AudioDeviceStatus status, string message, IAudioSessionBackend? backend, unsigned long long generation) {
 		if ((status == AUDIO_DEVICE_OK) != (backend != null && generation != 0ULL && message.isEmpty())) { throw "invalid audio session setup"; }
 		self._status = status;
 		self._message = message;
@@ -659,9 +659,9 @@ class AudioSessionSetup {
 		self._generation = generation;
 	}
 
-	class AudioSessionSetup prepared(AudioSessionBackend backend, unsigned long long generation) { return AudioSessionSetup(AUDIO_DEVICE_OK, "", backend, generation); }
+	class AudioSessionSetup prepared(IAudioSessionBackend backend, unsigned long long generation) { return AudioSessionSetup(AUDIO_DEVICE_OK, "", backend, generation); }
 
-	class AudioSessionSetup failed(AudioDeviceStatus status, AudioSessionBackend? backend, string message = "") {
+	class AudioSessionSetup failed(AudioDeviceStatus status, IAudioSessionBackend? backend, string message = "") {
 		if (status == AUDIO_DEVICE_OK) { throw "failed audio session setup requires an error status"; }
 		return AudioSessionSetup(status, message, backend, 0ULL);
 	}
@@ -670,7 +670,7 @@ class AudioSessionSetup {
 
 	public string message() { return self._message; }
 
-	public AudioSessionBackend? backend() { return self._backend; }
+	public IAudioSessionBackend? backend() { return self._backend; }
 
 	public unsigned long long generation() { return self._generation; }
 }
@@ -678,7 +678,7 @@ class AudioSessionSetup {
 /* The native half of a provider: hardware inventory and session setup.
  * prepare() runs only after inventory() has published the snapshot the
  * request was validated against, and finds its devices in that snapshot. */
-interface AudioDevicePlatform {
+interface IAudioDevicePlatform {
 	string name();
 	AudioDeviceInventoryOutcome inventory();
 	AudioSessionSetup prepare(DuplexAudioOpenRequest request, RealtimeAudioProgram program, AudioDeviceInventory inventory);
@@ -687,16 +687,16 @@ interface AudioDevicePlatform {
 /* The provider every platform shares: one control thread, one published
  * session at a time, and failed setups retained until their native cleanup
  * succeeds. The provider must outlive its sessions. */
-class PlatformAudioDeviceProvider implements AudioDeviceProvider {
+class PlatformAudioDeviceProvider implements IAudioDeviceProvider {
 	private bool _open = true;
-	private AudioDevicePlatform _platform;
+	private IAudioDevicePlatform _platform;
 	private AudioSessionLease _lease = AudioSessionLease();
-	private AudioSessionBackend? _pending = null;
+	private IAudioSessionBackend? _pending = null;
 
-	private PlatformAudioDeviceProvider(AudioDevicePlatform platform) { self._platform = platform; }
+	private PlatformAudioDeviceProvider(IAudioDevicePlatform platform) { self._platform = platform; }
 
 	/* Opens a provider whose first inventory succeeds. */
-	class AudioDeviceProviderOpenOutcome open(AudioDevicePlatform platform) {
+	class AudioDeviceProviderOpenOutcome open(IAudioDevicePlatform platform) {
 		if (platform == null) { return AudioDeviceProviderOpenOutcome.failed(AUDIO_DEVICE_INVALID_ARGUMENT); }
 		var provider = PlatformAudioDeviceProvider(platform);
 		var inventory = provider.inventory();

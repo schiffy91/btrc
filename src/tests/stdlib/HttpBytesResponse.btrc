@@ -3,7 +3,7 @@
  * Content-Length taken from the buffer rather than a string scan. */
 import Library.Bytes;
 import Library.HTTP.HTTPServer;
-import Library.HTTP.HTTPTypes;
+import Library.HTTP.HTTPResponse;
 import Library.Strings;
 
 #include <assert.h>

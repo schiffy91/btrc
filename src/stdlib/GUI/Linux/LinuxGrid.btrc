@@ -192,15 +192,15 @@ class LinuxGrid extends LinuxNodeView implements IGrid {
 
 	public CallbackCancellation close() {
 		var state = self.node().close();
-		if (state == CallbackCancellation.Complete) { for (int index = 0; index < self._cells.len; index++) { self._cells.set(index, null); } }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { for (int index = 0; index < self._cells.len; index++) { self._cells.set(index, null); } }
 		return state;
 	}
 
 	public CallbackCancellation pollClose() {
 		var state = self.node().pollClose();
-		if (state == CallbackCancellation.Complete) { for (int index = 0; index < self._cells.len; index++) { self._cells.set(index, null); } }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { for (int index = 0; index < self._cells.len; index++) { self._cells.set(index, null); } }
 		return state;
 	}
 
-	public void __del__() { if (self.node() != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native grid destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native grid destroyed before subtree cleanup completed"); } }
 }

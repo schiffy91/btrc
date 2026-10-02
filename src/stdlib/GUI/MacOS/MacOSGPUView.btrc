@@ -113,7 +113,7 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 
 	public CallbackCancellation close() {
 		self.requireExecutor();
-		if (self._closed) { return CallbackCancellation.Complete; }
+		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (!self._closing) {
 			self._view.requireDetached();
 			self._closing = true;
@@ -128,29 +128,29 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 
 	public CallbackCancellation pollClose() {
 		self.requireExecutor();
-		if (self._closed) { return CallbackCancellation.Complete; }
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
-		if (self._closeFailed) { return CallbackCancellation.Failed; }
+		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (self._closeFailed) { return CALLBACK_CANCELLATION_FAILED; }
 		try {
 			var work = self._work.pollCompletion();
-			if (work != CallbackCancellation.Complete) { return work; }
+			if (work != CALLBACK_CANCELLATION_COMPLETE) { return work; }
 			var device = self._device;
 			if (device != null) {
 				if (!self._deviceClosing) { self._deviceClosing = true; device.close(); }
-				if (device.poll() != GPU_DEVICE_CLOSED) { return CallbackCancellation.Pending; }
+				if (device.poll() != GPU_DEVICE_CLOSED) { return CALLBACK_CANCELLATION_PENDING; }
 			}
 			self._renderer = null;
 			self._device = null;
 			self._target.close();
 			var view = self._view.close();
-			if (view != CallbackCancellation.Complete) { return view; }
+			if (view != CALLBACK_CANCELLATION_COMPLETE) { return view; }
 			self._closed = true;
-		} catch (string error) { self._error = error; self._closeFailed = true; return CallbackCancellation.Failed; }
-		return CallbackCancellation.Complete;
+		} catch (string error) { self._error = error; self._closeFailed = true; return CALLBACK_CANCELLATION_FAILED; }
+		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
 	public void __del__() {
 		if (self._view == null) { if (self._target != null) { self._target.close(); } return; }
-		if (self.close() != CallbackCancellation.Complete) { Console.fatal("GPU view destroyed before native work drained"); }
+		if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("GPU view destroyed before native work drained"); }
 	}
 }

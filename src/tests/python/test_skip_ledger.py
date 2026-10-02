@@ -27,26 +27,24 @@ from tools.qualification.skips import (
 
 REPO = Path(__file__).resolve().parents[3]
 
-# Representative skips from the 1cadaf4 `make test` record on macOS. That
-# record's DAP session skip was lldb's; since stage2/lldbenv the dev shell runs
-# those sessions, and the one skip a Mac still expects is developer mode off.
+# Representative skips from the 1cadaf4 `make test` record on macOS and from
+# macOS CI run 36934014516. That record's DAP session skip was lldb's; since
+# stage2/lldbenv the dev shell runs those sessions, and the one skip a Mac
+# still expects is developer mode off.
 MACOS_SKIPS = [
     (
         "src/tests/debug/test_dap_session.py::test_stop_on_entry",
         "needs macOS developer mode for lldb to launch an inferior (sudo /usr/sbin/DevToolsSecurity -enable)",
     ),
     (
-        "src/tests/python/test_native_compiler_context.py::test_context[x]",
-        "build native reader and configure its native compiler provider",
+        "src/tests/python/test_native_macro_constants.py::test_freetype_macro_constants_build_and_run[python]",
+        "the FreeType proof builds against the Linux SDK",
     ),
     (
-        "src/tests/python/test_native_preprocess_consumer.py::test_consumer",
-        "configure the packaged receipt provider and its C/C++ toolchain",
+        "src/tests/python/test_emitted_units.py::test_split_units_link_and_run_like_one[btrcpy]",
+        "needs a Linux C toolchain",
     ),
-    (
-        "src/tests/python/test_native_unique_resources.py::test_sqlite",
-        "actual SQLite SDK proof requires sqlite3.pc in PKG_CONFIG_PATH",
-    ),
+    ("src/tests/python/test_cache_invalidation.py::test_cache_dir_xdg_respected", "XDG only used off-macOS"),
     ("src/tests/btrc/test_parser_diagnostics.py::test_full", "requires /dev/full"),
     ("src/tests/python/test_artifact_storage.py::test_crt", "requires the native Windows CRT"),
     ("src/tests/python/test_artifact_reparse.py::test_junction", "native junctions require Windows"),
@@ -56,6 +54,12 @@ MACOS_SKIPS = [
     ),
     (
         "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]",
+        "requires Linux and the explicitly built native header reader",
+    ),
+    # macOS run 36905763175 (962c7dc) failed its gate on the Linux FreeType case,
+    # which skips off Linux. Its pugixml skip predates the Darwin shells' pugixml.
+    (
+        "src/tests/python/test_native_font_runtime.py::test_linux_freetype_draws_into_owned_pixels[True-selfhost]",
         "requires Linux and the explicitly built native header reader",
     ),
 ]
@@ -124,12 +128,47 @@ def test_the_macos_manifest_explains_the_recorded_skips_and_names_their_coverage
     assert rules[MACOS_SKIPS[4][0]].covered_by == ("linux-devcontainer",)
     assert rules[MACOS_SKIPS[5][0]].covered_by == ("windows",)
     assert rules[MACOS_SKIPS[7][0]].id == "linux-native-reader-covered"
-    assert rules[MACOS_SKIPS[8][0]].id == "linux-native-reader-uncovered"
+    # CI's Linux shards run the GUI windows under Xvfb, so only the tray stays uncovered.
+    assert rules[MACOS_SKIPS[8][0]].id == "linux-native-reader-covered"
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_tray_runtime.py::test_x",
+            "requires Linux and the explicitly built native header reader",
+        ).id
+        == "linux-native-reader-uncovered"
+    )
+    assert rules[MACOS_SKIPS[1][0]].id == "linux-freetype-macro-constants"
+    assert rules[MACOS_SKIPS[9][0]].id == "linux-native-reader-covered"
     # The dev shell provides naga (stage2/nix, e74a3cc), so a naga skip is unexpected again.
     assert (
         manifest.classify("src/tests/python/test_wgsl_semantics.py::test_x", "naga WGSL validator is not installed")
         is None
     )
+    # The Darwin dev shells carry pugixml, sqlite3 and the native compiler
+    # provider (stage4/tools-ci, 88a5c36), so those skips are unexpected again.
+    for nodeid, reason in (
+        (
+            "src/tests/python/test_native_compiler_context.py::test_x",
+            "build native reader and configure its native compiler provider",
+        ),
+        (
+            "src/tests/python/test_native_preprocess_consumer.py::test_x",
+            "configure the packaged receipt provider and its C/C++ toolchain",
+        ),
+        (
+            "src/tests/python/test_native_unique_resources.py::test_x",
+            "actual SQLite SDK proof requires sqlite3.pc in PKG_CONFIG_PATH",
+        ),
+        (
+            "src/tests/python/test_native_cxx_owners.py::test_x",
+            "C++ owner proof requires the pugixml SDK through pkg-config",
+        ),
+        (
+            "src/tests/python/test_module_units.py::test_x[cxx_units_project]",
+            "C++ owner proof requires the pugixml SDK through pkg-config",
+        ),
+    ):
+        assert manifest.classify(nodeid, reason) is None, nodeid
 
 
 def test_the_macos_manifest_expects_a_dap_session_skip_only_for_developer_mode():
@@ -179,11 +218,11 @@ def test_no_macos_rule_expects_a_naga_gated_skip():
 
 
 # Representative skips from CI run 36898564273 (Linux, cf28fe7): the unit and
-# btrc shards, by rule. The lldb, pugixml and native-provider rules expire when
-# stage4/tools-ci puts those tools in the dev shell.
+# btrc shards, by rule. CI run 36935218617 still skips the lldb, pugixml and
+# native-provider cases, which macOS run 36934014516 runs.
 LINUX_SKIPS = {
     "native-reader-macos-only": (
-        "src/tests/python/test_native_import_consumer.py::test_x[python]",
+        "src/tests/python/test_native_callbacks.py::test_x[python]",
         "requires macOS and the explicitly built native header reader",
     ),
     "native-digest-macos-only": (
@@ -195,10 +234,6 @@ LINUX_SKIPS = {
         "requires the actual macOS CoreFoundation SDK",
     ),
     "core-audio-runtime": ("src/tests/python/test_module_units.py::test_x", "CoreAudio is available only on macOS"),
-    "native-gpu-adapter": (
-        "src/tests/python/test_native_gpu_runtime.py::test_x",
-        "no native compute adapter is available",
-    ),
     "lldb-missing": (
         "src/tests/debug/test_dap_session.py::test_stop_on_entry",
         "needs lldb (with Python scripting): btrc debug adapter: cannot locate lldb "
@@ -207,10 +242,6 @@ LINUX_SKIPS = {
     "native-compiler-provider": (
         "src/tests/python/test_native_preprocess_receipts.py::test_x",
         "build native reader and configure its native compiler provider",
-    ),
-    "linux-gui-display": (
-        "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]",
-        "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY",
     ),
     "windows-junctions": (
         "src/tests/python/test_artifact_reparse.py::test_windows_junction_is_rejected_as_archive_entry_and_destination",
@@ -236,7 +267,7 @@ WINDOWS_SKIPS = {
 }
 
 EXPECTED_BY_RUNNER = {
-    "macos": dict(zip(("dap-session-developer-mode", "native-compiler-provider"), MACOS_SKIPS[:2], strict=True)),
+    "macos": dict(zip(("dap-session-developer-mode", "linux-freetype-macro-constants"), MACOS_SKIPS[:2], strict=True)),
     "linux-devcontainer": LINUX_SKIPS,
     "windows": WINDOWS_SKIPS,
 }
@@ -254,36 +285,43 @@ def test_the_linux_and_windows_manifests_explain_their_recorded_skips(runner):
     assert manifest.classify("src/tests/python/test_cases.py::test_x", "requires the native Windows CRT") is None
 
 
-def test_the_linux_manifest_names_coverage_and_its_expiring_tool_rules():
-    rules = {rule.id: rule for rule in ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json").rules}
+def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json")
+    rules = {rule.id: rule for rule in manifest.rules}
 
     assert rules["native-reader-macos-only"].covered_by == ("macos",)
     assert rules["windows-junctions"].covered_by == ("windows",)
+    # Only a display and a session bus are missing everywhere; the pugixml,
+    # SQLite, lldb and native-provider cases Linux skips run on macOS.
     uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
-    assert uncovered == {
-        "macos-only-pugixml-uncovered",
-        "macos-only-sqlite-uncovered",
-        "pugixml-sdk",
-        "native-compiler-provider",
-        "native-receipt-provider",
-        "linux-gui-display",
-        "linux-tray-session-bus",
-    }
-    expiring = {rule_id for rule_id, rule in rules.items() if "stage4/tools-ci" in rule.note}
-    assert expiring == {
-        "macos-only-pugixml-uncovered",
-        "macos-only-sqlite-uncovered",
-        "lldb-missing",
-        "pugixml-sdk",
-        "native-compiler-provider",
-        "native-receipt-provider",
-    }
-    # A macOS-only C++ owner proof that macOS also skips is not claimed as covered.
-    cxx = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json").classify(
-        "src/tests/python/test_native_cxx_owners.py::test_x",
-        "requires macOS and the explicitly built native header reader",
+    assert uncovered == {"linux-tray-session-bus"}
+    for rule_id in ("pugixml-sdk", "native-compiler-provider", "native-receipt-provider", "lldb-missing"):
+        assert rules[rule_id].covered_by == ("macos",), rule_id
+    # No rule waits on a lane that has landed.
+    assert not [rule_id for rule_id, rule in rules.items() if "Delete this rule once" in rule.note]
+    # CI runs every shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe),
+    # so a missing display or compute adapter is a broken runner, not an expected skip.
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]",
+            "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY",
+        )
+        is None
     )
-    assert cxx.id == "macos-only-pugixml-uncovered" and cxx.covered_by == ()
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_gpu_runtime.py::test_x", "no native compute adapter is available"
+        )
+        is None
+    )
+    # The macOS-only C++ owner and SQLite proofs are covered by macOS like any other.
+    for nodeid in (
+        "src/tests/python/test_native_cxx_owners.py::test_x",
+        "src/tests/python/test_module_units.py::test_x[cxx_units_project]",
+        "src/tests/python/test_native_unique_resources.py::test_unique_owned_output_actual_sqlite_open[x]",
+    ):
+        rule = manifest.classify(nodeid, "requires macOS and the explicitly built native header reader")
+        assert rule.id == "native-reader-macos-only" and rule.covered_by == ("macos",), nodeid
 
 
 @pytest.mark.parametrize("runner", sorted(EXPECTED_BY_RUNNER))
@@ -337,18 +375,26 @@ def test_a_manifest_must_be_named_for_its_runner(tmp_path):
 
 
 def test_classification_records_gating_environment_presence():
-    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "macos.json")
-    report = _report(MACOS_SKIPS[1:4], environment={"BTRC_NATIVE_HEADER_READER": "set", "PKG_CONFIG_PATH": "set"})
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json")
+    provider_skip = LINUX_SKIPS["native-compiler-provider"]
+    pugixml_skip = (
+        "src/tests/python/test_native_header_reader.py::test_cpp_pugixml_sdk_resource_metadata[python]",
+        "pugixml SDK is not installed",
+    )
+    report = _report(
+        [provider_skip, pugixml_skip],
+        runner="linux-devcontainer",
+        environment={"BTRC_NATIVE_HEADER_READER": "set", "PKG_CONFIG_PATH": "set"},
+    )
 
     classified = {item.nodeid: item for item in SkipClassifier(manifest).classify(report)}
 
-    provider = classified[MACOS_SKIPS[1][0]]
-    assert provider.gating_env == {
+    assert classified[provider_skip[0]].gating_env == {
         "BTRC_NATIVE_HEADER_READER": "set",
         "BTRC_NATIVE_PROVIDER_CC": "unset",
         "BTRC_NATIVE_PROVIDER_CXX": "unset",
     }
-    assert classified[MACOS_SKIPS[3][0]].gating_env == {"PKG_CONFIG_PATH": "set"}
+    assert classified[pugixml_skip[0]].gating_env == {"PKG_CONFIG_PATH": "set"}
     assert SkipClassifier.environment_names("no WAYLAND_DISPLAY or DISPLAY") == ["DISPLAY", "WAYLAND_DISPLAY"]
 
 

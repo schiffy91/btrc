@@ -6,10 +6,11 @@
  * curl client deliberately has no external-network test. */
 import Library.HTTP.HTTPClient;
 import Library.HTTP.HTTPFraming;
-import Library.HTTP.HTTPProtocol;
+import Library.HTTP.HTTPStatus;
 import Library.HTTP.HTTPResponseHeaders;
 import Library.HTTP.HTTPServer;
-import Library.HTTP.HTTPTypes;
+import Library.HTTP.HTTPRequest;
+import Library.HTTP.HTTPResponse;
 import Library.Strings;
 
 #include <assert.h>

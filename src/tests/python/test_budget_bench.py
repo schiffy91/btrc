@@ -154,30 +154,78 @@ def test_instruction_counter_names_why_it_is_unavailable(monkeypatch):
 
 def test_host_summary_records_this_host_not_the_acceptance_mac():
     summary = bench.HostSummary.describe()
-    assert f"{bench.os.cpu_count()} CPUs" in summary
+    assert len(summary.split(", ")) == 4
     if sys.platform.startswith("linux"):
-        assert "Linux " in summary and "GiB" in summary and "M1 Max" not in summary
+        assert f"{bench.os.cpu_count()} logical CPUs" in summary
+        assert summary.endswith(f"Linux {bench.platform.release()}") and "GiB" in summary
+        assert "M1 Max" not in summary
 
 
-def test_phase_timing_names_the_owner_by_its_worker_count():
-    stderr = (
-        "warning: noise\n"
-        "btrcc timing: grammar=295us lex=1000us g-members=10us g-members=5us instance-closure=class:0+277r,method:0+0r\n"
-        "btrcc timing: l-setup=2000000us u-merge=3us module-unit-workers=4 a-records-stored(replayed=9,journaled=3)=807us\n"
-        "btrcc timing: l-setup=1000000us\n"
+def test_host_summary_on_the_acceptance_mac_is_its_exact_provenance_string(monkeypatch):
+    """The sysctl and sw_vers facts of the M1 Max yield AGENTS.md's string verbatim."""
+    from tools.qualification import adapters
+
+    facts = {
+        ("sw_vers", "-productVersion"): "27.0",
+        ("sysctl", "-n", "machdep.cpu.brand_string"): "Apple M1 Max",
+        ("sysctl", "-n", "hw.perflevel0.physicalcpu"): "8",
+        ("sysctl", "-n", "hw.perflevel1.physicalcpu"): "2",
+        ("sysctl", "-n", "hw.physicalcpu"): "10",
+        ("sysctl", "-n", "hw.memsize"): str(64 * 2**30),
+    }
+    monkeypatch.setattr(adapters.host_platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        adapters.HostProvenance, "_run", staticmethod(lambda command, cwd=None: facts.get(tuple(command)))
     )
-    worker, owner, other = bench.PhaseTiming.parse(stderr)
-    assert (worker.role, owner.role, other.role) == ("worker", "owner", "worker")
-    assert worker.phases_s == pytest.approx({"grammar": 0.000295, "lex": 0.001, "g-members": 0.000015})
-    assert worker.facts == ("instance-closure=class:0+277r,method:0+0r",)
-    assert owner.phases_s["a-records-stored(replayed=9,journaled=3)"] == 0.000807
-    assert owner.facts == ("module-unit-workers=4",)
-    assert owner.as_dict()["total_s"] == pytest.approx(2.00081)
+    assert bench.HostSummary.describe() == "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0"
 
 
-def test_phase_timing_without_a_pool_makes_the_last_line_the_owner():
-    lines = bench.PhaseTiming.parse("btrcpy timing: lex=1500us\nbtrcpy timing: emit=250us\n")
-    assert [(line.compiler, line.role) for line in lines] == [("btrcpy", "worker"), ("btrcpy", "owner")]
+def test_host_summary_reads_the_linux_cpu_model(tmp_path):
+    from tools.qualification.adapters import HostProvenance
+
+    cpuinfo = tmp_path / "cpuinfo"
+    cpuinfo.write_text("processor\t: 0\nvendor_id\t: AuthenticAMD\nmodel name\t: AMD EPYC 7763 64-Core Processor\n")
+    assert HostProvenance.cpuinfo_model(cpuinfo) == "AMD EPYC 7763 64-Core Processor"
+    assert HostProvenance.cpuinfo_model(tmp_path / "missing") is None
+
+
+TIMING = Path(__file__).resolve().parents[1] / "fixtures" / "benchmarks" / "timing"
+
+
+def test_phase_timing_names_each_role_from_real_forked_output():
+    """btrcc's own --jobs 2 module-unit compile: one owner line, then one line per worker."""
+    owner, first, second = bench.PhaseTiming.parse((TIMING / "btrcc-forked.stderr").read_text())
+    assert (owner.compiler, owner.role) == ("btrcc", "owner")
+    assert [(line.compiler, line.role) for line in (first, second)] == [("btrcc", "worker")] * 2
+    assert owner.phases_s["a-records-stored(replayed=0,journaled=12)"] == pytest.approx(0.010937)
+    assert "module-unit-workers=2" in owner.facts
+    assert "module-units=lowered:6,reused:0" in owner.facts
+    assert "setjmp-analyses=7/7,rounds=2,levels=4" in owner.facts
+    # A worker's identity and busy totals are facts; only its own marks are phases.
+    assert first.facts[:2] == ("worker=0", "pid=5179")
+    assert any(fact.startswith("requests=lower:1,") for fact in first.facts)
+    assert any(fact.startswith("busy=lower:42959us,") for fact in first.facts)
+    assert {"worker", "pid", "requests", "busy"}.isdisjoint(first.phases_s)
+    assert first.phases_s["l-generic-classes"] == pytest.approx(0.037834)
+    assert first.phases_s["w-wait"] == pytest.approx(0.000002 + 0.002210 + 0.013613 + 0.030701)
+    assert second.facts[0] == "worker=1"
+
+
+def test_phase_timing_reads_the_reference_compilers_forked_output():
+    owner, *workers = bench.PhaseTiming.parse((TIMING / "btrcpy-forked.stderr").read_text())
+    assert (owner.compiler, owner.role, owner.facts) == ("btrcpy", "owner", ())
+    assert owner.phases_s["lower"] == pytest.approx(0.153652)
+    assert [(line.compiler, line.role) for line in workers] == [("btrcpy", "worker")] * 2
+    assert workers[1].phases_s == pytest.approx({"w-wait": 0.020501})
+    assert workers[1].facts[:2] == ("worker=1", "pid=5176")
+
+
+def test_phase_timing_keeps_a_workers_usage_field_as_a_fact():
+    line = "btrcc worker timing: worker=0 pid=7 usage=user:1200us,sys:30us,maxrss:4096 w-wait=5us"
+    (worker,) = bench.PhaseTiming.parse(line)
+    assert worker.role == "worker"
+    assert worker.phases_s == pytest.approx({"w-wait": 0.000005})
+    assert "usage=user:1200us,sys:30us,maxrss:4096" in worker.facts
     assert bench.PhaseTiming.parse("no timing\n") == []
 
 
