@@ -797,12 +797,17 @@ are allowed. Bindings participate in manifest locking but are compiler inputs,
 not schema-1 linker records or native source units.
 
 Both compiler consumers require explicit `BTRC_NATIVE_HEADER_READER` (built with
-`nix build .#btrc-native-header`), `BTRC_NATIVE_SYSROOT` (an available macOS SDK
-or Linux GNU sysroot with `usr/include`), and `BTRC_NATIVE_TARGET` (a matching
-triple, e.g. `arm64-apple-macosx14.0.0` or `aarch64-unknown-linux-gnu`).
-The Nix development shell and packaged compilers supply these from
+`nix build .#btrc-native-header`), `BTRC_NATIVE_SYSROOT` (an available macOS SDK,
+a Linux GNU sysroot with `usr/include`, or a MinGW-w64 sysroot with `include`),
+and `BTRC_NATIVE_TARGET` (a triple matching `--target`: `arm64-apple-macosx14.0.0`,
+`aarch64-unknown-linux-gnu`, or Clang's normalized MinGW spelling
+`x86_64-w64-windows-gnu`; the alias `x86_64-w64-mingw32` and MSVC triples are
+rejected). The Nix development shell and packaged compilers supply these from
 their pinned reader, SDK and host platform; explicit caller values override
-the package defaults. A raw standalone compiler still requires configuration.
+the package defaults. A cross build supplies the target's triple and sysroot
+the same way; a binding whose header includes no SDK header reads identically
+from an empty sysroot directory, which is how the native-package example's
+macOS and Windows plans are proven from any host. A raw standalone compiler still requires configuration.
 `btrcc` also requires `--target OS-ARCH` when a reached stdlib module imports
 native headers, even without a project manifest. Omitting it is an error, not
 permission to drop target-scoped bindings and use approximate hosted declarations.

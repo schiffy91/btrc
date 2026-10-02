@@ -2531,6 +2531,9 @@ class FeNativeDeclarationImporter {
 		if (target.operatingSystem.equals("linux")) {
 			return triple.equals(target.architecture + "-linux-gnu") || triple.equals(target.architecture + "-unknown-linux-gnu");
 		}
+		// Clang's normalized MinGW-w64 spelling; the reader reports that
+		// spelling, so an alias such as x86_64-w64-mingw32 cannot match.
+		if (target.operatingSystem.equals("windows")) { return triple.equals(target.architecture + "-w64-windows-gnu"); }
 		if (!target.operatingSystem.equals("macos")) { return false; }
 		string architecture = target.architecture.equals("aarch64") ? "arm64" : "x86_64";
 		string prefix = architecture + "-apple-macosx";
@@ -3105,6 +3108,7 @@ class FeNativeDeclarationImporter {
 			arguments.extend(["-fblocks", "-fobjc-arc"]);
 		}
 		if (plan.target.operatingSystem.equals("linux")) { arguments.extend(["-isystem", PathTools.join(sysroot, "usr/include")]); }
+		else if (plan.target.operatingSystem.equals("windows")) { arguments.extend(["-isystem", PathTools.join(sysroot, "include")]); }
 		if (binding.language == "c++") { for directory in self.cxxToolchainIncludes(binding.standard, target, sysroot) { arguments.extend(["-isystem", directory]); } }
 		for declaration in plan.declarations {
 			if (!declaration.selectedFor(plan.target)) { continue; }
@@ -3145,7 +3149,7 @@ class FeNativeDeclarationImporter {
 		self.resolvedIdentity.appendText(readerIdentity);
 		string target = Environment.get("BTRC_NATIVE_TARGET", "");
 		string sysroot = Environment.get("BTRC_NATIVE_SYSROOT", "");
-		if (!self.matchesTarget(plan.target, target)) { throw "native imports require an explicit matching macOS or Linux GNU BTRC_NATIVE_TARGET triple"; }
+		if (!self.matchesTarget(plan.target, target)) { throw "native imports require an explicit matching macOS, Linux GNU or Windows MinGW BTRC_NATIVE_TARGET triple"; }
 		if (!FileSystem.isDir(sysroot)) { throw "native imports require an explicit available BTRC_NATIVE_SYSROOT"; }
 		Vector<Vector<string>> commands = [];
 		Map<string, Vector<int>> groups = {};

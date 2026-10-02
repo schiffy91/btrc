@@ -796,10 +796,12 @@ class NativeDeclarationImporter:
         elif plan.target.operating_system == "linux":
             pattern = rf"{architecture}-(?:unknown-)?linux-gnu"
         else:
-            pattern = "(?!)"
+            # Clang's normalized MinGW-w64 spelling; the reader reports that
+            # spelling, so an alias such as x86_64-w64-mingw32 cannot match.
+            pattern = rf"{architecture}-w64-windows-gnu"
         if not re.fullmatch(pattern, target):
             raise IncludeResolutionError(
-                "native imports require an explicit matching macOS or Linux GNU BTRC_NATIVE_TARGET triple"
+                "native imports require an explicit matching macOS, Linux GNU or Windows MinGW BTRC_NATIVE_TARGET triple"
             )
         if not os.path.isdir(sysroot):
             raise IncludeResolutionError("native imports require an explicit available BTRC_NATIVE_SYSROOT")
@@ -1070,6 +1072,8 @@ class NativeDeclarationImporter:
             arguments.extend(("-fblocks", "-fobjc-arc"))
         if plan.target.operating_system == "linux":
             arguments.extend(("-isystem", os.path.join(sysroot, "usr", "include")))
+        elif plan.target.operating_system == "windows":
+            arguments.extend(("-isystem", os.path.join(sysroot, "include")))
         if binding.language == "c++":
             for directory in self._cxx_toolchain_includes(binding.standard, target, sysroot):
                 arguments.extend(("-isystem", directory))

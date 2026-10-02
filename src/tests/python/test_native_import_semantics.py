@@ -493,7 +493,7 @@ def test_native_toolchain_target_must_match_requested_target(native_project, mon
     monkeypatch.setenv("BTRC_NATIVE_TARGET", f"{other}-apple-macosx14.0.0")
     result = native_compile(source)
     assert not result.successful and result.c_source is None
-    assert "matching macOS or Linux GNU BTRC_NATIVE_TARGET" in str(result.failure)
+    assert "matching macOS, Linux GNU or Windows MinGW BTRC_NATIVE_TARGET" in str(result.failure)
 
 
 @pytest.mark.parametrize(("value", "expected"), [("", 1), ("3", 3)])
