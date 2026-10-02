@@ -30,8 +30,11 @@ closes itself.
 Every open, read, snapshot and resolution in the package returns one
 generic `FileSystemOutcome<T>`: `ok()`, then `value()` on success or
 `error()` (a `FileSystemError` carrying kind, operation, path, native code
-and message) on failure. The instances are
-`FileSystemOutcome<FileSnapshot>` (`inspectExact`),
+and message) on failure. A generic `T` cannot be compared with null, so the
+constructor cannot reject a null success value; producers pass a non-null
+value or a non-null error, never neither. The instances are
+`FileSystemOutcome<FileSnapshot>` (`inspectExact`, the handles' `snapshot()`,
+`inspect` and `validate*` methods),
 `<FileHandle>` (`openFileExact`, `DirectoryHandle.openFile`),
 `<DirectoryHandle>` (`openDirectoryExact`, `openDirectory`),
 `<RegularFileSnapshot>`, `<Bytes>` (exact-length reads: empty `Bytes` are a
@@ -96,7 +99,7 @@ user's generic state, cache and configuration roots: `~/Library/Application
 Support` (state and configuration) and `~/Library/Caches` on macOS, and
 `XDG_STATE_HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` with their `HOME`
 defaults on Linux, as a `FileSystemOutcome<ApplicationDirectoryRoots>`. A
-failure is a `FileSystemError` from operation `resolveApplicationDirectories`:
+failure is a `FileSystemError` from operation `resolve application directories`:
 invalid limits are `FS_INVALID_ARGUMENT`, a root over the byte limit is
 `FS_INVALID_ARGUMENT` with native code `ENAMETOOLONG`, a missing or relative
 `HOME` is `FS_NOT_FOUND`, and other platforms report `FS_UNSUPPORTED`.

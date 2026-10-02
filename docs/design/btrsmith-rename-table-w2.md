@@ -233,7 +233,7 @@ The three-state outcomes (`FileReadOutcome`, `DirectoryStepOutcome`,
 | `X.opened(v)` / `.available(v)` / `.data(v)` / `.acquired(v)` / `ApplicationDirectoryRootsOutcome.resolved(v)` | `new FileSystemOutcome<T>(v, null)` |
 | `X.failed(error)` | `new FileSystemOutcome<T>(null, error)` |
 | `ApplicationDirectoryRootsOutcome.rejected(kind, message)` | `new FileSystemOutcome<ApplicationDirectoryRoots>(null, FileSystemError(...))` |
-| `ApplicationDirectoryError` (`kind()`, `nativeCode()`, `message()`) | `FileSystemError` (same three accessors plus `operation()` = `"resolveApplicationDirectories"` and `path()` = `""`) |
+| `ApplicationDirectoryError` (`kind()`, `nativeCode()`, `message()`) | `FileSystemError` (same three accessors plus `operation()` = `"resolve application directories"` and `path()` = `""`) |
 | `ApplicationDirectoryErrorKind`: `APP_DIRECTORY_INVALID_ARGUMENT` | `FS_INVALID_ARGUMENT`, `nativeCode() == 0` |
 | `APP_DIRECTORY_PATH_TOO_LONG` | `FS_INVALID_ARGUMENT`, `nativeCode() == ENAMETOOLONG` |
 | `APP_DIRECTORY_UNAVAILABLE` | `FS_NOT_FOUND` |
