@@ -1371,7 +1371,7 @@ class StatementLowerer {
 				/* Retain/transfer, Thread registration, and exception cleanup
                  * are statement sequences, not valid C for-clause syntax.
                  * Reuse the complete declaration lowering in a lexical block. */
-				self.lowerStmtInto(node.init.varDecl, loopTypes, prefix, callableFlow);
+				for declaration in node.init.declarations() { self.lowerStmtInto(declaration, loopTypes, prefix, callableFlow); }
 			} else if (node.init.kind == NK_FOR_INIT_EXPR) {
 				init = IRNode.expressionStatement(self.expressions.lowerExpr(node.init.expression, loopTypes, callableFlow));
 			}
@@ -1825,7 +1825,6 @@ class StatementLowerer {
 		if (n.catchBlock != null && self.nodeUsesTrycatch(n.catchBlock)) { return true; }
 		if (n.finallyBlock != null && self.nodeUsesTrycatch(n.finallyBlock)) { return true; }
 		if (n.ifStmt != null && self.nodeUsesTrycatch(n.ifStmt)) { return true; }
-		if (n.varDecl != null && self.nodeUsesTrycatch(n.varDecl)) { return true; }
 		if (n.expression != null && self.nodeUsesTrycatch(n.expression)) { return true; }
 		if (n.left != null && self.nodeUsesTrycatch(n.left)) { return true; }
 		if (n.right != null && self.nodeUsesTrycatch(n.right)) { return true; }

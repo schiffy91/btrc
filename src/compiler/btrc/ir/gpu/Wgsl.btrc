@@ -508,7 +508,7 @@ class GpuWgslEmitter {
 		self.indent = self.indent + 1;
 		self.pushScope();
 		if (statement.init != null && statement.init.kind == NK_FOR_INIT_VAR) {
-			self.gpuEmitVarDecl(statement.init.varDecl);
+			for declaration in statement.init.declarations() { self.gpuEmitVarDecl(declaration); }
 		} else if (statement.init != null && statement.init.kind == NK_FOR_INIT_EXPR) {
 			self.gpuEmitExpressionStatement(statement.init.expression);
 		}

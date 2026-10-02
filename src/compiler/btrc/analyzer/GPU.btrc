@@ -379,7 +379,7 @@ class GpuKernelValidator {
 		if (statement.kind == NK_C_FOR_STMT) {
 			self.pushScope();
 			if (statement.init != null && statement.init.kind == NK_FOR_INIT_VAR) {
-				self.validateStatement(statement.init.varDecl);
+				for declaration in statement.init.declarations() { self.validateStatement(declaration); }
 			} else if (statement.init != null && statement.init.kind == NK_FOR_INIT_EXPR) {
 				self.validateUpdate(statement.init.expression);
 			}

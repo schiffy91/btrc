@@ -76,6 +76,9 @@ module Btrc {
     -- Parameters and helpers
     -- ================================================================
 
+    -- An unnamed prototype parameter (`int f(int, int);`) has name "" and
+    -- name_line/name_col 0, as an anonymous StructDecl does; `(void)` is an
+    -- empty params list with no Param.
     param = Param(type_expr type, identifier name, expr? default,
                    bool keep, int name_line, int name_col)
             attributes(int line, int col)
@@ -149,7 +152,14 @@ module Btrc {
     if_else    = ElseBlock(block body)
                | ElseIf(stmt if_stmt)
 
-    for_init   = ForInitVar(stmt var_decl)
+    -- C binding for several declarators (`int *p, v;`, PLAN.md D20): each
+    -- declarator is its own complete declaration node with its own copy of the
+    -- specifier type, spliced in source order into the list that holds the
+    -- declaration (Block, CaseClause, Program, StructDecl fields, class
+    -- members). The C-for initializer is the one single-statement slot, so it
+    -- holds the declarations as a list. Positions: the first declarator keeps
+    -- the declaration's start; each later one starts at its own first token.
+    for_init   = ForInitVar(stmt* declarations)
                | ForInitExpr(expr expression)
 
     case_clause = CaseClause(expr? value, stmt* body)
@@ -188,6 +198,15 @@ module Btrc {
          | LambdaExpr(type_expr? return_type, param* params,
                       lambda_body body, capture* captures)
          | SpawnExpr(expr fn)
+         -- Adjacent string literals, `"a" "b"` (PLAN.md D20): each part is a
+         -- StringLiteral or an Identifier naming a source macro that resolves
+         -- to one. Parts decode separately, as C's translation phase 5 runs
+         -- before phase 6. A single literal stays a plain StringLiteral.
+         | StringConcat(expr* parts)
+         -- The comma operator, only as a C-for initializer expression or
+         -- update with two or more operands (PLAN.md D19 row 19); elsewhere
+         -- `(a, b)` is a tuple. Its value is the last operand's.
+         | CommaExpr(expr* elements)
          attributes(int line, int col)
 
     -- Expression sub-types
