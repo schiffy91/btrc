@@ -72,8 +72,7 @@ def test_selfhost_preserves_aggregate_mutations_across_longjmp(
     emitted = generated.read_text()
     assert "volatile int values[1]" in emitted
     assert "volatile struct Probe probe" in emitted
-    # The generated lvalue pointer of a setjmp function is itself volatile.
-    assert "int volatile* volatile __btrc_lvalue" in emitted
+    assert "int volatile* __btrc_lvalue" in emitted
     _strict_build_and_run(
         generated,
         tmp_path / "setjmp-aggregate",
@@ -272,9 +271,9 @@ def test_selfhost_qualifies_every_generated_local_of_a_setjmp_function(
     tmp_path: Path,
 ) -> None:
     """Mirrors the reference compiler's contract: GCC's -Wclobbered judges
-    register pseudos after -O2 coalescing, so return temporaries and nested-try
-    temporaries of a setjmp function are volatile, while a function without a
-    setjmp keeps plain temporaries."""
+    register pseudos after -O2 coalescing, so return temporaries of a setjmp
+    function and generated locals of a try enclosing another try are volatile,
+    while a function without a setjmp keeps plain temporaries."""
     from src.tests.python.test_exception_codegen_contracts import _CLOBBER_SHAPES, _function_body
 
     result, generated = _compile_source(semantic_btrcc, tmp_path, _CLOBBER_SHAPES)

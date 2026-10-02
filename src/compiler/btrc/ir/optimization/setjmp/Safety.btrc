@@ -370,19 +370,19 @@ class SetjmpSafetyPlanner {
 		return false;
 	}
 
-	/* Qualify every compiler-generated scalar automatic of a setjmp function.
-	 * GCC's -Wclobbered judges register pseudos after -O2 coalescing, which
-	 * may merge a generated temporary declared after a setjmp (a return
-	 * temporary, a call operand in a nested try) with a value live across it;
-	 * large functions then warn about storage that is never live there.
-	 * Volatile storage is never coalesced, so no generated local of the
-	 * function can carry a clobbered value. Arrays are memory already, and a
+	/* Qualify the generated temporaries GCC can report as clobbered. GCC's
+	 * -Wclobbered judges register pseudos after -O2 coalescing, which may merge
+	 * a generated temporary declared after a setjmp with a value live across
+	 * it; large functions then warn about storage that is never live there.
+	 * Two shapes are qualified: every return temporary of a setjmp function,
+	 * and every generated local inside a try that encloses another try.
+	 * Volatile storage is never coalesced. Arrays are memory already, and a
 	 * local whose address is taken lives in memory and keeps its declared
 	 * pointee type for the API that receives the address. */
 	private void qualifyGeneratedLocals(IRNode body) {
 		Map<string, bool> addressed = {};
 		self.collectAddressed(body, addressed);
-		self.qualifyGenerated(body, addressed);
+		self.qualifyGenerated(body, addressed, false);
 	}
 
 	private void collectAddressed(IRNode? node, Map<string, bool> addressed) {
@@ -413,33 +413,35 @@ class SetjmpSafetyPlanner {
 		for statement in node.stmts() { self.collectAddressed(statement, addressed); }
 	}
 
-	private void qualifyGenerated(IRNode? node, Map<string, bool> addressed) {
+	private void qualifyGenerated(IRNode? node, Map<string, bool> addressed, bool nested) {
 		if (node == null) { return; }
-		if (node.kind == IRK_VAR_DECL && self.compilerOwnedStorage(node.name) && !node.isStatic && !node.isExtern && !node.isArrayDecl && !addressed.has(node.name)) {
+		if (node.kind == IRK_VAR_DECL && self.compilerOwnedStorage(node.name) && (nested || node.name.startsWith("__btrc_ret_")) && !node.isStatic && !node.isExtern && !node.isArrayDecl && !addressed.has(node.name)) {
 			if (!node.isVolatile) { node.setjmpInferredVolatile = true; }
 			node.isVolatile = true;
 			node.effectiveIsVolatile = true;
 		}
-		self.qualifyGenerated(node.left, addressed);
-		self.qualifyGenerated(node.right, addressed);
-		self.qualifyGenerated(node.operand, addressed);
-		self.qualifyGenerated(node.expr, addressed);
-		self.qualifyGenerated(node.obj, addressed);
-		self.qualifyGenerated(node.index, addressed);
-		self.qualifyGenerated(node.condition, addressed);
-		self.qualifyGenerated(node.trueExpr, addressed);
-		self.qualifyGenerated(node.falseExpr, addressed);
-		self.qualifyGenerated(node.init, addressed);
-		self.qualifyGenerated(node.value, addressed);
-		self.qualifyGenerated(node.target, addressed);
-		self.qualifyGenerated(node.update, addressed);
-		self.qualifyGenerated(node.result, addressed);
-		self.qualifyGenerated(node.arraySize, addressed);
-		self.qualifyGenerated(node.thenBlock, addressed);
-		self.qualifyGenerated(node.elseBlock, addressed);
-		self.qualifyGenerated(node.body, addressed);
-		for argument in node.args() { self.qualifyGenerated(argument, addressed); }
-		for statement in node.stmts() { self.qualifyGenerated(statement, addressed); }
+		/* A try whose protected or handler region holds another try. */
+		bool inner = nested || (node.kind == IRK_IF && self.containsSetjmp(node.condition) && (self.containsSetjmp(node.thenBlock) || self.containsSetjmp(node.elseBlock)));
+		self.qualifyGenerated(node.left, addressed, inner);
+		self.qualifyGenerated(node.right, addressed, inner);
+		self.qualifyGenerated(node.operand, addressed, inner);
+		self.qualifyGenerated(node.expr, addressed, inner);
+		self.qualifyGenerated(node.obj, addressed, inner);
+		self.qualifyGenerated(node.index, addressed, inner);
+		self.qualifyGenerated(node.condition, addressed, inner);
+		self.qualifyGenerated(node.trueExpr, addressed, inner);
+		self.qualifyGenerated(node.falseExpr, addressed, inner);
+		self.qualifyGenerated(node.init, addressed, inner);
+		self.qualifyGenerated(node.value, addressed, inner);
+		self.qualifyGenerated(node.target, addressed, inner);
+		self.qualifyGenerated(node.update, addressed, inner);
+		self.qualifyGenerated(node.result, addressed, inner);
+		self.qualifyGenerated(node.arraySize, addressed, inner);
+		self.qualifyGenerated(node.thenBlock, addressed, inner);
+		self.qualifyGenerated(node.elseBlock, addressed, inner);
+		self.qualifyGenerated(node.body, addressed, inner);
+		for argument in node.args() { self.qualifyGenerated(argument, addressed, inner); }
+		for statement in node.stmts() { self.qualifyGenerated(statement, addressed, inner); }
 	}
 
 	private bool bodyContainsSetjmp(IRFunction definition) {

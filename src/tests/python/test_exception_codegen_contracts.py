@@ -627,8 +627,9 @@ def test_generated_locals_of_a_setjmp_function_are_volatile():
     """GCC's -Wclobbered judges register pseudos after -O2 coalescing, so a
     generated temporary that is never live across a setjmp (a return
     temporary, a call operand inside a nested try) can still be reported in a
-    large function. Every generated scalar local of a function that calls
-    setjmp is volatile; a function without one keeps plain temporaries."""
+    large function. Return temporaries of a setjmp function and generated
+    locals of a try that encloses another try are volatile; a function without
+    a setjmp keeps plain temporaries."""
     emitted = emit_c(_CLOBBER_SHAPES)
 
     returns = re.findall(r"^\s*(.*)\b__btrc_ret_\d+ = ", _function_body(emitted, "returnInsideTry"), re.MULTILINE)

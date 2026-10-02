@@ -953,20 +953,20 @@ class _LexicalVisibilityPass:
         declaration.effective_is_volatile = True
 
     def qualify_generated_locals(self, value: object) -> None:
-        """Qualify every compiler-generated scalar automatic of a setjmp function.
+        """Qualify the generated temporaries GCC can report as clobbered.
 
         GCC's -Wclobbered judges register pseudos after -O2 coalescing, which
-        may merge a generated temporary declared after a setjmp (a return
-        temporary, a call operand in a nested try) with a value live across
-        it; large functions then warn about storage that is never live there.
-        Volatile storage is never coalesced, so no generated local of the
-        function can carry a clobbered value. Arrays are memory already, and
-        a local whose address is taken lives in memory and keeps its declared
-        pointee type for the API that receives the address.
+        may merge a generated temporary declared after a setjmp with a value
+        live across it; large functions then warn about storage that is never
+        live there. Two shapes are qualified: every return temporary of a
+        setjmp function, and every generated local inside a try that encloses
+        another try. Volatile storage is never coalesced. Arrays are memory
+        already, and a local whose address is taken lives in memory and keeps
+        its declared pointee type for the API that receives the address.
         """
         addressed: set[str] = set()
         self._addressed_names(value, addressed)
-        self._qualify_generated(value, addressed)
+        self._qualify_generated(value, addressed, nested=False)
 
     def _addressed_names(self, value: object, addressed: set[str]) -> None:
         if isinstance(value, IRAddressOf) and isinstance(value.expr, IRExpr):
@@ -980,22 +980,32 @@ class _LexicalVisibilityPass:
             for item in value:
                 self._addressed_names(item, addressed)
 
-    def _qualify_generated(self, value: object, addressed: set[str]) -> None:
+    def _qualify_generated(self, value: object, addressed: set[str], *, nested: bool) -> None:
         if isinstance(value, IRVarDecl):
             if (
                 ExceptionLowerer.compiler_storage_name(value.name)
+                and (nested or value.name.startswith("__btrc_ret_"))
                 and ExceptionLowerer._automatic(value)
                 and value.array_size is None
                 and not value.is_unsized_array
                 and value.name not in addressed
             ):
                 self._qualify(value)
+        if (
+            isinstance(value, IRIf)
+            and ExceptionLowerer.contains_setjmp(value.condition)
+            and (
+                ExceptionLowerer.contains_setjmp(value.then_block) or ExceptionLowerer.contains_setjmp(value.else_block)
+            )
+        ):
+            # A try whose protected or handler region holds another try.
+            nested = True
         if dataclasses.is_dataclass(value):
             for field in dataclasses.fields(value):
-                self._qualify_generated(getattr(value, field.name), addressed)
+                self._qualify_generated(getattr(value, field.name), addressed, nested=nested)
         elif isinstance(value, (list, tuple)):
             for item in value:
-                self._qualify_generated(item, addressed)
+                self._qualify_generated(item, addressed, nested=nested)
 
     def block(self, block: IRBlock | None, inherited=()) -> None:
         if block is None:
