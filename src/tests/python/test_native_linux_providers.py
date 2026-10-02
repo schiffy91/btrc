@@ -310,12 +310,20 @@ def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
         ("import Library.GUI.Linux.LinuxActionQueue;", "return 0;", "private to package"),
         ("import Library.GUI.Linux.LinuxSystemText;", "return 0;", "private to package"),
         ("import Library.GUI.Linux.GUIProvider;", "return 0;", "private to package"),
-        ("import Library.GUI;", "var queue = LinuxActionQueue(16); return 0;", "LinuxActionQueue"),
+        # A provider type reached by name through Library.GUI: the provider
+        # analyzes with the program, so this case needs the header reader.
+        (
+            "import Library.GUI;",
+            "var queue = LinuxActionQueue(16); return 0;",
+            "'LinuxActionQueue' is defined in LinuxActionQueue.btrc but Program.btrc does not import it",
+        ),
     ],
 )
 def test_linux_gui_keeps_provider_modules_private(tmp_path, request, frontend, declaration, body, diagnostic):
     # Consumers mount and drive views through Library.GUI; the provider's own
     # conformance fixtures reach these modules through gui_provider_root.
+    if "private to package" not in diagnostic:
+        _require_linux_reader()
     source = tmp_path / "Program.btrc"
     source.write_text(f"{declaration}\nint main() {{ {body} }}\n")
     environment = {**os.environ, "BTRC_HOME": str(ROOT / "src")}
