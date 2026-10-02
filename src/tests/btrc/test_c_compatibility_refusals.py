@@ -119,6 +119,11 @@ REFUSALS = [
         id="r19-comma-operator",
     ),
     pytest.param(
+        "int main() { int value = 0; value = (1, 2); return value; }",
+        ("Cannot assign 'Tuple<int, int>' to 'int'" + TUPLE_HINT, 1, 29),
+        id="r19-comma-operator-assignment",
+    ),
+    pytest.param(
         "int main() { int i; int j = 0; for (i = 0; i < 2, j < 3; i++) {} return 0; }",
         ("Expected SEMICOLON, got COMMA ','", 1, 49),
         id="r19-comma-in-for-condition",
@@ -665,6 +670,9 @@ VLA_REFUSALS = [
 FUNCTION_POINTER_RETURN = (
     "A function returning a function pointer needs a typedef: write 'typedef R (*Name)(...);' and return 'Name'"
 )
+FUNCTION_POINTER_ARRAY_TYPEDEF = (
+    "A typedef cannot name an array of function pointers: write 'typedef R (*Name)(...);' and declare 'Name ops[n]'"
+)
 VARIADIC_POINTEE = "A variadic function-pointer type is not supported until variadic definitions (C row 14)"
 FUNCTION_POINTER_REFUSALS = [
     pytest.param(
@@ -745,6 +753,26 @@ FUNCTION_POINTER_REFUSALS = [
         "int main() { int? (*f)(int), g; return 0; }",
         ("A nullable declaration declares one variable: write one declaration per nullable variable", 1, 28),
         id="r07-nullable-result-in-declarator-list",
+    ),
+    pytest.param(
+        "typedef int (*Table[2])(int);\nint main() { return 0; }",
+        (FUNCTION_POINTER_ARRAY_TYPEDEF, 1, 20),
+        id="r07-typedef-of-function-pointer-array",
+    ),
+    pytest.param(
+        "typedef int Count, (*Table[2])(int);\nint main() { return 0; }",
+        (FUNCTION_POINTER_ARRAY_TYPEDEF, 1, 27),
+        id="r07-later-typedef-of-function-pointer-array",
+    ),
+    pytest.param(
+        "int a, (*)(int);\nint main() { return 0; }",
+        ("Expected IDENT, got RPAREN ')'", 1, 10),
+        id="r07-unnamed-later-declarator",
+    ),
+    pytest.param(
+        "struct S { int (*)(int); };\nint main() { return 0; }",
+        ("Expected IDENT, got RPAREN ')'", 1, 18),
+        id="r07-unnamed-field",
     ),
 ]
 
@@ -920,16 +948,8 @@ DECLARATOR_DIVERGENT_REFUSALS = [
     ),
 ]
 
-# Row 19: each compiler words a mistyped assignment and a missing expression
-# its own way; the tuple hint is the same in both.
+# Row 19: each compiler words a missing expression its own way.
 COMMA_DIVERGENT_REFUSALS = [
-    # Each compiler words a mistyped assignment its own way; both add the hint.
-    pytest.param(
-        "int main() { int value = 0; value = (1, 2); return value; }",
-        ("Cannot assign 'Tuple<int, int>' to 'int'" + TUPLE_HINT, 1, 29),
-        ("Assignment expects 'int' but got 'Tuple<int, int>'" + TUPLE_HINT, 1, 37),
-        id="r19-comma-operator-assignment",
-    ),
     # A missing operand is each parser's ordinary expression error.
     pytest.param(
         "int main() { int i; for (i = 0, ; i < 2; i++) {} return 0; }",

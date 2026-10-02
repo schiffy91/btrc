@@ -303,7 +303,9 @@ or adjacent string.
   (`test_c_compatibility_refusals.py`): a function returning a function
   pointer (`int (*pick(int))(int)`) and a pointer to (`(**p)`), qualified
   (`(* const p)`) or unnamed array of (`sizeof(int (*[3])(int))`) function
-  pointers each point at a typedef; a function type typedef
+  pointers each point at a typedef, as does a typedef of an array of
+  function pointers (`typedef int (*T[2])(int);`, which C allows but btrc's
+  typedef cannot carry); a function type typedef
   (`typedef int F(int);`) points at the pointer typedef; a variadic pointee
   (`(const char*, ...)`) waits for row 14.
 - **Header mining.** A read-only scan of the 443 C headers and sources the

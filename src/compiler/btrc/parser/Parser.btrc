@@ -779,7 +779,7 @@ class Parser {
 		Node firstType = original;
 		Token aliasTok = self.peek();
 		if (self.isFunctionPointerDeclarator(self.pos)) {
-			Node declarator = self.parseFunctionPointerDeclarator(original, 1);
+			Node declarator = self.parseFunctionPointerDeclarator(original, 1, false);
 			firstType = declarator.type;
 			aliasTok = Parser.declaratorNameToken(declarator);
 		} else {
@@ -1259,8 +1259,10 @@ class Parser {
 	 * a name is required, 0 for an abstract declarator and -1 for a
 	 * parameter, where either is allowed. Storage classes move from the
 	 * result to the declared pointer. A pointer to a function pointer and a
-	 * qualified function pointer are refused: a typedef spells both. */
-	public Node parseFunctionPointerDeclarator(Node result, int nameMode) {
+	 * qualified function pointer are refused: a typedef spells both, and a
+	 * typedef passes arraySuffix false because its alias cannot name an
+	 * array. */
+	public Node parseFunctionPointerDeclarator(Node result, int nameMode, bool arraySuffix = true) {
 		Node declarator = Node();
 		declarator.kind = NK_PARAM;
 		declarator.name = "";
@@ -1297,6 +1299,10 @@ class Parser {
 		}
 		if (declarator.name.isEmpty() && self.check("LBRACKET")) {
 			self.failAt("An array of function pointers needs a name: write 'typedef R (*Name)(...);' and use 'Name[n]'", self.peek());
+			return declarator;
+		}
+		if (!arraySuffix && self.check("LBRACKET")) {
+			self.failAt("A typedef cannot name an array of function pointers: write 'typedef R (*Name)(...);' and declare 'Name ops[n]'", self.peek());
 			return declarator;
 		}
 		self.parseDeclaratorArraySuffix(functionType);
@@ -1443,7 +1449,7 @@ class Parser {
 			}
 			Token declaratorName = declaratorStart;
 			if (self.isFunctionPointerDeclarator(self.pos)) {
-				Node functionPointer = self.parseFunctionPointerDeclarator(declaratorType, 1);
+				Node functionPointer = self.parseFunctionPointerDeclarator(declaratorType, 1, arraySuffixes);
 				declaratorType = functionPointer.type;
 				declaratorName = Parser.declaratorNameToken(functionPointer);
 			} else {

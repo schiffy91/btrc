@@ -113,6 +113,9 @@ QUALIFIED_FUNCTION_POINTER = (
 ABSTRACT_FUNCTION_POINTER_ARRAY = (
     "An array of function pointers needs a name: write 'typedef R (*Name)(...);' and use 'Name[n]'"
 )
+FUNCTION_POINTER_ARRAY_TYPEDEF = (
+    "A typedef cannot name an array of function pointers: write 'typedef R (*Name)(...);' and declare 'Name ops[n]'"
+)
 FUNCTION_TYPE_TYPEDEF = "A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer"
 NULLABLE_DECLARATORS = "A nullable declaration declares one variable: write one declaration per nullable variable"
 VAR_DECLARATORS = "'var' declares one variable: write one 'var' declaration per variable"
@@ -665,7 +668,7 @@ class Parser:
         return type_expr
 
     def _parse_function_pointer_declarator(
-        self, result: TypeExpr, *, name: bool | None
+        self, result: TypeExpr, *, name: bool | None, array_suffix: bool = True
     ) -> tuple[Token | None, TypeExpr]:
         """Parse ``(*name[n])(params)`` after its result type.
 
@@ -675,7 +678,8 @@ class Parser:
         declarator, ``None`` for a parameter, where either is allowed. Storage
         classes move from the result to the declared pointer. A pointer to a
         function pointer and a qualified function pointer are refused: a
-        typedef spells both.
+        typedef spells both, and a typedef passes ``array_suffix`` false
+        because its alias cannot name an array.
         """
         self._expect(TokenKind.LPAREN)
         self._expect(TokenKind.STAR)
@@ -685,7 +689,7 @@ class Parser:
             raise self._error(QUALIFIED_FUNCTION_POINTER)
         name_tok = None
         if name is True or (name is None and self._check(TokenKind.IDENT)):
-            name_tok = self._expect(TokenKind.IDENT, "function pointer name")
+            name_tok = self._expect(TokenKind.IDENT)
         function_type = TypeExpr(
             base="__fn_ptr",
             generic_args=[result],
@@ -700,6 +704,8 @@ class Parser:
             raise self._error(FUNCTION_POINTER_RETURN)
         if name_tok is None and self._check(TokenKind.LBRACKET):
             raise self._error(ABSTRACT_FUNCTION_POINTER_ARRAY)
+        if not array_suffix and self._check(TokenKind.LBRACKET):
+            raise self._error(FUNCTION_POINTER_ARRAY_TYPEDEF)
         self._parse_declarator_array_suffix(function_type)
         self._expect(TokenKind.RPAREN)
         function_type.generic_args.extend(self._parse_function_pointer_params())
@@ -856,7 +862,9 @@ class Parser:
             while self._match(TokenKind.STAR):
                 declarator_type.pointer_depth += 1
             if self._is_function_pointer_declarator(self.pos):
-                function_name, declarator_type = self._parse_function_pointer_declarator(declarator_type, name=True)
+                function_name, declarator_type = self._parse_function_pointer_declarator(
+                    declarator_type, name=True, array_suffix=array_suffixes
+                )
                 assert function_name is not None
                 declarator_name = function_name
             else:
@@ -1495,7 +1503,7 @@ class Parser:
         original = self._parse_type_expr()
         specifier = self._declarator_specifier(original)
         if self._is_function_pointer_declarator(self.pos):
-            alias_tok, original = self._parse_function_pointer_declarator(original, name=True)
+            alias_tok, original = self._parse_function_pointer_declarator(original, name=True, array_suffix=False)
             assert alias_tok is not None
         else:
             alias_tok = self._expect(TokenKind.IDENT, "typedef alias")

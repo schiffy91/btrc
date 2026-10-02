@@ -144,6 +144,7 @@ the same diagnostic in both compilers:
 | `int (**p)(int)` | `A pointer to a function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'Name*'` |
 | `int (* const p)(int)` | `A qualified function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'const Name'` |
 | `sizeof(int (*[3])(int))` | `An array of function pointers needs a name: write 'typedef R (*Name)(...);' and use 'Name[n]'` |
+| `typedef int (*T[2])(int);` | `A typedef cannot name an array of function pointers: write 'typedef R (*Name)(...);' and declare 'Name ops[n]'` |
 | `typedef int F(int);` | `A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer` |
 | `void (*log)(const char*, ...)` | `A variadic function-pointer type is not supported until variadic definitions (C row 14)` |
 
