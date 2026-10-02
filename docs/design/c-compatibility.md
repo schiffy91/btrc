@@ -67,6 +67,20 @@ realtime canonical-loop proof accepts exactly one declaration. No frozen
 boundary record changes: the boundary source contains no C-for, parameter,
 or adjacent string.
 
+## Stage 16 progress
+
+- **r02 and r06 (braceless bodies, empty statement).** One body helper per
+  parser (`Parser._parse_body`, `Parser.parseBody`) serves `if`, `else`,
+  `while`, `do` and the C-`for`; `_parse_block`/`parseBlock` and the case-clause
+  loop drop a `;` from statement lists. A declaration body and a file-scope
+  `;` are refused with one diagnostic in both compilers. No analyzer or
+  lowering change: `src/tests/btrc/test_c_compatibility_bodies.py` proves raw
+  IR and C (with and without `--debug`) identical to the braced twin,
+  including managed temporaries. The formatter indents an unbraced body one
+  level past its header, keeps it on its own line, and aligns a dangling
+  `else` with its `if`. Lanes that add to `_parse_for_stmt`/`parseForStmt`
+  call the helper only for the body, after `)`.
+
 ## C2 aggregates (Stage 17) and array dimensions (Stage 18)
 
 PLAN.md Stage 17 puts every C2 representation decision into one serial schema commit. That commit also fixes `TypeExpr`'s array dimensions for Stage 18 (r17). As a result, `src/language/ast.asdl`, the generated `Node` and dataclasses, the canonical renderers and the AST boundary records churn only once.

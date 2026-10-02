@@ -1,0 +1,59 @@
+// A lone ';' is an empty statement: it does nothing in a list and is a valid body.
+#include <assert.h>
+
+int skipToEnd(int* values) {
+	int* p = values;
+	while (*p++);
+	return (int)(p - values);
+}
+
+int twice(int x) {
+	return x * 2;;
+}
+
+int pick(int x) {
+	int result = 0;
+	switch (x) {
+		case 1:
+			;
+		case 2:
+			result = 12;
+			break;
+		default:
+			;
+	}
+	return result;
+}
+
+int main() {
+	int i;
+	int n = 5;
+	for (i = 0; i < n; i++);
+	assert(i == 5);
+	;
+	while (i > 10);
+	int values[4] = {3, 2, 0, 9};
+	assert(skipToEnd(values) == 3);
+	print("PASS: empty loop bodies");
+
+	int hits = 0;
+	if (i == 5)
+		;
+	else
+		hits = 1;
+	if (i != 5) hits = 2; else ;
+	assert(hits == 0);
+	{ ; ; }
+	;;
+	print("PASS: empty statements in lists and branches");
+
+	assert(twice(4) == 8);
+	assert(pick(1) == 12);
+	assert(pick(2) == 12);
+	assert(pick(3) == 0);
+	int count = 0;
+	do ; while (count++ < 2);
+	assert(count == 3);
+	print("PASS: empty statements after return, in cases and in do");
+	return 0;
+}

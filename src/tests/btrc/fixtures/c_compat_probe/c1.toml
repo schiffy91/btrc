@@ -63,38 +63,21 @@ id = "r02-braceless-if-else"
 row = "2"
 construct = "braceless if/else bodies"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got RETURN 'return' at 4:3" }
-btrcc = { diagnostic = "Expected LBRACE, got RETURN 'return' at 4:3" }
-source = '''
-#include <assert.h>
-int sign(int value) {
-	if (value < 0)
-		return -1;
-	else if (value == 0)
-		return 0;
-	else
-		return 1;
-}
-int main() {
-	assert(sign(-5) == -1);
-	assert(sign(0) == 0);
-	assert(sign(9) == 1);
-	print("PASS: braceless if/else");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: braceless if/else\nPASS: dangling else binds to the nearest if\nPASS: braceless loops\nPASS: braceless break, continue and return\nPASS: braceless bodies with managed values\n" }
+btrcc = { exit = 0, stdout = "PASS: braceless if/else\nPASS: dangling else binds to the nearest if\nPASS: braceless loops\nPASS: braceless break, continue and return\nPASS: braceless bodies with managed values\n" }
+corpus = "c_compat/BracelessBodies.btrc"
 
 [[probe]]
 id = "r02-braceless-loops"
 row = "2"
 construct = "braceless for/while bodies"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got IDENT 'total' at 5:3" }
-btrcc = { diagnostic = "Expected LBRACE, got IDENT 'total' at 5:3" }
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: braceless loops\n" }
+btrcc = { exit = 0, stdout = "PASS: braceless loops\n" }
 source = '''
 #include <assert.h>
 int main() {
@@ -114,10 +97,10 @@ id = "r02-dangling-else"
 row = "2"
 construct = "dangling else binds to the nearest if"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got IF 'if' at 5:3" }
-btrcc = { diagnostic = "Expected LBRACE, got IF 'if' at 5:3" }
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: dangling else\n" }
+btrcc = { exit = 0, stdout = "PASS: dangling else\n" }
 source = '''
 #include <assert.h>
 int classify(int a, int b) {
@@ -144,9 +127,9 @@ row = "2"
 construct = "a declaration is not a statement body"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got INT 'int' at 4:3" }
-btrcc = { diagnostic = "Expected LBRACE, got INT 'int' at 4:3" }
+revision = "5472f61"
+python = { diagnostic = "A declaration cannot be the body of a control statement; enclose it in braces at 4:3" }
+btrcc = { diagnostic = "A declaration cannot be the body of a control statement; enclose it in braces at 4:3" }
 source = '''
 int main() {
 	int flag = 1;
@@ -361,22 +344,11 @@ id = "r06-empty-statement"
 row = "6"
 construct = "empty statement ; and for (...);"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got SEMICOLON ';' at 4:25" }
-btrcc = { diagnostic = "Expected LBRACE, got SEMICOLON ';' at 4:25" }
-source = '''
-#include <assert.h>
-int main() {
-	int i;
-	for (i = 0; i < 5; i++);
-	;
-	while (i > 10);
-	assert(i == 5);
-	print("PASS: empty statement");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: empty loop bodies\nPASS: empty statements in lists and branches\nPASS: empty statements after return, in cases and in do\n" }
+btrcc = { exit = 0, stdout = "PASS: empty loop bodies\nPASS: empty statements in lists and branches\nPASS: empty statements after return, in cases and in do\n" }
+corpus = "c_compat/EmptyStatement.btrc"
 
 [[probe]]
 id = "r06-file-scope-stray-semicolon"
@@ -384,10 +356,9 @@ row = "6"
 construct = "a stray ; at file scope is not ISO C"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording and position"
+revision = "5472f61"
 python = { diagnostic = "Unexpected token ';' at top level at 2:1" }
-btrcc = { diagnostic = "Expected IDENT, got EOF '' at 3:1" }
+btrcc = { diagnostic = "Unexpected token ';' at top level at 2:1" }
 source = '''
 int main() { return 0; }
 ;

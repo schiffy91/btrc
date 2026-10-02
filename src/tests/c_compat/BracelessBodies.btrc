@@ -1,0 +1,86 @@
+// A non-block body of if, else, while, do and the C-style for is one statement.
+#include <assert.h>
+import Library.Vector;
+
+int sign(int value) {
+	if (value < 0)
+		return -1;
+	else if (value == 0)
+		return 0;
+	else
+		return 1;
+}
+
+int classify(int a, int b) {
+	int result = 0;
+	if (a)
+		if (b)
+			result = 1;
+		else
+			result = 2;
+	return result;
+}
+
+int firstMultiple(int step, int limit) {
+	for (int i = 1; i <= limit; i++)
+		if (i % step == 0)
+			return i;
+	return -1;
+}
+
+int main() {
+	assert(sign(-5) == -1);
+	assert(sign(0) == 0);
+	assert(sign(9) == 1);
+	print("PASS: braceless if/else");
+
+	assert(classify(1, 1) == 1);
+	assert(classify(1, 0) == 2);
+	assert(classify(0, 0) == 0);
+	print("PASS: dangling else binds to the nearest if");
+
+	int total = 0;
+	for (int i = 0; i < 4; i++)
+		total += i;
+	while (total < 10)
+		total++;
+	assert(total == 10);
+	int count = 0;
+	do count++; while (count < 3);
+	assert(count == 3);
+	do
+		count += 2;
+	while (count < 9);
+	assert(count == 9);
+	print("PASS: braceless loops");
+
+	int odd = 0;
+	for (int i = 0; i < 10; i++)
+		if (i % 2 == 0)
+			continue;
+		else if (i > 7)
+			break;
+		else
+			odd += i;
+	assert(odd == 16);
+	assert(firstMultiple(4, 10) == 4);
+	assert(firstMultiple(11, 10) == -1);
+	print("PASS: braceless break, continue and return");
+
+	string label = "none";
+	int n = 3;
+	if (n > 2) label = f"big {n}";
+	assert(label == "big 3");
+	if (n > 5) label = f"huge {n}"; else label = f"small {n}";
+	assert(label == "small 3");
+	Vector<int> items = [];
+	int i = 0;
+	while (i < n) items.push(i++);
+	assert(items.len == 3);
+	assert(items[2] == 2);
+	for (int k = 0; k < 2; k++) items.push(k * 10);
+	assert(items.len == 5);
+	assert(items[4] == 10);
+	print("PASS: braceless bodies with managed values");
+	return 0;
+}

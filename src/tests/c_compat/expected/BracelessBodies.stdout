@@ -1,0 +1,5 @@
+PASS: braceless if/else
+PASS: dangling else binds to the nearest if
+PASS: braceless loops
+PASS: braceless break, continue and return
+PASS: braceless bodies with managed values
