@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import os
 import platform
 import re
@@ -36,7 +35,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from src.compiler.python.frontend.packages import PackageTarget
-from tools.budget_bench import HostSummary
+from tools.budget_bench import Distribution, HostSummary
 from tools.native_plan import NativePlanError, NativePlanReader
 
 REPO = Path(__file__).resolve().parents[1]
@@ -64,7 +63,6 @@ FRONTEND_PHASES = frozenset(
 FUNCTION_DEFINITION = re.compile(r"\) \{$")
 STRUCT_DEFINITION = re.compile(r"^struct [A-Za-z_0-9]+ \{$")
 VECTOR_INSTANCE = re.compile(r"^typedef struct (btrc_Vector_[A-Za-z0-9_]+) ")
-TIMING_LINE = re.compile(r"^(btrcpy|btrcc) timing: (.*)$")
 
 
 @dataclass
@@ -80,6 +78,31 @@ class Measurement:
         # field name but give it the same KiB unit on both hosts.
         rss = usage["max_rss"] / 1024 if platform == "darwin" else usage["max_rss"]
         return cls(usage["wall_s"], usage["cpu_s"], int(rss), int(usage["returncode"]))
+
+    @classmethod
+    def run(cls, command: list[str], env: dict[str, str], cwd: Path, stdout: Path, stderr: Path) -> Measurement:
+        """Run `command` in a fresh Python process that reports its children's rusage."""
+
+        runner = (
+            "import json, resource, subprocess, sys, time\n"
+            "command = json.loads(sys.argv[1]); out, err = sys.argv[2], sys.argv[3]\n"
+            "started = time.perf_counter()\n"
+            "with open(out, 'w') as o, open(err, 'w') as e:\n"
+            "    code = subprocess.run(command, stdout=o, stderr=e).returncode\n"
+            "wall = time.perf_counter() - started\n"
+            "usage = resource.getrusage(resource.RUSAGE_CHILDREN)\n"
+            "print(json.dumps({'wall_s': wall, 'cpu_s': usage.ru_utime + usage.ru_stime, "
+            "'max_rss': usage.ru_maxrss, 'returncode': code}))\n"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", runner, json.dumps(command), str(stdout), str(stderr)],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return cls.from_usage(json.loads(completed.stdout), sys.platform)
 
 
 @dataclass
@@ -124,6 +147,26 @@ class CStats:
     vector_instances: int
     line_directives: int
 
+    @classmethod
+    def read(cls, path: Path) -> CStats:
+        """Count one emitted C unit's lines, definitions and `#line` directives."""
+
+        lines = functions = structs = directives = 0
+        vectors: set[str] = set()
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                lines += 1
+                if FUNCTION_DEFINITION.search(line):
+                    functions += 1
+                if STRUCT_DEFINITION.match(line):
+                    structs += 1
+                if line.startswith("#line"):
+                    directives += 1
+                match = VECTOR_INSTANCE.match(line)
+                if match:
+                    vectors.add(match.group(1))
+        return cls(lines, path.stat().st_size, functions, structs, len(vectors), directives)
+
 
 @dataclass
 class NativeRun:
@@ -150,133 +193,109 @@ class Report:
     failure: str | None = None
 
 
-def measure(command: list[str], env: dict[str, str], cwd: Path, stdout: Path, stderr: Path) -> Measurement:
-    """Run `command` in a fresh Python process that reports its children's rusage."""
-
-    runner = (
-        "import json, resource, subprocess, sys, time\n"
-        "command = json.loads(sys.argv[1]); out, err = sys.argv[2], sys.argv[3]\n"
-        "started = time.perf_counter()\n"
-        "with open(out, 'w') as o, open(err, 'w') as e:\n"
-        "    code = subprocess.run(command, stdout=o, stderr=e).returncode\n"
-        "wall = time.perf_counter() - started\n"
-        "usage = resource.getrusage(resource.RUSAGE_CHILDREN)\n"
-        "print(json.dumps({'wall_s': wall, 'cpu_s': usage.ru_utime + usage.ru_stime, "
-        "'max_rss': usage.ru_maxrss, 'returncode': code}))\n"
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", runner, json.dumps(command), str(stdout), str(stderr)],
-        cwd=cwd,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return Measurement.from_usage(json.loads(completed.stdout), sys.platform)
-
-
 # One phase mark: everything before the last `=NNNus`. A mark may carry
 # counters in parentheses, `a-records-stored(replayed=3,journaled=1)=12us`,
 # which are dropped from the phase name so runs with different counts sum
 # into one phase.
 PHASE_MARK = re.compile(r"^(?P<name>[^()=]+)(?:\([^()]*\))?=(?P<micros>\d+)us$")
-
-
-def phase_times(stderr: str) -> dict[str, float]:
-    """Both compilers print `<name> timing: phase=NNNus ...`; sum per phase in seconds.
-
-    Tokens that are not a phase mark -- counters such as
-    `module-units=lowered:3,reused:2` or `setjmp-analyses=2/3,rounds=1` --
-    are skipped rather than parsed.
-    """
-
-    phases: dict[str, float] = {}
-    for line in stderr.splitlines():
-        match = TIMING_LINE.match(line.strip())
-        if not match:
-            continue
-        for item in match.group(2).split():
-            if mark := PHASE_MARK.match(item):
-                name = mark.group("name")
-                phases[name] = phases.get(name, 0.0) + int(mark.group("micros")) / 1_000_000.0
-    return phases
-
-
 WORKER_TIMING_LINE = re.compile(r"^(?:btrcpy|btrcc) worker timing: worker=(\d+) (.*)$")
 MICROSECONDS = re.compile(r"^(\d+)us$")
-
-
-def worker_phase_times(stderr: str) -> dict[int, dict[str, float]]:
-    """Forked module-unit workers' reports, by worker index, in seconds.
-
-    Each `<name> worker timing: worker=<i> ...` line sums its `phase=NNNus`
-    marks per phase, and its `busy=op:NNNus,...` times as `busy:<op>`. The
-    owner's line is `phase_times`'s alone, so no worker time reaches it.
-    """
-
-    workers: dict[int, dict[str, float]] = {}
-    for line in stderr.splitlines():
-        match = WORKER_TIMING_LINE.match(line.strip())
-        if not match:
-            continue
-        phases = workers.setdefault(int(match.group(1)), {})
-        for item in match.group(2).split():
-            name, _, value = item.partition("=")
-            if name == "busy":
-                for entry in value.split(","):
-                    operation, _, micros = entry.partition(":")
-                    if found := MICROSECONDS.match(micros):
-                        key = f"busy:{operation}"
-                        phases[key] = phases.get(key, 0.0) + int(found.group(1)) / 1_000_000.0
-            elif found := MICROSECONDS.match(value):
-                phases[name] = phases.get(name, 0.0) + int(found.group(1)) / 1_000_000.0
-    return workers
-
-
 WORKER_USAGE = re.compile(r"^user:(\d+)us,sys:(\d+)us,maxrss:(\d+)KiB$")
 
 
-def worker_usage(stderr: str) -> dict[int, dict[str, float]]:
-    """Forked module-unit workers' own resource usage, by worker index.
+class TimingReport:
+    """The `BTRC_TIMING=1` report both compilers print on standard error.
 
-    A worker line's `usage=user:Nus,sys:Nus,maxrss:NKiB` field, which the
-    owner appends after reaping the worker, becomes `user` and `sys` in
-    seconds and `maxrss_kib`. A worker the host reported no usage for is
-    absent, as is every worker of a build that forked none.
+    Every reader of those lines -- this tool, `tools.bench`, the module-unit
+    tests -- goes through this owner, so a mark is parsed one way everywhere.
     """
 
-    workers: dict[int, dict[str, float]] = {}
-    for line in stderr.splitlines():
-        match = WORKER_TIMING_LINE.match(line.strip())
-        if not match:
-            continue
-        for item in match.group(2).split():
-            name, _, value = item.partition("=")
-            if name == "usage" and (found := WORKER_USAGE.match(value)):
-                workers[int(match.group(1))] = {
-                    "user": int(found.group(1)) / 1_000_000.0,
-                    "sys": int(found.group(2)) / 1_000_000.0,
-                    "maxrss_kib": float(found.group(3)),
-                }
-    return workers
+    COMPILERS = ("btrcpy", "btrcc")
+
+    @classmethod
+    def phase_times(
+        cls, stderr: str, *, compilers: tuple[str, ...] = COMPILERS, per_second: int = 1
+    ) -> dict[str, float]:
+        """Both compilers print `<name> timing: phase=NNNus ...`; sum per phase.
+
+        Times are in seconds, or in `per_second` parts of one (``1000`` gives
+        milliseconds), and only `compilers`' owner lines are read. Tokens that are not a phase
+        mark -- counters such as `module-units=lowered:3,reused:2` or
+        `setjmp-analyses=2/3,rounds=1` -- are skipped rather than parsed.
+        """
+
+        prefixes = tuple(f"{compiler} timing: " for compiler in compilers)
+        phases: dict[str, float] = {}
+        for line in stderr.splitlines():
+            line = line.strip()
+            prefix = next((prefix for prefix in prefixes if line.startswith(prefix)), None)
+            if prefix is None:
+                continue
+            for item in line[len(prefix) :].split():
+                if mark := PHASE_MARK.match(item):
+                    name = mark.group("name")
+                    phases[name] = phases.get(name, 0.0) + int(mark.group("micros")) / (1_000_000.0 / per_second)
+        return phases
+
+    @classmethod
+    def worker_phase_times(cls, stderr: str) -> dict[int, dict[str, float]]:
+        """Forked module-unit workers' reports, by worker index, in seconds.
+
+        Each `<name> worker timing: worker=<i> ...` line sums its `phase=NNNus`
+        marks per phase, and its `busy=op:NNNus,...` times as `busy:<op>`. The
+        owner's line is `phase_times`'s alone, so no worker time reaches it.
+        """
+
+        workers: dict[int, dict[str, float]] = {}
+        for index, fields in cls._worker_lines(stderr):
+            phases = workers.setdefault(index, {})
+            for item in fields:
+                name, _, value = item.partition("=")
+                if name == "busy":
+                    for entry in value.split(","):
+                        operation, _, micros = entry.partition(":")
+                        if found := MICROSECONDS.match(micros):
+                            key = f"busy:{operation}"
+                            phases[key] = phases.get(key, 0.0) + int(found.group(1)) / 1_000_000.0
+                elif found := MICROSECONDS.match(value):
+                    phases[name] = phases.get(name, 0.0) + int(found.group(1)) / 1_000_000.0
+        return workers
+
+    @classmethod
+    def worker_usage(cls, stderr: str) -> dict[int, dict[str, float]]:
+        """Forked module-unit workers' own resource usage, by worker index.
+
+        A worker line's `usage=user:Nus,sys:Nus,maxrss:NKiB` field, which the
+        owner appends after reaping the worker, becomes `user` and `sys` in
+        seconds and `maxrss_kib`. A worker the host reported no usage for is
+        absent, as is every worker of a build that forked none.
+        """
+
+        workers: dict[int, dict[str, float]] = {}
+        for index, fields in cls._worker_lines(stderr):
+            for item in fields:
+                name, _, value = item.partition("=")
+                if name == "usage" and (found := WORKER_USAGE.match(value)):
+                    workers[index] = {
+                        "user": int(found.group(1)) / 1_000_000.0,
+                        "sys": int(found.group(2)) / 1_000_000.0,
+                        "maxrss_kib": float(found.group(3)),
+                    }
+        return workers
+
+    @staticmethod
+    def _worker_lines(stderr: str) -> list[tuple[int, list[str]]]:
+        lines = []
+        for line in stderr.splitlines():
+            if match := WORKER_TIMING_LINE.match(line.strip()):
+                lines.append((int(match.group(1)), match.group(2).split()))
+        return lines
 
 
-def c_stats(path: Path) -> CStats:
-    lines = functions = structs = directives = 0
-    vectors: set[str] = set()
-    with path.open(encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            lines += 1
-            if FUNCTION_DEFINITION.search(line):
-                functions += 1
-            if STRUCT_DEFINITION.match(line):
-                structs += 1
-            if line.startswith("#line"):
-                directives += 1
-            match = VECTOR_INSTANCE.match(line)
-            if match:
-                vectors.add(match.group(1))
-    return CStats(lines, path.stat().st_size, functions, structs, len(vectors), directives)
+# The names AGENTS.md documents for reading a timing report.
+phase_times = TimingReport.phase_times
+worker_phase_times = TimingReport.worker_phase_times
+worker_usage = TimingReport.worker_usage
 
 
 class Perf:
@@ -507,7 +526,7 @@ class Perf:
         plan = directory / "program.link.json"
         command = self.compiler_command(frontend, mode, generated, plan)
         stdout, stderr = directory / "frontend.stdout", directory / "frontend.stderr"
-        measured = measure(command, self.env, REPO, stdout, stderr)
+        measured = Measurement.run(command, self.env, REPO, stdout, stderr)
         run = CompilerRun(
             frontend,
             measured.wall_s,
@@ -525,8 +544,10 @@ class Perf:
         if measured.returncode != 0:
             raise NativePlanError(f"{frontend}/{mode} failed ({measured.returncode}):\n{stderr.read_text()[-3000:]}")
         native = NativePlanReader().read(plan)
-        for path in [generated, *(Path(f"{generated}.unit-{index}.c") for index in range(1, native.emitted_units + 1))]:
-            self.report.c_stats[str(path.relative_to(self.out))] = c_stats(path)
+        for path in (generated, *native.emitted_paths):
+            resolved = path.resolve()
+            name = resolved.relative_to(self.out) if resolved.is_relative_to(self.out) else path
+            self.report.c_stats[str(name)] = CStats.read(path)
         return run
 
     def run_native(self, run: CompilerRun, directory: Path, scenario: str, started: float | None) -> None:
@@ -560,7 +581,7 @@ class Perf:
             *(["--debug-info"] if run.mode == "dev" else []),
         ]
         stdout, stderr = directory / f"{scenario}.stdout", directory / f"{scenario}.stderr"
-        measured = measure(command, self.env, REPO, stdout, stderr)
+        measured = Measurement.run(command, self.env, REPO, stdout, stderr)
         elapsed = time.perf_counter() - started if started is not None else None
         operations = json.loads(operations_path.read_text()) if measured.returncode == 0 else {}
         self.report.native_builds.append(
@@ -611,7 +632,7 @@ class Perf:
             counts_text = ", ".join(f"{compiled} / {reused}" for compiled, reused in counts)
             links_text = ", ".join(str(count) for count in sorted({run.operations["links"] for run in successful}))
             rows.append(
-                f"| {frontend} / {mode} | {scenario} | {len(successful)} | {statistics.median(times):.3f} s | {times[math.ceil(0.95 * len(times)) - 1]:.3f} s | {counts_text} | {links_text} |"
+                f"| {frontend} / {mode} | {scenario} | {len(successful)} | {statistics.median(times):.3f} s | {Distribution.nearest_rank(times, 95):.3f} s | {counts_text} | {links_text} |"
             )
         rows.extend(
             [
@@ -632,72 +653,88 @@ class Perf:
             rows.append(f"| {run.frontend} / {run.mode} / {run.sample} | {times} | {run.max_rss_kb / 1024:.1f} MiB |")
         return "\n".join(rows) + "\n"
 
+    @staticmethod
+    def parse_arguments(argv: list[str] | None) -> argparse.Namespace:
+        """Parse and validate the measurement matrix before anything is built."""
+
+        parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        parser.add_argument("program", help="the .btrc entry point to build")
+        parser.add_argument("--btrcc", default=str(REPO / "bin" / "btrcc"))
+        parser.add_argument("--cc", default="clang")
+        parser.add_argument("--cxx", default="c++")
+        parser.add_argument("--pkg-config", default="pkg-config")
+        parser.add_argument("--target", help="OS-ARCH (defaults to the current host)")
+        parser.add_argument("--frontends", default="btrcpy,btrcc", help="comma-separated: btrcpy,btrcc")
+        modes = parser.add_mutually_exclusive_group()
+        modes.add_argument("--modes", default=None, help="comma-separated dev,release (default both)")
+        modes.add_argument(
+            "--opt", default=None, help="explicit O0..O3 native optimization levels without debug mapping"
+        )
+        parser.add_argument(
+            "--samples", type=int, default=1, help="cold samples per frontend/mode (use at least 5 for acceptance)"
+        )
+        parser.add_argument(
+            "--warm-native-runs", type=int, default=1, help="native-only object-cache repeats per sample"
+        )
+        parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
+        parser.add_argument("--unit-lines", type=int, help="override the emitted-unit line target")
+        parser.add_argument("--out", help="parent of a fresh retained run directory")
+        parser.add_argument("--json", help="write the report here, including failure evidence")
+        arguments = parser.parse_args(argv)
+        arguments.frontends = arguments.frontends.split(",")
+        selected_modes = arguments.opt if arguments.opt is not None else arguments.modes
+        arguments.modes = ("dev,release" if selected_modes is None else selected_modes).split(",")
+        allowed_modes = {"O0", "O1", "O2", "O3"} if arguments.opt is not None else {"dev", "release"}
+        if not set(arguments.frontends) <= {"btrcpy", "btrcc"} or len(set(arguments.frontends)) != len(
+            arguments.frontends
+        ):
+            parser.error("frontends must be distinct names from btrcpy,btrcc")
+        if not set(arguments.modes) <= allowed_modes or len(set(arguments.modes)) != len(arguments.modes):
+            parser.error("modes must be distinct supported values")
+        if (
+            arguments.samples < 1
+            or arguments.jobs < 1
+            or arguments.warm_native_runs < 0
+            or (arguments.unit_lines is not None and arguments.unit_lines < 1)
+        ):
+            parser.error("samples, jobs and unit-lines must be positive; warm-native-runs must be nonnegative")
+        try:
+            target = PackageTarget.parse(arguments.target)
+        except ValueError as error:
+            parser.error(str(error))
+        arguments.target = f"{target.operating_system}-{target.architecture}"
+        if arguments.json:
+            report_path, program_path = Path(arguments.json), Path(arguments.program)
+            if report_path.resolve() == program_path.resolve() or (
+                report_path.exists() and program_path.exists() and report_path.samefile(program_path)
+            ):
+                parser.error("JSON report must differ from the program input")
+        return arguments
+
+    def execute(self) -> int:
+        """Run the matrix, then write the report and print its tables, failure included."""
+
+        code = 0
+        try:
+            self.run()
+        except (OSError, NativePlanError, subprocess.CalledProcessError) as error:
+            self.report.failure = str(error)
+            print(str(error), file=sys.stderr)
+            code = 1
+        finally:
+            payload = json.dumps(asdict(self.report), indent=2) + "\n"
+            (self.out / "report.json").write_text(payload)
+            if self.arguments.json:
+                path = Path(self.arguments.json)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(payload)
+        print(self.markdown())
+        print(f"Raw evidence: {self.out}")
+        return code
+
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("program", help="the .btrc entry point to build")
-    parser.add_argument("--btrcc", default=str(REPO / "bin" / "btrcc"))
-    parser.add_argument("--cc", default="clang")
-    parser.add_argument("--cxx", default="c++")
-    parser.add_argument("--pkg-config", default="pkg-config")
-    parser.add_argument("--target", help="OS-ARCH (defaults to the current host)")
-    parser.add_argument("--frontends", default="btrcpy,btrcc", help="comma-separated: btrcpy,btrcc")
-    modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--modes", default=None, help="comma-separated dev,release (default both)")
-    modes.add_argument("--opt", default=None, help="explicit O0..O3 native optimization levels without debug mapping")
-    parser.add_argument(
-        "--samples", type=int, default=1, help="cold samples per frontend/mode (use at least 5 for acceptance)"
-    )
-    parser.add_argument("--warm-native-runs", type=int, default=1, help="native-only object-cache repeats per sample")
-    parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
-    parser.add_argument("--unit-lines", type=int, help="override the emitted-unit line target")
-    parser.add_argument("--out", help="parent of a fresh retained run directory")
-    parser.add_argument("--json", help="write the report here, including failure evidence")
-    arguments = parser.parse_args(argv)
-    arguments.frontends = arguments.frontends.split(",")
-    selected_modes = arguments.opt if arguments.opt is not None else arguments.modes
-    arguments.modes = ("dev,release" if selected_modes is None else selected_modes).split(",")
-    allowed_modes = {"O0", "O1", "O2", "O3"} if arguments.opt is not None else {"dev", "release"}
-    if not set(arguments.frontends) <= {"btrcpy", "btrcc"} or len(set(arguments.frontends)) != len(arguments.frontends):
-        parser.error("frontends must be distinct names from btrcpy,btrcc")
-    if not set(arguments.modes) <= allowed_modes or len(set(arguments.modes)) != len(arguments.modes):
-        parser.error("modes must be distinct supported values")
-    if (
-        arguments.samples < 1
-        or arguments.jobs < 1
-        or arguments.warm_native_runs < 0
-        or (arguments.unit_lines is not None and arguments.unit_lines < 1)
-    ):
-        parser.error("samples, jobs and unit-lines must be positive; warm-native-runs must be nonnegative")
-    try:
-        target = PackageTarget.parse(arguments.target)
-    except ValueError as error:
-        parser.error(str(error))
-    arguments.target = f"{target.operating_system}-{target.architecture}"
-    if arguments.json:
-        report_path, program_path = Path(arguments.json), Path(arguments.program)
-        if report_path.resolve() == program_path.resolve() or (
-            report_path.exists() and program_path.exists() and report_path.samefile(program_path)
-        ):
-            parser.error("JSON report must differ from the program input")
-    perf = Perf(arguments)
-    code = 0
-    try:
-        perf.run()
-    except (OSError, NativePlanError, subprocess.CalledProcessError) as error:
-        perf.report.failure = str(error)
-        print(str(error), file=sys.stderr)
-        code = 1
-    finally:
-        payload = json.dumps(asdict(perf.report), indent=2) + "\n"
-        (perf.out / "report.json").write_text(payload)
-        if arguments.json:
-            path = Path(arguments.json)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(payload)
-    print(perf.markdown())
-    print(f"Raw evidence: {perf.out}")
-    return code
+    return Perf(Perf.parse_arguments(argv)).execute()
 
 
 if __name__ == "__main__":
