@@ -951,6 +951,31 @@ class _LexicalVisibilityPass:
         declaration.is_volatile = True
         declaration.effective_is_volatile = True
 
+    def qualify_generated_locals(self, value: object) -> None:
+        """Qualify every compiler-generated scalar automatic of a setjmp function.
+
+        GCC's -Wclobbered judges register pseudos after -O2 coalescing, which
+        may merge a generated temporary declared after a setjmp (a return
+        temporary, a call operand in a nested try) with a value live across
+        it; large functions then warn about storage that is never live there.
+        Volatile storage is never coalesced, so no generated local of the
+        function can carry a clobbered value. Arrays are memory already.
+        """
+        if isinstance(value, IRVarDecl):
+            if (
+                ExceptionLowerer.compiler_storage_name(value.name)
+                and ExceptionLowerer._automatic(value)
+                and value.array_size is None
+                and not value.is_unsized_array
+            ):
+                self._qualify(value)
+        if dataclasses.is_dataclass(value):
+            for field in dataclasses.fields(value):
+                self.qualify_generated_locals(getattr(value, field.name))
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                self.qualify_generated_locals(item)
+
     def block(self, block: IRBlock | None, inherited=()) -> None:
         if block is None:
             return
@@ -1539,6 +1564,8 @@ class ExceptionLowerer:
                 ExceptionLowerer.reject_unmodelled_setjmp_captures(function, call_effects[function.name])
             visibility = _LexicalVisibilityPass(function.params, call_effects[function.name])
             visibility.block(function.body)
+            if with_setjmp[id(function)]:
+                visibility.qualify_generated_locals(function.body)
             ExceptionLowerer.reject_inferred_volatile_aliases(function, visibility.inferred_volatile, globals_by_name)
 
     def _require_setjmp(self):

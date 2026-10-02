@@ -264,3 +264,27 @@ def test_selfhost_static_shadow_blocks_outer_qualification(
         tmp_path / "setjmp-static-shadow",
         optimization="-O3",
     )
+
+
+def test_selfhost_qualifies_every_generated_local_of_a_setjmp_function(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    """Mirrors the reference compiler's contract: GCC's -Wclobbered judges
+    register pseudos after -O2 coalescing, so return temporaries and nested-try
+    temporaries of a setjmp function are volatile, while a function without a
+    setjmp keeps plain temporaries."""
+    from src.tests.python.test_exception_codegen_contracts import _CLOBBER_SHAPES, _function_body
+
+    result, generated = _compile_source(semantic_btrcc, tmp_path, _CLOBBER_SHAPES)
+
+    assert result.returncode == 0, result.stderr
+    emitted = generated.read_text()
+    returns = re.findall(r"^\s*(.*)\b__btrc_ret_\d+ = ", _function_body(emitted, "returnInsideTry"), re.MULTILINE)
+    assert len(returns) == 2 and all(qualifier == "volatile int " for qualifier in returns), returns
+    nested = _function_body(emitted, "nestedTry")
+    declared = re.findall(r"^\s*([^;(]*?)\b(__btrc_\w+)(?: = [^;]*)?;$", nested, re.MULTILINE)
+    assert declared, nested
+    assert all("volatile" in declarator for declarator, _name in declared), declared
+    assert re.search(r"^\s*int __btrc_ret_\d+ = ", _function_body(emitted, "withoutTry"), re.MULTILINE)
+    _strict_build_and_run(generated, tmp_path / "setjmp-generated-locals", optimization="-O2")

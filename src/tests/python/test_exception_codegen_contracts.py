@@ -1,6 +1,8 @@
 """White-box contracts for the setjmp/cleanup lowering boundary."""
 
 import re
+import shutil
+import subprocess
 
 import pytest
 
@@ -565,3 +567,105 @@ def test_string_pointer_arithmetic_is_a_borrowed_c_operand():
     assert 'strncmp((((char*)text) + offset), "x", 1)' in body
     assert "__btrc_string_retain" not in body
     assert "__btrc_string_release" not in body
+
+
+_CLOBBER_SHAPES = """
+    #include <assert.h>
+    class Box {
+        public int v;
+        public Box(int v) { self.v = v; }
+    }
+    int risky(int x) {
+        if (x > 3) { throw "big"; }
+        return x;
+    }
+    int returnInsideTry(int x) {
+        try {
+            int y = risky(x);
+            return y + 1;
+        } catch (string e) {
+            return -1;
+        }
+        return 0;
+    }
+    int nestedTry(int x) {
+        int total = 0;
+        try {
+            int inner = x * 2;
+            Box b = new Box(x);
+            try {
+                inner = inner + risky(x);
+                total = inner + b.v;
+            } catch (string e) {
+                total = inner + 7;
+            }
+        } catch (string e) {
+            total = -1;
+        }
+        return total;
+    }
+    int withoutTry(int x) {
+        Box b = new Box(x);
+        return b.v + 1;
+    }
+    int main() {
+        assert(returnInsideTry(1) == 2 && returnInsideTry(9) == -1);
+        assert(nestedTry(1) == 4 && nestedTry(9) == 25);
+        assert(withoutTry(2) == 3);
+        return 0;
+    }
+"""
+
+
+def _function_body(emitted: str, name: str) -> str:
+    match = re.search(rf"^int {name}\(int x\) \{{\n(.*?)^\}}", emitted, re.MULTILINE | re.DOTALL)
+    assert match is not None, name
+    return match.group(1)
+
+
+def test_generated_locals_of_a_setjmp_function_are_volatile():
+    """GCC's -Wclobbered judges register pseudos after -O2 coalescing, so a
+    generated temporary that is never live across a setjmp (a return
+    temporary, a call operand inside a nested try) can still be reported in a
+    large function. Every generated scalar local of a function that calls
+    setjmp is volatile; a function without one keeps plain temporaries."""
+    emitted = emit_c(_CLOBBER_SHAPES)
+
+    returns = re.findall(r"^\s*(.*)\b__btrc_ret_\d+ = ", _function_body(emitted, "returnInsideTry"), re.MULTILINE)
+    assert len(returns) == 2 and all(qualifier == "volatile int " for qualifier in returns), returns
+    nested = _function_body(emitted, "nestedTry")
+    generated = re.findall(r"^\s*([^;(]*?)\b(__btrc_\w+)(?: = [^;]*)?;$", nested, re.MULTILINE)
+    assert generated, nested
+    assert all("volatile" in declarator for declarator, _name in generated), generated
+    assert any(name.startswith("__btrc_call_operand_") for _declarator, name in generated), generated
+    assert re.search(r"^\s*int __btrc_ret_\d+ = ", _function_body(emitted, "withoutTry"), re.MULTILINE)
+
+
+@pytest.mark.skipif(shutil.which("gcc") is None, reason="needs gcc for -Wclobbered")
+def test_setjmp_shapes_build_with_gcc_clobbered_errors(tmp_path):
+    source = tmp_path / "shapes.c"
+    source.write_text(emit_c(_CLOBBER_SHAPES))
+    for optimization in ("-O2", "-O3"):
+        build = subprocess.run(
+            [
+                "gcc",
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Wclobbered",
+                "-Werror",
+                optimization,
+                str(source),
+                "-o",
+                str(tmp_path / "shapes"),
+                "-lm",
+                "-lpthread",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert build.returncode == 0, build.stderr
+        run = subprocess.run([str(tmp_path / "shapes")], capture_output=True, text=True, timeout=30)
+        assert run.returncode == 0, run.stderr
