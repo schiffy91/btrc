@@ -13,8 +13,10 @@ android-arm64, android-x86_64). Its operations are derived, never chosen:
 - every corpus topic directory, as ``corpus.<topic>``.
 
 A runtime helper's row pins the corpus programs whose emitted C carries that
-helper, each cited for both compilers, and the last tests below compile every
-cited program with both and look for the helper's definition. A helper no
+helper, each cited for every compiler whose runtime catalog carries the helper
+(both, except the gpu and collection rows the manifest gives no btrc order),
+and the last tests below compile every cited program with those compilers and
+look for the helper's definition. A helper no
 corpus program can reach says why in its note, and that reason is checked:
 ``corpus-unreached (archive-api)`` is an arc_runtime API root that only a
 stdlib archive selects, and ``corpus-unreached (unselected)`` is a catalog row
@@ -70,6 +72,7 @@ ARCHIVE_API_TEST = (
     "::test_shared_api_completion_reaches_fixed_point_and_externalizes"
 )
 UNSELECTED = "corpus-unreached (unselected): "
+PYTHON_CATALOG = "python-catalog only: "
 # Handwritten compiler and stdlib sources: a helper none of them names is selected by no lowering.
 HANDWRITTEN = (
     *(
@@ -238,8 +241,16 @@ def function_source(nodeid: str) -> str:
     return ""
 
 
+def catalogs() -> dict[str, set[str]]:
+    """The compilers whose runtime catalog carries each helper: those the manifest gives an order."""
+
+    manifest = tomllib.loads(RUNTIME_MANIFEST.read_text(encoding="utf-8"))["helpers"]
+    return {helper["name"]: set(helper["order"]) & set(COMPILERS) for helper in manifest}
+
+
 def test_every_runtime_helper_is_reached_by_a_cited_corpus_program_or_proven_unreached():
     manifest = tomllib.loads(RUNTIME_MANIFEST.read_text(encoding="utf-8"))["helpers"]
+    carried = catalogs()
     visible = {helper["name"] for helper in manifest if helper["source_visible"]}
     depended = {dependency for helper in manifest for dependency in helper["dependencies"]}
     api_roots = set().union(*StdlibArchiveAdapter.API_ROOTS.values())
@@ -252,12 +263,18 @@ def test_every_runtime_helper_is_reached_by_a_cited_corpus_program_or_proven_unr
         pins = corpus_pins(regression)
         for program, compilers in pins.items():
             assert program in corpus, f"{name}: {program} is not a corpus program"
-            assert compilers == set(COMPILERS), (
-                f"{name}: {program} is cited for {sorted(compilers)}, not both compilers"
+            assert compilers == carried[name], (
+                f"{name}: {program} is cited for {sorted(compilers)}, not {sorted(carried[name])}"
             )
         others = [nodeid for nodeid in regression if not _CORPUS_NODE.match(nodeid)]
         if pins:
             assert not note.startswith("corpus-unreached"), f"{name}: a corpus program reaches it"
+            if carried[name] != set(COMPILERS):
+                assert note.startswith(PYTHON_CATALOG) and carried[name] == {"python"}, (
+                    f"{name}: carried by {sorted(carried[name])} without a python-catalog note"
+                )
+        elif note.startswith(PYTHON_CATALOG):
+            pytest.fail(f"{name}: a python-catalog helper still needs a corpus program that reaches it")
         elif note.startswith(ARCHIVE_API):
             assert name in api_roots and name not in visible, f"{name}: not an archive-only API root"
             assert ARCHIVE_API_TEST in others, f"{name}: cites no archive API completion test"
@@ -275,13 +292,14 @@ def test_every_runtime_helper_is_reached_by_a_cited_corpus_program_or_proven_unr
             assert named.search(function_source(nodeid)), f"{name}: {nodeid} does not name the helper"
 
 
-def pinned_programs() -> dict[str, set[str]]:
-    """Each corpus program a runtime-helper row cites, with the helpers it pins."""
+def pinned_programs() -> dict[str, dict[str, set[str]]]:
+    """Each corpus program a runtime-helper row cites, with the helpers it pins per compiler."""
 
-    pinned: dict[str, set[str]] = {}
+    pinned: dict[str, dict[str, set[str]]] = {}
     for name, (regression, _) in runtime_rows().items():
-        for program in corpus_pins(regression):
-            pinned.setdefault(program, set()).add(name)
+        for program, compilers in corpus_pins(regression).items():
+            for compiler in compilers:
+                pinned.setdefault(program, {}).setdefault(compiler, set()).add(name)
     return pinned
 
 
@@ -290,9 +308,11 @@ HELPER_SOURCES = {row.name: row.c_source.strip() for row in RUNTIME_HELPER_ROWS}
 
 @pytest.mark.parametrize("program", sorted(pinned_programs()))
 def test_a_cited_corpus_program_emits_every_helper_it_pins(program, compiler, request):
-    """The emitted C of a pinned program carries each pinned helper's catalog definition verbatim.
+    """The emitted C of a pinned program carries each helper pinned for that compiler verbatim.
 
-    ``compiler`` is the shared --compilers parametrization, so both compilers check every program.
+    ``compiler`` is the shared --compilers parametrization, so both compilers check every
+    program. A helper only the Python catalog carries must stay absent from btrcc's C, so a
+    change that brings it into the btrc catalog also updates its row.
     """
 
     path = str(REPO / "src/tests" / program)
@@ -300,5 +320,10 @@ def test_a_cited_corpus_program_emits_every_helper_it_pins(program, compiler, re
         c_source = runner._transpile_python(path, program)
     else:
         c_source = runner._transpile_btrc(request.getfixturevalue("btrcc_bin"), path)
-    missing = sorted(name for name in pinned_programs()[program] if HELPER_SOURCES[name] not in c_source)
+    pinned = pinned_programs()[program]
+    carried = catalogs()
+    missing = sorted(name for name in pinned.get(compiler, set()) if HELPER_SOURCES[name] not in c_source)
     assert missing == [], f"{program} through {compiler} no longer emits {missing}"
+    foreign = {name for names in pinned.values() for name in names if compiler not in carried[name]}
+    unexpected = sorted(name for name in foreign if HELPER_SOURCES[name] in c_source)
+    assert unexpected == [], f"{program} through {compiler} emits {unexpected}, which its catalog does not carry"

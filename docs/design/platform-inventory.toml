@@ -24,7 +24,8 @@
 # (classification.regression) and its current evidence. A runtime.* row
 # pins the corpus programs whose emitted C carries that helper, for both
 # compilers; a helper no corpus program reaches cites the test that proves
-# why in its note ("corpus-unreached (archive-api)" or "(unselected)").
+# why in its note ("corpus-unreached (archive-api)" or "(unselected)"). A
+# helper only the Python catalog carries is pinned for that compiler alone.
 # test_platform_inventory.py compiles every pinned program with both
 # compilers and checks each reason. No slice result has
 # been ingested yet, so nothing is `passed`: implemented rows are
@@ -2551,7 +2552,8 @@ kind = "operation"
 id = "runtime.__btrc_gpu_index_check"
 group = "runtime/gpu"
 title = "__btrc_gpu_index_check (gpu.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-gpu/GpuInferredArrayResult.btrc]", "src/tests/runner.py::test_btrc_file[btrc-gpu/GpuInferredArrayResult.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-gpu/GpuInferredArrayResult.btrc]"]
+note = "python-catalog only: the manifest gives gpu helpers no btrc order, so btrcc's CPU fallback lowers its own __btrc_gpu_checked_index instead"
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
