@@ -167,9 +167,9 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - No row is `passed`: no slice result has been ingested.
 - **Review.** A skeptical reviewer checked 30 sampled cells and confirmed 22. Its 8 findings were applied: 6 regression lists, 1 owner and 1 reason. None changed a class.
 - **Deferred.**
-  - Runtime rows inherit their asset's regression tests, which do not reach every helper. Per-helper pins remain to be done.
   - BTRSmith journeys and package contracts are pending in the private BTRSmith repository (`btrsmith-p0-inventory`) and are kept out of these totals.
   - The entry gate, the adaptation approvals (`platforms-p0-adaptations`), the matrix pin and the device registry are still pending.
+- **Runtime-helper pins (cloud lane `stage22/runtime-helper-pins`).** Each runtime row now cites the corpus programs whose emitted C carries its helper, for every compiler whose catalog carries it: a greedy cover of 26 programs reaches 199 of the 223 helpers, five of them through new corpus programs. The other 24 carry a checked reason: five arc_runtime API roots that only a stdlib archive selects, and nineteen catalog rows (the collection templates, the typed div/mod and `fromInt`/`fromFloat`) that no lowering in either compiler selects. `test_platform_inventory.py` compiles every pinned program with both compilers and requires each pinned helper's catalog definition in the C. `__btrc_gpu_index_check` is pinned for the Python compiler alone: the manifest gives gpu helpers no btrc order, and btrcc's CPU fallback lowers its own `__btrc_gpu_checked_index`. Moving that fallback onto the catalog helper is a catalog decision left open.
 
 ## Decisions (all resolved 2026-09-30)
 
