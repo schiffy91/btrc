@@ -244,6 +244,12 @@ class Parser {
 			return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
 		}
 
+		// A stray file-scope `;` is not ISO C (C11 6.9).
+		if (tok.type == "SEMICOLON") {
+			self.failAt("Unexpected token ';' at top level", tok);
+			return Node();
+		}
+
 		// Fallback: treat as function/var.
 		return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
 	}
@@ -790,7 +796,7 @@ class Parser {
 
 		if (self.check("LPAREN")) {
 			self.expect("LPAREN");
-			Vector<Node> params = self.parseParamList();
+			Vector<Node> params = self.parseParamList(true);
 			self.expect("RPAREN");
 			Node fn = Node();
 			fn.kind = NK_FUNCTION_DECL;
@@ -808,6 +814,7 @@ class Parser {
 				fn.bodyNode = null;
 				return fn;
 			}
+			if (self.check("LBRACE")) { self.refuseUnnamedDefinition(params); }
 			Node body = self.parseBlock();
 			fn.bodyNode = body;
 			return fn;
@@ -1121,19 +1128,26 @@ class Parser {
 
 	/* ---- Parameters ---- */
 
-	public Vector<Node> parseParamList() {
+	/* `(void)` is C's spelling of an empty list. Only a body-less function
+     * prototype may omit parameter names (C11 6.9.1p5): its caller passes
+     * allowUnnamed and refuses a body that follows an unnamed parameter. */
+	public Vector<Node> parseParamList(bool allowUnnamed = false) {
 		Vector<Node> params = [];
 		if (self.check("RPAREN")) { return params; }
-		Node p0 = self.parseParam();
+		if (self.check("VOID") && self.peekAt(1).type == "RPAREN") {
+			self.advance();
+			return params;
+		}
+		Node p0 = self.parseParam(allowUnnamed);
 		params.push(p0);
 		while (self.matchTok("COMMA")) {
-			Node pN = self.parseParam();
+			Node pN = self.parseParam(allowUnnamed);
 			params.push(pN);
 		}
 		return params;
 	}
 
-	public Node parseParam() {
+	public Node parseParam(bool allowUnnamed = false) {
 		Token tok = self.peek();
 		bool hasKeep = false;
 		if (self.check("KEEP")) {
@@ -1141,14 +1155,32 @@ class Parser {
 			self.advance();
 		}
 		Node typeExpr = self.parseType();
-		Token nameTok = self.expect("IDENT");
 		Node p = Node();
 		p.kind = NK_PARAM;
 		p.type = typeExpr;
-		p.name = nameTok.value;
-		p.keep_ = hasKeep;
 		p.line = tok.line;
 		p.col = tok.col;
+		if (typeExpr.base == "void" && typeExpr.pointerDepth == 0 && typeExpr.genericArgs().len == 0) {
+			self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
+			return p;
+		}
+		if (self.check("COMMA") || self.check("RPAREN") || self.check("LBRACKET") || self.check("EQ")) {
+			if (!allowUnnamed) {
+				self.failAt(Parser.unnamedParameterMessage(), tok);
+				return p;
+			}
+			if (hasKeep) {
+				self.failAt("A 'keep' parameter requires a name", tok);
+				return p;
+			}
+			p.name = "";
+			self.parseDeclaratorArraySuffix(typeExpr);
+			if (self.check("EQ")) { self.failAt("An unnamed parameter cannot have a default value", self.peek()); }
+			return p;
+		}
+		Token nameTok = self.expect("IDENT");
+		p.name = nameTok.value;
+		p.keep_ = hasKeep;
 		p.nameLine = nameTok.line;
 		p.nameCol = nameTok.col;
 		self.parseDeclaratorArraySuffix(typeExpr);
@@ -1157,6 +1189,17 @@ class Parser {
 			p.default_ = def;
 		}
 		return p;
+	}
+
+	class string unnamedParameterMessage() { return "Parameter name required: only a function prototype without a body may omit it"; }
+
+	public void refuseUnnamedDefinition(Vector<Node> params) {
+		for param in params {
+			if (param.name.isEmpty()) {
+				self.failAt(Parser.unnamedParameterMessage(), Token("IDENT", "", param.line, param.col));
+				return;
+			}
+		}
 	}
 
 	/* ---- Statements ---- */
@@ -1168,10 +1211,36 @@ class Parser {
 		blk.line = lb.line;
 		blk.col = lb.col;
 		while (!self.check("RBRACE") && !self.atEnd()) {
+			// An empty statement inside a statement list produces nothing.
+			if (self.matchTok("SEMICOLON")) { continue; }
 			Node s = self.parseStatement();
 			blk.statementsMut().push(s);
 		}
 		self.expect("RBRACE");
+		return blk;
+	}
+
+	/* The substatement of if/else/while/C-for/do. A braced body is its own
+	 * block. Any other statement is wrapped in a synthesized Block positioned
+	 * at the statement's first token, so the body keeps exactly the scope a
+	 * braced body has; an empty statement `;` becomes an empty Block
+	 * positioned at the `;`. A declaration is not a statement in C (C11 6.8),
+	 * so it is refused as a body. for-in, parallel for, try/catch/finally and
+	 * switch keep requiring braces through parseBlock. */
+	public Node parseBody() {
+		Token tok = self.peek();
+		if (tok.type == "LBRACE") { return self.parseBlock(); }
+		Node blk = Node();
+		blk.kind = NK_BLOCK;
+		blk.line = tok.line;
+		blk.col = tok.col;
+		if (self.matchTok("SEMICOLON")) { return blk; }
+		if (self.isVarDeclStart()) {
+			self.failAt("A declaration cannot be the body of a control statement; enclose it in braces", tok);
+			return blk;
+		}
+		Node s = self.parseStatement();
+		blk.statementsMut().push(s);
 		return blk;
 	}
 
@@ -1357,7 +1426,7 @@ class Parser {
 		self.expect("LPAREN");
 		Node cond = self.parseExpression();
 		self.expect("RPAREN");
-		Node thenBlock = self.parseBlock();
+		Node thenBlock = self.parseBody();
 		Node n = Node();
 		n.kind = NK_IF_STMT;
 		n.condition = cond;
@@ -1372,7 +1441,7 @@ class Parser {
 				eb.ifStmt = innerIf;
 				n.elseBlock = eb;
 			} else {
-				Node body = self.parseBlock();
+				Node body = self.parseBody();
 				Node eb2 = Node();
 				eb2.kind = NK_ELSE_BLOCK;
 				eb2.bodyNode = body;
@@ -1387,7 +1456,7 @@ class Parser {
 		self.expect("LPAREN");
 		Node cond = self.parseExpression();
 		self.expect("RPAREN");
-		Node body = self.parseBlock();
+		Node body = self.parseBody();
 		Node n = Node();
 		n.kind = NK_WHILE_STMT;
 		n.condition = cond;
@@ -1399,7 +1468,7 @@ class Parser {
 
 	public Node parseDoWhileStmt() {
 		Token tok = self.expect("DO");
-		Node body = self.parseBlock();
+		Node body = self.parseBody();
 		self.expect("WHILE");
 		self.expect("LPAREN");
 		Node cond = self.parseExpression();
@@ -1523,7 +1592,7 @@ class Parser {
 		}
 		self.expect("RPAREN");
 
-		Node body = self.parseBlock();
+		Node body = self.parseBody();
 		n.bodyNode = body;
 		return n;
 	}
@@ -1578,6 +1647,7 @@ class Parser {
 		}
 		self.expect("COLON");
 		while (!self.check("CASE") && !self.check("DEFAULT") && !self.check("RBRACE") && !self.atEnd()) {
+			if (self.matchTok("SEMICOLON")) { continue; }
 			Node s = self.parseStatement();
 			n.bodyNodeListMut().push(s);
 		}
@@ -2074,7 +2144,7 @@ class Parser {
 			n.valueString = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
-			return n;
+			return self.parseAdjacentStrings(n, tok);
 		}
 		if (tt == "CHAR_LIT") {
 			self.advance();
@@ -2086,6 +2156,10 @@ class Parser {
 			return n;
 		}
 		if (tt == "FSTRING_LIT") {
+			string following = self.peekAt(1).type;
+			if (following == "STRING_LIT" || following == "FSTRING_LIT") {
+				self.failAt(Parser.adjacentFStringMessage(), tok);
+			}
 			self.advance();
 			return self.parseFString(tok);
 		}
@@ -2185,12 +2259,63 @@ class Parser {
 			n.name = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
+			if (self.check("STRING_LIT") && !Parser.isEncodingPrefix(tok, self.peek())) { return self.parseAdjacentStrings(n, tok); }
 			return n;
 		}
 
 		self.failExpected("expression", tok);
 		Node none = Node();
 		return none;
+	}
+
+	/* An encoding prefix (L, u, U or u8 touching its literal) is part of the
+	 * literal, not a macro piece, so it is never absorbed into a concatenation;
+	 * any other name is a piece. */
+	class bool isEncodingPrefix(Token name, Token following) {
+		bool prefix = name.value == "L" || name.value == "u" || name.value == "U" || name.value == "u8";
+		return prefix && following.type == "STRING_LIT" && following.line == name.line && following.col == name.col + name.value.length();
+	}
+
+	class string adjacentFStringMessage() { return "An f-string cannot be concatenated with an adjacent string literal"; }
+
+	/* Absorb the literals and macro names adjacent to first (C phase 6). A
+	 * lone literal stays NK_STRING_LITERAL. Each piece keeps its own token
+	 * spelling, so escapes never run across a piece boundary; the analyzer
+	 * resolves a name piece to the string literal its source macro expands to. */
+	public Node parseAdjacentStrings(Node first, Token start) {
+		Vector<Node> parts = [first];
+		while (true) {
+			Token tok = self.peek();
+			if (tok.type == "STRING_LIT") {
+				self.advance();
+				Node piece = Node();
+				piece.kind = NK_STRING_LITERAL;
+				piece.valueString = tok.value;
+				piece.line = tok.line;
+				piece.col = tok.col;
+				parts.push(piece);
+			} else if (tok.type == "IDENT" && !Parser.isEncodingPrefix(tok, self.peekAt(1))) {
+				self.advance();
+				Node piece = Node();
+				piece.kind = NK_IDENTIFIER;
+				piece.name = tok.value;
+				piece.line = tok.line;
+				piece.col = tok.col;
+				parts.push(piece);
+			} else if (tok.type == "FSTRING_LIT") {
+				self.failAt(Parser.adjacentFStringMessage(), start);
+				return first;
+			} else {
+				break;
+			}
+		}
+		if (parts.len == 1) { return first; }
+		Node concat = Node();
+		concat.kind = NK_STRING_CONCAT;
+		concat.partsMut().extend(parts);
+		concat.line = first.line;
+		concat.col = first.col;
+		return concat;
 	}
 
 	public Node parseNewExpr() {

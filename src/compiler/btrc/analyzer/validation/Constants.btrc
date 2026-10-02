@@ -5,6 +5,7 @@ import Library.Map;
 import ../../generated/ast/Node.btrc;
 import ../../syntax/Literals.btrc;
 import ../Models.btrc;
+import ../SourceMacros.btrc;
 import ../Types.btrc;
 import ./Types.btrc;
 
@@ -37,11 +38,17 @@ class SemanticIntegralCastRange {
 class ConstantValidator {
 	private SemanticValidationState state;
 	private TypeValidator types;
+	private SourceMacroNamespace sourceMacros;
 
-	public ConstantValidator(SemanticValidationState state, TypeValidator types) {
+	public ConstantValidator(SemanticValidationState state, TypeValidator types, SourceMacroNamespace sourceMacros) {
 		self.state = state;
 		self.types = types;
+		self.sourceMacros = sourceMacros;
 	}
+
+	/* The decoded byte length of a string constant, without terminator; -1
+	 * for anything else. */
+	public int stringConstantLength(Node? value) { return self.sourceMacros.stringConstantLength(value); }
 
 	public SemanticIntegerConstant invalidConstant() { return SemanticIntegerConstant(false, false, 0); }
 
@@ -198,6 +205,17 @@ class ConstantValidator {
 			return self.storedEnumConstant(owner, expression.field);
 		}
 		if (expression.kind == NK_SIZEOF_EXPR) {
+			if (expression.operand != null && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
+				/* A constant context (an array bound, an enum value) may never
+				 * validate the operand, so the piece refusal is raised here too. */
+				Node? operand = expression.operand.expr;
+				Node? unresolved = operand != null ? self.sourceMacros.unresolvedStringPiece(operand) : null;
+				if (operand != null && unresolved != null) {
+					TypeValidator.fail(self.sourceMacros.unresolvedPieceMessage(unresolved), operand);
+				}
+				int length = self.sourceMacros.stringConstantLength(operand);
+				if (length >= 0) { return self.knownConstant((long long)length + 1LL); }
+			}
 			return self.unknownConstant();
 		}
 		if (expression.kind == NK_CAST_EXPR) {

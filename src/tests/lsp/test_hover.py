@@ -1,7 +1,7 @@
 """Hover across symbol kinds: field, local variable, parameter, method, class,
 and documented keywords. Asserts the hover text names the symbol/type."""
 
-from src.tests.lsp.lsphelp import SAMPLE, analyze, get_hover_info, hover_text, pos_of
+from src.tests.lsp.lsphelp import SAMPLE, analyze, get_document_symbols, get_hover_info, hover_text, pos_of
 
 
 def _hov(needle, occurrence=1, offset=1):
@@ -111,3 +111,12 @@ def test_hover_unknown_member_returns_none():
 def test_hover_in_body_non_variable_identifier_is_none():
     src = "class K { public int v; public K() { self.v = 0; } }\nint main() { K k = K(); return foobar; }\n"
     assert get_hover_info(analyze(src), pos_of(src, "return foobar", offset=7)) is None
+
+
+def test_unnamed_prototype_parameters_list_by_type_in_symbols():
+    source = "int external(int, char*);\nint main(void) { return external(1, null); }\n"
+    result = analyze(source)
+    details = {symbol.name: symbol.detail for symbol in get_document_symbols(result)}
+    assert details["external"] == "int(int, char*)"
+    assert details["main"] == "int()"
+    assert hover_text(get_hover_info(result, pos_of(source, "external(1", offset=1))) is not None

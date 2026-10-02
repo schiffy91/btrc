@@ -2741,7 +2741,9 @@ class DeclarationLowerer {
 			self.callableBoundaries.rejectPersistentStorage(d.type, d.initializer, callableContext, unsafe, "global storage");
 		}
 		bool inferredArray = d.initializer != null && (d.initializer.kind == NK_LIST_LITERAL || d.initializer.kind == NK_BRACE_INITIALIZER);
-		if (d.type != null && d.type.isArray && (d.type.arraySize != null || inferredArray || d.type.isExtern)) {
+		/* An unsized char array takes its extent from its string constant. */
+		bool stringArray = StringConstant.isNode(d.initializer);
+		if (d.type != null && d.type.isArray && (d.type.arraySize != null || inferredArray || stringArray || d.type.isExtern)) {
 			Node elementType = TypeShape.withoutOuterArray(d.type);
 			IRGlobalDecl global = IRGlobalDecl(self.cTypes.lower(elementType), d.name);
 			global.isExtern = d.type.isExtern && !forceExternal;

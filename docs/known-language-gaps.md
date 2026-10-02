@@ -58,12 +58,35 @@ C-compatibility table in `docs/design/plan-reference.md`.
 
 | Row | C source | btrc's rule | Diagnostic |
 |-----|----------|-------------|------------|
+| 4 | `char s[3] = "abc";` — the exact fit | A narrow string literal initializes a `char`, `signed char` or `unsigned char` array: `char s[] = "abc"` takes four elements and `char s[4] = "abc"` holds the terminator (`c_compat/CharArrayStringInit.btrc`, locals, statics, globals and struct-field elements). C drops the terminator silently when the literal exactly fills the bound; btrc refuses it (D20). Extents count bytes: a UTF-8 character or universal character name is its encoded length. Only a literal initializes a char array: an f-string or a `string` value is refused, and wide literals wait for row 16. A bound the front end cannot evaluate, such as a C preprocessor macro or a `sizeof`, is left to the C compiler, whose strict flags may or may not catch the exact fit (gcc 15 refuses it; C11 itself allows it). | `String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty` |
 | 19 | `int x = (1, 2);` — the comma operator | A parenthesized comma list is a tuple literal, so `(1, 2)` is a `Tuple<int, int>`. Only `for` headers will accept comma-separated expressions (PLAN.md Stage 16). | `Cannot assign 'Tuple<int, int>' to variable 'x' of type 'int'` |
 | 20 | `int string = 0;`, `int f(int self)`, `struct S { int new; };` | Every word in `src/language/grammar.ebnf`'s `@keywords` is reserved, including the btrc words C programs commonly use as names: `in`, `string`, `keep`, `self`, `class`, `interface`, `spawn`, `new`, `var`, `null`, `true`, `false`. There is no quoting syntax for identifiers. | `'string' is a reserved word and cannot be used as a name` |
 | 21 | `strlen(s) == 2` | An ABI-dependent integer (`size_t`, `ptrdiff_t`, `intptr_t`, …) never mixes implicitly with a built-in integer type whose width can differ from it; write the conversion: `(int)strlen(s) == 2` or `strlen(s) == (size_t)2`. Covered by `python/test_numeric_comparison_c11.py`, `python/test_numeric_semantics_contract.py` and their `btrc/` counterparts. | `Operator '==' mixes ABI-dependent integer type 'size_t' with 'int'; cast explicitly to a fixed-width or built-in integer type` |
 | 22 | `_Bool b = 1;`, `bool b = 1;` | `_Bool` is accepted as a spelling of `bool`, but an integer never converts to `bool` implicitly; write `b = n != 0` or a `true`/`false` literal. | `Cannot assign 'int' to variable 'b' of type 'bool'` |
 | 22 | `return f();` in a `void` function | A `return` with an expression in a `void` function violates C11 6.8.6.4, so this refusal is conformance, not policy. Call `f();` and `return;`. | `Void function or method cannot return a value` |
 | 24 | `_Atomic int n;`, `_Atomic(int) n;`, `double _Complex z;` | Deferred: neither has a btrc type-system entry yet. For atomic storage use btrc's `Atomic<T>` (`docs/language/realtime-primitives.md`), which lowers to C11 `_Atomic(T)` with explicit memory orders and stable-storage rules; it is unaffected by this refusal. | `C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage` / `C11 '_Complex' is not supported; btrc has no complex types` |
+
+## Parameter lists (C row 1)
+
+`(void)` is an empty parameter list wherever a parameter list appears, and a
+function prototype ending in `;` may leave its parameters unnamed
+(`int scale(int, double);`, `c_compat/VoidAndUnnamedParameters.btrc`). The
+definition's names are the ones named arguments and defaults use. Refused,
+with the same diagnostic in both compilers:
+
+| C source | Diagnostic |
+|----------|------------|
+| `int f(void x)`, `int f(void, int)`, `int f(const void)` | `A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'` |
+| `int f(int) { ... }`, or an unnamed parameter of a method, interface signature, lambda or rich-enum variant | `Parameter name required: only a function prototype without a body may omit it` |
+| `void f(keep T);` | `A 'keep' parameter requires a name` |
+| `int f(int = 3);` | `An unnamed parameter cannot have a default value` |
+| a prototype and definition whose arity, types or `keep` differ | `Conflicting declarations for function 'f'` |
+
+Still open: an abstract function-pointer parameter (`int (*)(int)`) waits for
+row 7; a prototype whose parameter names differ from its definition's
+(`int f(int a);` then `int f(int b) {}`) is refused as conflicting, though C
+accepts it; `typedef void V; int f(V);` is refused although C reads it as
+`(void)`; and a diagnostic about an unnamed parameter names it `''`.
 
 ## Variable-length arrays (C row 23)
 
@@ -101,6 +124,25 @@ freshly owned value in it is refused (`caller-owned temporary cannot be stored
 in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
 20), so a jump into a VLA's scope cannot be written; Stage 20's negative
 fixtures must cover it.
+
+## Adjacent string literals (C row 5)
+
+Adjacent string literals concatenate as in C (`c_compat/AdjacentStringLiterals.btrc`):
+each piece decodes on its own before they join, so `"\x4" "1"` is two
+characters and `"\x1" "2"` never becomes `"\x12"`; `sizeof` and constant
+folding see the decoded total plus one terminator. A triple-quoted piece is
+allowed, and a piece may be the name of a source `#define` that expands to
+string literals (directly or through other such macros). The generated C keeps
+every piece's own spelling, so the C compiler performs the same concatenation.
+An import path and an `#include` never concatenate.
+
+Two forms are refused, with the same diagnostic in both compilers, at the
+first piece:
+
+| Source | Diagnostic |
+|--------|------------|
+| an f-string beside a literal (`f"{n}" " tail"`) | `An f-string cannot be concatenated with an adjacent string literal` |
+| a piece naming anything but a source macro that expands to string literals, including a native macro such as `PRId64` that the front end cannot resolve (D20) | `Cannot concatenate 'PRId64' with an adjacent string literal: it is not a source macro that expands to a string literal` |
 
 ## Closed gaps
 

@@ -218,6 +218,10 @@ class ExpressionValidator {
                  * materializes array storage. Ordinary C arrays remain
                  * non-copyable and must still use a contextual initializer. */
 				if (self.gpuArrayResultCall(value, vars)) { return; }
+				if (self.storage.charArrayStringInitializer(canonical, value, vars)) {
+					self.storage.validateCharArrayInitializer(canonical, value, vars);
+					return;
+				}
 				TypeValidator.fail(subject + " requires an array initializer", value);
 			}
 			/* A fixed-bound empty initializer is normalized by structured IR to
@@ -633,6 +637,11 @@ class ExpressionValidator {
 			Node? assignmentTarget = self.types.inferType(expression.target, vars);
 			self.borrows.validateOpaqueBorrowStorage(assignmentTarget, expression.valueNode, "Assignment", vars);
 			self.storage.validateAssignment(expression,  vars);
+		} else if (expression.kind == NK_STRING_CONCAT) {
+			Node? unresolved = self.sourceMacros.unresolvedStringPiece(expression);
+			if (unresolved != null) {
+				TypeValidator.fail(self.sourceMacros.unresolvedPieceMessage(unresolved), expression);
+			}
 		} else if (expression.kind == NK_CALL_EXPR) {
 			self.contextualizeCallGenericConstructors(expression,  vars);
 			/* An unresolved direct identifier call is the deliberate C-interop

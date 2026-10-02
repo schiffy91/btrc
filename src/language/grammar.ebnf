@@ -262,7 +262,8 @@
   -- Function declaration
   -- ----------------------------------------------------------------
 
-  function_decl = [ "@gpu" ] [ "keep" ] type_expr IDENT "(" param_list ")" ( block | ";" ) ;
+  function_decl = [ "@gpu" ] [ "keep" ] type_expr IDENT
+                  ( "(" param_list ")" block | "(" prototype_param_list ")" ";" ) ;
 
   -- ----------------------------------------------------------------
   -- Type expressions
@@ -313,18 +314,45 @@
   -- Parameters
   -- ----------------------------------------------------------------
 
-  param_list = [ param { "," param } ] ;
+  param_list = [ "void" | param { "," param } ]
+               (* "(void)" is C's spelling of an empty list and is accepted
+                  wherever a parameter list appears. A plain "void" parameter
+                  anywhere else -- named, qualified, kept, or beside another
+                  parameter -- is refused. *) ;
 
   param = [ "keep" ] type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
           (* "keep" qualifier: the callee keep-retains the argument.
              Array-style params: int arr[], int arr[10]
              Default values: int x = 42 *) ;
 
+  prototype_param_list = [ "void" | prototype_param { "," prototype_param } ] ;
+
+  prototype_param = param
+                  | type_expr [ "[" [ expr ] "]" ]
+                    (* An unnamed parameter (C11 6.7.6.3), allowed only in a
+                       function_decl ending in ";". It takes no "keep" and no
+                       default; a definition supplies the names that named
+                       arguments use. *) ;
+
   -- ----------------------------------------------------------------
   -- Statements
   -- ----------------------------------------------------------------
 
-  block = "{" { statement } "}" ;
+  block = "{" { statement | ";" } "}"
+          (* A ";" inside a statement list is an empty statement and
+             produces no node. *) ;
+
+  body = block
+       | ";"
+       | statement
+         (* The substatement of if, else, while, do and the C-style for
+            (C11 6.8.4, 6.8.5). Anything but a block is wrapped in a
+            synthesized block positioned at its first token, so it keeps the
+            scope a braced body has; a lone ";" is an empty block positioned
+            at the ";". A var_decl_stmt is not a statement in C and is
+            refused as a body. A dangling "else" binds to the nearest "if".
+            for-in, parallel for, try/catch/finally and switch stay
+            braced. *) ;
 
   statement = block
             | var_decl_stmt
@@ -353,9 +381,9 @@
                      vs an expression statement. *) ;
 
   return_stmt     = "return" [ expr ] ";" ;
-  if_stmt         = "if" "(" expr ")" block [ "else" ( if_stmt | block ) ] ;
-  while_stmt      = "while" "(" expr ")" block ;
-  do_while_stmt   = "do" block "while" "(" expr ")" ";" ;
+  if_stmt         = "if" "(" expr ")" body [ "else" ( if_stmt | body ) ] ;
+  while_stmt      = "while" "(" expr ")" body ;
+  do_while_stmt   = "do" body "while" "(" expr ")" ";" ;
   break_stmt      = "break" ";" ;
   continue_stmt   = "continue" ";" ;
   throw_stmt      = "throw" expr ";" ;
@@ -373,7 +401,7 @@
                      second-next is "in" or ",", it is for-in.
                      Otherwise it is C-style for. *) ;
 
-  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ expr ] ")" block ;
+  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ expr ] ")" body ;
 
   for_init = var_decl_no_semi | expr ;
   var_decl_no_semi = "var" IDENT "=" expr
@@ -382,7 +410,7 @@
   parallel_for_stmt = "parallel" "for" IDENT "in" expr block ;
 
   switch_stmt = "switch" "(" expr ")" "{" { case_clause } "}" ;
-  case_clause = ( "case" expr | "default" ) ":" { statement } ;
+  case_clause = ( "case" expr | "default" ) ":" { statement | ";" } ;
 
   try_catch_stmt = "try" block
                    [ "catch" "(" [ type_expr ] IDENT ")" block ]
@@ -489,6 +517,7 @@
 
   primary        = INT_LIT
                  | FLOAT_LIT
+                 | string_concat
                  | STRING_LIT
                  | CHAR_LIT
                  | FSTRING_LIT
@@ -500,6 +529,18 @@
                  | list_literal
                  | map_or_brace
                  | IDENT ;
+
+  string_concat  = string_piece string_piece { string_piece }
+                   (* C translation phase 6: two or more adjacent pieces, at
+                      least one a STRING_LIT, are one StringConcat positioned at
+                      its first piece. A piece is a STRING_LIT (triple-quoted
+                      included) or an IDENT naming a source macro that expands
+                      to string literals; any other name is refused by the
+                      analyzer. Each piece decodes on its own, so an escape
+                      never runs across a boundary. An FSTRING_LIT next to a
+                      piece is refused. A lone STRING_LIT stays StringLiteral.
+                      Never applies to import paths or #include. *) ;
+  string_piece   = STRING_LIT | IDENT ;
 
   new_expr       = "new" type_expr "(" arg_list ")" ;
 

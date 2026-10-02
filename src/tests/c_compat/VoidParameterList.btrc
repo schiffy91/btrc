@@ -1,0 +1,10 @@
+// C row 1: `(void)` is C's spelling of an empty parameter list, `main` included.
+#include <assert.h>
+
+int answer(void) { return 42; }
+
+int main(void) {
+	assert(answer() == 42);
+	print("PASS: void parameter list");
+	return 0;
+}

@@ -129,6 +129,15 @@ Each stage records its exit evidence here as it closes; measurements and commit 
 ### Stage 17: C2 design (done 2026-10-02, main session)
 - `de986a9`: workflow `wf_104e132f-1a7` (three read-only drafters, two adversarial reviewers, synthesis) recorded the C2 aggregate representation and Stage 18's array dimensions in `docs/design/c-compatibility.md`. Unions are `StructDecl(is_union)`. Typedef records are spliced. Anonymous members are their own kind, and designators sit in a parallel `BraceInitializer.entries` list. `CompoundLiteral` is added. Flexible array members follow C11. Bit-field widths go in `FieldDef.value`, and `TypeExpr.elements`/`array_pointer_depth` carry the dimensions. The fat `Node` gains no pointer field. The serial schema commit waits for `ccompat-c1-integrate`.
 
+### Stage 16: C1 constructs (lanes integrated 2026-10-02)
+- Four cloud lanes, merged in PLAN order onto `3812e44`: `stage16/c1-body` (r02 braceless bodies, r06 the empty statement), `stage16/c1-params` (r01 `(void)` and unnamed prototype parameters), `stage16/c1-lit` (r05 adjacent string literals as `StringConcat`) and `stage16/c1-sem` (r04 char arrays from string literals). Each lane flipped its inventory rows and pinned identical refusals in both compilers.
+- **Integration fixes.** Merging r05 dropped an import r04 used. r04's literal-only sites broke r05's kind-coverage contract, so r04 now takes any string constant through the source-macro decoder: `char s[] = "ab" "cd";` works in both compilers, and its exact fit and overflow refuse. r04's duplicate byte counters were removed, leaving one decoder per compiler. Two c1-body corpus files were also run through `btrc-format`. `docs/design/c-compatibility.md` lists what `ccompat-c1-integrate` still owes.
+- **Evidence.** The generated-source check, lint, format-check and `git diff --check` are clean. The self-host transpile of all three entries has zero warnings. The full corpus through both compilers, plus the parser, formatter, LSP, refusal, inventory, contract and lexer tests, gave 2,837 passed. The one failure was `stdlib/Daemon.btrc`'s wall-clock deadline under `-n 4`, which passes alone in both compilers. The bootstrap reached its fixed point (20 min).
+- **Next.** The `c1-decl` lane (r03 multi-declarators, r19 the comma operator, r07 function-pointer declarators, plus the header miner), then `ccompat-c1-integrate`, then C4.
+
+### Stages 16 (C4), 19 and 20: designs (done 2026-10-02)
+- Workflow `wf_926e5dfc-b6e` ran one drafter and two adversarial reviewers (implementability and C11 soundness) per topic, followed by a synthesis. It produced `docs/design/c-preprocessor-conditionals.md`, `docs/design/c-vocabulary-specifiers.md` and `docs/design/c-goto-labels.md`, linked from `c-compatibility.md`.
+
 ### Stage 22: P0 inventory (inventory done 2026-10-02, cloud lane `stage22/p0-inventory`; the stage stays open)
 - **`platforms-p0-inventory`.** `docs/design/platform-inventory.toml` classifies every operation on the six target slices, in the ledger format. The ledger gained `TARGET_SLICES`, which lets an inventory row name a family plus artifact variant, a `slices` denominator axis, and a compact TOML row form (`InventoryRows`).
 - **Denominator.** 323 operations × 6 slices = 1,938 slots, frozen as release `p0-inventory-2026-10-02` in `tools/qualification/denominators.toml`. The operations are 84 stdlib exports outside UI0's `App`/`GUI`/`Tray`/`UI`, 223 runtime helpers and 16 corpus topics. `test_platform_inventory.py`, which runs in `make test`, recomputes them from the manifests, exports and corpus and fails on drift.
@@ -139,9 +148,9 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - No row is `passed`: no slice result has been ingested.
 - **Review.** A skeptical reviewer checked 30 sampled cells and confirmed 22. Its 8 findings were applied: 6 regression lists, 1 owner and 1 reason. None changed a class.
 - **Deferred.**
-  - Runtime rows inherit their asset's regression tests, which do not reach every helper. Per-helper pins remain to be done.
   - BTRSmith journeys and package contracts are pending in the private BTRSmith repository (`btrsmith-p0-inventory`) and are kept out of these totals.
   - The entry gate, the adaptation approvals (`platforms-p0-adaptations`), the matrix pin and the device registry are still pending.
+- **Runtime-helper pins (cloud lane `stage22/runtime-helper-pins`).** Each runtime row now cites the corpus programs whose emitted C carries its helper, for every compiler whose catalog carries it: a greedy cover of 26 programs reaches 199 of the 223 helpers, five of them through new corpus programs. The other 24 carry a checked reason: five arc_runtime API roots that only a stdlib archive selects, and nineteen catalog rows (the collection templates, the typed div/mod and `fromInt`/`fromFloat`) that no lowering in either compiler selects. `test_platform_inventory.py` compiles every pinned program with both compilers and requires each pinned helper's catalog definition in the C. `__btrc_gpu_index_check` is pinned for the Python compiler alone: the manifest gives gpu helpers no btrc order, and btrcc's CPU fallback lowers its own `__btrc_gpu_checked_index`. Moving that fallback onto the catalog helper is a catalog decision left open.
 
 ## Decisions (all resolved 2026-09-30)
 

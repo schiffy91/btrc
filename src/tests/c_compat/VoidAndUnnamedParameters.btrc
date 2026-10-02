@@ -1,0 +1,79 @@
+// C row 1: `(void)` is an empty parameter list, and a body-less prototype may
+// leave its parameters unnamed (C11 6.7.6.3, 6.9.1p5). A definition, method,
+// interface signature, lambda or rich-enum variant still names every parameter.
+import Library.Vector;
+
+#include <assert.h>
+
+int answer(void);
+int twice(int);
+int weigh(int, double, char*);
+int countOf(Vector<int>);
+int firstOf(int[], int);
+int offset(int, int delta = 10);
+
+int answer(void) { return 42; }
+
+int twice(int value) { return value * 2; }
+
+int weigh(int count, double factor, char* label) {
+	assert(label[0] == 'w');
+	return count * (int)factor;
+}
+
+int countOf(Vector<int> values) { return values.len; }
+
+int firstOf(int values[], int fallback) { return fallback > 0 ? values[0] : fallback; }
+
+int offset(int base, int delta) { return base + delta; }
+
+// A prototype may also follow its definition.
+int twice(int);
+
+interface Named {
+	string name(void);
+}
+
+class Counter implements Named {
+	private int total;
+
+	public Counter(void) { self.total = 0; }
+
+	public void bump(void) { self.total += 1; }
+
+	public int read(void) { return self.total; }
+
+	public string name(void) { return "counter"; }
+}
+
+enum class Signal { Idle(void), Level(int amount) }
+
+int main(void) {
+	assert(answer() == 42);
+	assert(twice(21) == 42);
+	assert(weigh(3, 2.0, "weight") == 6);
+	assert(weigh(label = "w", factor = 3.0, count = 2) == 6);
+	print("PASS: unnamed prototype parameters");
+
+	Vector<int> values = [4, 5, 6];
+	assert(countOf(values) == 3);
+	int numbers[2] = {7, 8};
+	assert(firstOf(numbers, 1) == 7);
+	assert(offset(5) == 15);
+	assert(offset(base = 1, delta = 2) == 3);
+	print("PASS: prototype defaults and names come from the definition");
+
+	Counter counter = new Counter();
+	counter.bump();
+	counter.bump();
+	assert(counter.read() == 2);
+	assert(counter.name() == "counter");
+	var seven = (void) => 7;
+	var eight = int function(void) { return 8; };
+	assert(seven() + eight() == 15);
+	Signal idle = Signal.Idle();
+	Signal level = Signal.Level(3);
+	assert(idle.tag == Signal.Idle && level.tag == Signal.Level);
+	print("PASS: (void) parameter lists");
+	return 0;
+}

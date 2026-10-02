@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.compiler.python.analyzer.program import AnalysisContext, AnalysisSession, DeclarationIndex
+from src.compiler.python.analyzer.program import (
+    STRING_CONSTANT_NODES,
+    AnalysisContext,
+    AnalysisSession,
+    DeclarationIndex,
+)
 from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.syntax.ast.generated import (
     BraceInitializer,
@@ -13,6 +18,7 @@ from src.compiler.python.syntax.ast.generated import (
     FieldAccessExpr,
     FieldDecl,
     FieldDef,
+    FStringLiteral,
     FunctionDecl,
     Identifier,
     IntLiteral,
@@ -559,7 +565,90 @@ class AggregateAnalyzer:
                 )
             return
         if canonical is not None and canonical.is_array and not aggregate and not is_gpu_array_result:
+            if self.char_array_string_initializer(expected, initializer):
+                return
             self.session.error(f"{subject} requires an array initializer", line, col)
+
+    _CHAR_ARRAY_ELEMENTS = frozenset({"char", "signed char", "unsigned char"})
+
+    def char_array_string_initializer(self, expected, initializer) -> bool:
+        """Whether a string value initializes a char array, D20's C form.
+
+        `validate_char_array_initializer` owns whether the value is a literal
+        that fits.
+        """
+        canonical = self.types.canonical_type(expected)
+        if canonical is None or not canonical.is_array or canonical.pointer_depth > 0:
+            return False
+        element = self.types.canonical_type(self._array_element_type(canonical))
+        if element is None or element.pointer_depth > 0 or element.base not in self._CHAR_ARRAY_ELEMENTS:
+            return False
+        if isinstance(initializer, (BraceInitializer, ListLiteral)):
+            return False
+        return isinstance(initializer, (*STRING_CONSTANT_NODES, FStringLiteral)) or self.types.is_scalar_string_value(
+            self.type_of(initializer)
+        )
+
+    def recorded_array_bound(self, expected) -> int | None:
+        """The value of a declaration bound analyzed before bodies (fields, globals, typedefs).
+
+        A native record's bound is never analyzed; its literal is its value.
+        """
+        canonical = self.types.canonical_type(expected)
+        if canonical is None or canonical.array_size is None:
+            return None
+        if isinstance(canonical.array_size, IntLiteral):
+            return canonical.array_size.value
+        return self.session.array_bound_value(canonical.array_size)
+
+    def string_initializer_byte_length(self, initializer) -> int | None:
+        """The bytes a string-constant char-array initializer (one literal or
+        adjacent literals) stores before its terminator; ``None`` otherwise."""
+        decoded = self.index.source_macros.string_constant(initializer)
+        return None if decoded is None else len(decoded)
+
+    def validate_char_array_initializer(self, expected, initializer, bound: int | None) -> None:
+        """Apply D20's char-array rule given the array's constant bound, if any.
+
+        Only a narrow string literal initializes a char array: unsized, it
+        takes the literal's bytes plus the terminator; sized, the bound must
+        hold both. Exactly filling the bound would drop the terminator, which
+        C allows silently and btrc refuses.
+        """
+        if not self.char_array_string_initializer(expected, initializer):
+            return
+        line = initializer.line
+        col = initializer.col
+        if isinstance(initializer, FStringLiteral):
+            self.session.error(
+                "A char array cannot be initialized from an f-string; only a string literal initializes one",
+                line,
+                col,
+            )
+            return
+        length = self.string_initializer_byte_length(initializer)
+        if length is None:
+            self.session.error(
+                "A char array can only be initialized from a string literal or a brace list, not a string value",
+                line,
+                col,
+            )
+            return
+        if bound is None or bound <= 0 or length < bound:
+            return
+        if length == bound:
+            self.session.error(
+                f"String literal fills all {bound} elements of the char array and leaves no room for its "
+                f"terminator; declare {bound + 1} elements or leave the bound empty",
+                line,
+                col,
+            )
+            return
+        self.session.error(
+            f"String literal needs {length + 1} elements with its terminator but the char array has {bound}",
+            line,
+            col,
+        )
 
     def array_value_type(self, type_expr):
         """Preserve raw array declarators versus pointer-valued array aliases."""

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.aggregates import InitializerPlan
 from src.compiler.python.analyzer.ownership import MutexDestroyReceiverPlan
-from src.compiler.python.analyzer.program import DeclarationIndex, Occurrence
+from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, DeclarationIndex, Occurrence
 from src.compiler.python.analyzer.types import (
     _RUNTIME_AGGREGATE_BASES,
     OperatorTypeError,
@@ -42,6 +42,7 @@ from src.compiler.python.syntax.ast.generated import (
     SizeofExprOp,
     SizeofType,
     SpawnExpr,
+    StringConcat,
     StringLiteral,
     SuperExpr,
     TernaryExpr,
@@ -105,6 +106,7 @@ class ExpressionAnalyzer:
         self.ownership = ownership
         self.storage = storage
         self.types = types
+        self._refused_string_concats: set[int] = set()
 
     def _validate_fixed_array_assignment(self, target, expression) -> bool:
         """Reject array-object rebinding while preserving pointer-valued slots."""
@@ -522,7 +524,7 @@ class ExpressionAnalyzer:
     def _managed_rebind_may_need_owner(self, expression, target_type=None) -> bool:
         if self.types.requires_string_conversion(target_type, self.infer_type(expression)):
             return True
-        if isinstance(expression, (NullLiteral, StringLiteral, CharLiteral)):
+        if isinstance(expression, (NullLiteral, CharLiteral, *STRING_CONSTANT_NODES)):
             return False
         if isinstance(expression, Identifier):
             symbol = self.session.scope.lookup(expression.name)
@@ -1262,7 +1264,7 @@ class ExpressionAnalyzer:
             return self.types.infer_integer_literal_type(expr.raw, expr.value)
         elif isinstance(expr, FloatLiteral):
             return self.types.float_literal_type(expr.raw)
-        elif isinstance(expr, StringLiteral):
+        elif isinstance(expr, STRING_CONSTANT_NODES):
             return TypeExpr(base="string")
         elif isinstance(expr, CharLiteral):
             return TypeExpr(base="char")
@@ -1492,6 +1494,15 @@ class ExpressionAnalyzer:
         if isinstance(expression, FieldAccessExpr):
             return self._constant_field(expression, enum_owner, allowed)
         if isinstance(expression, SizeofExpr):
+            if isinstance(expression.operand, SizeofExprOp):
+                operand = expression.operand.expr
+                # A constant context (an array bound, an enum value) may never
+                # analyze the operand, so the piece refusal is raised here too.
+                if isinstance(operand, StringConcat) and self._refuse_unresolved_string_piece(operand):
+                    return (False, None)
+                decoded = self.index.source_macros.string_constant(operand)
+                if decoded is not None:
+                    return (True, len(decoded) + 1)
             return (True, None)
         if isinstance(expression, CastExpr):
             if not self.types.is_integral_value(expression.target_type):
@@ -1585,6 +1596,21 @@ class ExpressionAnalyzer:
         if enum_owner is not None and (owner != enum_owner or expression.field not in allowed):
             return (False, None)
         return (True, self.index.enum_constant_values.get((owner, expression.field)))
+
+    def _refuse_unresolved_string_piece(self, expression) -> bool:
+        """Refuse, once, a concatenation piece that is no string-literal macro."""
+        unresolved = self.index.source_macros.unresolved_string_piece(expression)
+        if unresolved is None:
+            return False
+        if id(expression) not in self._refused_string_concats:
+            self._refused_string_concats.add(id(expression))
+            self.session.error(
+                f"Cannot concatenate '{unresolved.name}' with an adjacent string literal: "
+                "it is not a source macro that expands to a string literal",
+                expression.line,
+                expression.col,
+            )
+        return True
 
     def _is_constant_macro_name(self, name) -> bool:
         return self.index.source_macros.declared(name) or (name.isupper() and name != "NULL")
@@ -1755,6 +1781,8 @@ class ExpressionAnalyzer:
             return
         if isinstance(expr, (IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral)):
             pass
+        elif isinstance(expr, StringConcat):
+            self._refuse_unresolved_string_piece(expr)
         elif isinstance(expr, Identifier):
             self.calls.validate_default_macro_context(expr)
             if expr.name in self.index.native_lifetime_operations:

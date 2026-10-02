@@ -25,6 +25,7 @@ bounded wait timed out true, still busy true
 terminated reply failed true, usage reaped true
 single threaded true
 threads while one waits 2, pool refused true
+single threaded after join true
 reopened after join true
 reopened closed cleanly true
 PASS: process worker pool

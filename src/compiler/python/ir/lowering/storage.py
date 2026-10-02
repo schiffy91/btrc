@@ -853,11 +853,13 @@ class StorageLowerer:
             result.append(StorageLowerer.mark_external_declaration_used(plan.c_name))
             return result
         source_type = initializer_type or self._session.type_of(source.initializer)
+        # Array storage copies its initializer's elements and owns no value: a
+        # char array initialized from a string literal is plain bytes.
         managed_type = (
             source.type
             if self._values.is_managed(source.type)
             else source_type
-            if self._values.is_managed(source_type)
+            if not is_array and self._values.is_managed(source_type)
             else None
         )
         if managed_type is not None:

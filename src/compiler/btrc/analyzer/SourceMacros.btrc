@@ -1,9 +1,11 @@
 /* Immutable analyzer view of C preprocessor namespace mutations. */
 
 import Library.Map;
+import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 import ../parser/SourceMacros.btrc;
+import ../syntax/Literals.btrc;
 
 class SourceMacroNamespace {
 	private Map<string, bool> declaredNames;
@@ -27,6 +29,79 @@ class SourceMacroNamespace {
 		Vector<string> result = [];
 		self.collectFreeIdentifiers(definition, visiting, result);
 		return result;
+	}
+
+	/* The "..." spellings an object-like macro expands to; empty when it
+	 * expands to anything else. */
+	public Vector<string> stringSpellings(string name) {
+		Map<string, bool> visiting = {};
+		return self.stringSpellingsImpl(name, visiting);
+	}
+
+	private Vector<string> stringSpellingsImpl(string name, Map<string, bool> visiting) {
+		Vector<string> spellings = [];
+		SourceMacroDefinition? definition = self.active(name);
+		if (definition == null || definition.functionLike() || visiting.has(name)) { return spellings; }
+		Vector<string> pieces = StringConstant.pieces(definition.replacement());
+		visiting.put(name, true);
+		int index = 0;
+		while (index < pieces.len) {
+			string piece = pieces.get(index);
+			if (piece[0] == '"') {
+				spellings.push(piece);
+			} else {
+				Vector<string> nested = self.stringSpellingsImpl(piece, visiting);
+				if (nested.len == 0) {
+					visiting.remove(name);
+					return nested;
+				}
+				spellings.extend(nested);
+			}
+			index++;
+		}
+		visiting.remove(name);
+		return spellings;
+	}
+
+	/* The first piece of an adjacent-literal sequence that is no string literal. */
+	public Node? unresolvedStringPiece(Node expression) {
+		if (expression.kind != NK_STRING_CONCAT) { return null; }
+		int index = 0;
+		while (index < expression.parts().len) {
+			Node part = expression.parts().get(index);
+			if (part.kind == NK_IDENTIFIER && self.stringSpellings(part.name).len == 0) { return part; }
+			index++;
+		}
+		return null;
+	}
+
+	public string unresolvedPieceMessage(Node piece) { return "Cannot concatenate '" + piece.name + "' with an adjacent string literal: it is not a source macro that expands to a string literal"; }
+
+	/* The decoded byte length of a string-constant expression, without
+	 * terminator; -1 for anything else. Every piece decodes separately. */
+	public int stringConstantLength(Node? expression) {
+		if (expression == null) { return -1; }
+		if (expression.kind == NK_STRING_LITERAL) { return StringConstant.decodedLength(expression.valueString); }
+		if (expression.kind != NK_STRING_CONCAT) { return -1; }
+		int length = 0;
+		int index = 0;
+		while (index < expression.parts().len) {
+			Node part = expression.parts().get(index);
+			if (part.kind == NK_STRING_LITERAL) {
+				length = length + StringConstant.decodedLength(part.valueString);
+			} else {
+				if (part.kind != NK_IDENTIFIER) { return -1; }
+				Vector<string> spellings = self.stringSpellings(part.name);
+				if (spellings.len == 0) { return -1; }
+				int spelling = 0;
+				while (spelling < spellings.len) {
+					length = length + StringConstant.decodedLength(spellings.get(spelling));
+					spelling++;
+				}
+			}
+			index++;
+		}
+		return length;
 	}
 
 	public bool expandsToAny(string name, Map<string, bool> identifiers) {
