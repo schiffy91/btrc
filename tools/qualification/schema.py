@@ -52,8 +52,12 @@ Record fields
   ``variant``              the artifact variant a test or measurement ran
                            as: ``arm64-simulator``, ``arm64-device``,
                            ``x86_64``, ``release``. It is part of the slot, so
-                           simulator and device results never merge. Never
-                           on an inventory row, whose slot is the family.
+                           simulator and device results never merge. An
+                           inventory row names either the family alone or one
+                           of the six P0 target slices (``TARGET_SLICES``):
+                           windows ``x86_64``/``arm64``, ios
+                           ``arm64-device``/``arm64-simulator``, android
+                           ``arm64``/``x86_64``; no other variant.
   ``group``                reporting group: stdlib group, UI family, test
                            file, bench suite.
   ``title``                human label.
@@ -151,7 +155,8 @@ Invariants
 - ``missing`` parity, and ``missing`` or ``source-only`` implementation, is
   never ``passed`` or ``implemented-unverified``.
 - ``covered_by`` appears only on ``unavailable`` evidence.
-- An inventory row never says ``ipados`` or names a ``variant``, and its
+- An inventory row never says ``ipados``, names a ``variant`` only when it is
+  one of its family's ``TARGET_SLICES``, and its
   evidence carries provenance with ``btrc_revision`` and ``recorded_at``, so
   whether it is current can be checked.
 - ``provenance.frontend``, when ``subject.frontend`` is also given, agrees.
@@ -249,6 +254,17 @@ INVENTORY_KINDS = frozenset(
         SubjectKind.UI_CASE,
     }
 )
+# The six P0 target slices (PLAN.md Stage 22): an inventory row may name one
+# of them, as its family plus that slice's artifact variant, instead of the
+# family alone. iOS device and simulator are distinct artifacts even on arm64.
+TARGET_SLICES = {
+    "windows-x64": (Platform.WINDOWS, "x86_64"),
+    "windows-arm64": (Platform.WINDOWS, "arm64"),
+    "ios-device": (Platform.IOS, "arm64-device"),
+    "ios-simulator": (Platform.IOS, "arm64-simulator"),
+    "android-arm64": (Platform.ANDROID, "arm64"),
+    "android-x86_64": (Platform.ANDROID, "x86_64"),
+}
 # Nothing stands behind such a slot, so no test can have verified it.
 _UNIMPLEMENTED = frozenset({Implementation.MISSING, Implementation.SOURCE_ONLY})
 # Inventory kinds whose evidence is the result of their regression tests.
@@ -395,7 +411,9 @@ class Subject:
                 f"a {self.kind.value} row names the iOS/iPadOS family as ios; record an iPad in provenance.device_class"
             )
         if self.kind in INVENTORY_KINDS and self.variant is not None:
-            return f"a {self.kind.value} row is one slot per platform family and takes no variant"
+            if (self.platform, self.variant) not in TARGET_SLICES.values():
+                slices = ", ".join(TARGET_SLICES)
+                return f"a {self.kind.value} row names its platform family or one target slice ({slices})"
         return None
 
     @classmethod
