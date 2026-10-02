@@ -5,50 +5,6 @@
   "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, sqlite, BTRC_NATIVE_PROVIDER_CC/CXX). Every covered_by macos claim was checked against macOS run 36898564246's unit and btrc reports.",
   "rules": [
     {
-      "id": "macos-only-pugixml-uncovered",
-      "files": [
-        "src/tests/python/test_native_cxx_owners.py",
-        "src/tests/python/test_module_units.py"
-      ],
-      "nodes": [
-        "src/tests/python/test_native_cxx_owners.py::*",
-        "src/tests/python/test_module_units.py::*cxx_units_project*"
-      ],
-      "reason": "^requires macOS and the explicitly built native header reader$",
-      "category": "platform",
-      "gating": {
-        "env": [
-          "PKG_CONFIG_PATH"
-        ],
-        "tools": [
-          "pkg-config"
-        ]
-      },
-      "covered_by": [],
-      "note": "macOS-only C++ owner proofs, and macOS skips them too because no dev shell carries pugixml (macOS run 36898564246). Once stage4/tools-ci adds pugixml, move these back under native-reader-macos-only by deleting this rule."
-    },
-    {
-      "id": "macos-only-sqlite-uncovered",
-      "files": [
-        "src/tests/python/test_native_unique_resources.py"
-      ],
-      "nodes": [
-        "src/tests/python/test_native_unique_resources.py::test_unique_owned_output_actual_sqlite_open*"
-      ],
-      "reason": "^requires macOS and the explicitly built native header reader$",
-      "category": "platform",
-      "gating": {
-        "env": [
-          "PKG_CONFIG_PATH"
-        ],
-        "tools": [
-          "pkg-config"
-        ]
-      },
-      "covered_by": [],
-      "note": "The actual SQLite proof is macOS-only, and macOS skips it too: the dev shell exposes no sqlite3.pc (macOS rule sqlite-sdk). Delete this rule once stage4/tools-ci adds sqlite to the dev shell."
-    },
-    {
       "id": "native-reader-macos-only",
       "files": [
         "src/tests/python/test_native_*.py",
@@ -239,13 +195,12 @@
       "covered_by": [
         "macos"
       ],
-      "note": "The dev shell carries no lldb on Linux. Delete this rule once stage4/tools-ci adds lldb to the Linux dev shell; the four DAP sessions then run here too. macos.yml's unit shard enables developer mode and runs them."
+      "note": "The Linux dev shell carries no lldb: nixpkgs' Linux lldb is built for python3.13 while the debug adapter probes the shell's python3 (3.14), so stage4/tools-ci left it out. macos.yml's unit shard enables developer mode and runs these four DAP sessions (run 36934014516)."
     },
     {
       "id": "pugixml-sdk",
       "files": [
-        "src/tests/python/test_native_header_reader.py",
-        "src/tests/python/test_native_cxx_owners.py"
+        "src/tests/python/test_native_header_reader.py"
       ],
       "reason": "pugixml SDK",
       "category": "missing-sdk",
@@ -257,8 +212,10 @@
           "pkg-config"
         ]
       },
-      "covered_by": [],
-      "note": "No btrc dev shell carries pugixml. Delete this rule once stage4/tools-ci adds pugixml to the dev shell."
+      "covered_by": [
+        "macos"
+      ],
+      "note": "The Linux dev shell carries no pugixml; only the Darwin shells add it, for the macOS-only C++ owner proofs. The Darwin dev shells carry it since stage4/tools-ci (88a5c36), and macOS run 36934014516 ran every case this rule explains."
     },
     {
       "id": "native-compiler-provider",
@@ -275,8 +232,10 @@
           "BTRC_NATIVE_PROVIDER_CXX"
         ]
       },
-      "covered_by": [],
-      "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX. Delete this rule once stage4/tools-ci exports them from the dev shell."
+      "covered_by": [
+        "macos"
+      ],
+      "note": "The header reader implements a native compiler provider only on Apple hosts (tools/NativeHeaderReader.cpp refuses with unsupported-compiler-provider elsewhere), so only the Darwin dev shells export BTRC_NATIVE_PROVIDER_CC/CXX; exported here, these skips would become failures. macOS run 36934014516 ran every case this rule explains."
     },
     {
       "id": "native-receipt-provider",
@@ -292,8 +251,10 @@
           "BTRC_NATIVE_PROVIDER_CXX"
         ]
       },
-      "covered_by": [],
-      "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX. Delete this rule once stage4/tools-ci exports them from the dev shell."
+      "covered_by": [
+        "macos"
+      ],
+      "note": "The header reader implements a native compiler provider only on Apple hosts (tools/NativeHeaderReader.cpp refuses with unsupported-compiler-provider elsewhere), so only the Darwin dev shells export BTRC_NATIVE_PROVIDER_CC/CXX; exported here, these skips would become failures. macOS run 36934014516 ran every case this rule explains."
     },
     {
       "id": "linux-gui-display",
