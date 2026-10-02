@@ -82,6 +82,7 @@ class IROptimizer {
 		CycleReturnBoundaryLowerer().installProgramBoundary(module);
 		self.normalizeUnusedParameters(module);
 		self.orderPrototypes(module);
+		self.renumberAdapters(module);
 		self.renumberTemporaries(module);
 		BtrccPhaseTimer.mark("o-params");
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
@@ -123,6 +124,7 @@ class IROptimizer {
 		CycleReturnBoundaryLowerer().installProgramBoundaryWhen(module, programCyclableRelease);
 		self.normalizeUnusedParameters(module);
 		self.orderPrototypes(module);
+		self.renumberAdapters(module);
 		self.renumberTemporaries(module);
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(self.runtimeHelpers);
 		Map<string, bool> requiredHelpers = references.requiredBy(module);
@@ -867,6 +869,88 @@ class IROptimizer {
 		m.typedefDefs = typedefs;
 		m.taggedUnionDefs = tagged;
 		m.structDefs = structs;
+	}
+
+	/* Number each generated adapter family's surviving members from 1, in
+	 * definition order, and rename every reference. Adapters are numbered when
+	 * lowering first needs them, so without this a family's names depended on
+	 * adapters only dead functions used. Mirrors IROptimizer._renumber_adapters. */
+	private bool adapterMember(string name, string prefix) {
+		if (!name.startsWith(prefix) || name.length() == prefix.length()) { return false; }
+		int index = prefix.length();
+		while (index < name.length()) {
+			if (name[index] < '0' || name[index] > '9') { return false; }
+			index = index + 1;
+		}
+		return true;
+	}
+
+	private void renameSymbols(IRNode? node, Map<string, string> renamed) {
+		if (node == null) { return; }
+		if (node.kind == IRK_FUNCTION_REF && renamed.has(node.name)) { node.name = renamed.get(node.name); }
+		if (node.callee != "" && renamed.has(node.callee)) { node.callee = renamed.get(node.callee); }
+		if (node.helperRef != "" && renamed.has(node.helperRef)) { node.helperRef = renamed.get(node.helperRef); }
+		IRCleanupSlot? slot = node.cleanupSlot;
+		if (slot != null && renamed.has(slot.takeFunction)) { slot.takeFunction = renamed.get(slot.takeFunction); }
+		self.renameSymbols(node.left, renamed);
+		self.renameSymbols(node.right, renamed);
+		self.renameSymbols(node.operand, renamed);
+		self.renameSymbols(node.expr, renamed);
+		self.renameSymbols(node.obj, renamed);
+		self.renameSymbols(node.index, renamed);
+		self.renameSymbols(node.condition, renamed);
+		self.renameSymbols(node.trueExpr, renamed);
+		self.renameSymbols(node.falseExpr, renamed);
+		self.renameSymbols(node.arraySize, renamed);
+		self.renameSymbols(node.init, renamed);
+		self.renameSymbols(node.value, renamed);
+		self.renameSymbols(node.target, renamed);
+		self.renameSymbols(node.thenBlock, renamed);
+		self.renameSymbols(node.elseBlock, renamed);
+		self.renameSymbols(node.body, renamed);
+		self.renameSymbols(node.update, renamed);
+		self.renameSymbols(node.result, renamed);
+		for argument in node.args() { self.renameSymbols(argument, renamed); }
+		for statement in node.stmts() { self.renameSymbols(statement, renamed); }
+	}
+
+	private void renameModuleSymbols(IRModule module, Map<string, string> renamed) {
+		for definition in module.functions {
+			if (renamed.has(definition.name)) { definition.name = renamed.get(definition.name); }
+			self.renameSymbols(definition.body, renamed);
+		}
+		for declaration in module.functionDecls {
+			if (renamed.has(declaration.name)) { declaration.name = renamed.get(declaration.name); }
+		}
+		for global in module.globalDecls {
+			self.renameSymbols(global.init, renamed);
+			self.renameSymbols(global.arraySize, renamed);
+		}
+		for declaration in module.objectiveCClasses {
+			for method in declaration.methods { self.renameSymbols(method.body, renamed); }
+		}
+	}
+
+	private void renumberAdapters(IRModule module) {
+		Vector<string> families = ["__btrc_arc_slot_access_", "__btrc_mutex_value_access_", "__btrc_store_", "__btrc_cleanup_take_"];
+		Map<string, string> placeholders = {};
+		Map<string, string> finals = {};
+		bool changed = false;
+		for prefix in families {
+			int index = 0;
+			for definition in module.functions {
+				if (!self.adapterMember(definition.name, prefix)) { continue; }
+				index = index + 1;
+				string placeholder = "#" + prefix + Strings.fromInt(index);
+				string finalName = prefix + Strings.fromInt(index);
+				placeholders.put(definition.name, placeholder);
+				finals.put(placeholder, finalName);
+				if (definition.name != finalName) { changed = true; }
+			}
+		}
+		if (!changed) { return; }
+		self.renameModuleSymbols(module, placeholders);
+		self.renameModuleSymbols(module, finals);
 	}
 
 	/* Number each function's compiler temporaries from 1, in allocation

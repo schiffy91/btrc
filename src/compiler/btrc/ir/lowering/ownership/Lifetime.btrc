@@ -121,7 +121,9 @@ class CleanupSlotRegistry {
 		if (self.cleanupTakeAdapters.has(slotType)) {
 			return self.cleanupTakeAdapters.get(slotType);
 		}
-		string name = "__btrc_cleanup_take_" + Strings.fromInt(self.adapterDefinitions.len + 1);
+		/* Each adapter family numbers its own members, as Python's
+		 * CleanupSlotRegistry does. */
+		string name = "__btrc_cleanup_take_" + Strings.fromInt(self.cleanupTakeAdapters.len + 1);
 		self.cleanupTakeAdapters.put(slotType, name);
 		self.adapterDefinitions.push(self.takeAdapter(name, slotType));
 		return name;

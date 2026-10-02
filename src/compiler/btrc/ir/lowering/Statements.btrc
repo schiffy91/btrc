@@ -759,9 +759,9 @@ class StatementLowerer {
 				kt = SemanticTypeSystem.resolveGenericType(kt, self.context.activeTypeMap, self.analyzed);
 			}
 			if (self.managedValues.isManaged(self.cTypes.resolveBodyType(kt, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
-				string valueName = self.context.freshTemporary("__btrc_keep_value");
-				out.push(IRNode.variableDeclaration(self.cTypes.lower(kt), valueName, self.expressions.lowerExpr(node.expr, varTypes, callableFlow)));
-				IRNode value = IRNode.variable(valueName);
+				/* The retain consumes the value exactly once, as Python's
+				 * StatementLowerer spells keep. */
+				IRNode value = self.expressions.lowerExpr(node.expr, varTypes, callableFlow);
 				if (self.context.collectionEdgeKeeps) {
 					/* Public collection methods use keep/release to mutate
                      * persistent element slots.  Those references contribute

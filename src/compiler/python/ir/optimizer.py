@@ -20,6 +20,7 @@ from .nodes import (
     IREnumDef,
     IRExprStmt,
     IRFor,
+    IRFunctionDecl,
     IRFunctionDef,
     IRFunctionPointerTypedef,
     IRFunctionRef,
@@ -66,6 +67,13 @@ _MUTATING_CALL_SLOT = {
 _GPU_RUNTIME_FEATURE = "BTRC_RT_NEEDS_GPU"
 _GPU_RUNTIME_HEADER = "btrc_gpu_compute_internal.h"
 _SETJMP_RUNTIME_HEADER = "setjmp.h"
+# Generated file-scope adapter families, each numbered from 1 by its owner.
+_ADAPTER_FAMILIES = (
+    "__btrc_arc_slot_access_",
+    "__btrc_mutex_value_access_",
+    "__btrc_store_",
+    "__btrc_cleanup_take_",
+)
 _DECLARATION_GROUPS = (
     ("enum", "enum_defs"),
     ("forward", "struct_forwards"),
@@ -130,6 +138,7 @@ class IROptimizer:
             self._prune_runtime_support()
         self._normalize_unused_parameters()
         self._order_prototypes()
+        self._renumber_adapters()
         self._renumber_temporaries()
         if not self._module.freestanding:
             # Keep the standalone Stage-5 API complete; the application
@@ -682,6 +691,48 @@ class IROptimizer:
         providers: dict[str, set[DeclarationKey]],
     ) -> set[DeclarationKey]:
         return {key for name in names for key in providers.get(name, ())}
+
+    def _renumber_adapters(self) -> None:
+        """Number each generated adapter family's surviving members from 1.
+
+        Adapters are numbered when lowering first needs them, so a family's
+        names depended on adapters that only dead functions used. After
+        dead-code elimination each family is renumbered in definition order
+        and every reference follows; btrcc's optimizer applies the same rule.
+        """
+        placeholders: dict[str, str] = {}
+        finals: dict[str, str] = {}
+        for prefix in _ADAPTER_FAMILIES:
+            members = [
+                function.name
+                for function in self._module.function_defs
+                if function.name.startswith(prefix) and function.name[len(prefix) :].isdigit()
+            ]
+            for index, name in enumerate(members, start=1):
+                placeholder = f"#{prefix}{index}"
+                placeholders[name] = placeholder
+                finals[placeholder] = f"{prefix}{index}"
+        if not any(name != finals[placeholder] for name, placeholder in placeholders.items()):
+            return
+        nodes = tuple(IRNode.walk_value(self._module))
+        self._rename_symbols(nodes, placeholders)
+        self._rename_symbols(nodes, finals)
+
+    @staticmethod
+    def _rename_symbols(nodes: tuple[object, ...], renamed: dict[str, str]) -> None:
+        renamed_slots: dict[int, IRCleanupSlot] = {}
+        for node in nodes:
+            if isinstance(node, (IRFunctionDef, IRFunctionDecl, IRFunctionRef)) and node.name in renamed:
+                node.name = renamed[node.name]
+            elif isinstance(node, IRCall) and isinstance(node.callee, str) and node.callee in renamed:
+                node.callee = renamed[node.callee]
+                if node.helper_ref in renamed:
+                    node.helper_ref = renamed[node.helper_ref]
+            slot = getattr(node, "cleanup_slot", None)
+            if isinstance(slot, IRCleanupSlot) and slot.take_function in renamed:
+                if id(slot) not in renamed_slots:
+                    renamed_slots[id(slot)] = replace(slot, take_function=renamed[slot.take_function])
+                node.cleanup_slot = renamed_slots[id(slot)]
 
     def _renumber_temporaries(self) -> None:
         """Number each function's compiler temporaries from 1, in allocation order.
