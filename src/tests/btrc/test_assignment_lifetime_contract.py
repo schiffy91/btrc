@@ -98,8 +98,8 @@ def test_managed_compound_updates_have_one_physical_storage_transaction() -> Non
         )
     ]
 
-    assert core.index("self.managedTypes.planCompoundStore(") < core.index("self.lowerDirectCompound(")
-    assert core.index("self.managedTypes.requiresManagedCompoundStore(") < core.index("self.lowerDirectCompound(")
+    assert core.index("self.managedTypes.planCompoundStore(") < core.index("self.materializePhysicalUpdate(")
+    assert core.index("self.managedTypes.requiresManagedCompoundStore(") < core.index("self.materializePhysicalUpdate(")
     assert core.count("self.managedTypes.materializeCompoundStore(") == 1
     assert "enum ManagedCompoundStoreKind" in managed_types
     assert "MANAGED_COMPOUND_OWNED_SLOT" in plan

@@ -719,6 +719,10 @@ class StorageLowerer:
             sequence.append(value)
         return IRCommaExpr(expressions=sequence)
 
+    def wrap_physical_operation(self, target: MaterializedStorageTarget, operation: IRExpr) -> IRExpr:
+        """Apply one in-place C operation to a stabilized physical target."""
+        return self._wrap_target(target, [operation])
+
     def _wrap_target(
         self,
         target: MaterializedStorageTarget,

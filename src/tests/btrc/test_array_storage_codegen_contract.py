@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from src.tests.btrc.test_semantic_validation import (
@@ -160,9 +161,10 @@ def test_generic_method_array_locals_preserve_declarators_and_storage(
         assert "static int cached[2] = {7, 11};" in c_source
         assert "volatile int local[2];" in c_source
         assert "extern int shared[];" in c_source
-        assert "Value volatile* __btrc_lvalue" not in c_source
-        if index == 0:
-            assert "int volatile* __btrc_lvalue" in c_source
+        # The generic parameter is substituted everywhere, and each store
+        # writes the volatile local array in place through a stabilized index.
+        assert not re.search(r"\bValue\b", c_source)
+        assert re.search(r"\(local\[__btrc_storage_index_\d+\] = \(\(int\)3\)\)", c_source)
         _strict_build_and_run(path, tmp_path / f"generic-array-locals-{index}")
 
 

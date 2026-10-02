@@ -3073,6 +3073,14 @@ class ExpressionLowerer:
         if op in {"++", "--"}:
             plan = self._storage.plan_store(node.operand, operator=op, provenance=provenance)
             target = self._materialize_storage_target(plan, provenance)
+            if plan.kind in {StorageKind.DIRECT, StorageKind.STATIC_FIELD} and plan.managed_value_type is None:
+                # Physical unmanaged storage increments in place once its
+                # receiver and index are stabilized, exactly as C spells it;
+                # btrcc lowers the same operand the same way.
+                assert target.target is not None
+                return self._storage.wrap_physical_operation(
+                    target, IRUnaryOp(op=op, operand=target.target, prefix=node.prefix)
+                )
             operation_type = plan.managed_value_type or plan.target_type
             one_type = (
                 operation_type

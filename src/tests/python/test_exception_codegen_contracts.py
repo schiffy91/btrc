@@ -65,7 +65,8 @@ def test_setjmp_functions_qualify_params_loops_and_capture_locals():
     assert "int mutate(volatile int value)" in emitted
     assert "volatile int i = 0;" in emitted
     assert "for (; (i < 1); ((void)(" in emitted
-    assert re.search(r"\(i = __btrc_update_new_\d+\)", emitted)
+    # The volatile loop variable is updated in place on every iteration.
+    assert "for (; (i < 1); ((void)(i++))) {" in emitted
     assert re.search(r"static int __btrc_lambda_\d+\(void\* __btrc_env\)", emitted)
     assert re.search(r"static void\* __btrc_spawn_wrapper_\d+\(void\* __arg\)", emitted)
     assert "volatile int captured = __env->captured;" in emitted

@@ -244,6 +244,13 @@ class IRNode {
 		return "";
 	}
 
+	/* The original automatic root an array value carries; Python's
+	 * IRExpr.array_storage_root_value. */
+	class string arrayStorageRootValue(IRNode node) {
+		if ((node.kind == IRK_VAR || node.kind == IRK_FIELD_ACCESS) && node.arrayStorageKnown) { return node.arrayStorageRoot; }
+		return IRNode.directStorageRoot(node);
+	}
+
 	class IRNode recordArrayProjection(IRNode field, bool isArray) {
 		if (isArray) {
 			field.arrayStorageKnown = true;

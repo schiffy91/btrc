@@ -175,8 +175,16 @@ class ExpressionLowerer {
 	private IRNode? lowerOwnedAssignment(AssignmentPlan assignmentPlan, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node expression = assignmentPlan.assignment;
 		OwnershipOperandEnvironment environment = self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive());
+		if (self.staticFieldTarget(expression.target, varTypes)) { return null; }
 		OwnershipProjectionPlan plan = self.ownershipSemantics.assignmentTargetOperands(expression.target, environment, self.context.currentPropertyBacking, callableFlow);
-		if (!plan.requiresBoundary()) { return null; }
+		/* A field or index target whose operands may be reordered against the
+		 * value is staged in source order, as Python's _lower_assignment forces. */
+		bool projectionTarget = expression.target != null && (expression.target.kind == NK_FIELD_ACCESS_EXPR || expression.target.kind == NK_INDEX_EXPR);
+		Vector<Node> ordered = [];
+		for operand in plan.expressions { ordered.push(operand); }
+		if (expression.valueNode != null) { ordered.push(expression.valueNode); }
+		bool forceOrder = projectionTarget && plan.expressions.len > 0 && self.operandPlanner.requiresOrder(ordered, environment);
+		if (!plan.requiresBoundary() && !forceOrder) { return null; }
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		self.addProjectionOperands(boundary, plan, varTypes, callableFlow);
 		IRNode lowered = self.materializeAssignmentCore(assignmentPlan, varTypes, callableFlow);
@@ -185,7 +193,18 @@ class ExpressionLowerer {
 		Node? virtualType = self.ownershipSemantics.virtualAssignmentValueType(expression.target, environment, self.context.currentPropertyBacking);
 		bool rhsSuppliesResult = virtualType != null && self.ownershipSemantics.virtualAssignmentRhsOwnsResult(expression, virtualType, environment);
 		boundary.resultOwned = rhsSuppliesResult;
-		return boundary.finish(lowered, resultType, self.managedValues.isManaged(self.cTypes.resolveBodyType(resultType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !rhsSuppliesResult);
+		/* Promote the stored value only when the assignment owns its result,
+		 * as Python's _lower_assignment decides with owns_result. */
+		bool resultOwned = self.ownershipSemantics.expressionOwnsResult(expression, environment, callableFlow);
+		return boundary.finish(lowered, resultType, self.managedValues.isManaged(self.cTypes.resolveBodyType(resultType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && resultOwned && !rhsSuppliesResult);
+	}
+
+	/* `Class.field` names class-owned storage, not a receiver to stage. */
+	private bool staticFieldTarget(Node? target, Map<string, Node> varTypes) {
+		if (target == null || target.kind != NK_FIELD_ACCESS_EXPR || target.obj == null || target.obj.kind != NK_IDENTIFIER) { return false; }
+		if (varTypes.has(target.obj.name) || !self.analyzed.isClass(target.obj.name)) { return false; }
+		Node? member = self.analyzed.classMember(target.obj.name, target.field);
+		return member != null && member.kind == NK_FIELD_DECL && member.access == "class";
 	}
 
 	public IRNode? lowerOwnedUnaryUpdate(Node expression, Map<string, Node> varTypes, CallableFlowState callableFlow) {
@@ -1236,64 +1255,90 @@ class ExpressionLowerer {
 		return self.cTypes.lower(self.cTypes.resolveBodyType(targetType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 	}
 
-	private string directLvaluePointerType(IRNode target, Node? targetType, string targetC) {
-		/* A known direct root is an aggregate/array subobject whose automatic
-         * may later become volatile in the setjmp pass. An explicitly volatile
-         * target also needs the qualified pointer. Otherwise an empty known
-         * root is storage reached through a pointer (including class fields
-         * and raw pointer indexes); qualifying that pointee volatile is
-         * unnecessary and destroys useful non-null/store facts in GCC. */
-		Node? resolvedTarget = targetType == null ? null : self.cTypes.resolveBodyType(targetType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
-		bool targetIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(resolvedTarget, self.analyzed.typedefTable);
-		return IRNode.directStorageRoot(target) == "" && !targetIsVolatile ? targetC + "*" : targetC + " volatile*";
+	/* The assignable spelling of one storage temporary, as Python's
+	 * StorageLowerer._temporary declares it: a copied scalar drops its
+	 * const/static/extern/volatile qualifiers, anything else keeps its type. */
+	private string storageTemporaryCType(Node? typeExpr) {
+		Node resolved = self.cTypes.resolveBodyType(typeExpr, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		if (resolved.pointerDepth == 0 && !resolved.isArray) {
+			Node storage = TypeShape.copy(resolved);
+			storage.isConst = false;
+			storage.isStatic = false;
+			storage.isExtern = false;
+			storage.isVolatile = false;
+			return self.cTypes.lower(storage);
+		}
+		return self.cTypes.lower(resolved);
 	}
 
-	public IRNode lowerDirectCompound(string compoundOp, IRNode target, IRNode right, Node? targetType, Node? rightType, string targetC) {
+	private IRNode storageTemporary(PhysicalStorageTarget storage, Node? typeExpr, string prefix) {
+		string name = self.context.freshTemporary(prefix);
+		IRNode declaration = IRNode.variableDeclaration(self.storageTemporaryCType(typeExpr), name, null);
+		storage.declarations.push(declaration);
+		self.context.recordLocal(declaration);
+		return IRNode.variable(name);
+	}
+
+	/* Evaluate a physical target's receiver and key once and keep its
+	 * assignable shape, as Python's StorageLowerer.materialize_target does: a
+	 * raw indexed target stabilizes its receiver (unless it names a local
+	 * array directly) and its index in temporaries; any other target is used
+	 * as written. No address is ever taken, so a bit-field stays assignable. */
+	public PhysicalStorageTarget materializePhysicalTarget(Node target, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+		PhysicalStorageTarget storage = PhysicalStorageTarget();
+		if (target.kind != NK_INDEX_EXPR || self.gpuPipeline.cpuActive()) {
+			storage.target = self.lowerStorageTarget(target, varTypes, callableFlow);
+			return storage;
+		}
+		IRNode receiver = self.lowerExpr(target.obj, varTypes, callableFlow);
+		IRNode index = self.lowerExpr(target.index, varTypes, callableFlow);
+		Node? receiverType = self.resolvedExpressionType(target.obj, varTypes);
+		Node? indexType = self.resolvedExpressionType(target.index, varTypes);
+		bool receiverIsArray = receiverType != null && receiverType.isArray;
+		IRNode stableReceiver = receiver;
+		bool directArrayBinding = receiver.kind == IRK_VAR && receiverIsArray && receiver.arrayStorageKnown && receiver.arrayStorageRoot == receiver.name;
+		if (!directArrayBinding) {
+			stableReceiver = self.storageTemporary(storage, receiverType, "__btrc_storage_receiver");
+			if (receiverIsArray) {
+				stableReceiver.arrayStorageKnown = true;
+				stableReceiver.arrayStorageRoot = IRNode.arrayStorageRootValue(receiver);
+			}
+			storage.setup.push(IRNode.binary(stableReceiver, "=", receiver));
+		}
+		IRNode stableIndex = self.storageTemporary(storage, indexType, "__btrc_storage_index");
+		storage.setup.push(IRNode.binary(stableIndex, "=", index));
+		IRNode physical = IRNode.indexAccess(stableReceiver, stableIndex);
+		physical.storageRootKnown = true;
+		if (receiverIsArray) { physical.storageRoot = IRNode.arrayStorageRootValue(stableReceiver); }
+		storage.target = physical;
+		return storage;
+	}
+
+	/* One typed compound update of physical storage: read the target once,
+	 * evaluate the right-hand side once, compute, store and yield the stored
+	 * value, as Python's prepare_update/materialize_update spell it. */
+	public IRNode materializePhysicalUpdate(PhysicalStorageTarget storage, string compoundOp, IRNode right, Node? targetType, Node? rightType) {
 		if (targetType == null || rightType == null) {
-			return IRNode.binary(target, compoundOp, right);
+			return self.assignments.wrapPhysical(storage, IRNode.binary(storage.target, compoundOp, right));
 		}
-		/* The setjmp pass can qualify the backing automatic after lowering.
-         * A pointer-to-volatile is valid for ordinary storage too and keeps
-         * this synthesized lvalue compatible when that happens. */
-		string pointerType = self.directLvaluePointerType(target, targetType, targetC);
-		string pointerName = self.context.freshTemporary("__btrc_lvalue");
-		string oldName = self.context.freshTemporary("__btrc_update_old");
-		IRNode pointer = IRNode.variable(pointerName);
-		IRNode loaded = IRNode.dereference(pointer);
-		loaded.storageRoot = IRNode.directStorageRoot(target);
-		loaded.storageRootKnown = true;
-		IRNode oldValue = IRNode.variable(oldName);
-		Vector<IRNode> declarations = [];
-		declarations.push(IRNode.variableDeclaration(pointerType, pointerName, null));
-		declarations.push(IRNode.variableDeclaration(targetC, oldName, null));
+		IRNode oldValue = self.storageTemporary(storage, targetType, "__btrc_update_old");
+		IRNode rightValue = self.storageTemporary(storage, rightType, "__btrc_update_rhs");
+		IRNode replacement = self.storageTemporary(storage, targetType, "__btrc_update_new");
 		Vector<IRNode> sequence = [];
-		sequence.push(IRNode.binary(pointer, "=", IRNode.addressOf(target)));
-		sequence.push(IRNode.binary(oldValue, "=", loaded));
+		sequence.push(IRNode.binary(oldValue, "=", storage.target));
+		sequence.push(IRNode.binary(rightValue, "=", right));
 		string baseOp = compoundOp.substring(0, compoundOp.length() - 1);
-		IRNode? computed = self.lowerOverloadedValues(baseOp, oldValue, right, targetType, rightType);
+		IRNode? computed = self.lowerOverloadedValues(baseOp, oldValue, rightValue, targetType, rightType);
 		if (computed == null) {
-			computed = self.lowerTypedBinaryValues(baseOp, oldValue, right, targetType, rightType);
+			computed = self.lowerTypedBinaryValues(baseOp, oldValue, rightValue, targetType, rightType);
 		}
 		if (computed == null) {
-			computed = IRNode.binary(oldValue, baseOp, right);
+			computed = IRNode.binary(oldValue, baseOp, rightValue);
 		}
-		sequence.push(IRNode.binary(loaded, "=", computed));
-		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
-	}
-
-	public IRNode lowerDirectStore(IRNode target, IRNode value, Node targetType, string targetC) {
-		string pointerType = self.directLvaluePointerType(target, targetType, targetC);
-		string pointerName = self.context.freshTemporary("__btrc_lvalue");
-		IRNode pointer = IRNode.variable(pointerName);
-		IRNode loaded = IRNode.dereference(pointer);
-		loaded.storageRoot = IRNode.directStorageRoot(target);
-		loaded.storageRootKnown = true;
-		Vector<IRNode> declarations = [];
-		declarations.push(IRNode.variableDeclaration(pointerType, pointerName, null));
-		Vector<IRNode> sequence = [];
-		sequence.push(IRNode.binary(pointer, "=", IRNode.addressOf(target)));
-		sequence.push(IRNode.binary(loaded, "=", value));
-		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+		sequence.push(IRNode.binary(replacement, "=", computed));
+		sequence.push(IRNode.binary(storage.target, "=", replacement));
+		sequence.push(replacement);
+		return self.assignments.wrapPhysicalSequence(storage, sequence);
 	}
 
 	/* Property and generic-collection targets are not C lvalues. Build an
@@ -2069,10 +2114,16 @@ class ExpressionLowerer {
 			IRNode? indirect = self.lowerIndirectIncDec(node, varTypes, callableFlow);
 			if (indirect != null) { return indirect; }
 		}
+		if (node.op == "++" || node.op == "--") {
+			/* Physical storage increments in place once its receiver and
+			 * index are stabilized, as Python's _lower_unary_plain does. */
+			PhysicalStorageTarget storage = self.materializePhysicalTarget(node.operand, varTypes, callableFlow);
+			return self.assignments.wrapPhysical(storage, IRNode.unary(node.op, storage.target, node.prefix));
+		}
 		if (node.op == "&") {
 			self.callableBoundaries.rejectAddressEscape(node.operand, self.resolvedExpressionType(node.operand, varTypes), callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
 		}
-		IRNode operand = node.op == "++" || node.op == "--" || node.op == "&" ? self.lowerStorageTarget(node.operand, varTypes, callableFlow) : self.lowerExpr(node.operand, varTypes, callableFlow);
+		IRNode operand = node.op == "&" ? self.lowerStorageTarget(node.operand, varTypes, callableFlow) : self.lowerExpr(node.operand, varTypes, callableFlow);
 		string op = node.op;
 		if (op == "&") {
 			IRNode address = IRNode.addressOf(operand);
@@ -3875,14 +3926,11 @@ class ExpressionLowerer {
 			}
 		}
 
-		IRNode target = self.lowerStorageTarget(assignment.target, variableTypes, callableFlow);
+		PhysicalStorageTarget storage = self.materializePhysicalTarget(assignment.target, variableTypes, callableFlow);
+		IRNode target = storage.target;
 		if (assignment.op != "=" && assignment.op.length() > 1) {
 			IRNode value = self.lowerExpr(assignment.valueNode, variableTypes, callableFlow);
-			string targetC = "int";
-			if (plan.targetType != null) {
-				targetC = self.directGenericTargetC(assignment.target, plan.targetType, variableTypes);
-			}
-			return self.lowerDirectCompound(assignment.op, target, value, plan.targetType, plan.valueType, targetC);
+			return self.materializePhysicalUpdate(storage, assignment.op, value, plan.targetType, plan.valueType);
 		}
 
 		/* A typed `=` coerces its value against the target type. Lowering has
@@ -3891,7 +3939,7 @@ class ExpressionLowerer {
 		bool coercedValue = assignment.op == "=" && plan.targetType != null;
 		IRNode value = coercedValue ? self.strings.upcastClassPointer(plan.targetType, plan.valueType, self.lowerAssignedValue(assignment.valueNode, plan.targetType, variableTypes, callableFlow)) : self.lowerExpr(assignment.valueNode, variableTypes, callableFlow);
 		if (coercedValue && assignment.target.kind != NK_IDENTIFIER) {
-			return self.lowerDirectStore(target, value, plan.targetType, self.directGenericTargetC(assignment.target, plan.targetType, variableTypes));
+			return self.assignments.wrapPhysical(storage, IRNode.binary(target, "=", value));
 		}
 		if (plan.callableTarget && assignment.op == "=") {
 			callableFlow.setBindingAbi(assignment.target.name, plan.callableAbi);
