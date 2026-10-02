@@ -2521,6 +2521,9 @@ class ExpressionLowerer {
 				value = self.lowerAssignedValueRaw(slot.expression, expected, varTypes, callableFlow);
 				sourceType = self.resolvedExpressionType(slot.expression, varTypes);
 			}
+			if (expected == null && target.signature.variadic && !slot.usesDefault) {
+				value = self.strings.promoteVariadicArgument(sourceType, value);
+			}
 			evaluated.push(self.strings.upcastClassPointer(expected, sourceType, value));
 			index = index + 1;
 		}

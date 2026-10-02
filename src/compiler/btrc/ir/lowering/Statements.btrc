@@ -1151,15 +1151,6 @@ class StatementLowerer {
 			catchFlow = callableFlow.snapshot();
 			catchContinues = IRStatementSequence(catchBody.stmts()).mayFallThrough();
 			callableFlow.restore(incoming);
-			if (node.catchVar != "") {
-				/* A catch binding may be intentionally ignored. Keep the C
-                 * warning contract explicit without textual statement escapes. */
-				int declarationIndex = 0;
-				while (declarationIndex < catchBody.stmts().len && !(catchBody.stmts().get(declarationIndex).kind == IRK_VAR_DECL && catchBody.stmts().get(declarationIndex).name == catchCName)) {
-					declarationIndex = declarationIndex + 1;
-				}
-				catchBody.stmtsMut().insert(declarationIndex + 1, IRNode.expressionStatement(IRNode.variable(catchCName)));
-			}
 			self.context.restoreSourceBindings(catchSourceBindings);
 		}
 
@@ -1394,7 +1385,8 @@ class StatementLowerer {
 				beforeUpdate = callableFlow.merged(repeated);
 			}
 			callableFlow.restore(beforeUpdate);
-			update = self.expressions.lowerExpr(node.update, loopTypes, callableFlow);
+			/* The update's value is discarded, as Python's materialize_c_for spells it. */
+			update = IRNode.cast("void", self.expressions.lowerExpr(node.update, loopTypes, callableFlow));
 			CallableFlowSnapshot updateFlow = callableFlow.snapshot();
 			if (repeated.len > 0 && conditionCanRepeat) {
 				callableFlow.requireInvariant(loweredBody.head, updateFlow, "back-edge");
@@ -1618,26 +1610,31 @@ class StatementLowerer {
 		self.expressions.endOwnedIteration(iterVar, ownedRuntimeType, out);
 	}
 
-	/* for x in range(...) -> C for loop (1, 2, or 3+ args). */
+	/* for x in range(...) -> C for loop (1, 2, or 3+ args).  The operands are
+	 * lowered in source order and each is evaluated exactly once into its own
+	 * temporary, named after all of them are lowered. */
 	public void lowerRangeFor(string varName, Vector<Node> args, Node bodyNode, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
-		string startName = self.context.freshTemporary("__range_start");
-		string endName = self.context.freshTemporary("__range_end");
-		string stepName = self.context.freshTemporary("__range_step");
 		IRNode start = IRNode.literal("0");
-		IRNode end = IRNode.literal("0");
 		IRNode step = IRNode.literal("1");
+		if (args.len < 1 || args.len > 3) {
+			print(f"irgen: range expects 1 to 3 arguments, got {args.len}");
+			exit(1);
+		}
+		Vector<IRNode> lowered = [];
+		for argument in args { lowered.push(self.expressions.lowerExpr(argument, varTypes, callableFlow)); }
+		string endName = "";
 		if (args.len == 1) {
-			end = self.expressions.lowerExpr(args.get(0), varTypes, callableFlow);
-			out.push(IRNode.variableDeclaration("int", endName, end));
-		} else if (args.len == 2 || args.len == 3) {
-			start = self.expressions.lowerExpr(args.get(0), varTypes, callableFlow);
-			end = self.expressions.lowerExpr(args.get(1), varTypes, callableFlow);
-			out.push(IRNode.variableDeclaration("int", startName, start));
-			out.push(IRNode.variableDeclaration("int", endName, end));
+			endName = self.context.freshTemporary("__range_end");
+			out.push(IRNode.variableDeclaration("int", endName, lowered.get(0)));
+		} else {
+			string startName = self.context.freshTemporary("__range_start");
+			endName = self.context.freshTemporary("__range_end");
+			out.push(IRNode.variableDeclaration("int", startName, lowered.get(0)));
+			out.push(IRNode.variableDeclaration("int", endName, lowered.get(1)));
 			start = IRNode.variable(startName);
 			if (args.len == 3) {
-				step = self.expressions.lowerExpr(args.get(2), varTypes, callableFlow);
-				out.push(IRNode.variableDeclaration("int", stepName, step));
+				string stepName = self.context.freshTemporary("__range_step");
+				out.push(IRNode.variableDeclaration("int", stepName, lowered.get(2)));
 				step = IRNode.variable(stepName);
 				Vector<IRNode> zeroStep = [];
 				Vector<IRNode> errorArgs = [];
@@ -1649,11 +1646,8 @@ class StatementLowerer {
 				zeroStep.push(IRNode.expressionStatement(IRNode.call("exit", exitArgs)));
 				out.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(step, "==", IRNode.literal("0")), IRNode.block(zeroStep), null)));
 			}
-		} else {
-			print(f"irgen: range expects 1 to 3 arguments, got {args.len}");
-			exit(1);
 		}
-		end = IRNode.variable(endName);
+		IRNode end = IRNode.variable(endName);
 		varTypes.put(varName, SemanticTypeSystem.primitive("int"));
 		self.context.activateSourceName(varName, self.lexicalBindingCName(varName));
 		string varCName = self.context.sourceCName(varName);
