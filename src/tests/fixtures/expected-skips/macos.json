@@ -153,14 +153,15 @@
         "*::test_linux_freetype_draws_into_owned_pixels*",
         "*::test_linux_gui_controls*",
         "*::test_linux_gui_shutdown_deadline*",
-        "*::test_linux_gui_gpu_view_reparent*"
+        "*::test_linux_gui_gpu_view_reparent*",
+        "*::test_linux_gui_keeps_provider_modules_private*"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows and the GPU view, so the devcontainer runs all seven."
+      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows and the GPU view, so the devcontainer runs all eight."
     },
     {
       "id": "linux-freetype-macro-constants",
