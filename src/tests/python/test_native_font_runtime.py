@@ -209,8 +209,7 @@ def test_optional_freetype_factory(font_project, native_compile, sanitize, consu
     if consumer == "GUIFontConformance" and not font.is_file():
         pytest.skip("requires BTRC_TEST_FONT, the system Arial font or fontconfig")
     source, _, _ = font_project
-    directory = REPO / ("src/tests/native/gui" if consumer == "GUIFontConformance" else "examples/gui")
-    source.write_text((directory / f"{consumer}.btrc").read_text())
+    source.write_text((REPO / "src/tests/native/gui" / f"{consumer}.btrc").read_text())
     arguments = [str(font)] if consumer == "GUIFontConformance" else []
     result = _compile_and_run(source, native_compile, sanitize, arguments)
     assert ("PASS: FreeType draws into BTRC-owned pixels" if arguments else "FONT SMOKE TEST PASSED") in result.stdout

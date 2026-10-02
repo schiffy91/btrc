@@ -33,7 +33,7 @@ realtime-primitives: ## Build and run the bounded primitive and @realtime gain e
 	@echo "=== realtime-primitives ==="
 	@$(MAKE) -C realtime-primitives
 
-gui: ## Build + run the headless GUI example (offscreen, no display needed)
+gui: ## Build the portable native GUI example (needs the platform GUI SDK)
 	@echo "=== gui ==="
 	@$(MAKE) -C gui
 

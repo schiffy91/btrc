@@ -420,7 +420,8 @@ redraw at the new size.
 ## Build
 
 ```
-make -C examples/gui   # build + run the FontSmoke example
+make -C examples/gui        # build the portable Native.btrc example
+make -C examples/gui run    # build it and open its window
 ```
 
 ## Caveats
