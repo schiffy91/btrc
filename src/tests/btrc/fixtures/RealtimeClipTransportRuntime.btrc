@@ -360,7 +360,16 @@ void proveSnapshotPublicationIsAtomic() {
 		assert(observed.renderSequence == value && observed.renderedFrames == value && observed.silentFrames == value && observed.completedClips == value && observed.mappingGeneration == value);
 		accepted++;
 	}
-	assert(publisher.join() == 0 && accepted > 0);
+	/* A loaded host can keep the publisher mid-write for every concurrent
+	 * attempt, so acceptance is proven after it stops: the last snapshot is
+	 * stable and must read back whole. */
+	assert(publisher.join() == 0);
+	struct BtrcRealtimeClipTransportSnapshotValue last = {0};
+	assert(btrcRealtimeClipTransportReadSnapshot(context, &last));
+	unsigned long long final = 200000ULL * 4294967297ULL;
+	assert(last.token == final && (unsigned long long)last.totalFrames == final && last.renderSequence == final && last.mappingGeneration == final);
+	accepted++;
+	assert(accepted > 0);
 	context->activeToken = 0ULL;
 	assert(transport.suspend() == REALTIME_CLIP_TRANSPORT_OK && transport.close() == REALTIME_CLIP_TRANSPORT_OK);
 }
