@@ -19,6 +19,7 @@ from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import (
     ROOT,
+    TARGET,
     build_provider_program,
     provider_environment,
     require_linux_reader,

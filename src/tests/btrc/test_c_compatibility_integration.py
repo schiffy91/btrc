@@ -16,11 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
 from src.tests.btrc.diagnostic_harness import diagnostic_identity
+from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
 from src.tests.c_toolchains import configured_c_compiler
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 CC = configured_c_compiler()
