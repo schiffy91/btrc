@@ -211,8 +211,10 @@ editor, dispatching a pixel-wheel event and checking retained focus/selection,
 including sanitizers and both import orders. This is not collection recycling
 or product acceptance.
 
-`GUI/MacOS/MacOSApplication` implements main-thread startup and a bounded,
-nonblocking event pump. Read-only Objective-C object globals now project as owned
+`GUI/MacOS/MacOSApplication` implements main-thread startup; `run()` enters
+AppKit's own run loop, the only native event dispatch, and there is no embedded
+pump (`nextEvent`, `dispatchEvent`, `updateWindows`, `waitForEvents` and
+`pumpEvents` were removed; see native-ui-api-inventory.md). Read-only Objective-C object globals now project as owned
 value reads through generated ARC/exception adapters; they never expose writable
 native pointer slots. SDK nullability is preserved, nonnull reads are checked,
 and local shadowing retains ordinary local semantics. Mutable object globals
