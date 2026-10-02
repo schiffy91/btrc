@@ -728,7 +728,9 @@ class IROptimizer:
         finals: dict[str, str] = {}
         ordered: list[int] = []
         for prefix, indexes in families.items():
-            ranked = sorted(indexes, key=lambda index: (first_use.get(definitions[index].name, len(definitions)), index))
+            ranked = sorted(
+                indexes, key=lambda index: (first_use.get(definitions[index].name, len(definitions)), index)
+            )
             for number, source in enumerate(ranked, start=1):
                 placeholder = f"#{prefix}{number}"
                 placeholders[definitions[source].name] = placeholder
