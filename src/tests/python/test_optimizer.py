@@ -630,3 +630,25 @@ def test_adapters_are_ordered_and_numbered_by_first_use():
     assert module.function_defs[1] is take_late
     assert first.body.stmts[0].expr.name == "__btrc_cleanup_take_1"
     assert second.body.stmts[0].expr.name == "__btrc_cleanup_take_2"
+
+
+def test_adapter_positions_are_filled_family_by_family():
+    """Interleaved families settle into the family order, keeping their positions."""
+    take = _fn("__btrc_cleanup_take_3")
+    access = _fn("__btrc_arc_slot_access_2")
+    main = _fn(
+        "main",
+        [
+            IRExprStmt(expr=IRFunctionRef(name="__btrc_cleanup_take_3")),
+            IRExprStmt(expr=IRFunctionRef(name="__btrc_arc_slot_access_2")),
+        ],
+    )
+    module = IRModule(function_defs=[take, access, main])
+
+    IROptimizer(module).optimize()
+
+    assert [function.name for function in module.function_defs] == [
+        "__btrc_arc_slot_access_1",
+        "__btrc_cleanup_take_1",
+        "main",
+    ]

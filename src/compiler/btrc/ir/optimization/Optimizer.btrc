@@ -934,7 +934,8 @@ class IROptimizer {
 	/* Order and number each generated adapter family by first use: the first
 	 * surviving non-adapter function that names a member, ties keeping
 	 * creation order. Creation order followed the order functions were
-	 * lowered in, which differs between the compilers. Mirrors
+	 * lowered in, which differs between the compilers. The adapters'
+	 * positions are then filled family by family. Mirrors
 	 * IROptimizer._renumber_adapters in the Python owner. */
 	private void renumberAdapters(IRModule module) {
 		Vector<string> families = ["__btrc_arc_slot_access_", "__btrc_mutex_value_access_", "__btrc_store_", "__btrc_cleanup_take_"];
@@ -952,41 +953,50 @@ class IROptimizer {
 			position = position + 1;
 		}
 		int unused = module.functions.len;
-		Vector<IRFunction> reordered = [];
-		for definition in module.functions { reordered.push(definition); }
 		Map<string, string> placeholders = {};
 		Map<string, string> finals = {};
 		bool changed = false;
+		Vector<int> positions = [];
+		Vector<int> ordered = [];
 		for prefix in families {
-			Vector<int> indexes = [];
-			Vector<int> ordered = [];
+			Vector<int> ranked = [];
 			int index = 0;
 			for definition in module.functions {
 				if (self.adapterMember(definition.name, prefix)) {
-					indexes.push(index);
+					positions.push(index);
 					int rank = firstUse.has(definition.name) ? firstUse.get(definition.name) : unused;
-					int at = ordered.len;
+					int at = ranked.len;
 					while (at > 0) {
-						string previous = module.functions.get(ordered.get(at - 1)).name;
+						string previous = module.functions.get(ranked.get(at - 1)).name;
 						int previousRank = firstUse.has(previous) ? firstUse.get(previous) : unused;
 						if (previousRank <= rank) { break; }
 						at = at - 1;
 					}
-					ordered.insert(at, index);
+					ranked.insert(at, index);
 				}
 				index = index + 1;
 			}
-			int slot = 0;
-			while (slot < indexes.len) {
-				IRFunction definition = module.functions.get(ordered.get(slot));
-				reordered.set(indexes.get(slot), definition);
-				string placeholder = "#" + prefix + Strings.fromInt(slot + 1);
-				string finalName = prefix + Strings.fromInt(slot + 1);
-				placeholders.put(definition.name, placeholder);
+			int number = 0;
+			for source in ranked {
+				number = number + 1;
+				string name = module.functions.get(source).name;
+				string placeholder = "#" + prefix + Strings.fromInt(number);
+				string finalName = prefix + Strings.fromInt(number);
+				placeholders.put(name, placeholder);
 				finals.put(placeholder, finalName);
-				if (definition.name != finalName) { changed = true; }
-				slot = slot + 1;
+				if (name != finalName) { changed = true; }
+				ordered.push(source);
 			}
+		}
+		/* The adapters keep the positions they occupy, filled family by family. */
+		positions.sort();
+		Vector<IRFunction> reordered = [];
+		for definition in module.functions { reordered.push(definition); }
+		int slot = 0;
+		while (slot < positions.len) {
+			if (positions.get(slot) != ordered.get(slot)) { changed = true; }
+			reordered.set(positions.get(slot), module.functions.get(ordered.get(slot)));
+			slot = slot + 1;
 		}
 		module.functions = reordered;
 		if (!changed) { return; }

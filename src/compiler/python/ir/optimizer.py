@@ -700,8 +700,9 @@ class IROptimizer:
         names depended on adapters that only dead functions used. After
         dead-code elimination each family is ordered by the first surviving
         non-adapter function that names a member, ties keeping creation
-        order, then its definitions take that order and its members are
-        numbered from 1; btrcc's optimizer applies the same rule.
+        order, and numbered from 1. The adapters' positions are then filled
+        family by family in that order; btrcc's optimizer applies the same
+        rule.
         """
         definitions = self._module.function_defs
         families = {
@@ -725,14 +726,18 @@ class IROptimizer:
                         first_use.setdefault(name, position)
         placeholders: dict[str, str] = {}
         finals: dict[str, str] = {}
-        reordered = list(definitions)
+        ordered: list[int] = []
         for prefix, indexes in families.items():
-            ordered = sorted(indexes, key=lambda index: (first_use.get(definitions[index].name, len(definitions)), index))
-            for slot, (index, source) in enumerate(zip(indexes, ordered, strict=True), start=1):
-                reordered[index] = definitions[source]
-                placeholder = f"#{prefix}{slot}"
+            ranked = sorted(indexes, key=lambda index: (first_use.get(definitions[index].name, len(definitions)), index))
+            for number, source in enumerate(ranked, start=1):
+                placeholder = f"#{prefix}{number}"
                 placeholders[definitions[source].name] = placeholder
-                finals[placeholder] = f"{prefix}{slot}"
+                finals[placeholder] = f"{prefix}{number}"
+            ordered.extend(ranked)
+        # The adapters keep the positions they occupy, filled family by family.
+        reordered = list(definitions)
+        for position, source in zip(sorted(ordered), ordered, strict=True):
+            reordered[position] = definitions[source]
         self._module.function_defs[:] = reordered
         if not any(name != finals[placeholder] for name, placeholder in placeholders.items()):
             return
