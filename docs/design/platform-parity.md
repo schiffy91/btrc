@@ -300,6 +300,8 @@ that works outside the checkout with Unicode/space-containing paths.
   GUIDs, calling conventions, COM AddRef/Release, out parameters, callbacks,
   apartment/thread affinity and asynchronous cancellation. Verify actual SDK
   types rather than manually transcribing layouts or vtables.
+  The ownership model and implementation order are in
+  [native-interop-ownership.md](native-interop-ownership.md).
 - Keep the working Zig/MinGW route first. Qualify a Windows SDK/clang-cl or
   equivalent MSVC-ABI route when required by dependencies; state what remains
   unsupported with MSVC itself rather than implying toolchain interchangeability.
