@@ -100,7 +100,7 @@ class OwnershipBoundary {
 		IRNode callValue = value;
 
 		if (owned && runtimeType != "") {
-			self.registerCleanup(declaration, name, runtimeType);
+			self.lifetime.protectTemporary(declaration, runtimeType, "__btrc_call_operand_cleanup", self.declarations, self.prefix);
 			if (!transferred) {
 				self.appendReleaseAndClear(value, resolvedType, runtimeType);
 			} else {
@@ -121,7 +121,7 @@ class OwnershipBoundary {
 			IRNode kept = IRNode.variable(keptName);
 			self.prefix.push(self.lifetime.retainValue(value, resolvedType));
 			self.prefix.push(IRNode.binary(kept, "=", value));
-			self.registerCleanup(keptDeclaration, keptName, runtimeType);
+			self.lifetime.protectTemporary(keptDeclaration, runtimeType, "__btrc_kept_operand_cleanup", self.declarations, self.prefix);
 			self.appendReleaseAndClear(kept, resolvedType, runtimeType);
 		}
 		return callValue;
@@ -198,7 +198,7 @@ class OwnershipBoundary {
 		}
 		bool protectResult = self.context.exceptionsAreEnabled() && self.managedValues.isManaged(resultType) && (self.resultOwned || promoteResult);
 		if (protectResult) {
-			sequence.push(self.lifetime.registerCleanupSlot(resultDeclaration, self.managedValues.runtimeType(resultType)));
+			self.lifetime.protectTemporary(resultDeclaration, self.managedValues.runtimeType(resultType), "__btrc_call_result_cleanup", self.declarations, sequence);
 		}
 		self.appendSuffix(sequence);
 		if (protectResult) {

@@ -488,6 +488,22 @@ class ManagedLifetimeLowerer {
 		return self.registerCleanupSlot(declaration, runtimeType);
 	}
 
+	/* Register one staged slot for exception cleanup at most once, behind a
+	 * local flag, as Python's OwnershipLowerer.protect_temporary does. */
+	public void protectTemporary(IRNode declaration, string runtimeType, string flagPrefix, Vector<IRNode> declarations, Vector<IRNode> sequence) {
+		if (!self.context.exceptionsAreEnabled()) { return; }
+		string flagName = self.context.freshTemporary(flagPrefix);
+		IRNode flagDeclaration = IRNode.variableDeclaration("bool", flagName, IRNode.literal("false"));
+		declarations.push(flagDeclaration);
+		self.context.recordLocal(flagDeclaration);
+		IRNode flag = IRNode.variable(flagName);
+		Vector<IRNode> registerOnce = [];
+		registerOnce.push(self.registerCleanupSlot(declaration, runtimeType));
+		registerOnce.push(IRNode.binary(flag, "=", IRNode.literal("true")));
+		registerOnce.push(IRNode.literal("0"));
+		sequence.push(IRNode.ternary(flag, IRNode.literal("0"), IRNode.commaExpression(registerOnce)));
+	}
+
 	public void maybeRegisterCleanup(string variableName, string runtimeType, Vector<IRNode> statements) {
 		IRNode declaration = self.cleanupSlots.requireDeclaration(statements, variableName);
 		IRNode? registration = self.cleanupRegistration(declaration, runtimeType);
