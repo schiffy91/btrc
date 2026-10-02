@@ -845,9 +845,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.btrc.c.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.btrc.c.artifact.bin"
-accepted_sha256 = "44ceaad106c88ebb94ee0bdc31e99a44b0d024f143c8b7134cfbda1cc1bf26d8"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py"]
+accepted_sha256 = "aaeae5cefc11ff946fa99301a3eff5c66b1e2efcdfcde6e2ace5cacfa68852a2"
+reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. Stage 4 C-output parity (PLAN.md D14): btrcc's C for this fixture follows the converged emission -- runtime headers sorted after source includes, prototypes in definition order, unreachable typed declarations and externs pruned, call-boundary temporaries spelled __btrc_call_operand/__btrc_call_result with an unconditional release, explicit variadic promotions and (void) C-for updates. Behavior is unchanged."
+regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/btrc/test_c_output_parity.py"]
 
 [[records]]
 id = "managed.btrc.c.status"
