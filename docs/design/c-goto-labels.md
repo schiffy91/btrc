@@ -421,7 +421,7 @@ The construct is one commit (D5): Python first, then the btrc port by the same i
     | `r11-assign-after-label` | `int main() { int n = 0; if (n == 0) { goto done; } int x = 5; n = x; done: x = 1; return n + x; }` | R11, `'x' (1:56)`, at 1:39 |
 
     Its `ACCEPTED` list gains `int main() { int n = 0; if (n == 0) { goto done; } int unused = 5; n = unused; done: return n; }`.
-  - **`src/tests/btrc/test_goto_contract.py`** (both compilers; diagnostics compared with `_diagnostic_identity`). Positions were computed from these exact strings.
+  - **`src/tests/btrc/test_goto_contract.py`** (both compilers; diagnostics compared with `diagnostic_harness.diagnostic_identity`). Positions were computed from these exact strings.
 
     | id | source | expected |
     |---|---|---|
