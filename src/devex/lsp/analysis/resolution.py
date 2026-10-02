@@ -222,12 +222,96 @@ class LexicalScopeIndex:
 
     @staticmethod
     def _block_end(tokens: list[Token] | None, block: Block | None, fallback: int) -> int:
-        """Real end line of *block* via brace matching; *fallback* when unknown."""
+        """Real end line of *block*; *fallback* when unknown.
+
+        A braced block ends at its matching '}'. A braceless body (`for (...)
+        stmt;`, `if (c) ;`) is a Block the parser synthesized at the body's
+        first token, so it ends where its single statement ends, never at a
+        brace that belongs to later code.
+        """
         if tokens and block is not None and block.line:
-            end = LexicalScopeIndex.find_matching_brace_line(tokens, block.line, block.col)
+            end = LexicalScopeIndex._block_end_index(tokens, block)
             if end is not None:
-                return end
+                return tokens[end].line
         return fallback
+
+    @staticmethod
+    def _token_index_at(tokens: list[Token], line: int, col: int) -> int | None:
+        """Index of the first token at/after a 1-based source position."""
+        for index, token in enumerate(tokens):
+            if token.line > line or (token.line == line and token.col >= col):
+                return index
+        return None
+
+    @staticmethod
+    def _block_end_index(tokens: list[Token], block: Block) -> int | None:
+        """Token index of the last token of *block* (its '}' when braced)."""
+        start = LexicalScopeIndex._token_index_at(tokens, block.line, block.col)
+        if start is None:
+            return None
+        if tokens[start].type == TokenKind.LBRACE:
+            return LexicalScopeIndex._matching_brace_index(tokens, start)
+        if not block.statements:
+            return start
+        return LexicalScopeIndex._statement_end_index(tokens, block.statements[-1])
+
+    @staticmethod
+    def _statement_end_index(tokens: list[Token], stmt) -> int | None:
+        """Token index of the last token of one statement, driven by its AST."""
+        if isinstance(stmt, Block):
+            return LexicalScopeIndex._block_end_index(tokens, stmt)
+        if isinstance(stmt, IfStmt):
+            if isinstance(stmt.else_block, ElseBlock) and stmt.else_block.body is not None:
+                return LexicalScopeIndex._block_end_index(tokens, stmt.else_block.body)
+            if isinstance(stmt.else_block, ElseIf) and stmt.else_block.if_stmt is not None:
+                return LexicalScopeIndex._statement_end_index(tokens, stmt.else_block.if_stmt)
+            return LexicalScopeIndex._block_end_index(tokens, stmt.then_block)
+        if isinstance(stmt, (CForStmt, WhileStmt, ForInStmt, ParallelForStmt)):
+            return LexicalScopeIndex._block_end_index(tokens, stmt.body)
+        if isinstance(stmt, TryCatchStmt):
+            last = stmt.finally_block or stmt.catch_block or stmt.try_block
+            return LexicalScopeIndex._block_end_index(tokens, last)
+        if isinstance(stmt, DoWhileStmt):
+            body_end = LexicalScopeIndex._block_end_index(tokens, stmt.body)
+            return None if body_end is None else LexicalScopeIndex._semicolon_index(tokens, body_end + 1)
+        start = LexicalScopeIndex._token_index_at(tokens, stmt.line, stmt.col)
+        if start is None:
+            return None
+        if isinstance(stmt, SwitchStmt):
+            for index in range(start, len(tokens)):
+                if tokens[index].type == TokenKind.LBRACE:
+                    return LexicalScopeIndex._matching_brace_index(tokens, index)
+            return None
+        return LexicalScopeIndex._semicolon_index(tokens, start)
+
+    @staticmethod
+    def _matching_brace_index(tokens: list[Token], start: int) -> int | None:
+        """Index of the '}' matching the '{' at *start*."""
+        depth = 0
+        for index in range(start, len(tokens)):
+            if tokens[index].type == TokenKind.LBRACE:
+                depth += 1
+            elif tokens[index].type == TokenKind.RBRACE:
+                depth -= 1
+                if depth == 0:
+                    return index
+        return None
+
+    @staticmethod
+    def _semicolon_index(tokens: list[Token], start: int) -> int | None:
+        """Index of the first ';' at nesting depth 0 from *start*."""
+        depth = 0
+        for index in range(start, len(tokens)):
+            kind = tokens[index].type
+            if kind in (TokenKind.LPAREN, TokenKind.LBRACKET, TokenKind.LBRACE):
+                depth += 1
+            elif kind in (TokenKind.RPAREN, TokenKind.RBRACKET, TokenKind.RBRACE):
+                depth -= 1
+                if depth < 0:
+                    return None
+            elif kind == TokenKind.SEMICOLON and depth == 0:
+                return index
+        return None
 
     @staticmethod
     def collect_callable_vars(
