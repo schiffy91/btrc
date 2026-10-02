@@ -546,7 +546,8 @@ class Perf:
         native = NativePlanReader().read(plan)
         for path in (generated, *native.emitted_paths):
             resolved = path.resolve()
-            name = resolved.relative_to(self.out) if resolved.is_relative_to(self.out) else path
+            out = self.out.resolve()
+            name = resolved.relative_to(out) if resolved.is_relative_to(out) else path
             self.report.c_stats[str(name)] = CStats.read(path)
         return run
 

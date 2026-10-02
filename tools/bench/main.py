@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.tests.c_toolchains import configured_c_compiler
+from tools.host_c_compiler import HostCCompiler
 
 from .baseline import BASELINE_PATH, Baseline
 from .suite import REPO, Peak, Program, Suite, Workload
@@ -29,7 +29,11 @@ class BenchCommand:
 
         def common(command: argparse.ArgumentParser) -> None:
             command.add_argument("--btrcc", default=str(REPO / "bin" / "btrcc"), help="self-hosted compiler binary")
-            command.add_argument("--cc", default=" ".join(configured_c_compiler()), help="system C compiler command")
+            command.add_argument(
+                "--cc",
+                default=" ".join(HostCCompiler.configured(empty_is_unset=True)),
+                help="system C compiler command",
+            )
             command.add_argument("--repeat", type=int, default=5, help="samples per timing (best wins)")
             command.add_argument("--programs", help="comma-separated program stems (default: all)")
             command.add_argument("--json", help="write results to this path")

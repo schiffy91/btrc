@@ -2,7 +2,7 @@
 # btrc examples
 #
 # Usage:  make          Build all examples (CPU + GPU if available)
-#         make cpu      Build CPU-only examples
+#         make cpu      Build the examples that need no GPU runtime (gui needs its GUI SDK)
 #         make gpu      Build GPU examples (requires: make gpu in root)
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
