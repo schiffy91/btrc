@@ -46,6 +46,14 @@ minimal program joins one of the batteries above.
   already includes is emitted once by both compilers (`btrcc` always
   deduplicated; Python repeated it).
 
+### Nullable flow (Python only)
+
+The nullable-access warning exists only in the Python compiler. Its flow
+analysis now drops facts that a call nested anywhere in an expression could
+kill, and it analyses a loop body from the facts that survive the loop's back
+edge, so a linked-list walk without a null guard is flagged. `btrcc` has no
+nullable flow yet; porting it is part of the deferred work below.
+
 ## Remaining differences in emitted C
 
 The two compilers' C is not byte-identical, so `test_examples.py` and the
