@@ -6,7 +6,7 @@ import pytest
 
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
-from src.tests.python.test_analyzer import analyze
+from src.tests.python.reference_pipeline import analyze
 
 
 class TestArrayInitializerLowering:

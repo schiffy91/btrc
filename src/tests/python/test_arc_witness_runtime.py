@@ -12,7 +12,7 @@ import pytest
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import C_COMPILE_TIMEOUT
-from src.tests.python.test_arc_ownership_contracts import _asan_environment
+from src.tests.python.asan_toolchain import asan_environment
 
 # The sanitizer build also tries the Darwin system compiler, in the isolated
 # environment the other ASan contracts use: a Nix toolchain on Darwin may lack
@@ -407,7 +407,7 @@ int main(void) {
 @pytest.mark.parametrize("c_compiler", SANITIZER_COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize("sanitize", [False, True], ids=["optimized", "asan-ubsan"])
 def test_witness_transitions_are_exact(tmp_path: Path, c_compiler: str, sanitize: bool) -> None:
-    environment = _asan_environment(c_compiler)
+    environment = asan_environment(c_compiler)
     if sanitize:
         _require_sanitizers(tmp_path, c_compiler, environment)
     source = tmp_path / "arc_witness.c"

@@ -22,8 +22,6 @@ from pathlib import Path
 
 import pytest
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 REPO = Path(__file__).resolve().parents[3]
 CORPUS = REPO / "src/tests/c_compat"
 PARSE_TOOL = REPO / "src/compiler/btrc/tools/ParseMain.btrc"

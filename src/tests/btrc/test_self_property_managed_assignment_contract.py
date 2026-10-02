@@ -2,12 +2,7 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_self_property_update_contract import (
-    _strict_dual_frontend_runtime,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
+from src.tests.btrc.dual_frontend_harness import strict_dual_frontend_runtime
 
 SOURCE = """
     #include <assert.h>
@@ -73,7 +68,7 @@ def test_managed_mixed_property_assignment_result_keeps_identity_alive(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    _strict_dual_frontend_runtime(
+    strict_dual_frontend_runtime(
         semantic_btrcc,
         tmp_path,
         SOURCE,

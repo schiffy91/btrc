@@ -1,8 +1,6 @@
 """Failure-path contracts for generated @gpu compute dispatches."""
 
-import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,184 +10,9 @@ from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
-from src.tests.python.test_codegen import emit_c
-
-GPU_INCLUDE = Path(__file__).resolve().parents[2] / "runtime" / "gpu"
-
-_GPU_DECLS = r"""
-#include <stdbool.h>
-#include <stdatomic.h>
-#include <stdlib.h>
-#define BTRC_GPU_STORAGE 0x80
-#define BTRC_GPU_UNIFORM 0x40
-#define BTRC_GPU_COPY_DST 0x08
-#define BTRC_GPU_COPY_SRC 0x04
-bool btrc_gpu_available(void);
-void* btrc_gpu_init_compute(void);
-void* btrc_gpu_acquire_compute(void);
-void btrc_gpu_destroy(void*);
-void* btrc_gpu_create_buffer(void*, int, int);
-bool btrc_gpu_write_buffer(void*, void*, void*, int);
-bool btrc_gpu_read_buffer_checked(void*, void*, void*, int);
-void btrc_gpu_buffer_destroy(void*);
-void* btrc_gpu_create_shader(void*, char*);
-void btrc_gpu_shader_destroy(void*);
-void* btrc_gpu_create_compute_pipeline(void*, void*, char*);
-void btrc_gpu_compute_pipeline_destroy(void*);
-void* btrc_gpu_create_bind_group(void*, void*, void**, int);
-void btrc_gpu_bind_group_destroy(void*);
-bool btrc_gpu_dispatch(void*, void*, void*, int);
-"""
-
-
-_GPU_STUBS = r"""
-static char stub_buffer;
-static char stub_shader;
-static char stub_pipeline;
-static char stub_bind_group;
-static atomic_int stub_buffer_calls;
-static atomic_int stub_destroyed_buffers;
-static atomic_int stub_destroyed_contexts;
-static atomic_int stub_init_calls;
-static atomic_int stub_read_calls;
-static _Atomic(void*) stub_cached_gpu;
-
-void* btrc_gpu_init_compute(void) {
-    int call = atomic_fetch_add(&stub_init_calls, 1) + 1;
-    if (STUB_INIT_BARRIER_COUNT > 0 && call <= STUB_INIT_BARRIER_COUNT) {
-        while (atomic_load_explicit(
-                &stub_init_calls, memory_order_acquire)
-                < STUB_INIT_BARRIER_COUNT) { }
-    }
-    return malloc(1);
-}
-void btrc_gpu_destroy(void* gpu) {
-    if (gpu) {
-        atomic_fetch_add(&stub_destroyed_contexts, 1);
-        free(gpu);
-    }
-}
-void* btrc_gpu_acquire_compute(void) {
-    if (!STUB_AVAILABLE) { return NULL; }
-    void* current = atomic_load_explicit(&stub_cached_gpu, memory_order_acquire);
-    if (current) { return current; }
-    void* candidate = btrc_gpu_init_compute();
-    void* expected = NULL;
-    if (atomic_compare_exchange_strong_explicit(
-            &stub_cached_gpu, &expected, candidate,
-            memory_order_release, memory_order_acquire)) {
-        return candidate;
-    }
-    btrc_gpu_destroy(candidate);
-    return expected;
-}
-bool btrc_gpu_available(void) { return btrc_gpu_acquire_compute() != NULL; }
-void* btrc_gpu_create_buffer(void* gpu, int size, int usage) {
-    (void)gpu; (void)size; (void)usage;
-    int call = atomic_fetch_add(&stub_buffer_calls, 1) + 1;
-    if (STUB_FAIL_SECOND_BUFFER && call == 2) { return NULL; }
-    return &stub_buffer;
-}
-bool btrc_gpu_write_buffer(void* gpu, void* buffer, void* data, int size) {
-    (void)gpu; (void)buffer; (void)data; (void)size;
-    static atomic_int write_calls;
-    int call = atomic_fetch_add(&write_calls, 1) + 1;
-    return STUB_FAIL_WRITE_AT == 0 || call != STUB_FAIL_WRITE_AT;
-}
-bool btrc_gpu_read_buffer_checked(void* gpu, void* buffer, void* data, int size) {
-    (void)gpu; (void)buffer;
-    int read_call = atomic_fetch_add(&stub_read_calls, 1) + 1;
-    if (STUB_FAIL_READBACK_AT == read_call) { return false; }
-    if (read_call == 1 && STUB_STATUS_CODE != 0
-            && size == (int)sizeof(uint32_t)) {
-        uint32_t status = (uint32_t)STUB_STATUS_CODE;
-        memcpy(data, &status, sizeof(status));
-    }
-    if (STUB_MUTATE_READBACK_AT == read_call && size >= (int)sizeof(int)) {
-        ((int*)data)[0] = 41;
-    }
-    return true;
-}
-void btrc_gpu_buffer_destroy(void* buffer) {
-    if (buffer) { atomic_fetch_add(&stub_destroyed_buffers, 1); }
-}
-void* btrc_gpu_create_shader(void* gpu, char* source) {
-    (void)gpu; (void)source; return &stub_shader;
-}
-void btrc_gpu_shader_destroy(void* shader) { (void)shader; }
-void* btrc_gpu_create_compute_pipeline(void* gpu, void* shader, char* entry) {
-    (void)gpu; (void)shader; (void)entry; return &stub_pipeline;
-}
-void btrc_gpu_compute_pipeline_destroy(void* pipeline) { (void)pipeline; }
-void* btrc_gpu_create_bind_group(
-    void* gpu, void* pipeline, void** buffers, int count
-) {
-    (void)gpu; (void)pipeline; (void)buffers; (void)count;
-    return &stub_bind_group;
-}
-void btrc_gpu_bind_group_destroy(void* bind_group) { (void)bind_group; }
-bool btrc_gpu_dispatch(void* gpu, void* pipeline, void* bind_group, int count) {
-    (void)gpu; (void)pipeline; (void)bind_group; (void)count;
-    static atomic_int dispatch_calls;
-    int call = atomic_fetch_add(&dispatch_calls, 1) + 1;
-    return STUB_FAIL_DISPATCH_AT == 0 || call != STUB_FAIL_DISPATCH_AT;
-}
-int gpu_stub_destroyed_buffers(void) { return atomic_load(&stub_destroyed_buffers); }
-int gpu_stub_destroyed_contexts(void) { return atomic_load(&stub_destroyed_contexts); }
-int gpu_stub_init_calls(void) { return atomic_load(&stub_init_calls); }
-"""
-
-
-def _compile_with_gpu_stubs(
-    tmp_path: Path,
-    source: str,
-    *,
-    available: bool,
-    fail_second_buffer: bool,
-    status_code: int = 0,
-    fail_readback: bool = False,
-    fail_readback_at: int = 0,
-    mutate_readback_at: int = 0,
-    fail_dispatch_at: int = 0,
-    fail_write_at: int = 0,
-    init_barrier_count: int = 0,
-    compiler: str | None = None,
-) -> Path:
-    compiler = compiler or shutil.which(os.environ.get("CC", "cc"))
-    if compiler is None:
-        pytest.skip("a C compiler is required")
-    unit = tmp_path / "gpu_dispatch.c"
-    unit.write_text(
-        _GPU_DECLS
-        + f"\n#define STUB_AVAILABLE {int(available)}\n"
-        + f"#define STUB_FAIL_SECOND_BUFFER {int(fail_second_buffer)}\n"
-        + f"#define STUB_STATUS_CODE {status_code}\n"
-        + f"#define STUB_FAIL_READBACK_AT {1 if fail_readback else fail_readback_at}\n"
-        + f"#define STUB_MUTATE_READBACK_AT {mutate_readback_at}\n"
-        + f"#define STUB_FAIL_DISPATCH_AT {fail_dispatch_at}\n"
-        + f"#define STUB_FAIL_WRITE_AT {fail_write_at}\n"
-        + f"#define STUB_INIT_BARRIER_COUNT {init_barrier_count}\n"
-        + emit_c(source)
-        + _GPU_STUBS
-    )
-    executable = tmp_path / "gpu_dispatch"
-    command = [
-        compiler,
-        "-std=c11",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-        "-pedantic",
-        f"-I{GPU_INCLUDE}",
-        str(unit),
-        "-lm",
-    ]
-    if "pthread.h" in unit.read_text():
-        command.append("-lpthread")
-    command.extend(["-o", str(executable)])
-    subprocess.run(command, check=True, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT)
-    return executable
+from src.tests.process_limits import RUN_TIMEOUT
+from src.tests.python.gpu_stub_fixtures import compile_with_gpu_stubs
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_void_dispatch_guards_handles_and_records_recovery() -> None:
@@ -247,7 +70,7 @@ def test_array_return_declaration_is_a_sized_readback_target() -> None:
 def test_void_dispatch_falls_back_after_partial_setup_and_cleans_up(
     tmp_path: Path,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "int gpu_stub_destroyed_buffers();\n"
         "@gpu\nvoid scale(int[] xs) { int i = gpu_id(); xs[i] *= 2; }\n"
@@ -263,7 +86,7 @@ def test_void_dispatch_falls_back_after_partial_setup_and_cleans_up(
 def test_void_dispatch_falls_back_when_first_submission_is_rejected(
     tmp_path: Path,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu void scale(int[] xs) { int i = gpu_id(); xs[i] *= 2; } "
         "int main() { int[] xs = {2}; scale(xs); return xs[0] == 4 ? 0 : 1; }",
@@ -277,7 +100,7 @@ def test_void_dispatch_falls_back_when_first_submission_is_rejected(
 @pytest.mark.parametrize("fail_write_at", [1, 2])
 def test_void_dispatch_falls_back_when_an_upload_is_rejected(tmp_path: Path, fail_write_at: int) -> None:
     """A rejected input or uniform upload fails setup; nothing dispatches on stale data."""
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu void scale(int[] xs) { int i = gpu_id(); xs[i] *= 2; } "
         "int main() { int[] xs = {2}; scale(xs); return xs[0] == 4 ? 0 : 1; }",
@@ -299,7 +122,7 @@ def test_array_return_dispatch_falls_back_when_gpu_is_unavailable(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu\nint[] dbl(int[] xs) { int i = gpu_id(); return xs[i] * 2; }\n"
         "int main() { int[] xs = {1, 2}; int[] out = dbl(xs); "
@@ -317,7 +140,7 @@ def test_cpu_fallback_early_return_is_per_invocation(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu void clamp(int[] xs) { int i = gpu_id(); "
         "if (xs[i] < 0) { return; } xs[i] *= 2; } "
@@ -345,7 +168,7 @@ def test_hosted_macro_parameter_names_cross_gpu_host_and_cpu_paths(
     assert "__btrc_source_stdin" in generated
     assert "__btrc_source_stdout" in generated
     assert "__btrc_source_stderr" in generated
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=False,
@@ -360,7 +183,7 @@ def test_cpu_fallback_array_return_handles_branches_and_whole_buffers(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu int[] clamp(int[] xs, int low, int high) { int i = gpu_id(); "
         "if (xs[i] < low) { return low; } "
@@ -387,7 +210,7 @@ def test_dispatch_locals_are_unique_across_same_and_nested_scopes(
     prefixes = _dispatch_prefixes(c_source)
     assert len(prefixes) == 3
     assert len(set(prefixes)) == 3
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=False,
@@ -407,7 +230,7 @@ def test_loop_dispatch_keeps_one_persistent_context(tmp_path: Path) -> None:
     prefix = _dispatch_prefixes(c_source)[0]
     assert f"void* {prefix}_gpu = NULL;" in c_source
     assert f"{prefix}_gpu = btrc_gpu_acquire_compute();" in c_source
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=True,
@@ -430,7 +253,7 @@ def test_concurrent_dispatch_context_publication_destroys_cas_loser(
         "return (gpu_stub_init_calls() == 2 "
         "&& gpu_stub_destroyed_contexts() == 1) ? 0 : 1; }"
     )
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=True,
@@ -479,7 +302,7 @@ def test_collection_call_buffer_argument_evaluates_once_on_fallback(
     c_source = emit_c(source)
     assert c_source.count("acquire(value)") == 1
     assert "/* expr */" not in c_source
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=True,
@@ -525,7 +348,7 @@ def test_mixed_parameter_order_uses_source_order_on_cpu_fallback(
     assert (
         f"static void {prefix}_run(int bias, int* xs, int __gpu_len_xs, int factor, int* ys, int __gpu_len_ys)"
     ) in c_source
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=False,

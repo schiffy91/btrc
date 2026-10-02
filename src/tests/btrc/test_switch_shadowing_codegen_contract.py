@@ -5,8 +5,6 @@ from pathlib import Path
 from src.tests.btrc.production_readiness_harness import run_strict_pair
 from src.tests.btrc.string_coercion_harness import compile_pair
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 
 def test_switch_cases_restore_type_and_managed_outer_bindings(
     semantic_btrcc: Path,

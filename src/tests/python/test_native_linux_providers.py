@@ -8,26 +8,41 @@ always offers a PCM: its image installs nix/asound.conf, a null default PCM, so
 CI's Linux shards run the audio sessions without hardware."""
 
 import os
-import platform
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 
-from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
+from src.tests.native_bindings import NativeBindingPackage
+from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.python.linux_provider_fixtures import (
+    ROOT,
+    TARGET,
+    build_provider_program,
+    provider_environment,
+    require_linux_reader,
+)
 from src.tests.runner_capabilities import linux_audio_backend_error, linux_display_error
-from tools.native_plan import NativePlanBuilder
 
-ROOT = Path(__file__).resolve().parents[3]
-TARGET = "linux-x86_64" if platform.machine() in ("x86_64", "AMD64") else "linux-aarch64"
 # The devcontainer image installs this as /etc/asound.conf.
 DEVCONTAINER_ALSA_CONFIG = ROOT / "nix/asound.conf"
-
-
-def _require_linux_reader():
-    if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
-        pytest.skip("requires Linux and the explicitly built native header reader")
+# The fault fixture's test controls LinuxAudioFaults.btrc binds from AlsaFaults.h.
+ALSA_FAULT_CONTROLS = (
+    "unitReset",
+    "unitFail",
+    "allowSessionCleanup",
+    "pendingSessions",
+    "unitDisposals",
+    "unitStops",
+    "unitRenders",
+    "unitReads",
+    "unitDeviceChannels",
+    "unitFixedChannels",
+    "unitConfiguredChannels",
+    "unitExclusive",
+)
 
 
 def _require_audio_backend():
@@ -43,99 +58,19 @@ def _require_audio_backend():
     pytest.skip(error)
 
 
-def _transpile(source: Path, generated: Path, plan: Path, frontend: str, request) -> None:
-    environment = {**os.environ, "BTRC_HOME": str(ROOT / "src")}
-    if frontend == "python":
-        command = [
-            sys.executable,
-            "-m",
-            "src.compiler.python.main",
-            "--no-cache",
-            "--target",
-            TARGET,
-            str(source),
-            "-o",
-            str(generated),
-            "--emit-link-plan",
-            str(plan),
-        ]
-    else:
-        command = [
-            str(request.getfixturevalue("immutable_btrcc")),
-            "--target",
-            TARGET,
-            "--emit-link-plan",
-            str(plan),
-            str(source),
-        ]
-    compiled = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=600)
-    assert compiled.returncode == 0, compiled.stderr
-    if frontend == "selfhost":
-        generated.write_text(compiled.stdout)
-
-
-def _build(source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, faults: Path | None = None) -> Path:
-    """Compile through the chosen frontend and link; `faults` names an SDK fixture
-    (Faults.h forced into the generated unit, Faults.c linked in) that replaces the real library."""
-    generated = tmp_path / "Program.c"
-    plan = tmp_path / "Program.json"
-    _transpile(source, generated, plan, frontend, request)
-    executable = tmp_path / "Program"
-    sanitizers = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
-    objects = []
-    if faults is not None:
-        fixture = tmp_path / f"{faults.name}.o"
-        subprocess.run(
-            [
-                "cc",
-                "-std=c11",
-                "-pedantic-errors",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                "-O2",
-                *sanitizers,
-                "-c",
-                str(faults.with_suffix(".c")),
-                "-o",
-                str(fixture),
-            ],
-            check=True,
-            timeout=C_COMPILE_TIMEOUT,
-        )
-        objects.append(str(fixture))
-
-    def run(command, **kwargs):
-        command = list(command)
-        if "-c" in command:
-            command[1:1] = sanitizers
-            if faults is not None and str(generated) in command:
-                command[1:1] = ["-include", str(faults.with_suffix(".h"))]
-        elif "-o" in command:
-            command[1:1] = objects
-            command.extend(sanitizers)
-        return subprocess.run(command, **kwargs)
-
-    NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
-    return executable
-
-
-def _environment(sanitized: bool, **extra: str) -> dict[str, str]:
-    environment = {**os.environ, "ASAN_OPTIONS": "detect_leaks=0", **extra}
-    # libasan intercepts dlopen, so wgpu-native's own runpath no longer reaches
-    # the Vulkan loader; NixOS keeps it under the driver prefix.
-    driver = Path("/run/opengl-driver/lib")
-    if sanitized and driver.is_dir():
-        environment["LD_LIBRARY_PATH"] = ":".join(filter(None, [os.environ.get("LD_LIBRARY_PATH"), str(driver)]))
-    return environment
-
-
 def _build_and_run(
-    source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, expected: str, timeout: int = 120
+    source: Path,
+    tmp_path: Path,
+    frontend: str,
+    sanitized: bool,
+    request,
+    expected: str,
+    timeout: int = 120,
+    data_root: Path | None = None,
 ) -> None:
-    executable = _build(source, tmp_path, frontend, sanitized, request)
+    executable = build_provider_program(source, tmp_path, frontend, sanitized, request, data_root=data_root)
     result = subprocess.run(
-        [str(executable)], capture_output=True, text=True, timeout=timeout, env=_environment(sanitized)
+        [str(executable)], capture_output=True, text=True, timeout=timeout, env=provider_environment(sanitized)
     )
     assert result.returncode == 0, result.stderr
     assert expected in result.stdout
@@ -144,7 +79,7 @@ def _build_and_run(
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
-    _require_linux_reader()
+    require_linux_reader()
     _build_and_run(
         ROOT / "src/tests/native/image/linux/LinuxImageDecoding.btrc",
         tmp_path,
@@ -158,7 +93,7 @@ def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_audio_session(tmp_path, request, frontend, sanitized):
-    _require_linux_reader()
+    require_linux_reader()
     _require_audio_backend()
     _build_and_run(
         ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc",
@@ -193,16 +128,24 @@ def test_audio_capability_opens_the_configured_pcm(tmp_path, monkeypatch, availa
 def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
     """The ALSA provider over the fault fixture: no hardware, every failure point,
     and the retained indeterminate close that ends the process on destruction."""
-    _require_linux_reader()
-    executable = _build(
-        ROOT / "src/tests/native/audio/linux/LinuxAudioFaults.btrc",
+    require_linux_reader()
+    faults = ROOT / "src/tests/native/audio/linux/AlsaFaults"
+    executable = build_provider_program(
+        NativeBindingPackage.write(
+            ROOT / "src/tests/native/audio/linux/LinuxAudioFaults.btrc",
+            tmp_path / "package",
+            faults.with_suffix(".h"),
+            ALSA_FAULT_CONTROLS,
+        ),
         tmp_path,
         frontend,
         sanitized,
         request,
-        faults=ROOT / "src/tests/native/audio/linux/AlsaFaults",
+        faults=faults,
     )
-    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=120, env=_environment(sanitized))
+    result = subprocess.run(
+        [str(executable)], capture_output=True, text=True, timeout=120, env=provider_environment(sanitized)
+    )
     assert result.returncode == 0, result.stderr
     assert "PASS: linux audio faults" in result.stdout
     terminal = subprocess.run(
@@ -210,7 +153,7 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
         capture_output=True,
         text=True,
         timeout=120,
-        env=_environment(sanitized, BTRC_ALSA_FAULT_TERMINAL="1"),
+        env=provider_environment(sanitized, BTRC_ALSA_FAULT_TERMINAL="1"),
     )
     assert terminal.returncode != 0
     assert "PASS: indeterminate ALSA close is retained and never retried" in terminal.stderr
@@ -220,8 +163,9 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
-    """A live window: synthetic input drives every control kind and the composed frame reads back."""
-    _require_linux_reader()
+    """A live window: synthetic input drives every control kind and the composed frame reads back.
+    The fixture pushes SDL events at the provider's window, so it compiles against gui_provider_root."""
+    require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
     _build_and_run(
@@ -232,14 +176,16 @@ def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
         request,
         "PASS: linux gui controls",
         timeout=180,
+        data_root=request.getfixturevalue("gui_provider_root"),
     )
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
-    """A subtree that never finishes closing fails run() after one deadline instead of hanging quit."""
-    _require_linux_reader()
+    """A subtree that never finishes closing fails run() after one deadline instead of hanging quit.
+    The stalled view extends the provider's LinuxNodeView, so it compiles against gui_provider_root."""
+    require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
     _build_and_run(
@@ -250,6 +196,7 @@ def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
         request,
         "PASS: linux gui shutdown deadline",
         timeout=180,
+        data_root=request.getfixturevalue("gui_provider_root"),
     )
 
 
@@ -257,7 +204,7 @@ def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
     """A GPU view moved to a window with another device never samples its old target there."""
-    _require_linux_reader()
+    require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
     _build_and_run(
@@ -271,8 +218,62 @@ def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
     )
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize(
+    "declaration, body, diagnostic",
+    [
+        ("import Library.GUI.Linux.SDL;", "return 0;", "private to package"),
+        ('#include "GUI/Linux/SDL.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.Linux.WebGPUSurface;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxApplication;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxWindow;", "return 0;", "private to package"),
+        ('#include "GUI/Linux/LinuxWindow.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxView;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxContext;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxActionQueue;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxSystemText;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.GUIProvider;", "return 0;", "private to package"),
+        # A provider type reached by name through Library.GUI: the provider
+        # analyzes with the program, so this case needs the header reader.
+        (
+            "import Library.GUI;",
+            "var queue = LinuxActionQueue(16); return 0;",
+            "'LinuxActionQueue' is defined in LinuxActionQueue.btrc but Program.btrc does not import it",
+        ),
+    ],
+)
+def test_linux_gui_keeps_provider_modules_private(tmp_path, request, frontend, declaration, body, diagnostic):
+    # Consumers mount and drive views through Library.GUI; the provider's own
+    # conformance fixtures reach these modules through gui_provider_root.
+    if "private to package" not in diagnostic:
+        require_linux_reader()
+    source = tmp_path / "Program.btrc"
+    source.write_text(f"{declaration}\nint main() {{ {body} }}\n")
+    environment = {**os.environ, "BTRC_HOME": str(ROOT / "src")}
+    flags = ["--target", TARGET, str(source)]
+    command = (
+        [sys.executable, "-m", "src.compiler.python.main", "--no-cache", *flags, "-o", str(tmp_path / "Program.c")]
+        if frontend == "python"
+        else [str(request.getfixturevalue("immutable_btrcc")), *flags]
+    )
+    compiled = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=600)
+    assert compiled.returncode != 0
+    assert diagnostic in compiled.stdout + compiled.stderr
+
+
+def test_gui_provider_root_exports_the_linux_provider(gui_provider_root):
+    """The white-box root re-exports every Linux provider module but the factory's own."""
+    exported = set(tomllib.loads((gui_provider_root / "stdlib/GUI/btrc.toml").read_text())["package"]["exports"])
+    modules = {f"Linux.{path.stem}" for path in (ROOT / "src/stdlib/GUI/Linux").glob("*.btrc")}
+    assert modules - {"Linux.GUIProvider"} <= exported
+    assert "Linux.GUIProvider" not in exported
+    public = set(tomllib.loads((ROOT / "src/stdlib/GUI/btrc.toml").read_text())["package"]["exports"])
+    assert not {name for name in public if name.startswith("Linux.")}
+
+
 @pytest.mark.parametrize("target", ["windows-x86_64"])
 def test_linux_gui_unsupported_target(target, tmp_path):
+    """A portable GUI program (Library.GUI only) names the missing provider on a target without one."""
     result = subprocess.run(
         [
             sys.executable,
@@ -281,7 +282,7 @@ def test_linux_gui_unsupported_target(target, tmp_path):
             "--no-cache",
             "--target",
             target,
-            str(ROOT / "src/tests/native/gui/linux/LinuxGUIControls.btrc"),
+            str(ROOT / "src/tests/native/gui/linux/LinuxGUIReparent.btrc"),
             "-o",
             str(tmp_path / "Program.c"),
         ],

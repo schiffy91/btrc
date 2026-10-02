@@ -18,7 +18,7 @@ string stagedPath(string directory) {
 int main() {
 	var created = FileSystem.createTemporaryDirectory("btrc-staged-output");
 	assert(created.ok());
-	var root = created.directory();
+	var root = created.value();
 	string path = root.path() + "/output";
 	assert(FileSystem.writeText(path, "previous"));
 	var store = FePackageFileStore();

@@ -156,7 +156,7 @@ def test_c_stats_counts_definitions(tmp_path):
     source.write_text(
         '#line 3 "x.btrc"\ntypedef struct btrc_Vector_int btrc_Vector_int;\nstruct A {\n};\nint f(void) {\n}\nstatic int g(int a) {\n}\n'
     )
-    stats = perf.c_stats(source)
+    stats = perf.CStats.read(source)
     assert (stats.lines, stats.functions, stats.structs, stats.vector_instances, stats.line_directives) == (
         8,
         2,

@@ -56,7 +56,7 @@ void sendPointer(MacOSWindow window, unsigned long type, double x, double y) {
 	var location = window.nativeWindow().frame().origin;
 	location.x = x; location.y = window.contentHeight() - y;
 	var event = NSEvent.mouseEventWithType(type, location, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 0L, 1L, 1.0f);
-	assert(event != null);
+	if (event == null) { throw "Cannot create a synthetic pointer event"; }
 	NSApplication.sharedApplication().sendEvent(event);
 }
 

@@ -8,9 +8,9 @@ import pytest
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import _tracked_strict_matrix
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
 from src.tests.c_toolchains import HOST_C_COMPILERS
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 RAW_MANAGED_SLOT_SOURCE = r"""
     #include <assert.h>
@@ -234,17 +234,17 @@ def test_extern_global_store_is_raw_but_defined_global_is_transactional() -> Non
 def test_raw_managed_slot_matrix_is_tracked_strict_c11_clean(tmp_path: Path) -> None:
     generated = tmp_path / "raw-managed-slot.c"
     generated.write_text(emit_c(RAW_MANAGED_SLOT_SOURCE))
-    _tracked_strict_matrix(("python-raw-managed-slot", generated), tmp_path)
+    tracked_strict_matrix(("python-raw-managed-slot", generated), tmp_path)
 
     unwind = tmp_path / "raw-managed-slot-unwind.c"
     unwind.write_text(emit_c(RAW_MANAGED_SLOT_UNWIND_SOURCE))
-    _tracked_strict_matrix(("python-raw-managed-slot-unwind", unwind), tmp_path)
+    tracked_strict_matrix(("python-raw-managed-slot-unwind", unwind), tmp_path)
 
     external = tmp_path / "extern-managed-global.c"
     external.write_text(emit_c(EXTERN_MANAGED_GLOBAL_SOURCE))
     external_definition = tmp_path / "extern-managed-global-definition.c"
     external_definition.write_text('char *shared = "external";\n')
-    _tracked_strict_matrix(
+    tracked_strict_matrix(
         ("python-extern-managed-global", external),
         tmp_path,
         extra_sources=(external_definition,),
@@ -252,4 +252,4 @@ def test_raw_managed_slot_matrix_is_tracked_strict_c11_clean(tmp_path: Path) -> 
 
     defined = tmp_path / "defined-managed-global.c"
     defined.write_text(emit_c(DEFINED_MANAGED_GLOBAL_SOURCE))
-    _tracked_strict_matrix(("python-defined-managed-global", defined), tmp_path)
+    tracked_strict_matrix(("python-defined-managed-global", defined), tmp_path)

@@ -2,9 +2,7 @@
 
 import re
 
-from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.backend.wgsl_emitter import WgslEmitter
-from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     IRCall,
     IRFor,
@@ -13,19 +11,11 @@ from src.compiler.python.ir.nodes import (
     IRStructDef,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.lexer.lexer import Lexer
-from src.compiler.python.parser.parser import Parser
-
-
-def _generate(source: str):
-    program = Parser(Lexer(source, "<gpu-dispatch-ir>").tokenize()).parse()
-    analyzed = SemanticAnalyzer().analyze(program)
-    assert not analyzed.errors
-    return IRLowerer(analyzed).lower()
+from src.tests.python.reference_pipeline import lower_gpu_dispatch
 
 
 def test_dispatch_helper_contains_only_ordinary_control_and_call_nodes():
-    module = _generate("""
+    module = lower_gpu_dispatch("""
         @gpu
         void scale(float factor, int[] values) {
             int i = gpu_id();
@@ -61,7 +51,7 @@ def test_dispatch_helper_contains_only_ordinary_control_and_call_nodes():
 
 def test_ordinary_call_graph_keeps_dispatch_helper_and_cpu_fallback():
     module = IROptimizer(
-        _generate("""
+        lower_gpu_dispatch("""
         @gpu
         void bump(int[] values) {
             int i = gpu_id();
@@ -83,7 +73,7 @@ def test_ordinary_call_graph_keeps_dispatch_helper_and_cpu_fallback():
 
 
 def test_bool_uniform_uses_host_shareable_storage_and_boolean_wgsl_use():
-    module = _generate("""
+    module = lower_gpu_dispatch("""
         @gpu
         void choose(float threshold, bool enabled, int bias, int[] values) {
             int i = gpu_id();
@@ -114,7 +104,7 @@ def test_bool_uniform_uses_host_shareable_storage_and_boolean_wgsl_use():
 
 
 def test_gpu_kernel_dce_follows_surviving_dispatch_helper_reference():
-    module = _generate("""
+    module = lower_gpu_dispatch("""
         @gpu
         void live(int[] values) {
             int i = gpu_id(); values[i] += 1;
@@ -134,7 +124,7 @@ def test_gpu_kernel_dce_follows_surviving_dispatch_helper_reference():
 
 
 def test_no_dce_retains_unreferenced_gpu_kernel():
-    module = _generate("""
+    module = lower_gpu_dispatch("""
         @gpu
         void dormant(int[] values) {
             int i = gpu_id(); values[i] += 1;

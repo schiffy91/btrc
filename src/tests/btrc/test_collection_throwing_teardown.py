@@ -16,8 +16,6 @@ from src.tests.btrc.runtime_ownership_harness import (
     sanitized_build_and_run,
 )
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 FIXTURES = Path(__file__).with_name("fixtures")
 CASES = (
     "CollectionThrowingVectorRuntime.btrc",

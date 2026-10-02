@@ -14,7 +14,7 @@ from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import Identifier
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.process_limits import C_COMPILE_TIMEOUT
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 FIXTURE = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "TypedefMemberAliasRuntime.btrc"
 

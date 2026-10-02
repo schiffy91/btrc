@@ -7,12 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 
 # A try block with no managed values still registers cleanup slots, whose helper
 # contains an explanatory comment naming the cleanup runner.  That prose must
@@ -39,7 +36,7 @@ def test_helper_comment_does_not_materialize_an_unused_runtime_function(
 ) -> None:
     """Comments cannot create reachability or Clang-O0 unused functions."""
 
-    result, generated = _compile_source(semantic_btrcc, tmp_path, CLEANUP_SOURCE, no_stdlib=False)
+    result, generated = compile_source(semantic_btrcc, tmp_path, CLEANUP_SOURCE, no_stdlib=False)
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert "static inline void __btrc_register_cleanup_kind(" in emitted

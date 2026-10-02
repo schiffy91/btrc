@@ -1,5 +1,6 @@
 /* Bounded background jobs. BTRC owns queue, cancellation and worker lifetime;
  * imported pthread declarations supply only the operating-system primitives. */
+import Library.BackgroundJobs.NativeWorker;
 import Library.OwnedBuffer;
 import Library.Vector;
 
@@ -286,7 +287,7 @@ class BackgroundJobRing {
 	public void clear() { self.head = 0; self.size = 0; }
 }
 
-class BackgroundJobQueue {
+class BackgroundJobQueue implements INativeWorkerBody {
 	private pthread_mutex_t* mutex;
 	private pthread_cond_t* available;
 	private pthread_cond_t* finished;
@@ -547,66 +548,10 @@ class BackgroundJobQueue {
 	}
 }
 
-/* The executor retains this one managed state reference until every SDK thread
- * has joined. No thread can outlive its callback context. */
-struct BackgroundJobWorkerContext {
-	BackgroundJobQueue queue;
-};
-
-int backgroundJobWorkerRun(void* raw) {
-	struct BackgroundJobWorkerContext* context = (struct BackgroundJobWorkerContext*)raw;
-	BackgroundJobQueue queue = context->queue;
-	return queue.workLoop();
-}
-
-void* backgroundJobWorkerEntry(void* raw) {
-	int result = 1;
-	if (__btrc_native_thread_invoke(backgroundJobWorkerRun, raw, &result) != 0) { return raw; }
-	return result == 0 ? null : raw;
-}
-
-class BackgroundJobWorker {
-	private pthread_t handle;
-	private bool started;
-	private bool joined;
-	private bool failed;
-
-	public BackgroundJobWorker() {
-		self.handle = (pthread_t)0;
-		self.started = false;
-		self.joined = false;
-		self.failed = false;
-	}
-
-	public bool start(struct BackgroundJobWorkerContext* context) {
-		pthread_t handle = (pthread_t)0;
-		if (pthread_create(&handle, null, backgroundJobWorkerEntry, context) != 0) { return false; }
-		self.handle = handle;
-		self.started = true;
-		return true;
-	}
-
-	public bool join() {
-		if (!self.started || self.joined) { return true; }
-		void* result = null;
-		if (pthread_join(self.handle, &result) != 0) { return false; }
-		self.joined = true;
-		self.failed = result != null;
-		return true;
-	}
-
-	public bool workerFailed() { return self.failed; }
-
-	public void __del__() {
-		if (self.started && !self.joined) { fprintf(stderr, "background worker destroyed before join\n"); abort(); }
-	}
-}
-
 class BackgroundJobExecutor {
 	private pthread_t owner;
 	private BackgroundJobQueue queue;
-	private Vector<BackgroundJobWorker> workers;
-	private struct BackgroundJobWorkerContext* context;
+	private Vector<NativeWorker> workers;
 	private int closingMode;
 	private bool closed;
 	private bool finishing;
@@ -618,8 +563,6 @@ class BackgroundJobExecutor {
 		self.closingMode = -1;
 		self.closed = false;
 		self.finishing = false;
-		self.context = (struct BackgroundJobWorkerContext*)calloc(1, sizeof(struct BackgroundJobWorkerContext));
-		if (self.context != null) { keep queue; self.context->queue = queue; }
 	}
 
 	class BackgroundJobsOpenOutcome open(int workerCount, int capacity) {
@@ -629,16 +572,16 @@ class BackgroundJobExecutor {
 		BackgroundJobQueue queue = BackgroundJobQueue(capacity);
 		if (queue.status() != BACKGROUND_JOBS_OPENED) { return BackgroundJobsOpenOutcome(queue.status(), null, "background job initialization failed"); }
 		BackgroundJobExecutor executor = BackgroundJobExecutor(queue);
-		if (executor.context == null) {
-			executor.closed = true;
-			return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPEN_OUT_OF_MEMORY, null, "background job context allocation failed");
-		}
 		for (int index = 0; index < workerCount; index++) {
-			BackgroundJobWorker worker = BackgroundJobWorker();
-			if (!worker.start(executor.context)) {
+			NativeWorker worker = NativeWorker();
+			NativeWorkerStartKind started = worker.start(queue);
+			if (started != NATIVE_WORKER_STARTED) {
 				BackgroundJobsCloseOutcome stopped = executor.close(BACKGROUND_JOBS_CANCEL_PENDING);
 				if (stopped.kind == BACKGROUND_JOBS_CLOSE_JOIN_FAILED || stopped.kind == BACKGROUND_JOBS_CLOSE_SYNC_FAILED) {
 					return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPEN_THREAD_FAILED, executor, "partial worker startup requires close retry");
+				}
+				if (started == NATIVE_WORKER_START_OUT_OF_MEMORY) {
+					return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPEN_OUT_OF_MEMORY, null, "background job context allocation failed");
 				}
 				return BackgroundJobsOpenOutcome(BACKGROUND_JOBS_OPEN_THREAD_FAILED, null, "background job worker creation failed");
 			}
@@ -712,9 +655,6 @@ class BackgroundJobExecutor {
 		self.finishing = false;
 		if (result.kind == BACKGROUND_JOBS_CLOSE_SYNC_FAILED) { return result; }
 		self.closed = true;
-		struct BackgroundJobWorkerContext* context = self.context;
-		self.context = null;
-		if (context != null) { release context->queue; free(context); }
 		return result;
 	}
 

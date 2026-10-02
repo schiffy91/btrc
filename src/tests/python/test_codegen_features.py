@@ -8,7 +8,7 @@ wrappers, ARC edge cases), without needing a GPU or running the binary.
 
 import re
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 # --------------------------------------------------------------------------- #
 # GPU: kernel emission (WGSL) + dispatch (C runtime calls)

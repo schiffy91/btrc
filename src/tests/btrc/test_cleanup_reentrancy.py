@@ -4,10 +4,8 @@ import subprocess
 from pathlib import Path
 
 from src.tests.btrc.runtime_ownership_harness import compile_reference_source
-from src.tests.btrc.test_semantic_validation import REPO, _compile_source
+from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURE = REPO / "src/tests/btrc/fixtures/CleanupReentrancyRuntime.btrc"
 UNHANDLED_FIXTURE = REPO / "src/tests/btrc/fixtures/CleanupUnhandledRuntime.btrc"
@@ -52,7 +50,7 @@ def test_throwing_cleanup_preserves_primary_in_both_compilers(
     tmp_path: Path,
 ) -> None:
     source = FIXTURE.read_text()
-    selfhost_result, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
+    selfhost_result, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
     reference_result, reference_c = compile_reference_source(
         tmp_path,
         source,
@@ -84,7 +82,7 @@ def test_unhandled_throw_runs_level_minus_one_in_both_compilers(
     tmp_path: Path,
 ) -> None:
     source = UNHANDLED_FIXTURE.read_text()
-    selfhost_result, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
+    selfhost_result, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
     reference_result, reference_c = compile_reference_source(
         tmp_path,
         source,

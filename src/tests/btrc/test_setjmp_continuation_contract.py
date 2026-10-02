@@ -5,12 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 def test_selfhost_qualifies_try_finally_loop_continuations(
@@ -33,13 +28,13 @@ def test_selfhost_qualifies_try_finally_loop_continuations(
         }
     """
 
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert "volatile int finallyCount = 0;" in emitted
     assert "volatile int i = 0;" in emitted
-    _strict_build_and_run(
+    strict_build_and_run(
         generated,
         tmp_path / "setjmp-continuation",
         optimization="-O1",
@@ -66,14 +61,14 @@ def test_selfhost_preserves_aggregate_mutations_across_longjmp(
         }
     """
 
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert "volatile int values[1]" in emitted
     assert "volatile struct Probe probe" in emitted
     assert "int volatile* __btrc_lvalue" in emitted
-    _strict_build_and_run(
+    strict_build_and_run(
         generated,
         tmp_path / "setjmp-aggregate",
         optimization="-O3",
@@ -183,7 +178,7 @@ def test_selfhost_rejects_volatile_storage_aliases(
     tmp_path: Path,
     source: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode == 1
     assert "unsupported layered pointer qualifiers" in result.stderr
@@ -199,11 +194,11 @@ def test_selfhost_emits_outer_volatile_pointer_global(
         int main() { return *pointer == 7 ? 0 : 1; }
     """
 
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode == 0, result.stderr
     assert "int* volatile pointer = (&value);" in generated.read_text()
-    _strict_build_and_run(
+    strict_build_and_run(
         generated,
         tmp_path / "volatile-pointer-global",
         optimization="-O3",
@@ -228,10 +223,10 @@ def test_selfhost_accepts_shadowed_nonvolatile_alias(
         }
     """
 
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(
+    strict_build_and_run(
         generated,
         tmp_path / "setjmp-shadowed-alias",
         optimization="-O3",
@@ -253,13 +248,13 @@ def test_selfhost_static_shadow_blocks_outer_qualification(
         }
     """
 
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert "volatile int value = 0;" not in emitted
     assert re.search(r"static int value(?:_\d+)? = 0;", emitted)
-    _strict_build_and_run(
+    strict_build_and_run(
         generated,
         tmp_path / "setjmp-static-shadow",
         optimization="-O3",

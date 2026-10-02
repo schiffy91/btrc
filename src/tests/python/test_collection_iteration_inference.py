@@ -12,7 +12,7 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.c_toolchains import HOST_C_COMPILERS
-from src.tests.python.test_strict_c_semantic_boundaries import _compile_and_run
+from src.tests.python.strict_c_fixtures import compile_and_run
 
 
 def _analyze(source: str):
@@ -79,7 +79,7 @@ def test_inferred_vector_literal_import_materializes_live_specialization(
         "btrc_Vector_int_free",
     ):
         assert function in result.c_source
-    _compile_and_run(result.c_source, tmp_path, c_compiler)
+    compile_and_run(result.c_source, tmp_path, c_compiler)
 
 
 @pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
@@ -99,7 +99,7 @@ def test_ignored_string_iteration_binding_is_strict_c11(
     )
 
     assert "(void)(ignored);" in generated
-    _compile_and_run(generated, tmp_path, c_compiler)
+    compile_and_run(generated, tmp_path, c_compiler)
 
 
 @pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
@@ -139,4 +139,4 @@ def test_temporary_class_vector_iteration_materializes_specialization(tmp_path: 
     result = Compiler().compile(source, str(source_path), CompilerOptions(use_cache=False))
     assert result.successful, result.failure or result.diagnostics
     assert result.c_source is not None
-    _compile_and_run(result.c_source, tmp_path, c_compiler)
+    compile_and_run(result.c_source, tmp_path, c_compiler)

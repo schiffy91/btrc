@@ -4,7 +4,7 @@ method lowering."""
 
 import re
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_default_arguments_filled_at_call_site():

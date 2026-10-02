@@ -5,13 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc/ir/lowering"
@@ -63,7 +61,7 @@ def test_captured_immediate_lambda_lifts_once_and_is_strict_c11(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
@@ -73,7 +71,7 @@ def test_captured_immediate_lambda_lifts_once_and_is_strict_c11(
     assert len(set(re.findall(r"__btrc_lambda_\d+", selfhost))) == 1
     assert not re.search(r"__btrc_fn_[A-Za-z0-9_]+\s+__btrc_operand_\d+", selfhost)
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 RUNTIME_SOURCE = r"""
@@ -157,7 +155,7 @@ RUNTIME_SOURCE = r"""
 
 
 def _compile_runtime(semantic_btrcc: Path, tmp_path: Path):
-    return _compile_pair(
+    return compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         RUNTIME_SOURCE,
@@ -170,7 +168,7 @@ def test_immediate_lambda_capture_order_and_result_abi_are_strict(
     tmp_path: Path,
 ) -> None:
     for artifact in _compile_runtime(semantic_btrcc, tmp_path):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_immediate_lambda_capture_transaction_is_sanitizer_clean(

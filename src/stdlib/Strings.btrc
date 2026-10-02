@@ -14,11 +14,12 @@
  * saturating toInt, fromInt/fromFloat, the char classifiers, copy,
  * checkedLength, StringBuilder, and UTF8, the one owner of UTF-8 scalar
  * decoding, validation, boundaries and word navigation. join delegates to
- * Vector.join. The remaining class methods (repeat,
- * replace, count, find, capitalize, title, swapCase, padLeft, padRight,
- * lstrip, rstrip, removePrefix, isDigitStr, isAlphaStr, isBlank) are retained
- * one-line delegates to the built-in of the same meaning, so both spellings
- * share one implementation and one null/whitespace contract.
+ * Vector.join. repeat, replace, count and find are retained one-line
+ * delegates to the built-in of the same meaning, so both spellings share one
+ * implementation and one null contract; new code calls the built-ins. Every
+ * other transform or classifier (capitalize, title, swapCase, padLeft,
+ * padRight, lstrip, rstrip, removePrefix, isDigit, isAlpha, isBlank) is a
+ * built-in string method only.
  *
  * === CONTRACT ===
  *  - ENCODING: every Strings operation is BYTE-based, not Unicode-aware. Lengths,
@@ -176,30 +177,6 @@ class Strings {
 	}
 
 	class bool lessThan(string left, string right) { return Strings.compare(left, right) < 0; }
-
-	/* --- Delegates to built-ins --- */
-
-	class string capitalize(string s) { return s.capitalize(); }
-
-	class string title(string s) { return s.title(); }
-
-	class string swapCase(string s) { return s.swapCase(); }
-
-	class string padLeft(string s, int width, char fill) { return s.padLeft(width, fill); }
-
-	class string padRight(string s, int width, char fill) { return s.padRight(width, fill); }
-
-	class string lstrip(string s) { return s.lstrip(); }
-
-	class string rstrip(string s) { return s.rstrip(); }
-
-	class string removePrefix(string s, string prefix) { return s.removePrefix(prefix); }
-
-	class bool isDigitStr(string s) { return s.isDigit(); }
-
-	class bool isAlphaStr(string s) { return s.isAlpha(); }
-
-	class bool isBlank(string s) { return s.isBlank(); }
 
 	/* --- Numeric Conversion --- */
 

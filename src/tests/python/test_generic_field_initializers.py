@@ -11,7 +11,7 @@ from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 SUCCESS_SOURCE = r"""
     #include <assert.h>

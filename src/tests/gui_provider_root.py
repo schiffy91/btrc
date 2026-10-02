@@ -1,11 +1,12 @@
-"""A compiler data root whose GUI package also exports its macOS provider.
+"""A compiler data root whose GUI package also exports its native providers.
 
 Products import ``Library.GUI`` and the portable contracts; the GUI manifest
 exports no provider module beyond the AppKit seam ``Library.Tray`` uses. The
-provider's own conformance fixtures still assert native state through its
-modules (the action queue, view capture, the GPU surface, AppKit readback
-through ``IMacOSView``). They compile against this copy of ``src/``, which
-differs only in that manifest's export list.
+providers' own conformance fixtures still assert native state through their
+modules: on macOS the action queue, view capture, the GPU surface and AppKit
+readback through ``IMacOSView``; on Linux synthetic SDL input and a drawn
+``LinuxNodeView`` whose shutdown stalls. They compile against this copy of
+``src/``, which differs only in that manifest's export list.
 
 ``python -m src.tests.gui_provider_root <root> <compiler arguments>`` runs the
 Python compiler's CLI against such a root, as ``BTRC_HOME`` does for btrcc.
@@ -20,7 +21,9 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class GUIProviderRoot:
-    """Build and use the white-box data root for macOS provider fixtures."""
+    """Build and use the white-box data root for native provider fixtures."""
+
+    PROVIDERS = ("MacOS", "Linux")
 
     @classmethod
     def create(cls, root: Path) -> Path:
@@ -32,9 +35,10 @@ class GUIProviderRoot:
         exported = set(tomllib.loads(text)["package"]["exports"])
         # GUIProvider stays private: fixtures reach the provider through GUI.
         provider = [
-            f"MacOS.{path.stem}"
-            for path in sorted((root / "stdlib/GUI/MacOS").glob("*.btrc"))
-            if path.stem != "GUIProvider" and f"MacOS.{path.stem}" not in exported
+            f"{platform}.{path.stem}"
+            for platform in cls.PROVIDERS
+            for path in sorted((root / "stdlib/GUI" / platform).glob("*.btrc"))
+            if path.stem != "GUIProvider" and f"{platform}.{path.stem}" not in exported
         ]
         assert text.count("exports = [") == 1, "the GUI manifest declares one export list"
         manifest.write_text(

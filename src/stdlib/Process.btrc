@@ -75,7 +75,7 @@ class ShellWords {
 
 	class string quote(string raw) {
 		if (ShellWords.isSafeArg(raw)) { return Strings.copy(raw); }
-		string escaped = Strings.replace(raw, "'", "'\\''");
+		string escaped = raw.replace("'", "'\\''");
 		return "'" + escaped + "'";
 	}
 
@@ -83,25 +83,25 @@ class ShellWords {
 		if (sensitive.isEmpty()) { return text; }
 		string result = Strings.copy(text);
 		string quoted = ShellWords.quote(sensitive);
-		string escaped = Strings.replace(sensitive, "'", "'\\''");
+		string escaped = sensitive.replace("'", "'\\''");
 		string quotedTwice = ShellWords.quote(quoted);
-		string escapedTwice = Strings.replace(escaped, "'", "'\\''");
+		string escapedTwice = escaped.replace("'", "'\\''");
 		/* Shell quoting can split one secret across adjacent quoted and
          * escaped fragments. Redact those rendered forms before the raw form
          * so diagnostics cannot reconstruct a secret from shell syntax. */
 		if (!quotedTwice.equals(quoted)) {
-			result = Strings.replace(result, quotedTwice, "***");
+			result = result.replace(quotedTwice, "***");
 		}
 		if (!escapedTwice.equals(escaped)) {
-			result = Strings.replace(result, escapedTwice, "***");
+			result = result.replace(escapedTwice, "***");
 		}
 		if (!quoted.equals(sensitive)) {
-			result = Strings.replace(result, quoted, "***");
+			result = result.replace(quoted, "***");
 		}
 		if (!escaped.equals(sensitive)) {
-			result = Strings.replace(result, escaped, "***");
+			result = result.replace(escaped, "***");
 		}
-		return Strings.replace(result, sensitive, "***");
+		return result.replace(sensitive, "***");
 	}
 }
 
@@ -262,7 +262,7 @@ class ChildProcessEnvironment {
 	}
 
 	class bool assignmentsShareName(string left, string right) {
-		int split = Strings.find(right, "=", 0);
+		int split = right.find("=", 0);
 		if (split <= 0) { return false; }
 		string name = right.substring(0, split);
 		return ChildProcessEnvironment.assignmentHasName(left, name);
@@ -375,7 +375,7 @@ class ChildProcessExecutable {
 		}
 		for item in environment {
 			if (ChildProcessEnvironment.assignmentHasName(item, "PATH")) {
-				int split = Strings.find(item, "=", 0);
+				int split = item.find("=", 0);
 				result = item.substring(split + 1, item.len() - split - 1);
 			}
 		}
@@ -466,7 +466,7 @@ class ChildProcess {
 			if (item == null) {
 				throw "child environment overrides cannot contain null";
 			}
-			int split = Strings.find(item, "=", 0);
+			int split = item.find("=", 0);
 			if (split <= 0) {
 				throw f"invalid environment assignment: {item}";
 			}

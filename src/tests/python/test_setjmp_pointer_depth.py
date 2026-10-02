@@ -31,7 +31,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_node_origin_facts_accumulate_across_empty_visits_without_aliasing():

@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_ownership_semantics_contract import _compile_reference_source
-from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 MALFORMED_PROTOCOLS = (
     ("getter-arity", "public int get(int first, int second) { return 0; }", "int value = item[0];"),
@@ -48,12 +46,12 @@ def test_ordinary_class_index_protocol_has_runtime_parity(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-ordinary-index")
-    _strict_build_and_run(reference_source, tmp_path / "reference-ordinary-index")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-ordinary-index")
+    strict_build_and_run(reference_source, tmp_path / "reference-ordinary-index")
 
 
 def test_write_only_index_protocol_accepts_direct_setter(
@@ -71,12 +69,12 @@ def test_write_only_index_protocol_accepts_direct_setter(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-write-only-index")
-    _strict_build_and_run(reference_source, tmp_path / "reference-write-only-index")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-write-only-index")
+    strict_build_and_run(reference_source, tmp_path / "reference-write-only-index")
 
 
 @pytest.mark.parametrize(
@@ -92,8 +90,8 @@ def test_malformed_index_protocol_signatures_are_rejected_with_parity(
     operation: str,
 ) -> None:
     source = f"class Item {{ {members} }} int main() {{ Item item = new Item(); {operation} return 0; }}"
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
 
@@ -113,8 +111,8 @@ def test_private_index_protocol_methods_require_owner_access(
     operation: str,
 ) -> None:
     source = f"class Item {{ {member} }} int main() {{ Item item = new Item(); {operation} return 0; }}"
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "private" in selfhost.stderr.lower()
@@ -138,12 +136,12 @@ def test_void_pointer_returns_and_index_getters_are_values(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-void-pointer-index")
-    _strict_build_and_run(reference_source, tmp_path / "reference-void-pointer-index")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-void-pointer-index")
+    strict_build_and_run(reference_source, tmp_path / "reference-void-pointer-index")
 
 
 def test_inferred_generic_class_receiver_remains_indexable(
@@ -166,12 +164,12 @@ def test_inferred_generic_class_receiver_remains_indexable(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-inferred-generic-index")
-    _strict_build_and_run(reference_source, tmp_path / "reference-inferred-generic-index")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-inferred-generic-index")
+    strict_build_and_run(reference_source, tmp_path / "reference-inferred-generic-index")
 
 
 def test_extra_raw_class_indirection_does_not_use_index_protocol(
@@ -190,12 +188,12 @@ def test_extra_raw_class_indirection_does_not_use_index_protocol(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-raw-class-index")
-    _strict_build_and_run(reference_source, tmp_path / "reference-raw-class-index")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-raw-class-index")
+    strict_build_and_run(reference_source, tmp_path / "reference-raw-class-index")
 
 
 @pytest.mark.parametrize(
@@ -218,8 +216,8 @@ def test_write_only_index_protocol_rejects_reads(
             return 0;
         }}
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "indexed getter" in selfhost.stderr
@@ -231,8 +229,8 @@ def test_tuple_dynamic_index_is_rejected_with_compiler_parity(
     tmp_path: Path,
 ) -> None:
     source = "int main() { var pair = (1, 2); return pair[0]; }"
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "index" in selfhost.stderr.lower()
@@ -260,8 +258,8 @@ def test_address_of_managed_protocol_result_projection_is_rejected(
             return 0;
         }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "Unary operator '&'" in selfhost.stderr
@@ -287,8 +285,8 @@ def test_const_protocol_receiver_mutation_is_rejected_with_compiler_parity(
             return 0;
         }}
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "const" in selfhost.stderr.lower()
@@ -308,9 +306,9 @@ def test_explicit_function_address_keeps_function_pointer_type(
             return 0;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-function-address")
-    _strict_build_and_run(reference_source, tmp_path / "reference-function-address")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-function-address")
+    strict_build_and_run(reference_source, tmp_path / "reference-function-address")

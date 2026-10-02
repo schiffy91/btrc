@@ -159,6 +159,19 @@ android-x86_64 = { parity = "missing", implementation = "source-only", owner = "
 
 [[rows]]
 kind = "operation"
+id = "Library.BackgroundJobs.NativeWorker"
+group = "stdlib/BackgroundJobs"
+title = "Joinable pthread worker over a managed body"
+regression = ["src/tests/python/test_background_jobs_runtime.py::test_native_worker_retains_its_body_until_join", "src/tests/python/test_background_jobs_runtime.py::test_background_jobs_sdk_failures_and_retry"]
+windows-x64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthread code is winpthreads-portable but NativeThreads.h binding is os=[linux,macos]; symbols unresolved on windows" }
+windows-arm64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthread code is winpthreads-portable but NativeThreads.h binding is os=[linux,macos]; symbols unresolved on windows" }
+ios-device = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthreads exist on iOS but NativeThreads.h binding is os=[linux,macos]; no ios target or os spelling" }
+ios-simulator = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthreads exist on iOS but NativeThreads.h binding is os=[linux,macos]; no ios target or os spelling" }
+android-arm64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "bionic pthreads suffice but NativeThreads.h binding is os=[linux,macos]; no android target or os spelling" }
+android-x86_64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "bionic pthreads suffice but NativeThreads.h binding is os=[linux,macos]; no android target or os spelling" }
+
+[[rows]]
+kind = "operation"
 id = "Library.BackgroundJobs.HostWorkerPools"
 group = "stdlib/BackgroundJobs"
 title = "Host worker pool provider (forked or inline)"
@@ -397,8 +410,8 @@ id = "Library.FileSystem.ApplicationDirectories"
 group = "stdlib/FileSystem"
 title = "Per-user state/cache/config directories"
 regression = ["src/tests/python/test_application_directories_contract.py::test_application_directory_platform_policies_are_bounded_and_normalized", "src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns APP_DIRECTORY_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns APP_DIRECTORY_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns FS_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns FS_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
 ios-device = { parity = "adapted", implementation = "missing", owner = "I1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; iOS needs NSFileManager Application Support/Caches in the app container" }
 ios-simulator = { parity = "adapted", implementation = "missing", owner = "I1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; iOS needs NSFileManager Application Support/Caches in the app container" }
 android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "only macOS/Linux HOME/XDG policies; Android needs Context.getFilesDir/getCacheDir via JNI" }

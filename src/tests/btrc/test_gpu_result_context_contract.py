@@ -6,12 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 
 DIAGNOSTIC = "is only valid as an array declaration initializer or direct array assignment statement"
 
@@ -151,8 +146,8 @@ def test_volatile_scalar_gpu_parameter_survives_every_generated_signature(
         "int main() { int values[1] = {7}; shift(2, values); return 0; }"
     )
     for result, generated in (
-        _compile_source(semantic_btrcc, tmp_path, source),
-        _compile_reference_source(tmp_path, source),
+        compile_source(semantic_btrcc, tmp_path, source),
+        compile_reference_source(tmp_path, source),
     ):
         assert result.returncode == 0, result.stderr
         emitted = generated.read_text()

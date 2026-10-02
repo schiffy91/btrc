@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 pytestmark = pytest.mark.skipif(
     not HOST_C_COMPILERS,
@@ -71,14 +69,14 @@ def test_owned_mutex_return_is_cleaned_if_local_cleanup_throws(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "mutex-throwing-return-cleanup",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_call_result_is_cleaned_if_owned_argument_cleanup_throws(
@@ -135,14 +133,14 @@ def test_call_result_is_cleaned_if_owned_argument_cleanup_throws(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "mutex-throwing-call-suffix",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_optional_call_result_is_cleaned_if_receiver_cleanup_throws(
@@ -180,11 +178,11 @@ def test_optional_call_result_is_cleaned_if_receiver_cleanup_throws(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "optional-throwing-receiver-cleanup",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)

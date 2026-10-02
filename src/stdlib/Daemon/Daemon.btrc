@@ -66,25 +66,30 @@ class DaemonSpec {
 		return setup + cleanup + capabilities + groups + launch + supervise;
 	}
 
-	/* This renders the controller's local supervisor. Platform service
-     * managers may continue to consume the declarative fields directly. */
-	public string renderStartCommand() {
+	/* This renders the controller's local supervisor for the canonical control
+	 * and log paths its caller prepared; it never rewrites the spec. Platform
+	 * service managers may continue to consume the declarative fields
+	 * directly. A path that is not already canonical, a control record that
+	 * exists, or an unsafe log renders a command that fails with 125. */
+	public string renderStartCommand(string controlFile, string logFile) {
 		if (!DaemonControlPaths.validDaemonName(self.name) || self.command == null || self.command.command == null || self.command.command.isEmpty()) {
 			return "exit 125";
 		}
-		string controlFile = DaemonControlFiles.canonicalFilePath(self.controlFile);
-		string logFile = DaemonControlFiles.canonicalFilePath(self.logFile);
-		if (controlFile.isEmpty() || logFile.isEmpty() || controlFile.equals(logFile) || !DaemonControlFiles.absent(controlFile) || !DaemonControlFiles.safeLogPath(logFile)) {
+		if (controlFile == null || logFile == null || controlFile.isEmpty() || logFile.isEmpty() || controlFile.equals(logFile)) {
 			return "exit 125";
 		}
-		self.controlFile = controlFile;
-		self.logFile = logFile;
+		if (!controlFile.equals(DaemonControlFiles.canonicalFilePath(controlFile)) || !logFile.equals(DaemonControlFiles.canonicalFilePath(logFile))) {
+			return "exit 125";
+		}
+		if (!DaemonControlFiles.absent(controlFile) || !DaemonControlFiles.safeLogPath(logFile)) {
+			return "exit 125";
+		}
 		string token = DaemonControlProtocol.randomToken();
 		if (token.isEmpty()) { return "exit 125"; }
-		string stop = DaemonControlPaths.stop(self.controlFile, token);
-		string probePrefix = DaemonControlPaths.probePrefix(self.controlFile, token);
+		string stop = DaemonControlPaths.stop(controlFile, token);
+		string probePrefix = DaemonControlPaths.probePrefix(controlFile, token);
 		string restart = self.autoRestart ? "1" : "0";
-		return "umask 077; nohup /bin/sh -c " + ShellWords.quote(self.supervisorScript()) + " btrc-daemon-supervisor " + ShellWords.quote(token) + " " + ShellWords.quote(self.command.render()) + " " + ShellWords.quote(self.controlFile) + " " + ShellWords.quote(stop) + " " + ShellWords.quote(probePrefix) + " " + restart + " " + ShellWords.quote(self.workingDirectory) + " </dev/null >> " + ShellWords.quote(self.logFile) + " 2>&1 &";
+		return "umask 077; nohup /bin/sh -c " + ShellWords.quote(self.supervisorScript()) + " btrc-daemon-supervisor " + ShellWords.quote(token) + " " + ShellWords.quote(self.command.render()) + " " + ShellWords.quote(controlFile) + " " + ShellWords.quote(stop) + " " + ShellWords.quote(probePrefix) + " " + restart + " " + ShellWords.quote(self.workingDirectory) + " </dev/null >> " + ShellWords.quote(logFile) + " 2>&1 &";
 	}
 }
 
@@ -105,11 +110,11 @@ class DaemonController {
 		if (!DaemonControlFiles.absent(controlFile)) {
 			return self.result(1, "daemon control record already exists", operation);
 		}
-		if (!DaemonControlFiles.prepareLog(DaemonControlFiles.canonicalFilePath(spec.logFile))) {
+		string logFile = DaemonControlFiles.canonicalFilePath(spec.logFile);
+		if (!DaemonControlFiles.prepareLog(logFile)) {
 			return self.result(125, "unsafe daemon log file", operation);
 		}
-		/* Rendering records the canonical paths in the spec it launched. */
-		ExecResult launched = self.shell.run(spec.renderStartCommand(), logFailure=false, timeoutMilliseconds=3000);
+		ExecResult launched = self.shell.run(spec.renderStartCommand(controlFile, logFile), logFailure=false, timeoutMilliseconds=3000);
 		if (!launched.ok()) {
 			return self.result(launched.code, "failed to launch daemon supervisor", operation);
 		}

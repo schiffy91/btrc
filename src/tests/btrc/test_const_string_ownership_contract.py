@@ -13,8 +13,6 @@ from src.tests.btrc.production_readiness_harness import (
 )
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 FIXTURE = Path(__file__).parents[1] / "basics" / "ConstQualifier.btrc"
 
 

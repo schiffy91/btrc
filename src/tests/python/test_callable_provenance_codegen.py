@@ -39,8 +39,7 @@ from src.compiler.python.syntax.ast.generated import (
     Program,
     TypeExpr,
 )
-from src.tests.python.test_analyzer import analyze
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import analyze, emit_c
 
 STRICT_C_COMPILERS = tuple(
     compiler for compiler in (shutil.which("gcc"), shutil.which("clang")) if compiler is not None

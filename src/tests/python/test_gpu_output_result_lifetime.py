@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import HOST_C_COMPILERS
-from src.tests.python.test_codegen import emit_c
-from src.tests.python.test_gpu_dispatch_failures import _compile_with_gpu_stubs
+from src.tests.python.gpu_stub_fixtures import compile_with_gpu_stubs
+from src.tests.python.reference_pipeline import emit_c
 
 OWNED_PROPERTY_SOURCE = r"""
 #include <assert.h>
@@ -223,7 +223,7 @@ def test_gpu_output_assignment_results_hold_under_strict_c11(
     c_compiler: str,
     source: str,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=False,

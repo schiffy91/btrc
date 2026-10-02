@@ -19,7 +19,7 @@ from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import AssignExpr, Identifier, Program, TypeExpr
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def _assert_value_initializer_promotes_call_result(function: str) -> None:

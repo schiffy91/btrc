@@ -192,7 +192,7 @@ class NativeBuildPlan:
     pkg_config: tuple[str, ...]
     units: tuple[NativeUnit, ...]
     generated_units: tuple[NativeGeneratedUnit, ...] = ()
-    # Schema 3 supplies only a count; schema 4 names the ordered output paths.
+    # Only schema 4 emits secondary units; it names their ordered output paths.
     emitted_units: int = 0
     emitted_paths: tuple[Path, ...] = ()
 

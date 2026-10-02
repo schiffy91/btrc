@@ -9,12 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
@@ -107,7 +102,7 @@ def test_transitive_generic_instances_match_and_run_strictly(
     symbols: tuple[str, ...],
 ) -> None:
     fixture = FIXTURES / fixture_name
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, fixture.read_text())
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, fixture.read_text())
     assert selfhost.returncode == 0, selfhost.stderr
 
     reference, reference_source = _compile_reference(tmp_path, fixture)
@@ -150,8 +145,8 @@ def test_transitive_generic_instances_match_and_run_strictly(
             assert "btrc_Box_int_new(" in constructor_line
             assert "BoxAlias(" not in constructor_line
 
-    _strict_build_and_run(selfhost_source, tmp_path / f"selfhost-{fixture.stem}")
-    _strict_build_and_run(reference_source, tmp_path / f"python-{fixture.stem}")
+    strict_build_and_run(selfhost_source, tmp_path / f"selfhost-{fixture.stem}")
+    strict_build_and_run(reference_source, tmp_path / f"python-{fixture.stem}")
 
 
 def test_typedef_constructor_validates_the_specialized_signature(
@@ -159,7 +154,7 @@ def test_typedef_constructor_validates_the_specialized_signature(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / "GenericTypedefConstructorInvalid.btrc"
-    selfhost, _selfhost_source = _compile_source(semantic_btrcc, tmp_path, fixture.read_text())
+    selfhost, _selfhost_source = compile_source(semantic_btrcc, tmp_path, fixture.read_text())
     reference, _reference_source = _compile_reference(tmp_path, fixture)
 
     assert selfhost.returncode != 0
@@ -200,7 +195,7 @@ def test_unsupported_generic_storage_and_inheritance_fail_with_parity(
     diagnostic: str,
 ) -> None:
     fixture = FIXTURES / fixture_name
-    selfhost, _generated = _compile_source(semantic_btrcc, tmp_path, fixture.read_text())
+    selfhost, _generated = compile_source(semantic_btrcc, tmp_path, fixture.read_text())
     reference, _reference_source = _compile_reference(tmp_path, fixture)
 
     assert selfhost.returncode != 0
@@ -214,7 +209,7 @@ def test_static_properties_fail_closed_with_parity(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / "StaticPropertyUnsupported.btrc"
-    selfhost, _generated = _compile_source(
+    selfhost, _generated = compile_source(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
@@ -231,13 +226,13 @@ def test_generic_method_tuple_and_complex_callee_run_with_parity(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / "GenericMethodTupleRuntime.btrc"
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, fixture.read_text())
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, fixture.read_text())
     reference, reference_source = _compile_reference(tmp_path, fixture)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-tuple")
-    _strict_build_and_run(reference_source, tmp_path / "python-generic-tuple")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-tuple")
+    strict_build_and_run(reference_source, tmp_path / "python-generic-tuple")
 
 
 def test_ordinary_static_calls_from_generic_methods_bind_without_receiver(
@@ -245,7 +240,7 @@ def test_ordinary_static_calls_from_generic_methods_bind_without_receiver(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / "GenericOrdinaryStaticCallRuntime.btrc"
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
@@ -259,8 +254,8 @@ def test_ordinary_static_calls_from_generic_methods_bind_without_receiver(
         assert "Tools_add(1, 4)" in emitted
         assert emitted.count("__btrc_default_Tools_add_2(") >= 2
         assert "Tools_add(Tools" not in emitted
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-static")
-    _strict_build_and_run(reference_source, tmp_path / "python-generic-static")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-generic-static")
+    strict_build_and_run(reference_source, tmp_path / "python-generic-static")
 
 
 def test_generic_method_return_infers_from_inline_lambda_with_parity(
@@ -268,7 +263,7 @@ def test_generic_method_return_infers_from_inline_lambda_with_parity(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / "GenericMethodInlineLambdaRuntime.btrc"
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
@@ -277,11 +272,11 @@ def test_generic_method_return_infers_from_inline_lambda_with_parity(
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_source,
         tmp_path / "selfhost-generic-inline-lambda",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_source,
         tmp_path / "python-generic-inline-lambda",
     )
@@ -307,7 +302,7 @@ def test_unlowered_generic_callable_forms_fail_with_parity(
     diagnostic: str,
 ) -> None:
     fixture = FIXTURES / fixture_name
-    selfhost, _selfhost_source = _compile_source(semantic_btrcc, tmp_path, fixture.read_text())
+    selfhost, _selfhost_source = compile_source(semantic_btrcc, tmp_path, fixture.read_text())
     reference, _reference_source = _compile_reference(tmp_path, fixture)
 
     assert selfhost.returncode != 0

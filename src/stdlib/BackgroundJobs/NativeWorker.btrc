@@ -1,0 +1,111 @@
+/* btrc standard library — one joinable native thread over a managed body.
+ *
+ * NativeWorker is the single owner of the pthread start/join envelope that the
+ * background-job executor and native device providers share. start() retains
+ * the worker, and through its field the body, in a calloc'd context for the
+ * whole life of the thread, so no thread can outlive the object it runs;
+ * join() releases that context and drops the body. A started worker is
+ * therefore never destroyed before it is joined; an owner that drops it
+ * unjoined leaks the thread rather than freeing what it runs. The thread
+ * enters BTRC only through the runtime's foreign-thread boundary, so an
+ * exception or cleanup failure in the body becomes a failed worker instead of
+ * crossing the C ABI. A worker starts at most once and belongs to its owner
+ * thread.
+ */
+
+/* The managed work one native thread runs. workLoop returns 0 on success;
+ * anything else, or an escaping exception, marks the worker failed. */
+interface INativeWorkerBody {
+	int workLoop();
+}
+
+enum NativeWorkerStartKind {
+	NATIVE_WORKER_STARTED = 0,
+	NATIVE_WORKER_START_INVALID = 1,
+	NATIVE_WORKER_START_OUT_OF_MEMORY = 2,
+	NATIVE_WORKER_START_THREAD_FAILED = 3
+};
+
+/* The thread's only handle on BTRC state: one retained worker. */
+struct NativeWorkerContext {
+	NativeWorker worker;
+};
+
+int nativeWorkerRun(void* raw) {
+	struct NativeWorkerContext* context = (struct NativeWorkerContext*)raw;
+	NativeWorker worker = context->worker;
+	return worker.runBody();
+}
+
+void* nativeWorkerEntry(void* raw) {
+	int result = 1;
+	if (__btrc_native_thread_invoke(nativeWorkerRun, raw, &result) != 0) { return raw; }
+	return result == 0 ? null : raw;
+}
+
+class NativeWorker {
+	private INativeWorkerBody? _body = null;
+	private struct NativeWorkerContext* _context = null;
+	private pthread_t _handle;
+	private bool _started = false;
+	private bool _joined = false;
+	private bool _failed = false;
+
+	public NativeWorker() { self._handle = (pthread_t)0; }
+
+	/* Starts the thread running body.workLoop(). Anything but STARTED leaves
+	 * nothing retained and the worker unstarted. */
+	public NativeWorkerStartKind start(INativeWorkerBody body) {
+		if (body == null || self._started) { return NATIVE_WORKER_START_INVALID; }
+		var context = (struct NativeWorkerContext*)calloc(1, sizeof(struct NativeWorkerContext));
+		if (context == null) { return NATIVE_WORKER_START_OUT_OF_MEMORY; }
+		NativeWorker owner = self;
+		keep owner;
+		context->worker = owner;
+		self._body = body;
+		self._context = context;
+		pthread_t handle = (pthread_t)0;
+		if (pthread_create(&handle, null, nativeWorkerEntry, context) != 0) {
+			self.releaseContext();
+			return NATIVE_WORKER_START_THREAD_FAILED;
+		}
+		self._handle = handle;
+		self._started = true;
+		return NATIVE_WORKER_STARTED;
+	}
+
+	/* Internal: the thread entry's hook, called on the worker thread only
+	 * through nativeWorkerEntry. Owners never call it. */
+	public int runBody() {
+		INativeWorkerBody? body = self._body;
+		if (body == null) { return 1; }
+		return body.workLoop();
+	}
+
+	/* Joins a started thread once and releases its context. False means the
+	 * join itself failed: the thread and everything it retains stay live for
+	 * a retry. An unstarted or already joined worker joins trivially. */
+	public bool join() {
+		if (!self._started || self._joined) { return true; }
+		void* result = null;
+		if (pthread_join(self._handle, &result) != 0) { return false; }
+		self._joined = true;
+		self._failed = result != null;
+		self.releaseContext();
+		return true;
+	}
+
+	public bool running() { return self._started && !self._joined; }
+
+	public bool workerFailed() { return self._failed; }
+
+	private void releaseContext() {
+		self._body = null;
+		var context = self._context;
+		self._context = null;
+		if (context != null) {
+			release context->worker;
+			free(context);
+		}
+	}
+}

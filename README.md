@@ -310,8 +310,8 @@ public void bind(AlbumCellView cell, bool opensSection, AlbumLibraryNativeLayout
 The cell's controls are created once (`GUI.createPanel`, `GUI.createImageView`,
 `GUI.createLabel`) and live in the card for the life of the grid; the same
 source produces the AppKit screen on macOS and the drawn screen above on Linux.
-[`examples/gui`](examples/gui/) holds the portable native example and a font
-smoke test, and [`examples/tray`](examples/tray/) puts an app in the system tray.
+[`examples/gui`](examples/gui/) holds the portable native example, and
+[`examples/tray`](examples/tray/) puts an app in the system tray.
 
 ### Wrapping a C library
 
@@ -1191,9 +1191,8 @@ Also available: `.toLower()`, `.capitalize()`, `.title()`, `.swapCase()`,
 `.removeSuffix()`, `.padLeft()`, `.padRight()`, `.center()`, `.charAt()`,
 `.charLen()`, `.byteLen()`, `.length()`, `.lastIndexOf()`, `.endsWith()`,
 `.count()`, `.find()`, `.isEmpty()`, `.equals()`, `.split()`, `.isDigit()`,
-`.isAlpha()`, `.isAlnum()`, `.isDigitStr()`, `.isAlphaStr()`, `.isAlnumStr()`,
-`.isUpper()`, `.isLower()`, `.isBlank()`, `.toInt()`, `.toFloat()`,
-`.toDouble()`, `.toLong()`, `.toBool()`.
+`.isAlpha()`, `.isAlnum()`, `.isUpper()`, `.isLower()`, `.isBlank()`,
+`.toInt()`, `.toFloat()`, `.toDouble()`, `.toLong()`, `.toBool()`.
 
 String ownership across call boundaries is specified in
 [docs/design/string-lifetime.md](docs/design/string-lifetime.md).
@@ -1635,12 +1634,13 @@ Console.fatal("unrecoverable");    // stderr + exit
 
 ```btrc
 import Library.FileSystem.ApplicationDirectories;
+import Library.FileSystem.FileSystemHandles;
 
-ApplicationDirectoryRootsOutcome resolved = ApplicationDirectories.resolveStandard();
+FileSystemOutcome<ApplicationDirectoryRoots> resolved = ApplicationDirectories.resolveStandard();
 if (resolved.ok()) {
-	string state = resolved.roots().stateRoot();
-	string cache = resolved.roots().cacheRoot();
-	string config = resolved.roots().configRoot();
+	string state = resolved.value().stateRoot();
+	string cache = resolved.value().cacheRoot();
+	string config = resolved.value().configRoot();
 }
 ```
 
@@ -1888,7 +1888,7 @@ examples/
   callback/                    # Owned callback closures over raw C contexts
   realtime-primitives/         # Standalone @realtime raw-buffer kernel
   todo/                        # Todo board -- classes, generics, collections
-  gui/                         # Portable native GUI (Native.btrc), font smoke test
+  gui/                         # Portable native GUI (Native.btrc)
   tray/                        # System tray application
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
     engine/                    # Camera, Light, Material, Ground, Sky, Scene,
@@ -1952,7 +1952,7 @@ make extension-install      # Install VS Code extension (dev)
 make examples               # Build and run the example set (callback, realtime-primitives,
                             #   todo, gui, game, triangle, sgd, sgd-render)
 make examples-todo          # Also examples-game, examples-triangle, examples-sgd
-make examples-gui           # Build + run the headless GUI example
+make examples-gui           # Build the portable native GUI example
 make examples-native-package TARGET=linux-x64   # Build the recursive native package
 make gpu                    # Build the headless @gpu compute runtime (skips if WebGPU is missing)
 make gpu-required           # Require WebGPU compute dependencies and build runtime

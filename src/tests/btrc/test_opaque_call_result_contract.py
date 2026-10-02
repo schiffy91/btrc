@@ -5,20 +5,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 def _compile_success_pair(semantic_btrcc: Path, tmp_path: Path, source: str):
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     return selfhost_c, reference_c
@@ -59,7 +52,7 @@ def test_fchmod_exact_abi_types_ordered_nonvolatile_result_in_both_frontends(
         emitted = generated.read_text()
         assert result.search(emitted)
         assert not volatile_result.search(emitted)
-        _strict_build_and_run(generated, tmp_path / f"exact-fchmod-{index}")
+        strict_build_and_run(generated, tmp_path / f"exact-fchmod-{index}")
 
 
 def test_fchmod_result_without_suffix_cleanup_stays_nonvolatile_inside_try(
@@ -101,7 +94,7 @@ def test_fchmod_result_without_suffix_cleanup_stays_nonvolatile_inside_try(
         emitted = generated.read_text()
         assert result.search(emitted)
         assert not volatile_result.search(emitted)
-        _strict_build_and_run(generated, tmp_path / f"try-fchmod-{index}", optimization="-O2")
+        strict_build_and_run(generated, tmp_path / f"try-fchmod-{index}", optimization="-O2")
 
 
 def test_result_storage_preserves_throwing_suffix_and_owned_result_cleanup(
@@ -158,7 +151,7 @@ def test_result_storage_preserves_throwing_suffix_and_owned_result_cleanup(
         assert scalar.search(emitted)
         assert managed.search(emitted)
         for optimization in ("-O2", "-O3"):
-            _strict_build_and_run(
+            strict_build_and_run(
                 generated, tmp_path / f"cleanup-results-{index}{optimization}", optimization=optimization
             )
 
@@ -191,7 +184,7 @@ def test_opaque_wide_result_keeps_native_c_type_in_both_frontends(
         assert "double elapsed =" in emitted
         assert "difftime(" in emitted
         assert not invented_result.search(emitted)
-        _strict_build_and_run(generated, tmp_path / f"opaque-wide-result-{index}")
+        strict_build_and_run(generated, tmp_path / f"opaque-wide-result-{index}")
 
 
 def test_builtin_print_owned_argument_has_typed_void_result_in_both_frontends(
@@ -209,7 +202,7 @@ def test_builtin_print_owned_argument_has_typed_void_result_in_both_frontends(
         }
     """
     for index, generated in enumerate(_compile_success_pair(semantic_btrcc, tmp_path, source)):
-        _strict_build_and_run(generated, tmp_path / f"typed-print-result-{index}")
+        strict_build_and_run(generated, tmp_path / f"typed-print-result-{index}")
 
 
 def test_opaque_result_cleanup_reports_call_site_in_both_frontends(
@@ -231,8 +224,8 @@ int main() {{
     return result ? 0 : 1;
 }}
 """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     diagnostic = (
         "opaque C call result at 8:24 cannot cross an ownership cleanup boundary; "
         "provide a typed declaration or exact hosted ABI contract"

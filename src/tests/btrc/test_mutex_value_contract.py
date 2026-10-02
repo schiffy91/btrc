@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import (
+    build_and_run_strict,
+    compile_reference_snippet,
+    compile_snippet_pair,
+    strict_c11_matrix,
+)
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
-REPO = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
 ABI_RUNTIME = FIXTURES / "MutexValueAbiRuntime.btrc"
 MANAGED_RUNTIME = FIXTURES / "MutexManagedOwnershipRuntime.btrc"
@@ -31,109 +33,6 @@ pytestmark = pytest.mark.skipif(
     not HOST_C_COMPILERS,
     reason="requires a pthread C11 compiler",
 )
-
-
-def _compile_reference(tmp_path: Path, source: str, name: str):
-    program = tmp_path / f"{name}.btrc"
-    generated = tmp_path / f"{name}.reference.c"
-    program.write_text(source)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "src.compiler.python.main",
-            str(program),
-            "--no-stdlib",
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
-        cwd=REPO,
-        env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")},
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    return result, generated
-
-
-def _compile_pair(semantic_btrcc, tmp_path, source, name):
-    selfhost, selfhost_c = _compile_source(
-        semantic_btrcc,
-        tmp_path,
-        source,
-    )
-    reference, reference_c = _compile_reference(
-        tmp_path,
-        source,
-        name,
-    )
-    assert selfhost.returncode == 0, selfhost.stderr
-    assert reference.returncode == 0, reference.stderr
-    return ("selfhost", selfhost_c), ("reference", reference_c)
-
-
-def _build_and_run(generated, output, compiler, extra_flags=()):
-    environment = None
-    if sys.platform == "darwin" and os.path.realpath(compiler) == "/usr/bin/clang":
-        environment = {
-            name: os.environ[name]
-            for name in (
-                "HOME",
-                "USER",
-                "LOGNAME",
-                "LANG",
-                "LC_ALL",
-                "LC_CTYPE",
-            )
-            if name in os.environ
-        }
-        environment.update(
-            {
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "TMPDIR": "/tmp",
-            }
-        )
-    build = subprocess.run(
-        [
-            compiler,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O1" if extra_flags else "-O2",
-            *extra_flags,
-            str(generated),
-            "-pthread",
-            "-lm",
-            "-o",
-            str(output),
-        ],
-        cwd=REPO,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=90,
-    )
-    assert build.returncode == 0, build.stderr
-    run_environment = dict(os.environ if environment is None else environment)
-    run_environment["TSAN_OPTIONS"] = "halt_on_error=1"
-    run = subprocess.run(
-        [str(output)],
-        cwd=REPO,
-        env=run_environment,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert run.returncode == 0, run.stderr
-
-
-def _strict_matrix(compiled, tmp_path):
-    for compiler in HOST_C_COMPILERS:
-        output = tmp_path / f"{compiled[0]}-{Path(compiler).name}"
-        _build_and_run(compiled[1], output, compiler)
 
 
 @pytest.mark.parametrize(
@@ -152,21 +51,21 @@ def test_mutex_contracts_have_strict_compiler_parity(
     fixture: Path,
     name: str,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
         name,
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_managed_mutex_callbacks_are_strict_aliasing_clean(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         MANAGED_RUNTIME.read_text(),
@@ -175,7 +74,7 @@ def test_managed_mutex_callbacks_are_strict_aliasing_clean(
     for compiler_name, generated in compiled:
         for compiler in HOST_C_COMPILERS:
             output = tmp_path / f"{compiler_name}-{Path(compiler).name}-strict-aliasing"
-            _build_and_run(
+            build_and_run_strict(
                 generated,
                 output,
                 compiler,
@@ -199,7 +98,7 @@ def test_mutex_contracts_are_sanitizer_clean(
     name: str,
 ) -> None:
     require_sanitizers(tmp_path)
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
@@ -221,7 +120,7 @@ def test_mutex_concurrent_snapshots_are_thread_sanitizer_clean(
     )
     if clang is None:
         pytest.skip("ThreadSanitizer requires clang")
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         CONCURRENT_RUNTIME.read_text(),
@@ -229,7 +128,7 @@ def test_mutex_concurrent_snapshots_are_thread_sanitizer_clean(
     )
     try:
         for compiler_name, generated in compiled:
-            _build_and_run(
+            build_and_run_strict(
                 generated,
                 tmp_path / f"{compiler_name}-tsan",
                 clang,
@@ -261,8 +160,8 @@ def test_mutex_construction_is_fail_closed(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(
         tmp_path,
         source,
         "mutex-invalid-construction",

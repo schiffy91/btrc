@@ -10,12 +10,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 
 
 def _hosted_alias_source(*, generic: bool) -> str:
@@ -89,8 +84,8 @@ def test_hosted_return_alias_pins_managed_backing(
     reference_dir = tmp_path / "reference"
     self_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, self_dir, source)
-    reference, reference_c = _compile_reference_source(reference_dir, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, self_dir, source)
+    reference, reference_c = compile_reference_source(reference_dir, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     toolchain = require_sanitizers(tmp_path)
@@ -152,8 +147,8 @@ def test_nonportable_pointer_integer_casts_are_rejected(
     reference_dir = tmp_path / "reference"
     self_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, _ = _compile_source(semantic_btrcc, self_dir, source)
-    reference, _ = _compile_reference_source(reference_dir, source)
+    selfhost, _ = compile_source(semantic_btrcc, self_dir, source)
+    reference, _ = compile_reference_source(reference_dir, source)
     message = "Pointer/integer casts require intptr_t or uintptr_t"
     assert selfhost.returncode != 0
     assert reference.returncode != 0

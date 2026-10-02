@@ -34,13 +34,11 @@ reclaim every unclaimed work item before returning. An action exception is
 normalized to `BACKGROUND_JOB_FAILED` before it can cross the C ABI; actions
 must eventually return after cancellation.
 
-Queueing, cancellation, completion publication and worker ownership live in
+Queueing, cancellation and completion publication live in
 `BackgroundJobExecutor.btrc`; `BackgroundJobs.btrc` is the group facade, which
 also re-exports the worker-pool contracts. The package imports pthread
-declarations through `BackgroundJobs/NativeThreads.h`; it does not link a separate background-jobs C
-runtime. The worker entrypoint still uses an explicit native context and the
-runtime's foreign-thread boundary. That boundary has not yet migrated to the
-checked callback-binding contract.
+declarations through `BackgroundJobs/NativeThreads.h`; it does not link a
+separate background-jobs C runtime.
 
 `close()` currently blocks while joining workers. It is not a nonblocking UI
 shutdown primitive: moving an uninterruptible native call onto a worker does
@@ -50,6 +48,28 @@ do not drop its owner or report completion on failure. A worker-disposal error
 is reported separately after resources have been reclaimed. Application owners
 must preserve that error rather than treating a later `ALREADY_CLOSED` result
 as successful shutdown.
+
+## Native worker threads: `Library.BackgroundJobs.NativeWorker`
+
+`NativeWorker` is the one owner of a joinable native thread that runs managed
+code, shared by `BackgroundJobExecutor` (one per worker) and the Linux ALSA
+stream. `start(body)` runs `body.workLoop()` (an `INativeWorkerBody`) on a new
+pthread and returns a `NativeWorkerStartKind`: `STARTED`, `START_INVALID` for
+a null body or a second start, `START_OUT_OF_MEMORY` or
+`START_THREAD_FAILED`; only `STARTED` retains anything. While the thread lives, a calloc'd context retains the
+worker and through it the body, so no thread outlives what it runs.
+`join()` joins once, releases that context and drops the body; it returns
+false only when the join itself failed, leaving everything live for a retry,
+and an unstarted or joined worker joins trivially. `running()` is true between
+a successful start and join, and `workerFailed()` reports a nonzero
+`workLoop()` result or an exception. The thread enters BTRC only through the
+runtime's foreign-thread boundary, so an exception or cleanup failure becomes
+a failed worker instead of crossing the C ABI. That boundary has not yet
+migrated to the checked callback-binding contract. A worker starts at most
+once; its owner thread alone calls `start`, `join`, `running` and
+`workerFailed` (a caller rule, not checked), and `runBody` is the thread
+entry's internal hook, never called directly. One that is dropped unjoined
+leaks its thread rather than freeing what the thread runs.
 
 ## Worker pools: `Library.BackgroundJobs.WorkerPools` and `HostWorkerPools`
 

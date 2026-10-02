@@ -14,51 +14,10 @@ from src.compiler.python.ir.nodes import IRBinOp, IRCast, IRNode
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.c11_runtime_sources import NUMERIC_COMPARISON_RUNTIME
+from src.tests.python.reference_pipeline import emit_c
 
 COMPARISON_OPERATORS = {"==", "!=", "<", ">", "<=", ">="}
-
-RUNTIME_SOURCE = r"""
-#include <assert.h>
-
-enum Rank { Low, High };
-
-bool compareUnsignedInt(unsigned int value, int same, int lower) {
-    return value == 42 && 42 == value
-        && value != 41 && 41 != value
-        && value == same && same == value
-        && value != lower && lower != value
-        && value > 41 && 41 < value
-        && value >= 42 && 42 <= value
-        && value > lower && lower < value
-        && value >= same && same <= value;
-}
-
-bool compareUnsignedLongLong(
-        unsigned long long value, long long same, long long lower) {
-    return value == 42 && 42 == value
-        && value != 41 && 41 != value
-        && value == same && same == value
-        && value != lower && lower != value
-        && value > 41 && 41 < value
-        && value >= 42 && 42 <= value
-        && value > lower && lower < value
-        && value >= same && same <= value;
-}
-
-bool compareSameTypes(size_t left, size_t right, Rank low, Rank high) {
-    return left == right && low < high;
-}
-
-int main() {
-    assert(compareUnsignedInt(42u, 42, 41));
-    assert(compareUnsignedLongLong(42ULL, 42LL, 41LL));
-    size_t amount = 7;
-    assert(compareSameTypes(amount, amount, Low, High));
-    print("PASS: numeric comparison C11");
-    return 0;
-}
-"""
 
 
 def _analyze(source: str):
@@ -129,7 +88,7 @@ def test_mixed_comparison_runtime_is_warning_free_c11(
 ):
     source = tmp_path / f"comparison-{Path(c_compiler).name}.c"
     executable = source.with_suffix("")
-    source.write_text(emit_c(RUNTIME_SOURCE))
+    source.write_text(emit_c(NUMERIC_COMPARISON_RUNTIME))
     compiled = subprocess.run(
         [
             c_compiler,

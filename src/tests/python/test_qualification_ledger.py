@@ -1154,9 +1154,9 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
         SubjectKind.FAMILY_CELL: 300,
         SubjectKind.UI_OPERATION: 1620,
         SubjectKind.UI_CASE: 470,
-        SubjectKind.OPERATION: 1938,
+        SubjectKind.OPERATION: 1944,
     }
-    assert sum(row["slots"] for row in evidence if row["kind"] == "operation") == 1938
+    assert sum(row["slots"] for row in evidence if row["kind"] == "operation") == 1944
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-operation") == 1620
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-case") == 470
     assert sum(row["slots"] for row in evidence if row["kind"] == "family-cell") == 300
@@ -1197,7 +1197,7 @@ def test_the_tracked_denominators_match_their_sources():
         "family-cell": (60, 300),
         "ui-operation": (162, 1620),
         "ui-case": (47, 470),
-        "operation": (323, 1938),
+        "operation": (324, 1944),
     }
     ids = manifest.by_kind()[SubjectKind.UI_CASE].ids
     assert (ids[0], ids[-1], len(set(ids))) == ("E01", "E47", 47)

@@ -4,16 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 _ITEM = """
     class Item {
@@ -35,8 +27,8 @@ def _assert_rejected_by_both(
     tmp_path: Path,
     source: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "Borrowed managed" in selfhost.stderr
@@ -83,22 +75,22 @@ def test_parameter_and_capture_follow_own_physical_projection(
             return 0;
         }}
     """
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_source = _compile_reference_source(
+    reference, reference_source = compile_ownership_reference(
         tmp_path,
         source,
     )
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_source,
         tmp_path / "selfhost-borrowed-projection",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_source,
         tmp_path / "reference-borrowed-projection",
     )

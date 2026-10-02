@@ -18,6 +18,7 @@ from src.tests.python.native_import_fixtures import (
 from src.tests.python.native_import_fixtures import (
     resource_project as resource_project,
 )
+from src.tests.python.native_import_fixtures import unique_project as unique_project
 from tools.native_plan import NativePlanBuilder
 
 
@@ -206,27 +207,6 @@ def test_unique_copied_length_cannot_destroy_its_owner(copied_project, native_co
     assert "copied-results length-function requires a selected non-consuming C function" in str(compiled.failure) + str(
         compiled.diagnostics
     )
-
-
-@pytest.fixture
-def unique_project(resource_project):
-    source, sdk, triple = resource_project
-    root = source.parent.parent
-    manifest = root / "btrc.toml"
-    manifest.write_text(
-        manifest.read_text()
-        .replace('ownership = "reference-counted"', 'ownership = "unique"')
-        .replace('retain = "WidgetRetain"\n', "")
-        .replace('"WidgetRetain", ', "")
-    )
-    header = root / "Foundation.h"
-    header.write_text(
-        header.read_text().replace(
-            "assert(widget && widget->references > 0);\n if (--widget->references == 0)",
-            "assert(widget && widget->references == 1);\n if (--widget->references == 0)",
-        )
-    )
-    return source, sdk, triple
 
 
 @pytest.mark.parametrize("sanitize", [False, True])

@@ -9,7 +9,8 @@ import pytest
 
 from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import C_COMPILE_TIMEOUT
-from src.tests.python.test_arc_ownership_contracts import _asan_environment, _emit, _find_asan_compiler
+from src.tests.python.asan_toolchain import asan_environment, find_asan_compiler
+from src.tests.python.reference_pipeline import emit_ownership_c
 
 GENERIC_LOCAL_SOURCE = r"""
     #include <assert.h>
@@ -266,7 +267,7 @@ def _compile(
 ) -> Path:
     source = tmp_path / f"generic-arc-{Path(compiler).name}.c"
     executable = source.with_suffix("")
-    source.write_text(_emit(GENERIC_LOCAL_SOURCE))
+    source.write_text(emit_ownership_c(GENERIC_LOCAL_SOURCE))
     result = subprocess.run(
         [
             compiler,
@@ -308,8 +309,8 @@ def test_generic_local_arc_is_balanced(tmp_path: Path, c_compiler: str):
 
 @pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires AddressSanitizer")
 def test_generic_local_arc_is_asan_clean(tmp_path: Path):
-    compiler = _find_asan_compiler(tmp_path)
-    environment = _asan_environment(compiler)
+    compiler = find_asan_compiler(tmp_path)
+    environment = asan_environment(compiler)
     executable = _compile(
         tmp_path,
         compiler,

@@ -6,16 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_mutex_value_contract import (
-    _compile_pair,
-    _strict_matrix,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 RUNTIME_CASES = (
@@ -42,7 +37,7 @@ def _compile_case(
     fixture_name: str,
 ) -> tuple[tuple[str, Path], ...]:
     fixture = FIXTURES / fixture_name
-    return _compile_pair(
+    return compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
@@ -57,7 +52,7 @@ def test_arc_lifecycle_state_has_strict_dual_compiler_parity(
     fixture_name: str,
 ) -> None:
     for artifact in _compile_case(semantic_btrcc, tmp_path, fixture_name):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 @pytest.mark.parametrize("fixture_name", SANITIZER_CASES)

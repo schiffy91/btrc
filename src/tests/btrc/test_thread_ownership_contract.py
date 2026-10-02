@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
-from src.tests.btrc.test_thread_result_abi import _compile_pair, _compile_reference
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_reference_snippet, compile_snippet_pair
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 @pytest.mark.parametrize(
@@ -199,8 +197,8 @@ def test_thread_owner_shapes_are_fail_closed(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(
         tmp_path,
         source,
         "thread-owner-diagnostic",
@@ -235,10 +233,10 @@ def test_fixed_scalar_array_thread_result_remains_supported(
                     && captured == 7 ? 0 : 1;
         }
     """
-    for name, generated in _compile_pair(
+    for name, generated in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "thread-fixed-array-result",
     ):
-        _strict_build_and_run(generated, tmp_path / f"thread-fixed-array-{name}")
+        strict_build_and_run(generated, tmp_path / f"thread-fixed-array-{name}")

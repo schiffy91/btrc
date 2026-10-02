@@ -1,13 +1,14 @@
 #ifndef BACKGROUND_JOB_PROBE_H
 #define BACKGROUND_JOB_PROBE_H
 
-enum {
+typedef enum JobProbeBehavior {
     JOB_PROBE_COMPLETE = 0,
     JOB_PROBE_HOLD = 1,
     JOB_PROBE_CANCEL = 2,
     JOB_PROBE_FAIL = 3,
     JOB_PROBE_THROW = 4,
-};
+    JOB_PROBE_CLEANUP_THROW = 5,
+} JobProbeBehavior;
 
 void job_probe_reset(void);
 void job_probe_release(void);

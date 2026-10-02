@@ -7,14 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
+from src.tests.btrc.dual_frontend_harness import strict_compile_and_run
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 
 DEAD_MODULE_SOURCE = """
     int abandonedState = 41;
@@ -53,49 +48,15 @@ def _compile_pair(
     tmp_path: Path,
     source: str,
 ) -> tuple[Path, Path]:
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    reference, reference_source = compile_reference_source(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     return selfhost_source, reference_source
-
-
-def _strict_build_and_run(
-    source: Path,
-    output: Path,
-    c_compiler: str,
-) -> None:
-    build = subprocess.run(
-        [
-            c_compiler,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O2",
-            str(source),
-            "-lm",
-            "-lpthread",
-            "-o",
-            str(output),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert build.returncode == 0, build.stderr
-    run = subprocess.run(
-        [str(output)],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    assert run.returncode == 0, run.stderr
 
 
 def _strict_compile(source: Path, output: Path, c_compiler: str) -> None:
@@ -136,7 +97,7 @@ def test_dead_module_globals_are_pruned_strictly(
         emitted = source.read_text()
         assert "abandonedState" not in emitted
         assert "abandonedFunction" not in emitted
-        _strict_build_and_run(
+        strict_compile_and_run(
             source,
             tmp_path / f"dead-{index}-{Path(c_compiler).name}",
             c_compiler,
@@ -197,7 +158,7 @@ def test_live_global_roots_and_external_linkage_are_preserved(
         assert "signalState" not in emitted
         assert "int exportedState = 7;" in emitted
         assert "static int exportedState" not in emitted
-        _strict_build_and_run(
+        strict_compile_and_run(
             source,
             tmp_path / f"live-{index}-{Path(c_compiler).name}",
             c_compiler,

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 REPO = Path(__file__).resolve().parents[3]
 ANALYZER = REPO / "src/compiler/btrc/analyzer/Expressions.btrc"
@@ -195,7 +195,7 @@ def test_shared_generic_ast_is_reinferred_for_each_type_mapping(
             return number == 42 && strcmp(word, "mapped") == 0 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "generic-cache-epochs")
+    strict_build_and_run(generated, tmp_path / "generic-cache-epochs")

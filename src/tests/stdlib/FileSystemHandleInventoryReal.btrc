@@ -6,18 +6,18 @@ import Library.FileSystem.FileSystemHandles;
 int main() {
 	FileSystemHandleInventory initial = FileSystem.ownedHandleInventory();
 
-	TemporaryDirectoryOpenOutcome temporary = FileSystem.createTemporaryDirectory("btrc-handle-inventory");
+	FileSystemOutcome<TemporaryDirectory> temporary = FileSystem.createTemporaryDirectory("btrc-handle-inventory");
 	assert(temporary.ok());
-	TemporaryDirectory root = temporary.directory();
+	TemporaryDirectory root = temporary.value();
 	FileSystemHandleInventory withTemporary = FileSystem.ownedHandleInventory();
 	assert(withTemporary.openCount() == initial.openCount() + 1);
 	assert(FileSystem.writeText(root.path() + "/value.bin", "value"));
 
-	FileOpenOutcome fileOpen = FileSystem.openFileExact(root.path() + "/value.bin");
-	DirectoryOpenOutcome directoryOpen = FileSystem.openDirectoryExact(root.path());
+	FileSystemOutcome<FileHandle> fileOpen = FileSystem.openFileExact(root.path() + "/value.bin");
+	FileSystemOutcome<DirectoryHandle> directoryOpen = FileSystem.openDirectoryExact(root.path());
 	assert(fileOpen.ok() && directoryOpen.ok());
-	FileHandle file = fileOpen.file();
-	DirectoryHandle directory = directoryOpen.directory();
+	FileHandle file = fileOpen.value();
+	DirectoryHandle directory = directoryOpen.value();
 	FileSystemHandleInventory withExactHandles = FileSystem.ownedHandleInventory();
 	assert(withExactHandles.openCount() == initial.openCount() + 3);
 	assert(withTemporary.openCount() == initial.openCount() + 1);
@@ -30,20 +30,20 @@ int main() {
 	assert(FileSystem.ownedHandleInventory().sameAs(withTemporary));
 
 	/* A private directory and its exclusive lease each count once. */
-	PrivateDirectoryOpenOutcome privateOpen = FileSystem.openPrivateDirectory(root.path() + "/private");
+	FileSystemOutcome<PrivateDirectory> privateOpen = FileSystem.openPrivateDirectory(root.path() + "/private");
 	assert(privateOpen.ok());
-	PrivateDirectory privateDirectory = privateOpen.directory();
+	PrivateDirectory privateDirectory = privateOpen.value();
 	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 2);
-	ExclusiveFileLeaseOpenOutcome leaseOpen = privateDirectory.acquireExclusiveLease("state.lock");
+	FileSystemOutcome<ExclusiveFileLease> leaseOpen = privateDirectory.acquireExclusiveLease("state.lock");
 	assert(leaseOpen.ok());
-	ExclusiveFileLease lease = leaseOpen.lease();
+	ExclusiveFileLease lease = leaseOpen.value();
 	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 3);
 	assert(lease.close().ok());
 	assert(lease.close().kind() == FS_ALREADY_CLOSED);
 	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 2);
 	assert(privateDirectory.close().ok());
 	assert(FileSystem.ownedHandleInventory().sameAs(withTemporary));
-	PrivateDirectoryOpenOutcome closedChild = privateDirectory.openChildDirectory("child");
+	FileSystemOutcome<PrivateDirectory> closedChild = privateDirectory.openChildDirectory("child");
 	assert(!closedChild.ok());
 	assert(closedChild.error().kind() == FS_CLOSED);
 	assert(FileSystem.removeRecursive(root.path() + "/private") == 0);

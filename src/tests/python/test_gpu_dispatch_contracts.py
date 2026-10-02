@@ -13,8 +13,8 @@ from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
-from src.tests.python.test_codegen import emit_c
-from src.tests.python.test_gpu_dispatch_failures import _compile_with_gpu_stubs
+from src.tests.python.gpu_stub_fixtures import compile_with_gpu_stubs
+from src.tests.python.reference_pipeline import emit_c
 
 GPU_INCLUDE = Path(__file__).resolve().parents[2] / "runtime" / "gpu"
 GPU_UNAVAILABLE_STUB = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "gpu_unavailable_stub.c"
@@ -38,7 +38,7 @@ def test_output_capacity_mismatch_fails_before_dispatch(
     c_compiler: str,
     available: bool,
 ) -> None:
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         "@gpu\nint[] dbl(int[] xs) { int i = gpu_id(); return xs[i] * 2; }\n"
         "int main() { int[] xs = {1, 2}; int out[1]; "
@@ -69,7 +69,7 @@ def test_named_gpu_arguments_and_defaults_follow_parameter_order(
     generated = emit_c(source)
     assert "sizeof(xs) / sizeof(xs[0])" in generated
     assert not re.search(r"sizeof\(__btrc_call_operand_\d+\)", generated)
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=False,
@@ -209,7 +209,7 @@ def test_zero_length_collection_result_uses_nonzero_c_storage(
         rf"int out\[\(\({name} > 0\) \? {name} : 1\)\];",
         c_source,
     )
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=False,
@@ -334,7 +334,7 @@ def test_bool_uniform_layout_compiles_strict_c11(
     )
     c_source = emit_c(source)
     assert "uint32_t enabled;" in c_source
-    executable = _compile_with_gpu_stubs(
+    executable = compile_with_gpu_stubs(
         tmp_path,
         source,
         available=False,

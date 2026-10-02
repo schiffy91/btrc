@@ -10,13 +10,13 @@ int main() {
 	var initial = FileSystem.ownedHandleInventory();
 	var temporary = FileSystem.createTemporaryDirectory("btrc-advisory-lock");
 	assert(temporary.ok());
-	var root = temporary.directory();
+	var root = temporary.value();
 	string path = root.path() + "/coordination.lock";
 	assert(!AdvisoryFileLock.acquire("").ok());
 	assert(AdvisoryFileLock.acquire("").error().kind() == FS_INVALID_ARGUMENT);
 	var opened = AdvisoryFileLock.acquire(path);
 	assert(opened.ok());
-	var owner = opened.lock();
+	var owner = opened.value();
 	var alias = owner;
 	assert(owner.isOpen());
 	assert(owner.validate().ok());
@@ -34,7 +34,7 @@ int main() {
 	for (int cycle = 0; cycle < 100; cycle++) {
 		var acquired = AdvisoryFileLock.acquire(path);
 		assert(acquired.ok());
-		assert(acquired.lock().close().ok());
+		assert(acquired.value().close().ok());
 	}
 	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 1);
 
@@ -62,9 +62,9 @@ int main() {
 	string previous = root.path() + "/previous.lock";
 	assert(rename(path, previous) == 0);
 	assert(FileSystem.writeText(path, "replacement"));
-	assert(!replaced.lock().validate().ok());
-	assert(replaced.lock().validate().error().kind() == FS_CHANGED);
-	assert(replaced.lock().close().ok());
+	assert(!replaced.value().validate().ok());
+	assert(replaced.value().validate().error().kind() == FS_CHANGED);
+	assert(replaced.value().close().ok());
 	assert(FileSystem.readText(path).equals("replacement"));
 	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 1);
 	assert(root.close().ok());

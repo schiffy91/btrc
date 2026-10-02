@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.btrc.production_readiness_harness import (
     compile_diagnostic_pair,
     compile_no_dce_pair,
@@ -12,9 +13,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 REPO = Path(__file__).resolve().parents[3]
 
 
@@ -552,13 +551,13 @@ def test_named_enum_member_shadows_same_spelled_generated_symbol(
         enum Result { Box_destroy = 7 };
         int main() { return Box_destroy == 7 ? 0 : 1; }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "generated-symbol-enum-member-shadow",
     ):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -641,13 +640,13 @@ def test_lexical_callables_may_shadow_generated_global_symbols(
             return Box_new() + invoke(() => 22) == 42 ? 0 : 1;
         }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "generated-symbol-lexical-shadow",
     ):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_hosted_runtime_helper_values_are_rejected_with_frontend_parity(
@@ -680,13 +679,13 @@ def test_supported_runtime_helper_direct_calls_are_strict_c(
             return equal ? 0 : 1;
         }
     """
-    for artifact in _compile_pair(
+    for artifact in compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "generated-symbol-runtime-helper-direct-call",
     ):
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 def test_unused_generic_method_is_not_emitted_unspecialized_with_no_dce(
@@ -710,7 +709,7 @@ def test_unused_generic_method_is_not_emitted_unspecialized_with_no_dce(
         "generic-method-no-dce",
     ):
         assert "Box_identity(" not in artifact[1].read_text()
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 LIFECYCLE_SOURCE = """
@@ -735,14 +734,14 @@ def test_source_lifecycle_api_is_strict_and_sanitizer_clean(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         LIFECYCLE_SOURCE,
         "generated-symbol-source-lifecycle",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
     toolchain = require_sanitizers(tmp_path)
     for frontend, generated in compiled:
         sanitized_build_and_run(

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
@@ -37,7 +37,7 @@ def test_literal_type_name_does_not_root_an_unreferenced_struct(
             return "DeadType"[0] == 'D' ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
 
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()

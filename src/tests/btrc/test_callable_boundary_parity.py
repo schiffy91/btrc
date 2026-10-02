@@ -4,13 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_callable_return_abi_contract import _compile_both
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_both
 
 DO_WHILE_FOREIGN_DEFINITION = """
 char *genericCallableForeignString(void) { return (char *)"unused"; }
@@ -61,10 +56,10 @@ def test_do_while_callable_flow_uses_only_reachable_body_exits(
             return 0;
         }
     """
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
         generated.write_text(generated.read_text() + DO_WHILE_FOREIGN_DEFINITION)
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             (f"do-while-callable-flow-{index}", generated),
             tmp_path,
         )
@@ -158,7 +153,7 @@ def test_generic_persistent_boundaries_reject_owned_callback_abi(
         string sourceString() {{ return f"owned={{1}}"; }}
         {body}
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert diagnostic in result.stdout + result.stderr
 
@@ -199,7 +194,7 @@ def test_aggregate_storage_recursively_rejects_owned_callback_abi(
         string sourceString() {{ return f"owned={{1}}"; }}
         int main() {{ {declaration} return 0; }}
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "bare __fn_ptr storage erases its return ABI" in (result.stdout + result.stderr)
 
@@ -227,10 +222,10 @@ def test_borrowed_callback_aggregate_balances_promoted_result(
             return copy[0] == 'b' ? 0 : 1;
         }
     """
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
         generated.write_text(generated.read_text() + AGGREGATE_FOREIGN_DEFINITION)
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             (f"borrowed-callback-aggregate-{index}", generated),
             tmp_path,
         )

@@ -16,11 +16,9 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.diagnostic_harness import diagnostic_identity
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
-from src.tests.btrc.test_realtime_primitives_parity import _diagnostic_identity
 from src.tests.c_toolchains import configured_c_compiler
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
 CC = configured_c_compiler()
@@ -90,8 +88,8 @@ def test_refusal_is_identical_in_both_compilers(
     selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
 
     assert selfhost.returncode != 0 and reference.returncode != 0
-    assert _diagnostic_identity(reference.stderr) == expected
-    assert _diagnostic_identity(selfhost.stderr) == expected
+    assert diagnostic_identity(reference.stderr) == expected
+    assert diagnostic_identity(selfhost.stderr) == expected
 
 
 def _build_and_run(

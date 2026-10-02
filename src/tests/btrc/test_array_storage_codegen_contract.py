@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.tests.btrc.test_semantic_validation import (
+from src.tests.btrc.selfhost_snippet_harness import (
     CC,
-    _compile_reference_source,
-    _compile_source,
-    _run,
-    _strict_build_and_run,
+    compile_reference_source,
+    compile_source,
+    run_in_repo,
+    strict_build_and_run,
 )
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
 def _compile_both(
@@ -22,13 +20,13 @@ def _compile_both(
     *,
     no_dce: bool = False,
 ):
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
         no_dce=no_dce,
     )
-    reference, reference_source = _compile_reference_source(
+    reference, reference_source = compile_reference_source(
         tmp_path,
         source,
         no_dce=no_dce,
@@ -39,7 +37,7 @@ def _compile_both(
 
 
 def _strict_link_and_run(generated: Path, companion: Path, output: Path) -> None:
-    build = _run(
+    build = run_in_repo(
         [
             *CC,
             "-std=c11",
@@ -57,7 +55,7 @@ def _strict_link_and_run(generated: Path, companion: Path, output: Path) -> None
         timeout=60,
     )
     assert build.returncode == 0, build.stderr
-    run = _run([str(output)], timeout=30)
+    run = run_in_repo([str(output)], timeout=30)
     assert run.returncode == 0, run.stderr
 
 
@@ -81,7 +79,7 @@ def test_unsized_static_class_array_is_a_rebindable_pointer_slot(
 
     for index, path in enumerate(generated):
         assert "static int* ArraySlot_values;" in path.read_text()
-        _strict_build_and_run(path, tmp_path / f"static-array-pointer-{index}")
+        strict_build_and_run(path, tmp_path / f"static-array-pointer-{index}")
 
 
 def test_unsized_global_initializer_infers_real_array_backing(
@@ -96,7 +94,7 @@ def test_unsized_global_initializer_infers_real_array_backing(
 
     for index, path in enumerate(generated):
         assert "static int values[2] = {11, 31};" in path.read_text()
-        _strict_build_and_run(path, tmp_path / f"inferred-global-array-{index}")
+        strict_build_and_run(path, tmp_path / f"inferred-global-array-{index}")
 
 
 def test_extern_unsized_arrays_keep_incomplete_declarators_and_link(
@@ -163,7 +161,7 @@ def test_generic_method_array_locals_preserve_declarators_and_storage(
         assert "Value volatile* __btrc_lvalue" not in c_source
         if index == 0:
             assert "int volatile* __btrc_lvalue" in c_source
-        _strict_build_and_run(path, tmp_path / f"generic-array-locals-{index}")
+        strict_build_and_run(path, tmp_path / f"generic-array-locals-{index}")
 
 
 def test_aggregate_fields_and_typedefs_preserve_object_qualifiers(
@@ -220,4 +218,4 @@ def test_aggregate_fields_and_typedefs_preserve_object_qualifiers(
         assert "const int constant;" in c_source
         assert "volatile int _0;" in c_source
         assert "int* volatile _1;" in c_source
-        _strict_build_and_run(path, tmp_path / f"aggregate-qualifiers-{index}")
+        strict_build_and_run(path, tmp_path / f"aggregate-qualifiers-{index}")

@@ -2469,11 +2469,11 @@ class FeStagedFile {
 	public DurableReplaceOutcome publish() {
 		if (self.temporaryPath.isEmpty()) { return DurableReplaceOutcome.failed(FileSystemError.closed("publish candidate", self.destination)); }
 		var current = FileSystem.inspectExact(self.temporaryPath);
-		if (!current.ok() || !self.identity.sameVersion(current.snapshot())) {
+		if (!current.ok() || !self.identity.sameVersion(current.value())) {
 			return DurableReplaceOutcome.failed(FileSystemError.changed("validate publication candidate", self.temporaryPath));
 		}
 		var parent = FileSystem.inspectExact(PathTools.dirname(self.destination));
-		if (!parent.ok() || parent.snapshot().kind() != FILE_DIRECTORY || !self.directoryIdentity.sameObject(parent.snapshot())) {
+		if (!parent.ok() || parent.value().kind() != FILE_DIRECTORY || !self.directoryIdentity.sameObject(parent.value())) {
 			return DurableReplaceOutcome.failed(FileSystemError.changed("validate publication directory", self.destination));
 		}
 		errno = 0;
@@ -2495,7 +2495,7 @@ class FeStagedFile {
 			self.temporaryPath = "";
 			return true;
 		}
-		if (current.snapshot().kind() != FILE_REGULAR || !self.identity.sameObject(current.snapshot())) { return false; }
+		if (current.value().kind() != FILE_REGULAR || !self.identity.sameObject(current.value())) { return false; }
 		if (unlink(self.temporaryPath) != 0) { return false; }
 		self.temporaryPath = "";
 		return true;
@@ -2511,7 +2511,7 @@ class FePackageFileStore {
 		if (path == null || path.isEmpty() || content == null || mode < 0 || mode > 07777) { return null; }
 		string directory = PathTools.absolute(PathTools.dirname(path));
 		var parent = FileSystem.inspectExact(directory);
-		if (!parent.ok() || parent.snapshot().kind() != FILE_DIRECTORY) { return null; }
+		if (!parent.ok() || parent.value().kind() != FILE_DIRECTORY) { return null; }
 		string destination = PathTools.join(directory, PathTools.basename(path));
 		string templatePath = PathTools.join(directory, ".btrc-package-XXXXXX");
 		int templateLength = templatePath.length();
@@ -2541,11 +2541,11 @@ class FePackageFileStore {
 			/* The name can change even when writing fails. Only discard the
 			 * inode observed through our own descriptor; if neither metadata
 			 * read succeeded, preserve the uncertain candidate for inspection. */
-			if (inspected) { FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&staged), parent.snapshot()).discard(); }
-			else if (identified) { FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&created), parent.snapshot()).discard(); }
+			if (inspected) { FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&staged), parent.value()).discard(); }
+			else if (identified) { FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&created), parent.value()).discard(); }
 			return null;
 		}
-		return FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&staged), parent.snapshot());
+		return FeStagedFile(destination, temporaryPath, FileSnapshot.fromStatus(&staged), parent.value());
 	}
 
 	public bool writeAtomically(string path, string content) {

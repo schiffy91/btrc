@@ -180,7 +180,8 @@ class MacOSTray implements ITray {
 		self._commands.quit();
 		if (self._scope.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Native tray callbacks must drain before closing"; }
 		self._signal.close();
-		if (self._status != null) { self._status.setMenu(null); NSStatusBar.systemStatusBar().removeStatusItem(self._status); self._status = null; }
+		var status = self._status;
+		if (status != null) { status.setMenu(null); NSStatusBar.systemStatusBar().removeStatusItem(status); self._status = null; }
 	}
 
 	public void __del__() { self.close(); }

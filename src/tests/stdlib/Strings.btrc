@@ -20,17 +20,17 @@ int main() {
 	assert("".isEmpty());
 	assert(!s.isEmpty());
 
-	/* Strings static transforms */
+	/* built-in transforms (the Strings class keeps only repeat/replace delegates) */
 	assert(Strings.repeat("ab", 3).equals("ababab"));
 	assert(Strings.replace("a.b.c", ".", "-").equals("a-b-c"));
-	assert(Strings.capitalize("hello").equals("Hello"));
-	assert(Strings.title("hello world").equals("Hello World"));
-	assert(Strings.swapCase("Hello").equals("hELLO"));
-	assert(Strings.padLeft("7", 3, '0').equals("007"));
-	assert(Strings.padRight("7", 3, '.').equals("7.."));
-	assert(Strings.lstrip("  x").equals("x"));
-	assert(Strings.rstrip("x  ").equals("x"));
-	assert(Strings.removePrefix("foobar", "foo").equals("bar"));
+	assert("hello".capitalize().equals("Hello"));
+	assert("hello world".title().equals("Hello World"));
+	assert("Hello".swapCase().equals("hELLO"));
+	assert("7".padLeft(3, '0').equals("007"));
+	assert("7".padRight(3, '.').equals("7.."));
+	assert("  x".lstrip().equals("x"));
+	assert("x  ".rstrip().equals("x"));
+	assert("foobar".removePrefix("foo").equals("bar"));
 
 	/* analysis */
 	assert(Strings.count("aXbXc", "X") == 2);
@@ -40,9 +40,9 @@ int main() {
 	assert(Strings.rfind("a.b.c", ".") == 3);
 	assert(Strings.compare("a", "b") < 0);
 	assert(Strings.lessThan("apple", "banana"));
-	assert(Strings.isDigitStr("123") && !Strings.isDigitStr("12a"));
-	assert(Strings.isAlphaStr("abc") && !Strings.isAlphaStr("ab1"));
-	assert(Strings.isBlank("   ") && !Strings.isBlank(" x "));
+	assert("123".isDigit() && !"12a".isDigit());
+	assert("abc".isAlpha() && !"ab1".isAlpha());
+	assert("   ".isBlank() && !" x ".isBlank());
 
 	/* numeric conversion */
 	assert(Strings.toInt("  -42 ") == -42);
@@ -57,15 +57,15 @@ int main() {
 	assert(Strings.isSpace(' ') && Strings.isSpace('\t') && !Strings.isSpace('a'));
 	assert(Strings.isSpace('\v') && Strings.isSpace('\f') && Strings.isSpace('\r'));
 
-	/* the delegates share the built-ins' null and whitespace contract */
+	/* the delegates and built-ins share one null and whitespace contract */
 	string missing = null;
 	assert(Strings.replace("a.b", ".", missing).equals("ab"));
 	assert(Strings.replace("a.b", ".", missing).equals("a.b".replace(".", missing)));
-	assert(Strings.padLeft(missing, 3, '0').equals(""));
-	assert(Strings.isBlank(" \v\f\t"));
-	assert(Strings.lstrip("\v\fx").equals("x"));
-	assert(Strings.rstrip("x\v\f").equals("x"));
-	assert(Strings.title("a\vb").equals("A\vB"));
+	assert(missing.padLeft(3, '0').equals(""));
+	assert(" \v\f\t".isBlank());
+	assert("\v\fx".lstrip().equals("x"));
+	assert("x\v\f".rstrip().equals("x"));
+	assert("a\vb".title().equals("A\vB"));
 
 	/* split + join round-trip */
 	Vector<string> parts = Strings.split("a,b,c", ",");

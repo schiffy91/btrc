@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import REPO, compile_reference_snippet, compile_snippet_pair
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
-REPO = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
 ABI_RUNTIME = FIXTURES / "ThreadResultAbiRuntime.btrc"
 MANAGED_RUNTIME = FIXTURES / "ThreadManagedResultOwnershipRuntime.btrc"
@@ -28,42 +24,6 @@ pytestmark = pytest.mark.skipif(
     not HOST_C_COMPILERS,
     reason="requires a pthread C11 compiler",
 )
-
-
-def _compile_reference(tmp_path: Path, source: str, name: str):
-    program = tmp_path / f"{name}.btrc"
-    generated = tmp_path / f"{name}.reference.c"
-    program.write_text(source)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "src.compiler.python.main",
-            str(program),
-            "--no-stdlib",
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
-        cwd=REPO,
-        env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")},
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    return result, generated
-
-
-def _compile_pair(semantic_btrcc, tmp_path, source, name):
-    selfhost, selfhost_c = _compile_source(
-        semantic_btrcc,
-        tmp_path,
-        source,
-    )
-    reference, reference_c = _compile_reference(tmp_path, source, name)
-    assert selfhost.returncode == 0, selfhost.stderr
-    assert reference.returncode == 0, reference.stderr
-    return ("selfhost", selfhost_c), ("reference", reference_c)
 
 
 def _build(
@@ -118,7 +78,7 @@ def test_value_result_abi_has_strict_parity(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         ABI_RUNTIME.read_text(),
@@ -133,7 +93,7 @@ def test_value_result_abi_is_sanitizer_clean(
     tmp_path: Path,
 ) -> None:
     require_sanitizers(tmp_path)
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         ABI_RUNTIME.read_text(),
@@ -147,7 +107,7 @@ def test_managed_result_transfers_one_owned_reference(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         MANAGED_RUNTIME.read_text(),
@@ -162,7 +122,7 @@ def test_managed_result_is_sanitizer_clean(
     tmp_path: Path,
 ) -> None:
     require_sanitizers(tmp_path)
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         MANAGED_RUNTIME.read_text(),
@@ -176,7 +136,7 @@ def test_unjoined_handles_have_strict_structured_cleanup(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         SCOPE_RUNTIME.read_text(),
@@ -191,7 +151,7 @@ def test_unjoined_handle_cleanup_is_sanitizer_clean(
     tmp_path: Path,
 ) -> None:
     require_sanitizers(tmp_path)
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         SCOPE_RUNTIME.read_text(),
@@ -216,8 +176,8 @@ def test_non_lambda_spawn_is_fail_closed_for_non_pthread_signatures(
             return 0;
         }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(tmp_path, source, "typed-entry")
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(tmp_path, source, "typed-entry")
     for result in (selfhost, reference):
         assert result.returncode != 0
         assert "Non-lambda spawn requires __fn_ptr<void*, void*>" in result.stderr
@@ -240,7 +200,7 @@ def test_exact_pthread_entry_signature_remains_portable(
     """
     support = tmp_path / "pthread-entry.c"
     support.write_text("void* echo(void* value) { return value; }\n")
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
@@ -262,7 +222,7 @@ def test_direct_repeated_join_fails_deterministically(
             return first + second;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
@@ -289,8 +249,8 @@ def test_thread_handle_alias_copy_is_fail_closed(
             return alias.join();
         }
     """
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference(tmp_path, source, "thread-alias")
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(tmp_path, source, "thread-alias")
     for result in (selfhost, reference):
         assert result.returncode != 0
         assert "Thread handles cannot be copied" in result.stderr
