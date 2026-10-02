@@ -80,7 +80,7 @@ def test_multi_update_c_for_is_accepted(loop: str) -> None:
     # C's comma operator in the header (D19 row 19): the induction variable is
     # the declarator the condition compares, stepped exactly once.
     source = f"@realtime void clear(float* samples, int count) {{ {loop} }}"
-    _, result = analyze(source)
+    _, result = analyze_realtime(source)
     assert result.errors == []
     assert len(result.realtime_bounded_loop_ids) == 1
 
