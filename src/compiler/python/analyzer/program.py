@@ -360,6 +360,7 @@ class AnalysisSession(AnalysisContext):
         self.break_depth: int = 0
         self._assignment_target_depth: int = 0
         self._analyzed_array_bounds: set[int] = set()
+        self._array_bound_values: dict[int, int] = {}
         self.constant_array_bound_ids: set[int] = set()
         self.array_iteration_capacity_ids: set[int] = set()
         self.realtime_bounded_loop_ids: set[int] = set()
@@ -388,6 +389,7 @@ class AnalysisSession(AnalysisContext):
         self.array_iteration_capacity_ids = set()
         self.realtime_bounded_loop_ids = set()
         self._analyzed_array_bounds = set()
+        self._array_bound_values = {}
         self.constant_array_bound_ids = set()
         self.rich_enum_unsafe_default_ids = set()
         self.generic_resolved_type_facts = []
@@ -535,6 +537,13 @@ class AnalysisSession(AnalysisContext):
             return False
         self._analyzed_array_bounds.add(marker)
         return True
+
+    def record_array_bound_value(self, bound, value: int) -> None:
+        """Remember the value of a constant declaration bound once it is analyzed."""
+        self._array_bound_values[id(bound)] = value
+
+    def array_bound_value(self, bound) -> int | None:
+        return self._array_bound_values.get(id(bound))
 
     def record_hosted_call(self, call) -> None:
         self._hosted_call_ids.add(id(call))

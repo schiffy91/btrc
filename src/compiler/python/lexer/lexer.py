@@ -148,6 +148,46 @@ class LiteralDecoder:
         return None
 
     @classmethod
+    def string_byte_length(cls, raw: str) -> int:
+        """Count the bytes a lexed narrow string literal stores, without its terminator.
+
+        The spelling is the lexer's: quoted, escapes preserved and already
+        validated. Simple, octal and hex escapes are one byte each, a universal
+        character name is its UTF-8 encoding, a line splice is nothing, and
+        source text counts its UTF-8 bytes.
+        """
+        content = raw[1:-1]
+        count = 0
+        index = 0
+        while index < len(content):
+            character = content[index]
+            if character != "\\":
+                count += len(character.encode("utf-8"))
+                index += 1
+                continue
+            escaped = content[index + 1]
+            index += 2
+            if escaped == "\n":
+                continue
+            if escaped == "\r":
+                index += 1 if content[index : index + 1] == "\n" else 0
+                continue
+            if escaped in "uU":
+                digits = 4 if escaped == "u" else 8
+                count += len(chr(int(content[index : index + digits], 16)).encode("utf-8"))
+                index += digits
+                continue
+            if escaped == "x":
+                while index < len(content) and content[index] in "0123456789abcdefABCDEF":
+                    index += 1
+            elif "0" <= escaped <= "7":
+                end = index + 2
+                while index < end and index < len(content) and "0" <= content[index] <= "7":
+                    index += 1
+            count += 1
+        return count
+
+    @classmethod
     def is_simple_escape(cls, character: str) -> bool:
         return character in cls._SIMPLE_ESCAPES
 
