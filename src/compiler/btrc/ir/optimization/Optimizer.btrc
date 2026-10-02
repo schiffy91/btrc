@@ -131,7 +131,7 @@ class IROptimizer {
 		self.eliminateDeadGlobals(module);
 		self.eliminateDeadFunctions(module);
 		GpuPipeline.eliminateUnreachable(module);
-		self.eliminateDeadStructs(module);
+		self.eliminateDeadTypeDeclarations(module);
 	}
 
 	/* File-scope value reachability before ordinary function/helper DCE.
@@ -622,149 +622,217 @@ class IROptimizer {
 		while (j < node.stmts().len) { self.collectStructRefsNode(node.stmts().get(j), names, out); j = j + 1; }
 	}
 
-	private void eliminateDeadStructs(IRModule m) {
-		if (m.structDefs.len == 0) { return; }
-		Vector<string> names = [];
-		Map<string, bool> knownNames = {};
-		Map<string, int> byName = {};
-		Map<string, bool> refs = {};
+	/* Typed C declarations survive only when live code reaches them.  Mirrors
+	 * IROptimizer._prune_types: every enum, struct forward, function-pointer
+	 * typedef, typedef, tagged union and struct is keyed by its group and
+	 * position; the types and enum values named by live functions, globals,
+	 * prototypes, Objective-C classes and macros seed the kept set, and each
+	 * kept declaration keeps whatever its own fields, targets and values name. */
+	private void collectEnumValueRefs(IRNode? node, Map<string, bool> names, Map<string, bool> out) {
+		if (node == null) { return; }
+		if (node.kind == IRK_VAR && names.has(node.name)) { out.put(node.name, true); }
+		self.collectEnumValueRefs(node.left, names, out);
+		self.collectEnumValueRefs(node.right, names, out);
+		self.collectEnumValueRefs(node.operand, names, out);
+		self.collectEnumValueRefs(node.expr, names, out);
+		self.collectEnumValueRefs(node.obj, names, out);
+		self.collectEnumValueRefs(node.index, names, out);
+		self.collectEnumValueRefs(node.condition, names, out);
+		self.collectEnumValueRefs(node.trueExpr, names, out);
+		self.collectEnumValueRefs(node.falseExpr, names, out);
+		self.collectEnumValueRefs(node.init, names, out);
+		self.collectEnumValueRefs(node.value, names, out);
+		self.collectEnumValueRefs(node.target, names, out);
+		self.collectEnumValueRefs(node.thenBlock, names, out);
+		self.collectEnumValueRefs(node.elseBlock, names, out);
+		self.collectEnumValueRefs(node.body, names, out);
+		self.collectEnumValueRefs(node.update, names, out);
+		self.collectEnumValueRefs(node.result, names, out);
+		self.collectEnumValueRefs(node.arraySize, names, out);
+		for argument in node.args() { self.collectEnumValueRefs(argument, names, out); }
+		for statement in node.stmts() { self.collectEnumValueRefs(statement, names, out); }
+	}
+
+	private void provideDeclarationName(Map<string, Vector<string>> providers, string name, string key) {
+		if (name == "") { return; }
+		if (!providers.has(name)) {
+			Vector<string> keys = [];
+			providers.put(name, keys);
+		}
+		providers.get(name).push(key);
+	}
+
+	private void keepProviders(Map<string, bool> names, Map<string, Vector<string>> providers, Map<string, bool> keepSet, Vector<string> worklist) {
+		for name in names.keys() {
+			if (!providers.has(name)) { continue; }
+			for key in providers.get(name) {
+				if (!keepSet.has(key)) {
+					keepSet.put(key, true);
+					worklist.push(key);
+				}
+			}
+		}
+	}
+
+	private void collectFieldRefs(Vector<IRStructField> fields, Map<string, bool> typeNames, Map<string, bool> valueNames, Map<string, bool> types, Map<string, bool> values) {
+		for field in fields {
+			self.scanTextForKnownNames(field.cType, typeNames, types);
+			self.collectStructRefsNode(field.arraySize, typeNames, types);
+			self.collectEnumValueRefs(field.arraySize, valueNames, values);
+		}
+	}
+
+	private void collectDeclarationRefs(IRModule m, string key, Map<string, bool> typeNames, Map<string, bool> valueNames, Map<string, bool> types, Map<string, bool> values) {
+		string group = key.substring(0, 1);
+		int index = Strings.toInt(key.substring(2, key.length() - 2));
+		if (group == "e") {
+			for value in m.enumDefs.get(index).values {
+				self.collectStructRefsNode(value.value, typeNames, types);
+				self.collectEnumValueRefs(value.value, valueNames, values);
+			}
+		} else if (group == "p") {
+			IRFunctionPointerTypedef pointer = m.functionPointerTypedefs.get(index);
+			self.scanTextForKnownNames(pointer.returnType, typeNames, types);
+			for parameterType in pointer.paramTypes { self.scanTextForKnownNames(parameterType, typeNames, types); }
+		} else if (group == "t") {
+			self.scanTextForKnownNames(m.typedefDefs.get(index).targetType, typeNames, types);
+		} else if (group == "u") {
+			IRTaggedUnionDef tagged = m.taggedUnionDefs.get(index);
+			self.scanTextForKnownNames(tagged.tagType, typeNames, types);
+			for variant in tagged.variants { self.collectFieldRefs(variant.fields, typeNames, valueNames, types, values); }
+		} else if (group == "s") {
+			self.collectFieldRefs(m.structDefs.get(index).fields, typeNames, valueNames, types, values);
+		}
+	}
+
+	private void eliminateDeadTypeDeclarations(IRModule m) {
+		Map<string, Vector<string>> typeProviders = {};
+		Map<string, Vector<string>> valueProviders = {};
 		Map<string, bool> keepSet = {};
-		int i = 0;
-		while (i < m.structDefs.len) {
-			names.push(m.structDefs.get(i).name);
-			knownNames.put(m.structDefs.get(i).name, true);
-			byName.put(m.structDefs.get(i).name, i);
-			i = i + 1;
+		Vector<string> worklist = [];
+		int declarationCount = 0;
+		for (int index = 0; index < m.enumDefs.len; index++) {
+			IREnumDef definition = m.enumDefs.get(index);
+			string key = "e:" + Strings.fromInt(index);
+			self.provideDeclarationName(typeProviders, definition.name, key);
+			for value in definition.values {
+				self.provideDeclarationName(valueProviders, value.name, key);
+				if (value.name.startsWith("__btrc_atomic_lock_free_") && !keepSet.has(key)) {
+					keepSet.put(key, true);
+					worklist.push(key);
+				}
+			}
+			declarationCount = declarationCount + 1;
+		}
+		for (int index = 0; index < m.structForwards.len; index++) {
+			self.provideDeclarationName(typeProviders, m.structForwards.get(index).name, "f:" + Strings.fromInt(index));
+			declarationCount = declarationCount + 1;
+		}
+		for (int index = 0; index < m.functionPointerTypedefs.len; index++) {
+			self.provideDeclarationName(typeProviders, m.functionPointerTypedefs.get(index).name, "p:" + Strings.fromInt(index));
+			declarationCount = declarationCount + 1;
+		}
+		for (int index = 0; index < m.typedefDefs.len; index++) {
+			self.provideDeclarationName(typeProviders, m.typedefDefs.get(index).name, "t:" + Strings.fromInt(index));
+			declarationCount = declarationCount + 1;
+		}
+		for (int index = 0; index < m.taggedUnionDefs.len; index++) {
+			IRTaggedUnionDef tagged = m.taggedUnionDefs.get(index);
+			string key = "u:" + Strings.fromInt(index);
+			self.provideDeclarationName(typeProviders, tagged.name, key);
+			for variant in tagged.variants {
+				if (variant.fields.len > 0) { self.provideDeclarationName(typeProviders, tagged.name + "_" + variant.name + "_Data", key); }
+			}
+			declarationCount = declarationCount + 1;
+		}
+		for (int index = 0; index < m.structDefs.len; index++) {
+			self.provideDeclarationName(typeProviders, m.structDefs.get(index).name, "s:" + Strings.fromInt(index));
+			declarationCount = declarationCount + 1;
+		}
+		if (declarationCount == 0) { return; }
+		Map<string, bool> typeNames = {};
+		for name in typeProviders.keys() { typeNames.put(name, true); }
+		Map<string, bool> valueNames = {};
+		for name in valueProviders.keys() { valueNames.put(name, true); }
+
+		Map<string, bool> types = {};
+		Map<string, bool> values = {};
+		for definition in m.functions {
+			self.collectStructRefsFn(definition, typeNames, types);
+			self.collectEnumValueRefs(definition.body, valueNames, values);
+		}
+		for global in m.globalDecls {
+			self.scanTextForKnownNames(global.cType, typeNames, types);
+			self.collectStructRefsNode(global.init, typeNames, types);
+			self.collectStructRefsNode(global.arraySize, typeNames, types);
+			self.collectEnumValueRefs(global.init, valueNames, values);
+			self.collectEnumValueRefs(global.arraySize, valueNames, values);
+		}
+		for declaration in m.functionDecls {
+			self.scanTextForKnownNames(declaration.returnType, typeNames, types);
+			for parameter in declaration.params { self.scanTextForKnownNames(parameter.cType, typeNames, types); }
 		}
 		for declaration in m.objectiveCClasses {
-			for field in declaration.fields { self.scanTextForKnownNames(field.cType, knownNames, refs); }
+			for field in declaration.fields { self.scanTextForKnownNames(field.cType, typeNames, types); }
 			for method in declaration.methods {
-				self.scanTextForKnownNames(method.returnType, knownNames, refs);
-				for parameter in method.params { self.scanTextForKnownNames(parameter.cType, knownNames, refs); }
-				self.collectStructRefsNode(method.body, knownNames, refs);
+				self.scanTextForKnownNames(method.returnType, typeNames, types);
+				for parameter in method.params { self.scanTextForKnownNames(parameter.cType, typeNames, types); }
+				self.collectStructRefsNode(method.body, typeNames, types);
+				self.collectEnumValueRefs(method.body, valueNames, values);
 			}
 		}
-		int f = 0;
-		while (f < m.functions.len) {
-			self.collectStructRefsFn(m.functions.get(f), knownNames, refs);
-			f = f + 1;
-		}
-		int globalIndex = 0;
-		while (globalIndex < m.globalDecls.len) {
-			IRGlobalDecl global = m.globalDecls.get(globalIndex);
-			self.scanTextForKnownNames(global.cType, knownNames, refs);
-			self.collectStructRefsNode(global.init, knownNames, refs);
-			self.collectStructRefsNode(global.arraySize, knownNames, refs);
-			globalIndex = globalIndex + 1;
-		}
-		int declarationIndex = 0;
-		while (declarationIndex < m.functionDecls.len) {
-			IRFunctionDecl declaration = m.functionDecls.get(declarationIndex);
-			self.scanTextForKnownNames(declaration.returnType, knownNames, refs);
-			int parameterIndex = 0;
-			while (parameterIndex < declaration.params.len) {
-				self.scanTextForKnownNames(declaration.params.get(parameterIndex).cType, knownNames, refs);
-				parameterIndex = parameterIndex + 1;
-			}
-			declarationIndex = declarationIndex + 1;
-		}
-		int pointerIndex = 0;
-		while (pointerIndex < m.functionPointerTypedefs.len) {
-			IRFunctionPointerTypedef declaration = m.functionPointerTypedefs.get(pointerIndex);
-			self.scanTextForKnownNames(declaration.returnType, knownNames, refs);
-			int parameterIndex = 0;
-			while (parameterIndex < declaration.paramTypes.len) {
-				self.scanTextForKnownNames(declaration.paramTypes.get(parameterIndex), knownNames, refs);
-				parameterIndex = parameterIndex + 1;
-			}
-			pointerIndex = pointerIndex + 1;
-		}
-		int typedefIndex = 0;
-		while (typedefIndex < m.typedefDefs.len) {
-			self.scanTextForKnownNames(m.typedefDefs.get(typedefIndex).targetType, knownNames, refs);
-			typedefIndex = typedefIndex + 1;
-		}
-		int taggedIndex = 0;
-		while (taggedIndex < m.taggedUnionDefs.len) {
-			IRTaggedUnionDef tagged = m.taggedUnionDefs.get(taggedIndex);
-			self.scanTextForKnownNames(tagged.tagType, knownNames, refs);
-			int variantIndex = 0;
-			while (variantIndex < tagged.variants.len) {
-				IRTaggedUnionVariant variant = tagged.variants.get(variantIndex);
-				int fieldIndex = 0;
-				while (fieldIndex < variant.fields.len) {
-					IRStructField field = variant.fields.get(fieldIndex);
-					self.scanTextForKnownNames(field.cType, knownNames, refs);
-					self.collectStructRefsNode(field.arraySize, knownNames, refs);
-					fieldIndex = fieldIndex + 1;
-				}
-				variantIndex = variantIndex + 1;
-			}
-			taggedIndex = taggedIndex + 1;
-		}
-		int preprocessorIndex = 0;
-		while (preprocessorIndex < m.preprocessorDecls.len) {
-			IRPreprocessorDecl declaration = m.preprocessorDecls.get(preprocessorIndex);
+		for declaration in m.preprocessorDecls {
 			if (declaration.kind == IR_PREPROCESSOR_MACRO) {
-				self.scanTextForKnownNames(declaration.replacement, knownNames, refs);
+				self.scanTextForKnownNames(declaration.replacement, typeNames, types);
+				self.scanTextForKnownNames(declaration.replacement, valueNames, values);
 			}
-			preprocessorIndex = preprocessorIndex + 1;
 		}
-		/* Names referenced in surviving functions seed the set; the embedding
-         * closure below keeps the struct types of a kept struct's fields. */
-		Vector<string> worklist = refs.keys();
-		int w0 = 0;
-		while (w0 < worklist.len) { keepSet.put(worklist.get(w0), true); w0 = w0 + 1; }
+		self.keepProviders(types, typeProviders, keepSet, worklist);
+		self.keepProviders(values, valueProviders, keepSet, worklist);
 		while (worklist.len > 0) {
-			Map<string, bool> fr = {};
-			string cur = worklist.pop();
-			bool present = byName.has(cur);
-			if (present) {
-				IRStructDef sd = m.structDefs.get(byName.get(cur));
-				int fl = 0;
-				while (fl < sd.fields.len) {
-					IRStructField field = sd.fields.get(fl);
-					self.scanTextForKnownNames(field.cType, knownNames, fr);
-					self.collectStructRefsNode(field.arraySize, knownNames, fr);
-					fl = fl + 1;
-				}
-			}
-			Vector<string> frk = fr.keys();
-			int z = 0;
-			while (z < frk.len) {
-				string nm = frk.get(z);
-				if (!keepSet.has(nm)) { keepSet.put(nm, true); worklist.push(nm); }
-				z = z + 1;
-			}
+			Map<string, bool> dependencyTypes = {};
+			Map<string, bool> dependencyValues = {};
+			self.collectDeclarationRefs(m, worklist.pop(), typeNames, valueNames, dependencyTypes, dependencyValues);
+			self.keepProviders(dependencyTypes, typeProviders, keepSet, worklist);
+			self.keepProviders(dependencyValues, valueProviders, keepSet, worklist);
 		}
-		if (keepSet.len == names.len) { return; }
-		Vector<IRStructDef> kept = [];
-		Map<string, bool> removed = {};
-		int s = 0;
-		while (s < m.structDefs.len) {
-			IRStructDef sd = m.structDefs.get(s);
-			if (keepSet.has(sd.name)) { kept.push(sd); }
-			else { removed.put(sd.name, true); }
-			s = s + 1;
-		}
-		/* A module unit's dropped definitions are the program's shared
-		 * declaration IR, alive in other units: releasing this unit's list
+		if (keepSet.len == declarationCount) { return; }
+
+		/* A module unit's dropped declarations are the program's shared
+		 * declaration IR, alive in other units: releasing this unit's lists
 		 * would only prove each one still reachable. */
-		Vector<IRStructDef> previous = m.structDefs;
-		if (self.moduleUnit) { keep previous; }
-		m.structDefs = kept;
+		Vector<IREnumDef> enums = [];
+		for (int index = 0; index < m.enumDefs.len; index++) { if (keepSet.has("e:" + Strings.fromInt(index))) { enums.push(m.enumDefs.get(index)); } }
 		Vector<IRStructForward> forwards = [];
-		int d = 0;
-		while (d < m.structForwards.len) {
-			IRStructForward declaration = m.structForwards.get(d);
-			if (!removed.has(declaration.name)) {
-				forwards.push(declaration);
-			}
-			d = d + 1;
+		for (int index = 0; index < m.structForwards.len; index++) { if (keepSet.has("f:" + Strings.fromInt(index))) { forwards.push(m.structForwards.get(index)); } }
+		Vector<IRFunctionPointerTypedef> pointers = [];
+		for (int index = 0; index < m.functionPointerTypedefs.len; index++) { if (keepSet.has("p:" + Strings.fromInt(index))) { pointers.push(m.functionPointerTypedefs.get(index)); } }
+		Vector<IRTypedefDef> typedefs = [];
+		for (int index = 0; index < m.typedefDefs.len; index++) { if (keepSet.has("t:" + Strings.fromInt(index))) { typedefs.push(m.typedefDefs.get(index)); } }
+		Vector<IRTaggedUnionDef> tagged = [];
+		for (int index = 0; index < m.taggedUnionDefs.len; index++) { if (keepSet.has("u:" + Strings.fromInt(index))) { tagged.push(m.taggedUnionDefs.get(index)); } }
+		Vector<IRStructDef> structs = [];
+		for (int index = 0; index < m.structDefs.len; index++) { if (keepSet.has("s:" + Strings.fromInt(index))) { structs.push(m.structDefs.get(index)); } }
+		if (self.moduleUnit) {
+			Vector<IREnumDef> previousEnums = m.enumDefs;
+			Vector<IRStructForward> previousForwards = m.structForwards;
+			Vector<IRFunctionPointerTypedef> previousPointers = m.functionPointerTypedefs;
+			Vector<IRTypedefDef> previousTypedefs = m.typedefDefs;
+			Vector<IRTaggedUnionDef> previousTagged = m.taggedUnionDefs;
+			Vector<IRStructDef> previousStructs = m.structDefs;
+			keep previousEnums;
+			keep previousForwards;
+			keep previousPointers;
+			keep previousTypedefs;
+			keep previousTagged;
+			keep previousStructs;
 		}
-		Vector<IRStructForward> previousForwards = m.structForwards;
-		if (self.moduleUnit) { keep previousForwards; }
+		m.enumDefs = enums;
 		m.structForwards = forwards;
+		m.functionPointerTypedefs = pointers;
+		m.typedefDefs = typedefs;
+		m.taggedUnionDefs = tagged;
+		m.structDefs = structs;
 	}
 
 	/* Normalize unused C parameters into explicit structured discards.
