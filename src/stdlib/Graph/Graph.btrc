@@ -136,8 +136,8 @@ class GraphTraversal {
 		self.index = {};
 	}
 
-	/* One id -> node index per order() call keeps traversal O(V + E). The
-	 * first node with an id wins, matching ExecutionGraph.node(). */
+	/* One id -> node index per order() or visit() call keeps traversal
+	 * O(V + E). The first node with an id wins, matching ExecutionGraph.node(). */
 	private void indexNodes() {
 		self.index = {};
 		for node in self.graph.nodes {
@@ -145,7 +145,14 @@ class GraphTraversal {
 		}
 	}
 
+	/* Visits id and its dependencies against the current graph: 0, or 1 with
+	 * error set. Nodes already done in this traversal are not visited again. */
 	public int visit(string id) {
+		self.indexNodes();
+		return self.visitIndexed(id);
+	}
+
+	private int visitIndexed(string id) {
 		if (id != null && self.done.contains(id)) { return 0; }
 		if (id == null || !self.index.has(id)) {
 			self.error = "Unknown graph node: " + (id == null ? "" : id);
@@ -201,7 +208,7 @@ class GraphTraversal {
 		self.indexNodes();
 		Vector<string> selected = targets.isEmpty() ? self.graph.defaultTargets() : targets;
 		for id in selected {
-			int result = self.visit(id);
+			int result = self.visitIndexed(id);
 			if (result != 0) { return self.ordered; }
 		}
 		return self.ordered;
