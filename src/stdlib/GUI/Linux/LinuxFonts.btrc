@@ -4,31 +4,6 @@ import Library.Strings;
 import Library.GUI.FontFace;
 import Library.GUI.FreeType.FreeTypeFace;
 
-/* One scalar of a UTF-8 string; malformed bytes advance one byte as U+FFFD. */
-class LinuxScalar {
-	public int codepoint;
-	public int next;
-
-	public LinuxScalar(int codepoint, int next) { self.codepoint = codepoint; self.next = next; }
-
-	class LinuxScalar decode(string text, int offset) {
-		int length = text.len();
-		if (offset < 0 || offset >= length) { return LinuxScalar(0, length); }
-		int first = (int)(unsigned char)text[offset];
-		if (first < 0x80) { return LinuxScalar(first, offset + 1); }
-		int extra = first >= 0xf0 ? 3 : (first >= 0xe0 ? 2 : (first >= 0xc2 ? 1 : -1));
-		if (extra < 0 || offset + extra >= length) { return LinuxScalar(0xfffd, offset + 1); }
-		int codepoint = first & (extra == 1 ? 0x1f : (extra == 2 ? 0x0f : 0x07));
-		for (int index = 1; index <= extra; index++) {
-			int next = (int)(unsigned char)text[offset + index];
-			if ((next & 0xc0) != 0x80) { return LinuxScalar(0xfffd, offset + 1); }
-			codepoint = (codepoint << 6) | (next & 0x3f);
-		}
-		if (codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) { return LinuxScalar(0xfffd, offset + extra + 1); }
-		return LinuxScalar(codepoint, offset + extra + 1);
-	}
-}
-
 /* A rendered glyph shared by every window: metrics in backing pixels plus the
  * owned coverage bitmap. Atlases copy the coverage into their own texture. */
 class LinuxGlyph {
@@ -90,9 +65,8 @@ class LinuxFace {
 		double total = 0.0;
 		int offset = 0;
 		while (offset < text.len()) {
-			var scalar = LinuxScalar.decode(text, offset);
-			offset = scalar.next;
-			total += self.glyph(scalar.codepoint).advance;
+			int codepoint = UTF8.decode(text, text.len(), &offset);
+			total += self.glyph(codepoint).advance;
 		}
 		return total;
 	}

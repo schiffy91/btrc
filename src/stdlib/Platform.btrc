@@ -8,6 +8,7 @@
 
 import Library.Strings;
 
+#include <errno.h>
 #include <unistd.h>
 #include <stdlib.h>
 
@@ -28,6 +29,22 @@ class Platform {
 		/* Windows has no POSIX root identity; the compatibility getuid/euid
          * value is only a sentinel and must never grant privileges. */
 		return !Platform.isWindows() && Platform.euid() == 0;
+	}
+
+	/* The process working directory, or "" when it cannot be read. The
+	 * buffer doubles until getcwd fits, up to a 1 GiB bound. */
+	class string currentDirectory() {
+		int capacity = 256;
+		char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)capacity);
+		while ((char*)getcwd(buffer, (size_t)capacity) == NULL) {
+			if (errno != ERANGE || capacity > 1073741823) {
+				free(buffer);
+				return "";
+			}
+			capacity = capacity * 2;
+			buffer = (char*)__btrc_safe_realloc(buffer, (size_t)capacity);
+		}
+		return __btrc_string_adopt(buffer);
 	}
 }
 

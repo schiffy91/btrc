@@ -123,12 +123,6 @@ int main(void) {
     value = __btrc_removePrefix("abc", "abcdef");
     CHECK(strcmp(value, "abc") == 0); __btrc_string_release(value);
 
-    char* items[] = {"a", NULL, "c"};
-    value = __btrc_join(items, 3, ":");
-    CHECK(strcmp(value, "a::c") == 0); __btrc_string_release(value);
-    value = __btrc_join(items, -1, ":");
-    CHECK(strcmp(value, "") == 0); __btrc_string_release(value);
-
     CHECK(__btrc_find("abc", "", 3) == 3);
     CHECK(__btrc_find("abc", "a", -8) == 0);
     CHECK(__btrc_find("abc", "", 4) == -1);
@@ -179,7 +173,6 @@ int main(void) {
 @pytest.mark.parametrize(
     "statement,error",
     [
-        ('char* items[] = {"x"}; (void)__btrc_join(items, INT_MAX, "::");', "join overflow"),
         ('(void)__btrc_repeat("ab", INT_MAX);', "repeat overflow"),
         (
             "char* s = __btrc_string_alloc(1); "

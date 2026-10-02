@@ -1,4 +1,5 @@
 import Library.Math;
+import Library.Strings;
 import Library.Map;
 import Library.OwnedBuffer;
 import Library.Vector;
@@ -589,12 +590,11 @@ class LinuxPainter {
 		var atlasTexture = self._atlas.texture();
 		double atlasSize = (double)self._atlas.size();
 		while (offset < value.len()) {
-			var scalar = LinuxScalar.decode(value, offset);
-			offset = scalar.next;
-			var slot = self._atlas.slot(face, scalar.codepoint);
+			int codepoint = UTF8.decode(value, value.len(), &offset);
+			var slot = self._atlas.slot(face, codepoint);
 			if (slot == null) {
 				if (self._atlas.full() && !self._freshAtlas) { self._atlasRetry = true; }  // the reset next frame fits it
-				penX += face.glyph(scalar.codepoint).advance;
+				penX += face.glyph(codepoint).advance;
 				continue;
 			}
 			var glyph = slot.glyph;

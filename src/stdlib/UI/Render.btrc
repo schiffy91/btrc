@@ -44,23 +44,11 @@ class UITextInput {
 		return UIRect(left, box.bounds.y + style.paddingTop() + (availableHeight - height) / 2, width, height);
 	}
 
-	class bool wordCharacter(string value, int offset) {
-		int code = UIText.byteAt(value, offset);
-		return code >= 128 || (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code == 95;
-	}
-
-	class int previousWord(string value, int offset) {
-		int position = offset;
-		while (position > 0 && !UITextInput.wordCharacter(value, UIText.previousBoundary(value, position))) { position = UIText.previousBoundary(value, position); }
-		while (position > 0 && UITextInput.wordCharacter(value, UIText.previousBoundary(value, position))) { position = UIText.previousBoundary(value, position); }
-		return position;
-	}
-
 	/* Selection groups keep whitespace and punctuation separate from words.
 	 * UTF-8 scalar boundaries are preserved, as in keyboard word navigation. */
 	class int selectionGroup(string value, int offset) {
-		if (UITextInput.wordCharacter(value, offset)) { return 0; }
-		int code = UIText.byteAt(value, offset);
+		if (UTF8.wordScalar(value, value.len(), offset)) { return 0; }
+		int code = (int)(unsigned char)value[offset];
 		return code == 32 || (code >= 9 && code <= 13) ? 1 : 2;
 	}
 
@@ -77,13 +65,6 @@ class UITextInput {
 		int position = offset >= value.len() ? UIText.previousBoundary(value, value.len()) : (offset < 0 ? 0 : offset);
 		int group = UITextInput.selectionGroup(value, position);
 		while (position < value.len() && UITextInput.selectionGroup(value, position) == group) { position = UIText.nextBoundary(value, position); }
-		return position;
-	}
-
-	class int nextWord(string value, int offset) {
-		int position = offset;
-		while (position < value.len() && !UITextInput.wordCharacter(value, position)) { position = UIText.nextBoundary(value, position); }
-		while (position < value.len() && UITextInput.wordCharacter(value, position)) { position = UIText.nextBoundary(value, position); }
 		return position;
 	}
 }
@@ -2677,7 +2658,7 @@ class UIRenderer {
 	public UIEventBatch backspace(bool word = false, bool line = false) {
 		UITextEditState before = self.textEditState();
 		if (self.editingText() && self.selectionStart() == self.selectionEnd()) {
-			self.focusedAnchorByteOffset = line ? 0 : (word ? UITextInput.previousWord(self.focusedInputValue, self.focusedCaretByteOffset) : UIText.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
+			self.focusedAnchorByteOffset = line ? 0 : (word ? UTF8.previousWord(self.focusedInputValue, self.focusedInputValue.len(), self.focusedCaretByteOffset) : UIText.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		}
 		return self.replaceSelectedText("", before);
 	}
@@ -2685,7 +2666,7 @@ class UIRenderer {
 	public UIEventBatch deleteForward(bool word = false, bool line = false) {
 		UITextEditState before = self.textEditState();
 		if (self.editingText() && self.selectionStart() == self.selectionEnd()) {
-			self.focusedAnchorByteOffset = line ? self.focusedInputValue.len() : (word ? UITextInput.nextWord(self.focusedInputValue, self.focusedCaretByteOffset) : UIText.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
+			self.focusedAnchorByteOffset = line ? self.focusedInputValue.len() : (word ? UTF8.nextWord(self.focusedInputValue, self.focusedInputValue.len(), self.focusedCaretByteOffset) : UIText.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		}
 		return self.replaceSelectedText("", before);
 	}
@@ -2703,13 +2684,13 @@ class UIRenderer {
 	}
 
 	public UIEventBatch moveCaretLeft(bool extend = false, bool word = false, bool line = false) {
-		int destination = line ? 0 : (word ? UITextInput.previousWord(self.focusedInputValue, self.focusedCaretByteOffset) : UIText.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
+		int destination = line ? 0 : (word ? UTF8.previousWord(self.focusedInputValue, self.focusedInputValue.len(), self.focusedCaretByteOffset) : UIText.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		if (!extend && !word && !line && self.selectionStart() != self.selectionEnd()) { destination = self.selectionStart(); }
 		return self.moveCaret(destination, extend);
 	}
 
 	public UIEventBatch moveCaretRight(bool extend = false, bool word = false, bool line = false) {
-		int destination = line ? self.focusedInputValue.len() : (word ? UITextInput.nextWord(self.focusedInputValue, self.focusedCaretByteOffset) : UIText.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
+		int destination = line ? self.focusedInputValue.len() : (word ? UTF8.nextWord(self.focusedInputValue, self.focusedInputValue.len(), self.focusedCaretByteOffset) : UIText.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset));
 		if (!extend && !word && !line && self.selectionStart() != self.selectionEnd()) { destination = self.selectionEnd(); }
 		return self.moveCaret(destination, extend);
 	}

@@ -111,6 +111,65 @@ class DateTime {
 	}
 }
 
+/* The one monotonic clock: saturating milliseconds and deadlines for every
+ * timeout in the library. A reading the clock cannot provide (an error, a
+ * negative or out-of-range timespec) is -1; a deadline derived from it is -1
+ * and is always expired, so waits fail closed. Arithmetic past LLONG_MAX
+ * saturates there instead of overflowing. */
+class MonotonicClock {
+	/* Milliseconds for a timespec reading: -1 for an invalid nanosecond
+	 * field, saturating at LLONG_MAX. */
+	class long long millisecondsFrom(uintmax_t seconds, long nanoseconds) {
+		if (nanoseconds < 0L || nanoseconds >= 1000000000L) { return -1LL; }
+		if (seconds > (uintmax_t)(LLONG_MAX / 1000LL)) { return LLONG_MAX; }
+		long long milliseconds = (long long)seconds * 1000LL;
+		long long fraction = (long long)nanoseconds / 1000000LL;
+		return milliseconds > (long long)LLONG_MAX - fraction ? LLONG_MAX : milliseconds + fraction;
+	}
+
+	/* Current monotonic milliseconds, or -1 when the clock is unavailable. */
+	class long long milliseconds() {
+		struct timespec now;
+		now.tv_sec = (time_t)0;
+		now.tv_nsec = 0L;
+		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_sec < (time_t)0) { return -1LL; }
+		return MonotonicClock.millisecondsFrom((uintmax_t)now.tv_sec, now.tv_nsec);
+	}
+
+	/* Current monotonic nanoseconds, or -1 when the clock is unavailable or
+	 * the reading does not fit in a long long. */
+	class long long nanoseconds() {
+		struct timespec now;
+		now.tv_sec = (time_t)0;
+		now.tv_nsec = 0L;
+		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_sec < (time_t)0 || now.tv_nsec < 0L || now.tv_nsec >= 1000000000L) { return -1LL; }
+		if ((uintmax_t)now.tv_sec > (uintmax_t)(LLONG_MAX / 1000000000LL)) { return -1LL; }
+		long long whole = (long long)now.tv_sec * 1000000000LL;
+		if (whole > (long long)LLONG_MAX - (long long)now.tv_nsec) { return -1LL; }
+		return whole + (long long)now.tv_nsec;
+	}
+
+	/* now plus a duration, saturating at LLONG_MAX. A negative duration is
+	 * zero; an unavailable reading (now < 0) gives the expired deadline -1. */
+	class long long deadline(long long now, long long durationMilliseconds) {
+		if (now < 0LL) { return -1LL; }
+		long long duration = durationMilliseconds > 0LL ? durationMilliseconds : 0LL;
+		return duration > (long long)LLONG_MAX - now ? LLONG_MAX : now + duration;
+	}
+
+	class long long deadlineAfter(long long durationMilliseconds) { return MonotonicClock.deadline(MonotonicClock.milliseconds(), durationMilliseconds); }
+
+	/* Milliseconds left before deadline; 0 once it has passed, when the
+	 * deadline is the expired -1, or when the clock is unavailable. */
+	class long long remaining(long long deadline) {
+		long long now = MonotonicClock.milliseconds();
+		if (now < 0LL || deadline <= now) { return 0LL; }
+		return deadline - now;
+	}
+
+	class bool before(long long deadline) { return MonotonicClock.remaining(deadline) > 0LL; }
+}
+
 /* A monotonic wall-clock stopwatch.
  *
  * Backed by CLOCK_MONOTONIC (POSIX) rather than clock(): clock() measures CPU
@@ -130,25 +189,9 @@ class Timer {
 
 	/* Current monotonic clock value, in nanoseconds. */
 	private long long monoNanos() {
-		struct timespec ts;
-		if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-			throw "failed to read monotonic clock";
-		}
-		if (ts.tv_sec < (time_t)0) {
-			throw "monotonic clock returned a negative value";
-		}
-		uintmax_t seconds = (uintmax_t)ts.tv_sec;
-		if (seconds > (uintmax_t)(LLONG_MAX / 1000000000LL)) {
-			throw "monotonic clock is outside Timer's supported range";
-		}
-		if (ts.tv_nsec < 0L || ts.tv_nsec >= 1000000000L) {
-			throw "monotonic clock returned an invalid nanosecond value";
-		}
-		long long nanoseconds = (long long)seconds * 1000000000LL;
-		if (nanoseconds > (long long)LLONG_MAX - (long long)ts.tv_nsec) {
-			throw "monotonic clock is outside Timer's supported range";
-		}
-		return nanoseconds + (long long)ts.tv_nsec;
+		long long nanoseconds = MonotonicClock.nanoseconds();
+		if (nanoseconds < 0LL) { throw "failed to read monotonic clock"; }
+		return nanoseconds;
 	}
 
 	public void start() {

@@ -16,7 +16,7 @@ PROCESS_RUNTIME = "\n".join(helper.c_source for helper in PROCESS_HELPERS.values
 def test_child_branch_uses_only_precomputed_async_signal_safe_inputs() -> None:
     source = PROCESS.read_text()
     child = source.split("if (child == (pid_t)0) {", 1)[1]
-    child = child.split("ChildProcessArguments.freeEntries(execArguments);", 1)[0]
+    child = child.split("CStringArray.freeAll(execArguments);", 1)[0]
 
     for required in (
         "setpgid(",
@@ -401,7 +401,7 @@ def test_environment_snapshot_allocates_one_owned_copy_per_inherited_entry() -> 
     build = build.split("class ChildProcessArguments", 1)[0]
     assert "char* inherited = environ[i];" in build
     assert "Strings.copy(environ[i])" not in build
-    assert "ChildProcessEnvironment.copyEntry(inherited)" in build
+    assert "CStringArray.copyEntry(inherited)" in build
 
 
 def test_http_client_is_direct_and_protocol_restricted() -> None:

@@ -1,0 +1,63 @@
+/* Strict-C11 boundary coverage for the shared saturating monotonic clock
+ * that every library timeout (child processes, daemon control, HTTP sockets,
+ * local channels) derives its deadlines from. */
+import Library.Datetime;
+
+#include <assert.h>
+
+int main() {
+	long long minimum = LLONG_MIN;
+	long long maximum = LLONG_MAX;
+	long long boundarySecondsWide = maximum / 1000LL;
+	uintmax_t boundarySeconds = (uintmax_t)boundarySecondsWide;
+	long long remainder = maximum - boundarySecondsWide * 1000LL;
+	long boundaryNanoseconds = (long)remainder * 1000000L;
+
+	assert(MonotonicClock.millisecondsFrom((uintmax_t)0, 0L) == 0LL);
+	assert(MonotonicClock.millisecondsFrom((uintmax_t)12, 345678901L) == 12345LL);
+	assert(MonotonicClock.millisecondsFrom((uintmax_t)0, -1L) == -1LL);
+	assert(MonotonicClock.millisecondsFrom((uintmax_t)0, 1000000000L) == -1LL);
+	assert(MonotonicClock.millisecondsFrom(boundarySeconds, boundaryNanoseconds) == maximum);
+	if (remainder < 999LL) {
+		long overflowingNanoseconds = (long)(remainder + 1LL) * 1000000L;
+		assert(MonotonicClock.millisecondsFrom(boundarySeconds, overflowingNanoseconds) == maximum);
+	}
+	assert(MonotonicClock.millisecondsFrom(boundarySeconds + (uintmax_t)1, 0L) == maximum);
+
+	/* Deadlines saturate at LLONG_MAX; a negative duration is zero, and an
+	 * unavailable reading yields the always-expired -1. */
+	assert(MonotonicClock.deadline(0LL, 0LL) == 0LL);
+	assert(MonotonicClock.deadline(1250LL, 750LL) == 2000LL);
+	assert(MonotonicClock.deadline(maximum, 0LL) == maximum);
+	assert(MonotonicClock.deadline(maximum - 10LL, 10LL) == maximum);
+	assert(MonotonicClock.deadline(maximum - 9LL, 10LL) == maximum);
+	assert(MonotonicClock.deadline(maximum - 2LL, 10LL) == maximum);
+	assert(MonotonicClock.deadline(1LL, maximum) == maximum);
+	assert(MonotonicClock.deadline(minimum, 0LL) == -1LL);
+	assert(MonotonicClock.deadline(-1LL, 0LL) == -1LL);
+	assert(MonotonicClock.deadline(5LL, -1LL) == 5LL);
+	assert(MonotonicClock.deadline(5LL, minimum) == 5LL);
+
+	/* Live readings: monotonic, and the derived waits fail closed. */
+	long long now = MonotonicClock.milliseconds();
+	assert(now >= 0LL && now < maximum);
+	assert(MonotonicClock.milliseconds() >= now);
+	long long nanoseconds = MonotonicClock.nanoseconds();
+	assert(nanoseconds >= 0LL);
+	assert(nanoseconds / 1000000LL >= now);
+	assert(MonotonicClock.deadlineAfter(1000LL) >= now + 1000LL);
+	assert(MonotonicClock.deadlineAfter(-1LL) >= now);
+	assert(MonotonicClock.deadlineAfter(maximum) == maximum);
+	assert(MonotonicClock.remaining(-1LL) == 0LL);
+	assert(MonotonicClock.remaining(0LL) == 0LL);
+	assert(MonotonicClock.remaining(now) == 0LL);
+	assert(!MonotonicClock.before(-1LL));
+	assert(!MonotonicClock.before(now));
+	assert(MonotonicClock.before(maximum));
+	long long left = MonotonicClock.remaining(MonotonicClock.deadlineAfter(60000LL));
+	assert(left > 0LL && left <= 60000LL);
+	assert(MonotonicClock.remaining(maximum) > 0LL);
+
+	print("PASS: test_stdlib_monotonic_clock");
+	return 0;
+}

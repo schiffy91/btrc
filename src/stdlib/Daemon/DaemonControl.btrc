@@ -70,47 +70,6 @@ class DaemonControlRecord {
 	}
 }
 
-class DaemonControlClock {
-	class long long millisecondsFrom(uintmax_t seconds, long nanoseconds) {
-		if (nanoseconds < 0L || nanoseconds >= 1000000000L) {
-			return -1LL;
-		}
-		if (seconds > (uintmax_t)(LLONG_MAX / 1000LL)) {
-			return LLONG_MAX;
-		}
-		long long milliseconds = (long long)seconds * 1000LL;
-		long long fraction = (long long)nanoseconds / 1000000LL;
-		return milliseconds > (long long)LLONG_MAX - fraction ? LLONG_MAX : milliseconds + fraction;
-	}
-
-	class long long milliseconds() {
-		struct timespec now;
-		now.tv_sec = (time_t)0;
-		now.tv_nsec = 0L;
-		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) { return -1LL; }
-		if (now.tv_sec < (time_t)0) { return -1LL; }
-		return DaemonControlClock.millisecondsFrom((uintmax_t)now.tv_sec, now.tv_nsec);
-	}
-
-	class long long deadline(long long now, int timeoutMilliseconds) {
-		if (now < 0LL || timeoutMilliseconds < 0) { return -1LL; }
-		long long duration = (long long)timeoutMilliseconds;
-		return duration > (long long)LLONG_MAX - now ? LLONG_MAX : now + duration;
-	}
-
-	class void pause() {
-		struct timespec delay;
-		delay.tv_sec = (time_t)0;
-		delay.tv_nsec = 20000000L;
-		while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {}
-	}
-
-	class bool before(long long deadline) {
-		long long now = DaemonControlClock.milliseconds();
-		return now >= 0LL && now < deadline;
-	}
-}
-
 class DaemonControlPaths {
 	class bool validDaemonName(string name) {
 		if (name == null || name.isEmpty() || name.equals(".") || name.equals("..")) {

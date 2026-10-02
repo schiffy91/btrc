@@ -5,6 +5,8 @@
  */
 
 import Library.Bytes;
+import Library.Datetime;
+import Library.IO;
 import Library.Platform;
 import Library.Strings;
 import Library.Vector;
@@ -114,7 +116,9 @@ enum CommandOutput {
 
 /* What a child reads when no stdinData is supplied: /dev/null, or the
  * parent's own stdin. Supplied stdinData always wins, and supplying it
- * together with CHILD_STDIN_INHERIT is a caller error. */
+ * together with CHILD_STDIN_INHERIT is a caller error. A foreground child
+ * without stdinData always inherits stdin, since the terminal handoff it
+ * exists for is interactive. */
 enum ChildStdin {
 	CHILD_STDIN_NULL = 0,
 	CHILD_STDIN_INHERIT = 1
@@ -221,38 +225,11 @@ class ChildProcessCapture {
 	}
 }
 
-class ChildProcessClock {
-	class long long millisecondsFrom(uintmax_t seconds, long nanoseconds) {
-		if (nanoseconds < 0L || nanoseconds >= 1000000000L) {
-			return -1LL;
-		}
-		if (seconds > (uintmax_t)(LLONG_MAX / 1000LL)) {
-			return LLONG_MAX;
-		}
-		long long milliseconds = (long long)seconds * 1000LL;
-		long long fraction = (long long)nanoseconds / 1000000LL;
-		return milliseconds > (long long)LLONG_MAX - fraction ? LLONG_MAX : milliseconds + fraction;
-	}
-
-	class long long milliseconds() {
-		struct timespec now;
-		now.tv_sec = (time_t)0;
-		now.tv_nsec = 0L;
-		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) { return -1LL; }
-		if (now.tv_sec < (time_t)0) { return -1LL; }
-		return ChildProcessClock.millisecondsFrom((uintmax_t)now.tv_sec, now.tv_nsec);
-	}
-
-	class long long deadline(long long now, int timeoutMilliseconds) {
-		if (now < 0LL || timeoutMilliseconds < 0) { return -1LL; }
-		long long duration = (long long)timeoutMilliseconds;
-		return duration > (long long)LLONG_MAX - now ? LLONG_MAX : now + duration;
-	}
-}
-
-/* Build the complete envp in the parent from independent raw copies. No
- * allocator, string helper, or environment mutation runs after fork. */
-class ChildProcessEnvironment {
+/* A NULL-terminated array of independently malloc'd C strings, the raw
+ * argv/envp shape exec consumes. The parent builds and releases it; the
+ * child after fork only reads it. */
+class CStringArray {
+	/* A raw copy of value, or NULL for a null value or a failed allocation. */
 	class char* copyEntry(string value) {
 		if (value == null) { return NULL; }
 		size_t length = strlen(value);
@@ -263,16 +240,21 @@ class ChildProcessEnvironment {
 		return result;
 	}
 
-	class void freeEntries(char** environment) {
-		if (environment == NULL) { return; }
+	/* Free every entry up to the terminating NULL, then the array itself. */
+	class void freeAll(char** entries) {
+		if (entries == NULL) { return; }
 		int index = 0;
-		while (environment[index] != NULL) {
-			free(environment[index]);
+		while (entries[index] != NULL) {
+			free(entries[index]);
 			index++;
 		}
-		free(environment);
+		free(entries);
 	}
+}
 
+/* Build the complete envp in the parent from independent raw copies. No
+ * allocator, string helper, or environment mutation runs after fork. */
+class ChildProcessEnvironment {
 	class bool assignmentHasName(string assignment, string name) {
 		int nameLength = Strings.checkedLength(name);
 		int assignmentLength = Strings.checkedLength(assignment);
@@ -316,18 +298,18 @@ class ChildProcessEnvironment {
 		for (int i = 0; i < inheritedCount; i++) {
 			char* inherited = environ[i];
 			if (!ChildProcessEnvironment.replaced(inherited, environment, unsetEnvironment)) {
-				result[count] = ChildProcessEnvironment.copyEntry(inherited);
+				result[count] = CStringArray.copyEntry(inherited);
 				if (result[count] == NULL) {
-					ChildProcessEnvironment.freeEntries(result);
+					CStringArray.freeAll(result);
 					return NULL;
 				}
 				count++;
 			}
 		}
 		for item in environment {
-			result[count] = ChildProcessEnvironment.copyEntry(item);
+			result[count] = CStringArray.copyEntry(item);
 			if (result[count] == NULL) {
-				ChildProcessEnvironment.freeEntries(result);
+				CStringArray.freeAll(result);
 				return NULL;
 			}
 			count++;
@@ -349,23 +331,21 @@ class ChildProcessArguments {
 		if (maximumCount < (size_t)2 || length > maximumCount - (size_t)2) { return NULL; }
 		char** result = (char**)calloc(length + (size_t)2, sizeof(char*));
 		if (result == NULL) { return NULL; }
-		result[0] = ChildProcessEnvironment.copyEntry(executable);
+		result[0] = CStringArray.copyEntry(executable);
 		if (result[0] == NULL) {
-			ChildProcessEnvironment.freeEntries(result);
+			CStringArray.freeAll(result);
 			return NULL;
 		}
 		for (int index = 0; index < arguments.len; index++) {
-			result[index + 1] = ChildProcessEnvironment.copyEntry(arguments.get(index));
+			result[index + 1] = CStringArray.copyEntry(arguments.get(index));
 			if (result[index + 1] == NULL) {
-				ChildProcessEnvironment.freeEntries(result);
+				CStringArray.freeAll(result);
 				return NULL;
 			}
 		}
 		result[arguments.len + 1] = NULL;
 		return result;
 	}
-
-	class void freeEntries(char** arguments) { ChildProcessEnvironment.freeEntries(arguments); }
 }
 
 class ChildProcessExecutable {
@@ -375,34 +355,12 @@ class ChildProcessExecutable {
 		return left + "/" + right;
 	}
 
-	class string currentDirectory() {
-		int capacity = 256;
-		char* buffer = (char*)malloc((size_t)capacity);
-		if (buffer == NULL) { return ""; }
-		while ((char*)getcwd(buffer, (size_t)capacity) == NULL) {
-			if (errno != ERANGE || capacity > 1073741823) {
-				free(buffer);
-				return "";
-			}
-			capacity = capacity * 2;
-			char* grown = (char*)realloc(buffer, (size_t)capacity);
-			if (grown == NULL) {
-				free(buffer);
-				return "";
-			}
-			buffer = grown;
-		}
-		string result = Strings.copy(buffer);
-		free(buffer);
-		return result;
-	}
-
 	class string workingDirectory(string cwd) {
 		if (cwd == null || cwd.isEmpty()) {
-			return ChildProcessExecutable.currentDirectory();
+			return Platform.currentDirectory();
 		}
 		if (cwd[0] == '/') { return Strings.copy(cwd); }
-		string current = ChildProcessExecutable.currentDirectory();
+		string current = Platform.currentDirectory();
 		if (current.isEmpty()) { return ""; }
 		return ChildProcessExecutable.join(current, cwd);
 	}
@@ -566,9 +524,7 @@ class ChildProcess {
 			ChildProcess.closePipe(descriptors);
 			return -1;
 		}
-		int readFlags = fcntl(descriptors[0], F_GETFD);
-		int writeFlags = fcntl(descriptors[1], F_GETFD);
-		if (readFlags < 0 || writeFlags < 0 || fcntl(descriptors[0], F_SETFD, readFlags | FD_CLOEXEC) != 0 || fcntl(descriptors[1], F_SETFD, writeFlags | FD_CLOEXEC) != 0) {
+		if (!DescriptorFlags.closeOnExec(descriptors[0]) || !DescriptorFlags.closeOnExec(descriptors[1])) {
 			ChildProcess.closePipe(descriptors);
 			return -1;
 		}
@@ -640,7 +596,8 @@ class ChildProcess {
 	/* Malformed requests throw: an empty executable, null or invalid vectors,
 	 * negative descriptors, conflicting cwd sources, bad output modes, bad
 	 * environment entries, bad descriptor mappings and stdinData combined
-	 * with CHILD_STDIN_INHERIT. Conditions met while starting the child --
+	 * with CHILD_STDIN_INHERIT. A foreground run without stdinData inherits
+	 * the caller's stdin. Conditions met while starting the child --
 	 * an unsupported platform capability, a resource or exec failure --
 	 * return code 127 with the reason in err. */
 	class ExecResult run(string executable, Vector<string> arguments, string cwd = "", Vector<string> environment = [], Vector<string> unsetEnvironment = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, string stdinData = "", CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COLLECT, int executableDescriptor = -1, Vector<ChildDescriptorMapping> descriptorMappings = [], int workingDirectoryDescriptor = -1, bool foreground = false, ChildStdin stdinMode = CHILD_STDIN_NULL) {
@@ -677,6 +634,7 @@ class ChildProcess {
 		if (hasStdinData && stdinMode == CHILD_STDIN_INHERIT) {
 			throw "stdinData cannot be combined with CHILD_STDIN_INHERIT";
 		}
+		if (foreground && !hasStdinData) { stdinMode = CHILD_STDIN_INHERIT; }
 		ChildProcess.validateEnvironment(environment, unsetEnvironment);
 		string command = ChildProcess.render(executable, arguments);
 		int descriptorBound = -1;
@@ -698,7 +656,7 @@ class ChildProcess {
 		}
 		long long deadline = 0LL;
 		if (timeoutMilliseconds > 0) {
-			deadline = ChildProcessClock.deadline(ChildProcessClock.milliseconds(), timeoutMilliseconds);
+			deadline = MonotonicClock.deadlineAfter((long long)timeoutMilliseconds);
 			if (deadline < 0LL) {
 				return ChildProcess.failure(command, "failed to read monotonic clock");
 			}
@@ -709,7 +667,7 @@ class ChildProcess {
 		}
 		char** execEnvironment = ChildProcessEnvironment.build(environment, unsetEnvironment);
 		if (execEnvironment == NULL) {
-			ChildProcessArguments.freeEntries(execArguments);
+			CStringArray.freeAll(execArguments);
 			return ChildProcess.failure(command, "failed to allocate child environment");
 		}
 
@@ -720,14 +678,14 @@ class ChildProcess {
 		stderrPipe[0] = -1;
 		stderrPipe[1] = -1;
 		if (stdout == COMMAND_OUTPUT_COLLECT && ChildProcess.openPipe(stdoutPipe) != 0) {
-			ChildProcessEnvironment.freeEntries(execEnvironment);
-			ChildProcessArguments.freeEntries(execArguments);
+			CStringArray.freeAll(execEnvironment);
+			CStringArray.freeAll(execArguments);
 			return ChildProcess.failure(command, "failed to create stdout pipe");
 		}
 		if (stderr == COMMAND_OUTPUT_COLLECT && ChildProcess.openPipe(stderrPipe) != 0) {
 			ChildProcess.closePipe(stdoutPipe);
-			ChildProcessEnvironment.freeEntries(execEnvironment);
-			ChildProcessArguments.freeEntries(execArguments);
+			CStringArray.freeAll(execEnvironment);
+			CStringArray.freeAll(execArguments);
 			return ChildProcess.failure(command, "failed to create stderr pipe");
 		}
 
@@ -745,8 +703,8 @@ class ChildProcess {
 		if ((stdout == COMMAND_OUTPUT_SUPPRESS || stderr == COMMAND_OUTPUT_SUPPRESS) && nullDescriptor < 0) {
 			ChildProcess.closePipe(stdoutPipe);
 			ChildProcess.closePipe(stderrPipe);
-			ChildProcessEnvironment.freeEntries(execEnvironment);
-			ChildProcessArguments.freeEntries(execArguments);
+			CStringArray.freeAll(execEnvironment);
+			CStringArray.freeAll(execArguments);
 			return ChildProcess.failure(command, "failed to open /dev/null");
 		}
 
@@ -763,8 +721,8 @@ class ChildProcess {
 				ChildProcess.closePipe(stdoutPipe);
 				ChildProcess.closePipe(stderrPipe);
 				if (nullDescriptor >= 0) { close(nullDescriptor); }
-				ChildProcessEnvironment.freeEntries(execEnvironment);
-				ChildProcessArguments.freeEntries(execArguments);
+				CStringArray.freeAll(execEnvironment);
+				CStringArray.freeAll(execArguments);
 				return ChildProcess.failure(command, "failed to open /dev/null for child stdin");
 			}
 		}
@@ -777,8 +735,7 @@ class ChildProcess {
 					input = NULL;
 				} else {
 					inputStreamDescriptor = fileno(input);
-					int inputFlags = fcntl(inputStreamDescriptor, F_GETFD);
-					if (inputStreamDescriptor < 0 || inputFlags < 0 || fcntl(inputStreamDescriptor, F_SETFD, inputFlags | FD_CLOEXEC) != 0 || lseek(inputStreamDescriptor, (off_t)0, SEEK_SET) < (off_t)0) {
+					if (inputStreamDescriptor < 0 || !DescriptorFlags.closeOnExec(inputStreamDescriptor) || lseek(inputStreamDescriptor, (off_t)0, SEEK_SET) < (off_t)0) {
 						fclose(input);
 						input = NULL;
 						inputStreamDescriptor = -1;
@@ -796,8 +753,8 @@ class ChildProcess {
 				ChildProcess.closePipe(stdoutPipe);
 				ChildProcess.closePipe(stderrPipe);
 				if (nullDescriptor >= 0) { close(nullDescriptor); }
-				ChildProcessEnvironment.freeEntries(execEnvironment);
-				ChildProcessArguments.freeEntries(execArguments);
+				CStringArray.freeAll(execEnvironment);
+				CStringArray.freeAll(execArguments);
 				return ChildProcess.failure(command, "failed to prepare child stdin");
 			}
 		}
@@ -811,8 +768,8 @@ class ChildProcess {
 				close(inputDescriptor);
 			}
 			if (input != NULL) { fclose(input); }
-			ChildProcessArguments.freeEntries(execArguments);
-			ChildProcessEnvironment.freeEntries(execEnvironment);
+			CStringArray.freeAll(execArguments);
+			CStringArray.freeAll(execEnvironment);
 			return ChildProcess.failure(command, "failed to execute child process\n");
 		}
 		bool suppressStdout = stdout == COMMAND_OUTPUT_SUPPRESS;
@@ -894,8 +851,8 @@ class ChildProcess {
 				close(inputDescriptor);
 			}
 			if (input != NULL) { fclose(input); }
-			ChildProcessArguments.freeEntries(execArguments);
-			ChildProcessEnvironment.freeEntries(execEnvironment);
+			CStringArray.freeAll(execArguments);
+			CStringArray.freeAll(execEnvironment);
 			return ChildProcess.failure(command, descriptorPreparationError);
 		}
 
@@ -992,8 +949,8 @@ class ChildProcess {
 			child = (pid_t)0 - (pid_t)1;
 		}
 
-		ChildProcessArguments.freeEntries(execArguments);
-		ChildProcessEnvironment.freeEntries(execEnvironment);
+		CStringArray.freeAll(execArguments);
+		CStringArray.freeAll(execEnvironment);
 		if (stdoutPipe[1] >= 0) { close(stdoutPipe[1]); stdoutPipe[1] = -1; }
 		if (stderrPipe[1] >= 0) { close(stderrPipe[1]); stderrPipe[1] = -1; }
 		if (nullDescriptor >= 0) { close(nullDescriptor); }
@@ -1052,7 +1009,7 @@ class ChildProcess {
 				}
 			}
 
-			long long now = deadline > 0LL ? ChildProcessClock.milliseconds() : 0LL;
+			long long now = deadline > 0LL ? MonotonicClock.milliseconds() : 0LL;
 			if (!timedOut && deadline > 0LL && (now < 0LL || now >= deadline)) {
 				timedOut = true;
 				if (kill(-child, SIGKILL) != 0) {
@@ -1175,15 +1132,11 @@ class Command {
 class UnixShell {
 	public UnixShell() {}
 
-	class string quote(string raw) { return ShellWords.quote(raw); }
-
-	class string redactText(string text, string sensitive) { return ShellWords.redact(text, sensitive); }
-
 	class void logError(string message) { fprintf(stderr, "%s\n", __btrc_string_or_empty(message)); }
 
 	public ExecResult run(string command, CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COMBINE, bool logCommand = false, bool logFailure = true, bool throwOnFailure = false, string redactSubstring = "", string stdin = "", string cwd = "", Vector<string> env = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, bool foreground = false) {
 		if (command == null) { throw "shell command cannot be null"; }
-		string visible = UnixShell.redactText(command, redactSubstring == null ? "" : redactSubstring);
+		string visible = ShellWords.redact(command, redactSubstring == null ? "" : redactSubstring);
 		if (logCommand) {
 			UnixShell.logError(f"LOG: {visible}");
 		}

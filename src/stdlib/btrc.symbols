@@ -1,4 +1,4 @@
-btrc-symbols 1 931b4ca3-235431-25
+btrc-symbols 1 14ae8135-240043-25
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
@@ -13,6 +13,7 @@ COMMAND_OUTPUT_COLLECT	Process.btrc
 COMMAND_OUTPUT_COMBINE	Process.btrc
 COMMAND_OUTPUT_STREAM	Process.btrc
 COMMAND_OUTPUT_SUPPRESS	Process.btrc
+CStringArray	Process.btrc
 CallbackCancellation	Callback.btrc
 CallbackContext	Callback.btrc
 CallbackRegistration	Callback.btrc
@@ -25,7 +26,6 @@ ChildDescriptorMapping	Process.btrc
 ChildProcess	Process.btrc
 ChildProcessArguments	Process.btrc
 ChildProcessCapture	Process.btrc
-ChildProcessClock	Process.btrc
 ChildProcessEnvironment	Process.btrc
 ChildProcessExecutable	Process.btrc
 ChildStdin	Process.btrc
@@ -35,6 +35,7 @@ CompiledRegex	Regex.btrc
 Complete	Callback.btrc
 Console	Console.btrc
 DateTime	Datetime.btrc
+DescriptorFlags	IO.btrc
 Environment	Platform.btrc
 ExecResult	Process.btrc
 FILE_DIRECTORY	IO.btrc
@@ -75,6 +76,7 @@ List	List.btrc
 ListNode	List.btrc
 Map	Map.btrc
 Math	Math.btrc
+MonotonicClock	Datetime.btrc
 NotRequested	Callback.btrc
 OWNED_BUFFER_COUNT_OUT_OF_RANGE	OwnedBuffer.btrc
 OWNED_BUFFER_INVALID_ARGUMENT	OwnedBuffer.btrc
@@ -114,6 +116,7 @@ StringBuilder	Strings.btrc
 Strings	Strings.btrc
 TOML	TOML.btrc
 Timer	Datetime.btrc
+UTF8	Strings.btrc
 UnixShell	Process.btrc
 Vector	Vector.btrc
 btrcSpscCopy	SPSC.btrc

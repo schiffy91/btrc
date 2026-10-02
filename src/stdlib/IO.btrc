@@ -7,8 +7,26 @@ import Library.Platform;
 import Library.Vector;
 
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
+
+/* The descriptor flags every library socket and pipe sets: close-on-exec so
+ * no child inherits it, and nonblocking I/O for deadline-driven waits. Each
+ * adds its flag to the ones the descriptor already has. */
+class DescriptorFlags {
+	class bool closeOnExec(int descriptor) {
+		int flags = fcntl(descriptor, F_GETFD, 0);
+		return flags >= 0 && fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) == 0;
+	}
+
+	class bool nonblocking(int descriptor) {
+		int flags = fcntl(descriptor, F_GETFL, 0);
+		return flags >= 0 && fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0;
+	}
+
+	class bool configure(int descriptor, bool nonblocking) { return DescriptorFlags.closeOnExec(descriptor) && (!nonblocking || DescriptorFlags.nonblocking(descriptor)); }
+}
 
 enum FileLineReadKind {
 	FILE_LINE_READ_LINE = 0,

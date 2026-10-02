@@ -44,7 +44,7 @@ class FeSourcePathPolicy {
 
 	public FeSourcePathPolicy() {
 		self.windows = Platform.isWindows();
-		self.currentDirectory = FileSystem.currentDirectory();
+		self.currentDirectory = Platform.currentDirectory();
 		self.identities = {};
 	}
 
@@ -242,7 +242,7 @@ class FeSourceReadIdentity {
 	private FileSnapshot version;
 
 	public FeSourceReadIdentity(string path, FileSnapshot version) {
-		self.path = PathTools.isAbsolute(path) ? path : PathTools.join(FileSystem.currentDirectory(), path);
+		self.path = PathTools.isAbsolute(path) ? path : PathTools.join(Platform.currentDirectory(), path);
 		self.canonical = PathTools.absolute(self.path);
 		self.version = version;
 	}

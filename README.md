@@ -1760,11 +1760,14 @@ when used on the wrong case.
 - `Library.JSON` -- `JSONValue`, `JSONParser`, with compact, pretty, and canonical serialization
 - `Library.TOML` -- manifest-grade TOML reading
 - `Library.Regex` / `Library.Pattern` -- compiled regular expressions and glob-style patterns
+- `Library.Strings` -- `Strings`, `StringBuilder`, and `UTF8`, the one owner of UTF-8 decoding, validation, scalar boundaries and word navigation
 - `Library.Bytes` -- byte buffers; `Library.Digest.SHA256` for hashing
-- `Library.Process` -- `Command`, `ChildProcess`, `UnixShell`, `ShellWords`
+- `Library.Datetime` -- `DateTime`, `Timer`, and `MonotonicClock` saturating deadlines
+- `Library.Process` -- `Command`, `ChildProcess`, `UnixShell`, `ShellWords`, `CStringArray`
 - `Library.CLI` -- `CLIArgs`, `CLICommand`, `CLICommandLine`, `CLIHelp`
 - `Library.HTTP` -- client, server, framing, and typed response headers
-- `Library.Platform` -- `Platform` and `Environment` host integration
+- `Library.Platform` -- `Platform` (including `currentDirectory`) and `Environment` host integration
+- `Library.IO` -- `File` and `DescriptorFlags` (close-on-exec, nonblocking)
 
 ---
 
