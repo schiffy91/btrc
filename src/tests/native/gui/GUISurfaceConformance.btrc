@@ -4,8 +4,6 @@ import Library.GUI.Raster;
 #include <assert.h>
 #include <limits.h>
 
-void guiFailAllocation(int countdown);
-
 class SurfaceProbe {
 	class Surface retained() {
 		var surface = Surface(2, 2);

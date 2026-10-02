@@ -3,13 +3,6 @@ import Library.Audio.AudioDevice;
 
 #include <assert.h>
 
-void resourceScenario(int scenario);
-void resourceExternalChange();
-void resourceReleasePending();
-int resourceWrites();
-int resourceAggregates();
-int resourceOriginal();
-
 void unchanged() {
 	var configuration = CoreAudioDeviceConfiguration(CoreAudioHardwareDevice(11u), "device-a");
 	int before = resourceWrites();

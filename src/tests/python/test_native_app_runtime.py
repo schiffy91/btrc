@@ -47,6 +47,8 @@ def test_btrc_directory_picker_appkit(tmp_path, request, gui_provider_root, fron
         'manifest-version = 1\n[package]\nname = "pickerTest"\n'
         '[[native.sources]]\npath = "DirectoryPickerControl.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         '[[native.include-directories]]\npath = "."\n'
+        '[[native.bindings]]\nmodule = "MacOSDirectoryPickerConformance"\nheader = "DirectoryPickerControl.h"\n'
+        'language = "c"\nstandard = "c11"\nsymbols = ["directoryPickerPrepare", "directoryPickerCalls"]\n'
     )
     source = tmp_path / "MacOSDirectoryPickerConformance.btrc"
     generated = tmp_path / "Picker.c"
