@@ -545,10 +545,11 @@ class OwnershipValidator {
 	}
 
 	public int currentParameterIndex(string name) {
-		if (self.state.callable == null) { return -1; }
+		Node? callable = self.state.callable;
+		if (callable == null) { return -1; }
 		int index = 0;
-		while (index < self.state.callable.params().len) {
-			if (self.state.callable.params().get(index).name == name) { return index; }
+		while (index < callable.params().len) {
+			if (callable.params().get(index).name == name) { return index; }
 			index = index + 1;
 		}
 		return -1;

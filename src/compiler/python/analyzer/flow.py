@@ -23,6 +23,7 @@ from src.compiler.python.syntax.ast.generated import (
     ForInStmt,
     Identifier,
     IfStmt,
+    IndexExpr,
     LambdaExpr,
     NullLiteral,
     ParallelForStmt,
@@ -177,13 +178,42 @@ class ControlFlowAnalyzer:
         if path is not None and (not path.fields):
             self.session.mark_address_escaped(path.root)
 
+    def invalidate_nonnull_effects(self, expression) -> None:
+        """Drop the facts any call, store or address escape nested in an expression can kill."""
+        surviving = self._facts_surviving(set(self.session.nonnull_paths), expression)
+        self.session.replace_nonnull_paths(fact for fact in surviving if not self.session.address_escaped(fact.root))
+
+    def facts_surviving_loop(self, facts, *parts) -> set[AccessPath]:
+        """The facts that still hold at a loop head, before the body is analyzed once.
+
+        A later iteration enters the loop from its back edge, so every fact that
+        the body, the condition or the update could kill is dropped up front.
+        Stores to locals the body itself declares cannot kill an outer fact.
+        """
+        nodes = [
+            node
+            for part in parts
+            for node in self._walk_effect_nodes(part)
+            if not (isinstance(node, AssignExpr) and self._is_undeclared_store(node.target))
+        ]
+        return self._facts_surviving_nodes(set(facts), nodes)
+
+    def _is_undeclared_store(self, target) -> bool:
+        root = target
+        while isinstance(root, (FieldAccessExpr, IndexExpr)):
+            root = root.obj
+        return isinstance(root, Identifier) and self.session.scope.lookup(root.name) is None
+
     def _facts_surviving(self, facts: set[AccessPath], expression) -> set[AccessPath]:
+        return self._facts_surviving_nodes(facts, self._walk_effect_nodes(expression))
+
+    def _facts_surviving_nodes(self, facts: set[AccessPath], nodes) -> set[AccessPath]:
         surviving = set(facts)
         assignments: list[AccessPath] = []
         has_unknown_assignment = False
         address_escapes: list[AccessPath] = []
         has_call = False
-        for node in self._walk_effect_nodes(expression):
+        for node in nodes:
             if isinstance(node, AssignExpr):
                 path = self.access_path(node.target)
                 if path is not None:

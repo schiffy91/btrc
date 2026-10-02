@@ -392,6 +392,9 @@ class Parser {
 		} else if (tok.type == "CLASS" || tok.type == "STATIC") {
 			access = "class";
 			self.advance();
+		} else {
+			self.failAt("Expected access specifier (public/private/static), got '" + tok.value + "'", tok);
+			return Node();
 		}
 
 		bool isAbstractMethod = false;
@@ -2528,6 +2531,8 @@ class Parser {
 						hasText = false;
 					}
 					i = i + 1;
+					int exprLine = self.fStringLine(tok, raw, i);
+					int exprCol = self.fStringCol(tok, raw, i);
 					int depth = 1;
 					string exprChars = "";
 					bool done = false;
@@ -2547,7 +2552,7 @@ class Parser {
 					string exprSrc = self.replaceEscQuote(exprChars);
 					Node enode = Node();
 					enode.kind = NK_F_STRING_EXPR;
-					Node sub = self.parseSubExpr(exprSrc);
+					Node sub = self.parseSubExpr(exprSrc, exprLine, exprCol);
 					enode.expression = sub;
 					n.partsMut().push(enode);
 				}
@@ -2603,8 +2608,30 @@ class Parser {
 		return out;
 	}
 
-	public Node parseSubExpr(string exprSrc) {
-		Lexer lx = Lexer(exprSrc + ";", self.grammar);
+	/* Map an offset in an f-string's body to its line in the source. */
+	private int fStringLine(Token tok, string raw, int index) {
+		int line = tok.line;
+		int at = 0;
+		while (at < index) {
+			if (raw[at] == '\n') { line = line + 1; }
+			at = at + 1;
+		}
+		return line;
+	}
+
+	/* Map an offset in an f-string's body to its column in the source. */
+	private int fStringCol(Token tok, string raw, int index) {
+		int col = tok.col + 2;
+		int at = 0;
+		while (at < index) {
+			col = raw[at] == '\n' ? 1 : col + 1;
+			at = at + 1;
+		}
+		return col;
+	}
+
+	public Node parseSubExpr(string exprSrc, int line, int col) {
+		Lexer lx = Lexer(exprSrc + ";", self.grammar, line, col);
 		Vector<Token> subToks = lx.tokenize();
 		if (lx.failed) {
 			if (!self.failed) {

@@ -811,33 +811,16 @@ class GpuPipeline {
 	}
 
 	public void registerKernels(Node program, IRModule module) {
+		/* The analyzer has already rejected @gpu methods and bodyless kernels. */
 		self.indexTranslationUnitOutputs(program);
-		int declarationIndex = 0;
-		while (declarationIndex < program.declarations().len) {
-			Node owner = program.declarations().get(declarationIndex);
-			if (owner.kind == NK_CLASS_DECL || owner.kind == NK_INTERFACE_DECL) {
-				int memberIndex = 0;
-				while (memberIndex < owner.members().len) {
-					Node member = owner.members().get(memberIndex);
-					if (member.isGpu) {
-						self.reject(member, "@gpu methods are not supported; use a top-level kernel");
-					}
-					memberIndex = memberIndex + 1;
-				}
-			}
-			declarationIndex = declarationIndex + 1;
-		}
 		bool addedRuntime = false;
-		declarationIndex = 0;
+		int declarationIndex = 0;
 		while (declarationIndex < program.declarations().len) {
 			Node declaration = program.declarations().get(declarationIndex);
 			if (declaration.kind == NK_FUNCTION_DECL && declaration.isGpu) {
 				if (!addedRuntime) {
 					module.preprocessorDecls.push(IRPreprocessorDecl.include("btrc_gpu_compute_internal.h", false));
 					addedRuntime = true;
-				}
-				if (declaration.bodyNode == null) {
-					self.reject(declaration, "@gpu kernel requires a body");
 				}
 				if (self.kernels.has(declaration.name)) {
 					self.reject(declaration, "duplicate @gpu kernel '" + declaration.name + "'");

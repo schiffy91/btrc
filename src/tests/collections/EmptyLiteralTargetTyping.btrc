@@ -1,0 +1,56 @@
+// An empty `[]` or `{}` takes its collection type from the target wherever one
+// exists: a declared local, a field default, an assignment, a return value and
+// a call argument, bare or as either branch of a ternary.
+import Library.Map;
+import Library.Vector;
+
+class Holder {
+	public Vector<string> names = [];
+	public Vector<string> chosen = true ? [] : [];
+	public Map<string, int> counts = {};
+	public Map<string, int> picked = false ? {} : {};
+}
+
+Vector<string> pickNames(bool flag) { return []; }
+
+Vector<string> pickEitherNames(bool flag) { return flag ? [] : []; }
+
+Map<string, int> pickCounts(bool flag) { return {}; }
+
+Map<string, int> pickEitherCounts(bool flag) { return flag ? {} : {}; }
+
+int takeNames(Vector<string> values) { return values.len; }
+
+int takeCounts(Map<string, int> values) { return values.len; }
+
+int main() {
+	Vector<string> declared = [];
+	Vector<string> declaredEither = true ? [] : [];
+	Vector<string> assigned = ["a"];
+	assigned = [];
+	Vector<string> assignedEither = ["b"];
+	assignedEither = false ? [] : [];
+	Map<string, int> counts = {"a": 1};
+	counts = {};
+	Map<string, int> countsEither = true ? {} : {};
+	Holder holder = Holder();
+
+	declared.push("x");
+	declaredEither.push("y");
+	assigned.push("z");
+	counts.put("k", 2);
+	holder.chosen.push("w");
+	holder.picked.put("p", 3);
+	Vector<string> returned = pickEitherNames(true);
+	returned.push("r");
+	Map<string, int> returnedCounts = pickEitherCounts(false);
+	returnedCounts.put("q", 4);
+
+	printf("%d %d %d %d %d\n", declared.len, declaredEither.len, assigned.len, assignedEither.len, countsEither.len);
+	printf("%d %d %d %d\n", holder.names.len, holder.chosen.len, holder.counts.len, holder.picked.len);
+	printf("%d %d %d %d\n", pickNames(true).len, returned.len, pickCounts(true).len, returnedCounts.len);
+	printf("%d %d %d %d\n", takeNames([]), takeNames(true ? [] : []), takeCounts({}), takeCounts(false ? {} : {}));
+	printf("%s %s %d\n", declared.get(0), holder.chosen.get(0), counts.get("k"));
+	printf("PASS: empty_literal_target_typing\n");
+	return 0;
+}

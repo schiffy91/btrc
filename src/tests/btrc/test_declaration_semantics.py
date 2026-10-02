@@ -138,7 +138,7 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
         ),
         (
             "int main() { __fn_ptr<int, int>* callback; return callback(1); }",
-            "Value 'callback' is not callable",
+            "Resolved value 'callback' of type",
         ),
     ],
 )
