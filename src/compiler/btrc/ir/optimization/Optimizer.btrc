@@ -931,26 +931,95 @@ class IROptimizer {
 		}
 	}
 
+	/* Order and number each generated adapter family by first use: the first
+	 * surviving non-adapter function that names a member, ties keeping
+	 * creation order. Creation order followed the order functions were
+	 * lowered in, which differs between the compilers. Mirrors
+	 * IROptimizer._renumber_adapters in the Python owner. */
 	private void renumberAdapters(IRModule module) {
 		Vector<string> families = ["__btrc_arc_slot_access_", "__btrc_mutex_value_access_", "__btrc_store_", "__btrc_cleanup_take_"];
+		Map<string, bool> members = {};
+		for definition in module.functions {
+			for prefix in families {
+				if (self.adapterMember(definition.name, prefix)) { members.put(definition.name, true); }
+			}
+		}
+		if (members.len == 0) { return; }
+		Map<string, int> firstUse = {};
+		int position = 0;
+		for definition in module.functions {
+			if (!members.has(definition.name)) { self.collectAdapterUses(definition.body, members, position, firstUse); }
+			position = position + 1;
+		}
+		int unused = module.functions.len;
+		Vector<IRFunction> reordered = [];
+		for definition in module.functions { reordered.push(definition); }
 		Map<string, string> placeholders = {};
 		Map<string, string> finals = {};
 		bool changed = false;
 		for prefix in families {
+			Vector<int> indexes = [];
+			Vector<int> ordered = [];
 			int index = 0;
 			for definition in module.functions {
-				if (!self.adapterMember(definition.name, prefix)) { continue; }
+				if (self.adapterMember(definition.name, prefix)) {
+					indexes.push(index);
+					int rank = firstUse.has(definition.name) ? firstUse.get(definition.name) : unused;
+					int at = ordered.len;
+					while (at > 0) {
+						string previous = module.functions.get(ordered.get(at - 1)).name;
+						int previousRank = firstUse.has(previous) ? firstUse.get(previous) : unused;
+						if (previousRank <= rank) { break; }
+						at = at - 1;
+					}
+					ordered.insert(at, index);
+				}
 				index = index + 1;
-				string placeholder = "#" + prefix + Strings.fromInt(index);
-				string finalName = prefix + Strings.fromInt(index);
+			}
+			int slot = 0;
+			while (slot < indexes.len) {
+				IRFunction definition = module.functions.get(ordered.get(slot));
+				reordered.set(indexes.get(slot), definition);
+				string placeholder = "#" + prefix + Strings.fromInt(slot + 1);
+				string finalName = prefix + Strings.fromInt(slot + 1);
 				placeholders.put(definition.name, placeholder);
 				finals.put(placeholder, finalName);
 				if (definition.name != finalName) { changed = true; }
+				slot = slot + 1;
 			}
 		}
+		module.functions = reordered;
 		if (!changed) { return; }
 		self.renameModuleSymbols(module, placeholders);
 		self.renameModuleSymbols(module, finals);
+	}
+
+	private void collectAdapterUses(IRNode? node, Map<string, bool> members, int position, Map<string, int> firstUse) {
+		if (node == null) { return; }
+		if (node.kind == IRK_FUNCTION_REF && members.has(node.name) && !firstUse.has(node.name)) { firstUse.put(node.name, position); }
+		if (node.callee != "" && members.has(node.callee) && !firstUse.has(node.callee)) { firstUse.put(node.callee, position); }
+		IRCleanupSlot? slot = node.cleanupSlot;
+		if (slot != null && members.has(slot.takeFunction) && !firstUse.has(slot.takeFunction)) { firstUse.put(slot.takeFunction, position); }
+		self.collectAdapterUses(node.left, members, position, firstUse);
+		self.collectAdapterUses(node.right, members, position, firstUse);
+		self.collectAdapterUses(node.operand, members, position, firstUse);
+		self.collectAdapterUses(node.expr, members, position, firstUse);
+		self.collectAdapterUses(node.obj, members, position, firstUse);
+		self.collectAdapterUses(node.index, members, position, firstUse);
+		self.collectAdapterUses(node.condition, members, position, firstUse);
+		self.collectAdapterUses(node.trueExpr, members, position, firstUse);
+		self.collectAdapterUses(node.falseExpr, members, position, firstUse);
+		self.collectAdapterUses(node.arraySize, members, position, firstUse);
+		self.collectAdapterUses(node.init, members, position, firstUse);
+		self.collectAdapterUses(node.value, members, position, firstUse);
+		self.collectAdapterUses(node.target, members, position, firstUse);
+		self.collectAdapterUses(node.thenBlock, members, position, firstUse);
+		self.collectAdapterUses(node.elseBlock, members, position, firstUse);
+		self.collectAdapterUses(node.body, members, position, firstUse);
+		self.collectAdapterUses(node.update, members, position, firstUse);
+		self.collectAdapterUses(node.result, members, position, firstUse);
+		for argument in node.args() { self.collectAdapterUses(argument, members, position, firstUse); }
+		for statement in node.stmts() { self.collectAdapterUses(statement, members, position, firstUse); }
 	}
 
 	/* Number each function's compiler temporaries from 1, in allocation

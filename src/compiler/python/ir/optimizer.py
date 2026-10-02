@@ -693,30 +693,65 @@ class IROptimizer:
         return {key for name in names for key in providers.get(name, ())}
 
     def _renumber_adapters(self) -> None:
-        """Number each generated adapter family's surviving members from 1.
+        """Order and number each generated adapter family by first use.
 
-        Adapters are numbered when lowering first needs them, so a family's
+        Adapters are created when lowering first needs them, so creation
+        order followed the order functions were lowered in, and a family's
         names depended on adapters that only dead functions used. After
-        dead-code elimination each family is renumbered in definition order
-        and every reference follows; btrcc's optimizer applies the same rule.
+        dead-code elimination each family is ordered by the first surviving
+        non-adapter function that names a member, ties keeping creation
+        order, then its definitions take that order and its members are
+        numbered from 1; btrcc's optimizer applies the same rule.
         """
-        placeholders: dict[str, str] = {}
-        finals: dict[str, str] = {}
-        for prefix in _ADAPTER_FAMILIES:
-            members = [
-                function.name
-                for function in self._module.function_defs
+        definitions = self._module.function_defs
+        families = {
+            prefix: [
+                index
+                for index, function in enumerate(definitions)
                 if function.name.startswith(prefix) and function.name[len(prefix) :].isdigit()
             ]
-            for index, name in enumerate(members, start=1):
-                placeholder = f"#{prefix}{index}"
-                placeholders[name] = placeholder
-                finals[placeholder] = f"{prefix}{index}"
+            for prefix in _ADAPTER_FAMILIES
+        }
+        members = {definitions[index].name for indexes in families.values() for index in indexes}
+        if not members:
+            return
+        first_use: dict[str, int] = {}
+        for position, function in enumerate(definitions):
+            if function.name in members:
+                continue
+            for node in IRNode.walk_value(function):
+                for name in IROptimizer._adapter_references(node):
+                    if name in members:
+                        first_use.setdefault(name, position)
+        placeholders: dict[str, str] = {}
+        finals: dict[str, str] = {}
+        reordered = list(definitions)
+        for prefix, indexes in families.items():
+            ordered = sorted(indexes, key=lambda index: (first_use.get(definitions[index].name, len(definitions)), index))
+            for slot, (index, source) in enumerate(zip(indexes, ordered, strict=True), start=1):
+                reordered[index] = definitions[source]
+                placeholder = f"#{prefix}{slot}"
+                placeholders[definitions[source].name] = placeholder
+                finals[placeholder] = f"{prefix}{slot}"
+        self._module.function_defs[:] = reordered
         if not any(name != finals[placeholder] for name, placeholder in placeholders.items()):
             return
         nodes = tuple(IRNode.walk_value(self._module))
         self._rename_symbols(nodes, placeholders)
         self._rename_symbols(nodes, finals)
+
+    @staticmethod
+    def _adapter_references(node) -> tuple[str, ...]:
+        """Symbols one IR node names that could be a generated adapter."""
+        names: list[str] = []
+        if isinstance(node, IRFunctionRef):
+            names.append(node.name)
+        elif isinstance(node, IRCall) and isinstance(node.callee, str):
+            names.append(node.callee)
+        slot = getattr(node, "cleanup_slot", None)
+        if isinstance(slot, IRCleanupSlot):
+            names.append(slot.take_function)
+        return tuple(names)
 
     @staticmethod
     def _rename_symbols(nodes: tuple[object, ...], renamed: dict[str, str]) -> None:

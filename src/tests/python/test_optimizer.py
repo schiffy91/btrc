@@ -605,3 +605,28 @@ def test_dead_runtime_object_reference_does_not_retain_catalog_provider():
 
     assert [function.name for function in module.function_defs] == ["main"]
     assert "__btrc_mutex_arc_type" not in {helper.name for helper in module.helper_decls}
+
+
+def test_adapters_are_ordered_and_numbered_by_first_use():
+    """A family follows the first function that names each member, not creation order."""
+    take_late = _fn("__btrc_cleanup_take_1")
+    take_early = _fn("__btrc_cleanup_take_7")
+    main = _fn(
+        "main",
+        [
+            IRExprStmt(expr=IRCall(callee="first", args=[])),
+            IRExprStmt(expr=IRCall(callee="second", args=[])),
+        ],
+    )
+    first = _fn("first", [IRExprStmt(expr=IRFunctionRef(name="__btrc_cleanup_take_7"))])
+    second = _fn("second", [IRExprStmt(expr=IRFunctionRef(name="__btrc_cleanup_take_1"))])
+    module = IRModule(function_defs=[take_late, take_early, main, first, second])
+
+    IROptimizer(module).optimize()
+
+    names = [function.name for function in module.function_defs]
+    assert names[:2] == ["__btrc_cleanup_take_1", "__btrc_cleanup_take_2"]
+    assert module.function_defs[0] is take_early
+    assert module.function_defs[1] is take_late
+    assert first.body.stmts[0].expr.name == "__btrc_cleanup_take_1"
+    assert second.body.stmts[0].expr.name == "__btrc_cleanup_take_2"
