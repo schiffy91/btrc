@@ -534,6 +534,10 @@ class RealtimeAnalyzer {
 			}
 			return;
 		}
+		if (node.kind == NK_STRING_CONCAT) {
+			self.effect(callable, "strings", "string value", node);
+			return;
+		}
 		if (node.kind == NK_STRING_LITERAL || node.kind == NK_F_STRING_LITERAL) {
 			self.effect(callable, "strings", "string value", node);
 		} else if (node.kind == NK_LIST_LITERAL || node.kind == NK_MAP_LITERAL) {

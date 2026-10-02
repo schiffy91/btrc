@@ -200,8 +200,13 @@ class SignatureHelpProvider:
         expanded = self.resolver.navigation_tokens([token for token in line_tokens if token.type != TokenKind.EOF])
         return [Token(token.type, token.value, position.line + token.line, token.col) for token in expanded]
 
+    @staticmethod
+    def _param_label(ptype: str, pname: str) -> str:
+        # An unnamed prototype parameter (`int f(int);`) is labelled by its type.
+        return f"{ptype} {pname}" if pname else ptype
+
     def _make_param_info(self, ptype: str, pname: str) -> lsp.ParameterInformation:
-        return lsp.ParameterInformation(label=f"{ptype} {pname}", documentation=None)
+        return lsp.ParameterInformation(label=self._param_label(ptype, pname), documentation=None)
 
     def _make_signature(
         self, label: str, params: list[lsp.ParameterInformation], active_param: int, documentation: str | None = None
@@ -220,7 +225,7 @@ class SignatureHelpProvider:
         active_param: int,
         context: str | None = None,
     ) -> lsp.SignatureHelp:
-        params = ", ".join((f"{ptype} {name}" for ptype, name in param_list))
+        params = ", ".join(self._param_label(ptype, name) for ptype, name in param_list)
         label = f"{func_name}({params})"
         if return_type and return_type != "void":
             label = f"{return_type} {label}"

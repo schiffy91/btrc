@@ -341,7 +341,12 @@ void verifyWindowRoots() {
 void verifyWindowRollback() {
 	IWindow window = MacOSWindow("Root rollback", 480.0, 240.0);
 	var root = MacOSView(OwnedViewProbe.new());
-	root.setFrame(11.0, 17.0, 90.0, 50.0);
+	var initial = root.nativeView().frame();
+	initial.origin.x = 11.0;
+	initial.origin.y = 17.0;
+	initial.size.width = 90.0;
+	initial.size.height = 50.0;
+	root.nativeView().setFrame(initial);
 	OwnedViewProbe.failNextAttachment();
 	bool rejected = false;
 	try { window.attachRoot(root); } catch (string error) { rejected = true; }
@@ -402,6 +407,49 @@ void verifyWindowCloseFailure() {
 	assert(rejected);
 }
 
+/* The running application, not the test, observes a native close and
+ * retires the window's subtree; shutdown then closes the surviving window. */
+class ObserveNativeClose implements IApplicationWork {
+	private IApplication _application;
+	private IWindow _first;
+	private IWindow _second;
+	private IView _root;
+	private IView _child;
+	private int _observations = 0;
+	public IContainer? secondRoot;
+	public IView? secondChild;
+
+	public ObserveNativeClose(IApplication application, IWindow first, IWindow second, IView root, IView child) {
+		self._application = application;
+		self._first = first;
+		self._second = second;
+		self._root = root;
+		self._child = child;
+	}
+
+	public void run() {
+		if (self._observations == 0) {
+			OwnedViewProbe.closeWindowNamed(AppKitText.nativeValue("Native close delivery"));
+			assert(!self._first.isOpen() && self._root.isOpen() && self._child.isOpen());
+		}
+		self._observations++;
+		if (self._first.root() != null) {
+			assert(self._observations < 200);
+			self._application.postAfter(0.01, self);
+			return;
+		}
+		assert(!self._root.isOpen() && !self._child.isOpen());
+		assert(OwnedViewProbe.liveCount() == 0L && self._second.isOpen());
+		var root = MacOSContainer();
+		var child = MacOSView(OwnedViewProbe.new());
+		root.attach(child);
+		self._second.attachRoot(root);
+		self.secondRoot = root;
+		self.secondChild = child;
+		self._application.requestQuit();
+	}
+}
+
 void verifyApplicationWindows(MacOSApplication app) {
 	IWindow first = app.createWindow("Native close delivery", 480.0, 240.0);
 	IWindow second = app.createWindow("Application shutdown", 480.0, 240.0);
@@ -410,22 +458,58 @@ void verifyApplicationWindows(MacOSApplication app) {
 	root.attach(child);
 	first.attachRoot(root);
 	first.show();
-	OwnedViewProbe.closeWindowNamed(AppKitText.nativeValue("Native close delivery"));
-	assert(!first.isOpen() && root.isOpen() && child.isOpen());
-	app.updateWindows();
+	var observer = ObserveNativeClose(app, first, second, root, child);
+	app.post(observer);
+	app.run();
 	assert(first.root() == null && !root.isOpen() && !child.isOpen());
-	assert(OwnedViewProbe.liveCount() == 0L && second.isOpen());
-	var secondRoot = MacOSContainer();
-	var secondChild = MacOSView(OwnedViewProbe.new());
-	secondRoot.attach(secondChild);
-	second.attachRoot(secondRoot);
-	app.close();
+	var secondRoot = observer.secondRoot;
+	var secondChild = observer.secondChild;
+	if (secondRoot == null || secondChild == null) { throw "The application stopped before observing the native close"; }
 	assert(!second.isOpen() && !secondRoot.isOpen() && !secondChild.isOpen());
 	assert(OwnedViewProbe.liveCount() == 0L);
-	app.close();
+	assert(app.close() == CALLBACK_CANCELLATION_COMPLETE);
 	bool rejected = false;
 	try { app.createWindow("After shutdown", 100.0, 100.0); } catch (string error) { rejected = true; }
 	assert(rejected);
+}
+
+/* btrc-D008: arrange converts the top-left contract to an AppKit origin once.
+ * A frame-positioned child must keep its top distance, not its bottom one,
+ * while an unflipped parent grows and shrinks, and detach restores its mask. */
+void verifyResizeKeepsTopLayout() {
+	IWindow window = MacOSWindow("Top-pinned resize", 480.0, 240.0);
+	var root = MacOSContainer();
+	window.attachRoot(root);
+	var nested = MacOSContainer();
+	root.attach(nested);
+	nested.arrange(40.0, 30.0, 200.0, 120.0);
+	var child = MacOSView(OwnedViewProbe.new());
+	unsigned long mask = child.nativeView().autoresizingMask();
+	root.attach(child);
+	child.arrange(10.0, 20.0, 100.0, 30.0);
+	var leaf = MacOSView(OwnedViewProbe.new());
+	nested.attach(leaf);
+	leaf.arrange(6.0, 8.0, 50.0, 24.0);
+	assert(!root.nativeView().isFlipped() && !nested.nativeView().isFlipped());
+	double heights[4] = {400.0, 300.0, 600.0, 240.0};
+	for (int index = 0; index < 4; index++) {
+		window.setContentSize(480.0, heights[index]);
+		var bounds = root.nativeView().bounds();
+		var frame = child.nativeView().frame();
+		var group = nested.nativeView().frame();
+		var inner = leaf.nativeView().frame();
+		assert(bounds.size.height == heights[index]);
+		assert(frame.origin.x == 10.0 && frame.size.width == 100.0 && frame.size.height == 30.0);
+		assert(bounds.size.height - frame.origin.y - frame.size.height == 20.0);
+		assert(group.size.height == 120.0 && bounds.size.height - group.origin.y - group.size.height == 30.0);
+		// The nested parent keeps its size, so its child stays where arrange put it.
+		assert(inner.origin.x == 6.0 && inner.origin.y == 120.0 - 8.0 - 24.0);
+	}
+	var detached = root.detach(child);
+	assert(detached == child && child.nativeView().superview() == null && child.nativeView().autoresizingMask() == mask);
+	child.close();
+	window.close();
+	assert(!root.isOpen() && !nested.isOpen() && !leaf.isOpen() && OwnedViewProbe.liveCount() == 0L);
 }
 
 void verifyApplicationCloseFailure() {
@@ -509,7 +593,6 @@ int verifyContainers() {
 		});
 	assert(worker.join() == 0 && root.isOpen());
 	window.show();
-	app.pumpEvents();
 	window.close();
 	assert(!root.isOpen() && !nested.isOpen() && !field.isOpen() && !button.isOpen());
 	assert(!observed.isOpen() && OwnedViewProbe.liveCount() == 0L);
@@ -547,6 +630,7 @@ int verifyContainers() {
 	assert(rejected && closeAttempts == 1 && OwnedViewProbe.liveCount() == 0L);
 	window.close();
 	verifyWindowRoots();
+	verifyResizeKeepsTopLayout();
 	verifyWindowRollback();
 	var escapedRoot = MacOSContainer();
 	var escapedChild = MacOSView(OwnedViewProbe.new());

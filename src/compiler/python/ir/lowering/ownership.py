@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from src.compiler.python.abi.hosted import HOSTED_ABI
-from src.compiler.python.analyzer.program import AnalyzedProgram
+from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES, AnalyzedProgram
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeShapeError, TypeSystem
 from src.compiler.python.ir.nodes import (
@@ -68,7 +68,6 @@ from src.compiler.python.syntax.ast.generated import (
     SelfExpr,
     SizeofExpr,
     SpawnExpr,
-    StringLiteral,
     SuperExpr,
     TernaryExpr,
     TupleLiteral,
@@ -2644,7 +2643,7 @@ class OwnershipLowerer:
 
     def reorder_inert(self, node) -> bool:
         """Whether evaluating ``node`` cannot observe or change sibling state."""
-        if isinstance(node, (BoolLiteral, CharLiteral, FloatLiteral, IntLiteral, NullLiteral, StringLiteral)):
+        if isinstance(node, (BoolLiteral, CharLiteral, FloatLiteral, IntLiteral, NullLiteral, *STRING_CONSTANT_NODES)):
             return True
         if isinstance(node, Identifier):
             return self._enum_constant_identifier(node)

@@ -1001,6 +1001,7 @@ class ExpressionLowerer {
 			return IRNode.literal(raw);
 		}
 		if (node.kind == NK_STRING_LITERAL) { return IRNode.literal(node.valueString); }
+		if (node.kind == NK_STRING_CONCAT) { return self.lowerStringConcat(node); }
 		if (node.kind == NK_CHAR_LITERAL) { return IRNode.literal(node.valueString); }
 		if (node.kind == NK_F_STRING_LITERAL) { return self.lowerFString(node, varTypes, callableFlow); }
 		if (node.kind == NK_BOOL_LITERAL) {
@@ -2117,7 +2118,7 @@ class ExpressionLowerer {
 		}
 		if (operand != null && operand.kind == NK_SIZEOF_EXPR_OP) {
 			Node? expressionType = self.resolvedExpressionType(operand.expr, varTypes);
-			if (expressionType != null && !expressionType.isArray && operand.expr.kind != NK_STRING_LITERAL) {
+			if (expressionType != null && !expressionType.isArray && !StringConstant.isNode(operand.expr)) {
 				string expressionC = self.cTypes.lower(expressionType);
 				if (self.context.genericBody || self.context.callDefaultTypeDepth > 0) {
 					expressionC = self.cTypes.lowerGeneric(expressionType, self.context.activeTypeMap);
@@ -3067,6 +3068,20 @@ class ExpressionLowerer {
 	/* Lower an f-string to snprintf-based string building (mirrors
      * fstrings.lower_fstring). Each interpolation is evaluated exactly once into
      * a temp reused by both the measure (snprintf NULL/0) and write passes. */
+	/* The C compiler concatenates the pieces itself (translation phase 6), so
+	 * each keeps its own spelling; a name piece is the source macro, emitted
+	 * beside its #define. */
+	public IRNode lowerStringConcat(Node node) {
+		Vector<string> spellings = [];
+		int index = 0;
+		while (index < node.parts().len) {
+			Node part = node.parts().get(index);
+			spellings.push(part.kind == NK_STRING_LITERAL ? part.valueString : part.name);
+			index++;
+		}
+		return IRNode.literal(Strings.join(spellings, " "));
+	}
+
 	public IRNode lowerFString(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		string tmp = self.context.freshTemporary("__fstr");
 		string fmt = "";
@@ -3189,7 +3204,7 @@ class ExpressionLowerer {
          * whose field is a known string-producing method (toString, trim, ...)
          * — e.g. an enum's `e.toString()` — formats as %s. */
 		if (argType == null) {
-			if (ex.kind == NK_F_STRING_LITERAL || ex.kind == NK_STRING_LITERAL) {
+			if (ex.kind == NK_F_STRING_LITERAL || StringConstant.isNode(ex)) {
 				fmt = "%s";
 			} else if (ex.kind == NK_CALL_EXPR) {
 				Node? fcallee = ex.callee;
@@ -3232,7 +3247,7 @@ class ExpressionLowerer {
 			/* Force %s for known string-producing exprs when type is untracked
              * (mirrors _lower_print's arg_type is None branch). */
 			if (at == null) {
-				if (arg.kind == NK_STRING_LITERAL || arg.kind == NK_F_STRING_LITERAL) {
+				if (StringConstant.isNode(arg) || arg.kind == NK_F_STRING_LITERAL) {
 					spec = "%s";
 				} else if (arg.kind == NK_CALL_EXPR) {
 					Node? callee = arg.callee;

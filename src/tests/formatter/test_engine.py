@@ -247,6 +247,23 @@ def test_pointer_declarations_dereferences_and_multiplication_use_operator_conte
     assert BtrcFormatter().format(result, str(fixture)) == result
 
 
+def test_braceless_bodies_indent_one_level_past_their_header() -> None:
+    fixture = Path(__file__).with_name("fixtures") / "BracelessBodies.btrc"
+    source = fixture.read_text(encoding="utf-8")
+    flattened = "\n".join(line.lstrip("\t") for line in source.split("\n"))
+
+    result = BtrcFormatter().format(flattened, str(fixture))
+
+    # Each unbraced body sits one level past its header and stays on its own
+    # line; a dangling else aligns with the nearest if, and a closing brace
+    # with the header line that opened it.
+    assert "\n\tif (a)\n\t\tif (b)\n\t\t\tresult = 1;\n\t\telse\n\t\t\tresult = 2;\n\telse if (b)\n" in result
+    assert "\n\tdo\n\t\ttotal--;\n\twhile (total > 4);\n" in result
+    assert "\n\t\tfor (int i = 0; i < 2; i++) {\n\t\t\ttotal += i;\n\t\t}\n\telse\n" in result
+    assert result == source
+    assert BtrcFormatter().format(source, str(fixture)) == source
+
+
 def test_unary_dereference_and_binary_multiplication_keep_distinct_multiline_indentation() -> None:
     source = """\
 void update(int* value, int left, int right) {
@@ -558,3 +575,20 @@ def test_invalid_source_reports_the_compiler_location() -> None:
 def test_style_config_rejects_invalid_values(values: dict[str, object]) -> None:
     with pytest.raises(ValueError):
         StyleConfig(**values)
+
+
+def test_adjacent_string_pieces_keep_their_lines() -> None:
+    source = """\
+#define TAIL "!"
+int main() {
+\tchar* message = "first, "
+\t\t"second, "
+\t\tTAIL;
+\tprintf("%s=%"
+\t\t"d\\n", "answer", 42);
+\treturn 0;
+}
+"""
+    assert formatted(source, indent_style="tabs") == source
+    collapsed = source.replace('"first, "\n\t\t"second, "\n\t\tTAIL', '"first, " "second, " TAIL')
+    assert formatted(collapsed, indent_style="tabs") == collapsed

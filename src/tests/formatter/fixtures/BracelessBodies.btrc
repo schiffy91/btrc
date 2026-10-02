@@ -1,0 +1,43 @@
+#include <assert.h>
+
+int classify(int a, int b) {
+	int result = 0;
+	if (a)
+		if (b)
+			result = 1;
+		else
+			result = 2;
+	else if (b)
+		result = 3;
+	else {
+		result = 4;
+	}
+	return result;
+}
+
+int main() {
+	int total = 0;
+	for (int i = 0; i < 3; i++)
+		while (total < 9)
+			total++;
+	do
+		total--;
+	while (total > 4);
+	if (total > 0) {
+		total = 1;
+	} else
+		total = 2;
+	if (total)
+		// An unbraced body may hold a braced loop.
+		for (int i = 0; i < 2; i++) {
+			total += i;
+		}
+	else
+		total = 0;
+	while (total > 0)
+		;
+	if (total == 0) total = 5;
+	assert(classify(1, 0) == 2);
+	print("PASS: BracelessBodies");
+	return 0;
+}

@@ -281,10 +281,10 @@ row = "21"
 construct = "char* == int compares a pointer with an integer"
 intent = "negative"
 status = "rejected"
-revision = "b5749e6"
+revision = "cf28fe7"
 divergence = "diagnostic wording"
 python = { diagnostic = "cannot compare incompatible reference operands ('char*' and 'int') at 3:9" }
-btrcc = { diagnostic = "Operator '==' is not defined for 'char*' and 'int' at 3:9" }
+btrcc = { diagnostic = "operator '==' is not defined for 'char*' and 'int' at 3:9" }
 source = '''
 int main() {
 	char* text = "ab";
@@ -336,7 +336,7 @@ row = "23"
 construct = "int v[n] at block scope"
 intent = "positive"
 status = "accepted"
-revision = "f6e608f"
+revision = "6ffaae6"
 python = { exit = 0, stdout = "zero and negative bounds iterate 0 elements\nPASS: variable-length arrays\n" }
 btrcc = { exit = 0, stdout = "zero and negative bounds iterate 0 elements\nPASS: variable-length arrays\n" }
 corpus = "c_compat/VariableLengthArrays.btrc"

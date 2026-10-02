@@ -1,0 +1,64 @@
+// Adjacent string literals concatenate as C translation phase 6 does (C row 5,
+// D20), after each piece decodes on its own in phase 5, so an escape never runs
+// across a piece boundary. A piece may name a source macro that expands to
+// string literals; an f-string beside a literal is refused.
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+#define GREETING "hello"
+#define PUNCTUATION "," " "
+#define SALUTATION GREETING PUNCTUATION
+#define BANG "!" /* a trailing comment is not a piece */
+#define TAG "tag" // nor is a line comment
+
+char* banner = "ban" "ner";
+char* tables[2] = {"ta" "ble", "row" "s"};
+
+int pieceLength(char* text) { return (int)strlen(text); }
+
+int main() {
+	// An escape ends at its own piece: "\x4" "1" is two characters, not "\x41".
+	char* split = "\x4" "1";
+	assert((int)strlen(split) == 2 && split[0] == 4 && split[1] == '1');
+	char* merged = "\x1" "2";
+	assert((int)strlen(merged) == 2 && merged[0] == 1 && merged[1] == '2');
+	assert((int)strlen("\x12") == 1);
+	char* octal = "\1" "23";
+	assert((int)strlen(octal) == 3 && octal[0] == 1);
+	print("PASS: escapes stop at a piece boundary");
+
+	// The extent is the decoded total plus one terminator.
+	assert((int)sizeof("a" "b") == 3);
+	assert((int)sizeof("\x4" "1") == 3);
+	int extent[sizeof("ab" "c")] = {1, 2, 3, 4};
+	assert(extent[3] == 4);
+	int narrow[(int)sizeof("\x4" "1") - 2];
+	narrow[0] = 7;
+	assert(narrow[0] == 7 && (int)sizeof(narrow) == (int)sizeof(int));
+	print("PASS: sizeof sees the concatenated literal");
+
+	char buffer[64];
+	snprintf(buffer, sizeof(buffer), "%s=%" "d" "\n", "answer", 42);
+	assert(strcmp(buffer, "answer=42\n") == 0);
+	printf("PASS: printf format " "concatenation\n");
+
+	char* message = "first line, "
+		"second line, "
+		"""third line""";
+	assert(strcmp(message, "first line, second line, third line") == 0);
+	print("PASS: multi-line message");
+
+	char* greeting = SALUTATION "world" BANG;
+	assert(strcmp(greeting, "hello, world!") == 0);
+	assert(strcmp(GREETING "!", "hello!") == 0);
+	assert(pieceLength("x" GREETING) == 6);
+	assert(strcmp(TAG"-"TAG, "tag-tag") == 0);
+	print("PASS: source-macro " "pieces");
+
+	string joined = "con" "cat" "enated";
+	assert(joined == "concatenated");
+	assert(strcmp(banner, "banner") == 0 && strcmp(tables[1], "rows") == 0);
+	print("PASS: globals and strings");
+	return 0;
+}

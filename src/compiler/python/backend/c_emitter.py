@@ -1017,9 +1017,15 @@ class CEmitter:
         self._line(f"typedef {declaration.return_type} (*{declaration.name})({parameters});")
 
     def _function_signature(self, declaration: IRFunctionDecl) -> str:
+        # An unnamed prototype parameter is an abstract declarator: its type alone.
         parameters = (
             ", ".join(
-                f"{CType.qualify_volatile_object(str(parameter.c_type), parameter.is_volatile)} {parameter.name}"
+                " ".join(
+                    filter(
+                        None,
+                        (CType.qualify_volatile_object(str(parameter.c_type), parameter.is_volatile), parameter.name),
+                    )
+                )
                 for parameter in declaration.params
             )
             or "void"

@@ -125,3 +125,32 @@ def test_count_active_parameter_out_of_range_position():
 
 def test_find_call_context_out_of_range_position_is_none():
     assert sighelp._find_call_context("f(x)", lsp.Position(line=9, character=0)) is None
+
+
+UNNAMED_PROTOTYPES = (
+    "int scale(int, double);\n"
+    "int scale(int value, double factor) { return value * (int)factor; }\n"
+    "int external(int, char*);\n"
+    "int answer(void) { return 42; }\n"
+    "int main(void) { int a = scale(2, 3.0); int b = answer(); return external(a + b, null); }\n"
+)
+
+
+def test_unnamed_prototype_signature_uses_the_definition_names():
+    s = _sig(UNNAMED_PROTOTYPES, "scale(2", offset=6)
+    assert s is not None
+    assert s.signatures[0].label == "int scale(int value, double factor)"
+
+
+def test_prototype_without_definition_labels_unnamed_parameters_by_type():
+    s = _sig(UNNAMED_PROTOTYPES, "external(a", offset=9)
+    assert s is not None
+    assert s.signatures[0].label == "int external(int, char*)"
+    assert [parameter.label for parameter in s.signatures[0].parameters] == ["int", "char*"]
+
+
+def test_void_parameter_list_has_no_parameters():
+    s = _sig(UNNAMED_PROTOTYPES, "answer()", offset=7)
+    assert s is not None
+    assert s.signatures[0].label == "int answer()"
+    assert s.signatures[0].parameters == []

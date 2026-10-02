@@ -7,41 +7,22 @@ id = "r01-void-parameter-list"
 row = "1"
 construct = "int f(void)"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected parameter name, got RPAREN ')' at 2:16" }
-btrcc = { diagnostic = "Expected IDENT, got RPAREN ')' at 2:16" }
-source = '''
-#include <assert.h>
-int answer(void) { return 42; }
-int main(void) {
-	assert(answer() == 42);
-	print("PASS: void parameter list");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: void parameter list\n" }
+btrcc = { exit = 0, stdout = "PASS: void parameter list\n" }
+corpus = "c_compat/VoidParameterList.btrc"
 
 [[probe]]
 id = "r01-unnamed-prototype-parameter"
 row = "1"
 construct = "int f(int); unnamed prototype parameter"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected parameter name, got RPAREN ')' at 2:14" }
-btrcc = { diagnostic = "Expected IDENT, got RPAREN ')' at 2:14" }
-source = '''
-#include <assert.h>
-int twice(int);
-int twice(int value) { return value * 2; }
-int main() {
-	assert(twice(21) == 42);
-	print("PASS: unnamed prototype parameter");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: unnamed prototype parameters\nPASS: prototype defaults and names come from the definition\nPASS: (void) parameter lists\n" }
+btrcc = { exit = 0, stdout = "PASS: unnamed prototype parameters\nPASS: prototype defaults and names come from the definition\nPASS: (void) parameter lists\n" }
+corpus = "c_compat/VoidAndUnnamedParameters.btrc"
 
 [[probe]]
 id = "r01-void-beside-parameter"
@@ -49,13 +30,26 @@ row = "1"
 construct = "int f(void, int) is invalid C"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected parameter name, got COMMA ',' at 1:16" }
-btrcc = { diagnostic = "Expected IDENT, got COMMA ',' at 1:16" }
+revision = "5472f61"
+python = { diagnostic = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)' at 1:12" }
+btrcc = { diagnostic = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)' at 1:12" }
 source = '''
 int broken(void, int value) { return value; }
 int main() { return broken(0); }
+'''
+
+[[probe]]
+id = "r01-unnamed-definition-parameter"
+row = "1"
+construct = "int f(int) { ... } is invalid C (6.9.1p5)"
+intent = "negative"
+status = "rejected"
+revision = "5472f61"
+python = { diagnostic = "Parameter name required: only a function prototype without a body may omit it at 1:11" }
+btrcc = { diagnostic = "Parameter name required: only a function prototype without a body may omit it at 1:11" }
+source = '''
+int twice(int) { return 0; }
+int main() { return twice(0); }
 '''
 
 [[probe]]
@@ -63,38 +57,21 @@ id = "r02-braceless-if-else"
 row = "2"
 construct = "braceless if/else bodies"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got RETURN 'return' at 4:3" }
-btrcc = { diagnostic = "Expected LBRACE, got RETURN 'return' at 4:3" }
-source = '''
-#include <assert.h>
-int sign(int value) {
-	if (value < 0)
-		return -1;
-	else if (value == 0)
-		return 0;
-	else
-		return 1;
-}
-int main() {
-	assert(sign(-5) == -1);
-	assert(sign(0) == 0);
-	assert(sign(9) == 1);
-	print("PASS: braceless if/else");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: braceless if/else\nPASS: dangling else binds to the nearest if\nPASS: braceless loops\nPASS: braceless break, continue and return\nPASS: braceless bodies with managed values\n" }
+btrcc = { exit = 0, stdout = "PASS: braceless if/else\nPASS: dangling else binds to the nearest if\nPASS: braceless loops\nPASS: braceless break, continue and return\nPASS: braceless bodies with managed values\n" }
+corpus = "c_compat/BracelessBodies.btrc"
 
 [[probe]]
 id = "r02-braceless-loops"
 row = "2"
 construct = "braceless for/while bodies"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got IDENT 'total' at 5:3" }
-btrcc = { diagnostic = "Expected LBRACE, got IDENT 'total' at 5:3" }
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: braceless loops\n" }
+btrcc = { exit = 0, stdout = "PASS: braceless loops\n" }
 source = '''
 #include <assert.h>
 int main() {
@@ -114,10 +91,10 @@ id = "r02-dangling-else"
 row = "2"
 construct = "dangling else binds to the nearest if"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got IF 'if' at 5:3" }
-btrcc = { diagnostic = "Expected LBRACE, got IF 'if' at 5:3" }
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: dangling else\n" }
+btrcc = { exit = 0, stdout = "PASS: dangling else\n" }
 source = '''
 #include <assert.h>
 int classify(int a, int b) {
@@ -144,9 +121,9 @@ row = "2"
 construct = "a declaration is not a statement body"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got INT 'int' at 4:3" }
-btrcc = { diagnostic = "Expected LBRACE, got INT 'int' at 4:3" }
+revision = "5472f61"
+python = { diagnostic = "A declaration cannot be the body of a control statement; enclose it in braces at 4:3" }
+btrcc = { diagnostic = "A declaration cannot be the body of a control statement; enclose it in braces at 4:3" }
 source = '''
 int main() {
 	int flag = 1;
@@ -245,39 +222,27 @@ id = "r04-char-array-unsized"
 row = "4"
 construct = "char s[] = \"abc\""
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic position"
-python = { diagnostic = "Initializer for 'text' requires an array initializer at 4:2" }
-btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 4:16" }
-source = '''
-#include <assert.h>
-#include <string.h>
-int main() {
-	char text[] = "abc";
-	assert(sizeof(text) == 4);
-	assert(strcmp(text, "abc") == 0);
-	print("PASS: unsized char array");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "c670c81"
+python = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: xbc abcd jello Tag\n" }
+btrcc = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: xbc abcd jello Tag\n" }
+corpus = "c_compat/CharArrayStringInit.btrc"
 
 [[probe]]
 id = "r04-char-array-sized"
 row = "4"
 construct = "char s[4] = \"abc\""
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic position"
-python = { diagnostic = "Initializer for 'text' requires an array initializer at 4:2" }
-btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 4:17" }
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: sized char array\n" }
+btrcc = { exit = 0, stdout = "PASS: sized char array\n" }
 source = '''
 #include <assert.h>
 #include <string.h>
 int main() {
 	char text[8] = "abc";
-	assert(sizeof(text) == 8);
+	assert((int)sizeof(text) == 8);
 	assert(text[3] == '\0');
 	assert(strlen(text) == (size_t)3);
 	print("PASS: sized char array");
@@ -291,10 +256,9 @@ row = "4"
 construct = "char s[3] = \"abc\" drops the terminator (D20 refuses)"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic position"
-python = { diagnostic = "Initializer for 'text' requires an array initializer at 2:2" }
-btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 2:17" }
+revision = "5472f61"
+python = { diagnostic = "String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty at 2:17" }
+btrcc = { diagnostic = "String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty at 2:17" }
 source = '''
 int main() {
 	char text[3] = "abc";
@@ -308,10 +272,9 @@ row = "4"
 construct = "char s[2] = \"abc\" overflows"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic position"
-python = { diagnostic = "Initializer for 'text' requires an array initializer at 2:2" }
-btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 2:17" }
+revision = "5472f61"
+python = { diagnostic = "String literal needs 4 elements with its terminator but the char array has 2 at 2:17" }
+btrcc = { diagnostic = "String literal needs 4 elements with its terminator but the char array has 2 at 2:17" }
 source = '''
 int main() {
 	char text[2] = "abc";
@@ -324,20 +287,11 @@ id = "r05-adjacent-string-literals"
 row = "5"
 construct = "\"a\" \"b\" concatenation"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"cat\"' at 4:23" }
-btrcc = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\"cat\"' at 4:23" }
-source = '''
-#include <assert.h>
-#include <string.h>
-int main() {
-	char* joined = "con" "cat" "enated";
-	assert(strcmp(joined, "concatenated") == 0);
-	print("PASS: adjacent string literals");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: source-macro pieces\nPASS: globals and strings\n" }
+btrcc = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: source-macro pieces\nPASS: globals and strings\n" }
+corpus = "c_compat/AdjacentStringLiterals.btrc"
 
 [[probe]]
 id = "r05-adjacent-fstring"
@@ -345,9 +299,9 @@ row = "5"
 construct = "an f-string beside a literal (D20 refuses)"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\" tail\"' at 3:33" }
-btrcc = { diagnostic = "Expected SEMICOLON, got STRING_LIT '\" tail\"' at 3:33" }
+revision = "5472f61"
+python = { diagnostic = "An f-string cannot be concatenated with an adjacent string literal at 3:16" }
+btrcc = { diagnostic = "An f-string cannot be concatenated with an adjacent string literal at 3:16" }
 source = '''
 int main() {
 	int value = 1;
@@ -361,22 +315,11 @@ id = "r06-empty-statement"
 row = "6"
 construct = "empty statement ; and for (...);"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected LBRACE, got SEMICOLON ';' at 4:25" }
-btrcc = { diagnostic = "Expected LBRACE, got SEMICOLON ';' at 4:25" }
-source = '''
-#include <assert.h>
-int main() {
-	int i;
-	for (i = 0; i < 5; i++);
-	;
-	while (i > 10);
-	assert(i == 5);
-	print("PASS: empty statement");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: empty loop bodies\nPASS: empty statements in lists and branches\nPASS: empty statements after return, in cases and in do\n" }
+btrcc = { exit = 0, stdout = "PASS: empty loop bodies\nPASS: empty statements in lists and branches\nPASS: empty statements after return, in cases and in do\n" }
+corpus = "c_compat/EmptyStatement.btrc"
 
 [[probe]]
 id = "r06-file-scope-stray-semicolon"
@@ -384,10 +327,9 @@ row = "6"
 construct = "a stray ; at file scope is not ISO C"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording and position"
+revision = "5472f61"
 python = { diagnostic = "Unexpected token ';' at top level at 2:1" }
-btrcc = { diagnostic = "Expected IDENT, got EOF '' at 3:1" }
+btrcc = { diagnostic = "Unexpected token ';' at top level at 2:1" }
 source = '''
 int main() { return 0; }
 ;
