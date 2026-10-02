@@ -60,6 +60,20 @@ kill, and it analyses a loop body from the facts that survive the loop's back
 edge, so a linked-list walk without a null guard is flagged. `btrcc` has no
 nullable flow yet; porting it is part of the deferred work below.
 
+### Callable const layers
+
+A function passed to a callable parameter keeps its declared const layers in
+both compilers. `btrcc` used to flatten typedefs in each signature component
+before comparing them, which puts a slot const (`Handle const*` with
+`Handle = struct HandleStorage*`) and a pointee const (`const HandleStorage**`)
+on one shape; Python compares `declaration_const_depths`. `btrcc` now checks
+every argument bound to a callable parameter layer by layer on the unflattened
+types (`TypeValidator.argumentConstLayersMatch`). The gap surfaced when
+native tag aliases made `const struct HandleStorage**` name the imported record
+(`test_native_linux_call_shapes.py::test_callback_slot_const_is_not_pointee_const`);
+it already applied to the untagged spelling. Python also applies the rule to
+assignments and initializers of callable type; `btrcc` checks call arguments.
+
 ### Call arity wording
 
 Both compilers refuse a call with the wrong number of arguments, but word it

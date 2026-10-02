@@ -149,8 +149,10 @@ int main() {
 """
 
 
-def _compile(tmp_path: Path, request, frontend: str, program: str, symbols: list[str], extra: str):
-    (tmp_path / "Shapes.h").write_text(HEADER, encoding="utf-8")
+def _compile(
+    tmp_path: Path, request, frontend: str, program: str, symbols: list[str], extra: str, header: str = HEADER
+):
+    (tmp_path / "Shapes.h").write_text(header, encoding="utf-8")
     (tmp_path / "btrc.toml").write_text(
         MANIFEST.format(symbols=", ".join(f'"{symbol}"' for symbol in symbols), extra=extra), encoding="utf-8"
     )
@@ -363,3 +365,42 @@ def test_hosted_tags_and_imported_records_are_one_type(reader, tmp_path, request
     ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert ran.returncode == 0, ran.stderr
     assert ran.stdout == "1 1\n"
+
+
+HANDLE_HEADER = """typedef struct HandleStorage* Handle;
+typedef void (*HandleCallback)(Handle const* values);
+static inline void invokeSlots(HandleCallback callback) { Handle value = 0; callback(&value); }
+"""
+
+
+@pytest.mark.parametrize(
+    ("parameter", "accepted"),
+    [
+        ("const Handle*", True),
+        ("Handle*", False),
+        ("const struct HandleStorage**", False),
+        ("const HandleStorage**", False),
+    ],
+)
+def test_callback_slot_const_is_not_pointee_const(reader, tmp_path, request, parameter, accepted) -> None:
+    """`Handle const*` points at a const handle slot; `const struct HandleStorage**`
+    points at a mutable slot holding a pointer to const storage. The tag alias
+    makes `struct HandleStorage` the imported record, so only the const layers
+    tell the two apart, and both compilers must keep them apart (the macOS twin
+    is test_native_c_values.py::test_native_const_handle_callback_shape). The
+    analyzers render the refused callable differently, so this pins the refusal."""
+
+    del reader  # The compilers locate it through BTRC_NATIVE_HEADER_READER.
+    program = f"void observe({parameter} values) {{ }}\nint main() {{ invokeSlots(observe); return 0; }}\n"
+    for frontend in ("python", "selfhost"):
+        directory = tmp_path / frontend
+        directory.mkdir()
+        compiled, generated, plan = _compile(directory, request, frontend, program, ["invokeSlots"], "", HANDLE_HEADER)
+        assert (compiled.returncode == 0) == accepted, (frontend, compiled.stderr)
+        if accepted:
+            executable = directory / "program"
+            NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+            ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+            assert ran.returncode == 0, ran.stderr
+        else:
+            assert "error: Argument 'callback' to 'invokeSlots()' expects 'HandleCallback' but got" in compiled.stderr

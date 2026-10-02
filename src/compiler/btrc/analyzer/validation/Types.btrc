@@ -627,6 +627,42 @@ class TypeValidator {
 		return true;
 	}
 
+	/* Const layers of callable signature components, read before typedefs
+	 * flatten them. Flattening puts a slot const (`Handle const*` with Handle =
+	 * S*) and a pointee const (`const S**`) on one shape; C keeps them distinct,
+	 * as the Python TypeSystem.types_equal does through declaration_const_depths.
+	 * Callers pass the argument's unflattened type; only callables are compared. */
+	public bool callableConstLayersMatch(Node? target, Node? source) {
+		Map<string, Node> typedefs = self.state.analyzed.typedefTable;
+		Node? left = SemanticTypeSystem.resolveOuterTypedefType(target, typedefs);
+		Node? right = SemanticTypeSystem.resolveOuterTypedefType(source, typedefs);
+		if (left == null || right == null || left.pointerDepth != 0 || right.pointerDepth != 0 || left.isArray || right.isArray) { return true; }
+		bool leftCallable = left.base == "__fn_ptr" || left.base == "__realtime_fn_ptr";
+		bool rightCallable = right.base == "__fn_ptr" || right.base == "__realtime_fn_ptr";
+		if (!leftCallable || !rightCallable || left.genericArgs().len != right.genericArgs().len) { return true; }
+		for index in range(left.genericArgs().len) {
+			Node first = left.genericArgs().get(index);
+			Node second = right.genericArgs().get(index);
+			int layers = 2;
+			for component in [first, second] {
+				Node? flat = self.resolveAliases(component);
+				if (flat != null && flat.pointerDepth + (flat.isArray ? 1 : 0) + 2 > layers) { layers = flat.pointerDepth + (flat.isArray ? 1 : 0) + 2; }
+			}
+			for depth in range(layers) {
+				if (SemanticTypeSystem.typeConstAtDepth(first, typedefs, depth) != SemanticTypeSystem.typeConstAtDepth(second, typedefs, depth)) { return false; }
+			}
+			if (!self.callableConstLayersMatch(first, second)) { return false; }
+		}
+		return true;
+	}
+
+	/* An argument passed to a callable parameter keeps its declared const layers. */
+	public bool argumentConstLayersMatch(Node? expected, Node argument, Map<string, Node> vars) {
+		Node? callable = SemanticTypeSystem.directFunctionPointerSpecialization(expected, self.state.analyzed);
+		if (callable == null) { return true; }
+		return self.callableConstLayersMatch(expected, self.inferRaw(argument, vars));
+	}
+
 	public bool assignmentCompatible(Node? target, Node? source) {
 		Node? valueTarget = self.arrayValueType(target);
 		Node? valueSource = self.arrayValueType(source);
