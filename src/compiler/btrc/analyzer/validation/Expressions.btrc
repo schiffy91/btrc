@@ -495,7 +495,7 @@ class ExpressionValidator {
 		if (op == "??") {
 			bool optionalScalar = self.operators.isOptionalValueCoalesce(expression.left, left, right);
 			valid = optionalScalar || (self.operators.isReferenceType(left) && (self.types.assignmentCompatible(left, right) || self.types.assignmentCompatible(right, left)));
-			if (!valid && self.operators.isOptionalValueExpression(expression.left) && !self.operators.isReferenceType(left)) {
+			if (!valid && self.operators.isOptionalValueOperand(expression.left, left)) {
 				TypeValidator.fail("null-coalescing optional value and fallback are incompatible: '" + self.types.formatType(left) + "' and '" + self.types.formatType(right) + "'", expression);
 			}
 			if (!valid) {

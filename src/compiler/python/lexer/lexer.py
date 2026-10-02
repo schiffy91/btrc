@@ -610,23 +610,22 @@ class Lexer:
         source: str,
         filename: str = "<stdin>",
         vocabulary: TokenVocabulary | None = None,
+        *,
+        line: int = 1,
+        col: int = 1,
     ):
+        # ``line`` and ``col`` position an embedded source, such as an
+        # f-string interpolation, in its file.
         self.source = source
         self.filename = filename
         self._vocabulary = vocabulary or TokenVocabulary.canonical()
         self.pos = 0
-        self.line = 1
-        self.col = 1
+        self.line = line
+        self.col = col
         self.tokens: list[Token] = []
         self._failure: LexerError | None = None
         self._literal_scanner = LiteralScanner(self)
         self._complete = False
-
-    def start_at(self, line: int, col: int) -> Lexer:
-        """Position an embedded source, such as an f-string interpolation, in its file."""
-        self.line = line
-        self.col = col
-        return self
 
     def tokenize(self) -> list[Token]:
         if self._failure is not None:

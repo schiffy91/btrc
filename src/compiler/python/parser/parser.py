@@ -2046,7 +2046,7 @@ class Parser:
                 i += 1
                 expr_src = "".join(expr_chars)
                 expr_src = expr_src.replace('\\"', '"')
-                sub_tokens = Lexer(expr_src + ";").start_at(expr_line, expr_col).tokenize()
+                sub_tokens = Lexer(expr_src + ";", line=expr_line, col=expr_col).tokenize()
                 sub_parser = Parser(sub_tokens)
                 expr_node = sub_parser._parse_expr()
                 sub_parser._expect(TokenKind.SEMICOLON)

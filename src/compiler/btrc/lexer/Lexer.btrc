@@ -18,23 +18,19 @@ class Lexer {
 	private bool complete;
 	public string diagnostic;
 
-	public Lexer(string source, GrammarInfo grammar) {
+	/* `line` and `col` position an embedded source, such as an f-string
+	 * interpolation, in its file. */
+	public Lexer(string source, GrammarInfo grammar, int line = 1, int col = 1) {
 		self.source = source;
 		self.sourceLen = source.length();
 		self.grammar = grammar;
 		self.pos = 0;
-		self.line = 1;
-		self.col = 1;
+		self.line = line;
+		self.col = col;
 		self.tokens = [];
 		self.failed = false;
 		self.complete = false;
 		self.diagnostic = "";
-	}
-
-	/* Position an embedded source, such as an f-string interpolation, in its file. */
-	public void startAt(int line, int col) {
-		self.line = line;
-		self.col = col;
 	}
 
 	public Vector<Token> tokenize() {

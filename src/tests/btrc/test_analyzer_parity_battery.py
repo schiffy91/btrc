@@ -133,6 +133,11 @@ INVALID_PROBES = (
         GpuDiagnostic("Cannot assign 'string' to 'int'", 1, 41),
     ),
     ParityProbe(
+        "assign-class-mismatch",
+        "class Box { public int v; }\nint main() { int[] xs = {1}; Box b = Box(); b = xs; return 0; }\n",
+        GpuDiagnostic("Cannot assign 'int[]' to 'Box'", 2, 45),
+    ),
+    ParityProbe(
         "initializer-mismatch",
         _main('int a = "x"; return a;'),
         GpuDiagnostic("Cannot assign 'string' to variable 'a' of type 'int'", 1, 14),

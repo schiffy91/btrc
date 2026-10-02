@@ -2119,6 +2119,12 @@ class TypeSystem:
             return TypeExpr(base="string", pointer_depth=1)
         return TypeExpr(base=spec.return_type)
 
+    def format_source_type(self, t) -> str:
+        """Format a type as source spells it, without a class or interface's implicit pointer."""
+        if t.pointer_depth and (t.base in self.index.class_table or t.base in self.index.interface_table):
+            t = replace(t, pointer_depth=t.pointer_depth - 1)
+        return self.format_type(t)
+
     def format_type(self, t) -> str:
         """Format a TypeExpr for error messages."""
         result = "const " if t.is_const else ""

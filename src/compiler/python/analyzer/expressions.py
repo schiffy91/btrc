@@ -665,7 +665,7 @@ class ExpressionAnalyzer:
                 return
             if not self.types.types_compatible(target, source):
                 self.session.error(
-                    f"Cannot assign '{self.types.format_type(source)}' to '{self.types.format_type(target)}'",
+                    f"Cannot assign '{self.types.format_source_type(source)}' to '{self.types.format_source_type(target)}'",
                     expression.line,
                     expression.col,
                 )

@@ -1109,7 +1109,7 @@ class StorageValidator {
 			method = self.indexedMethodInState(concreteObject, "set");
 			if (!StorageValidator.validIndexedSetter(method)) { method = null; }
 		}
-		if (method == null && requireGetter && !self.state.analyzed.isClass(concreteObject.base)) {
+		if (method == null && requireGetter && !self.state.analyzed.isClass(concreteObject.base) && !self.state.analyzed.isGenericClass(concreteObject.base)) {
 			TypeValidator.fail("Type '" + self.types.formatType(concreteObject) + "' is not indexable", expression);
 		}
 		if (method == null) {

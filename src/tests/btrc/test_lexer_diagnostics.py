@@ -180,7 +180,8 @@ def test_invalid_fstring_interpolation_propagates_sublexer_failure(
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert result.stderr == "error: Unexpected character '$' at 1:1\n"
+    # The interpolation is lexed at its own position in the file.
+    assert result.stderr == "error: Unexpected character '$' at 1:28\n"
 
 
 def test_valid_literal_tokens_remain_reference_identical(

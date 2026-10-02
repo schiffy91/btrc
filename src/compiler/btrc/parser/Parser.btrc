@@ -2506,8 +2506,7 @@ class Parser {
 	}
 
 	public Node parseSubExpr(string exprSrc, int line, int col) {
-		Lexer lx = Lexer(exprSrc + ";", self.grammar);
-		lx.startAt(line, col);
+		Lexer lx = Lexer(exprSrc + ";", self.grammar, line, col);
 		Vector<Token> subToks = lx.tokenize();
 		if (lx.failed) {
 			if (!self.failed) {
