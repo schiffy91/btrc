@@ -416,7 +416,7 @@ def _compile_cxx_constants(tmp_path: Path, request, frontend: str, program: str)
     return compiled, generated, plan
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="the folding proof builds against the Linux C toolchain")
+@pytest.mark.skipif(sys.platform != "linux", reason="the macro proof builds against the Linux C toolchain")
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 def test_foreign_binding_constants_fold_beside_a_visible_macro(reader, tmp_path, request, frontend) -> None:
     """A C++ (or Objective-C) binding's C unit never declares a constant under its SDK name.
