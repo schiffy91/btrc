@@ -213,20 +213,20 @@ CHAR_ARRAY_REFUSALS = [
         id="r04-field-string-value",
     ),
     pytest.param(
-        'struct Label { int id; char tag[4]; };\n'
+        "struct Label { int id; char tag[4]; };\n"
         'int main() { struct Label label = {1, "a"}; label = {2, "abcd"}; return label.id; }',
         (EXACT_FIT.format(4, 5), 2, 57),
         id="r04-assignment-field-exact-fit",
     ),
     pytest.param(
-        'struct Label { int id; char tag[4]; };\n'
+        "struct Label { int id; char tag[4]; };\n"
         "int take(struct Label label) { return label.id; }\n"
         'int main() { return take({2, "abcd"}); }',
         (EXACT_FIT.format(4, 5), 3, 30),
         id="r04-argument-field-exact-fit",
     ),
     pytest.param(
-        'struct Label { int id; char tag[4]; };\n'
+        "struct Label { int id; char tag[4]; };\n"
         'struct Label make() { return {1, "abcd"}; }\n'
         "int main() { return make().id; }",
         (EXACT_FIT.format(4, 5), 2, 34),
