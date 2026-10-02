@@ -153,6 +153,24 @@ step did and still owes, in both compilers:
   fit to the C compiler; a global used only through `sizeof(g)` is dropped by
   the optimizer; `const int N = 3; char t[N] = "abc";` is emitted as a VLA with
   an initializer.
+- **Editor tooling (done after integration, `stage16/devex-c1-fixes`).** A
+  braceless body is a Block synthesized at its first token, so the LSP's
+  lexical scopes now end it with its single statement rather than at a later
+  `}` (a braceless C-for variable no longer captures a later function's uses;
+  `src/tests/lsp/test_scope_aware.py`), and a prototype's symbol range stays
+  on its line. The formatter keeps an if open for an else from its
+  condition's `)`, so an inner if whose body shares its line keeps the else;
+  aligns a do-while's closing `while` with an unbraced `do`; keeps a closing
+  `)` or `]` line inside an unbraced body at the body's level; does not treat
+  the line after a semicolon-less `import "x.btrc"` as a string continuation;
+  and does not compact a trivial function whose string pieces are split across
+  lines (`src/tests/formatter/test_engine.py`). A follow-up fuzz pass found
+  two more: ifs inside an unbraced `do` body now close with its `while`, and a
+  header or `{` on a continuation line outside parentheses (after `case X:`,
+  a lambda after `=`) nests its body past the continuation, which reindented
+  three switch corpus files (whitespace only). Still deferred: case bodies are
+  not modelled, so statements after a case's first line stay at the label's
+  level. Neither compiler changed.
 
 The read-only review of the integration (workflow `wf_1ce4083f-71c`) confirmed
 six defects; lane `stage16/c1-integrate-fixes` fixed each in both compilers,
