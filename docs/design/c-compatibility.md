@@ -15,7 +15,7 @@ User-facing refusals stay in `docs/known-language-gaps.md`.
 
 | Item | Representation | Schema change |
 |------|----------------|---------------|
-| (a) Unnamed parameters, `(void)` | An unnamed prototype parameter is `Param(name="")` with `name_line`/`name_col` 0 and `line`/`col` at its type, as an anonymous `StructDecl` uses `""`. `(void)` is an empty `params` list with no `Param`. Unnamed parameters are accepted only in a body-less `FunctionDecl`; methods, interface signatures, lambdas, rich-enum variants and definitions refuse them (C11 6.9.1p5). `f(void, int)`, `f(void x)` and qualified `void` are refused. A prototype parameter without a name emits no C name. | none (comment only) |
+| (a) Unnamed parameters, `(void)` | An unnamed prototype parameter is `Param(name="")` with `name_line`/`name_col` 0 and `line`/`col` at its type, as an anonymous `StructDecl` uses `""`. `(void)` is an empty `params` list with no `Param`. Unnamed parameters are accepted only in a body-less `FunctionDecl`; methods, interface signatures, lambdas, rich-enum variants and definitions refuse them (C11 6.9.1p5). `f(void, int)`, `f(void x)` and qualified `void` are refused. A prototype parameter without a name emits no C name. `(void)` is accepted as an empty list wherever a parameter list appears (Stage 16, r01). | none (comment only) |
 | (b) Several declarators | Each declarator becomes its own complete node (`VarDeclStmt`, `FieldDef`, `FieldDecl`, `TypedefDecl`) with its own deep copy of the specifier type, spliced in source order into the list that holds the declaration (`Block`, `CaseClause`, `Program`, `StructDecl.fields`, `ClassDecl.members`). `*`, `[n]` and a function-pointer declarator bind to their own declarator (PLAN.md D20); specifiers, qualifiers and generic arguments are copied. The C-for initializer is the only single-statement slot, so `ForInitVar` holds a list. | `ForInitVar(stmt* declarations)` replaces `ForInitVar(stmt var_decl)` |
 | (c) Empty statement | No node. A `;` inside a statement list produces nothing; a `;` used as a body becomes an empty synthesized `Block` at the `;`. A stray file-scope `;` stays refused. Stage 20 (`goto` and labels) adds its own label and jump nodes. | none |
 | (d) Braceless bodies | A non-block body of `if`/`else`/`while`/C-`for`/`do` is wrapped in a synthesized `Block` through one shared helper per parser. A declaration as the sole body is refused (C does not treat a declaration as a statement). A dangling `else` binds to the nearest `if`. `for`-in, parallel `for`, `try`/`catch`/`finally` and `switch` stay braced. | none |
@@ -80,6 +80,46 @@ or adjacent string.
   level past its header, keeps it on its own line, and aligns a dangling
   `else` with its `if`. Lanes that add to `_parse_for_stmt`/`parseForStmt`
   call the helper only for the body, after `)`.
+
+## Stage 16 r01: `(void)` and unnamed parameters
+
+- **`(void)` everywhere.** Exactly `void` followed by `)` is an empty
+  parameter list in every parameter-list position: functions, prototypes,
+  methods, constructors, interface signatures, both lambda forms and rich-enum
+  variants. It is unambiguous and produces the same AST as `()`, so nothing
+  downstream can tell them apart. Any other plain `void` parameter (named,
+  qualified, `keep`, or beside another parameter) is refused at the
+  parameter's first token: `A 'void' parameter must be the only one, unnamed
+  and unqualified: write '(void)'`. `void*` and other derived types are
+  ordinary parameter types.
+- **Unnamed parameters.** A parameter is unnamed when its type is followed by
+  `,`, `)`, `[` or `=`. Only a `FunctionDecl` (including `extern` and
+  `static` ones) may have them, and only when it ends in `;`. The parser
+  checks this once the `)` is read: a body after an unnamed parameter, or an
+  unnamed parameter in any other list, is refused at that parameter's first
+  token with `Parameter name required: only a function prototype without a
+  body may omit it`. An unnamed parameter takes no `keep` (`A 'keep'
+  parameter requires a name`, at the `keep`) and no default (`An unnamed
+  parameter cannot have a default value`, at the `=`), because a default
+  belongs to the name named arguments use.
+- **Semantics.** Name validation and duplicate checks skip `""`. A prototype
+  and a definition are compatible when each parameter's name matches or
+  either side is unnamed; arity, types and `keep` must still agree, and a
+  mismatch reports `Conflicting declarations for function 'f'` at the later
+  declaration in both compilers. The definition stays the function's
+  registered owner, so named arguments and defaults use its names; a function
+  declared only by an unnamed prototype can be called positionally.
+  `int main(void)` is `int main()`.
+- **Lowering.** An unnamed `IRParam` has the empty name and both emitters print
+  its type alone (`int f(int, char*);`). An empty list still prints `(void)`.
+- **Not in r01.** Abstract function-pointer declarators (`int (*)(int)`) are
+  r07's.
+- **Repeated prototypes.** Both compilers accept any number of compatible
+  prototypes (btrcc used to refuse a second one). A named prototype
+  supersedes an unnamed one as the registered declaration, so
+  `int f(int); int f(int a); int f(int b) {}` conflicts at the definition in
+  both compilers. A `(` list not followed by `;` or `{` is the ordinary
+  `Expected LBRACE` error, not an unnamed-parameter refusal.
 
 ## C2 aggregates (Stage 17) and array dimensions (Stage 18)
 

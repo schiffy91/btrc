@@ -348,3 +348,50 @@ class TestBracelessBodies:
         for source in ("for x in xs x++;", "try x++; catch (e) {}", "switch (x) x++;"):
             with pytest.raises(ParseError, match="Expected LBRACE"):
                 parse_stmt(source)
+
+
+# ---- C row 1: (void) and unnamed prototype parameters ----
+
+
+class TestCParameterLists:
+    def test_void_is_an_empty_list_everywhere(self):
+        prog = parse(
+            "int f(void);\nint g(void) { return 0; }\n"
+            "interface I { int m(void); }\n"
+            "class C { public C(void) {} public int m(void) { return 1; } }\n"
+            "enum class E { A(void) }\n"
+        )
+        function, definition, interface, klass, rich = prog.declarations
+        assert function.params == [] and definition.params == []
+        assert interface.methods[0].params == []
+        assert [member.params for member in klass.members] == [[], []]
+        assert rich.variants[0].params == []
+        assert parse_expr("(void) => 1").params == []
+        assert parse_expr("int function(void) { return 1; }").params == []
+
+    def test_prototype_parameter_without_a_name(self):
+        param = parse("int f(int, char*);").declarations[0].params[1]
+        assert param.name == "" and param.type.base == "char" and param.type.pointer_depth == 1
+        assert (param.line, param.col, param.name_line, param.name_col) == (1, 12, 0, 0)
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "int f(void x);",
+            "int f(void, int y);",
+            "int f(const void);",
+            "int f(int) { return 0; }",
+            "void f(keep int);",
+            "int f(int = 3);",
+            "class C { public int m(int) { return 0; } }",
+            "interface I { int m(int); }",
+            "enum class E { A(int) }",
+        ],
+    )
+    def test_refused_parameter_forms(self, source):
+        with pytest.raises(ParseError):
+            parse(source)
+
+    def test_unnamed_lambda_parameter_is_refused(self):
+        with pytest.raises(ParseError):
+            parse_expr("(int) => 1")

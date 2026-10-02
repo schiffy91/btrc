@@ -789,7 +789,9 @@ class CEmitter {
 				IRParam p = declarations.get(i);
 				if (i > 0) { params = params + ", "; }
 				string paramType = self.qualifyVolatileObjectType(p.cType, p.isVolatile);
-				params = params + paramType + " " + p.name;
+				params = params + paramType;
+				/* An unnamed prototype parameter is an abstract declarator: its type alone. */
+				if (!p.name.isEmpty()) { params = params + " " + p.name; }
 				i = i + 1;
 			}
 		}

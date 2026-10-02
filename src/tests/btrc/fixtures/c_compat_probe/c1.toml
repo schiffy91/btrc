@@ -7,41 +7,22 @@ id = "r01-void-parameter-list"
 row = "1"
 construct = "int f(void)"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected parameter name, got RPAREN ')' at 2:16" }
-btrcc = { diagnostic = "Expected IDENT, got RPAREN ')' at 2:16" }
-source = '''
-#include <assert.h>
-int answer(void) { return 42; }
-int main(void) {
-	assert(answer() == 42);
-	print("PASS: void parameter list");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: void parameter list\n" }
+btrcc = { exit = 0, stdout = "PASS: void parameter list\n" }
+corpus = "c_compat/VoidParameterList.btrc"
 
 [[probe]]
 id = "r01-unnamed-prototype-parameter"
 row = "1"
 construct = "int f(int); unnamed prototype parameter"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected parameter name, got RPAREN ')' at 2:14" }
-btrcc = { diagnostic = "Expected IDENT, got RPAREN ')' at 2:14" }
-source = '''
-#include <assert.h>
-int twice(int);
-int twice(int value) { return value * 2; }
-int main() {
-	assert(twice(21) == 42);
-	print("PASS: unnamed prototype parameter");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: unnamed prototype parameters\nPASS: prototype defaults and names come from the definition\nPASS: (void) parameter lists\n" }
+btrcc = { exit = 0, stdout = "PASS: unnamed prototype parameters\nPASS: prototype defaults and names come from the definition\nPASS: (void) parameter lists\n" }
+corpus = "c_compat/VoidAndUnnamedParameters.btrc"
 
 [[probe]]
 id = "r01-void-beside-parameter"
@@ -49,13 +30,26 @@ row = "1"
 construct = "int f(void, int) is invalid C"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected parameter name, got COMMA ',' at 1:16" }
-btrcc = { diagnostic = "Expected IDENT, got COMMA ',' at 1:16" }
+revision = "5472f61"
+python = { diagnostic = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)' at 1:12" }
+btrcc = { diagnostic = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)' at 1:12" }
 source = '''
 int broken(void, int value) { return value; }
 int main() { return broken(0); }
+'''
+
+[[probe]]
+id = "r01-unnamed-definition-parameter"
+row = "1"
+construct = "int f(int) { ... } is invalid C (6.9.1p5)"
+intent = "negative"
+status = "rejected"
+revision = "5472f61"
+python = { diagnostic = "Parameter name required: only a function prototype without a body may omit it at 1:11" }
+btrcc = { diagnostic = "Parameter name required: only a function prototype without a body may omit it at 1:11" }
+source = '''
+int twice(int) { return 0; }
+int main() { return twice(0); }
 '''
 
 [[probe]]
