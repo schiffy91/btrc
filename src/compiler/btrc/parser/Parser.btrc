@@ -793,12 +793,18 @@ class Parser {
 		self.expect("SEMICOLON");
 		int index = first;
 		while (index < declarations.len) {
-			Node alias = declarations.get(index);
+			// Each declarator record becomes a fresh typedef node: the alias
+			// takes its name, `original` its type, and no variable field stays.
+			Node declarator = declarations.get(index);
+			Node alias = Node();
 			alias.kind = NK_TYPEDEF_DECL;
-			alias.original = alias.type;
-			alias.type = null;
-			alias.alias = alias.name;
-			alias.name = "";
+			alias.original = declarator.type;
+			alias.alias = declarator.name;
+			alias.line = declarator.line;
+			alias.col = declarator.col;
+			alias.nameLine = declarator.nameLine;
+			alias.nameCol = declarator.nameCol;
+			declarations.set(index, alias);
 			index++;
 		}
 	}
@@ -1335,9 +1341,10 @@ class Parser {
 				self.parseDeclaratorArraySuffix(param);
 				if (param.isArray) {
 					// C11 6.7.6.3p7: an array parameter is a pointer.
-					param.isArray = false;
-					param.arraySize = null;
-					param.pointerDepth = param.pointerDepth + 1;
+					Node pointer = Parser.copyTypeShape(param, false);
+					pointer.isArray = false;
+					pointer.pointerDepth = pointer.pointerDepth + 1;
+					param = pointer;
 				}
 			}
 			functionType.genericArgsMut().push(param);
@@ -1479,9 +1486,8 @@ class Parser {
 	 * parsed before its first declarator, without the `*`s that bind to that
 	 * declarator. A copy, so the first declarator may reshape its own. */
 	class Node declaratorSpecifier(Node typeExpr) {
-		Node specifier = Parser.copySpecifier(typeExpr);
+		Node specifier = Parser.copyTypeShape(typeExpr, false);
 		specifier.pointerDepth = 0;
-		specifier.arraySize = null;
 		specifier.nullableOuterDepth = 0;
 		return specifier;
 	}
@@ -1490,13 +1496,17 @@ class Parser {
 	class Token declaratorNameToken(Node declarator) { return Token("IDENT", declarator.name, declarator.nameLine, declarator.nameCol); }
 
 	/* A deep copy of a declaration specifier (TypeExpr) for one more declarator. */
-	class Node copySpecifier(Node source) {
+	class Node copySpecifier(Node source) { return Parser.copyTypeShape(source, true); }
+
+	/* A deep copy of a TypeExpr; without `withArraySize` the copy has no array
+	 * bound, as a fresh node has none. */
+	class Node copyTypeShape(Node source, bool withArraySize) {
 		Node duplicate = Node();
 		duplicate.kind = NK_TYPE_EXPR;
 		duplicate.base = source.base;
 		duplicate.pointerDepth = source.pointerDepth;
 		duplicate.isArray = source.isArray;
-		duplicate.arraySize = source.arraySize;
+		if (withArraySize) { duplicate.arraySize = source.arraySize; }
 		duplicate.isConst = source.isConst;
 		duplicate.isNullable = source.isNullable;
 		duplicate.nullableOuterDepth = source.nullableOuterDepth;
