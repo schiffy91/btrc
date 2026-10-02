@@ -65,7 +65,5 @@ class MacOSImageView implements IImageView, IMacOSView {
 		view.setImage(native.nativeImage());
 	}
 
-	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
-
 	public CallbackCancellation close() { var state = self._view.close(); self._imageView = null; return state; }
 }

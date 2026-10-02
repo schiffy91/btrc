@@ -209,12 +209,15 @@ the directory picker reports abort as cancellation. This uses AppKit's
 not a nested polling pump. Asynchronous sheets and arbitrary nested-modal stacks
 still need lifecycle integration and qualification.
 
+`GUI.run()` enters AppKit's own run loop, the only native event dispatch; there
+is no embedded pump. Applications use the target-selected factory and native
+scheduling described above. GPU subtree shutdown, worker publication and broader
+dialog handling still prevent full GUI qualification.
+
 Pending window/subtree closure uses one application-owned native timer, armed
 only while cleanup needs progress. It is independent of canceled domain work
 and does not keep polling while idle. Closing one window retains its unfinished
-tree without closing other windows; Quit also drains detached roots. Bounded
-embedded dispatch remains for existing hosts and is prohibited while the native
-loop is running.
+tree without closing other windows; Quit also drains detached roots.
 
 Composed capture (`MacOSComposedCapture`) inserts temporary native image views
 for the GPU layers only during the synchronous snapshot. Successful and failed
@@ -232,14 +235,16 @@ modules are private, including named references through transitive imports.
 Export policy: consumers import `Library.GUI` and the portable `I*` contracts,
 never a platform module. Two provider modules stay exported on purpose as the
 AppKit seam for `Library.Tray`: `MacOS.AppKitText` and `MacOS.MacOSRunLoop`.
-The other `MacOS.*` and `Linux.*` exports remain only until the native
-fixtures that still mount provider classes directly move to the factory with
-attach/arrange; they are not API, and new code must not import them. Those
-legacy direct classes keep their own contracts: `MacOSButton(title, actions)`
-reports clicks through a `MacOSActionQueue(capacity = 256)` (1 to 65536,
-ordered, never coalesced, overflow latched and reported by `take()` after
-native dispatch) and `button.matches(action)`; close buttons before their
-queue. `MacOSScrollView` keeps AppKit's unflipped coordinates for native
+Every other `MacOS.*` module is private to the package; the `Linux.*` exports
+remain until the Linux fixtures move to the factory. The provider's own
+conformance fixtures, which assert AppKit state through its modules, compile
+against a test data root whose copy of this manifest re-exports them
+(`src/tests/gui_provider_root.py`); products cannot. Inside the provider,
+`MacOSButton(title, actions)` reports clicks through a
+`MacOSActionQueue(capacity = 256)` (1 to 65536) that wraps the portable
+`ActionMailbox` ring on the main thread and wakes the run loop: ordered, never
+coalesced, overflow latched and reported by `take()` after native dispatch,
+matched by `button.matches(action)`; close buttons before their queue. `MacOSScrollView` keeps AppKit's unflipped coordinates for native
 document children while its public offsets count down from the top.
 
 ## Linux provider

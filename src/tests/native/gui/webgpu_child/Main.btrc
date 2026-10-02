@@ -1,5 +1,7 @@
 import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSTextField;
 import Library.GUI.MacOS.MacOSScrollView;
 import Library.GUI.MacOS.MacOSGPUSurface;
@@ -311,24 +313,29 @@ class NativeGpuChildTest {
 int main() {
 	var app = MacOSApplication();
 	var window = MacOSWindow("Native GPU composition", 640.0, 480.0);
+	var root = MacOSContainer();
+	window.attachRoot(root);
 	var field = MacOSTextField("Native editor", "Search");
 	var scroll = MacOSScrollView();
-	scroll.setFrame(0.0, 0.0, 640.0, 400.0);
+	// Native frames (0, 0, 640, 400) and (20, 430, 600, 30) from the bottom of
+	// the 480-point content; (20, 600, 200, 30) from the bottom of the document.
+	root.attach(field);
+	field.arrange(20.0, 20.0, 600.0, 30.0);
+	root.attach(scroll);
+	scroll.arrange(0.0, 80.0, 640.0, 400.0);
 	scroll.setContentSize(640.0, 800.0);
-	field.setFrame(20.0, 430.0, 600.0, 30.0);
 	var target = MacOSGPUSurface();
+	var targetView = MacOSView(target.nativeView());
 	var overlay = MacOSTextField("Native overlay", "Overlay");
-	overlay.setFrame(20.0, 600.0, 200.0, 30.0);
-	window.contentView().addSubview(field.nativeControl());
-	window.contentView().addSubview(scroll.nativeControl());
-	scroll.documentView().addSubview(target.nativeView());
-	scroll.documentView().addSubview(overlay.nativeControl());
+	scroll.attach(targetView);
+	scroll.attach(overlay);
+	overlay.arrange(20.0, 170.0, 200.0, 30.0);
 	var instance = target.nativeInstance();
 	var surface = target.nativeSurface();
 	var owner = GPUDevice(instance, surface);
 	var deadline = Timer();
 	deadline.start();
-	while (deadline.elapsed() < 10.0f && owner.state() != GPU_DEVICE_READY && owner.state() != GPU_DEVICE_FAILED) { owner.poll(); app.pumpEvents(1); Timer.sleep(0.001); }
+	while (deadline.elapsed() < 10.0f && owner.state() != GPU_DEVICE_READY && owner.state() != GPU_DEVICE_FAILED) { owner.poll(); CaptureProbe.drainRunLoop(); Timer.sleep(0.001); }
 	if (owner.state() != GPU_DEVICE_READY) { fprintf(stderr, "GPU device setup: %s\n", owner.error()); }
 	assert(owner.state() == GPU_DEVICE_READY);
 	var renderer = GPUSurfaceRenderer(owner, surface, true);
@@ -337,7 +344,9 @@ int main() {
 	Image initialCapture = null;
 	for (int step = 0; step < 3; step++) {
 		scroll.scrollTo(100.0 * (double)step);
-		target.setFrame(0.0, 400.0 + 50.0 * (double)step, 640.0 - 80.0 * (double)step, 400.0 - 50.0 * (double)step);
+		// Native frame (0, 400 + 50 * step) in the 800-point document: its top edge.
+		targetView.arrange(0.0, 0.0, 640.0 - 80.0 * (double)step, 400.0 - 50.0 * (double)step);
+		target.refreshBackingSize();
 		renderer.resize(target.pixelWidth(), target.pixelHeight());
 		if (step == 0) { NativeGpuChildTest.verifyReadbackFailures(renderer); NativeGpuChildTest.verifyResources(renderer, owner); }
 		assert(renderer.beginFrame(1.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
@@ -388,7 +397,7 @@ int main() {
 		assert(MacOSComposedCapture.captureTiff(window.contentView(), layers).equals(captured));
 		assert(CaptureProbe.childCount(target.nativeView()) == 0UL);
 	}
-	assert(app.pumpEvents(1) <= 1);
+	CaptureProbe.drainRunLoop();
 	renderer.resize(0, 0);
 	assert(renderer.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_EMPTY);
 	renderer.resize(target.pixelWidth(), target.pixelHeight());
@@ -422,7 +431,7 @@ int main() {
 	var abandoned = GPUDevice(instance, surface);
 	abandoned.close();
 	deadline.reset(); deadline.start();
-	while (deadline.elapsed() < 10.0f && abandoned.poll() != GPU_DEVICE_CLOSED) { app.pumpEvents(1); Timer.sleep(0.001); }
+	while (deadline.elapsed() < 10.0f && abandoned.poll() != GPU_DEVICE_CLOSED) { CaptureProbe.drainRunLoop(); Timer.sleep(0.001); }
 	assert(abandoned.state() == GPU_DEVICE_CLOSED);
 	assert(probeAdapterClaims() == 0 && probeDeviceClaims() == 0);
 	for (int stage = 1; stage <= 2; stage++) {
@@ -443,9 +452,14 @@ int main() {
 		}
 	}
 	probeDelayCompletions(0);
+	scroll.detach(overlay);
 	overlay.close();
+	scroll.detach(targetView);
+	targetView.close();
 	target.close();
+	root.detach(field);
 	field.close();
+	root.detach(scroll);
 	scroll.close();
 	window.close();
 	print("PASS: native child WebGPU clear, present and pixel readback");
