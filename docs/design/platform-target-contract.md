@@ -854,8 +854,47 @@ None of these blocks the spec commit. Each has a default that the design uses.
 
 ## Review
 
-Two adversarial reviewers and one parity reviewer read the first draft (read-only, 2026-10-02). Their blocking findings and the resolutions follow.
+Three read-only reviewers read the draft on 2026-10-02 (agents, not a workflow):
+- **T:** an adversarial reviewer for per-platform triples, sysroots and macros. It re-ran clang 21.1.8 `-dM -E`, `-###` and `-print-effective-triple` on all 11 triples, and zig 0.16.0.
+- **P:** an adversarial reviewer for Python/btrc parity, host inference and spelling round-trips. It checked the claims against the code at `ca5c8e2` and ran `btrcpy`.
+- **R:** the PLAN parity reviewer for coverage, consistency and plan conformance.
+
+The Windows research agent's report arrived after the first draft and is folded in as well (W).
+
+Every blocking finding is resolved below. Findings that two reviewers raised appear once.
 
 | Finding | Resolution |
 |---------|------------|
-| *(filled by the review round; see below)* | |
+| (W) The MSVC predefines differ from what C4 assumed: no `__STDC__`, `_M_ARM64` only on msvc, `__SEH__` on gnu, and `__WCHAR_UNSIGNED__` defined on every Windows row. | §1.2 and §1.3 updated: `__STDC__` excludes msvc; `_M_ARM64` is an msvc row; `__MINGW32__`, `__MINGW64__` and `__SEH__` are gnu rows; `__WCHAR_UNSIGNED__` is derived from `wchar_signed` alone. |
+| (T, blocking) The MSVC triple is not in cc1 form: clang appends `msvc19.33.0`, or the installed Visual Studio's version on a runner. | The triple pins `aarch64-pc-windows-msvc19.40.0`, with a runner-bound check that `cl.exe` is at least 19.40 (§1.1, §1.2). |
+| (T, blocking) The alias `aarch64-windows-msvc` maps to a different vendor (`unknown`). | The alias is dropped. |
+| (T, blocking) The NDK `source.properties` path is one level short. | Corrected to `../../../../../` (§3.2). |
+| (T, blocking) zig rejects clang's `--target=` spelling. | `target_arguments` are clang-only; zig takes `-target <zig_target>` (§1.1, §4.2). |
+| (T, P, R, blocking) Empty `target_arguments` blocked every cross build, and §1.1 cited a §4.4 that does not exist. | `target_arguments` is non-empty on every row. The builder keeps the host `cc` exactly when the plan's row is the host row. Otherwise it takes the driver from the row and refuses when none is found (§4.2). |
+| (R, blocking) The `TARGET_*` rows escape C4's reserved-name rule for `#define`/`#undef`. | M3 refuses every predefined and derived name (§1.3), with a test, and it is listed as a C4 amendment. |
+| (R, P, blocking) The environment had two spellings: `""` in the spec and `device` in manifests. | One vocabulary: `TARGET_ENVIRONMENTS`, generated from `targets.toml`, and `""` is written explicitly (§1.3, §5.1). |
+| (R, blocking) The MSVC row decides Stage 28's ABI route early. | The row is provisional, and Stage 28's `platforms-w1-toolchain-abi-route` confirms or removes it (§1.9). The wgpu-native asset evidence is cited. A PLAN amendment is recorded in the progress log. |
+| (R, blocking) The availability check could refuse calls that runtime branches make reachable on Windows. | Extraction uses each row's real build flags, including the compat overlay. Availability therefore equals what that C compile declares (§2.3). The sub-batch 2 gate adds the Windows, Linux and macOS self-host transpiles and a zig-compiled Windows corpus pass. |
+| (R, blocking) "BTRSmith needs no change" had no evidence; `--target` would change the macOS minimum OS. | Host-row builds keep today's driver and flags. A deployment-target mismatch is a warning. The evidence is a before/after comparison of the Mac objects (§4.3), and Q1 holds the policy. |
+| (P, blocking) The alias count was 18, not 19. | Corrected, and the test lists all 30 spellings (§1.5). |
+| (P, blocking) A trailing `-` was accepted on rows with an empty environment. | Empty components are refused, and the battery covers them (§1.4, §1.11). |
+| (P, blocking) btrcc treats `--target ""` as "infer the host" and lets a repeated `--target` through. | A `targetGiven` flag makes both an error, in both CLIs (§1.5). |
+| (P, blocking) Python's CLI prints a traceback for a bad `--target` and reads the source before checking it. | Order: arguments, then target, then input. `Compiler.select_target` returns an `INPUT` failure. Tested with a missing input path (§1.5). |
+| (P, blocking) btrcc has no `uname`, so it cannot print the host string the draft's message named. | The message names no host. Both seams reduce to the same normalized tokens and are driven by one table. `BTRC_TARGET_PLATFORM_OVERRIDE` builds an unknown-host btrcc (§1.7). |
+| (P, blocking) btrc's literal typing (`Literals.btrc:105-140`, reached from `Operators.btrc:138-142` and `NativeImports.btrc:1530`) also uses the host's `long`. | All three sites take the row's width in the same commit, with a literal-typing test (§1.8). |
+| (P, blocking) Deleting `CIntegerWidths.native()` strands about 118 target-less callers and the LSP. The `LONG_MAX` fold claim was untestable. | Callers default to the inferred host row. The LSP keeps C4's lazy D13 and a named fallback row. The fold claim is replaced by cast-range and literal-typing checks (§1.7, §1.8). |
+| (P, blocking) `TargetCatalog` would import `frontend`, and the CLI would import `abi`, against `test_compiler_api.py:270-284`. | Host inference and parsing live in `abi/hosted.py::TargetRepository`. The CLI goes through `application/compiler.py` (§1.4). |
+| (P, blocking) A native-read v2 request would break every pinned reader, and the reader already re-verifies SDK files. | No v2: the reader cache is unchanged. The sysroot identity goes into the resolution fingerprint and link plan v5 only (§6.2). |
+| (T) `__ANDROID_API__` is dumped as an alias; a `-D__ANDROID_API__` would split the two macros; the API 28–29 names are available at the floor. | Test 3 resolves the alias, the extractor passes no `-D`, and the bionic wording is fixed (§1.3, §2.3). |
+| (T, R) `TARGET_OS_EMBEDDED` needs two value-0 rows, the count of names leaving the foreign list was wrong, and `""` must be a legal selector element. | Fixed in §1.3. |
+| (R) The slice mapping contradicted itself. | Now one-to-many, with the desktop rows exempt (§1.2). |
+| (R) The C4 amendment list was incomplete. | Expanded under [Hand-offs](#hand-offs). |
+| (R) The extractor sat in the normatively inventoried `tools/compiler_codegen/`. | Moved to `tools/hosted_platform.py` (§2.3). |
+| (R) A copied MSVC availability list would be permissive. | It is a conservative copy instead (§2.3). |
+| (R) Apple availability is weaker than bionic's. | Recorded as a gap; `-Wunguarded-availability` covers it in Stage 24 (§2.4). |
+| (R) Fixture naming did not follow the native conventions. | `target_abi.c`/`.h`, a package `btrc.toml` and `target_abi.expected` (§7). |
+| (R) The agent model differed from PLAN's writer pairs, and the extension gate was missing. | Pair hand-off within one commit; `make extension` and the VS Code test added (Sub-batches). |
+| (R) Build mode was missing, and the re-measure lacked the cold path. | Build mode is stated as option-keyed (Principles), and the cold transpile is added (§6.3). |
+| (P) Release C files are analysed for the host row. | `--target windows-x86_64` for `btrcc-windows.c`, and a per-row identity check for the portable C (§1.8). |
+| (P) The stdlib archive refuses rather than misses, and needs a schema bump. | `SCHEMA` 6, with a stated refusal message; the matrix asserts it (§6.2). |
+| (P) Some messages spell `os-arch`; the first-reference order was unstable; the inference basis differs; there were factual slips (the SDL selector, the `Resolver.btrc` imports, the runtime root). | All fixed in §1.4, §1.7, §2.4, §3.1 and §5.3. |

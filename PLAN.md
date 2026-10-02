@@ -171,6 +171,31 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - BTRSmith journeys and package contracts are pending in the private BTRSmith repository (`btrsmith-p0-inventory`) and are kept out of these totals.
   - The entry gate, the adaptation approvals (`platforms-p0-adaptations`), the matrix pin and the device registry are still pending.
 
+### Stage 24: target-contract design (lane `stage24/target-contract-design`, 2026-10-02)
+- **Spec step done; implementation waits for C4** (Stage 16 creates `targets.toml`). `docs/design/platform-target-contract.md` designs all seven Stage 24 items:
+  - the spec delta: 11 rows with triples, sysroot kinds, data-model columns and the `""`/gnu/msvc/simulator environment axis;
+  - the hosted-ABI unavailability tables and a reachability check run in the optimizer;
+  - the native-reader targets, with sysroot validation and identity;
+  - link plan schema 5;
+  - provider filters with an `env` selector and a platform-directory rule;
+  - cache identity on the canonical label;
+  - the target ABI fixture.
+
+  For each item it gives the owners in both compilers, the named tests, the exit evidence, the Linux/Mac/NDK/runner split and the four gated sub-batches.
+- **Decisions.**
+  - `__ANDROID_API__` is defined from the row's API level.
+  - clang 21 predefines `TARGET_OS_*` for Darwin triples, so those names become rows rather than foreign names.
+  - `__STDC__` excludes msvc.
+  - Analyzer widths come from the row, which also covers btrc literal typing.
+  - Both compilers refuse an unknown host up front with one message.
+  - The LSP gains a `btrc.target` setting.
+- **Review.** Three research agents (Apple, Android, Windows) checked every triple and macro with clang 21.1.8 and zig 0.16.0. Two adversarial reviewers (triples and sysroots; Python/btrc parity) and a parity reviewer raised 19 distinct blocking findings, all resolved and listed in the document's Review table.
+- **PLAN amendment.** `windows-aarch64-msvc` is a provisional row: wgpu-native ships Windows ARM64 only as MSVC, which meets D21's condition. Stage 28's `platforms-w1-toolchain-abi-route` confirms or removes it.
+- **Owner questions.**
+  - Q1: the macOS row minimum (14.0 by default).
+  - Q2: the MSVC row scope.
+  - Q3: no `ios-x86_64-simulator` row.
+
 ## Decisions (all resolved 2026-09-30)
 
 Every decision below is settled. Where stage text further down still says "you approve", "you close", "if approved", "your checklist" or "blocked on push", the resolution in this section and the standing approvals after it govern. No stage waits on a decision.
