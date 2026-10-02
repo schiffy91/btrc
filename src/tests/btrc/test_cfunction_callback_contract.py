@@ -107,7 +107,7 @@ def test_ordered_call_storage_does_not_retain_alias_across_class_upcast(
 
     selfhost_generated = selfhost_c.read_text()
     reference_generated = reference_c.read_text()
-    assert re.search(r"Base\* __btrc_operand_\d+;", selfhost_generated)
+    assert re.search(r"Base\* __btrc_call_operand_\d+;", selfhost_generated)
     assert re.search(r"Base\* __btrc_call_operand_\d+;", reference_generated)
     for generated in (selfhost_generated, reference_generated):
         assert not re.search(r"ChildAlias __btrc_(?:call_)?operand_\d+;", generated)

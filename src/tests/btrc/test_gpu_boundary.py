@@ -1244,7 +1244,7 @@ def test_borrowed_fixed_array_gpu_input_is_pinned_and_snapshotted(
         run_start = generated.index("int Holder_run(Holder* self) {")
         run_end = generated.index("\nint main(", run_start)
         run_body = generated[run_start:run_end]
-        root_match = re.search(r"Owner\* (__btrc_operand_\d+);", run_body)
+        root_match = re.search(r"Owner\* (__btrc_call_operand_\d+);", run_body)
         kept_match = re.search(r"Owner\* (__btrc_kept_operand_\d+);", run_body)
         assert root_match is not None and kept_match is not None
         root = root_match.group(1)
@@ -1349,7 +1349,7 @@ def test_owned_fixed_array_gpu_input_projection_lives_through_dispatch(
     generated = _lower_source(semantic_btrcc, tmp_path, source)
     main_start = generated.index("int main(")
     main_body = generated[main_start:]
-    root_match = re.search(r"Owner\*(?: volatile)? (__btrc_operand_\d+);", main_body)
+    root_match = re.search(r"Owner\*(?: volatile)? (__btrc_call_operand_\d+);", main_body)
     assert root_match is not None
     root = root_match.group(1)
     make = main_body.index("makeOwner()")
@@ -1808,7 +1808,7 @@ def test_temporary_fixed_array_gpu_projections_have_stable_storage(
     assert generated.count("makeBox()") == 1
     if frontend == "btrc":
         root_match = re.search(
-            r"(?:struct )?ValueBox (__btrc_operand_\d+);",
+            r"(?:struct )?ValueBox (__btrc_call_operand_\d+);",
             generated,
         )
         assert root_match is not None

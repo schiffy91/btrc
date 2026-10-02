@@ -142,7 +142,7 @@ class CleanupSlotRegistry {
 		body.push(IRNode.variableDeclaration(slotType, "current", IRNode.dereference(IRNode.variable("typed_slot"))));
 		Vector<IRNode> clearBody = [];
 		clearBody.push(IRNode.assignment(IRNode.dereference(IRNode.variable("typed_slot")), IRNode.cast(slotType, IRNode.variable("replacement"))));
-		body.push(IRNode.ifStatement(IRNode.binary(IRNode.binary(IRNode.variable("replace_if_equal"), "!=", IRNode.literal("0")), "&&", IRNode.binary(IRNode.variable("current"), "==", IRNode.cast(slotType, IRNode.variable("expected")))), IRNode.block(clearBody), null));
+		body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable("replace_if_equal"), "&&", IRNode.binary(IRNode.variable("current"), "==", IRNode.cast(slotType, IRNode.variable("expected")))), IRNode.block(clearBody), null));
 		body.push(IRNode.returnStatement(IRNode.cast("void*", IRNode.variable("current"))));
 		definition.body = IRNode.block(body);
 		return definition;
@@ -442,6 +442,21 @@ class ManagedLifetimeLowerer {
 		self.context.referenceHelper("__btrc_flush_cycles");
 		Vector<IRNode> arguments = [];
 		return IRNode.call("__btrc_poll_cycles", arguments);
+	}
+
+	/* The collector poll Python's poll_release_batch appends after releasing
+	 * a handed-off value whose type may join a cycle. */
+	public bool releaseMayEnqueue(string runtimeType) {
+		if (runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType)) { return false; }
+		return self.cycles.runtimeTypeMayCycle(runtimeType);
+	}
+
+	/* Release a value a call boundary handed off. String and ARC releases
+	 * accept NULL, so they run unconditionally, as Python's release_and_clear
+	 * spells them; a native release keeps its NULL guard. */
+	public IRNode releaseAfterHandoff(IRNode target, string runtimeType) {
+		if (!self.managedValues.isNativeName(runtimeType)) { return self.releaseRuntime(target, runtimeType); }
+		return self.optionalRelease(target, runtimeType);
 	}
 
 	public IRNode optionalRelease(IRNode target, string runtimeType) {

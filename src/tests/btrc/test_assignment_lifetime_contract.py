@@ -879,7 +879,7 @@ def test_nested_managed_field_assignment_has_one_result_boundary(
     assert reference.returncode == 0, reference.stderr
 
     selfhost_body = selfhost_c.read_text().rsplit("void closeCycle(", 1)[1].split("\nint main(void)", 1)[0]
-    boundary_pattern = r"\b__btrc_boundary_result_\d+\b"
+    boundary_pattern = r"\b__btrc_call_result_\d+\b"
     assert len(set(re.findall(boundary_pattern, selfhost_body))) == 1
 
     _strict_build_and_run(
