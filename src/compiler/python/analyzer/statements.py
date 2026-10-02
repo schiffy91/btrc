@@ -486,9 +486,15 @@ class StatementAnalyzer:
                 declaration.col,
             )
 
-    def _validate_char_array_initializer(self, type_expr, initializer) -> None:
-        """A local bound is analyzed after its initializer, so evaluate it here."""
+    def _validate_char_array_initializer(self, type_expr, initializer, *, is_global: bool) -> None:
+        """A local bound is analyzed after its initializer, so evaluate it here.
+
+        Storage validation owns a static-storage initializer that is not a
+        literal and a non-positive bound, and reports them first.
+        """
         if not self.aggregates.char_array_string_initializer(type_expr, initializer):
+            return
+        if (is_global or type_expr.is_static) and not isinstance(initializer, StringLiteral):
             return
         bound = self.types.canonical_type(type_expr).array_size
         value = None
@@ -1965,7 +1971,7 @@ class StatementAnalyzer:
             self.aggregates.validate_fixed_array_initializer(
                 stmt.type, stmt.initializer, f"Initializer for '{stmt.name}'", stmt.line, stmt.col
             )
-            self._validate_char_array_initializer(stmt.type, stmt.initializer)
+            self._validate_char_array_initializer(stmt.type, stmt.initializer, is_global=is_global)
             self.expressions.validate_value(
                 ExpressionValuePlan(
                     stmt.type,

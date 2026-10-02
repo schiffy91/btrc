@@ -580,6 +580,8 @@ class AggregateAnalyzer:
         element = self.types.canonical_type(self._array_element_type(canonical))
         if element is None or element.pointer_depth > 0 or element.base not in self._CHAR_ARRAY_ELEMENTS:
             return False
+        if isinstance(initializer, (BraceInitializer, ListLiteral)):
+            return False
         return isinstance(initializer, (StringLiteral, FStringLiteral)) or self.types.is_scalar_string_value(
             self.type_of(initializer)
         )
@@ -630,7 +632,7 @@ class AggregateAnalyzer:
                 col,
             )
             return
-        if bound is None or length < bound:
+        if bound is None or bound <= 0 or length < bound:
             return
         if length == bound:
             self.session.error(

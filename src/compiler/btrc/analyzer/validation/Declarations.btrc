@@ -601,7 +601,7 @@ class DeclarationValidator {
 					self.expressions.validateExpr(member.initializer,  fieldVars);
 					self.expressions.validateTypedInitializer(fieldValueType, member.initializer, "Field '" + declaration.name + "." + member.name + "'", fieldVars);
 					Node? actual = self.types.inferType(member.initializer, fieldVars);
-					if (actual != null && !self.expressions.contextualAggregateInitializer(member.initializer) && !self.types.assignmentCompatible(fieldValueType, actual)) {
+					if (actual != null && !self.expressions.contextualAggregateInitializer(member.initializer) && !self.types.assignmentCompatible(fieldValueType, actual) && !self.storage.charArrayStringInitializer(fieldValueType, member.initializer, fieldVars)) {
 						TypeValidator.fail("Field '" + declaration.name + "." + member.name + "' expects '" + self.types.formatType(member.type) + "' but got '" + self.types.formatType(actual) + "'", member);
 					}
 				}

@@ -253,6 +253,21 @@ CHAR_ARRAY_REFUSALS = [
         id="r04-variable-length-array",
     ),
     pytest.param(
+        'int main() { char text[0] = ""; return 0; }',
+        ("Array bound for Variable 'text' must be positive", 1, 24),
+        id="r04-zero-bound",
+    ),
+    pytest.param(
+        'string source = "a";\nchar text[4] = source;\nint main() { return 0; }',
+        ("Global 'text' requires a C constant/address initializer for static storage", 2, 1),
+        id="r04-global-string-value",
+    ),
+    pytest.param(
+        'int count = 1;\nchar text[4] = f"{count}";\nint main() { return 0; }',
+        ("Global 'text' requires a C constant/address initializer for static storage", 2, 1),
+        id="r04-global-f-string",
+    ),
+    pytest.param(
         'int main() { char text[] = L"abc"; return 0; }',
         ("Expected SEMICOLON, got STRING_LIT '\"abc\"'", 1, 29),
         id="r04-wide-literal",
@@ -380,6 +395,17 @@ ACCEPTED = [
         }
         """,
         id="r24-btrc-atomic-unaffected",
+    ),
+    pytest.param(
+        """
+        #include <assert.h>
+        class Box { static unsigned char code[8] = "a"; static signed char sign[2] = "b"; }
+        int main() {
+            assert(Box.code[0] == 'a' && Box.code[1] == 0 && Box.sign[0] == 'b');
+            return 0;
+        }
+        """,
+        id="r04-class-static-char-array",
     ),
 ]
 

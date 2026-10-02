@@ -45,6 +45,7 @@ class StorageValidator {
 		Node? element = self.types.resolveAliases(TypeShape.withoutOuterArray(canonical));
 		if (element == null || element.pointerDepth > 0) { return false; }
 		if (element.base != "char" && element.base != "signed char" && element.base != "unsigned char") { return false; }
+		if (value.kind == NK_BRACE_INITIALIZER || value.kind == NK_LIST_LITERAL) { return false; }
 		if (value.kind == NK_STRING_LITERAL || value.kind == NK_F_STRING_LITERAL) { return true; }
 		return SemanticTypeSystem.isString(self.types.resolveAliases(self.types.inferType(value, vars)));
 	}
@@ -74,7 +75,7 @@ class StorageValidator {
 		if (canonical.arraySize == null) { return; }
 		Map<string, bool> unrestricted = {};
 		SemanticIntegerConstant bound = self.constants.integerConstant(canonical.arraySize, false, "", unrestricted);
-		if (!bound.valid || !bound.known || (long long)length < bound.value) { return; }
+		if (!bound.valid || !bound.known || bound.value <= 0 || (long long)length < bound.value) { return; }
 		string elements = Strings.fromInt((int)bound.value);
 		if ((long long)length == bound.value) {
 			TypeValidator.fail("String literal fills all " + elements + " elements of the char array and leaves no room for its terminator; declare " + Strings.fromInt((int)bound.value + 1) + " elements or leave the bound empty", initializer);
