@@ -2,4 +2,5 @@
 
 @interface CaptureProbe : NSObject
 + (NSUInteger)childCount:(NSView *)view;
++ (void)drainRunLoop;
 @end

@@ -1,103 +1,146 @@
-import Library.IO;
 import Library.Image;
+import Library.Vector;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IPanel;
 import Library.GUI.ISlider;
-import Library.GUI.MacOS.MacOSApplication;
-import Library.GUI.MacOS.MacOSWindow;
-import Library.GUI.MacOS.MacOSPanel;
-import Library.GUI.MacOS.MacOSSlider;
-import Library.GUI.MacOS.MacOSViewCapture;
+import Library.GUI.GUICaptureLayer;
+import Library.GUI.MacOS.MacOSView;
 
 #include <assert.h>
 
-void clickSlider(MacOSApplication app, MacOSWindow window, MacOSSlider slider) {
-	var view = slider.nativeView();
+NSView nativeSlider(ISlider slider) {
+	IMacOSView? native = (IMacOSView?)slider;
+	if (native == null) { throw "Slider has no macOS implementation"; }
+	return native.nativeView();
+}
+
+Image sliderPixels(IPanel root) {
+	Vector<GUICaptureLayer> layers = [];
+	return GUI.capture(root, layers);
+}
+
+void clickSlider(ISlider slider) {
+	var view = nativeSlider(slider);
+	var window = view.window();
+	if (window == null) { throw "Slider is not in a window"; }
+	var content = window.contentView();
+	if (content == null) { throw "Slider window has no content view"; }
 	var point = view.bounds().origin;
 	point.x += 285.0;
 	point.y += 15.0;
-	point = window.contentView().convertPoint(point, view);
-	var hit = window.contentView().hitTest(point);
+	point = content.convertPoint(point, view);
+	var hit = content.hitTest(point);
 	// AppKit may route a hit to a private descendant inside the native slider.
 	assert(hit != null && (hit == view || hit.isDescendantOf(view)));
-	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 1L, 1L, 1.0f);
-	var up = NSEvent.mouseEventWithType(NSEventTypeLeftMouseUp, point, 0UL, 0.0, window.nativeWindow().windowNumber(), null, 2L, 1L, 0.0f);
+	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, point, 0UL, 0.0, window.windowNumber(), null, 1L, 1L, 1.0f);
+	var up = NSEvent.mouseEventWithType(NSEventTypeLeftMouseUp, point, 0UL, 0.0, window.windowNumber(), null, 2L, 1L, 0.0f);
 	assert(down != null && up != null);
 	NSApplication.sharedApplication().postEvent(up, false);
 	// Match native button tests: AppKit routes/tracks the synthetic click,
 	// without assuming WindowServer activation (including on a locked Mac).
-	window.nativeWindow().sendEvent(down);
-	app.pumpEvents();
+	window.sendEvent(down);
+}
+
+/* One step per native loop turn: each click is dispatched before its
+ * result is read, as the embedded pump used to do. */
+class SliderInput implements IApplicationWork {
+	private IWindow _window;
+	private IPanel _background;
+	private ISlider _slider;
+	private int _step = 0;
+
+	public SliderInput(IWindow window, IPanel background, ISlider slider) { self._window = window; self._background = background; self._slider = slider; }
+
+	public void run() {
+		var slider = self._slider;
+		if (self._step == 0) {
+			slider.setValue(100.0);
+			var maximum = sliderPixels(self._background);
+			assert(maximum.width >= 360 && slider.value() == 100.0);
+			slider.setValue(10.0);
+			clickSlider(slider);
+		} else if (self._step == 1) {
+			assert(slider.value() > 10.0 && slider.value() <= 100.0 && (int)slider.value() % 10 == 0);
+			slider.setEnabled(false);
+			assert(!slider.isEnabled());
+			slider.setValue(20.0);
+			clickSlider(slider);
+		} else {
+			assert(slider.value() == 20.0);
+			self.finish();
+			return;
+		}
+		self._step++;
+		GUI.post(self);
+	}
+
+	private void finish() {
+		var slider = self._slider;
+		slider.setEnabled(true);
+		assert(slider.isEnabled());
+		slider.setVisible(false);
+		slider.setValue(100.0);
+		// Native frame (120, 65, 64, 14) from the bottom of the 160-point background.
+		slider.arrange(120.0, 81.0, 64.0, 14.0);
+		slider.setVisible(true);
+		assert(slider.value() == 100.0);
+		var compact = sliderPixels(self._background);
+		assert(compact.width >= 360);
+		var view = nativeSlider(slider);
+		var intrinsic = view.intrinsicContentSize();
+		var fitting = view.fittingSize();
+		fprintf(stderr, "Native slider intrinsic=%f,%f fitting=%f,%f\n", intrinsic.width, intrinsic.height, fitting.width, fitting.height);
+		assert(intrinsic.height > 14.0);
+		slider.arrange(120.0, 95.0 - intrinsic.height, 64.0, intrinsic.height);
+		assert(slider.value() == 100.0);
+		var natural = sliderPixels(self._background);
+		assert(natural.width == compact.width && natural.height == compact.height);
+		self._background.detach(slider);
+		slider.close();
+		slider.close();
+		bool rejected = false;
+		try { slider.value(); } catch (string error) { rejected = true; }
+		assert(rejected);
+		assert(self._window.detachRoot() == self._background);
+		self._background.close();
+		self._window.close();
+		GUI.requestQuit();
+	}
 }
 
 int main() {
-	var app = MacOSApplication();
-	var window = MacOSWindow("Native slider", 360.0, 160.0);
-	var background = MacOSPanel(RGBA(30, 30, 30));
-	background.setFrame(0.0, 0.0, 360.0, 160.0);
-	window.contentView().addSubview(background.nativeView());
-	var slider = MacOSSlider(10.0, 100.0, 9);
-	ISlider portable = slider;
+	GUI.initialize();
+	var window = GUI.createWindow("Native slider", 360.0, 160.0);
+	var background = GUI.createPanel(RGBA(30, 30, 30));
+	window.attachRoot(background);
+	var slider = GUI.createSlider(10.0, 100.0, 9);
 	// Player model projection sets the initial value before the first layout.
 	slider.setValue(100.0);
 	assert(slider.value() == 100.0);
-	background.attach(portable);
-	portable.arrange(20.0, 65.0, 320.0, 30.0);
+	background.attach(slider);
+	slider.arrange(20.0, 65.0, 320.0, 30.0);
 	assert(slider.value() == 100.0);
 	slider.setValue(10.0);
 	assert(slider.value() == 10.0);
 	for (int percent = 10; percent <= 100; percent += 10) { slider.setValue((double)percent); assert(slider.value() == (double)percent); }
-	portable.setValue(53.0);
-	assert(portable.value() == 50.0);
+	slider.setValue(53.0);
+	assert(slider.value() == 50.0);
 	bool rejected = false;
 	try { slider.setValue(101.0); } catch (string error) { rejected = true; }
 	assert(rejected && slider.value() == 50.0);
 	rejected = false;
-	try { var invalid = MacOSSlider(100.0, 10.0); } catch (string error) { rejected = true; }
+	try { var invalid = GUI.createSlider(100.0, 10.0); } catch (string error) { rejected = true; }
 	assert(rejected);
-	var continuous = MacOSSlider(0.0, 1.0);
+	var continuous = GUI.createSlider(0.0, 1.0);
 	continuous.setValue(0.375);
 	assert(continuous.value() == 0.375);
 	continuous.close();
 	window.show();
-	app.pumpEvents();
-	slider.setValue(100.0);
-	var maximum = File("NativeSlider-maximum.tiff", "wb");
-	assert(maximum.ok() && maximum.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && maximum.close());
-	assert(slider.value() == 100.0);
-	slider.setValue(10.0);
-	clickSlider(app, window, slider);
-	assert(slider.value() > 10.0 && slider.value() <= 100.0 && (int)slider.value() % 10 == 0);
-	slider.setEnabled(false);
-	assert(!slider.isEnabled());
-	slider.setValue(20.0);
-	clickSlider(app, window, slider);
-	assert(slider.value() == 20.0);
-	slider.setEnabled(true);
-	assert(slider.isEnabled());
-	slider.nativeView().setHidden(true);
-	slider.setValue(100.0);
-	slider.setFrame(120.0, 65.0, 64.0, 14.0);
-	slider.nativeView().setHidden(false);
-	assert(slider.value() == 100.0);
-	var compact = File("NativeSlider-compact.tiff", "wb");
-	assert(compact.ok() && compact.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && compact.close());
-	var intrinsic = slider.nativeView().intrinsicContentSize();
-	var fitting = slider.nativeView().fittingSize();
-	fprintf(stderr, "Native slider intrinsic=%f,%f fitting=%f,%f\n", intrinsic.width, intrinsic.height, fitting.width, fitting.height);
-	assert(intrinsic.height > 14.0);
-	slider.setFrame(120.0, 65.0, 64.0, intrinsic.height);
-	assert(slider.value() == 100.0);
-	var natural = File("NativeSlider-intrinsic.tiff", "wb");
-	assert(natural.ok() && natural.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && natural.close());
-	var file = File("NativeSlider.tiff", "wb");
-	assert(file.ok() && file.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && file.close());
-	background.detach(portable);
-	portable.close();
-	slider.close();
-	rejected = false;
-	try { slider.value(); } catch (string error) { rejected = true; }
-	assert(rejected);
-	background.close();
-	window.close();
+	GUI.post(SliderInput(window, background, slider));
+	GUI.run();
+	assert(!window.isOpen() && !background.isOpen() && !slider.isOpen());
 	print("PASS: native slider, stepped tracking, disabled input and teardown");
 	return 0;
 }

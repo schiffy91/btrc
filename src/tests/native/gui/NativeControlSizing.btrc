@@ -1,21 +1,18 @@
 import Library.Image;
-import Library.Image.EncodedImage;
-import Library.IO;
-import Library.Image.MacOS.MacOSEncodedImageDecoder;
-import Library.GUI.MacOS.MacOSApplication;
-import Library.GUI.MacOS.MacOSWindow;
-import Library.GUI.MacOS.MacOSPanel;
-import Library.GUI.MacOS.MacOSButton;
-import Library.GUI.MacOS.MacOSSelect;
-import Library.GUI.MacOS.MacOSViewCapture;
+import Library.Vector;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IPanel;
+import Library.GUI.IButton;
+import Library.GUI.ISelect;
+import Library.GUI.GUICaptureLayer;
 
 #include <assert.h>
 
-Image sizingPixels(MacOSWindow window, string name) {
-	var bytes = MacOSViewCapture.captureTiff(window.contentView());
-	var file = File(f"{name}.tiff", "wb");
-	assert(file.ok() && file.writeBytes(bytes) && file.close());
-	return MacOSEncodedImageDecoder().decode(bytes, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL)).image();
+Image sizingPixels(IPanel root) {
+	Vector<GUICaptureLayer> layers = [];
+	return GUI.capture(root, layers);
 }
 
 /* Compare labeled and blank captures so the test measures actual title ink,
@@ -45,17 +42,70 @@ void containedTitle(Image labeled, Image blank, int left, int top) {
 	assert(inkTop >= bezelTop + scale && inkBottom <= bezelBottom - scale);
 }
 
-void sizingScenario(MacOSApplication app, bool dark) {
-	var window = MacOSWindow("Native control sizing", 600.0, 100.0);
+/* Runs on the native loop once the shown window has been dispatched. */
+class SizingScenario implements IApplicationWork {
+	private IWindow _window;
+	private IPanel _root;
+	private IButton _button;
+	private ISelect _select;
+	private double _regularButton;
+	private double _regularSelect;
+
+	public SizingScenario(IWindow window, IPanel root, IButton button, ISelect select, double regularButton, double regularSelect) {
+		self._window = window;
+		self._root = root;
+		self._button = button;
+		self._select = select;
+		self._regularButton = regularButton;
+		self._regularSelect = regularSelect;
+	}
+
+	public void run() {
+		var button = self._button;
+		var select = self._select;
+		var labeled = sizingPixels(self._root);
+		assert(labeled.width >= 600 && labeled.height * 6 == labeled.width);
+		bool rejected = false;
+		try { button.setFont(24.0); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { select.setFont(24.0); } catch (string error) { rejected = true; }
+		assert(rejected);
+		button.setBordered(false);
+		button.setFont(24.0);
+		rejected = false;
+		try { button.setBordered(true); } catch (string error) { rejected = true; }
+		assert(rejected);
+		button.setFont(20.0);
+		button.setBordered(true);
+		var restored = sizingPixels(self._root);
+		button.setTitle("");
+		select.setItems([""], 0);
+		var blank = sizingPixels(self._root);
+		containedTitle(labeled, blank, 15, 20);
+		containedTitle(labeled, blank, 315, 20);
+		containedTitle(restored, blank, 15, 20);
+		containedTitle(restored, blank, 315, 20);
+		button.setFont(13.0);
+		select.setFont(13.0);
+		assert(button.fittingHeight() == self._regularButton && select.fittingHeight() == self._regularSelect);
+		self._window.close();
+		GUI.requestQuit();
+	}
+}
+
+void sizingScenario(bool dark) {
+	GUI.initialize();
+	var window = GUI.createWindow("Native control sizing", 600.0, 100.0);
 	var background = dark ? RGBA(30, 30, 30) : RGBA(255, 255, 255);
-	var root = MacOSPanel(background);
+	var root = GUI.createPanel(background);
 	root.setDarkAppearance(dark);
 	window.attachRoot(root);
-	var panel = MacOSPanel(background);
+	var panel = GUI.createPanel(background);
 	root.attach(panel);
 	panel.arrange(0.0, 0.0, 600.0, 100.0);
-	var button = MacOSButton("Mgyp Button");
-	var select = MacOSSelect();
+	var button = GUI.createButton("Mgyp Button");
+	var select = GUI.createSelect();
 	select.setItems(["Mgyp Selection"], 0);
 	panel.attach(button);
 	panel.attach(select);
@@ -69,42 +119,14 @@ void sizingScenario(MacOSApplication app, bool dark) {
 	select.setFont(20.0);
 	assert(button.fittingHeight() > regularButton && select.fittingHeight() > regularSelect);
 	window.show();
-	app.pumpEvents();
-	string theme = dark ? "Dark" : "Light";
-	var labeled = sizingPixels(window, f"NativeControlSizing{theme}");
-	assert(labeled.width >= 600 && labeled.height * 6 == labeled.width);
-	bool rejected = false;
-	try { button.setFont(24.0); } catch (string error) { rejected = true; }
-	assert(rejected);
-	rejected = false;
-	try { select.setFont(24.0); } catch (string error) { rejected = true; }
-	assert(rejected);
-	button.setBordered(false);
-	button.setFont(24.0);
-	rejected = false;
-	try { button.setBordered(true); } catch (string error) { rejected = true; }
-	assert(rejected);
-	button.setFont(20.0);
-	button.setBordered(true);
-	var restored = sizingPixels(window, f"NativeControlSizing{theme}Restored");
-	button.setTitle("");
-	select.setItems([""], 0);
-	var blank = sizingPixels(window, f"NativeControlSizing{theme}Blank");
-	containedTitle(labeled, blank, 15, 20);
-	containedTitle(labeled, blank, 315, 20);
-	containedTitle(restored, blank, 15, 20);
-	containedTitle(restored, blank, 315, 20);
-	button.setFont(13.0);
-	select.setFont(13.0);
-	assert(button.fittingHeight() == regularButton && select.fittingHeight() == regularSelect);
-	window.close();
+	GUI.post(SizingScenario(window, root, button, select, regularButton, regularSelect));
+	GUI.run();
+	assert(!window.isOpen() && !root.isOpen() && !button.isOpen() && !select.isOpen());
 }
 
 int main() {
-	var app = MacOSApplication();
-	sizingScenario(app, false);
-	sizingScenario(app, true);
-	app.close();
+	sizingScenario(false);
+	sizingScenario(true);
 	print("PASS: native control sizing, contained 20-point ink, rejected oversized bezels and restoration");
 	return 0;
 }

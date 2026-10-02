@@ -312,13 +312,21 @@ INVENTORY = ("operation", "journey", "family-cell", "ui-operation", "ui-case")
 
 
 @pytest.mark.parametrize("kind", INVENTORY)
-def test_an_inventory_row_names_the_ios_family_and_no_variant(kind):
+def test_an_inventory_row_names_the_ios_family_or_one_target_slice(kind):
     with pytest.raises(LedgerSchemaError, match="names the iOS/iPadOS family as ios"):
         LedgerRecord.from_mapping({"schema": SCHEMA, "subject": {"kind": kind, "id": "x", "platform": "ipados"}})
-    with pytest.raises(LedgerSchemaError, match="takes no variant"):
-        LedgerRecord.from_mapping(
-            {"schema": SCHEMA, "subject": {"kind": kind, "id": "x", "platform": "ios", "variant": "arm64-device"}}
-        )
+    for platform, variant in (("ios", "release"), ("ios", "x86_64"), ("windows", "arm64-device"), ("macos", "arm64")):
+        with pytest.raises(LedgerSchemaError, match="names its platform family or one target slice"):
+            LedgerRecord.from_mapping(
+                {"schema": SCHEMA, "subject": {"kind": kind, "id": "x", "platform": platform, "variant": variant}}
+            )
+    device = LedgerRecord.from_mapping(
+        {"schema": SCHEMA, "subject": {"kind": kind, "id": "x", "platform": "ios", "variant": "arm64-device"}}
+    )
+    simulator = LedgerRecord.from_mapping(
+        {"schema": SCHEMA, "subject": {"kind": kind, "id": "x", "platform": "ios", "variant": "arm64-simulator"}}
+    )
+    assert device.subject.key != simulator.subject.key
     ipad_run = LedgerRecord.from_mapping(
         {
             "schema": SCHEMA,
@@ -1118,9 +1126,11 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
     rows = []
     for denominator in manifest.denominators:
         for identifier in denominator.ids:
-            for platform in denominator.platforms:
+            for platform, variant in denominator.targets():
                 for frontend in denominator.frontends or (None,):
                     subject = {"kind": denominator.kind.value, "id": identifier, "platform": platform.value}
+                    if variant is not None:
+                        subject["variant"] = variant
                     if frontend is not None:
                         subject["frontend"] = frontend.value
                     rows.append({"schema": SCHEMA, "subject": subject})
@@ -1144,7 +1154,9 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
         SubjectKind.FAMILY_CELL: 300,
         SubjectKind.UI_OPERATION: 1620,
         SubjectKind.UI_CASE: 470,
+        SubjectKind.OPERATION: 1938,
     }
+    assert sum(row["slots"] for row in evidence if row["kind"] == "operation") == 1938
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-operation") == 1620
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-case") == 470
     assert sum(row["slots"] for row in evidence if row["kind"] == "family-cell") == 300
@@ -1154,6 +1166,7 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
         ("family-cell", 0, 0),
         ("ui-operation", 0, 0),
         ("ui-case", 0, 0),
+        ("operation", 0, 0),
     ]
     implementation = {row["platform"]: row for row in report.implementation_rows()}
     assert (implementation["macos"]["partial"], implementation["linux"]["custom"]) == (1, 1)
@@ -1180,7 +1193,12 @@ def test_the_tracked_denominators_match_their_sources():
         denominator.kind.value: (len(denominator.ids), denominator.frozen_slots)
         for denominator in manifest.denominators
     }
-    assert counts == {"family-cell": (60, 300), "ui-operation": (162, 1620), "ui-case": (47, 470)}
+    assert counts == {
+        "family-cell": (60, 300),
+        "ui-operation": (162, 1620),
+        "ui-case": (47, 470),
+        "operation": (323, 1938),
+    }
     ids = manifest.by_kind()[SubjectKind.UI_CASE].ids
     assert (ids[0], ids[-1], len(set(ids))) == ("E01", "E47", 47)
 
@@ -1190,7 +1208,8 @@ def _frozen_copy(tmp_path: Path, *, drop: str | None = None, rewrite=None) -> Pa
 
     from tools.qualification.denominators import MANIFEST, REPO
 
-    for document in ("docs/design/native-ui-parity.md", "docs/design/native-ui-api-inventory.md"):
+    documents = ("docs/design/native-ui-parity.md", "docs/design/native-ui-api-inventory.md")
+    for document in (*documents, "docs/design/platform-inventory.toml"):
         text = (REPO / document).read_text(encoding="utf-8")
         if drop is not None:
             text = "\n".join(line for line in text.splitlines() if not line.startswith(drop))
@@ -1272,6 +1291,122 @@ source = {{ ledger = "p0-inventory.toml" }}
     with pytest.raises(LedgerSchemaError, match="iOS/iPadOS is one family"):
         manifest.write_text(manifest.read_text().replace('"ios", "android"', '"ipados", "android"'))
         DenominatorManifest.load(manifest, repo=tmp_path)
+
+
+def test_a_sliced_p0_denominator_declares_each_id_once_per_target_slice(tmp_path: Path):
+    from tools.qualification.denominators import Denominator, DenominatorManifest
+    from tools.qualification.report import QualificationReport
+    from tools.qualification.schema import TARGET_SLICES
+
+    rows = [
+        f'''[[records]]
+subject = {{ kind = "operation", id = "{identifier}", platform = "{platform}", variant = "{variant}" }}
+classification = {{ parity = "{"os-restricted" if name.startswith("ios") else "equivalent"}" }}
+'''
+        for identifier in ("Library.Process", "Library.Vector")
+        for name, (platform, variant) in TARGET_SLICES.items()
+    ]
+    ledger = tmp_path / "p0-inventory.toml"
+    ledger.write_text(f'schema = "{SCHEMA}"\n\n' + "\n".join(rows), encoding="utf-8")
+    slices = ", ".join(f'"{name}"' for name in TARGET_SLICES)
+    manifest = tmp_path / "denominators.toml"
+    manifest.write_text(
+        f'''schema = "btrc.qualification.denominators/1"
+
+[[denominators]]
+kind = "operation"
+release = "p0-test"
+platforms = ["windows", "ios", "android"]
+slices = [{slices}]
+frontends = []
+ids = 2
+slots = 12
+sha256 = "{Denominator.digest(["Library.Process", "Library.Vector"])}"
+source = {{ ledger = "p0-inventory.toml" }}
+''',
+        encoding="utf-8",
+    )
+
+    loaded = DenominatorManifest.load(manifest, repo=tmp_path)
+    assert loaded.drift() == []
+    assert ("operation", "Library.Process", "ios", "", "arm64-simulator") in loaded.denominators[0].slot_keys()
+    report = QualificationReport(LedgerDocument.load(ledger), loaded)
+    assert report.problems() == []
+    parity = {(row["platform"], row["variant"]): row for row in report.parity_rows()}
+    assert len(parity) == 6
+    assert parity[("ios", "arm64-device")]["os-restricted"] == 2
+    assert parity[("android", "x86_64")]["equivalent"] == 2
+
+    # Every slice is its own slot: a ledger that drops the simulator is short two slots.
+    ledger.write_text("\n\n".join(row for row in ledger.read_text().split("\n\n") if "arm64-simulator" not in row))
+    assert QualificationReport(LedgerDocument.load(ledger), loaded).problems() == [
+        "operation: 2 of 12 declared slots have no record (e.g. Library.Process ios arm64-simulator, "
+        "Library.Vector ios arm64-simulator)"
+    ]
+    miscounted = manifest.read_text().replace("slots = 12", "slots = 6")
+    manifest.write_text(miscounted)
+    assert "ids x slices x frontends = 12" in DenominatorManifest.load(manifest, repo=tmp_path).drift()[0]
+    for edit, message in (
+        ('"android-x86_64"]', "is not one of"),
+        ('platforms = ["windows", "ios", "android"]', "the slices' families in slice order"),
+    ):
+        broken = miscounted.replace(
+            edit, '"android-x86"]' if edit.startswith('"android') else 'platforms = ["windows", "android", "ios"]'
+        )
+        manifest.write_text(broken)
+        with pytest.raises(LedgerSchemaError, match=message):
+            DenominatorManifest.load(manifest, repo=tmp_path)
+
+
+def test_inventory_rows_expand_to_one_record_per_slice_cell(tmp_path: Path):
+    ledger = tmp_path / "inventory.toml"
+    ledger.write_text(
+        f'''schema = "{SCHEMA}"
+provenance = {{ recorded_at = "2026-10-02T00:00:00+00:00", btrc_revision = "c7f785e" }}
+
+[[rows]]
+kind = "operation"
+id = "Library.Process"
+group = "stdlib"
+regression = ["src/tests/python/test_stdlib_process_security.py::test_x"]
+owner = "P3"
+windows-x64 = {{ parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "no Win32 backend" }}
+ios-simulator = {{ parity = "os-restricted", implementation = "missing", status = "source-only", reason = "no fork" }}
+android-arm64 = {{ parity = "equivalent", implementation = "implemented", status = "implemented-unverified" }}
+''',
+        encoding="utf-8",
+    )
+
+    records = LedgerDocument.load(ledger)
+
+    assert [(r.subject.platform.value, r.subject.variant) for r in records] == [
+        ("windows", "x86_64"),
+        ("ios", "arm64-simulator"),
+        ("android", "arm64"),
+    ]
+    assert [r.classification.owner for r in records] == ["W1", "P3", "P3"]
+    assert {r.classification.regression for r in records} == {
+        ("src/tests/python/test_stdlib_process_security.py::test_x",)
+    }
+    assert records[1].evidence.reason == "no fork" and records[1].subject.group == "stdlib"
+    assert all(r.provenance.btrc_revision == "c7f785e" for r in records)
+
+    for edit, message in (
+        ("windows-x64 = {{", "unknown field"),
+        ('status = "implemented-unverified"', "a missing slot cannot be implemented-unverified"),
+        ("provenance = {{", "needs provenance btrc_revision and recorded_at"),
+    ):
+        text = ledger.read_text(encoding="utf-8")
+        if edit.startswith("windows"):
+            text = text.replace("windows-x64 = {", "windows-x86 = {")
+        elif edit.startswith("status"):
+            text = text.replace('parity = "equivalent"', 'parity = "missing"')
+        else:
+            text = text.replace("provenance = {", "# provenance = {")
+        broken = tmp_path / "broken.toml"
+        broken.write_text(text, encoding="utf-8")
+        with pytest.raises(LedgerSchemaError, match=message):
+            LedgerDocument.load(broken)
 
 
 def test_unavailable_slots_are_listed_with_their_coverage():

@@ -194,6 +194,19 @@ These ship in the same pin bump. The integration put `MonotonicClock` in
 | `UISemanticText.valid(value, maximumBytes)` | `UIText.valid(value, maximumBytes)` |
 | `GUIRaster.nextCodepoint(text, length, &offset)` | `UTF8.decode(text, length, &offset)` |
 
+### btrc-D033, btrc-D055, btrc-D056: macOS provider surface (`stage4/w2-macos-gui`)
+
+These also ship in the same pin bump. Product code reaches the GUI only
+through `import Library.GUI;` and the portable `I*` contracts.
+
+| Old | New |
+| --- | --- |
+| `MacOSApplication.nextEvent`, `dispatchEvent`, `updateWindows`, `waitForEvents`, `pumpEvents` | removed; use `GUI.run` and `GUI.post` / `GUI.postAfter` |
+| `setFrame(...)` on `MacOSView`, `MacOSButton`, `MacOSLabel`, `MacOSSelect`, `MacOSSlider`, `MacOSLevelIndicator`, `MacOSProgressIndicator`, `MacOSImageView`, `MacOSTextField`, `MacOSGrid`, `MacOSScrollView`, `MacOSPanel`, `MacOSGPUSurface` | removed; use `IView.arrange(x, y, width, height)` (top-left logical points) |
+| `MacOSPanel.addChild(...)` | removed; use `IContainer.attach(...)` |
+| importing `Library.GUI.MacOS.<Module>` (every provider module except `MacOS.AppKitText` and `MacOS.MacOSRunLoop`, the Tray seam) | no longer exported; use `Library.GUI` and the `I*` contracts |
+| (new) | `ActionMailbox.hasPending()` |
+
 ## 2. Mechanical substitutions
 
 Apply in this order over BTRSmith's `.btrc` sources, `btrc.toml` files and

@@ -24,6 +24,8 @@ Encodings
 ``*.json``   ``{"schema": "btrc.qualification.ledger/1", "records": [...]}``
 ``*.toml``   ``schema = "btrc.qualification.ledger/1"`` then one
              ``[[records]]`` table per record, with ``[records.subject]`` etc.
+             An inventory can instead write one ``[[rows]]`` table per
+             subject with one cell per target slice (`InventoryRows`).
 
 TOML has no null, so an optional field is always expressed by omitting it; in
 JSON, ``null`` means the same as absent. Unknown keys are rejected at every
@@ -52,8 +54,12 @@ Record fields
   ``variant``              the artifact variant a test or measurement ran
                            as: ``arm64-simulator``, ``arm64-device``,
                            ``x86_64``, ``release``. It is part of the slot, so
-                           simulator and device results never merge. Never
-                           on an inventory row, whose slot is the family.
+                           simulator and device results never merge. An
+                           inventory row names either the family alone or one
+                           of the six P0 target slices (``TARGET_SLICES``):
+                           windows ``x86_64``/``arm64``, ios
+                           ``arm64-device``/``arm64-simulator``, android
+                           ``arm64``/``x86_64``; no other variant.
   ``group``                reporting group: stdlib group, UI family, test
                            file, bench suite.
   ``title``                human label.
@@ -151,7 +157,8 @@ Invariants
 - ``missing`` parity, and ``missing`` or ``source-only`` implementation, is
   never ``passed`` or ``implemented-unverified``.
 - ``covered_by`` appears only on ``unavailable`` evidence.
-- An inventory row never says ``ipados`` or names a ``variant``, and its
+- An inventory row never says ``ipados``, names a ``variant`` only when it is
+  one of its family's ``TARGET_SLICES``, and its
   evidence carries provenance with ``btrc_revision`` and ``recorded_at``, so
   whether it is current can be checked.
 - ``provenance.frontend``, when ``subject.frontend`` is also given, agrees.
@@ -249,6 +256,17 @@ INVENTORY_KINDS = frozenset(
         SubjectKind.UI_CASE,
     }
 )
+# The six P0 target slices (PLAN.md Stage 22): an inventory row may name one
+# of them, as its family plus that slice's artifact variant, instead of the
+# family alone. iOS device and simulator are distinct artifacts even on arm64.
+TARGET_SLICES = {
+    "windows-x64": (Platform.WINDOWS, "x86_64"),
+    "windows-arm64": (Platform.WINDOWS, "arm64"),
+    "ios-device": (Platform.IOS, "arm64-device"),
+    "ios-simulator": (Platform.IOS, "arm64-simulator"),
+    "android-arm64": (Platform.ANDROID, "arm64"),
+    "android-x86_64": (Platform.ANDROID, "x86_64"),
+}
 # Nothing stands behind such a slot, so no test can have verified it.
 _UNIMPLEMENTED = frozenset({Implementation.MISSING, Implementation.SOURCE_ONLY})
 # Inventory kinds whose evidence is the result of their regression tests.
@@ -395,7 +413,9 @@ class Subject:
                 f"a {self.kind.value} row names the iOS/iPadOS family as ios; record an iPad in provenance.device_class"
             )
         if self.kind in INVENTORY_KINDS and self.variant is not None:
-            return f"a {self.kind.value} row is one slot per platform family and takes no variant"
+            if (self.platform, self.variant) not in TARGET_SLICES.values():
+                slices = ", ".join(TARGET_SLICES)
+                return f"a {self.kind.value} row names its platform family or one target slice ({slices})"
         return None
 
     @classmethod
@@ -887,7 +907,7 @@ class LedgerDocument:
 
     @staticmethod
     def from_document(document: object, where: str) -> list[LedgerRecord]:
-        fields = FieldReader(document, where, ("schema", "records"))
+        fields = FieldReader(document, where, ("schema", "records", *InventoryRows.DOCUMENT_FIELDS))
         schema = fields.text("schema", required=True)
         if schema != SCHEMA:
             raise LedgerSchemaError(f"{where}.schema: {schema!r} is not {SCHEMA!r}")
@@ -899,8 +919,80 @@ class LedgerDocument:
             if isinstance(record, Mapping) and "schema" not in record:
                 record = {"schema": SCHEMA, **record}
             loaded.append(LedgerRecord.from_mapping(record, f"{where}.records[{index}]"))
-        return loaded
+        return loaded + InventoryRows.expand(fields, where)
 
     @staticmethod
     def dumps_jsonl(records: Iterable[LedgerRecord]) -> str:
         return "".join(json.dumps(record.to_mapping(), sort_keys=True) + "\n" for record in records)
+
+
+class InventoryRows:
+    """The compact TOML form of a sliced inventory: one table per subject, one cell per target slice.
+
+    A P0 inventory repeats its subject, regression and provenance on every
+    slice, so a ledger document may also hold::
+
+        provenance = { recorded_at = "2026-10-02T00:00:00+00:00", btrc_revision = "c7f785e" }
+
+        [[rows]]
+        kind = "operation"
+        id = "Library.Process"
+        group = "stdlib"
+        regression = ["src/tests/python/test_stdlib_process_security.py::test_..."]
+        windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "..." }
+        ...
+
+    Each row is the subject's ``kind``, ``id``, ``group`` and ``title``, any
+    classification field the slices share, and a cell named for each slice in
+    `TARGET_SLICES`. A cell holds that slice's classification fields and its
+    evidence fields (``status`` for the evidence status), so a cell field
+    overrides the row's. Every row expands, in slice order, to one ordinary
+    `LedgerRecord` per cell -- the slice's family plus its artifact variant --
+    carrying the document's ``provenance``, and is validated as one. Rows
+    follow the document's ``records``.
+    """
+
+    DOCUMENT_FIELDS = ("provenance", "rows")
+    SUBJECT_FIELDS = ("kind", "id", "group", "title")
+    EVIDENCE_FIELDS = ("status", "observed", "reason", "artifact")
+
+    @classmethod
+    def expand(cls, document: FieldReader, where: str) -> list[LedgerRecord]:
+        rows = document.data.get("rows") or []
+        if not isinstance(rows, Sequence) or isinstance(rows, str):
+            raise LedgerSchemaError(f"{where}.rows: expected a list of tables")
+        provenance = document.data.get("provenance")
+        if provenance is not None:
+            Provenance.from_mapping(provenance, f"{where}.provenance")
+        records = []
+        for index, row in enumerate(rows):
+            records += cls.records(row, provenance, f"{where}.rows[{index}]")
+        return records
+
+    @classmethod
+    def records(cls, row: object, provenance: object, where: str) -> list[LedgerRecord]:
+        fields = FieldReader(row, where, (*cls.SUBJECT_FIELDS, *Classification.FIELDS, *TARGET_SLICES))
+        shared = {name: value for name, value in fields.data.items() if name in Classification.FIELDS}
+        subject = {name: value for name, value in fields.data.items() if name in cls.SUBJECT_FIELDS}
+        cells = [name for name in TARGET_SLICES if name in fields.data]
+        if not cells:
+            raise LedgerSchemaError(f"{where}: a row needs at least one slice cell ({', '.join(TARGET_SLICES)})")
+        records = []
+        for name in cells:
+            cell = FieldReader(fields.data[name], f"{where}.{name}", (*Classification.FIELDS, *cls.EVIDENCE_FIELDS))
+            platform, variant = TARGET_SLICES[name]
+            record: dict[str, Any] = {
+                "schema": SCHEMA,
+                "subject": {**subject, "platform": platform.value, "variant": variant},
+                "classification": {
+                    **shared,
+                    **{key: value for key, value in cell.data.items() if key in Classification.FIELDS},
+                },
+            }
+            evidence = {key: value for key, value in cell.data.items() if key in cls.EVIDENCE_FIELDS}
+            if evidence:
+                record["evidence"] = evidence
+            if provenance is not None:
+                record["provenance"] = provenance
+            records.append(LedgerRecord.from_mapping(record, f"{where}.{name}"))
+        return records
