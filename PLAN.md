@@ -129,6 +129,15 @@ Each stage records its exit evidence here as it closes; measurements and commit 
 ### Stage 17: C2 design (done 2026-10-02, main session)
 - `de986a9`: workflow `wf_104e132f-1a7` (three read-only drafters, two adversarial reviewers, synthesis) recorded the C2 aggregate representation and Stage 18's array dimensions in `docs/design/c-compatibility.md`. Unions are `StructDecl(is_union)`. Typedef records are spliced. Anonymous members are their own kind, and designators sit in a parallel `BraceInitializer.entries` list. `CompoundLiteral` is added. Flexible array members follow C11. Bit-field widths go in `FieldDef.value`, and `TypeExpr.elements`/`array_pointer_depth` carry the dimensions. The fat `Node` gains no pointer field. The serial schema commit waits for `ccompat-c1-integrate`.
 
+### Stage 16: C1 constructs (lanes integrated 2026-10-02)
+- Four cloud lanes, merged in PLAN order onto `3812e44`: `stage16/c1-body` (r02 braceless bodies, r06 the empty statement), `stage16/c1-params` (r01 `(void)` and unnamed prototype parameters), `stage16/c1-lit` (r05 adjacent string literals as `StringConcat`) and `stage16/c1-sem` (r04 char arrays from string literals). Each lane flipped its inventory rows and pinned identical refusals in both compilers.
+- **Integration fixes.** Merging r05 dropped an import r04 used. r04's literal-only sites broke r05's kind-coverage contract, so r04 now takes any string constant through the source-macro decoder: `char s[] = "ab" "cd";` works in both compilers, and its exact fit and overflow refuse. r04's duplicate byte counters were removed, leaving one decoder per compiler. Two c1-body corpus files were also run through `btrc-format`. `docs/design/c-compatibility.md` lists what `ccompat-c1-integrate` still owes.
+- **Evidence.** The generated-source check, lint, format-check and `git diff --check` are clean. The self-host transpile of all three entries has zero warnings. The full corpus through both compilers, plus the parser, formatter, LSP, refusal, inventory, contract and lexer tests, gave 2,837 passed. The one failure was `stdlib/Daemon.btrc`'s wall-clock deadline under `-n 4`, which passes alone in both compilers. The bootstrap reached its fixed point (20 min).
+- **Next.** The `c1-decl` lane (r03 multi-declarators, r19 the comma operator, r07 function-pointer declarators, plus the header miner), then `ccompat-c1-integrate`, then C4.
+
+### Stages 16 (C4), 19 and 20: designs (done 2026-10-02)
+- Workflow `wf_926e5dfc-b6e` ran one drafter and two adversarial reviewers (implementability and C11 soundness) per topic, followed by a synthesis. It produced `docs/design/c-preprocessor-conditionals.md`, `docs/design/c-vocabulary-specifiers.md` and `docs/design/c-goto-labels.md`, linked from `c-compatibility.md`.
+
 ## Decisions (all resolved 2026-09-30)
 
 Every decision below is settled. Where stage text further down still says "you approve", "you close", "if approved", "your checklist" or "blocked on push", the resolution in this section and the standing approvals after it govern. No stage waits on a decision.

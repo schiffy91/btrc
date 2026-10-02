@@ -223,9 +223,9 @@ row = "4"
 construct = "char s[] = \"abc\""
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
-python = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: xbc abcd jello Tag\n" }
-btrcc = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: xbc abcd jello Tag\n" }
+revision = "c670c81"
+python = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: xbc abcd jello Tag\n" }
+btrcc = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: xbc abcd jello Tag\n" }
 corpus = "c_compat/CharArrayStringInit.btrc"
 
 [[probe]]

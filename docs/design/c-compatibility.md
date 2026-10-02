@@ -11,6 +11,12 @@ already exists (`declarations`, `parts`, `elements`).
 
 User-facing refusals stay in `docs/known-language-gaps.md`.
 
+The later C rows have their own design documents, each drafted and
+adversarially reviewed by workflow `wf_926e5dfc-b6e` (2026-10-02):
+[`c-preprocessor-conditionals.md`](c-preprocessor-conditionals.md) (C4, the
+end of Stage 16), [`c-vocabulary-specifiers.md`](c-vocabulary-specifiers.md)
+(C3, Stage 19) and [`c-goto-labels.md`](c-goto-labels.md) (Stage 20).
+
 ## Decisions
 
 | Item | Representation | Schema change |
