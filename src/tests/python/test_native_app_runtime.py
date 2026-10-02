@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.python.test_native_import_consumer import apple_environment
+from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 

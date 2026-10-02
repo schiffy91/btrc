@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.python.test_native_import_consumer import apple_environment
-from src.tests.python.test_native_import_consumer import native_compile as native_compile
-from src.tests.python.test_native_import_consumer import native_project as native_project
+from src.tests.python.native_import_fixtures import apple_environment
+from src.tests.python.native_import_fixtures import native_compile as native_compile
+from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.runner_capabilities import linux_tray_backend_error
 from tools.native_plan import NativePlanBuilder
 

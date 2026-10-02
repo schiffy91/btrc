@@ -223,6 +223,10 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
     assert "make devcontainer" in job
     assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 1
     assert "PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}" in job
+    # The runner is headless: every shard runs under the virtual display and
+    # software Vulkan, as `make linux-ci` does, so the GUI and adapter tests run.
+    assert "btrc-devcontainer:latest tools/virtual-display.sh make NIX=" in _code(job)
+    assert "tools/virtual-display.sh make NIX=" in (REPO / "tools/linux-ci.sh").read_text(encoding="utf-8")
 
 
 def test_linux_arm64_ci_runs_and_uploads_the_archived_bundle() -> None:

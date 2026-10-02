@@ -150,14 +150,16 @@
         "*::test_linux_image_decoding*",
         "*::test_linux_audio_faults*",
         "*::test_linux_audio_session*",
-        "*::test_linux_freetype_draws_into_owned_pixels*"
+        "*::test_linux_freetype_draws_into_owned_pixels*",
+        "*::test_linux_gui_controls*",
+        "*::test_linux_gui_shutdown_deadline*"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, and the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, so the devcontainer runs all four."
+      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows, so the devcontainer runs all six."
     },
     {
       "id": "linux-freetype-macro-constants",
@@ -177,19 +179,17 @@
     {
       "id": "linux-native-reader-uncovered",
       "files": [
-        "src/tests/python/test_native_linux_providers.py",
         "src/tests/python/test_native_tray_runtime.py"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
       "gating": {
         "capabilities": [
-          "native-display",
           "native-tray"
         ]
       },
       "covered_by": [],
-      "note": "GUI controls and the tray also need a display or a session bus, which the devcontainer lacks."
+      "note": "The tray also needs a StatusNotifierItem watcher on a session bus, which the devcontainer lacks."
     },
     {
       "id": "alsa-capability",

@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 
 from src.tests.process_limits import TOOL_TIMEOUT
-from src.tests.python.test_native_import_consumer import REPO, apple_environment
-from src.tests.python.test_native_import_consumer import native_compile as native_compile
-from src.tests.python.test_native_import_consumer import native_project as native_project
+from src.tests.python.native_import_fixtures import REPO, apple_environment
+from src.tests.python.native_import_fixtures import native_compile as native_compile
+from src.tests.python.native_import_fixtures import native_project as native_project
 from tools.native_plan import NativePlanBuilder
 
 

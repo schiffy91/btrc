@@ -56,6 +56,12 @@ MACOS_SKIPS = [
         "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]",
         "requires Linux and the explicitly built native header reader",
     ),
+    # macOS run 36905763175 (962c7dc) failed its gate on the Linux FreeType case,
+    # which skips off Linux. Its pugixml skip predates the Darwin shells' pugixml.
+    (
+        "src/tests/python/test_native_font_runtime.py::test_linux_freetype_draws_into_owned_pixels[True-selfhost]",
+        "requires Linux and the explicitly built native header reader",
+    ),
 ]
 
 
@@ -122,8 +128,17 @@ def test_the_macos_manifest_explains_the_recorded_skips_and_names_their_coverage
     assert rules[MACOS_SKIPS[4][0]].covered_by == ("linux-devcontainer",)
     assert rules[MACOS_SKIPS[5][0]].covered_by == ("windows",)
     assert rules[MACOS_SKIPS[7][0]].id == "linux-native-reader-covered"
-    assert rules[MACOS_SKIPS[8][0]].id == "linux-native-reader-uncovered"
+    # CI's Linux shards run the GUI windows under Xvfb, so only the tray stays uncovered.
+    assert rules[MACOS_SKIPS[8][0]].id == "linux-native-reader-covered"
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_tray_runtime.py::test_x",
+            "requires Linux and the explicitly built native header reader",
+        ).id
+        == "linux-native-reader-uncovered"
+    )
     assert rules[MACOS_SKIPS[1][0]].id == "linux-freetype-macro-constants"
+    assert rules[MACOS_SKIPS[9][0]].id == "linux-native-reader-covered"
     # The dev shell provides naga (stage2/nix, e74a3cc), so a naga skip is unexpected again.
     assert (
         manifest.classify("src/tests/python/test_wgsl_semantics.py::test_x", "naga WGSL validator is not installed")
@@ -207,7 +222,7 @@ def test_no_macos_rule_expects_a_naga_gated_skip():
 # native-provider cases, which macOS run 36934014516 runs.
 LINUX_SKIPS = {
     "native-reader-macos-only": (
-        "src/tests/python/test_native_import_consumer.py::test_x[python]",
+        "src/tests/python/test_native_callbacks.py::test_x[python]",
         "requires macOS and the explicitly built native header reader",
     ),
     "native-digest-macos-only": (
@@ -219,10 +234,6 @@ LINUX_SKIPS = {
         "requires the actual macOS CoreFoundation SDK",
     ),
     "core-audio-runtime": ("src/tests/python/test_module_units.py::test_x", "CoreAudio is available only on macOS"),
-    "native-gpu-adapter": (
-        "src/tests/python/test_native_gpu_runtime.py::test_x",
-        "no native compute adapter is available",
-    ),
     "lldb-missing": (
         "src/tests/debug/test_dap_session.py::test_stop_on_entry",
         "needs lldb (with Python scripting): btrc debug adapter: cannot locate lldb "
@@ -231,10 +242,6 @@ LINUX_SKIPS = {
     "native-compiler-provider": (
         "src/tests/python/test_native_preprocess_receipts.py::test_x",
         "build native reader and configure its native compiler provider",
-    ),
-    "linux-gui-display": (
-        "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]",
-        "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY",
     ),
     "windows-junctions": (
         "src/tests/python/test_artifact_reparse.py::test_windows_junction_is_rejected_as_archive_entry_and_destination",
@@ -287,11 +294,26 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
     # Only a display and a session bus are missing everywhere; the pugixml,
     # SQLite, lldb and native-provider cases Linux skips run on macOS.
     uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
-    assert uncovered == {"linux-gui-display", "linux-tray-session-bus"}
+    assert uncovered == {"linux-tray-session-bus"}
     for rule_id in ("pugixml-sdk", "native-compiler-provider", "native-receipt-provider", "lldb-missing"):
         assert rules[rule_id].covered_by == ("macos",), rule_id
     # No rule waits on a lane that has landed.
     assert not [rule_id for rule_id, rule in rules.items() if "Delete this rule once" in rule.note]
+    # CI runs every shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe),
+    # so a missing display or compute adapter is a broken runner, not an expected skip.
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]",
+            "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY",
+        )
+        is None
+    )
+    assert (
+        manifest.classify(
+            "src/tests/python/test_native_gpu_runtime.py::test_x", "no native compute adapter is available"
+        )
+        is None
+    )
     # The macOS-only C++ owner and SQLite proofs are covered by macOS like any other.
     for nodeid in (
         "src/tests/python/test_native_cxx_owners.py::test_x",
