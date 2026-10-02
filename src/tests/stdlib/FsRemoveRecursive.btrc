@@ -49,9 +49,9 @@ int main() {
 	assert(FileSystem.readText(outsideMarker).equals("safe"));
 
 	/* A temporary directory swapped for another directory is not removed. */
-	TemporaryDirectoryOpenOutcome created = FileSystem.createTemporaryDirectory("btrc_fs_remove_swapped");
+	FileSystemOutcome<TemporaryDirectory> created = FileSystem.createTemporaryDirectory("btrc_fs_remove_swapped");
 	assert(created.ok());
-	TemporaryDirectory temporary = created.directory();
+	TemporaryDirectory temporary = created.value();
 	string temporaryPath = temporary.path();
 	string moved = PathTools.join(root, "moved-original");
 	assert(rename(temporaryPath, moved) == 0);

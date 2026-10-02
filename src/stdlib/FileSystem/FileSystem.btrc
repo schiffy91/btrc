@@ -304,19 +304,19 @@ class PathTools {
 class FileSystem {
 	class FileRevision revision(FileSnapshot snapshot) { return FileRevision.fromSnapshot(snapshot); }
 
-	class FileTreeSnapshotOpenOutcome openFileTreeSnapshot(string path, FileTreeLimits limits) { return FileTreeSnapshot.open(path, limits); }
+	class FileSystemOutcome<FileTreeSnapshot> openFileTreeSnapshot(string path, FileTreeLimits limits) { return FileTreeSnapshot.open(path, limits); }
 
-	class FileSnapshotOutcome inspectExact(string path) { return FileHandle.inspectExact(path); }
+	class FileSystemOutcome<FileSnapshot> inspectExact(string path) { return FileHandle.inspectExact(path); }
 
-	class FileOpenOutcome openFileExact(string path) { return FileHandle.openExact(path); }
+	class FileSystemOutcome<FileHandle> openFileExact(string path) { return FileHandle.openExact(path); }
 
-	class RegularFileSnapshotOpenOutcome openRegularFileSnapshot(string path, long long maximumBytes) { return RegularFileSnapshot.open(path, maximumBytes); }
+	class FileSystemOutcome<RegularFileSnapshot> openRegularFileSnapshot(string path, long long maximumBytes) { return RegularFileSnapshot.open(path, maximumBytes); }
 
-	class DirectoryOpenOutcome openDirectoryExact(string path) { return DirectoryHandle.openExact(path); }
+	class FileSystemOutcome<DirectoryHandle> openDirectoryExact(string path) { return DirectoryHandle.openExact(path); }
 
-	class TemporaryDirectoryOpenOutcome createTemporaryDirectory(string prefix) { return TemporaryDirectory.create(prefix); }
+	class FileSystemOutcome<TemporaryDirectory> createTemporaryDirectory(string prefix) { return TemporaryDirectory.create(prefix); }
 
-	class PrivateDirectoryOpenOutcome openPrivateDirectory(string absolutePath) { return PrivateDirectory.openAbsoluteLeaf(absolutePath); }
+	class FileSystemOutcome<PrivateDirectory> openPrivateDirectory(string absolutePath) { return PrivateDirectory.openAbsoluteLeaf(absolutePath); }
 
 	class FileSystemHandleInventory ownedHandleInventory() { return FileSystemDiagnostics.ownedHandleInventory(); }
 
@@ -532,12 +532,12 @@ class FileSystem {
 	 * snapshot so a file that changes underneath the read is rejected rather
 	 * than returned torn. Empty on any failure. */
 	class Bytes readBytes(string path) {
-		RegularFileSnapshotOpenOutcome opened = RegularFileSnapshot.open(path, 2147483647LL);
+		FileSystemOutcome<RegularFileSnapshot> opened = RegularFileSnapshot.open(path, 2147483647LL);
 		if (!opened.ok()) { return Bytes(); }
-		RegularFileSnapshot snapshot = opened.snapshot();
-		ExactFileReadOutcome read = snapshot.readExactAt(0LL, (int)snapshot.size());
+		RegularFileSnapshot snapshot = opened.value();
+		FileSystemOutcome<Bytes> read = snapshot.readExactAt(0LL, (int)snapshot.size());
 		snapshot.close();
-		return read.ok() ? read.bytes() : Bytes();
+		return read.ok() ? read.value() : Bytes();
 	}
 
 	/* Writes content to path (truncating). Returns true on success, false on

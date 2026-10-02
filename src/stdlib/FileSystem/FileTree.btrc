@@ -142,42 +142,6 @@ class FileTreeSnapshotStep {
 	}
 }
 
-class FileTreeSnapshotOpenOutcome {
-	private FileTreeSnapshot? _snapshot;
-	private FileSystemError? _error;
-
-	private FileTreeSnapshotOpenOutcome(FileTreeSnapshot? snapshot, FileSystemError? error) {
-		self._snapshot = snapshot;
-		self._error = error;
-	}
-
-	class FileTreeSnapshotOpenOutcome opened(FileTreeSnapshot snapshot) {
-		if (snapshot == null) { throw "file tree snapshot is null"; }
-		return FileTreeSnapshotOpenOutcome(snapshot, null);
-	}
-
-	class FileTreeSnapshotOpenOutcome failed(FileSystemError error) {
-		if (error == null) { throw "file tree open error is null"; }
-		return FileTreeSnapshotOpenOutcome(null, error);
-	}
-
-	public bool ok() { return self._snapshot != null; }
-
-	public FileTreeSnapshot snapshot() {
-		if (self._snapshot == null) {
-			throw "file tree snapshot is unavailable";
-		}
-		return self._snapshot;
-	}
-
-	public FileSystemError error() {
-		if (self._error == null) {
-			throw "file tree snapshot open has no error";
-		}
-		return self._error;
-	}
-}
-
 class FileTreeSnapshotFrame {
 	private DirectoryHandle _directory;
 	private Vector<DirectoryEntry> _entries;
@@ -243,23 +207,23 @@ class FileTreeSnapshot {
 		self._closed = false;
 	}
 
-	class FileTreeSnapshotOpenOutcome takeOwnership(DirectoryHandle root, FileTreeLimits limits) {
+	class FileSystemOutcome<FileTreeSnapshot> takeOwnership(DirectoryHandle root, FileTreeLimits limits) {
 		if (root == null || limits == null || !root.isOpen() || root.path().isEmpty() || root.path().len() > limits.maximumPathBytes()) {
 			if (root != null) { root.close(); }
-			return FileTreeSnapshotOpenOutcome.failed(FileSystemError.invalid("open file tree snapshot", root == null ? "" : root.path()));
+			return new FileSystemOutcome<FileTreeSnapshot>(null, FileSystemError.invalid("open file tree snapshot", root == null ? "" : root.path()));
 		}
-		return FileTreeSnapshotOpenOutcome.opened(FileTreeSnapshot(root, limits));
+		return new FileSystemOutcome<FileTreeSnapshot>(FileTreeSnapshot(root, limits), null);
 	}
 
-	class FileTreeSnapshotOpenOutcome open(string path, FileTreeLimits limits) {
+	class FileSystemOutcome<FileTreeSnapshot> open(string path, FileTreeLimits limits) {
 		if (limits == null || path == null || path.isEmpty() || path.len() > limits.maximumPathBytes()) {
-			return FileTreeSnapshotOpenOutcome.failed(FileSystemError.invalid("open file tree snapshot", path));
+			return new FileSystemOutcome<FileTreeSnapshot>(null, FileSystemError.invalid("open file tree snapshot", path));
 		}
-		DirectoryOpenOutcome opened = DirectoryHandle.openExact(path);
+		FileSystemOutcome<DirectoryHandle> opened = DirectoryHandle.openExact(path);
 		if (!opened.ok()) {
-			return FileTreeSnapshotOpenOutcome.failed(opened.error());
+			return new FileSystemOutcome<FileTreeSnapshot>(null, opened.error());
 		}
-		return FileTreeSnapshot.takeOwnership(opened.directory(), limits);
+		return FileTreeSnapshot.takeOwnership(opened.value(), limits);
 	}
 
 	private FileSystemError? validate(FileTreeSnapshotFrame frame, string operation) { return ExactFileSnapshot.validate(frame.directory().openedSnapshot(), frame.directory().snapshot(), frame.directory().path(), operation); }
@@ -333,19 +297,19 @@ class FileTreeSnapshot {
 
 		if (frame.hasEntry()) {
 			DirectoryEntry entry = frame.nextEntry();
-			FileSnapshotOutcome inspected = frame.directory().inspect(entry);
+			FileSystemOutcome<FileSnapshot> inspected = frame.directory().inspect(entry);
 			if (!inspected.ok()) { return self.fail(inspected.error()); }
 			self._revision.appendTerminatedText(entry.name());
-			self._revision.appendSnapshot(inspected.snapshot());
+			self._revision.appendSnapshot(inspected.value());
 			if (entry.snapshot().kind() == FILE_REGULAR) {
 				return FileTreeSnapshotStep.advanced();
 			}
 			if (frame.depth() >= self._limits.maximumDepth()) {
 				return self.limit(entry.path(), "file tree depth bound exceeded");
 			}
-			DirectoryOpenOutcome opened = frame.directory().openDirectory(entry);
+			FileSystemOutcome<DirectoryHandle> opened = frame.directory().openDirectory(entry);
 			if (!opened.ok()) { return self.fail(opened.error()); }
-			self._frames.push(FileTreeSnapshotFrame(opened.directory(), frame.depth() + 1));
+			self._frames.push(FileTreeSnapshotFrame(opened.value(), frame.depth() + 1));
 			return FileTreeSnapshotStep.advanced();
 		}
 

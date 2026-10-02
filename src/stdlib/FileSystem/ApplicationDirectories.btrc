@@ -3,19 +3,18 @@
  * This resolves generic state, cache, and configuration roots only. Callers
  * append their own application identifier and remain responsible for creating
  * directories. Environment strings are bounded before they are copied.
+ * Resolution reports through the package's one FileSystemOutcome: invalid
+ * limits are FS_INVALID_ARGUMENT, a root over the byte limit is
+ * FS_INVALID_ARGUMENT with native code ENAMETOOLONG, a missing or relative
+ * HOME is FS_NOT_FOUND and an unsupported platform is FS_UNSUPPORTED.
  */
 
+import Library.FileSystem.FileSystemHandles;
 import Library.Strings;
 import Library.Vector;
 
+#include <errno.h>
 #include <stdlib.h>
-
-enum ApplicationDirectoryErrorKind {
-	APP_DIRECTORY_INVALID_ARGUMENT = 0,
-	APP_DIRECTORY_UNAVAILABLE = 1,
-	APP_DIRECTORY_PATH_TOO_LONG = 2,
-	APP_DIRECTORY_UNSUPPORTED = 3
-};
 
 class ApplicationDirectoryLimits {
 	private int maximumBytes;
@@ -46,52 +45,6 @@ class ApplicationDirectoryRoots {
 	public string configRoot() { return self.configPath; }
 
 	private bool normalizedRoot(string path) { return path != null && !path.isEmpty() && path[0] == '/' && (path.equals("/") || path[path.len() - 1] != '/') && !path.contains("//") && !path.contains("/./") && !path.contains("/../") && !path.endsWith("/.") && !path.endsWith("/.."); }
-}
-
-class ApplicationDirectoryError {
-	private ApplicationDirectoryErrorKind errorKind;
-	private int platformCode;
-	private string explanation;
-
-	public ApplicationDirectoryError(ApplicationDirectoryErrorKind kind, int nativeCode, string message) {
-		if (message == null || message.isEmpty() || message.len() > 512) { throw "application directory errors require a bounded message"; }
-		self.errorKind = kind;
-		self.platformCode = nativeCode;
-		self.explanation = message;
-	}
-
-	public ApplicationDirectoryErrorKind kind() { return self.errorKind; }
-
-	public int nativeCode() { return self.platformCode; }
-
-	public string message() { return self.explanation; }
-}
-
-class ApplicationDirectoryRootsOutcome {
-	private ApplicationDirectoryRoots? resolvedRoots;
-	private ApplicationDirectoryError? resolutionError;
-
-	private ApplicationDirectoryRootsOutcome(ApplicationDirectoryRoots? roots, ApplicationDirectoryError? error) {
-		if ((roots == null) == (error == null)) { throw "invalid application directory outcome"; }
-		self.resolvedRoots = roots;
-		self.resolutionError = error;
-	}
-
-	class ApplicationDirectoryRootsOutcome resolved(ApplicationDirectoryRoots roots) { return ApplicationDirectoryRootsOutcome(roots, null); }
-
-	class ApplicationDirectoryRootsOutcome rejected(ApplicationDirectoryErrorKind kind, string message) { return ApplicationDirectoryRootsOutcome(null, ApplicationDirectoryError(kind, 0, message)); }
-
-	public bool ok() { return self.resolvedRoots != null; }
-
-	public ApplicationDirectoryRoots roots() {
-		if (self.resolvedRoots == null) { throw "rejected application directory outcome has no roots"; }
-		return self.resolvedRoots;
-	}
-
-	public ApplicationDirectoryError error() {
-		if (self.resolutionError == null) { throw "resolved application directory outcome has no error"; }
-		return self.resolutionError;
-	}
 }
 
 class ApplicationDirectoryEnvironmentValue {
@@ -153,60 +106,62 @@ class ApplicationDirectoryResolver {
 
 	private string append(string base, string suffix) { return base.equals("/") ? "/" + suffix : base + "/" + suffix; }
 
-	private ApplicationDirectoryRootsOutcome rejected(ApplicationDirectoryErrorKind kind, string message) { return ApplicationDirectoryRootsOutcome.rejected(kind, message); }
+	private FileSystemOutcome<ApplicationDirectoryRoots> rejected(FileSystemErrorKind kind, int nativeCode, string message) { return new FileSystemOutcome<ApplicationDirectoryRoots>(null, FileSystemError(kind, "resolveApplicationDirectories", "", nativeCode, message)); }
 
-	private ApplicationDirectoryRootsOutcome resolveMacOS(int maximumBytes) {
+	private FileSystemOutcome<ApplicationDirectoryRoots> tooLong(string message) { return self.rejected(FS_INVALID_ARGUMENT, ENAMETOOLONG, message); }
+
+	private FileSystemOutcome<ApplicationDirectoryRoots> resolveMacOS(int maximumBytes) {
 		ApplicationDirectoryEnvironmentValue homeValue = ApplicationDirectoryEnvironmentValue.read("HOME", maximumBytes);
-		if (homeValue.tooLong()) { return self.rejected(APP_DIRECTORY_PATH_TOO_LONG, "HOME exceeds the application directory path byte limit."); }
+		if (homeValue.tooLong()) { return self.tooLong("HOME exceeds the application directory path byte limit."); }
 		string home = homeValue.present() ? self.normalizedAbsolute(homeValue.value()) : "";
-		if (home.isEmpty()) { return self.rejected(APP_DIRECTORY_UNAVAILABLE, "A valid absolute HOME is required to resolve macOS application directories."); }
+		if (home.isEmpty()) { return self.rejected(FS_NOT_FOUND, 0, "A valid absolute HOME is required to resolve macOS application directories."); }
 		string support = "Library/Application Support";
 		string caches = "Library/Caches";
-		if (!self.canAppend(home, support, maximumBytes) || !self.canAppend(home, caches, maximumBytes)) { return self.rejected(APP_DIRECTORY_PATH_TOO_LONG, "A macOS application directory exceeds the configured path byte limit."); }
-		return ApplicationDirectoryRootsOutcome.resolved(ApplicationDirectoryRoots(self.append(home, support), self.append(home, caches), self.append(home, support)));
+		if (!self.canAppend(home, support, maximumBytes) || !self.canAppend(home, caches, maximumBytes)) { return self.tooLong("A macOS application directory exceeds the configured path byte limit."); }
+		return new FileSystemOutcome<ApplicationDirectoryRoots>(ApplicationDirectoryRoots(self.append(home, support), self.append(home, caches), self.append(home, support)), null);
 	}
 
-	private ApplicationDirectoryRootsOutcome resolveLinux(int maximumBytes) {
+	private FileSystemOutcome<ApplicationDirectoryRoots> resolveLinux(int maximumBytes) {
 		ApplicationDirectoryEnvironmentValue stateValue = ApplicationDirectoryEnvironmentValue.read("XDG_STATE_HOME", maximumBytes);
 		ApplicationDirectoryEnvironmentValue cacheValue = ApplicationDirectoryEnvironmentValue.read("XDG_CACHE_HOME", maximumBytes);
 		ApplicationDirectoryEnvironmentValue configValue = ApplicationDirectoryEnvironmentValue.read("XDG_CONFIG_HOME", maximumBytes);
-		if (stateValue.tooLong() || cacheValue.tooLong() || configValue.tooLong()) { return self.rejected(APP_DIRECTORY_PATH_TOO_LONG, "An XDG application directory exceeds the configured path byte limit."); }
+		if (stateValue.tooLong() || cacheValue.tooLong() || configValue.tooLong()) { return self.tooLong("An XDG application directory exceeds the configured path byte limit."); }
 		string state = stateValue.present() ? self.normalizedAbsolute(stateValue.value()) : "";
 		string cache = cacheValue.present() ? self.normalizedAbsolute(cacheValue.value()) : "";
 		string config = configValue.present() ? self.normalizedAbsolute(configValue.value()) : "";
 		if (state.isEmpty() || cache.isEmpty() || config.isEmpty()) {
 			ApplicationDirectoryEnvironmentValue homeValue = ApplicationDirectoryEnvironmentValue.read("HOME", maximumBytes);
-			if (homeValue.tooLong()) { return self.rejected(APP_DIRECTORY_PATH_TOO_LONG, "HOME exceeds the application directory path byte limit."); }
+			if (homeValue.tooLong()) { return self.tooLong("HOME exceeds the application directory path byte limit."); }
 			string home = homeValue.present() ? self.normalizedAbsolute(homeValue.value()) : "";
-			if (home.isEmpty()) { return self.rejected(APP_DIRECTORY_UNAVAILABLE, "A valid absolute HOME is required when an XDG application directory is unavailable."); }
+			if (home.isEmpty()) { return self.rejected(FS_NOT_FOUND, 0, "A valid absolute HOME is required when an XDG application directory is unavailable."); }
 			if (state.isEmpty()) {
-				if (!self.canAppend(home, ".local/state", maximumBytes)) { return self.rejected(APP_DIRECTORY_PATH_TOO_LONG, "The default XDG state directory exceeds the configured path byte limit."); }
+				if (!self.canAppend(home, ".local/state", maximumBytes)) { return self.tooLong("The default XDG state directory exceeds the configured path byte limit."); }
 				state = self.append(home, ".local/state");
 			}
 			if (cache.isEmpty()) {
-				if (!self.canAppend(home, ".cache", maximumBytes)) { return self.rejected(APP_DIRECTORY_PATH_TOO_LONG, "The default XDG cache directory exceeds the configured path byte limit."); }
+				if (!self.canAppend(home, ".cache", maximumBytes)) { return self.tooLong("The default XDG cache directory exceeds the configured path byte limit."); }
 				cache = self.append(home, ".cache");
 			}
 			if (config.isEmpty()) {
-				if (!self.canAppend(home, ".config", maximumBytes)) { return self.rejected(APP_DIRECTORY_PATH_TOO_LONG, "The default XDG configuration directory exceeds the configured path byte limit."); }
+				if (!self.canAppend(home, ".config", maximumBytes)) { return self.tooLong("The default XDG configuration directory exceeds the configured path byte limit."); }
 				config = self.append(home, ".config");
 			}
 		}
-		return ApplicationDirectoryRootsOutcome.resolved(ApplicationDirectoryRoots(state, cache, config));
+		return new FileSystemOutcome<ApplicationDirectoryRoots>(ApplicationDirectoryRoots(state, cache, config), null);
 	}
 
-	public ApplicationDirectoryRootsOutcome resolve(ApplicationDirectoryLimits limits) {
+	public FileSystemOutcome<ApplicationDirectoryRoots> resolve(ApplicationDirectoryLimits limits) {
 		int maximumBytes = limits.maximumPathBytes();
-		if (maximumBytes <= 0 || maximumBytes > 1048576) { return self.rejected(APP_DIRECTORY_INVALID_ARGUMENT, "Application directory path limits must be between 1 and 1048576 bytes."); }
+		if (maximumBytes <= 0 || maximumBytes > 1048576) { return self.rejected(FS_INVALID_ARGUMENT, 0, "Application directory path limits must be between 1 and 1048576 bytes."); }
 		int platform = __btrc_target_platform();
 		if (platform == 1) { return self.resolveMacOS(maximumBytes); }
 		if (platform == 2) { return self.resolveLinux(maximumBytes); }
-		return self.rejected(APP_DIRECTORY_UNSUPPORTED, "Application directories are not supported on this platform.");
+		return self.rejected(FS_UNSUPPORTED, 0, "Application directories are not supported on this platform.");
 	}
 }
 
 class ApplicationDirectories {
-	class ApplicationDirectoryRootsOutcome resolve(ApplicationDirectoryLimits limits) { return ApplicationDirectoryResolver().resolve(limits); }
+	class FileSystemOutcome<ApplicationDirectoryRoots> resolve(ApplicationDirectoryLimits limits) { return ApplicationDirectoryResolver().resolve(limits); }
 
-	class ApplicationDirectoryRootsOutcome resolveStandard() { return ApplicationDirectories.resolve(ApplicationDirectoryLimits.standard()); }
+	class FileSystemOutcome<ApplicationDirectoryRoots> resolveStandard() { return ApplicationDirectories.resolve(ApplicationDirectoryLimits.standard()); }
 }

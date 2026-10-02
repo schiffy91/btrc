@@ -368,7 +368,7 @@ class BtrccPathIdentity {
 		self.path = PathTools.absolute(requested);
 		var inspected = FileSystem.inspectExact(self.path);
 		if (inspected.ok()) {
-			self.snapshot = inspected.snapshot();
+			self.snapshot = inspected.value();
 		} else if (inspected.error().kind() == FS_NOT_FOUND) {
 			/* realpath needs an existing leaf. Normalize a missing filename
 			 * through its existing parent, without lexical symlink/.. folding. */
@@ -394,9 +394,9 @@ class BtrccPathIdentity {
 		if (!directories.has(parent)) { directories.put(parent, PathTools.absolute(parent)); }
 		string resolved = PathTools.join(directories.get(parent), name);
 		var inspected = FileSystem.inspectExact(resolved);
-		if (!inspected.ok() || inspected.snapshot().kind() == FILE_SYMLINK) { return false; }
+		if (!inspected.ok() || inspected.value().kind() == FILE_SYMLINK) { return false; }
 		self.path = resolved;
-		self.snapshot = inspected.snapshot();
+		self.snapshot = inspected.value();
 		return true;
 	}
 
@@ -488,7 +488,7 @@ class BtrccPublicationLocks {
 		for directory in self.directories {
 			var acquired = AdvisoryFileLock.acquire(PathTools.join(directory.path, ".btrc-publications.lock"), true);
 			if (!acquired.ok()) { return "cannot lock publication directory: " + directory.path + ": " + acquired.error().message(); }
-			self.locks.push(acquired.lock());
+			self.locks.push(acquired.value());
 		}
 		return "";
 	}
@@ -517,12 +517,12 @@ class BtrccPublicationLocks {
 		}
 		for directory in self.directories {
 			var current = FileSystem.inspectExact(directory.path);
-			if (!current.ok() || current.snapshot().kind() != FILE_DIRECTORY || !current.snapshot().sameObject(directory.snapshot)) {
+			if (!current.ok() || current.value().kind() != FILE_DIRECTORY || !current.value().sameObject(directory.snapshot)) {
 				return "publication directory changed while acquiring locks: " + directory.path;
 			}
 			var opened = FileSystem.openDirectoryExact(directory.path);
 			if (!opened.ok()) { return "cannot inspect publication directory: " + directory.path; }
-			DirectoryHandle entries = opened.directory();
+			DirectoryHandle entries = opened.value();
 			string diagnostic = "";
 			while (true) {
 				var step = entries.next();
@@ -654,7 +654,7 @@ class BtrccFilePublication {
 	private bool exists(string path) {
 		var observed = FileSystem.inspectExact(path);
 		if (observed.ok()) {
-			if (observed.snapshot().kind() != FILE_REGULAR) { throw "publication requires a regular file: " + path; }
+			if (observed.value().kind() != FILE_REGULAR) { throw "publication requires a regular file: " + path; }
 			return true;
 		}
 		if (observed.error().kind() != FS_NOT_FOUND) { throw "cannot inspect publication file: " + path; }
@@ -705,14 +705,14 @@ class BtrccFilePublication {
 	private Bytes read(string path, long long maximumBytes) {
 		var opened = FileSystem.openRegularFileSnapshot(path, maximumBytes);
 		if (!opened.ok()) { throw "cannot read publication file: " + path; }
-		var file = opened.snapshot();
+		var file = opened.value();
 		Bytes result = Bytes();
 		string diagnostic = "";
 		try {
 			if (file.size() > 2147483646LL) { throw "publication file exceeds byte-buffer capacity: " + path; }
 			var read = file.readExactAt(0LL, (int)file.size());
 			if (!read.ok()) { throw "publication file changed during read: " + path; }
-			result = read.bytes();
+			result = read.value();
 		} catch (string error) { diagnostic = error; }
 		self.closeSnapshot(file, path, diagnostic);
 		return result;
@@ -721,7 +721,7 @@ class BtrccFilePublication {
 	private string fileDigest(string path) {
 		var opened = FileSystem.openRegularFileSnapshot(path, 2305843009213693951LL);
 		if (!opened.ok()) { throw "cannot read publication file: " + path; }
-		var file = opened.snapshot();
+		var file = opened.value();
 		string value = "";
 		string diagnostic = "";
 		try {
@@ -733,7 +733,7 @@ class BtrccFilePublication {
 				int count = remaining > 65536LL ? 65536 : (int)remaining;
 				var read = file.readExactAt(offset, count);
 				if (!read.ok()) { throw "publication file changed during read: " + path; }
-				digest.appendBytes(read.bytes());
+				digest.appendBytes(read.value());
 				offset = offset + (long long)count;
 			} while (offset < file.size());
 			value = digest.finish();
@@ -892,7 +892,7 @@ class BtrccFilePublication {
 		if (!diagnostic.isEmpty()) { throw diagnostic; }
 		var acquired = AdvisoryFileLock.acquire(self.control(self.directory, "lock"), true);
 		if (!acquired.ok()) { throw "cannot acquire publication owner lock"; }
-		self.transactionLock = acquired.lock();
+		self.transactionLock = acquired.value();
 		self.validate();
 	}
 
@@ -932,7 +932,7 @@ class BtrccFilePublication {
 			if (count > 65536) { count = 65536; }
 			var read = file.readExactAt((long long)offset, count);
 			if (!read.ok()) { return false; }
-			var bytes = read.bytes();
+			var bytes = read.value();
 			if (count > 0 && memcmp(bytes.data, (char*)expected + offset, (size_t)count) != 0) { return false; }
 			offset = offset + count;
 		} while (offset < length);
@@ -952,7 +952,7 @@ class BtrccFilePublication {
 			string expected = contents.get(index);
 			var opened = FileSystem.openRegularFileSnapshot(target.path, (long long)expected.length());
 			if (!opened.ok()) { return false; }
-			var file = opened.snapshot();
+			var file = opened.value();
 			bool matches = false;
 			string diagnostic = "";
 			try {
@@ -967,7 +967,7 @@ class BtrccFilePublication {
 		for target in self.targets {
 			if (target.absent) { if (self.exists(target.path)) { throw "retired output changed during retention: " + target.path; } continue; }
 			var current = FileSystem.inspectExact(target.path);
-			if (!current.ok() || !revisions.get(revision).sameVersion(current.snapshot())) { throw "compiler output changed during retention: " + target.path; }
+			if (!current.ok() || !revisions.get(revision).sameVersion(current.value())) { throw "compiler output changed during retention: " + target.path; }
 			revision = revision + 1;
 		}
 		return true;
@@ -981,7 +981,7 @@ class BtrccFilePublication {
 		if (!self.exists(path) || (FileStatus(path).mode & 07777) != mode) { return null; }
 		var opened = FileSystem.openRegularFileSnapshot(path, (long long)expected.length());
 		if (!opened.ok()) { return null; }
-		var file = opened.snapshot();
+		var file = opened.value();
 		FileSnapshot? revision = null;
 		string diagnostic = "";
 		try { if (self.contentMatches(file, expected)) { revision = file.revision(); } } catch (string error) { diagnostic = error; }
@@ -997,7 +997,7 @@ class BtrccFilePublication {
 			FileSnapshot? revision = kept.get(index);
 			if (revision != null) {
 				var current = FileSystem.inspectExact(target.path);
-				if (!current.ok() || !revision.sameVersion(current.snapshot())) { throw "kept compiler output changed: " + target.path; }
+				if (!current.ok() || !revision.sameVersion(current.value())) { throw "kept compiler output changed: " + target.path; }
 				continue;
 			}
 			if (target.absent) {
@@ -1014,7 +1014,7 @@ class BtrccFilePublication {
 			int length = expected.length();
 			var opened = FileSystem.openRegularFileSnapshot(path, (long long)length);
 			if (!opened.ok()) { throw "staged publication payload changed: " + path; }
-			var file = opened.snapshot();
+			var file = opened.value();
 			string diagnostic = "";
 			try {
 				if (!self.contentMatches(file, expected)) { throw "staged publication payload changed: " + path; }
@@ -1163,7 +1163,7 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 		if (!configured.isEmpty()) { return configured; }
 		var directories = ApplicationDirectories.resolveStandard();
 		if (!directories.ok()) { return ""; }
-		return PathTools.join(directories.roots().stateRoot(), "btrc/generations");
+		return PathTools.join(directories.value().stateRoot(), "btrc/generations");
 	}
 
 	private bool keys(JSONValue value, Vector<string> expected) {
@@ -1238,7 +1238,7 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 		string state = PathTools.join(PathTools.absolute(parent), PathTools.basename(configured));
 		var opened = FileSystem.openPrivateDirectory(state);
 		if (!opened.ok()) { return "cannot open private compiler generation state: " + opened.error().message(); }
-		self.root = opened.directory();
+		self.root = opened.value();
 		Map<string, string> directories = {};
 		Map<string, string> resolved = {};
 		for path in requested {
@@ -1250,11 +1250,11 @@ class BtrccGenerationOwner implements IBtrccPublicationGuard {
 		string entryPath = PathTools.join(state, SHA256.digest(self.anchor));
 		var entryOpen = FileSystem.openPrivateDirectory(entryPath);
 		if (!entryOpen.ok()) { return "cannot open private compiler generation owner: " + entryOpen.error().message(); }
-		var entry = entryOpen.directory();
+		var entry = entryOpen.value();
 		self.entry = entry;
 		var acquired = entry.acquireExclusiveLease(".compiler-owner.publish.lock", true);
 		if (!acquired.ok()) { return "cannot lock compiler generation owner: " + acquired.error().message(); }
-		self.lease = acquired.lease();
+		self.lease = acquired.value();
 		return self.validate();
 	}
 
@@ -1517,7 +1517,7 @@ class BtrccDirectiveCache implements FeDirectiveCache {
 		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return null; }
 		var opened = FileSystem.openPrivateDirectory(self.directory);
 		if (!opened.ok()) { return null; }
-		self.root = opened.directory();
+		self.root = opened.value();
 		return self.root;
 	}
 
@@ -1529,7 +1529,7 @@ class BtrccDirectiveCache implements FeDirectiveCache {
 		/* Contention is an optional cache miss, not a compiler-wide wait. */
 		var acquired = root.acquireExclusiveLease(key + ".lock");
 		if (!acquired.ok()) { return false; }
-		self.lease = acquired.lease();
+		self.lease = acquired.value();
 		return root.validatePath().ok();
 	}
 
@@ -1639,7 +1639,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return null; }
 		var opened = FileSystem.openPrivateDirectory(self.directory);
 		if (!opened.ok()) { return null; }
-		self.root = opened.directory();
+		self.root = opened.value();
 		return self.root;
 	}
 
@@ -1662,11 +1662,11 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		if (root == null) { return false; }
 		var entry = root.openChildDirectory(self.key(identity));
 		if (!entry.ok()) { return false; }
-		self.entry = entry.directory();
-		var acquired = entry.directory().acquireExclusiveLease(".artifacts.lock", true);
+		self.entry = entry.value();
+		var acquired = entry.value().acquireExclusiveLease(".artifacts.lock", true);
 		if (!acquired.ok()) { return false; }
-		self.lease = acquired.lease();
-		return root.validatePath().ok() && entry.directory().validatePath().ok();
+		self.lease = acquired.value();
+		return root.validatePath().ok() && entry.value().validatePath().ok();
 	}
 
 	/* One payload of a generation: its own part, or the text of the module

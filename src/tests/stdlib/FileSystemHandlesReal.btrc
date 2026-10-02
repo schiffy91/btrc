@@ -26,9 +26,9 @@ int main() {
 	assert(!FileSystem.inspectExact("/definitely/missing/btrc-entry").ok());
 	assert(FileSystem.inspectExact("/definitely/missing/btrc-entry").error().kind() == FS_NOT_FOUND);
 
-	TemporaryDirectoryOpenOutcome temporaryOpen = FileSystem.createTemporaryDirectory("btrc_fs_handles_real");
+	FileSystemOutcome<TemporaryDirectory> temporaryOpen = FileSystem.createTemporaryDirectory("btrc_fs_handles_real");
 	assert(temporaryOpen.ok());
-	TemporaryDirectory temporary = temporaryOpen.directory();
+	TemporaryDirectory temporary = temporaryOpen.value();
 	string rootPath = temporary.path();
 	assert(FileSystem.isDir(rootPath));
 
@@ -56,7 +56,7 @@ int main() {
 	var streamAfter = stream.snapshot();
 	assert(streamAfter.ok());
 	assert(streamAfter.snapshot().sameObject(streamBefore.snapshot()));
-	assert(!streamAfter.snapshot().sameObject(FileSystem.inspectExact(streamPath).snapshot()));
+	assert(!streamAfter.snapshot().sameObject(FileSystem.inspectExact(streamPath).value()));
 	assert(stream.read().equals("original stream"));
 	assert(stream.close());
 	assert(!stream.snapshot().ok());
@@ -72,23 +72,23 @@ int main() {
 	string racePath = PathTools.join(rootPath, "race.txt");
 	assert(FileSystem.writeText(racePath, "old race value"));
 
-	FileSnapshotOutcome fileStatus = FileSystem.inspectExact(filePath);
+	FileSystemOutcome<FileSnapshot> fileStatus = FileSystem.inspectExact(filePath);
 	assert(fileStatus.ok());
-	assert(fileStatus.snapshot().kind() == FILE_REGULAR);
-	FileSnapshotOutcome linkStatus = FileSystem.inspectExact(linkPath);
+	assert(fileStatus.value().kind() == FILE_REGULAR);
+	FileSystemOutcome<FileSnapshot> linkStatus = FileSystem.inspectExact(linkPath);
 	assert(linkStatus.ok());
-	assert(linkStatus.snapshot().kind() == FILE_SYMLINK);
+	assert(linkStatus.value().kind() == FILE_SYMLINK);
 	assert(!FileSystem.openFileExact(linkPath).ok());
 	assert(FileSystem.openFileExact(linkPath).error().kind() == FS_SYMLINK);
 	assert(!FileSystem.openDirectoryExact(filePath).ok());
 	assert(FileSystem.openDirectoryExact(filePath).error().kind() == FS_WRONG_TYPE);
 
-	DirectoryOpenOutcome rootOpen = FileSystem.openDirectoryExact(rootPath);
+	FileSystemOutcome<DirectoryHandle> rootOpen = FileSystem.openDirectoryExact(rootPath);
 	assert(rootOpen.ok());
-	DirectoryHandle root = rootOpen.directory();
+	DirectoryHandle root = rootOpen.value();
 	assert(root.isOpen());
 	assert(root.snapshot().ok());
-	assert(root.snapshot().snapshot().sameObject(root.openedSnapshot()));
+	assert(root.snapshot().value().sameObject(root.openedSnapshot()));
 
 	DirectoryEntry? fileEntry = null;
 	DirectoryEntry? childEntry = null;
@@ -118,12 +118,12 @@ int main() {
 	assert(root.next().kind() == DIRECTORY_STEP_END);
 
 	DirectoryEntry regular = fileEntry;
-	FileOpenOutcome heldOpen = root.openFile(regular);
+	FileSystemOutcome<FileHandle> heldOpen = root.openFile(regular);
 	assert(heldOpen.ok());
-	FileHandle held = heldOpen.file();
+	FileHandle held = heldOpen.value();
 	assert(held.isOpen());
 	assert(held.snapshot().ok());
-	assert(held.snapshot().snapshot().sameVersion(held.openedSnapshot()));
+	assert(held.snapshot().value().sameVersion(held.openedSnapshot()));
 	FileReadOutcome first = held.readAt(0LL, 2);
 	assert(first.kind() == FILE_READ_DATA);
 	assert(first.bytes().length() == 2);
@@ -139,9 +139,9 @@ int main() {
 	assert(held.readAt(-1LL, 1).error().kind() == FS_INVALID_ARGUMENT);
 
 	DirectoryEntry child = childEntry;
-	DirectoryOpenOutcome childOpen = root.openDirectory(child);
+	FileSystemOutcome<DirectoryHandle> childOpen = root.openDirectory(child);
 	assert(childOpen.ok());
-	DirectoryHandle childDirectory = childOpen.directory();
+	DirectoryHandle childDirectory = childOpen.value();
 	DirectoryStepOutcome nestedStep = childDirectory.next();
 	assert(nestedStep.kind() == DIRECTORY_STEP_ENTRY);
 	assert(nestedStep.entry().name().equals("nested.txt"));
@@ -157,7 +157,7 @@ int main() {
 	assert(rename(racePath, racedOriginal) == 0);
 	assert(FileSystem.symlink(filePath, racePath) == 0);
 	DirectoryEntry raced = raceEntry;
-	FileOpenOutcome racedOpen = root.openFile(raced);
+	FileSystemOutcome<FileHandle> racedOpen = root.openFile(raced);
 	assert(!racedOpen.ok());
 	assert(racedOpen.error().kind() == FS_CHANGED);
 	assert(!root.inspect(raced).ok());
@@ -182,18 +182,18 @@ int main() {
 
 	int descriptorBaseline = openDescriptorCount();
 	for i in range(32) {
-		FileOpenOutcome repeatFile = FileSystem.openFileExact(originalFile);
+		FileSystemOutcome<FileHandle> repeatFile = FileSystem.openFileExact(originalFile);
 		assert(repeatFile.ok());
-		assert(repeatFile.file().close().kind() == FS_CLOSED_NOW);
-		DirectoryOpenOutcome repeatDirectory = FileSystem.openDirectoryExact(rootPath);
+		assert(repeatFile.value().close().kind() == FS_CLOSED_NOW);
+		FileSystemOutcome<DirectoryHandle> repeatDirectory = FileSystem.openDirectoryExact(rootPath);
 		assert(repeatDirectory.ok());
-		assert(repeatDirectory.directory().close().kind() == FS_CLOSED_NOW);
+		assert(repeatDirectory.value().close().kind() == FS_CLOSED_NOW);
 	}
 	assert(openDescriptorCount() == descriptorBaseline);
 
-	DirectoryOpenOutcome cancelledOpen = FileSystem.openDirectoryExact(rootPath);
+	FileSystemOutcome<DirectoryHandle> cancelledOpen = FileSystem.openDirectoryExact(rootPath);
 	assert(cancelledOpen.ok());
-	DirectoryHandle cancelled = cancelledOpen.directory();
+	DirectoryHandle cancelled = cancelledOpen.value();
 	DirectoryStepOutcome oneStep = cancelled.next();
 	assert(oneStep.kind() == DIRECTORY_STEP_ENTRY);
 	assert(cancelled.close().kind() == FS_CLOSED_NOW);
@@ -214,9 +214,9 @@ int main() {
 	assert(!FileSystem.exists(rootPath));
 	assert(temporary.close().kind() == FS_ALREADY_CLOSED);
 
-	TemporaryDirectoryOpenOutcome replacedOpen = FileSystem.createTemporaryDirectory("btrc_fs_handles_replaced");
+	FileSystemOutcome<TemporaryDirectory> replacedOpen = FileSystem.createTemporaryDirectory("btrc_fs_handles_replaced");
 	assert(replacedOpen.ok());
-	TemporaryDirectory replaced = replacedOpen.directory();
+	TemporaryDirectory replaced = replacedOpen.value();
 	string replacedPath = replaced.path();
 	string movedPath = replacedPath + ".moved";
 	string outside = FileSystem.tempDir("btrc_fs_handles_outside");
