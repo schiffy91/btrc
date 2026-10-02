@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING
 
@@ -58,6 +59,11 @@ class SourceRuntimeSymbols:
 
 
 _CYCLE_COLLECTIONS = frozenset({"Vector", "Array", "List", "Map", "Set"})
+# C11 6.10.8.1: object-like macros every hosted translation unit predefines.
+_C_PREDEFINED_MACROS = frozenset(
+    {"__DATE__", "__FILE__", "__LINE__", "__STDC__", "__STDC_HOSTED__", "__STDC_VERSION__", "__TIME__"}
+)
+_QUOTED_INCLUDE = re.compile(r'\s*#\s*include\s*"([^"]+)"')
 
 
 class GeneratedSymbolRegistry:
@@ -126,6 +132,11 @@ class GeneratedSymbolRegistry:
 
     def validate_generated_symbol_references(self, program, claims) -> None:
         """Resolve deferred identifiers after every generated claim is known."""
+        compatibility_files = {
+            declaration.source_file
+            for declaration in self.session.declarations(program)
+            if isinstance(declaration, PreprocessorDirective) and self.unmodeled_include(declaration.text)
+        }
         for declaration in self.session.declarations(program):
             if isinstance(declaration, PreprocessorDirective):
                 self._validate_preprocessor_symbols(declaration, claims)
@@ -153,8 +164,32 @@ class GeneratedSymbolRegistry:
                     self.session.error(
                         f"{action} compiler-owned C symbol '{symbol}' is not allowed", node.line, node.col
                     )
-                elif not direct_call and (not symbol.isupper()) and (not supported):
+                elif (
+                    not direct_call
+                    and (not supported)
+                    and not self.foreign_constant(symbol, declaration.source_file in compatibility_files)
+                ):
                     self.session.error(f"Unresolved identifier '{symbol}' used as a value", node.line, node.col)
+
+    @staticmethod
+    def foreign_constant(symbol: str, compatibility: bool) -> bool:
+        """Whether an unresolved ALL_CAPS value can name a C object-like macro.
+
+        Only names the compiler can account for pass through to C: a hosted
+        ABI macro, a C11 predefined macro, or, in a file that textually
+        includes a header or C source the importer does not model, any
+        ALL_CAPS spelling. Every other unknown name is diagnosed here instead
+        of failing as an undeclared identifier in the C compile.
+        """
+        if not symbol.isupper():
+            return False
+        return HOSTED_ABI.macro_name(symbol) or symbol in _C_PREDEFINED_MACROS or compatibility
+
+    @staticmethod
+    def unmodeled_include(text: str) -> bool:
+        """A raw quoted `#include` of a C header or source (not a btrc file)."""
+        match = _QUOTED_INCLUDE.match(text)
+        return match is not None and not match.group(1).endswith(".btrc")
 
     def _validate_preprocessor_symbols(self, declaration, claims) -> None:
         directive = SourceSymbolDirective.parse(declaration.text)

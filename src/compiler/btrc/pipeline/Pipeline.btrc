@@ -164,6 +164,7 @@ class CompilerPipeline {
 		RuntimeHelperCatalog runtimeHelpers = RuntimeHelperCatalog(runtimeData.rows, runtimeData.intrinsicEffects);
 		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols);
 		analyzer.configureNativeDeclarations(resolved.nativeDeclarations);
+		analyzer.configureUnmodeledIncludes(program, resolved.stdlibLineCount, resolved.userLines);
 		BtrccPhaseTimer.mark("catalog");
 		/* Stage B: with module units and a store, unchanged groups replay
 		 * their body-validation records instead of validating again. */

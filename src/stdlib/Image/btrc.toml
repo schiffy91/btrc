@@ -29,7 +29,7 @@ module = "Linux.LinuxEncodedImageDecoder"
 header = "Linux/Codecs.h"
 language = "c"
 standard = "c11"
-symbols = ["btrcPngHeader", "btrcPngDecode", "tjhandle", "tj3Init", "tj3Destroy", "tj3DecompressHeader", "tj3Get", "tj3Decompress8"]
+symbols = ["btrcPngHeader", "btrcPngDecode", "tjhandle", "tj3Init", "tj3Destroy", "tj3DecompressHeader", "tj3Get", "tj3Decompress8", "TJINIT_DECOMPRESS", "TJPARAM_JPEGWIDTH", "TJPARAM_JPEGHEIGHT", "TJPF_RGBA"]
 os = ["linux"]
 
 [[native.bindings]]
