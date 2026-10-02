@@ -330,7 +330,7 @@ class GenericSpecializer {
 		} else if (s.kind == NK_C_FOR_STMT) {
 			if (s.init != null) {
 				if (s.init.kind == NK_FOR_INIT_VAR) {
-					self.collectMethodGenericsStmt(s.init.varDecl, a, operators, vt);
+					for declaration in s.init.declarations() { self.collectMethodGenericsStmt(declaration, a, operators, vt); }
 				} else if (s.init.kind == NK_FOR_INIT_EXPR) {
 					self.collectMethodGenericsExpr(s.init.expression, a, operators, vt);
 				}
@@ -791,7 +791,7 @@ class GenericSpecializer {
 		} else if (s.kind == NK_C_FOR_STMT) {
 			if (s.init != null) {
 				if (s.init.kind == NK_FOR_INIT_VAR) {
-					self.upgradeStmtGenericArgs(s.init.varDecl, a, unresolved);
+					for declaration in s.init.declarations() { self.upgradeStmtGenericArgs(declaration, a, unresolved); }
 				} else if (s.init.kind == NK_FOR_INIT_EXPR) {
 					self.upgradeExprGenericArgs(s.init.expression, a, unresolved);
 				}
@@ -1035,7 +1035,7 @@ class GenericSpecializer {
 		} else if (s.kind == NK_C_FOR_STMT) {
 			if (s.init != null) {
 				if (s.init.kind == NK_FOR_INIT_VAR) {
-					self.collectGenericsStmt(s.init.varDecl, a, unresolved);
+					for declaration in s.init.declarations() { self.collectGenericsStmt(declaration, a, unresolved); }
 				} else if (s.init.kind == NK_FOR_INIT_EXPR) {
 					self.collectGenericsExpr(s.init.expression, a, unresolved);
 				}
@@ -1246,7 +1246,6 @@ class GenericSpecializer {
 		if (node.update != null) { self.genericClosureWalkNode(node.update, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.expr != null) { self.genericClosureWalkNode(node.expr, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.ifStmt != null) { self.genericClosureWalkNode(node.ifStmt, substitutions, unresolved, analyzed, operators, variables); }
-		if (node.varDecl != null) { self.genericClosureWalkNode(node.varDecl, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.expression != null) { self.genericClosureWalkNode(node.expression, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.left != null) { self.genericClosureWalkNode(node.left, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.right != null) { self.genericClosureWalkNode(node.right, substitutions, unresolved, analyzed, operators, variables); }
@@ -1262,6 +1261,7 @@ class GenericSpecializer {
 		if (node.key != null) { self.genericClosureWalkNode(node.key, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.arraySize != null) { self.genericClosureWalkNode(node.arraySize, substitutions, unresolved, analyzed, operators, variables); }
 
+		if (node.declarationsStorage != null) { self.genericClosureWalkVector(node.declarationsStorage, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.paramsStorage != null) { self.genericClosureWalkVector(node.paramsStorage, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.statementsStorage != null) { self.genericClosureWalkVector(node.statementsStorage, substitutions, unresolved, analyzed, operators, variables); }
 		if (node.casesStorage != null) { self.genericClosureWalkVector(node.casesStorage, substitutions, unresolved, analyzed, operators, variables); }

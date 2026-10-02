@@ -219,7 +219,10 @@ def test_linux_freetype_draws_into_owned_pixels(tmp_path, request, frontend, san
     from src.tests.python.test_native_linux_providers import _build, _environment, _require_linux_reader
 
     _require_linux_reader()
-    if not shutil.which("pkg-config") or subprocess.run(["pkg-config", "--exists", "freetype2"]).returncode:
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
         pytest.skip("requires the optional FreeType SDK through pkg-config")
     font = _linux_test_font()
     if font is None or not font.is_file():

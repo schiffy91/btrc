@@ -56,7 +56,6 @@ class AstStructure {
 		if (node.catchBlock != null) { out.push(node.catchBlock); }
 		if (node.finallyBlock != null) { out.push(node.finallyBlock); }
 		if (node.ifStmt != null) { out.push(node.ifStmt); }
-		if (node.varDecl != null) { out.push(node.varDecl); }
 		if (node.expression != null) { out.push(node.expression); }
 		if (node.bodyNodeListStorage != null) { for child in node.bodyNodeListStorage { out.push(child); } }
 		if (node.left != null) { out.push(node.left); }
@@ -529,7 +528,7 @@ class AstCanonicalRenderer {
 			return out + ")";
 		} else if (node.kind == NK_FOR_INIT_VAR) {
 			string out = "(ForInitVar";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "var_decl=" + self.canonNode(node.varDecl, d + 1);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "declarations=" + self.canonNodeList(node.declarations(), d + 1);
 			return out + ")";
 		} else if (node.kind == NK_FOR_INIT_EXPR) {
 			string out = "(ForInitExpr";
@@ -714,6 +713,18 @@ class AstCanonicalRenderer {
 		} else if (node.kind == NK_SPAWN_EXPR) {
 			string out = "(SpawnExpr";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "fn=" + self.canonNode(node.fn, d + 1);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
+		} else if (node.kind == NK_STRING_CONCAT) {
+			string out = "(StringConcat";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "parts=" + self.canonNodeList(node.parts(), d + 1);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
+		} else if (node.kind == NK_COMMA_EXPR) {
+			string out = "(CommaExpr";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements(), d + 1);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";

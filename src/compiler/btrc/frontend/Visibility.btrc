@@ -279,7 +279,6 @@ class FeImportReferenceCollector {
 		if (node.catchBlock != null) { self.visit(node.catchBlock); }
 		if (node.finallyBlock != null) { self.visit(node.finallyBlock); }
 		if (node.ifStmt != null) { self.visit(node.ifStmt); }
-		if (node.varDecl != null) { self.visit(node.varDecl); }
 		if (node.expression != null) { self.visit(node.expression); }
 		if (node.left != null) { self.visit(node.left); }
 		if (node.right != null) { self.visit(node.right); }
