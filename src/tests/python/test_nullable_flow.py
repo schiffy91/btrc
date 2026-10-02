@@ -379,3 +379,144 @@ def test_a_loop_guard_still_refines_every_iteration():
     """)
 
     assert warnings == []
+
+
+def test_a_guard_ending_in_a_hosted_noreturn_call_refines_the_continuation():
+    warnings = _nullable_warnings("""
+        int afterExit(Box? box) {
+            if (box == null) { exit(1); }
+            return box.value;
+        }
+        int afterAbort(Box? box) {
+            if (box == null) { fprintf(stderr, "missing\\n"); abort(); }
+            return box.value;
+        }
+        int afterElseExit(Box? box) {
+            if (box != null) { } else { exit(2); }
+            return box.value;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_a_callable_whose_every_path_diverges_never_returns():
+    warnings = _nullable_warnings("""
+        void die(string message) {
+            fprintf(stderr, "%s\\n", message);
+            exit(1);
+        }
+        void dieTwice(string message) { die(message); }
+        void raise(string message) { throw message; }
+        void either(bool quiet) {
+            if (quiet) { exit(0); } else { die("loud"); }
+        }
+        int viaFunction(Box? box) {
+            if (box == null) { dieTwice("missing"); }
+            return box.value;
+        }
+        int viaThrow(Box? box) {
+            if (box == null) { raise("missing"); }
+            return box.value;
+        }
+        int viaBranches(Box? box) {
+            if (box == null) { either(true); }
+            return box.value;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_a_callable_that_can_return_or_only_recurses_still_returns():
+    warnings = _nullable_warnings("""
+        void maybe(bool stop) {
+            if (stop) { return; }
+            exit(1);
+        }
+        void ping(int depth) { pong(depth); }
+        void pong(int depth) { ping(depth); }
+        int afterMaybe(Box? box) {
+            if (box == null) { maybe(true); }
+            return box.value;
+        }
+        int afterRecursion(Box? box) {
+            if (box == null) { ping(0); }
+            return box.value;
+        }
+    """)
+
+    assert warnings == [
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 16:20",
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 20:20",
+    ]
+
+
+def test_static_and_self_methods_that_never_return_refine_their_callers():
+    warnings = _nullable_warnings("""
+        class Checks {
+            class void fail(string message) {
+                fprintf(stderr, "%s\\n", message);
+                exit(1);
+            }
+            private void stop(string message) { throw message; }
+            public int viaSelf(Box? box) {
+                if (box == null) { self.stop("missing"); }
+                return box.value;
+            }
+        }
+        int viaStatic(Box? box) {
+            if (box == null) { Checks.fail("missing"); }
+            return box.value;
+        }
+    """)
+
+    assert warnings == []
+
+
+def test_a_self_call_an_override_can_return_from_is_not_proof():
+    warnings = _nullable_warnings("""
+        class Base {
+            public void stop(string message) { throw message; }
+            public int read(Box? box) {
+                if (box == null) { self.stop("missing"); }
+                return box.value;
+            }
+        }
+        class Lenient extends Base {
+            public void stop(string message) { }
+        }
+    """)
+
+    assert warnings == [
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 12:24",
+    ]
+
+
+def test_code_after_a_call_that_never_returns_is_unreachable():
+    warnings = _nullable_warnings("""
+        int afterExit(Box? box) {
+            exit(1);
+            return box.value;
+        }
+        int afterDivergingBranches(Box? box, bool flag) {
+            if (flag) { exit(1); } else { throw "no"; }
+            return box.value;
+        }
+        int afterDivergingTry(Box? box) {
+            try { throw "no"; } catch (string error) { abort(); }
+            return box.value;
+        }
+        int reachedAgain(Box? box) {
+            int total = 0;
+            for (int index = 0; index < 2; index++) {
+                if (index > 5) { exit(1); }
+                total += box.value;
+            }
+            return total;
+        }
+    """)
+
+    assert warnings == [
+        "Non-optional access '.value' on nullable type 'Box?' — use '?.value' or check for null at 24:26",
+    ]

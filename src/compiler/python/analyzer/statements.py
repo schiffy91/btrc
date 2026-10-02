@@ -627,7 +627,7 @@ class StatementAnalyzer:
             return
         if isinstance(expression, FieldAccessExpr):
             path = self.flow.access_path(expression.obj)
-            if path is not None and path in facts:
+            if self.session.flow_unreachable or (path is not None and path in facts):
                 self.session.known_nonnull_expression_ids.add(id(expression.obj))
         if isinstance(expression, BinaryExpr) and expression.op in {"&&", "||"}:
             self._prepare_expression(expression.left, facts)
@@ -707,8 +707,11 @@ class StatementAnalyzer:
     def _analyze_lambda(self, expr):
         """Analyze a lambda expression."""
         prev_return_type = self.session.current_return_type
-        outer_nonnull_paths = self.session.nonnull_paths
-        self.session.replace_nonnull_paths(())
+        with self.session.nonnull_frame((), reachable=True):
+            self._analyze_lambda_in_flow(expr)
+        self.session.current_return_type = prev_return_type
+
+    def _analyze_lambda_in_flow(self, expr) -> None:
         outer_symbols = {}
         scope = self.session.scope
         while scope is not None and scope is not self.session.global_scope:
@@ -766,8 +769,6 @@ class StatementAnalyzer:
         self.session.lambda_body_facts[id(expr)] = LambdaBodyFacts(
             terminates=bool(isinstance(expr.body, LambdaBlock) and self.flow.block_must_terminate(expr.body.body))
         )
-        self.session.current_return_type = prev_return_type
-        self.session.replace_nonnull_paths(outer_nonnull_paths)
 
     def _analyze_lambda_body(self, expr) -> None:
         self.declarations.validate_parameter_names(expr.params, "lambda")
@@ -849,10 +850,12 @@ class StatementAnalyzer:
                 has_default = True
             with self._flow_branch(()):
                 self._analyze_switch_case(case)
-                case_flows.append(set(self.session.nonnull_paths))
+                case_flows.append(self.session.nonnull_flow)
         self.session.break_depth -= 1
         self._validate_switch_contract(stmt)
-        self.session.replace_nonnull_paths(before_cases & self.flow.join_nonnull_flows(case_flows))
+        # A case that never completes reaches nothing after the switch.
+        joined = self.flow.join_nonnull_flows(case_flows)
+        self.session.replace_nonnull_paths(before_cases if joined is None else before_cases & joined)
         if not has_default:
             val_type = self.expressions.infer_type(stmt.value)
             if val_type and val_type.base in self.index.enum_table:
@@ -940,8 +943,10 @@ class StatementAnalyzer:
         body_facts = self.flow.nonnull_facts_for_outcome(stmt.condition, True) if stmt.condition is not None else set()
         with self._flow_branch(body_facts):
             self._analyze_c_for_iteration(stmt)
-            iteration_flow = set(self.session.nonnull_paths)
-        self.session.replace_nonnull_paths(before_iteration & iteration_flow)
+            iteration_flow = self.session.nonnull_flow
+        self.session.replace_nonnull_paths(
+            before_iteration if iteration_flow is None else before_iteration & iteration_flow
+        )
         self.session.loop_depth -= 1
         self.session.break_depth -= 1
 
@@ -1023,29 +1028,32 @@ class StatementAnalyzer:
     def _analyze_nullable_if(self, statement) -> None:
         self.analyze_expression(statement.condition)
         self.aggregates.reject_thread_observation(statement.condition)
+        # A branch that never completes (it returns, throws, exits, breaks or
+        # continues) contributes no facts to the code after the statement.
         continuing_flows = []
         with self._flow_branch(self.flow.nonnull_facts_for_outcome(statement.condition, True)):
             self._analyze_block(statement.then_block)
-            then_flow = set(self.session.nonnull_paths)
+            then_flow = self.session.nonnull_flow
         if not self.flow.block_stops_fallthrough(statement.then_block):
             continuing_flows.append(then_flow)
         if isinstance(statement.else_block, ElseIf):
             with self._flow_branch(self.flow.nonnull_facts_for_outcome(statement.condition, False)):
                 self._analyze_stmt(statement.else_block.if_stmt)
-                else_flow = set(self.session.nonnull_paths)
+                else_flow = self.session.nonnull_flow
             if not self.flow.statement_stops_fallthrough(statement.else_block.if_stmt):
                 continuing_flows.append(else_flow)
         elif isinstance(statement.else_block, ElseBlock):
             with self._flow_branch(self.flow.nonnull_facts_for_outcome(statement.condition, False)):
                 self._analyze_block(statement.else_block.body)
-                else_flow = set(self.session.nonnull_paths)
+                else_flow = self.session.nonnull_flow
             if not self.flow.block_stops_fallthrough(statement.else_block.body):
                 continuing_flows.append(else_flow)
         else:
+            entry = self.session.nonnull_flow
             continuing_flows.append(
-                set(self.session.nonnull_paths) | self.flow.nonnull_facts_for_outcome(statement.condition, False)
+                None if entry is None else entry | self.flow.nonnull_facts_for_outcome(statement.condition, False)
             )
-        self.session.replace_nonnull_paths(self.flow.join_nonnull_flows(continuing_flows))
+        self.session.replace_nonnull_flow(self.flow.join_nonnull_flows(continuing_flows))
 
     def _analyze_nullable_while(self, statement) -> None:
         entry = set(self.session.nonnull_paths)
@@ -1073,8 +1081,8 @@ class StatementAnalyzer:
         )
         with self._flow_branch(facts):
             self._analyze_block(body)
-            body_flow = set(self.session.nonnull_paths)
-        self.session.replace_nonnull_paths(before_body & body_flow)
+            body_flow = self.session.nonnull_flow
+        self.session.replace_nonnull_paths(before_body if body_flow is None else before_body & body_flow)
 
     @contextmanager
     def _flow_branch(self, facts) -> Iterator[None]:
@@ -1336,6 +1344,11 @@ class StatementAnalyzer:
         )
 
     def analyze_declaration(self, decl):
+        # Each declaration's bodies start reachable and know no non-null facts.
+        with self.session.nonnull_frame((), reachable=True):
+            self._analyze_declaration_body(decl)
+
+    def _analyze_declaration_body(self, decl):
         if isinstance(decl, ClassDecl):
             self._analyze_class(decl)
         elif isinstance(decl, FunctionDecl):
@@ -1418,7 +1431,7 @@ class StatementAnalyzer:
                 method, self.session.current_class.name if self.session.current_class else None
             )
             self.session.current_return_type = self.aggregates.array_value_type(method.return_type)
-        with self.session.scope_frame():
+        with self.session.scope_frame(), self.session.nonnull_frame((), reachable=True):
             self._analyze_method_body(method, is_constructor)
         self.session.current_method = prev_method
         self.session.current_class_callable = prev_class_callable
@@ -1504,7 +1517,7 @@ class StatementAnalyzer:
                 name=f"_prop_get_{prop.name}",
             )
             self.session.current_return_type = self.aggregates.array_value_type(prop.type)
-            with self.session.scope_frame():
+            with self.session.scope_frame(), self.session.nonnull_frame((), reachable=True):
                 self_type = self.types.current_self_type()
                 self.session.scope.define("self", SymbolInfo("self", self_type, "param"))
                 self._analyze_root_block(prop.getter_body)
@@ -1524,7 +1537,7 @@ class StatementAnalyzer:
             self.session.current_return_type = TypeExpr(base="void")
             previous_virtual_setter = self.session.in_virtual_setter
             self.session.in_virtual_setter = True
-            with self.session.scope_frame():
+            with self.session.scope_frame(), self.session.nonnull_frame((), reachable=True):
                 self_type = self.types.current_self_type()
                 self.session.scope.define("self", SymbolInfo("self", self_type, "param"))
                 self.session.scope.define(
@@ -1548,7 +1561,7 @@ class StatementAnalyzer:
         func.return_type = self.types.upgrade_class_type(func.return_type)
         self.declarations.validate_array_return(func)
         self.session.current_return_type = self.aggregates.array_value_type(func.return_type)
-        with self.session.scope_frame():
+        with self.session.scope_frame(), self.session.nonnull_frame((), reachable=True):
             self._analyze_function_body(func)
         self.session.current_callable = prev_callable
         self.session.in_gpu_function = prev_gpu
@@ -1674,24 +1687,30 @@ class StatementAnalyzer:
         before_try = set(self.session.nonnull_paths)
         with self._flow_branch(()):
             self._analyze_block(statement.try_block)
-            try_flow = set(self.session.nonnull_paths)
+            try_flow = self.session.nonnull_flow
         catch_flow = None
         if statement.catch_block is not None:
             with self._flow_branch(()):
                 self._analyze_catch_body(statement)
-                catch_flow = set(self.session.nonnull_paths)
+                catch_flow = self.session.nonnull_flow
         if statement.finally_block is not None:
-            finally_inputs = [try_flow]
-            finally_inputs.append(catch_flow if catch_flow is not None else before_try)
+            # The finally block runs on every exit, so a body that never
+            # completes still reaches it, from facts no stronger than the entry.
+            finally_inputs = [try_flow if try_flow is not None else before_try]
+            finally_inputs.append(
+                catch_flow if statement.catch_block is not None and catch_flow is not None else before_try
+            )
             self.session.replace_nonnull_paths(self.flow.join_nonnull_flows(finally_inputs))
             self._analyze_block(statement.finally_block)
+            if try_flow is None and (statement.catch_block is None or catch_flow is None):
+                self.session.mark_flow_unreachable()
             return
         continuing_flows = []
         if not self.flow.block_stops_fallthrough(statement.try_block):
             continuing_flows.append(try_flow)
-        if catch_flow is not None and (not self.flow.block_stops_fallthrough(statement.catch_block)):
+        if statement.catch_block is not None and (not self.flow.block_stops_fallthrough(statement.catch_block)):
             continuing_flows.append(catch_flow)
-        self.session.replace_nonnull_paths(self.flow.join_nonnull_flows(continuing_flows))
+        self.session.replace_nonnull_flow(self.flow.join_nonnull_flows(continuing_flows))
 
     def _analyze_catch_body(self, statement) -> None:
         with self.session.scope_frame():
@@ -1745,8 +1764,13 @@ class StatementAnalyzer:
                     col = getattr(stmt, "col", 0)
                     self.session.error("Unreachable code after return/throw/break/continue", line, col)
                     break
+                reached = not self.session.flow_unreachable
                 self._analyze_stmt(stmt)
                 self.session.advance_statement(stmt)
+                # Code after a return, a throw or a call that never returns is
+                # unreachable, and so is everything after unreachable code.
+                if not reached or self.flow.statement_ends_flow(stmt):
+                    self.session.mark_flow_unreachable()
                 if isinstance(stmt, (ReturnStmt, BreakStmt, ContinueStmt, ThrowStmt)):
                     found_terminal = True
 

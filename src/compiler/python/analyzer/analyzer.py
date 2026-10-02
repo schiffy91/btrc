@@ -64,7 +64,7 @@ class SemanticAnalyzer:
         expressions = ExpressionAnalyzer(
             session, declarations, index, types, aggregates, storage, ownership, calls, gpu, generics
         )
-        flow = ControlFlowAnalyzer(session, types)
+        flow = ControlFlowAnalyzer(session, types, index)
         generated_symbols = GeneratedSymbolRegistry(session, index, types, storage, macros, runtime_helpers)
         realtime = RealtimeAnalyzer(session, index, runtime_helpers)
         statements = StatementAnalyzer(
@@ -133,6 +133,7 @@ class SemanticAnalyzer:
         self.hierarchy.validate(program)
         self.ownership.compute_cyclable_flags()
         self.aggregates.validate_declarations(program)
+        self.flow.compute_nonreturning_callables(program)
         for declaration in state.declarations(program):
             if isinstance(declaration, RichEnumDecl):
                 self.statements.analyze_rich_enum_defaults(declaration)
