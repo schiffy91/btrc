@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -91,12 +92,24 @@ def test_owned_font_snapshots_and_surface_selection(tmp_path: Path, request, fro
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_btrc_owns_gui_surface(tmp_path: Path, request, frontend, sanitized) -> None:
-    source = ROOT / "src/tests/native/gui/GUISurfaceConformance.btrc"
+    if not all(
+        os.environ.get(name) for name in ("BTRC_NATIVE_HEADER_READER", "BTRC_NATIVE_SYSROOT", "BTRC_NATIVE_TARGET")
+    ):
+        pytest.skip("requires the explicitly built native header reader and its target environment")
+    faults = ROOT / "src/tests/native/gui"
+    for name in ["GUISurfaceConformance.btrc", "AllocationFaults.h"]:
+        shutil.copyfile(faults / name, tmp_path / name)
+    # The allocation-fault control is declared by its header, not by the program.
+    (tmp_path / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "surfaceTest"\n'
+        '[[native.bindings]]\nmodule = "GUISurfaceConformance"\nheader = "AllocationFaults.h"\n'
+        'language = "c"\nstandard = "c11"\nsymbols = ["guiFailAllocation"]\n'
+    )
+    source = tmp_path / "GUISurfaceConformance.btrc"
     generated, environment = _transpile_gui(source, tmp_path, request, frontend)
     executable = tmp_path / "surface"
     flags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitized else []
     compiler = "/usr/bin/clang" if sys.platform == "darwin" else "cc"
-    faults = source.parent
     generated_object = tmp_path / "Surface.o"
     result = subprocess.run(
         [

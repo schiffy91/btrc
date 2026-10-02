@@ -18,6 +18,75 @@ RUN_TIMEOUT = 30
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="CoreAudio is available only on macOS")
 
+# Each fault program reads its probe controls through the header that declares
+# them, bound by the package manifest its harness writes.
+FAULT_BINDINGS = {
+    "CoreAudioUnitConformance.btrc": (
+        "UnitFaults.h",
+        [
+            "unitReset",
+            "unitFail",
+            "pendingSessions",
+            "unitDeliver",
+            "unitOutput",
+            "unitHost",
+            "unitFlags",
+            "unitUninitializations",
+            "unitDisposals",
+            "unitRegistrations",
+            "unitStops",
+            "unitRenders",
+        ],
+    ),
+    "CoreAudioInventoryConformance.btrc": (
+        "HardwareFaults.h",
+        ["inventoryScenario", "inventoryRetainedValues", "inventoryPropertyReads", "inventoryVerifyForeignRelease"],
+    ),
+    "CoreAudioResourcesConformance.btrc": (
+        "ResourceFaults.h",
+        [
+            "resourceScenario",
+            "resourceExternalChange",
+            "resourceReleasePending",
+            "resourceWrites",
+            "resourceAggregates",
+            "resourceOriginal",
+        ],
+    ),
+    "CoreAudioAggregateAllocations.btrc": (
+        "AggregateAllocationFaults.h",
+        ["aggregateAllocationFailure", "aggregateAllocationCalls", "aggregateOwnedReferences"],
+    ),
+    "CoreAudioPendingSession.btrc": (
+        "UnitFaults.h",
+        [
+            "pendingSessions",
+            "allowSessionCleanup",
+            "unitReset",
+            "unitFail",
+            "unitDisposals",
+            "unitRegistrations",
+            "unitDeliver",
+            "unitOutput",
+        ],
+    ),
+}
+
+
+def fault_package(root: Path, fixture_name: str) -> Path:
+    """Copy one fault program beside its probe header under a manifest binding it."""
+
+    header, symbols = FAULT_BINDINGS[fixture_name]
+    root.mkdir()
+    for name in (fixture_name, header):
+        shutil.copyfile(FIXTURE / name, root / name)
+    (root / "btrc.toml").write_text(
+        f'manifest-version = 1\n[package]\nname = "coreAudioFaults"\n'
+        f'[[native.bindings]]\nmodule = "{Path(fixture_name).stem}"\nheader = "{header}"\n'
+        f'language = "c"\nstandard = "c11"\nos = ["macos"]\nsymbols = {json.dumps(symbols)}\n'
+    )
+    return root / fixture_name
+
 
 def _transpile(
     frontend: str, generated: Path, plan: Path, request: pytest.FixtureRequest, fixture: Path = CONFORMANCE
@@ -139,7 +208,7 @@ def test_core_audio_inventory_sdk_failures(
 ) -> None:
     generated = tmp_path / "Inventory.c"
     plan = tmp_path / "Inventory.link.json"
-    _transpile(compiler, generated, plan, request, FIXTURE / fixture_name)
+    _transpile(compiler, generated, plan, request, fault_package(tmp_path / "package", fixture_name))
     executable = tmp_path / "Inventory"
     environment = {key: value for key, value in os.environ.items() if key not in {"DEVELOPER_DIR", "SDKROOT"}}
     sdk_flags = ["-isysroot", os.environ["BTRC_NATIVE_SYSROOT"], "-target", os.environ["BTRC_NATIVE_TARGET"]]

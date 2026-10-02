@@ -2,10 +2,6 @@ import Library.Audio.MacOS.MacOSAudioDevice;
 
 #include <assert.h>
 
-void aggregateAllocationFailure(int index);
-int aggregateAllocationCalls();
-int aggregateOwnedReferences();
-
 int prepareDescription(int failure) {
 	aggregateAllocationFailure(failure);
 	var description = CoreAudioAggregateDescription();

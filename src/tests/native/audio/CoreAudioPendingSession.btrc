@@ -4,15 +4,6 @@ import Library.Audio.RealtimeAudio;
 
 #include <assert.h>
 
-int pendingSessions();
-void allowSessionCleanup();
-void unitReset(int failure);
-void unitFail(int failure);
-int unitDisposals();
-int unitRegistrations();
-void unitDeliver(int frames, int timestamps, int inputFailure);
-float unitOutput(int sample);
-
 @realtime void pendingProcess(void* context, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {}
 
 void verifyPublishedSession(int terminal) {

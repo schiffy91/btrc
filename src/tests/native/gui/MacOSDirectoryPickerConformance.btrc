@@ -3,10 +3,6 @@ import Library.GUI.IDirectoryPicker;
 import Library.GUI.MacOS.MacOSDirectoryPicker;
 
 #include <assert.h>
-#include <DirectoryPickerControl.h>
-
-void directoryPickerPrepare(int mode);
-int directoryPickerCalls();
 
 void requireFailure(DirectoryPickerOutcome outcome, AppErrorCode expected) {
 	assert(outcome.kind == DIRECTORY_PICKER_FAILED);

@@ -6,19 +6,6 @@ import Library.Vector;
 
 #include <assert.h>
 
-void unitReset(int failure);
-void unitFail(int failure);
-int pendingSessions();
-void unitDeliver(int frames, int timestamps, int inputFailure);
-float unitOutput(int sample);
-unsigned long long unitHost();
-unsigned int unitFlags();
-int unitUninitializations();
-int unitDisposals();
-int unitRegistrations();
-int unitStops();
-int unitRenders();
-
 struct UnitProbe {
 	int calls;
 	int frames;
