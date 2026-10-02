@@ -1375,6 +1375,17 @@ class ExpressionLowerer:
             )
         )
 
+    def string_array_extent(self, initializer) -> IRLiteral | None:
+        """The extent of an unsized char array a string constant initializes.
+
+        It is the decoded bytes plus the terminator, so every unit that
+        declares the array sees a complete type (C11 6.7.9p22).
+        """
+        if not isinstance(initializer, STRING_CONSTANT_NODES):
+            return None
+        decoded = self._analyzed.source_macros.string_constant(initializer)
+        return None if decoded is None else IRLiteral(text=str(len(decoded) + 1))
+
     def lower_static_initializer(
         self,
         node,

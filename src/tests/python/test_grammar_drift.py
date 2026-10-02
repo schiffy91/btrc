@@ -422,6 +422,17 @@ class TestStringConcat:
         assert isinstance(expr, StringConcat)
         assert [type(part) for part in expr.parts] == [Identifier, StringLiteral, Identifier]
 
+    def test_a_run_of_macro_names_may_open_a_concatenation(self):
+        expr = parse_expr('A B "c"')
+        assert isinstance(expr, StringConcat)
+        assert [type(part) for part in expr.parts] == [Identifier, Identifier, StringLiteral]
+        assert [part.name for part in expr.parts[:2]] == ["A", "B"]
+        assert (expr.line, expr.col) == (expr.parts[0].line, expr.parts[0].col)
+
+    def test_a_run_of_names_ending_at_an_encoding_prefix_is_not_a_concatenation(self):
+        with pytest.raises(ParseError, match="Expected SEMICOLON"):
+            parse('void __t__() { char* text = A L"b"; }')
+
     def test_triple_quoted_piece(self):
         expr = parse_expr('"a" """b"""')
         assert isinstance(expr, StringConcat)

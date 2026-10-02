@@ -189,8 +189,8 @@ construct = "char s[] = \"abc\""
 intent = "positive"
 status = "accepted"
 revision = "c670c81"
-python = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: xbc abcd jello Tag\n" }
-btrcc = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: xbc abcd jello Tag\n" }
+python = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: class static\nPASS: line splice\nPASS: xbc abcd jello Tag\n" }
+btrcc = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: class static\nPASS: line splice\nPASS: xbc abcd jello Tag\n" }
 corpus = "c_compat/CharArrayStringInit.btrc"
 
 [[probe]]
@@ -250,12 +250,12 @@ int main() {
 [[probe]]
 id = "r05-adjacent-string-literals"
 row = "5"
-construct = "\"a\" \"b\" concatenation"
+construct = "\"a\" \"b\" concatenation, opening with any run of macro pieces"
 intent = "positive"
 status = "accepted"
 revision = "5472f61"
-python = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: source-macro pieces\nPASS: globals and strings\n" }
-btrcc = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: source-macro pieces\nPASS: globals and strings\n" }
+python = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: a concatenation may open with macro pieces\nPASS: source-macro pieces\nPASS: globals and strings\n" }
+btrcc = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: a concatenation may open with macro pieces\nPASS: source-macro pieces\nPASS: globals and strings\n" }
 corpus = "c_compat/AdjacentStringLiterals.btrc"
 
 [[probe]]

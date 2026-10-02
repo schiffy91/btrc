@@ -566,7 +566,7 @@ class DeclarationValidator {
 			if (member.kind == NK_FIELD_DECL) {
 				self.types.validateDeclaredType(member.type, "Field '" + declaration.name + "." + member.name + "'", "stable_field", member);
 				self.types.rejectRuntimeInterfaceType(member.type, member);
-				self.storage.validateArrayBound(member.type, "Field '" + declaration.name + "." + member.name + "'", "field", member, fieldVars);
+				self.expressions.validateArrayBound(member.type, "Field '" + declaration.name + "." + member.name + "'", "field", member, fieldVars);
 				Node? canonicalField = self.types.resolveAliases(member.type);
 				if (canonicalField != null && canonicalField.isArray && canonicalField.arraySize != null) {
 					Node elementType = TypeShape.withoutOuterArray(canonicalField);

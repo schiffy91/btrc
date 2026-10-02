@@ -1001,6 +1001,9 @@ class ClassLowerer:
             )
         if isinstance(field.initializer, (BraceInitializer, ListLiteral)):
             return (field_type, IRLiteral(text=str(len(field.initializer.elements))))
+        extent = self._expressions.string_array_extent(field.initializer)
+        if extent is not None:
+            return (field_type, extent)
         return (field.type, None)
 
     def lower_instance_storage_field(

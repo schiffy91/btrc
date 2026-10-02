@@ -2321,7 +2321,7 @@ class Parser:
             self._refuse_deferred_c_specifier(tok)
             self._advance()
             identifier = Identifier(name=tok.value, line=tok.line, col=tok.col)
-            if self._check(TokenKind.STRING_LIT) and not self._is_encoding_prefix(tok, self._peek()):
+            if self._begins_adjacent_strings(tok):
                 return self._parse_adjacent_strings(identifier)
             return identifier
 
@@ -2342,6 +2342,21 @@ class Parser:
             and following.line == name.line
             and following.col == name.col + len(name.value)
         )
+
+    def _begins_adjacent_strings(self, name) -> bool:
+        """Whether the consumed name ``name`` starts a concatenation.
+
+        ``string_concat`` may open with any run of macro pieces, so the run of
+        names after ``name`` must end at a literal that the run's last name
+        does not prefix as its encoding.
+        """
+        last = name
+        offset = 0
+        while self._peek(offset).type == TokenKind.IDENT:
+            last = self._peek(offset)
+            offset += 1
+        following = self._peek(offset)
+        return following.type == TokenKind.STRING_LIT and not self._is_encoding_prefix(last, following)
 
     def _parse_adjacent_strings(self, first):
         """Absorb the literals and macro names adjacent to ``first`` (C phase 6).

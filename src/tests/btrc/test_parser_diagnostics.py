@@ -192,6 +192,22 @@ def test_keyword_member_names_match_reference_ast(selfhost_drivers: dict[str, Pa
     assert parsed.stdout == reference.stdout
 
 
+def test_concatenation_opening_with_macro_pieces_matches_reference_ast(
+    selfhost_drivers: dict[str, Path], tmp_path: Path
+) -> None:
+    program = tmp_path / "MacroPieces.btrc"
+    program.write_text(
+        '#define A "a"\n#define B "b"\n'
+        'void inspect() {\n char* s = A B "c";\n char* t = A B C "d" E;\n char* u = A "" B "c";\n}\n'
+    )
+    parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", str(program)], timeout=15)
+    assert parsed.returncode == 0, parsed.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert "StringConcat" in reference.stdout
+    assert parsed.stdout == reference.stdout
+
+
 def test_declarator_lists_match_reference_ast(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
     """Several declarators splice identically, positions and copied specifiers included (C row 3)."""
     program = tmp_path / "Declarators.btrc"

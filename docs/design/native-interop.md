@@ -435,6 +435,8 @@ Clang recommends [LibTooling for full AST access](https://clang.llvm.org/docs/To
 
 ## Lifetime and ABI
 
+The one ownership model for C function tables, Objective-C protocols and blocks, JNI, COM and GObject, with its `native_abi.asdl` extension and ordered plan, is [native-interop-ownership.md](native-interop-ownership.md).
+
 | Boundary | Required behavior |
 |---|---|
 | C values | Preserve typedef identity, pointer qualifiers, enum representation, record layout and exact callback signatures. Native headers remain the layout authority. |
