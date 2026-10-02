@@ -1240,28 +1240,6 @@ class ExpressionLowerer {
 
 	public IRNode lowerAssignedValue(Node valueNode, Node? targetType, Map<string, Node> varTypes, CallableFlowState callableFlow) { return self.prepareTargetValue(valueNode, targetType, varTypes, callableFlow).value; }
 
-	public string directGenericTargetC(Node target, Node targetType, Map<string, Node> varTypes) {
-		if (!self.context.genericBody && self.context.callDefaultTypeDepth == 0) {
-			/* Addressing a slot needs its declared C type, not its arithmetic
-             * type: enum-pointer fields must retain their SDK identity. */
-			Node? declared = self.operandPlanner.expressionStorageType(target, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
-			return self.cTypes.lower(declared == null ? targetType : declared);
-		}
-		if (target.kind == NK_IDENTIFIER && varTypes.has(target.name)) {
-			return self.cTypes.lowerGeneric(varTypes.get(target.name), self.context.activeTypeMap);
-		}
-		if (target.kind == NK_FIELD_ACCESS_EXPR && target.obj != null) {
-			Node? receiverType = self.resolvedExpressionType(target.obj, varTypes);
-			if (receiverType != null && receiverType.genericArgs().len > 0 && self.analyzed.isGenericClass(receiverType.base)) {
-				Node? member = SemanticTypeSystem.genericMember(self.analyzed, receiverType.base, target.field);
-				if (member != null && member.type != null) {
-					return self.cTypes.lowerGeneric(member.type, SemanticTypeSystem.genericTypeMap(self.analyzed, receiverType));
-				}
-			}
-		}
-		return self.cTypes.lower(self.cTypes.resolveBodyType(targetType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
-	}
-
 	/* The assignable spelling of one storage temporary, as Python's
 	 * StorageLowerer._temporary declares it: a copied scalar drops its
 	 * const/static/extern/volatile qualifiers, anything else keeps its type. */
