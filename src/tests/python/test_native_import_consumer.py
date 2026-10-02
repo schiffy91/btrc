@@ -5993,6 +5993,25 @@ def test_native_gui_keeps_provider_modules_private(native_project, native_compil
     assert diagnostic in str(compiled.failure) + str(compiled.diagnostics)
 
 
+GRID_ADAPTER_SOURCE = """import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSGrid;
+import Library.GUI.MacOS.MacOSLabel;
+import Library.GUI.MacOS.MacOSSelect;
+
+int main() {
+	var app = MacOSApplication();
+	var form = MacOSGrid(2, 2, 20.0, 15.0);
+	var input = MacOSSelect();
+	form.setChild(1, 0, input);
+	form.layout();
+	var frame = input.nativeView().frame();
+	double width = form.nativeView().fittingSize().width;
+	return frame.size.width > width ? 1 : 0;
+}
+"""
+
 PROVIDER_GUI_FIXTURES = {
     "NativePanel",
     "NativeButtons",
@@ -6197,11 +6216,15 @@ def test_macos_panel_and_progress_controls(
                 f"[((__bridge NSButton*){receiver}) action]"
             )
     if fixture_name == "NativeGrid":
-        adapter = next(
-            unit["source"]
-            for unit in json.loads(plan.read_text())["generated-units"]
-            if "typedef struct __btrc_value_CGRect " in unit["source"]
-        )
+        # Through Library.GUI the program also reaches CoreText's C declarations,
+        # which then own CGRect, so no Objective-C value records exist there.
+        # The form's ordering needs the AppKit-only declaration set it used.
+        form = source.parent / "GridAdapter.btrc"
+        form.write_text(GRID_ADAPTER_SOURCE)
+        form_plan = root / "GridAdapter.link.json"
+        declared = native_compile(form, data_root=gui_provider_root, plan_path=form_plan)
+        assert declared.successful, (declared.failure, declared.diagnostics)
+        adapter = json.loads(form_plan.read_text())["generated-units"][0]["source"]
         # Match the self-hosted dependency order, including forward declarations.
         # The real Settings form exposed reference ordering CGRect before CGPoint.
         assert adapter.index("typedef struct __btrc_value_CGPoint ") < adapter.index(
