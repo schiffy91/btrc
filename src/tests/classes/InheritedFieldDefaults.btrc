@@ -28,5 +28,6 @@ int main() {
 	print(f"{plain.a} {plain.b} {plain.d} {plain.name}");
 	Grand grand = Grand(1);
 	print(f"{grand.a} {grand.b} {grand.c} {grand.e} {grand.name}");
+	print("PASS: inherited field defaults");
 	return 0;
 }

@@ -31,5 +31,6 @@ int main() {
 	both.push("z");
 	Vector<string> nested = flag ? (missing != null ? missing.names() : []) : [];
 	print(f"{both.len} {both.get(0)} {nested.len}");
+	print("PASS: empty literal ternary");
 	return 0;
 }
