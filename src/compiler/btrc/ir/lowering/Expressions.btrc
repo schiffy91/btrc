@@ -2110,10 +2110,16 @@ class ExpressionLowerer {
 	public IRNode lowerSizeof(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node operand = node.operand;
 		if (operand != null && operand.kind == NK_SIZEOF_TYPE) {
-			string operandC = self.cTypes.lower(self.cTypes.resolveBodyType(operand.type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+			Node resolvedOperand = self.cTypes.resolveBodyType(operand.type, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+			string operandC = self.cTypes.lower(resolvedOperand);
 			if (self.context.genericBody || self.context.callDefaultTypeDepth > 0) {
 				operandC = self.cTypes.lowerGeneric(operand.type, self.context.activeTypeMap);
 			}
+			/* sizeof(ClassName) measures the class's struct, not the reference
+			 * a class-typed value holds, as Python's CTypeLowerer.render spells
+			 * the type. */
+			bool objectType = resolvedOperand.pointerDepth == 0 && !resolvedOperand.isArray && (((self.analyzed.isClass(resolvedOperand.base) || self.analyzed.isInterface(resolvedOperand.base)) && resolvedOperand.genericArgs().len == 0) || (resolvedOperand.genericArgs().len > 0 && self.analyzed.isGenericClass(resolvedOperand.base)));
+			if (objectType && operandC.endsWith("*")) { operandC = operandC.substring(0, operandC.length() - 1); }
 			return IRNode.sizeofType(operandC);
 		}
 		if (operand != null && operand.kind == NK_SIZEOF_EXPR_OP) {

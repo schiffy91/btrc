@@ -133,7 +133,37 @@ class IROptimizer {
 		self.eliminateDeadGlobals(module);
 		self.eliminateDeadFunctions(module);
 		GpuPipeline.eliminateUnreachable(module);
+		self.eliminateDeadExterns(module);
 		self.eliminateDeadTypeDeclarations(module);
+	}
+
+	/* A prototype with no definition in this module survives only while
+	 * live code calls or names it. Mirrors IROptimizer._prune_externs. */
+	private void eliminateDeadExterns(IRModule m) {
+		Map<string, bool> defined = {};
+		for definition in m.functions { defined.put(definition.name, true); }
+		Map<string, bool> names = {};
+		for declaration in m.functionDecls {
+			if (!defined.has(declaration.name)) { names.put(declaration.name, true); }
+		}
+		if (names.len == 0) { return; }
+		Map<string, bool> referenced = {};
+		for definition in m.functions { self.collectFuncRefs(definition.body, names, referenced); }
+		for global in m.globalDecls { self.collectFuncRefs(global.init, names, referenced); }
+		for declaration in m.objectiveCClasses {
+			for method in declaration.methods { self.collectFuncRefs(method.body, names, referenced); }
+		}
+		for declaration in m.preprocessorDecls {
+			if (declaration.kind == IR_PREPROCESSOR_MACRO) { self.scanTextForKnownNames(declaration.replacement, names, referenced); }
+		}
+		Vector<IRFunctionDecl> kept = [];
+		for declaration in m.functionDecls {
+			if (!names.has(declaration.name) || referenced.has(declaration.name)) { kept.push(declaration); }
+		}
+		if (kept.len == m.functionDecls.len) { return; }
+		Vector<IRFunctionDecl> previous = m.functionDecls;
+		if (self.moduleUnit) { keep previous; }
+		m.functionDecls = kept;
 	}
 
 	/* File-scope value reachability before ordinary function/helper DCE.
