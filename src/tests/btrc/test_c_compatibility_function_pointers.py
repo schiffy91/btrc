@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 from src.tests.btrc.test_c_compatibility_bodies import _reference, _relative, _selfhost, _write
-from src.tests.btrc.test_mutex_value_contract import _compile_pair, _strict_matrix
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -278,5 +278,5 @@ def test_disambiguation_runs_strictly_in_both_compilers(
     source: str,
 ) -> None:
     name = request.node.callspec.id
-    for artifact in _compile_pair(semantic_btrcc, tmp_path, source, name):
-        _strict_matrix(artifact, tmp_path)
+    for artifact in compile_snippet_pair(semantic_btrcc, tmp_path, source, name):
+        strict_c11_matrix(artifact, tmp_path)
