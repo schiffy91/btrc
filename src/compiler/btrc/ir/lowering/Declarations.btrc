@@ -2764,7 +2764,10 @@ class DeclarationLowerer {
 			} else if (inferredArray) {
 				global.arraySize = IRNode.literal(Strings.fromInt(d.initializer.elements().len));
 			} else {
-				global.arraySize = self.expressions.stringArrayExtent(d.initializer);
+				IRNode? stringExtent = self.expressions.stringArrayExtent(d.initializer);
+				if (stringExtent != null) {
+					global.arraySize = stringExtent;
+				}
 			}
 			/* Only an extern declaration without an initializer keeps an
 			 * empty bound; every other array has a complete type. */
@@ -4653,7 +4656,7 @@ class DeclarationLowerer {
 						global.arraySize = self.expressions.lowerExpr(field.type.arraySize, empty, callableFlow);
 					} else if (field.initializer != null && (field.initializer.kind == NK_LIST_LITERAL || field.initializer.kind == NK_BRACE_INITIALIZER)) {
 						global.arraySize = IRNode.literal(Strings.fromInt(field.initializer.elements().len));
-					} else {
+					} else if (stringExtent != null) {
 						global.arraySize = stringExtent;
 					}
 				}
