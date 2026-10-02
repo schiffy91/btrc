@@ -185,8 +185,19 @@ static SPSCQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 	return true;
 }
 
-@realtime static void btrcRealtimeClipPracticeBeginPlayback(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, long long transportFrame, double speed, unsigned long long mappingGeneration) {
+/* Clip positions are in clip source frames, which run at the device rate; the
+ * practice mapping, beat grid and captures are in frames of the configured
+ * transport rate. Every anchor crosses that boundary here, and nowhere else. */
+@realtime static long long btrcRealtimeClipPracticeTransportFrame(struct BtrcRealtimeClipPracticeContext* context, long double clipFrame) {
+	long double scaled = clipFrame * (long double)context->configuration.baseTransportFramesPerDeviceFrame;
+	if (scaled != scaled || scaled < (long double)0.0) { return 0LL; }
+	if (scaled >= (long double)9223372036854775807.0) { return 9223372036854775807LL; }
+	return (long long)scaled;
+}
+
+@realtime static void btrcRealtimeClipPracticeBeginPlayback(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, long double clipFrame, double speed, unsigned long long mappingGeneration) {
 	if (context == null || context->configuration.configured == 0) { return; }
+	long long transportFrame = btrcRealtimeClipPracticeTransportFrame(context, clipFrame);
 	long long countInFrames = (long long)context->configuration.countInBeats * context->configuration.beatInterval;
 	context->mappingGeneration = mappingGeneration;
 	context->anchorDeviceFrame = deviceFrame;
@@ -205,8 +216,9 @@ static SPSCQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 	context->clickRemaining = 0;
 }
 
-@realtime static void btrcRealtimeClipPracticeDiscontinuity(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, long long transportFrame, double speed, unsigned long long mappingGeneration, bool restartBeatGrid) {
+@realtime static void btrcRealtimeClipPracticeDiscontinuity(struct BtrcRealtimeClipPracticeContext* context, unsigned long long deviceFrame, long double clipFrame, double speed, unsigned long long mappingGeneration, bool restartBeatGrid) {
 	if (context == null || context->configuration.configured == 0) { return; }
+	long long transportFrame = btrcRealtimeClipPracticeTransportFrame(context, clipFrame);
 	context->mappingGeneration = mappingGeneration;
 	context->anchorDeviceFrame = deviceFrame;
 	context->anchorTransportFrame = transportFrame;
@@ -216,6 +228,23 @@ static SPSCQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 	context->phase = (int)REALTIME_CLIP_PRACTICE_PLAYING;
 	context->clickRemaining = 0;
 	if (restartBeatGrid || context->nextBeat < transportFrame) { context->nextBeat = transportFrame; }
+}
+
+/* The device timeline moved under a running mapping (a new stream epoch, a
+ * flagged discontinuity or a frame gap). The playhead did not move, so the
+ * block's first device frame takes the transport frame the old mapping
+ * expected next, under the transport's new mapping generation. */
+@realtime static void btrcRealtimeClipPracticeReanchor(struct BtrcRealtimeClipPracticeContext* context, unsigned long long expectedDeviceFrame, unsigned long long deviceFrame, unsigned long long mappingGeneration) {
+	if (context == null || context->configuration.configured == 0 || context->phase == (int)REALTIME_CLIP_PRACTICE_IDLE) { return; }
+	long long transportFrame = context->lastMappedTransportFrame;
+	if (!btrcRealtimeClipPracticeTryMap(context, expectedDeviceFrame, &transportFrame)) {
+		btrcRealtimeIncrement(&context->callbackViolations);
+		transportFrame = context->lastMappedTransportFrame;
+	}
+	context->mappingGeneration = mappingGeneration;
+	context->anchorDeviceFrame = deviceFrame;
+	context->anchorTransportFrame = transportFrame;
+	context->lastMappedTransportFrame = transportFrame;
 }
 
 @realtime static float btrcRealtimeClipPracticeClamp(float sample) {
@@ -266,7 +295,10 @@ static SPSCQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 	return context->phase != (int)REALTIME_CLIP_PRACTICE_COUNT_IN;
 }
 
-@realtime static float btrcRealtimeClipPracticeInput(struct BtrcRealtimeClipPracticeContext* context, Span<const float> inputs, int inputChannels, int frame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
+/* `deviceFrame` is the frame's output device frame, which the mapping and the
+ * latency compensation run on; `inputDeviceFrame` is the hardware input frame
+ * the captured sample reports. */
+@realtime static float btrcRealtimeClipPracticeInput(struct BtrcRealtimeClipPracticeContext* context, Span<const float> inputs, int inputChannels, int frame, unsigned long long inputDeviceFrame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
 	if (!inputs.isValid() || inputChannels <= 0 || inputs.isEmpty()) {
 		context->monitorState = context->configuration.monitorEnabled != 0 ? (int)REALTIME_CLIP_INPUT_MONITOR_INPUT_UNAVAILABLE : (int)REALTIME_CLIP_INPUT_MONITOR_DISABLED;
 		return 0.0f;
@@ -291,7 +323,7 @@ static SPSCQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 			if (!btrcRealtimeClipPracticeTryMap(context, observedDeviceFrame, &observedTransportFrame) || observedTransportFrame < 0LL) { observedTransportFrame = 0LL; }
 		}
 		struct BtrcRealtimeClipPracticeInputValue captured;
-		captured.deviceFrame = deviceFrame;
+		captured.deviceFrame = inputDeviceFrame;
 		captured.mappingGeneration = mappingGeneration;
 		captured.transportFrame = observedTransportFrame;
 		captured.sample = sample;
@@ -313,9 +345,9 @@ static SPSCQueueOpenKind btrcRealtimeClipPracticeContextOpen(int sampleRate, int
 	return sample * context->configuration.monitorGain;
 }
 
-@realtime static void btrcRealtimeClipPracticeMixFrame(struct BtrcRealtimeClipPracticeContext* context, Span<const float> inputs, int inputChannels, Span<float> outputs, int outputChannels, int frame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
+@realtime static void btrcRealtimeClipPracticeMixFrame(struct BtrcRealtimeClipPracticeContext* context, Span<const float> inputs, int inputChannels, Span<float> outputs, int outputChannels, int frame, unsigned long long inputDeviceFrame, unsigned long long deviceFrame, unsigned long long mappingGeneration, long long mappedTransportFrame) {
 	if (context == null || context->configuration.configured == 0) { return; }
-	float monitor = btrcRealtimeClipPracticeInput(context, inputs, inputChannels, frame, deviceFrame, mappingGeneration, mappedTransportFrame);
+	float monitor = btrcRealtimeClipPracticeInput(context, inputs, inputChannels, frame, inputDeviceFrame, deviceFrame, mappingGeneration, mappedTransportFrame);
 	float click = 0.0f;
 	if (context->clickRemaining > 0) {
 		click = (context->clickRemaining & 1) == 0 ? context->configuration.metronomeGain : -context->configuration.metronomeGain;

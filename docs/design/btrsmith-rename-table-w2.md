@@ -219,6 +219,21 @@ a build; BTRSmith sees new warnings until it guards the values.
 | a possibly-null value stored into a non-nullable variable, field, parameter, return or default | new warning `Possibly-null value stored in non-nullable <context> of type 'T' — check for null first`; guard first or declare the target nullable |
 | calls after `exit`, `abort`, `_Exit`, `quick_exit`, `longjmp`, `pthread_exit` | treated as unreachable; a null guard ending in one proves the value non-null after it |
 
+### Realtime clip transport seam (`stage4/realtime-seam`)
+
+Nothing is renamed or removed, so no BTRSmith source stops compiling. The
+render seam gained a realtime clock read, and three observations changed value
+to match their documented meaning; code that compensated for the old values
+must drop the compensation.
+
+| Old | New |
+| --- | --- |
+| (new) | `struct RealtimeClipTransportBlockClock` and `class @realtime bool RealtimeClipTransport.renderWithClock(renderer, block, inputs, outputs, &clock)` (`Library.Realtime.RealtimeClipTransport`): `render()` that also fills a caller-owned clock with the token, play state, frame, speed and mapping generation the block started at and ended with, plus its device frame and epoch. `render()` is unchanged and passes no clock. |
+| practice `transportFrame()` (captured input, telemetry `mappedTransportFrame()`) after seek, play, loop entry or wrap, speed change and `configurePractice` counted clip source frames | frames of the practice configuration's `transportRate()`; equal to the old value only when that rate is the device rate |
+| `RealtimeClipPracticeInputSample.deviceFrame()` was the transport's count of frames rendered | the block's `inputDeviceFrame` plus the frame's offset in the block |
+| `RealtimeClipClock.deviceFrame()`, `RealtimeClipPracticeTelemetry.deviceFrame()` were the count of frames rendered | the output device frame after the last block (`outputDeviceFrame + frameCount`) |
+| a new `streamEpoch`, a discontinuity flag or a gap in `outputDeviceFrame` was ignored | re-anchors a playing clip's mapping at the block's first frame under a new mapping generation, keeping the playhead and the practice transport frame continuous |
+
 ## 2. Mechanical substitutions
 
 Apply in this order over BTRSmith's `.btrc` sources, `btrc.toml` files and
