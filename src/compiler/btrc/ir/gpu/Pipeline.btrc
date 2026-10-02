@@ -558,7 +558,7 @@ class GpuPipeline {
 				Vector<IRNode> checked = [];
 				checked.push(IRNode.variable(self.cpuIndexName()));
 				checked.push(IRNode.variable(self.cpuArrayLength(value.name)));
-				result.statements.push(IRNode.returnStatement(IRNode.indexAccess(IRNode.variable(self.lexicalBindingCName(value.name)), IRNode.call("__btrc_gpu_checked_index", checked))));
+				result.statements.push(IRNode.returnStatement(IRNode.indexAccess(IRNode.variable(self.lexicalBindingCName(value.name)), self.checkedIndex(checked))));
 			} else {
 				result.statements.push(IRNode.returnStatement(operands.cpuReturnValue));
 			}
@@ -767,7 +767,7 @@ class GpuPipeline {
 		Vector<IRNode> checked = [];
 		checked.push(index);
 		checked.push(IRNode.variable(self.cpuArrayLength(expression.obj.name)));
-		return IRNode.indexAccess(array, IRNode.call("__btrc_gpu_checked_index", checked));
+		return IRNode.indexAccess(array, self.checkedIndex(checked));
 	}
 
 	public IRNode? cpuBuiltin(string name, Node call, Vector<IRNode> arguments, string firstType) {
@@ -903,33 +903,11 @@ class GpuPipeline {
 
 	public string cpuArrayLength(string name) { return self.cpuArrayLengths.get(name); }
 
-	private void ensureCheckedIndexHelper(IRModule module) {
-		int index = 0;
-		while (index < module.functions.len) {
-			if (module.functions.get(index).name == "__btrc_gpu_checked_index") { return; }
-			index = index + 1;
-		}
-		IRFunction helper = IRFunction();
-		helper.name = "__btrc_gpu_checked_index";
-		helper.returnType = "int";
-		helper.isStatic = true;
-		helper.params.push(IRParam("int", "index"));
-		helper.params.push(IRParam("int", "length"));
-		Vector<IRNode> invalid = [];
-		Vector<IRNode> message = [];
-		message.push(IRNode.literal("\"GPU array index out of bounds\\n\""));
-		message.push(IRNode.variable("stderr"));
-		invalid.push(IRNode.expressionStatement(IRNode.call("fputs", message)));
-		invalid.push(IRNode.expressionStatement(IRNode.call("exit", [IRNode.literal("1")])));
-		Vector<IRNode> body = [];
-		body.push(IRNode.ifStatement(IRNode.binary(IRNode.binary(IRNode.variable("index"), "<", IRNode.literal("0")), "||", IRNode.binary(IRNode.variable("index"), ">=", IRNode.variable("length"))), IRNode.block(invalid), null));
-		body.push(IRNode.returnStatement(IRNode.variable("index")));
-		helper.body = IRNode.block(body);
-		module.functions.push(helper);
-	}
+	/* The CPU fallback bounds-checks an index through the runtime catalog's
+	 * __btrc_gpu_index_check, as Python's GpuLowerer does. */
+	private IRNode checkedIndex(Vector<IRNode> arguments) { return IRNode.call("__btrc_gpu_index_check", arguments); }
 
 	public GpuCpuLoweringPlan beginCpuFallback(Node declaration, IRModule module, Map<string, Node> seededTypes) {
-		self.ensureCheckedIndexHelper(module);
 		GpuCpuLoweringPlan plan = GpuCpuLoweringPlan(declaration);
 		plan.returnsArray = declaration.returnType != null && declaration.returnType.isArray;
 		plan.worker.name = declaration.name + "__gpuitem";
