@@ -72,7 +72,8 @@ def test_selfhost_preserves_aggregate_mutations_across_longjmp(
     emitted = generated.read_text()
     assert "volatile int values[1]" in emitted
     assert "volatile struct Probe probe" in emitted
-    assert "int volatile* __btrc_lvalue" in emitted
+    # The generated lvalue pointer of a setjmp function is itself volatile.
+    assert "int volatile* volatile __btrc_lvalue" in emitted
     _strict_build_and_run(
         generated,
         tmp_path / "setjmp-aggregate",
