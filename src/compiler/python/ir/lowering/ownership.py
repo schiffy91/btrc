@@ -2635,6 +2635,8 @@ class OwnershipLowerer:
         if isinstance(node, TupleLiteral):
             return any(self.has_observable_effect(child) for child in node.elements)
         if isinstance(node, FieldAccessExpr):
+            if self._rich_enum_variant_tag(node):
+                return False
             if node.optional or self.has_observable_effect(node.obj):
                 return True
             receiver_type = self._canonical_receiver_type(self._session.type_of(node.obj))
@@ -2655,6 +2657,8 @@ class OwnershipLowerer:
             return True
         if isinstance(node, Identifier):
             return self._enum_constant_identifier(node)
+        if isinstance(node, FieldAccessExpr):
+            return self._rich_enum_variant_tag(node)
         if isinstance(node, CastExpr):
             return self.reorder_inert(node.expr)
         if isinstance(node, SizeofExpr):
@@ -2665,6 +2669,13 @@ class OwnershipLowerer:
 
     def _canonical_receiver_type(self, type_expr):
         return self._types.canonical_type(type_expr)
+
+    def _rich_enum_variant_tag(self, node) -> bool:
+        """Whether one projection names a rich enum variant's tag constant."""
+        if node.optional or not isinstance(node.obj, Identifier) or self._session.local_is_declared(node.obj.name):
+            return False
+        declaration = self._analyzed.rich_enum_table.get(node.obj.name)
+        return declaration is not None and any(variant.name == node.field for variant in declaration.variants)
 
     def _enum_constant_identifier(self, node) -> bool:
         """Whether one identifier names a declared enum constant.

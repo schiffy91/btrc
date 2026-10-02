@@ -143,6 +143,7 @@ class OwnershipOperandPlanner {
 			return self.hasEffect(expression.expr, environment);
 		}
 		if (kind == NK_FIELD_ACCESS_EXPR) {
+			if (self.richEnumVariantTag(expression, environment)) { return false; }
 			if (expression.optional || self.hasEffect(expression.obj, environment)) {
 				return true;
 			}
@@ -170,10 +171,24 @@ class OwnershipOperandPlanner {
 			return self.reorderInert(expression.expr, environment);
 		}
 		if (kind == NK_SIZEOF_EXPR) { return true; }
+		if (kind == NK_FIELD_ACCESS_EXPR) { return self.richEnumVariantTag(expression, environment); }
 		if (kind == NK_UNARY_EXPR && (expression.op == "+" || expression.op == "-" || expression.op == "!" || expression.op == "~")) {
 			return self.reorderInert(expression.operand, environment);
 		}
 		return kind == NK_IDENTIFIER && (self.analyzed.isEnumValue(expression.name) || (!environment.hasVariable(expression.name) && self.analyzed.funcTable.has(expression.name)));
+	}
+
+	/* Whether one projection names a rich enum variant's tag constant, as
+	 * Python's OwnershipLowerer._rich_enum_variant_tag decides. */
+	private bool richEnumVariantTag(Node expression, OwnershipOperandEnvironment environment) {
+		Node? receiver = expression.obj;
+		if (expression.optional || receiver == null || receiver.kind != NK_IDENTIFIER || environment.hasVariable(receiver.name) || !self.analyzed.richEnumTable.has(receiver.name)) {
+			return false;
+		}
+		for variant in self.analyzed.richEnumTable.get(receiver.name).variants() {
+			if (variant.name == expression.field) { return true; }
+		}
+		return false;
 	}
 
 	public bool requiresOrder(Vector<Node> operands, OwnershipOperandEnvironment environment) {
