@@ -491,9 +491,9 @@ construct = "do/while"
 intent = "positive"
 status = "accepted"
 revision = "cf28fe7"
-python = { exit = 0, stdout = "5\nPASS: test_do_while\n" }
-btrcc = { exit = 0, stdout = "5\nPASS: test_do_while\n" }
-corpus = "control_flow/DoWhileBasic.btrc"
+python = { exit = 0, stdout = "PASS: test_do_while\n" }
+btrcc = { exit = 0, stdout = "PASS: test_do_while\n" }
+corpus = "control_flow/DoWhile.btrc"
 
 [[probe]]
 id = "s-switch-fallthrough"
