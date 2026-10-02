@@ -26,6 +26,14 @@ Manifest::
     sha256 = "..."                          # of the sorted ids, one per line
     source = { document = "docs/design/native-ui-parity.md", pattern = '^\\| (E\\d{2}) —' }
 
+A P0 entry may name ``slices`` (from ``TARGET_SLICES``) instead of whole
+families: its ``platforms`` are then exactly the slices' families, in order,
+and every id is declared once per slice, as that family plus the slice's
+artifact variant (``slots = ids x slices x frontends``)::
+
+    platforms = ["windows", "ios", "android"]
+    slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
+
 A source is ``{document, pattern}`` (the first group of every matching line of
 a tracked document), ``{ledger}`` (the ids of this kind in a checked inventory
 ledger, such as P0's compact inventory) or ``{list}`` (the ids themselves).
@@ -42,6 +50,7 @@ from pathlib import Path
 
 from tools.qualification.schema import (
     INVENTORY_KINDS,
+    TARGET_SLICES,
     FieldReader,
     Frontend,
     LedgerDocument,
@@ -69,20 +78,28 @@ class Denominator:
     frozen_digest: str
     source: str
     ids: tuple[str, ...]
+    slices: tuple[str, ...] = ()
 
-    FIELDS = ("kind", "release", "platforms", "frontends", "ids", "slots", "sha256", "source")
+    FIELDS = ("kind", "release", "platforms", "slices", "frontends", "ids", "slots", "sha256", "source")
 
     @staticmethod
     def digest(ids: Iterable[str]) -> str:
         return hashlib.sha256("".join(f"{identifier}\n" for identifier in sorted(ids)).encode()).hexdigest()
 
+    def targets(self) -> tuple[tuple[Platform, str | None], ...]:
+        """The (family, variant) pairs every id is declared on: the slices, or the bare families."""
+
+        if self.slices:
+            return tuple(TARGET_SLICES[name] for name in self.slices)
+        return tuple((platform, None) for platform in self.platforms)
+
     def slot_keys(self) -> set[tuple[str, str, str, str, str]]:
         """Every slot the frozen release declares, keyed as `Subject.key` keys a record."""
 
         return {
-            Subject(kind=self.kind, id=identifier, platform=platform, frontend=frontend).key
+            Subject(kind=self.kind, id=identifier, platform=platform, frontend=frontend, variant=variant).key
             for identifier in self.ids
-            for platform in self.platforms
+            for platform, variant in self.targets()
             for frontend in self.frontends or (None,)
         }
 
@@ -95,9 +112,10 @@ class Denominator:
             problems.append(f"{where}: its source yields {len(self.ids)} ids, frozen at {self.frozen_ids}")
         elif self.digest(self.ids) != self.frozen_digest:
             problems.append(f"{where}: its source yields different ids than the frozen sha256")
-        expected_slots = self.frozen_ids * len(self.platforms) * max(1, len(self.frontends))
+        expected_slots = self.frozen_ids * len(self.targets()) * max(1, len(self.frontends))
         if self.frozen_slots != expected_slots:
-            problems.append(f"{where}: slots = {self.frozen_slots}, but ids x platforms x frontends = {expected_slots}")
+            axis = "slices" if self.slices else "platforms"
+            problems.append(f"{where}: slots = {self.frozen_slots}, but ids x {axis} x frontends = {expected_slots}")
         return problems
 
 
@@ -136,6 +154,12 @@ class DenominatorManifest:
             raise LedgerSchemaError(f"{where}.platforms: name at least one platform family")
         if Platform.IPADOS in platforms:
             raise LedgerSchemaError(f"{where}.platforms: iOS/iPadOS is one family, ios")
+        slices = fields.texts("slices") or ()
+        for name in slices:
+            if name not in TARGET_SLICES:
+                raise LedgerSchemaError(f"{where}.slices: {name!r} is not one of {', '.join(TARGET_SLICES)}")
+        if slices and tuple(dict.fromkeys(TARGET_SLICES[name][0] for name in slices)) != platforms:
+            raise LedgerSchemaError(f"{where}.platforms: must be the slices' families in slice order")
         sha256 = fields.text("sha256", required=True)
         if not re.fullmatch(r"[0-9a-f]{64}", sha256):
             raise LedgerSchemaError(f"{where}.sha256: expected 64 lowercase hex digits")
@@ -150,6 +174,7 @@ class DenominatorManifest:
             frozen_digest=sha256,
             source=source,
             ids=ids,
+            slices=tuple(slices),
         )
 
     @staticmethod

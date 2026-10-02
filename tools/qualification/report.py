@@ -125,10 +125,11 @@ class LedgerRollup:
 
         latest: dict[str, Evidence | None] = {}
         for nodeid in regression:
+            # A slice row takes only its own artifact's runs: simulator and device never merge.
             runs = [
                 run
                 for run in tests.get((nodeid, subject.platform), ())
-                if run.subject.frontend in (None, subject.frontend)
+                if run.subject.frontend in (None, subject.frontend) and subject.variant in (None, run.subject.variant)
             ]
             best = max(runs, key=lambda run: (run.subject.frontend is not None, run.order), default=None)
             latest[nodeid] = best.evidence if best is not None else None

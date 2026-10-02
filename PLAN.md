@@ -142,6 +142,20 @@ Each stage records its exit evidence here as it closes; measurements and commit 
 - **Serial step 1.** `IRTypeDeclarationPlanner` (`ir/optimization/Optimizer.btrc`) ports `IROptimizer.plan_type_declarations`. btrcc's `CEmitter` now emits forwards, the planned type declarations, then prototypes, for whole programs, split units and module units. `ModuleUnitDeclarations.orderStructs` is retired. Over the 964-program corpus, Python's C is byte-identical before and after; the only differences are three files whose absolute `#include` path names the checkout. 546 btrcc outputs changed, each a pure reordering. The layout of user declarations and prototypes now matches Python's in 960 of 964 programs (446 before) and in 496 of 496 sampled module-unit files (286 before). Whole-file byte identity stays at 3 programs, because lowering differs; `docs/design/c-compatibility.md` lists the differences. A read-only reviewer confirmed the port and found no blocking defect. Two gaps shared by both planners are left as they are: array sizes do not wait for enum values, and `X_V_Data` has no forward declaration.
 - **Exit evidence.** The bootstrap fixed point passed (`test_bootstrap.py`, 20m42s). The corpus through both compilers had 1,983 passed, 6 skipped and 1 failed: `stdlib/Daemon.btrc` under btrcc ran 15.0 s against the runner's 15 s limit. The unchanged base binary also takes 15.0–15.15 s and Python's build takes 14.6 s in this 4-CPU container, so the change is not the cause; it needs a look on the Mac. Module-unit suites had 61 passed and 8 skipped. `test_cached_split_cli_restores_complete_executable_generation` (4 cases) also fails on the unchanged base, because the Python CLI reports `--profile` as cached; that is recorded, not fixed here. `boundary-check` held 287 records unchanged. Strict C11 compiled 39 reordered programs under gcc and clang at `-O0` and `-O2` (156 compiles) with no errors. Both self-host entries transpiled with zero analyzer warnings.
 
+### Stage 22: P0 inventory (inventory done 2026-10-02, cloud lane `stage22/p0-inventory`; the stage stays open)
+- **`platforms-p0-inventory`.** `docs/design/platform-inventory.toml` classifies every operation on the six target slices, in the ledger format. The ledger gained `TARGET_SLICES`, which lets an inventory row name a family plus artifact variant, a `slices` denominator axis, and a compact TOML row form (`InventoryRows`).
+- **Denominator.** 323 operations × 6 slices = 1,938 slots, frozen as release `p0-inventory-2026-10-02` in `tools/qualification/denominators.toml`. The operations are 84 stdlib exports outside UI0's `App`/`GUI`/`Tray`/`UI`, 223 runtime helpers and 16 corpus topics. `test_platform_inventory.py`, which runs in `make test`, recomputes them from the manifests, exports and corpus and fails on drift.
+- **Totals (equivalent / adapted / os-restricted / missing).**
+  - Windows x64 and arm64: 271 / 36 / 4 / 12 each.
+  - iOS device and simulator: 281 / 16 / 23 / 3 each.
+  - Android arm64 and x86_64: 294 / 15 / 11 / 3 each.
+  - No row is `passed`: no slice result has been ingested.
+- **Review.** A skeptical reviewer checked 30 sampled cells and confirmed 22. Its 8 findings were applied: 6 regression lists, 1 owner and 1 reason. None changed a class.
+- **Deferred.**
+  - Runtime rows inherit their asset's regression tests, which do not reach every helper. Per-helper pins remain to be done.
+  - BTRSmith journeys and package contracts are pending in the private BTRSmith repository (`btrsmith-p0-inventory`) and are kept out of these totals.
+  - The entry gate, the adaptation approvals (`platforms-p0-adaptations`), the matrix pin and the device registry are still pending.
+
 ## Decisions (all resolved 2026-09-30)
 
 Every decision below is settled. Where stage text further down still says "you approve", "you close", "if approved", "your checklist" or "blocked on push", the resolution in this section and the standing approvals after it govern. No stage waits on a decision.

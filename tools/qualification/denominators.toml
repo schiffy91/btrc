@@ -6,9 +6,11 @@
 # change, never a side effect of deleting a row.
 #
 # The three UI0 denominators come from the 2026-09-21 source inventory (btrc
-# 4e5c982). P0's operation and journey denominators are frozen here when P0
-# checks in its compact inventory ledger: kind = "operation", source =
-# { ledger = "<that file>" }, platforms = the families it classifies.
+# 4e5c982). P0's operation denominator is its compact inventory ledger,
+# docs/design/platform-inventory.toml, frozen per target slice on 2026-10-02
+# (btrc c7f785e): 84 stdlib exports outside UI0's groups, 223 runtime
+# helpers and 16 corpus topics. BTRSmith's journey denominator is frozen in
+# the private BTRSmith repository (btrsmith-p0-inventory), not here.
 
 schema = "btrc.qualification.denominators/1"
 
@@ -41,3 +43,14 @@ ids = 47
 slots = 470
 sha256 = "1bbc6343d0dc262da4f93983669c3471bb21c9438483cb33bca7de0f67a1e864"
 source = { document = "docs/design/native-ui-parity.md", pattern = '^\| (E\d{2}) —' }
+
+[[denominators]]
+kind = "operation"
+release = "p0-inventory-2026-10-02"
+platforms = ["windows", "ios", "android"]
+slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
+frontends = []
+ids = 323
+slots = 1938
+sha256 = "da390d262e3a50841b6018c47c780aaf4eb527908f3b185d70eb4c5d06f60452"
+source = { ledger = "docs/design/platform-inventory.toml" }
