@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from src.compiler.python.abi.hosted import HOSTED_ABI
@@ -100,22 +99,22 @@ class ControlFlowAnalyzer:
                     ):
                         candidates.append((member, declaration.name))
         bodies = [
-            (callable_, owner, self._callable_local_names(callable_).__contains__) for callable_, owner in candidates
+            (callable_, owner, frozenset(self._callable_local_names(callable_))) for callable_, owner in candidates
         ]
         changed = True
         while changed:
             changed = False
-            for callable_, owner, is_local in bodies:
+            for callable_, owner, local_names in bodies:
                 if id(callable_) in self._nonreturning_callables:
                     continue
-                if self._statements_diverge(callable_.body.statements, owner, is_local):
+                if self._statements_diverge(callable_.body.statements, owner, local_names):
                     self._nonreturning_callables.add(id(callable_))
                     changed = True
 
     def call_never_returns(self, call) -> bool:
         """Whether a call in the body being analyzed cannot return."""
         owner = self.session.current_class.name if self.session.current_class is not None else None
-        return self._call_diverges(call, owner, self._is_local_binding)
+        return self._call_diverges(call, owner, None)
 
     def statement_ends_flow(self, statement) -> bool:
         """Whether no statement after this one in its sequence can run."""
@@ -131,10 +130,14 @@ class ControlFlowAnalyzer:
         symbol = self.session.scope.lookup(name)
         return symbol is not None and symbol.kind != "function"
 
-    def _call_diverges(self, call, owner: str | None, is_local: Callable[[str], bool]) -> bool:
+    def _shadowed(self, name: str, local_names: frozenset[str] | None) -> bool:
+        """Whether a local binding hides a callee: one the pre-pass collected, or (None) one in scope now."""
+        return self._is_local_binding(name) if local_names is None else name in local_names
+
+    def _call_diverges(self, call, owner: str | None, local_names: frozenset[str] | None) -> bool:
         callee = call.callee
         if isinstance(callee, Identifier):
-            if is_local(callee.name):
+            if self._shadowed(callee.name, local_names):
                 return False
             if callee.name in HOSTED_ABI.noreturn_function_names:
                 return True
@@ -144,7 +147,7 @@ class ControlFlowAnalyzer:
             return False
         if isinstance(callee.obj, SelfExpr):
             return owner is not None and self._dispatch_never_returns(owner, callee.field)
-        if isinstance(callee.obj, Identifier) and (not is_local(callee.obj.name)):
+        if isinstance(callee.obj, Identifier) and (not self._shadowed(callee.obj.name, local_names)):
             info = self.index.class_table.get(callee.obj.name)
             method = info.methods.get(callee.field) if info is not None else None
             return method is not None and method.access == "class" and id(method) in self._nonreturning_callables
@@ -174,43 +177,43 @@ class ControlFlowAnalyzer:
             current = self.index.class_table.get(current.parent) if current.parent else None
         return False
 
-    def _statements_diverge(self, statements, owner, is_local) -> bool:
+    def _statements_diverge(self, statements, owner, local_names) -> bool:
         """Whether a statement sequence can neither complete nor return."""
         for statement in statements:
-            if self._statement_diverges(statement, owner, is_local):
+            if self._statement_diverges(statement, owner, local_names):
                 return True
             if self._contains_return(statement):
                 return False
         return False
 
-    def _statement_diverges(self, statement, owner, is_local) -> bool:
+    def _statement_diverges(self, statement, owner, local_names) -> bool:
         if isinstance(statement, ThrowStmt):
             return True
         if isinstance(statement, ExprStmt):
-            return isinstance(statement.expr, CallExpr) and self._call_diverges(statement.expr, owner, is_local)
+            return isinstance(statement.expr, CallExpr) and self._call_diverges(statement.expr, owner, local_names)
         if isinstance(statement, Block):
-            return self._statements_diverge(statement.statements, owner, is_local)
+            return self._statements_diverge(statement.statements, owner, local_names)
         if isinstance(statement, IfStmt):
-            if not self._statements_diverge(statement.then_block.statements, owner, is_local):
+            if not self._statements_diverge(statement.then_block.statements, owner, local_names):
                 return False
             if isinstance(statement.else_block, ElseBlock):
-                return self._statements_diverge(statement.else_block.body.statements, owner, is_local)
+                return self._statements_diverge(statement.else_block.body.statements, owner, local_names)
             if isinstance(statement.else_block, ElseIf):
-                return self._statement_diverges(statement.else_block.if_stmt, owner, is_local)
+                return self._statement_diverges(statement.else_block.if_stmt, owner, local_names)
             return False
         if isinstance(statement, SwitchStmt):
             return any(case.value is None for case in statement.cases) and all(
-                self._statements_diverge(case.body, owner, is_local) for case in statement.cases
+                self._statements_diverge(case.body, owner, local_names) for case in statement.cases
             )
         if isinstance(statement, TryCatchStmt):
             if statement.finally_block is not None and self._statements_diverge(
-                statement.finally_block.statements, owner, is_local
+                statement.finally_block.statements, owner, local_names
             ):
                 return True
-            if not self._statements_diverge(statement.try_block.statements, owner, is_local):
+            if not self._statements_diverge(statement.try_block.statements, owner, local_names):
                 return False
             return statement.catch_block is None or self._statements_diverge(
-                statement.catch_block.statements, owner, is_local
+                statement.catch_block.statements, owner, local_names
             )
         # A loop whose body always runs once diverges with that body, unless a
         # break leaves the loop first.
@@ -226,7 +229,7 @@ class ControlFlowAnalyzer:
         return (
             enters_body
             and (not self.contains_loop_break(statement.body))
-            and self._statements_diverge(statement.body.statements, owner, is_local)
+            and self._statements_diverge(statement.body.statements, owner, local_names)
         )
 
     def _contains_return(self, statement) -> bool:
