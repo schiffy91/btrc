@@ -41,8 +41,14 @@ run:
 - `stdlib/Daemon.btrc` used to fail under load with a daemon-stop deadline
   error. That was a stop race, not a deadline too tight for a saturated
   machine: `4c9af96` closed it (the record is read before its absence is
-  judged) and added a deterministic deadline-path check. A failure there now
-  is a real defect, not load.
+  judged) and added a deterministic deadline-path check. A second cause made
+  the program take about 15 s in a container, right at the corpus runner's
+  15 s run timeout: a stopped group's orphaned descendants stay zombies until
+  init reaps them, and `kill -0` counts zombies, so every stop waited out the
+  full `TERM` grace and then init's reaping (pid 1 in the cloud containers
+  reaps late). The supervisor now treats a group whose members are all zombies
+  as finished (`stage2/daemon-runtime`), and the program runs in under 6 s.
+  A failure there now is a real defect, not load.
 
 ### Host capacity and agent rules
 
