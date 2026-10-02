@@ -6,6 +6,7 @@ __btrc_mod
 __btrc_div_int
 __btrc_div_double
 __btrc_mod_int
+__btrc_gpu_index_check
 __btrc_string_registry
 __btrc_string_registry_lock_state
 __btrc_string_registry_lock
