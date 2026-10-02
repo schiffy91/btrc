@@ -805,7 +805,7 @@ Outside the manifest:
   - `_Alignof` and `_Static_assert` classify as reserved (I2).
   - Wide literal tokens turn E15 into a token-kind check.
 - **Stage 20.** A label inside a dead group does not exist; `goto` diagnostics see conditioned text.
-- **Stage 24 (`platforms-p1-target-spec`)** extends `targets.toml`:
+- **Stage 24 (`platforms-p1-target-spec`)** extends `targets.toml`, as designed in [platform-target-contract.md](platform-target-contract.md):
   - ios and android rows, triples and sysroots;
   - the `environments` axis (gnu, msvc, simulator);
   - data-model columns that restore `__SIZEOF_LONG__`, `__SIZEOF_WCHAR_T__`, `__LP64__` and `_LP64`, and that drive both analyzers' widths;

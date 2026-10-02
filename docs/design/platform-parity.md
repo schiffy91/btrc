@@ -154,6 +154,8 @@ Dependencies: P0. Exit: both frontends build and run an ABI/callback fixture
 on **Windows x64, iOS arm64 simulator/device, Android arm64/device + x86_64
 emulator**; Windows arm64 joins no later than W2. No provider alias to a host OS.
 
+Stage 24's design for this milestone is [platform-target-contract.md](platform-target-contract.md).
+
 - Extend shared target contracts, both package resolvers, provider filters,
   native semantic extraction, link-plan codec/reader and artifact cache keys.
   Specify target triple, environment, deployment/API minimum, sysroot/SDK,
