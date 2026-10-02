@@ -583,8 +583,8 @@ def test_nullable_interface_query_unwinds_failed_temporary_cleanup(tmp_path, san
         ("void*? pointer = null; IView invalid = pointer", "void"),
         ("var pointer = null; pointer = (void*)null; IView invalid = pointer", "void"),
         ("var invalid = (View)view", "runtime type proof"),
-        ("var invalid = view == Other()", "operator '=='"),
-        ("var invalid = Other() != view", "operator '!='"),
+        ("var invalid = view == Other()", "Operator '=='"),
+        ("var invalid = Other() != view", "Operator '!='"),
     ],
 )
 def test_selfhost_interface_boundaries(immutable_btrcc, tmp_path, operation, fragment):

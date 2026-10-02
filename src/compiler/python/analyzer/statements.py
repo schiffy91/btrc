@@ -1875,7 +1875,7 @@ class StatementAnalyzer:
                 self.analyze_expression(stmt.initializer)
             inferred = self.expressions.infer_type(stmt.initializer)
             if inferred is not None and self.session.in_gpu_function:
-                inferred = self.gpu.contextual_local_type(stmt.initializer, self.expressions.infer_type)
+                inferred = self.gpu.contextual_local_type(stmt.initializer)
             if inferred is None:
                 self.session.error(f"Cannot infer type for 'var' declaration of '{stmt.name}'", stmt.line, stmt.col)
                 stmt.type = TypeExpr(base="int")

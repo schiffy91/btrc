@@ -882,25 +882,28 @@ class GpuAnalyzer:
     def validate_kernel(self, function: FunctionDecl) -> None:
         self._kernels.validate(function, self.session.scope)
 
-    def contextual_local_type(self, expression, infer) -> TypeExpr | None:
-        """Type a kernel ``var`` binding in the GPU domain, where a floating literal is f32.
+    def contextual_local_type(self, expression) -> TypeExpr | None:
+        """Type an analyzed kernel ``var`` initializer in the GPU domain, where a floating literal is f32.
 
-        ``infer`` is the host inference for operands the GPU domain does not retype.
+        Operands the GPU domain does not retype keep the host type body analysis recorded.
         """
         if isinstance(expression, TernaryExpr):
-            when_true = infer(expression.true_expr)
+            when_true = self._host_type(expression.true_expr)
             if when_true is not None and when_true.is_array:
-                return infer(expression)
+                return self._host_type(expression)
         contextual = isinstance(
             expression, (FloatLiteral, IntLiteral, BoolLiteral, BinaryExpr, UnaryExpr, TernaryExpr, CastExpr)
         ) or (isinstance(expression, CallExpr) and self.call_uses_intrinsic(expression))
         if contextual:
-            base = self._contextual_base(expression, infer)
+            base = self._contextual_base(expression)
             if base:
                 return TypeExpr(base=base)
-        return infer(expression)
+        return self._host_type(expression)
 
-    def _contextual_base(self, expression, infer) -> str:
+    def _host_type(self, expression) -> TypeExpr | None:
+        return self.session.node_types.get(id(expression))
+
+    def _contextual_base(self, expression) -> str:
         if expression is None:
             return ""
         if isinstance(expression, FloatLiteral):
@@ -912,8 +915,8 @@ class GpuAnalyzer:
         if isinstance(expression, BinaryExpr):
             if expression.op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||"):
                 return "bool"
-            left = self._contextual_base(expression.left, infer)
-            right = self._contextual_base(expression.right, infer)
+            left = self._contextual_base(expression.left)
+            right = self._contextual_base(expression.right)
             if "float" in (left, right):
                 return "float"
             if left == right and left:
@@ -921,10 +924,10 @@ class GpuAnalyzer:
         if isinstance(expression, UnaryExpr):
             if expression.op == "!":
                 return "bool"
-            return self._contextual_base(expression.operand, infer)
+            return self._contextual_base(expression.operand)
         if isinstance(expression, TernaryExpr):
-            when_true = self._contextual_base(expression.true_expr, infer)
-            when_false = self._contextual_base(expression.false_expr, infer)
+            when_true = self._contextual_base(expression.true_expr)
+            when_false = self._contextual_base(expression.false_expr)
             if when_true == when_false:
                 return when_true
             if {when_true, when_false} == {"int", "float"}:
@@ -939,8 +942,8 @@ class GpuAnalyzer:
             if intrinsic and (name in WGSL_FLOAT_UNARY_BUILTINS or name == "pow"):
                 return "float"
             if intrinsic and name in WGSL_SAME_TYPE_BUILTINS and expression.args:
-                return self._contextual_base(expression.args[0], infer)
-        inferred = infer(expression)
+                return self._contextual_base(expression.args[0])
+        inferred = self._host_type(expression)
         return inferred.base if inferred is not None else ""
 
 

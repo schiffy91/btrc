@@ -1918,7 +1918,13 @@ class ExpressionAnalyzer:
                     expr.line,
                     expr.col,
                 )
-            elif expr.type.base != "Mutex" and expr.type.base not in self.index.class_table:
+            elif (
+                expr.type.base != "Mutex"
+                and expr.type.base not in _MANAGED_COLLECTION_BASES
+                and expr.type.base not in self.index.class_table
+            ):
+                # The collections are stdlib classes; a real compile has already
+                # rejected one used without its import.
                 self.session.error(
                     f"new requires a class type, got '{self.types.format_type(expr.type)}'", expr.line, expr.col
                 )
