@@ -733,7 +733,7 @@ class JSONNum {
 		if (convention != NULL && convention->decimal_point != NULL) {
 			string decimalPoint = Strings.copy(convention->decimal_point);
 			if (!decimalPoint.isEmpty() && !decimalPoint.equals(".")) {
-				localized = Strings.replace(token, ".", decimalPoint);
+				localized = token.replace(".", decimalPoint);
 			}
 		}
 		return strtod(localized, NULL);
@@ -758,7 +758,7 @@ class JSONNum {
 		if (convention != NULL && convention->decimal_point != NULL) {
 			string decimalPoint = Strings.copy(convention->decimal_point);
 			if (!decimalPoint.isEmpty() && !decimalPoint.equals(".")) {
-				return Strings.replace(formatted, decimalPoint, ".");
+				return formatted.replace(decimalPoint, ".");
 			}
 		}
 		return formatted;

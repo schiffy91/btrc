@@ -229,6 +229,29 @@ def test_background_jobs_sdk_failures_and_retry(compiler, tmp_path, request, san
     assert result.stderr == ""
 
 
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_native_worker_retains_its_body_until_join(compiler, tmp_path, request, sanitized):
+    """NativeWorker owns the start/join envelope BackgroundJobExecutor and the
+    ALSA stream share: it retains the body only while the thread lives and
+    survives SDK create and join failures."""
+    if sanitized and sys.platform not in {"darwin", "linux"}:
+        pytest.skip("requires a supported POSIX sanitizer toolchain")
+    generated = tmp_path / f"native-worker-{compiler}.c"
+    executable = tmp_path / f"native-worker-{compiler}"
+    _transpile(compiler, generated, request, FIXTURE / "NativeWorkerFailures.btrc")
+    _compile(
+        "/usr/bin/clang" if sanitized and sys.platform == "darwin" else "clang",
+        generated,
+        executable,
+        sanitized=sanitized,
+        faults=True,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "PASS: native worker failure recovery\n"
+    assert result.stderr == ""
+
+
 def test_import_emits_and_links_sdk_declarations_without_native_executor(
     compiler: str,
     tmp_path: Path,

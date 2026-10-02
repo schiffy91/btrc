@@ -12,7 +12,6 @@ import Library.FileSystem;
 import Library.JSON;
 import Library.Map;
 import Library.Set;
-import Library.Strings;
 import Library.Vector;
 
 class GraphNode {
@@ -97,7 +96,7 @@ class GraphCLI {
 		Map<string, string> result = {};
 		CLICommandLine parsed = CLICommandLine.parseFrom(args, startIndex);
 		for value in parsed.values("--arg") {
-			int split = Strings.find(value, "=", 0);
+			int split = value.find("=", 0);
 			if (split <= 0) { throw f"Expected --arg key=value, got: {value}"; }
 			result.put(value.substring(0, split), value.substring(split + 1, value.len() - split - 1));
 		}

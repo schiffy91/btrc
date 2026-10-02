@@ -86,8 +86,8 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 	}
 }
 
-/* Main-thread native window owner. Managed roots transfer subtree lifecycle;
- * raw native children remain a legacy provider-only mounting path. */
+/* Main-thread native window owner. attachRoot is the only mounting path: the
+ * attached root transfers its subtree's lifecycle to the window. */
 class MacOSWindow implements IWindow {
 	private NSWindow? _window;
 	private IView? _root;

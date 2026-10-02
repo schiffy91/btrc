@@ -207,6 +207,23 @@ through `import Library.GUI;` and the portable `I*` contracts.
 | importing `Library.GUI.MacOS.<Module>` (every provider module except `MacOS.AppKitText` and `MacOS.MacOSRunLoop`, the Tray seam) | no longer exported; use `Library.GUI` and the `I*` contracts |
 | (new) | `ActionMailbox.hasPending()` |
 
+### btrc-D028, btrc-D052, btrc-D053: residual stdlib drift (`stage4/residual-stdlib`)
+
+These also ship in the same pin bump.
+
+| Old | New |
+| --- | --- |
+| `DaemonSpec.renderStartCommand()` (canonicalized and rewrote `controlFile`/`logFile`) | `DaemonSpec.renderStartCommand(controlFile, logFile)` taking the already canonical paths (`DaemonControlFiles.canonicalFilePath`); the spec is never rewritten. `DaemonController.start` is unchanged |
+| `Strings.capitalize(s)`, `Strings.title(s)`, `Strings.swapCase(s)` | `s.capitalize()`, `s.title()`, `s.swapCase()` |
+| `Strings.padLeft(s, width, fill)`, `Strings.padRight(s, width, fill)` | `s.padLeft(width, fill)`, `s.padRight(width, fill)` |
+| `Strings.lstrip(s)`, `Strings.rstrip(s)`, `Strings.removePrefix(s, prefix)` | `s.lstrip()`, `s.rstrip()`, `s.removePrefix(prefix)` |
+| `Strings.isDigitStr(s)`, `Strings.isAlphaStr(s)`, `Strings.isBlank(s)` | `s.isDigit()`, `s.isAlpha()`, `s.isBlank()` |
+| `BackgroundJobWorker`, `BackgroundJobWorkerContext` (`Library.BackgroundJobs.BackgroundJobExecutor`) | `NativeWorker`, `INativeWorkerBody`, `NativeWorkerStartKind` (`Library.BackgroundJobs.NativeWorker`); `start(body)` returns a `NativeWorkerStartKind` instead of `bool` |
+
+`Strings.repeat`, `Strings.replace`, `Strings.count` and `Strings.find` remain
+as delegates to the built-ins of the same meaning; new code calls the
+built-ins.
+
 ## 2. Mechanical substitutions
 
 Apply in this order over BTRSmith's `.btrc` sources, `btrc.toml` files and
@@ -251,6 +268,10 @@ docs (word boundaries matter: `CoreAudioDeviceProvider` must not hit
 \bbtrcSpscCopy\(                                        -> SPSCQueues.copyBytes(
 \.removeAt\(  (Vector receivers only)                   -> .remove(
 DaemonSpec: \.pid\(  -> .control(   and   \bpidFile\b -> controlFile   (not Platform.pid())
+\bStrings\.(capitalize|title|swapCase|lstrip|rstrip)\((\w+)\) -> \2.\1()   (simple receivers; others by hand)
+\bStrings\.isDigitStr\( / isAlphaStr\( / isBlank\(        -> receiver .isDigit() / .isAlpha() / .isBlank()   (by hand)
+\bStrings\.(padLeft|padRight|removePrefix)\(            -> receiver .\1(...)   (by hand)
+DaemonSpec.renderStartCommand()                         -> renderStartCommand(canonicalControl, canonicalLog)   (by hand, see D028)
 SPSCQueues.close(x); x = null;                          -> SPSCQueues.close(&x);   (by hand, see D062)
 UITypography / UITextRaster / App removals             -> by hand, see D057
 RealtimeClipTransport runtime imports                   -> by hand, see D031 (bsm-D013)

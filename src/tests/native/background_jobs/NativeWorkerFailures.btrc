@@ -1,0 +1,104 @@
+/* NativeWorker: the one start/join owner behind BackgroundJobExecutor and the
+ * ALSA stream. The context retains the body exactly while the thread lives,
+ * a body failure or exception marks the worker failed, and SDK create/join
+ * failures leave nothing retained or allow a join retry. */
+import Library.BackgroundJobs.NativeWorker;
+
+#include <assert.h>
+
+void job_fault_reset();
+void job_fault_at(int operation, int call);
+int job_fault_calls(int operation);
+int job_fault_live_threads();
+int job_fault_disposals();
+void job_fault_dispose();
+
+enum WorkerFault {
+	WORKER_FAULT_MUTEX_INIT,
+	WORKER_FAULT_COND_INIT,
+	WORKER_FAULT_CREATE,
+	WORKER_FAULT_JOIN
+};
+
+class CountingBody implements INativeWorkerBody {
+	private int result;
+	private bool throwing;
+
+	public CountingBody(int result, bool throwing = false) {
+		self.result = result;
+		self.throwing = throwing;
+	}
+
+	public int workLoop() {
+		if (self.throwing) { throw "native worker body failed"; }
+		return self.result;
+	}
+
+	public void __del__() { job_fault_dispose(); }
+}
+
+void runsOnce(int result, bool throwing, bool failed) {
+	job_fault_reset();
+	NativeWorker worker = NativeWorker();
+	assert(!worker.running());
+	assert(worker.join());
+	assert(worker.start(CountingBody(result, throwing)) == NATIVE_WORKER_STARTED);
+	assert(worker.running());
+	assert(job_fault_live_threads() == 1);
+	/* The caller's temporary is gone; the running thread's context keeps it. */
+	assert(job_fault_disposals() == 0);
+	assert(worker.join());
+	assert(!worker.running());
+	assert(worker.workerFailed() == failed);
+	assert(job_fault_live_threads() == 0);
+	assert(job_fault_disposals() == 1);
+	assert(worker.join());
+	assert(job_fault_calls(WORKER_FAULT_JOIN) == 1);
+	/* A worker starts at most once; the rejected body is not retained. */
+	assert(worker.start(CountingBody(0)) == NATIVE_WORKER_START_INVALID);
+	assert(job_fault_disposals() == 2);
+	assert(job_fault_live_threads() == 0);
+	job_fault_reset();
+}
+
+void createFailure() {
+	job_fault_reset();
+	job_fault_at(WORKER_FAULT_CREATE, 1);
+	NativeWorker worker = NativeWorker();
+	assert(worker.start(CountingBody(0)) == NATIVE_WORKER_START_THREAD_FAILED);
+	assert(!worker.running());
+	assert(!worker.workerFailed());
+	assert(job_fault_live_threads() == 0);
+	assert(job_fault_disposals() == 1);
+	assert(worker.join());
+	assert(job_fault_calls(WORKER_FAULT_JOIN) == 0);
+	job_fault_reset();
+}
+
+void joinRetry() {
+	job_fault_reset();
+	job_fault_at(WORKER_FAULT_JOIN, 1);
+	NativeWorker worker = NativeWorker();
+	assert(worker.start(CountingBody(0)) == NATIVE_WORKER_STARTED);
+	assert(!worker.join());
+	assert(worker.running());
+	assert(job_fault_live_threads() == 1);
+	assert(job_fault_disposals() == 0);
+	assert(worker.join());
+	assert(!worker.running());
+	assert(!worker.workerFailed());
+	assert(job_fault_live_threads() == 0);
+	assert(job_fault_disposals() == 1);
+	assert(job_fault_calls(WORKER_FAULT_JOIN) == 2);
+	job_fault_reset();
+}
+
+int main() {
+	runsOnce(0, false, false);
+	runsOnce(3, false, true);
+	runsOnce(0, true, true);
+	createFailure();
+	joinRetry();
+	print("PASS: native worker failure recovery");
+	return 0;
+}
