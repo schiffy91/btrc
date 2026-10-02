@@ -565,6 +565,8 @@ class FunctionLowerer {
 		IRFunction fn = IRFunction();
 		fn.name = self.declarations.sourceFunctionSymbol(d.name);
 		fn.isRealtime = d.isRealtime;
+		/* A source `static` lives on the return type, as functions.py reads it. */
+		fn.isStatic = d.returnType != null && d.returnType.isStatic;
 		string ret = self.cTypes.lower(d.returnType);
 		/* main() with void return -> int (matches functions.py). */
 		if (d.name == "main" && ret == "void") { ret = "int"; }

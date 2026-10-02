@@ -102,7 +102,7 @@ class ExpressionLowerer {
 	/* Recursive lowering integration: materialize a borrowed branch value, then
      * let the lifetime owner establish the owned result contract. */
 	public IRNode promoteBorrowedValue(IRNode lowered, Node resultType) {
-		string name = self.context.freshTemporary("__btrc_promoted");
+		string name = self.context.freshTemporary("__btrc_promoted_branch");
 		IRNode declaration = IRNode.variableDeclaration(self.cTypes.lower(resultType), name, null);
 		self.context.recordLocal(declaration);
 		IRNode value = IRNode.variable(name);

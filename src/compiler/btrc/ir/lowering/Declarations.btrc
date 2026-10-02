@@ -2465,7 +2465,7 @@ class DeclarationLowerer {
 			if (d.bodyNode == null) {
 				string fret = self.cTypes.lower(d.returnType);
 				if (fret == "") { fret = "void"; }
-				IRFunctionDecl declaration = IRFunctionDecl(self.semanticDeclarations.sourceFunctionSymbol(d.name), fret, false);
+				IRFunctionDecl declaration = IRFunctionDecl(self.semanticDeclarations.sourceFunctionSymbol(d.name), fret, d.returnType != null && d.returnType.isStatic);
 				int fp = 0;
 				while (fp < d.params().len) {
 					Node pp = d.params().get(fp);

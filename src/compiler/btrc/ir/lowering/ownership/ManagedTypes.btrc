@@ -454,32 +454,35 @@ class ManagedTypeLowerer {
 		declarations.push(receiverDeclaration);
 		IRNode receiver = IRNode.variable(receiverName);
 		IRNode slot = IRNode.fieldAccess(receiver, plan.storageName, true);
+		/* The receiver is stabilized first; the store follows as its own
+		 * expression, as StorageLowerer wraps a materialized target. */
 		Vector<IRNode> sequence = [];
 		sequence.push(IRNode.binary(receiver, "=", loweredReceiver));
 		if (!self.managedValues.isArc(plan.fieldType)) {
 			sequence.push(self.replaceManagedSlot(slot, plan.fieldType, plan.storageCType, loweredValue, valueOwned));
 			return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 		}
+		Vector<IRNode> store = [];
 		if (loweredValue.kind == IRK_LITERAL && loweredValue.text == "NULL") {
 			/* Null holds no reference: nothing to retain, protect or release,
 			 * only the edge's old value to drop. */
-			sequence.push(self.lifetime.replaceTypedEdge(slot, loweredValue, plan.fieldType, plan.storageCType, receiver, false));
-			self.appendCyclePoll(sequence, plan.fieldType);
-			sequence.push(slot);
-			return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+			store.push(self.lifetime.replaceTypedEdge(slot, loweredValue, plan.fieldType, plan.storageCType, receiver, false));
+			self.appendCyclePoll(store, plan.fieldType);
+		} else {
+			string valueName = self.context.freshTemporary("__btrc_store_value");
+			IRNode valueDeclaration = IRNode.variableDeclaration(plan.storageCType, valueName, IRNode.literal("NULL"));
+			self.context.recordLocal(valueDeclaration);
+			declarations.push(valueDeclaration);
+			IRNode value = IRNode.variable(valueName);
+			store.push(IRNode.binary(value, "=", loweredValue));
+			if (!valueOwned) {
+				store.push(self.lifetime.retainValue(value, plan.fieldType));
+			}
+			self.lifetime.protectTemporary(valueDeclaration, self.managedValues.runtimeType(plan.fieldType), "__btrc_store_value_cleanup", declarations, store);
+			self.appendProtectedArcFieldPublication(declarations, store, slot, value, plan.fieldType, plan.storageCType, receiver);
 		}
-		string valueName = self.context.freshTemporary("__btrc_store_value");
-		IRNode valueDeclaration = IRNode.variableDeclaration(plan.storageCType, valueName, IRNode.literal("NULL"));
-		self.context.recordLocal(valueDeclaration);
-		declarations.push(valueDeclaration);
-		IRNode value = IRNode.variable(valueName);
-		sequence.push(IRNode.binary(value, "=", loweredValue));
-		if (!valueOwned) {
-			sequence.push(self.lifetime.retainValue(value, plan.fieldType));
-		}
-		self.lifetime.protectTemporary(valueDeclaration, self.managedValues.runtimeType(plan.fieldType), "__btrc_store_value_cleanup", declarations, sequence);
-		self.appendProtectedArcFieldPublication(declarations, sequence, slot, value, plan.fieldType, plan.storageCType, receiver);
-		sequence.push(slot);
+		store.push(slot);
+		sequence.push(IRNode.commaExpression(store));
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 	}
 
