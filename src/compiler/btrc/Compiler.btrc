@@ -3,6 +3,7 @@
 import Library.BackgroundJobs.WorkerPools;
 import Library.Digest.SHA256;
 import Library.FileSystem;
+import Library.Platform;
 import Library.Process;
 import Library.Strings;
 
@@ -31,7 +32,7 @@ class Compiler {
 		for value in ["btrcc-artifacts-v1", rootSource, input.sourcePath, input.source.source,
 			input.source.userSource, input.contentIdentity, input.nativeIdentity,
 			input.packages.linkPlan.canonicalJson(), self.grammar.vocabulary.cacheIdentity(),
-			self.stdlibDirectory, FileSystem.currentDirectory(), options.target,
+			self.stdlibDirectory, Platform.currentDirectory(), options.target,
 			options.outputPath, options.unitsPrefix, options.linkPlanPath,
 			Environment.get("BTRC_UNIT_LINES", "40000"),
 			f"{options.debug}:{options.runDce}:{options.strictImports}:{options.includeStdlib}:{options.moduleUnits}"] {

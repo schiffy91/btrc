@@ -91,7 +91,7 @@ def test_owned_font_snapshots_and_surface_selection(tmp_path: Path, request, fro
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_btrc_owns_gui_surface(tmp_path: Path, request, frontend, sanitized) -> None:
-    source = ROOT / "src/tests/native/gui/GuiSurfaceConformance.btrc"
+    source = ROOT / "src/tests/native/gui/GUISurfaceConformance.btrc"
     generated, environment = _transpile_gui(source, tmp_path, request, frontend)
     executable = tmp_path / "surface"
     flags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitized else []

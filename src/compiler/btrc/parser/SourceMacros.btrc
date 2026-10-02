@@ -415,10 +415,10 @@ class SourceMacroDefinition {
 	private bool identifierPart(char value) { return self.identifierStart(value) || TypeIdentity.asciiDigit(value); }
 
 	private string normalize(string sourceText) {
-		string normalized = Strings.replace(sourceText, "\\\r\n", "");
-		normalized = Strings.replace(normalized, "\\\n", "");
-		normalized = Strings.replace(normalized, "?" + "?/\r\n", "");
-		normalized = Strings.replace(normalized, "?" + "?/\n", "");
+		string normalized = sourceText.replace("\\\r\n", "");
+		normalized = normalized.replace("\\\n", "");
+		normalized = normalized.replace("?" + "?/\r\n", "");
+		normalized = normalized.replace("?" + "?/\n", "");
 		string result = "";
 		int index = 0;
 		while (index < normalized.length()) {

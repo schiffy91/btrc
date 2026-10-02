@@ -1,6 +1,6 @@
 import Library.Callback;
 import Library.Console;
-import Library.Datetime;
+import Library.Timer;
 import Library.Math;
 import Library.Strings;
 import Library.Vector;
@@ -14,10 +14,10 @@ import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxContainer;
 import Library.GUI.Linux.LinuxGPUSurface;
 import Library.GUI.Linux.LinuxPainter;
-import Library.GPU.Device;
-import Library.GPU.SurfaceRenderer;
-import Library.GPU.OffscreenTarget;
-import Library.GPU.Readback;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUOffscreenTarget;
+import Library.GPU.GPUReadback;
 
 /* One synchronous key subscription; the window and the caller's scope share
  * its cancellation, so late cancellation never reaches a closed handler. */
@@ -52,9 +52,9 @@ class LinuxWindowKeys implements ICallbackRegistration {
 
 	public bool isOpen() { return self._open; }
 
-	public CallbackCancellation cancel() { var context = self._context; return context == null ? CallbackCancellation.Complete : context.cancel(); }
+	public CallbackCancellation cancel() { var context = self._context; return context == null ? CALLBACK_CANCELLATION_COMPLETE : context.cancel(); }
 
-	public CallbackCancellation pollCompletion() { var context = self._context; return context == null ? CallbackCancellation.Complete : context.pollCompletion(); }
+	public CallbackCancellation pollCompletion() { var context = self._context; return context == null ? CALLBACK_CANCELLATION_COMPLETE : context.pollCompletion(); }
 }
 
 /* Translates SDL key and modifier codes into portable events. */
@@ -718,7 +718,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	public CallbackCancellation close() {
-		if (self._closed) { return CallbackCancellation.Complete; }
+		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (!self._closing) { self._closing = true; self._host.invalidation.mark(); }
 		return self.pollClose();
@@ -740,12 +740,12 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	public CallbackCancellation pollClose() {
-		if (self._closed) { return CallbackCancellation.Complete; }
-		if (!self._closing) { return CallbackCancellation.NotRequested; }
+		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		CallbackCancellation result = CallbackCancellation.Complete;
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		try {
-			if (self._callbacks.cancel() != CallbackCancellation.Complete) { throw "Window callbacks must drain before shutdown"; }
+			if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Window callbacks must drain before shutdown"; }
 			self._keys.clear();
 			var root = self._root;
 			if (root != null) {
@@ -757,9 +757,9 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 					self._rootClosing = true;
 					result = closingRoot.close();
 				} else { result = closingRoot.pollClose(); }
-				if (result == CallbackCancellation.Complete) { self._root = null; }
+				if (result == CALLBACK_CANCELLATION_COMPLETE) { self._root = null; }
 			}
-			if (result != CallbackCancellation.Complete) { return result; }
+			if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
 			var painter = self._painter;
 			if (painter != null) { painter.close(); self._painter = null; }
 			var renderer = self._renderer;
@@ -771,15 +771,15 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			var device = self._device;
 			if (device != null) {
 				if (!self._deviceClosing) { self._deviceClosing = true; device.close(); }
-				if (device.poll() != GPU_DEVICE_CLOSED) { return CallbackCancellation.Pending; }
+				if (device.poll() != GPU_DEVICE_CLOSED) { return CALLBACK_CANCELLATION_PENDING; }
 			}
 			self._device = null;
 			self._host.device = null;
 			self.destroyNative();
 			self._closed = true;
 		} catch (string error) { self._closeFailure = error; throw error; }
-		return CallbackCancellation.Complete;
+		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
-	public void __del__() { if (self._window != null && self.close() != CallbackCancellation.Complete) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
+	public void __del__() { if (self._window != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
 }

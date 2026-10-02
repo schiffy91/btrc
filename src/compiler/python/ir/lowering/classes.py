@@ -257,7 +257,11 @@ class ClassLowerer:
         ]
         init_params = [IRParam(c_type=CType(text=f"{name}*"), name="self"), *init_constructor_params]
         init_stmts = self._ownership.arc_header_initialization(name)
-        for member in decl.members:
+        # Inherited defaults first, root class outward, then this class's own,
+        # and only then the constructor body.
+        own_fields = {member.name for member in decl.members if isinstance(member, FieldDecl)}
+        inherited = [field for field_name, field in cls_info.fields.items() if field_name not in own_fields]
+        for member in [*inherited, *decl.members]:
             if isinstance(member, FieldDecl) and member.access != "class" and member.initializer:
                 self._callable_boundaries.reject_persistent_escape(
                     member.type,

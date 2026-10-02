@@ -13,7 +13,7 @@ import Library.Vector;
 class DaemonSpec {
 	public string name;
 	public Command command;
-	public string pidFile;
+	public string controlFile;
 	public string logFile;
 	public string workingDirectory;
 	public bool autoRestart;
@@ -22,14 +22,14 @@ class DaemonSpec {
 		self.name = name;
 		self.command = command;
 		string state = DaemonControlPaths.defaultDirectory();
-		self.pidFile = PathTools.join(state, f"{name}.control");
+		self.controlFile = PathTools.join(state, f"{name}.control");
 		self.logFile = PathTools.join(state, f"{name}.log");
 		self.workingDirectory = "";
 		self.autoRestart = false;
 	}
 
-	public DaemonSpec pid(string path) {
-		self.pidFile = path;
+	public DaemonSpec control(string path) {
+		self.controlFile = path;
 		return self;
 	}
 
@@ -66,19 +66,19 @@ class DaemonSpec {
 		if (!DaemonControlPaths.validDaemonName(self.name) || self.command == null || self.command.command == null || self.command.command.isEmpty()) {
 			return "exit 125";
 		}
-		string pidFile = DaemonControlFiles.canonicalFilePath(self.pidFile);
+		string controlFile = DaemonControlFiles.canonicalFilePath(self.controlFile);
 		string logFile = DaemonControlFiles.canonicalFilePath(self.logFile);
-		if (pidFile.isEmpty() || logFile.isEmpty() || pidFile.equals(logFile) || !DaemonControlFiles.absent(pidFile) || !DaemonControlFiles.safeLogPath(logFile)) {
+		if (controlFile.isEmpty() || logFile.isEmpty() || controlFile.equals(logFile) || !DaemonControlFiles.absent(controlFile) || !DaemonControlFiles.safeLogPath(logFile)) {
 			return "exit 125";
 		}
-		self.pidFile = pidFile;
+		self.controlFile = controlFile;
 		self.logFile = logFile;
 		string token = DaemonControlProtocol.randomToken();
 		if (token.isEmpty()) { return "exit 125"; }
-		string stop = DaemonControlPaths.stop(self.pidFile, token);
-		string probePrefix = DaemonControlPaths.probePrefix(self.pidFile, token);
+		string stop = DaemonControlPaths.stop(self.controlFile, token);
+		string probePrefix = DaemonControlPaths.probePrefix(self.controlFile, token);
 		string restart = self.autoRestart ? "1" : "0";
-		return "umask 077; nohup /bin/sh -c " + ShellWords.quote(self.supervisorScript()) + " btrc-daemon-supervisor " + ShellWords.quote(token) + " " + ShellWords.quote(self.command.render()) + " " + ShellWords.quote(self.pidFile) + " " + ShellWords.quote(stop) + " " + ShellWords.quote(probePrefix) + " " + restart + " " + ShellWords.quote(self.workingDirectory) + " </dev/null >> " + ShellWords.quote(self.logFile) + " 2>&1 &";
+		return "umask 077; nohup /bin/sh -c " + ShellWords.quote(self.supervisorScript()) + " btrc-daemon-supervisor " + ShellWords.quote(token) + " " + ShellWords.quote(self.command.render()) + " " + ShellWords.quote(self.controlFile) + " " + ShellWords.quote(stop) + " " + ShellWords.quote(probePrefix) + " " + restart + " " + ShellWords.quote(self.workingDirectory) + " </dev/null >> " + ShellWords.quote(self.logFile) + " 2>&1 &";
 	}
 }
 
@@ -89,14 +89,14 @@ class DaemonController {
 
 	public ExecResult start(DaemonSpec spec) {
 		string operation = "daemon start";
-		if (!self.wellFormed(spec) || !DaemonControlFiles.prepareParent(spec.pidFile) || !DaemonControlFiles.prepareParent(spec.logFile)) {
+		if (!self.wellFormed(spec) || !DaemonControlFiles.prepareParent(spec.controlFile) || !DaemonControlFiles.prepareParent(spec.logFile)) {
 			return self.result(125, "unsafe daemon specification", operation);
 		}
-		string pidFile = self.canonicalPidFile(spec);
-		if (pidFile.isEmpty()) {
+		string controlFile = self.canonicalControlFile(spec);
+		if (controlFile.isEmpty()) {
 			return self.result(125, "unsafe daemon specification", operation);
 		}
-		if (!DaemonControlFiles.absent(pidFile)) {
+		if (!DaemonControlFiles.absent(controlFile)) {
 			return self.result(1, "daemon control record already exists", operation);
 		}
 		if (!DaemonControlFiles.prepareLog(DaemonControlFiles.canonicalFilePath(spec.logFile))) {
@@ -107,11 +107,11 @@ class DaemonController {
 		if (!launched.ok()) {
 			return self.result(launched.code, "failed to launch daemon supervisor", operation);
 		}
-		if (!DaemonControlProtocol.waitForRecord(pidFile, 2500)) {
+		if (!DaemonControlProtocol.waitForRecord(controlFile, 2500)) {
 			return self.result(125, "daemon supervisor did not publish control state", operation);
 		}
-		DaemonControlRecord record = DaemonControlProtocol.record(pidFile);
-		if (!record.valid || !DaemonControlProtocol.probe(pidFile, record, 2500)) {
+		DaemonControlRecord record = DaemonControlProtocol.record(controlFile);
+		if (!record.valid || !DaemonControlProtocol.probe(controlFile, record, 2500)) {
 			return self.result(125, "daemon supervisor failed its liveness handshake", operation);
 		}
 		return self.result(0, "", operation);
@@ -122,40 +122,40 @@ class DaemonController {
 	/* A spec whose state directory was never created names no daemon; any
 	 * other unresolvable spec is unsafe. */
 	private ExecResult unresolved(DaemonSpec spec, string operation) {
-		if (self.wellFormed(spec) && DaemonControlFiles.absent(PathTools.dirname(spec.pidFile))) {
+		if (self.wellFormed(spec) && DaemonControlFiles.absent(PathTools.dirname(spec.controlFile))) {
 			return self.result(1, "daemon supervisor is not responding", operation);
 		}
 		return self.result(125, "unsafe daemon specification", operation);
 	}
 
-	private bool wellFormed(DaemonSpec spec) { return spec != null && DaemonControlPaths.validDaemonName(spec.name) && spec.command != null && spec.command.command != null && !spec.command.command.isEmpty() && spec.pidFile != null && spec.logFile != null; }
+	private bool wellFormed(DaemonSpec spec) { return spec != null && DaemonControlPaths.validDaemonName(spec.name) && spec.command != null && spec.command.command != null && !spec.command.command.isEmpty() && spec.controlFile != null && spec.logFile != null; }
 
 	/* The canonical control-record path, or empty when the spec is unsafe.
 	 * Pure: it neither creates directories nor rewrites the spec. */
-	private string canonicalPidFile(DaemonSpec spec) {
+	private string canonicalControlFile(DaemonSpec spec) {
 		if (!self.wellFormed(spec)) { return ""; }
-		string pidFile = DaemonControlFiles.canonicalFilePath(spec.pidFile);
+		string controlFile = DaemonControlFiles.canonicalFilePath(spec.controlFile);
 		string logFile = DaemonControlFiles.canonicalFilePath(spec.logFile);
-		if (pidFile.isEmpty() || logFile.isEmpty() || pidFile.equals(logFile)) {
+		if (controlFile.isEmpty() || logFile.isEmpty() || controlFile.equals(logFile)) {
 			return "";
 		}
-		return pidFile;
+		return controlFile;
 	}
 
 	public ExecResult stop(DaemonSpec spec, int timeoutMilliseconds = 7500) {
 		string operation = "daemon stop";
-		string pidFile = self.canonicalPidFile(spec);
-		if (pidFile.isEmpty()) {
+		string controlFile = self.canonicalControlFile(spec);
+		if (controlFile.isEmpty()) {
 			return self.unresolved(spec, operation);
 		}
 		if (timeoutMilliseconds <= 0) {
 			return self.result(125, "invalid daemon stop timeout", operation);
 		}
-		DaemonControlRecord record = DaemonControlProtocol.record(pidFile);
+		DaemonControlRecord record = DaemonControlProtocol.record(controlFile);
 		if (!record.valid) {
 			return self.result(1, "daemon supervisor is not responding", operation);
 		}
-		string stop = DaemonControlPaths.stop(pidFile, record.token);
+		string stop = DaemonControlPaths.stop(controlFile, record.token);
 		if (!DaemonControlFiles.absent(stop)) {
 			/* An earlier stop's request is reused. The supervisor deletes it as
 			 * it exits, so a request that vanished during the read is a stop
@@ -166,7 +166,7 @@ class DaemonController {
 		} else if (!DaemonControlFiles.create(stop, record.token + "\n")) {
 			return self.result(125, "failed to create daemon stop capability", operation);
 		}
-		if (!DaemonControlProtocol.waitForRemoval(pidFile, record, timeoutMilliseconds)) {
+		if (!DaemonControlProtocol.waitForRemoval(controlFile, record, timeoutMilliseconds)) {
 			return self.result(124, "daemon did not confirm termination before the deadline", operation);
 		}
 		return self.result(0, "", operation);
@@ -174,12 +174,12 @@ class DaemonController {
 
 	public ExecResult status(DaemonSpec spec) {
 		string operation = "daemon status";
-		string pidFile = self.canonicalPidFile(spec);
-		if (pidFile.isEmpty()) {
+		string controlFile = self.canonicalControlFile(spec);
+		if (controlFile.isEmpty()) {
 			return self.unresolved(spec, operation);
 		}
-		DaemonControlRecord record = DaemonControlProtocol.record(pidFile);
-		if (!record.valid || !DaemonControlProtocol.probe(pidFile, record, 1500)) {
+		DaemonControlRecord record = DaemonControlProtocol.record(controlFile);
+		if (!record.valid || !DaemonControlProtocol.probe(controlFile, record, 1500)) {
 			return self.result(1, "daemon supervisor is not responding", operation);
 		}
 		return self.result(0, "", operation);

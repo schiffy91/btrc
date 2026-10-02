@@ -27,7 +27,11 @@ int main() {
 	assert(TOML.unquote("\"\\u20AC\"").equals("€"));
 	// A literal tab is valid inside a basic string.
 	assert(TOML.unquote("\"a\tb\"").equals("a\tb"));
-	Vector<string> invalid = ["\"\\x41\"", "\"\\e\"", "\"\\uD800\"", "\"\\u12\"", "\"\\U00110000\"", "\"\\u0000\"", "\"bad\\\"", "\"a\x01b\""];
+	// Literal UTF-8 bytes are at or above 0x80: never control characters,
+	// whether plain char is signed or unsigned.
+	assert(TOML.unquote("\"café €\"").equals("café €"));
+	assert(TOML.unquote("\"\xff\"").equals("\xff"));
+	Vector<string> invalid = ["\"\\x41\"", "\"\\e\"", "\"\\uD800\"", "\"\\u12\"", "\"\\U00110000\"", "\"\\u0000\"", "\"bad\\\"", "\"a\x01b\"", "\"a\x7f\""];
 	for text in invalid {
 		bool rejected = false;
 		try {

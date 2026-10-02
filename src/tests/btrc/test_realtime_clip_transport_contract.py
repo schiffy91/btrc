@@ -80,10 +80,10 @@ def _strict_build(compiler: str, generated: Path, output: Path) -> subprocess.Co
 def test_contract_is_product_neutral_and_keeps_raw_mechanics_out_of_the_public_api() -> None:
     source = CONTRACT.read_text()
     practice = PRACTICE.read_text()
-    assert "interface RealtimeClipTransportPort" in source
+    assert "interface IRealtimeClipTransport" in source
     assert "RealtimeAudioProgram realtimeProgram();" in source
     assert "BTRSmith" not in source
-    interface = source.split("interface RealtimeClipTransportPort", 1)[1].split("}\n", 1)[0]
+    interface = source.split("interface IRealtimeClipTransport", 1)[1].split("}\n", 1)[0]
     assert "struct Btrc" not in interface
     assert "Atomic<" not in interface
     assert "SPSCQueueStorage" not in interface

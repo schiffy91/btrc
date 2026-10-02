@@ -34,6 +34,7 @@ functions = [
   "__btrc_string_length",
   "__btrc_string_live_count",
   "__btrc_string_or_empty",
+  "__btrc_target_architecture",
   "__btrc_target_platform",
   "__btrc_terminal_adopt_foreground",
   "__btrc_terminal_foreground_group",
@@ -635,6 +636,7 @@ functions = [
   "powl",
   "pread",
   "printf",
+  "proc_pidinfo",
   "profil",
   "pselect",
   "psiginfo",
@@ -3823,6 +3825,7 @@ types = [
   "pid_t",
   "pollfd",
   "proc_rlimit_control_wakeupmon",
+  "proc_taskinfo",
   "pthread_attr_t",
   "pthread_barrier_t",
   "pthread_barrierattr_t",
@@ -6558,6 +6561,7 @@ owned = [
   "__btrc_string_length",
   "__btrc_string_live_count",
   "__btrc_string_or_empty",
+  "__btrc_target_architecture",
   "__btrc_target_platform",
   "__btrc_terminal_adopt_foreground",
   "__btrc_terminal_foreground_group",
@@ -7404,7 +7408,9 @@ owned = [
   "powl",
   "pread",
   "printf",
+  "proc_pidinfo",
   "proc_rlimit_control_wakeupmon",
+  "proc_taskinfo",
   "profil",
   "pselect",
   "pseudo_AF_HDRCMPLT",
@@ -8495,6 +8501,7 @@ functions = [
   "posix_memalign",
   "posix_openpt",
   "pread",
+  "proc_pidinfo",
   "profil",
   "pselect",
   "psiginfo",
@@ -11177,6 +11184,7 @@ types = [
   "pid_t",
   "pollfd",
   "proc_rlimit_control_wakeupmon",
+  "proc_taskinfo",
   "qaddr_t",
   "quad_t",
   "radvisory",
@@ -11688,6 +11696,17 @@ return_alias_parameter = 0
 return_alias_null_effect = "independent"
 raw_lifetime = false
 return_alias_shape = "exact"
+
+[[functions]]
+name = "__btrc_target_architecture"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = []
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "safe"
 
 [[functions]]
 name = "__btrc_target_platform"

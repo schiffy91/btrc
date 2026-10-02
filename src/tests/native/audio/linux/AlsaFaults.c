@@ -17,7 +17,7 @@ struct FakeHw { struct FakePcm* pcm; unsigned int channels, rate; snd_pcm_uframe
 
 static struct FakePcm handles[HANDLES];
 static const char* hint_names[] = {"default", "hw:0,0", "dmix:0"};
-static int failure, disposals, stops, renders, input_channels = 2, output_channels = 2, fixed_channels, exclusive, waits;
+static int failure, disposals, stops, renders, reads, input_channels = 2, output_channels = 2, fixed_channels, exclusive, waits;
 static unsigned int configured[2];
 
 static struct FakePcm* handle(snd_pcm_t* pcm) {
@@ -31,7 +31,7 @@ void unitReset(int requested) {
     assert(pendingSessions() == 0);
     for (int index = 0; index < HANDLES; index++) { assert(!handles[index].used); }
     failure = requested;
-    disposals = stops = renders = waits = 0;
+    disposals = stops = renders = reads = waits = 0;
     fixed_channels = exclusive = 0;
     configured[0] = configured[1] = 0u;
 }
@@ -46,6 +46,7 @@ int pendingSessions(void) {
 int unitDisposals(void) { return disposals; }
 int unitStops(void) { return stops; }
 int unitRenders(void) { return renders; }
+int unitReads(void) { return reads; }
 int unitInputChannels(void) { return input_channels; }
 int unitOutputChannels(void) { return output_channels; }
 void unitDeviceChannels(int input, int output) { input_channels = input; output_channels = output; }
@@ -176,7 +177,8 @@ int alsaFaultPrepare(snd_pcm_t* pcm) {
 }
 int alsaFaultStart(snd_pcm_t* pcm) {
     struct FakePcm* fake = handle(pcm);
-    assert(fake->state == STATE_PREPARED);
+    /* alsa-lib refuses to start a PCM that is not PREPARED. */
+    if (fake->state != STATE_PREPARED) { return -EBADFD; }
     if (failure == 20) { return -EIO; }
     fake->state = STATE_RUNNING;
     return 0;
@@ -216,11 +218,24 @@ snd_pcm_sframes_t alsaFaultWrite(snd_pcm_t* pcm, const void* buffer, snd_pcm_ufr
 snd_pcm_sframes_t alsaFaultRead(snd_pcm_t* pcm, void* buffer, snd_pcm_uframes_t frames) {
     struct FakePcm* fake = handle(pcm);
     assert(buffer && fake->capture && fake->state == STATE_RUNNING && frames == fake->period);
+    /* One failed capture read, then the fixture reads normally again. */
+    if (failure == 25) { failure = 0; fake->state = STATE_SETUP; return -EPIPE; }
+    if (failure == 26) { failure = 0; return -ESTRPIPE; }
+    if (failure == 27) { failure = 0; return -EINTR; }
+    reads++;
     float* samples = buffer;
     for (snd_pcm_uframes_t index = 0; index < frames * fake->channels; index++) { samples[index] = 0.25f; }
     return (snd_pcm_sframes_t)frames;
 }
-int alsaFaultRecover(snd_pcm_t* pcm, int error, int silent) { handle(pcm); (void)silent; return error == -EPIPE || error == -ESTRPIPE ? 0 : error; }
+/* Like alsa-lib: an overrun is prepared again, a suspend resumes to RUNNING on a
+ * driver that supports resume, and an interrupted call recovers unchanged. */
+int alsaFaultRecover(snd_pcm_t* pcm, int error, int silent) {
+    struct FakePcm* fake = handle(pcm);
+    (void)silent;
+    if (error == -EPIPE) { fake->state = STATE_PREPARED; return 0; }
+    if (error == -ESTRPIPE) { fake->state = STATE_RUNNING; return 0; }
+    return error == -EINTR ? 0 : error;
+}
 int alsaFaultWait(snd_pcm_t* pcm, int timeout) {
     struct FakePcm* fake = handle(pcm);
     assert(timeout > 0 && fake->state >= STATE_PREPARED);

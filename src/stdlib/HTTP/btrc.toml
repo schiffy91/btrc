@@ -2,4 +2,4 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_http"
-exports = ["HTTP", "HTTPClient", "HTTPFraming", "HTTPProtocol", "HTTPResponseHeaders", "HTTPServer", "HTTPSocket", "HTTPTypes"]
+exports = ["HTTP", "HTTPClient", "HTTPFraming", "HTTPRequest", "HTTPResponse", "HTTPResponseHeaders", "HTTPServer", "HTTPSocket", "HTTPStatus", "HTTPUrl"]

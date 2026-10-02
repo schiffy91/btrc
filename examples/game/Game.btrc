@@ -2,13 +2,13 @@ import Library.App;
 import Library.Callback;
 import Library.CLI;
 import Library.Math;
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IApplication;
-import Library.GPU.Readback;
+import Library.GPU.GPUReadback;
 import Library.Image;
 
 import ./engine/Engine.btrc;
-import ./engine/Gameobject.btrc;
+import ./engine/GameObject.btrc;
 
 /* WASD moves the ball, Space jumps and Escape exits. Native application work
  * schedules frames; window shutdown drains the GPU child and its callbacks. */

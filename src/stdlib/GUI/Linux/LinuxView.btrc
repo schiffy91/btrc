@@ -6,7 +6,7 @@ import Library.GUI.IView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
 import Library.GUI.Linux.SDL;
-import Library.GPU.Device;
+import Library.GPU.GPUDevice;
 import Library.GPU.WebGPU;
 
 /* SDL's monotonic clock in nanoseconds. Delays are clamped to a billion
@@ -181,9 +181,9 @@ class LinuxViewInput implements ICallbackRegistration {
 
 	public bool isOpen() { return self._open; }
 
-	public CallbackCancellation cancel() { var context = self._context; return context == null ? CallbackCancellation.Complete : context.cancel(); }
+	public CallbackCancellation cancel() { var context = self._context; return context == null ? CALLBACK_CANCELLATION_COMPLETE : context.cancel(); }
 
-	public CallbackCancellation pollCompletion() { var context = self._context; return context == null ? CallbackCancellation.Complete : context.pollCompletion(); }
+	public CallbackCancellation pollCompletion() { var context = self._context; return context == null ? CALLBACK_CANCELLATION_COMPLETE : context.pollCompletion(); }
 }
 
 /* Shared state of one drawn view: frame, visibility, attachment, host and
@@ -315,7 +315,7 @@ class LinuxViewNode {
 
 	/* Begin shutdown of this node and every attached child. */
 	public CallbackCancellation close() {
-		if (self.closed) { return CallbackCancellation.Complete; }
+		if (self.closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		self.requireDetached();
 		if (!self.closing) {
 			self.closing = true;
@@ -327,26 +327,26 @@ class LinuxViewNode {
 	}
 
 	public CallbackCancellation pollClose() {
-		if (self.closed) { return CallbackCancellation.Complete; }
-		if (!self.closing) { return CallbackCancellation.NotRequested; }
+		if (self.closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self.closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var input = self._input.pollCompletion();
-		if (input != CallbackCancellation.Complete) { return input; }
-		CallbackCancellation result = CallbackCancellation.Complete;
+		if (input != CALLBACK_CANCELLATION_COMPLETE) { return input; }
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		for (int index = self.children.len - 1; index >= 0; index--) {
 			var child = self.children.get(index);
 			var state = child.isOpen() ? child.close() : child.pollClose();
-			if (state == CallbackCancellation.Complete) { self.children.remove(index); }
-			else if (state == CallbackCancellation.Failed) { result = state; }
-			else if (result != CallbackCancellation.Failed) {
-				if (state == CallbackCancellation.RetryableFailure) { result = state; }
-				else if (result != CallbackCancellation.RetryableFailure) { result = CallbackCancellation.Pending; }
+			if (state == CALLBACK_CANCELLATION_COMPLETE) { self.children.remove(index); }
+			else if (state == CALLBACK_CANCELLATION_FAILED) { result = state; }
+			else if (result != CALLBACK_CANCELLATION_FAILED) {
+				if (state == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = state; }
+				else if (result != CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = CALLBACK_CANCELLATION_PENDING; }
 			}
 		}
-		if (result != CallbackCancellation.Complete) { return result; }
+		if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
 		self._inputs.clear();
 		self.host = null;
 		self.closed = true;
-		return CallbackCancellation.Complete;
+		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 }
 

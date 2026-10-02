@@ -187,6 +187,20 @@ the `id-token: write` permission that only the FlakeHub login used;
 `test_ci_workflow_contracts.py` keeps it off. The row keeps the lane's
 wording until a CI run confirms the annotation is gone.
 
+`nix-cache` came back inside the devcontainer image build on 2026-10-01 and
+2026-10-02 (`bench` job 110631740226 on a637aed, `tests (c11-clang-O3)` job
+110653116098 on 0a3213d). The host's Magic Nix Cache was throttled, but
+those jobs did not fail on the host. They failed in the image's
+`nix print-dev-env` step, which fetches from cache.nixos.org directly: HTTP/2
+framing errors, a resumed download the cache answered with HTTP 416, then
+"some substitutes ... failed; try '--fallback'" for perl, git or nodejs.
+`nix/containerfile.nix` now installs Nix with `http2 = false`,
+`download-attempts = 10`, `connect-timeout = 15` and `fallback = true`, and
+retries `nix print-dev-env` up to three times, keeping the paths an earlier
+attempt copied. The final failure still fails the build.
+`test_build_safety.py` pins each setting and the retry. The host-side Nix
+configuration, set by `determinate-nix-action`, is unchanged.
+
 ### Unclassified
 
 | Signature | Classification | Hits (failed / runs) | Seen | Still present | Owner |
@@ -282,6 +296,37 @@ shell, and their notes say so: `lldb-missing` (4 DAP sessions), `pugixml-sdk`,
 confirmed passed; the 8 that failed there are the GUI-lane failures below,
 and the 28 that macOS also skipped moved to the two uncovered rules. Delete each rule
 when its tool lands; the gate will then fail if the tests still skip.
+
+**Reconciled after `stage4/tools-ci` landed (wave 2, `stage4/w2-tools-bench`).**
+`tools-ci` (88a5c36) gave only the Darwin dev shells pugixml, `sqlite.dev`
+and `BTRC_NATIVE_PROVIDER_CC`/`CXX`: the header reader implements a compiler
+provider only on Apple hosts, and nixpkgs' Linux lldb is built for a
+different Python than the adapter probes, so Linux gained none of them.
+Each manifest was then matched to what its runner skips on the merged tree:
+CI 36935218617 (Linux unit and btrc shards plus five strict-C11 shards),
+macOS 36934014516 (unit, btrc, corpus and C11 shards) and Windows 36936719466.
+
+- macOS no longer skips any C++ owner, SQLite, compiler-context, receipt or
+  consumer case, `test_module_units.py`'s three C++ owner cases included, so
+  `pugixml-sdk`, `sqlite-sdk`, `native-compiler-provider` and
+  `native-receipt-provider` are deleted from `macos.json`. It newly skips
+  `test_freetype_macro_constants_build_and_run` (Linux SDK only), which
+  `linux-freetype-macro-constants` explains as covered by the devcontainer.
+  `dap-session-developer-mode` and `gpu-async-thread-sanitizer` stay: they
+  matched nothing on the hosted runner, which enables developer mode, but
+  they are the acceptance Mac's host-dependent skips.
+- Linux still skips the lldb, pugixml and native-provider cases, so
+  `lldb-missing`, `pugixml-sdk`, `native-compiler-provider` and
+  `native-receipt-provider` stay, now `covered_by: macos` with notes that
+  say why Linux lacks each tool. `macos-only-pugixml-uncovered` and
+  `macos-only-sqlite-uncovered` are deleted: macOS runs those 28 proofs, so
+  they fall to `native-reader-macos-only`.
+- Windows' three rules each matched one skip; unchanged.
+
+No report has an unexpected skip under the new manifests, and all 3,164
+`covered_by` claims in the three runners' reports are confirmed passed on the
+claimed runner (none contradicted, none unchecked). Linux's only uncovered
+skips are now `linux-gui-display` and `linux-tray-session-bus`.
 
 `windows.yml` now also runs `test_artifact_reparse.py`, so the native
 junction case, which the macOS and Linux manifests used to list as uncovered,

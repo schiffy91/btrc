@@ -10,8 +10,10 @@ independent state, invariants, and change reasons justify a separate owner.
 
 ## Architectural invariants
 
-1. `src/language/grammar.ebnf`, `src/language/ast.asdl`, and
-   `src/language/hosted_abi.toml` remain shared sources of truth.
+1. `src/language/grammar.ebnf`, `src/language/ast.asdl`,
+   `src/language/native_abi.asdl`, `src/language/hosted_abi.toml`,
+   `src/language/intrinsic_effects.toml`, and `src/runtime/c/manifest.toml`
+   remain shared sources of truth.
 2. Both compilers retain lexer, parser, analyzer, structured IR lowering,
    optimizer, and C-emitter stages.
 3. IR lowering produces structured nodes. Emitters only format those nodes.
@@ -269,7 +271,7 @@ src/compiler/btrc/
 
   generated/
     ast/
-      Node.btrc                   # ASDL-generated Node data/schema only
+      Node.btrc                   # ASDL-generated Node data/schema plus lazy list accessors
     hosted_abi/
       README.md
       Tables.btrc                 # generated hosted ABI declarations
@@ -406,7 +408,10 @@ each stage manifest records an intentional import order without owning behavior.
 src/language/
   grammar.ebnf
   ast.asdl
+  native_abi.asdl                 # native-header semantic data schema
   hosted_abi.toml
+  intrinsic_effects.toml          # compiler-intrinsic realtime effects and C callees
+  package-manifest.md             # package manifest, lock and native link-plan contract
 
 src/runtime/c/
   manifest.toml
@@ -428,7 +433,10 @@ tools/compiler_codegen/
   ast.py
   builtins.py
   hosted_abi.py
+  intrinsic_effects.py
+  manifest_fields.py
   runtime.py
+  stdlib_symbols.py
   verification.py
 ```
 
@@ -443,8 +451,14 @@ assets; lowerers and emitters never assemble helper source.
 platform subsets, runtime-adopting metadata, and provenance markers. Generated
 Python rows use immutable value types. Generated btrc rows expose public fields
 required by the language and consumers treat them as read-only by convention.
-All generated modules contain data/schema declarations only; retained
-repositories own indexing and queries.
+`src/language/intrinsic_effects.toml` owns the realtime effect and emitted C
+callee of each compiler-intrinsic method and feeds the runtime catalogs.
+Generated modules contain data/schema declarations; the one exception is the
+self-hosted `Node.btrc`, whose lazily allocated list fields
+(`BtrcAstRenderer._LAZY_LIST_FIELDS` in `tools/compiler_codegen/ast.py`, each
+validated against the ASDL list fields) carry generated `name()` readers and
+`nameMut()` mutators that own that storage only. Retained repositories own
+indexing and queries.
 
 The unified generator produces exactly these data files:
 
@@ -458,7 +472,12 @@ src/compiler/btrc/generated/hosted_abi/Tables.btrc
 src/compiler/python/abi/native_generated.py
 src/compiler/btrc/generated/native_abi/Models.btrc
 src/devex/lsp/catalog/generated.py
+src/stdlib/btrc.symbols
 ```
+
+`src/stdlib/btrc.symbols` is the root-stdlib symbol index (symbol to defining
+module) that `StdlibSymbolIndex` in `frontend/symbol_index.py` reads; it is
+rendered by `tools/compiler_codegen/stdlib_symbols.py`.
 
 ## Exact developer-experience destination
 
@@ -561,19 +580,17 @@ Build payloads live only under `build/devex/vscode/`, and the packaged VSIX
 lives at `dist/btrc.vsix`. Source directories never contain compiled output,
 bundled payloads, dependency installs, Python bytecode, or test caches.
 
-## Architecture-first verification
+## Verification
 
-During the ownership migration, each slice proves the destination shape with
-exact-tree and stale-path audits, generated-source checks, AST/parse/import
-checks, dependency/SCC and loose-behavior audits, and `git diff --check`.
-Behavior, parity, bootstrap, compiler-corpus, and broad correctness suites are
-deferred until the destination tree is mechanically complete.
-
-After that structural boundary is stable, verification hill-climbs through
-focused behavior and parity checks, then the full corpus, strict GCC/Clang C11
-matrix, generated-source verification, bootstrap fixed point, LSP/debugger
-suites, extension packaging, lint, and format checks. No failure may be
-dismissed as pre-existing.
+The architecture destination is established, so every gate applies to claimed
+behavior. Structural checks still matter — exact-tree and stale-path audits,
+generated-source checks, AST/parse/import checks, dependency/SCC and
+loose-behavior audits, and `git diff --check` — but they are a first pass, not
+a substitute for behavior, parity, corpus, and bootstrap runs. Run the gates
+covering what you touched, and finish on the full matrix in `AGENTS.md`: the
+full corpus, strict GCC/Clang C11 matrix, generated-source verification,
+bootstrap fixed point, LSP/debugger suites, extension packaging, lint, and
+format checks. No failure may be dismissed as pre-existing.
 
 ## Definition of done
 

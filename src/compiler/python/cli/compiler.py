@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from typing import TextIO
 
 from ..application.compiler import Compiler, CompilerInputIdentity, CompilerOutputPublicationPort
+from ..application.modules import ForkedModuleUnitWorkers
 from ..application.results import (
     CompilerActionResult,
     CompilerDiagnostic,
@@ -243,7 +244,7 @@ class CompilerCommand:
             generated_c_path=out_path,
             units_prefix=args.emit_units,
             module_units=args.module_units,
-            module_jobs=args.jobs or min(os.cpu_count() or 1, 2),
+            module_jobs=args.jobs or ForkedModuleUnitWorkers.suggested_count(),
             target=args.target,
         )
 

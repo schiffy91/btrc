@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,16 +19,16 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.application.compiler import Compiler
-from src.compiler.python.application.modules import ModuleUnitCompiler, ModuleUnitRecord
+from src.compiler.python.application.modules import ForkedModuleUnitWorkers, ModuleUnitCompiler, ModuleUnitRecord
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceDependencyGraph
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
 from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.python.native_import_fixtures import apple_environment
+from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.test_native_cxx_owners import pugixml_project as pugixml_project
-from src.tests.python.test_native_import_consumer import apple_environment
-from src.tests.python.test_native_import_consumer import native_project as native_project
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -847,7 +848,7 @@ def _timed_cli_build(
     command: list[str],
     workspace: _Workspace,
     output: Path,
-    jobs: int,
+    jobs: int | None,
     *,
     timing: bool = True,
     cache: Path | None = None,
@@ -860,8 +861,7 @@ def _timed_cli_build(
         "PYTHONPATH": str(ROOT),
         "BTRC_CACHE_DIR": str((cache or output / "cache").resolve()),
     }
-    for name in ("BTRC_TIMING", "BTRCC_TIMING"):
-        environment.pop(name, None)
+    environment.pop("BTRC_TIMING", None)
     if timing:
         environment["BTRC_TIMING"] = "1"
     process = subprocess.Popen(
@@ -873,8 +873,7 @@ def _timed_cli_build(
             "--emit-units",
             str(output / "program"),
             "--module-units",
-            "--jobs",
-            str(jobs),
+            *(["--jobs", str(jobs)] if jobs is not None else []),
         ],
         cwd=workspace.modules,
         env=environment,
@@ -957,6 +956,17 @@ def test_forked_workers_report_timing_through_the_owner(compiler: str, tmp_path,
 
     assert perf.phase_times(summable(build.stderr)) == perf.phase_times(summable(owner))
     assert sorted(perf.worker_phase_times(build.stderr)) == list(range(count))
+    # The owner reaps each worker and appends what that process used, last:
+    # CPU time in microseconds and peak resident memory in KiB on every host.
+    for line in build.workers:
+        assert re.search(r" usage=user:\d+us,sys:\d+us,maxrss:\d+KiB$", line), line
+    usage = perf.worker_usage(build.stderr)
+    assert sorted(usage) == list(range(count))
+    for used in usage.values():
+        assert used["user"] + used["sys"] > 0
+        # A worker's peak is at most hundreds of megabytes; the same figure
+        # read in bytes would pass 16 GiB.
+        assert 1024 <= used["maxrss_kib"] < 16 * 1024 * 1024
 
 
 def test_inline_and_incremental_builds_print_no_worker_timing(compiler: str, tmp_path, request):
@@ -966,13 +976,31 @@ def test_inline_and_incremental_builds_print_no_worker_timing(compiler: str, tmp
     inline = _timed_cli_build(command, workspace, workspace.root / "inline", 1)
     assert len(inline.owner) == 1 and not inline.workers
     assert not re.search(r"\bw-", inline.owner[0])
+    assert "usage=" not in inline.stderr
     cache = workspace.root / "cache"
     _timed_cli_build(command, workspace, workspace.root / "cold", 2, cache=cache)
+    # Timing keeps the artifact cache on in both compilers, so a no-op
+    # rebuild of the same outputs is a hit, and both mark it.
+    again = _timed_cli_build(command, workspace, workspace.root / "cold", 2, cache=cache)
+    assert len(again.owner) == 1 and not again.workers
+    assert re.search(r"\bartifact-hit=\d+us", again.owner[0]), again.owner[0]
     warm = _timed_cli_build(command, workspace, workspace.root / "warm", 2, cache=cache)
     assert len(warm.owner) == 1 and not warm.workers
     workspace.edit("Catalog/Catalog.btrc", 'print(f"catalog skipped {error}");', 'print(f"catalog skip: {error}");')
     edited = _timed_cli_build(command, workspace, workspace.root / "edited", 2, cache=cache)
     assert len(edited.owner) == 1 and not edited.workers
+
+
+def test_default_worker_count_is_one_per_online_cpu_up_to_four(compiler: str, tmp_path, request):
+    """Without --jobs both compilers start the same pool: one worker per
+    online CPU, at most four, and never more than the groups to lower."""
+    workspace = _Workspace(tmp_path.resolve())
+    build = _timed_cli_build(_timing_command(compiler, request), workspace, workspace.root / "cold", None)
+    lowered = _python_lowered_groups(workspace, workspace.root / "probe")
+    expected = min(os.sysconf("SC_NPROCESSORS_ONLN"), 4, lowered)
+    assert len(build.workers) == (expected if expected > 1 else 0), build.stderr
+    if compiler == "btrc":
+        assert f"module-unit-workers={max(expected, 1)}" in build.owner[0]
 
 
 def test_worker_timing_never_changes_the_units(compiler: str, tmp_path, request):
@@ -1282,6 +1310,81 @@ def test_a_dying_worker_fails_the_compile_and_leaves_no_workers(tmp_path):
     assert lines[0] == "module-unit worker failed: worker exited with status 9"
     assert lines[1] == "no workers left"
     assert not list(output.glob("program*.c"))
+
+
+_RAISING_WORKER = """
+import os, sys
+from pathlib import Path
+from src.compiler.python.application.compiler import Compiler
+from src.compiler.python.application.modules import ModuleUnitWorker
+from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.artifacts.cache import CompilerCache
+from src.compiler.python.ir.lowering.types import CodegenError
+
+answer = ModuleUnitWorker._answer
+
+def raising(self, request):
+    if request["op"] == "lower" and request["group"].endswith("Catalog.btrc"):
+        raise CodegenError("probe diagnostic from Catalog")
+    return answer(self, request)
+
+ModuleUnitWorker._answer = raising
+entry, output, jobs = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3])
+result = Compiler(cache=CompilerCache()).compile(
+    entry.read_text(),
+    str(entry),
+    CompilerOptions(units_prefix=str(output / "program"), module_units=True, module_jobs=jobs, use_cache=False),
+)
+print(result.failure.message if result.failure is not None else "no failure")
+"""
+
+
+def test_a_raising_request_surfaces_its_own_diagnostic_from_any_pool(tmp_path):
+    """What a worker's request raises reaches the owner unchanged, whether the
+    worker is the owner itself or a forked process: the same failure text."""
+    workspace = _Workspace(tmp_path.resolve())
+    messages = []
+    for jobs in (1, 3):
+        output = workspace.root / f"out-{jobs}"
+        output.mkdir()
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _RAISING_WORKER,
+                str(workspace.modules / "CatalogMain.btrc"),
+                str(output),
+                str(jobs),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_CACHE_DIR": str(workspace.cache), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert completed.returncode == 0, completed.stderr
+        messages.append(completed.stdout.splitlines()[0])
+    assert "probe diagnostic from Catalog" in messages[0]
+    assert messages[0] == messages[1]
+
+
+def test_workers_never_fork_beside_another_thread():
+    """A lock another thread held at the fork would stay held in the worker,
+    so the pool refuses to start and the owner lowers inline instead."""
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait, daemon=True)
+    thread.start()
+    try:
+        assert ForkedModuleUnitWorkers.other_threads_running()
+        assert ForkedModuleUnitWorkers.start(2, lambda request: request) is None
+    finally:
+        release.set()
+        thread.join(timeout=10)
+
+
+def test_suggested_worker_count_matches_the_self_hosted_pools():
+    """btrcc's pools suggest one worker per online CPU, at most four."""
+    assert ForkedModuleUnitWorkers.suggested_count() == max(1, min(os.sysconf("SC_NPROCESSORS_ONLN"), 4))
 
 
 _EFFECTS_PROGRAM = {

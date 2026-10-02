@@ -442,6 +442,26 @@ class SourceReadIdentity:
     version: tuple[int, int, int, int, int, int]
 
     @staticmethod
+    def immutable_store_file(canonical: str) -> bool:
+        """Whether a canonical path lies inside the read-only Nix store."""
+
+        store = os.environ.get("NIX_STORE_DIR") or "/nix/store"
+        return canonical.startswith(store.rstrip("/") + "/")
+
+    def same_version(self, version: tuple[int, int, int, int, int, int]) -> bool:
+        """Whether another stat version names the bytes this identity read.
+
+        A store file never changes once written, but Nix's auto-optimise-store
+        replaces it with a hard link to an identical file: its device, inode,
+        link count and change time move while its mode, size and modification
+        time do not. Only those last three are compared there.
+        """
+
+        if self.immutable_store_file(self.canonical):
+            return version[2:5] == self.version[2:5]
+        return version == self.version
+
+    @staticmethod
     def file_version(metadata: os.stat_result) -> tuple[int, int, int, int, int, int]:
         return (
             metadata.st_dev,
@@ -462,7 +482,7 @@ class SourceReadIdentity:
             else:
                 # Reopening a POSIX FIFO could block after its writer exits.
                 version = self.file_version(os.stat(self.path))
-            unchanged = os.path.normcase(os.path.realpath(self.path)) == self.canonical and version == self.version
+            unchanged = os.path.normcase(os.path.realpath(self.path)) == self.canonical and self.same_version(version)
         except OSError as error:
             raise SourceReadError(f"source input changed after read: {self.path}: {error}") from error
         if not unchanged:
@@ -497,7 +517,7 @@ class SourceFileReader:
                     requested, canonical, SourceReadIdentity.file_version(os.fstat(source_file.fileno()))
                 )
                 encoded = source_file.read()
-                if SourceReadIdentity.file_version(os.fstat(source_file.fileno())) != identity.version:
+                if not identity.same_version(SourceReadIdentity.file_version(os.fstat(source_file.fileno()))):
                     raise SourceReadError(f"source input changed during read: {requested}")
             identity.validate()
         except FileNotFoundError as error:

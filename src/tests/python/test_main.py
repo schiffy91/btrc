@@ -85,7 +85,7 @@ def test_cached_default_output(tmp_path, monkeypatch, capsys):
     assert "(cached)" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("flag", ["--no-cache", "--profile"])
+@pytest.mark.parametrize("flag", ["--no-cache"])
 def test_cli_explicit_pipeline_run_bypasses_directive_storage(tmp_path, monkeypatch, flag):
     from src.compiler.python.artifacts.cache import CompilerCache
 
@@ -101,6 +101,28 @@ def test_cli_explicit_pipeline_run_bypasses_directive_storage(tmp_path, monkeypa
     monkeypatch.setattr(CompilerCache, "load_directives", unexpected_cache_access)
     monkeypatch.setattr(CompilerCache, "store_directives", unexpected_cache_access)
     run_main(monkeypatch, [flag, src, "-o", str(tmp_path / "program.c")])
+
+
+def test_cli_profile_reads_directive_storage(tmp_path, monkeypatch):
+    """Profiling measures the build a user gets, so it keeps directive
+    storage, as btrcc's BTRC_TIMING does."""
+    from src.compiler.python.artifacts.cache import CompilerCache
+
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    src = write(tmp_path / "Main.btrc", "import ./Value.btrc;\nint main() { return value(); }\n")
+    write(tmp_path / "Value.btrc", "int value() { return 8; }\n")
+    run_main(monkeypatch, [src, "-o", str(tmp_path / "program.c")])
+    loads = []
+    load = CompilerCache.load_directives
+
+    def counted(self, *args, **kwargs):
+        loads.append(args)
+        return load(self, *args, **kwargs)
+
+    monkeypatch.setattr(CompilerCache, "load_directives", counted)
+    # Another output path misses the artifact cache, so the run resolves.
+    run_main(monkeypatch, ["--profile", src, "-o", str(tmp_path / "other.c")])
+    assert loads
 
 
 def test_emit_tokens(tmp_path, monkeypatch, capsys):
@@ -174,7 +196,9 @@ def test_profile(tmp_path, monkeypatch, capsys):
     assert "total" in err
 
 
-def test_profile_bypasses_existing_compiled_c_cache(tmp_path, monkeypatch, capsys):
+def test_profile_keeps_the_compiled_c_cache(tmp_path, monkeypatch, capsys):
+    """Profiling measures the build a user gets, cache included, as btrcc's
+    BTRC_TIMING does: a hit is reported and marked `artifact-hit`."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
     src = write(tmp_path / "profile-cache.btrc", BARE)
@@ -185,8 +209,9 @@ def test_profile_bypasses_existing_compiled_c_cache(tmp_path, monkeypatch, capsy
     run_main(monkeypatch, [src, "--no-stdlib", "--profile", "-o", output])
     captured = capsys.readouterr()
 
-    assert "(cached)" not in captured.out
+    assert "(cached)" in captured.out
     assert "btrc profile" in captured.err
+    assert re.search(r"^btrcpy timing: .*\bartifact-hit=\d+us", captured.err, re.MULTILINE)
 
 
 # --------------------------------------------------------------------------
@@ -596,7 +621,7 @@ def test_native_adapters_live_outside_relaxed_composition():
     assert "class UIElement" not in source
     assert "class UIAppSession" not in source
     assert "class SystemImageDecoder" not in source
-    assert "SystemImageProvider" not in source
+    assert "SystemImageDecoderProvider" not in source
 
 
 def test_get_stdlib_source_skips_redefined():

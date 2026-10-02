@@ -1,0 +1,11 @@
+/* btrc 3D Engine — Vector3
+ *
+ * A plain three-component float vector shared by objects, the camera and
+ * lights.
+ */
+
+struct Vector3 {
+	float x;
+	float y;
+	float z;
+};

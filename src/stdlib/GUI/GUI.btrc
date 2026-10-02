@@ -18,7 +18,7 @@ import Library.GUI.ISlider;
 import Library.GUI.ISelect;
 import Library.GUI.IScrollView;
 import Library.GUI.IGrid;
-import Library.GUI.Capture;
+import Library.GUI.GUICaptureLayer;
 import Library.GUI.TextRun;
 import Library.App;
 import Library.Image;
@@ -95,9 +95,9 @@ class GUI {
 	class CallbackCancellation close() {
 		GUIProvider.requireUIThread();
 		var application = GUIApplicationSlot.active;
-		if (application == null) { return CallbackCancellation.Complete; }
+		if (application == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		var result = application.close();
-		if (result == CallbackCancellation.Complete) { GUIApplicationSlot.active = null; }
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { GUIApplicationSlot.active = null; }
 		return result;
 	}
 }

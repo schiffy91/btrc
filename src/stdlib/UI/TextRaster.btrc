@@ -1,10 +1,10 @@
 /* Text runs as transparent Library.Image rasters.
  *
  * Painters that compose their own images (rulers, meters, note charts) draw
- * labels through here so on-screen text is the platform's system font when
- * the session's typography carries a raster provider, and the deterministic
- * 5x7 glyph painter otherwise. Both paths produce tightly packed RGBA8 with
- * straight alpha: background (0, 0, 0, 0), glyphs tinted with the colour.
+ * labels through here with the deterministic 5x7 glyph painter; system-font
+ * runs come from GUI.rasterizeText. Rasters are tightly packed
+ * RGBA8 with straight alpha: background (0, 0, 0, 0), glyphs tinted with the
+ * colour.
  */
 
 import Library.Image;
@@ -23,15 +23,10 @@ class UITextRaster {
 	 * scaled by the colour's alpha. */
 	class void tint(Image image, UIColor color) { image.tintCoverage(color.rgba()); }
 
-	/* The platform raster, tinted, in backing pixels; null without a provider
-	 * or when it rejects the run. */
-	class Image? tryPlatformRasterize(UITypography typography, string value, int fontSize, int lineHeight, int fontWeight, UIColor color, float backingScale = 1.0f) { return typography.tintedPlatformRaster(value, fontSize, lineHeight, fontWeight, color.rgba(), backingScale); }
-
 	/* The deterministic raster: the 5x7 glyph run's own width (one advance per
-	 * scalar at the scaled size) by the scaled line height, so the raster
-	 * fits its glyphs even when the typography measures natively. measure()
-	 * still validates the run. */
-	class Image deterministic(UITypography typography, string value, int fontSize, int lineHeight, int fontWeight, UIColor color, float backingScale = 1.0f) {
+	 * scalar at the scaled size) by the scaled line height. measure() still
+	 * validates the run. */
+	class Image rasterize(UITypography typography, string value, int fontSize, int lineHeight, int fontWeight, UIColor color, float backingScale = 1.0f) {
 		string run = UITextRaster.bounded(value);
 		typography.measure(run, fontSize, lineHeight, fontWeight);
 		if (run.isEmpty()) { return Image.empty(); }
@@ -48,13 +43,6 @@ class UITextRaster {
 		Image image = Image((int)width, scaledLine);
 		UIRaster.glyphRun(image, 0, 0, run, color, scaledFont, scaledLine, fontWeight, typography, false);
 		return image;
-	}
-
-	/* Platform text when available, the deterministic painter otherwise. */
-	class Image rasterize(UITypography typography, string value, int fontSize, int lineHeight, int fontWeight, UIColor color, float backingScale = 1.0f) {
-		Image? platform = UITextRaster.tryPlatformRasterize(typography, value, fontSize, lineHeight, fontWeight, color, backingScale);
-		if (platform != null) { return platform; }
-		return UITextRaster.deterministic(typography, value, fontSize, lineHeight, fontWeight, color, backingScale);
 	}
 
 	/* Straight-alpha "over" of a raster onto a canvas; keeps the canvas's own

@@ -1,24 +1,11 @@
-/* Portable application event and directory-picker values. Native application
- * lifecycle and windows are owned by Library.GUI.GUI. */
-
-import Library.Strings;
+/* Portable input-event and application-error values. Native application
+ * lifecycle and windows are owned by Library.GUI. */
 
 enum AppErrorCode {
-	APP_ERROR_NONE = 0,
 	APP_ERROR_INVALID_ARGUMENT = 1,
 	APP_ERROR_NOT_MAIN_THREAD = 2,
-	APP_ERROR_ALREADY_RUNNING = 3,
-	APP_ERROR_BACKEND_UNAVAILABLE = 4,
-	APP_ERROR_NOT_OPEN = 5,
-	APP_ERROR_WINDOW_ALREADY_OPEN = 6,
-	APP_ERROR_WINDOW_CREATE_FAILED = 7,
-	APP_ERROR_EVENT_QUEUE_OVERFLOW = 8,
-	APP_ERROR_RESOURCE_BUSY = 9,
-	APP_ERROR_STALE_SURFACE = 10,
-	APP_ERROR_SURFACE_ALREADY_CREATED = 11,
-	APP_ERROR_CLOSED = 12,
-	APP_ERROR_SURFACE_ALREADY_ATTACHED = 13,
-	APP_ERROR_INTERNAL = 14
+	APP_ERROR_BACKEND_UNAVAILABLE = 3,
+	APP_ERROR_INTERNAL = 4
 };
 
 class AppError {
@@ -29,52 +16,6 @@ class AppError {
 		self.code = code;
 		self.message = message;
 	}
-}
-
-class AppClipboardText {
-	public string text;
-	public AppError? error;
-
-	public AppClipboardText(string text, AppError? error = null) { self.text = text; self.error = error; }
-}
-
-enum AppTitlebarStyle {
-	APP_TITLEBAR_STANDARD = 0,
-	APP_TITLEBAR_OVERLAY = 1
-};
-
-class AppWindowDescriptor {
-	public string title;
-	public int logicalWidth;
-	public int logicalHeight;
-
-	public AppWindowDescriptor(string title, int logicalWidth, int logicalHeight) {
-		self.title = title;
-		self.logicalWidth = logicalWidth;
-		self.logicalHeight = logicalHeight;
-	}
-
-	public bool isValid() { return !self.title.isEmpty() && self.logicalWidth > 0 && self.logicalHeight > 0; }
-}
-
-class AppSurfaceMetrics {
-	public int logicalWidth;
-	public int logicalHeight;
-	public int framebufferWidth;
-	public int framebufferHeight;
-	public float scaleX;
-	public float scaleY;
-
-	public AppSurfaceMetrics(int logicalWidth, int logicalHeight, int framebufferWidth, int framebufferHeight, float scaleX, float scaleY) {
-		self.logicalWidth = logicalWidth;
-		self.logicalHeight = logicalHeight;
-		self.framebufferWidth = framebufferWidth;
-		self.framebufferHeight = framebufferHeight;
-		self.scaleX = scaleX;
-		self.scaleY = scaleY;
-	}
-
-	public bool isValid() { return self.logicalWidth > 0 && self.logicalHeight > 0 && self.framebufferWidth >= 0 && self.framebufferHeight >= 0 && self.scaleX > 0.0f && self.scaleY > 0.0f; }
 }
 
 class AppKeyModifiers {
@@ -200,39 +141,5 @@ class AppKeyboardEvent {
 		self.action = action;
 		self.key = key;
 		self.modifiers = modifiers;
-	}
-}
-
-enum AppWindowEventKind {
-	APP_EVENT_IDLE = 0,
-	APP_EVENT_POINTER = 1,
-	APP_EVENT_KEYBOARD = 2,
-	APP_EVENT_TEXT = 3,
-	APP_EVENT_RESIZED = 4,
-	APP_EVENT_DPI_CHANGED = 5,
-	APP_EVENT_CLOSE_REQUESTED = 6,
-	APP_EVENT_CLOSED = 7,
-	APP_EVENT_FAILED = 8,
-	APP_EVENT_SCROLLED = 9,
-	APP_EVENT_FOCUS_LOST = 10
-};
-
-class AppWindowEvent {
-	public AppWindowEventKind kind;
-	public AppPointerEvent? pointer;
-	public AppScrollEvent? scroll;
-	public AppKeyboardEvent? keyboard;
-	public AppSurfaceMetrics? surface;
-	public string text;
-	public AppError? error;
-
-	public AppWindowEvent(AppWindowEventKind kind) {
-		self.kind = kind;
-		self.pointer = null;
-		self.scroll = null;
-		self.keyboard = null;
-		self.surface = null;
-		self.text = "";
-		self.error = null;
 	}
 }

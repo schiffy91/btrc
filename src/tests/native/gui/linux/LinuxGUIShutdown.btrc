@@ -1,7 +1,7 @@
 /* A subtree that never finishes closing cannot hang quit: run() drains it
  * for one deadline, then throws while the pending owners stay retained, and a
  * later close completes once the subtree can drain. */
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
 import Library.GUI.IWindow;
@@ -9,7 +9,7 @@ import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.Callback;
 import Library.Console;
-import Library.Datetime;
+import Library.Timer;
 
 #include <assert.h>
 
@@ -25,7 +25,7 @@ class StuckView extends LinuxNodeView {
 
 	public CallbackCancellation pollClose() {
 		self.polls++;
-		return self.released ? self.node().pollClose() : CallbackCancellation.Pending;
+		return self.released ? self.node().pollClose() : CALLBACK_CANCELLATION_PENDING;
 	}
 }
 
@@ -53,11 +53,11 @@ int main() {
 	/* The stalled owners are retained, so releasing the subtree lets close finish. */
 	stuck.released = true;
 	var result = GUI.close();
-	while (result == CallbackCancellation.Pending && clock.elapsedMillis() < 30000.0f) {
+	while (result == CALLBACK_CANCELLATION_PENDING && clock.elapsedMillis() < 30000.0f) {
 		Timer.sleepMillis(1);
 		result = GUI.close();
 	}
-	assert(result == CallbackCancellation.Complete);
+	assert(result == CALLBACK_CANCELLATION_COMPLETE);
 	assert(!root.isOpen() && !stuck.isOpen());
 	Console.log("PASS: linux gui shutdown deadline");
 	return 0;

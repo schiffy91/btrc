@@ -127,7 +127,7 @@ class Trainer {
 	public void train(Dataset data, int epochs, int logEvery) {
 		float baseLR = self.lr;
 		for (int epoch = 0; epoch < epochs; epoch++) {
-			// Cosine learning rate decay
+			// Linear learning rate decay from baseLR toward 0.1 * baseLR
 			float progress = (float)epoch / (float)epochs;
 			self.lr = baseLR * (1.0 - 0.9 * progress);
 

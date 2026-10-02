@@ -41,6 +41,7 @@ from ..abi.native_generated import (
     NativeRecordDeclaration,
     NativeRecordLayout,
     NativeRecordType,
+    NativeStringConstant,
     NativeTypedef,
 )
 from ..syntax.ast import generated as ast
@@ -4099,7 +4100,7 @@ class NativeDeclarationImporter:
         if declaration.name in self._callback_operations:
             return
         if self._origin.language == "objective-c" and not isinstance(
-            declaration, (NativeObjectiveCMethod, NativeConstant, NativeGlobal)
+            declaration, (NativeObjectiveCMethod, NativeConstant, NativeStringConstant, NativeGlobal)
         ):
             raise NativeImportError("Objective-C header declarations require adapter lowering")
         contract = None
@@ -4378,6 +4379,25 @@ class NativeDeclarationImporter:
                 name=declaration.name,
                 initializer=ast.IntLiteral(value=int(declaration.decimal_value), raw=raw),
             )
+        elif isinstance(declaration, NativeStringConstant):
+            # The C use names the macro, whose literal decays to `const char*`:
+            # the same projection, and the same read-only protection, as an SDK
+            # `const char* const` global.
+            pointee = declaration.value_type.pointee if isinstance(declaration.value_type, NativePointer) else None
+            if (
+                not isinstance(pointee, NativeBuiltin)
+                or pointee.name != "char"
+                or not pointee.qualifiers.is_const
+                or declaration.value_type.qualifiers.is_const
+            ):
+                raise NativeImportError("native string constant requires its literal's const char pointer")
+            if self._origin.language == "objective-c":
+                raise NativeImportError("Objective-C string constants require adapter lowering")
+            imported = ast.VarDeclStmt(
+                type=replace(self._type(declaration.value_type), is_extern=True),
+                name=declaration.name,
+                initializer=None,
+            )
         elif isinstance(declaration, NativeTypedef):
             if declaration.name in self._resources:
                 return
@@ -4403,7 +4423,8 @@ class NativeDeclarationImporter:
             declaration.name,
             imported,
             self._declaration_identity(declaration),
-            read_only=isinstance(declaration, NativeGlobal) and (declaration.read_only or contract is not None),
+            read_only=isinstance(declaration, NativeStringConstant)
+            or (isinstance(declaration, NativeGlobal) and (declaration.read_only or contract is not None)),
             call_contract=contract,
         )
         if isinstance(declaration, NativeFunction):
@@ -4607,6 +4628,8 @@ class NativeDeclarationImporter:
             )
         if isinstance(declaration, NativeGlobal):
             return type(declaration), self._type_identity(declaration.value_type), declaration.read_only
+        if isinstance(declaration, NativeStringConstant):
+            return type(declaration), self._type_identity(declaration.value_type), declaration.string_value
         return type(declaration), self._type_identity(declaration.value_type), declaration.decimal_value
 
     def _call_nullability(self, native):
@@ -4814,7 +4837,7 @@ class NativeHeaderCodec:
                     else entry.underlying
                     if isinstance(entry, NativeTypedef)
                     else entry.value_type
-                    if isinstance(entry, (NativeConstant, NativeGlobal))
+                    if isinstance(entry, (NativeConstant, NativeStringConstant, NativeGlobal))
                     else entry.record_type
                 )
                 self._verify_layout_references(native_type, layouts)
@@ -4991,7 +5014,7 @@ class NativeHeaderCodec:
                 "related_result",
                 "returns_inner_pointer",
             }
-        elif kind == "enum_constant":
+        elif kind in {"enum_constant", "string_constant"}:
             required |= {"value"}
         elif kind == "global":
             required |= {"read_only"}
@@ -5118,6 +5141,10 @@ class NativeHeaderCodec:
             return NativeTypedef(**position, underlying=native_type)
         if kind == "global":
             return NativeGlobal(**position, value_type=native_type, read_only=self._boolean(value["read_only"]))
+        if kind == "string_constant":
+            return NativeStringConstant(
+                **position, value_type=native_type, string_value=self._text(value["value"], empty=True)
+            )
         if kind == "enum_constant":
             return NativeConstant(
                 **position,

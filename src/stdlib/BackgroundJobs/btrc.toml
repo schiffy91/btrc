@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_backgroundjobs"
-exports = ["BackgroundJobExecutor", "BackgroundJobs", "HostWorkerPools", "WorkerPools"]
+exports = ["BackgroundJobExecutor", "BackgroundJobs", "HostWorkerPools", "ProcessThreads", "WorkerPools"]
 
 [[package.providers]]
 module = "HostWorkerPools"
@@ -13,6 +13,16 @@ os = ["linux", "macos"]
 module = "HostWorkerPools"
 implementation = "WorkerPoolProvider"
 os = ["windows"]
+
+[[package.providers]]
+module = "ProcessThreads"
+implementation = "Linux.ProcessThreadsProvider"
+os = ["linux"]
+
+[[package.providers]]
+module = "ProcessThreads"
+implementation = "MacOS.ProcessThreadsProvider"
+os = ["macos"]
 
 [[native.bindings]]
 module = "BackgroundJobExecutor"

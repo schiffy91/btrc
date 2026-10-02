@@ -72,10 +72,10 @@ class DeclarationLowerer {
 	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
 
 	private string compactPackDirective(string text) {
-		string compact = Strings.replace(text, " ", "");
-		compact = Strings.replace(compact, "\t", "");
-		compact = Strings.replace(compact, "\r", "");
-		return Strings.replace(compact, "\n", "");
+		string compact = text.replace(" ", "");
+		compact = compact.replace("\t", "");
+		compact = compact.replace("\r", "");
+		return compact.replace("\n", "");
 	}
 
 	private int packPushAlignment(string text) {
@@ -2907,7 +2907,10 @@ class DeclarationLowerer {
 		if (ctor != null) {
 			self.functions.activateSourceLexicalParameters(ctor.params());
 		}
-		if (!foreign) { self.appendInstanceFieldInitializers(decl, genericCtorVars, true, typeMap, ibody); }
+		if (!foreign) {
+			self.appendInheritedFieldInitializers(decl, genericCtorVars, ibody);
+			self.appendInstanceFieldInitializers(decl, genericCtorVars, true, typeMap, ibody);
+		}
 		Vector<IRNode> ctorBodyStmts = [];
 		if (!foreign && ctor != null && ctor.bodyNode != null) {
 			IRNode blk = self.functions.lowerBody(ctor.bodyNode, genericCtorVars);
@@ -3409,6 +3412,9 @@ class DeclarationLowerer {
 			self.functions.activateSourceLexicalParameters(ctor.params());
 		}
 		Map<string, Node> noTypeMap = {};
+		/* Inherited defaults first, root class outward, then this class's
+		 * own, and only then the constructor body. */
+		self.appendInheritedFieldInitializers(decl, ctorVars, body);
 		self.appendInstanceFieldInitializers(decl, ctorVars, false, noTypeMap, body);
 		/* Constructor body (user code). */
 		if (ctor != null && ctor.bodyNode != null) {
@@ -4310,6 +4316,23 @@ class DeclarationLowerer {
 		if (field.initializer.kind != NK_BRACE_INITIALIZER && field.initializer.kind != NK_LIST_LITERAL) { return; }
 		fprintf(stderr, "error: array-valued class field default '%s' requires persistent backing storage at %d:%d\n", field.name, field.line, field.col);
 		exit(1);
+	}
+
+	/* The initializers every ancestor declares, root class first. A parent is
+	 * never generic, so its field types need no substitution. */
+	private void appendInheritedFieldInitializers(Node declaration, Map<string, Node> variables, Vector<IRNode> body) {
+		Vector<Node> ancestors = [];
+		Node current = declaration;
+		while (current.parent != null && current.parent != "" && self.analyzed.classTable.has(current.parent)) {
+			current = self.analyzed.classTable.get(current.parent);
+			ancestors.push(current);
+		}
+		Map<string, Node> noTypeMap = {};
+		int index = ancestors.len - 1;
+		while (index >= 0) {
+			self.appendInstanceFieldInitializers(ancestors.get(index), variables, false, noTypeMap, body);
+			index = index - 1;
+		}
 	}
 
 	private void appendInstanceFieldInitializers(Node declaration, Map<string, Node> variables, bool generic, Map<string, Node> typeMap, Vector<IRNode> body) {

@@ -1197,7 +1197,33 @@ class ExpressionAnalyzer:
                 return right
         return None
 
+    def contextualize_ternary_literals(self, expression, expected: TypeExpr | None = None) -> None:
+        """Type an empty collection-literal branch from its ternary's context.
+
+        An empty ``[]`` or ``{}`` carries no element type of its own, so it
+        takes the other branch's type, or the declared type both branches feed
+        when every branch is empty.
+        """
+        if not isinstance(expression, TernaryExpr):
+            return
+        branches = (expression.true_expr, expression.false_expr)
+        empty = [branch for branch in branches if self.types.is_empty_contextual_literal(branch)]
+        if expected is not None:
+            for branch in branches:
+                self.contextualize_ternary_literals(branch, expected)
+        elif len(empty) == 1:
+            other = branches[1] if empty[0] is branches[0] else branches[0]
+            expected = self._infer_type(other)
+        if expected is None or not empty:
+            return
+        for branch in empty:
+            self.apply_initializer_plan(
+                self.aggregates.plan_collection_initializer(expected, branch, "Ternary branch", branch.line, branch.col)
+            )
+        self.session.node_types.pop(id(expression), None)
+
     def _infer_ternary_type(self, expression):
+        self.contextualize_ternary_literals(expression)
         true_type = self._infer_type(expression.true_expr)
         false_type = self._infer_type(expression.false_expr)
         if true_type is None or false_type is None:
@@ -1858,6 +1884,7 @@ class ExpressionAnalyzer:
                 self._analyze_expr(expr.false_expr)
                 false_flow = set(self.session.nonnull_paths)
             self.session.replace_nonnull_paths(true_flow & false_flow)
+            self.contextualize_ternary_literals(expr)
             self._validate_ternary_expr(expr)
         elif isinstance(expr, CastExpr):
             expr.target_type = self.types.upgrade_class_type(expr.target_type)

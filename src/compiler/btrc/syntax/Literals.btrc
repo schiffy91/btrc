@@ -343,11 +343,11 @@ class StringLiteral {
 	public StringLiteral(string value) { self.value = value; }
 
 	public string cSource() {
-		string escaped = Strings.replace(self.value, "\\", "\\\\");
-		escaped = Strings.replace(escaped, "\"", "\\\"");
-		escaped = Strings.replace(escaped, "\r", "\\r");
-		escaped = Strings.replace(escaped, "\n", "\\n");
-		escaped = Strings.replace(escaped, "\t", "\\t");
+		string escaped = self.value.replace("\\", "\\\\");
+		escaped = escaped.replace("\"", "\\\"");
+		escaped = escaped.replace("\r", "\\r");
+		escaped = escaped.replace("\n", "\\n");
+		escaped = escaped.replace("\t", "\\t");
 		return "\"" + escaped + "\"";
 	}
 }

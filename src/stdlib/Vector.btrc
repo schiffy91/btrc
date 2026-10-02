@@ -494,8 +494,6 @@ class Vector<T> implements Iterable {
 		return result;
 	}
 
-	public void removeAt(int idx) { self.remove(idx); }
-
 	/* Iterable<T> protocol */
 
 	public int iterLen() { return self.len; }

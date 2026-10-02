@@ -1,6 +1,6 @@
 /* ALSA PCM access for the Linux audio provider. Enum-typed setters, the
  * hint list's triple pointer and the scheduler call stay behind these plain
- * adapters; device policy lives in AlsaDevice.btrc. */
+ * adapters; device policy lives in LinuxAudioDevice.btrc. */
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
 #endif
@@ -67,6 +67,12 @@ static inline int btrcAlsaSetInterleavedFloat(snd_pcm_t* pcm, snd_pcm_hw_params_
 	int status = snd_pcm_hw_params_set_access(pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED);
 	if (status != 0) { return status; }
 	return snd_pcm_hw_params_set_format(pcm, params, SND_PCM_FORMAT_FLOAT);
+}
+
+/* Starts a PCM only from PREPARED: snd_pcm_recover leaves an overrun prepared,
+ * but resumes a suspend to RUNNING and leaves an interrupted read unchanged. */
+static inline int btrcAlsaStartIfPrepared(snd_pcm_t* pcm) {
+	return snd_pcm_state(pcm) == SND_PCM_STATE_PREPARED ? snd_pcm_start(pcm) : 0;
 }
 
 /* Whether the PCM holds a started or prepared stream that a close must drop first. */
