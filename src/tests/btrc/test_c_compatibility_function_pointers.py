@@ -58,14 +58,14 @@ TWINS = [
         """
         typedef void (*DestroyFn)(void*);
         typedef int (*Compare)(const void* left, const void* right);
-        void release(void* value) {}
-        int main() { DestroyFn destroy = release; destroy(null); return 0; }
+        void dispose(void* value) {}
+        int main() { DestroyFn destroy = dispose; destroy(null); return 0; }
         """,
         """
         typedef CFunction<void, void*> DestroyFn;
         typedef CFunction<int, const void*, const void*> Compare;
-        void release(void* value) {}
-        int main() { DestroyFn destroy = release; destroy(null); return 0; }
+        void dispose(void* value) {}
+        int main() { DestroyFn destroy = dispose; destroy(null); return 0; }
         """,
         id="typedefs",
     ),
