@@ -5,7 +5,7 @@
 #   tools/linux-ci.sh                  # the CI test job
 #   tools/linux-ci.sh lint format-check
 #
-# Three things differ from `podman run -v "$PWD:/workspace"`:
+# Four things differ from `podman run -v "$PWD:/workspace"`:
 #
 #   * build/ subdirectories and dist/ may be symlinks into a cache outside
 #     the workspace, because this repository can live in synced storage and
@@ -15,6 +15,11 @@
 #     at its own path.
 #   * That directory is private on purpose. build/stdlib holds host objects,
 #     and a Linux build must not link against them.
+#   * bin/ is container-private too. `make btrcc` writes bin/btrcc, and the
+#     stand-in rehearsal below builds it in the container; through the bind
+#     mount that Linux ELF would replace the host's own bin/btrcc (a Mach-O
+#     on the Mac). The private bin/ persists between runs, so a btrcc built
+#     by one invocation is still /workspace/bin/btrcc in the next.
 #   * Bytecode is written outside the tree. The host and the container can run
 #     the same Python version -- both reach 3.14 through nix -- so the
 #     container would load __pycache__ files the host wrote, whose recorded
@@ -53,6 +58,8 @@ if ! podman image exists "$image"; then
 fi
 
 mounts=(-v "$repo:/workspace")
+mkdir -p "$private/bin"
+mounts+=(-v "$private/bin:/workspace/bin")
 declare -a roots=()
 while IFS= read -r link; do
   target="$(readlink "$link")"

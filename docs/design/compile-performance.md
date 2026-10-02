@@ -250,8 +250,11 @@ peaks repeated within 356 KiB, inside the guard's 1 MiB minimum slack. Instructi
 `perf stat -e instructions:u` when `perf` is on PATH and the kernel lets it
 count. Otherwise provenance records `instruction_counter: "unavailable on
 this host: …"` and the metric is absent, never estimated. Provenance also
-carries `host_summary`, read from the host: CPU, CPUs, memory, OS and
-architecture, in both `budget_bench` and `tools/perf.py`.
+carries `host_summary`, read from the host by `HostProvenance.summary`
+(`tools/qualification/adapters.py`): chip, cores, memory and OS, which on the
+acceptance Mac is exactly `Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0` and on
+Linux names the CPU model, logical CPUs, memory and kernel, in both
+`budget_bench` and `tools/perf.py`.
 
 **Receipts: Linux takes the object-cache-only path.** The reader builds its
 preprocessing provider only under `__APPLE__`, because it binds a session

@@ -2,7 +2,7 @@
   "schema": "btrc.expected-skips/1",
   "runner": "macos",
   "enforce": true,
-  "description": "The Mac's `make test` inside `nix develop`, classified from the 1cadaf4 record (172 skips) on 2026-09-30. naga has no rule: the dev shell provides it from stage2/nix (e74a3cc), so a naga skip is unexpected again. lldb has no rule either: the debug adapter resolves Apple's lldb without the shell's DEVELOPER_DIR and SDKROOT (stage2/lldbenv), so on a developer-mode Mac a DAP session skip is unexpected; only developer mode being off is expected.",
+  "description": "The Mac's `make test` inside `nix develop`, classified from the 1cadaf4 record (172 skips) on 2026-09-30. naga has no rule: the dev shell provides it from stage2/nix (e74a3cc), so a naga skip is unexpected again. lldb has no rule either: the debug adapter resolves Apple's lldb without the shell's DEVELOPER_DIR and SDKROOT (stage2/lldbenv), so on a developer-mode Mac a DAP session skip is unexpected; only developer mode being off is expected. pugixml, sqlite3 and the native compiler provider have no rule since stage4/tools-ci (88a5c36) gave the Darwin dev shells pugixml, sqlite.dev and BTRC_NATIVE_PROVIDER_CC/CXX: macOS run 36934014516 ran every C++ owner, SQLite, compiler-context, receipt and consumer case, so their skips are unexpected again.",
   "rules": [
     {
       "id": "dap-session-developer-mode",
@@ -141,79 +141,6 @@
       "note": "ThreadSanitizer crashes on an independent exact-flags probe on this host."
     },
     {
-      "id": "pugixml-sdk",
-      "files": [
-        "src/tests/python/test_native_header_reader.py",
-        "src/tests/python/test_native_cxx_owners.py",
-        "src/tests/python/test_module_units.py"
-      ],
-      "reason": "pugixml SDK",
-      "category": "missing-sdk",
-      "gating": {
-        "env": [
-          "PKG_CONFIG_PATH"
-        ],
-        "tools": [
-          "pkg-config"
-        ]
-      },
-      "covered_by": [],
-      "note": "Neither dev shell carries pugixml; BTRSmith's shell does, but no btrc runner uses it. test_module_units.py's three C++ owner link-plan cases skip on it too (macOS run 36898564246). Delete this rule once stage4/tools-ci adds pugixml to the dev shell."
-    },
-    {
-      "id": "sqlite-sdk",
-      "files": [
-        "src/tests/python/test_native_unique_resources.py"
-      ],
-      "reason": "^actual SQLite SDK proof requires (sqlite3\\.pc in PKG_CONFIG_PATH|pkg-config)$",
-      "category": "missing-sdk",
-      "gating": {
-        "env": [
-          "PKG_CONFIG_PATH"
-        ],
-        "tools": [
-          "pkg-config"
-        ]
-      },
-      "covered_by": [],
-      "note": "The dev shell exposes no sqlite3.pc; the devcontainer skips the whole file as macOS-only."
-    },
-    {
-      "id": "native-compiler-provider",
-      "files": [
-        "src/tests/python/test_native_compiler_context.py",
-        "src/tests/python/test_native_preprocess_receipts.py"
-      ],
-      "reason": "^build native reader and configure its native compiler provider$",
-      "category": "provider-configuration",
-      "gating": {
-        "env": [
-          "BTRC_NATIVE_HEADER_READER",
-          "BTRC_NATIVE_PROVIDER_CC",
-          "BTRC_NATIVE_PROVIDER_CXX"
-        ]
-      },
-      "covered_by": [],
-      "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX; the dev shell sets only BTRC_NATIVE_HEADER_READER."
-    },
-    {
-      "id": "native-receipt-provider",
-      "files": [
-        "src/tests/python/test_native_preprocess_consumer.py"
-      ],
-      "reason": "^configure the packaged receipt provider and its C/C\\+\\+ toolchain$",
-      "category": "provider-configuration",
-      "gating": {
-        "env": [
-          "BTRC_NATIVE_HEADER_READER",
-          "BTRC_NATIVE_PROVIDER_CC",
-          "BTRC_NATIVE_PROVIDER_CXX"
-        ]
-      },
-      "covered_by": [],
-      "note": "No runner sets BTRC_NATIVE_PROVIDER_CC/CXX."
-    },
-    {
       "id": "linux-native-reader-covered",
       "files": [
         "src/tests/python/test_native_linux_providers.py",
@@ -231,6 +158,21 @@
         "linux-devcontainer"
       ],
       "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, and the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, so the devcontainer runs all four."
+    },
+    {
+      "id": "linux-freetype-macro-constants",
+      "files": [
+        "src/tests/python/test_native_macro_constants.py"
+      ],
+      "nodes": [
+        "*::test_freetype_macro_constants_build_and_run*"
+      ],
+      "reason": "^the FreeType proof builds against the Linux SDK$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The FreeType macro-constant proof reads freetype2 through the Linux dev shell's pkg-config; the devcontainer's unit shard runs both frontends (CI run 36935218617)."
     },
     {
       "id": "linux-native-reader-uncovered",

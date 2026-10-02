@@ -11,6 +11,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from src.tests.process_limits import TOOL_TIMEOUT, TRANSPILE_TIMEOUT
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAKEFILE = REPO_ROOT / "Makefile"
 FLAKE = REPO_ROOT / "flake.nix"
@@ -35,6 +37,7 @@ def _make_dry_run(*args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     return result.stdout
 
@@ -46,6 +49,7 @@ def test_help_lists_targets_whose_names_contain_digits():
         check=True,
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
 
     assert "test-c11" in result.stdout
@@ -163,6 +167,46 @@ def test_devcontainer_context_excludes_repo_state_and_stages_lsp_runtime():
     for source in ("src/compiler/python/", "src/devex/lsp/", "src/language/", "src/stdlib/", "src/runtime/gpu/"):
         assert f"COPY --chown=${{uid}}:${{uid}} {source}" in containerfile
     assert "!src/compiler/**" not in ignored
+
+
+def test_devcontainer_stages_the_gpu_runtime_its_dev_shell_builds():
+    """The dev shell links btrc-gpu, built from gpuRuntimeSource inside the image's staged flake."""
+    flake = FLAKE.read_text()
+    containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
+    admitted = (REPO_ROOT / ".dockerignore").read_text().splitlines()
+    subset = re.search(r"gpuRuntimeSource = sourceSubset \{\s*prefixes = \[(.*?)\];", flake, re.S)
+    assert subset is not None
+    prefixes = re.findall(r'"([^"]+)"', subset.group(1))
+
+    assert prefixes
+    for prefix in prefixes:
+        assert f"COPY --chown=${{uid}}:${{uid}} {prefix} /tmp/flake/{prefix}" in containerfile
+        assert f"!{prefix}**" in admitted
+        parts = prefix.rstrip("/").split("/")
+        for depth in range(1, len(parts) + 1):
+            assert f"!{'/'.join(parts[:depth])}/" in admitted, prefix
+
+
+def test_devcontainer_image_build_survives_a_flaky_binary_cache():
+    """CI lost runs to cache.nixos.org HTTP/2 framing errors and 416s inside the image build."""
+    containerfile = (DEVCONTAINER_CONFIG / "containerfile.nix").read_text()
+    install = containerfile[containerfile.index("determinate-nix-installer.sh install") :]
+    install = install[: install.index("rm -f /tmp/determinate-nix-installer.sh")]
+
+    for setting in (
+        "experimental-features = nix-command flakes",
+        "http2 = false",
+        "download-attempts = 10",
+        "connect-timeout = 15",
+        "fallback = true",
+    ):
+        assert f'--extra-conf "{setting}"' in install, setting
+    evaluation = containerfile[containerfile.index("RUN cd /tmp/flake") :]
+    evaluation = evaluation[: evaluation.index("rm -rf /tmp/flake")]
+    assert "for attempt in 1 2 3; do" in evaluation
+    assert "nix print-dev-env . > ${home}/.nix-devshell.sh && break;" in evaluation
+    # The last failure still fails the build rather than leaving an empty shell file.
+    assert '[ "$attempt" -lt 3 ] || exit 1;' in evaluation
 
 
 def test_devcontainer_installs_the_null_alsa_pcm():
@@ -370,7 +414,18 @@ def test_linux_ci_script_defaults_to_the_makefile_targets_as_separate_words():
     assert '"${@:-' not in script
     assert f"  set -- {' '.join(targets)}\n" in script
     assert script.rstrip().endswith('"$@"')
-    assert "Three things differ" in script
+    assert "Four things differ" in script
+
+
+def test_linux_ci_script_keeps_the_containers_bin_off_the_host_checkout():
+    """A Linux bin/btrcc built in the container never replaces the host's (a Mach-O on the Mac)."""
+    script = (REPO_ROOT / "tools" / "linux-ci.sh").read_text()
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+
+    assert 'mkdir -p "$private/bin"' in code
+    assert 'mounts+=(-v "$private/bin:/workspace/bin")' in code
+    # The private bin/ is mounted over the workspace, so it follows it.
+    assert code.index('mounts=(-v "$repo:/workspace")') < code.index('"$private/bin:/workspace/bin"')
 
 
 def test_ast_generation_is_validated_before_atomic_replacement():
@@ -419,7 +474,7 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     assert "exclude-package-data" not in setuptools
     # Every tracked runtime input under a packaged directory reaches the wheel.
     tracked = subprocess.run(
-        ["git", "ls-files", "src"], cwd=REPO_ROOT, check=True, capture_output=True, text=True
+        ["git", "ls-files", "src"], cwd=REPO_ROOT, check=True, capture_output=True, text=True, timeout=TOOL_TIMEOUT
     ).stdout.split()
     unpackaged = [
         path
@@ -432,7 +487,10 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     for target in ("wheel", "package"):
         output = _make_dry_run(target, "NIX=")
         check = next(line for line in output.splitlines() if "zipfile.ZipFile" in line)
-        assert "src/language/grammar.ebnf src/stdlib/btrc.lock src/stdlib/btrc.symbols" in check.replace("\\", "")
+        required = check.replace("\\", "").split(" dist/btrc-*.whl ", 1)[1].split()
+        assert {"src/language/grammar.ebnf", "src/stdlib/btrc.lock", "src/stdlib/btrc.symbols"} <= set(required)
+        # A required path the tree no longer tracks fails every packaging run.
+        assert sorted(set(required) - set(tracked)) == []
     hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/Tables.btrc"
     assert hosted_tables.is_file()
     hosted_source = hosted_tables.read_text()

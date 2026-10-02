@@ -162,6 +162,22 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         assert "if-no-files-found: warn" in final, key
 
 
+def test_sharded_workflows_name_every_shard_that_left_no_skip_report() -> None:
+    """A lost runner never reaches its own upload, so a later job names the gap."""
+
+    for workflow, runner in (("ci.yml", "linux"), ("macos.yml", "macos")):
+        job = _job(_workflow(workflow), "skip-reports")
+        assert "needs: tests" in job, workflow
+        assert "if: always()" in job, workflow
+        assert re.search(r"(?m)^    timeout-minutes: \d+$", job), workflow
+        assert "actions: read" in job, workflow
+        step = _code(_steps(job)[-1])
+        assert "/actions/runs/$GITHUB_RUN_ID/artifacts" in step, workflow
+        assert "/attempts/$GITHUB_RUN_ATTEMPT/jobs" in step, workflow
+        assert f'"skip-report-{runner}-$shard"' in step, workflow
+        assert "::warning::" in step and "GITHUB_STEP_SUMMARY" in step, workflow
+
+
 def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
     job = _job(_workflow("ci.yml"), "release")
 
@@ -319,6 +335,10 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     assert re.search(r"grep[^\n]*PASS", job) is None
     assert job.count("src/tests/strings/expected/BracesInCodeGen.stdout") >= 2
     assert "src/tests/stdlib/expected/PathWindowsLexical.stdout" in job
+    # The bootstrap imports src.tests; as a script beside the installed wheel
+    # it cannot, so it runs as a module from the checkout.
+    assert "python -m unittest -v src.tests.btrc.test_bootstrap" in _code(job)
+    assert "python src/tests/btrc/test_bootstrap.py" not in _code(job)
     # Logical-line equality tolerates Git's platform EOL checkout while still
     # rejecting any extra, missing, or otherwise changed output line.
     assert job.count(".splitlines()") >= 4

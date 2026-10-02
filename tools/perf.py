@@ -175,8 +175,20 @@ def measure(command: list[str], env: dict[str, str], cwd: Path, stdout: Path, st
     return Measurement.from_usage(json.loads(completed.stdout), sys.platform)
 
 
+# One phase mark: everything before the last `=NNNus`. A mark may carry
+# counters in parentheses, `a-records-stored(replayed=3,journaled=1)=12us`,
+# which are dropped from the phase name so runs with different counts sum
+# into one phase.
+PHASE_MARK = re.compile(r"^(?P<name>[^()=]+)(?:\([^()]*\))?=(?P<micros>\d+)us$")
+
+
 def phase_times(stderr: str) -> dict[str, float]:
-    """Both compilers print `<name> timing: phase=NNNus ...`; sum per phase in seconds."""
+    """Both compilers print `<name> timing: phase=NNNus ...`; sum per phase in seconds.
+
+    Tokens that are not a phase mark -- counters such as
+    `module-units=lowered:3,reused:2` or `setjmp-analyses=2/3,rounds=1` --
+    are skipped rather than parsed.
+    """
 
     phases: dict[str, float] = {}
     for line in stderr.splitlines():
@@ -184,9 +196,9 @@ def phase_times(stderr: str) -> dict[str, float]:
         if not match:
             continue
         for item in match.group(2).split():
-            name, _, value = item.partition("=")
-            if value.endswith("us"):
-                phases[name] = phases.get(name, 0.0) + int(value[:-2]) / 1_000_000.0
+            if mark := PHASE_MARK.match(item):
+                name = mark.group("name")
+                phases[name] = phases.get(name, 0.0) + int(mark.group("micros")) / 1_000_000.0
     return phases
 
 

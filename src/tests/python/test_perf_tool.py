@@ -1,6 +1,7 @@
 """Measure both frontends through the strict production native-plan compile/link path."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,43 @@ ROOT = Path(__file__).resolve().parents[3]
 def test_phase_times_reads_both_compilers_marks():
     stderr = "noise\nbtrcpy timing: lex=1500us parse=500us analyze=2000000us\nbtrcc timing: lex=1000us emit=250us\n"
     assert perf.phase_times(stderr) == {"lex": 0.0025, "parse": 0.0005, "analyze": 2.0, "emit": 0.00025}
+
+
+def test_phase_times_reads_annotated_marks_and_skips_counters():
+    stderr = (
+        "btrcc timing: lex=10us a-records-stored(replayed=3,journaled=1)=20us "
+        "a-instances(replayed=4)=5us module-unit-workers=2 module-units=lowered:3,reused:2 "
+        "setjmp-analyses=2/3,rounds=1,levels=2 relowered-stale=4 "
+        "instance-closure=class:3+2r,method:4+1r a-records-stored(replayed=0,journaled=7)=30us\n"
+    )
+    assert perf.phase_times(stderr) == pytest.approx(
+        {"lex": 0.00001, "a-records-stored": 0.00005, "a-instances": 0.000005}
+    )
+
+
+TIMER_CALL = re.compile(r'BtrccPhaseTimer\.(mark|note)\((f?)"([^"]*)"')
+INTERPOLATION = re.compile(r"\{[^{}]*\}")
+
+
+def test_phase_times_parses_every_mark_the_compilers_print():
+    """Each mark either compiler can print is one phase; each note is none."""
+
+    marks: set[str] = set()
+    notes: set[str] = set()
+    for source in sorted((ROOT / "src/compiler/btrc").rglob("*.btrc")):
+        for kind, _, text in TIMER_CALL.findall(source.read_text()):
+            (marks if kind == "mark" else notes).add(INTERPOLATION.sub("7", text))
+    python_labels = set()
+    for source in sorted((ROOT / "src/compiler/python").rglob("*.py")):
+        python_labels.update(re.findall(r'_timed\([^,]+, "([^"]+)"', source.read_text()))
+    assert any("(" in mark for mark in marks) and notes and python_labels
+    for mark in sorted(marks):
+        name = mark.split("(", 1)[0]
+        assert perf.phase_times(f"btrcc timing: {mark}=3us") == {name: 0.000003}, mark
+    for label in sorted(python_labels):
+        assert perf.phase_times(f"btrcpy timing: {label}=3us") == {label: 0.000003}, label
+    for note in sorted(notes):
+        assert perf.phase_times(f"btrcc timing: {note}") == {}, note
 
 
 def test_worker_phase_times_reads_worker_lines_and_owner_sums_skip_them():
