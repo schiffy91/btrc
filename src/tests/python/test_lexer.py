@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.lexer.lexer import Lexer, LexerError
+from src.compiler.python.lexer.lexer import Lexer, LexerError, LiteralDecoder
 from src.compiler.python.syntax.grammar import EbnfGrammarParser
 from src.compiler.python.syntax.tokens import TokenKind, TokenVocabulary
 
@@ -695,3 +695,46 @@ def test_lexer_uses_its_explicit_immutable_vocabulary():
     ]
     with pytest.raises(TypeError):
         vocabulary.keywords["while"] = TokenKind.WHILE
+
+
+@pytest.mark.parametrize(
+    ("raw", "decoded"),
+    [
+        ('"\\x4"', b"\x04"),
+        ('"\\x41"', b"A"),
+        ('"\\1"', b"\x01"),
+        ('"\\1234"', b"S4"),
+        ('"a\\tb\\\\"', b"a\tb\\"),
+        ('"\\u00e9"', "é".encode()),
+        ('"\\U0001F600"', "😀".encode()),
+        ('"é"', "é".encode()),
+        ('"a\\\nb"', b"ab"),
+        ('""', b""),
+    ],
+)
+def test_string_spelling_decodes_to_its_execution_bytes(raw, decoded):
+    assert LiteralDecoder.decode_string(raw) == decoded
+
+
+def test_adjacent_pieces_decode_separately():
+    tokens = Lexer('"\\x4" "1" "\\x1" "2"').tokenize()
+    pieces = [token.value for token in tokens if token.type == TokenKind.STRING_LIT]
+    assert b"".join(LiteralDecoder.decode_string(piece) for piece in pieces) == b"\x041\x012"
+
+
+@pytest.mark.parametrize(
+    ("text", "pieces"),
+    [
+        ('"a" "b"', ('"a"', '"b"')),
+        ('GREETING " \\"x\\" "', ("GREETING", '" \\"x\\" "')),
+        ("  NAME_2\t", ("NAME_2",)),
+        ("", None),
+        ('("a")', None),
+        ('"a" 3', None),
+        ('"unterminated', None),
+        ('"a" // trailing comment', ('"a"',)),
+        ('"a" /* note */ NAME', ('"a"', "NAME")),
+    ],
+)
+def test_macro_replacement_splits_into_string_pieces(text, pieces):
+    assert LiteralDecoder.string_pieces(text) == pieces

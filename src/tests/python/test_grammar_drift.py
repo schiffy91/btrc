@@ -20,12 +20,15 @@ from src.compiler.python.syntax.ast.generated import (
     EnumDecl,
     ExprStmt,
     FieldAccessExpr,
+    Identifier,
     IfStmt,
     InterfaceDecl,
     ListLiteral,
     MapLiteral,
     ReturnStmt,
     SpawnExpr,
+    StringConcat,
+    StringLiteral,
     StructDecl,
     TryCatchStmt,
     UnaryExpr,
@@ -395,3 +398,48 @@ class TestCParameterLists:
     def test_unnamed_lambda_parameter_is_refused(self):
         with pytest.raises(ParseError):
             parse_expr("(int) => 1")
+
+
+# ---- string_concat: adjacent literals (C translation phase 6) ----
+
+
+class TestStringConcat:
+    def test_lone_literal_stays_a_string_literal(self):
+        expr = parse_expr('"abc"')
+        assert isinstance(expr, StringLiteral)
+
+    def test_adjacent_literals_keep_each_spelling(self):
+        expr = parse_expr('"\\x4" "1"')
+        assert isinstance(expr, StringConcat)
+        assert [part.value for part in expr.parts] == ['"\\x4"', '"1"']
+        assert (expr.line, expr.col) == (expr.parts[0].line, expr.parts[0].col)
+
+    def test_macro_name_pieces_on_either_side(self):
+        expr = parse_expr('PREFIX "mid" SUFFIX')
+        assert isinstance(expr, StringConcat)
+        assert [type(part) for part in expr.parts] == [Identifier, StringLiteral, Identifier]
+
+    def test_triple_quoted_piece(self):
+        expr = parse_expr('"a" """b"""')
+        assert isinstance(expr, StringConcat)
+        assert expr.parts[1].value == '"b"'
+
+    @pytest.mark.parametrize("source", ['f"{1}" "tail"', '"head" f"{1}"', 'f"{1}" f"{2}"'])
+    def test_fstring_beside_a_literal_is_refused(self, source):
+        with pytest.raises(ParseError, match="An f-string cannot be concatenated with an adjacent string literal"):
+            parse_expr(source)
+
+    def test_quoted_import_path_never_concatenates(self):
+        with pytest.raises(ParseError):
+            parse('import "a.btrc" "b.btrc";\nint main() { return 0; }')
+
+    def test_a_name_touching_a_literal_is_a_piece_unless_a_prefix(self):
+        expr = parse_expr('TAG"b"')
+        assert isinstance(expr, StringConcat)
+        assert expr.parts[0].name == "TAG"
+
+    def test_encoding_prefix_is_never_a_piece(self):
+        with pytest.raises(ParseError, match="Expected SEMICOLON"):
+            parse('void __t__() { char* text = L"ab"; }')
+        with pytest.raises(ParseError, match="Expected SEMICOLON"):
+            parse('void __t__() { char* text = "a" u8"b"; }')

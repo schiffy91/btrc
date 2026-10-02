@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.expressions import ExpressionValuePlan
 from src.compiler.python.analyzer.program import (
+    STRING_CONSTANT_NODES,
     ClassCallableIdentity,
     DeclarationIndex,
     LambdaBodyFacts,
@@ -58,7 +59,6 @@ from src.compiler.python.syntax.ast.generated import (
     ReturnStmt,
     RichEnumDecl,
     SelfExpr,
-    StringLiteral,
     StructDecl,
     SwitchStmt,
     TernaryExpr,
@@ -188,7 +188,7 @@ class StatementAnalyzer:
             return "integer"
         if isinstance(expression, FloatLiteral):
             return "arithmetic"
-        if isinstance(expression, StringLiteral):
+        if isinstance(expression, STRING_CONSTANT_NODES):
             return "address"
         if isinstance(expression, NullLiteral):
             return "address"
@@ -277,10 +277,10 @@ class StatementAnalyzer:
         if isinstance(expression, IndexExpr):
             valid_index, _ = self.expressions.integer_constant_expression(expression.index)
             return valid_index and self._is_static_array_designator(expression.obj)
-        return isinstance(expression, StringLiteral)
+        return isinstance(expression, STRING_CONSTANT_NODES)
 
     def _is_static_array_designator(self, expression) -> bool:
-        if isinstance(expression, StringLiteral):
+        if isinstance(expression, STRING_CONSTANT_NODES):
             return True
         if isinstance(expression, Identifier):
             symbol = self.session.global_scope.symbols.get(expression.name)

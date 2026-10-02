@@ -633,6 +633,11 @@ class ExpressionValidator {
 			Node? assignmentTarget = self.types.inferType(expression.target, vars);
 			self.borrows.validateOpaqueBorrowStorage(assignmentTarget, expression.valueNode, "Assignment", vars);
 			self.storage.validateAssignment(expression,  vars);
+		} else if (expression.kind == NK_STRING_CONCAT) {
+			Node? unresolved = self.sourceMacros.unresolvedStringPiece(expression);
+			if (unresolved != null) {
+				TypeValidator.fail(self.sourceMacros.unresolvedPieceMessage(unresolved), expression);
+			}
 		} else if (expression.kind == NK_CALL_EXPR) {
 			self.contextualizeCallGenericConstructors(expression,  vars);
 			/* An unresolved direct identifier call is the deliberate C-interop

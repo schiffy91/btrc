@@ -6,6 +6,7 @@ import Library.Vector;
 
 import ../generated/ast/Node.btrc;
 import ../syntax/Identity.btrc;
+import ../syntax/Literals.btrc;
 import ../syntax/Types.btrc;
 import ./Declarations.btrc;
 import ./HostedAbi.btrc;
@@ -321,7 +322,7 @@ class ExpressionTypeResolver {
 		if (node.kind == NK_FLOAT_LITERAL) { return NumericSemantics.floatLiteralType(node.raw); }
 		if (node.kind == NK_BOOL_LITERAL) { return SemanticTypeSystem.primitive("bool"); }
 		if (node.kind == NK_CHAR_LITERAL) { return SemanticTypeSystem.primitive("char"); }
-		if (node.kind == NK_STRING_LITERAL) { return SemanticTypeSystem.primitive("string"); }
+		if (StringConstant.isNode(node)) { return SemanticTypeSystem.primitive("string"); }
 		if (node.kind == NK_F_STRING_LITERAL) { return SemanticTypeSystem.primitive("string"); }
 		if (node.kind == NK_SIZEOF_EXPR) { return SemanticTypeSystem.primitive("size_t"); }
 		if (node.kind == NK_NULL_LITERAL) { return operators.nullType(); }

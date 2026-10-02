@@ -48,6 +48,7 @@ from src.compiler.python.syntax.ast.generated import (
     SelfExpr,
     SizeofExpr,
     SpawnExpr,
+    StringConcat,
     StringLiteral,
     SuperExpr,
     SwitchStmt,
@@ -774,6 +775,7 @@ _STATEMENT_LABELS = {
 }
 _EXPRESSION_LABELS = {
     StringLiteral: "string literal",
+    StringConcat: "string literal",
     CharLiteral: "character literal",
     SelfExpr: "self",
     SuperExpr: "super",

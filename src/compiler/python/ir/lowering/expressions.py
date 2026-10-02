@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
+from src.compiler.python.analyzer.program import STRING_CONSTANT_NODES
 from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeSystem
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.ir.nodes import (
@@ -57,6 +58,7 @@ from src.compiler.python.syntax.ast.generated import (
     SizeofExprOp,
     SizeofType,
     SpawnExpr,
+    StringConcat,
     StringLiteral,
     SuperExpr,
     TernaryExpr,
@@ -1584,7 +1586,7 @@ class ExpressionLowerer:
             if (
                 expression_type is not None
                 and (not expression_type.is_array)
-                and (not isinstance(expression, StringLiteral))
+                and (not isinstance(expression, STRING_CONSTANT_NODES))
             ):
                 return IRSizeof(operand=CType(text=self._types.render(expression_type)))
             return IRSizeof(operand=self._materialize_static_scalar(expression, provenance))
@@ -1844,6 +1846,13 @@ class ExpressionLowerer:
             return IRLiteral(text=text)
         if isinstance(node, StringLiteral):
             return IRLiteral(text=node.value)
+        if isinstance(node, StringConcat):
+            # The C compiler concatenates the pieces itself (translation phase
+            # 6), so each keeps its own spelling; a name piece is the source
+            # macro, emitted beside its #define.
+            return IRLiteral(
+                text=" ".join(part.value if isinstance(part, StringLiteral) else part.name for part in node.parts)
+            )
         if isinstance(node, CharLiteral):
             return IRLiteral(text=node.value)
         if isinstance(node, BoolLiteral):
@@ -2115,7 +2124,7 @@ class ExpressionLowerer:
             if (
                 expression_type is not None
                 and (not expression_type.is_array)
-                and (not isinstance(expression, StringLiteral))
+                and (not isinstance(expression, STRING_CONSTANT_NODES))
             ):
                 return IRSizeof(operand=CType(text=self._types.render(expression_type)))
             self._session.unevaluated_depth += 1
@@ -2739,7 +2748,7 @@ class ExpressionLowerer:
 
     @staticmethod
     def _untracked_format(expression, fallback):
-        if isinstance(expression, (FStringLiteral, StringLiteral)):
+        if isinstance(expression, (FStringLiteral, *STRING_CONSTANT_NODES)):
             return "%s"
         if isinstance(expression, CallExpr) and isinstance(expression.callee, FieldAccessExpr):
             if expression.callee.field in {

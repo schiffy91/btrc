@@ -8,19 +8,27 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from types import MappingProxyType
 from typing import Literal
 
+from src.compiler.python.lexer.lexer import LiteralDecoder
 from src.compiler.python.syntax.ast.generated import (
     FieldDecl,
     FunctionDecl,
+    Identifier,
     ImportDecl,
     MethodDecl,
     MethodSig,
     Program,
     PropertyDecl,
     RichEnumDecl,
+    StringConcat,
+    StringLiteral,
     StructDecl,
     TypeExpr,
 )
 from src.compiler.python.syntax.tokens import SourceSymbolDirective
+
+# The string-constant expressions: one literal, or adjacent pieces that the C
+# compiler concatenates. Every literal predicate tests membership here.
+STRING_CONSTANT_NODES = (StringLiteral, StringConcat)
 
 
 class AnalysisContext:
@@ -232,6 +240,56 @@ class SourceMacroNamespace:
 
     def active(self, name: str) -> SourceSymbolDirective | None:
         return self._definitions.get(name)
+
+    def string_spellings(self, name: str, visiting: frozenset[str] = frozenset()) -> tuple[str, ...] | None:
+        """The ``"..."`` spellings an object-like macro expands to, or ``None``."""
+        directive = self.active(name)
+        if directive is None or directive.function_like or name in visiting:
+            return None
+        pieces = LiteralDecoder.string_pieces(directive.replacement)
+        if pieces is None:
+            return None
+        spellings: list[str] = []
+        for piece in pieces:
+            if piece.startswith('"'):
+                spellings.append(piece)
+                continue
+            nested = self.string_spellings(piece, visiting | {name})
+            if nested is None:
+                return None
+            spellings.extend(nested)
+        return tuple(spellings)
+
+    def unresolved_string_piece(self, expression) -> Identifier | None:
+        """The first piece of an adjacent-literal sequence that is no string literal."""
+        if not isinstance(expression, StringConcat):
+            return None
+        for part in expression.parts:
+            if isinstance(part, Identifier) and self.string_spellings(part.name) is None:
+                return part
+        return None
+
+    def string_constant(self, expression) -> bytes | None:
+        """Decode a string-constant expression; ``None`` for anything else.
+
+        Every piece decodes separately (translation phase 5 before phase 6),
+        so the bytes are exactly those of the C literal, without terminator.
+        """
+        if isinstance(expression, StringLiteral):
+            return LiteralDecoder.decode_string(expression.value)
+        if not isinstance(expression, StringConcat):
+            return None
+        decoded = bytearray()
+        for part in expression.parts:
+            if isinstance(part, StringLiteral):
+                decoded += LiteralDecoder.decode_string(part.value)
+                continue
+            spellings = self.string_spellings(part.name) if isinstance(part, Identifier) else None
+            if spellings is None:
+                return None
+            for spelling in spellings:
+                decoded += LiteralDecoder.decode_string(spelling)
+        return bytes(decoded)
 
     def expands_to_any(self, name: str, identifiers: frozenset[str]) -> bool:
         """Whether an active macro transitively references a target identifier."""

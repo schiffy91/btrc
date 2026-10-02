@@ -517,6 +517,7 @@
 
   primary        = INT_LIT
                  | FLOAT_LIT
+                 | string_concat
                  | STRING_LIT
                  | CHAR_LIT
                  | FSTRING_LIT
@@ -528,6 +529,18 @@
                  | list_literal
                  | map_or_brace
                  | IDENT ;
+
+  string_concat  = string_piece string_piece { string_piece }
+                   (* C translation phase 6: two or more adjacent pieces, at
+                      least one a STRING_LIT, are one StringConcat positioned at
+                      its first piece. A piece is a STRING_LIT (triple-quoted
+                      included) or an IDENT naming a source macro that expands
+                      to string literals; any other name is refused by the
+                      analyzer. Each piece decodes on its own, so an escape
+                      never runs across a boundary. An FSTRING_LIT next to a
+                      piece is refused. A lone STRING_LIT stays StringLiteral.
+                      Never applies to import paths or #include. *) ;
+  string_piece   = STRING_LIT | IDENT ;
 
   new_expr       = "new" type_expr "(" arg_list ")" ;
 

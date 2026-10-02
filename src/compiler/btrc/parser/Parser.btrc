@@ -2144,7 +2144,7 @@ class Parser {
 			n.valueString = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
-			return n;
+			return self.parseAdjacentStrings(n, tok);
 		}
 		if (tt == "CHAR_LIT") {
 			self.advance();
@@ -2156,6 +2156,10 @@ class Parser {
 			return n;
 		}
 		if (tt == "FSTRING_LIT") {
+			string following = self.peekAt(1).type;
+			if (following == "STRING_LIT" || following == "FSTRING_LIT") {
+				self.failAt(Parser.adjacentFStringMessage(), tok);
+			}
 			self.advance();
 			return self.parseFString(tok);
 		}
@@ -2255,12 +2259,63 @@ class Parser {
 			n.name = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;
+			if (self.check("STRING_LIT") && !Parser.isEncodingPrefix(tok, self.peek())) { return self.parseAdjacentStrings(n, tok); }
 			return n;
 		}
 
 		self.failExpected("expression", tok);
 		Node none = Node();
 		return none;
+	}
+
+	/* An encoding prefix (L, u, U or u8 touching its literal) is part of the
+	 * literal, not a macro piece, so it is never absorbed into a concatenation;
+	 * any other name is a piece. */
+	class bool isEncodingPrefix(Token name, Token following) {
+		bool prefix = name.value == "L" || name.value == "u" || name.value == "U" || name.value == "u8";
+		return prefix && following.type == "STRING_LIT" && following.line == name.line && following.col == name.col + name.value.length();
+	}
+
+	class string adjacentFStringMessage() { return "An f-string cannot be concatenated with an adjacent string literal"; }
+
+	/* Absorb the literals and macro names adjacent to first (C phase 6). A
+	 * lone literal stays NK_STRING_LITERAL. Each piece keeps its own token
+	 * spelling, so escapes never run across a piece boundary; the analyzer
+	 * resolves a name piece to the string literal its source macro expands to. */
+	public Node parseAdjacentStrings(Node first, Token start) {
+		Vector<Node> parts = [first];
+		while (true) {
+			Token tok = self.peek();
+			if (tok.type == "STRING_LIT") {
+				self.advance();
+				Node piece = Node();
+				piece.kind = NK_STRING_LITERAL;
+				piece.valueString = tok.value;
+				piece.line = tok.line;
+				piece.col = tok.col;
+				parts.push(piece);
+			} else if (tok.type == "IDENT" && !Parser.isEncodingPrefix(tok, self.peekAt(1))) {
+				self.advance();
+				Node piece = Node();
+				piece.kind = NK_IDENTIFIER;
+				piece.name = tok.value;
+				piece.line = tok.line;
+				piece.col = tok.col;
+				parts.push(piece);
+			} else if (tok.type == "FSTRING_LIT") {
+				self.failAt(Parser.adjacentFStringMessage(), start);
+				return first;
+			} else {
+				break;
+			}
+		}
+		if (parts.len == 1) { return first; }
+		Node concat = Node();
+		concat.kind = NK_STRING_CONCAT;
+		concat.partsMut().extend(parts);
+		concat.line = first.line;
+		concat.col = first.col;
+		return concat;
 	}
 
 	public Node parseNewExpr() {
