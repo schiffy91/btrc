@@ -68,11 +68,6 @@
         "$type": "IRInclude",
         "header": "stdatomic.h",
         "is_system": true
-      },
-      {
-        "$type": "IRInclude",
-        "header": "assert.h",
-        "is_system": true
       }
     ],
     "freestanding": false,
