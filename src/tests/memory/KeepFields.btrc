@@ -15,7 +15,7 @@ class Item {
 }
 
 class Box {
-	public Item content;
+	public Item? content;
 
 	public Box() { self.content = null; }
 }
@@ -29,11 +29,11 @@ int main() {
 
 	// First assignment: old is null (skip release), assign, rc++
 	b.content = a;
-	assert(b.content.val == 10);
+	assert(b.content?.val == 10);
 
 	// Second assignment: release old (a), assign new (c), rc++
 	b.content = c;
-	assert(b.content.val == 20);
+	assert(b.content?.val == 20);
 	// a was released in the field assignment (--rc, if <=0 destroy)
 	// a's rc was: 1 (new) + 1 (field assign rc++) = 2
 	// field release: --rc = 1, > 0 so not destroyed
@@ -41,7 +41,7 @@ int main() {
 
 	// Test 2: field assign with new expression (no rc++ on value)
 	b.content = new Item(30);
-	assert(b.content.val == 30);
+	assert(b.content?.val == 30);
 	assert(alive == 3); // a, c, and new item
 
 	// Test 3: delete box releases its content field

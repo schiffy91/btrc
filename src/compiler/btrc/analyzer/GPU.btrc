@@ -154,13 +154,11 @@ class GpuSemantics {
 
 class GpuKernelBinding {
 	public string name;
-	public Node previousType;
-	public bool hadType;
+	public Node? previousType;
 
 	public GpuKernelBinding(string name) {
 		self.name = name;
 		self.previousType = null;
-		self.hadType = false;
 	}
 }
 
@@ -239,8 +237,9 @@ class GpuKernelValidator {
 		while (self.bindings.len > start) {
 			GpuKernelBinding binding = self.bindings.pop();
 			self.locals.remove(binding.name);
-			if (binding.hadType) {
-				self.varTypes.put(binding.name, binding.previousType);
+			Node? previousType = binding.previousType;
+			if (previousType != null) {
+				self.varTypes.put(binding.name, previousType);
 			} else {
 				self.varTypes.remove(binding.name);
 			}
@@ -255,7 +254,6 @@ class GpuKernelValidator {
 	private void declare(string name, Node? type) {
 		GpuKernelBinding binding = GpuKernelBinding(name);
 		if (self.varTypes.has(name)) {
-			binding.hadType = true;
 			binding.previousType = self.varTypes.get(name);
 		}
 		self.bindings.push(binding);
@@ -495,7 +493,7 @@ class GpuKernelValidator {
 			if (!update) {
 				self.error("assignment is only supported as a standalone update statement", expression);
 			}
-			self.validateUpdateTarget(expression.target);
+			self.validateUpdateTarget(expression.target, expression);
 			self.validateExpression(expression.valueNode, false);
 			if (expression.op != "=") { self.validateCompoundAssignment(expression); }
 			return;
@@ -544,7 +542,7 @@ class GpuKernelValidator {
 			if (!update) {
 				self.error("'" + op + "' is only supported as a standalone update statement", expression);
 			}
-			self.validateUpdateTarget(expression.operand);
+			self.validateUpdateTarget(expression.operand, expression);
 			self.requireExactType(expression.operand, "float", "int", "increment/decrement target");
 			return;
 		}
@@ -650,7 +648,7 @@ class GpuKernelValidator {
 		}
 	}
 
-	private void validateUpdateTarget(Node? target) {
+	private void validateUpdateTarget(Node? target, Node updateSite) {
 		if (target != null && target.kind == NK_IDENTIFIER) {
 			self.validateExpression(target, false);
 			Node? type = self.typeOf(target);
@@ -665,7 +663,7 @@ class GpuKernelValidator {
 			self.validateExpression(target, false);
 			return;
 		}
-		self.error("update target must be a local scalar or an indexed GPU buffer", target);
+		self.error("update target must be a local scalar or an indexed GPU buffer", target != null ? target : updateSite);
 	}
 
 	/* `first` and `second` name the allowed bases in sorted order, so the

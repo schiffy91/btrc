@@ -173,8 +173,7 @@ class OwnershipBoundary {
 			sequence.push(expression);
 			return IRNode.statementExpression(self.declarations, IRNode.commaExpression(sequence));
 		}
-		bool isVoid = resolvedResultType == null || (resolvedResultType.base == "void" && resolvedResultType.pointerDepth == 0);
-		if (isVoid) {
+		if (resolvedResultType == null || (resolvedResultType.base == "void" && resolvedResultType.pointerDepth == 0)) {
 			sequence.push(expression);
 			self.appendSuffix(sequence);
 			sequence.push(IRNode.cast("void", IRNode.literal("0")));

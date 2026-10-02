@@ -517,7 +517,8 @@ class BtrccPublicationLocks {
 		}
 		for directory in self.directories {
 			var current = FileSystem.inspectExact(directory.path);
-			if (!current.ok() || current.snapshot().kind() != FILE_DIRECTORY || !current.snapshot().sameObject(directory.snapshot)) {
+			FileSnapshot? expected = directory.snapshot;
+			if (expected == null || !current.ok() || current.snapshot().kind() != FILE_DIRECTORY || !current.snapshot().sameObject(expected)) {
 				return "publication directory changed while acquiring locks: " + directory.path;
 			}
 			var opened = FileSystem.openDirectoryExact(directory.path);
@@ -1917,6 +1918,8 @@ class BtrccDriver {
 			fprintf(stderr, "%s\n", result.diagnostic);
 			return 1;
 		}
+		/* Warnings never change the exit status. */
+		if (!result.diagnostic.isEmpty()) { fprintf(stderr, "%s\n", result.diagnostic); }
 		if (result.unitPaths.len != result.units.len) { return self.fail("translation-unit output inventory is inconsistent"); }
 		Vector<string> outputPaths = [];
 		Vector<string> contents = [];

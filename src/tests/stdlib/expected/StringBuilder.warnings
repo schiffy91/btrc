@@ -1,0 +1,1 @@
+src/tests/stdlib/StringBuilder.btrc:13:17: Possibly-null value stored in non-nullable argument 1 of 'append' of type 'string' — check for null first

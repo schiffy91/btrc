@@ -8,7 +8,7 @@ int main() {
 	assert(architecture >= 0 && architecture <= 2);
 
 	size_t before = __btrc_string_live_count();
-	string built = f"architecture {architecture}";
+	string? built = f"architecture {architecture}";
 	assert(built.len() > 0);
 	assert(__btrc_string_live_count() == before + (size_t)1);
 	built = null;

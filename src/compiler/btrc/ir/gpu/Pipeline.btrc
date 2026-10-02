@@ -370,7 +370,7 @@ class GpuPipeline {
 					plan.outputTarget = assignmentTarget;
 					plan.outputType = concreteProjectionType;
 					plan.outputSize = concreteProjectionType.arraySize;
-					if (managedProjection) {
+					if (managedProjection && receiverType != null) {
 						Node concreteReceiverType = receiverType;
 						plan.outputManagedProjection = true;
 						plan.outputReceiver = projectionObject;
@@ -564,11 +564,15 @@ class GpuPipeline {
 			}
 			return result;
 		}
+		Node? call = plan.call;
+		if (call == null) {
+			self.reject(plan.statement, "handled GPU statement has no kernel call");
+		}
 		IRGpuKernel target = self.kernel(plan.kernelName);
-		GpuPreparedCall prepared = self.prepareCall(target, plan.call, operands.callInputs);
+		GpuPreparedCall prepared = self.prepareCall(target, call, operands.callInputs);
 		if (target.outputBuffer != null) {
 			if (!plan.outputDeclaration && !plan.outputAssignment) {
-				self.reject(plan.call, "GPU array result requires a declaration output target");
+				self.reject(call, "GPU array result requires a declaration output target");
 			}
 			if (plan.outputTranslationUnit) {
 				if (operands.outputTarget == null) {
@@ -683,10 +687,11 @@ class GpuPipeline {
 			}
 			self.appendPreparedPrefix(result, prepared);
 			if (plan.outputAssignment) {
-				if (operands.outputTarget == null || !self.hasHostCapacity(plan.outputName)) {
+				IRNode? outputTarget = operands.outputTarget;
+				if (outputTarget == null || !self.hasHostCapacity(plan.outputName)) {
 					self.reject(plan.outputTarget, "GPU array assignment target has no proven capacity");
 				}
-				IRNode concreteOutputTarget = operands.outputTarget;
+				IRNode concreteOutputTarget = outputTarget;
 				self.appendOutputDispatch(result, target, prepared, concreteOutputTarget, self.hostCapacity(plan.outputName), module);
 				self.appendPreparedCleanup(result, prepared);
 				return result;
@@ -709,7 +714,10 @@ class GpuPipeline {
 			result.statements.push(IRNode.arrayDeclaration(self.outputElementCType(target), outputName, physicalLength, null));
 			self.appendOutputDispatch(result, target, prepared, IRNode.variable(outputName), capacity, module);
 			self.appendPreparedCleanup(result, prepared);
-			Node outputType = plan.outputType;
+			Node? outputType = plan.outputType;
+			if (outputType == null) {
+				self.reject(plan.outputTarget, "GPU array declaration output has no resolved type");
+			}
 			variableTypes.put(plan.outputName, outputType);
 			self.recordHostCapacity(plan.outputName, length);
 			return result;

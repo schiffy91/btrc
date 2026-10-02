@@ -17,7 +17,7 @@ class Obj {
 }
 
 class Container {
-	public Obj held;
+	public Obj? held;
 
 	public Container() { self.held = null; }
 

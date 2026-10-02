@@ -16,7 +16,7 @@ class Obj {
 }
 
 class Container {
-	public Obj held;
+	public Obj? held;
 
 	public Container() { self.held = null; }
 
@@ -32,8 +32,8 @@ int main() {
 	// Each field independently retains the shared object.
 	a.store(n);
 	b.store(n);
-	assert(a.held.id == 1);
-	assert(b.held.id == 1);
+	assert(a.held?.id == 1);
+	assert(b.held?.id == 1);
 
 	// Delete both containers: each destructor releases its held field once.
 	delete a;

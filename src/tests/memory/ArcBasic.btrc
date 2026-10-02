@@ -17,7 +17,7 @@ class Node {
 }
 
 class Container {
-	public Node item;
+	public Node? item;
 
 	public Container() { self.item = null; }
 }

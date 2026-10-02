@@ -20,6 +20,64 @@ void assertRejected(UIFrame frame, UIFrameStatus status) {
 	assert(frame.boxCount() == 0);
 }
 
+UILayoutBox requireBox(UIFrame frame, string identity) {
+	UILayoutBox? box = frame.boxFor(identity);
+	if (box == null) {
+		fprintf(stderr, "FAIL: missing layout box '%s'\n", identity);
+		exit(1);
+	}
+	return box;
+}
+
+UITextLayout requireTextLayout(UILayoutBox box) {
+	UITextLayout? layout = box.textLayout();
+	if (layout == null) {
+		fprintf(stderr, "FAIL: layout box has no text layout\n");
+		exit(1);
+	}
+	return layout;
+}
+
+UILinearGradient requireGradient(UILinearGradient? gradient) {
+	if (gradient == null) {
+		fprintf(stderr, "FAIL: missing button gradient\n");
+		exit(1);
+	}
+	return gradient;
+}
+
+UIVirtualGridViewport requireGeometry(UIVirtualGridViewport? geometry) {
+	if (geometry == null) {
+		fprintf(stderr, "FAIL: missing virtual grid viewport\n");
+		exit(1);
+	}
+	return geometry;
+}
+
+UITextMenu requireTextMenu(UITextMenu? menu) {
+	if (menu == null) {
+		fprintf(stderr, "FAIL: missing text menu\n");
+		exit(1);
+	}
+	return menu;
+}
+
+UISelect requireSelect(UISelect? descriptor) {
+	if (descriptor == null) {
+		fprintf(stderr, "FAIL: missing select descriptor\n");
+		exit(1);
+	}
+	return descriptor;
+}
+
+UIPointerSample requirePointer(UIPointerSample? sample) {
+	if (sample == null) {
+		fprintf(stderr, "FAIL: missing pointer sample\n");
+		exit(1);
+	}
+	return sample;
+}
+
 void assertRowLayout() {
 	UIElement sidebar = UIElement.column("row-sidebar").style("padding: 0px; width: 100px; height: 50px");
 	UIElement first = UIElement.column("row-first").style("padding: 0px; height: 30px");
@@ -28,10 +86,10 @@ void assertRowLayout() {
 	assert(row.kind() == UI_ROW);
 	UIFrame frame = UIRenderer().layout(UIElement.column("row-root").style("padding: 0px; gap: 0px").child(row), 400, 200);
 	assert(frame.ok());
-	UILayoutBox rowBox = frame.boxFor("row");
-	UILayoutBox sidebarBox = frame.boxFor("row-sidebar");
-	UILayoutBox firstBox = frame.boxFor("row-first");
-	UILayoutBox secondBox = frame.boxFor("row-second");
+	UILayoutBox rowBox = requireBox(frame, "row");
+	UILayoutBox sidebarBox = requireBox(frame, "row-sidebar");
+	UILayoutBox firstBox = requireBox(frame, "row-first");
+	UILayoutBox secondBox = requireBox(frame, "row-second");
 	assert(rowBox.bounds.width == 400 && rowBox.bounds.height == 70);
 	assert(rowBox.resolvedSemantics().role() == UI_SEMANTIC_ROLE_GROUP);
 	assert(sidebarBox.bounds.x == 0 && sidebarBox.bounds.width == 100 && sidebarBox.bounds.height == 50);
@@ -47,7 +105,7 @@ void assertRowCrossAlignment() {
 	UIElement row = UIElement.row("align-row").style("gap: 0px; padding: 5px; align-items: center").child(tall).child(centred).child(ended);
 	UIFrame frame = UIRenderer().layout(UIElement.column("align-root").style("padding: 0px; gap: 0px").child(row), 300, 200);
 	assert(frame.ok());
-	UILayoutBox rowBox = frame.boxFor("align-row");
+	UILayoutBox rowBox = requireBox(frame, "align-row");
 	assert(rowBox.bounds.height == 90);
 	assert(frame.boxFor("align-tall").bounds.y == rowBox.bounds.y + 5);
 	assert(frame.boxFor("align-centred").bounds.y == rowBox.bounds.y + 5 + 30);
@@ -65,7 +123,7 @@ void assertSelectChevron() {
 	UIRenderer renderer = UIRenderer();
 	UIFrame down = renderer.render(select, 120, 100);
 	assert(down.ok());
-	UILayoutBox box = down.boxFor("chevron");
+	UILayoutBox box = requireBox(down, "chevron");
 	UIRect marker = UISelectIndicator.bounds(box);
 	assert(marker.x == 100 && marker.y == 16 && marker.width == 12 && marker.height == 8);
 	UIRect scrolled = UISelectIndicator.bounds(box, 7, 9);
@@ -88,7 +146,7 @@ void assertSelectChevron() {
 	assert(painted > 10 && painted < 60 && softened > 0);
 	assert(!UISelectIndicator.covers(1.0f, 1.0f, 3, 3, false));
 	UIFrame disabled = UIRenderer().render(select.enabled(false), 120, 100);
-	UIColor disabledColor = UISelectIndicator.color(disabled.boxFor("chevron"), UITheme.standard());
+	UIColor disabledColor = UISelectIndicator.color(requireBox(disabled, "chevron"), UITheme.standard());
 	assert(disabledColor.red == UITheme.standard().mutedText.red);
 }
 
@@ -99,8 +157,8 @@ void assertCompositeButtonLayout() {
 		UIRenderer renderer = UIRenderer();
 		UIFrame frame = renderer.layout(button, 200, 150);
 		assert(frame.ok());
-		UILayoutBox card = frame.boxFor("card-button");
-		UILayoutBox body = frame.boxFor("card-content");
+		UILayoutBox card = requireBox(frame, "card-button");
+		UILayoutBox body = requireBox(frame, "card-content");
 		int labelBand = label.isEmpty() ? 0 : 30;
 		assert(card.bounds.height == 68 + labelBand);
 		assert(body.bounds.x == card.bounds.x + 4 && body.bounds.y == card.bounds.y + 4 + labelBand);
@@ -119,9 +177,9 @@ void assertFloatingLayout() {
 	UIRenderer renderer = UIRenderer();
 	UIFrame frame = renderer.render(root, 160, 120);
 	assert(frame.ok() && frame.contentHeight == 60);
-	UILayoutBox underBox = frame.boxFor("float-under");
-	UILayoutBox popupBox = frame.boxFor("float-popup");
-	UILayoutBox iconBox = frame.boxFor("float-icon");
+	UILayoutBox underBox = requireBox(frame, "float-under");
+	UILayoutBox popupBox = requireBox(frame, "float-popup");
+	UILayoutBox iconBox = requireBox(frame, "float-icon");
 	assert(underBox.bounds.y == 10 && underBox.bounds.height == 40);
 	assert(popupBox.bounds.x == 30 && popupBox.bounds.y == 15 && popupBox.bounds.width == 60);
 	assert(iconBox.bounds.x == 34 && iconBox.bounds.y == 18);
@@ -135,7 +193,7 @@ void assertFloatingLayout() {
 	UIElement row = UIElement.row("float-row").style("padding: 0px; gap: 10px").child(UIElement.column("float-left").style("padding: 0px; width: 50px; height: 20px")).child(UIElement.column("float-wide").style("padding: 0px; width: 100px; height: 200px").floating(0, 0)).child(UIElement.column("float-right").style("padding: 0px; height: 30px"));
 	UIFrame rowFrame = renderer.layout(row, 200, 100);
 	assert(rowFrame.ok() && rowFrame.contentHeight == 30);
-	UILayoutBox rightBox = rowFrame.boxFor("float-right");
+	UILayoutBox rightBox = requireBox(rowFrame, "float-right");
 	assert(rightBox.bounds.x == 60 && rightBox.bounds.width == 140);
 	UIElement grid = UIElement.virtualGrid("float-grid", UIVirtualGrid(1, 1, 40, 0)).style("padding: 0px; gap: 0px").child(UIElement.button("float-cell", "Album")).child(UIElement.column("float-grid-overlay").style("padding: 0px; height: 100px").floating(0, 0));
 	UIFrame gridFrame = renderer.layout(grid, 200, 100);
@@ -194,12 +252,12 @@ void assertIntrinsicWidth() {
 	UIElement row = UIElement.row("fit-row").style("padding: 0px; gap: 9px; width: 200px").child(label).child(detail);
 	UIFrame frame = UIRenderer().layout(row, 300, 100);
 	assert(frame.ok() && frame.contentWidth == 200);
-	UILayoutBox labelBox = frame.boxFor("fit-label");
-	UILayoutBox detailBox = frame.boxFor("fit-detail");
+	UILayoutBox labelBox = requireBox(frame, "fit-label");
+	UILayoutBox detailBox = requireBox(frame, "fit-detail");
 	int expected = UITypography().measure("Ready", 14, 14, 400).width();
 	assert(labelBox.bounds.width == expected && detailBox.bounds.x == expected + 9 && detailBox.bounds.width == 200 - expected - 9);
 	UIFrame column = UIRenderer().layout(UIElement.column("fit-column").style("padding: 0px").child(label), 300, 100);
-	UILayoutBox columnLabel = column.boxFor("fit-label");
+	UILayoutBox columnLabel = requireBox(column, "fit-label");
 	assert(column.ok() && columnLabel.bounds.width == expected);
 	UIResolvedStyle overridden = UIResolvedStyle.from(label.style("width: fit; width: 70px"), UIStyleSheet());
 	assert(!overridden.fitWidth() && overridden.width() == 70);
@@ -395,12 +453,12 @@ void assertLayoutStyleReuse() {
 	first.style("width: 40px");
 	UIFrame after = renderer.layout(root, 400, 200);
 	assert(after.ok());
-	UILayoutBox firstBefore = before.boxFor("cached-first");
-	UILayoutBox firstAfter = after.boxFor("cached-first");
+	UILayoutBox firstBefore = requireBox(before, "cached-first");
+	UILayoutBox firstAfter = requireBox(after, "cached-first");
 	assert(firstBefore.style.width() == 20 && firstAfter.style.width() == 40);
 	firstAfter.style.apply("width: 99px");
 	UIFrame again = renderer.layout(root, 400, 200);
-	UILayoutBox firstAgain = again.boxFor("cached-first");
+	UILayoutBox firstAgain = requireBox(again, "cached-first");
 	assert(firstAgain.style.width() == 40);
 	assertRejected(renderer.layout(UIElement.row("duplicates").child(UIElement.text("same", "A").style("width: 20px")).child(UIElement.text("same", "B").style("width: 30px")), 400, 200), UI_FRAME_INVALID_TREE);
 }
@@ -458,7 +516,7 @@ void assertRetainedMeasurements() {
 	assert(renderer.layoutImmutable(changed, 240, 200).boxFor("retained").style.padding() == 6 && renderer.reusedNodeCount() == 0);
 	sheet.kindRule(UI_TEXT, "line-height: 30px");
 	UIFrame kindChanged = renderer.layoutImmutable(changed, 240, 200);
-	UILayoutBox kindChangedBox = kindChanged.boxFor("retained:0");
+	UILayoutBox kindChangedBox = requireBox(kindChanged, "retained:0");
 	assert(kindChangedBox.style.lineHeight() == 30 && kindChangedBox.bounds.height == 30 + 2 * kindChangedBox.style.padding() && renderer.reusedNodeCount() == 0);
 	UIElement duplicate = UIElement.column("root").child(retained).child(UIElement.text("retained:0", "Duplicate"));
 	assertRejected(renderer.layoutImmutable(duplicate, 240, 200), UI_FRAME_INVALID_TREE);
@@ -573,7 +631,7 @@ void assertDisabledButtonText() {
 			UIElement button = UIElement.button("disabled-button", "Test Input").style("padding: 8px; width: 180px; height: 40px" + decoration).enabled(false);
 			UIRenderer renderer = UIRenderer(theme);
 			UIFrame disabled = renderer.render(button, 200, 60);
-			UILayoutBox box = disabled.boxFor("disabled-button");
+			UILayoutBox box = requireBox(disabled, "disabled-button");
 			assert(theme.buttonText(box.style, false, false).equals(theme.mutedText));
 			assert(theme.buttonText(box.style, false, true).equals(theme.mutedText));
 			renderer.pointerMoved(20, 20);
@@ -608,9 +666,9 @@ void assertGradients() {
 	copy.apply("background-image: none; background-color: #00ff00");
 	assert(copy.backgroundGradient() == null && style.backgroundGradient() != null);
 	UITheme theme = UITheme.dark();
-	UILinearGradient normal = theme.buttonGradient(style, false);
-	UILinearGradient hovered = theme.buttonGradient(style, true);
-	UILinearGradient pressed = theme.buttonGradient(style, true, true);
+	UILinearGradient normal = requireGradient(theme.buttonGradient(style, false));
+	UILinearGradient hovered = requireGradient(theme.buttonGradient(style, true));
+	UILinearGradient pressed = requireGradient(theme.buttonGradient(style, true, true));
 	assert(normal == style.backgroundGradient());
 	assert(hovered.top().green > normal.top().green && pressed.top().green > hovered.top().green);
 	assert(normal.bottom().alpha == 0 && hovered.bottom().alpha == 0 && pressed.bottom().alpha == 0);
@@ -660,7 +718,7 @@ void assertEllipsis() {
 		UIFrame first = renderer.layoutImmutable(label, 68, 60);
 		assert(first.ok() && first.boxFor("fitted").displayText() == "iiii…");
 		assert(first.boxFor("fitted").element.contentText() == "iiiiWW");
-		UITextLayout retained = first.boxFor("fitted").textLayout();
+		UITextLayout retained = requireTextLayout(requireBox(first, "fitted"));
 		assert(renderer.layoutImmutable(label, 68, 60).boxFor("fitted").textLayout() == retained && renderer.measuredNodeCount() == 0);
 		UIFrame wide = renderer.layoutImmutable(label, 90, 60);
 		assert(wide.ok() && wide.boxFor("fitted").displayText() == "iiiiWW" && retained.lineAt(0).text() == "iiii…");
@@ -688,7 +746,7 @@ void assertWrappedText() {
 	UIFrame first = renderer.layoutImmutable(root, 92, 180);
 	assert(first.ok());
 	assert(first.boxFor("wrapped").bounds.height == 48 && first.boxFor("after-wrap").bounds.y == 56);
-	UITextLayout retained = first.boxFor("wrapped").textLayout();
+	UITextLayout retained = requireTextLayout(requireBox(first, "wrapped"));
 	assert(retained.lineCount() == 2);
 	assert(renderer.layoutImmutable(root, 92, 180).boxFor("wrapped").textLayout() == retained && renderer.measuredNodeCount() == 0);
 	UIFrame narrow = renderer.layoutImmutable(root, 56, 180);
@@ -885,7 +943,7 @@ void assertLeadingInputIcon() {
 	UIRenderer renderer = UIRenderer();
 	UIFrame frame = renderer.render(field, 200, 60);
 	assert(frame.ok() && frame.boxCount() == 1);
-	UILayoutBox box = frame.boxFor("search");
+	UILayoutBox box = requireBox(frame, "search");
 	UIRect bounds = UITextInput.iconBounds(box);
 	assert(bounds.x == 12 && bounds.y == 9 && bounds.width == 16 && bounds.height == 17);
 	assert(frame.image.pixel(20, 17).red == 220);
@@ -902,9 +960,9 @@ void assertLeadingInputIcon() {
 	renderer.pointerPressed(20, 17);
 	assert(renderer.focusedId().isEmpty());
 	UIFrame narrow = UIRenderer().render(field, 20, 60);
-	assert(narrow.ok() && UITextInput.iconBounds(narrow.boxFor("search")).width == 0);
+	assert(narrow.ok() && UITextInput.iconBounds(requireBox(narrow, "search")).width == 0);
 	UIFrame shortField = UIRenderer().render(field.copy().style("height: 10px; padding: 1px"), 200, 60);
-	assert(shortField.ok() && UITextInput.iconBounds(shortField.boxFor("search")).height == 0);
+	assert(shortField.ok() && UITextInput.iconBounds(requireBox(shortField, "search")).height == 0);
 	assertRejected(UIRenderer().render(UIElement.textInput("oversized-icon", "").leadingIcon(Image(4097, 1), 16, 17), 200, 60), UI_FRAME_LIMIT_EXCEEDED);
 	Image shared = Image(1024, 1024);
 	UIElement aggregate = UIElement.column("icons");
@@ -986,13 +1044,13 @@ int main() {
 	assert(frame.viewport.scrollX() == 0);
 	assert(frame.viewport.scrollY() == 0);
 	assert(frame.virtualGridCount() == 1);
-	UIVirtualGridViewport initialGeometry = frame.virtualGridFor("albums");
+	UIVirtualGridViewport initialGeometry = requireGeometry(frame.virtualGridFor("albums"));
 	assert(initialGeometry.gridId() == "albums");
 	assert(initialGeometry.contentOffsetY() == 38);
 	assert(initialGeometry.rowPitch() == 44);
 	assert(initialGeometry.firstVisibleDataIndex() == 0);
 	assert(initialGeometry.visibleDataCount() == 8);
-	UILayoutBox rootBox = frame.boxFor("albums");
+	UILayoutBox rootBox = requireBox(frame, "albums");
 	assert(rootBox.style.padding() == 4);
 	assert(rootBox.style.gap() == 4);
 	assert(rootBox.style.hasBackground());
@@ -1010,12 +1068,12 @@ int main() {
 	UIRenderer typographyRenderer = UIRenderer(null, null, typography);
 	UIFrame typographyFrame = typographyRenderer.render(UIElement.text("heading", "AB").style("width: 100px; padding: 8px; font-size: 28px; line-height: 34px; font-weight: 600; text-align: right"), 160, 80);
 	assert(typographyFrame.ok());
-	UILayoutBox heading = typographyFrame.boxFor("heading");
+	UILayoutBox heading = requireBox(typographyFrame, "heading");
 	assert(typographyFrame.contentWidth == 100 && heading.bounds.width == 100 && heading.bounds.height == 50);
 	assert(heading.style.fontSize() == 28 && heading.style.lineHeight() == 34 && heading.style.fontWeight() == 600 && heading.style.textAlignment() == UI_TEXT_ALIGN_RIGHT);
 	UIFrame styledButtonFrame = UIRenderer().render(UIElement.button("styled-button", "").style("padding: 0px; border-radius: 0px; background-color: #393c43ff; color: #ffffffff"), 40, 36);
 	assert(styledButtonFrame.ok());
-	UILayoutBox styledButton = styledButtonFrame.boxFor("styled-button");
+	UILayoutBox styledButton = requireBox(styledButtonFrame, "styled-button");
 	assert(styledButton.style.hasBackground() && styledButton.style.background().red == 57 && styledButton.style.background().green == 60 && styledButton.style.background().blue == 67 && styledButton.style.background().alpha == 255);
 	assert(styledButtonFrame.image.data[0] == 57 && styledButtonFrame.image.data[1] == 60 && styledButtonFrame.image.data[2] == 67 && styledButtonFrame.image.data[3] == 255);
 
@@ -1060,7 +1118,7 @@ int main() {
 	UIElement inputTree = UIElement.column("query-root").child(UIElement.textInput("query", "a\xc3\xa9", "Search albums", 5)).child(UIElement.textInput("secondary-query", "", "Second", 16));
 	UIFrame inputFrame = inputRenderer.render(inputTree, 240, 120);
 	assert(inputFrame.ok());
-	UILayoutBox inputBox = inputFrame.boxFor("query");
+	UILayoutBox inputBox = requireBox(inputFrame, "query");
 	inputRenderer.pointerPressed(inputBox.bounds.x + 2, inputBox.bounds.y + 2);
 	assert(inputRenderer.focusedCaret() == 0);
 	inputRenderer.pointerReleased(inputBox.bounds.x + 2, inputBox.bounds.y + 2);
@@ -1099,7 +1157,7 @@ int main() {
 
 	UIRenderer controlledRenderer = UIRenderer();
 	UIFrame controlledFrame = controlledRenderer.layout(UIElement.textInput("controlled", "old", "", 16), 200, 48);
-	UILayoutBox controlledBox = controlledFrame.boxFor("controlled");
+	UILayoutBox controlledBox = requireBox(controlledFrame, "controlled");
 	controlledRenderer.pointerPressed(controlledBox.bounds.x + 2, controlledBox.bounds.y + 2);
 	controlledRenderer.pointerReleased(controlledBox.bounds.x + 2, controlledBox.bounds.y + 2);
 	controlledRenderer.moveCaretRight(false, false, true);
@@ -1151,7 +1209,7 @@ int main() {
 	UIRenderer menuRenderer = UIRenderer();
 	UIElement menuRoot = UIElement.textInput("edit", "a\xc3\xa9 melody", "", 64);
 	UIFrame menuFrame = menuRenderer.render(menuRoot, 320, 240);
-	UILayoutBox menuField = menuFrame.boxFor("edit");
+	UILayoutBox menuField = requireBox(menuFrame, "edit");
 	int menuX = menuField.bounds.x + menuField.style.paddingLeft() + 1;
 	int menuY = menuField.bounds.y + menuField.style.paddingTop() + 1;
 	menuRenderer.pointerPressed(menuX, menuY);
@@ -1159,7 +1217,7 @@ int main() {
 	menuRenderer.selectAllText();
 	menuRenderer.openTextMenu(menuX, menuY, true);
 	assert(menuRenderer.selectedText() == "a\xc3\xa9 melody");
-	UITextMenu menu = menuRenderer.textMenu();
+	UITextMenu menu = requireTextMenu(menuRenderer.textMenu());
 	assert(menu != null && menu.enabled(0) && menu.enabled(1) && menu.enabled(2) && menu.enabled(3));
 	UIRect copyRow = menu.geometry.optionBounds(UI_TEXT_EDIT_COPY);
 	menuRenderer.pointerMoved(copyRow.x + copyRow.width - 1, copyRow.y + 1);
@@ -1191,7 +1249,7 @@ int main() {
 	assert(textRun.start > 0 && textRun.text.endsWith("f") && textRun.caretX <= 16 && textRun.selectionWidth > 0);
 	UIRenderer selectionRenderer = UIRenderer();
 	UIFrame selectionFrame = selectionRenderer.render(UIElement.textInput("selection", "a\xc3\xa9x", "", 5), 200, 48);
-	UILayoutBox selectionBox = selectionFrame.boxFor("selection");
+	UILayoutBox selectionBox = requireBox(selectionFrame, "selection");
 	int selectionLeft = selectionBox.bounds.x + selectionBox.style.paddingLeft();
 	int selectionY = selectionBox.bounds.y + selectionBox.bounds.height / 2;
 	int selectedWidth = selectionRenderer.typography().measure("a\xc3\xa9", selectionBox.style.fontSize(), selectionBox.style.lineHeight(), selectionBox.style.fontWeight()).width();
@@ -1212,7 +1270,7 @@ int main() {
 	UIRenderer selectRenderer = UIRenderer();
 	UIFrame selectFrame = selectRenderer.render(selectElement, 240, 200);
 	assert(selectFrame.ok());
-	UILayoutBox selectBox = selectFrame.boxFor("monitor");
+	UILayoutBox selectBox = requireBox(selectFrame, "monitor");
 	assert(selectBox.bounds.height == 36 && selectBox.selectable());
 	selectRenderer.pointerPressed(selectBox.bounds.x + 4, selectBox.bounds.y + 4);
 	UIEventBatch openedSelect = selectRenderer.pointerReleased(selectBox.bounds.x + 4, selectBox.bounds.y + 4);
@@ -1238,8 +1296,8 @@ int main() {
 	assert(selectRenderer.focusedId() == "monitor");
 	UIElement controlledSelect = UIElement.select("monitor", UISelect(selectOptions, "raw-signal"));
 	assert(selectRenderer.render(controlledSelect, 240, 200).ok());
-	UILayoutBox controlledSelectBox = selectRenderer.currentFrame().boxFor("monitor");
-	UISelect controlledSelectDescriptor = controlledSelectBox.element.selectDescriptor();
+	UILayoutBox controlledSelectBox = requireBox(selectRenderer.currentFrame(), "monitor");
+	UISelect controlledSelectDescriptor = requireSelect(controlledSelectBox.element.selectDescriptor());
 	assert(controlledSelectDescriptor.selectedValue() == "raw-signal");
 	selectRenderer.activate("monitor");
 	UIRect disabledOption = selectRenderer.selectPopup().optionBounds(1);
@@ -1289,7 +1347,7 @@ int main() {
 	UIRenderer rangeRenderer = UIRenderer();
 	UIFrame rangeFrame = rangeRenderer.layout(scrubElement, 120, 60);
 	assert(rangeFrame.ok());
-	UILayoutBox scrubBox = rangeFrame.boxFor("scrubber");
+	UILayoutBox scrubBox = requireBox(rangeFrame, "scrubber");
 	assert(scrubBox.adjustable() && scrubBox.focusable() && !scrubBox.clickable());
 	int scrubX = scrubBox.bounds.x + 10;
 	int scrubY = scrubBox.bounds.y + 4;
@@ -1297,7 +1355,7 @@ int main() {
 	UIEventBatch rangePressed = rangeRenderer.pointerPressed(scrubX, scrubY);
 	assert(rangePressed.eventCount() == 1);
 	assert(rangePressed.eventAt(0).kind() == UI_RANGE_POINTER_PRESSED);
-	UIPointerSample pressedSample = rangePressed.eventAt(0).pointer();
+	UIPointerSample pressedSample = requirePointer(rangePressed.eventAt(0).pointer());
 	assert(pressedSample.coordinate() == 10 && pressedSample.extent() == scrubBox.bounds.width);
 	assert(rangeRenderer.capturedRangeId() == "scrubber");
 	assert(rangeRenderer.focusedId() == "scrubber");
@@ -1309,12 +1367,12 @@ int main() {
 	assert(rangeMoved.eventAt(0).kind() == UI_HOVER_LEFT);
 	UIEvent movedEvent = rangeMoved.eventAt(1);
 	assert(movedEvent.kind() == UI_RANGE_POINTER_MOVED);
-	UIPointerSample movedSample = movedEvent.pointer();
+	UIPointerSample movedSample = requirePointer(movedEvent.pointer());
 	assert(movedSample.coordinate() == scrubBox.bounds.width + 25 && movedSample.extent() == scrubBox.bounds.width);
 	UIEventBatch rangeReleased = rangeRenderer.pointerReleased(scrubBox.bounds.x - 15, scrubY);
 	assert(rangeReleased.eventCount() == 1);
 	assert(rangeReleased.eventAt(0).kind() == UI_RANGE_POINTER_RELEASED);
-	UIPointerSample releasedSample = rangeReleased.eventAt(0).pointer();
+	UIPointerSample releasedSample = requirePointer(rangeReleased.eventAt(0).pointer());
 	assert(releasedSample.coordinate() == -15 && releasedSample.extent() == scrubBox.bounds.width);
 	assert(rangeRenderer.capturedRangeId().isEmpty());
 
@@ -1323,7 +1381,7 @@ int main() {
 	UIEventBatch rangeCancelled = rangeRenderer.pointerCancelled();
 	assert(rangeCancelled.eventCount() == 1);
 	assert(rangeCancelled.eventAt(0).kind() == UI_RANGE_POINTER_CANCELLED);
-	UIPointerSample cancelledSample = rangeCancelled.eventAt(0).pointer();
+	UIPointerSample cancelledSample = requirePointer(rangeCancelled.eventAt(0).pointer());
 	assert(cancelledSample.coordinate() == 30 && cancelledSample.extent() == scrubBox.bounds.width);
 	assert(rangeRenderer.pointerCancelled().eventCount() == 0);
 	assert(rangeRenderer.pointerReleased(scrubX, scrubY).eventCount() == 0);
@@ -1341,7 +1399,7 @@ int main() {
 	Image wheelFiller = Image(80, 200);
 	UIElement wheelTree = UIElement.column("wheel-root").child(UIElement.image("wheel-range", scrubImage, "Position").semanticRange(positionRange)).child(UIElement.image("wheel-filler", wheelFiller, "Filler"));
 	UIFrame wheelFrame = wheelRenderer.layout(wheelTree, 120, 60);
-	UILayoutBox wheelRangeBox = wheelFrame.boxFor("wheel-range");
+	UILayoutBox wheelRangeBox = requireBox(wheelFrame, "wheel-range");
 	wheelRenderer.pointerMoved(wheelRangeBox.bounds.x + 4, wheelRangeBox.bounds.y + 4);
 	assert(wheelRenderer.wheelBy(0, 40).eventAt(0).kind() == UI_RANGE_WHEEL);
 	assert(wheelRenderer.currentFrame().viewport.scrollY() == 0);
@@ -1365,7 +1423,7 @@ int main() {
 	UIRenderer surfaceRenderer = UIRenderer();
 	UIFrame surfaceFrame = surfaceRenderer.layout(rangeSurface, 120, 60);
 	assert(surfaceFrame.ok());
-	UILayoutBox surfaceBox = surfaceFrame.boxFor("range-surface");
+	UILayoutBox surfaceBox = requireBox(surfaceFrame, "range-surface");
 	assert(surfaceBox.adjustable());
 	UIEventBatch targetedVertical = surfaceRenderer.adjustRange("range-surface", UI_RANGE_ADJUST_LARGE_DECREMENT);
 	assert(targetedVertical.eventCount() == 1 && targetedVertical.eventAt(0).rangeValue() == -20LL);
@@ -1388,7 +1446,7 @@ int main() {
 	assert(deepScroll.eventAt(0).kind() == UI_SCROLLED);
 	assert(deepScroll.eventAt(0).elementId() == "albums");
 	assert(deepScroll.eventAt(0).scroll().y() == 21924);
-	UIVirtualGridViewport deepGeometry = deepScroll.eventAt(0).virtualGridViewport();
+	UIVirtualGridViewport deepGeometry = requireGeometry(deepScroll.eventAt(0).virtualGridViewport());
 	assert(deepGeometry.gridId() == "albums");
 	assert(deepGeometry.contentOffsetY() == 38);
 	assert(deepGeometry.contentLocalScrollY() == 21886);
@@ -1397,9 +1455,9 @@ int main() {
 	assert(deepGeometry.rowPitch() == 44);
 	assert(deepGeometry.firstVisibleDataIndex() == 1988);
 	assert(deepGeometry.visibleDataCount() == 12);
-	UILayoutBox item1990 = deepScroll.frame.boxFor("album:1990");
+	UILayoutBox item1990 = requireBox(deepScroll.frame, "album:1990");
 	assert(item1990.bounds.y == 21906);
-	UILayoutBox item1999 = deepScroll.frame.boxFor("album:1999");
+	UILayoutBox item1999 = requireBox(deepScroll.frame, "album:1999");
 	assert(item1999.bounds.y == 21994);
 
 	UIEventBatch hovered = renderer.pointerMoved(245, 80);
@@ -1422,7 +1480,7 @@ int main() {
 	assert(resized.frame.viewport.width() == 320);
 	assert(resized.frame.viewport.height() == 160);
 	assert(resized.frame.viewport.scrollY() == 21884);
-	UIVirtualGridViewport resizedGeometry = resized.eventAt(0).virtualGridViewport();
+	UIVirtualGridViewport resizedGeometry = requireGeometry(resized.eventAt(0).virtualGridViewport());
 	assert(resizedGeometry.gridId() == "albums");
 	assert(resizedGeometry.contentLocalScrollY() == 21846);
 	assert(resizedGeometry.firstVisibleDataIndex() == 1984);
@@ -1486,7 +1544,7 @@ int main() {
 
 	UIRenderer wordRenderer = UIRenderer();
 	UIFrame wordFrame = wordRenderer.render(UIElement.textInput("words", "Hello,  Bj\xc3\xb6rk world!", "", 64), 500, 48);
-	UILayoutBox wordBox = wordFrame.boxFor("words");
+	UILayoutBox wordBox = requireBox(wordFrame, "words");
 	UIResolvedStyle wordStyle = wordBox.style;
 	int wordLeft = wordBox.bounds.x + wordStyle.paddingLeft();
 	int wordY = wordBox.bounds.y + wordBox.bounds.height / 2;
