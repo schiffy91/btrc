@@ -77,7 +77,7 @@ underflow/overflow. Optimized and ASan/UBSan runs pass. Allocation fault
 injection and overlapping native thread admission are not yet qualified.
 
 The fresh snapshot-enabled selfhost gate passed. The real factory drives
-`GuiFontConformance.btrc` and `examples/gui/FontSmoke.btrc`. The old C loader,
+`GUIFontConformance.btrc` and `examples/gui/FontSmoke.btrc`. The old C loader,
 process-global font dispatcher, color helper, old boundary test, archive build
 rules, hosted ABI entries and runtime feature hooks have been removed. Existing
 global-font thread synchronization was deliberately replaced by explicit

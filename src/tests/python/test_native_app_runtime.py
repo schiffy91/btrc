@@ -13,7 +13,7 @@ from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = ROOT / "src" / "tests" / "native" / "app"
+FIXTURE = ROOT / "src" / "tests" / "native" / "gui"
 COMPILE_TIMEOUT = 120
 RUN_TIMEOUT = 30
 
@@ -37,14 +37,14 @@ def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
     environment.update(
         BTRC_NATIVE_SYSROOT=sdk, BTRC_NATIVE_TARGET=f"{architecture}-apple-macosx14.0.0", BTRC_HOME=str(ROOT / "src")
     )
-    for name in ["MacOsDirectoryPickerConformance.btrc", "DirectoryPickerControl.h", "DirectoryPickerControl.m"]:
+    for name in ["MacOSDirectoryPickerConformance.btrc", "DirectoryPickerControl.h", "DirectoryPickerControl.m"]:
         shutil.copyfile(FIXTURE / name, tmp_path / name)
     (tmp_path / "btrc.toml").write_text(
         'manifest-version = 1\n[package]\nname = "pickerTest"\n'
         '[[native.sources]]\npath = "DirectoryPickerControl.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         '[[native.include-directories]]\npath = "."\n'
     )
-    source = tmp_path / "MacOsDirectoryPickerConformance.btrc"
+    source = tmp_path / "MacOSDirectoryPickerConformance.btrc"
     generated = tmp_path / "Picker.c"
     plan = tmp_path / "Picker.link.json"
     flags = ["--no-stdlib", "--target", f"macos-{architecture}", "--emit-link-plan", str(plan), str(source)]
@@ -96,7 +96,7 @@ def test_btrc_directory_picker_appkit(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("sanitized", [False, True])
 @pytest.mark.parametrize("consumer_first", [False, True])
 @pytest.mark.parametrize("scrolling", [False, True], ids=["field", "scroll"])
-def test_btrc_text_field_appkit(tmp_path, request, frontend, sanitized, consumer_first, scrolling):
+def test_btrc_text_field_and_scroll_view_appkit(tmp_path, request, frontend, sanitized, consumer_first, scrolling):
     if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         pytest.skip("requires the explicitly built native header reader")
     environment = {key: value for key, value in os.environ.items() if key not in {"DEVELOPER_DIR", "SDKROOT"}}
@@ -113,7 +113,7 @@ def test_btrc_text_field_appkit(tmp_path, request, frontend, sanitized, consumer
         BTRC_NATIVE_SYSROOT=sdk, BTRC_NATIVE_TARGET=f"{architecture}-apple-macosx14.0.0", BTRC_HOME=str(ROOT / "src")
     )
     control = "ScrollView" if scrolling else "TextField"
-    for name in [f"MacOs{control}Conformance.btrc", f"{control}Control.h", f"{control}Control.m"]:
+    for name in [f"MacOS{control}Conformance.btrc", f"{control}Control.h", f"{control}Control.m"]:
         shutil.copyfile(FIXTURE / name, tmp_path / name)
     symbols = (
         [
@@ -144,7 +144,7 @@ def test_btrc_text_field_appkit(tmp_path, request, frontend, sanitized, consumer
         f"symbols = {json.dumps(symbols)}\n"
         '[[native.frameworks]]\nname = "CoreGraphics"\nos = ["macos"]\n'
     )
-    source = tmp_path / f"MacOs{control}Conformance.btrc"
+    source = tmp_path / f"MacOS{control}Conformance.btrc"
     if consumer_first:
         source.write_text(
             "import ./ControlProbe.btrc;\n\n" + source.read_text().replace("import ./ControlProbe.btrc;\n", "")

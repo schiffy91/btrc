@@ -45,6 +45,6 @@ int main(int argc, char** argv) {
 	assert(decoder.decode(Bytes(), limits).status() == ENCODED_IMAGE_DECODE_INVALID_ARGUMENT);
 	assert(decoder.decode(png, null).status() == ENCODED_IMAGE_DECODE_INVALID_ARGUMENT);
 	for (int iteration = 0; iteration < 64; iteration++) { assert(decoder.decode(png, limits).succeeded()); }
-	print("PASS MacOsEncodedImageDecoderConformance");
+	print("PASS MacOSEncodedImageDecoderConformance");
 	return 0;
 }
