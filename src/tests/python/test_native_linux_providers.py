@@ -11,6 +11,7 @@ import os
 import platform
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -43,13 +44,17 @@ def _require_audio_backend():
     pytest.skip(error)
 
 
-def _transpile(source: Path, generated: Path, plan: Path, frontend: str, request) -> None:
-    environment = {**os.environ, "BTRC_HOME": str(ROOT / "src")}
+def _transpile(
+    source: Path, generated: Path, plan: Path, frontend: str, request, data_root: Path | None = None
+) -> None:
+    """`data_root` names a data root other than src/ (gui_provider_root for white-box provider fixtures)."""
+    environment = {**os.environ, "BTRC_HOME": str(data_root or ROOT / "src")}
     if frontend == "python":
+        entry = ["src.compiler.python.main"] if data_root is None else ["src.tests.gui_provider_root", str(data_root)]
         command = [
             sys.executable,
             "-m",
-            "src.compiler.python.main",
+            *entry,
             "--no-cache",
             "--target",
             TARGET,
@@ -74,12 +79,20 @@ def _transpile(source: Path, generated: Path, plan: Path, frontend: str, request
         generated.write_text(compiled.stdout)
 
 
-def _build(source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, faults: Path | None = None) -> Path:
+def _build(
+    source: Path,
+    tmp_path: Path,
+    frontend: str,
+    sanitized: bool,
+    request,
+    faults: Path | None = None,
+    data_root: Path | None = None,
+) -> Path:
     """Compile through the chosen frontend and link; `faults` names an SDK fixture
     (Faults.h forced into the generated unit, Faults.c linked in) that replaces the real library."""
     generated = tmp_path / "Program.c"
     plan = tmp_path / "Program.json"
-    _transpile(source, generated, plan, frontend, request)
+    _transpile(source, generated, plan, frontend, request, data_root)
     executable = tmp_path / "Program"
     sanitizers = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
     objects = []
@@ -131,9 +144,16 @@ def _environment(sanitized: bool, **extra: str) -> dict[str, str]:
 
 
 def _build_and_run(
-    source: Path, tmp_path: Path, frontend: str, sanitized: bool, request, expected: str, timeout: int = 120
+    source: Path,
+    tmp_path: Path,
+    frontend: str,
+    sanitized: bool,
+    request,
+    expected: str,
+    timeout: int = 120,
+    data_root: Path | None = None,
 ) -> None:
-    executable = _build(source, tmp_path, frontend, sanitized, request)
+    executable = _build(source, tmp_path, frontend, sanitized, request, data_root=data_root)
     result = subprocess.run(
         [str(executable)], capture_output=True, text=True, timeout=timeout, env=_environment(sanitized)
     )
@@ -220,7 +240,8 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
-    """A live window: synthetic input drives every control kind and the composed frame reads back."""
+    """A live window: synthetic input drives every control kind and the composed frame reads back.
+    The fixture pushes SDL events at the provider's window, so it compiles against gui_provider_root."""
     _require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
@@ -232,13 +253,15 @@ def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
         request,
         "PASS: linux gui controls",
         timeout=180,
+        data_root=request.getfixturevalue("gui_provider_root"),
     )
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
-    """A subtree that never finishes closing fails run() after one deadline instead of hanging quit."""
+    """A subtree that never finishes closing fails run() after one deadline instead of hanging quit.
+    The stalled view extends the provider's LinuxNodeView, so it compiles against gui_provider_root."""
     _require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
@@ -250,6 +273,7 @@ def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
         request,
         "PASS: linux gui shutdown deadline",
         timeout=180,
+        data_root=request.getfixturevalue("gui_provider_root"),
     )
 
 
@@ -271,8 +295,62 @@ def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
     )
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize(
+    "declaration, body, diagnostic",
+    [
+        ("import Library.GUI.Linux.SDL;", "return 0;", "private to package"),
+        ('#include "GUI/Linux/SDL.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.Linux.WebGPUSurface;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxApplication;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxWindow;", "return 0;", "private to package"),
+        ('#include "GUI/Linux/LinuxWindow.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxView;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxContext;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxActionQueue;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.LinuxSystemText;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.GUIProvider;", "return 0;", "private to package"),
+        # A provider type reached by name through Library.GUI: the provider
+        # analyzes with the program, so this case needs the header reader.
+        (
+            "import Library.GUI;",
+            "var queue = LinuxActionQueue(16); return 0;",
+            "'LinuxActionQueue' is defined in LinuxActionQueue.btrc but Program.btrc does not import it",
+        ),
+    ],
+)
+def test_linux_gui_keeps_provider_modules_private(tmp_path, request, frontend, declaration, body, diagnostic):
+    # Consumers mount and drive views through Library.GUI; the provider's own
+    # conformance fixtures reach these modules through gui_provider_root.
+    if "private to package" not in diagnostic:
+        _require_linux_reader()
+    source = tmp_path / "Program.btrc"
+    source.write_text(f"{declaration}\nint main() {{ {body} }}\n")
+    environment = {**os.environ, "BTRC_HOME": str(ROOT / "src")}
+    flags = ["--target", TARGET, str(source)]
+    command = (
+        [sys.executable, "-m", "src.compiler.python.main", "--no-cache", *flags, "-o", str(tmp_path / "Program.c")]
+        if frontend == "python"
+        else [str(request.getfixturevalue("immutable_btrcc")), *flags]
+    )
+    compiled = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=600)
+    assert compiled.returncode != 0
+    assert diagnostic in compiled.stdout + compiled.stderr
+
+
+def test_gui_provider_root_exports_the_linux_provider(gui_provider_root):
+    """The white-box root re-exports every Linux provider module but the factory's own."""
+    exported = set(tomllib.loads((gui_provider_root / "stdlib/GUI/btrc.toml").read_text())["package"]["exports"])
+    modules = {f"Linux.{path.stem}" for path in (ROOT / "src/stdlib/GUI/Linux").glob("*.btrc")}
+    assert modules - {"Linux.GUIProvider"} <= exported
+    assert "Linux.GUIProvider" not in exported
+    public = set(tomllib.loads((ROOT / "src/stdlib/GUI/btrc.toml").read_text())["package"]["exports"])
+    assert not {name for name in public if name.startswith("Linux.")}
+
+
 @pytest.mark.parametrize("target", ["windows-x86_64"])
 def test_linux_gui_unsupported_target(target, tmp_path):
+    """A portable GUI program (Library.GUI only) names the missing provider on a target without one."""
     result = subprocess.run(
         [
             sys.executable,
@@ -281,7 +359,7 @@ def test_linux_gui_unsupported_target(target, tmp_path):
             "--no-cache",
             "--target",
             target,
-            str(ROOT / "src/tests/native/gui/linux/LinuxGUIControls.btrc"),
+            str(ROOT / "src/tests/native/gui/linux/LinuxGUIReparent.btrc"),
             "-o",
             str(tmp_path / "Program.c"),
         ],
