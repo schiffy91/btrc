@@ -1,93 +1,135 @@
-import Library.IO;
 import Library.Image;
+import Library.Vector;
 import Library.Math;
 import Library.Callback;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IView;
+import Library.GUI.IPanel;
 import Library.GUI.IGrid;
-import Library.GUI.MacOS.MacOSApplication;
-import Library.GUI.MacOS.MacOSWindow;
-import Library.GUI.MacOS.MacOSPanel;
-import Library.GUI.MacOS.MacOSGrid;
-import Library.GUI.MacOS.MacOSLabel;
-import Library.GUI.MacOS.MacOSSelect;
-import Library.GUI.MacOS.MacOSViewCapture;
+import Library.GUI.ILabel;
+import Library.GUI.ISelect;
+import Library.GUI.GUICaptureLayer;
+import Library.GUI.MacOS.MacOSView;
 
 #include <assert.h>
 
+/* Cell frames are AppKit's own layout result, read through the provider. */
+NSView nativeOf(IView view) {
+	IMacOSView? native = (IMacOSView?)view;
+	if (native == null) { throw "View has no macOS implementation"; }
+	return native.nativeView();
+}
+
+/* Runs on the native loop once the shown window has been dispatched. */
+class GridLayout implements IApplicationWork {
+	private IWindow _window;
+	private IPanel _background;
+	private IGrid _form;
+	private ILabel _inputLabel;
+	private ILabel _monitorLabel;
+	private ISelect _input;
+	private ISelect _monitor;
+
+	public GridLayout(IWindow window, IPanel background, IGrid form, ILabel inputLabel, ILabel monitorLabel, ISelect input, ISelect monitor) {
+		self._window = window;
+		self._background = background;
+		self._form = form;
+		self._inputLabel = inputLabel;
+		self._monitorLabel = monitorLabel;
+		self._input = input;
+		self._monitor = monitor;
+	}
+
+	public void run() {
+		var form = self._form;
+		var input = self._input;
+		var monitor = self._monitor;
+		form.layout();
+		var inputFrame = nativeOf(input).frame();
+		var monitorFrame = nativeOf(monitor).frame();
+		assert(inputFrame.size.width > 400.0 && inputFrame.size.height > 20.0);
+		assert(Math.absDouble(inputFrame.origin.x - monitorFrame.origin.x) < 0.5);
+		assert(inputFrame.origin.y > monitorFrame.origin.y);
+		double fullWidth = nativeOf(form).fittingSize().width;
+		form.setColumnHidden(1, true);
+		form.layout();
+		assert(nativeOf(form).fittingSize().width < fullWidth);
+		form.setColumnHidden(1, false);
+		form.layout();
+		assert(Math.absDouble(nativeOf(form).fittingSize().width - fullWidth) < 0.5);
+		Vector<GUICaptureLayer> layers = [];
+		var pixels = GUI.capture(self._background, layers);
+		assert(pixels.width >= 660 && pixels.height >= 260);
+		form.setColumnWidth(1, 220.0);
+		// Native frame (30, 45, 400, 130) from the bottom of the 260-point background.
+		form.arrange(30.0, 85.0, 400.0, 130.0);
+		form.layout();
+		assert(nativeOf(input).frame().size.width < inputFrame.size.width - 150.0);
+		bool rejected = false;
+		try { form.setChild(2, 0, null); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { form.setChild(0, 0, self._background); } catch (string error) { rejected = true; }
+		assert(rejected);
+		rejected = false;
+		try { form.setChild(0, 0, monitor); } catch (string error) { rejected = true; }
+		assert(rejected);
+		form.setChild(1, 1, null);
+		assert(monitor.isOpen() && form.childAt(1, 1) == null);
+		var nested = GUI.createGrid(1, 1);
+		nested.setChild(0, 0, monitor);
+		form.setChild(1, 1, nested);
+		form.layout();
+		assert(nativeOf(monitor).frame().size.width > 100.0);
+		self._background.detach(form);
+		assert(form.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(form.close() == CALLBACK_CANCELLATION_COMPLETE);
+		nested.close();
+		assert(!input.isOpen() && !monitor.isOpen() && !nested.isOpen());
+		input.close();
+		monitor.close();
+		self._inputLabel.close();
+		self._monitorLabel.close();
+		assert(self._window.detachRoot() == self._background);
+		self._background.close();
+		self._window.close();
+		GUI.requestQuit();
+	}
+}
+
 int main() {
-	var app = MacOSApplication();
-	var window = MacOSWindow("Native form layout", 660.0, 260.0);
-	var background = MacOSPanel(RGBA(30, 30, 30));
-	background.setFrame(0.0, 0.0, 660.0, 260.0);
-	window.contentView().addSubview(background.nativeView());
-	var form = MacOSGrid(2, 2, 20.0, 15.0);
-	IGrid portable = form;
-	form.setFrame(30.0, 45.0, 600.0, 130.0);
+	GUI.initialize();
+	var window = GUI.createWindow("Native form layout", 660.0, 260.0);
+	var background = GUI.createPanel(RGBA(30, 30, 30));
+	window.attachRoot(background);
+	var form = GUI.createGrid(2, 2, 20.0, 15.0);
+	background.attach(form);
+	// Native frame (30, 45, 600, 130) from the bottom of the 260-point background.
+	form.arrange(30.0, 85.0, 600.0, 130.0);
 	form.setColumnWidth(0, 160.0);
 	form.setColumnWidth(1, 420.0);
 	form.setRowHeight(0, 50.0);
 	form.setRowHeight(1, 50.0);
-	background.addChild(form.nativeView());
-	var inputLabel = MacOSLabel("Input Device");
-	var monitorLabel = MacOSLabel("Monitor");
-	var input = MacOSSelect();
+	var inputLabel = GUI.createLabel("Input Device");
+	var monitorLabel = GUI.createLabel("Monitor");
+	var input = GUI.createSelect();
 	input.setItems(["Quad Cortex", "System Default"], 0);
-	var monitor = MacOSSelect();
+	var monitor = GUI.createSelect();
 	monitor.setItems(["Song Effects", "Raw Signal"], 0);
-	portable.setChild(0, 0, inputLabel);
-	portable.setChild(1, 0, input);
-	portable.setChild(0, 1, monitorLabel);
-	portable.setChild(1, 1, monitor);
-	assert(portable.childAt(1, 0) == input);
+	form.setChild(0, 0, inputLabel);
+	form.setChild(1, 0, input);
+	form.setChild(0, 1, monitorLabel);
+	form.setChild(1, 1, monitor);
+	assert(form.childAt(1, 0) == input);
 	bool attachedClose = false;
 	try { input.close(); } catch (string error) { attachedClose = true; }
 	assert(attachedClose && input.isOpen());
 	window.show();
-	app.pumpEvents();
-	form.layout();
-	var inputFrame = input.nativeView().frame();
-	var monitorFrame = monitor.nativeView().frame();
-	assert(inputFrame.size.width > 400.0 && inputFrame.size.height > 20.0);
-	assert(Math.absDouble(inputFrame.origin.x - monitorFrame.origin.x) < 0.5);
-	assert(inputFrame.origin.y > monitorFrame.origin.y);
-	double fullWidth = form.nativeView().fittingSize().width;
-	form.setColumnHidden(1, true);
-	form.layout();
-	assert(form.nativeView().fittingSize().width < fullWidth);
-	form.setColumnHidden(1, false);
-	form.layout();
-	assert(Math.absDouble(form.nativeView().fittingSize().width - fullWidth) < 0.5);
-	var file = File("NativeGrid.tiff", "wb");
-	assert(file.ok() && file.writeBytes(MacOSViewCapture.captureTiff(window.contentView())) && file.close());
-	form.setColumnWidth(1, 220.0);
-	form.setFrame(30.0, 45.0, 400.0, 130.0);
-	form.layout();
-	assert(input.nativeView().frame().size.width < inputFrame.size.width - 150.0);
-	bool rejected = false;
-	try { form.setChild(2, 0, null); } catch (string error) { rejected = true; }
-	assert(rejected);
-	rejected = false;
-	try { portable.setChild(0, 0, background); } catch (string error) { rejected = true; }
-	assert(rejected);
-	rejected = false;
-	try { portable.setChild(0, 0, monitor); } catch (string error) { rejected = true; }
-	assert(rejected);
-	form.setChild(1, 1, null);
-	assert(monitor.isOpen() && portable.childAt(1, 1) == null);
-	var nested = MacOSGrid(1, 1);
-	nested.setChild(0, 0, monitor);
-	form.setChild(1, 1, nested);
-	form.layout();
-	assert(monitor.nativeView().frame().size.width > 100.0);
-	assert(portable.close() == CALLBACK_CANCELLATION_COMPLETE);
-	assert(portable.close() == CALLBACK_CANCELLATION_COMPLETE);
-	nested.close();
-	assert(!input.isOpen() && !monitor.isOpen() && !nested.isOpen());
-	input.close();
-	monitor.close();
-	inputLabel.close();
-	monitorLabel.close();
-	background.close();
-	window.close();
+	GUI.post(GridLayout(window, background, form, inputLabel, monitorLabel, input, monitor));
+	GUI.run();
+	assert(!window.isOpen() && !background.isOpen() && !form.isOpen());
 	print("PASS: native grid layout, resizing, recursive cells and ownership");
 	return 0;
 }

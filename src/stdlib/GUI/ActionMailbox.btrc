@@ -28,6 +28,10 @@ class ActionMailbox {
 
 	public int pendingCount() { self.requireCapacity(); return self._count; }
 
+	/* Whether entries remain queued. Unlike pendingCount it never reports
+	 * overflow, so a provider can decide to wake its consumer from callbacks. */
+	public bool hasPending() { return self._count > 0; }
+
 	private void requireCapacity() { if (self._overflow) { throw "Native action capacity exceeded; close this action queue before continuing"; } }
 
 	/* Drop entries their actions no longer accept, keeping click order. */

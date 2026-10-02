@@ -107,14 +107,12 @@ class MacOSSelect implements ISelect, IMacOSView {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native selection font size"; }
 		var button = self.control();
 		/* A larger outer frame does not grow AppKit's popup bezel. */
-		if (size > 20.0) { throw "Native selections support font sizes up to 20 points"; }
+		if (size > SelectTypography.maximumSize()) { throw "Native selections support font sizes up to 20 points"; }
 		button.setControlSize(size > 13.0 ? NSControlSizeLarge : NSControlSizeRegular);
 		button.setFont(NSFont.systemFontOfSize(size));
 	}
 
 	public bool isEnabled() { return self.control().isEnabled(); }
-
-	public void setFrame(double x, double y, double width, double height) { self._view.setFrame(x, y, width, height); }
 
 	public CallbackCancellation close() { var state = self._view.close(); self._button = null; return state; }
 }

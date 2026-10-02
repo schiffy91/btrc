@@ -162,6 +162,15 @@ def _selfhost_runtime_data():
         os.environ["BTRC_HOME"] = old
 
 
+@pytest.fixture(scope="session")
+def gui_provider_root(tmp_path_factory) -> Path:
+    """A data root exporting the macOS GUI provider to its conformance fixtures."""
+
+    from src.tests.gui_provider_root import GUIProviderRoot
+
+    return GUIProviderRoot.create(tmp_path_factory.mktemp("gui-provider") / "data")
+
+
 def _btrcc_fingerprint(compiler: list[str]) -> str:
     """Identify one self-host compiler by everything that can change it.
 

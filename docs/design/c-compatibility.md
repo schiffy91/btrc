@@ -909,7 +909,7 @@ Each lane changes Python first and then ports to btrc in the same commit. The li
   - Frontend: `Visibility.btrc`, whose `TypeExpr` branch must visit `elements`.
   - Lowering: the `CTypeLowerer` registry; `DeclarationLowerer`; `StatementLowerer`; `ExpressionLowerer`; `AggregateValueLowerer`.
   - Units and optimizer: `ModuleUnitDeclarations`; `ir/runtime/References.btrc`; `IROptimizer`; setjmp `Safety.btrc` and `Analysis.btrc`; `ir/gpu/Pipeline.btrc`.
-  - Emission: `CEmitter.emitTypedef`, `emitOrderedAliases` and the module emission order.
+  - Emission: `CEmitter.emitTypedef` and `IRTypeDeclarationPlanner` (which mirrors `IROptimizer.plan_type_declarations`, including the array-typedef complete-type context).
 - **Tests and docs:**
   - Probes and corpus: the `c2.toml` r17 rows; `c_compat/TwoDimensionalArrays.btrc`.
   - Inverted tests: `test_parser_decls.py::test_multidimensional_array_has_architecture_error` and the one-dimension case in `test_parser_diagnostics.py`.
@@ -1007,6 +1007,8 @@ Outside the manifest:
 **Stage 18** (serial first, then 2 lanes, 2 reviewers):
 
 1. **btrc emission-order parity commit.** The btrc `CEmitter` today prints every alias and prototype before struct definitions. It changes to emit planned type declarations, then prototypes, as Python does. The commit gets its own bootstrap fixed point and a byte-diff review of btrcc's C. The Python planner treats an `IRTypedefDef` with `array_size` as a complete-type context.
+
+   **Landed (lane `stage18/emit-order`).** `IRTypeDeclarationPlanner` in `ir/optimization/Optimizer.btrc` ports `IROptimizer.plan_type_declarations`. btrcc now emits struct forwards, then the planned enums, function-pointer typedefs, typedefs, tagged unions and structs, then prototypes, as `CEmitter._emit_unit` does. Module units dropped their own struct ordering. Before the change, btrcc printed enums before the forwards, every alias and tagged union before the prototypes, and struct definitions after them. Over the 964-program corpus, Python's C is unchanged, and 546 of btrcc's outputs changed, each a pure reordering. btrcc's layout of user declarations and prototypes now matches Python's in 960 programs, up from 446. In a 120-program module-unit sample it matches in all 496 unit files, up from 286. Only 3 whole programs are byte-identical between the compilers, both before and after, because of lowering differences outside emission order: temporary naming, the include set, unused function-pointer typedefs btrcc keeps, the GPU uniforms struct, and generic-instance list order. The `array_size` complete-type context waits for item 3.
 2. **Representation and analyzer:** the parsers accept extents; rank helpers; extent values; decay, argument, `sizeof` and initializer rules; refusals; the `--module-units` rank-2 regression.
 3. **Storage lowering:** `IRTypedefDef.array_size`; the row-typedef registry in both `CTypeLowerer`s; declarations; qualifier casts.
 4. **In parallel:**

@@ -67,18 +67,6 @@ class MacOSGPUSurface {
 
 	public double backingScale() { self.nativeView(); return self._backingScale; }
 
-	public void setFrame(double x, double y, double width, double height) {
-		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid GPU view frame"; }
-		var view = self.nativeView();
-		var frame = view.frame();
-		frame.origin.x = x;
-		frame.origin.y = y;
-		frame.size.width = width;
-		frame.size.height = height;
-		view.setFrame(frame);
-		self.refreshBackingSize();
-	}
-
 	public void refreshBackingSize() {
 		var view = self.nativeView();
 		var bounds = view.bounds();
