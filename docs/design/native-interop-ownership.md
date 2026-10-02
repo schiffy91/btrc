@@ -78,12 +78,24 @@ cancellation system.
    - `any` permits a release on any thread, for free-threaded native
      reference counts.
 
+   Defaults:
+   - An R3 holder's `release-executor` is always its binding's `executor`;
+     callbacks and sinks declare no separate key. A `realtime` registration's
+     holder releases on its owner thread, so it behaves as `caller`.
+   - An R1 resource that declares no `release-executor` defaults to `any`.
+     That keeps today's cross-thread close of unique resources
+     (package-manifest.md, "Unique C resources": a second thread's close
+     waits).
+   - Any R1 resource that **explicitly** declares a `release-executor` other
+     than `any`, or derives one (Objective-C `main_actor`), cannot be captured
+     by `spawn`; that is a compile-time error.
+
    Thread identity is the `pthread_t` plus a per-thread generation counter,
    so a holder that outlives its thread cannot pass the check on a new thread
    that reuses the old TLS address. Today's holders compare
-   `&__btrc_tls.try_top`; step 2 replaces that. Any R1 resource whose
-   `release-executor` is not `any` cannot be captured by `spawn`; that is a
-   compile-time error.
+   `&__btrc_tls.try_top`; step 2 replaces that. The counter is one new field
+   in the existing runtime TLS record, so step 2 makes one D14 re-capture of
+   the frozen runtime source through the `runtime/c` owner.
 4. **An R3 final event on the wrong thread never touches ARC.** SDKs choose
    the thread for a holder `dealloc`, a COM `Release` to zero, or a
    `GClosureNotify` triggered by a worker's finalize. When that thread is not
@@ -97,7 +109,11 @@ cancellation system.
 
    Java peers release their claim only through an explicit `close()` on
    their executor. A `Cleaner` that finds an unclosed peer reports a leak and
-   never releases it.
+   never releases it. An Objective-C stored block or delegate whose SDK
+   releases it on its own queue must therefore bind `executor = "main"`, so
+   the release is posted. With `caller` it aborts, exactly as the existing
+   holder does today; the binding author owns that choice, and the fixtures
+   include an SDK-queue release.
 
 ### Mechanisms
 
@@ -113,7 +129,11 @@ compiler and reused by every model that needs it.
     pointer is only an argument.
   - **Environment dispatch.** Used for JNI's `JNIEnv`. There is no lease,
     because the env is not a btrc value. The env is loaded from its
-    per-thread key and null-checked.
+    per-thread key and null-checked. The table record is declared with the
+    binding-level `dispatch-records` key (section 2.3). Every field of such
+    a record becomes private **before** projection, so its variadic and
+    `va_list` slots are never projected, and only its mapped slots are
+    callable.
 
   In both forms, unmapped slots are uncallable, and variadic slots are
   rejected only if a binding maps them.
@@ -246,11 +266,16 @@ decode = "decode"
 reset = "reset"
 ```
 
-`borrowed-parameters`, `owned-results`, `owned-outputs` and `status-results`
-can name a dispatched method with a three-part key,
-`"Codec.decode.<parameter>"`. Both parsers accept the three-part form only
-when the first part is a resource with `dispatch` and the second part is one
-of its methods. The btrc parser counts parts from the right. Slot parameter
+Binding maps name a dispatched method by its resource:
+- **result maps** (`owned-results`, `status-results`, `sunk-results`) use the
+  two-part `"<R>.<method>"`, for example `"Codec.decode"`;
+- **parameter maps** (`borrowed-parameters`, `owned-outputs`,
+  `copied-outputs`, `error-outputs`) use the three-part
+  `"<R>.<method>.<parameter>"`, for example `"Codec.decode.input"`.
+
+Both parsers accept these forms only when the first part is a resource with
+`dispatch` and the second part is one of its methods. The btrc parser counts
+parts from the right. Slot parameter
 names come from the new `NativeField.callback_parameters` (section 3).
 
 ### 2.2 Objective-C protocols and blocks (Stage 27 step 3; Stage 29 step 6)
@@ -340,8 +365,19 @@ ownership idea.
 **`JNIEnv`.** The env is per thread and is never stored in btrc data.
 
 - `jni.h` is read by Clang through an ordinary C binding owned by the new
-  stdlib package `src/stdlib/Java/`. Generated adapters dispatch through that
-  binding's `JNINativeInterface_` record by M1 environment dispatch.
+  stdlib package `src/stdlib/Java/`. That binding declares the env table as a
+  dispatch record, and generated adapters dispatch through it by M1
+  environment dispatch:
+
+  ```toml
+  [native.bindings.dispatch-records.JNINativeInterface_]
+  receiver = "environment"   # the only value; the env comes from the stdlib key
+  executor = "caller"
+  failure = "abort"
+  [native.bindings.dispatch-records.JNINativeInterface_.methods]
+  callObjectMethod = "CallObjectMethodA"
+  exceptionCheck = "ExceptionCheck"
+  ```
 - Only the `...A` (`jvalue*`) call variants are mapped. The roughly 90
   variadic `Call*Method` slots and the reserved slots stay unmapped, and
   therefore uncallable.
@@ -433,8 +469,10 @@ spans (Stage 29) are released with `JNI_ABORT` when read-only.
   `java.lang.RuntimeException`, carrying the message.
 
 **Executors.** `executor = "main"` marks UI classes. `main` is the thread of
-`Looper.getMainLooper()`, captured once by `src/stdlib/Java/` through its own
-binding. If that thread cannot be established, `JNI_OnLoad` aborts.
+`Looper.getMainLooper()`, captured lazily by `src/stdlib/Java/` through its
+own binding at the first `main` check. If that thread cannot be established
+(the host JVM has no main `Looper`), that first `main` check aborts; bindings
+that never use `main` are unaffected.
 
 **Metadata.** D22 fixes the source: a class-file reader over `android.jar`,
 not C headers.
@@ -502,7 +540,7 @@ with M1 resource dispatch, M2 sinks and M3 `QueryInterface`.
 **Status.** There are two forms, and a method uses at most one:
 - **Existing:** `owned-outputs` keeps its result-class form (`result = ...`),
   with `status = "hresult"`, so the caller inspects the status.
-- **New:** `status-results."IStream.clone" = "hresult"` makes failure throw,
+- **New:** `status-results."IStream.read" = "hresult"` makes failure throw,
   after any adopted output has been released (F1).
 
 **Shape.**
@@ -530,6 +568,9 @@ with M1 resource dispatch, M2 sinks and M3 `QueryInterface`.
 
 **Sinks (R3, M2).** A sink uses the same stored-registration shape as the
 other models:
+- The `com-sinks` table key names a selected `ownership = "com"` resource.
+  The sink reuses that resource's `iid`, `base` and slot validation, so the
+  sink has no IID keys of its own.
 - Its factory key is `name`, as for `resources.<R>.table`. The factory takes
   a `CallbackScope` and returns `ICallbackRegistration`.
 - `Advise` and `Unadvise` are declared as `register` and `unregister`, with
@@ -686,8 +727,10 @@ A window's documented shutdown is `close-request` → `scope.cancel()` →
   first field is `<Parent>Class`.
 
 **Affinity.**
-- A stdlib GLib owner captures the default main context's thread once, at
-  application start or at the first `main-context` use.
+- A stdlib GLib owner captures the default main context's thread once, when
+  the application explicitly binds it on the thread that will run the loop
+  (its `run()` or an explicit `bind()`). A `main-context` check before that
+  binding aborts; capture never happens implicitly on a worker.
 - Checks compare that thread by `pthread_equal`.
   `g_main_context_is_owner` is not used, because it is false outside a
   running loop.
@@ -734,7 +777,7 @@ observe. All names are snake_case; the generator respells them camelCase for
 `generated/native_abi/Models.btrc`.
 
 The delta is **purely additive**:
-- no constructor changes shape;
+- no existing field changes type, and no constructor is removed or reordered;
 - `native_interface` stays a single-constructor type;
 - no new field reuses an existing field name with a different shape.
 
@@ -875,10 +918,12 @@ every other key keeps its existing closed set.
 | Key or value | Where | Step |
 |---|---|---|
 | `dispatch` subtable: `table`, `context`, `context-index`, `executor`, `failure`, `release`, `methods` | resources | 2 |
-| Three-part `"<R>.<method>.<parameter>"` names | `borrowed-parameters`, `owned-results`, `owned-outputs`, `status-results` | 2 |
+| `"<R>.<method>"` names | result maps: `owned-results`, `status-results`, `sunk-results` | 2 |
+| `"<R>.<method>.<parameter>"` names | parameter maps: `borrowed-parameters`, `owned-outputs`, `copied-outputs`, `error-outputs` | 2 |
 | `release-executor` with `caller`/`any` | resources | 2 |
 | `executor = "main"`; `release-executor = "main"`, derived from `main_actor` | Objective-C callbacks and resources | 3 |
 | `language = "java"` (no `header` or `standard`); descriptor symbols | `[[native.bindings]]` | 4 |
+| `dispatch-records` (`receiver = "environment"`, `executor`, `failure`, `methods`) | binding map | 4 |
 | `ownership = "com"`, `iid`, `base` | resources | 5 |
 | `executor` and `release-executor` = `apartment` | COM resources, dispatch, sinks | 5 |
 | `status-results` | binding map | 5 |
@@ -913,8 +958,9 @@ every other key keeps its existing closed set.
 **Verifier rules.** These are new, in both compilers:
 
 1. A call whose callee is a value loaded from a private field of a native
-   dispatch-table record appears only inside a generated native adapter, after
-   the table and slot null checks. Other expression callees are unaffected:
+   dispatch-table record (a resource `dispatch` table or a `dispatch-records`
+   record) appears only inside a generated native adapter, after the table
+   and slot null checks. Other expression callees are unaffected:
    interface dispatch, lambdas, collection callbacks and blocks.
 2. In a JNI adapter:
    - every env call outside the non-throwing set is followed immediately by
@@ -927,8 +973,10 @@ every other key keeps its existing closed set.
    holder before any btrc call (rules 2 and 3).
 
 **Runtime.** This plan adds no `src/runtime/c` asset and no `manifest.toml`
-rows. The holders reuse the existing thread check, which step 2 upgrades to
-`pthread_t` plus generation, and `__btrc_safe_calloc`. Callback state stays in
+rows. The holders reuse the existing thread check and `__btrc_safe_calloc`.
+Step 2 upgrades the thread check to `pthread_t` plus generation, which adds
+one field to the existing TLS record: one D14 re-capture, through the
+`runtime/c` single owner, with both compilers in parity. Callback state stays in
 `src/stdlib/Callback.btrc`. New stdlib packages hold the rest:
 - `src/stdlib/Java/`: `JavaVirtualMachine`, the env key, attach and detach,
   exception translation, UTF-16, and the `jni.h` binding;
@@ -1190,6 +1238,24 @@ here.
 | C13 | GTK tier B was marked optional. | Required before the GTK spike. |
 | C14 | No `sameObject` for JNI; `ComApartment`; `requires_super` wording. | `IsSameObject`; `COMApartment`; reworded. |
 | C15 | Direct-cycle rejection covered only tables. | Applied to every R3 form (rule 1, §5). |
+
+### Confirmation pass
+
+A fourth read-only agent re-checked the revision (commit `9237ea1`). It
+found all 13 blocking findings resolved in the body, and it raised 4 new
+blocking gaps, all resolved in this commit:
+
+| # | Finding | Resolution |
+|---|---|---|
+| N1 | **Blocking.** `release-executor` was undefined for R3 holders, and had no resource default; a `caller` default would break today's cross-thread close of unique resources. | Rule 3 "Defaults": a holder's release executor is its binding's `executor`; resources default to `any`; the `spawn` ban applies only to explicit or derived non-`any` values. |
+| N2 | **Blocking.** JNI environment dispatch had no import or privacy path: `_callback_field` raises on `JNINativeInterface_`'s variadic slots (`native_imports.py:3449`). | The binding-level `dispatch-records` key makes every field private before projection and maps only `...A` slots; verifier rule 1 covers it; §4 lists it. |
+| N3 | **Blocking.** `com-sinks` had no IID or base key, though QI answers "the declared IID and its bases". | The sink's table key names a selected `com` resource, whose `iid` and `base` it reuses. |
+| N4 | **Blocking.** The dispatch key grammar was inconsistent, and the `IStream.clone` prose example tripped "both status forms". | Result maps use `<R>.<method>`; parameter maps use `<R>.<method>.<parameter>`; the example is now `IStream.read`. |
+| N5 | "No constructor changes shape" was false as worded. | Reworded: no existing field changes type. |
+| N6 | The generation counter needs a runtime TLS field. | Stated as one D14 re-capture in step 2. |
+| N7 | `JNI_OnLoad` would abort on a host JVM with no main `Looper`. | `main` is captured lazily, at the first `main` check. |
+| N8 | Capturing the GLib context thread at first use could capture a worker. | Captured only by an explicit bind on the loop thread. |
+| N9 | Objective-C stored blocks released by GCD off-thread still abort under `caller`. | Documented in rule 4: such bindings declare `main`. |
 
 **Approval.** Under PLAN.md's standing approvals ("Design and interface
 approvals ... Stage 27's ownership plan ... approved when its two adversarial
