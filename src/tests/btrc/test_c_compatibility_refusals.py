@@ -1,4 +1,4 @@
-"""C that btrc rejects on purpose (C rows 19-24) fails identically in both compilers.
+"""C that btrc rejects on purpose (C rows 1 and 19-24) fails identically in both compilers.
 
 docs/known-language-gaps.md ("C that btrc rejects on purpose") states each
 policy. Every refusal here is pinned to one diagnostic -- message, line and
@@ -24,7 +24,77 @@ RESERVED = "'{}' is a reserved word and cannot be used as a name"
 ATOMIC = "C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage"
 COMPLEX = "C11 '_Complex' is not supported; btrc has no complex types"
 
+VOID_LIST = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'"
+UNNAMED = "Parameter name required: only a function prototype without a body may omit it"
+
 REFUSALS = [
+    # Row 1: `(void)` is the only void parameter list, and only a prototype
+    # without a body may leave a parameter unnamed (C11 6.9.1p5).
+    pytest.param(
+        "int f(void x) { return 0; }\nint main() { return 0; }",
+        (VOID_LIST, 1, 7),
+        id="r01-named-void",
+    ),
+    pytest.param(
+        "int f(void, int y) { return y; }\nint main() { return 0; }",
+        (VOID_LIST, 1, 7),
+        id="r01-void-first-of-two",
+    ),
+    pytest.param(
+        "int f(int, void);\nint main() { return 0; }",
+        (VOID_LIST, 1, 12),
+        id="r01-void-second-of-two",
+    ),
+    pytest.param(
+        "int f(const void);\nint main() { return 0; }",
+        (VOID_LIST, 1, 7),
+        id="r01-qualified-void",
+    ),
+    pytest.param(
+        "int f(int, int y) { return y; }\nint main() { return 0; }",
+        (UNNAMED, 1, 7),
+        id="r01-unnamed-definition",
+    ),
+    pytest.param(
+        "void f(keep int);\nint main() { return 0; }",
+        ("A 'keep' parameter requires a name", 1, 8),
+        id="r01-unnamed-keep",
+    ),
+    pytest.param(
+        "int f(int = 3);\nint main() { return 0; }",
+        ("An unnamed parameter cannot have a default value", 1, 11),
+        id="r01-unnamed-default",
+    ),
+    pytest.param(
+        "int f(int);\nint f(int a, int b) { return a + b; }\nint main() { return 0; }",
+        ("Conflicting declarations for function 'f'", 2, 1),
+        id="r01-prototype-arity",
+    ),
+    pytest.param(
+        "int f(int, double);\nint f(int a, int b) { return a + b; }\nint main() { return 0; }",
+        ("Conflicting declarations for function 'f'", 2, 1),
+        id="r01-prototype-type",
+    ),
+    pytest.param(
+        "class Box { public int get(int) { return 0; } }\nint main() { return 0; }",
+        (UNNAMED, 1, 28),
+        id="r01-unnamed-method",
+    ),
+    pytest.param(
+        "interface Shape { int area(int); }\nint main() { return 0; }",
+        (UNNAMED, 1, 28),
+        id="r01-unnamed-interface",
+    ),
+    pytest.param(
+        "int main() { var g = (int) => 1; return 0; }",
+        (UNNAMED, 1, 23),
+        id="r01-unnamed-lambda",
+    ),
+    pytest.param(
+        "enum class Signal { Level(int) }\nint main() { return 0; }",
+        (UNNAMED, 1, 27),
+        id="r01-unnamed-variant",
+    ),
     # Row 19: a parenthesized comma list is a tuple literal, not the comma operator.
     pytest.param(
         "int main() { int value = (1, 2); return value; }",
@@ -224,6 +294,21 @@ def test_refusal_is_identical_in_both_compilers(
 
 
 ACCEPTED = [
+    pytest.param(
+        """
+        #include <assert.h>
+        static int clampTo(int, int);
+        extern int shift(int, int);
+        int shift(int value, int by) { return value << by; }
+        static int clampTo(int value, int limit) { return value > limit ? limit : value; }
+        int main(void) {
+            assert(clampTo(9, 4) == 4 && shift(1, 3) == 8);
+            assert(shift(by = 1, value = 2) == 4);
+            return 0;
+        }
+        """,
+        id="r01-static-and-extern-prototypes",
+    ),
     pytest.param(
         """
         #include <assert.h>

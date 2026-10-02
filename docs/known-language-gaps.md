@@ -65,6 +65,28 @@ C-compatibility table in `docs/design/plan-reference.md`.
 | 22 | `return f();` in a `void` function | A `return` with an expression in a `void` function violates C11 6.8.6.4, so this refusal is conformance, not policy. Call `f();` and `return;`. | `Void function or method cannot return a value` |
 | 24 | `_Atomic int n;`, `_Atomic(int) n;`, `double _Complex z;` | Deferred: neither has a btrc type-system entry yet. For atomic storage use btrc's `Atomic<T>` (`docs/language/realtime-primitives.md`), which lowers to C11 `_Atomic(T)` with explicit memory orders and stable-storage rules; it is unaffected by this refusal. | `C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage` / `C11 '_Complex' is not supported; btrc has no complex types` |
 
+## Parameter lists (C row 1)
+
+`(void)` is an empty parameter list wherever a parameter list appears, and a
+function prototype ending in `;` may leave its parameters unnamed
+(`int scale(int, double);`, `c_compat/VoidAndUnnamedParameters.btrc`). The
+definition's names are the ones named arguments and defaults use. Refused,
+with the same diagnostic in both compilers:
+
+| C source | Diagnostic |
+|----------|------------|
+| `int f(void x)`, `int f(void, int)`, `int f(const void)` | `A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'` |
+| `int f(int) { ... }`, or an unnamed parameter of a method, interface signature, lambda or rich-enum variant | `Parameter name required: only a function prototype without a body may omit it` |
+| `void f(keep T);` | `A 'keep' parameter requires a name` |
+| `int f(int = 3);` | `An unnamed parameter cannot have a default value` |
+| a prototype and definition whose arity, types or `keep` differ | `Conflicting declarations for function 'f'` |
+
+Still open: an abstract function-pointer parameter (`int (*)(int)`) waits for
+row 7; a prototype whose parameter names differ from its definition's
+(`int f(int a);` then `int f(int b) {}`) is refused as conflicting, though C
+accepts it; and btrcc refuses a second prototype of a function that the
+reference compiler accepts.
+
 ## Variable-length arrays (C row 23)
 
 A block-scope array whose bound is not a constant expression is a C

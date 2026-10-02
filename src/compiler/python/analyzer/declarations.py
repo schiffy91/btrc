@@ -853,6 +853,9 @@ class DeclarationRegistry:
     def validate_parameter_names(self, parameters, owner) -> None:
         seen = set()
         for parameter in parameters:
+            if not parameter.name:
+                # An unnamed prototype parameter (C11 6.7.6.3) declares no name.
+                continue
             line = parameter.name_line or parameter.line
             col = parameter.name_col or parameter.col
             self.validate_name(parameter.name, "Parameter", line, col, c_name_generated=True)
@@ -991,7 +994,7 @@ class DeclarationRegistry:
         ):
             return False
         return all(
-            first.name == second.name
+            (first.name == second.name or not first.name or not second.name)
             and first.keep == second.keep
             and self._type_identity.shape_key(first.type) == self._type_identity.shape_key(second.type)
             and self._compatible_defaults(first.default, second.default)

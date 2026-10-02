@@ -166,6 +166,11 @@ class NameValidator {
 		int index = 0;
 		while (index < params.len) {
 			Node parameter = params.get(index);
+			/* An unnamed prototype parameter (C11 6.7.6.3) declares no name. */
+			if (parameter.name.isEmpty()) {
+				index = index + 1;
+				continue;
+			}
 			/* The source spelling remains the named-argument API; lowering owns
              * a collision-safe C identifier for the actual parameter binding. */
 			self.validateDeclaredNameContext(parameter.name, "Parameter", parameter, true);
@@ -383,14 +388,21 @@ class NameValidator {
 	}
 
 	public bool callableSignatureSame(Node left, Node right) {
-		if (left.returnType == null || right.returnType == null || !self.types.aliasTypesSame(left.returnType, right.returnType) || left.params().len != right.params().len || left.keepReturn != right.keepReturn || left.isGpu != right.isGpu || left.isRealtime != right.isRealtime) {
+		if (left.returnType == null || right.returnType == null) { return false; }
+		/* `extern` is a C storage class on the declaration, not part of the
+         * function's type: `extern int f(int);` declares `int f(int x) {}`. */
+		Node leftReturn = TypeShape.copy(left.returnType);
+		Node rightReturn = TypeShape.copy(right.returnType);
+		leftReturn.isExtern = false;
+		rightReturn.isExtern = false;
+		if (!self.types.aliasTypesSame(leftReturn, rightReturn) || left.params().len != right.params().len || left.keepReturn != right.keepReturn || left.isGpu != right.isGpu || left.isRealtime != right.isRealtime) {
 			return false;
 		}
 		int index = 0;
 		while (index < left.params().len) {
 			Node leftParam = left.params().get(index);
 			Node rightParam = right.params().get(index);
-			if (!self.types.aliasTypesSame(leftParam.type, rightParam.type) || leftParam.name != rightParam.name || leftParam.keep_ != rightParam.keep_ || !self.defaultExpressionSame(leftParam.default_, rightParam.default_)) {
+			if (!self.types.aliasTypesSame(leftParam.type, rightParam.type) || (leftParam.name != rightParam.name && !leftParam.name.isEmpty() && !rightParam.name.isEmpty()) || leftParam.keep_ != rightParam.keep_ || !self.defaultExpressionSame(leftParam.default_, rightParam.default_)) {
 				return false;
 			}
 			index = index + 1;
@@ -453,8 +465,12 @@ class NameValidator {
 						index = index + 1;
 						continue;
 					}
-					bool forwardPair = declaration.kind == NK_FUNCTION_DECL && previous.kind == NK_FUNCTION_DECL && ((declaration.bodyNode == null) != (previous.bodyNode == null));
-					if (!forwardPair || !self.callableSignatureSame(declaration, previous)) {
+					bool functionPair = declaration.kind == NK_FUNCTION_DECL && previous.kind == NK_FUNCTION_DECL;
+					if (functionPair && !self.callableSignatureSame(declaration, previous)) {
+						TypeValidator.fail("Conflicting declarations for function '" + name + "'", declaration);
+					}
+					bool forwardPair = functionPair && ((declaration.bodyNode == null) != (previous.bodyNode == null));
+					if (!forwardPair) {
 						TypeValidator.fail("Duplicate top-level declaration '" + name + "'", declaration);
 					}
 					Node definition = previous;

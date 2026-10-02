@@ -262,7 +262,8 @@
   -- Function declaration
   -- ----------------------------------------------------------------
 
-  function_decl = [ "@gpu" ] [ "keep" ] type_expr IDENT "(" param_list ")" ( block | ";" ) ;
+  function_decl = [ "@gpu" ] [ "keep" ] type_expr IDENT
+                  ( "(" param_list ")" block | "(" prototype_param_list ")" ";" ) ;
 
   -- ----------------------------------------------------------------
   -- Type expressions
@@ -313,12 +314,25 @@
   -- Parameters
   -- ----------------------------------------------------------------
 
-  param_list = [ param { "," param } ] ;
+  param_list = [ "void" | param { "," param } ]
+               (* "(void)" is C's spelling of an empty list and is accepted
+                  wherever a parameter list appears. A plain "void" parameter
+                  anywhere else -- named, qualified, kept, or beside another
+                  parameter -- is refused. *) ;
 
   param = [ "keep" ] type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
           (* "keep" qualifier: the callee keep-retains the argument.
              Array-style params: int arr[], int arr[10]
              Default values: int x = 42 *) ;
+
+  prototype_param_list = [ "void" | prototype_param { "," prototype_param } ] ;
+
+  prototype_param = param
+                  | type_expr [ "[" [ expr ] "]" ]
+                    (* An unnamed parameter (C11 6.7.6.3), allowed only in a
+                       function_decl ending in ";". It takes no "keep" and no
+                       default; a definition supplies the names that named
+                       arguments use. *) ;
 
   -- ----------------------------------------------------------------
   -- Statements

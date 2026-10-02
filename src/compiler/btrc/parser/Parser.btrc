@@ -790,7 +790,7 @@ class Parser {
 
 		if (self.check("LPAREN")) {
 			self.expect("LPAREN");
-			Vector<Node> params = self.parseParamList();
+			Vector<Node> params = self.parseParamList(true);
 			self.expect("RPAREN");
 			Node fn = Node();
 			fn.kind = NK_FUNCTION_DECL;
@@ -808,6 +808,7 @@ class Parser {
 				fn.bodyNode = null;
 				return fn;
 			}
+			self.refuseUnnamedDefinition(params);
 			Node body = self.parseBlock();
 			fn.bodyNode = body;
 			return fn;
@@ -1121,19 +1122,26 @@ class Parser {
 
 	/* ---- Parameters ---- */
 
-	public Vector<Node> parseParamList() {
+	/* `(void)` is C's spelling of an empty list. Only a body-less function
+     * prototype may omit parameter names (C11 6.9.1p5): its caller passes
+     * allowUnnamed and refuses a body that follows an unnamed parameter. */
+	public Vector<Node> parseParamList(bool allowUnnamed = false) {
 		Vector<Node> params = [];
 		if (self.check("RPAREN")) { return params; }
-		Node p0 = self.parseParam();
+		if (self.check("VOID") && self.peekAt(1).type == "RPAREN") {
+			self.advance();
+			return params;
+		}
+		Node p0 = self.parseParam(allowUnnamed);
 		params.push(p0);
 		while (self.matchTok("COMMA")) {
-			Node pN = self.parseParam();
+			Node pN = self.parseParam(allowUnnamed);
 			params.push(pN);
 		}
 		return params;
 	}
 
-	public Node parseParam() {
+	public Node parseParam(bool allowUnnamed = false) {
 		Token tok = self.peek();
 		bool hasKeep = false;
 		if (self.check("KEEP")) {
@@ -1141,14 +1149,32 @@ class Parser {
 			self.advance();
 		}
 		Node typeExpr = self.parseType();
-		Token nameTok = self.expect("IDENT");
 		Node p = Node();
 		p.kind = NK_PARAM;
 		p.type = typeExpr;
-		p.name = nameTok.value;
-		p.keep_ = hasKeep;
 		p.line = tok.line;
 		p.col = tok.col;
+		if (typeExpr.base == "void" && typeExpr.pointerDepth == 0 && !typeExpr.isArray && typeExpr.genericArgs().len == 0) {
+			self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
+			return p;
+		}
+		if (self.check("COMMA") || self.check("RPAREN") || self.check("LBRACKET") || self.check("EQ")) {
+			if (!allowUnnamed) {
+				self.failAt(Parser.unnamedParameterMessage(), tok);
+				return p;
+			}
+			if (hasKeep) {
+				self.failAt("A 'keep' parameter requires a name", tok);
+				return p;
+			}
+			p.name = "";
+			self.parseDeclaratorArraySuffix(typeExpr);
+			if (self.check("EQ")) { self.failAt("An unnamed parameter cannot have a default value", self.peek()); }
+			return p;
+		}
+		Token nameTok = self.expect("IDENT");
+		p.name = nameTok.value;
+		p.keep_ = hasKeep;
 		p.nameLine = nameTok.line;
 		p.nameCol = nameTok.col;
 		self.parseDeclaratorArraySuffix(typeExpr);
@@ -1157,6 +1183,17 @@ class Parser {
 			p.default_ = def;
 		}
 		return p;
+	}
+
+	class string unnamedParameterMessage() { return "Parameter name required: only a function prototype without a body may omit it"; }
+
+	public void refuseUnnamedDefinition(Vector<Node> params) {
+		for param in params {
+			if (param.name.isEmpty()) {
+				self.failAt(Parser.unnamedParameterMessage(), Token("IDENT", "", param.line, param.col));
+				return;
+			}
+		}
 	}
 
 	/* ---- Statements ---- */

@@ -90,6 +90,12 @@ from src.compiler.python.syntax.ast.generated import (
 from ..lexer.lexer import Lexer, LiteralDecoder
 from ..syntax.tokens import TYPE_KEYWORDS, Token, TokenKind, TokenVocabulary
 
+# C parameter-list refusals (docs/design/c-compatibility.md, item (a)).
+VOID_PARAMETER_LIST = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'"
+UNNAMED_PARAMETER = "Parameter name required: only a function prototype without a body may omit it"
+UNNAMED_KEEP_PARAMETER = "A 'keep' parameter requires a name"
+UNNAMED_DEFAULT_PARAMETER = "An unnamed parameter cannot have a default value"
+
 
 class ParseError(Exception):
     def __init__(self, message: str, line: int, col: int):
@@ -567,22 +573,47 @@ class Parser:
 
     # ---- Parameters ----
 
-    def _parse_param_list(self) -> list[Param]:
+    def _parse_param_list(self, *, allow_unnamed: bool = False) -> list[Param]:
+        """Parse a parameter list; `(void)` is C's spelling of an empty one.
+
+        Only a body-less function prototype may omit parameter names (C11
+        6.9.1p5): its caller passes ``allow_unnamed`` and refuses a body that
+        follows an unnamed parameter.
+        """
         params = []
         if self._check(TokenKind.RPAREN):
             return params
-        params.append(self._parse_param())
+        if self._check(TokenKind.VOID) and self._peek(1).type == TokenKind.RPAREN:
+            self._advance()
+            return params
+        params.append(self._parse_param(allow_unnamed))
         while self._match(TokenKind.COMMA):
-            params.append(self._parse_param())
+            params.append(self._parse_param(allow_unnamed))
         return params
 
-    def _parse_param(self) -> Param:
+    def _parse_param(self, allow_unnamed: bool = False) -> Param:
         tok = self._peek()
         has_keep = False
         if self._check(TokenKind.KEEP):
             has_keep = True
             self._advance()
         type_expr = self._parse_type_expr()
+        if (
+            type_expr.base == "void"
+            and type_expr.pointer_depth == 0
+            and not type_expr.is_array
+            and not type_expr.generic_args
+        ):
+            raise ParseError(VOID_PARAMETER_LIST, tok.line, tok.col)
+        if self._check(TokenKind.COMMA, TokenKind.RPAREN, TokenKind.LBRACKET, TokenKind.EQ):
+            if not allow_unnamed:
+                raise ParseError(UNNAMED_PARAMETER, tok.line, tok.col)
+            if has_keep:
+                raise ParseError(UNNAMED_KEEP_PARAMETER, tok.line, tok.col)
+            self._parse_declarator_array_suffix(type_expr)
+            if self._check(TokenKind.EQ):
+                raise self._error(UNNAMED_DEFAULT_PARAMETER)
+            return Param(type=type_expr, name="", default=None, keep=False, line=tok.line, col=tok.col)
         name_tok = self._expect(TokenKind.IDENT, "parameter name")
         name = name_tok.value
         self._parse_declarator_array_suffix(type_expr)
@@ -599,6 +630,12 @@ class Parser:
             name_line=name_tok.line,
             name_col=name_tok.col,
         )
+
+    @staticmethod
+    def _refuse_unnamed_definition(params: list[Param]) -> None:
+        for param in params:
+            if not param.name:
+                raise ParseError(UNNAMED_PARAMETER, param.line, param.col)
 
     def _parse_top_level_item(self):
         tok = self._peek()
@@ -1147,7 +1184,7 @@ class Parser:
 
         if self._check(TokenKind.LPAREN):
             self._expect(TokenKind.LPAREN)
-            params = self._parse_param_list()
+            params = self._parse_param_list(allow_unnamed=True)
             self._expect(TokenKind.RPAREN)
             if self._match(TokenKind.SEMICOLON):
                 return FunctionDecl(
@@ -1163,6 +1200,7 @@ class Parser:
                     name_line=name_tok.line,
                     name_col=name_tok.col,
                 )
+            self._refuse_unnamed_definition(params)
             body = self._parse_block()
             return FunctionDecl(
                 return_type=type_expr,

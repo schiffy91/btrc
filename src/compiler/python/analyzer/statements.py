@@ -1574,7 +1574,8 @@ class StatementAnalyzer:
                         param.col or func.col,
                     )
                 )
-            if self._claim_local_binding(
+            # An unnamed prototype parameter binds nothing.
+            if param.name and self._claim_local_binding(
                 param.name,
                 "parameter",
                 param.name_line or param.line,
