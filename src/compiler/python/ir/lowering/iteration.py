@@ -240,35 +240,32 @@ class IterationLowerer:
         start: IRExpr = IRLiteral(text="0")
         step: IRExpr = IRLiteral(text="1")
         if len(lowered_args) == 1:
-            end_name = self._session.fresh_temp("__range_end")
-            prefix.append(IRVarDecl(c_type=CType(text="int"), name=end_name, init=lowered_args[0]))
+            end = self._range_operand(lowered_args[0], "__range_end", prefix)
         else:
-            start_name = self._session.fresh_temp("__range_start")
-            end_name = self._session.fresh_temp("__range_end")
-            prefix.append(IRVarDecl(c_type=CType(text="int"), name=start_name, init=lowered_args[0]))
-            prefix.append(IRVarDecl(c_type=CType(text="int"), name=end_name, init=lowered_args[1]))
-            start = IRVar(name=start_name)
+            start = self._range_operand(lowered_args[0], "__range_start", prefix)
+            end = self._range_operand(lowered_args[1], "__range_end", prefix)
             if len(lowered_args) == 3:
-                step_name = self._session.fresh_temp("__range_step")
-                prefix.append(IRVarDecl(c_type=CType(text="int"), name=step_name, init=lowered_args[2]))
-                step = IRVar(name=step_name)
-                prefix.append(
-                    IRIf(
-                        condition=IRBinOp(left=step, op="==", right=IRLiteral(text="0")),
-                        then_block=IRBlock(
-                            stmts=[
-                                IRExprStmt(
-                                    expr=IRCall(
-                                        callee="fputs",
-                                        args=[IRLiteral(text='"range step cannot be zero\\n"'), IRVar(name="stderr")],
-                                    )
-                                ),
-                                IRExprStmt(expr=IRCall(callee="exit", args=[IRLiteral(text="1")])),
-                            ]
-                        ),
+                step = self._range_operand(lowered_args[2], "__range_step", prefix)
+                if not (IterationLowerer._integer_literal(step) and step.text != "0"):
+                    prefix.append(
+                        IRIf(
+                            condition=IRBinOp(left=step, op="==", right=IRLiteral(text="0")),
+                            then_block=IRBlock(
+                                stmts=[
+                                    IRExprStmt(
+                                        expr=IRCall(
+                                            callee="fputs",
+                                            args=[
+                                                IRLiteral(text='"range step cannot be zero\\n"'),
+                                                IRVar(name="stderr"),
+                                            ],
+                                        )
+                                    ),
+                                    IRExprStmt(expr=IRCall(callee="exit", args=[IRLiteral(text="1")])),
+                                ]
+                            ),
+                        )
                     )
-                )
-        end = IRVar(name=end_name)
         c_name = self._ownership.declare_local_ownership(var_name, provenance)
         provenance.shadow(var_name)
         condition = IRBinOp(left=IRVar(name=c_name), op="<", right=end)
@@ -288,6 +285,18 @@ class IterationLowerer:
             condition=condition,
             update=update,
         )
+
+    def _range_operand(self, lowered: IRExpr, prefix_name: str, prefix: list[IRStmt]) -> IRExpr:
+        """An integer literal is its own value; any other operand is evaluated once."""
+        if IterationLowerer._integer_literal(lowered):
+            return lowered
+        name = self._session.fresh_temp(prefix_name)
+        prefix.append(IRVarDecl(c_type=CType(text="int"), name=name, init=lowered))
+        return IRVar(name=name)
+
+    @staticmethod
+    def _integer_literal(value: IRExpr) -> bool:
+        return isinstance(value, IRLiteral) and value.text.isdigit()
 
     @contextmanager
     def c_for_scope(self, node: CForStmt, provenance: CallableProvenance):

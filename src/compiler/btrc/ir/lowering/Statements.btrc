@@ -1651,9 +1651,26 @@ class StatementLowerer {
 		self.expressions.endOwnedIteration(iterVar, ownedRuntimeType, out);
 	}
 
+	/* An integer literal is its own value; any other range operand is
+	 * evaluated once into its own temporary, as Python's _range_operand. */
+	private IRNode rangeOperand(IRNode lowered, string prefix, Vector<IRNode> out) {
+		if (self.integerLiteral(lowered)) { return lowered; }
+		string name = self.context.freshTemporary(prefix);
+		out.push(IRNode.variableDeclaration("int", name, lowered));
+		return IRNode.variable(name);
+	}
+
+	private bool integerLiteral(IRNode value) {
+		if (value.kind != IRK_LITERAL || value.text.isEmpty()) { return false; }
+		for character in value.text {
+			if (character < '0' || character > '9') { return false; }
+		}
+		return true;
+	}
+
 	/* for x in range(...) -> C for loop (1, 2, or 3+ args).  The operands are
-	 * lowered in source order and each is evaluated exactly once into its own
-	 * temporary, named after all of them are lowered. */
+	 * lowered in source order and each is evaluated exactly once, a
+	 * non-literal one into its own temporary named after all are lowered. */
 	public void lowerRangeFor(string varName, Vector<Node> args, Node bodyNode, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
 		IRNode start = IRNode.literal("0");
 		IRNode step = IRNode.literal("1");
@@ -1663,32 +1680,27 @@ class StatementLowerer {
 		}
 		Vector<IRNode> lowered = [];
 		for argument in args { lowered.push(self.expressions.lowerExpr(argument, varTypes, callableFlow)); }
-		string endName = "";
+		IRNode end = IRNode.literal("0");
 		if (args.len == 1) {
-			endName = self.context.freshTemporary("__range_end");
-			out.push(IRNode.variableDeclaration("int", endName, lowered.get(0)));
+			end = self.rangeOperand(lowered.get(0), "__range_end", out);
 		} else {
-			string startName = self.context.freshTemporary("__range_start");
-			endName = self.context.freshTemporary("__range_end");
-			out.push(IRNode.variableDeclaration("int", startName, lowered.get(0)));
-			out.push(IRNode.variableDeclaration("int", endName, lowered.get(1)));
-			start = IRNode.variable(startName);
+			start = self.rangeOperand(lowered.get(0), "__range_start", out);
+			end = self.rangeOperand(lowered.get(1), "__range_end", out);
 			if (args.len == 3) {
-				string stepName = self.context.freshTemporary("__range_step");
-				out.push(IRNode.variableDeclaration("int", stepName, lowered.get(2)));
-				step = IRNode.variable(stepName);
-				Vector<IRNode> zeroStep = [];
-				Vector<IRNode> errorArgs = [];
-				errorArgs.push(IRNode.literal("\"range step cannot be zero\\n\""));
-				errorArgs.push(IRNode.variable("stderr"));
-				zeroStep.push(IRNode.expressionStatement(IRNode.call("fputs", errorArgs)));
-				Vector<IRNode> exitArgs = [];
-				exitArgs.push(IRNode.literal("1"));
-				zeroStep.push(IRNode.expressionStatement(IRNode.call("exit", exitArgs)));
-				out.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(step, "==", IRNode.literal("0")), IRNode.block(zeroStep), null)));
+				step = self.rangeOperand(lowered.get(2), "__range_step", out);
+				if (!(self.integerLiteral(step) && step.text != "0")) {
+					Vector<IRNode> zeroStep = [];
+					Vector<IRNode> errorArgs = [];
+					errorArgs.push(IRNode.literal("\"range step cannot be zero\\n\""));
+					errorArgs.push(IRNode.variable("stderr"));
+					zeroStep.push(IRNode.expressionStatement(IRNode.call("fputs", errorArgs)));
+					Vector<IRNode> exitArgs = [];
+					exitArgs.push(IRNode.literal("1"));
+					zeroStep.push(IRNode.expressionStatement(IRNode.call("exit", exitArgs)));
+					out.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(step, "==", IRNode.literal("0")), IRNode.block(zeroStep), null)));
+				}
 			}
 		}
-		IRNode end = IRNode.variable(endName);
 		varTypes.put(varName, SemanticTypeSystem.primitive("int"));
 		self.context.activateSourceName(varName, self.lexicalBindingCName(varName));
 		string varCName = self.context.sourceCName(varName);
