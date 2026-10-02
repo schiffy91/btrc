@@ -46,11 +46,11 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import _compiler_environment
-from src.tests.btrc.test_mutex_value_contract import COMPILERS
 from src.tests.btrc.test_semantic_validation import (
     _compile_reference_source,
     _compile_source,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS as COMPILERS
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 

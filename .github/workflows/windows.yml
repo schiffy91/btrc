@@ -129,7 +129,9 @@ jobs:
         run: |
           python -m pytest -q src/tests/btrc/test_bootstrap_harness.py --skip-report=build/skip-report-windows-bootstrap-harness.json
           python -m tools.qualification skip-gate build/skip-report-windows-bootstrap-harness.json
-          python src/tests/btrc/test_bootstrap.py -v
+          # Run from the repository root so the test's src.tests imports resolve;
+          # the installed package carries src.compiler but not src.tests.
+          python -m unittest -v src.tests.btrc.test_bootstrap
 
       - name: Build and run a sample btrc program against its exact golden
         run: |
