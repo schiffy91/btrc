@@ -1,0 +1,8 @@
+PASS: unsized local
+PASS: sized local
+PASS: signed and unsigned char
+PASS: escapes count bytes
+PASS: global
+PASS: static local
+PASS: struct field
+PASS: xbc abcd jello Tag

@@ -39,6 +39,7 @@ from src.compiler.python.syntax.ast.generated import (
     ForInitExpr,
     ForInitVar,
     ForInStmt,
+    FStringLiteral,
     FunctionDecl,
     Identifier,
     IfStmt,
@@ -562,6 +563,18 @@ class StatementAnalyzer:
                 f"{subject} has only temporary compound-literal backing; array-valued class field defaults require persistent backing storage",
                 field.line,
                 field.col,
+            )
+        if (
+            field.access != "class"
+            and isinstance(field.initializer, (StringLiteral, FStringLiteral))
+            and self.aggregates.char_array_string_initializer(field.type, field.initializer)
+        ):
+            # An instance field is initialized by assignment after allocation,
+            # which a C array cannot take.
+            self.session.error(
+                "A class field char array cannot take a string literal default; copy the text into it in the constructor",
+                field.initializer.line,
+                field.initializer.col,
             )
         if field.access == "class" and canonical and (canonical.base == "Mutex"):
             self.session.error(

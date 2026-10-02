@@ -218,6 +218,10 @@ class ExpressionValidator {
                  * materializes array storage. Ordinary C arrays remain
                  * non-copyable and must still use a contextual initializer. */
 				if (self.gpuArrayResultCall(value, vars)) { return; }
+				if (self.storage.charArrayStringInitializer(canonical, value, vars)) {
+					self.storage.validateCharArrayInitializer(canonical, value, vars);
+					return;
+				}
 				TypeValidator.fail(subject + " requires an array initializer", value);
 			}
 			/* A fixed-bound empty initializer is normalized by structured IR to

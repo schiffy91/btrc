@@ -588,6 +588,11 @@ class DeclarationValidator {
 					if (member.access != "class" && canonicalField != null && canonicalField.isArray && (member.initializer.kind == NK_BRACE_INITIALIZER || member.initializer.kind == NK_LIST_LITERAL)) {
 						TypeValidator.fail("Array-valued class field defaults require persistent " + "backing storage ('" + declaration.name + "." + member.name + "')", member);
 					}
+					/* An instance field is initialized by assignment after
+					 * allocation, which a C array cannot take. */
+					if (member.access != "class" && (member.initializer.kind == NK_STRING_LITERAL || member.initializer.kind == NK_F_STRING_LITERAL) && self.storage.charArrayStringInitializer(member.type, member.initializer, fieldVars)) {
+						TypeValidator.fail("A class field char array cannot take a string literal default; copy the text into it in the constructor", member.initializer);
+					}
 					if (member.access == "class" && !self.storage.staticInitializer(member.initializer, member.type)) {
 						TypeValidator.fail("Static field '" + declaration.name + "." + member.name + "' requires a C constant/address initializer for " + "static storage", member);
 					}

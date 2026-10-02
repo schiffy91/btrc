@@ -1,0 +1,82 @@
+// A narrow string literal initializes a char array (C row 4, D20). Unsized,
+// the array takes the literal's bytes plus the terminator; sized, the bound
+// must hold both. The exact fit `char s[3] = "abc"` drops the terminator and
+// is refused. The array owns plain bytes, never a managed string.
+#include <assert.h>
+#include <string.h>
+
+struct Label {
+	int id;
+	char tag[8];
+	unsigned char code[3];
+};
+
+char greeting[] = "hello";
+const char motto[16] = "stay";
+
+int countCalls() {
+	static char calls[4] = "a";
+	calls[0] = (char)(calls[0] + 1);
+	return (int)(calls[0] - 'a');
+}
+
+int main() {
+	char unsized[] = "abc";
+	assert((int)sizeof(unsized) == 4);
+	assert(unsized[3] == '\0');
+	assert(strcmp(unsized, "abc") == 0);
+	unsized[0] = 'x';
+	assert(strcmp(unsized, "xbc") == 0);
+	print("PASS: unsized local");
+
+	char sized[8] = "abc";
+	assert((int)sizeof(sized) == 8);
+	assert(strlen(sized) == (size_t)3);
+	assert(sized[3] == '\0' && sized[7] == '\0');
+	sized[3] = 'd';
+	assert(strcmp(sized, "abcd") == 0);
+	char snug[4] = "abc";
+	assert((int)sizeof(snug) == 4 && strcmp(snug, "abc") == 0);
+	char empty[] = "";
+	assert((int)sizeof(empty) == 1 && empty[0] == '\0');
+	print("PASS: sized local");
+
+	signed char small[] = "\x7f\101";
+	unsigned char bytes[] = "\xff\0z";
+	assert((int)sizeof(small) == 3 && small[0] == 127 && small[1] == 'A');
+	assert((int)sizeof(bytes) == 4 && bytes[0] == 255 && bytes[1] == 0 && bytes[2] == 'z');
+	print("PASS: signed and unsigned char");
+
+	char accented[] = "caf\u00e9";
+	char literal[] = "café";
+	char astral[] = "\U0001F600";
+	assert((int)sizeof(accented) == 6 && (int)sizeof(literal) == 6);
+	assert(strcmp(accented, literal) == 0);
+	assert((int)sizeof(astral) == 5);
+	print("PASS: escapes count bytes");
+
+	assert((int)sizeof(greeting) == 6);
+	greeting[0] = 'j';
+	assert(strcmp(greeting, "jello") == 0);
+	assert((int)sizeof(motto) == 16 && strcmp(motto, "stay") == 0);
+	print("PASS: global");
+
+	assert(countCalls() == 1);
+	assert(countCalls() == 2);
+	print("PASS: static local");
+
+	struct Label label = {7, "tag", "\x01"};
+	assert((int)sizeof(label.tag) == 8);
+	assert(strcmp(label.tag, "tag") == 0 && label.code[0] == 1 && label.code[1] == 0);
+	label.tag[0] = 'T';
+	assert(strcmp(label.tag, "Tag") == 0);
+	struct Label labels[2] = {{1, "one", "a"}, {2, "two", "b"}};
+	assert(strcmp(labels[1].tag, "two") == 0 && labels[0].code[0] == 'a');
+	print("PASS: struct field");
+
+	string text = "managed";
+	char copy[8] = "managed";
+	assert(strcmp(copy, text) == 0);
+	print(f"PASS: {unsized} {sized} {greeting} {label.tag}");
+	return 0;
+}

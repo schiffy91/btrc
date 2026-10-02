@@ -149,6 +149,111 @@ REFUSALS = [
 ]
 
 
+# Row 4: a narrow string literal initializes a char array
+# (src/tests/c_compat/CharArrayStringInit.btrc). The exact fit drops the
+# terminator and is refused (D20), as is overflow; extents count UTF-8 bytes.
+# Only a literal initializes one, and wide literals wait for row 16.
+EXACT_FIT = (
+    "String literal fills all {0} elements of the char array and leaves no room for its terminator; "
+    "declare {1} elements or leave the bound empty"
+)
+OVERFLOW = "String literal needs {0} elements with its terminator but the char array has {1}"
+NOT_A_LITERAL = "A char array can only be initialized from a string literal or a brace list, not a string value"
+
+CHAR_ARRAY_REFUSALS = [
+    pytest.param(
+        'int main() { char text[3] = "abc"; return 0; }',
+        (EXACT_FIT.format(3, 4), 1, 29),
+        id="r04-exact-fit",
+    ),
+    pytest.param(
+        'int main() { char text[2] = "abc"; return 0; }',
+        (OVERFLOW.format(4, 2), 1, 29),
+        id="r04-overflow",
+    ),
+    pytest.param(
+        'int main() { char text[4] = "caf\\u00e9"; return 0; }',
+        (OVERFLOW.format(6, 4), 1, 29),
+        id="r04-universal-character-counts-bytes",
+    ),
+    pytest.param(
+        'char text[5] = "hello";\nint main() { return 0; }',
+        (EXACT_FIT.format(5, 6), 1, 16),
+        id="r04-global-exact-fit",
+    ),
+    pytest.param(
+        'int main() { static unsigned char text[2] = "ab"; return 0; }',
+        (EXACT_FIT.format(2, 3), 1, 45),
+        id="r04-static-exact-fit",
+    ),
+    pytest.param(
+        'enum Size { THREE = 3 };\nint main() { char text[THREE] = "abc"; return 0; }',
+        (EXACT_FIT.format(3, 4), 2, 33),
+        id="r04-constant-bound-exact-fit",
+    ),
+    pytest.param(
+        'struct Label { int id; char tag[3]; };\nint main() { struct Label label = {1, "abc"}; return label.id; }',
+        (EXACT_FIT.format(3, 4), 2, 39),
+        id="r04-field-exact-fit",
+    ),
+    pytest.param(
+        'int main() { int n = 1; char text[8] = f"n{n}"; return 0; }',
+        ("A char array cannot be initialized from an f-string; only a string literal initializes one", 1, 40),
+        id="r04-f-string",
+    ),
+    pytest.param(
+        'int main() { string name = "ab"; char text[8] = name; return 0; }',
+        (NOT_A_LITERAL, 1, 49),
+        id="r04-string-value",
+    ),
+    pytest.param(
+        "struct Label { int id; char tag[4]; };\n"
+        'int main() { string name = "ab"; struct Label label = {1, name}; return label.id; }',
+        (NOT_A_LITERAL, 2, 59),
+        id="r04-field-string-value",
+    ),
+    pytest.param(
+        'struct Label { int id; char tag[4]; };\n'
+        'int main() { struct Label label = {1, "a"}; label = {2, "abcd"}; return label.id; }',
+        (EXACT_FIT.format(4, 5), 2, 57),
+        id="r04-assignment-field-exact-fit",
+    ),
+    pytest.param(
+        'struct Label { int id; char tag[4]; };\n'
+        "int take(struct Label label) { return label.id; }\n"
+        'int main() { return take({2, "abcd"}); }',
+        (EXACT_FIT.format(4, 5), 3, 30),
+        id="r04-argument-field-exact-fit",
+    ),
+    pytest.param(
+        'struct Label { int id; char tag[4]; };\n'
+        'struct Label make() { return {1, "abcd"}; }\n'
+        "int main() { return make().id; }",
+        (EXACT_FIT.format(4, 5), 2, 34),
+        id="r04-return-field-exact-fit",
+    ),
+    pytest.param(
+        "struct Inner { char tag[2]; };\nstruct Outer { struct Inner inner; int n; };\n"
+        'int main() { struct Outer outer = {{"ab"}, 1}; return outer.n; }',
+        (EXACT_FIT.format(2, 3), 3, 37),
+        id="r04-nested-field-exact-fit",
+    ),
+    pytest.param(
+        'class Box { public char name[8] = "box"; }\nint main() { return 0; }',
+        (
+            "A class field char array cannot take a string literal default; copy the text into it in the constructor",
+            1,
+            35,
+        ),
+        id="r04-class-field-default",
+    ),
+    pytest.param(
+        'int main() { char text[] = L"abc"; return 0; }',
+        ("Expected SEMICOLON, got STRING_LIT '\"abc\"'", 1, 29),
+        id="r04-wide-literal",
+    ),
+]
+
 # Row 23: block-scope VLAs are supported (src/tests/c_compat/VariableLengthArrays.btrc);
 # every context that would need a constant extent or an initializer refuses one.
 VLA_REFUSALS = [
@@ -209,7 +314,7 @@ VLA_DIVERGENT_REFUSALS = [
 ]
 
 
-@pytest.mark.parametrize(("source", "expected"), REFUSALS + VLA_REFUSALS)
+@pytest.mark.parametrize(("source", "expected"), REFUSALS + CHAR_ARRAY_REFUSALS + VLA_REFUSALS)
 def test_refusal_is_identical_in_both_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,

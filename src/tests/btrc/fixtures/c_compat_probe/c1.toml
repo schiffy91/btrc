@@ -245,39 +245,27 @@ id = "r04-char-array-unsized"
 row = "4"
 construct = "char s[] = \"abc\""
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic position"
-python = { diagnostic = "Initializer for 'text' requires an array initializer at 4:2" }
-btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 4:16" }
-source = '''
-#include <assert.h>
-#include <string.h>
-int main() {
-	char text[] = "abc";
-	assert(sizeof(text) == 4);
-	assert(strcmp(text, "abc") == 0);
-	print("PASS: unsized char array");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: xbc abcd jello Tag\n" }
+btrcc = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: xbc abcd jello Tag\n" }
+corpus = "c_compat/CharArrayStringInit.btrc"
 
 [[probe]]
 id = "r04-char-array-sized"
 row = "4"
 construct = "char s[4] = \"abc\""
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic position"
-python = { diagnostic = "Initializer for 'text' requires an array initializer at 4:2" }
-btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 4:17" }
+status = "accepted"
+revision = "5472f61"
+python = { exit = 0, stdout = "PASS: sized char array\n" }
+btrcc = { exit = 0, stdout = "PASS: sized char array\n" }
 source = '''
 #include <assert.h>
 #include <string.h>
 int main() {
 	char text[8] = "abc";
-	assert(sizeof(text) == 8);
+	assert((int)sizeof(text) == 8);
 	assert(text[3] == '\0');
 	assert(strlen(text) == (size_t)3);
 	print("PASS: sized char array");
@@ -291,10 +279,9 @@ row = "4"
 construct = "char s[3] = \"abc\" drops the terminator (D20 refuses)"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic position"
-python = { diagnostic = "Initializer for 'text' requires an array initializer at 2:2" }
-btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 2:17" }
+revision = "5472f61"
+python = { diagnostic = "String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty at 2:17" }
+btrcc = { diagnostic = "String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty at 2:17" }
 source = '''
 int main() {
 	char text[3] = "abc";
@@ -308,10 +295,9 @@ row = "4"
 construct = "char s[2] = \"abc\" overflows"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic position"
-python = { diagnostic = "Initializer for 'text' requires an array initializer at 2:2" }
-btrcc = { diagnostic = "Initializer for 'text' requires an array initializer at 2:17" }
+revision = "5472f61"
+python = { diagnostic = "String literal needs 4 elements with its terminator but the char array has 2 at 2:17" }
+btrcc = { diagnostic = "String literal needs 4 elements with its terminator but the char array has 2 at 2:17" }
 source = '''
 int main() {
 	char text[2] = "abc";
