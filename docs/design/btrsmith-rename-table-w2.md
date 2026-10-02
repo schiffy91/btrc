@@ -207,6 +207,18 @@ through `import Library.GUI;` and the portable `I*` contracts.
 | importing `Library.GUI.MacOS.<Module>` (every provider module except `MacOS.AppKitText` and `MacOS.MacOSRunLoop`, the Tray seam) | no longer exported; use `Library.GUI` and the `I*` contracts |
 | (new) | `ActionMailbox.hasPending()` |
 
+### Nullable flow (`stage4/nullable-flow-parity`)
+
+Both compilers now report the same nullable warnings, and btrcc prints
+warnings at all. Warnings never change the exit status, so nothing here breaks
+a build; BTRSmith sees new warnings until it guards the values.
+
+| Old | New |
+| --- | --- |
+| `List<T>.head`, `List<T>.tail`, `ListNode<T>.next` typed `ListNode<T>` | typed `ListNode<T>?`; guard (`if (n != null)`) or copy to a local before member access |
+| a possibly-null value stored into a non-nullable variable, field, parameter, return or default | new warning `Possibly-null value stored in non-nullable <context> of type 'T' — check for null first`; guard first or declare the target nullable |
+| calls after `exit`, `abort`, `_Exit`, `quick_exit`, `longjmp`, `pthread_exit` | treated as unreachable; a null guard ending in one proves the value non-null after it |
+
 ## 2. Mechanical substitutions
 
 Apply in this order over BTRSmith's `.btrc` sources, `btrc.toml` files and
