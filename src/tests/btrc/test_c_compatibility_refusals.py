@@ -355,6 +355,16 @@ DECLARATOR_REFUSALS = [
         id="r03-duplicate-for-declarator",
     ),
     pytest.param(
+        "int main() { switch (1) { default: int a = 1, a = 2; break; } return 0; }",
+        ("Duplicate variable name 'a' in the same scope", 1, 47),
+        id="r03-duplicate-case-declarator",
+    ),
+    pytest.param(
+        "int main() { switch (1) { case 1: int a; int a; break; default: break; } return 0; }",
+        ("Duplicate variable name 'a' in the same scope", 1, 46),
+        id="r03-duplicate-case-local",
+    ),
+    pytest.param(
         "int g, g;\nint main() { return 0; }",
         ("Duplicate definition of global 'g'", 1, 8),
         id="r03-duplicate-global",

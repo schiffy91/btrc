@@ -499,6 +499,8 @@ class ControlFlowValidator {
 		while (caseIndex < statement.cases().len) {
 			Node caseClause = statement.cases().get(caseIndex);
 			self.validateExpression(caseClause.valueNode,  vars);
+			Map<string, bool> noCaseReservedNames = {};
+			self.names.validateDirectLocalNameList(caseClause.bodyNodeList(), noCaseReservedNames);
 			Map<string, Node> caseVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> previousCaseLocals = self.types.cloneFlags(self.state.localBindings);
 			Map<string, bool> previousCaseBorrowed = self.types.cloneFlags(self.state.borrowedBindings);

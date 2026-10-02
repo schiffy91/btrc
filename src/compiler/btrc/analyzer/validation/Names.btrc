@@ -279,10 +279,15 @@ class NameValidator {
 
 	public void validateDirectLocalNames(Node? block, Map<string, bool> reserved) {
 		if (block == null) { return; }
+		self.validateDirectLocalNameList(block.statements(), reserved);
+	}
+
+	/* A statement list's own declarations: a block's, or a case clause's. */
+	public void validateDirectLocalNameList(Vector<Node> statements, Map<string, bool> reserved) {
 		Map<string, bool> seen = self.types.cloneFlags(reserved);
 		int index = 0;
-		while (index < block.statements().len) {
-			Node statement = block.statements().get(index);
+		while (index < statements.len) {
+			Node statement = statements.get(index);
 			if (statement.kind == NK_VAR_DECL_STMT) {
 				self.validateDeclaredName(statement.name, "Local variable", statement);
 				if (seen.has(statement.name)) {

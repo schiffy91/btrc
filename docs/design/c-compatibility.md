@@ -176,7 +176,9 @@ or adjacent string.
   checks a C-`for` initializer's declarators for duplicates (it used to emit
   C that redeclared the name). A duplicate class field or typedef and an
   unknown name keep the two compilers' existing wordings; the refusal test
-  pins each per compiler. A C-`for` initializer with several declarators keeps them
+  pins each per compiler. The parity review found that btrcc never checked a
+  `switch` case's own declarations for duplicates (`case 1: int a, a;`); it
+  now does, as the reference does, with each case its own scope in both. A C-`for` initializer with several declarators keeps them
   in `ForInitVar.declarations`, and both compilers lower every for-init
   declaration (one or many) to declarations in a block enclosing the `IRFor`,
   as single declarations already did, so the loop variables keep the loop's
