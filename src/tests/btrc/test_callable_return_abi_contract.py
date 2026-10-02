@@ -4,37 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
+from src.tests.btrc.dual_frontend_harness import compile_both
+from src.tests.btrc.selfhost_snippet_harness import strict_build_and_run
 
 _PRELUDE = """
     extern string foreignString();
 """
-
-
-def _compile_both(
-    semantic_btrcc: Path,
-    tmp_path: Path,
-    source: str,
-):
-    selfhost, selfhost_source = _compile_source(
-        semantic_btrcc,
-        tmp_path,
-        source,
-    )
-    reference, reference_source = _compile_reference_source(
-        tmp_path,
-        source,
-    )
-    return (selfhost, selfhost_source), (reference, reference_source)
 
 
 @pytest.mark.parametrize(
@@ -65,7 +40,7 @@ def test_mixed_callback_abis_are_rejected_after_control_flow(
         }}
         """
     )
-    for result, _ in _compile_both(
+    for result, _ in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
@@ -111,7 +86,7 @@ def test_literal_false_while_does_not_join_unreachable_callback_mutation(
             """
         )
 
-    for result, generated in _compile_both(
+    for result, generated in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
@@ -157,7 +132,7 @@ def test_literal_true_while_keeps_repeated_callback_invariant(
             """
         )
 
-    for result, _ in _compile_both(
+    for result, _ in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
@@ -179,7 +154,7 @@ def test_source_owned_managed_callback_cannot_cross_borrowed_parameter(
             return 0;
         }
     """
-    for result, _ in _compile_both(
+    for result, _ in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
@@ -207,7 +182,7 @@ def test_throw_edge_preserves_callback_mutation_provenance(
         }
         """
     )
-    for result, _ in _compile_both(
+    for result, _ in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
@@ -253,7 +228,7 @@ def test_persistent_storage_rejects_owned_return_callback_abi(
     tmp_path: Path,
     boundary_source: str,
 ) -> None:
-    for result, _ in _compile_both(
+    for result, _ in compile_both(
         semantic_btrcc,
         tmp_path,
         boundary_source,
@@ -283,7 +258,7 @@ def test_borrowed_foreign_callbacks_may_cross_persistent_storage(
         }
         """
     )
-    for result, _ in _compile_both(
+    for result, _ in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
@@ -316,14 +291,14 @@ def test_borrowed_managed_callback_shadow_stays_borrowed_in_branch_scope(
             return value;
         }
     """
-    for result, generated in _compile_both(
+    for result, generated in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
     ):
         assert result.returncode == 0, result.stdout + result.stderr
         generated.write_text(generated.read_text() + foreign_definition)
-        _strict_build_and_run(
+        strict_build_and_run(
             generated,
             tmp_path / f"borrowed-shadow-{generated.stem}",
         )
@@ -349,7 +324,7 @@ def test_same_owned_abi_joins_remain_valid(
             return 0;
         }
     """
-    for result, generated in _compile_both(
+    for result, generated in compile_both(
         semantic_btrcc,
         tmp_path,
         source,
@@ -359,7 +334,7 @@ def test_same_owned_abi_joins_remain_valid(
         marker = "int main(void) {"
         observer = "static size_t callable_test_live_strings(void) {\n    return __btrc_string_entry_count;\n}\n\n"
         generated.write_text(emitted.replace(marker, observer + marker, 1))
-        _strict_build_and_run(
+        strict_build_and_run(
             generated,
             tmp_path / f"same-abi-{generated.stem}",
         )

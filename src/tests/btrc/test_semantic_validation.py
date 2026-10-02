@@ -2,115 +2,26 @@
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.btrc.selfhost_snippet_harness import (
+    CC,
+    REPO,
+    compile_reference_source,
+    compile_source,
+    strict_build_and_run,
+)
 
-REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
-CC = configured_c_compiler()
 
 pytestmark = pytest.mark.skipif(
     not CC or shutil.which(CC[0]) is None,
     reason="needs a C compiler",
 )
-
-
-def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        **kwargs,
-    )
-
-
-def _compile_source(
-    compiler: Path,
-    tmp_path: Path,
-    source: str,
-    *,
-    no_stdlib: bool = True,
-    no_dce: bool = False,
-) -> tuple[subprocess.CompletedProcess[str], Path]:
-    program = tmp_path / "program.btrc"
-    generated = tmp_path / "program.c"
-    program.write_text(source)
-    command = [str(compiler)]
-    if no_stdlib:
-        command.append("--no-stdlib")
-    if no_dce:
-        command.append("--no-dce")
-    command.append(str(program))
-    result = _run(command, timeout=120 if not no_stdlib else 30)
-    if result.returncode == 0:
-        generated.write_text(result.stdout)
-    return result, generated
-
-
-def _compile_reference_source(
-    tmp_path: Path,
-    source: str,
-    *,
-    no_dce: bool = False,
-) -> tuple[subprocess.CompletedProcess[str], Path]:
-    program = tmp_path / "reference.btrc"
-    generated = tmp_path / "reference.c"
-    program.write_text(source)
-    command = [
-        sys.executable,
-        "-m",
-        "src.compiler.python.main",
-        str(program),
-        "--no-stdlib",
-        "--no-cache",
-    ]
-    if no_dce:
-        command.append("--no-dce")
-    command.extend(["-o", str(generated)])
-    result = _run(
-        command,
-        env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "reference-cache")},
-        timeout=120,
-    )
-    return result, generated
-
-
-def _strict_build_and_run(
-    generated: Path,
-    output: Path,
-    *,
-    optimization: str | None = None,
-) -> None:
-    optimization_flags = [optimization] if optimization is not None else []
-    build = _run(
-        [
-            *CC,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            *optimization_flags,
-            str(generated),
-            "-o",
-            str(output),
-            "-lm",
-            "-lpthread",
-        ],
-        timeout=60,
-    )
-    assert build.returncode == 0, build.stderr
-    run = _run([str(output)], timeout=30)
-    assert run.returncode == 0, run.stderr
 
 
 @pytest.mark.parametrize(
@@ -132,7 +43,7 @@ def test_original_fail_open_programs_are_rejected(
     source: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert result.stdout == ""
     assert diagnostic in result.stderr
@@ -148,7 +59,7 @@ def test_break_path_prevents_infinite_loop_return_proof(semantic_btrcc: Path, tm
         }
         int main() { return 0; }
     """
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert "does not return on every path" in result.stderr
 
@@ -163,9 +74,9 @@ def test_nested_loop_break_does_not_escape_outer_loop(semantic_btrcc: Path, tmp_
         }
         int main() { return run() == 1 ? 0 : 1; }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "nested-break")
+    strict_build_and_run(generated, tmp_path / "nested-break")
 
 
 def test_try_finally_without_catch_preserves_try_return_proof(
@@ -185,19 +96,19 @@ def test_try_finally_without_catch_preserves_try_return_proof(
             return run() == 7 && finallyRuns == 0 ? 0 : 1;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_reference_source(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     assert "__btrc_finally_pending" not in selfhost_source.read_text()
     assert "__btrc_finally_pending" not in reference_source.read_text()
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_source,
         tmp_path / "selfhost-try-finally-return",
         optimization="-O0",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_source,
         tmp_path / "reference-try-finally-return",
         optimization="-O0",
@@ -233,12 +144,12 @@ def test_optional_receiver_runs_once_and_fallback_stays_lazy(semantic_btrcc: Pat
                 && third == 14 && fourth == 3 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     main_c = generated.read_text().split("int main(void)", 1)[1]
     assert main_c.count(": fallback()") == 4
     assert main_c.count(": ((void)0)), __btrc_boundary_result_") == 4
-    _strict_build_and_run(generated, tmp_path / "optional-once")
+    strict_build_and_run(generated, tmp_path / "optional-once")
 
 
 def test_optional_generic_method_coalesce_keeps_result_and_cleanup_paths_separate(
@@ -304,7 +215,7 @@ def test_optional_generic_method_coalesce_keeps_result_and_cleanup_paths_separat
                 && present == 42 && absent == 17 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     main_c = generated.read_text().split("int main(void)", 1)[1]
     scalar_fallback_results = re.findall(
@@ -330,7 +241,7 @@ def test_optional_generic_method_coalesce_keeps_result_and_cleanup_paths_separat
     assert main_c.count("managedFallback()") == 2
     assert len(managed_coalesces) == 2
     assert len(set(managed_coalesces)) == 2
-    _strict_build_and_run(generated, tmp_path / "optional-generic-method")
+    strict_build_and_run(generated, tmp_path / "optional-generic-method")
 
 
 def test_typedefs_use_underlying_operator_domain(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -351,14 +262,14 @@ def test_typedefs_use_underlying_operator_domain(semantic_btrcc: Path, tmp_path:
             return box.stored == 42 && raw == 42 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "typedef-domain")
+    strict_build_and_run(generated, tmp_path / "typedef-domain")
 
 
 def test_scalar_string_join_is_rejected(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = 'int main() { string value = "a".join(","); return 0; }'
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert "Type 'string' has no method 'join'" in result.stderr
 
@@ -433,8 +344,8 @@ def test_member_projection_diagnostics_match_reference(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
 
     assert selfhost.returncode == 1
     assert reference.returncode == 1
@@ -458,13 +369,13 @@ def test_inherited_class_method_wrappers_match_reference_abi(
             return Child.sum(saved, 2) == 42 ? 0 : 1;
         }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_reference_source(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-class-method")
-    _strict_build_and_run(reference_source, tmp_path / "reference-class-method")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-class-method")
+    strict_build_and_run(reference_source, tmp_path / "reference-class-method")
 
 
 def test_type_name_shadowing_uses_instance_member_lookup(
@@ -487,13 +398,13 @@ def test_type_name_shadowing_uses_instance_member_lookup(
         }
         int main() { return read() == 43 ? 0 : 1; }
     """
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_reference_source(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-shadowing")
-    _strict_build_and_run(reference_source, tmp_path / "reference-shadowing")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-shadowing")
+    strict_build_and_run(reference_source, tmp_path / "reference-shadowing")
 
 
 @pytest.mark.parametrize(
@@ -540,7 +451,7 @@ def test_declaration_and_context_contracts(
     source: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert diagnostic in result.stderr
 

@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_ownership_semantics_contract import _compile_reference_source
-from src.tests.btrc.test_semantic_validation import _compile_source
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 
 TEMPORARY_ADDRESS_CASES = (
     ("list-literal", "int main() { int* address = &[1, 2].len; return 0; }"),
@@ -80,8 +78,8 @@ def test_temporary_managed_projection_addresses_are_rejected_with_parity(
     _case: str,
     source: str,
 ) -> None:
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "Unary operator '&'" in selfhost.stderr
@@ -102,8 +100,8 @@ def test_string_method_names_are_not_field_storage(
     operation: str,
 ) -> None:
     source = f'int main() {{ string text = "abc"; {operation} return 0; }}'
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "no field" in selfhost.stderr.lower()
@@ -115,8 +113,8 @@ def test_address_of_unresolved_call_result_is_rejected_before_type_inference(
     tmp_path: Path,
 ) -> None:
     source = "int main() { int* address = &foreignValue(); return 0; }"
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode != 0
     assert reference.returncode != 0
     assert "Unary operator '&'" in selfhost.stderr

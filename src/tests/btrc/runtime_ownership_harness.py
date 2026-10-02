@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import CC, REPO
+from src.tests.btrc.selfhost_snippet_harness import CC, REPO
 
 SANITIZER_FLAGS = (
     "-fsanitize=address,undefined",

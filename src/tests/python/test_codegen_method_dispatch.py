@@ -5,7 +5,7 @@ string formatting."""
 
 import re
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_string_len_and_bytelen():

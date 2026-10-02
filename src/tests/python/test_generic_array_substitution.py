@@ -15,7 +15,7 @@ from src.compiler.python.ir.lowering.types import CTypeLowerer
 from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.syntax.ast.generated import IntLiteral, Program, TypeExpr
 from src.tests.c_toolchains import HOST_C_COMPILERS
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 IDENTITY = TypeIdentity()
 

@@ -14,8 +14,6 @@ from src.tests.btrc.runtime_ownership_harness import (
 )
 from src.tests.btrc.string_coercion_harness import compile_pair
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 FIXTURES = Path(__file__).with_name("fixtures")
 
 INVALID_CASES = (

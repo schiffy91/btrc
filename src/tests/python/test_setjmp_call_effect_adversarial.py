@@ -12,7 +12,7 @@ from src.compiler.python.ir.nodes import (
     IRParam,
     IRTypedefDef,
 )
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 @pytest.mark.parametrize(

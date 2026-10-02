@@ -375,7 +375,7 @@ examples-triangle: generated-check ## Build the GPU triangle example
 examples-sgd: generated-check gpu-required ## Build the GPU SGD example
 	$(NIX) $(MAKE) -C examples sgd
 
-examples-gui: generated-check ## Build + run the headless GUI example
+examples-gui: generated-check ## Build the portable native GUI example
 	$(NIX) $(MAKE) -C examples gui
 
 examples-native-package: generated-check ## Build recursive native package from its canonical plan (set TARGET)

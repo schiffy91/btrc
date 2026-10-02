@@ -3,29 +3,15 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import REPO
+from src.tests.btrc.diagnostic_harness import diagnostic_identity
+from src.tests.btrc.dual_frontend_harness import REPO
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
-
-def _diagnostic_identity(stderr: str) -> tuple[str, int, int]:
-    selfhost = re.fullmatch(r"error: (?P<message>.*) at (?P<line>\d+):(?P<col>\d+)\n?", stderr)
-    if selfhost is not None:
-        return selfhost.group("message"), int(selfhost.group("line")), int(selfhost.group("col"))
-    reference = re.match(
-        r"error: (?P<message>[^\n]+)\n\s*--> .*:(?P<line>\d+):(?P<col>\d+)\n",
-        stderr,
-    )
-    assert reference is not None, stderr
-    return reference.group("message"), int(reference.group("line")), int(reference.group("col"))
 
 
 def _compile_pair(
@@ -157,8 +143,8 @@ def test_invalid_contract_diagnostics_are_exactly_equal(
 
     assert reference.returncode == 1
     assert selfhost.returncode == 1
-    reference_identity = _diagnostic_identity(reference.stderr)
-    selfhost_identity = _diagnostic_identity(selfhost.stderr)
+    reference_identity = diagnostic_identity(reference.stderr)
+    selfhost_identity = diagnostic_identity(selfhost.stderr)
     assert diagnostic in reference_identity[0]
     assert selfhost_identity == reference_identity
 

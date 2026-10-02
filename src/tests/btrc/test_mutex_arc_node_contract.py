@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import REPO, _build_and_run, _compile_pair, _strict_matrix
+from src.tests.btrc.dual_frontend_harness import REPO, build_and_run_strict, compile_snippet_pair, strict_c11_matrix
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 pytestmark = pytest.mark.skipif(
     not HOST_C_COMPILERS,
@@ -31,7 +29,7 @@ def _optimization_matrix(compiled, tmp_path):
     for compiler in HOST_C_COMPILERS:
         for level in range(4):
             output = tmp_path / (f"{compiled[0]}-{Path(compiler).name}-O{level}")
-            _build_and_run(
+            build_and_run_strict(
                 compiled[1],
                 output,
                 compiler,
@@ -56,7 +54,7 @@ def test_mutex_receiver_and_argument_evaluation_is_source_ordered(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
@@ -108,11 +106,11 @@ def test_mutex_inside_generic_methods_preserves_payload_ownership(
             return 0;
         }
     """
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         source,
         "mutex-generic-method",
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)

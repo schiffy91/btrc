@@ -12,7 +12,7 @@ from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 HASH = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("hash")}
 from src.tests.c_toolchains import HOST_C_COMPILERS
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 PLAIN_GENERIC = """
 class Box<T> {

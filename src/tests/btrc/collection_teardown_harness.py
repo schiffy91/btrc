@@ -7,8 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.tests.btrc.test_mutex_value_contract import REPO, _strict_matrix
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.dual_frontend_harness import REPO, strict_c11_matrix
+from src.tests.btrc.selfhost_snippet_harness import compile_source
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 
@@ -19,7 +19,7 @@ def compile_stdlib_pair(
 ) -> tuple[tuple[str, Path], ...]:
     """Compile one stdlib-backed fixture through both production frontends."""
     source = fixture.read_text()
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         output,
         source,
@@ -60,7 +60,7 @@ def run_strict_matrix(
 ) -> None:
     """Build and execute both frontend outputs with every strict C compiler."""
     for artifact in artifacts:
-        _strict_matrix(artifact, output)
+        strict_c11_matrix(artifact, output)
 
 
 __all__ = ["compile_stdlib_pair", "run_strict_matrix"]

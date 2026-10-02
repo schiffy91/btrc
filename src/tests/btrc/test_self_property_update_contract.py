@@ -2,16 +2,7 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
+from src.tests.btrc.dual_frontend_harness import strict_dual_frontend_runtime
 
 SCALAR_UPDATE_SOURCE = """
     #include <assert.h>
@@ -212,39 +203,11 @@ SCALAR_UPDATE_SOURCE = """
 """
 
 
-def _strict_dual_frontend_runtime(
-    semantic_btrcc: Path,
-    tmp_path: Path,
-    source: str,
-    stem: str,
-) -> None:
-    selfhost, selfhost_source = _compile_source(
-        semantic_btrcc,
-        tmp_path,
-        source,
-    )
-    reference, reference_source = _compile_reference_source(
-        tmp_path,
-        source,
-    )
-    assert selfhost.returncode == 0, selfhost.stderr
-    assert reference.returncode == 0, reference.stderr
-
-    _strict_build_and_run(
-        selfhost_source,
-        tmp_path / f"selfhost-{stem}",
-    )
-    _strict_build_and_run(
-        reference_source,
-        tmp_path / f"reference-{stem}",
-    )
-
-
 def test_custom_self_property_updates_use_accessors_once(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    _strict_dual_frontend_runtime(
+    strict_dual_frontend_runtime(
         semantic_btrcc,
         tmp_path,
         SCALAR_UPDATE_SOURCE,

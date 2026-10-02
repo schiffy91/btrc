@@ -2,26 +2,8 @@ import Library.BackgroundJobs;
 
 #include <assert.h>
 
-void job_probe_reset();
-void job_probe_release();
-int job_probe_released();
-void job_probe_mark_started(int identity);
-void job_probe_mark_finished(int identity);
-void job_probe_record_disposal(int identity);
-int job_probe_started(int identity);
-int job_probe_finished(int identity);
-int job_probe_runs(int identity);
-int job_probe_disposals(int identity);
-void job_probe_yield();
-
-enum JobProbeBehavior {
-	JOB_PROBE_COMPLETE = 0,
-	JOB_PROBE_HOLD = 1,
-	JOB_PROBE_CANCEL = 2,
-	JOB_PROBE_FAIL = 3,
-	JOB_PROBE_THROW = 4,
-	JOB_PROBE_CLEANUP_THROW = 5
-};
+/* job_probe_* and JobProbeBehavior come from background_job_probe.h,
+ * which the harness binds through [[native.bindings]]. */
 
 class JobProbeTemporary {
 	public JobProbeTemporary() {}

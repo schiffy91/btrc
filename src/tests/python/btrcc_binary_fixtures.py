@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import struct
+from pathlib import Path
 
 
 def _elf64(machine: int) -> bytes:
@@ -100,3 +102,25 @@ def binary_payload(target: str) -> bytes:
     if target == "windows-x64":
         return _pe32_plus()
     raise AssertionError(f"unknown fixture target: {target}")
+
+
+def bundle_fixture(root: Path, target: str = "linux-x64") -> tuple[Path, Path]:
+    (root / "src/language").mkdir(parents=True)
+    (root / "src/language/grammar.ebnf").write_text("@lexical\n", encoding="utf-8")
+    (root / "src/stdlib/GUI").mkdir(parents=True)
+    (root / "src/stdlib/Vector.btrc").write_text("class Vector {}\n", encoding="utf-8")
+    (root / "src/stdlib/Strings.btrc").write_text("class Strings {}\n", encoding="utf-8")
+    (root / "src/stdlib/GUI/GUI.btrc").write_text("class GUI {}\n", encoding="utf-8")
+    (root / "src/stdlib/GUI/runtime.h").write_text("#pragma once\n", encoding="utf-8")
+    (root / "src/stdlib/GUI/README.md").write_text("gui\n", encoding="utf-8")
+    (root / "src/stdlib/build").mkdir()
+    (root / "src/stdlib/build/runtime.o").write_bytes(b"not-runtime-source")
+    (root / "pyproject.toml").write_text('[project]\nversion = "9.8.7"\n', encoding="utf-8")
+    (root / "LICENSE").write_text("fixture license\n", encoding="utf-8")
+    binary = root / "built-btrcc"
+    binary.write_bytes(binary_payload(target))
+    return root, binary
+
+
+def bundle_manifest(bundle: Path) -> dict[str, object]:
+    return json.loads((bundle / "share/btrc/manifest.json").read_text(encoding="utf-8"))

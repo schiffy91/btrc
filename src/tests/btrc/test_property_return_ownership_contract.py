@@ -9,13 +9,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 
 def test_custom_property_getter_abi_is_owned_by_shared_class_lowerers() -> None:
@@ -60,22 +54,22 @@ def _strict_dual_frontend_runtime(
     source: str,
     stem: str,
 ) -> None:
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_source = _compile_reference_source(
+    reference, reference_source = compile_reference_source(
         tmp_path,
         source,
     )
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_source,
         tmp_path / f"selfhost-{stem}",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_source,
         tmp_path / f"reference-{stem}",
     )
@@ -147,12 +141,12 @@ def test_custom_property_getter_transfers_nested_local_owners(
             return 0;
         }}
     """
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_source = _compile_reference_source(
+    reference, reference_source = compile_reference_source(
         tmp_path,
         source,
     )
@@ -210,12 +204,12 @@ def test_custom_property_getter_owns_implicit_string_conversion(
             return 0;
         }}
     """
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_source = _compile_reference_source(
+    reference, reference_source = compile_reference_source(
         tmp_path,
         source,
     )

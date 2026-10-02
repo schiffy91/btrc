@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_atomic_lowering_is_typed_explicit_and_lock_free_proven() -> None:

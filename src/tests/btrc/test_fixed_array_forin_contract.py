@@ -12,18 +12,12 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRCall, IRFieldAccess, IRFor, IRNode, IRSizeof, IRStmtExpr, IRVar, IRVarDecl
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.btrc.gpu_stub_harness import compile_with_stub
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_gpu_boundary import _compile_with_stub
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, run_in_repo
 
 
 def _source(*, generic: bool) -> str:
@@ -210,12 +204,12 @@ def test_generic_gpu_result_array_forin_smoke(
     ):
         build_dir = tmp_path / f"{frontend}-gpu-result"
         build_dir.mkdir()
-        binary = _compile_with_stub(
+        binary = compile_with_stub(
             generated.read_text(),
             build_dir,
             "gpu_unavailable_stub.c",
         )
-        run = _run([str(binary)], timeout=30)
+        run = run_in_repo([str(binary)], timeout=30)
         assert run.returncode == 0, run.stderr
 
 
@@ -224,15 +218,15 @@ def _compile_both(semantic_btrcc: Path, tmp_path: Path, source: str):
     reference_dir = tmp_path / "reference"
     self_dir.mkdir()
     reference_dir.mkdir()
-    selfhost, selfhost_c = _compile_source(semantic_btrcc, self_dir, source)
-    reference, reference_c = _compile_reference_source(reference_dir, source)
+    selfhost, selfhost_c = compile_source(semantic_btrcc, self_dir, source)
+    reference, reference_c = compile_reference_source(reference_dir, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     return (("selfhost", selfhost_c), ("reference", reference_c))
 
 
 def _strict_build_and_run(compiler: str, generated: Path, output: Path) -> None:
-    build = _run(
+    build = run_in_repo(
         [
             compiler,
             "-std=c11",
@@ -249,7 +243,7 @@ def _strict_build_and_run(compiler: str, generated: Path, output: Path) -> None:
         timeout=60,
     )
     assert build.returncode == 0, build.stderr
-    run = _run([str(output)], timeout=30)
+    run = run_in_repo([str(output)], timeout=30)
     assert run.returncode == 0, run.stderr
 
 

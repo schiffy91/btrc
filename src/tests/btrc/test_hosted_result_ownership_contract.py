@@ -13,19 +13,15 @@ from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.frontend.sources import StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair, run_strict_pair
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
+from src.tests.btrc.selfhost_snippet_harness import REPO
 from src.tests.btrc.string_coercion_harness import compile_pair
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_semantic_validation import REPO
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURE = Path(__file__).with_name("fixtures") / "HostedResultOwnershipRuntime.btrc"
 GETCWD_FIXTURE = Path(__file__).with_name("fixtures") / "HostedGetcwdFreshRuntime.btrc"
@@ -195,7 +191,7 @@ def test_getcwd_null_result_is_adopted_without_leaking_original_allocation(
         generated = artifact[1].read_text()
         assert "__btrc_string_adopt(getcwd" in generated
         assert "__btrc_strdup(getcwd" not in generated
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             artifact,
             tmp_path,
             extra_compile_args=("-Dgetcwd=btrc_test_getcwd",),

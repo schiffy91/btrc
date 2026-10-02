@@ -8,16 +8,10 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from src.tests.btrc.allocation_tracking_harness import compiler_environment, tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import REPO
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 from src.tests.btrc.string_coercion_harness import compile_pair
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _compiler_environment,
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_mutex_value_contract import REPO
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
 from src.tests.c_toolchains import HOST_C_COMPILERS
 
 CompiledPair = tuple[tuple[str, Path], tuple[str, Path]]
@@ -100,7 +94,7 @@ def run_strict_pair(
         for compiler in HOST_C_COMPILERS:
             compiler_name = Path(compiler).name
             executable = tmp_path / f"{frontend}-{compiler_name}-production"
-            environment = _compiler_environment(compiler)
+            environment = compiler_environment(compiler)
             build = subprocess.run(
                 [
                     compiler,
@@ -143,7 +137,7 @@ def run_tracked_fixture_pair(
 ) -> None:
     """Execute a dual-frontend fixture with strict allocation accounting."""
     for artifact in compile_fixture_pair(semantic_btrcc, tmp_path, fixture):
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)
 
 
 def compile_diagnostic_pair(
@@ -152,8 +146,8 @@ def compile_diagnostic_pair(
     source: str,
 ) -> tuple[subprocess.CompletedProcess[str], subprocess.CompletedProcess[str]]:
     """Compile an invalid standalone source through both semantic frontends."""
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     return selfhost, reference
 
 

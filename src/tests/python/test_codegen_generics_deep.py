@@ -2,7 +2,7 @@
 and class-typed fields (ARC cleanup), collection literals inside monomorphized
 methods, range loops, sizeof, and both c-for init forms."""
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_class_with_destructor():

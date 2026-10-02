@@ -2,21 +2,8 @@ import Library.BackgroundJobs;
 
 #include <assert.h>
 
-void job_fault_reset();
-void job_fault_at(int operation, int call);
-int job_fault_calls(int operation);
-int job_fault_live_threads();
-int job_fault_disposals();
-void job_fault_dispose();
-
-enum ThreadFault {
-	FAULT_MUTEX_INIT,
-	FAULT_COND_INIT,
-	FAULT_CREATE,
-	FAULT_JOIN,
-	FAULT_MUTEX_DESTROY,
-	FAULT_COND_DESTROY
-};
+/* job_fault_* and ThreadFault come from NativeThreadFaultControl.h,
+ * which the harness binds through [[native.bindings]]. */
 
 class FaultProbeWork extends BackgroundJobWork {
 	private bool throwing;

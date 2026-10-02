@@ -4,13 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 
 def _compile_both(
@@ -18,8 +12,8 @@ def _compile_both(
     tmp_path: Path,
     source: str,
 ):
-    selfhost = _compile_source(compiler, tmp_path, source)
-    reference = _compile_reference_source(tmp_path, source)
+    selfhost = compile_source(compiler, tmp_path, source)
+    reference = compile_reference_source(tmp_path, source)
     return selfhost, reference
 
 
@@ -54,7 +48,7 @@ def test_read_only_source_calls_do_not_qualify_addressed_storage(
         emitted = generated.read_text()
         assert "int run(struct Probe probe)" in emitted
         assert "volatile struct Probe" not in emitted
-        _strict_build_and_run(
+        strict_build_and_run(
             generated,
             tmp_path / f"read-only-call-{index}",
             optimization="-O3",
@@ -311,4 +305,4 @@ def test_typedef_void_cast_is_a_non_capturing_discard(
     """
     for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stderr
-        _strict_build_and_run(generated, tmp_path / f"void-alias-{index}")
+        strict_build_and_run(generated, tmp_path / f"void-alias-{index}")

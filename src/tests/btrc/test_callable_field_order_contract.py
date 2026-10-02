@@ -3,16 +3,8 @@
 import re
 from pathlib import Path
 
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 SOURCE = """
     #include <assert.h>
@@ -206,12 +198,12 @@ def test_callable_field_selection_precedes_argument_side_effects(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         SOURCE,
     )
-    reference, reference_source = _compile_reference_source(
+    reference, reference_source = compile_ownership_reference(
         tmp_path,
         SOURCE,
     )
@@ -220,11 +212,11 @@ def test_callable_field_selection_precedes_argument_side_effects(
 
     _assert_callable_is_frozen(selfhost_source.read_text())
     _assert_callable_is_frozen(reference_source.read_text())
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_source,
         tmp_path / "selfhost-callable-field-order",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_source,
         tmp_path / "reference-callable-field-order",
     )
@@ -234,12 +226,12 @@ def test_callable_identifier_selection_precedes_argument_side_effects(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         IDENTIFIER_SOURCE,
     )
-    reference, reference_source = _compile_reference_source(
+    reference, reference_source = compile_ownership_reference(
         tmp_path,
         IDENTIFIER_SOURCE,
     )
@@ -280,11 +272,11 @@ def test_callable_identifier_selection_precedes_argument_side_effects(
             source,
         )
 
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_source,
         tmp_path / "selfhost-callable-identifier-order",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_source,
         tmp_path / "reference-callable-identifier-order",
     )

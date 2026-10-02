@@ -8,17 +8,62 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.native_bindings import NativeBindingPackage
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNTIME = ROOT / "src" / "stdlib" / "BackgroundJobs"
 FIXTURE = ROOT / "src" / "tests" / "native" / "background_jobs"
 CONFORMANCE = FIXTURE / "BackgroundJobsConformance.btrc"
+FAILURES = FIXTURE / "BackgroundJobsFailures.btrc"
 EXPECTED = FIXTURE / "background_jobs_conformance.expected"
 WORKER_POOLS = FIXTURE / "HostWorkerPools.btrc"
 WORKER_POOLS_EXPECTED = FIXTURE / "host_worker_pools.expected"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
+# Each probe program binds its fixture's header; it re-spells no prototype.
+BINDINGS = {
+    CONFORMANCE: (
+        FIXTURE / "background_job_probe.h",
+        (
+            "job_probe_reset",
+            "job_probe_release",
+            "job_probe_released",
+            "job_probe_mark_started",
+            "job_probe_mark_finished",
+            "job_probe_record_disposal",
+            "job_probe_started",
+            "job_probe_finished",
+            "job_probe_runs",
+            "job_probe_disposals",
+            "job_probe_yield",
+            "JobProbeBehavior",
+            "JOB_PROBE_COMPLETE",
+            "JOB_PROBE_HOLD",
+            "JOB_PROBE_CANCEL",
+            "JOB_PROBE_FAIL",
+            "JOB_PROBE_THROW",
+            "JOB_PROBE_CLEANUP_THROW",
+        ),
+    ),
+    FAILURES: (
+        FIXTURE / "NativeThreadFaultControl.h",
+        (
+            "job_fault_reset",
+            "job_fault_at",
+            "job_fault_calls",
+            "job_fault_live_threads",
+            "job_fault_disposals",
+            "job_fault_dispose",
+            "FAULT_MUTEX_INIT",
+            "FAULT_COND_INIT",
+            "FAULT_CREATE",
+            "FAULT_JOIN",
+            "FAULT_MUTEX_DESTROY",
+            "FAULT_COND_DESTROY",
+        ),
+    ),
+}
 
 PLANNED_CONSUMER = """\
 #include <assert.h>
@@ -46,6 +91,9 @@ def _transpile(
     *,
     threads: bool = True,
 ) -> None:
+    if source in BINDINGS:
+        NativeBindingPackage.require_reader()
+        source = NativeBindingPackage.write(source, output.parent / f"{output.stem}-package", *BINDINGS[source])
     target = PackageTarget.parse(None)
     target_text = f"{target.operating_system}-{target.architecture}"
     environment = {
@@ -215,7 +263,7 @@ def test_background_jobs_sdk_failures_and_retry(compiler, tmp_path, request, san
         pytest.skip("requires a supported POSIX sanitizer toolchain")
     generated = tmp_path / f"background-jobs-failures-{compiler}.c"
     executable = tmp_path / f"background-jobs-failures-{compiler}"
-    _transpile(compiler, generated, request, FIXTURE / "BackgroundJobsFailures.btrc")
+    _transpile(compiler, generated, request, FAILURES)
     _compile(
         "/usr/bin/clang" if sanitized and sys.platform == "darwin" else "clang",
         generated,

@@ -203,3 +203,24 @@ def run_native_executable(
         assert expected_failure in ran.stderr
         assert "native body reached" not in ran.stderr
     return ran
+
+
+@pytest.fixture
+def unique_project(resource_project):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    manifest = root / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace('ownership = "reference-counted"', 'ownership = "unique"')
+        .replace('retain = "WidgetRetain"\n', "")
+        .replace('"WidgetRetain", ', "")
+    )
+    header = root / "Foundation.h"
+    header.write_text(
+        header.read_text().replace(
+            "assert(widget && widget->references > 0);\n if (--widget->references == 0)",
+            "assert(widget && widget->references == 1);\n if (--widget->references == 0)",
+        )
+    )
+    return source, sdk, triple

@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tools.perf import PHASE_MARK
+from tools.perf import TimingReport
 
 REPO = Path(__file__).resolve().parents[2]
 PROGRAMS = REPO / "src" / "tests" / "benchmarks"
@@ -27,7 +27,7 @@ TIME = Path("/usr/bin/time")
 FOOTPRINT = re.compile(r"(\d+)\s+peak memory footprint")
 TIMING_VARIABLE = "BTRC_TIMING"
 # Runs argv[1:] with standard output discarded and prints the child's own
-# maximum resident set and exit code. measure_peak spawns workloads through it.
+# maximum resident set and exit code. Peak.measure spawns workloads through it.
 MAXRSS_REPORTER = (
     "import os, subprocess, sys\n"
     "child = subprocess.Popen(sys.argv[1:], stdout=subprocess.DEVNULL)\n"
@@ -53,16 +53,18 @@ class Program:
 
         return self.name in {"BenchHello", "CompileStdlibHeavy"}
 
+    @classmethod
+    def discover(cls, names: list[str] | None = None) -> list[Program]:
+        """Every benchmark program, or the named ones, which must all exist."""
 
-def discover(names: list[str] | None = None) -> list[Program]:
-    programs = [Program(path.stem, path) for path in sorted(PROGRAMS.glob("*.btrc"))]
-    if names:
-        wanted = set(names)
-        programs = [program for program in programs if program.name in wanted]
-        missing = wanted - {program.name for program in programs}
-        if missing:
-            raise ValueError(f"unknown benchmark programs: {', '.join(sorted(missing))}")
-    return programs
+        programs = [cls(path.stem, path) for path in sorted(PROGRAMS.glob("*.btrc"))]
+        if names:
+            wanted = set(names)
+            programs = [program for program in programs if program.name in wanted]
+            missing = wanted - {program.name for program in programs}
+            if missing:
+                raise ValueError(f"unknown benchmark programs: {', '.join(sorted(missing))}")
+        return programs
 
 
 @dataclass
@@ -72,35 +74,37 @@ class Timing:
     stdout: str = ""
     stderr: str = ""
 
+    @staticmethod
+    def children_cpu_seconds() -> float:
+        """User plus system time of reaped children, at microsecond resolution.
 
-def _children_cpu_seconds() -> float:
-    """User plus system time of reaped children, at microsecond resolution.
+        os.times() reports children in clock ticks (10 ms on Linux), which cannot
+        resolve a 14 ms compile; getrusage carries the kernel's timeval.
+        """
 
-    os.times() reports children in clock ticks (10 ms on Linux), which cannot
-    resolve a 14 ms compile; getrusage carries the kernel's timeval.
-    """
+        usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        return usage.ru_utime + usage.ru_stime
 
-    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    return usage.ru_utime + usage.ru_stime
+    @classmethod
+    def run(cls, command: list[str], env: dict[str, str], cwd: Path) -> Timing:
+        """Time one run of `command`, which must succeed."""
 
+        before = cls.children_cpu_seconds()
+        started = time.perf_counter()
+        completed = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, timeout=COMMAND_TIMEOUT)
+        wall = time.perf_counter() - started
+        cpu = cls.children_cpu_seconds() - before
+        if completed.returncode != 0:
+            raise RuntimeError(f"{' '.join(command)} failed ({completed.returncode}):\n{completed.stderr[:2000]}")
+        return cls(wall * 1000.0, cpu * 1000.0, completed.stdout, completed.stderr)
 
-def _run_timed(command: list[str], env: dict[str, str], cwd: Path) -> Timing:
-    before = _children_cpu_seconds()
-    started = time.perf_counter()
-    completed = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, timeout=COMMAND_TIMEOUT)
-    wall = time.perf_counter() - started
-    cpu = _children_cpu_seconds() - before
-    if completed.returncode != 0:
-        raise RuntimeError(f"{' '.join(command)} failed ({completed.returncode}):\n{completed.stderr[:2000]}")
-    return Timing(wall * 1000.0, cpu * 1000.0, completed.stdout, completed.stderr)
+    @classmethod
+    def best(cls, command: list[str], env: dict[str, str], cwd: Path, repeat: int) -> tuple[Timing, list[Timing]]:
+        """Best-of-N wall and CPU time; the minimum is the stable estimator on a shared host."""
 
-
-def best(command: list[str], env: dict[str, str], cwd: Path, repeat: int) -> tuple[Timing, list[Timing]]:
-    """Best-of-N wall and CPU time; the minimum is the stable estimator on a shared host."""
-
-    samples = [_run_timed(command, env, cwd) for _ in range(repeat)]
-    fastest = min(samples, key=lambda sample: sample.wall_ms)
-    return Timing(fastest.wall_ms, min(sample.cpu_ms for sample in samples), fastest.stdout, fastest.stderr), samples
+        samples = [cls.run(command, env, cwd) for _ in range(repeat)]
+        fastest = min(samples, key=lambda sample: sample.wall_ms)
+        return cls(fastest.wall_ms, min(sample.cpu_ms for sample in samples), fastest.stdout, fastest.stderr), samples
 
 
 @dataclass(frozen=True)
@@ -110,68 +114,60 @@ class Peak:
     bytes: int
     source: str  # "footprint" or "maxrss"
 
+    @classmethod
+    def measure(cls, command: list[str], env: dict[str, str], cwd: Path) -> Peak:
+        """The peak memory of one run of `command`, which must succeed.
 
-def measure_peak(command: list[str], env: dict[str, str], cwd: Path) -> Peak:
-    """The peak memory of one run of `command`, which must succeed.
+        On macOS it is the peak footprint `/usr/bin/time -l` reports, the number the
+        M11 budget is written in. Elsewhere it is the child's own maximum resident
+        set from wait4 (KiB on Linux), which a reaped sibling cannot inflate the way
+        RUSAGE_CHILDREN's running maximum would. The child is spawned by a small
+        reporter process rather than by this one: Linux folds the address space a
+        process execs from into its maximum resident set, and a forked or vforked
+        child execs from its parent's, so a child of a 180 MiB pytest worker would
+        report at least 180 MiB. Standard output is discarded.
+        """
 
-    On macOS it is the peak footprint `/usr/bin/time -l` reports, the number the
-    M11 budget is written in. Elsewhere it is the child's own maximum resident
-    set from wait4 (KiB on Linux), which a reaped sibling cannot inflate the way
-    RUSAGE_CHILDREN's running maximum would. The child is spawned by a small
-    reporter process rather than by this one: Linux folds the address space a
-    process execs from into its maximum resident set, and a forked or vforked
-    child execs from its parent's, so a child of a 180 MiB pytest worker would
-    report at least 180 MiB. Standard output is discarded.
-    """
+        if cls.counter() == "footprint":
+            completed = subprocess.run(
+                [str(TIME), "-l", *command],
+                cwd=cwd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                errors="replace",
+                timeout=COMMAND_TIMEOUT,
+            )
+            if completed.returncode != 0:
+                raise RuntimeError(f"{' '.join(command)} failed ({completed.returncode}):\n{completed.stderr[-2000:]}")
+            found = FOOTPRINT.search(completed.stderr)
+            if found is None:
+                raise RuntimeError(f"{TIME} -l reported no peak memory footprint:\n{completed.stderr[-2000:]}")
+            return cls(int(found.group(1)), "footprint")
+        with tempfile.TemporaryFile() as errors:
+            reporter = subprocess.run(
+                [sys.executable, "-c", MAXRSS_REPORTER, *command],
+                cwd=cwd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=errors,
+                text=True,
+                timeout=COMMAND_TIMEOUT,
+            )
+            fields = reporter.stdout.split()
+            returncode = int(fields[1]) if reporter.returncode == 0 and len(fields) == 2 else reporter.returncode
+            if returncode != 0:
+                errors.seek(0)
+                detail = errors.read().decode(errors="replace")[-2000:]
+                raise RuntimeError(f"{' '.join(command)} failed ({returncode}):\n{detail}")
+        return cls(int(fields[0]) * (1 if sys.platform == "darwin" else 1024), "maxrss")
 
-    if peak_counter() == "footprint":
-        completed = subprocess.run(
-            [str(TIME), "-l", *command],
-            cwd=cwd,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            errors="replace",
-            timeout=COMMAND_TIMEOUT,
-        )
-        if completed.returncode != 0:
-            raise RuntimeError(f"{' '.join(command)} failed ({completed.returncode}):\n{completed.stderr[-2000:]}")
-        found = FOOTPRINT.search(completed.stderr)
-        if found is None:
-            raise RuntimeError(f"{TIME} -l reported no peak memory footprint:\n{completed.stderr[-2000:]}")
-        return Peak(int(found.group(1)), "footprint")
-    with tempfile.TemporaryFile() as errors:
-        reporter = subprocess.run(
-            [sys.executable, "-c", MAXRSS_REPORTER, *command],
-            cwd=cwd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=errors,
-            text=True,
-            timeout=COMMAND_TIMEOUT,
-        )
-        fields = reporter.stdout.split()
-        returncode = int(fields[1]) if reporter.returncode == 0 and len(fields) == 2 else reporter.returncode
-        if returncode != 0:
-            errors.seek(0)
-            detail = errors.read().decode(errors="replace")[-2000:]
-            raise RuntimeError(f"{' '.join(command)} failed ({returncode}):\n{detail}")
-    return Peak(int(fields[0]) * (1 if sys.platform == "darwin" else 1024), "maxrss")
+    @staticmethod
+    def counter() -> str:
+        """Which counter `measure` reads on this host."""
 
-
-def peak_counter() -> str:
-    """Which counter measure_peak reads on this host."""
-
-    return "footprint" if sys.platform == "darwin" and TIME.is_file() else "maxrss"
-
-
-def host_target() -> str | None:
-    """btrcc's `--target` name for this host, when it has one."""
-
-    system = {"darwin": "macos", "linux": "linux"}.get(sys.platform)
-    machine = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x64", "amd64": "x64"}.get(platform.machine().lower())
-    return f"{system}-{machine}" if system and machine else None
+        return "footprint" if sys.platform == "darwin" and TIME.is_file() else "maxrss"
 
 
 @dataclass(frozen=True)
@@ -191,6 +187,16 @@ class Workload:
     @property
     def name(self) -> str:
         return Path(self.entry).stem
+
+    @staticmethod
+    def host_target() -> str | None:
+        """btrcc's `--target` name for this host, when it has one."""
+
+        system = {"darwin": "macos", "linux": "linux"}.get(sys.platform)
+        machine = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x64", "amd64": "x64"}.get(
+            platform.machine().lower()
+        )
+        return f"{system}-{machine}" if system and machine else None
 
     @property
     def metric(self) -> str:
@@ -212,23 +218,6 @@ class Workload:
             "-o",
             str(build / "p.c"),
         ]
-
-
-def phase_times(stderr: str) -> dict[str, float]:
-    """Sum the self-host's BTRC_TIMING marks per phase, in milliseconds.
-
-    Marks are read as `tools.perf` reads them; counter tokens are skipped.
-    """
-
-    phases: dict[str, float] = {}
-    for line in stderr.splitlines():
-        if not line.startswith("btrcc timing: "):
-            continue
-        for item in line[len("btrcc timing: ") :].split():
-            if mark := PHASE_MARK.match(item):
-                name = mark.group("name")
-                phases[name] = phases.get(name, 0.0) + int(mark.group("micros")) / 1000.0
-    return phases
 
 
 @dataclass
@@ -262,7 +251,7 @@ class Suite:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         env = self.environment()
         if not self.peak_only:
-            startup, _ = best([str(self.btrcc), "--stdlib-dir"], env, REPO, max(self.repeat, 10))
+            startup, _ = Timing.best([str(self.btrcc), "--stdlib-dir"], env, REPO, max(self.repeat, 10))
             self.metrics["btrcc.startup_ms"] = round(startup.wall_ms, 3)
         for program in programs:
             if not self.peak_only:
@@ -277,7 +266,7 @@ class Suite:
         """The compile's peak memory, the lowest of up to three samples."""
 
         command = [str(self.btrcc), str(program.path)]
-        samples = [measure_peak(command, self.peak_environment(), REPO) for _ in range(max(1, min(self.repeat, 3)))]
+        samples = [Peak.measure(command, self.peak_environment(), REPO) for _ in range(max(1, min(self.repeat, 3)))]
         self.metrics[f"btrcc.compile.{program.name}_peak"] = min(sample.bytes for sample in samples)
 
     def _workload_peak(self, workload: Workload) -> None:
@@ -290,7 +279,7 @@ class Suite:
             (scratch / "cache").mkdir(parents=True)
             (scratch / "build").mkdir()
             env = {**self.peak_environment(), "BTRC_CACHE_DIR": str(scratch / "cache")}
-            samples.append(measure_peak(workload.command(self.btrcc, scratch / "build"), env, workload.workspace))
+            samples.append(Peak.measure(workload.command(self.btrcc, scratch / "build"), env, workload.workspace))
         shutil.rmtree(scratch, ignore_errors=True)
         lowest = min(samples, key=lambda sample: sample.bytes)
         self.metrics[workload.metric] = lowest.bytes
@@ -300,11 +289,13 @@ class Suite:
 
     def _program(self, program: Program, env: dict[str, str]) -> None:
         name = program.name
-        compiled, _ = best([str(self.btrcc), str(program.path)], env, REPO, self.repeat)
+        compiled, _ = Timing.best([str(self.btrcc), str(program.path)], env, REPO, self.repeat)
         self.metrics[f"btrcc.compile.{name}_ms"] = round(compiled.wall_ms, 3)
         self.metrics[f"btrcc.compile.{name}_cpu_ms"] = round(compiled.cpu_ms, 3)
         if program.phases:
-            for phase, millis in phase_times(compiled.stderr).items():
+            for phase, millis in TimingReport.phase_times(
+                compiled.stderr, compilers=("btrcc",), per_second=1000
+            ).items():
                 self.metrics[f"btrcc.phase.{name}.{phase}_ms"] = round(millis, 3)
         c_source = compiled.stdout
         c_path = self.out_dir / f"{name}.c"
@@ -318,11 +309,13 @@ class Suite:
         for level in ("O0", "O2"):
             binary = self.out_dir / f"{name}.{level}"
             command = [*self.cc, *CFLAGS, f"-{level}", str(c_path), "-o", str(binary), *LIBS]
-            timing, _ = best(command, env, REPO, self.repeat if level == "O0" else 1)
+            timing, _ = Timing.best(command, env, REPO, self.repeat if level == "O0" else 1)
             self.metrics[f"cc.{name}.{level}_ms"] = round(timing.wall_ms, 3)
             if level == "O2":
                 self.metrics[f"binary.{name}.bytes"] = binary.stat().st_size
-        ran, _ = best([str(self.out_dir / f"{name}.O2")], env, self.out_dir, max(self.repeat, 5) if program.runs else 1)
+        ran, _ = Timing.best(
+            [str(self.out_dir / f"{name}.O2")], env, self.out_dir, max(self.repeat, 5) if program.runs else 1
+        )
         if program.runs:
             self.metrics[f"run.{name}_ms"] = round(ran.wall_ms, 3)
             self.metrics[f"run.{name}_cpu_ms"] = round(ran.cpu_ms, 3)
@@ -333,8 +326,8 @@ class Suite:
             reference_path = self.out_dir / f"{name}.reference.c"
             reference_path.write_text(reference_c, encoding="utf-8")
             reference_binary = self.out_dir / f"{name}.reference"
-            _run_timed([*self.cc, *CFLAGS, "-O2", str(reference_path), "-o", str(reference_binary), *LIBS], env, REPO)
-            reference_run = _run_timed([str(reference_binary)], env, self.out_dir)
+            Timing.run([*self.cc, *CFLAGS, "-O2", str(reference_path), "-o", str(reference_binary), *LIBS], env, REPO)
+            reference_run = Timing.run([str(reference_binary)], env, self.out_dir)
             parity = 1 if reference_run.stdout == ran.stdout else 0
             self.metrics[f"c.{name}.parity"] = parity
             if not parity:
@@ -370,12 +363,3 @@ class Suite:
             transpile()
             fastest = min(fastest, (time.perf_counter() - started) * 1000.0)
         return fastest, emitted
-
-
-def default_cc() -> list[str]:
-    configured = os.environ.get("BTRC_CC")
-    if configured:
-        return shlex.split(configured)
-    if sys.platform == "darwin" and shutil.which("clang"):
-        return ["clang"]
-    return ["cc"]

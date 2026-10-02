@@ -4,13 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_callable_return_abi_contract import _compile_both
-from src.tests.btrc.test_semantic_validation import _strict_build_and_run
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_both
+from src.tests.btrc.selfhost_snippet_harness import strict_build_and_run
 
 FIXTURES = Path(__file__).with_name("fixtures")
 GENERIC_CALLABLE_RUNTIME = FIXTURES / "GenericCallableReturnOwnershipRuntime.btrc"
@@ -59,12 +55,12 @@ def test_source_static_method_callback_keeps_owned_return_abi(
         }
     """
 
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
         main = generated.read_text().split("int main(void) {", 1)[1]
         assert "__btrc_string_retain(value)" not in main
         _instrument_live_strings(generated)
-        _strict_build_and_run(generated, tmp_path / f"static-owned-{index}")
+        strict_build_and_run(generated, tmp_path / f"static-owned-{index}")
 
 
 def test_bodyless_static_method_callback_keeps_borrowed_return_abi(
@@ -88,14 +84,14 @@ def test_bodyless_static_method_callback_keeps_borrowed_return_abi(
     """
     definition = 'char* Foreign_make(void) {\n    return (char*)"borrowed";\n}\n\n'
 
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
         emitted = generated.read_text()
         main = emitted.split("int main(void) {", 1)[1]
         assert main.count("__btrc_string_retain(") == 1
         assert emitted.count("Foreign_make(void) {") == 0
         _instrument_live_strings(generated, definition)
-        _strict_build_and_run(generated, tmp_path / f"static-borrowed-{index}")
+        strict_build_and_run(generated, tmp_path / f"static-borrowed-{index}")
 
 
 def test_generic_callable_returns_preserve_borrowed_and_owned_abis(
@@ -103,11 +99,11 @@ def test_generic_callable_returns_preserve_borrowed_and_owned_abis(
     tmp_path: Path,
 ) -> None:
     source = GENERIC_CALLABLE_RUNTIME.read_text()
-    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+    for index, (result, generated) in enumerate(compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
         emitted = generated.read_text()
         generated.write_text(emitted + GENERIC_FOREIGN_DEFINITION)
-        _tracked_strict_matrix(
+        tracked_strict_matrix(
             (f"generic-callable-return-{index}", generated),
             tmp_path,
         )
@@ -172,7 +168,7 @@ def test_generic_mixed_callback_flows_fail_closed(
             return 0;
         }}
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert diagnostic in result.stdout + result.stderr
 
@@ -201,7 +197,7 @@ def test_generic_mixed_callback_ternary_fails_closed(
             return 0;
         }
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "ambiguous ownership ABI" in result.stdout + result.stderr
 
@@ -223,7 +219,7 @@ def test_abstract_override_does_not_restore_inherited_implementation(
         }
     """
 
-    for result, generated in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, generated in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode == 0, result.stdout + result.stderr
         emitted = generated.read_text()
         assert "char* Child_make(void);" in emitted
@@ -271,7 +267,7 @@ def test_reached_callback_states_are_conservatively_joined(
         }}
     """
 
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "ambiguous ownership ABI" in result.stdout + result.stderr
 
@@ -306,6 +302,6 @@ def test_for_in_break_preserves_callback_mutation_provenance(
         }
     """
 
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for result, _ in compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "ambiguous ownership ABI" in result.stdout + result.stderr

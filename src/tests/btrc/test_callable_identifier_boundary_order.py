@@ -3,16 +3,10 @@
 import re
 from pathlib import Path
 
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 from src.tests.btrc.string_coercion_harness import assert_tracked_strict_pair
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 FIXTURES = Path(__file__).with_name("fixtures")
 
 
@@ -71,12 +65,12 @@ def test_callable_identifier_precedes_boundary_managed_arguments(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    selfhost, selfhost_source = _compile_source(
+    selfhost, selfhost_source = compile_source(
         semantic_btrcc,
         tmp_path,
         SOURCE,
     )
-    reference, reference_source = _compile_reference_source(
+    reference, reference_source = compile_ownership_reference(
         tmp_path,
         SOURCE,
     )
@@ -86,11 +80,11 @@ def test_callable_identifier_precedes_boundary_managed_arguments(
     for generated in (selfhost_source, reference_source):
         _assert_boundary_freezes_identifier(generated.read_text())
 
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_source,
         tmp_path / "selfhost-callable-identifier-boundary",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_source,
         tmp_path / "reference-callable-identifier-boundary",
     )

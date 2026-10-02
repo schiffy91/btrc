@@ -33,6 +33,7 @@ examples/realtime-primitives/realtime-gain
 examples/*/*.link.json
 # Output-publication locks the compilers leave beside generated files
 examples/**/.btrc-*.lock
+examples/**/.*-link.publish.lock
 examples/native-package/build/
 
 # macOS
@@ -55,7 +56,7 @@ src/devex/lsp/.venv/
 /build/devex/vscode/
 
 # GUI and rendering example binaries
-examples/gui/gui_font
+examples/gui/native
 examples/sgd-render/sgd_render
 examples/*/frames/
 

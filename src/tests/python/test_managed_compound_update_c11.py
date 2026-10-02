@@ -11,10 +11,10 @@ from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
 from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitized_build_and_run
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import _tracked_strict_matrix
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "src/tests/classes/ClassCompoundAssignment.btrc"
@@ -662,7 +662,7 @@ def test_generic_template_compound_materializes_concrete_string_conversion(tmp_p
 def test_compound_overload_rhs_conversion_is_tracked_and_sanitized(tmp_path: Path) -> None:
     tracked = tmp_path / "compound-converted-rhs-tracked.c"
     tracked.write_text(emit_c(CONVERTED_RHS_SOURCE))
-    _tracked_strict_matrix(("python-compound-converted-rhs", tracked), tmp_path)
+    tracked_strict_matrix(("python-compound-converted-rhs", tracked), tmp_path)
 
     sanitized = tmp_path / "compound-converted-rhs-sanitized.c"
     sanitized.write_text(emit_c(SANITIZED_CONVERTED_RHS_SOURCE))

@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_mutex_value_contract import REPO, _compile_pair, _strict_matrix
-from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.btrc.allocation_tracking_harness import FIXTURES, tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
-FIXTURES = Path(__file__).with_name("fixtures")
 BOUNDARY_CASES = (
     "ThreadUnjoinedCycleBoundaryRuntime.btrc",
     "MutexCycleBoundaryRuntime.btrc",
@@ -30,75 +24,6 @@ MUTEX_SET_BOUNDARY_CASE = "MutexSetCycleBoundaryRuntime.btrc"
 MUTEX_RETAIN_FAILURE_CASE = "MutexRetainFailureRuntime.btrc"
 EMPTY_CALLBACK_ERROR_CASE = "ThreadMutexEmptyErrorRuntime.btrc"
 MUTEX_FIELD_CLEANUP_CASE = "MutexFieldCleanupRuntime.btrc"
-ALLOCATION_TRACKER = FIXTURES / "arc_boundary_alloc_tracker.c"
-ALLOCATION_REDIRECTS = (
-    "-Dmalloc=btrc_test_malloc",
-    "-Dcalloc=btrc_test_calloc",
-    "-Drealloc=btrc_test_realloc",
-    "-Dfree=btrc_test_free",
-)
-
-
-def _compiler_environment(compiler: str) -> dict[str, str] | None:
-    if sys.platform != "darwin" or os.path.realpath(compiler) != "/usr/bin/clang":
-        return None
-    environment = {
-        name: os.environ[name]
-        for name in ("HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE")
-        if name in os.environ
-    }
-    environment.update({"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR": "/tmp"})
-    return environment
-
-
-def _tracked_strict_matrix(
-    compiled: tuple[str, Path],
-    tmp_path: Path,
-    *,
-    expected_stdout: str | None = None,
-    extra_compile_args: tuple[str, ...] = (),
-    extra_sources: tuple[Path, ...] = (),
-) -> None:
-    for compiler in HOST_C_COMPILERS:
-        output = tmp_path / f"{compiled[0]}-{Path(compiler).name}-tracked"
-        environment = _compiler_environment(compiler)
-        build = subprocess.run(
-            [
-                compiler,
-                "-std=c11",
-                "-pedantic-errors",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                "-O2",
-                *ALLOCATION_REDIRECTS,
-                *extra_compile_args,
-                str(compiled[1]),
-                str(ALLOCATION_TRACKER),
-                *(str(source) for source in extra_sources),
-                "-pthread",
-                "-lm",
-                "-o",
-                str(output),
-            ],
-            cwd=REPO,
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=90,
-        )
-        assert build.returncode == 0, build.stderr
-        run = subprocess.run(
-            [str(output)],
-            cwd=REPO,
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        assert run.returncode == 0, run.stderr
-        if expected_stdout is not None:
-            assert run.stdout == expected_stdout
 
 
 @pytest.mark.parametrize("fixture_name", BOUNDARY_CASES)
@@ -108,14 +33,14 @@ def test_hidden_arc_boundaries_force_subthreshold_cycles(
     fixture_name: str,
 ) -> None:
     fixture = FIXTURES / fixture_name
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
         fixture.stem,
     )
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)
 
 
 @pytest.mark.parametrize("fixture_name", THROWING_BOUNDARY_CASES)
@@ -125,14 +50,14 @@ def test_hidden_arc_boundaries_free_wrappers_before_rethrow(
     fixture_name: str,
 ) -> None:
     fixture = FIXTURES / fixture_name
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
         fixture.stem,
     )
     for artifact in compiled:
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)
 
 
 def test_worker_arc_cleanup_precedes_final_try_state_cleanup(
@@ -140,14 +65,14 @@ def test_worker_arc_cleanup_precedes_final_try_state_cleanup(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / WORKER_TEARDOWN_CASE
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
         fixture.stem,
     )
     for artifact in compiled:
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)
 
 
 def test_worker_arc_cleanup_error_transfers_after_reclaiming_results(
@@ -155,14 +80,14 @@ def test_worker_arc_cleanup_error_transfers_after_reclaiming_results(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / WORKER_CLEANUP_ERROR_CASE
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
         fixture.stem,
     )
     for artifact in compiled:
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)
 
 
 def test_worker_entry_and_capture_errors_transfer_after_full_cleanup(
@@ -170,14 +95,14 @@ def test_worker_entry_and_capture_errors_transfer_after_full_cleanup(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / WORKER_ENTRY_ERROR_CASE
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
         fixture.stem,
     )
     for artifact in compiled:
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)
 
 
 def test_mutex_set_forces_old_cycle_and_preserves_callback_error(
@@ -185,14 +110,14 @@ def test_mutex_set_forces_old_cycle_and_preserves_callback_error(
     tmp_path: Path,
 ) -> None:
     fixture = FIXTURES / MUTEX_SET_BOUNDARY_CASE
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
         fixture.stem,
     )
     for artifact in compiled:
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -209,11 +134,11 @@ def test_guarded_thread_mutex_failures_release_all_resources(
     fixture_name: str,
 ) -> None:
     fixture = FIXTURES / fixture_name
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         fixture.read_text(),
         fixture.stem,
     )
     for artifact in compiled:
-        _tracked_strict_matrix(artifact, tmp_path)
+        tracked_strict_matrix(artifact, tmp_path)

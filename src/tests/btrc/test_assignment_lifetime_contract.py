@@ -5,22 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.allocation_tracking_harness import tracked_strict_matrix
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
 )
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _tracked_strict_matrix,
-)
-from src.tests.btrc.test_ownership_semantics_contract import (
-    _compile_reference_source,
-)
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
 def test_assignment_boundary_uses_the_expression_owner_and_typed_plan() -> None:
@@ -243,12 +234,12 @@ def test_compound_overload_signature_must_fit_the_concrete_slot(
     for name, (source, selfhost_diagnostic, reference_diagnostic) in cases.items():
         case_dir = tmp_path / name
         case_dir.mkdir()
-        selfhost, _selfhost_c = _compile_source(
+        selfhost, _selfhost_c = compile_source(
             semantic_btrcc,
             case_dir,
             source,
         )
-        reference, _reference_c = _compile_reference_source(case_dir, source)
+        reference, _reference_c = compile_ownership_reference(case_dir, source)
         assert selfhost.returncode != 0, name
         assert reference.returncode != 0, name
         assert selfhost_diagnostic in (selfhost.stdout + selfhost.stderr).lower(), name
@@ -302,20 +293,20 @@ def test_generic_compound_rhs_conversion_materializes_concrete_to_string(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
 
-    _tracked_strict_matrix(
+    tracked_strict_matrix(
         ("selfhost-generic-compound-string-conversion", selfhost_c),
         tmp_path,
     )
-    _tracked_strict_matrix(
+    tracked_strict_matrix(
         ("reference-generic-compound-string-conversion", reference_c),
         tmp_path,
     )
@@ -350,20 +341,20 @@ def test_managed_compound_upcasts_a_derived_overload_result(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
 
-    _tracked_strict_matrix(
+    tracked_strict_matrix(
         ("selfhost-managed-compound-result-upcast", selfhost_c),
         tmp_path,
     )
-    _tracked_strict_matrix(
+    tracked_strict_matrix(
         ("reference-managed-compound-result-upcast", reference_c),
         tmp_path,
     )
@@ -386,8 +377,8 @@ def test_generic_null_assignment_does_not_relax_other_storage_checks(
         f"class Slot<T> {{ {method} }} "
         'int main() { Slot<string> slot = new Slot<string>(); slot.clear("old"); return 0; }'
     )
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
     for compiled in (selfhost, reference):
         assert compiled.returncode != 0
         assert diagnostic in compiled.stderr.lower(), compiled.stderr
@@ -487,20 +478,20 @@ def test_managed_identifier_slots_replace_exactly_one_ownership_unit(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
 
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_c,
         tmp_path / "selfhost-managed-identifier-slots",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_c,
         tmp_path / "reference-managed-identifier-slots",
     )
@@ -538,17 +529,17 @@ def test_registered_raw_string_slot_uses_its_semantic_managed_type(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
 
-    _tracked_strict_matrix(("selfhost-raw-string-slot", selfhost_c), tmp_path)
-    _tracked_strict_matrix(("reference-raw-string-slot", reference_c), tmp_path)
+    tracked_strict_matrix(("selfhost-raw-string-slot", selfhost_c), tmp_path)
+    tracked_strict_matrix(("reference-raw-string-slot", reference_c), tmp_path)
 
 
 def test_typedef_managed_slots_dispatch_semantically_and_store_physically(
@@ -640,23 +631,23 @@ def test_typedef_managed_slots_dispatch_semantically_and_store_physically(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     generated = selfhost_c.read_text()
     assert "ItemAlias volatile* typed_slot" in generated
     assert "ItemAlias __btrc_update_old" in generated
 
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_c,
         tmp_path / "selfhost-typedef-managed-slots",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_c,
         tmp_path / "reference-typedef-managed-slots",
     )
@@ -737,7 +728,7 @@ def test_arc_field_publication_keeps_owned_replacement_armed_until_commit(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
@@ -747,7 +738,7 @@ def test_arc_field_publication_keeps_owned_replacement_armed_until_commit(
     assert "__btrc_arc_replace_edge" in generated
     assert ", 0);" in generated
 
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_c,
         tmp_path / "selfhost-destroying-owner-publication",
     )
@@ -820,12 +811,12 @@ def test_managed_compound_nonowned_shapes_fail_closed(
     for name, source in cases.items():
         case_dir = tmp_path / name
         case_dir.mkdir()
-        selfhost, _selfhost_c = _compile_source(
+        selfhost, _selfhost_c = compile_source(
             semantic_btrcc,
             case_dir,
             source,
         )
-        reference, _reference_c = _compile_reference_source(
+        reference, _reference_c = compile_ownership_reference(
             case_dir,
             source,
         )
@@ -869,12 +860,12 @@ def test_nested_managed_field_assignment_has_one_result_boundary(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
 
@@ -882,11 +873,11 @@ def test_nested_managed_field_assignment_has_one_result_boundary(
     boundary_pattern = r"\b__btrc_boundary_result_\d+\b"
     assert len(set(re.findall(boundary_pattern, selfhost_body))) == 1
 
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_c,
         tmp_path / "selfhost-nested-field-assignment",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_c,
         tmp_path / "reference-nested-field-assignment",
     )
@@ -975,12 +966,12 @@ def test_assignment_targets_survive_destructive_rhs(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
 
@@ -1197,20 +1188,20 @@ def test_managed_compound_physical_slots_commit_once_and_unwind_safely(
             return 0;
         }
     """
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
 
-    _strict_build_and_run(
+    strict_build_and_run(
         selfhost_c,
         tmp_path / "selfhost-managed-compound-slots",
     )
-    _strict_build_and_run(
+    strict_build_and_run(
         reference_c,
         tmp_path / "reference-managed-compound-slots",
     )
@@ -1232,12 +1223,12 @@ def test_compound_update_loads_before_mutating_rhs(
     tmp_path: Path,
 ) -> None:
     source = "int main() { int value = 1; value += value++; return value == 2 ? 0 : 1; }"
-    selfhost, selfhost_c = _compile_source(
+    selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
         source,
     )
-    reference, reference_c = _compile_reference_source(tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
 

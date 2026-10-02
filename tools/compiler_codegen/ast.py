@@ -9,7 +9,7 @@ from typing import ClassVar
 
 from src.compiler.python.syntax.grammar import GrammarRepository
 
-from . import GeneratedArtifact, GeneratedSourceError, format_generated_btrc
+from . import GeneratedArtifact, GeneratedSourceError, GeneratedSourceStyle
 from .asdl import (
     AsdlConstructor,
     AsdlField,
@@ -691,7 +691,7 @@ class NativeAbiCatalogGenerator:
         ).render()
         return (
             GeneratedArtifact(python_path, python.encode("utf-8")),
-            GeneratedArtifact(btrc_path, format_generated_btrc(btrc, btrc_path)),
+            GeneratedArtifact(btrc_path, GeneratedSourceStyle.format_btrc(btrc, btrc_path)),
         )
 
 
@@ -719,6 +719,6 @@ class AstCatalogGenerator:
             ),
             GeneratedArtifact(
                 path=self._SELFHOST_OUTPUT,
-                content=format_generated_btrc(selfhost, self._SELFHOST_OUTPUT),
+                content=GeneratedSourceStyle.format_btrc(selfhost, self._SELFHOST_OUTPUT),
             ),
         )

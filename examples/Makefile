@@ -2,7 +2,7 @@
 # btrc examples
 #
 # Usage:  make          Build all examples (CPU + GPU if available)
-#         make cpu      Build CPU-only examples
+#         make cpu      Build the examples that need no GPU runtime (gui needs its GUI SDK)
 #         make gpu      Build GPU examples (requires: make gpu in root)
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ realtime-primitives: ## Build and run the bounded primitive and @realtime gain e
 	@echo "=== realtime-primitives ==="
 	@$(MAKE) -C realtime-primitives
 
-gui: ## Build + run the headless GUI example (offscreen, no display needed)
+gui: ## Build the portable native GUI example (needs the platform GUI SDK)
 	@echo "=== gui ==="
 	@$(MAKE) -C gui
 

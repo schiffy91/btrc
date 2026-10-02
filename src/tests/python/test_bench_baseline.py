@@ -9,28 +9,29 @@ from pathlib import Path
 
 import pytest
 
-from tools.bench import baseline
+from tools.bench.baseline import PEAK_FLOOR, Baseline, Finding
 from tools.bench.main import main
-from tools.bench.suite import PROGRAMS, Workload, discover, host_target, measure_peak, peak_counter, phase_times
+from tools.bench.suite import PROGRAMS, Peak, Program, Workload
+from tools.perf import TimingReport
 
 ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_metric_kinds_are_declared_by_the_name() -> None:
-    assert baseline.metric_kind("btrcc.compile.BenchHello_ms") == "ms"
-    assert baseline.metric_kind("run.RunArc_cpu_ms") == "ms"
-    assert baseline.metric_kind("c.BenchHello.bytes") == "bytes"
-    assert baseline.metric_kind("c.BenchHello.lines") == "lines"
-    assert baseline.metric_kind("c.BenchHello.parity") == "parity"
-    assert baseline.metric_kind("btrcc.phase.BenchHello.lower_ms") == "info"
-    assert baseline.metric_kind("btrcc.compile.BenchHello_peak") == "peak"
-    assert baseline.metric_kind("btrcc.workload.BTRSmith_peak") == "peak"
+    assert Baseline.metric_kind("btrcc.compile.BenchHello_ms") == "ms"
+    assert Baseline.metric_kind("run.RunArc_cpu_ms") == "ms"
+    assert Baseline.metric_kind("c.BenchHello.bytes") == "bytes"
+    assert Baseline.metric_kind("c.BenchHello.lines") == "lines"
+    assert Baseline.metric_kind("c.BenchHello.parity") == "parity"
+    assert Baseline.metric_kind("btrcc.phase.BenchHello.lower_ms") == "info"
+    assert Baseline.metric_kind("btrcc.compile.BenchHello_peak") == "peak"
+    assert Baseline.metric_kind("btrcc.workload.BTRSmith_peak") == "peak"
     with pytest.raises(ValueError):
-        baseline.metric_kind("btrcc.compile.BenchHello")
+        Baseline.metric_kind("btrcc.compile.BenchHello")
 
 
 def test_platform_key_names_operating_system_and_architecture_family() -> None:
-    key = baseline.platform_key()
+    key = Baseline.platform_key()
     system, _, machine = key.partition("-")
     assert system in {"darwin", "linux", "win32"}
     assert machine in {"arm64", "x86_64"} or machine
@@ -46,33 +47,33 @@ def test_compare_applies_kind_tolerances_and_flags_regressions() -> None:
         "new.metric_ms": 1.0,
         "btrcc.phase.a.x_ms": 9.0,
     }
-    findings = {finding.name: finding for finding in baseline.compare(current, recorded)}
+    findings = {finding.name: finding for finding in Baseline.compare(current, recorded)}
     assert findings["a.compile_ms"].status == "ok"  # inside the 35 % timing slack
     assert findings["c.a.bytes"].status == "regression"  # sizes only get 3 %
     assert findings["c.a.parity"].status == "regression"  # booleans must match exactly
     assert findings["run.b_ms"].status == "improvement"
     assert findings["new.metric_ms"].status == "new"
     assert findings["btrcc.phase.a.x_ms"].status == "ok"  # attribution only, never gates
-    tightened = {finding.name: finding for finding in baseline.compare(current, recorded, tolerance_ms=0.1)}
+    tightened = {finding.name: finding for finding in Baseline.compare(current, recorded, tolerance_ms=0.1)}
     assert tightened["a.compile_ms"].status == "regression"
-    assert all(finding.status == "new" for finding in baseline.compare(current, None))
+    assert all(finding.status == "new" for finding in Baseline.compare(current, None))
 
 
 def test_reported_timings_never_fail_but_sizes_parity_and_peaks_still_do() -> None:
     recorded = {"a.compile_ms": 100.0, "c.a.bytes": 1000, "c.a.parity": 1, "b.compile_peak": 50 << 20}
     current = {"a.compile_ms": 200.0, "c.a.bytes": 1000, "c.a.parity": 1, "b.compile_peak": 50 << 20}
-    findings = {finding.name: finding for finding in baseline.compare(current, recorded, gate_timings=False)}
+    findings = {finding.name: finding for finding in Baseline.compare(current, recorded, gate_timings=False)}
     assert findings["a.compile_ms"].status == "slower"
     assert {finding.status for name, finding in findings.items() if name != "a.compile_ms"} == {"ok"}
     current.update({"c.a.bytes": 1100, "c.a.parity": 0, "b.compile_peak": 60 << 20})
-    findings = {finding.name: finding for finding in baseline.compare(current, recorded, gate_timings=False)}
+    findings = {finding.name: finding for finding in Baseline.compare(current, recorded, gate_timings=False)}
     assert [findings[name].status for name in ("c.a.bytes", "c.a.parity", "b.compile_peak")] == ["regression"] * 3
-    assert baseline.render(list(findings.values())).splitlines()[4].endswith("slower")
+    assert Baseline.render(list(findings.values())).splitlines()[4].endswith("slower")
 
 
 def test_check_from_saved_results_is_strict_about_a_missing_baseline(tmp_path: Path) -> None:
     """CI's transition: results recorded on the runner become its baseline, then --strict holds it."""
-    key = baseline.platform_key()
+    key = Baseline.platform_key()
     results = tmp_path / "results.json"
     metrics = {"a.compile_ms": 100.0, "c.a.bytes": 1000, "c.a.parity": 1}
     results.write_text(json.dumps({"meta": {"platform": key, "revision": "abc"}, "metrics": metrics}))
@@ -81,7 +82,7 @@ def test_check_from_saved_results_is_strict_about_a_missing_baseline(tmp_path: P
     assert main(check) == 0
     assert main([*check, "--strict"]) == 1
     assert main(["baseline", "--results", str(results), "--baseline", str(recorded)]) == 0
-    assert baseline.platform_metrics(baseline.load(recorded), key) == metrics
+    assert Baseline.platform_metrics(Baseline.load(recorded), key) == metrics
     assert main([*check, "--strict"]) == 0
     slower = tmp_path / "slower.json"
     slower.write_text(json.dumps({"meta": {"platform": key}, "metrics": {**metrics, "a.compile_ms": 300.0}}))
@@ -95,29 +96,31 @@ def test_check_from_saved_results_is_strict_about_a_missing_baseline(tmp_path: P
 
 def test_store_and_load_round_trip_one_platform_without_touching_others(tmp_path: Path) -> None:
     path = tmp_path / "baseline.json"
-    document = baseline.load(path)
-    baseline.store(document, "linux-x86_64", {"z_ms": 2.0, "a_ms": 1.0}, {"revision": "abc"}, path)
-    document = baseline.load(path)
-    baseline.store(document, "darwin-arm64", {"a_ms": 3.0}, {"revision": "def"}, path)
+    document = Baseline.load(path)
+    Baseline.store(document, "linux-x86_64", {"z_ms": 2.0, "a_ms": 1.0}, {"revision": "abc"}, path)
+    document = Baseline.load(path)
+    Baseline.store(document, "darwin-arm64", {"a_ms": 3.0}, {"revision": "def"}, path)
     document = json.loads(path.read_text())
     assert list(document["platforms"]) == ["darwin-arm64", "linux-x86_64"]
     assert list(document["platforms"]["linux-x86_64"]["metrics"]) == ["a_ms", "z_ms"]
-    assert baseline.platform_metrics(document, "darwin-arm64") == {"a_ms": 3.0}
-    assert baseline.platform_metrics(document, "win32-x86_64") is None
+    assert Baseline.platform_metrics(document, "darwin-arm64") == {"a_ms": 3.0}
+    assert Baseline.platform_metrics(document, "win32-x86_64") is None
 
 
 def test_render_lists_regressions_first() -> None:
     findings = [
-        baseline.Finding("ok_ms", 1.0, 1.0, "ok"),
-        baseline.Finding("bad_ms", 1.0, 2.0, "regression"),
+        Finding("ok_ms", 1.0, 1.0, "ok"),
+        Finding("bad_ms", 1.0, 2.0, "regression"),
     ]
-    rendered = baseline.render(findings).splitlines()
+    rendered = Baseline.render(findings).splitlines()
     assert rendered[1].startswith("bad_ms") and "2.00x" in rendered[1]
 
 
 def test_phase_times_sum_repeated_marks() -> None:
     stderr = "btrcc timing: grammar=500us m-read=100us m-read=200us lower=1500us\nother line\n"
-    assert phase_times(stderr) == pytest.approx({"grammar": 0.5, "m-read": 0.3, "lower": 1.5})
+    assert TimingReport.phase_times(stderr, compilers=("btrcc",), per_second=1000) == pytest.approx(
+        {"grammar": 0.5, "m-read": 0.3, "lower": 1.5}
+    )
 
 
 def test_phase_times_read_annotated_marks_and_skip_counters() -> None:
@@ -125,7 +128,9 @@ def test_phase_times_read_annotated_marks_and_skip_counters() -> None:
         "btrcc timing: a-records-stored(replayed=2,journaled=1)=1000us module-units=lowered:3,reused:2 "
         "setjmp-analyses=2/3,rounds=1,levels=2 a-records-stored(replayed=0,journaled=4)=500us\n"
     )
-    assert phase_times(stderr) == pytest.approx({"a-records-stored": 1.5})
+    assert TimingReport.phase_times(stderr, compilers=("btrcc",), per_second=1000) == pytest.approx(
+        {"a-records-stored": 1.5}
+    )
 
 
 def test_no_tracked_file_spells_the_retired_timing_variable() -> None:
@@ -142,7 +147,7 @@ def test_no_tracked_file_spells_the_retired_timing_variable() -> None:
 
 
 def test_workloads_are_discovered_and_run_kinds_are_named() -> None:
-    programs = discover()
+    programs = Program.discover()
     names = {program.name for program in programs}
     assert {
         "BenchHello",
@@ -157,16 +162,16 @@ def test_workloads_are_discovered_and_run_kinds_are_named() -> None:
     assert not next(program for program in programs if program.name == "CompileStdlibHeavy").runs
     assert all(program.path.parent == PROGRAMS for program in programs)
     with pytest.raises(ValueError):
-        discover(["NoSuchProgram"])
+        Program.discover(["NoSuchProgram"])
 
 
 def test_tracked_baseline_document_is_well_formed() -> None:
-    document = baseline.load()
+    document = Baseline.load()
     for key, entry in document["platforms"].items():
         assert key == f"{key.split('-')[0]}-{key.split('-', 1)[1]}"
         assert {"recorded", "metrics"} <= set(entry)
         for name in entry["metrics"]:
-            baseline.metric_kind(name)
+            Baseline.metric_kind(name)
 
 
 def test_peaks_gate_at_two_percent_and_report_a_drop_so_the_baseline_is_retightened() -> None:
@@ -177,21 +182,21 @@ def test_peaks_gate_at_two_percent_and_report_a_drop_so_the_baseline_is_retighte
         "btrcc.compile.A_peak": 3.05 * gib,
         "btrcc.compile.B_peak": 2.9 * gib,
     }
-    findings = {finding.name: finding.status for finding in baseline.compare(current, recorded)}
+    findings = {finding.name: finding.status for finding in Baseline.compare(current, recorded)}
     assert findings == {
         "btrcc.workload.W_peak": "regression",  # +2.3%
         "btrcc.compile.A_peak": "ok",  # +1.7%
         "btrcc.compile.B_peak": "improvement",  # -3.3%
     }
-    loose = baseline.compare({"btrcc.workload.W_peak": 3.07 * gib}, recorded, tolerance_peak=0.05)
+    loose = Baseline.compare({"btrcc.workload.W_peak": 3.07 * gib}, recorded, tolerance_peak=0.05)
     assert loose[0].status == "ok"
 
 
 def test_a_small_peak_gets_the_absolute_floor_of_slack() -> None:
     small = 4 << 20  # a 4 MiB compile: 2% is 84 KiB, below page and allocator noise
-    floor = baseline.PEAK_FLOOR
+    floor = PEAK_FLOOR
     statuses = [
-        baseline.compare({"btrcc.compile.H_peak": small + delta}, {"btrcc.compile.H_peak": small})[0].status
+        Baseline.compare({"btrcc.compile.H_peak": small + delta}, {"btrcc.compile.H_peak": small})[0].status
         for delta in (floor - 1, floor + 1, -(floor + 1))
     ]
     assert statuses == ["ok", "regression", "improvement"]
@@ -200,22 +205,22 @@ def test_a_small_peak_gets_the_absolute_floor_of_slack() -> None:
 def test_a_workload_peak_over_its_absolute_budget_fails_whatever_its_baseline() -> None:
     current = {"btrcc.workload.W_peak": 3.01 * 2**30, "btrcc.workload.V_peak": 2.99 * 2**30}
     current["btrcc.compile.Huge_peak"] = 4.0 * 2**30  # a program compile is not the budgeted workload
-    assert baseline.over_budget(current, 3.0) == ["btrcc.workload.W_peak"]
-    assert baseline.over_budget(current, None) == []
+    assert Baseline.over_budget(current, 3.0) == ["btrcc.workload.W_peak"]
+    assert Baseline.over_budget(current, None) == []
 
 
 def test_merge_keeps_the_platform_metrics_a_peak_only_run_did_not_measure(tmp_path: Path) -> None:
     path = tmp_path / "baseline.json"
-    baseline.store(baseline.load(path), "darwin-arm64", {"a_ms": 1.0, "b.p_peak": 100}, {"revision": "abc"}, path)
-    baseline.store(
-        baseline.load(path), "darwin-arm64", {"b.p_peak": 90, "w_peak": 7}, {"revision": "def"}, path, merge=True
+    Baseline.store(Baseline.load(path), "darwin-arm64", {"a_ms": 1.0, "b.p_peak": 100}, {"revision": "abc"}, path)
+    Baseline.store(
+        Baseline.load(path), "darwin-arm64", {"b.p_peak": 90, "w_peak": 7}, {"revision": "def"}, path, merge=True
     )
-    entry = baseline.load(path)["platforms"]["darwin-arm64"]
+    entry = Baseline.load(path)["platforms"]["darwin-arm64"]
     assert entry["metrics"] == {"a_ms": 1.0, "b.p_peak": 90, "w_peak": 7}
     assert entry["recorded"] == {"revision": "abc"}
     assert entry["updates"] == [{"revision": "def", "metrics": ["b.p_peak", "w_peak"]}]
-    baseline.store(baseline.load(path), "darwin-arm64", {"c_ms": 2.0}, {"revision": "ghi"}, path)
-    assert baseline.load(path)["platforms"]["darwin-arm64"] == {
+    Baseline.store(Baseline.load(path), "darwin-arm64", {"c_ms": 2.0}, {"revision": "ghi"}, path)
+    assert Baseline.load(path)["platforms"]["darwin-arm64"] == {
         "recorded": {"revision": "ghi"},
         "metrics": {"c_ms": 2.0},
     }
@@ -228,12 +233,12 @@ def _allocating(megabytes: int) -> list[str]:
 
 
 def test_measure_peak_sees_an_allocation_and_rejects_a_failed_command(tmp_path: Path) -> None:
-    small = measure_peak(_allocating(16), {}, tmp_path)
-    large = measure_peak(_allocating(80), {}, tmp_path)
-    assert small.source == large.source == peak_counter()
+    small = Peak.measure(_allocating(16), {}, tmp_path)
+    large = Peak.measure(_allocating(80), {}, tmp_path)
+    assert small.source == large.source == Peak.counter()
     assert large.bytes - small.bytes > 60 << 20
     with pytest.raises(RuntimeError, match="failed"):
-        measure_peak([sys.executable, "-c", "raise SystemExit(3)"], {}, tmp_path)
+        Peak.measure([sys.executable, "-c", "raise SystemExit(3)"], {}, tmp_path)
 
 
 def test_workload_command_is_the_cold_jobs_1_module_unit_compile(tmp_path: Path) -> None:
@@ -244,7 +249,7 @@ def test_workload_command_is_the_cold_jobs_1_module_unit_compile(tmp_path: Path)
     assert {"--debug", "--module-units", "--emit-units", "--emit-link-plan"} <= set(command)
     assert command[-3:] == ["src/BTRSmith.btrc", "-o", str(tmp_path / "build" / "p.c")]
     assert "--target" not in Workload(tmp_path, "src/App.btrc").command(Path("btrcc"), tmp_path)
-    assert host_target() in {None, "macos-arm64", "macos-x64", "linux-arm64", "linux-x64"}
+    assert Workload.host_target() in {None, "macos-arm64", "macos-x64", "linux-arm64", "linux-x64"}
 
 
 def _stand_in_compiler(directory: Path) -> Path:
@@ -292,8 +297,8 @@ def test_peak_guard_trips_on_an_injected_allocation(tmp_path: Path, monkeypatch:
     injected = tmp_path / "injected.json"
     assert main(["check", *common, "--baseline", str(recorded), "--json", str(injected)]) == 1
     metrics = json.loads(injected.read_text())["metrics"]
-    recorded_metrics = baseline.platform_metrics(baseline.load(recorded), baseline.platform_key())
-    statuses = {finding.name: finding.status for finding in baseline.compare(metrics, recorded_metrics)}
+    recorded_metrics = Baseline.platform_metrics(Baseline.load(recorded), Baseline.platform_key())
+    statuses = {finding.name: finding.status for finding in Baseline.compare(metrics, recorded_metrics)}
     assert statuses == {"btrcc.compile.BenchHello_peak": "regression", "btrcc.workload.BTRSmith_peak": "regression"}
     assert main(["check", *common, "--baseline", str(recorded), "--peak-tolerance", "0.5"]) == 0
     # The M11 guard alone: the workload, no program compiles and no timings.

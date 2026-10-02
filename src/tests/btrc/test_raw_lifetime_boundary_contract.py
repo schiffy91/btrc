@@ -10,22 +10,15 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.allocation_tracking_harness import compiler_environment
+from src.tests.btrc.dual_frontend_harness import REPO
 from src.tests.btrc.production_readiness_harness import (
     compile_fixture_pair,
     run_strict_pair,
 )
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
 from src.tests.btrc.string_coercion_harness import compile_pair
-from src.tests.btrc.test_arc_hidden_lifecycle_boundaries import (
-    _compiler_environment,
-)
-from src.tests.btrc.test_mutex_value_contract import REPO
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-)
 from src.tests.c_toolchains import HOST_C_COMPILERS
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 FIXTURE = Path(__file__).parents[1] / "classes" / "ClassDotSyntax.btrc"
 
@@ -238,8 +231,8 @@ def test_managed_raw_lifetime_calls_fail_in_both_analyzers(
     diagnostic: str,
     guidance: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_source(tmp_path, source)
     for result in (selfhost, reference):
         assert result.returncode != 0
         assert diagnostic in result.stderr
@@ -357,7 +350,7 @@ def test_class_dot_lifecycle_is_dual_frontend_strict_c11(
         for compiler in HOST_C_COMPILERS:
             for optimization in ("-O0", "-O2"):
                 executable = tmp_path / (f"{frontend}-{Path(compiler).name}-{optimization[1:]}")
-                environment = _compiler_environment(compiler)
+                environment = compiler_environment(compiler)
                 build = subprocess.run(
                     [
                         compiler,

@@ -2,7 +2,7 @@
 base pointer (vtables), qualified enum-value references, char/tuple values,
 null returns, and GPU-result assignment to an existing variable."""
 
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 
 def test_global_variable_emitted():

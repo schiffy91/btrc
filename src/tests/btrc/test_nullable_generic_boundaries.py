@@ -8,8 +8,6 @@ from src.tests.btrc.production_readiness_harness import (
     run_strict_pair,
 )
 
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
-
 FIXTURES = Path(__file__).with_name("fixtures")
 
 

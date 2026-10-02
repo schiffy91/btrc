@@ -8,7 +8,7 @@ import pytest
 
 from src.tests.c_toolchains import HOST_C_COMPILERS
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
-from src.tests.python.test_codegen import emit_c
+from src.tests.python.reference_pipeline import emit_c
 
 RUNTIME_SOURCE = """
 #include <assert.h>

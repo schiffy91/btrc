@@ -6,10 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_ownership_semantics_contract import _compile_reference_source
-from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 FIXTURE = Path(__file__).with_name("fixtures") / "TypedefMemberAliasRuntime.btrc"
 
@@ -19,16 +17,16 @@ def test_alias_member_dispatch_and_scope_cleanup_have_runtime_parity(
     tmp_path: Path,
 ) -> None:
     source = FIXTURE.read_text()
-    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_source = _compile_reference_source(tmp_path, source)
+    selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = compile_ownership_reference(tmp_path, source)
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     reference_c = reference_source.read_text()
     assert "BoxAlias box = Box_new(10);" in reference_c
     assert "CellAlias cell = btrc_Cell_int_new(5);" in reference_c
-    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-typedef-members")
-    _strict_build_and_run(reference_source, tmp_path / "reference-typedef-members")
+    strict_build_and_run(selfhost_source, tmp_path / "selfhost-typedef-members")
+    strict_build_and_run(reference_source, tmp_path / "reference-typedef-members")
 
 
 @pytest.mark.parametrize(
@@ -76,8 +74,8 @@ def test_alias_member_diagnostics_have_compiler_parity(
     source: str,
     diagnostic: str,
 ) -> None:
-    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _ = _compile_reference_source(tmp_path, source)
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_ownership_reference(tmp_path, source)
 
     assert selfhost.returncode != 0
     assert reference.returncode != 0

@@ -6,20 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_source,
-    _run,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_parser_diagnostics",)
+from src.tests.btrc.parser_driver_harness import selfhost_drivers as selfhost_drivers
+from src.tests.btrc.selfhost_snippet_harness import compile_source, run_in_repo, strict_build_and_run
 
 
 def test_selfhost_parser_marks_only_constructor_syntax(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
     source = tmp_path / "constructors.btrc"
     source.write_text("class Box { public Box() {} public int read() { return 1; } }\n")
 
-    parsed = _run([str(selfhost_drivers["parser"]), str(source)], timeout=15)
+    parsed = run_in_repo([str(selfhost_drivers["parser"]), str(source)], timeout=15)
 
     assert parsed.returncode == 0, parsed.stderr
     assert parsed.stdout.count("is_constructor=true") == 1
@@ -49,7 +44,7 @@ def test_constructor_lookalikes_are_rejected(
     member: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(
+    result, _ = compile_source(
         selfhost_drivers["compiler"],
         tmp_path,
         f"class Box {{ {member} }} int main() {{ return 0; }}",
@@ -71,10 +66,10 @@ def test_marked_constructor_is_the_only_initializer_source(selfhost_drivers: dic
             return box.read() == 42 ? 0 : 1;
         }
     """
-    result, generated = _compile_source(selfhost_drivers["compiler"], tmp_path, source)
+    result, generated = compile_source(selfhost_drivers["compiler"], tmp_path, source)
 
     assert result.returncode == 0, result.stderr
     emitted = generated.read_text()
     assert "void Box_init(Box* self, int value)" in emitted
     assert "Box_Box" not in emitted
-    _strict_build_and_run(generated, tmp_path / "constructor-identity")
+    strict_build_and_run(generated, tmp_path / "constructor-identity")

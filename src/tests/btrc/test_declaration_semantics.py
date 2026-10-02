@@ -6,13 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.test_semantic_validation import (
-    _compile_reference_source,
-    _compile_source,
-    _strict_build_and_run,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 
 @pytest.mark.parametrize(
@@ -148,7 +142,7 @@ def test_invalid_declaration_contracts_are_rejected(
     source: str,
     diagnostic: str,
 ) -> None:
-    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    result, _ = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 1
     assert diagnostic in result.stderr
 
@@ -309,9 +303,9 @@ def test_valid_declaration_contracts_compile_strictly(
     tmp_path: Path,
     source: str,
 ) -> None:
-    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    result, generated = compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
-    _strict_build_and_run(generated, tmp_path / "program")
+    strict_build_and_run(generated, tmp_path / "program")
 
 
 @pytest.mark.parametrize(
@@ -362,12 +356,12 @@ def test_static_storage_initializer_acceptance_matches_reference(
     source: str,
 ) -> None:
     compiled = (
-        _compile_reference_source(tmp_path, source),
-        _compile_source(semantic_btrcc, tmp_path, source),
+        compile_reference_source(tmp_path, source),
+        compile_source(semantic_btrcc, tmp_path, source),
     )
     for index, (result, generated) in enumerate(compiled):
         assert result.returncode == 0, result.stderr
-        _strict_build_and_run(generated, tmp_path / f"static-valid-{index}")
+        strict_build_and_run(generated, tmp_path / f"static-valid-{index}")
 
 
 @pytest.mark.parametrize(
@@ -397,8 +391,8 @@ def test_dynamic_static_storage_initializers_are_rejected_in_both_compilers(
     source: str,
 ) -> None:
     compiled = (
-        _compile_reference_source(tmp_path, source),
-        _compile_source(semantic_btrcc, tmp_path, source),
+        compile_reference_source(tmp_path, source),
+        compile_source(semantic_btrcc, tmp_path, source),
     )
     for result, _ in compiled:
         assert result.returncode == 1
@@ -407,10 +401,10 @@ def test_dynamic_static_storage_initializers_are_rejected_in_both_compilers(
 
 def test_native_abi_allowlist_only_permits_bodyless_prototype(semantic_btrcc: Path, tmp_path: Path) -> None:
     prototype = "bool btrc_gpu_available(); int main() { return 0; }"
-    accepted, _ = _compile_source(semantic_btrcc, tmp_path, prototype)
+    accepted, _ = compile_source(semantic_btrcc, tmp_path, prototype)
     assert accepted.returncode == 0, accepted.stderr
 
     definition = "bool btrc_gpu_available() { return true; } int main() { return 0; }"
-    rejected, _ = _compile_source(semantic_btrcc, tmp_path, definition)
+    rejected, _ = compile_source(semantic_btrcc, tmp_path, definition)
     assert rejected.returncode == 1
     assert "compiler-reserved 'btrc_' prefix" in rejected.stderr

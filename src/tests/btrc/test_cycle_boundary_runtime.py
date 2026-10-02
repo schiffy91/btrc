@@ -2,12 +2,7 @@
 
 from pathlib import Path
 
-from src.tests.btrc.test_mutex_value_contract import (
-    _compile_pair,
-    _strict_matrix,
-)
-
-pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
 
 FIXTURE = Path(__file__).with_name("fixtures") / "CycleEdgeBoundaryRuntime.btrc"
 
@@ -16,7 +11,7 @@ def test_edge_only_collection_boundary_forces_subthreshold_cycle(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = _compile_pair(
+    compiled = compile_snippet_pair(
         semantic_btrcc,
         tmp_path,
         FIXTURE.read_text(),
@@ -24,4 +19,4 @@ def test_edge_only_collection_boundary_forces_subthreshold_cycle(
     )
 
     for artifact in compiled:
-        _strict_matrix(artifact, tmp_path)
+        strict_c11_matrix(artifact, tmp_path)

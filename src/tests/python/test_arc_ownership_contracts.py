@@ -2,22 +2,16 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.application.pipeline import CompilationPipeline
-from src.compiler.python.application.results import CompilerOptions
-from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
-from src.compiler.python.lexer.lexer import Lexer
-from src.compiler.python.parser.parser import Parser
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.process_limits import C_COMPILE_TIMEOUT
+from src.tests.python.asan_toolchain import asan_environment, find_asan_compiler
+from src.tests.python.reference_pipeline import emit_ownership_c
 
 OWNERSHIP_SOURCE = r"""
     #include <assert.h>
@@ -561,98 +555,12 @@ RETURN_PROJECTION_SOURCE = r"""
 """
 
 
-def _emit(source: str) -> str:
-    program = Parser(Lexer(source, "<arc-ownership>").tokenize()).parse()
-    analyzed = SemanticAnalyzer().analyze(program)
-    assert analyzed.errors == []
-    pipeline = CompilationPipeline()
-    module = pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
-    return pipeline.emit(module)
-
-
-def _asan_environment(compiler: str) -> dict[str, str] | None:
-    """Isolate the host Apple toolchain from an enclosing Nix build shell."""
-    if sys.platform != "darwin" or os.path.realpath(compiler) != "/usr/bin/clang":
-        return None
-
-    environment = {
-        name: os.environ[name]
-        for name in ("HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE")
-        if name in os.environ
-    }
-    environment.update(
-        {
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "TMPDIR": "/tmp",
-        }
-    )
-    return environment
-
-
-def _find_asan_compiler(tmp_path: Path) -> str:
-    """Return the first compiler that can both build and link ASan here."""
-    probe = tmp_path / "asan-probe.c"
-    executable = tmp_path / "asan-probe"
-    probe.write_text("int main(void) { return 0; }\n")
-    failures = []
-    candidates = list(HOST_C_COMPILERS)
-    if sys.platform == "darwin":
-        system_clang = "/usr/bin/clang"
-        if os.access(system_clang, os.X_OK):
-            candidates.append(system_clang)
-    unique_candidates = []
-    seen = set()
-    for compiler in candidates:
-        identity = os.path.realpath(compiler)
-        if identity not in seen:
-            seen.add(identity)
-            unique_candidates.append(compiler)
-
-    for compiler in unique_candidates:
-        environment = _asan_environment(compiler)
-        result = subprocess.run(
-            [
-                compiler,
-                "-std=c11",
-                "-fsanitize=address",
-                str(probe),
-                "-o",
-                str(executable),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=environment,
-            timeout=C_COMPILE_TIMEOUT,
-        )
-        name = Path(compiler).name
-        if result.returncode != 0:
-            failures.append(f"{name}: {result.stderr[:120]}")
-            continue
-        try:
-            probe_run = subprocess.run(
-                [str(executable)],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=3,
-                env=environment,
-            )
-        except subprocess.TimeoutExpired:
-            failures.append(f"{name}: linked ASan runtime timed out")
-            continue
-        if probe_run.returncode == 0:
-            return compiler
-        failures.append(f"{name}: ASan probe exited {probe_run.returncode}: {probe_run.stderr[:120]}")
-    pytest.skip("AddressSanitizer unavailable: " + "; ".join(failures))
-
-
 @requires_host_c_compiler
 @pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_arc_ownership_is_balanced_at_runtime(tmp_path: Path, c_compiler: str):
     source = tmp_path / f"ownership-{Path(c_compiler).name}.c"
     executable = source.with_suffix("")
-    source.write_text(_emit(OWNERSHIP_SOURCE))
+    source.write_text(emit_ownership_c(OWNERSHIP_SOURCE))
     compiled = subprocess.run(
         [
             c_compiler,
@@ -685,7 +593,7 @@ def test_managed_local_and_instance_field_replacement_is_balanced(
 ):
     source = tmp_path / f"managed-replacement-{Path(c_compiler).name}.c"
     executable = source.with_suffix("")
-    emitted = _emit(MANAGED_REPLACEMENT_SOURCE)
+    emitted = emit_ownership_c(MANAGED_REPLACEMENT_SOURCE)
     source.write_text(emitted)
     assert "__btrc_slot_new_" in emitted
     assert "__btrc_arc_replace_edge" in emitted
@@ -721,7 +629,7 @@ def test_managed_returns_and_owned_projections_are_balanced(
 ):
     source = tmp_path / f"return-projection-{Path(c_compiler).name}.c"
     executable = source.with_suffix("")
-    source.write_text(_emit(RETURN_PROJECTION_SOURCE))
+    source.write_text(emit_ownership_c(RETURN_PROJECTION_SOURCE))
     compiled = subprocess.run(
         [
             c_compiler,
@@ -747,14 +655,14 @@ def test_managed_returns_and_owned_projections_are_balanced(
 
 
 def test_ownership_lowering_stays_structured():
-    emitted = _emit(OWNERSHIP_SOURCE)
+    emitted = emit_ownership_c(OWNERSHIP_SOURCE)
     assert "__auto_type" not in emitted
     assert "({" not in emitted
     assert "__btrc_register_cleanup" in emitted
 
 
 def test_borrowed_managed_local_initializers_acquire_scope_ownership():
-    emitted = _emit(
+    emitted = emit_ownership_c(
         """
         class Item {
             public int id;
@@ -853,11 +761,11 @@ def test_borrowed_managed_local_initializers_acquire_scope_ownership():
 )
 def test_shallow_aggregates_reject_owned_temporaries(source: str):
     with pytest.raises(CodegenError, match=r"shallow|rich-enum"):
-        _emit(source)
+        emit_ownership_c(source)
 
 
 def test_shallow_aggregates_accept_explicit_borrowed_elements():
-    emitted = _emit(
+    emitted = emit_ownership_c(
         """
         class Item { public int id; public Item(int id) { self.id = id; } }
         struct Slot { Item value; };
@@ -909,7 +817,7 @@ def test_shallow_aggregates_accept_explicit_borrowed_elements():
 )
 def test_rich_enum_payload_rejects_owned_calls_and_conversions(source: str):
     with pytest.raises(CodegenError, match=r"rich-enum payload 'Payload\.Some'"):
-        _emit(source)
+        emit_ownership_c(source)
 
 
 @requires_host_c_compiler
@@ -925,11 +833,11 @@ def test_managed_ownership_is_asan_clean(
     case: str,
     source_text: str,
 ):
-    compiler = _find_asan_compiler(tmp_path)
-    environment = _asan_environment(compiler)
+    compiler = find_asan_compiler(tmp_path)
+    environment = asan_environment(compiler)
     source = tmp_path / f"ownership-{case}-asan.c"
     executable = source.with_suffix("")
-    source.write_text(_emit(source_text))
+    source.write_text(emit_ownership_c(source_text))
     compiled = subprocess.run(
         [
             compiler,
