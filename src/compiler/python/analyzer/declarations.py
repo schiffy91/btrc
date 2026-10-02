@@ -377,6 +377,11 @@ class TopLevelRegistrar:
         if declaration.body is not None:
             registry.merge_defaults(declaration, existing)
             self.index.function_table[declaration.name] = declaration
+        elif existing.body is None and any(not parameter.name for parameter in existing.params):
+            # A named prototype supersedes an unnamed one, so a later
+            # definition is checked against the names it declares.
+            registry.merge_defaults(declaration, existing)
+            self.index.function_table[declaration.name] = declaration
         else:
             registry.merge_defaults(existing, declaration)
 

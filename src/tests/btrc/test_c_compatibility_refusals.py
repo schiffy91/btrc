@@ -51,6 +51,16 @@ REFUSALS = [
         id="r01-qualified-void",
     ),
     pytest.param(
+        "int f(void[]);\nint main() { return 0; }",
+        (VOID_LIST, 1, 7),
+        id="r01-void-array",
+    ),
+    pytest.param(
+        "int f(int)\nint main() { return 0; }",
+        ("Expected LBRACE, got INT 'int'", 2, 1),
+        id="r01-prototype-missing-semicolon",
+    ),
+    pytest.param(
         "int f(int, int y) { return y; }\nint main() { return 0; }",
         (UNNAMED, 1, 7),
         id="r01-unnamed-definition",
@@ -74,6 +84,11 @@ REFUSALS = [
         "int f(int, double);\nint f(int a, int b) { return a + b; }\nint main() { return 0; }",
         ("Conflicting declarations for function 'f'", 2, 1),
         id="r01-prototype-type",
+    ),
+    pytest.param(
+        "int f(int);\nint f(int a);\nint f(int b) { return b; }\nint main() { return 0; }",
+        ("Conflicting declarations for function 'f'", 3, 1),
+        id="r01-named-prototype-after-unnamed",
     ),
     pytest.param(
         "class Box { public int get(int) { return 0; } }\nint main() { return 0; }",
@@ -299,6 +314,8 @@ ACCEPTED = [
         #include <assert.h>
         static int clampTo(int, int);
         extern int shift(int, int);
+        int shift(int value, int by);
+        int shift(int, int);
         int shift(int value, int by) { return value << by; }
         static int clampTo(int value, int limit) { return value > limit ? limit : value; }
         int main(void) {

@@ -410,6 +410,13 @@ class NameValidator {
 		return true;
 	}
 
+	public bool hasUnnamedParameter(Node callable) {
+		for parameter in callable.params() {
+			if (parameter.name.isEmpty()) { return true; }
+		}
+		return false;
+	}
+
 	public bool namedTopLevel(Node declaration) { return declaration.kind == NK_CLASS_DECL || declaration.kind == NK_INTERFACE_DECL || declaration.kind == NK_FUNCTION_DECL || declaration.kind == NK_STRUCT_DECL || declaration.kind == NK_ENUM_DECL || declaration.kind == NK_RICH_ENUM_DECL || declaration.kind == NK_TYPEDEF_DECL || declaration.kind == NK_VAR_DECL_STMT; }
 
 	public string topLevelName(Node declaration) {
@@ -468,6 +475,23 @@ class NameValidator {
 					bool functionPair = declaration.kind == NK_FUNCTION_DECL && previous.kind == NK_FUNCTION_DECL;
 					if (functionPair && !self.callableSignatureSame(declaration, previous)) {
 						TypeValidator.fail("Conflicting declarations for function '" + name + "'", declaration);
+					}
+					if (functionPair && declaration.bodyNode == null && previous.bodyNode == null) {
+						/* C allows repeated prototypes. A named one supersedes an
+                         * unnamed one, so a later definition is checked against
+                         * the names it declares. */
+						Node kept = previous;
+						Node other = declaration;
+						if (self.hasUnnamedParameter(previous)) {
+							kept = declaration;
+							other = previous;
+						}
+						self.mergeCallableDefaults(kept, other);
+						declarations.put(name, kept);
+						self.state.analyzed.funcTable.put(name, kept);
+						self.state.analyzed.funcRetTypes.put(name, kept.returnType);
+						index = index + 1;
+						continue;
 					}
 					bool forwardPair = functionPair && ((declaration.bodyNode == null) != (previous.bodyNode == null));
 					if (!forwardPair) {

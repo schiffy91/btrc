@@ -598,12 +598,7 @@ class Parser:
             has_keep = True
             self._advance()
         type_expr = self._parse_type_expr()
-        if (
-            type_expr.base == "void"
-            and type_expr.pointer_depth == 0
-            and not type_expr.is_array
-            and not type_expr.generic_args
-        ):
+        if type_expr.base == "void" and type_expr.pointer_depth == 0 and not type_expr.generic_args:
             raise ParseError(VOID_PARAMETER_LIST, tok.line, tok.col)
         if self._check(TokenKind.COMMA, TokenKind.RPAREN, TokenKind.LBRACKET, TokenKind.EQ):
             if not allow_unnamed:
@@ -1200,7 +1195,8 @@ class Parser:
                     name_line=name_tok.line,
                     name_col=name_tok.col,
                 )
-            self._refuse_unnamed_definition(params)
+            if self._check(TokenKind.LBRACE):
+                self._refuse_unnamed_definition(params)
             body = self._parse_block()
             return FunctionDecl(
                 return_type=type_expr,

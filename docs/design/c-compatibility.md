@@ -99,7 +99,10 @@ or adjacent string.
 - **Lowering.** An unnamed `IRParam` has the empty name and both emitters print
   its type alone (`int f(int, char*);`). An empty list still prints `(void)`.
 - **Not in r01.** Abstract function-pointer declarators (`int (*)(int)`) are
-  r07's. btrcc still refuses a second prototype of an already-declared
-  function, which the reference compiler accepts (pre-existing; see
-  `docs/known-language-gaps.md`).
-
+  r07's.
+- **Repeated prototypes.** Both compilers accept any number of compatible
+  prototypes (btrcc used to refuse a second one). A named prototype
+  supersedes an unnamed one as the registered declaration, so
+  `int f(int); int f(int a); int f(int b) {}` conflicts at the definition in
+  both compilers. A `(` list not followed by `;` or `{` is the ordinary
+  `Expected LBRACE` error, not an unnamed-parameter refusal.

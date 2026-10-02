@@ -84,8 +84,8 @@ with the same diagnostic in both compilers:
 Still open: an abstract function-pointer parameter (`int (*)(int)`) waits for
 row 7; a prototype whose parameter names differ from its definition's
 (`int f(int a);` then `int f(int b) {}`) is refused as conflicting, though C
-accepts it; and btrcc refuses a second prototype of a function that the
-reference compiler accepts.
+accepts it; `typedef void V; int f(V);` is refused although C reads it as
+`(void)`; and a diagnostic about an unnamed parameter names it `''`.
 
 ## Variable-length arrays (C row 23)
 
