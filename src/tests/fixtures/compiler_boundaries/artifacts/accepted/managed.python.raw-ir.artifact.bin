@@ -129,17 +129,9 @@
     "helper_decls": [
       {
         "$type": "IRHelperDecl",
-        "category": "string_ownership",
-        "name": "__btrc_string_registry",
-        "c_source": "typedef struct __btrc_string_entry {\n    char* value;\n    size_t references;\n    /* Byte length, cached by the first length query of a long string (0 =\n     * not yet measured). Strings are immutable once published, so the cache\n     * never goes stale; it turns every substring, length and index query on\n     * a large text from a strlen of the whole text into a table lookup. */\n    size_t length;\n    struct __btrc_string_entry* next;\n} __btrc_string_entry;\n\nstatic __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\nstatic __btrc_string_entry** __btrc_string_buckets =\n    __btrc_string_inline_buckets;\nstatic size_t __btrc_string_bucket_count = 64;",
-        "depends_on": [],
-        "required_headers": []
-      },
-      {
-        "$type": "IRHelperDecl",
-        "category": "string_ownership",
-        "name": "__btrc_string_registry_hash",
-        "c_source": "static inline size_t __btrc_string_hash(const char* value, size_t buckets) {\n    uintptr_t bits = (uintptr_t)(const void*)value;\n    bits ^= bits >> 17;\n    bits *= (uintptr_t)0xed5ad4bbU;\n    bits ^= bits >> 11;\n    return (size_t)(bits % (uintptr_t)buckets);\n}",
+        "category": "alloc",
+        "name": "__btrc_safe_realloc",
+        "c_source": "static inline void* __btrc_safe_realloc(void* ptr, size_t size) {\n    if (size == 0) { free(ptr); return NULL; }\n    void* result = realloc(ptr, size);\n    if (!result) { fprintf(stderr, \"btrc: out of memory (realloc %zu bytes)\\n\", size); exit(1); }\n    return result;\n}",
         "depends_on": [],
         "required_headers": []
       },
@@ -154,24 +146,9 @@
       {
         "$type": "IRHelperDecl",
         "category": "string_ownership",
-        "name": "__btrc_string_registry_resize",
-        "c_source": "static inline void __btrc_string_registry_resize(size_t capacity) {\n    __btrc_string_entry** old_buckets = __btrc_string_buckets;\n    size_t old_capacity = __btrc_string_bucket_count;\n    __btrc_string_entry** buckets = (__btrc_string_entry**)\n        __btrc_safe_calloc(capacity, sizeof(__btrc_string_entry*));\n    for (size_t index = 0; index < old_capacity; index++) {\n        __btrc_string_entry* entry = old_buckets[index];\n        while (entry) {\n            __btrc_string_entry* next = entry->next;\n            size_t target = __btrc_string_hash(entry->value, capacity);\n            entry->next = buckets[target];\n            buckets[target] = entry;\n            entry = next;\n        }\n    }\n    if (old_buckets == __btrc_string_inline_buckets) {\n        memset(__btrc_string_inline_buckets, 0,\n            sizeof(__btrc_string_inline_buckets));\n    } else {\n        free(old_buckets);\n    }\n    __btrc_string_buckets = buckets;\n    __btrc_string_bucket_count = capacity;\n}",
-        "depends_on": [
-          "__btrc_string_registry",
-          "__btrc_string_registry_hash",
-          "__btrc_safe_calloc"
-        ],
-        "required_headers": []
-      },
-      {
-        "$type": "IRHelperDecl",
-        "category": "string_ownership",
-        "name": "__btrc_string_registry_slot",
-        "c_source": "static inline __btrc_string_entry** __btrc_string_slot(const char* value) {\n    size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);\n    __btrc_string_entry** slot = &__btrc_string_buckets[index];\n    while (*slot && (*slot)->value != value) slot = &(*slot)->next;\n    return slot;\n}",
-        "depends_on": [
-          "__btrc_string_registry",
-          "__btrc_string_registry_hash"
-        ],
+        "name": "__btrc_string_registry",
+        "c_source": "typedef struct __btrc_string_entry {\n    char* value;\n    size_t references;\n    /* Byte length, cached by the first length query of a long string (0 =\n     * not yet measured). Strings are immutable once published, so the cache\n     * never goes stale; it turns every substring, length and index query on\n     * a large text from a strlen of the whole text into a table lookup. */\n    size_t length;\n    struct __btrc_string_entry* next;\n} __btrc_string_entry;\n\nstatic __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\nstatic __btrc_string_entry** __btrc_string_buckets =\n    __btrc_string_inline_buckets;\nstatic size_t __btrc_string_bucket_count = 64;",
+        "depends_on": [],
         "required_headers": []
       },
       {
@@ -197,6 +174,25 @@
       {
         "$type": "IRHelperDecl",
         "category": "string_ownership",
+        "name": "__btrc_string_registry_hash",
+        "c_source": "static inline size_t __btrc_string_hash(const char* value, size_t buckets) {\n    uintptr_t bits = (uintptr_t)(const void*)value;\n    bits ^= bits >> 17;\n    bits *= (uintptr_t)0xed5ad4bbU;\n    bits ^= bits >> 11;\n    return (size_t)(bits % (uintptr_t)buckets);\n}",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_registry_slot",
+        "c_source": "static inline __btrc_string_entry** __btrc_string_slot(const char* value) {\n    size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);\n    __btrc_string_entry** slot = &__btrc_string_buckets[index];\n    while (*slot && (*slot)->value != value) slot = &(*slot)->next;\n    return slot;\n}",
+        "depends_on": [
+          "__btrc_string_registry",
+          "__btrc_string_registry_hash"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
         "name": "__btrc_string_registry_count",
         "c_source": "static size_t __btrc_string_entry_count = 0;",
         "depends_on": [],
@@ -204,10 +200,14 @@
       },
       {
         "$type": "IRHelperDecl",
-        "category": "alloc",
-        "name": "__btrc_safe_realloc",
-        "c_source": "static inline void* __btrc_safe_realloc(void* ptr, size_t size) {\n    if (size == 0) { free(ptr); return NULL; }\n    void* result = realloc(ptr, size);\n    if (!result) { fprintf(stderr, \"btrc: out of memory (realloc %zu bytes)\\n\", size); exit(1); }\n    return result;\n}",
-        "depends_on": [],
+        "category": "string_ownership",
+        "name": "__btrc_string_registry_resize",
+        "c_source": "static inline void __btrc_string_registry_resize(size_t capacity) {\n    __btrc_string_entry** old_buckets = __btrc_string_buckets;\n    size_t old_capacity = __btrc_string_bucket_count;\n    __btrc_string_entry** buckets = (__btrc_string_entry**)\n        __btrc_safe_calloc(capacity, sizeof(__btrc_string_entry*));\n    for (size_t index = 0; index < old_capacity; index++) {\n        __btrc_string_entry* entry = old_buckets[index];\n        while (entry) {\n            __btrc_string_entry* next = entry->next;\n            size_t target = __btrc_string_hash(entry->value, capacity);\n            entry->next = buckets[target];\n            buckets[target] = entry;\n            entry = next;\n        }\n    }\n    if (old_buckets == __btrc_string_inline_buckets) {\n        memset(__btrc_string_inline_buckets, 0,\n            sizeof(__btrc_string_inline_buckets));\n    } else {\n        free(old_buckets);\n    }\n    __btrc_string_buckets = buckets;\n    __btrc_string_bucket_count = capacity;\n}",
+        "depends_on": [
+          "__btrc_string_registry",
+          "__btrc_string_registry_hash",
+          "__btrc_safe_calloc"
+        ],
         "required_headers": []
       },
       {
@@ -280,20 +280,20 @@
       {
         "$type": "IRHelperDecl",
         "category": "string",
+        "name": "__btrc_ascii_upper",
+        "c_source": "static inline char __btrc_ascii_upper(char value) {\n    unsigned char byte = (unsigned char)value;\n    return (byte >= 'a' && byte <= 'z') ? (char)(byte - 'a' + 'A') : value;\n}",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string",
         "name": "__btrc_substring",
         "c_source": "static inline char* __btrc_substring(const char* s, int start, int len) {\n    if (!s) return __btrc_string_alloc(0);\n    int slen = __btrc_string_length(s);\n    if (start < 0) start = 0;\n    if (start > slen) start = slen;\n    if (len < 0) len = 0;\n    if (len > slen - start) len = slen - start;\n    char* result = __btrc_string_alloc(len);\n    memcpy(result, s + start, (size_t)len);\n    return result;\n}",
         "depends_on": [
           "__btrc_string_length",
           "__btrc_string_alloc"
         ],
-        "required_headers": []
-      },
-      {
-        "$type": "IRHelperDecl",
-        "category": "string",
-        "name": "__btrc_ascii_upper",
-        "c_source": "static inline char __btrc_ascii_upper(char value) {\n    unsigned char byte = (unsigned char)value;\n    return (byte >= 'a' && byte <= 'z') ? (char)(byte - 'a' + 'A') : value;\n}",
-        "depends_on": [],
         "required_headers": []
       },
       {

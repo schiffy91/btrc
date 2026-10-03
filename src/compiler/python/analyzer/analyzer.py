@@ -127,6 +127,7 @@ class SemanticAnalyzer:
         state.begin(program)
         self.ownership.begin()
         self.declarations.register(program)
+        self.generated_symbols.configure_unmodeled_includes(program)
         self.types.normalize_declarations(program)
         self.statements.validate_declarations(program)
         self.declarations.resolve_interface_parents(program)

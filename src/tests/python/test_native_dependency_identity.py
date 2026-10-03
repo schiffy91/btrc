@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.frontend.packages import NativeLinkPlan, PackageTarget
+from src.tests.c_toolchains import HOST_CLANG
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 from tools.native_plan import NativePlanBuilder, _ObjectCache
 
 
 @pytest.fixture
 def clang():
-    compiler = shutil.which("clang")
+    # The proof reads Clang's own dependency output and DWARF 5 file table.
+    compiler = HOST_CLANG
     if compiler is None:
         pytest.skip("dependency identity proof requires Clang")
     return compiler

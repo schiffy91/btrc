@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
+
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).with_name("fixtures")
 REALTIME_AUDIO = FIXTURES / "RealtimeAudioProgram.btrc"
 REALTIME_AUDIO_API = REPOSITORY / "src" / "stdlib" / "Audio" / "RealtimeAudio.btrc"
 CONSOLE_FATAL = FIXTURES / "ConsoleFatal.btrc"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _reference(source: Path, output: Path, cache: Path) -> subprocess.CompletedProcess[str]:
@@ -90,7 +90,7 @@ def _compile_pair(
     return generated
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_realtime_audio_program_runs_from_both_frontends_with_strict_compilers(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -100,7 +100,7 @@ def test_realtime_audio_program_runs_from_both_frontends_with_strict_compilers(
         emitted = source.read_text()
         assert "btrc_RealtimeAudioProgram" in emitted
         assert "struct AudioBlockView" in emitted
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"RealtimeAudioProgram-{frontend}-{Path(compiler).name}"
             built = _strict_build(compiler, source, executable)
             assert built.returncode == 0, built.stderr
@@ -216,7 +216,7 @@ def test_realtime_audio_sample_borrows_cannot_escape(
     assert expected in selfhost.stderr
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_console_fatal_flushes_one_diagnostic_and_aborts_from_both_frontends(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -226,7 +226,7 @@ def test_console_fatal_flushes_one_diagnostic_and_aborts_from_both_frontends(
         emitted = source.read_text()
         assert "Console_fatal" in emitted
         assert "fflush(stderr)" in emitted
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"ConsoleFatal-{frontend}-{Path(compiler).name}"
             built = _strict_build(compiler, source, executable)
             assert built.returncode == 0, built.stderr

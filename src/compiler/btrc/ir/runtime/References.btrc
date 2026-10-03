@@ -8,12 +8,24 @@ import ./Catalog.btrc;
 
 class RuntimeReferenceCollector {
 	private RuntimeHelperCatalog catalog;
+	/* Hosted headers live structured IR needs directly, as Python's
+	 * IROptimizer._structured_runtime_headers derives them: <setjmp.h> for a
+	 * setjmp call, <stdatomic.h> for atomic types, calls and constants, and
+	 * the compute runtime header for a call into it. */
+	private Map<string, bool> structuredHeaders = {};
+	private Map<string, bool> definedFunctions = {};
 
 	public RuntimeReferenceCollector(RuntimeHelperCatalog catalog) { self.catalog = catalog; }
+
+	/* The headers found by the last requiredBy walk. */
+	public Map<string, bool> requiredHeaders() { return self.structuredHeaders; }
 
 	public Map<string, bool> requiredBy(IRModule module) {
 		Vector<string> canonicalOrder = self.catalog.order();
 		Map<string, bool> used = {};
+		self.structuredHeaders = {};
+		self.definedFunctions = {};
+		for definition in module.functions { self.definedFunctions.put(definition.name, true); }
 
 		int functionIndex = 0;
 		while (functionIndex < module.functions.len) {
@@ -98,7 +110,19 @@ class RuntimeReferenceCollector {
 		}
 	}
 
+	private void collectStructuredHeaders(IRNode node) {
+		if (node.callee == "setjmp") { self.structuredHeaders.put("setjmp.h", true); }
+		if (node.callee.startsWith("atomic_")) { self.structuredHeaders.put("stdatomic.h", true); }
+		if (node.callee.startsWith("btrc_gpu_") && !self.definedFunctions.has(node.callee)) {
+			self.structuredHeaders.put("btrc_gpu_compute_internal.h", true);
+		}
+		if (node.kind == IRK_VAR && (node.name.startsWith("memory_order_") || node.name.startsWith("ATOMIC_"))) {
+			self.structuredHeaders.put("stdatomic.h", true);
+		}
+	}
+
 	private void collectTypeProviderReferences(string cType, Map<string, bool> used) {
+		if (cType.contains("_Atomic(") || cType == "memory_order") { self.structuredHeaders.put("stdatomic.h", true); }
 		int length = cType.length();
 		int index = 0;
 		while (index < length) {
@@ -144,6 +168,7 @@ class RuntimeReferenceCollector {
 		if (node.kind == IRK_VAR) {
 			self.collectObjectProviderReference(node.name, used);
 		}
+		self.collectStructuredHeaders(node);
 
 		self.collectNode(node.left, used);
 		self.collectNode(node.right, used);

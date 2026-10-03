@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -18,6 +17,7 @@ from src.tests.btrc.runtime_ownership_harness import (
     sanitized_build_and_run,
 )
 from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, run_in_repo
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 
 def _source(*, generic: bool) -> str:
@@ -254,7 +254,7 @@ def test_fixed_array_forin_is_strict_gcc_and_clang_clean(
     generic: bool,
 ) -> None:
     generated = _compile_both(semantic_btrcc, tmp_path, _source(generic=generic))
-    compilers = [path for name in ("gcc", "clang") if (path := shutil.which(name))]
+    compilers = list(HOST_C_COMPILERS)
     if not compilers:
         pytest.skip("strict GCC/Clang toolchains unavailable")
     for compiler in compilers:

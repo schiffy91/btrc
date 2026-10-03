@@ -1,12 +1,12 @@
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_CLANG, HOST_CLANGXX
 from src.tests.python.core_audio_fixtures import fault_package
 from tools.native_plan import NativePlanBuilder
 
@@ -66,8 +66,9 @@ def _transpile(
 
 
 def test_core_audio_provider_on_both_frontends(compiler: str, tmp_path: Path, request: pytest.FixtureRequest) -> None:
-    clang = shutil.which("clang")
-    clangxx = shutil.which("clang++")
+    # The Core Audio provider is built with the Apple toolchain's Clang pair.
+    clang = HOST_CLANG
+    clangxx = HOST_CLANGXX
     if clang is None or clangxx is None:
         pytest.skip("Clang is unavailable")
     generated = tmp_path / f"core-audio-{compiler}.c"

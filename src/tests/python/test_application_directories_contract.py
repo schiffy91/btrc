@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import errno
 import os
-import shutil
 import subprocess
 import sys
 import textwrap
@@ -12,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
+
 ROOT = Path(__file__).resolve().parents[3]
-C_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 PROGRAM = """
     import Library.FileSystem.ApplicationDirectories;
     import Library.FileSystem.FileSystemHandles;
@@ -108,8 +108,8 @@ def _run(executable: Path, **environment: str) -> str:
     return run.stdout.strip()
 
 
-@pytest.mark.skipif(not C_COMPILERS, reason="requires a hosted C11 compiler")
-@pytest.mark.parametrize("c_compiler", C_COMPILERS, ids=lambda path: Path(path).name)
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda path: Path(path).name)
 def test_application_directory_platform_policies_are_bounded_and_normalized(
     generated_application_directories: Path,
     tmp_path: Path,

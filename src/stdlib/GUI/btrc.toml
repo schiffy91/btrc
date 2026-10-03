@@ -38,7 +38,20 @@ symbols = [
 	"SDL_Cursor", "SDL_CreateSystemCursor", "SDL_SetCursor", "SDL_DestroyCursor",
 	"BtrcSdlEvent", "btrcSdlPollEvent", "btrcSdlWaitEvent", "btrcSdlPushWake",
 	"BtrcSdlFolderDialog", "btrcSdlFolderDialogOpen", "btrcSdlFolderDialogState", "btrcSdlFolderDialogPath", "btrcSdlFolderDialogRelease",
-	"btrcSdlPushPointerMotion", "btrcSdlPushPointerButton", "btrcSdlPushWheel", "btrcSdlPushKey", "btrcSdlPushText"
+	"btrcSdlPushPointerMotion", "btrcSdlPushPointerButton", "btrcSdlPushWheel", "btrcSdlPushKey", "btrcSdlPushText",
+	"SDLK_BACKSPACE", "SDLK_DELETE", "SDLK_DOWN", "SDLK_END", "SDLK_ESCAPE", "SDLK_HOME",
+	"SDLK_KP_ENTER", "SDLK_LALT", "SDLK_LEFT", "SDLK_LSHIFT", "SDLK_RALT", "SDLK_RETURN",
+	"SDLK_RIGHT", "SDLK_RSHIFT", "SDLK_SPACE", "SDLK_TAB", "SDLK_UP", "SDL_EVENT_KEY_DOWN",
+	"SDL_EVENT_KEY_UP", "SDL_EVENT_MOUSE_BUTTON_DOWN", "SDL_EVENT_MOUSE_BUTTON_UP", "SDL_EVENT_MOUSE_MOTION", "SDL_EVENT_MOUSE_WHEEL", "SDL_EVENT_QUIT",
+	"SDL_EVENT_TEXT_INPUT", "SDL_EVENT_WINDOW_CLOSE_REQUESTED", "SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED", "SDL_EVENT_WINDOW_EXPOSED", "SDL_EVENT_WINDOW_FOCUS_GAINED", "SDL_EVENT_WINDOW_FOCUS_LOST",
+	"SDL_EVENT_WINDOW_HIDDEN", "SDL_EVENT_WINDOW_MINIMIZED", "SDL_EVENT_WINDOW_MOUSE_ENTER", "SDL_EVENT_WINDOW_MOUSE_LEAVE", "SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "SDL_EVENT_WINDOW_RESIZED",
+	"SDL_EVENT_WINDOW_SHOWN", "SDL_INIT_EVENTS", "SDL_INIT_VIDEO", "SDL_KMOD_ALT", "SDL_KMOD_CTRL", "SDL_KMOD_GUI",
+	"SDL_KMOD_SHIFT", "SDL_MESSAGEBOX_INFORMATION", "SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER", "SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER", "SDL_PROP_WINDOW_X11_DISPLAY_POINTER", "SDL_PROP_WINDOW_X11_WINDOW_NUMBER",
+	"SDL_SCANCODE_A", "SDL_SCANCODE_C", "SDL_SCANCODE_D", "SDL_SCANCODE_LEFTBRACKET", "SDL_SCANCODE_Q", "SDL_SCANCODE_RIGHTBRACKET",
+	"SDL_SCANCODE_S", "SDL_SCANCODE_V", "SDL_SCANCODE_W", "SDL_SCANCODE_X", "SDL_SCANCODE_Z", "SDL_SYSTEM_CURSOR_DEFAULT",
+	"SDL_SYSTEM_CURSOR_TEXT", "SDL_WINDOW_HIDDEN", "SDL_WINDOW_HIGH_PIXEL_DENSITY", "SDL_WINDOW_RESIZABLE",
+	"SDLK_A", "SDLK_C", "SDLK_V", "SDL_KMOD_LCTRL", "SDL_SCANCODE_BACKSPACE", "SDL_SCANCODE_END",
+	"SDL_SCANCODE_LEFT"
 ]
 read-only-borrows = ["SDL_CreateWindow.title", "SDL_SetWindowTitle.title", "SDL_GetPointerProperty.name", "SDL_GetNumberProperty.name", "SDL_SetClipboardText.text", "SDL_ShowSimpleMessageBox.title", "SDL_ShowSimpleMessageBox.message", "btrcSdlFolderDialogOpen.initialDirectory", "btrcSdlFolderDialogOpen.title", "btrcSdlPushText.text"]
 os = ["linux"]
@@ -56,7 +69,7 @@ standard = "c11"
 symbols = [
 	"FcPattern", "FcConfig", "FcChar8", "FcResult", "FcResultMatch", "FcResultNoMatch", "FcMatchPattern",
 	"FcInit", "FcNameParse", "FcPatternAddInteger", "FcConfigSubstitute", "FcDefaultSubstitute", "FcFontMatch", "FcPatternGetString",
-	"FcPatternDestroy"
+	"FcPatternDestroy", "FC_FILE", "FC_WEIGHT", "FC_WEIGHT_REGULAR", "FC_WEIGHT_BOLD"
 ]
 read-only-borrows = ["FcNameParse.name", "FcPatternAddInteger.object", "FcPatternGetString.object"]
 os = ["linux"]

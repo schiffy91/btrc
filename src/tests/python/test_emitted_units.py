@@ -1,21 +1,23 @@
 """`--emit-units` splits a program into translation units that link and run like the single unit."""
 
+import hashlib
 import json
 import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import default_toolchain
 from src.tests.process_limits import TOOL_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 PROGRAM = ROOT / "src/tests/collections/ForinInterfaceListLiteral.btrc"
 GOLDEN = ROOT / "src/tests/collections/expected/ForinInterfaceListLiteral.stdout"
+TOOLCHAIN = default_toolchain()
 
 
 @pytest.mark.parametrize("split", [False, True])
@@ -176,7 +178,7 @@ def test_both_compilers_map_the_same_lines_without_restating(tmp_path, request):
     assert mapped[0] and mapped[0] == mapped[1]
 
 
-@pytest.mark.skipif(os.name == "nt" or shutil.which("cc") is None, reason="POSIX filenames and a C toolchain")
+@pytest.mark.skipif(os.name == "nt" or TOOLCHAIN is None, reason="POSIX filenames and a C toolchain")
 @pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
 def test_debug_split_build_preserves_escaped_source_and_output_paths(tmp_path, request, frontend):
     from src.compiler.python.backend.c_emitter import CEmitter
@@ -257,7 +259,15 @@ def test_split_generated_debug_locations_use_secondary_prefix(tmp_path, stdout):
         assert locations and all(line.endswith(f'"{expected}"') for line in locations)
 
 
-def _compile(frontend: str, out: Path, plan: Path, request, *extra: str, units_prefix: str | None = None) -> None:
+def _compile(
+    frontend: str,
+    out: Path,
+    plan: Path,
+    request,
+    *extra: str,
+    units_prefix: str | None = None,
+    program: Path = PROGRAM,
+) -> None:
     env = {**os.environ, "BTRC_HOME": str(ROOT / "src"), "BTRC_UNIT_LINES": "120"}
     if frontend == "btrcpy":
         command = [
@@ -273,7 +283,7 @@ def _compile(frontend: str, out: Path, plan: Path, request, *extra: str, units_p
             "--emit-units",
             units_prefix if units_prefix is not None else str(out),
             *extra,
-            str(PROGRAM),
+            str(program),
             "-o",
             str(out),
         ]
@@ -290,7 +300,7 @@ def _compile(frontend: str, out: Path, plan: Path, request, *extra: str, units_p
             *extra,
             "-o",
             str(out),
-            str(PROGRAM),
+            str(program),
         ]
     completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=600)
     assert completed.returncode == 0, completed.stderr
@@ -325,7 +335,51 @@ def test_explicit_unit_paths_stay_stable_when_outputs_already_exist(tmp_path, re
     assert {path: Path(path).read_bytes() for path in paths} == contents
 
 
-@pytest.mark.skipif(sys.platform != "linux" or shutil.which("cc") is None, reason="needs a Linux C toolchain")
+@pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
+def test_a_change_confined_to_a_secondary_unit_changes_the_primary_outputs(tmp_path, request, frontend):
+    """Build rules that depend only on the primary C file or the link plan
+    must relink when one secondary unit changes, and nothing is rewritten
+    when nothing changed. The publication state directory is the CLI's
+    default one, as for any compile."""
+    program = tmp_path / "Program.btrc"
+    program.write_text(PROGRAM.read_text())
+    out = tmp_path / "program.c"
+    plan = tmp_path / "program.json"
+    _compile(frontend, out, plan, request, program=program)
+    payload = json.loads(plan.read_text())
+    units = [Path(path) for path in payload["emitted-units"]]
+    assert payload["schema"] == 4
+    assert payload["emitted-unit-digests"] == [hashlib.sha256(unit.read_bytes()).hexdigest() for unit in units]
+    literal = "PASS: test_forin_interface_list_literal"
+    holder = next(unit for unit in units if literal in unit.read_text())
+    assert literal not in out.read_text()
+
+    def snapshot():
+        return {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (out, plan, *units)}
+
+    before = snapshot()
+    _compile(frontend, out, plan, request, program=program)
+    assert snapshot() == before, "an unchanged program rewrote an output"
+
+    program.write_text(program.read_text().replace(literal, literal + " (edited)"))
+    _compile(frontend, out, plan, request, program=program)
+    after = snapshot()
+    assert after[holder][0] != before[holder][0]
+    # The plan's text records every unit's digest; the primary's text is
+    # unchanged, so it keeps its native object, but it is published again.
+    assert after[plan][0] != before[plan][0]
+    assert after[out][0] == before[out][0]
+    for primary in (out, plan):
+        assert after[primary][1] != before[primary][1], f"{primary.name} was not republished with its secondary unit"
+    for unit in units:
+        if unit != holder:
+            assert after[unit] == before[unit], "an unaffected unit was rewritten"
+    assert json.loads(plan.read_text())["emitted-unit-digests"] == [
+        hashlib.sha256(unit.read_bytes()).hexdigest() for unit in units
+    ]
+
+
+@pytest.mark.skipif(sys.platform != "linux" or TOOLCHAIN is None, reason="needs a Linux C toolchain")
 @pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
 def test_split_units_link_and_run_like_one(tmp_path, request, frontend):
     out = tmp_path / "program.c"
@@ -346,7 +400,7 @@ def test_split_units_link_and_run_like_one(tmp_path, request, frontend):
     assert "__btrc_tls = {" not in secondary
     assert "static void* __btrc_cleanup_take" not in secondary
     executable = tmp_path / "program"
-    NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++")
+    NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc=TOOLCHAIN[0], cxx=TOOLCHAIN[1])
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert result.stdout == GOLDEN.read_text()
@@ -375,7 +429,7 @@ def test_single_unit_output_keeps_static_runtime_state(tmp_path):
     assert not list(tmp_path.glob("program.c.unit-*.c"))
 
 
-@pytest.mark.skipif(sys.platform != "linux" or shutil.which("cc") is None, reason="needs a Linux C toolchain")
+@pytest.mark.skipif(sys.platform != "linux" or TOOLCHAIN is None, reason="needs a Linux C toolchain")
 @pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
 def test_debug_split_units_map_lines_and_run(tmp_path, request, frontend):
     """--debug stamps #line back to the .btrc source in every unit, each unit
@@ -394,7 +448,13 @@ def test_debug_split_units_map_lines_and_run(tmp_path, request, frontend):
     assert program_lines > 0, "no unit maps a line back to the program"
     executable = tmp_path / "program"
     NativePlanBuilder().build(
-        plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++", optimization=0, debug_info=True
+        plan_path=plan,
+        generated_c=out,
+        output=executable,
+        cc=TOOLCHAIN[0],
+        cxx=TOOLCHAIN[1],
+        optimization=0,
+        debug_info=True,
     )
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
@@ -406,7 +466,7 @@ def test_debug_split_units_map_lines_and_run(tmp_path, request, frontend):
         assert "ForinInterfaceListLiteral.btrc" in with_debug.stdout
 
 
-@pytest.mark.skipif(shutil.which("cc") is None, reason="needs a C toolchain")
+@pytest.mark.skipif(TOOLCHAIN is None, reason="needs a C toolchain")
 @pytest.mark.parametrize("debug", [False, True])
 @pytest.mark.parametrize("separate_prefix", [False, True])
 def test_cached_split_cli_restores_complete_executable_generation(tmp_path, debug, separate_prefix):
@@ -470,7 +530,7 @@ def test_cached_split_cli_restores_complete_executable_generation(tmp_path, debu
             assert resets <= {str(path)}, (path, resets)
     executable = tmp_path / "program"
     report = NativePlanBuilder().build(
-        plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++", debug_info=debug
+        plan_path=plan, generated_c=out, output=executable, cc=TOOLCHAIN[0], cxx=TOOLCHAIN[1], debug_info=debug
     )
     assert len(report.units) == 1 + len(units)
     executed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
@@ -490,7 +550,7 @@ def test_cached_split_cli_restores_complete_executable_generation(tmp_path, debu
     # Source edits must resolve again and change actual executable behavior.
     dependency.write_text(dependency.read_text().replace("return 39;", "return 49;"))
     assert "(cached)" not in compile_program().stdout
-    NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++")
+    NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc=TOOLCHAIN[0], cxx=TOOLCHAIN[1])
     executed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
     assert executed.returncode == 0, executed.stderr
     assert executed.stdout == "790\n"

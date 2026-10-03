@@ -30,16 +30,25 @@ class NativeBindingPackage:
             pytest.skip(cls.READER_REASON)
 
     @staticmethod
-    def write(program: Path, directory: Path, header: Path, symbols: tuple[str, ...]) -> Path:
+    def write(
+        program: Path,
+        directory: Path,
+        header: Path,
+        symbols: tuple[str, ...],
+        companions: tuple[Path, ...] = (),
+    ) -> Path:
         """Lay out the package under `directory` and return its copy of `program`.
 
         The program becomes ``src/<Stem>.btrc``, the module the binding
         targets, and the header is copied to the package root beside the
-        manifest. Only `symbols` are imported from it.
+        manifest. Only `symbols` are imported from it. Each of `companions`,
+        a source the program imports by relative path, is copied beside it.
         """
         source = directory / "src" / program.name
         source.parent.mkdir(parents=True)
         shutil.copyfile(program, source)
+        for companion in companions:
+            shutil.copyfile(companion, source.parent / companion.name)
         shutil.copyfile(header, directory / header.name)
         names = ", ".join(f'"{symbol}"' for symbol in symbols)
         (directory / "btrc.toml").write_text(

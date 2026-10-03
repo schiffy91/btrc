@@ -5,7 +5,6 @@ import json
 import os
 import pickle
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +19,7 @@ from src.compiler.python.frontend.packages import IncludeResolutionError
 from src.compiler.python.frontend.sources import StdlibAstCache, StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.main import main as compiler_main
+from src.tests.c_toolchains import host_c_compiler
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 
 RESOLVER = FrontendStage().resolver
@@ -223,7 +223,7 @@ def test_cli_end_to_end_compiles_and_runs(tmp_path, monkeypatch, capsys):
     """The whole pipeline: drive main() to emit C, compile it with a real C
     compiler, run the binary, and assert its computed output — proving the CLI
     produces a correct, runnable program (not just that a .c file is written)."""
-    cc = shutil.which("cc") or shutil.which("gcc")
+    cc = host_c_compiler()
     if cc is None:
         pytest.skip("no C compiler available")
     monkeypatch.chdir(tmp_path)
@@ -237,7 +237,7 @@ def test_cli_end_to_end_compiles_and_runs(tmp_path, monkeypatch, capsys):
     assert "Transpiled" in capsys.readouterr().out
 
     binp = str(tmp_path / "e2e_bin")
-    subprocess.run([cc, "-std=c11", out_c, "-o", binp, "-lm", "-lpthread"], check=True, timeout=C_COMPILE_TIMEOUT)
+    subprocess.run([*cc, "-std=c11", out_c, "-o", binp, "-lm", "-lpthread"], check=True, timeout=C_COMPILE_TIMEOUT)
     result = subprocess.run([binp], capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert result.returncode == 0, result.stderr
     assert "E2E_OK" in result.stdout

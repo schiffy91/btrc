@@ -175,7 +175,13 @@ def test_self_hosted_cycle_boundary_mirrors_edge_and_return_contracts() -> None:
 
     for helper in EDGE_RELEASE_HELPERS:
         assert f'node.callee == "{helper}"' in detector
-    assert "self.temporaryNames.fresh" in rewriter
+    # Return temporaries come from the per-function, collision-free allocator
+    # that mirrors IROptimizer._next_cycle_return_name.
+    assert "self.nextReturnName()" in rewriter
+    boundary = source[
+        source.index("private void forceBoundary") : source.index("public bool installReleaseBearingBoundary")
+    ]
+    assert "self.collectDeclaredNames(definition.body)" in boundary
     assert "self.isMaterializedReturn" in rewriter
     assert "isCycleReturnTemp = true" in rewriter
     assert rewriter.index("statement.value != null") < rewriter.index("self.forcedFlush()")

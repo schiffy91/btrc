@@ -71,6 +71,35 @@ C-compatibility table in `docs/design/plan-reference.md`.
 | 22 | `return f();` in a `void` function | A `return` with an expression in a `void` function violates C11 6.8.6.4, so this refusal is conformance, not policy. Call `f();` and `return;`. | `Void function or method cannot return a value` |
 | 24 | `_Atomic int n;`, `_Atomic(int) n;`, `double _Complex z;` | Deferred: neither has a btrc type-system entry yet. For atomic storage use btrc's `Atomic<T>` (`docs/language/realtime-primitives.md`), which lowers to C11 `_Atomic(T)` with explicit memory orders and stable-storage rules; it is unaffected by this refusal. | `C11 '_Atomic' is not supported; use btrc's Atomic<T> for atomic storage` / `C11 '_Complex' is not supported; btrc has no complex types` |
 
+## Unresolved ALL_CAPS names
+
+A name that resolves to no btrc or imported declaration is an error at its
+use site in both compilers: `Unresolved identifier 'NAME' used as a value`.
+Before October 2026 an ALL_CAPS spelling was exempt, on the theory that it
+was a C macro, so a misspelt or removed constant (`COLOR_BLUE` for an enum
+member that does not exist, a constant deleted from a library) transpiled and
+failed only as "undeclared" in the C compile. An unresolved ALL_CAPS value now
+passes through to C only when the compiler can account for it:
+
+- a hosted ABI macro (`src/language/hosted_abi.toml`, `[names] macros`), such
+  as `EOF`, `SEEK_SET` or `_SC_NPROCESSORS_ONLN`;
+- a C11 predefined macro (`__FILE__`, `__LINE__`, `__DATE__`, `__TIME__`,
+  `__STDC__`, `__STDC_HOSTED__`, `__STDC_VERSION__`);
+- in a source file that has a raw quoted `#include "header.h"` (or an
+  `import ./file.c`, which becomes one) of a C header or source that the
+  importer does not model: the compatibility path. It covers that file only,
+  never a module it imports, and angle-bracket includes are not part of it,
+  because the hosted ABI already models the system headers.
+
+Everything else needs a declaration the compiler can see. Source macros
+(`#define`) and enum members in scope always resolve. An SDK macro or
+enumerator of a native binding is imported by naming it in the binding's
+`symbols` (`docs/design/native-interop.md`); it then has its C type, and every
+module importing the bound module sees it. The Linux GUI, Tray and Image
+providers name their SDL, fontconfig, libdbus and TurboJPEG constants that way.
+`btrc/test_analyzer_parity_battery.py` pins the diagnostic, its position and
+the compatibility path in both compilers.
+
 ## Parameter lists (C row 1)
 
 `(void)` is an empty parameter list wherever a parameter list appears, and a

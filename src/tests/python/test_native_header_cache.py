@@ -798,6 +798,7 @@ def test_cached_worker_preserves_streams_and_cleans_stages(cache_session, mode):
 def spawn_faults(tmp_path_factory):
     if sys.platform != "darwin":
         pytest.skip("Mach-O spawn interposition")
+    # Deliberately Apple's Clang: only it builds the Mach-O interposing dylib.
     compiler = shutil.which("clang", path="/usr/bin")
     if compiler is None:
         pytest.skip("Apple Clang is required for Mach-O fault injection")

@@ -126,7 +126,9 @@ class LoweringSession:
         return bool(specialization is not None and specialization.substitution.applies_to(self.source_type_of(node)))
 
     def fresh_temp(self, prefix: str = "__tmp") -> str:
-        return self.temporaries.fresh(prefix)
+        name = self.temporaries.fresh(prefix)
+        self.module.temporary_names.add(name)
+        return name
 
     def fresh_lambda_id(self) -> int:
         self.lambda_counter += 1

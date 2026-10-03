@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +22,7 @@ from src.compiler.python.frontend.packages import (
 )
 from src.compiler.python.frontend.sources import SourceDependencyGraph
 from src.compiler.python.main import main as compiler_main
+from src.tests.c_toolchains import default_toolchain
 from src.tests.native_targets import cross_target_environment
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
@@ -514,10 +514,10 @@ def test_one_native_record_cannot_be_split_across_module_scopes(tmp_path: Path) 
 
 
 def _compile_plan(plan: dict, generated_c: Path, output: Path, temporary: Path) -> None:
-    cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
-    cxx = shutil.which("c++") or shutil.which("clang++") or shutil.which("g++")
-    if cc is None or cxx is None:
+    toolchain = default_toolchain()
+    if toolchain is None:
         pytest.skip("native package proof needs C and C++ compilers")
+    cc, cxx = toolchain
     includes = [f"-I{entry['path']}" for entry in plan["include-directories"]]
     defines = [
         f"-D{entry['name']}={entry['value']}" if entry["value"] else f"-D{entry['name']}" for entry in plan["defines"]
@@ -842,7 +842,19 @@ def test_compile_wraps_strict_manifest_failures_as_package_diagnostics(tmp_path:
 
 @pytest.mark.parametrize(
     "damage",
-    [None, "target", "unit-count", "unit-path", "unit-order", "source", "duplicate", "memory", "unknown", "name"],
+    [
+        None,
+        "target",
+        "unit-count",
+        "unit-path",
+        "unit-order",
+        "unit-digest",
+        "source",
+        "duplicate",
+        "memory",
+        "unknown",
+        "name",
+    ],
 )
 def test_restore_cached_native_adapters_validates_resolved_plan(damage):
     from dataclasses import replace
@@ -853,7 +865,7 @@ def test_restore_cached_native_adapters_validates_resolved_plan(damage):
     cached = replace(
         resolved,
         generated_units=(NativeGeneratedUnit("Adapter", "c++", "c++17", "raii", "// adapter\n"),),
-    ).with_emitted_units("/tmp/output", 2)
+    ).with_emitted_units("/tmp/output", 2, ("int first;\n", "int second;\n"))
     data = cached.as_dict()
     if damage == "target":
         data["target"]["os"] = "linux"
@@ -863,6 +875,8 @@ def test_restore_cached_native_adapters_validates_resolved_plan(damage):
         data["emitted-units"][0] = "/tmp/wrong.unit-1.c"
     elif damage == "unit-order":
         data["emitted-units"].reverse()
+    elif damage == "unit-digest":
+        data["emitted-unit-digests"][1] = NativeLinkPlan.unit_digest("int changed;\n")
     elif damage == "source":
         data["generated-units"][0]["source"] = None
     elif damage == "duplicate":
@@ -874,7 +888,7 @@ def test_restore_cached_native_adapters_validates_resolved_plan(damage):
     elif damage == "name":
         data["generated-units"][0]["name"] = "../escape"
     serialized = json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n"
-    restored = resolved.with_cached_artifacts(serialized, 2, "/tmp/output")
+    restored = resolved.with_cached_artifacts(serialized, 2, "/tmp/output", ("int first;\n", "int second;\n"))
     if damage is None:
         assert restored == cached
     else:

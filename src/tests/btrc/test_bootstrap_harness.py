@@ -10,7 +10,7 @@ import weakref
 
 import pytest
 
-from src.tests.btrc import test_bootstrap as bootstrap
+from src.tests.btrc import bootstrap_harness as bootstrap
 
 
 @pytest.mark.parametrize(
@@ -18,7 +18,7 @@ from src.tests.btrc import test_bootstrap as bootstrap
 )
 def test_snapshot_preserves_host_entrypoint(tmp_path, monkeypatch, entrypoint) -> None:
     monkeypatch.setattr(bootstrap, "COMPILER_ENTRYPOINT", entrypoint)
-    project, source_root, compiler = bootstrap._snapshot_compiler_inputs(str(tmp_path))
+    project, source_root, compiler = bootstrap.snapshot_compiler_inputs(str(tmp_path))
     assert compiler == os.path.join(source_root, "compiler", "btrc", entrypoint)
     assert os.path.isfile(compiler)
     assert os.path.commonpath([project, compiler]) == project
@@ -40,7 +40,7 @@ def test_stage_timeout_kills_spawned_descendants(tmp_path) -> None:
     )
 
     with pytest.raises(subprocess.TimeoutExpired) as timeout:
-        bootstrap._run_process(
+        bootstrap.run_process(
             [sys.executable, "-c", parent, child, str(marker)],
             timeout=0.2,
             stdout=subprocess.PIPE,
@@ -74,10 +74,10 @@ def test_stage_timeout_releases_process_before_propagating(monkeypatch) -> None:
         return process
 
     monkeypatch.setattr(bootstrap.subprocess, "Popen", process_factory)
-    monkeypatch.setattr(bootstrap, "_terminate_process_tree", lambda _process: None)
+    monkeypatch.setattr(bootstrap, "terminate_process_tree", lambda _process: None)
 
     with pytest.raises(subprocess.TimeoutExpired):
-        bootstrap._run_process(["timed-out"], timeout=0.01)
+        bootstrap.run_process(["timed-out"], timeout=0.01)
 
     gc.collect()
     assert processes[0]() is None
@@ -89,7 +89,7 @@ def test_stage_timeout_releases_native_windows_executable(tmp_path) -> None:
     shutil.copy2(sys.executable, executable)
 
     with pytest.raises(subprocess.TimeoutExpired):
-        bootstrap._run_process(
+        bootstrap.run_process(
             [str(executable), "-c", "import time; time.sleep(30)"],
             timeout=0.2,
             stdout=subprocess.PIPE,

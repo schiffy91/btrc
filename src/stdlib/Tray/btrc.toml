@@ -104,7 +104,9 @@ symbols = [
 	"dbus_message_new_method_call", "dbus_message_new_method_return", "dbus_message_new_error", "dbus_message_new_signal",
 	"dbus_message_unref", "dbus_message_get_type", "dbus_message_get_no_reply", "dbus_message_is_signal",
 	"dbus_message_iter_init_append", "dbus_message_iter_init", "dbus_message_iter_next", "dbus_message_iter_get_arg_type", "dbus_message_iter_recurse",
-	"dbus_message_iter_open_container", "dbus_message_iter_close_container"
+	"dbus_message_iter_open_container", "dbus_message_iter_close_container",
+	"DBUS_MESSAGE_TYPE_METHOD_CALL", "DBUS_TYPE_ARRAY", "DBUS_TYPE_DICT_ENTRY", "DBUS_TYPE_OBJECT_PATH", "DBUS_TYPE_STRING",
+	"DBUS_TYPE_STRUCT", "DBUS_TYPE_VARIANT"
 ]
 read-only-borrows = [
 	"dbus_message_new_method_call.bus_name", "dbus_message_new_method_call.path", "dbus_message_new_method_call.iface", "dbus_message_new_method_call.method",

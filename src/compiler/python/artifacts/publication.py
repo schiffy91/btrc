@@ -539,6 +539,7 @@ class ArtifactPublisher:
         policy: StagedPublicationPolicy | None = None,
         previous_inventory: Sequence[PublicationTarget] | None = None,
         retain_unchanged: bool = False,
+        anchor_follows_changes: bool = False,
     ) -> None:
         """Durably publish payloads in order, with the final validator last.
 
@@ -547,7 +548,10 @@ class ArtifactPublisher:
         change its inode and mtime, which invalidates native preprocessing
         receipts for an unchanged unit. Recovery leaves a previously existing
         destination without a backup untouched, so a kept file needs no journal
-        state of its own. The final validator is always replaced.
+        state of its own. The final validator is always replaced. With
+        `anchor_follows_changes` too, the first payload is kept only while every
+        other payload before the validator is kept and nothing is retired: a
+        build rule that depends on the anchor alone still sees each change.
 
         Candidates must be on their destination filesystem. Directory locks
         serialize overlapping writers; participant journals protect recovery
@@ -627,18 +631,25 @@ class ArtifactPublisher:
             fixed_stages = []
             kept = [False] * len(artifacts)
             try:
+                unchanged = [False] * len(artifacts)
                 for index, artifact in enumerate(artifacts):
                     if artifact.is_absent:
-                        fixed_stages.append(None)
                         continue
                     self._storage.validate_artifact(artifact.staged, artifact.is_directory)
                     self._storage.destination_exists(artifact.destination, artifact.is_directory)
-                    if (
+                    unchanged[index] = (
                         retain_unchanged
                         and index != len(artifacts) - 1
                         and not artifact.is_directory
                         and self._same_regular_file(artifact.staged, artifact.destination)
-                    ):
+                    )
+                if anchor_follows_changes and not all(unchanged[1:-1]):
+                    unchanged[0] = False
+                for index, artifact in enumerate(artifacts):
+                    if artifact.is_absent:
+                        fixed_stages.append(None)
+                        continue
+                    if unchanged[index]:
                         kept[index] = True
                         self._storage.remove(artifact.staged)
                         fixed_stages.append(None)

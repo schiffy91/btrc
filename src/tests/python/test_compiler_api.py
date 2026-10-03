@@ -329,11 +329,15 @@ def test_application_dependency_boundaries_are_explicit_and_acyclic():
         "policy",
         "previous_inventory",
         "retain_unchanged",
+        "anchor_follows_changes",
     ]
     assert {"StagedPublicationPolicy", "PublicationTarget"} <= {
         node.name for node in publication_tree.body if isinstance(node, python_ast.ClassDef)
     }
     assert python_ast.unparse(publish.args.kwonlyargs[1].annotation) == "Sequence[PublicationTarget] | None"
+    # A compiler generation republishes its primary output whenever any other
+    # output changed, so a build rule on the primary alone sees every change.
+    assert python_ast.unparse(publish.args.kwonlyargs[3].annotation) == "bool"
     target_catalog = next(
         node for node in archive_tree.body if isinstance(node, python_ast.ClassDef) and node.name == "TargetCatalog"
     )

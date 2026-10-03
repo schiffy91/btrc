@@ -324,56 +324,44 @@ class ManagedTypeLowerer {
 		return self.identifierStorePlan(assignment.target, targetType);
 	}
 
-	/* Commit one already-owned replacement into a persistent strong root. The
-     * current slot value is loaded at commit time because the RHS of a compound
-     * update may itself mutate the same storage after the old operand snapshot. */
-	private void appendStrongSlotCommit(Vector<IRNode> declarations, Vector<IRNode> sequence, IRNode slot, IRNode value, Node valueType, string storageCType) {
-		string currentName = self.context.freshTemporary("__btrc_store_current");
-		IRNode currentDeclaration = IRNode.variableDeclaration(storageCType, currentName, IRNode.literal("NULL"));
-		self.context.recordLocal(currentDeclaration);
-		declarations.push(currentDeclaration);
-		IRNode currentValue = IRNode.variable(currentName);
-		sequence.push(IRNode.binary(currentValue, "=", slot));
-		sequence.push(IRNode.binary(slot, "=", value));
-		sequence.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
-		sequence.push(self.lifetime.releaseValue(currentValue, valueType));
-		string runtimeType = self.managedValues.runtimeType(valueType);
-		if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
-			sequence.push(self.lifetime.pollCycles());
-		}
-	}
-
-	/* Replace one strong managed slot after its replacement has been
-     * stabilized and protected for exception unwinding. Retaining a borrow
-     * before loading/releasing the current value makes self-assignment safe;
-     * an owned replacement transfers directly. */
-	private void appendStrongSlotReplacement(Vector<IRNode> declarations, Vector<IRNode> sequence, IRNode valueDeclaration, IRNode slot, IRNode value, Node valueType, string storageCType, bool valueOwned) {
+	/* Commit one new persistent +1 before releasing a slot's old value, as
+	 * Python's OwnershipLowerer.replace_managed_slot does. Retaining a borrow
+	 * before loading/releasing the current value makes self-assignment safe;
+	 * an owned replacement transfers directly. */
+	private IRNode replaceManagedSlot(IRNode slot, Node valueType, string storageCType, IRNode loweredValue, bool valueOwned) {
+		string replacementName = self.context.freshTemporary("__btrc_slot_new");
+		string oldName = self.context.freshTemporary("__btrc_slot_old");
+		IRNode replacementDeclaration = IRNode.variableDeclaration(storageCType, replacementName, IRNode.literal("NULL"));
+		IRNode oldDeclaration = IRNode.variableDeclaration(storageCType, oldName, IRNode.literal("NULL"));
+		self.context.recordLocal(replacementDeclaration);
+		self.context.recordLocal(oldDeclaration);
+		Vector<IRNode> declarations = [];
+		declarations.push(replacementDeclaration);
+		declarations.push(oldDeclaration);
+		IRNode replacement = IRNode.variable(replacementName);
+		IRNode old = IRNode.variable(oldName);
+		Vector<IRNode> sequence = [];
+		sequence.push(IRNode.binary(replacement, "=", loweredValue));
 		if (!valueOwned) {
-			sequence.push(self.lifetime.retainValue(value, valueType));
+			sequence.push(self.lifetime.retainValue(replacement, valueType));
 		}
 		/* A string's release runs no destructor and cannot throw, so nothing
 		 * can unwind while the new reference waits to be stored. */
 		if (!self.managedValues.isString(valueType)) {
-			IRNode? protection = self.lifetime.cleanupRegistration(valueDeclaration, self.managedValues.runtimeType(valueType));
-			if (protection != null) { sequence.push(protection); }
+			self.lifetime.protectTemporary(replacementDeclaration, self.managedValues.runtimeType(valueType), "__btrc_slot_cleanup", declarations, sequence);
 		}
-		self.appendStrongSlotCommit(declarations, sequence, slot, value, valueType, storageCType);
-	}
-
-	private IRNode materializeStrongSlotStore(Node valueType, string storageCType, string storageName, IRNode loweredValue, bool valueOwned) {
-		string valueName = self.context.freshTemporary("__btrc_store_value");
-		IRNode valueDeclaration = IRNode.variableDeclaration(storageCType, valueName, IRNode.literal("NULL"));
-		self.context.recordLocal(valueDeclaration);
-		Vector<IRNode> declarations = [];
-		declarations.push(valueDeclaration);
-		IRNode value = IRNode.variable(valueName);
-		IRNode slot = IRNode.variable(storageName);
-		Vector<IRNode> sequence = [];
-		sequence.push(IRNode.binary(value, "=", loweredValue));
-		self.appendStrongSlotReplacement(declarations, sequence, valueDeclaration, slot, value, valueType, storageCType, valueOwned);
+		sequence.push(IRNode.binary(old, "=", slot));
+		sequence.push(IRNode.binary(slot, "=", replacement));
+		sequence.push(IRNode.binary(replacement, "=", IRNode.literal("NULL")));
+		sequence.push(self.lifetime.releaseValue(old, valueType));
+		if (self.cycles.runtimeTypeMayCycle(self.managedValues.runtimeType(valueType))) {
+			sequence.push(self.lifetime.pollCycles());
+		}
 		sequence.push(slot);
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 	}
+
+	private IRNode materializeStrongSlotStore(Node valueType, string storageCType, string storageName, IRNode loweredValue, bool valueOwned) { return self.replaceManagedSlot(IRNode.variable(storageName), valueType, storageCType, loweredValue, valueOwned); }
 
 	public IRNode materializeIdentifierStore(ManagedIdentifierStorePlan plan, IRNode loweredValue, bool valueOwned) { return self.materializeStrongSlotStore(plan.valueType, plan.storageCType, plan.storageName, loweredValue, valueOwned); }
 
@@ -454,67 +442,74 @@ class ManagedTypeLowerer {
 	}
 
 	/* Evaluate receiver and replacement once, then commit exactly one
-     * persistent ownership unit. ARC fields use the topology transaction;
-     * managed strings use the equivalent retain/store/release slot atom. The
-     * final slot load preserves source assignment-value semantics. */
+     * persistent ownership unit. ARC fields publish one protected caller
+     * reference through the topology transaction; managed strings use the
+     * strong-slot replacement. The final slot load preserves source
+     * assignment-value semantics. Shapes match Python's StorageLowerer. */
 	public IRNode materializeInstanceFieldStore(ManagedInstanceFieldStorePlan plan, IRNode loweredReceiver, IRNode loweredValue, bool valueOwned) {
 		string receiverName = self.context.freshTemporary("__btrc_storage_receiver");
-		string valueName = self.context.freshTemporary("__btrc_store_value");
-		IRNode receiverDeclaration = IRNode.variableDeclaration(plan.receiverCType, receiverName, IRNode.literal("NULL"));
-		IRNode valueDeclaration = IRNode.variableDeclaration(plan.storageCType, valueName, IRNode.literal("NULL"));
+		IRNode receiverDeclaration = IRNode.variableDeclaration(plan.receiverCType, receiverName, null);
 		self.context.recordLocal(receiverDeclaration);
-		self.context.recordLocal(valueDeclaration);
 		Vector<IRNode> declarations = [];
 		declarations.push(receiverDeclaration);
-		declarations.push(valueDeclaration);
 		IRNode receiver = IRNode.variable(receiverName);
-		IRNode value = IRNode.variable(valueName);
 		IRNode slot = IRNode.fieldAccess(receiver, plan.storageName, true);
+		/* The receiver is stabilized first; the store follows as its own
+		 * expression, as StorageLowerer wraps a materialized target. */
 		Vector<IRNode> sequence = [];
 		sequence.push(IRNode.binary(receiver, "=", loweredReceiver));
-		sequence.push(IRNode.binary(value, "=", loweredValue));
-		if (self.managedValues.isArc(plan.fieldType)) {
-			self.appendArcFieldPublication(declarations, sequence, valueDeclaration, slot, value, plan.fieldType, plan.storageCType, receiver, valueOwned);
-		} else {
-			self.appendStrongSlotReplacement(declarations, sequence, valueDeclaration, slot, value, plan.fieldType, plan.storageCType, valueOwned);
+		if (!self.managedValues.isArc(plan.fieldType)) {
+			sequence.push(self.replaceManagedSlot(slot, plan.fieldType, plan.storageCType, loweredValue, valueOwned));
+			return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 		}
-		sequence.push(slot);
+		Vector<IRNode> store = [];
+		if (loweredValue.kind == IRK_LITERAL && loweredValue.text == "NULL") {
+			/* Null holds no reference: nothing to retain, protect or release,
+			 * only the edge's old value to drop. */
+			store.push(self.lifetime.replaceTypedEdge(slot, loweredValue, plan.fieldType, plan.storageCType, receiver, false));
+			self.appendCyclePoll(store, plan.fieldType);
+		} else {
+			string valueName = self.context.freshTemporary("__btrc_store_value");
+			IRNode valueDeclaration = IRNode.variableDeclaration(plan.storageCType, valueName, IRNode.literal("NULL"));
+			self.context.recordLocal(valueDeclaration);
+			declarations.push(valueDeclaration);
+			IRNode value = IRNode.variable(valueName);
+			store.push(IRNode.binary(value, "=", loweredValue));
+			if (!valueOwned) {
+				store.push(self.lifetime.retainValue(value, plan.fieldType));
+			}
+			self.lifetime.protectTemporary(valueDeclaration, self.managedValues.runtimeType(plan.fieldType), "__btrc_store_value_cleanup", declarations, store);
+			self.appendProtectedArcFieldPublication(declarations, store, slot, value, plan.fieldType, plan.storageCType, receiver);
+		}
+		store.push(slot);
+		sequence.push(IRNode.commaExpression(store));
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 	}
 
-	private void appendCleanupProtection(Vector<IRNode> sequence, IRNode declaration, Node valueType) {
-		IRNode? protection = self.lifetime.cleanupRegistration(declaration, self.managedValues.runtimeType(valueType));
-		if (protection != null) { sequence.push(protection); }
-	}
-
-	private void appendReleaseAndClear(Vector<IRNode> declarations, Vector<IRNode> sequence, IRNode value, Node valueType, string valueCType, string prefix) {
-		string handoffName = self.context.freshTemporary(prefix);
-		IRNode handoffDeclaration = IRNode.variableDeclaration(valueCType, handoffName, IRNode.literal("NULL"));
-		self.context.recordLocal(handoffDeclaration);
-		declarations.push(handoffDeclaration);
-		IRNode handoff = IRNode.variable(handoffName);
-		sequence.push(IRNode.binary(handoff, "=", value));
-		sequence.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
-		sequence.push(self.lifetime.releaseValue(handoff, valueType));
-	}
-
-	/* Publish an ARC field through one exception-safe atom.  An owned caller
-     * unit remains cleanup-protected while replaceEdge retains the edge with
-     * adopt=false.  Only a successful return permits clear-before-release of
-     * that caller unit, so both pre-commit validation throws and post-commit
-     * deferred-destructor throws have exactly one live cleanup path. */
-	private void appendArcFieldPublication(Vector<IRNode> declarations, Vector<IRNode> sequence, IRNode valueDeclaration, IRNode slot, IRNode value, Node valueType, string storageCType, IRNode owner, bool valueOwned) {
-		if (valueOwned) {
-			self.appendCleanupProtection(sequence, valueDeclaration, valueType);
+	private void appendCyclePoll(Vector<IRNode> sequence, Node valueType) {
+		if (self.cycles.runtimeTypeMayCycle(self.managedValues.runtimeType(valueType))) {
+			sequence.push(self.lifetime.pollCycles());
 		}
+	}
+
+	/* Copy a caller-owned reference into an edge, then relinquish the caller. */
+	private void appendProtectedArcFieldPublication(Vector<IRNode> declarations, Vector<IRNode> sequence, IRNode slot, IRNode value, Node valueType, string storageCType, IRNode owner) {
 		sequence.push(self.lifetime.replaceTypedEdge(slot, value, valueType, storageCType, owner, false));
-		if (valueOwned) {
-			self.appendReleaseAndClear(declarations, sequence, value, valueType, storageCType, "__btrc_store_value_handoff");
-			string runtimeType = self.managedValues.runtimeType(valueType);
-			if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
-				sequence.push(self.lifetime.pollCycles());
-			}
-		}
+		self.appendReleaseAndClear(declarations, sequence, value, valueType, storageCType);
+	}
+
+	/* Move one temporary +1 out of its slot, clear the slot, then release
+	 * the moved value, as Python's OwnershipLowerer.release_and_clear does. */
+	private void appendReleaseAndClear(Vector<IRNode> declarations, Vector<IRNode> sequence, IRNode value, Node valueType, string valueCType) {
+		string releasedName = self.context.freshTemporary("__btrc_released_operand");
+		IRNode releasedDeclaration = IRNode.variableDeclaration(valueCType, releasedName, null);
+		self.context.recordLocal(releasedDeclaration);
+		declarations.push(releasedDeclaration);
+		IRNode released = IRNode.variable(releasedName);
+		sequence.push(IRNode.binary(released, "=", value));
+		sequence.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
+		sequence.push(self.lifetime.releaseValue(released, valueType));
+		if (self.managedValues.isArc(valueType)) { self.appendCyclePoll(sequence, valueType); }
 	}
 
 	/* Stabilize the physical target and pin its loaded value before any RHS
@@ -569,50 +564,51 @@ class ManagedTypeLowerer {
 
 		update.sequence.push(IRNode.binary(update.oldValue, "=", update.slot));
 		update.sequence.push(self.lifetime.retainValue(update.oldValue, plan.valueType));
-		self.appendCleanupProtection(update.sequence, oldDeclaration, plan.valueType);
+		self.lifetime.protectTemporary(oldDeclaration, self.managedValues.runtimeType(plan.valueType), "__btrc_update_old_cleanup", update.declarations, update.sequence);
 		update.sequence.push(IRNode.binary(update.rightValue, "=", loweredRight));
 		if (update.rightKeep && !update.rightOwned) {
 			update.sequence.push(self.lifetime.retainValue(update.rightValue, concreteRightType));
 		}
 		if (update.rightOwned || update.rightKeep) {
-			self.appendCleanupProtection(update.sequence, rightDeclaration, concreteRightType);
+			self.lifetime.protectTemporary(rightDeclaration, self.managedValues.runtimeType(concreteRightType), "__btrc_update_rhs_cleanup", update.declarations, update.sequence);
 		}
 		return update;
 	}
 
 	/* Adopt one computed replacement, then release every temporary +1 and
-     * yield the committed slot. ARC handoff clears the registered replacement
-     * before replaceEdge: deferred user destructors may throw after the runtime
-     * has already adopted the new edge. */
+     * yield the committed slot, as Python's StorageLowerer.materialize_update
+     * does. ARC handoff clears the registered replacement after replaceEdge
+     * returns, so a pre-commit throw still has exactly one cleanup path. */
 	public IRNode materializeCompoundStore(ManagedCompoundStore update, IRNode computed, bool computedOwned) {
 		if (update.replacementDeclaration == null) {
 			print("internal compiler error: incomplete managed update transaction");
 			exit(1);
 		}
 		IRNode concreteReplacementDeclaration = update.replacementDeclaration;
+		Node valueType = update.plan.valueType;
+		string storageCType = update.plan.storageCType;
 		update.sequence.push(IRNode.binary(update.replacement, "=", computed));
 		if (!computedOwned) {
-			update.sequence.push(self.lifetime.retainValue(update.replacement, update.plan.valueType));
+			update.sequence.push(self.lifetime.retainValue(update.replacement, valueType));
 		}
-		if (update.plan.kind == MANAGED_COMPOUND_INSTANCE_FIELD && self.managedValues.isArc(update.plan.valueType)) {
-			self.appendArcFieldPublication(update.declarations, update.sequence, concreteReplacementDeclaration, update.slot, update.replacement, update.plan.valueType, update.plan.storageCType, update.owner, true);
+		self.lifetime.protectTemporary(concreteReplacementDeclaration, self.managedValues.runtimeType(valueType), "__btrc_update_new_cleanup", update.declarations, update.sequence);
+		if (update.plan.kind == MANAGED_COMPOUND_INSTANCE_FIELD && self.managedValues.isArc(valueType)) {
+			self.appendProtectedArcFieldPublication(update.declarations, update.sequence, update.slot, update.replacement, valueType, storageCType, update.owner);
 		} else {
-			self.appendCleanupProtection(update.sequence, concreteReplacementDeclaration, update.plan.valueType);
-			self.appendStrongSlotCommit(update.declarations, update.sequence, update.slot, update.replacement, update.plan.valueType, update.plan.storageCType);
+			string currentName = self.context.freshTemporary("__btrc_update_current");
+			IRNode currentDeclaration = IRNode.variableDeclaration(storageCType, currentName, IRNode.literal("NULL"));
+			self.context.recordLocal(currentDeclaration);
+			update.declarations.push(currentDeclaration);
+			IRNode current = IRNode.variable(currentName);
+			update.sequence.push(IRNode.binary(current, "=", update.slot));
+			update.sequence.push(IRNode.binary(update.slot, "=", update.replacement));
+			update.sequence.push(IRNode.binary(update.replacement, "=", IRNode.literal("NULL")));
+			self.appendReleaseAndClear(update.declarations, update.sequence, current, valueType, storageCType);
 		}
-
 		if (update.rightOwned || update.rightKeep) {
-			self.appendReleaseAndClear(update.declarations, update.sequence, update.rightValue, update.rightType, update.rightCType, "__btrc_update_rhs_handoff");
+			self.appendReleaseAndClear(update.declarations, update.sequence, update.rightValue, update.rightType, update.rightCType);
 		}
-		self.appendReleaseAndClear(update.declarations, update.sequence, update.oldValue, update.plan.valueType, update.plan.storageCType, "__btrc_update_old_handoff");
-		string valueRuntime = self.managedValues.runtimeType(update.plan.valueType);
-		bool cleanupMayCycle = self.cycles.runtimeTypeMayCycle(valueRuntime);
-		if (update.rightOwned || update.rightKeep) {
-			cleanupMayCycle = cleanupMayCycle || self.cycles.runtimeTypeMayCycle(self.managedValues.runtimeType(update.rightType));
-		}
-		if (cleanupMayCycle) {
-			update.sequence.push(self.lifetime.pollCycles());
-		}
+		self.appendReleaseAndClear(update.declarations, update.sequence, update.oldValue, valueType, storageCType);
 		update.sequence.push(update.slot);
 		return IRNode.statementExpression(update.declarations, IRNode.commaExpression(update.sequence));
 	}

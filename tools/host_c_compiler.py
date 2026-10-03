@@ -33,6 +33,13 @@ class HostCCompiler:
         return "cc"
 
     @classmethod
+    def default_cxx(cls) -> str:
+        """The C++ driver from the same toolchain as ``default()``: clang++
+        beside clang, else the platform's ``c++``. Pairing clang with a GCC
+        ``c++`` would link one toolchain's objects with the other's runtime."""
+        return "clang++" if cls.default() == "clang" else "c++"
+
+    @classmethod
     def configured(cls, *, empty_is_unset: bool = False) -> list[str]:
         """The C compiler command: ``BTRC_CC`` when set, else ``default()``.
 
