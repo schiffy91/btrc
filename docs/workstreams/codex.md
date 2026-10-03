@@ -346,11 +346,12 @@ The Codex packets below build the rest, platform by platform:
 
 ##### CX-P1-03 · Windows ARM64 runner job: native btrcc bootstrap, MSVC/LLVM probe and wgpu ARM64 link (stand-in for the declined Windows VM)
 
-- **Owner:** Codex · **Group:** P1 · **Stage:** Stage 23 · **Environment:** Linux cloud + GitHub Windows runner · **Start now:** no · **Estimate:** 8 agent-hours
+- **Owner:** Codex · **Group:** P1 · **Stage:** Stage 23 · **Environment:** Linux cloud + GitHub Windows runner · **Start now:** yes · **Estimate:** 8 agent-hours
 - **PLAN items:** `tooling-windows-ci-arm64-llvm`; `tooling-windows-vm` (D8 declines a local VM; the windows-11-arm runner running a Linux-cross-built btrcc is the stand-in evidence)
 - **Depends on:** [CL-UIA-02](claude.md#cl-uia-02)
-- **Why not now:** Starts once CL-UIA-02's workflow-class commit is on main (a new lane workflow fails the contract test before it).
 - **Parallel-safe with:** CL-P1-01, CL-P1-02, CX-P1-01, CX-P1-02, CX-P1-04, CX-P1-05, CX-P1-06, MAC-P1-01, MAC-P1-02
+
+> **Writer note:** `CL-UIA-02` is on `main` (batch 13), so this starts now. Q20's default is in force; without the workflows permission use the `ci/proposed/` fallback (evidence one batch later). The workflow triggers on push and pull_request to `main`, each with a paths filter that includes the workflow file itself, plus `workflow_dispatch`. A matrix pytest job needs a `fragment: ci/tiers.toml` row, and that PR takes the main-tier CI slot (§3.2).
 
 > **Review change:** Waits for `CL-UIA-02`'s workflow-class policy: until it lands, a new workflow with a paths filter fails `test_ci_workflow_contracts.py` in every unit shard (§10 C1).
 
@@ -371,7 +372,7 @@ The Codex packets below build the rest, platform by platform:
 **Steps**
 
 1. Read windows.yml: the zig install with SHA-256 (:83-95), the btrcc transpile and build (:104-115), the three-stage bootstrap (:121), the sample golden (:136). Read platform-toolchain-matrix.md 'Windows ARM64 and the MSVC question' and platform-target-contract.md sections 1.2 and 1.9.
-2. windows-arm64.yml: triggers are pull_request (paths: the workflow, `tools/windows_toolchain/**`, `src/compiler/**`, `src/runtime/**`, `src/stdlib/**`) and workflow_dispatch, on runs-on windows-11-arm. Use actions/setup-python 3.13 (arm64) and zig-aarch64-windows-0.16.0.zip with its SHA-256 from ziglang.org's index.json; pin every action by commit as ci.yml does.
+2. windows-arm64.yml: triggers are push and pull_request to `main`, each with a paths filter (the workflow itself, `tools/windows_toolchain/**`, `src/compiler/**`, `src/runtime/**`, `src/stdlib/**`), plus workflow_dispatch, on runs-on windows-11-arm. Use actions/setup-python 3.13 (arm64) and zig-aarch64-windows-0.16.0.zip with its SHA-256 from ziglang.org's index.json; pin every action by commit as ci.yml does.
 3. Mirror windows.yml for aarch64: transpile dist/btrcc-windows.c with the Python compiler; zig cc -target aarch64-windows-gnu with the same strict flags and -I src/runtime/windows -include btrc_win_compat.h; run the three-stage bootstrap with BTRC_CC='zig cc -target aarch64-windows-gnu' and the sample golden; check the PE machine (0xAA64) of btrcc.exe.
 4. VM stand-in: an ubuntu-latest job cross-builds btrcc.exe for aarch64-windows-gnu with zig and uploads it. The ARM64 job runs it on a corpus program and compares the C byte-for-byte with the natively built btrcc.
 5. msvc_probe.ps1: use vswhere to find Visual Studio; report cl.exe (assert >= 19.40 for the pinned aarch64-pc-windows-msvc19.40.0 triple), the Windows SDK version and clang --version as JSON. Then build and run a strict C11 hello with clang --target=aarch64-pc-windows-msvc19.40.0 against the MSVC CRT.
@@ -399,11 +400,12 @@ The Codex packets below build the rest, platform by platform:
 
 ##### CX-P1-04 · iOS test-host spike: simulator executor (spawn and app modes) with hand-written C11 fixtures on a GitHub macOS runner
 
-- **Owner:** Codex · **Group:** P1 · **Stage:** Stage 25 · **Environment:** Linux cloud + GitHub macOS runner · **Start now:** no · **Estimate:** 8 agent-hours
+- **Owner:** Codex · **Group:** P1 · **Stage:** Stage 25 · **Environment:** Linux cloud + GitHub macOS runner · **Start now:** yes · **Estimate:** 8 agent-hours
 - **PLAN items:** `platforms-p1-host-ios` (spike: simulator executor and test-host app bundle)
 - **Depends on:** [CL-UIA-02](claude.md#cl-uia-02)
-- **Why not now:** Starts once CL-UIA-02's workflow-class commit is on main (a new lane workflow fails the contract test before it).
 - **Parallel-safe with:** CL-P1-01, CL-P1-02, CL-P1-03, CL-P1-04, CL-P1-05, CL-P1-06, CX-P1-01, CX-P1-02, CX-P1-03, CX-P1-05, CX-P1-06, MAC-P1-02
+
+> **Writer note:** `CL-UIA-02` is on `main` (batch 13), so this starts now. Q20's default is in force; without the workflows permission use the `ci/proposed/` fallback (evidence one batch later). The workflow triggers on push and pull_request to `main`, each with a paths filter that includes the workflow file itself, plus `workflow_dispatch`. A matrix pytest job needs a `fragment: ci/tiers.toml` row, and that PR takes the main-tier CI slot (§3.2).
 
 > **Review change:** Waits for `CL-UIA-02`'s workflow-class policy: until it lands, a new workflow with a paths filter fails `test_ci_workflow_contracts.py` in every unit shard (§10 C1).
 
@@ -427,7 +429,7 @@ The Codex packets below build the rest, platform by platform:
 3. App mode: host_main.c redirects stdout and stderr to files under $HOME in the app's data container, calls the program entry renamed with -Dmain=btrc_program_main, writes an exit_status file and exits. The bundle has an Info.plist (CFBundleIdentifier dev.btrc.testhost.\<id>, MinimumOSVersion 17.0) and an ad-hoc codesign -s - signature. Then: simctl install, simctl launch --terminate-running-process, poll the status file through simctl get_app_container \<udid> \<bundle> data, collect the outputs, simctl uninstall. Record the cold-launch time.
 4. Fixtures: strict C11 programs for stdout, stderr, exit 3, abort, timeout, large output, argv, env and cwd, built with xcrun --sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -std=c11 -pedantic-errors -Wall -Wextra -Werror.
 5. IOSSimulatorExecutor has the run(ExecutionRequest) -> ExecutionResult shape that CL-P1-17 freezes (fields as in that packet); it stays standalone until CL-P1-17 lands.
-6. host-ios.yml: pull_request with paths `tools/target_hosts/ios/**` and itself, plus workflow_dispatch, on macos-15. Record xcodebuild -version and the runtimes; run both modes over the fixtures; assert exit codes, byte-exact output, the timeout kill and a fresh container per app-mode run.
+6. host-ios.yml: push and pull_request to `main`, each with paths `tools/target_hosts/ios/**` and the workflow itself, plus workflow_dispatch, on macos-15. Record xcodebuild -version and the runtimes; run both modes over the fixtures; assert exit codes, byte-exact output, the timeout kill and a fresh container per app-mode run. Add an iPad simulator destination beside the iPhone one, and check that the app's Info.plist declares `UIDeviceFamily` [1,2] (iOS and iPadOS are one lane).
 7. Open a draft PR from codex/cx-p1-04 with the protocol report.
 
 **Acceptance**
@@ -446,11 +448,12 @@ The Codex packets below build the rest, platform by platform:
 
 ##### CX-P1-05 · Android test-host spike and the CI emulator: KVM x86_64 emulators, shell and NativeActivity modes on GitHub Linux runners
 
-- **Owner:** Codex · **Group:** P1 · **Stage:** Stage 25 · **Environment:** Linux cloud + GitHub Linux KVM runner (Android emulator) · **Start now:** no · **Estimate:** 10 agent-hours
+- **Owner:** Codex · **Group:** P1 · **Stage:** Stage 25 · **Environment:** Linux cloud + GitHub Linux KVM runner (Android emulator) · **Start now:** yes · **Estimate:** 10 agent-hours
 - **PLAN items:** `platforms-p1-host-android` (spike: emulator executor and NativeActivity test host); `tooling-android-ci-emulator`
 - **Depends on:** [CL-UIA-02](claude.md#cl-uia-02)
-- **Why not now:** Starts once CL-UIA-02's workflow-class commit is on main (a new lane workflow fails the contract test before it).
 - **Parallel-safe with:** CL-P1-01, CL-P1-02, CL-P1-03, CL-P1-04, CL-P1-05, CL-P1-06, CX-P1-01, CX-P1-02, CX-P1-03, CX-P1-04, CX-P1-06, MAC-P1-02
+
+> **Writer note:** `CL-UIA-02` is on `main` (batch 13), so this starts now. Q20's default is in force; without the workflows permission use the `ci/proposed/` fallback (evidence one batch later). The workflow triggers on push and pull_request to `main`, each with a paths filter that includes the workflow file itself, plus `workflow_dispatch`. A matrix pytest job needs a `fragment: ci/tiers.toml` row, and that PR takes the main-tier CI slot (§3.2).
 
 > **Review change:** Waits for `CL-UIA-02`'s workflow-class policy: until it lands, a new workflow with a paths filter fails `test_ci_workflow_contracts.py` in every unit shard (§10 C1).
 
@@ -471,7 +474,7 @@ The Codex packets below build the rest, platform by platform:
 
 **Steps**
 
-1. host-android.yml on ubuntu-latest: enable KVM with the udev rule for /dev/kvm; actions/setup-java with JDK 17. sdkmanager (accepting licences, approved by D8) installs exactly ndk;29.0.14206865, platforms;android-36, build-tools;37.0.0, platform-tools, emulator, and system-images;android-29;google_apis;x86_64 and android-36;google_apis;x86_64, plus a 16 KiB x86_64 image if the SDK feed lists one (otherwise record that 16 KiB stays a Mac arm64 run). Cache the SDK and the AVD snapshots keyed on the versions. The emulator runs only there; the cloud container has no KVM.
+1. host-android.yml on ubuntu-latest, triggered on push and pull_request to `main` (each with a paths filter that includes the workflow itself and `tools/target_hosts/android/**`) plus workflow_dispatch: enable KVM with the udev rule for /dev/kvm; actions/setup-java with JDK 17. sdkmanager (accepting licences, approved by D8) installs exactly ndk;29.0.14206865, platforms;android-36, build-tools;37.0.0, platform-tools, emulator, and system-images;android-29;google_apis;x86_64 and android-36;google_apis;x86_64, plus a 16 KiB x86_64 image if the SDK feed lists one (otherwise record that 16 KiB stays a Mac arm64 run). Cache the SDK and the AVD snapshots keyed on the versions. The emulator runs only there; the cloud container has no KVM. `nix/platforms.nix` is the single version source: sdkmanager installs exactly its revisions on the KVM runner, and a test asserts that they are equal. Hosted runners never enter `.#platforms` (its closure is 17.75 GB), and 16 KiB pages are a Mac arm64 run (MAC-P1-03).
 2. AvdManager: create and boot headless (-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect), wait for sys.boot_completed, check the page size, kill.
 3. Shell mode: NDK clang --target=x86_64-linux-android29 (and aarch64 build-only); adb push to /data/local/tmp/btrc/\<run>/; run through adb shell with the shell protocol's exit status and toybox timeout; keep stdout and stderr separate (stderr to a file that is pulled).
 4. App mode: the program is built as libbtrcprogram.so with -Dmain=btrc_program_main. android_main runs it on a thread, redirects stdout and stderr to files in ANativeActivity internalDataPath and writes exit_status. Then: adb install -r, am start -W -n \<pkg>/android.app.NativeActivity, poll run-as \<pkg> cat files/exit_status, collect, uninstall. Debug-signed by AGP. Check the LOAD alignment of the .so with llvm-readelf -l (0x4000).
@@ -495,11 +498,12 @@ The Codex packets below build the rest, platform by platform:
 
 ##### CX-P1-06 · Windows test-host spike: a native executor with job-object timeouts on windows-latest and windows-11-arm
 
-- **Owner:** Codex · **Group:** P1 · **Stage:** Stage 25 · **Environment:** Linux cloud + GitHub Windows runner · **Start now:** no · **Estimate:** 5 agent-hours
+- **Owner:** Codex · **Group:** P1 · **Stage:** Stage 25 · **Environment:** Linux cloud + GitHub Windows runner · **Start now:** yes · **Estimate:** 5 agent-hours
 - **PLAN items:** `platforms-p1-host-windows` (spike: native executor and Linux-built bundles)
 - **Depends on:** [CL-UIA-02](claude.md#cl-uia-02)
-- **Why not now:** Starts once CL-UIA-02's workflow-class commit is on main (a new lane workflow fails the contract test before it).
 - **Parallel-safe with:** CL-P1-01, CL-P1-02, CL-P1-03, CL-P1-04, CL-P1-05, CL-P1-06, CX-P1-01, CX-P1-02, CX-P1-03, CX-P1-04, CX-P1-05, MAC-P1-02
+
+> **Writer note:** `CL-UIA-02` is on `main` (batch 13), so this starts now. Q20's default is in force; without the workflows permission use the `ci/proposed/` fallback (evidence one batch later). The workflow triggers on push and pull_request to `main`, each with a paths filter that includes the workflow file itself, plus `workflow_dispatch`. A matrix pytest job needs a `fragment: ci/tiers.toml` row, and that PR takes the main-tier CI slot (§3.2).
 
 > **Review change:** Waits for `CL-UIA-02`'s workflow-class policy: until it lands, a new workflow with a paths filter fails `test_ci_workflow_contracts.py` in every unit shard (§10 C1).
 
@@ -518,7 +522,7 @@ The Codex packets below build the rest, platform by platform:
 
 **Steps**
 
-1. Linux job: build the fixtures plus at most 5 existing corpus programs for windows-x86_64 and windows-aarch64, using today's --target support in both compilers and zig cc -target x86_64-windows-gnu / aarch64-windows-gnu with windows.yml's exact strict flags and overlay. Write a bundle manifest (program, argv, timeout, expected-stdout digest) and upload it as an artifact.
+1. host-windows.yml triggers on push and pull_request to `main`, each with a paths filter that includes the workflow itself and `tools/target_hosts/windows/**`, plus workflow_dispatch. Linux job: build the fixtures plus at most 5 existing corpus programs for windows-x86_64 and windows-aarch64, using today's --target support in both compilers and zig cc -target x86_64-windows-gnu / aarch64-windows-gnu with windows.yml's exact strict flags and overlay. Write a bundle manifest (program, argv, timeout, expected-stdout digest) and upload it as an artifact.
 2. Windows jobs, matrix [windows-latest, windows-11-arm]: download and run WindowsNativeExecutor. It wraps subprocess.Popen in a Job Object (ctypes CreateJobObjectW, AssignProcessToJobObject, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE; document the assignment race), uses TerminateJobObject on timeout, captures stdout and stderr as bytes, and maps NTSTATUS crash codes. It runs from an unrelated working directory and from a path with spaces and non-ASCII characters.
 3. Fixtures include a child that spawns a grandchild, to prove the tree kill leaves no orphan.
 4. WindowsNativeExecutor has the CL-P1-17 protocol shape. Open a draft PR from codex/cx-p1-06 with the protocol report.
@@ -1525,6 +1529,8 @@ The Codex packets below build the rest, platform by platform:
 - **Why not now:** A Stage 27 implementation fixture. It starts once function-table dispatch conventions land (CL-P2-06) so it can merge alongside the COM step (CL-P2-10).
 - **Parallel-safe with:** CL-P2-09, CL-P2-11, CX-P2-10
 
+> **Writer note:** Pre-assigned: starts the moment CL-P2-06 lands; it gates CL-P2-10 (COM), and through it CL-P2-21 and all three shells (2026-10-03, §5.1).
+
 **Owned paths**
 
 - src/tests/native/com/ (new): ComShape.h, com_counter_server.c, com_fixture_server.c, com_fixture_server.def, build_com_fixture.py
@@ -1854,7 +1860,7 @@ The Codex packets below build the rest, platform by platform:
 
 **Must not touch**
 
-- flake.nix, `nix/**` (CL-P2-17 wires the pins)
+- flake.nix, `nix/**` (CL-P2-29 wires the pins)
 - `src/runtime/gpu/**` and the Makefile gpu target (file requests)
 - `src/compiler/**`
 
@@ -1862,7 +1868,7 @@ The Codex packets below build the rest, platform by platform:
 
 1. Fetch the 8 archives and verify each against the matrix digests from Stage 23, recording any that are missing.
 2. Extract the headers and libraries, then link the smoke per target and run where executable: Windows x64 gnu on windows-latest (WARP/D3D12, result recorded), the Android x86_64 emulator, and the iOS simulator on a GitHub macOS runner. The arm64 msvc link is deferred to CX-P2-26.
-3. Hand the flake wiring request to CL-P2-17, then open a draft PR from codex/cx-p2-25.
+3. Hand the flake wiring request to CL-P2-29, then open a draft PR from codex/cx-p2-25.
 
 **Acceptance**
 
@@ -2135,7 +2141,7 @@ The Codex packets below build the rest, platform by platform:
 
 - **Owner:** Codex · **Group:** P2 · **Stage:** 29 · **Environment:** Linux cloud + GitHub Windows runner · **Start now:** no · **Estimate:** 8 agent-hours
 - **PLAN items:** `platforms-w2-gpu-image-font[gpu]`
-- **Depends on:** [CX-P2-25](#cx-p2-25); [CL-P2-17](claude.md#cl-p2-17); [CL-P2-18](claude.md#cl-p2-18)
+- **Depends on:** [CX-P2-25](#cx-p2-25); [CL-P2-29](claude.md#cl-p2-29); [CL-P2-18](claude.md#cl-p2-18)
 - **Why not now:** Needs the pinned archives in the flake and the ARM64 route decision.
 - **Parallel-safe with:** CX-P2-32, CX-P2-34
 
@@ -2359,7 +2365,7 @@ The Codex packets below build the rest, platform by platform:
 
 - **Owner:** Codex · **Group:** P2 · **Stage:** 29 · **Environment:** Linux cloud + GitHub macOS runner · **Start now:** no · **Estimate:** 8 agent-hours
 - **PLAN items:** `platforms-i2-gpu[provider]`
-- **Depends on:** [CX-P2-25](#cx-p2-25); [CL-P2-17](claude.md#cl-p2-17); [CX-P2-36](#cx-p2-36)
+- **Depends on:** [CX-P2-25](#cx-p2-25); [CL-P2-29](claude.md#cl-p2-29); [CX-P2-36](#cx-p2-36)
 - **Why not now:** Needs the pinned archives and the lifecycle owner.
 - **Parallel-safe with:** CX-P2-37, CX-P2-38
 
@@ -2550,7 +2556,7 @@ The Codex packets below build the rest, platform by platform:
 
 - **Owner:** Codex · **Group:** P2 · **Stage:** 29 · **Environment:** Linux cloud + GitHub macOS and Windows runners · **Start now:** no · **Estimate:** 8 agent-hours
 - **PLAN items:** `platforms-a2-gpu[provider]`
-- **Depends on:** [CX-P2-25](#cx-p2-25); [CL-P2-17](claude.md#cl-p2-17); [CX-P1-09](#cx-p1-09); [CL-P1-15](claude.md#cl-p1-15)
+- **Depends on:** [CX-P2-25](#cx-p2-25); [CL-P2-29](claude.md#cl-p2-29); [CX-P1-09](#cx-p1-09); [CL-P1-15](claude.md#cl-p1-15)
 - **Why not now:** Needs the pinned archives and an Activity surface.
 - **Parallel-safe with:** CX-P2-42, CX-P2-43
 
@@ -2867,52 +2873,68 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 ##### CX-UIA-02 · ui-0-catalog-schema (adopted from PR #21): frozen catalog slots with the amendment model and drift gate, plus the shard loader
 
-- **Owner:** Codex · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud + GitHub macOS and Windows runners · **Start now:** in flight · **Estimate:** 3 agent-hours
+- **Owner:** Codex · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud + GitHub macOS and Windows runners · **Start now:** yes (follow-up; first commit integrated in batch 11, CI green) · **Estimate:** 6 agent-hours
 - **PLAN items:** `ui-0-catalog-schema`
 - **Depends on:** none
 - **Parallel-safe with:** CL-UIA-01, CL-UIA-02, CL-UIA-03, CX-UIA-01, CX-UIA-06, CL-UIA-21, CX-UIA-09, CX-UIA-12, CX-UIA-13, CX-UIA-18, CX-UIA-19, CX-UIA-20
+
+> **Writer note:** PR #21's commit `b7aa53f` (the seed, the amendments and the drift gate) was integrated in batch 11 with green CI (ci.yml 37090470053, macos.yml 37090470052, windows.yml 37090470074), and PR #21 is closed. The follow-up has not started: `tools/qualification/ui_catalog.py` and `docs/design/native-ui-catalog/` do not exist on any ref. Steps and acceptance below are the follow-up's, from Task 1 of [codex-ui-lanes.md](codex-ui-lanes.md), which has the full layout, README and test tables (2026-10-03).
 
 > **Review change:** Adopted from Codex's draft PR #21 (`codex/ui0-catalog`, head `b7aa53f`), the earliest claim on `ui-0-catalog-schema` (§3.9). Its amendment model keeps PLAN's frozen 162/1,620/470 release and pins the 17 added declarations, so this packet no longer re-freezes the denominator, and the `fragment:` denominator and ledger-test entries of §9 item 4 are dropped. Layout: PR #21's seed file plus a shard directory beside it (§7 Q35, Q36, recorded by `CL-UIA-01`). Supersedes the writer note of §9 items 4 and 9 for this packet (§10 P10, F3).
 
 **Owned paths**
 
-- branch codex/ui0-catalog (draft PR #21; retitle it `[CX-UIA-02] …` and add the `Packet:` line)
-- docs/design/native-ui-catalog.toml (PR #21: the frozen 1,620 operation and 470 case slots as one ledger/1 document)
-- docs/design/ui0-source-amendments.toml (PR #21: the 17 added declarations and the GUI.rasterText retirement)
-- docs/design/ui0-catalog.md (PR #21)
-- src/tests/python/test_ui0_catalog.py (PR #21)
-- tools/qualification/ui_catalog.py (new: loads the seed plus the sibling shard documents)
-- docs/design/native-ui-catalog/README.md and families.toml (new: the shard directory and the 300 family cells)
+- branch codex/cx-uia-02-shards (the follow-up's draft PR, `[CX-UIA-02] ui-0-catalog-schema follow-up: shard loader, family cells, IFontFace scope`)
+- tools/qualification/ui_catalog.py (new: the shard layout, loader, merge, partitions and CLI)
+- src/tests/python/test_ui0_catalog.py
+- docs/design/native-ui-catalog/README.md (new: the shard layout and the owner-to-packet table)
+- docs/design/native-ui-catalog/families.toml (new: the 300 family cells)
+- docs/design/ui0-source-amendments.toml
+- docs/design/ui0-catalog.md
+- docs/design/native-ui-api-inventory.md (one btrc-D068 bullet under 'Changes since the frozen inventory' only; no table rows)
 
 **Must not touch**
 
 - `src/compiler/**` (the parser may only be imported read-only)
 - `src/language/**`
 - tools/qualification/schema.py, denominators.py and report.py (send Claude a 'ledger request' if a field is missing)
-- docs/design/platform-inventory.toml and its denominator entry
+- docs/design/native-ui-catalog.toml (the seed stays byte-identical)
+- src/tests/python/test_qualification_ledger.py and test_ci_workflow_contracts.py
+- every other path under docs/design/native-ui-catalog/ (each belongs to the packet the README names)
+- the tables in docs/design/native-ui-api-inventory.md, all of native-ui-parity.md, and docs/design/platform-inventory.toml with its denominator entry
 - `src/stdlib/**`
 - docs/design/plan-reference.md
 - PLAN.md
-- `.github/workflows/**`
+- `.github/workflows/**`, Makefile and ci/tiers.toml
 - tools/qualification/denominators.toml (unchanged: no re-freeze in this packet)
 
 **Steps**
 
-1. Keep PR #21's commit b7aa53f as the base. Retitle the PR `[CX-UIA-02] …`, add the `Packet:` line and the §3.7 report.
-2. Follow-up commit: tools/qualification/ui_catalog.py loads native-ui-catalog.toml plus every sibling ledger document under docs/design/native-ui-catalog/ (operations/\<Owner>.toml classifications, surface/, hosts.toml, evidence/), merges them by subject and rejects duplicates and subjects outside the seed plus amendments.
-3. Seed docs/design/native-ui-catalog/families.toml with 60 N-ids × 5 platforms from native-ui-parity.md's P/C/M matrix.
-4. Record IFontFace's scope in ui0-source-amendments.toml: an N44/N49 operation, or out of scope with a reason.
-5. No denominator change: ui0-source-inventory-2026-09-21 stays frozen; the 17 additions stay amendments until the first reviewed release (CX-UIA-05).
+1. Branch `codex/cx-uia-02-shards` from `origin/main` (PR #21's `b7aa53f` is already there) and open the draft PR with Owned paths first and `Packet: CX-UIA-02 … Branch: codex/cx-uia-02-shards Base: <origin/main sha>`.
+2. Shard layout, declared as data in ui_catalog.py and mirrored in README.md; any other file or directory is an error. `families.toml` holds family cells only (N01–N60 × 5 platforms); `operations/<Owner>.toml` holds ui-operation ids that start with `<Owner>.` for an admissible owner; `cases/E<aa>-E<bb>.toml` holds ui-case ids inside non-overlapping ranges; `surface/<Stem>.toml` (`btrc.ui-catalog.surface/1`, stems `GUIModules`, `App`, `UI` and `Tray`) has one table per exported symbol with a `family`, `legacy`, `provider-internal` or `out-of-scope` disposition, validated against the btrc.toml exports; `evidence/<kebab-name>.toml` or `.jsonl` holds ledger/1 evidence, `test` records and `note` only; `amendments/<packet-id>.toml` uses the amendments grammar; `hosts.toml` and `README.md` are skipped explicitly. The README's owner-to-packet table lists every planned path.
+3. Compact form: operation and case shards also accept one `[[operations]]` or `[[cases]]` table per id, with shared fields on the table and per-platform cells (a mapping for both frontends, or `{ reference = {…}, selfhost = {…} }`) that carry overrides, `evidence = {…}` and `run = "<name>"`, plus `[runs.<name>]` tables. Every cell expands to ledger/1 through `LedgerRecord.from_mapping`, so every schema.py invariant applies.
+4. Merge and partitions. Ledger order: the seed, `families.toml`, then `operations/` and `cases/` sorted, then `evidence/` sorted. Classification is unique per slot; evidence may come from several files and the last in ledger order wins (schema.py:143-144), and `check` reports a stale overwrite. Reject a slot outside the admissible ids (the seed, the amendments, every ui-operation and ui-case release denominators.toml declares, and surface `family` proposals), classification in two files, a duplicate in one file, a `variant` on a UI slot, a foreign owner or an out-of-range case id, and any classification other than `note` under `evidence/`. Partitions: frozen (1,620 operation, 470 case and 300 family-cell slots); pending (the amendment ids and surface proposals, derived through the reference Lexer and Parser, never by regex); retired (`GUI.rasterText`, 10 slots, decision btrc-D056), which no shard may classify.
+5. Define "classified" once, in the code and the README: an operation or case slot has `classification.implementation` and `evidence.status`; a family cell has `implementation`. Provide `unclassified(owner=…, kind=…)`, which excludes retired slots.
+6. CLI, exit status 1 on any problem: `python3 -m tools.qualification.ui_catalog check [--strict] [--owner O]... [--kind ui-operation|ui-case|family-cell|surface]... [--junit RUN=PATH]...` runs the layout and admission rules and requires `QualificationReport(frozen records, DenominatorManifest([the three UI kinds])).problems() == []`; `--strict` also fails on an unclassified non-retired slot in scope; `--junit` checks that every `passed` cell of that run lists regression node ids that passed in the XML (read with `JUnitAdapter`). `report [--format markdown|json] [--owner O]... [--kind K]...` gives counts per kind × platform × frontend, the three partitions and the unclassified slots per owner.
+7. `families.toml`: seed it from the 2026-09-21 P/C/M matrix in native-ui-parity.md (P → `partial`, C → `custom`, M → `missing` with `parity = "missing"`), with `links = ["Nxx", "UIx"]`, the legend notes for N10, N37, N40, N42 and N43 (macOS) and N41, and no evidence. The test pins the seeded grid as data with its sha256 (P 48, C 15, M 237) and does not re-read native-ui-parity.md; a cell that differs from the seed carries a `decision`.
+8. Amendments: record IFontFace's scope in ui0-source-amendments.toml (recommended in scope, linked to N44 and N49, because GUI/btrc.toml exports it and `Font(IFontFace)` is public; otherwise out of scope with the reason). Widen the grammar (`[[changes]]` with `id`, `decision`, `frozen`, `current`; an optional `parent` on additions and `replacement` on removals), also load `amendments/*.toml`, derive the counts test from `[current]` plus the amendments instead of the literals 20/25/152/26/17, and add the outside-interface guard (`[[outside_interfaces]]`, today `ActionMailbox.IQueuedAction`).
+9. Documentation and tests: add the btrc-D068 bullet (`FontFace.btrc` renamed to `IFontFace.btrc` in 16185609, which brings `IFontFace.metrics`/`.glyph` into the `I*.btrc` scope); update ui0-catalog.md (layout, CLI, partitions, "classified", the IFontFace decision). In test_ui0_catalog.py, run `verify_catalog` over the merged view, add one negative case per admission rule and the positive cases Task 1 lists, cover the families seed and the outside-interface guard, and keep the dummy-method failure.
+10. Binding rules: no denominator change and no re-freeze (`ui0-source-inventory-2026-09-21` stays at 162/1,620, 47/470 and 60/300); never add a row shaped ``| `Owner.member` |`` to native-ui-api-inventory.md or change an N/E row id in native-ui-parity.md; no string literal in `src/tests/**` or `tools/**` names a Markdown file outside `TEST_READ_MARKDOWN`, and no code reads ui0-catalog.md. Put `REQUEST(CL-UIA-24)` (several releases per kind, the retired disposition, frozen sources read from the seed ledger and families.toml, the `_frozen_copy` cases) and `REQUEST(CL-UIA-05)` (wire `ui_catalog` into `make qualification-report`) in the PR body.
 
 **Acceptance**
 
-- [ ] `nix develop --command python3 -m pytest src/tests/python/test_ui0_catalog.py src/tests/python/test_qualification_ledger.py -q -rs` passes, including the dummy-method drift failure.
-- [ ] `nix develop --command python3 -m tools.qualification.ui_catalog --report` renders 0 missing and 0 undeclared slots (make qualification-report renders it once CL-UIA-05 wires it in).
-- [ ] make lint, make format-check and git diff --check pass; ci.yml, macos.yml and windows.yml green on the draft PR (run ids).
+- [ ] `nix develop --command python3 -m pytest src/tests/python/test_ui0_catalog.py -q -rs` → 0 failed, 0 skipped.
+- [ ] `nix develop --command python3 -m pytest src/tests/python/test_qualification_ledger.py src/tests/python/test_platform_inventory.py -q -rs` → 0 failed, and `nix develop --command python3 -m pytest src/tests/python/test_ci_workflow_contracts.py -k markdown -q` passes.
+- [ ] `nix develop --command python3 -m tools.qualification.ui_catalog check` exits 0 and prints 1,620/1,620 ui-operation, 470/470 ui-case and 300/300 family-cell slots; 0 undeclared and 0 duplicate; pending 17 ids / 170 slots (15 / 150 if IFontFace is recorded out of scope, with its 2 ids and the reason); retired 1 id / 10 slots.
+- [ ] `… ui_catalog report --format json` gives family-cell partial 48, custom 15, missing 237 (macOS 33/0/27; Linux 15/15/30; Windows, iOS and Android 0/0/60 each), and ui-operation and ui-case at 0 classified.
+- [ ] `nix develop --command python3 -m tools.qualification denominators` exits 0.
+- [ ] `git diff --exit-code origin/main -- docs/design/native-ui-catalog.toml tools/qualification/denominators.toml` exits 0, and the diff lists only owned paths.
+- [ ] `make lint format-check generated-check` and `git diff --check` pass.
+- [ ] Lane CI is green on the final head: ci.yml and macos.yml with run ids, and windows.yml "green (scope only)".
 
 **Risks**
 
-- PR #21 predates Gate 0; Claude integrates it in the first batch after Gate 0.
+- `ui_catalog.py` becomes a Claude hotspot the moment it lands (§3.3.1, existing `tools/qualification/*.py` modules), so it builds every shard kind now and later packets only add data files.
 - The drift test depends on the reference parser's public API; it must not reach into compiler internals.
 - The seed is one 6,485-line file: later packets write sibling shard documents, never the seed, which changes only through reviewed releases.
 
@@ -2946,12 +2968,14 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 1. For every operation × {macos, linux} × {reference, selfhost}, find the assertion that exercises it in `src/tests/native/gui/*.btrc`, `gui/linux/*.btrc` or the `test_native_*` drivers, and record the pytest node id and the assertion text.
 2. Check inherited IView and IContainer operations at each concrete receiver (button, field, select, slider, label, image, panel, indicators, stack, grid, scroll and GPU view), not once per interface.
-3. Evidence is 'passed' only where a current run passed: Linux from a cloud make test-native-gui run, macOS from the junit artifact of the latest green macos.yml run, ingested with tools/qualification/adapters.py. Otherwise it is implemented-unverified or missing.
+3. Evidence is 'passed' only where a current run passed: from the shared UI0 evidence run, Claude's `focus=native-gui` dispatch of ci.yml and macos.yml on the `main` SHA that landed the CX-UIA-02 follow-up, recorded as `[runs.ui0-*-<id>]` with `btrc_revision` set to that SHA (the JUnit read with tools/qualification/adapters.py). Otherwise it is implemented-unverified or missing.
 4. Windows, iOS and Android are recorded as implementation missing, with evidence unavailable and covered_by [] where no runner exists. A missing provider is never implemented-unverified.
+5. `GUI.rasterText` is retired (btrc-D056) and is not classified. Pending ids (the 15 `IApplication.create*` factories) are classified in their owner shard.
+6. Branch from `main` after Claude integrates the CX-UIA-02 follow-up (no stacking). Drafting earlier on a local branch off `codex/cx-uia-02-shards` is fine; rebase onto `main` before opening the PR.
 
 **Acceptance**
 
-- [ ] test_ui0_catalog.py (and ui_catalog.py's shard check) passes, and every slot of these owners carries a state (0 unclassified).
+- [ ] `nix develop --command python3 -m tools.qualification.ui_catalog check --strict --owner <each owner above> --junit ui0-macos-<id>=… --junit ui0-linux-<id>=…` exits 0 (0 unclassified slots for these owners; retired slots excluded), and test_ui0_catalog.py passes.
 - [ ] Every passed cell names a pytest node id, an assertion and its run id.
 - [ ] The PR-body table gives passed / implemented-unverified / missing counts per owner and platform.
 
@@ -2986,13 +3010,15 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 **Steps**
 
-1. Map the same way as CX-UIA-03, using the NativeButtons, NativeSelect, NativeSlider, NativeLabels, NativeStacks, NativeGrid, NativePanel, NativeProgressIndicator, NativeLevelIndicator, NativeControlSizing, `MacOS*Conformance`, font and LinuxGUIControls assertions.
+1. Map the same way as CX-UIA-03, with evidence from the shared UI0 evidence run (Claude's `focus=native-gui` dispatch of ci.yml and macos.yml on the `main` SHA that landed the CX-UIA-02 follow-up, recorded as `[runs.ui0-*-<id>]`), using the NativeButtons, NativeSelect, NativeSlider, NativeLabels, NativeStacks, NativeGrid, NativePanel, NativeProgressIndicator, NativeLevelIndicator, NativeControlSizing, `MacOS*Conformance`, font and LinuxGUIControls assertions.
 2. Record known source limits as catalog notes: ISelect is index-only; ISlider's range is fixed at construction with a 1,000-interval cap; the scroll offset is vertical only; macOS rejects bordered fonts above 20 pt; LinuxImageView stops painting a closed handle.
 3. Windows, iOS and Android are missing, with evidence unavailable.
+4. Pending ids (`IFontFace.metrics` and `.glyph`, if CX-UIA-02 records IFontFace in scope) are classified in their owner shard. `GUI.rasterText` is retired and not classified.
+5. Branch from `main` after Claude integrates the CX-UIA-02 follow-up (no stacking). Drafting earlier on a local branch off `codex/cx-uia-02-shards` is fine; rebase onto `main` before opening the PR.
 
 **Acceptance**
 
-- [ ] test_ui0_catalog.py (and ui_catalog.py's shard check) passes with 0 unclassified slots for these owners.
+- [ ] `nix develop --command python3 -m tools.qualification.ui_catalog check --strict --owner <each owner above> --junit ui0-macos-<id>=… --junit ui0-linux-<id>=…` exits 0 (0 unclassified slots for these owners; retired slots excluded), and test_ui0_catalog.py passes.
 - [ ] Every passed cell names a node id, an assertion and its run id. The PR-body report gives counts per owner and platform.
 
 **Risks**
@@ -3004,27 +3030,28 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 ##### CX-UIA-05 · ui-0-broader-surface: classify every GUI, App, UI and Tray export outside the interfaces
 
-- **Owner:** Codex · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 5 agent-hours
+- **Owner:** Codex · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 4 agent-hours
 - **PLAN items:** `ui-0-broader-surface`
-- **Depends on:** [CX-UIA-02](#cx-uia-02)
-- **Why not now:** Needs CX-UIA-02's catalog loader, drift test and first re-freeze.
+- **Depends on:** [CX-UIA-02](#cx-uia-02); [CL-UIA-24](claude.md#cl-uia-24) (to finish)
+- **Why not now:** Needs CX-UIA-02's follow-up (shard loader and surface schema) on main; its release lands through CL-UIA-24.
 - **Parallel-safe with:** CX-UIA-03, CX-UIA-04, CX-UIA-06, CL-UIA-21, CX-UIA-09, CX-UIA-12, CX-UIA-13, CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-03
 
-> **Writer note:** The denominator re-freeze is a `fragment:` commit and a new release (§9 items 4 and 9).
+> **Writer note:** The release proposal goes in the PR body with `REQUEST(CL-UIA-24)`; this packet commits no denominator.
 
 > **Review change:** Catalog layout per §7 Q36: PR #21's seed `docs/design/native-ui-catalog.toml` plus sibling shard documents under `docs/design/native-ui-catalog/`, checked by `test_ui0_catalog.py` and `ui_catalog.py` (§10 F3).
 
 **Owned paths**
 
-- docs/design/native-ui-catalog/surface/ (new: GUIModules.toml, App.toml, UI.toml, Tray.toml)
-- docs/design/native-ui-api-inventory.md (new 'Broader surface' tables)
-- fragment (not held): tools/qualification/denominators.toml (the first reviewed ui-operation release: PR #21's 17 amendments plus the broader surface; delivered in the `fragment:` commit)
-- src/tests/python/test_ui0_catalog.py (and ui_catalog.py's shard check) (export-coverage case)
+- docs/design/native-ui-catalog/surface/{GUIModules,App,UI,Tray}.toml (new)
+- src/tests/python/test_ui0_surface.py (new: the export-coverage case)
 
 **Must not touch**
 
 - `src/**`
 - tools/qualification/schema.py and denominators.py
+- tools/qualification/denominators.toml (no fragment: the release lands through CL-UIA-24)
+- docs/design/native-ui-api-inventory.md (no new tables, and never a row shaped ``| `X.y` |``) and native-ui-parity.md
+- src/tests/python/test_ui0_catalog.py
 - docs/design/plan-reference.md
 - PLAN.md
 
@@ -3035,19 +3062,20 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 3. Classify App: AppError/AppErrorCode, AppKeyModifiers, `AppPointer*`, `AppScroll*`, AppKeyAction, AppKeyCode (27 named values plus unknown, not the 24 the roadmap quotes) and AppKeyboardEvent. They link to N06-N10 and UI3.
 4. Classify UI exports (Element, Render, Semantics with its 512-byte limits, Text, TextRaster, Typography, UIEventKind) as D24 reuse or custom renderer.
 5. Classify Tray exports (ITray, SystemTray, Tray/TrayItem/TraySignal) under N56 and UI11.
-6. Add these ids to the ui-operation release through pattern-matched tables, and re-freeze once.
-7. Add a case that fails when any exported symbol has no row.
+6. Put proposed ids in the `operations` lists of `family` rows (they become pending), and put the release proposal (ids, count, sha256 from `Denominator.digest`) in the PR body.
+7. Add a case to test_ui0_surface.py that fails when any exported symbol has no row.
+8. Binding rule: add no ``| `X.y` |`` rows to native-ui-api-inventory.md; it is a regex source of the frozen release until CL-UIA-24 repoints it.
 
 **Acceptance**
 
-- [ ] test_ui0_catalog.py (and ui_catalog.py's shard check) passes, including the export-coverage case, with 0 unclassified exports.
-- [ ] make qualification-report shows 0 missing and 0 undeclared slots.
-- [ ] lint, format-check and git diff --check pass. The PR-body report follows the protocol.
+- [ ] test_ui0_surface.py passes, including the export-coverage case, with 0 unclassified exports, and test_ui0_catalog.py passes.
+- [ ] `nix develop --command python3 -m tools.qualification.ui_catalog check --strict --kind surface` exits 0; the proposals are reported as pending.
+- [ ] lint, format-check and git diff --check pass. The PR-body report follows the protocol, with the release proposal and `REQUEST(CL-UIA-24)`.
 
 **Risks**
 
-- This is a second re-freeze of the same denominator, and the owner sees both.
 - Counting each enum value as an operation would inflate the denominator; count the type instead.
+- It integrates only after CL-UIA-24, which lands the release it proposes.
 
 <a id="cx-uia-06"></a>
 
@@ -3080,7 +3108,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 2. macOS: hosted macos-15 for automation and GPU correctness (paravirtual Metal adapter), and mac-m1-max for GPU, VoiceOver, IME and Accessibility Inspector.
 3. Linux: the cloud container and ci.yml under Xvfb and weston headless with lavapipe for automation; linux-fractal-north (unverified per D7) for Orca, IME, HiDPI and GPU reset.
 4. Windows: windows.yml windows-latest x64 and windows-11-arm (availability unverified). Narrator and hardware are unavailable (D8).
-5. iOS: the owner's Mac simulator after tooling-ios-simulator-runtimes, with GitHub macOS simulators as the automation stand-in.
+5. iOS: the owner's Mac simulator after tooling-ios-simulator-runtimes, with GitHub macOS simulators as the automation stand-in. Add iPhone and iPad simulator rows for `ios`, told apart by `provenance.device_class`.
 6. Android: the owner's Mac emulator after tooling-android-sdk-ndk, and the CI emulator after tooling-android-ci-emulator.
 7. Mobile devices are unavailable (D8).
 8. Every unavailable row lists its blocked_by PLAN item ids. Record the disk budget (Android SDK/NDK/AVDs about 10-15 GB, iOS runtimes) against the 100 GB rule.
@@ -3097,6 +3125,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 - windows-11-arm runner availability is an open assumption in PLAN.
 - The owner sign-off item in items.json is replaced by consistency with D7/D8; the owner may still want to review.
+- The catalog loader (`ui_catalog.py`) skips `hosts.toml` explicitly, so test_native_ui_hosts.py is its only validator.
 
 <a id="cx-uia-07"></a>
 
@@ -3104,8 +3133,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 - **Owner:** Codex · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 4 agent-hours
 - **PLAN items:** `ui-0-doc-reconcile`
-- **Depends on:** [CX-UIA-03](#cx-uia-03); [CX-UIA-04](#cx-uia-04); [CX-UIA-05](#cx-uia-05); [CL-UIA-03](claude.md#cl-uia-03)
-- **Why not now:** Needs the completed operation map (CX-UIA-03/04), the broader surface (CX-UIA-05) and the BTRSmith caller counts (CL-UIA-03).
+- **Depends on:** [CX-UIA-03](#cx-uia-03); [CX-UIA-04](#cx-uia-04); [CX-UIA-05](#cx-uia-05); [CX-UIA-30](#cx-uia-30); [CL-UIA-03](claude.md#cl-uia-03)
+- **Why not now:** Needs the completed operation map (CX-UIA-03/04), the case map (CX-UIA-30), the broader surface (CX-UIA-05) and the BTRSmith caller counts (CL-UIA-03).
 - **Parallel-safe with:** CX-UIA-09, CX-UIA-10, CX-UIA-11, CX-UIA-12, CX-UIA-13, CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-04
 
 > **Review change:** Catalog layout per §7 Q36: PR #21's seed `docs/design/native-ui-catalog.toml` plus sibling shard documents under `docs/design/native-ui-catalog/`, checked by `test_ui0_catalog.py` and `ui_catalog.py` (§10 F3).
@@ -3120,32 +3149,80 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - src/stdlib/App/README.md
 - docs/design/native-ui-parity.md (except the Review checkpoint section, which CL-P1-01 owns)
 - docs/design/native-ui-api-inventory.md
-- src/tests/python/test_ui0_catalog.py (and ui_catalog.py's shard check) (doc-count case)
+- src/tests/python/test_ui0_doc_counts.py (new: the doc-count case)
 
 **Must not touch**
 
 - PLAN.md (send section text to Claude in the PR body)
 - docs/design/plan-reference.md
 - `src/stdlib/**/*.btrc`
+- src/tests/python/test_ui0_catalog.py and every shard under docs/design/native-ui-catalog/
 
 **Steps**
 
 1. Give every implemented or unfinished claim a source or test citation. Reconcile the GUI README's statement that GPU subtree shutdown, worker publication and dialogs prevent qualification with MacOSGPUView, MacOSComposedCapture and the catalog states.
 2. Label Raster as legacy (D24).
 3. Refresh the audit revision (4e5c982).
-4. Derive these from the catalog: the family matrix counts, the AppKeyCode count, the IApplication factory set and the slot totals.
+4. Derive these from the catalog: the family matrix counts (from `families.toml`), the AppKeyCode count, the IApplication factory set and the slot totals.
 5. Note that the Linux tray test compiles only through the reference frontend and skips without a StatusNotifierWatcher.
 6. Record the D21 floors (iOS 17, API 29, Windows 11) and the pending macOS minimum (Stage 24 Q1).
-7. Add a doc-count case: every count quoted in the two roadmap docs equals the derived count.
+7. Add a doc-count case in test_ui0_doc_counts.py: every count quoted in the two roadmap docs equals the derived count.
+8. The "Broader surface" prose never puts a backticked `Owner.member` in a table's first column, and no N/E row id in native-ui-parity.md changes: both documents are regex sources of the frozen release until CL-UIA-24 repoints it.
 
 **Acceptance**
 
-- [ ] test_ui0_catalog.py (and ui_catalog.py's shard check), including the doc-count case, passes.
+- [ ] test_ui0_doc_counts.py, including the doc-count case, and test_ui0_catalog.py pass.
 - [ ] git diff --check and make lint pass. The PR body carries the Stage 30 status text for Claude.
 
 **Risks**
 
 - native-ui-parity.md is long and dense with prose; keep edits to claims and counts.
+
+<a id="cx-uia-30"></a>
+
+##### CX-UIA-30 · ui-0-case-map: classify the 47 E-cases × 5 platforms × 2 frontends (470 slots)
+
+- **Owner:** Codex · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud + GitHub macOS and Windows runners · **Start now:** no · **Estimate:** 5 agent-hours
+- **PLAN items:** `ui-0-operation-map` (the case slots: Stage 30's exit classifies all 470)
+- **Depends on:** [CX-UIA-02](#cx-uia-02)
+- **Why not now:** Needs CX-UIA-02's follow-up (shard loader and the `cases/` layout) integrated on main, and the shared UI0 evidence run Claude dispatches on that SHA.
+- **Parallel-safe with:** CX-UIA-03, CX-UIA-04, CX-UIA-05, CX-UIA-06, CX-UIA-09, CX-UIA-12, CX-UIA-13, CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-03, CL-UIA-24
+
+> **Writer note:** New on 2026-10-03 ([codex-ui-lanes.md](codex-ui-lanes.md), wave 2). No packet owned the 470 ui-case slots that PLAN's Stage 30 exit requires classified; splitting the E-cases between CX-UIA-03 and 04 was rejected to keep their shard files disjoint.
+
+**Owned paths**
+
+- docs/design/native-ui-catalog/cases/E01-E24.toml (new)
+- docs/design/native-ui-catalog/cases/E25-E47.toml (new)
+
+**Must not touch**
+
+- `src/**`
+- `tools/qualification/*.py`
+- docs/design/native-ui-catalog.toml (the seed) and every other shard under docs/design/native-ui-catalog/
+- docs/design/native-ui-parity.md (its E-row ids are a frozen source until CL-UIA-24)
+- docs/design/plan-reference.md
+- PLAN.md
+
+**Steps**
+
+1. Branch `codex/cx-uia-30` from `main` after Claude integrates the CX-UIA-02 follow-up (no stacking). Drafting earlier on a local branch off `codex/cx-uia-02-shards` is fine; rebase onto `main` before opening the PR.
+2. For every E-case (E01–E47) × {macos, linux, windows, ios, android} × {reference, selfhost}, find the fixture or test that exercises it and classify the slot in the compact form: implementation, evidence status, regression node ids, links and notes.
+3. Evidence comes from the shared UI0 evidence run: Claude's `focus=native-gui` dispatch of ci.yml and macos.yml on the `main` SHA that landed the follow-up, recorded as `[runs.ui0-linux-<id>]` and `[runs.ui0-macos-<id>]` with `btrc_revision` set to that SHA. Download with `gh run download <id> -n junit-ci-native-gui` or `-n junit-macos-native-gui` within 14 days; if the artifacts have expired, dispatch one fresh pair or ask Claude.
+4. No runner: Windows, iOS and Android are `implementation = "missing"` with `evidence.status = "unavailable"`, and `covered_by = []` where no runner exists.
+5. Baselines: E40 on Linux is implementation `partial` with evidence `implemented-unverified` and a note citing the drop of the 4,097th event (the reproduction stays on CX-UIA-11's branch, D24); E46 is `missing` (`windowShouldClose` is always true; SDL closes on request); E47 is `missing`.
+
+**Acceptance**
+
+- [ ] `nix develop --command python3 -m tools.qualification.ui_catalog check --strict --kind ui-case --junit ui0-macos-<id>=… --junit ui0-linux-<id>=…` exits 0 (retired slots excluded), and test_ui0_catalog.py passes.
+- [ ] The PR body has a table of passed, implemented-unverified, source-only and missing counts per E-range and platform.
+- [ ] Lane CI is green (run ids; windows.yml "green (scope only)").
+
+**Risks**
+
+- The evidence run's JUnit artifacts expire after 14 days, so record the run ids promptly.
+- A case that a fixture covers only in part stays implemented-unverified, never passed.
+- CX-UIA-10 and CX-UIA-11 route their case classification changes through this packet while it is open (§3.3).
 
 #### Stage 31: UI1 shells on all five platforms and the toolkit decision
 
@@ -3163,8 +3240,9 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 **Owned paths**
 
 - src/tests/native/gui/shell/ (new: NativeShell.btrc, probes/macos/ShellProbe.h and .m, probes/linux/)
-- src/tests/python/test_native_ui_shell.py (new)
+- src/tests/python/test_native_ui_shell.py (new: the portable harness and the windows-x86_64 provider-missing case)
 - src/tests/python/native_ui_shell_fixtures.py (new)
+- src/tests/python/test_native_ui_shell_macos.py and test_native_ui_shell_linux.py (new: the initial per-platform rows; the Makefile's `test_native_ui_*.py` glob collects them)
 
 **Must not touch**
 
@@ -3186,12 +3264,12 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 5. The probes inject key, text and pointer events, query the focused view, dump the accessibility tree as JSON and count native views. macOS walks NSAccessibility in-process; Linux SDL records 'no bridge'.
 6. E46 baseline: record today's close of a dirty draft as missing. macOS windowShouldClose always returns true, and Linux closes on SDL_EVENT_WINDOW_CLOSE_REQUESTED.
 7. E47 harness: the fixture checkpoints its draft and scroll anchor atomically, and 100 fresh-process restarts assert that the draft restores and no commit replays, using a side-effect journal. The stdlib restoration contract stays missing.
-8. Parametrize test_native_ui_shell.py over macos, linux-x11 and linux-wayland × python/selfhost × plain/ASan-UBSan. linux-wayland skips by capability until CL-UIA-21 lands.
-9. The test also asserts the windows-x86_64 provider-missing compile diagnostic, records iOS and Android as unavailable until Stage 24, and writes ledger/1 JSONL under build/ui-shell/.
+8. Parametrize the shell rows over macos, linux-x11 and linux-wayland × python/selfhost × plain/ASan-UBSan, in test_native_ui_shell_macos.py and test_native_ui_shell_linux.py, with the portable harness in test_native_ui_shell.py. CL-UIA-21 has landed, so the Wayland rows run through `tools/ui/headless-session.sh --wayland`.
+9. test_native_ui_shell.py also asserts the windows-x86_64 provider-missing compile diagnostic, records iOS and Android as unavailable until Stage 24, and writes ledger/1 JSONL under build/ui-shell/.
 
 **Acceptance**
 
-- [ ] In the cloud, 'tools/virtual-display.sh python -m pytest src/tests/python/test_native_ui_shell.py -q' passes linux-x11 for python and selfhost, plain and sanitized, and passes the windows-x86_64 provider-missing case.
+- [ ] In the cloud, `nix develop --command tools/ui/headless-session.sh --x11 -- python3 -m pytest src/tests/python/test_native_ui_shell.py src/tests/python/test_native_ui_shell_linux.py -q -rs` passes linux-x11 for python and selfhost, plain and sanitized, and passes the windows-x86_64 provider-missing case; the `--wayland` counts are reported too.
 - [ ] macos.yml on the draft PR passes the macOS rows for both frontends, including the GPU-frame rows (hosted macos-15 exposes a paravirtual Metal adapter). Only GPU timing rows are covered_by MAC-UIA-02.
 - [ ] The JSONL loads through tools.qualification's LedgerDocument.
 - [ ] btrc-format check and make lint pass. The PR-body report follows the protocol.
@@ -3209,7 +3287,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Owner:** Codex · **Group:** UIA · **Stage:** Stage 31 (UI1) · **Environment:** Linux cloud + GitHub macOS runner · **Start now:** no · **Estimate:** 7 agent-hours
 - **PLAN items:** `ui-1-macos`
 - **Depends on:** [CX-UIA-09](#cx-uia-09); [CX-UIA-02](#cx-uia-02)
-- **Why not now:** Needs CX-UIA-09's fixture and harness and CX-UIA-02's catalog format. Allowed by D27 once both exist.
+- **Why not now:** Needs CX-UIA-09's fixture and harness and CX-UIA-02's catalog format (the follow-up), both integrated on main; plain dependencies, no stacking. Allowed by D27 once both exist.
 - **Parallel-safe with:** CX-UIA-11, CX-UIA-12, CX-UIA-13, CX-UIA-07, CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-06
 
 > **Review change:** Catalog layout per §7 Q36: PR #21's seed `docs/design/native-ui-catalog.toml` plus sibling shard documents under `docs/design/native-ui-catalog/`, checked by `test_ui0_catalog.py` and `ui_catalog.py` (§10 F3).
@@ -3219,6 +3297,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 **Owned paths**
 
 - src/tests/native/gui/shell/probes/macos/ (AX dump and key-view probes)
+- src/tests/python/test_native_ui_shell_macos.py (held once CX-UIA-09 is integrated)
 - docs/design/native-ui-catalog/evidence/ui1-macos.toml (new)
 
 **Must not touch**
@@ -3234,11 +3313,11 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 1. Write an AX tree probe. It walks accessibilityChildren from the window and emits role, label, value, focused and frame as JSON, uploaded as a macos.yml artifact.
 2. Prove key-view traversal NSTextField -> NSButton -> NSScrollView -> MacOSGPUView, and record the GPU child's focusability as a pass or an explicit gap.
 3. Run 100 lifecycle cycles, counting native views (subview totals and CallbackScope registrations).
-4. Record catalog findings with citations: windowShouldClose always true (E46 baseline), bordered button/select fonts above 20 pt rejected, and the synchronous NSOpenPanel runModal.
+4. Record evidence, `test` records and notes in the evidence shard, with citations: windowShouldClose always true (E46 baseline), bordered button/select fonts above 20 pt rejected, and the synchronous NSOpenPanel runModal. Route classification changes to the owner shard (§3.3: ask the holder while it is open).
 
 **Acceptance**
 
-- [ ] On macos.yml (draft PR, or focus=native-gui once CL-UIA-02 lands), the macOS rows of test_native_ui_shell.py pass for python and selfhost, plain and ASan/UBSan (run id).
+- [ ] On macos.yml (draft PR, or focus=native-gui once CL-UIA-02 lands), the macOS rows of test_native_ui_shell_macos.py pass for python and selfhost, plain and ASan/UBSan (run id).
 - [ ] The AX artifact shows the field, button, scroll area and GPU-child status, and 100 cycles leak 0 views.
 - [ ] The evidence shard validates in test_ui0_catalog.py (and ui_catalog.py's shard check). The PR-body report follows the protocol.
 
@@ -3254,12 +3333,13 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Owner:** Codex · **Group:** UIA · **Stage:** Stage 31 (UI1) · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 7 agent-hours
 - **PLAN items:** `ui-1-linux-sdl-baseline`
 - **Depends on:** [CX-UIA-09](#cx-uia-09); [CL-UIA-21](claude.md#cl-uia-21); [CX-UIA-02](#cx-uia-02)
-- **Why not now:** Needs CX-UIA-09 (fixture), CL-UIA-21 (weston headless and AT-SPI in the dev shell) and CX-UIA-02 (catalog).
+- **Why not now:** Needs CX-UIA-09 (fixture), CL-UIA-21 (weston headless and AT-SPI in the dev shell) and CX-UIA-02 (catalog, the follow-up); CX-UIA-09 and CX-UIA-02 must be integrated on main (plain dependencies, no stacking).
 - **Parallel-safe with:** CX-UIA-10, CX-UIA-12, CX-UIA-13, CX-UIA-07, CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-06
 
 **Owned paths**
 
 - src/tests/native/gui/shell/probes/linux/
+- src/tests/python/test_native_ui_shell_linux.py (held once CX-UIA-09 is integrated)
 - src/tests/native/gui/linux/LinuxEventBoundary.btrc (new; only on branch codex/cx-uia-11-e40-repro, per D24)
 - docs/design/native-ui-catalog/evidence/ui1-linux.toml (new)
 
@@ -3274,14 +3354,14 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 **Steps**
 
 1. Run the shell fixture under X11 (Xvfb) and Wayland (weston headless) through both frontends, plain and sanitized.
-2. Classify the controls as custom and the AT-SPI bridge as missing; the dump shows the SDL window with no accessible children.
+2. Record evidence, `test` records and notes in the evidence shard: the controls are custom and the AT-SPI bridge is missing (the dump shows the SDL window with no accessible children). Route classification changes to the owner shard (§3.3: ask the holder while it is open).
 3. On the separate branch, reproduce E40. Push 4,095, 4,096, 4,097 and 8,193 identifiable events through btrcSdlPushKey/btrcSdlPushText before one loop turn, with a release, a committed text and a close request at the boundary in separate trials.
 4. Show that pumpEvents dequeues the 4,097th event and drops it. Record the fault position as a failed catalog row; it is not merged (D24).
-5. Add catalog rows with citations: _visible is never updated on hide or minimize; the provider throws after 120 unavailable frames; key() returns false in LinuxButton, LinuxSlider and LinuxScrollView; LinuxSlider.focus is a no-op; SDL text input has no preedit.
+5. Record evidence, `test` records and notes in the evidence shard, with citations: _visible is never updated on hide or minimize; the provider throws after 120 unavailable frames; key() returns false in LinuxButton, LinuxSlider and LinuxScrollView; LinuxSlider.focus is a no-op; SDL text input has no preedit. Route classification changes to the owner shard (§3.3: ask the holder while it is open).
 
 **Acceptance**
 
-- [ ] 'tools/ui/headless-session.sh --x11 -- python -m pytest src/tests/python/test_native_ui_shell.py -k linux -q' and the --wayland variant pass for python and selfhost, plain and sanitized (counts reported).
+- [ ] 'tools/ui/headless-session.sh --x11 -- python -m pytest src/tests/python/test_native_ui_shell_linux.py -q' and the --wayland variant pass for python and selfhost, plain and sanitized (counts reported).
 - [ ] The E40 branch fails deterministically at the recorded position (log in the PR body).
 - [ ] The merged part keeps ci.yml green (run id). The PR-body report follows the protocol.
 
@@ -3299,10 +3379,12 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Depends on:** none
 - **Parallel-safe with:** CL-UIA-01, CL-UIA-02, CL-UIA-03, CX-UIA-01, CX-UIA-02, CX-UIA-06, CL-UIA-21, CX-UIA-09, CX-UIA-13, CX-UIA-18, CX-UIA-19, CX-UIA-20
 
+> **Writer note:** On UI2's path (CL-UIA-12 waits for it); schedule early (2026-10-03, [codex-ui-lanes.md](codex-ui-lanes.md) Task 3).
+
 **Owned paths**
 
-- docs/design/linux-gtk4-feasibility.md (new)
-- spikes/gtk4-webgpu/ on branch codex/cx-uia-12 only (never merged)
+- docs/design/linux-gtk4-feasibility.md (new; the findings PR on codex/cx-uia-12 carries only this file, so it runs the docs tier)
+- spikes/gtk4-webgpu/ on branch codex/cx-uia-12-spike (pushed, no PR, never merged)
 
 **Must not touch**
 
@@ -3340,7 +3422,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 **Owned paths**
 
-- docs/design/native-ui-shells.md (new)
+- docs/design/native-ui-shells/{windows,ios,android}.md (new; one file per platform)
 
 **Must not touch**
 
@@ -3356,6 +3438,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 3. Map each interop need to a native-interop-ownership.md step: WndProc through function tables (step 2), UI Automation through COM (step 5), UIKit delegates (steps 3 and 6), JNI (steps 4 and 7). Map each target and host need to platform-target-contract.md rows and the Stage 25 hosts.
 4. Name each platform's accessibility probe (IUIAutomation, XCUITest/UIAccessibility, UiAutomator) and its evidence host from hosts.toml.
 5. List the compiler requests for Claude and the PLAN item ids each shell waits on.
+6. `ios.md` has an iPadOS section (iOS and iPadOS are one lane, `GUI/IOS`): E16 scenes, size classes and split view, Stage Manager, the hardware keyboard, the pointer, `UIDeviceFamily [1,2]`, and the ios slots that need iPad `device_class` evidence.
 
 **Acceptance**
 
@@ -3413,7 +3496,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 - **Owner:** Codex · **Group:** UIA · **Stage:** Stage 31 (UI1) · **Environment:** Linux cloud + GitHub Windows runner · **Start now:** no · **Estimate:** 12 agent-hours
 - **PLAN items:** `ui-1-windows-shell`
-- **Depends on:** [CX-UIA-09](#cx-uia-09); [CX-UIA-13](#cx-uia-13); platforms-p1-target-spec → [CL-P1-06](claude.md#cl-p1-06); platforms-p1-provider-filters → [CL-P1-14](claude.md#cl-p1-14); platforms-interop-function-table-calls → [CL-P2-06](claude.md#cl-p2-06); platforms-w1-win32-com-imports → [CL-P2-10](claude.md#cl-p2-10); tooling-cross-gpu-deps → [CL-P2-17](claude.md#cl-p2-17); [CX-P1-07](#cx-p1-07)
+- **Depends on:** [CX-UIA-09](#cx-uia-09); [CX-UIA-13](#cx-uia-13); platforms-p1-target-spec → [CL-P1-06](claude.md#cl-p1-06); platforms-p1-provider-filters → [CL-P1-14](claude.md#cl-p1-14); platforms-interop-function-table-calls → [CL-P2-06](claude.md#cl-p2-06); platforms-w1-win32-com-imports → [CL-P2-10](claude.md#cl-p2-10); [CL-P2-29](claude.md#cl-p2-29); [CX-P2-25](#cx-p2-25); [CX-P1-07](#cx-p1-07)
 - **Why not now:** Bucket 3 prerequisites are missing on 8b73c79: target rows and provider filters (Stage 24), callback tables for WndProc and COM for UI Automation (Stage 27), and wgpu-native Windows archives (Stage 28).
 - **Parallel-safe with:** CX-UIA-16, CX-UIA-17, CX-UIA-24, CX-UIA-25, CX-UIA-26, CX-UIA-27
 
@@ -3426,7 +3509,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - src/stdlib/GUI/Windows/ (new)
 - src/tests/native/gui/shell/probes/windows/
 - fragment (not held): a GUI/btrc.toml provider fragment
-- src/tests/python/test_native_ui_shell.py and native_ui_shell_fixtures.py (this platform's rows only; shared append-only)
+- src/tests/python/test_native_ui_shell_windows.py (new) and native_ui_shell_fixtures.py (this platform's rows; shared append-only)
 - src/tests/python/test_package_ownership.py (the Windows GUI no-provider case only, in the `fragment:` commit)
 
 **Must not touch**
@@ -3449,7 +3532,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 **Acceptance**
 
-- [ ] On host-windows.yml's provider-suite job for the draft PR, the windows-x86_64 rows of test_native_ui_shell.py pass both frontends (run id), the UIA tree artifact is uploaded, and 100 cycles leak 0 HWND or GDI objects.
+- [ ] On host-windows.yml's provider-suite job for the draft PR, the windows-x86_64 rows of test_native_ui_shell_windows.py pass both frontends (run id), the UIA tree artifact is uploaded, and 100 cycles leak 0 HWND or GDI objects.
 - [ ] The zig cross-compile from Linux passes. The PR-body report follows the protocol.
 
 **Risks**
@@ -3477,7 +3560,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - src/tests/native/gui/shell/probes/ios/
 - tools/ui/run-ios-shell.sh (new; for MAC-UIA-03)
 - fragment (not held): a GUI/btrc.toml provider fragment
-- src/tests/python/test_native_ui_shell.py and native_ui_shell_fixtures.py (this platform's rows only; shared append-only)
+- src/tests/python/test_native_ui_shell_ios.py (new) and native_ui_shell_fixtures.py (this platform's rows; shared append-only)
 
 **Must not touch**
 
@@ -3503,7 +3586,6 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 **Risks**
 
-- Adding a simulator job needs a workflow edit, which Claude owns; file it as a request.
 - An iOS 17 runtime may not install under Xcode 27 (an open PLAN assumption).
 
 <a id="cx-uia-17"></a>
@@ -3512,8 +3594,8 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 - **Owner:** Codex · **Group:** UIA · **Stage:** Stage 31 (UI1) · **Environment:** Linux cloud + GitHub Linux KVM runner (Android emulator) · **Start now:** no · **Estimate:** 12 agent-hours
 - **PLAN items:** `ui-1-android-shell`
-- **Depends on:** [CX-UIA-09](#cx-uia-09); [CX-UIA-13](#cx-uia-13); platforms-p1-target-spec → [CL-P1-06](claude.md#cl-p1-06); tooling-android-sdk-ndk → [CL-P1-02](claude.md#cl-p1-02), [MAC-P1-03](owner.md#mac-p1-03); platforms-p1-host-android → [CX-P1-09](#cx-p1-09); tooling-android-ci-emulator → [CX-P1-05](#cx-p1-05); platforms-a1-checked-jni → [CL-P2-24](claude.md#cl-p2-24); platforms-a1-activity-lifecycle → [CX-P2-41](#cx-p2-41); [CL-P1-15](claude.md#cl-p1-15)
-- **Why not now:** Bucket 3 prerequisites are missing on 8b73c79: no Android target (Stage 24), no SDK/NDK or emulator host (Stages 23 and 25), and no checked JNI or Activity lifecycle (Stages 27 and 29).
+- **Depends on:** [CX-UIA-09](#cx-uia-09); [CX-UIA-13](#cx-uia-13); platforms-p1-target-spec → [CL-P1-06](claude.md#cl-p1-06); tooling-android-sdk-ndk → [CL-P1-02](claude.md#cl-p1-02), [MAC-P1-03](owner.md#mac-p1-03); platforms-p1-host-android → [CX-P1-09](#cx-p1-09); tooling-android-ci-emulator → [CX-P1-05](#cx-p1-05); platforms-a1-checked-jni → [CL-P2-24](claude.md#cl-p2-24); platforms-a1-activity-lifecycle → [CX-P2-41](#cx-p2-41); [CX-P2-44](#cx-p2-44); [CL-P1-15](claude.md#cl-p1-15)
+- **Why not now:** Bucket 3 prerequisites are missing on 8b73c79: no Android target (Stage 24), no SDK/NDK or emulator host (Stages 23 and 25), and no checked JNI or Activity lifecycle (Stages 27 and 29), nor the Android GPU surface (CX-P2-44) its WebGPU SurfaceView needs.
 - **Parallel-safe with:** CX-UIA-15, CX-UIA-16, CX-UIA-24, CX-UIA-25, CX-UIA-26, CX-UIA-27
 
 > **Review change:** Adds the landed UI2/UI3 surface, implemented or typed-unsupported (§10 P5).
@@ -3527,11 +3609,11 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 **Owned paths**
 
 - src/stdlib/GUI/Android/ (new)
-- tools/android-shell/ (new; a minimal Java Activity shell that owns no product policy)
+- tools/android/shell/ (new; a minimal Java Activity shell that owns no product policy)
 - src/tests/native/gui/shell/probes/android/
 - tools/ui/run-android-shell.sh (new; for MAC-UIA-03)
 - fragment (not held): a GUI/btrc.toml provider fragment
-- src/tests/python/test_native_ui_shell.py and native_ui_shell_fixtures.py (this platform's rows only; shared append-only)
+- src/tests/python/test_native_ui_shell_android.py (new) and native_ui_shell_fixtures.py (this platform's rows; shared append-only)
 
 **Must not touch**
 
@@ -3570,9 +3652,11 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Depends on:** none
 - **Parallel-safe with:** CX-UIA-19, CX-UIA-20, CX-UIA-09, CX-UIA-10, CX-UIA-11, CX-UIA-12, CX-UIA-13, CL-UIA-01, CL-UIA-03
 
+> **Writer note:** Parallel-safe with CX-UIA-19 and CX-UIA-20: the drafts are separate files and are not part of D27's `.btrc` writer chain (IView, IWindow and `App.btrc`). The index is `index.md`, not `README.md`, which is test-read, so the PR stays docs tier (2026-10-03, [codex-ui-lanes.md](codex-ui-lanes.md) Task 3).
+
 **Owned paths**
 
-- docs/design/ui-contracts/README.md (new)
+- docs/design/ui-contracts/index.md (new)
 - docs/design/ui-contracts/ui2-control-events.md (new)
 
 **Must not touch**
@@ -7387,7 +7471,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 - **Why not now:** All tracks and slices must finish first.
 - **Parallel-safe with:** CX-UIB-93, CX-UIB-94
 
-> **Writer note:** Read "1,620 of 1,620 operation slots" as "every slot of every ui-operation release in force" (2026-09-21, plus the `CX-UIA-02`/`CX-UIA-05`/`CL-UIB-08` releases) (§7 Q35, §9 item 9).
+> **Writer note:** Read "1,620 of 1,620 operation slots" as "every slot of every ui-operation release in force" (2026-09-21, plus the `CX-UIA-05`, `CX-UIA-21`, `CX-UIA-25` and `CL-UIB-08` releases; `CX-UIA-02` freezes none) (§7 Q35, §9 item 9).
 
 **Owned paths**
 

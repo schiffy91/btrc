@@ -5029,19 +5029,21 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 <a id="cl-p2-17"></a>
 
-##### CL-P2-17 · Stage 28 nix and lock integration: wgpu-native pins and dependency locks merged serially
+##### CL-P2-17 · Stage 28 lock integration: BTRSmith dependency locks merged serially
 
 - **Owner:** Claude · **Group:** P2 · **Stage:** 28 · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 4 agent-hours
-- **PLAN items:** `tooling-cross-gpu-deps[flake-merge]`; `platforms-p4-dependency-crossbuild[lock-merges]`; `btrsmith-package-closure[lock-merges]`
-- **Depends on:** [CX-P2-22](codex.md#cx-p2-22); [CX-P2-23](codex.md#cx-p2-23); [CX-P2-24](codex.md#cx-p2-24); [CX-P2-25](codex.md#cx-p2-25)
-- **Why not now:** Merges the four Codex dependency packets' pins and fragments.
-- **Parallel-safe with:** CL-P2-19, CL-P2-20
+- **PLAN items:** `platforms-p4-dependency-crossbuild[lock-merges]`; `btrsmith-package-closure[lock-merges]`
+- **Depends on:** [CX-P2-22](codex.md#cx-p2-22); [CX-P2-23](codex.md#cx-p2-23); [CX-P2-24](codex.md#cx-p2-24)
+- **Why not now:** Merges the three Codex dependency packets' locks and fragments.
+- **Parallel-safe with:** CL-P2-19, CL-P2-20, CL-P2-29
+
+> **Writer note:** Rescoped on 2026-10-03 to the BTRSmith lock merges only. The wgpu-native flake wiring and CX-P2-25's GPU fragment moved to `CL-P2-29`, so the GPU packets no longer wait for the lock merges.
 
 **Owned paths**
 
 - flake.nix, flake.lock
 - BTRSmith flake.nix, flake.lock, btrc.lock (integrator: applies fragments; not held)
-- src/stdlib/GPU/btrc.toml, GUI/btrc.toml, Image/btrc.toml (applying fragments) (integrator: applies fragments; not held)
+- src/stdlib/GUI/btrc.toml, Image/btrc.toml (applying fragments) (integrator: applies fragments; not held)
 - src/stdlib/btrc.lock, btrc.symbols (regenerated) (integrator: applies fragments; not held)
 
 **Must not touch**
@@ -5050,13 +5052,12 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 **Steps**
 
-1. Add fetchurl derivations per slice from CX-P2-25's pins and dev-shell variables per slice, and root the profiles.
-2. Merge the BTRSmith locks serially in dependency order (psarc and sloppak after zlib, miniz and yaml).
-3. Regenerate the derived files, run the gates and push.
+1. Merge the BTRSmith locks serially in dependency order (psarc and sloppak after zlib, miniz and yaml).
+2. Regenerate the derived files, run the gates and push.
 
 **Acceptance**
 
-- [ ] `nix develop` exposes the per-slice wgpu-native paths, the ci.yml devcontainer build is green, and the BTRSmith lock resolves.
+- [ ] The ci.yml devcontainer build is green, and the BTRSmith lock resolves.
 - [ ] make test passes, and BTRSmith Linux CI is green.
 
 **Risks**
@@ -5167,6 +5168,43 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 **Risks**
 
 - Bucket-1 cache work overlaps ModuleUnits.btrc.
+
+<a id="cl-p2-29"></a>
+
+##### CL-P2-29 · Stage 28 wgpu flake wiring: per-slice wgpu-native dev-shell paths and the GPU `btrc.toml` fragment from CX-P2-25
+
+- **Owner:** Claude · **Group:** P2 · **Stage:** 28 · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 3 agent-hours
+- **PLAN items:** `tooling-cross-gpu-deps[flake-merge]`
+- **Depends on:** [CX-P2-25](codex.md#cx-p2-25)
+- **Why not now:** Needs CX-P2-25's per-slice pins and its GPU `btrc.toml` fragment.
+- **Parallel-safe with:** CL-P2-17, CL-P2-19, CL-P2-20
+
+> **Writer note:** New on 2026-10-03: split from `CL-P2-17`, so the GPU packets and the Windows shell (`CX-UIA-15`, `CX-P2-33`, `CX-P2-39`, `CX-P2-44`, `CL-P2-28`) wait only for `CX-P2-25`, not for the BTRSmith lock merges. `CL-P1-02` landed only the pinned archive fetches, a `passthru` that nothing consumes until this packet (`nix/wgpu-native-prebuilt.nix:1-5`).
+
+**Owned paths**
+
+- flake.nix and `nix/*` (hotspot)
+- src/stdlib/GPU/btrc.toml (integrator: applies fragments; not held)
+
+**Must not touch**
+
+- flake.lock unless an input changes
+- BTRSmith locks (CL-P2-17)
+- docs/design/plan-reference.md
+
+**Steps**
+
+1. Add per-slice dev-shell variables for the pinned archives in `nix/wgpu-native-prebuilt.nix`, and root the profiles.
+2. Apply CX-P2-25's GPU `btrc.toml` fragment.
+3. Regenerate the derived files, run the gates and push.
+
+**Acceptance**
+
+- [ ] `nix develop .#platforms` exposes the per-slice wgpu-native paths, and the ci.yml devcontainer build is green (run id).
+
+**Risks**
+
+- Large archives in the nix store on the Mac's disk.
 
 <a id="cl-r-48"></a>
 
@@ -5420,8 +5458,8 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 - **Owner:** Claude · **Group:** P2 · **Stage:** Stage 29 · **Environment:** Linux cloud + GitHub macOS and Windows runners · **Start now:** no · **Estimate:** 8 agent-hours
 - **PLAN items:** `platforms-w2-gpu-image-font#runtime`; `platforms-i2-gpu#runtime`; `platforms-a2-gpu#runtime`
-- **Depends on:** [CL-P2-17](#cl-p2-17); [CL-P1-15](#cl-p1-15)
-- **Why not now:** Needs the cross-built GPU dependencies (CL-P2-17) and Stage 24's target rows.
+- **Depends on:** [CL-P2-29](#cl-p2-29); [CL-P1-15](#cl-p1-15)
+- **Why not now:** Needs the cross-built GPU dependencies (CL-P2-29) and Stage 24's target rows.
 
 > **Review change:** New (§10 C8). `src/runtime/gpu` exports the `btrc_gpu_*` ABI that `hosted_abi.toml` declares and both compilers' GPU lowering calls; three Codex packets also claimed `#ifdef` regions of the same files.
 
@@ -5491,7 +5529,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 1. Add a D27 row to the Decisions table. It holds the three lists from this group's summary: starts now; may start once its in-stage dependencies land; stays gated.
 2. Add a Standing-approvals row. Codex contract drafts are approved by Claude's two feasibility reviewers plus one parity reviewer, with no blocking finding left open, and Claude records the approval. Codex never pushes main, merges a PR, edits plan-reference.md, or claims Mac or device evidence.
 3. Add a 'Codex lanes' table under 'Where sub-agents help'. Branches start with codex/ and claims are keyed by the `[CX-…]` PR title and the `Packet:` line. A draft PR to main exists only for CI, and each packet owns an explicit list of paths. A branch ends with up to two commits: `fragment: <what>` carries hand-written changes to integrator-owned data (btrc.toml exports and native rows, expected-skip rules, denominators, Makefile lines and ci/tiers.toml), which Claude re-applies; `derived: regenerate` carries btrc.lock, btrc.symbols and the LSP catalog, which Claude drops and regenerates. A compiler, spec, runtime or hotspot change goes in the PR body as a `REQUEST(<target>)` block (§3.6). The batch cap is as in D27.
-4. Amend Stage 30's exit. The 19/24/162 figures are the frozen 2026-09-21 release; on 8b73c79 the source has 20 files, 25 interfaces and 152 + 26 = 178 declarations, and the drift test derives its counts against CX-UIA-02's re-frozen release. Note that D23's 'UI4-UI8' keeps the UI2/UI3 Linux work on the SDL provider.
+4. Amend Stage 30's exit. The 19/24/162 figures are the frozen 2026-09-21 release; on 8b73c79 the source has 20 files, 25 interfaces and 152 + 26 = 178 declarations, and the drift test derives its counts from the 2026-09-21 release plus the amendments (no re-freeze in CX-UIA-02). Note that D23's 'UI4-UI8' keeps the UI2/UI3 Linux work on the SDL provider.
 5. Write the AGENTS.md Codex section (≤3 KB) directly after the title, so it is inside Codex's read limit. It says that the host-capacity, lock, hub, disk and MEMORY.md rules do not apply to Codex, and points to WORKSTREAMS.md §3. Move 'Measuring a compile' and 'Performance changes already measured and rejected' (about 6 KB) into docs/design/compile-performance.md, and the Python 'File Structure' tree (about 5 KB, already duplicated in docs/design/compiler-structure.md) out of AGENTS.md, dropping its AGENTS.md entry from test_python_compiler_structure.py's INVENTORY_DOCUMENTS and updating tools/perf.py's comment, so AGENTS.md is at most 30,000 bytes.
 6. Add a PR template for the required report: commits, every command run with pass/skip/fail counts, CI run ids, catalog rows changed, deferrals and compiler requests.
 7. Also carry `CL-UIB-01`'s steps 3 and 4: annotate PLAN.md's Stage 34–37 parallelization bullets with each lane's owner, the `fragment:`/`derived:` rule (§3.5) and the rule that an in-flight track owns its provider directory; and list in AGENTS.md the paths Codex never edits (§3.3.1).
@@ -5600,7 +5638,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 **Risks**
 
 - BTRSmith has drifted since the 2026-09-14 review, and Codex has no confirmed access to it, so this stays with Claude.
-- A re-freeze in CX-UIA-02 or CX-UIA-05 means rerunning the cross-check.
+- A new release (CX-UIA-05, CX-UIA-21, CX-UIA-25) means rerunning the cross-check.
 - btrsmith-p0-inventory is still pending. Reuse its journey ids if it lands first.
 
 <a id="cl-uia-04"></a>
@@ -5642,12 +5680,12 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 <a id="cl-uia-05"></a>
 
-##### CL-UIA-05 · Stage 30 integration batches and exit gate
+##### CL-UIA-05 · Stage 30 integration batches and exit gate (rolling: each batch merges what is ready)
 
 - **Owner:** Claude · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud + GitHub macOS and Windows runners · **Start now:** no · **Estimate:** 4 agent-hours
 - **PLAN items:** —
-- **Depends on:** [CL-UIA-01](#cl-uia-01); [CL-UIA-02](#cl-uia-02); [CL-UIA-03](#cl-uia-03); [CX-UIA-01](codex.md#cx-uia-01); [CX-UIA-02](codex.md#cx-uia-02); [CX-UIA-03](codex.md#cx-uia-03); [CX-UIA-04](codex.md#cx-uia-04); [CX-UIA-05](codex.md#cx-uia-05); [CX-UIA-06](codex.md#cx-uia-06); [CX-UIA-07](codex.md#cx-uia-07); [CL-UIA-21](#cl-uia-21)
-- **Why not now:** Integrates the Stage 30 packets as they finish. None has finished on 8b73c79.
+- **Depends on:** [CL-UIA-01](#cl-uia-01); [CL-UIA-02](#cl-uia-02); [CL-UIA-03](#cl-uia-03); [CX-UIA-01](codex.md#cx-uia-01); [CX-UIA-02](codex.md#cx-uia-02); [CX-UIA-03](codex.md#cx-uia-03); [CX-UIA-04](codex.md#cx-uia-04); [CX-UIA-05](codex.md#cx-uia-05); [CX-UIA-06](codex.md#cx-uia-06); [CX-UIA-07](codex.md#cx-uia-07); [CX-UIA-30](codex.md#cx-uia-30); [CL-UIA-21](#cl-uia-21); [CL-UIA-24](#cl-uia-24)
+- **Why not now:** Integrates the Stage 30 packets as they finish. It is rolling: each batch merges what is ready.
 - **Parallel-safe with:** CX-UIA-09, CX-UIA-10, CX-UIA-12, CX-UIA-13
 
 > **Review change:** Step 1 corrected (`derived:` is dropped, `fragment:` re-applied; `08` is now `CL-UIA-21`'s lane), and it wires the catalog into the qualification report, which nothing else edits before `CL-R-45` (§10 C3, C14).
@@ -5665,11 +5703,13 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 **Steps**
 
-1. Merge the Codex branches in this order, at most two code branches per batch: CX-UIA-01 with CL-UIA-02's focus commit, then CL-UIA-21's lane, CX-UIA-02 (PR #21), CX-UIA-06, 03, 04, 05 and 07. Drop each `derived:` commit and re-apply each `fragment:` commit.
+1. Each batch, merge what is ready (two code branches at most): the CX-UIA-02 follow-up, CX-UIA-01, CX-UIA-06, 03, 04, 30, 05 (after CL-UIA-24) and 07. Drop each `derived:` commit and re-apply each `fragment:` commit.
 2. Regenerate the derived files, then run generated-check, lint, format-check and git diff --check.
 3. Gate stdlib and tests batches on the focused suites plus a sharded make test across cloud sessions. The flake.nix batch also rebuilds the devcontainer and runs the bootstrap. Then push main fast-forward and read all three workflows.
 4. Record the Stage 30 progress: derived counts, slot totals, Linux GUI runs under Wayland and X11, and run ids. Stage 30 stays open until CL-UIA-04 and MAC-UIA-01 land.
 5. Wire the UI catalog (tools/qualification/ui_catalog.py over docs/design/native-ui-catalog.toml and its shards) into tools/qualification/report.py and cli.py, so make qualification-report renders it.
+6. In the next batch, add `test_native_webgpu_imports.py` to `NATIVE_GUI_TESTS` (Makefile:307-310) and check it with `make test-native-gui`.
+7. After pushing the batch that lands the CX-UIA-02 follow-up, dispatch `focus=native-gui` on ci.yml and macos.yml for that `main` SHA, and post both run ids on its PR (the UI0 evidence run).
 
 **Acceptance**
 
@@ -5734,6 +5774,47 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 - GTK4 and AT-SPI enlarge the nix closure and the CI image.
 - wgpu-native's Vulkan WSI may not present on weston headless with lavapipe. If so, record it and keep X11 as the gating session.
 - The Determinate nix GC hazard means every run needs a gcroot profile.
+
+<a id="cl-uia-24"></a>
+
+##### CL-UIA-24 · UI ledger releases: several releases per kind, a retired disposition, frozen UI sources pointed at the seed ledger and families.toml
+
+- **Owner:** Claude · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud · **Start now:** yes · **Estimate:** 4 agent-hours
+- **PLAN items:** `ui-0-catalog-schema` (ledger releases; §7 Q35)
+- **Depends on:** none
+- **Parallel-safe with:** CX-UIA-02, CX-UIA-03, CX-UIA-04, CX-UIA-30, CX-UIA-06, CX-UIA-09, CX-UIA-12, CX-UIA-13, CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-03
+
+> **Writer note:** New on 2026-10-03 ([codex-ui-lanes.md](codex-ui-lanes.md); the CX-UIA-02 follow-up's `REQUEST(CL-UIA-24)`). Today `denominators.py` loads one release per kind, `report.py` counts every slot outside it as undeclared, the schema has no state for the 10 retired `GUI.rasterText` slots, and the frozen ui-operation and ui-case ids are read by regex from Markdown that later UI packets edit.
+
+**Owned paths**
+
+- tools/qualification/denominators.py, report.py and schema.py (hotspots, §3.3.1)
+- src/tests/python/test_qualification_ledger.py
+- tools/qualification/denominators.toml (integrator: applies fragments; not held)
+
+**Must not touch**
+
+- docs/design/native-ui-catalog.toml and every shard under docs/design/native-ui-catalog/ (Codex)
+- tools/qualification/ui_catalog.py and src/tests/python/test_ui0_catalog.py (CX-UIA-02's follow-up)
+- docs/design/plan-reference.md
+
+**Steps**
+
+1. Allow several releases per kind, keyed by kind and release: per-release missing counts and union undeclared counts in `report.py`. Stage 37 counts every release in force (§7 Q35).
+2. Add a `retired` disposition to `schema.py`. Stage 30's "1,620 classified" then reads as 1,610 classified plus 10 retired with decision btrc-D056.
+3. Point the 2026-09-21 ui-operation and ui-case sources at `{ ledger = "docs/design/native-ui-catalog.toml" }`, with the same ids and sha256, and rewrite the `_frozen_copy` cases in test_qualification_ledger.py.
+4. Once `families.toml` is on `main` (the CX-UIA-02 follow-up), point the family-cell source at it, with the same ids and sha256.
+
+**Acceptance**
+
+- [ ] `nix develop --command python3 -m pytest src/tests/python/test_qualification_ledger.py src/tests/python/test_ui0_catalog.py -q -rs` → 0 failed; `nix develop --command python3 -m tools.qualification denominators` exits 0.
+- [ ] The three 2026-09-21 UI releases keep their ids and sha256 (162/1,620, 47/470, 60/300), and a second release of the same kind loads without an error.
+- [ ] make lint, make format-check and git diff --check pass.
+
+**Risks**
+
+- It must land before CX-UIA-05 integrates (its release lands through this packet) and before the Stage 30 exit.
+- `tools/qualification/*.py` are hotspots: one holder at a time.
 
 #### Stage 31: UI1 shells on all five platforms and the toolkit decision
 
@@ -5985,13 +6066,15 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 <a id="cl-uia-12"></a>
 
-##### CL-UIA-12 · Stage 31 integration batch: shell harness, macOS proof, Linux SDL baseline and docs
+##### CL-UIA-12 · Stage 31 integration batch: shell harness, macOS proof, Linux SDL baseline and docs (rolling)
 
 - **Owner:** Claude · **Group:** UIA · **Stage:** Stage 31 (UI1) · **Environment:** Linux cloud + GitHub macOS and Windows runners · **Start now:** no · **Estimate:** 3 agent-hours
 - **PLAN items:** —
 - **Depends on:** [CX-UIA-09](codex.md#cx-uia-09); [CX-UIA-10](codex.md#cx-uia-10); [CX-UIA-11](codex.md#cx-uia-11); [CX-UIA-12](codex.md#cx-uia-12); [CX-UIA-13](codex.md#cx-uia-13); [CL-UIA-11](#cl-uia-11)
 - **Why not now:** Integrates the Stage 31 Codex packets after they finish.
 - **Parallel-safe with:** CX-UIA-18, CX-UIA-19, CX-UIA-20, CL-UIA-06
+
+> **Writer note:** Rolling (2026-10-03): merge CX-UIA-09 as soon as it is ready, so CX-UIA-10/11 branch from main.
 
 **Owned paths**
 
@@ -6085,7 +6168,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 **Steps**
 
-1. Run the review workflow. 2 feasibility reviewers work from the real UI1 shells (AppKit and SDL; Win32, UIKit and Android through native-ui-shells.md) and hunt for AppKit-shaped API.
+1. Run the review workflow. 2 feasibility reviewers work from the real UI1 shells (AppKit and SDL; Win32, UIKit and Android through docs/design/native-ui-shells/{windows,ios,android}.md) and hunt for AppKit-shaped API.
 2. 1 reconciler aligns the payload and scope vocabulary across the drafts. 1 parity reviewer checks that both compilers can express the result.
 3. Turn any compiler gap into a CL packet, and send contract defects back to the drafting lanes.
 4. Write ui2-approved.md (the frozen interface diff and its operation ids), and record the standing approval in PLAN.md.
@@ -6708,7 +6791,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 - **Why not now:** It follows L3.
 - **Parallel-safe with:** CL-UIB-14, CL-UIB-15
 
-> **Writer note:** Freeze the added operations as a **new release**, alongside the releases `CX-UIA-02` and `CX-UIA-05` already froze. The 2026-09-21 release stays frozen, and the Stage 37 exit counts every release in force (§7 Q35, §9 item 9).
+> **Writer note:** Freeze the added operations as a **new release**, alongside the 2026-09-21 release and the releases `CX-UIA-05`, `CX-UIA-21` and `CX-UIA-25` froze. The 2026-09-21 release stays frozen, and the Stage 37 exit counts every release in force (§7 Q35, §9 item 9).
 
 > **Review change:** Carries its own UI8/UI9 acceptance, including the screen-reader records, before the push (PLAN Bucket 4 intro and Stage 34 exit; §10 P9).
 
@@ -7357,6 +7440,46 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 **Risks**
 
 - budget_bench hotspot; sequence after CL-R-22's edit.
+
+<a id="cl-r-50"></a>
+
+##### CL-R-50 · Lane-tier path selection in `ci/tiers.toml`: catalog-data and tools-only `codex/*` PRs run scope, release and unit; macOS jobs only for GUI/MacOS/native/shell paths
+
+- **Owner:** Claude · **Group:** R · **Stage:** 38 · **Environment:** Linux cloud + GitHub macOS and Windows runners · **Start now:** yes · **Estimate:** 3 agent-hours
+- **PLAN items:** `qualification-ci-tiering` (lane-tier path selection)
+- **Depends on:** [CL-R-38](#cl-r-38)
+- **Parallel-safe with:** CL-UIA-24, CL-R-37, CL-R-39
+
+> **Writer note:** New on 2026-10-03 ([codex-ui-lanes.md](codex-ui-lanes.md)). A `codex/*` PR's lane run is about 22 jobs against the account's 20-job limit, so §3.2 caps Codex at one lane- or main-tier PR in flight. This packet is the lever that raises the cap to two.
+
+**Owned paths**
+
+- ci/tiers.toml
+- src/tests/python/test_ci_workflow_contracts.py (policy rows)
+- WORKSTREAMS.md §3.2 (the lane-tier and capacity text)
+
+**Must not touch**
+
+- .github/workflows/ci.yml, macos.yml, windows.yml and release.yml (reserved for the next workflow holder, §3.3.2)
+- Makefile
+- docs/design/plan-reference.md
+
+**Steps**
+
+1. Linux shards: ci.yml's C11 ×8, bootstrap, corpus, btrc, bench and arm64-bundle shards run in the lane tier only for `src/stdlib/**`, `src/tests/**` (other than `src/tests/python/test_*.py` and the catalog tests), `examples/**` and `tools/**` (other than `tools/ui/**` and `tools/target_hosts/**`).
+2. macOS jobs: `native-bundle` and `native-gui` run only for `**/MacOS/**` and `**/*.m`; `src/stdlib/{GUI,UI,App,Tray,Audio,GPU}/**`; `src/tests/native/**` and `src/tests/python/test_native_*.py`; and `tools/ui/**`.
+3. Always: `scope`, `release` and the unit shard.
+4. Measure: record the first lane run's runner-minutes, then raise §3.2's Codex cap from one lane-tier PR to two.
+
+**Acceptance**
+
+- [ ] test_ci_workflow_contracts.py passes with the new policy rows.
+- [ ] A catalog-data `codex/*` PR schedules only scope, release and unit, and a GUI-path `codex/*` PR still schedules macOS `native-gui` (run ids).
+- [ ] The first lane run's runner-minutes are recorded in §3.2, with the cap raised to two.
+
+**Risks**
+
+- Path filters can hide a cross-cutting break; `main` pushes keep the full matrix, and wave 2's catalog evidence comes from the shared dispatch on `main`, not from each PR's lane run.
 
 #### Stage 39: P5 journeys on installed products and the macOS MVP closure
 
