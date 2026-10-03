@@ -72,10 +72,10 @@ the seed ledger) before `CX-UIA-05` integrates; and reviews the drafts that gate
 
 1. **Tiers** (ci.yml scope step; WORKSTREAMS §3.2):
    - **docs:** every changed file is Markdown outside `TEST_READ_MARKDOWN` (not `README.md`, `native-ui-parity.md` or `native-ui-api-inventory.md`). Only `scope` and `static` run.
-   - **lane:** any other `codex/*` PR. About 18 Linux jobs, 3 macOS jobs and windows.yml `scope`.
+   - **lane:** any other `codex/*` PR. Since `CL-R-50` (batch 18) it always runs `scope`, `static`, `release` and the unit shard; the heavy Linux shards run only for `src/stdlib/**`, `src/tests/**` (except `src/tests/python/test_*.py`), `examples/**`, `tools/**` (except `tools/ui/**`, `tools/target_hosts/**` and `tools/qualification/ui_catalog.py`) and the root config files, and the macOS jobs only for the macOS/GUI/native paths. A heavy lane run is about 18 Linux jobs, 3 macOS jobs and windows.yml `scope`; a catalog-data PR is four Linux jobs and no macOS job.
    - **main:** any path in `FULL_PATHS` (`Makefile`, `ci/tiers.toml`, the core workflows, …). The full matrix runs.
 2. **Cap.** At most **one** Codex PR with a lane- or main-tier run in flight (queued or running). Docs-tier PRs are not capped.
-   - **Why:** a lane run is about 22 jobs, against the account's 20-job concurrency limit, which macOS jobs count toward; `main`'s batch pushes share it.
+   - **Why:** a heavy lane run is about 22 jobs, against the account's 20-job concurrency limit, which macOS jobs count toward; `main`'s batch pushes share it. A lane run that `CL-R-50` reduces to `scope`, `static`, `release` and the unit shard (a catalog-data or docs-and-tests-only PR) does not count against the cap.
    - **Check before pushing:**
      ```
      nix develop --command gh api "repos/schiffy91/btrc/actions/runs?per_page=50" --jq '.workflow_runs[]|select(.head_branch|startswith("codex/"))|select(.status!="completed")|"\(.id) \(.head_branch) \(.name) \(.status)"'

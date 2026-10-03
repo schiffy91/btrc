@@ -149,7 +149,9 @@ jobs:
 
   # The static gates: generated sources, lint and format. The naming contract
   # also runs because it reads every tracked Markdown file, so a document can
-  # fail it. Tiers that run the release job get these gates there instead.
+  # fail it. The main, extended and release tiers get the lint and format gates
+  # from the release job instead; the lane tier runs both jobs, because a light
+  # lane plan (CL-R-50) would otherwise never run the naming contract.
   static:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'static')

@@ -219,7 +219,7 @@ def counting_preset(tmp_path: Path) -> Path:
 # -- presets ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["stage4-requal", "stage5", "stage13-final", "stage6-reference"])
+@pytest.mark.parametrize("name", ["stage4-requal", "stage5", "stage13-final", "stage6-reference", "stage6-spikes"])
 def test_every_shipped_preset_parses_and_expands(name: str) -> None:
     preset = Preset.load(name)
 
