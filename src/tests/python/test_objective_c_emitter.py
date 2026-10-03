@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -293,9 +294,41 @@ def adapter_module(mode=""):
     return module
 
 
+@contextmanager
+def _run_exclusive(lock_path: Path):
+    """Serialize one probe build across the xdist workers of a run."""
+    if os.name == "nt":  # pragma: no cover - POSIX advisory locks only
+        yield
+        return
+    import fcntl
+
+    with lock_path.open("w") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 @pytest.fixture(scope="module", params=["reference", "selfhost"])
 def emitter_probe(request, tmp_path_factory):
-    root = tmp_path_factory.mktemp(f"objc-emitter-{request.param}")
+    # The probe imports most of the self-hosted IR stage, about 3.2 MB of
+    # resolved source, so one transpile is minutes of reference-compiler work.
+    # Every xdist worker of a run shares the first worker's build: the run's
+    # base directory is common to its workers and fresh for each run.
+    base = tmp_path_factory.getbasetemp()
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        base = base.parent
+    root = base / f"objc-emitter-{request.param}"
+    root.mkdir(exist_ok=True)
+    executable = root / "Emitter"
+    with _run_exclusive(root / "build.lock"):
+        if not executable.is_file():
+            _build_emitter_probe(request, root, executable)
+    return executable
+
+
+def _build_emitter_probe(request, root: Path, executable: Path) -> None:
     source = REPO / "src/tests/native/objective_c/ObjectiveCEmitter.btrc"
     generated = root / "Emitter.c"
     if request.param == "reference":
@@ -306,7 +339,7 @@ def emitter_probe(request, tmp_path_factory):
     assert compiled.returncode == 0, compiled.stderr
     if request.param == "selfhost":
         generated.write_text(compiled.stdout)
-    executable = root / "Emitter"
+    staged = root / "Emitter.partial"
     built = subprocess.run(
         [
             "cc",
@@ -318,7 +351,7 @@ def emitter_probe(request, tmp_path_factory):
             "-O2",
             str(generated),
             "-o",
-            str(executable),
+            str(staged),
             "-lm",
             "-lpthread",
         ],
@@ -327,7 +360,7 @@ def emitter_probe(request, tmp_path_factory):
         timeout=120,
     )
     assert built.returncode == 0, built.stderr
-    return executable
+    staged.replace(executable)
 
 
 @pytest.mark.parametrize(
