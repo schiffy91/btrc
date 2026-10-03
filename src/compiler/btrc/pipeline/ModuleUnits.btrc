@@ -3,6 +3,8 @@
 import Library.BackgroundJobs.WorkerPools;
 import Library.Timer;
 import Library.Digest.SHA256;
+import Library.FileSystem;
+import Library.IO;
 import Library.JSON;
 import Library.Map;
 import Library.Platform;
@@ -1797,9 +1799,37 @@ class ModuleUnitCompiler {
 		BtrccPhaseTimer.mark("u-start");
 		/* One declarations-only lowering produces every declaration without
 		 * bodies and computes the facts every later lowering shares. */
-		IRLowerer declarationsLowerer = self.lowerer("<declarations>", false);
-		IRModule declarations = declarationsLowerer.lower(input.program);
-		keep declarationsLowerer;
+		/* Stage 6 decl spike (never merged): the declarations module is
+		 * decoded from the last build's under the program interface and the
+		 * instance lists instead of lowered. Unsound by design: lowering it also
+		 * reads body facts (try/catch use, stdlib reachability, pack state) the
+		 * key does not cover. */
+		string spikeDirectory = self.store != null ? SpikeCacheDirectory.root("decl") : "";
+		string spikeKey = "";
+		if (!spikeDirectory.isEmpty() && !input.interfaceDigest.isEmpty()) {
+			/* Instances in discovery order: a body edit that demands a new
+			 * instance changes them. */
+			SHA256 instances = SHA256();
+			for instance in input.analyzed.genericInstances { instances.appendText(instance.mangled + "\n"); }
+			for instance in input.analyzed.methodGenInstances { instances.appendText(TypeIdentity.methodInstanceKey(instance.classBase, instance.classArgs, instance.methodName, instance.methodArgs) + "\n"); }
+			spikeKey = PathTools.join(spikeDirectory, SHA256.digest(f"decl-v1\ndebug={self.options.debug};dce={self.options.runDce};target={self.options.target};output={self.options.debug ? self.options.outputPath : ""};source={input.sourcePath}\n" + input.interfaceDigest + "\n" + instances.finish()));
+		}
+		IRModule? spikeDeclarations = null;
+		if (!spikeKey.isEmpty() && Path.exists(spikeKey)) { spikeDeclarations = SpikeIrCodec().decodeDeclarations(Path.readAll(spikeKey)); }
+		IRModule declarations = IRModule();
+		if (spikeDeclarations != null) {
+			declarations = spikeDeclarations;
+			BtrccPhaseTimer.note("spike-decl=decoded");
+		} else {
+			IRLowerer declarationsLowerer = self.lowerer("<declarations>", false);
+			declarations = declarationsLowerer.lower(input.program);
+			keep declarationsLowerer;
+			if (!spikeKey.isEmpty()) {
+				Path.writeAll(spikeKey + ".tmp", SpikeIrCodec().encodeDeclarations(declarations));
+				rename(spikeKey + ".tmp", spikeKey);
+			}
+			BtrccPhaseTimer.note("spike-decl=lowered");
+		}
 		ModuleUnitDeclarations shared = ModuleUnitDeclarations(declarations);
 		shared.configureNativeHeaders(input.analyzed.nativeDeclarations);
 		BtrccPhaseTimer.mark("u-declarations");
@@ -3034,5 +3064,494 @@ class ValidationRecords implements IValidationRecords {
 			for section in written.keys() { text.append("i\t" + section + "\n" + written.get(section)); }
 			self.store.storeModuleUnit(self.instanceKey(group), BtrccModuleUnitPayload("validation-instances-v2", text.toString()));
 		}
+	}
+}
+
+/* Stage 6 decl spike (never merged): a byte codec for the declarations
+ * module's IR, generated from the IR model. An IRNode field is written when
+ * it differs from a fresh IRNode()'s; the declaration records are written
+ * whole. A node reached twice is written once and referenced after. */
+class SpikeIrCodec {
+	private StringBuilder out = StringBuilder();
+	private Map<string, int> written = {};
+	private string input = "";
+	private int at = 0;
+	/* The input's length, read once: length() counts the bytes each time. */
+	private int size = 0;
+	private Vector<IRNode> read = [];
+	private IRNode fresh = IRNode();
+	public bool failed = false;
+
+	public SpikeIrCodec() {}
+
+	class string identity(IRNode node) { return f"{(unsigned long long)(uintptr_t)node}"; }
+
+	class bool sameText(string? left, string? right) {
+		if (left == null || right == null) { return left == null && right == null; }
+		return left.equals(right);
+	}
+
+	private void integer(int value) { self.out.append(Strings.fromInt(value)); self.out.append(";"); }
+
+	private void flag(bool value) { self.out.append(value ? "1" : "0"); }
+
+	private void text(string? value) {
+		if (value == null) { self.out.append("N"); return; }
+		self.out.append("s");
+		self.integer(value.length());
+		self.out.append(value);
+	}
+
+	private void strings(Vector<string>? values) {
+		if (values == null) { self.out.append("N"); return; }
+		self.out.append("v");
+		self.integer(values.len);
+		for value in values { self.text(value); }
+	}
+
+	private void nodes(Vector<IRNode>? values) {
+		if (values == null) { self.out.append("N"); return; }
+		self.out.append("v");
+		self.integer(values.len);
+		for value in values { self.node(value); }
+	}
+
+	private void param(IRParam value) {
+		self.text(value.cType);
+		self.text(value.name);
+		self.flag(value.isVolatile);
+		self.flag(value.effectiveIsVolatile);
+		self.flag(value.setjmpInferredVolatile);
+	}
+
+	private void params(Vector<IRParam>? values) {
+		if (values == null) { self.out.append("N"); return; }
+		self.out.append("v");
+		self.integer(values.len);
+		for value in values { self.param(value); }
+	}
+
+	private void slot(IRCleanupSlot? value) {
+		if (value == null) { self.out.append("N"); return; }
+		self.out.append("c");
+		self.integer(value.site);
+		self.text(value.name);
+		self.text(value.cType);
+		self.text(value.takeFunction);
+	}
+
+	public void node(IRNode? value) {
+		if (value == null) { self.out.append("n"); return; }
+		string identity = SpikeIrCodec.identity(value);
+		if (self.written.has(identity)) { self.out.append("r"); self.integer(self.written.get(identity)); return; }
+		self.written.put(identity, self.written.len);
+		self.out.append("o");
+		if (!SpikeIrCodec.sameText(value.text, self.fresh.text)) { self.integer(0); self.text(value.text); }
+		if (!SpikeIrCodec.sameText(value.name, self.fresh.name)) { self.integer(1); self.text(value.name); }
+		if (!SpikeIrCodec.sameText(value.callee, self.fresh.callee)) { self.integer(2); self.text(value.callee); }
+		if (!SpikeIrCodec.sameText(value.op, self.fresh.op)) { self.integer(3); self.text(value.op); }
+		if (value.left != null) { self.integer(4); self.node(value.left); }
+		if (value.right != null) { self.integer(5); self.node(value.right); }
+		if (value.operand != null) { self.integer(6); self.node(value.operand); }
+		if (value.expr != null) { self.integer(7); self.node(value.expr); }
+		if (value.obj != null) { self.integer(8); self.node(value.obj); }
+		if (value.index != null) { self.integer(9); self.node(value.index); }
+		if (value.condition != null) { self.integer(10); self.node(value.condition); }
+		if (value.trueExpr != null) { self.integer(11); self.node(value.trueExpr); }
+		if (value.falseExpr != null) { self.integer(12); self.node(value.falseExpr); }
+		if (value.argsStorage != null) { self.integer(13); self.nodes(value.argsStorage); }
+		if (value.params != null) { self.integer(14); self.params(value.params); }
+		if (value.fieldNamesStorage != null) { self.integer(15); self.strings(value.fieldNamesStorage); }
+		if (!SpikeIrCodec.sameText(value.targetType, self.fresh.targetType)) { self.integer(16); self.text(value.targetType); }
+		if (!SpikeIrCodec.sameText(value.bridge, self.fresh.bridge)) { self.integer(17); self.text(value.bridge); }
+		if (!SpikeIrCodec.sameText(value.field, self.fresh.field)) { self.integer(18); self.text(value.field); }
+		if (!SpikeIrCodec.sameText(value.storageRoot, self.fresh.storageRoot)) { self.integer(19); self.text(value.storageRoot); }
+		if (!SpikeIrCodec.sameText(value.arrayStorageRoot, self.fresh.arrayStorageRoot)) { self.integer(20); self.text(value.arrayStorageRoot); }
+		if (!SpikeIrCodec.sameText(value.cType, self.fresh.cType)) { self.integer(21); self.text(value.cType); }
+		if (value.arraySize != null) { self.integer(22); self.node(value.arraySize); }
+		if (value.cleanupSlot != null) { self.integer(23); self.slot(value.cleanupSlot); }
+		if (!SpikeIrCodec.sameText(value.sourceFile, self.fresh.sourceFile)) { self.integer(24); self.text(value.sourceFile); }
+		if (!SpikeIrCodec.sameText(value.helperRef, self.fresh.helperRef)) { self.integer(25); self.text(value.helperRef); }
+		if (!SpikeIrCodec.sameText(value.realtimeProvenance, self.fresh.realtimeProvenance)) { self.integer(26); self.text(value.realtimeProvenance); }
+		if (value.init != null) { self.integer(27); self.node(value.init); }
+		if (value.value != null) { self.integer(28); self.node(value.value); }
+		if (value.target != null) { self.integer(29); self.node(value.target); }
+		if (value.thenBlock != null) { self.integer(30); self.node(value.thenBlock); }
+		if (value.elseBlock != null) { self.integer(31); self.node(value.elseBlock); }
+		if (value.body != null) { self.integer(32); self.node(value.body); }
+		if (value.update != null) { self.integer(33); self.node(value.update); }
+		if (value.stmtsStorage != null) { self.integer(34); self.nodes(value.stmtsStorage); }
+		if (value.result != null) { self.integer(35); self.node(value.result); }
+		if (value.kind != self.fresh.kind) { self.integer(36); self.integer(value.kind); }
+		if (value.prefix != self.fresh.prefix) { self.integer(37); self.flag(value.prefix); }
+		if (value.arrow != self.fresh.arrow) { self.integer(38); self.flag(value.arrow); }
+		if (value.storageRootKnown != self.fresh.storageRootKnown) { self.integer(39); self.flag(value.storageRootKnown); }
+		if (value.sourceAddress != self.fresh.sourceAddress) { self.integer(40); self.flag(value.sourceAddress); }
+		if (value.arrayStorageKnown != self.fresh.arrayStorageKnown) { self.integer(41); self.flag(value.arrayStorageKnown); }
+		if (value.isArrayDecl != self.fresh.isArrayDecl) { self.integer(42); self.flag(value.isArrayDecl); }
+		if (value.isVolatile != self.fresh.isVolatile) { self.integer(43); self.flag(value.isVolatile); }
+		if (value.effectiveIsVolatile != self.fresh.effectiveIsVolatile) { self.integer(44); self.flag(value.effectiveIsVolatile); }
+		if (value.setjmpInferredVolatile != self.fresh.setjmpInferredVolatile) { self.integer(45); self.flag(value.setjmpInferredVolatile); }
+		if (value.isStatic != self.fresh.isStatic) { self.integer(46); self.flag(value.isStatic); }
+		if (value.isExtern != self.fresh.isExtern) { self.integer(47); self.flag(value.isExtern); }
+		if (value.isCycleReturnTemp != self.fresh.isCycleReturnTemp) { self.integer(48); self.flag(value.isCycleReturnTemp); }
+		if (value.fallsThrough != self.fresh.fallsThrough) { self.integer(49); self.flag(value.fallsThrough); }
+		if (value.canFallThrough != self.fresh.canFallThrough) { self.integer(50); self.flag(value.canFallThrough); }
+		if (value.neverReturns != self.fresh.neverReturns) { self.integer(51); self.flag(value.neverReturns); }
+		if (value.sourceLine != self.fresh.sourceLine) { self.integer(52); self.integer(value.sourceLine); }
+		if (value.realtimeBounded != self.fresh.realtimeBounded) { self.integer(53); self.flag(value.realtimeBounded); }
+		self.out.append("e");
+	}
+
+	private void field(IRStructField value) {
+		self.text(value.cType);
+		self.text(value.name);
+		self.node(value.arraySize);
+		self.flag(value.isVolatile);
+		self.flag(value.effectiveIsVolatile);
+	}
+
+	private void fields(Vector<IRStructField> values) {
+		self.integer(values.len);
+		for value in values { self.field(value); }
+	}
+
+	/* The declaration lists of `module` that the shared declarations read. */
+	public string encodeDeclarations(IRModule module) {
+		self.integer(module.preprocessorDecls.len);
+		for item in module.preprocessorDecls {
+			self.integer(item.kind);
+			self.text(item.header);
+			self.flag(item.isSystem);
+			self.text(item.name);
+			self.flag(item.functionLike);
+			self.strings(item.params);
+			self.text(item.replacement);
+		}
+		self.integer(module.enumDefs.len);
+		for item in module.enumDefs {
+			self.text(item.name);
+			self.integer(item.values.len);
+			for value in item.values { self.text(value.name); self.node(value.value); }
+		}
+		self.integer(module.structForwards.len);
+		for item in module.structForwards { self.text(item.name); }
+		self.integer(module.functionPointerTypedefs.len);
+		for item in module.functionPointerTypedefs { self.text(item.name); self.text(item.returnType); self.strings(item.paramTypes); }
+		self.integer(module.functionDecls.len);
+		for item in module.functionDecls { self.text(item.name); self.text(item.returnType); self.params(item.params); self.flag(item.isStatic); self.flag(item.cLinkage); }
+		self.integer(module.typedefDefs.len);
+		for item in module.typedefDefs { self.text(item.targetType); self.text(item.name); self.flag(item.isVolatile); }
+		self.integer(module.taggedUnionDefs.len);
+		for item in module.taggedUnionDefs {
+			self.text(item.name);
+			self.text(item.tagType);
+			self.integer(item.variants.len);
+			for variant in item.variants { self.text(variant.name); self.fields(variant.fields); }
+		}
+		self.integer(module.structDefs.len);
+		for item in module.structDefs { self.text(item.name); self.fields(item.fields); self.integer(item.packAlignment); }
+		self.integer(module.globalDecls.len);
+		for item in module.globalDecls {
+			self.text(item.cType);
+			self.text(item.name);
+			self.node(item.init);
+			self.node(item.arraySize);
+			self.flag(item.isUnsizedArray);
+			self.flag(item.isStatic);
+			self.flag(item.isExtern);
+			self.flag(item.isVolatile);
+			self.flag(item.effectiveIsVolatile);
+		}
+		return self.out.toString();
+	}
+
+	private int readInteger() {
+		int value = 0;
+		bool negative = false;
+		int length = self.size;
+		if (self.at < length && self.input[self.at] == '-') { negative = true; self.at++; }
+		while (self.at < length && self.input[self.at] != ';') {
+			char digit = self.input[self.at];
+			if (digit < '0' || digit > '9') { self.failed = true; return 0; }
+			value = value * 10 + (int)(digit - '0');
+			self.at++;
+		}
+		if (self.at >= length) { self.failed = true; return 0; }
+		self.at++;
+		return negative ? -value : value;
+	}
+
+	private char next() {
+		if (self.at >= self.size) { self.failed = true; return 'x'; }
+		char value = self.input[self.at];
+		self.at++;
+		return value;
+	}
+
+	private bool readFlag() {
+		char value = self.next();
+		if (value != '0' && value != '1') { self.failed = true; }
+		return value == '1';
+	}
+
+	private string? readText() {
+		char tag = self.next();
+		if (tag == 'N') { return null; }
+		if (tag != 's') { self.failed = true; return ""; }
+		int length = self.readInteger();
+		if (self.failed || length < 0 || self.at + length > self.size) { self.failed = true; return ""; }
+		string value = self.input.substring(self.at, length);
+		self.at = self.at + length;
+		return value;
+	}
+
+	private string readString() {
+		string? value = self.readText();
+		if (value == null) { self.failed = true; return ""; }
+		return value;
+	}
+
+	private Vector<string>? readStrings() {
+		char tag = self.next();
+		if (tag == 'N') { return null; }
+		if (tag != 'v') { self.failed = true; return null; }
+		Vector<string> values = [];
+		int count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) { values.push(self.readString()); }
+		return values;
+	}
+
+	private Vector<string> readStringList() {
+		Vector<string>? values = self.readStrings();
+		if (values == null) { self.failed = true; Vector<string> none = []; return none; }
+		return values;
+	}
+
+	private Vector<IRNode>? readNodes() {
+		char tag = self.next();
+		if (tag == 'N') { return null; }
+		if (tag != 'v') { self.failed = true; return null; }
+		Vector<IRNode> values = [];
+		int count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			IRNode? value = self.readNode();
+			if (value == null) { self.failed = true; break; }
+			values.push(value);
+		}
+		return values;
+	}
+
+	private IRParam readParam() {
+		string cType = self.readString();
+		string name = self.readString();
+		IRParam value = IRParam(cType, name);
+		value.isVolatile = self.readFlag();
+		value.effectiveIsVolatile = self.readFlag();
+		value.setjmpInferredVolatile = self.readFlag();
+		return value;
+	}
+
+	private Vector<IRParam>? readParams() {
+		char tag = self.next();
+		if (tag == 'N') { return null; }
+		if (tag != 'v') { self.failed = true; return null; }
+		Vector<IRParam> values = [];
+		int count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) { values.push(self.readParam()); }
+		return values;
+	}
+
+	private IRCleanupSlot? readSlot() {
+		char tag = self.next();
+		if (tag == 'N') { return null; }
+		if (tag != 'c') { self.failed = true; return null; }
+		int site = self.readInteger();
+		string name = self.readString();
+		string cType = self.readString();
+		string takeFunction = self.readString();
+		return IRCleanupSlot(site, name, cType, takeFunction);
+	}
+
+	private IRNode? readNode() {
+		char tag = self.next();
+		if (tag == 'n' || self.failed) { return null; }
+		if (tag == 'r') {
+			int reference = self.readInteger();
+			if (self.failed || reference < 0 || reference >= self.read.len) { self.failed = true; return null; }
+			return self.read.get(reference);
+		}
+		if (tag != 'o') { self.failed = true; return null; }
+		IRNode value = IRNode();
+		self.read.push(value);
+		while (!self.failed && self.at < self.size && self.input[self.at] != 'e') {
+			int field = self.readInteger();
+			if (self.failed) { return null; }
+			if (field == 0) { string? text = self.readText(); if (text != null) { value.text = text; } }
+			else if (field == 1) { string? text = self.readText(); if (text != null) { value.name = text; } }
+			else if (field == 2) { string? text = self.readText(); if (text != null) { value.callee = text; } }
+			else if (field == 3) { string? text = self.readText(); if (text != null) { value.op = text; } }
+			else if (field == 4) { IRNode? child = self.readNode(); if (child != null) { value.left = child; } }
+			else if (field == 5) { IRNode? child = self.readNode(); if (child != null) { value.right = child; } }
+			else if (field == 6) { IRNode? child = self.readNode(); if (child != null) { value.operand = child; } }
+			else if (field == 7) { IRNode? child = self.readNode(); if (child != null) { value.expr = child; } }
+			else if (field == 8) { IRNode? child = self.readNode(); if (child != null) { value.obj = child; } }
+			else if (field == 9) { IRNode? child = self.readNode(); if (child != null) { value.index = child; } }
+			else if (field == 10) { IRNode? child = self.readNode(); if (child != null) { value.condition = child; } }
+			else if (field == 11) { IRNode? child = self.readNode(); if (child != null) { value.trueExpr = child; } }
+			else if (field == 12) { IRNode? child = self.readNode(); if (child != null) { value.falseExpr = child; } }
+			else if (field == 13) { value.argsStorage = self.readNodes(); }
+			else if (field == 14) { Vector<IRParam>? list = self.readParams(); if (list != null) { value.params = list; } }
+			else if (field == 15) { value.fieldNamesStorage = self.readStrings(); }
+			else if (field == 16) { string? text = self.readText(); if (text != null) { value.targetType = text; } }
+			else if (field == 17) { string? text = self.readText(); if (text != null) { value.bridge = text; } }
+			else if (field == 18) { string? text = self.readText(); if (text != null) { value.field = text; } }
+			else if (field == 19) { string? text = self.readText(); if (text != null) { value.storageRoot = text; } }
+			else if (field == 20) { string? text = self.readText(); if (text != null) { value.arrayStorageRoot = text; } }
+			else if (field == 21) { string? text = self.readText(); if (text != null) { value.cType = text; } }
+			else if (field == 22) { IRNode? child = self.readNode(); if (child != null) { value.arraySize = child; } }
+			else if (field == 23) { IRCleanupSlot? slot = self.readSlot(); if (slot != null) { value.cleanupSlot = slot; } }
+			else if (field == 24) { string? text = self.readText(); if (text != null) { value.sourceFile = text; } }
+			else if (field == 25) { string? text = self.readText(); if (text != null) { value.helperRef = text; } }
+			else if (field == 26) { string? text = self.readText(); if (text != null) { value.realtimeProvenance = text; } }
+			else if (field == 27) { IRNode? child = self.readNode(); if (child != null) { value.init = child; } }
+			else if (field == 28) { IRNode? child = self.readNode(); if (child != null) { value.value = child; } }
+			else if (field == 29) { IRNode? child = self.readNode(); if (child != null) { value.target = child; } }
+			else if (field == 30) { IRNode? child = self.readNode(); if (child != null) { value.thenBlock = child; } }
+			else if (field == 31) { IRNode? child = self.readNode(); if (child != null) { value.elseBlock = child; } }
+			else if (field == 32) { IRNode? child = self.readNode(); if (child != null) { value.body = child; } }
+			else if (field == 33) { IRNode? child = self.readNode(); if (child != null) { value.update = child; } }
+			else if (field == 34) { value.stmtsStorage = self.readNodes(); }
+			else if (field == 35) { IRNode? child = self.readNode(); if (child != null) { value.result = child; } }
+			else if (field == 36) { value.kind = self.readInteger(); }
+			else if (field == 37) { value.prefix = self.readFlag(); }
+			else if (field == 38) { value.arrow = self.readFlag(); }
+			else if (field == 39) { value.storageRootKnown = self.readFlag(); }
+			else if (field == 40) { value.sourceAddress = self.readFlag(); }
+			else if (field == 41) { value.arrayStorageKnown = self.readFlag(); }
+			else if (field == 42) { value.isArrayDecl = self.readFlag(); }
+			else if (field == 43) { value.isVolatile = self.readFlag(); }
+			else if (field == 44) { value.effectiveIsVolatile = self.readFlag(); }
+			else if (field == 45) { value.setjmpInferredVolatile = self.readFlag(); }
+			else if (field == 46) { value.isStatic = self.readFlag(); }
+			else if (field == 47) { value.isExtern = self.readFlag(); }
+			else if (field == 48) { value.isCycleReturnTemp = self.readFlag(); }
+			else if (field == 49) { value.fallsThrough = self.readFlag(); }
+			else if (field == 50) { value.canFallThrough = self.readFlag(); }
+			else if (field == 51) { value.neverReturns = self.readFlag(); }
+			else if (field == 52) { value.sourceLine = self.readInteger(); }
+			else if (field == 53) { value.realtimeBounded = self.readFlag(); }
+			else { self.failed = true; return null; }
+		}
+		if (self.failed || self.next() != 'e') { self.failed = true; return null; }
+		return value;
+	}
+
+	private Vector<IRStructField> readFields() {
+		Vector<IRStructField> values = [];
+		int count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			string cType = self.readString();
+			string name = self.readString();
+			IRStructField value = IRStructField(cType, name);
+			value.arraySize = self.readNode();
+			value.isVolatile = self.readFlag();
+			value.effectiveIsVolatile = self.readFlag();
+			values.push(value);
+		}
+		return values;
+	}
+
+	/* A module holding the declaration lists `encoded` names, or null when it is malformed. */
+	public IRModule? decodeDeclarations(string encoded) {
+		self.input = encoded;
+		self.at = 0;
+		self.size = encoded.length();
+		IRModule module = IRModule();
+		int count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			IRPreprocessorDecl item = IRPreprocessorDecl();
+			item.kind = self.readInteger();
+			item.header = self.readString();
+			item.isSystem = self.readFlag();
+			item.name = self.readString();
+			item.functionLike = self.readFlag();
+			item.params = self.readStringList();
+			item.replacement = self.readString();
+			module.preprocessorDecls.push(item);
+		}
+		count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			IREnumDef item = IREnumDef(self.readString());
+			int values = self.readInteger();
+			for (int value = 0; value < values && !self.failed; value++) {
+				string name = self.readString();
+				item.values.push(IREnumValue(name, self.readNode()));
+			}
+			module.enumDefs.push(item);
+		}
+		count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) { module.structForwards.push(IRStructForward(self.readString())); }
+		count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			string name = self.readString();
+			IRFunctionPointerTypedef item = IRFunctionPointerTypedef(name, self.readString());
+			item.paramTypes = self.readStringList();
+			module.functionPointerTypedefs.push(item);
+		}
+		count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			string name = self.readString();
+			string returnType = self.readString();
+			Vector<IRParam>? parameters = self.readParams();
+			IRFunctionDecl item = IRFunctionDecl(name, returnType, false);
+			if (parameters != null) { item.params = parameters; }
+			item.isStatic = self.readFlag();
+			item.cLinkage = self.readFlag();
+			module.functionDecls.push(item);
+		}
+		count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			string targetType = self.readString();
+			IRTypedefDef item = IRTypedefDef(targetType, self.readString());
+			item.isVolatile = self.readFlag();
+			module.typedefDefs.push(item);
+		}
+		count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			string name = self.readString();
+			IRTaggedUnionDef item = IRTaggedUnionDef(name, self.readString());
+			int variants = self.readInteger();
+			for (int variant = 0; variant < variants && !self.failed; variant++) {
+				IRTaggedUnionVariant value = IRTaggedUnionVariant(self.readString());
+				value.fields = self.readFields();
+				item.variants.push(value);
+			}
+			module.taggedUnionDefs.push(item);
+		}
+		count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			IRStructDef item = IRStructDef();
+			item.name = self.readString();
+			item.fields = self.readFields();
+			item.packAlignment = self.readInteger();
+			module.structDefs.push(item);
+		}
+		count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			string cType = self.readString();
+			IRGlobalDecl item = IRGlobalDecl(cType, self.readString());
+			item.init = self.readNode();
+			IRNode? size = self.readNode();
+			if (size != null) { item.arraySize = size; }
+			item.isUnsizedArray = self.readFlag();
+			item.isStatic = self.readFlag();
+			item.isExtern = self.readFlag();
+			item.isVolatile = self.readFlag();
+			item.effectiveIsVolatile = self.readFlag();
+			module.globalDecls.push(item);
+		}
+		if (self.failed || self.at != self.size) { return null; }
+		return module;
 	}
 }
