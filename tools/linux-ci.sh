@@ -5,8 +5,10 @@
 #   tools/linux-ci.sh                  # the CI test job
 #   tools/linux-ci.sh lint format-check
 #
-# As in CI, tools/virtual-display.sh gives the container an X display and
-# Mesa's software Vulkan driver, so the GUI and GPU adapter tests run.
+# As in CI, tools/virtual-display.sh gives the container an X display, a
+# session bus with the AT-SPI bus and Mesa's software Vulkan driver, so the GUI
+# and GPU adapter tests run. BTRC_VIRTUAL_DISPLAY=wayland runs the same targets
+# under weston's headless compositor instead (tools/ui/headless-session.sh).
 #
 # Four things differ from `podman run -v "$PWD:/workspace"`:
 #
@@ -85,7 +87,7 @@ done < <(find build dist -maxdepth 1 -type l 2>/dev/null)
 workers="${PYTEST_WORKERS:-$(podman info --format '{{.Host.CPUs}}' 2>/dev/null || echo 4)}"
 
 exec podman run --rm --init "${mounts[@]}" \
-  -e PYTHONPYCACHEPREFIX=/tmp/btrc-pycache "$image" \
+  -e PYTHONPYCACHEPREFIX=/tmp/btrc-pycache -e "BTRC_VIRTUAL_DISPLAY=${BTRC_VIRTUAL_DISPLAY:-x11}" "$image" \
   tools/virtual-display.sh make NIX= "PYTEST_WORKERS=$workers" \
   "BTRC_TEST_TRANSPILE_TIMEOUT=${BTRC_TEST_TRANSPILE_TIMEOUT:-1800}" \
   "BTRC_TEST_RUN_TIMEOUT=${BTRC_TEST_RUN_TIMEOUT:-60}" \

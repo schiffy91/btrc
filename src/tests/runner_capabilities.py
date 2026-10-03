@@ -280,6 +280,51 @@ def linux_display_error() -> str | None:
     return None
 
 
+@CapabilityGateLog.gate("native-display-wayland")
+def linux_wayland_display_error() -> str | None:
+    """Return why a Wayland window cannot be opened from this session, such as
+    `tools/ui/headless-session.sh --wayland` provides."""
+    if error := PkgConfig.missing("sdl3"):
+        return f"native Wayland backend is unavailable: {error}"
+    display = os.environ.get("WAYLAND_DISPLAY")
+    if not display:
+        return "native Wayland backend is unavailable: no WAYLAND_DISPLAY"
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not os.path.isabs(display) and not runtime:
+        return "native Wayland backend is unavailable: XDG_RUNTIME_DIR is unset"
+    socket_path = Path(runtime or "", display)
+    if not socket_path.is_socket():
+        return f"native Wayland backend is unavailable: no compositor listens at {socket_path}"
+    return None
+
+
+@CapabilityGateLog.gate("native-atspi")
+def linux_atspi_error() -> str | None:
+    """Return why this session has no AT-SPI accessibility bus to publish or read a tree on."""
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        # Without an address, libdbus may autolaunch a stray bus on the display.
+        return "AT-SPI is unavailable: no session bus (DBUS_SESSION_BUS_ADDRESS is unset)"
+    dbus_send = shutil.which("dbus-send")
+    if dbus_send is None:
+        return "AT-SPI is unavailable: dbus-send is not installed"
+    command = [
+        dbus_send,
+        "--session",
+        "--print-reply",
+        "--dest=org.a11y.Bus",
+        "/org/a11y/bus",
+        "org.a11y.Bus.GetAddress",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"AT-SPI is unavailable: {error}"
+    if result.returncode != 0 or '"unix:' not in result.stdout:
+        detail = result.stderr.strip() or f"exit status {result.returncode}"
+        return f"AT-SPI is unavailable: no accessibility bus on the session bus ({detail[:200]})"
+    return None
+
+
 @CapabilityGateLog.gate("native-audio")
 def linux_audio_backend_error() -> str | None:
     """Return why no ALSA PCM can be opened from this session."""
