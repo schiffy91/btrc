@@ -304,23 +304,6 @@
         "windows"
       ],
       "note": "windows.yml runs test_artifact_reparse.py beside test_artifact_storage.py."
-    },
-    {
-      "id": "c4-native-reader",
-      "files": [
-        "src/tests/btrc/test_preprocessor_conditionals.py"
-      ],
-      "reason": "^(native bindings need the native header reader|self-hosted artifact reuse needs the native header reader identity)$",
-      "category": "provider-configuration",
-      "gating": {
-        "env": [
-          "BTRC_NATIVE_HEADER_READER"
-        ]
-      },
-      "covered_by": [
-        "macos-hosted"
-      ],
-      "note": "C4's P2 and P3-binding program checks compile a native binding, and the btrcc module-unit cache cases need the reader's identity to reuse artifacts; the Linux dev shell does not export the reader, and macos.yml's btrc shard builds and exports it (CL-C-06)."
     }
   ]
 }
