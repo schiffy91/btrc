@@ -657,16 +657,19 @@ def test_scope_counts_every_markdown_file_a_test_or_tool_reads_as_code() -> None
         assert not test_read.search(name), name
 
 
-FAKE_GH = """#!/usr/bin/env bash
-set -euo pipefail
-for argument; do endpoint=$argument; done
-case "$endpoint" in
-  */files\\?per_page=100)
-    [[ " $* " == *" --paginate --slurp "* ]] || { echo "files need --paginate --slurp" >&2; exit 2; }
-    cat "$FAKE_GH/files.json" ;;
-  */pulls/*) cat "$FAKE_GH/pull.json" ;;
-  *) echo "unexpected gh $*" >&2; exit 2 ;;
-esac
+# A shell function, sourced before the step's script: it shadows any gh on
+# PATH and needs no executable file (a test's tmp directory may be noexec).
+FAKE_GH = """gh() {
+  local argument endpoint
+  for argument; do endpoint=$argument; done
+  case "$endpoint" in
+    */files\\?per_page=100)
+      [[ " $* " == *" --paginate --slurp "* ]] || { echo "files need --paginate --slurp" >&2; return 2; }
+      cat "$FAKE_GH/files.json" ;;
+    */pulls/*) cat "$FAKE_GH/pull.json" ;;
+    *) echo "unexpected gh $*" >&2; return 2 ;;
+  esac
+}
 """
 
 
@@ -677,10 +680,7 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
     """
 
     step = _scope_step("ci.yml")
-    bin_directory = tmp_path / "bin"
-    bin_directory.mkdir()
-    (bin_directory / "gh").write_text(FAKE_GH, encoding="utf-8")
-    (bin_directory / "gh").chmod(0o755)
+    (tmp_path / "gh.sh").write_text(FAKE_GH, encoding="utf-8")
     rows = [
         {"filename": name.split(" <- ")[0], **({"previous_filename": name.split(" <- ")[1]} if " <- " in name else {})}
         for name in files
@@ -695,7 +695,6 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
     output = tmp_path / "output"
     environment = {
         **os.environ,
-        "PATH": f"{bin_directory}{os.pathsep}{os.environ['PATH']}",
         "FAKE_GH": str(tmp_path),
         "GITHUB_REPOSITORY": "schiffy91/btrc",
         "GITHUB_OUTPUT": str(output),
@@ -708,7 +707,12 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
         "TEST_READ_MARKDOWN": step["env"]["TEST_READ_MARKDOWN"],
     }
     completed = subprocess.run(
-        ["bash", "-c", step["run"]], env=environment, capture_output=True, text=True, timeout=60, check=False
+        ["bash", "-c", f'source "$FAKE_GH/gh.sh"\n{step["run"]}'],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
     )
     assert completed.returncode == 0, completed.stderr
     lines = output.read_text(encoding="utf-8").splitlines()
