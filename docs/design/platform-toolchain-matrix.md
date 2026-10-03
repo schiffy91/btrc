@@ -194,7 +194,9 @@ or does not print it. On Linux every probe is reported not applicable.
 
 The `jdk`, `android-sdk` and `adb` rows record the `.#platforms` shell as
 checked on x86_64-linux on 2026-10-03. The Mac matches them once `MAC-P1-03`
-realizes that shell there; until then the probe reports them as mismatches.
+realizes that shell there (with the `--profile` command above, before the probe:
+the probe's 300 s command timeout cannot cover the first download); until then
+the probe reports them as mismatches.
 
 wgpu-native 27.0.4.0 is a flake pin, not a host install, so it is checked with
 `nix eval`, not by the probe.
@@ -208,7 +210,7 @@ Nothing below is met. Each row names the item that has to close first.
 | An installed iOS 17.x simulator runtime launching a C11 app; Xcode 27 does not accept keyboard or mouse input on simulators older than iOS 18.0, which limits UI automation there | `tooling-ios-simulator-runtimes` | not installed; the download is a Stage 23 step on the Mac |
 | iOS/iPadOS 17 and current on physical iPhone and iPad | `tooling-ios-physical-devices` | no device (D8) |
 | Development-signed or distribution-signed iOS builds; notarization | `qualification-signing-accounts`, `tooling-apple-signing` | 0 valid signing identities; no account (D8) |
-| API 29, API 36 and 16 KiB AVDs booting | `tooling-android-sdk-ndk` | no SDK |
+| API 29, API 36 and 16 KiB AVDs booting | `tooling-android-sdk-ndk` | the SDK and images are in `.#platforms`; no AVD has been created or booted (`MAC-P1-03`) |
 | Android hardware: an API 29 vendor and a current 16 KiB vendor | `tooling-android-physical-devices` | no device (D8) |
 | Native Windows 11 x64 and ARM64 hardware runs | `tooling-windows-physical` | no hardware (D8) |
 | A local Windows 11 ARM VM (`ssh winvm`) | `tooling-windows-vm` | D8 declines a local Windows VM |
