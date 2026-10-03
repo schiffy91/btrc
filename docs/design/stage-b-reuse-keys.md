@@ -479,10 +479,12 @@ a clean build.
      `global-type`, `bound` (after G8), `native`, and `program` (except
      reachability) are all known here, and are checked here.
    - `descendants` and `cycle` include instances, so they are checked after
-     the generic sweeps instead (step 2b). Each answer is logged with the
-     phase that asked it, so a journaled answer is compared against the
-     instance list of that same phase: the claims pass sees a partial list
-     (`validation/Names.btrc:817`), the end check the final one (`:1071`).
+     the generic sweeps instead (step 2b). Whatever phase asks, the logged
+     answer is computed on the **final** instance list, after the close
+     sweep, in both compilers. btrcc's claims pass sees a partial list today
+     (`validation/Names.btrc:817`) and Python's the final one
+     (`analyzer/analyzer.py:150`); a phase-dependent answer would make a group
+     late in one compiler only (SB-37).
    - When several journals of a group share the fixed inputs (6.1), they are
      tried newest first, and the first whose answers all match is taken.
    - The live set `L0` is: the changed groups, groups without a valid journal,
@@ -879,7 +881,7 @@ reproduced today on Linux with both compilers; the scratch probes become
 | SB-05 | `fail()` changes from `exit(1)` to `return`; `Use` stores a nullable after calling it | stale warning set (SB-D5, **reproduced**, btrcc) | compare diagnostics | A: Lib, Use (`prepass`). L: Lib, Use. `restarts=0` |
 | SB-06 | `Other`, which `Use` does not import, adds `enum Paint { RED }`; `Use` writes bare `RED` from `Lib`'s `Color` | `Use` keeps resolving `RED` | `Main` imports `Other` | fails as a clean build does (`fallback=error`) |
 | SB-07 | `Lib` removes `#define LIMIT 4`, which `Use` uses (`#undef` is rejected in lowering, `ir/lowering/Declarations.btrc:4651`, so it cannot be the edit) | `Use` replays `known = true` | | fails as a clean build does |
-| SB-08 | `Use` adds `class Leaf extends Node` with a `Node` field (`Node` in `Lib`) | acyclic release helpers kept in `Lib` | | A: Use (`source`), Lib (`late`: its `cycle(Node)` answer, logged by the claims pass, moved after the sweeps; `restarts=1`). L: Use, Lib (`analysis` or `answer.cycle`), Main (`entry`). N: Lib, Use, Main, `p.c`, runtime (**measured**, clean before/after) |
+| SB-08 | `Use` adds `class Leaf extends Node` with a `Node` field (`Node` in `Lib`) | acyclic release helpers kept in `Lib` | | A: Use (`source`), Lib (`late`: its `cycle(Node)` answer, logged by the claims pass, moved after the sweeps; `restarts=1`). L: Use, Lib (`analysis`: re-analysis moves `Lib`'s visitor and release facts, which precede `answer.cycle`), Main (`entry`). N: Lib, Use, Main, `p.c`, runtime (**measured**, clean before/after) |
 | SB-09 | `Other` (not imported by `Use`) adds a global `int count = 9`; `Use` captures a local `count` | SB-D9 (**reproduced**, btrcc prints 10). A correctness row: after the fix, no unit depends on it | run the program | A: Other. L: Other. Output `5` in both compilers |
 | SB-10 | `Other` adds `class value {}`; `Use` has a local `value` | `Use` keeps the local's C name | | A: Other. L: Other, Use (`answer.exists`). N: Other, Use, `p.c`, runtime (**measured**) |
 | SB-11 | `Other` demands `Box<Gadget>` of `Lib`'s generic `Box<T>` | stale instance set in `Lib` | | A: Other (`instance-scans=live:1`). L: Other, Lib (`answer.generic`), Main (`entry`). N: Lib, Other, Main, `p.c`, runtime (**measured**) |
@@ -907,7 +909,8 @@ reproduced today on Linux with both compilers; the scratch probes become
 | SB-33 | divergence chain `fail` → `wrap` → `wrap2` → caller across four groups; edit `fail` | restart exhaustion on pre-pass summaries | | A: all four (`prepass`). `restarts=0` |
 | SB-34 | SB-17 built with `--jobs 1` and `--jobs 4` | logs depending on the worker count | | identical logs, records and counters |
 | SB-35 | `Use` starts calling a method of an existing `Box<int>` it never called before | member-level demand differing between compilers (G13) | | A: Use. L: Use, Lib (`kept-instances`) in both compilers |
-| SB-36 | `Main` imports a new group `Extra` | a whole-program order answer making every group live | | A: Main, Extra (`source`). L: Main, Extra, plus every group whose `shared` or `program` answer moved; no `dirty-share` |
+| SB-36 | `Main` imports a new group `Extra` that has no directives | a whole-program order answer making every group live | | A: Main, Extra (`source`). L: Main, Extra; no other group (no directive or shared answer moves); no `dirty-share` |
+| SB-37 | `Use` adds a call whose only effect is a new instance demanded in the close sweep, implementing an interface declared in `Lib` | a `descendants` answer that differs by phase between the compilers | | the same A, L and `restarts` in both compilers |
 
 ## 10. Review
 
@@ -1001,6 +1004,16 @@ resolved:
 | P12 rest: `artifact-hit` missing from 6.5 | minor | added |
 | P-N3, B-N3 native identity as a per-group input contradicts SB-20 | major | removed from the fixed inputs; natives through the `native` namespace (5.1) |
 | P-N4 realtime-only scan's counter state | minor | analyzed, `live-for=realtime`, and in `realtime-scans` (6.1) |
+
+**Round 3** (on `7bbd252`). All three reviewers confirmed every round-2 item
+resolved and **no unresolved blocking finding**. Their last notes are applied:
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| A: SB-08 should state its restart | minor | `restarts=1` |
+| B: SB-08's `Lib` reason not single; SB-36 not exact | minor | `analysis` by precedence; `Extra` has no directives, so L is Main and Extra only |
+| P: claims-pass `cycle`/`descendants` see different instance lists in the two compilers | minor | answers computed on the final instance list in both (5.3); SB-37 |
+| P: `native-unknown` appears only in btrcpy, since btrcc fails the compile | note | the parity checks skip that environment (6.5) |
 
 **Parity verdict.** Both compilers can expose identical counters once the
 groundwork lands: G3, G4 and G6 to G13. The native counts come from one
