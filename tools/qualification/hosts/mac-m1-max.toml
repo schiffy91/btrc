@@ -1,0 +1,25 @@
+# The acceptance Mac (AGENTS.md "Host capacity and agent rules"). budget_bench
+# embeds this manifest in report.json when HostProvenance.summary() equals
+# `summary` exactly; any other host's report carries no manifest.
+schema = 1
+id = "mac-m1-max"
+role = "acceptance"
+status = "recorded"
+architecture = "arm64"
+summary = "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0"
+memory_gib = 64
+os = "macOS 27.0"
+instruction_counter = "/usr/bin/time -l"
+source = "AGENTS.md host provenance string; docs/design/platform-toolchain-matrix.md recorded host facts"
+
+[cpu]
+model = "Apple M1 Max"
+topology = "8P+2E"
+logical_cores = 10
+physical_cores = 10
+
+[toolchain]
+environment = "nix develop (flake.lock), inside BTRSmith's dev shell (tools/bench/scripts/bsm_env.sh)"
+cc = "clang"
+nix = "2.34.6"
+sdk = "Xcode 27.0 (27A266a)"

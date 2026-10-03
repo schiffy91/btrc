@@ -37,7 +37,10 @@ nearest-rank p95 and the maximum, as PLAN's "Numeric acceptance budgets"
 requires; tools.qualification.statistics computes them. --dry-run takes one
 sample of each and marks the report. ``python3 -m tools.qualification ingest
 --budget-bench <out>/report.json`` records a run in the qualification ledger
-against REPORTED_SCENARIOS.
+against REPORTED_SCENARIOS. The report's provenance.host_manifest embeds the
+committed tools/qualification/hosts manifest that provenance.host_summary
+selects (HostManifest), with any fact this run observed that disagrees with
+it, and is null on a host no manifest describes.
 
 Scenarios (--scenarios, comma-separated, or `all`):
 
@@ -100,6 +103,7 @@ import subprocess
 import sys
 import threading
 import time
+import tomllib
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, fields
@@ -763,6 +767,200 @@ class HostSummary:
     @classmethod
     def describe(cls) -> str:
         return HostProvenance().summary()
+
+
+@dataclass(frozen=True)
+class HostManifest:
+    """A committed description of a host whose measurements qualification accepts.
+
+    Each ``tools/qualification/hosts/<id>.toml`` records one host: its CPU
+    model, logical and physical cores, memory, OS, toolchain and the
+    instruction counter `TimeReport` uses there. A ``recorded`` manifest is
+    selected by `HostSummary.describe()`: its ``summary`` equals that string, or
+    its ``summary_pattern`` fully matches it. An ``awaiting-probe`` manifest (a
+    host not yet reachable) names its read-only ``probe`` and ``requirements``
+    instead of hardware facts, and matches nothing. `select` is what
+    budget_bench embeds in report.json, with the facts this run observed that
+    disagree with the manifest.
+    """
+
+    path: Path
+    table: dict[str, object]
+
+    DIRECTORY: ClassVar[Path] = REPO / "tools/qualification/hosts"
+    SCHEMA: ClassVar[int] = 1
+    ROLES: ClassVar[frozenset[str]] = frozenset({"acceptance", "x86_64-acceptance"})
+    ARCHITECTURES: ClassVar[frozenset[str]] = frozenset({"arm64", "x86_64"})
+    COUNTERS: ClassVar[frozenset[str]] = frozenset({f"{TimeReport.TOOL} -l", f"perf stat -e {TimeReport.PERF_EVENT}"})
+    COMMON: ClassVar[frozenset[str]] = frozenset(
+        {"schema", "id", "role", "status", "architecture", "instruction_counter", "source", "toolchain", "requirements"}
+    )
+    # Per status: the fields it requires beyond COMMON's, and the summary keys it may use.
+    RECORDED: ClassVar[frozenset[str]] = frozenset({"cpu", "memory_gib", "os"})
+    AWAITING: ClassVar[frozenset[str]] = frozenset({"probe"})
+    MATCHERS: ClassVar[frozenset[str]] = frozenset({"summary", "summary_pattern"})
+    CPU: ClassVar[dict[str, type]] = {"model": str, "topology": str, "logical_cores": int, "physical_cores": int}
+    REQUIREMENTS: ClassVar[frozenset[str]] = frozenset({"min_logical_cores", "min_memory_gib"})
+    TOOLCHAIN_REQUIRED: ClassVar[frozenset[str]] = frozenset({"environment", "cc"})
+
+    @property
+    def id(self) -> str:
+        return str(self.table["id"])
+
+    @property
+    def recorded(self) -> bool:
+        return self.table["status"] == "recorded"
+
+    @classmethod
+    def load(cls, path: Path) -> HostManifest:
+        try:
+            table = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as error:
+            raise ValueError(f"host manifest {path}: {error}") from error
+        problems = cls.problems(table, path.stem)
+        if problems:
+            raise ValueError(f"host manifest {path}: {'; '.join(problems)}")
+        return cls(path, table)
+
+    @classmethod
+    def problems(cls, table: dict[str, object], stem: str) -> list[str]:
+        """Every way `table` breaks the schema; empty when it is a valid manifest named `stem`."""
+
+        problems: list[str] = []
+
+        def text(value: object) -> bool:
+            return isinstance(value, str) and bool(value.strip())
+
+        def count(value: object) -> bool:
+            return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+        if table.get("schema") != cls.SCHEMA:
+            problems.append(f"schema must be {cls.SCHEMA}")
+        if table.get("id") != stem:
+            problems.append(f"id must be the file name, {stem!r}")
+        if table.get("role") not in cls.ROLES:
+            problems.append(f"role must be one of {', '.join(sorted(cls.ROLES))}")
+        if table.get("architecture") not in cls.ARCHITECTURES:
+            problems.append(f"architecture must be one of {', '.join(sorted(cls.ARCHITECTURES))}")
+        if table.get("instruction_counter") not in cls.COUNTERS:
+            problems.append(f"instruction_counter must be one of {', '.join(sorted(cls.COUNTERS))}")
+        if not text(table.get("source")):
+            problems.append("source must say where the facts come from")
+        status = table.get("status")
+        if status == "recorded":
+            required = cls.RECORDED
+            matchers = cls.MATCHERS & set(table)
+            if len(matchers) != 1:
+                problems.append("a recorded manifest needs exactly one of summary, summary_pattern")
+            elif not text(table[next(iter(matchers))]):
+                problems.append(f"{next(iter(matchers))} must be text")
+            elif "summary_pattern" in table:
+                try:
+                    re.compile(str(table["summary_pattern"]))
+                except re.error as error:
+                    problems.append(f"summary_pattern: {error}")
+            allowed = cls.COMMON | required | matchers
+        elif status == "awaiting-probe":
+            required = cls.AWAITING
+            if "requirements" not in table:
+                problems.append("an awaiting-probe manifest needs the requirements its probe must meet")
+            probe = table.get("probe")
+            if not isinstance(probe, list) or not probe or not all(text(command) for command in probe):
+                problems.append("probe must list the read-only commands that record the host")
+            allowed = cls.COMMON | required
+        else:
+            return [*problems, "status must be recorded or awaiting-probe"]
+        missing = sorted(required - set(table))
+        if missing:
+            problems.append(f"missing {', '.join(missing)}")
+        unknown = sorted(set(table) - allowed)
+        if unknown:
+            problems.append(f"unknown or misplaced field(s) {', '.join(unknown)}")
+        if status == "recorded":
+            cpu = table.get("cpu")
+            if not isinstance(cpu, dict) or set(cpu) != set(cls.CPU):
+                problems.append(f"cpu must hold exactly {', '.join(cls.CPU)}")
+            else:
+                for name, kind in cls.CPU.items():
+                    if not (count(cpu[name]) if kind is int else text(cpu[name])):
+                        problems.append(f"cpu.{name} must be {'a positive integer' if kind is int else 'text'}")
+                if count(cpu["logical_cores"]) and count(cpu["physical_cores"]):
+                    if cpu["physical_cores"] > cpu["logical_cores"]:
+                        problems.append("cpu.physical_cores exceeds cpu.logical_cores")
+            if not count(table.get("memory_gib")):
+                problems.append("memory_gib must be a positive integer")
+            if not text(table.get("os")):
+                problems.append("os must be text")
+        requirements = table.get("requirements")
+        if requirements is not None:
+            if not isinstance(requirements, dict) or not requirements or not set(requirements) <= cls.REQUIREMENTS:
+                problems.append(f"requirements may hold only {', '.join(sorted(cls.REQUIREMENTS))}")
+            elif not all(count(value) for value in requirements.values()):
+                problems.append("requirements must be positive integers")
+            elif status == "recorded" and not problems:
+                cpu, memory = table["cpu"], table["memory_gib"]
+                assert isinstance(cpu, dict) and isinstance(memory, int)
+                if cpu["logical_cores"] < requirements.get("min_logical_cores", 0):
+                    problems.append("cpu.logical_cores is below requirements.min_logical_cores")
+                if memory < requirements.get("min_memory_gib", 0):
+                    problems.append("memory_gib is below requirements.min_memory_gib")
+        toolchain = table.get("toolchain")
+        if not isinstance(toolchain, dict) or not set(toolchain) >= cls.TOOLCHAIN_REQUIRED:
+            problems.append(f"toolchain must name at least {', '.join(sorted(cls.TOOLCHAIN_REQUIRED))}")
+        elif not all(text(value) for value in toolchain.values()):
+            problems.append("toolchain values must be text")
+        return problems
+
+    @classmethod
+    def committed(cls, directory: Path | None = None) -> list[HostManifest]:
+        return [cls.load(path) for path in sorted((directory or cls.DIRECTORY).glob("*.toml"))]
+
+    def matches(self, summary: str) -> bool:
+        if not self.recorded:
+            return False
+        if "summary" in self.table:
+            return self.table["summary"] == summary
+        return re.fullmatch(str(self.table["summary_pattern"]), summary) is not None
+
+    @classmethod
+    def select(cls, summary: str, directory: Path | None = None) -> HostManifest | None:
+        """The one committed manifest describing the host `summary` names, or None."""
+
+        matched = [manifest for manifest in cls.committed(directory) if manifest.matches(summary)]
+        if len(matched) > 1:
+            raise ValueError(f"host {summary!r} matches several manifests: {', '.join(m.id for m in matched)}")
+        return matched[0] if matched else None
+
+    def discrepancies(self, *, logical_cores: int | None, instruction_counter: str) -> list[str]:
+        """What this run observed that the manifest does not describe."""
+
+        found = []
+        cpu = self.table["cpu"]
+        assert isinstance(cpu, dict)
+        if logical_cores != cpu["logical_cores"]:
+            found.append(f"{logical_cores} logical CPUs, not the manifest's {cpu['logical_cores']}")
+        if instruction_counter != self.table["instruction_counter"]:
+            found.append(
+                f"instruction counter is {instruction_counter!r}, not the manifest's "
+                f"{self.table['instruction_counter']!r}"
+            )
+        return found
+
+    def embed(self, *, logical_cores: int | None, instruction_counter: str) -> dict[str, object]:
+        """The report.json form: which committed file, its digest, its facts, and this run's disagreements."""
+
+        data = self.path.read_bytes()
+        try:
+            name = self.path.resolve().relative_to(REPO).as_posix()
+        except ValueError:
+            name = str(self.path)
+        return {
+            "id": self.id,
+            "file": name,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "manifest": self.table,
+            "discrepancies": self.discrepancies(logical_cores=logical_cores, instruction_counter=instruction_counter),
+        }
 
 
 class StandInWorkspace:
@@ -1899,6 +2097,9 @@ class BudgetBench:
                 return None
             return completed.stdout.strip() if completed.returncode == 0 else None
 
+        summary = HostSummary.describe()
+        counter = TimeReport.instruction_counter()
+        manifest = HostManifest.select(summary)
         provenance: dict[str, object] = {
             "compiler_revision": output("git", "-C", str(REPO), "rev-parse", "HEAD"),
             "compiler_dirty": bool(output("git", "-C", str(REPO), "status", "--porcelain")),
@@ -1908,8 +2109,12 @@ class BudgetBench:
             "python": sys.version,
             "cc": (output(CC, "--version") or "").split("\n")[0],
             "time_tool": TimeReport.collector(),
-            "instruction_counter": TimeReport.instruction_counter(),
-            "host_summary": HostSummary.describe(),
+            "instruction_counter": counter,
+            "host_summary": summary,
+            # The committed manifest host_summary selects (HostManifest), or null on any other host.
+            "host_manifest": (
+                manifest.embed(logical_cores=os.cpu_count(), instruction_counter=counter) if manifest else None
+            ),
             "environment": {
                 name: os.environ[name]
                 for name in (
