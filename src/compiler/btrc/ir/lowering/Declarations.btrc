@@ -3,6 +3,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../../analyzer/Declarations.btrc;
+import ../../analyzer/Expressions.btrc;
 import ../../analyzer/Generics.btrc;
 import ../../analyzer/HostedAbi.btrc;
 import ../../analyzer/Models.btrc;
@@ -2948,8 +2949,10 @@ class DeclarationLowerer {
 		 * neither shadowed nor captured there. */
 		if (!foreign) {
 			Map<string, Node> genericFieldVars = self.genericInitializerVarTypes(inst, null);
-			self.appendInheritedFieldInitializers(decl, genericFieldVars, ibody);
-			self.appendInstanceFieldInitializers(decl, genericFieldVars, true, typeMap, ibody);
+			Vector<IRNode> fieldStatements = [];
+			self.appendInheritedFieldInitializers(decl, genericFieldVars, fieldStatements);
+			self.appendInstanceFieldInitializers(decl, genericFieldVars, true, typeMap, fieldStatements);
+			self.appendFieldInitialization(mangled, decl, ctor, fieldStatements, true, m, ibody);
 		}
 		if (ctor != null) {
 			self.functions.activateSourceLexicalParameters(ctor.params());
@@ -3454,8 +3457,10 @@ class DeclarationLowerer {
 		 * own, and only then the constructor body. Field initializers belong
 		 * to the class scope, without the constructor's parameters. */
 		Map<string, Node> fieldVars = self.ctorVarTypes(decl, null);
-		self.appendInheritedFieldInitializers(decl, fieldVars, body);
-		self.appendInstanceFieldInitializers(decl, fieldVars, false, noTypeMap, body);
+		Vector<IRNode> fieldStatements = [];
+		self.appendInheritedFieldInitializers(decl, fieldVars, fieldStatements);
+		self.appendInstanceFieldInitializers(decl, fieldVars, false, noTypeMap, fieldStatements);
+		self.appendFieldInitialization(name, decl, ctor, fieldStatements, false, m, body);
 		if (ctor != null) {
 			self.functions.activateSourceLexicalParameters(ctor.params());
 		}
@@ -4359,6 +4364,47 @@ class DeclarationLowerer {
 		if (field.initializer.kind != NK_BRACE_INITIALIZER && field.initializer.kind != NK_LIST_LITERAL) { return; }
 		fprintf(stderr, "error: array-valued class field default '%s' requires persistent backing storage at %d:%d\n", field.name, field.line, field.col);
 		exit(1);
+	}
+
+	/* A field initializer reads class scope, but in _init a same-named
+	 * constructor parameter would shadow the name it means. Run the
+	 * initializers in a function that has no such parameter. */
+	private void appendFieldInitialization(string owner, Node declaration, Node? constructor, Vector<IRNode> fieldStatements, bool isStatic, IRModule m, Vector<IRNode> body) {
+		if (fieldStatements.len > 0 && self.parametersShadowFieldInitializers(declaration, constructor)) {
+			IRFunction helper = IRFunction();
+			helper.name = "__btrc_" + owner + "_field_initializers";
+			helper.returnType = "void";
+			helper.isStatic = isStatic;
+			helper.params.push(IRParam(owner + "*", "self"));
+			helper.body = IRNode.block(fieldStatements);
+			m.functions.push(helper);
+			Vector<IRNode> arguments = [];
+			arguments.push(IRNode.variable("self"));
+			body.push(IRNode.expressionStatement(IRNode.call(helper.name, arguments)));
+			return;
+		}
+		for statement in fieldStatements { body.push(statement); }
+	}
+
+	/* Whether a constructor parameter shares a name that an initializer of
+	 * this class or an ancestor spells. */
+	private bool parametersShadowFieldInitializers(Node declaration, Node? constructor) {
+		if (constructor == null) { return false; }
+		Map<string, bool> names = {};
+		Node? current = declaration;
+		while (current != null) {
+			for field in current.members() {
+				if (field.kind == NK_FIELD_DECL && field.access != "class" && DeclarationRegistry.instanceStorageName(field) != "" && field.initializer != null) {
+					ExpressionTypeResolver.collectIdentifiers(field.initializer, names);
+				}
+			}
+			string? parentName = current.parent;
+			current = parentName != null && parentName != "" && self.analyzed.classTable.has(parentName) ? self.analyzed.classTable.get(parentName) : null;
+		}
+		for parameter in constructor.params() {
+			if (names.has(parameter.name)) { return true; }
+		}
+		return false;
 	}
 
 	/* The initializers every ancestor declares, root class first. A parent is

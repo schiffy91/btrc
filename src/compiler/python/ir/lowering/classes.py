@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.generated_symbols import GeneratedSymbolRegistry
@@ -38,11 +38,14 @@ from src.compiler.python.syntax.ast.generated import (
     BraceInitializer,
     ClassDecl,
     FieldDecl,
+    Identifier,
     ListLiteral,
     MapLiteral,
     MethodDecl,
     PropertyDecl,
+    SelfExpr,
     StructDecl,
+    SuperExpr,
     TypeExpr,
 )
 
@@ -261,46 +264,68 @@ class ClassLowerer:
         # and only then the constructor body.
         own_fields = {member.name for member in decl.members if isinstance(member, FieldDecl)}
         inherited = [field for field_name, field in cls_info.fields.items() if field_name not in own_fields]
-        for member in [*inherited, *decl.members]:
-            if isinstance(member, FieldDecl) and member.access != "class" and member.initializer:
-                self._callable_boundaries.reject_persistent_escape(
-                    member.type,
-                    member.initializer,
-                    "field storage",
-                    init_provenance,
-                )
-                target = IRFieldAccess(obj=IRVar(name="self"), field=member.name, arrow=True)
-                with self._expressions.hosted_result_request(
-                    member.initializer,
-                    member.type,
-                    init_provenance,
-                ):
-                    lowered_initializer = self._lower_field_init(member, init_provenance)
-                prepared = self._expressions.prepare_lowered_value(
-                    member.initializer,
-                    member.type,
-                    lowered_initializer,
-                    init_provenance,
-                )
-                value = prepared.value
-                value = self._types.upcast_class_pointer(member.type, prepared.effective_type, value)
-                if self._values.is_arc(member.type):
-                    init_stmts.append(
-                        IRExprStmt(
-                            expr=self._lifetime.replace_edge_value(
-                                target, value, member.type, IRVar(name="self"), adopt=prepared.owned
-                            )
+        initialized_fields = [
+            member
+            for member in [*inherited, *decl.members]
+            if isinstance(member, FieldDecl) and member.access != "class" and member.initializer
+        ]
+        field_stmts = []
+        for member in initialized_fields:
+            self._callable_boundaries.reject_persistent_escape(
+                member.type,
+                member.initializer,
+                "field storage",
+                init_provenance,
+            )
+            target = IRFieldAccess(obj=IRVar(name="self"), field=member.name, arrow=True)
+            with self._expressions.hosted_result_request(
+                member.initializer,
+                member.type,
+                init_provenance,
+            ):
+                lowered_initializer = self._lower_field_init(member, init_provenance)
+            prepared = self._expressions.prepare_lowered_value(
+                member.initializer,
+                member.type,
+                lowered_initializer,
+                init_provenance,
+            )
+            value = prepared.value
+            value = self._types.upcast_class_pointer(member.type, prepared.effective_type, value)
+            if self._values.is_arc(member.type):
+                field_stmts.append(
+                    IRExprStmt(
+                        expr=self._lifetime.replace_edge_value(
+                            target, value, member.type, IRVar(name="self"), adopt=prepared.owned
                         )
                     )
-                else:
-                    init_stmts.append(IRAssign(target=target, value=value))
-                if self._is_managed_field(member) and (not self._values.is_arc(member.type)):
-                    edge_effect = (
-                        self._lifetime.adopt_edge_value(target, member.type, IRVar(name="self"))
-                        if prepared.owned
-                        else self._lifetime.retain_edge_value(target, member.type, IRVar(name="self"))
-                    )
-                    init_stmts.append(IRExprStmt(expr=edge_effect))
+                )
+            else:
+                field_stmts.append(IRAssign(target=target, value=value))
+            if self._is_managed_field(member) and (not self._values.is_arc(member.type)):
+                edge_effect = (
+                    self._lifetime.adopt_edge_value(target, member.type, IRVar(name="self"))
+                    if prepared.owned
+                    else self._lifetime.retain_edge_value(target, member.type, IRVar(name="self"))
+                )
+                field_stmts.append(IRExprStmt(expr=edge_effect))
+        if field_stmts and self._parameters_shadow_field_initializers(constructor, initialized_fields):
+            # A field initializer reads class scope, but in ``_init`` a
+            # same-named constructor parameter would shadow the name it means.
+            # Run the initializers in a function that has no such parameter.
+            helper = f"__btrc_{name}_field_initializers"
+            self._session.module.function_defs.append(
+                IRFunctionDef(
+                    name=helper,
+                    return_type=CType(text="void"),
+                    params=[IRParam(c_type=CType(text=f"{name}*"), name="self")],
+                    body=IRBlock(stmts=field_stmts),
+                    is_static=self._specialized_linkage(),
+                )
+            )
+            init_stmts.append(IRExprStmt(expr=IRCall(callee=helper, args=[IRVar(name="self")])))
+        else:
+            init_stmts.extend(field_stmts)
         if constructor and constructor.body:
             self._session.function_declarations = []
             self._session.current_return_c_type = "void"
@@ -360,6 +385,35 @@ class ClassLowerer:
                 is_static=self._specialized_linkage(),
             )
         )
+
+    def _parameters_shadow_field_initializers(self, constructor, initialized) -> bool:
+        """Whether a constructor parameter shares a name an initializer spells."""
+        if constructor is None or self._session.foreign_body:
+            return False
+        parameters = {parameter.name for parameter in constructor.params}
+        names: set[str] = set()
+        for field in initialized:
+            self._collect_spelled_names(field.initializer, names)
+        return not parameters.isdisjoint(names)
+
+    @classmethod
+    def _collect_spelled_names(cls, node, names: set[str]) -> None:
+        """Collect every identifier spelled in ``node``, at any depth."""
+        if isinstance(node, list):
+            for item in node:
+                cls._collect_spelled_names(item, names)
+            return
+        if isinstance(node, Identifier):
+            names.add(node.name)
+            return
+        if isinstance(node, (SelfExpr, SuperExpr)):
+            names.add("self")
+            return
+        if not is_dataclass(node):
+            return
+        for node_field in fields(node):
+            if node_field.name not in {"line", "col", "source_file"}:
+                cls._collect_spelled_names(getattr(node, node_field.name), names)
 
     def _lower_field_init(self, field: FieldDecl, provenance: CallableProvenance):
         initializer = field.initializer

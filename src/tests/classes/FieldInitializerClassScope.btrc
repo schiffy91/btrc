@@ -1,0 +1,38 @@
+// Field initializers read class scope: a constructor parameter of the same
+// name does not shadow the global they name, here or in a subclass whose
+// constructor runs the inherited initializers.
+#include <assert.h>
+
+int total = 1000;
+int count = 3;
+
+class Tally {
+	public int copy = count;
+	public int doubled = count * 2;
+	public Tally(int count) { self.copy = self.copy * 10 + count; }
+}
+
+class Sub extends Tally {
+	public int own = total;
+	public Sub(int count, int total) { self.own = self.own + total + count; }
+}
+
+// Without a colliding parameter the initializers stay inline.
+class Plain {
+	public int copy = count;
+	public Plain(int other) { self.copy = self.copy + other; }
+}
+
+int main() {
+	Tally tally = new Tally(9);
+	assert(tally.copy == 39 && tally.doubled == 6);
+	delete tally;
+	Sub sub = new Sub(8, 1);
+	assert(sub.copy == 3 && sub.doubled == 6 && sub.own == 1009);
+	delete sub;
+	Plain plain = new Plain(4);
+	assert(plain.copy == 7);
+	delete plain;
+	print("PASS: test_field_initializer_class_scope");
+	return 0;
+}

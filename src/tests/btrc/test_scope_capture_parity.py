@@ -101,6 +101,16 @@ def test_scope_resolved_names_fail_identically(
             "int count = 3; int main() { static int* p = &count; int count = 4; return *p == 3 && count == 4 ? 0 : 1; }",
             id="static-address-of-global-before-local",
         ),
+        pytest.param(
+            "int count = 3; class Box { public int copy = count; public Box(int count) { self.copy = self.copy * 10 + count; } } "
+            "int main() { Box box = new Box(9); int copy = box.copy; delete box; return copy == 39 ? 0 : 1; }",
+            id="field-initializer-reads-global-not-parameter",
+        ),
+        pytest.param(
+            "int limit = 3; int run(int result = spawn(() => limit * 2).join(), int limit = 50) { return result + limit; } "
+            "int main() { return run() == 56 ? 0 : 1; }",
+            id="spawn-default-reads-global-not-later-parameter",
+        ),
     ],
 )
 def test_scope_resolved_names_run_identically(semantic_btrcc: Path, tmp_path: Path, source: str) -> None:
