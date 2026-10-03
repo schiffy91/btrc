@@ -222,20 +222,12 @@ class CallableValueSemantics {
 	}
 
 	public Vector<string> captureNames(Node lambda, CallableBoundaryContext context) {
-		Map<string, bool> parameterNames = {};
-		int parameter = 0;
-		while (parameter < lambda.params().len) {
-			parameterNames.put(lambda.params().get(parameter).name, true);
-			parameter = parameter + 1;
-		}
-		Map<string, bool> usedNames = {};
-		ExpressionTypeResolver.collectIdentifiers(lambda.bodyNode, usedNames);
 		Vector<string> captures = [];
-		Vector<string> names = usedNames.keys();
+		Vector<string> names = LambdaFreeNames.of(lambda).keys();
 		int index = 0;
 		while (index < names.len) {
 			string name = names.get(index);
-			if (!parameterNames.has(name) && context.hasVariable(name) && self.resolvesLexically(name)) {
+			if (context.hasVariable(name) && self.resolvesLexically(name)) {
 				captures.push(name);
 			}
 			index = index + 1;

@@ -1,0 +1,71 @@
+// A lambda or spawn captures only the names its body reads from enclosing
+// scopes. A name the body binds itself (a local, a loop variable
+// or a nested lambda's parameter) is not a capture where that binding is
+// visible, even when an outer local of the same name exists.
+import Library.Vector;
+
+#include <assert.h>
+
+int redeclaredInSpawn() {
+	int values[2] = {1, 2};
+	// The body's own 'values' is a scalar; the outer array is not captured.
+	Thread<int> worker = spawn(() => {
+			int values = 21;
+			return values * 2;
+		});
+	return worker.join() + values[1];
+}
+
+int nestedParameterInSpawn() {
+	int values[2] = {5, 6};
+	Thread<int> worker = spawn(() => {
+			var twice = (int values) => values * 2;
+			return twice(4);
+		});
+	return worker.join() + values[0];
+}
+
+int loopVariableInSpawn() {
+	int item[1] = {9};
+	Thread<int> worker = spawn(() => {
+			int sum = 0;
+			for (int item = 1; item <= 3; item++) { sum = sum + item; }
+			for item in [10, 20] { sum = sum + item; }
+			return sum;
+		});
+	return worker.join() + item[0];
+}
+
+int outerReadAfterInnerBlock() {
+	int limit = 7;
+	var read = () => {
+		{
+			int limit = 1;
+			assert(limit == 1);
+		}
+		// The block's 'limit' ended: this reads the captured outer local.
+		return limit;
+	};
+	limit = 100;
+	return read();
+}
+
+int capturedThroughNested() {
+	int base = 4;
+	var outer = () => {
+		var inner = (int step) => base + step;
+		return inner(1);
+	};
+	return outer();
+}
+
+int main() {
+	assert(redeclaredInSpawn() == 44);
+	assert(nestedParameterInSpawn() == 13);
+	assert(loopVariableInSpawn() == 45);
+	assert(outerReadAfterInnerBlock() == 7);
+	assert(capturedThroughNested() == 5);
+
+	print("PASS: test_lambda_capture_scope");
+	return 0;
+}
