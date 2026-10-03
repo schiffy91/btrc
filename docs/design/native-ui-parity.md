@@ -17,8 +17,10 @@ UI implementation is **bucket 4**, queued behind compiler performance,
 C compatibility and platform foundations under
 [PLAN.md's sequential execution order](../../PLAN.md#phase-overview).
 PLAN.md D27 amends that order for UI work: its "UI work that starts now" and
-"Starts as soon as its in-stage dependencies land" clauses are the exact list
-of UI work that may run before bucket 4, and everything on its "Stays gated"
+"Starts as soon as its in-stage dependencies land" clauses, together with the
+UI items in its "Claude may also start early" clause (`CL-UIA-06`…`08`,
+`CL-UIA-15`…`18` and `CL-UIB-16`, each on the condition D27 gives it), are the
+exact list of UI work that may run before bucket 4, and everything on its "Stays gated"
 list waits as before. This inventory authorizes nothing beyond that list. Start
 with native-shell feasibility and an editor-and-focus slice using the existing
 GUI owners, before expanding controls. The dependency order below applies to

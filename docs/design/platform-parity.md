@@ -619,11 +619,14 @@ product qualification runs in bucket 5. Within buckets 3 and 4, platform lanes
 may run in parallel (PLAN.md D6(c)), and there is exactly one contract owner:
 Claude owns every contract, while the bucket 3–4 platform lanes may be split
 between Claude and Codex, with one writer at a time per hotspot (D27, which
-amends D6(c)). A packet runs ahead of its bucket only as D27 allows: a Codex
-packet when its dependencies are met on `main` or it is planning or spike work,
-and it changes no file on Claude's list; a Claude packet only for an early start
-D27 names. Codex lanes land only through Claude's gated integration
-([WORKSTREAMS.md](../../WORKSTREAMS.md) §3.8). The sequence below describes
+amends D6(c)). A packet runs ahead of its bucket only as D27 allows. A Codex
+packet may do so when its dependencies are met on `main`, or when it is
+planning or spike work, it changes no file on Claude's list, and nothing on
+D27's "Stays gated" list covers it; Codex batches never displace a bucket 1–3
+batch or a quiet window. A Claude packet may do so only for an early start D27
+names and has put in force; Stage 24's early start still waits for the owner's
+word ([WORKSTREAMS.md](../../WORKSTREAMS.md) §7 Q2). Codex lanes land only
+through Claude's gated integration (WORKSTREAMS.md §3.8). The sequence below describes
 platform dependencies within those scheduled buckets.
 
 P0 → P1 with tiny apps on **all three** platforms → P2/P3/P4 shared contracts
@@ -637,7 +640,8 @@ native SDK testing, while proving the mobile target and JNI/Objective-C paths
 early within bucket 3. Do not postpone Android's bridge or iOS lifecycle
 discovery until after a full desktop port. M6a/M11 preserve target identity in
 their contracts; that design constraint does not start the port ahead of its
-scheduled bucket. Only an early start D27 allows does.
+scheduled bucket; only an early start that D27 allows, and that is in force,
+can.
 
 A platform is complete only when its inventory, language/runtime behavior,
 applicable stdlib APIs, native packages, BTRSmith journeys, numeric budgets and
@@ -657,7 +661,7 @@ adaptations ([platform-adaptations.md](platform-adaptations.md)) are a draft
 awaiting the owner's sign-off.
 
 - `btrsmith-p0-inventory`: pending, assigned to Codex packet `CX-P1-01`. Its
-  BTRSmith journeys and package contracts are inventoried in the private
+  BTRSmith journeys and package contracts will be inventoried in the private
   BTRSmith repository and stay out of this repository's totals.
 - `platforms-p0-adaptations`: pending, assigned to Codex packet `CX-P1-02`,
   which finishes the draft for the owner's sign-off. Stage 22's exit needs
