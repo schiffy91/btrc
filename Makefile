@@ -6,7 +6,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer linux-ci clean \
-	test-shard-unit test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
+	test-shard-unit test-native-gui test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
@@ -298,6 +298,20 @@ test-shard-unit: generated-check gpu-required ## CI shard: everything but the se
 	$(NIX) $(PYTEST) src/tests/ \
 		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(PYTEST_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-unit.json
+
+# The focused native-GUI gate (PLAN Stage 30, ui-0-focused-gate): the GUI,
+# tray and provider suites alone, for Codex lanes and CI's focus=native-gui
+# dispatch. Later UI suites join through the test_native_ui_*.py glob, so they
+# never edit this list. On Linux it runs under tools/virtual-display.sh, which
+# keeps an existing display.
+NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py test_native_gui_appkit.py \
+	test_native_pointer_runtime.py test_native_control_sizing_runtime.py test_native_font_runtime.py \
+	test_native_app_runtime.py test_native_tray_runtime.py test_native_linux_providers.py \
+	test_native_linux_call_shapes.py) $(sort $(wildcard src/tests/python/test_native_ui_*.py))
+
+test-native-gui: generated-check ## Focused gate: the native GUI, tray and provider suites only
+	$(NIX) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS)
+	$(NIX) $(SKIP_GATE) build/skip-report-native-gui.json
 
 test-shard-btrc: generated-check gpu-required btrcc ## CI shard: self-host contract tests
 	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/btrc/ \
