@@ -2806,12 +2806,12 @@ The Codex packets below build the rest, platform by platform:
 
 ##### CX-UIA-01 · ui-0-focused-gate: the make test-native-gui target and the UI agent runbook
 
-- **Owner:** Codex · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud + GitHub macOS runner · **Start now:** yes · **Estimate:** 4 agent-hours
+- **Owner:** Codex · **Group:** UIA · **Stage:** Stage 30 (UI0) · **Environment:** Linux cloud + GitHub macOS runner · **Start now:** yes · **Estimate:** 3 agent-hours
 - **PLAN items:** `ui-0-focused-gate` (the make test-native-gui target; the drift gate is CX-UIA-02's PR #21)
-- **Depends on:** none
+- **Depends on:** [CL-UIA-05](claude.md#cl-uia-05) (step, to finish: NATIVE_GUI_TESTS gains test_native_webgpu_imports.py)
 - **Parallel-safe with:** CL-UIA-01, CL-UIA-02, CL-UIA-03, CX-UIA-02, CX-UIA-06, CL-UIA-21, CX-UIA-09, CX-UIA-12, CX-UIA-13, CX-UIA-18, CX-UIA-19, CX-UIA-20
 
-> **Writer note:** The Makefile line is a `fragment:` commit, because the Makefile is a Claude hotspot (§9 item 4). `CL-UIA-02`'s focused dispatch runs this target, so the two integrate in one batch.
+> **Writer note:** Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment): `make test-native-gui` is on `main`, writes `build/skip-report-native-gui.json` and runs its own skip gate. Today the coverage rule fails, because `webgpu_child/*.btrc` are driven only by `test_native_webgpu_imports.py`, which `NATIVE_GUI_TESTS` does not select; Claude adds that module in its next batch (`CL-UIA-05`). The remaining steps keep their numbers, 4–8 (2026-10-03, [codex-ui-lanes.md](codex-ui-lanes.md) Task 2).
 
 > **Review change:** PR #21 already claims the drift-gate half of `ui-0-focused-gate`, so this packet keeps only the GUI target, its coverage test, the runbook and `codex-setup.sh` (§10 F3).
 
@@ -2821,7 +2821,6 @@ The Codex packets below build the rest, platform by platform:
 
 **Owned paths**
 
-- Makefile: the new test-native-gui target and its help line, delivered in the `fragment:` commit for Claude to apply (§3.5)
 - docs/qualification/ui-agent-runbook.md (new)
 - src/tests/python/test_native_gui_target.py (new)
 - tools/ui/codex-setup.sh (new)
@@ -2843,25 +2842,24 @@ The Codex packets below build the rest, platform by platform:
 
 **Steps**
 
-1. Add 'test-native-gui: generated-check'. It runs pytest -rs under xdist over a fixed module list: test_native_gui_runtime.py, test_native_gui_appkit.py, test_native_pointer_runtime.py, test_native_control_sizing_runtime.py, test_native_font_runtime.py, test_native_app_runtime.py, test_native_tray_runtime.py, test_native_linux_providers.py and test_native_linux_call_shapes.py.
-2. The target also takes the glob `src/tests/python/test_native_ui_*.py`, so later UI packets never edit the Makefile.
-3. The target reuses BTRC_TEST_BTRCC, writes build/skip-report.json and wraps itself in tools/virtual-display.sh on Linux.
-4. Add test_native_gui_target.py. It fails when any .btrc under `src/tests/native/gui/**` or src/tests/native/tray/ is not driven by a module the target selects.
+Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
+
+4. Add test_native_gui_target.py. It fails when any .btrc under `src/tests/native/gui/**` or src/tests/native/tray/ is not driven by a module the target selects. It parses `NATIVE_GUI_TESTS`, including the glob, and resolves literal names (a file or stem), directory references (a module naming `webgpu_child` drives every `.btrc` under it) and f-string templates matched as globs (`f"MacOS{control}Conformance.btrc"`); add an in-memory negative case. The test never names the runbook path in a literal (no test or tool may name a Markdown file outside ci.yml's `TEST_READ_MARKDOWN`).
 5. Write the runbook. It covers the cloud clone and the codex/\<id> branch, and nix develop with a gcroot profile. It explains how to build BTRC_NATIVE_HEADER_READER from the branch's own tools/NativeHeaderReader.cpp; without it the Linux provider tests skip.
 6. The runbook also covers sharing one btrcc through BTRC_TEST_BTRCC, reading skips, and the fragment rule. macOS evidence comes from the draft PR's macos.yml, or from a focus=native-gui dispatch once CL-UIA-02 lands.
 7. It also says that a change to a compiler-import stdlib module (BackgroundJobs, FileSystem, Process and the others) needs the lane's own btrcc and a bootstrap run, and that only Claude runs the landing gate.
-8. Add tools/ui/codex-setup.sh, an idempotent container bootstrap: verify nix, warm and GC-root the dev shell, check that the dev shell's gcc is 15.2, build the header reader and one btrcc through make btrcc, export BTRC_TEST_RUNNER=linux-devcontainer in ~/.bashrc, and persist gh credentials only when GH_TOKEN is set (§3.11). It fails loudly if Xvfb or nix is missing.
+8. Add tools/ui/codex-setup.sh, an idempotent container bootstrap: verify nix, warm and GC-root the dev shell, check that the dev shell's gcc is 15.2, build the header reader and one btrcc through make btrcc, export BTRC_TEST_RUNNER=linux-devcontainer in ~/.bashrc, and persist gh credentials only when GH_TOKEN is set (§3.11). It fails loudly if Xvfb or nix is missing. The `.#platforms` GC root is opt-in only (`--platforms`), never the default (its closure is 17.75 GB).
 
 **Acceptance**
 
 - [ ] In the cloud container, `nix develop --command tools/virtual-display.sh make NIX= test-native-gui` has 0 failures and reports pass and skip counts for each frontend (python and selfhost), with the skip list printed.
-- [ ] With BTRC_TEST_RUNNER=linux-devcontainer, make skip-gate SKIP_REPORTS=build/skip-report.json reports no unexpected skip against linux-devcontainer.json; new rules go only in the fragment commit.
-- [ ] On the draft PR, ci.yml, macos.yml and windows.yml are green (run ids), and the macOS unit shard ran the AppKit GUI cases.
+- [ ] `make test-native-gui` passes its own skip gate on `build/skip-report-native-gui.json`; new rules go only in the fragment commit.
+- [ ] Lane CI green (run ids; windows.yml 'green (scope only)'), and `junit-macos-native-gui` shows the AppKit cases executed.
 - [ ] make lint, make format-check and git diff --check pass. The PR-body report follows the protocol.
 
 **Risks**
 
-- The Makefile is a hotspot: no other packet may edit it while this one is open.
+- No Makefile change of its own: if Claude's `NATIVE_GUI_TESTS` line is not on `main` when the rest is done, add it as a `fragment: Makefile` commit, which makes the PR main tier and takes the single CI slot (§3.2).
 - A Codex container without nix or Xvfb would silently skip the Linux GUI cases.
 - A cold btrcc build takes 10-20 minutes on 4 CPUs.
 
