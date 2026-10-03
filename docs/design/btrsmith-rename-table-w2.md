@@ -289,6 +289,16 @@ must drop the compensation.
 | `RealtimeClipClock.deviceFrame()`, `RealtimeClipPracticeTelemetry.deviceFrame()` were the count of frames rendered | the output device frame after the last block (`outputDeviceFrame + frameCount`) |
 | a new `streamEpoch`, a discontinuity flag or a gap in `outputDeviceFrame` was ignored | re-anchors a playing clip's mapping at the block's first frame under a new mapping generation, keeping the playhead and the practice transport frame continuous |
 
+### Compiler defects reported by BTRSmith (`stage4/btrsmith-defects-compiler`, batch 11)
+
+Two compiler changes broke BTRSmith code that relied on the old behavior. The
+BTRSmith pin bump (`CL-R-01`) found both after this table was written.
+
+| Old | New |
+| --- | --- |
+| an unresolved ALL_CAPS name passed through to C unchanged (`01be68a4`) | refused at the use site in both compilers. A native macro that is not an integer or string constant, such as SQLite's pointer-typed `SQLITE_TRANSIENT`, cannot be bound through `symbols` either (`Native macro SQLITE_TRANSIENT is not an integer or string constant`): declare a typed `static const` for it in the package's own header and bind that |
+| a link plan from `--emit-link-plan` held the same keys whichever frontend wrote it (`12003347`) | schema 4 adds `emitted-unit-digests`, one SHA-256 per emitted unit, so a primary output changes whenever any unit does. Each frontend's digests describe its own unit C, which still differs between the compilers; a check that compares plans across frontends compares the digests against the unit files and leaves them out of the comparison |
+
 ## 2. Mechanical substitutions
 
 Apply in this order over BTRSmith's `.btrc` sources, `btrc.toml` files and

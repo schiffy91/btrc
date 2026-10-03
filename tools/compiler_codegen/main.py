@@ -11,7 +11,7 @@ from pathlib import Path
 from . import GeneratedSourceError
 from .ast import AstCatalogGenerator, NativeAbiCatalogGenerator
 from .builtins import BuiltinCatalogGenerator
-from .hosted_abi import HostedAbiCatalogGenerator, HostedAbiManifest
+from .hosted_abi import HostedAbiCatalogGenerator, HostedAbiManifest, TargetManifest
 from .intrinsic_effects import IntrinsicEffectManifest
 from .runtime import RuntimeCatalogGenerator, RuntimeManifest
 from .stdlib_symbols import StdlibSymbolIndexGenerator
@@ -159,14 +159,15 @@ class CompilerCodegenCommand:
             self._repository_root / "src/language/hosted_abi.toml",
             runtime,
         )
+        targets = TargetManifest.load(self._repository_root / "src/language/targets.toml", hosted_abi)
         return GeneratedSourceSet(
             (
                 *AstCatalogGenerator(self._repository_root).artifacts(),
                 *NativeAbiCatalogGenerator(self._repository_root).artifacts(),
                 *RuntimeCatalogGenerator(runtime, intrinsic_effects).artifacts(),
-                *HostedAbiCatalogGenerator(hosted_abi).artifacts(),
-                *BuiltinCatalogGenerator(self._repository_root).artifacts(),
-                *StdlibSymbolIndexGenerator(self._repository_root).artifacts(),
+                *HostedAbiCatalogGenerator(hosted_abi, targets).artifacts(),
+                *BuiltinCatalogGenerator(self._repository_root, targets).artifacts(),
+                *StdlibSymbolIndexGenerator(self._repository_root, targets).artifacts(),
             )
         )
 

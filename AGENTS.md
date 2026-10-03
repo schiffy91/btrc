@@ -287,6 +287,13 @@ PIPELINE:
 - `src/language/hosted_abi.toml` generates
   `src/compiler/python/abi/generated.py` and
   `src/compiler/btrc/generated/hosted_abi/Tables.btrc`.
+- `src/language/targets.toml` is the compilation-target spec (PLAN.md D21):
+  the target rows, the predefined-macro table that `#if` evaluates, and the
+  reserved and foreign macro name lists. `TargetManifest` in
+  `tools/compiler_codegen/hosted_abi.py` validates it and renders it into the
+  same two hosted-ABI modules (`TARGET_*` tables;
+  `GeneratedHostedAbiData.targetRows()` and its siblings). Selection and
+  classification belong to each compiler's conditional-environment owner.
 - Generated modules contain data/schema declarations only, with one
   exception: the self-hosted `generated/ast/Node.btrc` also carries generated
   `name()`/`nameMut()` accessors for the lazily allocated list fields named in
@@ -302,7 +309,7 @@ PIPELINE:
 
 ### Naming
 
-The shared specs (`ast.asdl`, `hosted_abi.toml`, `manifest.toml`) name every
+The shared specs (`ast.asdl`, `hosted_abi.toml`, `targets.toml`, `manifest.toml`) name every
 field once, in snake_case. Each generator renders those names in the
 convention of the language it emits: `generated.py` keeps snake_case, and the
 `.btrc` catalogs are respelled camelCase. Handwritten source on either side

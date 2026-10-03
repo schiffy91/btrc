@@ -10,7 +10,7 @@ import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.nodes import IRBinOp, IRCast, IRNode
+from src.compiler.python.ir.nodes import IRBinOp, IRCast, IRFunctionDef, IRNode
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
@@ -65,7 +65,9 @@ def test_same_type_comparisons_and_arithmetic_remain_direct():
         uint add(uint value, int delta) { return value + delta; }
     """)
 
-    comparisons = _comparisons(module)
+    # Only `same`'s own comparisons: the enum's generated toString compares too.
+    same = next(node for node in IRNode.walk_value(module) if isinstance(node, IRFunctionDef) and node.name == "same")
+    comparisons = _comparisons(same)
     addition = next(node for node in IRNode.walk_value(module) if isinstance(node, IRBinOp) and node.op == "+")
     assert len(comparisons) == 3
     assert all(not isinstance(node.left, IRCast) for node in comparisons)

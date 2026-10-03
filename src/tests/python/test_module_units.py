@@ -25,6 +25,7 @@ from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceDependencyGraph
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
+from src.tests import runner
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
@@ -1858,3 +1859,23 @@ def test_cancelling_the_owner_leaves_no_workers(tmp_path, immutable_btrcc):
             owner.kill()
             owner.wait()
     assert not list(output.glob("program*.c"))
+
+
+# Corpus programs that once failed only as module units: an enum whose members
+# share an explicit value (its `_toString` was a switch with duplicate labels),
+# and a program whose C type came from a runtime helper header that only another
+# unit includes. The module-unit corpus run is opt-in, so these keep running.
+_MODULE_UNIT_CORPUS_REGRESSIONS = ("enums/EnumDuplicateExplicitValues.btrc", "stdlib/ChildProcessClosedFds.btrc")
+
+
+@pytest.mark.parametrize("program", _MODULE_UNIT_CORPUS_REGRESSIONS)
+def test_module_unit_corpus_regressions_build_and_run(compiler: str, program: str, tmp_path, request):
+    """Each program builds as module units, links, runs and matches its golden."""
+    path = os.path.join(runner.BTRC_TEST_DIR, program)
+    if compiler == "python":
+        units, warnings = runner._transpile_python_module_units(path, str(tmp_path))
+    else:
+        units, warnings = runner._transpile_btrc_module_units(request.getfixturevalue("btrcc_bin"), path, str(tmp_path))
+    assert len(units) > 1
+    assert warnings == runner.expected_warnings(path)
+    runner._compile_run_check(units, path, program)

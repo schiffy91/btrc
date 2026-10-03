@@ -13,6 +13,7 @@ from src.compiler.python.parser.parser import ParseError, Parser
 from src.compiler.python.syntax.ast.generated import ClassDecl, FieldDecl, MethodDecl, PropertyDecl, TypeExpr
 
 from . import GeneratedArtifact
+from .hosted_abi import TargetManifest, TargetUnion
 
 # Parameter names and documentation for the string intrinsics. Names, return
 # types and parameter types come from the analyzer's STRING_METHODS table; the
@@ -226,13 +227,18 @@ class BuiltinCatalogSpec:
 
 
 class BuiltinStdlibScanner:
-    """Parse stdlib declarations and select the API visible to LSP features."""
+    """Parse stdlib declarations and select the API visible to LSP features.
+
+    The catalog does not depend on the target: each file contributes the
+    union, over every spec target, of its selected classes.
+    """
 
     _ALWAYS_HIDDEN_FIELDS = frozenset({"cap", "occupied"})
     _ALWAYS_HIDDEN_METHODS = frozenset({"resize"})
 
-    def __init__(self, stdlib_directory: Path):
+    def __init__(self, stdlib_directory: Path, targets: TargetManifest):
         self._stdlib_directory = stdlib_directory
+        self._union = TargetUnion(targets)
 
     def scan(self) -> BuiltinCatalogSpec:
         if not self._stdlib_directory.is_dir():
@@ -241,33 +247,42 @@ class BuiltinStdlibScanner:
         collections: dict[str, BuiltinClassSpec] = {}
         static_classes: dict[str, BuiltinClassSpec] = {}
         for source_path in sorted(self._exported_modules(), key=self._source_order_key):
-            for class_name, declaration in self._parse_file(source_path).items():
-                declared_methods = [
-                    member
-                    for member in declaration.members
-                    if isinstance(member, MethodDecl) and member.name != class_name
-                ]
-                static_methods = [member for member in declared_methods if member.access == "class"]
-                instance_methods = [member for member in declared_methods if member.access in {"public", "private"}]
-                if declaration.generic_params and instance_methods:
-                    fields, methods = self._extract_members(declaration)
-                    collections[class_name] = BuiltinClassSpec(
-                        name=class_name,
-                        fields=fields,
-                        methods=tuple(method for method in methods if not method.is_static),
-                    )
-                elif static_methods and not instance_methods:
-                    _fields, methods = self._extract_members(declaration)
-                    static_classes[class_name] = BuiltinClassSpec(
-                        name=class_name,
-                        fields=(),
-                        methods=methods,
-                    )
+            # The scanner reads every file unconditioned until C4's behavior
+            # commit conditions it per target, so one parse serves every target.
+            selected = self._selected_classes(self._parse_file(source_path))
+            merged = self._union.merge(str(source_path), {label: selected for label in self._union.labels})
+            for class_name, (static, class_spec) in merged.items():
+                (static_classes if static else collections)[class_name] = class_spec
 
         return BuiltinCatalogSpec(
             collections=tuple(collections.values()),
             static_classes=tuple(static_classes.values()),
         )
+
+    def _selected_classes(self, declarations: dict[str, ClassDecl]) -> dict[str, tuple[bool, BuiltinClassSpec]]:
+        """The file's collection classes and static-only classes, keyed by name; True marks a static class."""
+
+        selected: dict[str, tuple[bool, BuiltinClassSpec]] = {}
+        for class_name, declaration in declarations.items():
+            declared_methods = [
+                member for member in declaration.members if isinstance(member, MethodDecl) and member.name != class_name
+            ]
+            static_methods = [member for member in declared_methods if member.access == "class"]
+            instance_methods = [member for member in declared_methods if member.access in {"public", "private"}]
+            if declaration.generic_params and instance_methods:
+                fields, methods = self._extract_members(declaration)
+                selected[class_name] = (
+                    False,
+                    BuiltinClassSpec(
+                        name=class_name,
+                        fields=fields,
+                        methods=tuple(method for method in methods if not method.is_static),
+                    ),
+                )
+            elif static_methods and not instance_methods:
+                _fields, methods = self._extract_members(declaration)
+                selected[class_name] = (True, BuiltinClassSpec(name=class_name, fields=(), methods=methods))
+        return selected
 
     def _exported_modules(self) -> list[Path]:
         """The catalog is the stdlib's public API: every module its manifests export.
@@ -581,8 +596,10 @@ class BuiltinCatalogGenerator:
 
     _OUTPUT_PATH = PurePosixPath("src/devex/lsp/catalog/generated.py")
 
-    def __init__(self, repository_root: Path):
-        self._scanner = BuiltinStdlibScanner(repository_root / "src/stdlib")
+    def __init__(self, repository_root: Path, targets: TargetManifest | None = None):
+        if targets is None:
+            targets = TargetManifest.load_repository(repository_root)
+        self._scanner = BuiltinStdlibScanner(repository_root / "src/stdlib", targets)
         self._renderer = BuiltinCatalogRenderer()
 
     def artifacts(self) -> tuple[GeneratedArtifact, ...]:
