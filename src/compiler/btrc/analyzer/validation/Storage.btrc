@@ -574,6 +574,9 @@ class StorageValidator {
 	public bool readOnlyNativeGlobal(Node? target) { return target != null && target.kind == NK_IDENTIFIER && !self.state.localBindings.has(target.name) && self.state.analyzed.nativeGlobalReadOnly(target.name); }
 
 	public void validateNativeGlobalAddress(Node target, Map<string, Node> vars, Node site) {
+		if (target.kind == NK_IDENTIFIER && !self.state.localBindings.has(target.name) && self.state.analyzed.isNativeConstant(target.name)) {
+			TypeValidator.fail(f"Native constant '{target.name}' is a value and has no address", site);
+		}
 		if (!self.readOnlyNativeGlobal(target)) { return; }
 		Node? type = self.types.resolveAliases(self.types.inferType(target, vars));
 		if (type != null && (self.rawLvaluePointer(type) || type.base == "__fn_ptr" || self.state.analyzed.nativeGlobalReturnsOwned(target.name))) {
@@ -1455,7 +1458,7 @@ class StorageValidator {
 			/* A value of the wrong type is reported as such before any
 			 * representation or ownership rule for the stored value. */
 			if (target != null && source != null && !gpuTargetHasCapacity && !genericNull && !self.types.contextualAggregateInitializer(expression.valueNode) && !self.types.assignmentCompatible(target, source)) {
-				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'", expression);
+				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target), expression);
 			}
 			if (!gpuTargetHasCapacity && !genericNull) {
 				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars);
@@ -1478,7 +1481,7 @@ class StorageValidator {
 				TypeValidator.fail("Array-returning @gpu output element type is not compatible " + "with the target storage", expression);
 			}
 			if (!gpuTargetHasCapacity && !genericNull && !self.types.contextualAggregateInitializer(expression.valueNode) && !self.types.assignmentCompatible(target, source)) {
-				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'", expression);
+				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target), expression);
 			}
 			return;
 		}

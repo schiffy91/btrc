@@ -206,3 +206,27 @@ def test_name_pos_reads_fields_and_falls_back():
     # Unpopulated name span (synthetic node) falls back to line/col.
     synthetic = ClassDecl(name="P", line=5, col=2)
     assert DefinitionMap._name_pos(synthetic, None) == (None, 5, 2)
+
+
+def test_document_symbols_list_every_declarator():
+    src = (
+        "struct Pt { int x, *y; };\n"
+        "typedef int Count, *CountPointer;\n"
+        "int first = 1, *second;\n"
+        "class Box { public int left, right = 2; }\n"
+        "int main() { return 0; }\n"
+    )
+    syms = get_document_symbols(analyze(src))
+    pt = _symbol(syms, "Pt")
+    y = _symbol(pt.children, "y")
+    assert [child.name for child in pt.children] == ["x", "y"]
+    assert y.detail == "int*" and y.selection_range.start.character == src.index("y;")
+    pointer_alias = _symbol(syms, "CountPointer")
+    assert pointer_alias.detail == "int*" and _symbol(syms, "Count").detail == "int"
+    assert pointer_alias.selection_range.start.character == src.splitlines()[1].index("CountPointer")
+    second = _symbol(syms, "second")
+    assert second.kind == lsp.SymbolKind.Variable and second.detail == "int*"
+    assert second.selection_range.start == lsp.Position(line=2, character=src.splitlines()[2].index("second"))
+    assert _symbol(syms, "first").detail == "int"
+    box = _symbol(syms, "Box")
+    assert [child.name for child in box.children] == ["left", "right"]

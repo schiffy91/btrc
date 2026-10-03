@@ -162,6 +162,7 @@ class Analyzed {
 	private Map<string, FeNativeImportedDeclaration> nativeGlobalAnyIndex = {};
 	private Map<string, FeNativeImportedDeclaration> nativeTypedGlobalIndex = {};
 	private Map<string, bool> objectiveCGlobals = {};
+	private Map<string, Node> foldedNativeConstants = {};
 	/* The other per-query scans, by declaration identity or name, first match first. */
 	private Map<string, FeNativeImportedDeclaration> nativeByDeclaration = {};
 	private Map<string, FeNativeCallContract> nativeMethodContracts = {};
@@ -180,6 +181,7 @@ class Analyzed {
 		self.nativeGlobalAnyIndex = {};
 		self.nativeTypedGlobalIndex = {};
 		self.objectiveCGlobals = {};
+		self.foldedNativeConstants = {};
 		self.nativeByDeclaration = {};
 		self.nativeMethodContracts = {};
 		self.nativeTypedefAliases = {};
@@ -213,6 +215,7 @@ class Analyzed {
 			if (imported.declaration.kind == NK_VAR_DECL_STMT) {
 				string globalName = imported.declaration.name;
 				if (!self.nativeGlobalAnyIndex.has(globalName)) { self.nativeGlobalAnyIndex.put(globalName, imported); }
+				if (imported.declaration.initializer != null && (imported.language == "objective-c" || imported.language == "c++") && !self.foldedNativeConstants.has(globalName)) { self.foldedNativeConstants.put(globalName, imported.declaration); }
 				if (imported.declaration.initializer == null) {
 					if (imported.language == "objective-c") { self.objectiveCGlobals.put(globalName, true); }
 					if (imported.declaration.type != null && !self.nativeTypedGlobalIndex.has(globalName)) { self.nativeTypedGlobalIndex.put(globalName, imported); }
@@ -248,6 +251,15 @@ class Analyzed {
 	}
 
 	public bool isObjectiveCGlobal(string name) { return self.objectiveCGlobals.has(name); }
+
+	/* An imported enumerator or integer macro is a compile-time value, not storage. */
+	public bool isNativeConstant(string name) { return self.nativeGlobalAnyIndex.has(name) && self.nativeGlobalAnyIndex.get(name).declaration.initializer != null; }
+
+	/* An Objective-C or C++ binding's C11 unit never sees the SDK header, and the
+	 * macros it does see through other SDK headers may share a constant's name. A
+	 * reference therefore folds to the constant's value, cast to its projected
+	 * type; the C unit declares nothing under the SDK name. */
+	public Node? foldedNativeConstant(string name) { return self.foldedNativeConstants.has(name) ? self.foldedNativeConstants.get(name) : null; }
 
 	public bool nativeGlobalReturnsOwned(string name) {
 		if (!self.nativeTypedGlobalIndex.has(name)) { return false; }

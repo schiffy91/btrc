@@ -49,11 +49,14 @@ Further rules fixed now so no construct needs a second schema commit:
   refused with a targeted diagnostic (write one declaration per nullable
   variable); generic arguments are part of the specifier and are copied.
 - **Function-pointer declarators (r07).** `T (*name)(...)` is a declaration
-  when `T` is a built-in type keyword or a type declared earlier in the same
-  file, or when the parenthesized list that follows is a parameter-type list;
-  otherwise it is an expression. Per-file parse results are cached under a
-  context-free digest, so the parser cannot consult imported type names; the
-  analyzer refuses a parsed declaration whose head does not resolve to a type.
+  when `T` is not a bare identifier (a built-in type keyword or a qualified
+  type), when an initializer follows, or when the parenthesized list that
+  follows is a parameter-type list; otherwise it is an expression (the exact
+  rule is in "Stage 16 r07" below). The rule is purely syntactic: the
+  compilers parse a file joined with its imports while the editor parses it
+  alone, and per-file parse results are cached under a context-free digest,
+  so no parse may consult type names; the analyzer refuses a parsed
+  declaration whose head does not resolve to a type.
   A function-pointer type is the existing `CFunction<...>` type, never a
   `Param` list.
 - **Kind coverage.** btrc's analyzer and validators dispatch on `kind` and
@@ -126,6 +129,212 @@ or adjacent string.
   `int f(int); int f(int a); int f(int b) {}` conflicts at the definition in
   both compilers. A `(` list not followed by `;` or `{` is the ordinary
   `Expected LBRACE` error, not an unnamed-parameter refusal.
+
+## Stage 16 r03: several declarators
+
+- **One declarator parser per compiler.** `Parser._parse_declarators` and
+  `Parser.parseDeclarators` read a declaration's declarator list once the
+  first name and its array suffix are read: the first declarator's
+  initializer, then per `,` its own `{*}`, name, array suffix and
+  initializer. Locals and the C-`for` initializer (`_parse_declaration_head`,
+  `parseVarDeclStmtsInto`), globals (`_parse_function_or_var_decl`,
+  `parseFunctionOrVarDeclInto`), struct fields, class fields and typedefs all
+  call it, and the declarators come back as `VarDeclStmt`s that the field,
+  member and typedef callers re-shape into `FieldDef`, `FieldDecl` and
+  `TypedefDecl`. Statement lists splice through `_parse_block_item` /
+  `parseBlockItemInto`; `_lookahead_is_var_decl` / `lookaheadIsVarDecl` treat
+  `,` after the first name as a declaration boundary.
+- **Specifier versus declarator.** `_parse_type_expr` still reads the first
+  declarator's `*`s greedily. Each later declarator starts from a deep copy of
+  the specifier (`copy.deepcopy`; btrc's `Parser.copySpecifier`) with no
+  pointer level and no suffix extent, then binds its own `*`s and `[n]`, so
+  `int *p, v;` makes `v` an `int` (D20). The specifier is everything else
+  `_parse_type_expr` reads: qualifiers and storage class, the base, generic
+  arguments, and btrc's prefix `[]`, so `int[] a, b;` and `Vector<int> a, b;`
+  declare two arrays and two vectors. The copied `TypeExpr` keeps the
+  specifier's position.
+- **Positions.** The first declarator keeps the declaration's start (the
+  access keyword for a class field, `typedef` for an alias); each later one
+  starts at its first token, `*` or its name. A `FieldDef` stays positioned at
+  its name, as before. A single declarator parses byte-identically to before.
+- **Decisions.** Class fields are in scope: `public int x = 1, y;` declares two
+  fields with the same access, each with its own initializer; a property
+  declares one name. `typedef int A, *B;` declares one alias per declarator,
+  `*` bound to each; a typedef declarator takes no array suffix until Stage
+  18. `T? a, b` is refused at the `,` (`A nullable declaration declares one
+  variable: write one declaration per nullable variable`), and so is a second
+  `var` declarator (`'var' declares one variable: write one 'var' declaration
+  per variable`). A function declarator beside others is legal C and refused
+  at its name either way round (`Function 'f' must be declared on its own, not
+  beside other declarators`). A missing later name is `Expected declarator
+  name, got …`; a keyword there is the reserved-word refusal. `int a[], b;`
+  meets the ordinary unsized-array refusal for `a` alone.
+- **Semantics.** Splicing makes each declarator an ordinary declaration, so
+  the analyzer and lowering need no change: duplicates use the existing
+  per-scope, global, field and typedef checks; a name enters scope after its
+  own declarator (`int a = b, b = 1;` is `Unresolved identifier 'b'`);
+  initializers lower in source order; each declarator gets its own `IRVarDecl`
+  and cleanup slot. btrcc now reports a duplicate local at its name with the
+  reference's wording and words a duplicate struct field as it does, and it
+  checks a C-`for` initializer's declarators for duplicates (it used to emit
+  C that redeclared the name). A duplicate class field keeps the two
+  compilers' existing wordings, pinned per compiler; a duplicate typedef and
+  an unknown name match since main's analyzer-diagnostic alignment. The parity review found that btrcc never checked a
+  `switch` case's own declarations for duplicates (`case 1: int a, a;`); it
+  now does, as the reference does, with each case its own scope in both. A C-`for` initializer with several declarators keeps them
+  in `ForInitVar.declarations`, and both compilers lower every for-init
+  declaration (one or many) to declarations in a block enclosing the `IRFor`,
+  as single declarations already did, so the loop variables keep the loop's
+  scope.
+- **Tooling.** LSP document symbols list every spliced field and typedef with
+  its own range, and global variables as `Variable` symbols. The formatter
+  needed no change (it lays out tokens).
+- **Tests.** `c_compat/MultipleDeclarators.btrc` covers locals, `int
+  *pointer, value;`, globals, struct and class fields, typedefs, the C-`for`
+  initializer, left-to-right side effects and per-declarator ARC (creation and
+  destruction counts across a block and a loop with `continue`). The refusals
+  above and the duplicate, scope and binding cases are pinned in
+  `btrc/test_c_compatibility_refusals.py`; inventory rows
+  `r03-multiple-local-declarators`, `r03-pointer-declarator-binding` and
+  `r03-multiple-field-declarators` are PASS.
+
+## Stage 16 r19: the comma operator in `for` headers
+
+- **Parser.** `Parser._parse_for_header_expr` / `Parser.parseForHeaderExpression`
+  read the C-`for` initializer (when it is not a declaration) and the update:
+  two or more operands become `CommaExpr(elements)` positioned at the first
+  operand, one stays a plain expression. The condition still takes one
+  expression (`Expected SEMICOLON, got COMMA`), and `(a, b)` everywhere else
+  stays a `TupleLiteral` (D19 row 19).
+- **Analyzer.** A `CommaExpr` types as its last operand. Each operand is
+  analyzed in order and refused if it observes a `Thread` handle, as the
+  single header expression always was, and the reference's nullable-flow
+  effects (an assignment recording or clearing a non-null fact) apply per
+  operand, in order. In btrcc the comma is handled by the
+  type resolver, the expression validator, the raw-parameter safety walk
+  (`Borrows.rawParamExprSafe`) and the method-generic and generic-instance
+  collectors; the value-origin and ownership classifiers never see one,
+  because a `CommaExpr` is only ever the discarded root of a header.
+- **Lowering.** Both compilers lower it to `IRCommaExpr`, each operand exactly
+  as that header position lowers one expression, with every operand cast to
+  `void`: both positions discard the value, and strict C11 otherwise warns
+  about an unused operand. A
+  discarded fresh managed result in a header is not released, with or
+  without a comma; that predates r19 and is recorded in
+  `docs/known-language-gaps.md`'s open gaps.
+- **Realtime.** The bounded-loop proof (`RealtimeAnalyzer._canonical_c_for`,
+  btrc `canonicalCFor`) now takes the induction variable from the declarator
+  the condition compares, among any number of declarators, and accepts an
+  update with exactly one canonical step of it. Every other declarator and
+  update operand is checked, like the body, under a guard that forbids
+  writing or taking the address of the induction variable or its bound (a
+  declarator may declare the bound itself), so
+  `for (int i = 0, n = 10, *q = &n; i < n; i++) { (*q)++; }` stays unproven.
+- **GPU.** A kernel's comma header validates each operand as an update and
+  emits one WGSL statement per operand.
+- **Diagnostics.** A tuple literal assigned to or initializing a non-tuple
+  adds `; btrc reads a parenthesized comma list as a tuple, not C's comma
+  operator` in both compilers (`TypeSystem.comma_tuple_hint`,
+  `TypeValidator.commaTupleHint`), identically for an initializer and an
+  assignment.
+- **Tests.** `c_compat/CommaForHeaders.btrc` (two-index loops with assignment
+  and declaration initializers, operand order including `continue`, managed
+  operands); the realtime suites accept multi-update loops and refuse a double
+  step, a guarded write and an induction write in another initializer, in
+  both compilers; a GPU probe emits identical WGSL; inventory row
+  `r19-comma-in-for-header` is PASS and `r19-comma-operator-expression` carries
+  the hint.
+
+## Stage 16 r07: function-pointer declarators
+
+- **One type.** `R (*name)(params)` is C's spelling of
+  `CFunction<R, params...>`: both parsers build the same `__fn_ptr`
+  `TypeExpr` (result first, then the parameter types), so the analyzer's
+  `CFunction` contracts (`docs/language/callbacks.md`) and the existing
+  `IRFunctionPointerTypedef` lowering apply unchanged, and a declarator
+  program lowers to the same raw IR and C as its `CFunction` twin
+  (`src/tests/btrc/test_c_compatibility_function_pointers.py`). The
+  `TypeExpr` is positioned at the result type's first token, as a
+  `CFunction` type is at `CFunction`; the declaration keeps its name position.
+- **Where.** One declarator owner per parser (`_parse_declarator_name` /
+  `parseDeclaratorName`, with `_parse_function_pointer_declarator` /
+  `parseFunctionPointerDeclarator`) serves local and global variables, the
+  C-`for` initializer, struct fields (`FieldDef`) and class fields
+  (`FieldDecl`). Parameters take a named or, in a prototype, an abstract
+  declarator (`int (*)(int)`, under r01's unnamed-parameter rules); typedefs
+  take a named one; casts and `sizeof` take an abstract one. The array
+  suffix sits inside the parentheses and applies to the pointer:
+  `int (*ops[4])(int)` is `CFunction<int, int>[4]`. A storage class written
+  before the result (`static int (*hook)(void)`) moves to the declared
+  pointer. In the pointee's list, `()` and `(void)` are empty, names are
+  documentation only, an array parameter is a pointer (C11 6.7.6.3p7), and a
+  parameter may itself be a function pointer.
+- **With several declarators (r03).** A function-pointer declarator is one
+  more declarator form in r03's list owner (`_parse_declarators` /
+  `parseDeclarators`): it may come first or later, beside plain ones, each
+  with its own initializer, as in `int (*f)(int) = g, v;`,
+  `int *p, (*q)(void);`, `typedef int (*A)(int), (*B)(void);` and the C-`for`
+  initializer. Every declarator starts from the specifier as parsed before
+  the first declarator (`_declarator_specifier` / `declaratorSpecifier`), so
+  `*`s written before a function-pointer declarator are its result's
+  (`char *(*f)(int), c;` makes `c` a `char`), and a storage class moves to
+  each declared pointer. A function declarator beside others stays r03's
+  refusal.
+- **D20 disambiguation, identical in both parsers.** A statement
+  `T (*name[n])(...)` followed by `=`, `;` or `,` is a declaration when the head
+  `T` is not a bare identifier (a keyword, qualifier, `struct`/`enum`/`union`
+  or generic arguments), or an `=` follows (a call result is never
+  assignable), or the pointee list is `(void)` or has an element an
+  expression cannot spell (a non-bare type, or an identifier followed by a
+  name). Anything else is an expression, such as the call
+  `pick (*pointer)(4);`. File scope, fields, parameters and typedefs have no
+  expression reading. The rule never consults type names: the compilers
+  parse a file joined with the sources it imports, the editor (LSP) parses
+  it alone, and the parse cache is keyed by the file's text, so a
+  name-dependent rule would let them disagree. `Count (*f)(Count);` with no
+  initializer therefore stays an expression even after `typedef int Count;`;
+  the analyzer refuses a declaration whose head names no type with its
+  ordinary unknown-type diagnostic. The one accepted change to an existing
+  program: `foo (*p)(a < b, c > d);` now reads `a<b, c>` as generic
+  arguments and declares `p`, as `foo (*p)(Box<int>);` would.
+- **Refused, with one diagnostic in both compilers**
+  (`test_c_compatibility_refusals.py`): a function returning a function
+  pointer (`int (*pick(int))(int)`) and a pointer to (`(**p)`), qualified
+  (`(* const p)`) or unnamed array of (`sizeof(int (*[3])(int))`) function
+  pointers each point at a typedef, as does a typedef of an array of
+  function pointers (`typedef int (*T[2])(int);`, which C allows but btrc's
+  typedef cannot carry); a function type typedef
+  (`typedef int F(int);`) points at the pointer typedef; a variadic pointee
+  (`(const char*, ...)`) waits for row 14.
+- **Header mining.** A read-only scan of the 443 C headers and sources the
+  build reaches (`cc -M` closures under the nix dev shell: every tracked
+  `.h`, the runtime and native fixtures, glibc 2.42, ALSA 1.2.15, SDL3 3.4,
+  FreeType 2.14, libpng 1.6, libjpeg-turbo 3.1, dbus 1.16, fontconfig 2.17,
+  wgpu-native 27) counted the declarator forms:
+
+  | Form | repo | glibc | ALSA | SDL3 | FreeType | jpeg | dbus | fontconfig | wgpu | Total |
+  |------|-----:|------:|-----:|-----:|---------:|-----:|-----:|-----------:|-----:|------:|
+  | `typedef R (*T)(...)` | 18 | 4 | 13 | 40 | 18 | 1 | 30 | 2 | 202 | 328 |
+  | struct field `R (*f)(...)` | 3 | 22 | 7 | 25 | 0 | 26 | 8 | 0 | 0 | 91 |
+  | named parameter | 16 | 32 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 50 |
+  | abstract parameter `R (*)(...)` | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+  | `typedef R T(...)` (function type) | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 4 |
+  | local (inside a glibc macro) | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+  | variadic pointee | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+  | pointer return, `void *(*f)(...)` | 7 | 9 | 0 | 6 | 2 | 2 | 3 | 0 | 2 | 31 |
+
+  libpng's 14 declarators hide behind `PNG_CALLBACK`/`PNG_FUNCTION`, SDL3
+  writes `(SDLCALL *name)` 62 times, and wgpu appends
+  `WGPU_FUNCTION_ATTRIBUTE` 201 times; those reach btrc macro-expanded
+  through the native-header reader or not at all, so r07 accepts only the
+  expanded shape. Arrays of function pointers, globals, casts, `sizeof`,
+  `(**p)`, `* const` and functions returning function pointers occur zero
+  times. The corpus (`c_compat/FunctionPointer*.btrc`) follows the table:
+  a typedef in the runtime's `__btrc_destroy_fn` shape, a jpeglib-style
+  ops struct, a qsort comparator and a pthread-shaped entry parameter, plus
+  the local, global, array, cast and `sizeof` forms r07 also owns.
+- **Formatter.** btrc-format is token-based and already spaces the
+  declarators as C does; no change.
 
 ## Stage 16 integration notes (`ccompat-c1-integrate`)
 
@@ -271,8 +480,8 @@ The main session lands two serial commits before the lanes fork: the schema comm
   - a value.
 
   Python adopts btrc's `long long` overflow rule. r10 indexes, r12 widths and r17 inner extents all use this query, so Stage 19's layout evaluator (D20) can later lift the middle case without changing any diagnostic.
-- **C tag aliases** change behavior, so they land with r09 rather than in the shared-owner commit. r09 brings:
-  - the alias rows for btrc and native records;
+- **C tag aliases** change behavior, so they land with r09 rather than in the shared-owner commit. The native-record rows landed first (Stage 4, D039): each analyzer's struct registration enters `struct X`/`union X` for a tagged native record imported under its tag (Python `TopLevelRegistrar._alias_native_tag`, btrc `DeclarationRegistry.aliasNativeTag`), and r09 extends that one owner to btrc records. r09 brings:
+  - the alias rows for btrc records;
   - the wrong-keyword validator;
   - both import reference collectors counting `struct X`, `union X` and `enum X` as references to `X` for strict imports. Today Python `ImportReferenceCollector` records the whole spelled base, so `struct X` requires no import.
 

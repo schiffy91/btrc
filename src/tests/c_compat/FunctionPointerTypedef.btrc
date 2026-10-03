@@ -1,0 +1,31 @@
+// C row 7: `typedef R (*Name)(params);` names a CFunction type, the shape
+// of `typedef void (*__btrc_destroy_fn)(void*);` in the runtime.
+#include <assert.h>
+
+typedef int (*BinaryOp)(int, int);
+typedef void (*DestroyFn)(void*);
+typedef void* (*ThreadEntry)(void*);
+
+int destroyed = 0;
+
+int subtract(int a, int b) { return a - b; }
+
+void destroyCounter(void* context) { destroyed += *(int*)context; }
+
+void* identity(void* value) { return value; }
+
+int combine(BinaryOp operation, int a, int b) { return operation(a, b); }
+
+int main(void) {
+	BinaryOp operation = subtract;
+	assert(operation(9, 4) == 5);
+	assert(combine(subtract, 3, 1) == 2);
+	int amount = 3;
+	DestroyFn destroy = destroyCounter;
+	destroy(&amount);
+	assert(destroyed == 3);
+	ThreadEntry entry = identity;
+	assert(entry(&amount) == &amount);
+	print("PASS: function pointer typedefs");
+	return 0;
+}

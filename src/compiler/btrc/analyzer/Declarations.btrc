@@ -19,6 +19,19 @@ class DeclarationRegistry {
 		self.hostedAbi = hostedAbi;
 	}
 
+	/* Let a tagged native record's C spelling name the imported record. An SDK
+	 * record imports under its tag (`pollfd`, `sockaddr`), and C code names
+	 * that same type `struct pollfd`. The alias row maps the written tag to
+	 * the import in the typedef alias index, so every canonicalization
+	 * resolves it in one place; the key holds a space and can never collide
+	 * with a source name. An unknown tag stays a trusted foreign C tag. */
+	private void aliasNativeTag(Node declaration) {
+		if (!self.analyzed.isNativeDeclaration(declaration)) { return; }
+		string spelling = self.analyzed.nativeTypeSpelling(declaration.name);
+		if (spelling != "struct " + declaration.name && spelling != "union " + declaration.name) { return; }
+		if (!self.analyzed.typedefTable.has(spelling)) { self.analyzed.typedefTable.put(spelling, SemanticTypeSystem.primitive(declaration.name)); }
+	}
+
 	class string parentName(Node declaration) {
 		if (declaration.parent == null) { return ""; }
 		return declaration.parent;
@@ -69,6 +82,7 @@ class DeclarationRegistry {
 				if (!self.analyzed.structTable.has(d.name) || !d.isForward) {
 					self.analyzed.structTable.put(d.name, d);
 				}
+				self.aliasNativeTag(d);
 			} else if (d.kind == NK_VAR_DECL_STMT) {
 				/* Module-level variable: record its type in the global scope so self.analyzed
         * bare identifier referencing it resolves during inference. An

@@ -1,0 +1,3 @@
+PASS: two-index loops
+PASS: left-to-right operands
+PASS: managed operands

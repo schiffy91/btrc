@@ -47,7 +47,7 @@ module NativeAbi {
     native_interface = NativeObjectiveCInterface(identifier name, string identity, bool complete, string superclass)
     native_record = NativeRecordLayout(string identity, identifier name, string record_kind,
                                        string size_bits, string alignment_bits,
-                                       native_field* fields)
+                                       native_field* fields, bool transparent_union)
     native_field = NativeField(identifier name, native_type field_type, string offset_bits,
                                bool is_anonymous, bool is_bitfield, string width_bits)
 }

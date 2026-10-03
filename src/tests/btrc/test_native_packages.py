@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.native_targets import cross_target_environment
 from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
@@ -55,6 +56,7 @@ def _reference(
     plan: Path | None = None,
     *,
     target: str = "linux-x64",
+    environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -69,7 +71,7 @@ def _reference(
         command.extend(("--emit-link-plan", str(plan)))
     command.extend((str(source), "-o", str(generated)))
     return subprocess.run(
-        command, cwd=REPO, capture_output=True, text=True, env=_environment(), timeout=TRANSPILE_TIMEOUT
+        command, cwd=REPO, capture_output=True, text=True, env=environment or _environment(), timeout=TRANSPILE_TIMEOUT
     )
 
 
@@ -79,13 +81,14 @@ def _selfhost(
     plan: Path | None = None,
     *,
     target: str = "linux-x64",
+    environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = [str(compiler), "--no-stdlib", "--target", target]
     if plan is not None:
         command.extend(("--emit-link-plan", str(plan)))
     command.append(str(source))
     return subprocess.run(
-        command, cwd=REPO, capture_output=True, text=True, env=_environment(), timeout=TRANSPILE_TIMEOUT
+        command, cwd=REPO, capture_output=True, text=True, env=environment or _environment(), timeout=TRANSPILE_TIMEOUT
     )
 
 
@@ -484,9 +487,10 @@ def test_selfhost_plan_is_reference_exact_and_builds_native_package(
     selfhost_c = tmp_path / "selfhost.c"
     selfhost_plan = tmp_path / "selfhost.link.json"
     lock_before = (EXAMPLE / "btrc.lock").read_bytes()
+    environment = cross_target_environment(tmp_path, "linux-x64", _environment())
 
-    reference = _reference(source, reference_c, reference_plan)
-    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan)
+    reference = _reference(source, reference_c, reference_plan, environment=environment)
+    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan, environment=environment)
 
     assert reference.returncode == 0, reference.stderr
     assert selfhost.returncode == 0, selfhost.stderr
@@ -510,8 +514,9 @@ def test_fresh_selfhost_lock_is_reference_exact(
     (reference_root / "btrc.lock").unlink()
     (selfhost_root / "btrc.lock").unlink()
 
-    reference = _reference(reference_root / "src/Main.btrc", tmp_path / "reference.c")
-    selfhost = _selfhost(semantic_btrcc, selfhost_root / "src/Main.btrc")
+    environment = cross_target_environment(tmp_path, "linux-x64", _environment())
+    reference = _reference(reference_root / "src/Main.btrc", tmp_path / "reference.c", environment=environment)
+    selfhost = _selfhost(semantic_btrcc, selfhost_root / "src/Main.btrc", environment=environment)
 
     assert reference.returncode == 0, reference.stderr
     assert selfhost.returncode == 0, selfhost.stderr
@@ -537,14 +542,16 @@ def test_platform_native_plans_are_reference_exact(
     source = EXAMPLE / "src/Main.btrc"
     reference_plan = tmp_path / f"reference-{target}.json"
     selfhost_plan = tmp_path / f"selfhost-{target}.json"
+    environment = cross_target_environment(tmp_path, target, _environment())
 
     reference = _reference(
         source,
         tmp_path / f"reference-{target}.c",
         reference_plan,
         target=target,
+        environment=environment,
     )
-    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan, target=target)
+    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan, target=target, environment=environment)
 
     assert reference.returncode == 0, reference.stderr
     assert selfhost.returncode == 0, selfhost.stderr
@@ -553,6 +560,39 @@ def test_platform_native_plans_are_reference_exact(
     assert [unit["language"] for unit in payload["units"]] == languages
     assert [entry["name"] for entry in payload["frameworks"]] == frameworks
     assert [entry["name"] for entry in payload["pkg-config"]] == pkg_config
+
+
+@pytest.mark.parametrize(
+    ("target", "triple", "accepted"),
+    [
+        ("windows-arm64", "aarch64-w64-windows-gnu", True),
+        ("windows-x64", "x86_64-w64-mingw32", False),
+        ("windows-x64", "x86_64-pc-windows-msvc", False),
+        ("windows-x64", "aarch64-w64-windows-gnu", False),
+    ],
+)
+def test_windows_binding_target_is_the_exact_mingw_triple(
+    semantic_btrcc: Path, tmp_path: Path, target: str, triple: str, accepted: bool
+) -> None:
+    """Clang reports a MinGW header read as `<arch>-w64-windows-gnu`, so only
+    that spelling for the requested architecture can match its document."""
+
+    source = _binding_source(tmp_path / "project", _BINDING, imported=True)
+    environment = {**cross_target_environment(tmp_path, target, _environment()), "BTRC_NATIVE_TARGET": triple}
+    reference_plan = tmp_path / "reference.json"
+    selfhost_plan = tmp_path / "selfhost.json"
+    reference = _reference(source, tmp_path / "reference.c", reference_plan, target=target, environment=environment)
+    selfhost = _selfhost(semantic_btrcc, source, selfhost_plan, target=target, environment=environment)
+
+    for result in (reference, selfhost):
+        assert (result.returncode == 0) == accepted, result.stderr
+        if not accepted:
+            assert (
+                "native imports require an explicit matching macOS, Linux GNU or Windows MinGW "
+                "BTRC_NATIVE_TARGET triple" in result.stderr
+            )
+    if accepted:
+        assert selfhost_plan.read_bytes() == reference_plan.read_bytes()
 
 
 def test_disjoint_native_predicates_with_same_name_are_reference_exact(

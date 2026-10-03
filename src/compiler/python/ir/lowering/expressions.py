@@ -40,6 +40,7 @@ from src.compiler.python.syntax.ast.generated import (
     CallExpr,
     CastExpr,
     CharLiteral,
+    CommaExpr,
     FieldAccessExpr,
     FloatLiteral,
     FStringExpr,
@@ -274,6 +275,19 @@ class ExpressionLowerer:
             and declaration.source_file.language == "objective-c"
             and declaration.initializer is None
         )
+        # An Objective-C or C++ binding's C11 unit never sees the SDK header, and
+        # the macros it does see through other SDK headers may share a constant's
+        # name. A reference therefore folds to the constant's value, cast to its
+        # projected type; the C unit declares nothing under the SDK name.
+        self._folded_native_constants = {}
+        for declaration in analyzed.program.declarations:
+            if (
+                isinstance(declaration, VarDeclStmt)
+                and isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+                and declaration.source_file.language in ("objective-c", "c++")
+                and declaration.initializer is not None
+            ):
+                self._folded_native_constants.setdefault(declaration.name, declaration)
         self._types = types
         self._default_arguments = default_context
         self._type_identity = type_identity
@@ -1999,6 +2013,17 @@ class ExpressionLowerer:
                 node,
                 provenance,
             )
+        if isinstance(node, CommaExpr):
+            # C's comma operator in a for header: each operand in order,
+            # lowered exactly as that header position lowers one expression.
+            # Both header positions discard the value, so every operand is
+            # cast to void.
+            return IRCommaExpr(
+                expressions=[
+                    IRCast(target_type=CType(text="void"), expr=self.lower_expr(element, provenance))
+                    for element in node.elements
+                ]
+            )
         if isinstance(node, TernaryExpr):
             branch_ownership = self._ownership.conditional_branch_ownership(node, provenance)
             owns_result = self._ownership.owns_result(node, provenance=provenance)
@@ -2121,6 +2146,12 @@ class ExpressionLowerer:
                 return IRVar(name=f"{prefix}{name}")
         if name in self._analyzed.function_table and (not self._session.local_is_declared(name)):
             return IRFunctionRef(name=provenance.source_function_c_name(name))
+        constant = self._folded_native_constants.get(name)
+        if constant is not None:
+            return IRCast(
+                target_type=CType(text=self._types.render(replace(constant.type, is_const=False))),
+                expr=IRLiteral(text=constant.initializer.raw),
+            )
         return self._source_identifier_var(node, name)
 
     def _source_identifier_var(self, node, c_name):

@@ -19,7 +19,7 @@ module = "LocalApplicationChannel"
 header = "Socket.h"
 language = "c"
 standard = "c11"
-symbols = ["LocalSocketAddress", "socket", "listen", "getsockopt", "recv", "send", "shutdown", "close"]
+symbols = ["LocalSocketAddress", "socket", "connect", "bind", "listen", "accept", "getsockopt", "recv", "send", "shutdown", "close", "poll", "pollfd", "AF_UNIX", "SOCK_STREAM", "SOL_SOCKET", "SO_ERROR", "MSG_NOSIGNAL", "SHUT_RDWR", "POLLIN", "POLLOUT"]
 os = ["linux", "macos"]
 
 [[native.defines]]

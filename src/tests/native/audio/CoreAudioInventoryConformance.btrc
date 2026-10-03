@@ -3,11 +3,6 @@ import Library.Audio.AudioDevice;
 
 #include <assert.h>
 
-void inventoryScenario(int scenario);
-int inventoryRetainedValues();
-int inventoryPropertyReads();
-void inventoryVerifyForeignRelease();
-
 int main() {
 	inventoryScenario(0);
 	inventoryVerifyForeignRelease();

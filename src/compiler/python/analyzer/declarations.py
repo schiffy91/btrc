@@ -348,6 +348,23 @@ class TopLevelRegistrar:
                 self.index.struct_table[declaration.name] = declaration
         elif declaration.name not in self.index.struct_table:
             self.index.struct_table[declaration.name] = declaration
+        self._alias_native_tag(declaration)
+
+    def _alias_native_tag(self, declaration) -> None:
+        """Let a tagged native record's C spelling name the imported record.
+
+        An SDK record imports under its tag (`pollfd`, `sockaddr`), and C code
+        names that same type `struct pollfd`. The alias row maps the written
+        tag to the import in the typedef alias index, so every canonicalization
+        resolves it in one place; the key holds a space and can never collide
+        with a source name. An unknown tag stays a trusted foreign C tag.
+        """
+        source = declaration.source_file
+        if not isinstance(source, NativeHeaderSource):
+            return
+        spelling = source.type_spelling
+        if spelling in (f"struct {declaration.name}", f"union {declaration.name}"):
+            self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
 
     def register_function(self, declaration) -> None:
         registry = self.registry

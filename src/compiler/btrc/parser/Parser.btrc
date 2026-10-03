@@ -156,24 +156,25 @@ class Parser {
 	public Node parseProgram() {
 		Node prog = Node();
 		prog.kind = NK_PROGRAM;
+		Vector<Node> declarations = prog.declarationsMut();
 		while (!self.atEnd() && !self.failed) {
-			Node d = self.parseTopLevelItem();
-			if (!self.failed) {
-				prog.declarationsMut().push(d);
-			}
+			self.parseTopLevelItemInto(declarations);
 		}
 		return prog;
 	}
 
-	public Node parseTopLevelItem() {
+	/* One top-level item; a declaration contributes one node per declarator. */
+	public void parseTopLevelItemInto(Vector<Node> declarations) {
 		Token tok = self.peek();
 
 		if (tok.type == "PREPROCESSOR") {
-			return self.parsePreprocessor();
+			declarations.push(self.parsePreprocessor());
+			return;
 		}
 
 		if (tok.type == "IMPORT") {
-			return self.parseImportDecl();
+			declarations.push(self.parseImportDecl());
+			return;
 		}
 
 		bool isGpu = false;
@@ -199,12 +200,14 @@ class Parser {
 		}
 
 		if (tok.type == "INTERFACE" && !isGpu && !isRealtime && !keepReturn) {
-			return self.parseInterfaceDecl();
+			declarations.push(self.parseInterfaceDecl());
+			return;
 		}
 
 		if (tok.type == "ABSTRACT" && !isGpu && !isRealtime && !keepReturn) {
 			if (self.peekAt(1).type == "CLASS") {
-				return self.parseClassDecl(true);
+				declarations.push(self.parseClassDecl(true));
+				return;
 			}
 		}
 
@@ -212,7 +215,8 @@ class Parser {
 			if (self.peekAt(1).type == "IDENT") {
 				string after = self.peekAt(2).type;
 				if (after == "LBRACE" || after == "LT" || after == "EXTENDS" || after == "IMPLEMENTS") {
-					return self.parseClassDecl(false);
+					declarations.push(self.parseClassDecl(false));
+					return;
 				}
 			}
 		}
@@ -222,36 +226,42 @@ class Parser {
 			if (nt == "IDENT") {
 				string after2 = self.peekAt(2).type;
 				if (after2 == "LBRACE" || after2 == "SEMICOLON") {
-					return self.parseStructDecl();
+					declarations.push(self.parseStructDecl());
+					return;
 				}
 			} else if (nt == "LBRACE") {
-				return self.parseStructDecl();
+				declarations.push(self.parseStructDecl());
+				return;
 			}
 		}
 
 		if (tok.type == "ENUM" && !isGpu && !isRealtime && !keepReturn) {
 			if (self.peekAt(1).type == "CLASS") {
-				return self.parseRichEnumDecl();
+				declarations.push(self.parseRichEnumDecl());
+				return;
 			}
-			return self.parseEnumDecl();
+			declarations.push(self.parseEnumDecl());
+			return;
 		}
 
 		if (tok.type == "TYPEDEF" && !isGpu && !isRealtime && !keepReturn) {
-			return self.parseTypedefDecl();
+			self.parseTypedefDeclsInto(declarations);
+			return;
 		}
 
 		if (self.isTypeStartTok(tok)) {
-			return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
+			self.parseFunctionOrVarDeclInto(declarations, isGpu, isRealtime, keepReturn);
+			return;
 		}
 
 		// A stray file-scope `;` is not ISO C (C11 6.9).
 		if (tok.type == "SEMICOLON") {
 			self.failAt("Unexpected token ';' at top level", tok);
-			return Node();
+			return;
 		}
 
 		// Fallback: treat as function/var.
-		return self.parseFunctionOrVarDecl(isGpu, isRealtime, keepReturn);
+		self.parseFunctionOrVarDeclInto(declarations, isGpu, isRealtime, keepReturn);
 	}
 
 	/* ---- Import declaration ---- */
@@ -373,14 +383,14 @@ class Parser {
 
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
-			Node m = self.parseClassMember(isAbstract);
-			n.membersMut().push(m);
+			self.parseClassMemberInto(n.membersMut(), isAbstract);
 		}
 		self.expect("RBRACE");
 		return n;
 	}
 
-	public Node parseClassMember(bool allowAbstract) {
+	/* One class member declaration; a field declaration adds one per declarator. */
+	public void parseClassMemberInto(Vector<Node> members, bool allowAbstract) {
 		Token tok = self.peek();
 		string access = "";
 		if (tok.type == "PUBLIC") {
@@ -394,7 +404,7 @@ class Parser {
 			self.advance();
 		} else {
 			self.failAt("Expected access specifier (public/private/static), got '" + tok.value + "'", tok);
-			return Node();
+			return;
 		}
 
 		bool isAbstractMethod = false;
@@ -426,41 +436,54 @@ class Parser {
 
 		Node typeExpr = self.parseType();
 
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			if (isRealtime) {
+				self.failAt("@realtime cannot be applied to fields or properties", self.peek());
+			}
+			Node fieldSpecifier = Parser.declaratorSpecifier(typeExpr);
+			Node declarator = self.parseFunctionPointerDeclarator(typeExpr, 1);
+			self.parseFieldDeclsInto(members, access, declarator.type, Parser.declaratorNameToken(declarator), tok, fieldSpecifier);
+			return;
+		}
 		// Constructor: next is '(' -> the "type" is the name.
 		if (self.check("LPAREN")) {
 			Node constructor = self.parseMethodRest(access, typeExpr, typeExpr.base, isGpu, isRealtime, tok.line, tok.col, typeExpr.line, typeExpr.col, isAbstractMethod, keepReturn);
 			constructor.isConstructor = true;
-			return constructor;
+			members.push(constructor);
+			return;
 		}
 
 		Token nameTok = self.expect("IDENT");
 		string name = nameTok.value;
 
 		if (self.check("LT") || self.check("LPAREN")) {
-			return self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, keepReturn);
+			members.push(self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, keepReturn));
+			return;
 		}
 		if (isRealtime) {
 			self.failAt("@realtime cannot be applied to fields or properties", nameTok);
 		}
+		Node specifier = Parser.declaratorSpecifier(typeExpr);
 		self.parseDeclaratorArraySuffix(typeExpr);
 		if (self.check("LBRACE") && self.isPropertyStart()) {
-			return self.parseProperty(access, typeExpr, name, tok.line, tok.col, nameTok.line, nameTok.col);
-		} else {
-			Node fd = Node();
-			fd.kind = NK_FIELD_DECL;
-			fd.access = access;
-			fd.type = typeExpr;
-			fd.name = name;
-			fd.line = tok.line;
-			fd.col = tok.col;
-			fd.nameLine = nameTok.line;
-			fd.nameCol = nameTok.col;
-			if (self.matchTok("EQ")) {
-				Node init = self.parseExpression();
-				fd.initializer = init;
-			}
-			self.expect("SEMICOLON");
-			return fd;
+			members.push(self.parseProperty(access, typeExpr, name, tok.line, tok.col, nameTok.line, nameTok.col));
+			return;
+		}
+		self.parseFieldDeclsInto(members, access, typeExpr, nameTok, tok, specifier);
+	}
+
+	/* `public int x, y;` declares one field per declarator, each with its own
+	 * initializer; the access specifier is copied to every one. */
+	public void parseFieldDeclsInto(Vector<Node> members, string access, Node typeExpr, Token nameTok, Token tok, Node specifier) {
+		int first = members.len;
+		self.parseDeclarators(members, typeExpr, nameTok, tok, specifier, true, true);
+		self.expect("SEMICOLON");
+		int index = first;
+		while (index < members.len) {
+			Node field = members.get(index);
+			field.kind = NK_FIELD_DECL;
+			field.access = access;
+			index++;
 		}
 	}
 
@@ -576,8 +599,7 @@ class Parser {
 		if (self.matchTok("LBRACE")) {
 			n.isForward = false;
 			while (!self.check("RBRACE") && !self.atEnd()) {
-				Node fdef = self.parseStructField();
-				n.fieldsMut().push(fdef);
+				self.parseStructFieldsInto(n.fieldsMut());
 			}
 			self.expect("RBRACE");
 			self.expect("SEMICOLON");
@@ -588,18 +610,25 @@ class Parser {
 		return n;
 	}
 
-	public Node parseStructField() {
+	public void parseStructFieldsInto(Vector<Node> fields) {
+		Token start = self.peek();
 		Node ftype = self.parseType();
-		Token fnameTok = self.expect("IDENT");
-		self.parseDeclaratorArraySuffix(ftype);
-		Node fd = Node();
-		fd.kind = NK_FIELD_DEF;
-		fd.type = ftype;
-		fd.name = fnameTok.value;
-		fd.line = fnameTok.line;
-		fd.col = fnameTok.col;
+		Node specifier = Parser.declaratorSpecifier(ftype);
+		Node declarator = self.parseDeclaratorName(ftype);
+		int first = fields.len;
+		self.parseDeclarators(fields, declarator.type, Parser.declaratorNameToken(declarator), start, specifier, false, true);
 		self.expect("SEMICOLON");
-		return fd;
+		// A struct field is positioned at its name.
+		int index = first;
+		while (index < fields.len) {
+			Node field = fields.get(index);
+			field.kind = NK_FIELD_DEF;
+			field.line = field.nameLine;
+			field.col = field.nameCol;
+			field.nameLine = 0;
+			field.nameCol = 0;
+			index++;
+		}
 	}
 
 	/* ---- Interface declaration ---- */
@@ -742,20 +771,42 @@ class Parser {
 
 	/* ---- Typedef declaration ---- */
 
-	public Node parseTypedefDecl() {
+	/* `typedef int A, *B;` declares one alias per declarator, `*` bound to each. */
+	public void parseTypedefDeclsInto(Vector<Node> declarations) {
 		Token tok = self.expect("TYPEDEF");
 		Node original = self.parseType();
-		Token aliasTok = self.expect("IDENT");
+		Node specifier = Parser.declaratorSpecifier(original);
+		Node firstType = original;
+		Token aliasTok = self.peek();
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			Node declarator = self.parseFunctionPointerDeclarator(original, 1, false);
+			firstType = declarator.type;
+			aliasTok = Parser.declaratorNameToken(declarator);
+		} else {
+			aliasTok = self.expect("IDENT");
+			if (self.check("LPAREN")) {
+				self.failAt("A function type typedef is not supported: write 'typedef R (*Name)(...);' for the pointer", self.peek());
+			}
+		}
+		int first = declarations.len;
+		self.parseDeclarators(declarations, firstType, aliasTok, tok, specifier, false, false);
 		self.expect("SEMICOLON");
-		Node n = Node();
-		n.kind = NK_TYPEDEF_DECL;
-		n.original = original;
-		n.alias = aliasTok.value;
-		n.line = tok.line;
-		n.col = tok.col;
-		n.nameLine = aliasTok.line;
-		n.nameCol = aliasTok.col;
-		return n;
+		int index = first;
+		while (index < declarations.len) {
+			// Each declarator record becomes a fresh typedef node: the alias
+			// takes its name, `original` its type, and no variable field stays.
+			Node declarator = declarations.get(index);
+			Node alias = Node();
+			alias.kind = NK_TYPEDEF_DECL;
+			alias.original = declarator.type;
+			alias.alias = declarator.name;
+			alias.line = declarator.line;
+			alias.col = declarator.col;
+			alias.nameLine = declarator.nameLine;
+			alias.nameCol = declarator.nameCol;
+			declarations.set(index, alias);
+			index++;
+		}
 	}
 
 	public Node parsePreprocessor() {
@@ -768,7 +819,7 @@ class Parser {
 		return n;
 	}
 
-	public Node parseFunctionOrVarDecl(bool isGpu, bool isRealtime, bool keepReturn) {
+	public void parseFunctionOrVarDeclInto(Vector<Node> declarations, bool isGpu, bool isRealtime, bool keepReturn) {
 		Token start = self.peek();
 
 		if (self.check("VAR")) {
@@ -779,6 +830,7 @@ class Parser {
 			Token nameTok = self.expect("IDENT");
 			self.expect("EQ");
 			Node init = self.parseExpression();
+			self.refuseVarDeclarators();
 			self.expect("SEMICOLON");
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
@@ -788,18 +840,25 @@ class Parser {
 			vd.col = start.col;
 			vd.nameLine = nameTok.line;
 			vd.nameCol = nameTok.col;
-			return vd;
+			declarations.push(vd);
+			return;
 		}
 
-		Node typeExpr = self.parseType();
-		Token nameTok = self.expect("IDENT");
-		string name = nameTok.value;
-		self.parseDeclaratorArraySuffix(typeExpr);
+		Node parsedType = self.parseType();
+		Node specifier = Parser.declaratorSpecifier(parsedType);
+		bool functionPointer = self.isFunctionPointerDeclarator(self.pos);
+		Node declarator = self.parseDeclaratorName(parsedType);
+		Node typeExpr = declarator.type;
+		string name = declarator.name;
+		Token nameTok = Parser.declaratorNameToken(declarator);
 
-		if (self.check("LPAREN")) {
+		if (self.check("LPAREN") && !functionPointer) {
 			self.expect("LPAREN");
 			Vector<Node> params = self.parseParamList(true);
 			self.expect("RPAREN");
+			if (self.check("COMMA")) {
+				self.failAt(Parser.functionBesideDeclaratorsMessage(name), nameTok);
+			}
 			Node fn = Node();
 			fn.kind = NK_FUNCTION_DECL;
 			fn.returnType = typeExpr;
@@ -812,33 +871,21 @@ class Parser {
 			fn.col = start.col;
 			fn.nameLine = nameTok.line;
 			fn.nameCol = nameTok.col;
+			declarations.push(fn);
 			if (self.matchTok("SEMICOLON")) {
 				// A forward declaration has no body; bodyNode stays null.
-				return fn;
+				return;
 			}
 			if (self.check("LBRACE")) { self.refuseUnnamedDefinition(params); }
 			Node body = self.parseBlock();
 			fn.bodyNode = body;
-			return fn;
-		} else {
-			if (isGpu || isRealtime) {
-				self.failAt((isGpu ? "@gpu" : "@realtime") + " cannot be applied to variables", start);
-			}
-			Node vd = Node();
-			vd.kind = NK_VAR_DECL_STMT;
-			vd.type = typeExpr;
-			vd.name = name;
-			vd.line = start.line;
-			vd.col = start.col;
-			vd.nameLine = nameTok.line;
-			vd.nameCol = nameTok.col;
-			if (self.matchTok("EQ")) {
-				Node init = self.parseExpression();
-				vd.initializer = init;
-			}
-			self.expect("SEMICOLON");
-			return vd;
+			return;
 		}
+		if (isGpu || isRealtime) {
+			self.failAt((isGpu ? "@gpu" : "@realtime") + " cannot be applied to variables", start);
+		}
+		self.parseDeclarators(declarations, typeExpr, nameTok, start, specifier, true, true);
+		self.expect("SEMICOLON");
 	}
 
 	/* ---- Types ---- */
@@ -1128,6 +1175,371 @@ class Parser {
 		}
 	}
 
+	/* Parse a declarator after its specifier: a name with an optional array
+	 * suffix, or a named function-pointer declarator. The declarator returns
+	 * as a Param node holding its name, name position and type. */
+	public Node parseDeclaratorName(Node typeExpr) {
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			return self.parseFunctionPointerDeclarator(typeExpr, 1);
+		}
+		Token nameTok = self.expect("IDENT");
+		Node declarator = Node();
+		declarator.kind = NK_PARAM;
+		declarator.type = typeExpr;
+		declarator.name = nameTok.value;
+		declarator.line = typeExpr.line;
+		declarator.col = typeExpr.col;
+		declarator.nameLine = nameTok.line;
+		declarator.nameCol = nameTok.col;
+		self.parseDeclaratorArraySuffix(typeExpr);
+		return declarator;
+	}
+
+	/* ---- Function-pointer declarators (C row 7) ---- */
+
+	class string functionPointerReturnMessage() { return "A function returning a function pointer needs a typedef: write 'typedef R (*Name)(...);' and return 'Name'"; }
+
+	public bool isFunctionPointerDeclarator(int p) { return self.tokenTypeAt(p) == "LPAREN" && self.tokenTypeAt(p + 1) == "STAR"; }
+
+	/* Return the position after the balanced bracket group at p, or -1. */
+	public int scanGroup(int p) {
+		int depth = 0;
+		while (p < self.tokens.len) {
+			string tt = self.tokenTypeAt(p);
+			if (tt == "LPAREN" || tt == "LBRACKET" || tt == "LBRACE") {
+				depth = depth + 1;
+			} else if (tt == "RPAREN" || tt == "RBRACKET" || tt == "RBRACE") {
+				depth = depth - 1;
+				if (depth == 0) { return p + 1; }
+			} else if (tt == "EOF") {
+				return -1;
+			}
+			p = p + 1;
+		}
+		return -1;
+	}
+
+	/* Return the position after `(*name[n])(...)`, or -1. `named` says whether
+	 * the declarator names something or is abstract (`(*)(...)` in a cast or
+	 * sizeof). The shapes refused with a targeted diagnostic, a function
+	 * returning a function pointer (`(*get(void))(int)`), scan too, so the
+	 * parser reaches the refusal. */
+	public int scanFunctionPointerDeclarator(int p, bool named) {
+		if (!self.isFunctionPointerDeclarator(p)) { return -1; }
+		p = p + 1;
+		while (self.tokenTypeAt(p) == "STAR" || self.tokenTypeAt(p) == "CONST" || self.tokenTypeAt(p) == "VOLATILE") { p = p + 1; }
+		if ((self.tokenTypeAt(p) == "IDENT") != named) { return -1; }
+		if (named) { p = p + 1; }
+		while (self.tokenTypeAt(p) == "LBRACKET" || self.tokenTypeAt(p) == "LPAREN") {
+			p = self.scanGroup(p);
+			if (p < 0) { return -1; }
+		}
+		if (self.tokenTypeAt(p) != "RPAREN" || self.tokenTypeAt(p + 1) != "LPAREN") { return -1; }
+		return self.scanGroup(p + 1);
+	}
+
+	/* Scan a cast or sizeof type: a type expression, optionally followed by
+	 * an abstract function-pointer declarator. */
+	public int scanAbstractType(int p) {
+		int typeEnd = self.scanTypeEnd(p);
+		if (typeEnd >= 0 && self.isFunctionPointerDeclarator(typeEnd)) {
+			return self.scanFunctionPointerDeclarator(typeEnd, false);
+		}
+		return typeEnd;
+	}
+
+	public Node parseAbstractType() {
+		Node typeExpr = self.parseType();
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			Node declarator = self.parseFunctionPointerDeclarator(typeExpr, 0);
+			return declarator.type;
+		}
+		return typeExpr;
+	}
+
+	/* Parse `(*name[n])(params)` after its result type. It is C's spelling of
+	 * CFunction<result, params...>, so it builds that TypeExpr; the array
+	 * suffix applies to the pointer. The declarator returns as a Param node,
+	 * an abstract one named "" as an unnamed parameter is. nameMode is 1 where
+	 * a name is required, 0 for an abstract declarator and -1 for a
+	 * parameter, where either is allowed. Storage classes move from the
+	 * result to the declared pointer. A pointer to a function pointer and a
+	 * qualified function pointer are refused: a typedef spells both, and a
+	 * typedef passes arraySuffix false because its alias cannot name an
+	 * array. */
+	public Node parseFunctionPointerDeclarator(Node result, int nameMode, bool arraySuffix = true) {
+		Node declarator = Node();
+		declarator.kind = NK_PARAM;
+		declarator.name = "";
+		declarator.line = result.line;
+		declarator.col = result.col;
+		self.expect("LPAREN");
+		self.expect("STAR");
+		if (self.check("STAR")) {
+			self.failAt("A pointer to a function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'Name*'", self.peek());
+		}
+		if (self.check("CONST") || self.check("VOLATILE")) {
+			self.failAt("A qualified function pointer needs a typedef: write 'typedef R (*Name)(...);' and use 'const Name'", self.peek());
+		}
+		if (nameMode == 1 || (nameMode < 0 && self.check("IDENT"))) {
+			Token nameTok = self.expect("IDENT");
+			declarator.name = nameTok.value;
+			declarator.nameLine = nameTok.line;
+			declarator.nameCol = nameTok.col;
+		}
+		Node functionType = Node();
+		functionType.kind = NK_TYPE_EXPR;
+		functionType.base = "__fn_ptr";
+		functionType.line = result.line;
+		functionType.col = result.col;
+		functionType.isStatic = result.isStatic;
+		functionType.isExtern = result.isExtern;
+		result.isStatic = false;
+		result.isExtern = false;
+		functionType.genericArgsMut().push(result);
+		declarator.type = functionType;
+		if (self.check("LPAREN")) {
+			self.failAt(Parser.functionPointerReturnMessage(), self.peek());
+			return declarator;
+		}
+		if (declarator.name.isEmpty() && self.check("LBRACKET")) {
+			self.failAt("An array of function pointers needs a name: write 'typedef R (*Name)(...);' and use 'Name[n]'", self.peek());
+			return declarator;
+		}
+		if (!arraySuffix && self.check("LBRACKET")) {
+			self.failAt("A typedef cannot name an array of function pointers: write 'typedef R (*Name)(...);' and declare 'Name ops[n]'", self.peek());
+			return declarator;
+		}
+		self.parseDeclaratorArraySuffix(functionType);
+		self.expect("RPAREN");
+		self.parseFunctionPointerParams(functionType);
+		return declarator;
+	}
+
+	/* Parse a pointee's parameter-type list into the pointer type's generic
+	 * arguments; parameter names are documentation only. */
+	public void parseFunctionPointerParams(Node functionType) {
+		self.expect("LPAREN");
+		if (self.check("VOID") && self.peekAt(1).type == "RPAREN") { self.advance(); }
+		int count = 0;
+		while ((!self.check("RPAREN") || count > 0) && !self.failed) {
+			if (self.check("DOT")) {
+				self.failAt("A variadic function-pointer type is not supported until variadic definitions (C row 14)", self.peek());
+				return;
+			}
+			Token tok = self.peek();
+			Node param = self.parseType();
+			if (self.isFunctionPointerDeclarator(self.pos)) {
+				Node inner = self.parseFunctionPointerDeclarator(param, -1);
+				param = inner.type;
+			} else {
+				if (Parser.isPlainVoid(param)) {
+					self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
+					return;
+				}
+				if (self.check("IDENT")) { self.expect("IDENT"); }
+				self.parseDeclaratorArraySuffix(param);
+				if (param.isArray) {
+					// C11 6.7.6.3p7: an array parameter is a pointer.
+					Node pointer = Parser.copyTypeShape(param, false);
+					pointer.isArray = false;
+					pointer.pointerDepth = pointer.pointerDepth + 1;
+					param = pointer;
+				}
+			}
+			functionType.genericArgsMut().push(param);
+			count = count + 1;
+			if (!self.matchTok("COMMA")) { break; }
+		}
+		self.expect("RPAREN");
+	}
+
+	/* A void parameter type; `void (*f)(...)` is a function pointer's result. */
+	class bool isPlainVoid(Node typeExpr) { return typeExpr.base == "void" && typeExpr.pointerDepth == 0 && typeExpr.genericArgs().len == 0; }
+
+	/* Decide a statement `T (*name)(...)` per D20. The rule is syntactic,
+	 * so every parse of a file agrees, whatever else was parsed with it. It
+	 * declares when T is not a bare identifier (a built-in or qualified
+	 * type), or an initializer follows (a call result is never assignable).
+	 * A bare identifier head with `;` or another declarator after it
+	 * declares only when the parenthesized list is unmistakably a
+	 * parameter-type list; otherwise the statement is an expression. */
+	public bool isFunctionPointerDeclaration(int declarator) {
+		int end = self.scanFunctionPointerDeclarator(declarator, true);
+		if (end < 0) { return false; }
+		if (self.tokenTypeAt(end) == "EQ") { return true; }
+		if (self.tokenTypeAt(end) != "SEMICOLON" && self.tokenTypeAt(end) != "COMMA") { return false; }
+		if (!self.isBareTypeName(self.pos, declarator)) { return true; }
+		return self.isParameterTypeList(self.scanGroup(declarator));
+	}
+
+	/* Whether start..end is an identifier with only `*`/`?` after it, a type
+	 * spelling that an expression could also have. */
+	public bool isBareTypeName(int start, int end) {
+		if (self.tokenTypeAt(start) != "IDENT") { return false; }
+		int p = start + 1;
+		while (p < end) {
+			string tt = self.tokenTypeAt(p);
+			if (tt != "STAR" && tt != "QUESTION") { return false; }
+			p = p + 1;
+		}
+		return true;
+	}
+
+	/* Whether the `(...)` at p can only be a parameter-type list: `(void)`,
+	 * or a list with an element an expression cannot spell (a built-in or
+	 * qualified type, generic arguments, or an identifier followed by a
+	 * name). */
+	public bool isParameterTypeList(int p) {
+		if (self.tokenTypeAt(p + 1) == "VOID" && self.tokenTypeAt(p + 2) == "RPAREN") { return true; }
+		p = p + 1;
+		while (self.tokenTypeAt(p) != "RPAREN" && self.tokenTypeAt(p) != "EOF") {
+			int typeEnd = self.scanTypeEnd(p);
+			if (typeEnd < 0) { return false; }
+			if (!self.isBareTypeName(p, typeEnd)) { return true; }
+			if (typeEnd == p + 1 && self.tokenTypeAt(typeEnd) == "IDENT") { return true; }
+			p = self.scanListElementEnd(typeEnd);
+			if (self.tokenTypeAt(p) == "COMMA") { p = p + 1; }
+		}
+		return false;
+	}
+
+	/* Return the position of the `,` or `)` that ends a list element. */
+	public int scanListElementEnd(int p) {
+		while (self.tokenTypeAt(p) != "COMMA" && self.tokenTypeAt(p) != "RPAREN" && self.tokenTypeAt(p) != "EOF") {
+			string tt = self.tokenTypeAt(p);
+			if (tt == "LPAREN" || tt == "LBRACKET" || tt == "LBRACE") {
+				int groupEnd = self.scanGroup(p);
+				if (groupEnd < 0) { return self.tokens.len; }
+				p = groupEnd;
+			} else {
+				p = p + 1;
+			}
+		}
+		return p;
+	}
+	/* A declaration's declarators, the first one's name and array suffix
+	 * already read, appended to `into` as VarDeclStmt records in source order;
+	 * field, member and typedef callers re-shape them in place. `typeExpr` is
+	 * the first declarator's type: the specifier plus its `*`s and suffix, or
+	 * its function-pointer type. `specifier` (declaratorSpecifier) is the type
+	 * before any declarator, keeping btrc's `T[]` spelling, which belongs to
+	 * it. Each later declarator binds its own `*`s, array suffix or
+	 * function-pointer declarator, and initializer to a deep copy of the
+	 * specifier (C11 6.7.6, PLAN.md D20), so `int *p, v;` makes `v` an `int`
+	 * and `int v, (*f)(int);` makes `f` a `CFunction<int, int>`. */
+	public void parseDeclarators(Vector<Node> into, Node typeExpr, Token nameTok, Token start, Node specifier, bool initializers, bool arraySuffixes) {
+		Node first = Node();
+		first.kind = NK_VAR_DECL_STMT;
+		first.type = typeExpr;
+		first.name = nameTok.value;
+		first.line = start.line;
+		first.col = start.col;
+		first.nameLine = nameTok.line;
+		first.nameCol = nameTok.col;
+		if (initializers && self.matchTok("EQ")) {
+			Node init = self.parseExpression();
+			first.initializer = init;
+		}
+		into.push(first);
+		if (!self.check("COMMA")) { return; }
+		if (typeExpr.isNullable || specifier.isNullable) {
+			self.failAt(Parser.nullableDeclaratorsMessage(), self.peek());
+			return;
+		}
+		while (!self.failed && self.matchTok("COMMA")) {
+			Token declaratorStart = self.peek();
+			Node declaratorType = Parser.copySpecifier(specifier);
+			while (self.matchTok("STAR")) {
+				declaratorType.pointerDepth = declaratorType.pointerDepth + 1;
+			}
+			Token declaratorName = declaratorStart;
+			if (self.isFunctionPointerDeclarator(self.pos)) {
+				Node functionPointer = self.parseFunctionPointerDeclarator(declaratorType, 1, arraySuffixes);
+				declaratorType = functionPointer.type;
+				declaratorName = Parser.declaratorNameToken(functionPointer);
+			} else {
+				declaratorName = self.expectDeclaratorName();
+				if (self.check("LPAREN")) {
+					self.failAt(Parser.functionBesideDeclaratorsMessage(declaratorName.value), declaratorName);
+					return;
+				}
+				if (arraySuffixes) { self.parseDeclaratorArraySuffix(declaratorType); }
+			}
+			Node declarator = Node();
+			declarator.kind = NK_VAR_DECL_STMT;
+			declarator.type = declaratorType;
+			declarator.name = declaratorName.value;
+			declarator.line = declaratorStart.line;
+			declarator.col = declaratorStart.col;
+			declarator.nameLine = declaratorName.line;
+			declarator.nameCol = declaratorName.col;
+			if (initializers && self.matchTok("EQ")) {
+				Node init = self.parseExpression();
+				declarator.initializer = init;
+			}
+			into.push(declarator);
+		}
+	}
+
+	/* The type every declarator of a declaration starts from: the type as
+	 * parsed before its first declarator, without the `*`s that bind to that
+	 * declarator. A copy, so the first declarator may reshape its own. */
+	class Node declaratorSpecifier(Node typeExpr) {
+		Node specifier = Parser.copyTypeShape(typeExpr, false);
+		specifier.pointerDepth = 0;
+		specifier.nullableOuterDepth = 0;
+		return specifier;
+	}
+
+	/* A declarator's name as a token, for the declarator-list owner. */
+	class Token declaratorNameToken(Node declarator) { return Token("IDENT", declarator.name, declarator.nameLine, declarator.nameCol); }
+
+	/* A deep copy of a declaration specifier (TypeExpr) for one more declarator. */
+	class Node copySpecifier(Node source) { return Parser.copyTypeShape(source, true); }
+
+	/* A deep copy of a TypeExpr; without `withArraySize` the copy has no array
+	 * bound, as a fresh node has none. */
+	class Node copyTypeShape(Node source, bool withArraySize) {
+		Node duplicate = Node();
+		duplicate.kind = NK_TYPE_EXPR;
+		duplicate.base = source.base;
+		duplicate.pointerDepth = source.pointerDepth;
+		duplicate.isArray = source.isArray;
+		if (withArraySize) { duplicate.arraySize = source.arraySize; }
+		duplicate.isConst = source.isConst;
+		duplicate.isNullable = source.isNullable;
+		duplicate.nullableOuterDepth = source.nullableOuterDepth;
+		duplicate.isStatic = source.isStatic;
+		duplicate.isExtern = source.isExtern;
+		duplicate.isVolatile = source.isVolatile;
+		duplicate.line = source.line;
+		duplicate.col = source.col;
+		Vector<Node> arguments = [];
+		for argument in source.genericArgs() { arguments.push(Parser.copySpecifier(argument)); }
+		duplicate.genericArgsStorage = arguments;
+		return duplicate;
+	}
+
+	/* A later declarator's name; a keyword there is the reserved-word refusal. */
+	public Token expectDeclaratorName() {
+		Token tok = self.peek();
+		if (tok.type == "IDENT" || self.isReservedName(self.pos)) { return self.expect("IDENT"); }
+		self.failExpected("declarator name", tok);
+		return tok;
+	}
+
+	/* `var` infers one variable's type from its one initializer. */
+	public void refuseVarDeclarators() {
+		if (self.check("COMMA")) { self.failAt(Parser.varDeclaratorsMessage(), self.peek()); }
+	}
+
+	class string nullableDeclaratorsMessage() { return "A nullable declaration declares one variable: write one declaration per nullable variable"; }
+
+	class string varDeclaratorsMessage() { return "'var' declares one variable: write one 'var' declaration per variable"; }
+
+	class string functionBesideDeclaratorsMessage(string name) { return f"Function '{name}' must be declared on its own, not beside other declarators"; }
+
 	/* ---- Parameters ---- */
 
 	/* `(void)` is C's spelling of an empty list. Only a body-less function
@@ -1162,11 +1574,25 @@ class Parser {
 		p.type = typeExpr;
 		p.line = tok.line;
 		p.col = tok.col;
-		if (typeExpr.base == "void" && typeExpr.pointerDepth == 0 && typeExpr.genericArgs().len == 0) {
+		bool functionPointer = self.isFunctionPointerDeclarator(self.pos);
+		if (!functionPointer && Parser.isPlainVoid(typeExpr)) {
 			self.failAt("A 'void' parameter must be the only one, unnamed and unqualified: write '(void)'", tok);
 			return p;
 		}
-		if (self.check("COMMA") || self.check("RPAREN") || self.check("LBRACKET") || self.check("EQ")) {
+		p.name = "";
+		if (functionPointer) {
+			Node declarator = self.parseFunctionPointerDeclarator(typeExpr, -1);
+			p.type = declarator.type;
+			p.name = declarator.name;
+			p.nameLine = declarator.nameLine;
+			p.nameCol = declarator.nameCol;
+		} else if (!(self.check("COMMA") || self.check("RPAREN") || self.check("LBRACKET") || self.check("EQ"))) {
+			Token nameTok = self.expect("IDENT");
+			p.name = nameTok.value;
+			p.nameLine = nameTok.line;
+			p.nameCol = nameTok.col;
+		}
+		if (p.name.isEmpty()) {
 			if (!allowUnnamed) {
 				self.failAt(Parser.unnamedParameterMessage(), tok);
 				return p;
@@ -1175,17 +1601,12 @@ class Parser {
 				self.failAt("A 'keep' parameter requires a name", tok);
 				return p;
 			}
-			p.name = "";
-			self.parseDeclaratorArraySuffix(typeExpr);
+			if (!functionPointer) { self.parseDeclaratorArraySuffix(typeExpr); }
 			if (self.check("EQ")) { self.failAt("An unnamed parameter cannot have a default value", self.peek()); }
 			return p;
 		}
-		Token nameTok = self.expect("IDENT");
-		p.name = nameTok.value;
 		p.keep_ = hasKeep;
-		p.nameLine = nameTok.line;
-		p.nameCol = nameTok.col;
-		self.parseDeclaratorArraySuffix(typeExpr);
+		if (!functionPointer) { self.parseDeclaratorArraySuffix(typeExpr); }
 		if (self.matchTok("EQ")) {
 			Node def = self.parseExpression();
 			p.default_ = def;
@@ -1215,11 +1636,20 @@ class Parser {
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			// An empty statement inside a statement list produces nothing.
 			if (self.matchTok("SEMICOLON")) { continue; }
-			Node s = self.parseStatement();
-			blk.statementsMut().push(s);
+			self.parseBlockItemInto(blk.statementsMut());
 		}
 		self.expect("RBRACE");
 		return blk;
+	}
+
+	/* One block item; a declaration splices one statement per declarator. */
+	public void parseBlockItemInto(Vector<Node> statements) {
+		if (self.isVarDeclStart()) {
+			self.parseVarDeclStmtsInto(statements);
+			self.expect("SEMICOLON");
+			return;
+		}
+		statements.push(self.parseStatement());
 	}
 
 	/* The substatement of if/else/while/C-for/do. A braced body is its own
@@ -1311,10 +1741,6 @@ class Parser {
 			return n;
 		}
 
-		if (self.isVarDeclStart()) {
-			return self.parseVarDeclStmt();
-		}
-
 		return self.parseExprStmt();
 	}
 
@@ -1368,20 +1794,25 @@ class Parser {
 		if (typeEnd < 0 || typeEnd >= self.tokens.len) {
 			return false;
 		}
+		if (self.isFunctionPointerDeclarator(typeEnd)) {
+			return self.isFunctionPointerDeclaration(typeEnd);
+		}
 		if (self.tokenTypeAt(typeEnd) != "IDENT") {
 			// `int string = 0;` is a declaration the name check refuses;
 			// `int function(...)` stays a verbose lambda.
 			string follower = self.tokenTypeAt(typeEnd + 1);
-			return self.isReservedName(typeEnd) && (follower == "EQ" || follower == "SEMICOLON" || follower == "LBRACKET");
+			return self.isReservedName(typeEnd) && (follower == "EQ" || follower == "SEMICOLON" || follower == "LBRACKET" || follower == "COMMA");
 		}
 		if (self.deferredCSpecifierMessage(self.tokens.get(typeEnd).value) != "") {
 			return true;
 		}
 		string afterName = self.tokenTypeAt(typeEnd + 1);
-		return afterName == "EQ" || afterName == "SEMICOLON" || afterName == "LBRACKET";
+		return afterName == "EQ" || afterName == "SEMICOLON" || afterName == "LBRACKET" || afterName == "COMMA";
 	}
 
-	public Node parseVarDeclStmt() {
+	/* A block-scope or C-for declaration up to its terminator, one
+	 * VarDeclStmt per declarator. */
+	public void parseVarDeclStmtsInto(Vector<Node> statements) {
 		Token tok = self.peek();
 
 		if (self.check("VAR")) {
@@ -1389,7 +1820,7 @@ class Parser {
 			Token nameTok = self.expect("IDENT");
 			self.expect("EQ");
 			Node init = self.parseExpression();
-			self.expect("SEMICOLON");
+			self.refuseVarDeclarators();
 			Node vd = Node();
 			vd.kind = NK_VAR_DECL_STMT;
 			vd.name = nameTok.value;
@@ -1398,26 +1829,14 @@ class Parser {
 			vd.col = tok.col;
 			vd.nameLine = nameTok.line;
 			vd.nameCol = nameTok.col;
-			return vd;
+			statements.push(vd);
+			return;
 		}
 
 		Node typeExpr = self.parseType();
-		Token nameTok = self.expect("IDENT");
-		Node vd = Node();
-		vd.kind = NK_VAR_DECL_STMT;
-		vd.type = typeExpr;
-		vd.name = nameTok.value;
-		vd.line = tok.line;
-		vd.col = tok.col;
-		vd.nameLine = nameTok.line;
-		vd.nameCol = nameTok.col;
-		self.parseDeclaratorArraySuffix(typeExpr);
-		if (self.matchTok("EQ")) {
-			Node init = self.parseExpression();
-			vd.initializer = init;
-		}
-		self.expect("SEMICOLON");
-		return vd;
+		Node specifier = Parser.declaratorSpecifier(typeExpr);
+		Node declarator = self.parseDeclaratorName(typeExpr);
+		self.parseDeclarators(statements, declarator.type, Parser.declaratorNameToken(declarator), tok, specifier, true, true);
 	}
 
 	/* ---- Control flow ---- */
@@ -1532,46 +1951,12 @@ class Parser {
 
 		if (!self.check("SEMICOLON")) {
 			if (self.isVarDeclStart()) {
-				Token start = self.peek();
-				if (self.check("VAR")) {
-					self.advance();
-					Token nameTok = self.expect("IDENT");
-					self.expect("EQ");
-					Node initVal = self.parseExpression();
-					Node vd = Node();
-					vd.kind = NK_VAR_DECL_STMT;
-					vd.name = nameTok.value;
-					vd.initializer = initVal;
-					vd.line = start.line;
-					vd.col = start.col;
-					vd.nameLine = nameTok.line;
-					vd.nameCol = nameTok.col;
-					Node iv = Node();
-					iv.kind = NK_FOR_INIT_VAR;
-					iv.declarationsMut().push(vd);
-					n.init = iv;
-				} else {
-					Node typeExpr = self.parseType();
-					Token nameTok = self.expect("IDENT");
-					Node vd = Node();
-					vd.kind = NK_VAR_DECL_STMT;
-					vd.type = typeExpr;
-					vd.name = nameTok.value;
-					vd.line = start.line;
-					vd.col = start.col;
-					vd.nameLine = nameTok.line;
-					vd.nameCol = nameTok.col;
-					if (self.matchTok("EQ")) {
-						Node iv2 = self.parseExpression();
-						vd.initializer = iv2;
-					}
-					Node ivar = Node();
-					ivar.kind = NK_FOR_INIT_VAR;
-					ivar.declarationsMut().push(vd);
-					n.init = ivar;
-				}
+				Node ivar = Node();
+				ivar.kind = NK_FOR_INIT_VAR;
+				self.parseVarDeclStmtsInto(ivar.declarationsMut());
+				n.init = ivar;
 			} else {
-				Node e = self.parseExpression();
+				Node e = self.parseForHeaderExpression();
 				Node ie = Node();
 				ie.kind = NK_FOR_INIT_EXPR;
 				ie.expression = e;
@@ -1587,7 +1972,7 @@ class Parser {
 		self.expect("SEMICOLON");
 
 		if (!self.check("RPAREN")) {
-			Node upd = self.parseExpression();
+			Node upd = self.parseForHeaderExpression();
 			n.update = upd;
 		}
 		self.expect("RPAREN");
@@ -1595,6 +1980,25 @@ class Parser {
 		Node body = self.parseBody();
 		n.bodyNode = body;
 		return n;
+	}
+
+	/* A C-for initializer or update: C's comma operator (D19 row 19). Two or
+	 * more operands become a CommaExpr positioned at its first operand; one
+	 * operand stays a plain expression. The condition and every other
+	 * position keep `(a, b)` a tuple. */
+	public Node parseForHeaderExpression() {
+		Node first = self.parseExpression();
+		if (!self.check("COMMA")) { return first; }
+		Node comma = Node();
+		comma.kind = NK_COMMA_EXPR;
+		comma.line = first.line;
+		comma.col = first.col;
+		comma.elementsMut().push(first);
+		while (!self.failed && self.matchTok("COMMA")) {
+			Node next = self.parseExpression();
+			comma.elementsMut().push(next);
+		}
+		return comma;
 	}
 
 	public Node parseParallelForStmt() {
@@ -1648,8 +2052,7 @@ class Parser {
 		self.expect("COLON");
 		while (!self.check("CASE") && !self.check("DEFAULT") && !self.check("RBRACE") && !self.atEnd()) {
 			if (self.matchTok("SEMICOLON")) { continue; }
-			Node s = self.parseStatement();
-			n.bodyNodeListMut().push(s);
+			self.parseBlockItemInto(n.bodyNodeListMut());
 		}
 		return n;
 	}
@@ -1895,7 +2298,7 @@ class Parser {
 
 	public bool isCast() {
 		int typeStart = self.pos + 1;
-		int typeEnd = self.scanTypeEnd(typeStart);
+		int typeEnd = self.scanAbstractType(typeStart);
 		if (typeEnd < 0 || self.tokenTypeAt(typeEnd) != "RPAREN") {
 			return false;
 		}
@@ -1907,7 +2310,7 @@ class Parser {
 
 	public Node parseCast() {
 		Token tok = self.expect("LPAREN");
-		Node targetType = self.parseType();
+		Node targetType = self.parseAbstractType();
 		self.expect("RPAREN");
 		Node expr = self.parseUnary();
 		Node n = Node();
@@ -1920,7 +2323,7 @@ class Parser {
 	}
 
 	public bool isSizeofType() {
-		int typeEnd = self.scanTypeEnd(self.pos);
+		int typeEnd = self.scanAbstractType(self.pos);
 		return typeEnd >= 0 && self.tokenTypeAt(typeEnd) == "RPAREN";
 	}
 
@@ -1943,7 +2346,7 @@ class Parser {
 	}
 
 	public Node makeSizeofType() {
-		Node ty = self.parseType();
+		Node ty = self.parseAbstractType();
 		Node st = Node();
 		st.kind = NK_SIZEOF_TYPE;
 		st.type = ty;

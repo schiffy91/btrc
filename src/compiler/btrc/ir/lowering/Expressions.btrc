@@ -1034,6 +1034,13 @@ class ExpressionLowerer {
 			if (self.analyzed.funcTable.has(node.name) && !varTypes.has(node.name)) {
 				return IRNode.functionReference(self.declarations.sourceFunctionSymbol(node.name));
 			}
+			Node? constant = self.context.sourceLexicalBindings.has(node.name) ? null : self.analyzed.foldedNativeConstant(node.name);
+			if (constant != null) {
+				Node valueType = TypeShape.copy(constant.type);
+				valueType.isConst = false;
+				Node literal = constant.initializer.kind == NK_UNARY_EXPR ? constant.initializer.operand : constant.initializer;
+				return IRNode.cast(self.cTypes.lower(valueType), IRNode.literal((constant.initializer.kind == NK_UNARY_EXPR ? "-" : "") + literal.raw));
+			}
 			if (!self.context.sourceLexicalBindings.has(node.name) && self.analyzed.nativeGlobalReturnsOwned(node.name)) {
 				Vector<IRNode> noArguments = [];
 				string prefix = self.analyzed.isObjectiveCGlobal(node.name) ? "__btrc_objc_read_" : "__btrc_native_read_";
@@ -1102,6 +1109,17 @@ class ExpressionLowerer {
 				targetC = self.cTypes.lowerGeneric(node.targetType, self.context.activeTypeMap);
 			}
 			return IRNode.cast(targetC, self.lowerExpr(node.expr, varTypes, callableFlow));
+		}
+		if (node.kind == NK_COMMA_EXPR) {
+			/* C's comma operator in a for header: each operand in order,
+			 * lowered as that header position lowers one expression. Both
+			 * header positions discard the value, so every operand is cast
+			 * to void. */
+			Vector<IRNode> operands = [];
+			for element in node.elements() {
+				operands.push(IRNode.cast("void", self.lowerExpr(element, varTypes, callableFlow)));
+			}
+			return IRNode.commaExpression(operands);
 		}
 		if (node.kind == NK_TERNARY_EXPR) {
 			return self.lowerTypedTernary(node, varTypes, callableFlow);

@@ -88,6 +88,30 @@ In `btrcc` the flow is `NullableFlow`, beside `ControlFlowValidator`, and
 module-unit validation records carry each body's warnings, so a replayed
 record reports what live validation did.
 
+### Callable const layers
+
+A function passed to a callable parameter keeps its declared const layers in
+both compilers. `btrcc` used to flatten typedefs in each signature component
+before comparing them, which puts a slot const (`Handle const*` with
+`Handle = struct HandleStorage*`) and a pointee const (`const HandleStorage**`)
+on one shape; Python compares `declaration_const_depths`. `btrcc` now checks
+every argument bound to a callable parameter layer by layer on the unflattened
+types (`TypeValidator.argumentConstLayersMatch`). The gap surfaced when
+native tag aliases made `const struct HandleStorage**` name the imported record
+(`test_native_linux_call_shapes.py::test_callback_slot_const_is_not_pointee_const`);
+it already applied to the untagged spelling. Python also applies the rule to
+assignments and initializers of callable type; `btrcc` checks call arguments.
+
+### Call arity wording
+
+Both compilers refuse a call with the wrong number of arguments, but word it
+differently: Python reports the expected range (`'f()' expects at least 2
+argument(s) but got 1`, or `at most`), and `btrcc` names the first missing
+parameter (`'f()' missing required argument 'b'`) and reports only the first
+such call. Found while proving whole-function variadic shapes
+(`test_native_linux_call_shapes.py` pins the refusal, not the text); it applies
+to every function, not only native imports.
+
 ## Remaining differences in emitted C
 
 The two compilers' C is not byte-identical, so `test_examples.py` and the

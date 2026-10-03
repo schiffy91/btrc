@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.python.core_audio_fixtures import fault_package
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -139,7 +140,7 @@ def test_core_audio_inventory_sdk_failures(
 ) -> None:
     generated = tmp_path / "Inventory.c"
     plan = tmp_path / "Inventory.link.json"
-    _transpile(compiler, generated, plan, request, FIXTURE / fixture_name)
+    _transpile(compiler, generated, plan, request, fault_package(tmp_path / "package", fixture_name))
     executable = tmp_path / "Inventory"
     environment = {key: value for key, value in os.environ.items() if key not in {"DEVELOPER_DIR", "SDKROOT"}}
     sdk_flags = ["-isysroot", os.environ["BTRC_NATIVE_SYSROOT"], "-target", os.environ["BTRC_NATIVE_TARGET"]]

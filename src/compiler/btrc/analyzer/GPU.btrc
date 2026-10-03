@@ -412,6 +412,11 @@ class GpuKernelValidator {
 	}
 
 	private void validateUpdate(Node expression) {
+		if (expression.kind == NK_COMMA_EXPR) {
+			// A for-header comma list: each operand is its own update.
+			for element in expression.elements() { self.validateUpdate(element); }
+			return;
+		}
 		bool update = self.isUpdateStatement(expression);
 		if (!update) {
 			self.error("for-loop initializer/update must update a variable or buffer element", expression);

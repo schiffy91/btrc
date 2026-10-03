@@ -839,9 +839,17 @@ class FeManifestBlock {
 
 	private void finishVariadicCalls(FeNativeBinding binding) {
 		Map<string, bool> names = self.variadicCallNames;
+		Map<string, bool> extraFields = {};
 		for key in self.fields.keys() {
 			if (!key.startsWith("variadic-calls.")) { continue; }
 			var parts = Strings.split(key, ".");
+			// `function.selector` binds an opcode constant; a bare `function`
+			// fixes one tail for every call and keeps the selector visible.
+			if (parts.len == 3) {
+				if (parts.get(2) != "arguments") { extraFields.put(parts.get(1), true); }
+				names.put(parts.get(1), true);
+				continue;
+			}
 			if (parts.len != 4 || !["value", "arguments"].contains(parts.get(3))) { FePackageFailure.fail("variadic-calls requires value and arguments"); }
 			names.put(parts.get(1) + "." + parts.get(2), true);
 		}
@@ -850,11 +858,15 @@ class FeManifestBlock {
 		Vector<string> pointees = ["int", "unsigned int", "long", "unsigned long", "long long", "unsigned long long", "double", "char", "signed char", "unsigned char", "short", "unsigned short", "float"];
 		for name in names.keys() {
 			var parts = Strings.split(name, ".");
-			if (binding.language != "c" || parts.len != 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("variadic-calls requires selected C function.parameter paths"); }
+			bool whole = parts.len == 1;
 			string prefix = "variadic-calls." + name + ".";
-			string value = self.requiredText(prefix + "value");
+			if (whole) {
+				if (binding.language != "c" || !binding.symbols.contains(name)) { FePackageFailure.fail("variadic-calls must name selected functions"); }
+				if (extraFields.has(name) || !self.fields.has(prefix + "arguments")) { FePackageFailure.fail("variadic-calls requires only arguments for a whole function"); }
+			} else if (binding.language != "c" || parts.len > 2 || !binding.symbols.contains(parts.get(0)) || !self.identifier(parts.get(1))) { FePackageFailure.fail("variadic-calls requires selected C function.parameter paths"); }
+			string value = whole ? "" : self.requiredText(prefix + "value");
 			Vector<string> arguments = self.stringArray(prefix + "arguments", true);
-			if (!binding.symbols.contains(value)) { FePackageFailure.fail("variadic-calls value must name a selected SDK constant"); }
+			if (!whole && !binding.symbols.contains(value)) { FePackageFailure.fail("variadic-calls value must name a selected SDK constant"); }
 			if (arguments.len == 0) { FePackageFailure.fail("variadic-calls arguments must be a nonempty native scalar type list"); }
 			for argument in arguments {
 				string pointee = argument.endsWith("*") ? argument.substring(0, argument.length() - 1) : "";

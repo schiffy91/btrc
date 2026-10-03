@@ -2446,8 +2446,9 @@ class DeclarationLowerer {
 			else { self.emitObjectiveCAdapters(imported, m); }
 		}
 		if ((imported.language == "objective-c" || imported.language == "c++" || self.analyzed.nativeGlobalReturnsOwned(imported.declaration.name)) && imported.declaration.kind == NK_VAR_DECL_STMT && !nativeConstants.has(imported.declaration.name)) {
+			// An integer constant carries an initializer; its references fold
+			// to the value, so nothing is declared under its name.
 			if (imported.declaration.initializer == null) { self.emitNativeGlobal(imported, m); }
-			else { self.emitGlobalVar(imported.declaration, m, false); }
 			nativeConstants.put(imported.declaration.name, true);
 		}
 		FeNativeCallContract? callContract = imported.callContract;

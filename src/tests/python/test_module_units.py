@@ -26,6 +26,7 @@ from src.compiler.python.frontend.native_imports import NativeGeneratedSource, N
 from src.compiler.python.frontend.sources import CompilationGroups, SourceDependencyGraph
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
 from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.pugixml_fixtures import pugixml_project as pugixml_project
@@ -459,11 +460,12 @@ def test_realtime_proofs_cross_units_into_native_adapters(compiler: str, tmp_pat
     if not os.environ.get("BTRC_NATIVE_SYSROOT") or not os.environ.get("BTRC_NATIVE_TARGET"):
         pytest.skip("CoreAudio units need the native SDK environment")
     prefix = tmp_path / "program"
+    source = fault_package(tmp_path / "package", "CoreAudioUnitConformance.btrc")
     arguments = [
         "--strict-imports",
         "--target",
         "macos-arm64",
-        str(AUDIO / "CoreAudioUnitConformance.btrc"),
+        str(source),
         "-o",
         f"{prefix}.c",
         "--emit-units",

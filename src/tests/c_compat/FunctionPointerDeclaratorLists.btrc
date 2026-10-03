@@ -1,0 +1,44 @@
+// C rows 3 and 7: a function-pointer declarator is one more declarator in a
+// list, first or later, each with its own initializer (PLAN.md D20).
+#include <assert.h>
+
+int add(int a, int b) { return a + b; }
+
+int subtract(int a, int b) { return a - b; }
+
+int seven(void) { return 7; }
+
+char letter(int index) { return (char)('a' + index); }
+
+typedef int (*BinaryOp)(int, int), (*Nullary)(void);
+
+static int (*plus)(int, int) = add, (*minus)(int, int) = subtract;
+
+struct Ops {
+	int (*first)(int, int), (*second)(int, int);
+	int count, *where;
+};
+
+class Holder {
+	public int (*apply)(int, int) = add, (*undo)(int, int) = subtract;
+}
+
+int main(void) {
+	int (*operation)(int, int) = add, value = 3;
+	int *pointer = &value, (*constant)(void) = seven;
+	char (*name)(int) = letter, initial = name(2);
+	BinaryOp combine = add, split = subtract;
+	Nullary seed = seven;
+	struct Ops ops = {add, subtract, 2, &value};
+	Holder holder = new Holder();
+	int total = 0;
+	for (int (*step)(int, int) = add, i = 0; i < 3; i++) {
+		total = step(total, i);
+	}
+	assert(operation(1, 2) == 3 && value == 3 && *pointer == 3 && constant() == 7);
+	assert(initial == 'c' && combine(2, 2) == 4 && split(5, 2) == 3 && seed() == 7);
+	assert(plus(1, 1) == 2 && minus(3, 1) == 2);
+	assert(ops.second(5, 1) == 4 && *ops.where == 3 && holder.undo(4, 1) == 3 && total == 3);
+	print("PASS: function pointers in declarator lists");
+	return 0;
+}

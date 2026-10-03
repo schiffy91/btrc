@@ -244,7 +244,10 @@ def test_no_extern_was_respelled_away_from_its_c_definition() -> None:
 
     This is the failure mode the camelCase migration hit: an example package's
     btrc started declaring `leafValue` while its header still defined
-    `leaf_value`, and the link failed with an undefined symbol. Rather than
+    `leaf_value`, and the link failed with an undefined symbol. That example
+    now imports both symbols through `[[native.bindings]]`, which read the
+    header's own spelling, so it declares no extern at all; handwritten
+    externs elsewhere still need this check. Rather than
     keep a list of the symbols C owns -- libc's are declared in headers this
     repository cannot read -- the check looks for the fingerprint of a
     half-finished rename: an extern the C sources do not spell, whose

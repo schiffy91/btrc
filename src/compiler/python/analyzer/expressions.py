@@ -23,6 +23,7 @@ from src.compiler.python.syntax.ast.generated import (
     CallExpr,
     CastExpr,
     CharLiteral,
+    CommaExpr,
     FieldAccessExpr,
     FloatLiteral,
     FStringExpr,
@@ -49,6 +50,7 @@ from src.compiler.python.syntax.ast.generated import (
     TupleLiteral,
     TypeExpr,
     UnaryExpr,
+    VarDeclStmt,
 )
 
 _MANAGED_COLLECTION_BASES = frozenset({"Array", "List", "Map", "Set", "Vector"})
@@ -334,6 +336,11 @@ class ExpressionAnalyzer:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
+        if self._is_native_constant(operand):
+            self.session.error(
+                f"Native constant '{operand.name}' is a value and has no address", expression.line, expression.col
+            )
+            return
         operand_type = self.types.canonical_type(self.infer_type(operand))
         if (
             self._is_read_only_native_global(operand)
@@ -667,7 +674,8 @@ class ExpressionAnalyzer:
                 return
             if not self.types.types_compatible(target, source):
                 self.session.error(
-                    f"Cannot assign '{self.types.format_source_type(source)}' to '{self.types.format_source_type(target)}'",
+                    f"Cannot assign '{self.types.format_source_type(source)}' to '{self.types.format_source_type(target)}'"
+                    f"{self.types.comma_tuple_hint(expression.value, target)}",
                     expression.line,
                     expression.col,
                 )
@@ -776,6 +784,20 @@ class ExpressionAnalyzer:
         declaration = self.index.global_declarations.get(target.name)
         origin = getattr(declaration, "source_file", None)
         return isinstance(origin, NativeHeaderSource) and origin.read_only
+
+    def _is_native_constant(self, target) -> bool:
+        """An imported enumerator or integer macro is a compile-time value, not storage."""
+        if not isinstance(target, Identifier):
+            return False
+        symbol = self.session.scope.lookup(target.name)
+        if symbol is None or symbol is not self.session.global_scope.lookup(target.name):
+            return False
+        declaration = self.index.global_declarations.get(target.name)
+        return (
+            isinstance(declaration, VarDeclStmt)
+            and isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+            and declaration.initializer is not None
+        )
 
     def validate_mutable_target(self, target, line, col) -> bool:
         if self._is_read_only_native_global(target):
@@ -1367,6 +1389,9 @@ class ExpressionAnalyzer:
             return operand_type
         elif isinstance(expr, TernaryExpr):
             return self._infer_ternary_type(expr)
+        elif isinstance(expr, CommaExpr):
+            # C's comma operator (for headers only): the last operand's value.
+            return self._infer_type(expr.elements[-1])
         elif isinstance(expr, AssignExpr):
             return self._infer_type(expr.target)
         elif isinstance(expr, LambdaExpr):
@@ -1880,6 +1905,11 @@ class ExpressionAnalyzer:
             self.ownership.validate_opaque_borrow_storage(
                 self._infer_type(expr.target), expr.value, "Assignment", expr.line, expr.col
             )
+        elif isinstance(expr, CommaExpr):
+            # Each operand runs in order; every value but the last is discarded.
+            for element in expr.elements:
+                self._analyze_expr(element)
+                self.aggregates.reject_thread_observation(element)
         elif isinstance(expr, TernaryExpr):
             self._analyze_expr(expr.condition)
             self.aggregates.reject_thread_observation(expr.condition)

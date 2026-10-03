@@ -129,6 +129,10 @@
 --   UPPER_CASE   = terminal token from @literals
 --   lower_case   = non-terminal production rule
 --   (* ... *)    = disambiguation comment
+--
+-- C's comma operator exists only in a C-style for initializer and update
+-- (comma_expr); everywhere else a parenthesized comma list is a tuple
+-- literal, a deliberate refusal (docs/known-language-gaps.md, row 19).
 
 @syntax {
 
@@ -201,16 +205,21 @@
   method_or_field_or_property
               = type_expr IDENT method_rest        (* method: has ( *)
               | type_expr IDENT property_rest       (* property: has { get/set *)
-              | type_expr IDENT field_rest          (* field: has ; or = *)
+              | type_expr IDENT field_rest          (* field: has ; , or = *)
+              | type_expr function_pointer_declarator [ "=" expr ]
+                { "," init_declarator } ";"
               | type_expr "(" param_list ")" block  (* constructor: name matches class *)
               (* Disambiguation: peek at tokens after "type IDENT" to decide.
+                 "(" "*" after the type is a function-pointer field.
                  If "(": method or constructor.
                  If "{" followed by "get" or "set": property.
                  Otherwise: field. *) ;
 
   method_rest     = "(" param_list ")" ( block | ";" ) ;
   property_rest   = "{" { property_accessor } "}" ;
-  field_rest      = [ "=" expr ] ";" ;
+  field_rest      = [ array_suffix ] [ "=" expr ] { "," init_declarator } ";"
+                    (* Each declarator is its own field with the same access
+                       and its own initializer; a property declares one. *) ;
 
   property_accessor = ( "get" | "set" ) ( ";" | block ) ;
 
@@ -236,7 +245,7 @@
                    (struct { int x; };). A named struct with no body is a
                    forward declaration (struct Foo;). *) ;
 
-  struct_field = type_expr IDENT [ "[" expr "]" ] ";" ;
+  struct_field = type_expr first_declarator { "," declarator } ";" ;
 
   -- ----------------------------------------------------------------
   -- Enum declarations
@@ -256,7 +265,11 @@
   -- Typedef
   -- ----------------------------------------------------------------
 
-  typedef_decl = "typedef" type_expr IDENT ";" ;
+  typedef_decl = "typedef" type_expr ( IDENT | function_pointer_declarator )
+                 { "," { "*" } ( IDENT | function_pointer_declarator ) } ";"
+                 (* One alias per declarator, each binding its own "*". A
+                    function type, "typedef R Name(params);", is refused
+                    with a hint to typedef the pointer. *) ;
 
   -- ----------------------------------------------------------------
   -- Function declaration
@@ -264,6 +277,40 @@
 
   function_decl = [ "@gpu" ] [ "keep" ] type_expr IDENT
                   ( "(" param_list ")" block | "(" prototype_param_list ")" ";" ) ;
+
+  -- ----------------------------------------------------------------
+  -- Declarators (C row 7: function pointers)
+  -- ----------------------------------------------------------------
+
+  first_declarator = IDENT [ array_suffix ]
+                   | function_pointer_declarator
+                     (* The first declarator's "*"s are read with type_expr;
+                        each later one binds its own (declarator). *) ;
+
+  function_pointer_declarator
+             = "(" "*" IDENT [ "[" [ expr ] "]" ] ")" pointee_params
+               (* "R (*name)(params)" is CFunction<R, params...>: the same
+                  type, the same C. The array suffix applies to the pointer:
+                  "int (*ops[4])(int)". A storage class written before R
+                  belongs to the declared pointer. Refused with a hint to use
+                  a typedef: a function returning a function pointer
+                  ("(*f(int))(int)"), a pointer to one ("(**p)"), and a
+                  qualified one ("(* const p)"). *) ;
+
+  abstract_function_pointer
+             = "(" "*" ")" pointee_params
+               (* In casts, sizeof and unnamed prototype parameters:
+                  "(int (*)(int))f". An abstract array, "(*[n])", is refused. *) ;
+
+  pointee_params = "(" [ "void" | pointee_param { "," pointee_param } ] ")"
+                   (* "()" and "(void)" are both empty. A trailing "..." is
+                      refused until variadic definitions (C row 14). *) ;
+
+  pointee_param  = type_expr ( function_pointer_declarator
+                             | abstract_function_pointer
+                             | [ IDENT ] [ "[" [ expr ] "]" ] )
+                   (* Names are documentation only; an array parameter is a
+                      pointer (C11 6.7.6.3p7). *) ;
 
   -- ----------------------------------------------------------------
   -- Type expressions
@@ -280,6 +327,22 @@
                  as a suffix on the declared name (e.g. int arr[10]). *) ;
 
   type_qualifier = "const" | "static" | "extern" | "volatile" ;
+
+  -- Several declarators (C11 6.7.6, PLAN.md D20). The first declarator's
+  -- "*"s are the ones type_expr reads; every later declarator writes its own,
+  -- so `int *p, v;` makes v an int. Everything else type_expr reads is the
+  -- specifier and is copied to each declarator: qualifiers, the base type,
+  -- generic arguments and btrc's prefix "[]" (`int[] a, b;` declares two
+  -- arrays). A suffix "[n]" and an initializer belong to their own
+  -- declarator, whose scope starts after it; initializers run left to right.
+  -- Each declarator becomes its own declaration node, spliced in source
+  -- order. Refused: a function declarator beside others (`int f(), x;`), a
+  -- nullable specifier ("?") with several declarators, and several "var"
+  -- declarators.
+
+  declarator      = { "*" } ( IDENT [ array_suffix ] | function_pointer_declarator ) ;
+  init_declarator = declarator [ "=" expr ] ;
+  array_suffix    = "[" [ expr ] "]" ;
 
   base_type = "void" | "int" | "float" | "double" | "char" | "bool" | "string"
             | "short" [ "int" ]
@@ -320,7 +383,8 @@
                   anywhere else -- named, qualified, kept, or beside another
                   parameter -- is refused. *) ;
 
-  param = [ "keep" ] type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
+  param = [ "keep" ] type_expr ( IDENT [ "[" [ expr ] "]" ]
+                                | function_pointer_declarator ) [ "=" expr ]
           (* "keep" qualifier: the callee keep-retains the argument.
              Array-style params: int arr[], int arr[10]
              Default values: int x = 42 *) ;
@@ -329,6 +393,7 @@
 
   prototype_param = param
                   | type_expr [ "[" [ expr ] "]" ]
+                  | type_expr abstract_function_pointer
                     (* An unnamed parameter (C11 6.7.6.3), allowed only in a
                        function_decl ending in ";". It takes no "keep" and no
                        default; a definition supplies the names that named
@@ -373,12 +438,19 @@
             | expr_stmt ;
 
   var_decl_stmt = ( "var" IDENT "=" expr
-                  | type_expr IDENT [ "[" [ expr ] "]" ] [ "=" expr ]
+                  | type_expr first_declarator [ "=" expr ] { "," init_declarator }
                   ) ";"
                   (* Disambiguation: "var" keyword is unambiguous.
                      For typed declarations, parser uses lookahead to check
                      if the token sequence matches "type_expr IDENT" pattern
-                     vs an expression statement. *) ;
+                     vs an expression statement. "T (*name)(...)" declares
+                     when T names a type (D20), decided syntactically: T is
+                     not a bare identifier (a keyword, qualifier,
+                     struct/enum/union or generic arguments), or an "="
+                     follows, or the pointee list holds "void" alone or an
+                     element an expression cannot spell (a non-bare type or
+                     "IDENT IDENT"). Otherwise it is an expression, such as
+                     the call "f(*p)(x);". *) ;
 
   return_stmt     = "return" [ expr ] ";" ;
   if_stmt         = "if" "(" expr ")" body [ "else" ( if_stmt | body ) ] ;
@@ -401,11 +473,22 @@
                      second-next is "in" or ",", it is for-in.
                      Otherwise it is C-style for. *) ;
 
-  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ expr ] ")" body ;
+  c_for_clause  = "(" [ for_init ] ";" [ expr ] ";" [ comma_expr ] ")" body ;
 
-  for_init = var_decl_no_semi | expr ;
+  for_init = var_decl_no_semi | comma_expr ;
+
+  comma_expr = expr { "," expr }
+               (* C's comma operator, accepted only in a C-style for
+                  initializer and update (D19 row 19): operands run left to
+                  right and every value but the last is discarded. Two or
+                  more operands form a CommaExpr; the condition takes one
+                  expr. Everywhere else "(a, b)" is a tuple literal, and
+                  assigning one to a non-tuple names that in its
+                  diagnostic. *) ;
   var_decl_no_semi = "var" IDENT "=" expr
-                   | type_expr IDENT [ "=" expr ] ;
+                   | type_expr first_declarator [ "=" expr ] { "," init_declarator }
+                     (* Several declarators share the loop's scope; they lower
+                        to declarations in a block enclosing the loop. *) ;
 
   parallel_for_stmt = "parallel" "for" IDENT "in" expr block ;
 
@@ -460,7 +543,7 @@
                  | "*" unary          (* dereference *)
                  | "&" unary          (* address-of *)
                  | "sizeof" "(" type_or_expr ")"
-                 | "(" type_expr ")" unary  (* C-style cast *)
+                 | "(" type_expr [ abstract_function_pointer ] ")" unary  (* C-style cast *)
                  | postfix
                  (* Unary "+" is accepted as a C-style no-op (e.g. +5, +x).
 
@@ -489,7 +572,7 @@
                     For a bare identifier, "+" "-" "*" "&" are removed from
                     this set (see above). *) ;
 
-  type_or_expr   = type_expr | expr
+  type_or_expr   = type_expr [ abstract_function_pointer ] | expr
                    (* Ambiguous: sizeof(int) vs sizeof(x). The parser uses
                       lookahead: a type keyword, or an IDENT immediately
                       followed by ")", "*", or "<", is read as a type;

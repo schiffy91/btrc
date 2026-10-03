@@ -1,0 +1,130 @@
+/* C row 3: several declarators in one declaration (PLAN.md D20).
+ * Each declarator binds its own `*`, array suffix and initializer to a copy
+ * of the specifier, its scope starts at its own declarator, and initializers
+ * run left to right. Managed declarators each own one reference. */
+import Library.Vector;
+
+#include <assert.h>
+#include <string.h>
+
+struct Point { int x, y; };
+
+struct Link { int *target, value; };
+
+typedef int Count, *CountPointer;
+
+int firstGlobal = 1, *globalPointer, secondGlobal = 5;
+
+int created = 0;
+int destroyed = 0;
+char order[16];
+int orderLength = 0;
+
+class Tracker {
+	public int id;
+
+	public Tracker(int id) {
+		self.id = id;
+		created++;
+	}
+
+	public void __del__() { destroyed++; }
+}
+
+class Pair {
+	public int left = 1, right = 2;
+	private int hidden, *spare;
+
+	public Pair() {
+		self.hidden = self.left + self.right;
+		self.spare = null;
+	}
+
+	public int total() { return self.hidden; }
+}
+
+int record(char tag, int value) {
+	order[orderLength] = tag;
+	orderLength++;
+	order[orderLength] = '\0';
+	return value;
+}
+
+void checkLocals() {
+	int first = 1, second = first + 1;
+	int x, y;
+	x = 3;
+	y = 4;
+	assert(first == 1 && second == 2);
+	assert(x + y == 7);
+	int *pointer, value;
+	value = 5;
+	pointer = &value;
+	*pointer = 6;
+	assert(value == 6);
+	assert(sizeof(value) == sizeof(int));
+	assert(sizeof(pointer) == sizeof(int*));
+	int numbers[3] = {1, 2, 3}, count = 3, *cursor = numbers;
+	assert(cursor[count - 1] == 3);
+	int[] prefixed = {4, 5}, alsoArray = {6};
+	assert(prefixed[1] + alsoArray[0] == 11);
+	Vector<int> left = [1], right = [2, 3];
+	assert(left.len + right.len == 3);
+	print("PASS: local declarators");
+}
+
+void checkFileScope() {
+	globalPointer = &firstGlobal;
+	assert(*globalPointer + secondGlobal == 6);
+	Count total = 4;
+	CountPointer viaAlias = &total;
+	*viaAlias = 5;
+	assert(total == 5 && sizeof(total) == sizeof(int));
+	struct Point point = {1, 2};
+	assert(point.x + point.y == 3);
+	struct Link link;
+	link.value = 7;
+	link.target = &link.value;
+	assert(*link.target == 7 && sizeof(link.value) == sizeof(int));
+	Pair pair = Pair();
+	assert(pair.left + pair.right == 3 && pair.total() == 3);
+	print("PASS: globals, fields and typedefs");
+}
+
+void checkOrder() {
+	int a = record('a', 1), b = record('b', a + 1), c = record('c', a + b);
+	assert(a == 1 && b == 2 && c == 3);
+	assert(strcmp(order, "abc") == 0);
+	int steps = 0;
+	for (int i = record('i', 0), j = record('j', 9); i < j; i++) {
+		j--;
+		steps++;
+	}
+	assert(steps == 5);
+	assert(strcmp(order, "abcij") == 0);
+	print("PASS: left-to-right initialization");
+}
+
+void checkManaged() {
+	{
+		Tracker first = new Tracker(1), alias = first, second = new Tracker(2);
+		assert(created == 2 && destroyed == 0);
+		assert(alias.id == 1 && second.id == 2);
+	}
+	assert(created == 2 && destroyed == 2);
+	int visits = 0;
+	for (Tracker loop = new Tracker(3), other = loop; visits < 3; visits++) {
+		assert(other.id == 3);
+		if (visits == 1) { continue; }
+	}
+	assert(created == 3 && destroyed == 3);
+	print("PASS: managed declarators");
+}
+
+int main() {
+	checkLocals();
+	checkFileScope();
+	checkOrder();
+	checkManaged();
+	return 0;
+}

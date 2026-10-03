@@ -191,14 +191,17 @@ class NameValidator {
 		self.parameterNames(callable.params(), owner, callable);
 	}
 
-	public void validateUniqueNodeNames(Vector<Node> nodes, string subject, string owner, bool cNamesGenerated) {
+	/* `duplicateNoun` replaces the "<subject> name" wording where the
+	 * reference compiler words a duplicate differently. */
+	public void validateUniqueNodeNames(Vector<Node> nodes, string subject, string owner, bool cNamesGenerated, string duplicateNoun = "") {
 		Map<string, bool> seen = {};
 		int index = 0;
 		while (index < nodes.len) {
 			Node item = nodes.get(index);
 			self.validateDeclaredNameContext(item.name, subject, item, cNamesGenerated);
 			if (seen.has(item.name)) {
-				TypeValidator.fail("Duplicate " + subject.toLower() + " name '" + item.name + "' in " + owner, item);
+				string noun = duplicateNoun == "" ? subject.toLower() + " name" : duplicateNoun;
+				TypeValidator.fail("Duplicate " + noun + " '" + item.name + "' in " + owner, item);
 			}
 			seen.put(item.name, true);
 			index = index + 1;
@@ -248,7 +251,7 @@ class NameValidator {
 					methodIndex = methodIndex + 1;
 				}
 			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
-				self.validateUniqueNodeNames(declaration.fields(), "Struct field", "struct '" + declaration.name + "'", false);
+				self.validateUniqueNodeNames(declaration.fields(), "Struct field", "struct '" + declaration.name + "'", false, "field");
 			} else if (declaration.kind == NK_ENUM_DECL) {
 				self.validateUniqueNodeNames(declaration.values(), "Enum value", "enum '" + declaration.name + "'", declaration.name != "");
 				if (declaration.name == "") {
@@ -277,14 +280,19 @@ class NameValidator {
 
 	public void validateDirectLocalNames(Node? block, Map<string, bool> reserved) {
 		if (block == null) { return; }
+		self.validateDirectLocalNameList(block.statements(), reserved);
+	}
+
+	/* A statement list's own declarations: a block's, or a case clause's. */
+	public void validateDirectLocalNameList(Vector<Node> statements, Map<string, bool> reserved) {
 		Map<string, bool> seen = self.types.cloneFlags(reserved);
 		int index = 0;
-		while (index < block.statements().len) {
-			Node statement = block.statements().get(index);
+		while (index < statements.len) {
+			Node statement = statements.get(index);
 			if (statement.kind == NK_VAR_DECL_STMT) {
 				self.validateDeclaredName(statement.name, "Local variable", statement);
 				if (seen.has(statement.name)) {
-					TypeValidator.fail("Duplicate local variable name '" + statement.name + "' in the same scope", statement);
+					TypeValidator.failAtName("Duplicate variable name '" + statement.name + "' in the same scope", statement);
 				}
 				seen.put(statement.name, true);
 			}
