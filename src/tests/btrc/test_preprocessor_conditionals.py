@@ -1287,3 +1287,64 @@ def test_the_generated_source_check_conditions_every_stdlib_module(tmp_path: Pat
         (stdlib / "Module.btrc").write_text(text)
         with pytest.raises(ValueError, match=re.escape(message)):
             StdlibSymbolIndexGenerator(tmp_path, TargetManifest.load_repository(REPO)).verify_conditions()
+
+
+# -- P2 and P3's binding evidence: the native reader ---------------------------
+
+NATIVE_BINDING = (
+    'manifest-version = 1\n\n[package]\nname = "bindings"\n'
+    '\n[[native.bindings]]\nmodule = "Api"\nheader = "Native.h"\n'
+    'language = "c"\nstandard = "c11"\nsymbols = ["measure"]\n'
+)
+
+
+def native_case(tmp_path: Path, main: str, api: str) -> Path:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "btrc.toml").write_text(NATIVE_BINDING)
+    (tmp_path / "Native.h").write_text("long measure(const char *text);\n")
+    (tmp_path / "src" / "Api.btrc").write_text(api)
+    root = tmp_path / "src" / "Main.btrc"
+    root.write_text(main)
+    return root
+
+
+NATIVE_CASES = [
+    pytest.param(
+        "import ./Api.btrc;\n#ifdef measure\n#endif\nint main() { return 0; }\n",
+        "// Native wrapper module.\n",
+        ("'measure' comes from a native header; #if is evaluated before C compilation and cannot test it",
+         "Main.btrc", 2, 8),
+        id="P2",
+    ),
+    pytest.param(
+        "import ./Api.btrc;\nint main() { return 0; }\n",
+        "// Native wrapper module.\n#ifndef HAVE_MEASURE\n#endif\n",
+        ("'HAVE_MEASURE' may come from C that btrc does not read (native header Native.h for Api.btrc); "
+         "#if is evaluated before C compilation and cannot test it", "Api.btrc", 2, 9),
+        id="P3-binding",
+    ),
+]
+
+
+@pytest.mark.skipif(not NATIVE_HEADER_READER, reason="native bindings need the native header reader")
+@pytest.mark.parametrize(("main", "api", "expected"), NATIVE_CASES)
+def test_native_program_checks_in_both_compilers(
+    main: str, api: str, expected: tuple[str, str, int, int], immutable_btrcc: Path, tmp_path: Path
+) -> None:
+    root = native_case(tmp_path, main, api)
+    arguments = ["--no-stdlib", "--no-cache", "--target", "linux-x86_64", str(root), "-o", str(tmp_path / "Main.c")]
+    reference = subprocess.run(
+        [sys.executable, "-m", "src.compiler.python.main", *arguments],
+        cwd=REPO,
+        env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")},
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    selfhost = btrcc_run(immutable_btrcc, arguments, tmp_path)
+    for result in (reference, selfhost):
+        assert result.returncode != 0
+        match = _RENDERED.search(result.stderr)
+        assert match is not None, result.stderr
+        found = (match["message"], os.path.basename(match["path"]), int(match["line"]), int(match["col"]))
+        assert found == expected

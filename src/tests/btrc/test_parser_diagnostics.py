@@ -253,7 +253,8 @@ def test_parser_driver_reports_stdout_failure(
 INVALID_PREPROCESSOR_DIRECTIVES = [
     (
         "#ifdef FEATURE\nint main() { return 0; }\n",
-        "error: unsupported preprocessor directive '#ifdef'\n",
+        # D4, rendered at its file-local position (c-preprocessor-conditionals.md).
+        "error: '#ifdef' without '#endif'\n  --> {path}:1:1\n   |\n 1 | #ifdef FEATURE\n   | ^\n",
     ),
     (
         "#include <stdio.h\nint main() { return 0; }\n",
@@ -291,7 +292,7 @@ def test_invalid_preprocessor_directives_fail_before_c_emission(
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert result.stderr == expected
+    assert result.stderr == expected.replace("{path}", str(program))
 
 
 def test_structured_preprocessor_declarations_preserve_kind_and_order(

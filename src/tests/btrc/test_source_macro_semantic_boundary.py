@@ -134,40 +134,44 @@ def test_commented_non_exact_hosted_macro_remains_fail_closed(
 
 
 @pytest.mark.parametrize(
-    ("definitions", "should_fail"),
+    "definitions",
     (
-        (
-            "#define WRAP(value) (value)\n#define WRAP(value) strlen(value)",
-            False,
-        ),
-        (
-            "#define WRAP(value) strlen(value)\n#define WRAP(value) (value)",
-            True,
-        ),
+        "#define WRAP(value) (value)\n#define WRAP(value) strlen(value)",
+        "#define WRAP(value) strlen(value)\n#define WRAP(value) (value)",
     ),
 )
-def test_latest_macro_redefinition_is_deterministic(
+def test_non_identical_macro_redefinition_is_refused(
     semantic_btrcc: Path,
     tmp_path: Path,
     definitions: str,
-    should_fail: bool,
 ) -> None:
+    """Directives are hoisted, so code reads a macro's final value while a
+    #if reads the one at its position: C11 6.10.3p2's identity rule (M1)."""
+
     source = definitions + '\nint main(){ string text="abc"; return WRAP(text) == 3 ? 0 : 1; }'
     for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
-        assert (result.returncode != 0) is should_fail
-        if should_fail:
-            assert "managed or opaque-borrow argument 1" in result.stderr
+        assert result.returncode != 0
+        assert "Macro 'WRAP' is redefined with a different replacement; #undef it first" in result.stderr
+
+
+def test_identical_macro_redefinition_is_accepted(semantic_btrcc: Path, tmp_path: Path) -> None:
+    source = (
+        "#define WRAP(value) (value)\n#define WRAP(value)  (value) /* same */\n"
+        "int main(){ return WRAP(0); }"
+    )
+    for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
+        assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(
     ("definitions", "should_fail"),
     (
         (
-            "#define INNER __LINE__\n#define INNER 7\n#define OUTER INNER",
+            "#define INNER 7\n#define OUTER INNER",
             False,
         ),
         (
-            "#define INNER 7\n#define INNER __LINE__\n#define OUTER INNER",
+            "#define INNER __LINE__\n#define OUTER INNER",
             True,
         ),
         (
@@ -190,10 +194,13 @@ def test_transitive_macro_queries_use_the_final_active_namespace(
             assert "context-sensitive predefined identifier" in result.stderr
 
 
-def test_undef_remains_a_deterministic_fail_closed_codegen_boundary(
+def test_code_use_of_an_undefd_macro_is_refused(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
+    """Every directive is hoisted ahead of the program, so code would see the
+    macro's final (#undef'd) state: both frontends refuse the use (U1)."""
+
     source = """
         #define WRAP(value) strlen(value)
         #undef WRAP
@@ -201,7 +208,10 @@ def test_undef_remains_a_deterministic_fail_closed_codegen_boundary(
     """
     for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
-        assert "unsupported preprocessor directive '#undef'" in result.stderr
+        assert (
+            "Source macro 'WRAP' cannot be used in code because it is #undef'd; "
+            "btrc emits every #define and #undef before the program"
+        ) in result.stderr
         assert "Unresolved identifier 'WRAP'" not in result.stderr
 
 

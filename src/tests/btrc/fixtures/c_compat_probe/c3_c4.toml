@@ -382,59 +382,193 @@ id = "r18-if-zero"
 row = "18"
 construct = "#if 0 hides a duplicate definition"
 intent = "positive"
-status = "rejected"
-revision = "b5749e6"
-python = { diagnostic = "Duplicate definition of function 'value' at 4:1" }
-btrcc = { diagnostic = "Duplicate definition of function 'value' at 4:1" }
-source = '''
-#if 0
-int value() { return 1; }
-#endif
-int value() { return 2; }
-int main() {
-	if (value() != 2) { return 1; }
-	print("PASS: #if 0");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "6c90ad8"
+python = { exit = 0, stdout = "PASS: preprocessor conditionals\n" }
+btrcc = { exit = 0, stdout = "PASS: preprocessor conditionals\n" }
+corpus = "c_compat/PreprocessorConditionals.btrc"
 
 [[probe]]
 id = "r18-ifdef-else"
 row = "18"
 construct = "#ifdef / #else select one definition"
 intent = "positive"
-status = "rejected"
-revision = "b5749e6"
-python = { diagnostic = "Duplicate definition of function 'speed' at 5:1" }
-btrcc = { diagnostic = "Duplicate definition of function 'speed' at 5:1" }
-source = '''
-#define USE_FAST 1
-#ifdef USE_FAST
-int speed() { return 2; }
-#else
-int speed() { return 1; }
-#endif
-int main() {
-	if (speed() != 2) { return 1; }
-	print("PASS: #ifdef/#else");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "6c90ad8"
+python = { exit = 0, stdout = "PASS: preprocessor conditionals\n" }
+btrcc = { exit = 0, stdout = "PASS: preprocessor conditionals\n" }
+corpus = "c_compat/PreprocessorConditionals.btrc"
 
 [[probe]]
 id = "r18-undefined-identifier-in-if"
 row = "18"
 construct = "#if UNDEFINED (D20 refuses, not silent 0)"
-intent = "negative"
-status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "unsupported preprocessor directive '#if'" }
-btrcc = { diagnostic = "unsupported preprocessor directive '#if'" }
+intent = "positive"
+status = "refused-on-purpose"
+revision = "6c90ad8"
+python = { diagnostic = "Identifier 'NOT_DEFINED_ANYWHERE' in #if is not a macro defined earlier in this file or a target macro; test it with defined(NOT_DEFINED_ANYWHERE) at 1:5" }
+btrcc = { diagnostic = "Identifier 'NOT_DEFINED_ANYWHERE' in #if is not a macro defined earlier in this file or a target macro; test it with defined(NOT_DEFINED_ANYWHERE) at 1:5" }
 source = '''
 #if NOT_DEFINED_ANYWHERE
 int value() { return 1; }
 #endif
 int main() { return 0; }
+'''
+
+[[probe]]
+id = "r18-target-selection"
+row = "18"
+construct = "#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32) selects per target"
+intent = "positive"
+status = "accepted"
+revision = "6c90ad8"
+python = { exit = 0, stdout = "PASS: target selection\n" }
+btrcc = { exit = 0, stdout = "PASS: target selection\n" }
+source = '''
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+int known() { return 1; }
+#else
+int known() { return 0; }
+#endif
+int main() {
+	if (known() != 1) { return 1; }
+	print("PASS: target selection");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r18-body-conditional"
+row = "18"
+construct = "#if inside a function body"
+intent = "positive"
+status = "accepted"
+revision = "6c90ad8"
+python = { exit = 0, stdout = "PASS: body conditional\n" }
+btrcc = { exit = 0, stdout = "PASS: body conditional\n" }
+source = '''
+#define LEVEL 2
+int main() {
+	int value = 0;
+#if LEVEL > 1
+	value = 2;
+#else
+	value = 1;
+#endif
+	if (value != 2) { return 1; }
+	print("PASS: body conditional");
+	return 0;
+}
+'''
+
+[[probe]]
+id = "r18-ifdef-compiler-macro"
+row = "18"
+construct = "#ifdef __GNUC__ (a toolchain macro btrc cannot see)"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "6c90ad8"
+python = { diagnostic = "'__GNUC__' is reserved for the C implementation and is not a btrc target macro; #if cannot test it at 1:8" }
+btrcc = { diagnostic = "'__GNUC__' is reserved for the C implementation and is not a btrc target macro; #if cannot test it at 1:8" }
+source = '''
+#ifdef __GNUC__
+int gnu() { return 1; }
+#endif
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r18-function-like-macro-in-if"
+row = "18"
+construct = "a function-like macro in #if"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "6c90ad8"
+python = { diagnostic = "Function-like macro 'VERSION' cannot be used in #if; btrc expands only object-like macros there at 2:5" }
+btrcc = { diagnostic = "Function-like macro 'VERSION' cannot be used in #if; btrc expands only object-like macros there at 2:5" }
+source = '''
+#define VERSION(major) major
+#if VERSION(2) > 1
+int modern() { return 1; }
+#endif
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r18-live-error"
+row = "18"
+construct = "#error in a live group"
+intent = "negative"
+status = "rejected"
+revision = "6c90ad8"
+python = { diagnostic = "#error unsupported configuration at 2:1" }
+btrcc = { diagnostic = "#error unsupported configuration at 2:1" }
+source = '''
+#if 1
+#error unsupported configuration
+#endif
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r18-unterminated-conditional"
+row = "18"
+construct = "#if without #endif"
+intent = "negative"
+status = "rejected"
+revision = "6c90ad8"
+python = { diagnostic = "'#if' without '#endif' at 1:1" }
+btrcc = { diagnostic = "'#if' without '#endif' at 1:1" }
+source = '''
+#if 1
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r18-undef-macro-used-in-code"
+row = "18"
+construct = "code uses a macro after #undef"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "6c90ad8"
+python = { diagnostic = "Source macro 'LIMIT' cannot be used in code because it is #undef'd; btrc emits every #define and #undef before the program at 2:22" }
+btrcc = { diagnostic = "Source macro 'LIMIT' cannot be used in code because it is #undef'd; btrc emits every #define and #undef before the program at 2:22" }
+source = '''
+#define LIMIT 3
+int limit() { return LIMIT; }
+#undef LIMIT
+int main() { return limit() == 3 ? 0 : 1; }
+'''
+
+[[probe]]
+id = "r18-negative-left-shift"
+row = "18"
+construct = "#if -1 << 1"
+intent = "positive"
+status = "refused-on-purpose"
+revision = "6c90ad8"
+python = { diagnostic = "Left shift of negative value in #if expression at 1:8" }
+btrcc = { diagnostic = "Left shift of negative value in #if expression at 1:8" }
+source = '''
+#if -1 << 1
+int shifted() { return 1; }
+#endif
+int main() { return 0; }
+'''
+
+[[probe]]
+id = "r18-redefinition"
+row = "18"
+construct = "#define N 1 then #define N 2"
+intent = "negative"
+status = "rejected"
+revision = "6c90ad8"
+python = { diagnostic = "Macro 'N' is redefined with a different replacement; #undef it first (C11 6.10.3p2) at 2:1" }
+btrcc = { diagnostic = "Macro 'N' is redefined with a different replacement; #undef it first (C11 6.10.3p2) at 2:1" }
+source = '''
+#define N 1
+#define N 2
+int main() { return N == 2 ? 0 : 1; }
 '''
 
 [[probe]]

@@ -1,4 +1,4 @@
-"""C that btrc rejects on purpose (C rows 1, 7 and 19-24) fails identically in both compilers.
+"""C that btrc rejects on purpose (C rows 1, 7 and 18-24) fails identically in both compilers.
 
 docs/known-language-gaps.md ("C that btrc rejects on purpose") states each
 policy. Every refusal here is pinned to one diagnostic -- message, line and
@@ -1033,3 +1033,139 @@ def test_every_c1_refusal_family_is_pinned_identically() -> None:
     for family, message in C1_REFUSAL_FAMILIES.items():
         assert family in identical, family
         assert identical[family][0] == message, family
+
+
+# Row 18 (C4, docs/known-language-gaps.md): btrc evaluates #if, but C compiles
+# the program, so whatever #if cannot see is refused, never guessed
+# (c-preprocessor-conditionals.md, "Refusals"). Each is pinned identically in
+# both compilers, positions file-local; the host target conditions them, so
+# every outcome here is target-independent.
+NOT_A_TARGET_MACRO = (
+    "Identifier '{0}' in #if is not a macro defined earlier in this file or a target macro; test it with defined({0})"
+)
+RESERVED_IN_IF = "'{}' is reserved for the C implementation and is not a btrc target macro; #if cannot test it"
+FOREIGN_IN_IF = (
+    "'{}' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation "
+    "and cannot test it"
+)
+UNDEFD_IN_CODE = "Source macro '{}' cannot be used in code because it is #undef'd; " + (
+    "btrc emits every #define and #undef before the program"
+)
+MAIN = "\nint main() { return 0; }"
+
+PREPROCESSOR_REFUSALS = [
+    pytest.param("#if UNKNOWN_FLAG\n#endif" + MAIN, (NOT_A_TARGET_MACRO.format("UNKNOWN_FLAG"), 1, 5), id="r18-i1"),
+    pytest.param("#if __LINE__ > 0\n#endif" + MAIN, (RESERVED_IN_IF.format("__LINE__"), 1, 5), id="r18-i2-line"),
+    pytest.param("#ifdef __GNUC__\n#endif" + MAIN, (RESERVED_IN_IF.format("__GNUC__"), 1, 8), id="r18-i2-gnuc"),
+    pytest.param("#ifdef PATH_MAX\n#endif" + MAIN, (FOREIGN_IN_IF.format("PATH_MAX"), 1, 8), id="r18-i3"),
+    pytest.param(
+        "#define VERSION(x) x\n#if VERSION(1)\n#endif" + MAIN,
+        ("Function-like macro 'VERSION' cannot be used in #if; btrc expands only object-like macros there", 2, 5),
+        id="r18-i4",
+    ),
+    pytest.param("#define X X\n#if X\n#endif" + MAIN, ("Macro 'X' expands to itself in #if", 2, 5), id="r18-i6"),
+    pytest.param(
+        "#define P a ## b\n#if P\n#endif" + MAIN, ("Macro 'P' uses '##', which #if does not evaluate", 2, 5), id="r18-i8"
+    ),
+    pytest.param(
+        "#if 0 && (1, 2)\n#endif" + MAIN, ("',' is not allowed in a #if expression", 1, 12), id="r18-e7-comma"
+    ),
+    pytest.param(
+        "#if '\\xff'\n#endif" + MAIN,
+        ("Character constant '\\xff' in #if has a target-dependent value; write its integer value", 1, 5),
+        id="r18-e10",
+    ),
+    pytest.param(
+        "#if L'a'\n#endif" + MAIN,
+        ("Wide character constant L'a' in #if; write its integer value", 1, 5),
+        id="r18-e15",
+    ),
+    pytest.param(
+        "#if -1 << 1\n#endif" + MAIN, ("Left shift of negative value in #if expression", 1, 8), id="r18-a4"
+    ),
+    pytest.param(
+        "#if -1 < 0u\n#endif" + MAIN,
+        ("#if expression converts negative value -1 to unsigned for '<'", 1, 8),
+        id="r18-a5",
+    ),
+    pytest.param(
+        "#undef max" + MAIN,
+        ("#undef of 'max' is not allowed; btrc undefines only macros that its own sources #define", 1, 1),
+        id="r18-m2",
+    ),
+    pytest.param(
+        "#define WRAP 1\n#undef WRAP\nint main() { return WRAP; }",
+        (UNDEFD_IN_CODE.format("WRAP"), 3, 21),
+        id="r18-u1",
+    ),
+    pytest.param(
+        "#define WRAP 1\n#define A WRAP\n#undef WRAP\nint main() { return A; }",
+        (
+            "Source macro 'A' cannot be used in code because it expands to #undef'd macro 'WRAP'; "
+            "btrc emits every #define and #undef before the program",
+            4,
+            21,
+        ),
+        id="r18-u2",
+    ),
+    pytest.param(
+        "#if 0\n#elifdef X\n#endif" + MAIN,
+        ("'#elifdef' is C23; write '#elif defined(NAME)'", 2, 1),
+        id="r18-d9-dead",
+    ),
+    pytest.param(
+        "#if 0\n#define X \\\n1\n#endif" + MAIN,
+        ("multi-line preprocessor directives are unsupported", 2, 11),
+        id="r18-d10-dead",
+    ),
+    pytest.param(
+        "%:if 1\n%:endif" + MAIN, ("'%:' is not supported as a spelling of '#'; write '#'", 1, 1), id="r18-d14"
+    ),
+    pytest.param(
+        "#if 0\n#/**/define X 1\n#endif" + MAIN,
+        ("a comment between '#' and the directive name is unsupported", 2, 2),
+        id="r18-d16-dead",
+    ),
+    pytest.param(
+        "#if 0\n#if\f1\n#endif\n#endif" + MAIN,
+        ("only spaces and tabs may separate tokens in a preprocessor directive (C11 6.10p5)", 2, 4),
+        id="r18-d17-dead",
+    ),
+    pytest.param(
+        "#if 0\nint x = 08;\n#endif" + MAIN, ("Invalid digit '8' in octal literal", 2, 9), id="r18-dead-group-lexes"
+    ),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), PREPROCESSOR_REFUSALS)
+def test_preprocessor_refusal_is_identical_in_both_compilers(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+    expected: tuple[str, int, int],
+) -> None:
+    selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
+    assert selfhost.returncode != 0 and reference.returncode != 0
+    assert diagnostic_identity(selfhost.stderr) == expected
+    assert diagnostic_identity(reference.stderr) == expected
+
+
+def test_null_directive_is_refused_in_both_compilers(semantic_btrcc: Path, tmp_path: Path) -> None:
+    """The null directive `#` keeps lowering's unpositioned refusal."""
+
+    for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, "#" + MAIN):
+        assert result.returncode != 0
+        assert "malformed preprocessor directive" in result.stderr
+
+
+PROGRAM_CHECK_IDS = ("P1", "P3-quoted-include", "P3-c-import", "P4")
+
+
+def test_program_check_refusals_are_pinned_in_both_compilers() -> None:
+    """P1-P4 need several files; the C4 suite pins each, through both
+    compilers, in test_preprocessor_conditionals.DIAGNOSTIC_CASES."""
+
+    from src.tests.btrc.test_preprocessor_conditionals import DIAGNOSTIC_CASES
+
+    pinned = {case.name for case in DIAGNOSTIC_CASES}
+    assert set(PROGRAM_CHECK_IDS) <= pinned
