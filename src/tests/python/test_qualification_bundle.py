@@ -61,7 +61,11 @@ def _minimal(**overrides: object) -> dict:
         ({"jobs": [{"workflow": "ci.yml", "job": "s", "tiers": ["pr"], "reports": ["coverage"]}]}, "unknown coverage"),
         ({"jobs": [{"workflow": "ci.yml", "job": "s", "tiers": ["pr"], "changed_tiers": ["main"]}]}, "go together"),
         (
-            {"jobs": [{"workflow": "ci.yml", "job": "s", "tiers": ["pr"], "changed_tiers": ["pr"], "changed_paths": ["a"]}]},
+            {
+                "jobs": [
+                    {"workflow": "ci.yml", "job": "s", "tiers": ["pr"], "changed_tiers": ["pr"], "changed_paths": ["a"]}
+                ]
+            },
             "both unconditional and changed",
         ),
         ({"jobs": [{"workflow": "ci.yml", "job": "s", "tiers": ["pr"], "typo": 1}]}, "unknown field"),
@@ -169,7 +173,11 @@ def test_a_pull_request_runs_the_unit_shard_and_the_corpus_its_paths_select() ->
     rows = _rows(corpus, "tests")
     assert list(rows) == ["unit", "corpus-python", "corpus-btrc"]
     expected = '-k "python-memory/ or btrc-memory/ or python-strings/ or btrc-strings/"'
-    assert rows["corpus-python"] == {"shard": "corpus-python", "target": "test-shard-corpus-python", "pytest_addopts": expected}
+    assert rows["corpus-python"] == {
+        "shard": "corpus-python",
+        "target": "test-shard-corpus-python",
+        "pytest_addopts": expected,
+    }
     assert rows["corpus-btrc"]["pytest_addopts"] == expected
     assert corpus["reports"]["tests"] == [
         "skip-report-ci-tests-unit",
@@ -179,13 +187,19 @@ def test_a_pull_request_runs_the_unit_shard_and_the_corpus_its_paths_select() ->
 
     stdlib = _rows(manifest.plan("ci.yml", "pr", ["src/stdlib/GUI/Linux/Window.btrc"]), "tests")
     assert list(stdlib) == ["unit", "btrc", "corpus-python", "corpus-btrc"]
-    assert stdlib["corpus-python"]["pytest_addopts"] == '-k "python-imports/ or btrc-imports/ or python-stdlib/ or btrc-stdlib/"'
+    assert (
+        stdlib["corpus-python"]["pytest_addopts"]
+        == '-k "python-imports/ or btrc-imports/ or python-stdlib/ or btrc-stdlib/"'
+    )
 
     # A change to the corpus runner selects the whole corpus, with no -k.
     whole = _rows(manifest.plan("ci.yml", "pr", ["src/tests/runner.py"]), "tests")
     assert "pytest_addopts" not in whole["corpus-python"]
     # A non-corpus test directory selects nothing.
     assert list(_rows(manifest.plan("ci.yml", "pr", ["src/tests/python/test_x.py"]), "tests")) == ["unit"]
+    # Packaging and benchmark changes bring the jobs that exercise them.
+    assert manifest.plan("ci.yml", "pr", ["src/devex/lsp/server.py"])["jobs"] == ["static", "release", "tests"]
+    assert manifest.plan("ci.yml", "pr", ["tools/bench/suite.py"])["jobs"] == ["static", "tests", "bench"]
 
 
 def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() -> None:
@@ -272,8 +286,17 @@ BOUNDARY = {
     ],
 }
 BENCH = {
-    "meta": {"platform": "linux-x86_64", "revision": "abc1234", "cc": "gcc", "recorded_at": "2026-10-03T08:00:00+00:00"},
-    "metrics": {"btrcc.compile.BenchHello_ms": 41.5, "emit.BenchHello.c_bytes": 120345, "btrcc.compile.BenchArc_peak": 9e6},
+    "meta": {
+        "platform": "linux-x86_64",
+        "revision": "abc1234",
+        "cc": "gcc",
+        "recorded_at": "2026-10-03T08:00:00+00:00",
+    },
+    "metrics": {
+        "btrcc.compile.BenchHello_ms": 41.5,
+        "emit.BenchHello.c_bytes": 120345,
+        "btrcc.compile.BenchArc_peak": 9e6,
+    },
 }
 
 
@@ -343,7 +366,11 @@ def test_a_bundle_holds_every_jobs_records_and_its_raw_inputs(tmp_path: Path) ->
     assert (document["revision"], document["tier"], document["run"]) == ("abc1234", "release", "42")
     assert document["missing"] == [] and document["problems"] == [] and document["extra"] == []
     assert document["ignored"] == ["btrcc-linux-x64"]
-    assert document["counts"]["records"] == len(records)
+    assert document["counts"] == {
+        "records": len(records),
+        "inputs": 5,
+        "inputs_by_kind": {"bench": 1, "boundary-report": 1, "junit": 1, "skip-report": 2},
+    }
     assert {item["artifact"]: item["job"] for item in document["inputs"]} == {
         "bench-results": "ci.yml/bench",
         "boundary-report-ci-tests-bootstrap": "ci.yml/tests",

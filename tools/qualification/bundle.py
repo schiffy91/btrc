@@ -33,7 +33,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from tools.qualification.adapters import RUNNER_PLATFORMS, BoundaryReportAdapter, JUnitAdapter, SkipReportAdapter
 from tools.qualification.schema import (
@@ -92,8 +92,19 @@ class ToolsBenchAdapter:
     keeps its sample and says why it is not acceptance evidence.
     """
 
-    UNITS = {"ms": "ms", "bytes": "bytes", "lines": "lines", "parity": "parity", "count": "count", "peak": "bytes"}
-    PLATFORMS = {"darwin": Platform.MACOS, "linux": Platform.LINUX, "windows": Platform.WINDOWS}
+    UNITS: ClassVar[dict[str, str]] = {
+        "ms": "ms",
+        "bytes": "bytes",
+        "lines": "lines",
+        "parity": "parity",
+        "count": "count",
+        "peak": "bytes",
+    }
+    PLATFORMS: ClassVar[dict[str, Platform]] = {
+        "darwin": Platform.MACOS,
+        "linux": Platform.LINUX,
+        "windows": Platform.WINDOWS,
+    }
 
     def __init__(self, provenance: Provenance, runner: str) -> None:
         self.provenance = provenance
@@ -124,7 +135,11 @@ class ToolsBenchAdapter:
                 "runner": self.runner,
                 **{
                     name: str(meta[key])
-                    for name, key in (("btrc_revision", "revision"), ("recorded_at", "recorded_at"), ("c_compiler", "cc"))
+                    for name, key in (
+                        ("btrc_revision", "revision"),
+                        ("recorded_at", "recorded_at"),
+                        ("c_compiler", "cc"),
+                    )
                     if meta.get(key)
                 },
             },
@@ -139,14 +154,20 @@ class ToolsBenchAdapter:
             shortfalls = LedgerRecord.acceptance_shortfalls(subject, measurement, provenance)
             reason = "; ".join(["a hosted bench-check regression guard, not a P6 budget measurement", *shortfalls])
             evidence = Evidence(EvidenceStatus.IMPLEMENTED_UNVERIFIED, "measured", reason, artifact)
-            records.append(LedgerRecord(subject=subject, evidence=evidence, measurement=measurement, provenance=provenance))
+            records.append(
+                LedgerRecord(subject=subject, evidence=evidence, measurement=measurement, provenance=provenance)
+            )
         return records
 
 
 class LedgerBundle:
     """Turn one run's artifacts into one bundle, checked against its tier's plan."""
 
-    KINDS = (("skip-report-", "skip-report", "*.json"), ("junit-", "junit", "*.xml"), ("boundary-report-", "boundary-report", "*.json"))
+    KINDS = (
+        ("skip-report-", "skip-report", "*.json"),
+        ("junit-", "junit", "*.xml"),
+        ("boundary-report-", "boundary-report", "*.json"),
+    )
 
     def __init__(
         self,
@@ -167,7 +188,9 @@ class LedgerBundle:
 
         found: list[BundleInput] = []
         ignored: list[str] = []
-        directories = sorted(path for path in self.artifacts.iterdir() if path.is_dir()) if self.artifacts.is_dir() else []
+        directories = (
+            sorted(path for path in self.artifacts.iterdir() if path.is_dir()) if self.artifacts.is_dir() else []
+        )
         for directory in directories:
             name = directory.name
             if name == BENCH_ARTIFACT:
@@ -249,7 +272,7 @@ class LedgerBundle:
             "counts": {
                 "records": len(records),
                 "inputs": len(inputs),
-                **{f"{kind}s": count for kind, count in sorted(Counter(item.kind for item in inputs).items())},
+                "inputs_by_kind": dict(sorted(Counter(item.kind for item in inputs).items())),
             },
             "expected": expected,
             "missing": missing,

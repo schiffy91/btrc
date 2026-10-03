@@ -49,6 +49,8 @@ reports = ["skip-report"]
 workflow = "ci.yml"
 job = "release"
 tiers = ["lane", "main", "extended", "release"]
+changed_tiers = ["pr"]
+changed_paths = ["src/devex/**", "pyproject.toml", "examples/**", "tools/linux-ci.sh"]
 
 [[jobs]]
 workflow = "ci.yml"
@@ -60,6 +62,8 @@ reports = ["skip-report"]
 workflow = "ci.yml"
 job = "bench"
 tiers = ["lane", "main", "extended", "release"]
+changed_tiers = ["pr"]
+changed_paths = ["tools/bench/**", "src/tests/benchmarks/**", "src/tests/fixtures/benchmarks/**"]
 reports = ["bench"]
 
 [[jobs]]

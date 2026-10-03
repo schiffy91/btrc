@@ -87,7 +87,9 @@ class TierCondition:
         if tier in self.tiers:
             return True
         # A plan without a change list (a push, a dispatch) has no paths to match.
-        return tier in self.changed_tiers and changed is not None and GitHubPaths.any_selected(self.changed_paths, changed)
+        return (
+            tier in self.changed_tiers and changed is not None and GitHubPaths.any_selected(self.changed_paths, changed)
+        )
 
     def names(self) -> set[str]:
         return {*self.tiers, *self.changed_tiers}

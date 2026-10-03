@@ -325,7 +325,9 @@ def _trigger_violations(name: str, triggers: object) -> list[str]:
         if not (isinstance(push, dict) and set(push) == {"tags"} and push["tags"]):
             problems.append(f"push must name tags only: {push!r}")
         schedule = triggers.get("schedule", [])
-        if not (isinstance(schedule, list) and all(isinstance(entry, dict) and set(entry) == {"cron"} for entry in schedule)):
+        if not (
+            isinstance(schedule, list) and all(isinstance(entry, dict) and set(entry) == {"cron"} for entry in schedule)
+        ):
             problems.append(f"schedule must be a list of crons: {schedule!r}")
         return problems + _dispatch_violations(triggers.get("workflow_dispatch"))
     required = {"push", "pull_request", "workflow_dispatch"}
@@ -635,7 +637,9 @@ def test_a_pr_tier_corpus_row_reaches_pytest_through_pytest_addopts() -> None:
     corpus = [shard for shard in TIERS.shards if shard.corpus_tiers]
     assert {shard.job for shard in corpus} == {"ci.yml/tests"}
     for workflow in ("ci.yml", "macos.yml"):
-        suite = next(step for step in _parsed(workflow)["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", ""))
+        suite = next(
+            step for step in _parsed(workflow)["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", "")
+        )
         assert suite["env"] == {"PYTEST_ADDOPTS": "${{ matrix.pytest_addopts }}"}, workflow
     linux = next(step for step in _parsed("ci.yml")["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", ""))
     assert '-v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest' in linux["run"]
@@ -651,7 +655,9 @@ def test_bootstrap_shards_keep_their_boundary_report_for_the_bundle() -> None:
         assert upload["with"]["name"] == f"boundary-report-{stem}-tests-${{{{ matrix.shard }}}}", workflow
         assert upload["with"]["path"] == "build/boundary-report.json", workflow
         assert upload["with"]["if-no-files-found"] == "ignore", workflow
-        bootstrap = [shard for shard in TIERS.shards if shard.job == f"{workflow}/tests" and "boundary-report" in shard.reports]
+        bootstrap = [
+            shard for shard in TIERS.shards if shard.job == f"{workflow}/tests" and "boundary-report" in shard.reports
+        ]
         assert [shard.row["shard"] for shard in bootstrap] == ["bootstrap"], workflow
     # test-shard-bootstrap is what writes it.
     makefile = (REPO / "Makefile").read_text(encoding="utf-8")
@@ -688,9 +694,7 @@ def test_release_runs_every_tiered_workflow_at_one_tier_then_bundles_them() -> N
     # A called workflow plans its jobs for the tier it is given.
     for name in CORE_WORKFLOWS:
         assert _parsed(name)["on"]["workflow_call"] == {
-            "inputs": {
-                "tier": {"description": "The ci/tiers.toml tier to run", "type": "string", "required": "true"}
-            }
+            "inputs": {"tier": {"description": "The ci/tiers.toml tier to run", "type": "string", "required": "true"}}
         }, name
     assert _scope_step("ci.yml")["env"]["TIER"] == "${{ inputs.tier }}"
 
