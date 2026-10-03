@@ -1394,8 +1394,6 @@ class FeConditionalWalk {
 
 	// -- Directive anatomy ---------------------------------------------------
 
-	private bool identifierStart(char value) { return value == '_' || Strings.isAlpha(value); }
-
 	/* The start of a directive's name, after `#` and spaces. */
 	class int nameStart(string text) {
 		int start = 1;

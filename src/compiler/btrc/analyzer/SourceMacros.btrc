@@ -58,10 +58,10 @@ class SourceMacroNamespace {
 	public string codeUseViolation(string name) {
 		if (self.undefinedNames.len == 0 || !self.declaredNames.has(name)) { return ""; }
 		string suffix = "btrc emits every #define and #undef before the program";
-		if (self.undefinedNames.has(name)) { return f"Source macro '{name}' cannot be used in code because it is #undef'd; {suffix}"; }
+		if (self.undefined(name)) { return f"Source macro '{name}' cannot be used in code because it is #undef'd; {suffix}"; }
 		if (self.active(name) == null) { return ""; }
 		for identifier in self.reachedIdentifiers(name) {
-			if (self.undefinedNames.has(identifier)) { return f"Source macro '{name}' cannot be used in code because it expands to #undef'd macro '{identifier}'; {suffix}"; }
+			if (self.undefined(identifier)) { return f"Source macro '{name}' cannot be used in code because it expands to #undef'd macro '{identifier}'; {suffix}"; }
 		}
 		return "";
 	}
