@@ -1074,12 +1074,14 @@ class ReferenceAttribution:
     """`--cprofile`: where the reference compiler's cold and edit time goes.
 
     Every scenario sample is two builds: a plain one with BTRC_TIMING=1, whose
-    phases are the uninstrumented reference, and one under cProfile. cProfile
+    phases are the unprofiled reference, and one under cProfile. cProfile
     slows small, frequent calls most, so the profiled build's shares are a
     triage map, reported beside the plain phases, not a substitute for them.
     The time measured is the compiler process alone, from command start to
     exit; the native build is tools.native_plan's, and tools.perf's default
-    mode measures it.
+    mode measures it. Module-unit builds lower with --jobs 1 by default:
+    cProfile sees one process, so work done in forked workers would show as
+    the owner waiting for them.
     """
 
     SCHEMA = "btrc-reference-attribution/1"
@@ -1087,6 +1089,23 @@ class ReferenceAttribution:
     TARGET_FRACTION = 0.90
     # Top-level workspace entries a copy leaves behind: outputs and history.
     SKIPPED_TOP_LEVEL = frozenset({".git", "build", "dist", ".btrc-cache"})
+    # `python -m cProfile` swallows the compiler's SystemExit and exits 0, so a
+    # failed compile would pass as a sample. This runner keeps its exit status.
+    PROFILER = (
+        "import cProfile, runpy, sys\n"
+        "output, sys.argv = sys.argv[1], ['src.compiler.python.main', *sys.argv[2:]]\n"
+        "profiler = cProfile.Profile()\n"
+        "code = 0\n"
+        "profiler.enable()\n"
+        "try:\n"
+        "    runpy.run_module('src.compiler.python.main', run_name='__main__', alter_sys=True)\n"
+        "except SystemExit as stop:\n"
+        "    code = stop.code if isinstance(stop.code, int) else (0 if stop.code is None else 1)\n"
+        "finally:\n"
+        "    profiler.disable()\n"
+        "    profiler.dump_stats(output)\n"
+        "sys.exit(code)\n"
+    )
 
     def __init__(self, arguments: argparse.Namespace) -> None:
         self.arguments = arguments
@@ -1107,6 +1126,7 @@ class ReferenceAttribution:
                 "entry": ENTRY,
                 "mode": arguments.mode,
                 "units": arguments.units,
+                "jobs": arguments.jobs if arguments.units == "module" else None,
                 "target": arguments.target,
                 "cold_samples": arguments.cold_samples,
                 "edit_samples": arguments.edit_samples,
@@ -1139,17 +1159,17 @@ class ReferenceAttribution:
     def command(self, paths: ProductPaths, profile: Path | None) -> list[str]:
         """budget_bench's reference compile (BuildCommands.compile), optionally under cProfile."""
 
-        profiler = ["-m", "cProfile", "-o", str(profile)] if profile is not None else []
+        driver = ["-c", self.PROFILER, str(profile)] if profile is not None else ["-m", "src.compiler.python.main"]
+        jobs = ["--jobs", str(self.arguments.jobs)] if self.arguments.units == "module" else []
         return [
             sys.executable,
             "-P",
-            *profiler,
-            "-m",
-            "src.compiler.python.main",
+            *driver,
             "--strict-imports",
             "--target",
             self.arguments.target,
             *self.flavor.compiler_flags(),
+            *jobs,
             "--emit-link-plan",
             str(paths.plan),
             "--emit-units",
@@ -1341,6 +1361,8 @@ class ReferenceAttribution:
             "overhead_ratio": self.fraction(profiled_wall, plain_wall),
             "attributed_s": attributed,
             "attributed_fraction": self.fraction(attributed, profiled_wall),
+            # The same without import time, which `startup` attributes to modules, not to compiler work.
+            "compiler_fraction": self.fraction(attributed - owners["startup"], profiled_wall),
             "owner_shares": {owner: self.fraction(seconds, profiled_wall) for owner, seconds in owners.items()},
             # Each owner's share of the profiled wall, applied to the plain wall:
             # an estimate of where uninstrumented time goes, skewed by profiler overhead.
@@ -1463,6 +1485,12 @@ class ReferenceAttribution:
         parser.add_argument("--mode", choices=("dev", "release"), default="dev")
         parser.add_argument("--units", choices=("module", "whole"), help="default: module for dev, whole for release")
         parser.add_argument("--target", help="OS-ARCH; default: this host as BTRSmith's make/Config.mk spells it")
+        parser.add_argument(
+            "--jobs",
+            type=int,
+            default=1,
+            help="module-unit workers (default 1: cProfile sees only the owner process, not forked workers)",
+        )
         parser.add_argument("--cold-samples", type=int, default=3, help="cold transpiles (each plain and profiled)")
         parser.add_argument("--edit-samples", type=int, default=3, help="edits per fixture (each plain and profiled)")
         parser.add_argument(
@@ -1506,8 +1534,18 @@ class ReferenceAttribution:
             parser.error("nothing to measure: no cold samples and no edits")
         if not 0.0 <= arguments.min_attributed <= 1.0:
             parser.error("--min-attributed is a fraction from 0 to 1")
-        if arguments.workspace is not None and not Path(arguments.workspace).is_dir():
-            parser.error(f"--workspace {arguments.workspace} is not a directory")
+        if not 1 <= arguments.jobs <= 64:
+            parser.error("--jobs is a worker count from 1 to 64")
+        if arguments.workspace is not None:
+            workspace = Path(arguments.workspace).resolve()
+            if not workspace.is_dir():
+                parser.error(f"--workspace {arguments.workspace} is not a directory")
+            if not (workspace / ENTRY).is_file():
+                parser.error(f"--workspace {arguments.workspace} has no {ENTRY}")
+            out = Path(arguments.out).resolve() if arguments.out else REPO / "build/perf/attribution"
+            inside = out.relative_to(workspace).parts if out.is_relative_to(workspace) else None
+            if inside is not None and (not inside or inside[0] not in cls.SKIPPED_TOP_LEVEL):
+                parser.error(f"--out {out} is inside --workspace, which is copied; choose another directory")
         return arguments
 
     def execute(self) -> int:

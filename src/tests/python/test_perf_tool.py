@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import default_c_compiler, default_cxx_compiler, default_toolchain
-from src.tests.process_limits import RUN_TIMEOUT
+from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools import budget_bench, perf
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -571,6 +571,8 @@ def test_reference_attribution_groups_phases_and_their_remainder():
         ["--cprofile", "--stand-in", "--frontend", "selfhost"],
         ["--cprofile", "--stand-in", "--target", "unknown-x64"],
         ["--cprofile", "--workspace", "/nonexistent/btrsmith"],
+        ["--cprofile", "--workspace", "."],
+        ["--cprofile", "--stand-in", "--jobs", "0"],
     ],
 )
 def test_cprofile_rejects_invalid_options_before_building(options):
@@ -606,6 +608,8 @@ def test_cprofile_stand_in_attributes_the_reference_compiler(tmp_path, capsys):
             "1",
             "--min-attributed",
             "0.5",
+            "--timeout-s",
+            str(TRANSPILE_TIMEOUT),
             "--out",
             str(tmp_path / "runs"),
             "--json",
@@ -616,13 +620,19 @@ def test_cprofile_stand_in_attributes_the_reference_compiler(tmp_path, capsys):
     assert code == 0, rendered
     report = json.loads(path.read_text())
     assert report["schema"] == perf.ReferenceAttribution.SCHEMA and report["failure"] is None
-    assert report["configuration"]["stand_in"] is True
+    assert report["configuration"]["stand_in"] is True and report["configuration"]["jobs"] == 1
     assert list(report["scenarios"]) == ["cold", "edit-navigation"]
     work = Path(report["provenance"]["work_directory"])
     for name, scenario in report["scenarios"].items():
         (sample,) = scenario["samples"]
         assert (work / sample["profile"]).is_file()
         assert sample["plain_phases_s"]["analyze"] > 0.0 and sample["profiled_phases_s"]["lower"] > 0.0
+        # Phase marks never overlap: what no mark covers is a nonnegative remainder.
+        for phases, wall in (
+            (sample["plain_phases_s"], sample["plain_wall_s"]),
+            (sample["profiled_phases_s"], sample["profiled_wall_s"]),
+        ):
+            assert perf.ReferenceAttribution.grouped_phases(phases, wall)["outside"] >= 0.0
         owners = scenario["attribution"]["owners_s"]
         assert sum(owners.values()) == pytest.approx(scenario["profile_total_s"])
         assert owners["analyzer"] > 0.0 and owners["frontend"] > 0.0 and owners["startup"] > 0.0
@@ -631,6 +641,7 @@ def test_cprofile_stand_in_attributes_the_reference_compiler(tmp_path, capsys):
             scenario["attributed_s"] / scenario["profiled_wall_total_s"]
         )
         assert scenario["attributed_fraction"] >= 0.5, name
+        assert 0.0 < scenario["compiler_fraction"] < scenario["attributed_fraction"]
         reconciliation = scenario["reconciliation"]
         assert list(reconciliation) == list(perf.PHASE_GROUPS)
         assert sum(row["plain_phase_s"] for row in reconciliation.values()) == pytest.approx(
@@ -663,6 +674,69 @@ def test_cprofile_below_min_attributed_fails_with_the_report(tmp_path, monkeypat
     assert "below --min-attributed 90%" in report["failure"]
 
 
+def test_cprofile_runner_keeps_a_failed_compile_s_exit_status(tmp_path):
+    """`python -m cProfile` would exit 0 here; the runner exits as the compiler does, profile written."""
+
+    source = tmp_path / "Broken.btrc"
+    source.write_text("int main( {\n")
+    profile = tmp_path / "broken.prof"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-P",
+            "-c",
+            perf.ReferenceAttribution.PROFILER,
+            str(profile),
+            str(source),
+            "-o",
+            str(tmp_path / "broken.c"),
+        ],
+        cwd=tmp_path,
+        env={**perf.os.environ, "PYTHONPATH": str(ROOT), "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=TRANSPILE_TIMEOUT,
+    )
+    assert completed.returncode != 0, completed.stderr
+    assert profile.is_file()
+    good = tmp_path / "Good.btrc"
+    good.write_text("int main() { return 0; }\n")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-P",
+            "-c",
+            perf.ReferenceAttribution.PROFILER,
+            str(profile),
+            str(good),
+            "-o",
+            str(tmp_path / "good.c"),
+        ],
+        cwd=tmp_path,
+        env={**perf.os.environ, "PYTHONPATH": str(ROOT), "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=TRANSPILE_TIMEOUT,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert (tmp_path / "good.c").is_file()
+    assert perf.ProfileAttribution.load([profile]).rollup()["owners_s"]["emitter"] > 0.0
+
+
+def test_cprofile_rejects_out_inside_the_copied_workspace(tmp_path):
+    workspace = tmp_path / "product"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / budget_bench.ENTRY).write_text("int main() { return 0; }\n")
+    for out in (workspace, workspace / "results"):
+        with pytest.raises(SystemExit) as error:
+            perf.main(["--cprofile", "--workspace", str(workspace), "--out", str(out)])
+        assert error.value.code == 2
+    arguments = perf.ReferenceAttribution.parse_arguments(
+        ["--cprofile", "--workspace", str(workspace), "--out", str(workspace / "build/attribution")]
+    )
+    assert arguments.jobs == 1
+
+
 def test_cprofile_failed_compile_keeps_its_log(tmp_path):
     workspace = tmp_path / "product"
     (workspace / "src").mkdir(parents=True)
@@ -678,6 +752,8 @@ def test_cprofile_failed_compile_keeps_its_log(tmp_path):
                 "none",
                 "--cold-samples",
                 "1",
+                "--timeout-s",
+                str(TRANSPILE_TIMEOUT),
                 "--out",
                 str(tmp_path / "runs"),
                 "--json",
@@ -718,7 +794,8 @@ def test_stage6_reference_preset_expands_to_valid_perf_commands(tmp_path, monkey
             assert command[command.index("--min-attributed") + 1] == "0.90"
             workspace = command.index("--workspace") + 1 if not stand_in else None
             if workspace is not None:
-                (tmp_path / "pin").mkdir(exist_ok=True)
+                (tmp_path / "pin/src").mkdir(parents=True, exist_ok=True)
+                (tmp_path / "pin" / budget_bench.ENTRY).write_text("int main() { return 0; }\n")
                 command[workspace] = str(tmp_path / "pin")
             arguments = perf.ReferenceAttribution.parse_arguments(command[3:])
             assert arguments.min_attributed == 0.9
