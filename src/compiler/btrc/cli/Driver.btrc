@@ -23,12 +23,14 @@ import Library.JSON;
 import Library.Digest.SHA256;
 import Library.Platform;
 import Library.Strings;
+import Library.Timer;
 import Library.Vector;
 
 import ../Compiler.btrc;
 import ../frontend/Timing.btrc;
 import ../frontend/Packages.btrc;
 import ../frontend/Models.btrc;
+import ../frontend/SourceIo.btrc;
 
 class BtrccDataPaths {
 	public bool valid;
@@ -1624,6 +1626,14 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	private PrivateDirectory? entry = null;
 	private ExclusiveFileLease? lease = null;
 	private BtrccArtifactDigests? artifactDigests;
+	/* Stage 6 records spike (never merged): every module-unit record and
+	 * validation record this build read or wrote, packed into one file that
+	 * the next build reads once and trusts without digests. */
+	private Map<string, BtrccModuleUnitPayload>? spikePack = null;
+	private Map<string, BtrccModuleUnitPayload> spikeUsed = {};
+	private Vector<string> spikeOrder = [];
+	private bool spikeChanged = false;
+	public int spikePackHits = 0;
 
 	public BtrccArtifactCache(string executable, FeSourceFileReader sourceFiles, string unitsPrefix, BtrccArtifactDigests? artifactDigests = null) {
 		self.sourceFiles = sourceFiles;
@@ -1809,7 +1819,84 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 
 	/* A module unit under its key, or null on any doubt. `record.txt` starts
 	 * with the digests of the record and of `unit.c`, which holds the text. */
+	private string spikePackPath() {
+		if (self.compilerIdentity.isEmpty()) { return ""; }
+		string directory = SpikeCacheDirectory.root("records");
+		if (directory.isEmpty()) { return ""; }
+		return PathTools.join(directory, "pack-" + SHA256.digest(self.compilerIdentity).substring(0, 16));
+	}
+
+	/* The pack's entries, read once: `identity\nrecordLength textLength\n`
+	 * then the record and the text, for each entry. */
+	private Map<string, BtrccModuleUnitPayload> spikeEntries() {
+		Map<string, BtrccModuleUnitPayload>? known = self.spikePack;
+		if (known != null) { return known; }
+		Map<string, BtrccModuleUnitPayload> entries = {};
+		self.spikePack = entries;
+		string path = self.spikePackPath();
+		if (path.isEmpty() || !Path.exists(path)) { return entries; }
+		string packed = Path.readAll(path);
+		int at = 0;
+		int length = packed.length();
+		while (at < length) {
+			int identityEnd = packed.find("\n", at);
+			if (identityEnd < 0) { break; }
+			int sizesEnd = packed.find("\n", identityEnd + 1);
+			if (sizesEnd < 0) { break; }
+			string identity = packed.substring(at, identityEnd - at);
+			string sizes = packed.substring(identityEnd + 1, sizesEnd - identityEnd - 1);
+			int space = sizes.indexOf(" ");
+			if (space < 0) { break; }
+			int recordLength = Strings.toInt(sizes.substring(0, space));
+			int textLength = Strings.toInt(sizes.substring(space + 1, sizes.length() - space - 1));
+			int start = sizesEnd + 1;
+			if (recordLength < 0 || textLength < 0 || start + recordLength + textLength > length) { break; }
+			entries.put(identity, BtrccModuleUnitPayload(packed.substring(start, recordLength), packed.substring(start + recordLength, textLength)));
+			at = start + recordLength + textLength;
+		}
+		return entries;
+	}
+
+	private void spikeKeep(string identity, BtrccModuleUnitPayload payload, bool changed) {
+		if (!self.spikeUsed.has(identity)) { self.spikeOrder.push(identity); }
+		self.spikeUsed.put(identity, payload);
+		if (changed) { self.spikeChanged = true; }
+	}
+
+	/* Rewrites the pack when this build read a record from outside it or
+	 * wrote one. */
+	public void spikeFlush() {
+		if (!self.spikeChanged) { return; }
+		string path = self.spikePackPath();
+		if (path.isEmpty()) { return; }
+		StringBuilder out = StringBuilder();
+		for identity in self.spikeOrder {
+			BtrccModuleUnitPayload payload = self.spikeUsed.get(identity);
+			out.append(identity);
+			out.append("\n");
+			out.append(Strings.fromInt(payload.record.length()) + " " + Strings.fromInt(payload.text.length()));
+			out.append("\n");
+			out.append(payload.record);
+			out.append(payload.text);
+		}
+		Path.writeAll(path + ".tmp", out.toString());
+		rename(path + ".tmp", path);
+	}
+
 	public BtrccModuleUnitPayload? loadModuleUnit(string identity) {
+		Map<string, BtrccModuleUnitPayload> packed = self.spikeEntries();
+		if (packed.has(identity)) {
+			BtrccModuleUnitPayload hit = packed.get(identity);
+			self.spikePackHits = self.spikePackHits + 1;
+			self.spikeKeep(identity, hit, false);
+			return hit;
+		}
+		BtrccModuleUnitPayload? payload = self.spikeLoadStored(identity);
+		if (payload != null) { self.spikeKeep(identity, payload, true); }
+		return payload;
+	}
+
+	private BtrccModuleUnitPayload? spikeLoadStored(string identity) {
 		BtrccModuleUnitPayload? payload = null;
 		try {
 			if (self.open("module-unit\n" + identity, false)) {
@@ -1840,6 +1927,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	/* Replace one module unit; storage failure only costs reuse. The text is
 	 * written first, and a record whose digests do not match is a miss. */
 	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) {
+		self.spikeKeep(identity, payload, true);
 		try {
 			if (payload.record.length() <= 536870912 && payload.text.length() <= 536870912 && self.open("module-unit\n" + identity, false)) {
 				var lease = self.lease;
@@ -1925,13 +2013,22 @@ class BtrccDriver {
 		if (!options.outputPath.isEmpty()) { artifactDigests = BtrccArtifactDigests(self.artifactDigestProvider); }
 		IBtrccArtifactCache? cache = null;
 		FeDirectiveCache? directiveCache = null;
+		BtrccArtifactCache? spikeArtifacts = null;
 		if (options.useCache && !options.outputPath.isEmpty()) {
 			var artifacts = BtrccArtifactCache(runtimePaths.executablePath(), self.sourceFiles, options.unitsPrefix, artifactDigests);
 			cache = artifacts;
+			spikeArtifacts = artifacts;
 			directiveCache = artifacts.directiveCache();
 		}
 		Compiler compiler = Compiler(grammar, dataPaths.stdlib, self.sourceFiles, self.nativeHeaderReader, cache, directiveCache, self.workerPools);
 		BtrccCompilationResult result = compiler.compile(source, sourcePath, options);
+		if (spikeArtifacts != null && result.success) {
+			Timer flushClock = Timer();
+			flushClock.start();
+			spikeArtifacts.spikeFlush();
+			flushClock.stop();
+			if (BtrccPhaseTimer.enabled) { fprintf(stderr, "btrcc spike: records packed=%d flush=%dus\n", spikeArtifacts.spikePackHits, (int)(flushClock.elapsed() * 1000000.0f)); }
+		}
 		if (!result.success) {
 			fprintf(stderr, "%s\n", result.diagnostic);
 			return 1;
