@@ -15,6 +15,9 @@ packet = "MAC-R-01"
 kind = "gate"
 quiet = false
 on_failure = "continue"
+# The summary names BTRSmith tests, so its evidence branch goes to the private
+# BTRSmith repository, not public btrc (WORKSTREAMS.md §7 Q24).
+evidence_repo = "btrsmith"
 before = [
   "no other agent, gate or guest is running on the Mac",
   "the 1Password SSH agent will be needed for the final push (the run asks when it gets there)",

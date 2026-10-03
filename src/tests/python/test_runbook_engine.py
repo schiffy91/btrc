@@ -251,6 +251,8 @@ def test_stage4_requal_orders_gate_release_checks_diff_and_a_green_only_push() -
     assert cells["push-btrsmith-main"].when == "green" and cells["push-btrsmith-main"].action == "push"
     assert all(cells[cell].optional for cell in ("ab-build-before", "ab-instr-after"))
     assert preset.branch_pin == "requal"
+    assert preset.evidence_repo == "btrsmith"
+    assert Preset.load("stage5").evidence_repo == "btrc"
 
 
 def test_stage13_final_stops_at_the_first_red_gate_and_compares_with_stage5() -> None:
@@ -457,6 +459,7 @@ REQUAL = """\
     [preset]
     title = "requal"
     kind = "gate"
+    evidence_repo = "btrsmith"
     [btrsmith]
     pins = { requal = "stage4/pin-bump" }
     [variables]
@@ -514,13 +517,16 @@ def test_a_green_requalification_fast_forwards_btrsmith_main_upstream(
     (tmp_path / "home" / "qualifying.txt").write_text(
         "tests/Old.py::test_x\ntests/Drifted.py::test_reference\ntests/Drifted.py::test_selfhost\n"
     )
-    engine = engine_for(preset, options(tmp_path, hubs, preset, "--no-publish"), system="Darwin")
+    engine = engine_for(preset, options(tmp_path, hubs, preset), system="Darwin")
     monkeypatch.setattr(runbook.Locks, "prefix", lambda self, name: [])
 
     assert engine.run() == 0
     pin = git("rev-parse", "stage4/pin-bump", cwd=hubs["btrsmith"])
     assert git("rev-parse", "main", cwd=hubs["btrsmith_upstream"]) == pin
     assert engine.state.checkpoint("push-btrsmith-main").results["sha"] == pin  # type: ignore[union-attr]
+    # Its summary names BTRSmith tests, so the evidence goes to the private repository only (§7 Q24).
+    assert git("ls-remote", "--heads", str(hubs["btrsmith_upstream"]), "evidence/*", cwd=tmp_path)
+    assert not git("ls-remote", "--heads", str(hubs["btrc_upstream"]), "evidence/*", cwd=tmp_path)
 
 
 def test_a_missing_qualifying_list_names_the_owner_action(tmp_path: Path, hubs: dict[str, Path]) -> None:

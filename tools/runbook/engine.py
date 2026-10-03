@@ -145,6 +145,7 @@ class Preset:
     budgets: tuple[Budget, ...]
     regressions: tuple[Mapping[str, Any], ...]
     baseline: str | None
+    evidence_repo: str
     raw_cells: tuple[Mapping[str, Any], ...]
     default_quiet: bool
     path: Path
@@ -176,6 +177,8 @@ class Preset:
             on_failure = header.get("on_failure", "continue")
             if on_failure not in ("continue", "stop"):
                 raise RunbookError(f"{path}: preset.on_failure must be continue or stop")
+            if header.get("evidence_repo", "btrc") not in ("btrc", "btrsmith"):
+                raise RunbookError(f"{path}: preset.evidence_repo must be btrc or btrsmith")
             btrsmith = data.get("btrsmith", {})
             pins = {str(label): str(ref) for label, ref in btrsmith.get("pins", {}).items()}
             branch_pin = btrsmith.get("branch_pin")
@@ -215,6 +218,7 @@ class Preset:
                 budgets=budgets,
                 regressions=tuple(data.get("regression", [])),
                 baseline=header.get("baseline"),
+                evidence_repo=str(header.get("evidence_repo", "btrc")),
                 raw_cells=cells,
                 default_quiet=bool(header.get("quiet", False)),
                 path=path,

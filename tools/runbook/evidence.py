@@ -370,10 +370,17 @@ class EvidencePublisher:
 
     # -- the branch
 
+    def clone(self) -> Path:
+        """The clone whose object store builds the evidence commit: btrc's, or BTRSmith's for private content."""
+
+        if self.engine.preset.evidence_repo == "btrsmith" and self.engine.preset.branch_pin:
+            return self.engine.btrsmith_clone(self.engine.preset.branch_pin)
+        return self.engine.btrc_clone()
+
     def commit(self, stage: Path, remote: str, message: str) -> str:
         """A commit of ``stage`` on top of the remote branch (or none), built without a working tree."""
 
-        clone = self.engine.btrc_clone()
+        clone = self.clone()
         parent = None
         listed = Git.run("ls-remote", "--heads", remote, self.branch, cwd=clone, timeout=300)
         if listed:
@@ -413,6 +420,9 @@ class EvidencePublisher:
     def remote(self) -> str:
         if self.options.evidence_remote:
             return self.options.evidence_remote
+        if self.engine.preset.evidence_repo == "btrsmith":
+            # BTRSmith content (its test names, its logs) stays in the private repository (§7 Q24).
+            return Evidence.upstream(self.engine.btrsmith_hub(), fallback="git@github.com:schiffy91/btrsmith.git")
         return Evidence.upstream(self.engine.btrc_hub(), fallback="git@github.com:schiffy91/btrc.git")
 
     def push(self, stage: Path, summary: Mapping[str, object]) -> dict[str, object]:
@@ -430,7 +440,7 @@ class EvidencePublisher:
                 "message": "the SSH agent has no identity: unlock 1Password, then rerun the same command to publish",
             }
         sha = self.commit(stage, remote, message)
-        Git.run("push", remote, f"{sha}:refs/heads/{self.branch}", cwd=self.engine.btrc_clone(), timeout=900)
+        Git.run("push", remote, f"{sha}:refs/heads/{self.branch}", cwd=self.clone(), timeout=900)
         return {"pushed": True, "remote": remote, "branch": self.branch, "commit": sha}
 
     # -- everything
