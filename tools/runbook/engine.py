@@ -908,7 +908,7 @@ class RunbookEngine:
             pins[self.preset.branch_pin] = self.options.btrsmith_branch
         btrc = self.options.btrc_ref or self.preset.btrc_ref
         if self.options.rehearsal and not self.options.btrc_ref and not self.options.btrc_hub:
-            btrc = Git.run("rev-parse", "HEAD", cwd=REPO)  # a rehearsal measures this checkout's commit
+            btrc = "HEAD"  # a rehearsal measures this checkout's commit, resolved once in prepare()
         return {"btrc": btrc, "btrsmith": pins}
 
     def freeze(self, state: RunState) -> dict[str, Any]:
@@ -972,7 +972,10 @@ class RunbookEngine:
         Git.clone(self.btrc_hub(), clone)
         shas = frozen.setdefault("shas", {})
         if "btrc" not in shas:
-            shas["btrc"] = Git.resolve(clone, frozen["refs"]["btrc"])
+            if frozen["refs"]["btrc"] == "HEAD" and self.btrc_hub() == REPO:
+                shas["btrc"] = Git.run("rev-parse", "HEAD", cwd=REPO)
+            else:
+                shas["btrc"] = Git.resolve(clone, frozen["refs"]["btrc"])
         Git.checkout(clone, shas["btrc"])
         say(f"  btrc            {frozen['refs']['btrc']} = {shas['btrc'][:12]}")
         removed = Host.prune_test_btrcc(clone)

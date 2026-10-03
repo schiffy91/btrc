@@ -519,8 +519,11 @@ class EvidencePublisher:
             + ("" if provenance["host_matches_acceptance"] else f"  (acceptance host is {ACCEPTANCE_HOST})"),
             f"btrc {provenance['btrc']['sha']}  stdlib tree {provenance['stdlib_tree']}  clang {provenance['clang']}",
         ]
-        for label, pin in provenance["btrsmith"].items():
-            lines.append(f"BTRSmith {label}: {pin['ref']} = {pin['sha']}")
+        if summary["mode"]["stand_in"]:  # type: ignore[index]
+            lines.append("BTRSmith: budget_bench's generated stand-in (--stand-in)")
+        else:
+            for label, pin in provenance["btrsmith"].items():
+                lines.append(f"BTRSmith {label}: {pin['ref']} = {pin['sha'] or 'not in the hub; its cells skipped'}")
         lines.append("")
         for cell in summary["cells"]:  # type: ignore[union-attr]
             assert isinstance(cell, dict)
@@ -574,6 +577,10 @@ class EvidencePublisher:
                 f"red or unfinished ({failed or 'cells not reached'}). Read the logs above; rerun the same command "
                 "to retry what failed (finished cells are not repeated), or paste summary.txt into the Claude session."
             )
-        if not publication.get("pushed") and summary["acceptance"]:
+        if not summary["acceptance"]:
+            return (
+                f"rehearsal complete. On the owner's Mac the round is `tools/runbook/run.sh {self.engine.preset.name}`."
+            )
+        if not publication.get("pushed"):
             return f"{publication.get('message')}"
         return self.engine.preset.next_action or "nothing; the cloud agents read the evidence branch."

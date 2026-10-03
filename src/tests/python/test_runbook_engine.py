@@ -334,7 +334,7 @@ def test_a_rehearsal_runs_every_cell_then_resumes_without_repeating_any(
     staged = state.work / "evidence" / state.run_id
     assert (staged / "summary.json").is_file() and (staged / "cells" / "count-new-selfhost" / "report.json").is_file()
     printed = capsys.readouterr().out
-    assert "next: go to bed" in printed
+    assert "next: rehearsal complete" in printed
 
     second = engine_for(preset, options(tmp_path, hubs, preset, "--rehearsal"))
     assert second.run() == 0
@@ -777,6 +777,7 @@ def test_an_acceptance_run_pushes_redacted_summaries_to_an_evidence_branch(
         "counts": "12 passed",
     }
     assert summary["provenance"]["acceptance_host"] == "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0"
+    assert "next: read the branch" in summary_text(engine)
     assert str(Path.home()) not in json.dumps(summary) or str(Path.home()) == "/"
     first = git("rev-parse", branch, cwd=hubs["btrc_upstream"])
 
@@ -1029,3 +1030,13 @@ def test_stopping_the_engine_stops_the_running_cell_and_leaves_no_checkpoint(
     else:
         pytest.fail("the cell's sleep survived the engine")
     assert not (pid_file.parent.parent.parent / "cells" / "long.json").exists()
+
+
+def test_a_rehearsal_freezes_the_checkout_head_symbolically(tmp_path: Path) -> None:
+    """New commits in the checkout must not block resuming a rehearsal; the SHA is resolved once in prepare()."""
+
+    run_options = RunOptions.parse(["stage5", "--rehearsal", "--home", str(tmp_path / "home")])
+    engine = RunbookEngine(Preset.load("stage5"), run_options, host=Host("Linux"), today=lambda: TODAY)
+
+    assert engine.requested_refs()["btrc"] == "HEAD"
+    assert engine.btrc_hub() == REPO
