@@ -747,8 +747,8 @@ class TargetManifest:
         return PredefinedMacroSpec(
             name=cls._identifier(value, "name", context),
             value=cls._FIELDS.integer(value, "value", context),
-            operating_systems=cls._names(value, "operating_systems", context) if "operating_systems" in value else (),
-            architectures=cls._names(value, "architectures", context) if "architectures" in value else (),
+            operating_systems=cls._selector(value, "operating_systems", context),
+            architectures=cls._selector(value, "architectures", context),
             environments=cls._names(value, "environments", context) if "environments" in value else (),
         )
 
@@ -758,6 +758,17 @@ class TargetManifest:
         if not cls._IDENTIFIER.fullmatch(value):
             raise HostedAbiManifestError(f"{context}.{key} is not an identifier: {value!r}")
         return value
+
+    @classmethod
+    def _selector(cls, table: dict[str, Any], key: str, context: str) -> tuple[str, ...]:
+        """An omitted selector selects every value; an explicit one names at least one."""
+
+        if key not in table:
+            return ()
+        values = cls._names(table, key, context)
+        if not values:
+            raise HostedAbiManifestError(f"{context}.{key} must name a value; omit it to select every value")
+        return values
 
     @classmethod
     def _names(cls, table: dict[str, Any], key: str, context: str) -> tuple[str, ...]:

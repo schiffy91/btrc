@@ -29,7 +29,7 @@ from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.analyzer.types import CIntegerWidths
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
-from src.compiler.python.frontend.packages import PackageTarget
+from src.compiler.python.frontend.packages import _TARGET_ARCHITECTURES, _TARGET_OPERATING_SYSTEMS, PackageTarget
 from src.compiler.python.frontend.sources import CompilerStdlibSource, StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.lexer.lexer import Lexer
@@ -527,6 +527,10 @@ TARGET_RULE_VIOLATIONS = {
         lambda document: document["conditionals"].update(foreign_macro_names=["NDEBUG", "NDEBUG"]),
         "foreign_macro_names must be sorted and unique",
     ),
+    "empty-selector": (
+        lambda document: _macro(document, "__linux__").update(operating_systems=[]),
+        "operating_systems must name a value",
+    ),
     "unsorted-selector": (
         lambda document: _macro(document, "__linux__").update(operating_systems=["macos", "linux"]),
         "operating_systems must be sorted and unique",
@@ -615,6 +619,11 @@ def test_target_rows_equal_the_reference_package_targets() -> None:
                 continue
             accepted.add(f"{target.operating_system}-{target.architecture}")
     assert accepted == _spec_labels()
+    assert {
+        f"{operating_system}-{architecture}"
+        for operating_system in _TARGET_OPERATING_SYSTEMS
+        for architecture in _TARGET_ARCHITECTURES
+    } == _spec_labels()
 
 
 def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immutable_btrcc: Path) -> None:
@@ -625,7 +634,7 @@ def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immut
     (project / "btrc.toml").write_text('manifest-version = 1\n\n[package]\nname = "targets"\n')
     environment = {**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache"), "BTRC_HOME": str(SOURCE_ROOT)}
     accepted = set()
-    for operating_system in _CANDIDATE_OPERATING_SYSTEMS[:4]:
+    for operating_system in _CANDIDATE_OPERATING_SYSTEMS:
         for architecture in _CANDIDATE_ARCHITECTURES:
             label = f"{operating_system}-{architecture}"
             result = subprocess.run(
@@ -674,7 +683,8 @@ def test_reference_analyzer_widths_equal_every_target_row() -> None:
 
 def test_self_hosted_analyzer_widths_equal_every_target_row(tmp_path: Path) -> None:
     # The self-hosted analyzer takes these ranks' ranges from <limits.h> of the
-    # C compiler that builds btrcc (ConstantValidator.builtinCastRange).
+    # C compiler that builds btrcc (ConstantValidator.builtinCastRange); the
+    # test fixture builds btrcc with the configured C compiler probed here.
     constants = (SOURCE_ROOT / "compiler/btrc/analyzer/validation/Constants.btrc").read_text()
     for base, limit in (("signed char", "SCHAR"), ("short", "SHRT"), ("int", "INT"), ("long long", "LLONG")):
         pattern = rf'base == "{base}"[^{{]*\{{\s*return self\.signedCastRange\({limit}_MIN, {limit}_MAX\);'

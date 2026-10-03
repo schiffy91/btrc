@@ -11,7 +11,6 @@ own target. The names left out on purpose must stay out of the table.
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -153,7 +152,7 @@ def test_clang_defines_exactly_the_selected_table_rows(label: str) -> None:
 
 
 def test_host_gcc_agrees_on_its_own_target() -> None:
-    if HOST_GCC is None or shutil.which("gcc") is None:
+    if HOST_GCC is None:
         pytest.skip("requires the host gcc to dump its predefined macros")
     host = PackageTarget.parse(None)
     _assert_agrees(f"{host.operating_system}-{host.architecture}", _predefines([HOST_GCC]))
