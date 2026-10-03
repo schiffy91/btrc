@@ -1,0 +1,290 @@
+# The CI tier manifest (PLAN.md Stage 38, qualification-ci-tiering).
+#
+# Every job of ci.yml, macos.yml and windows.yml is listed here, and each of
+# those workflows begins with a `scope` job that classifies the event into one
+# tier, then reads this file (`python3 -m tools.qualification tiers plan`) to
+# decide which jobs and matrix rows run. A job never names its tiers in YAML.
+#
+# Integrator-owned data (WORKSTREAMS.md §3.3.1): a lane adds or moves a shard
+# through a `fragment: ci/tiers.toml …` commit, which Claude re-applies.
+# `test_ci_workflow_contracts.py` checks this file against the workflows, and
+# `tools/qualification/tiers.py` documents the schema.
+
+schema = "btrc.ci-tiers/1"
+
+[tiers]
+docs = "A pull request that changes only Markdown no test or tool reads: the static gates."
+pr = "Any other pull request: generated, lint and format; the unit shard; the corpus directories its paths select; macOS and Windows shards only when their paths change."
+lane = "A codex/* pull request: the Linux matrix, the macOS arm64 bundle and native-GUI job, and Windows when its paths change."
+main = "A push to main, a pull request that touches the compilers or the CI hotspots, the ci:full label, or a full dispatch: today's full matrix."
+extended = "A nightly or extended dispatch: the main matrix plus macOS's remaining clang C11 cells."
+release = "release.yml's dispatch or tag: every hosted job of every tier, then one ledger bundle."
+native-gui = "A dispatch with focus=native-gui: the native-GUI jobs alone."
+hardware = "Self-hosted runners and devices: never scheduled here; the ledger bundle records them as awaiting."
+
+# A changed path selects corpus directories for a shard's `corpus_tiers`. A
+# change under src/tests/<directory>/, where that directory has expected/
+# goldens, selects that directory as well. "*" selects the whole corpus.
+[[corpus]]
+paths = ["src/tests/runner.py", "src/tests/corpus_files.py", "src/tests/runner_capabilities.py", "src/tests/conftest.py", "src/tests/fixtures/**"]
+directories = ["*"]
+
+[[corpus]]
+paths = ["src/stdlib/**"]
+directories = ["stdlib", "imports"]
+
+[[corpus]]
+paths = ["src/runtime/gpu/**", "tools/virtual-display.sh"]
+directories = ["gpu"]
+
+# ---------------------------------------------------------------- ci.yml ---
+
+[[jobs]]
+workflow = "ci.yml"
+job = "static"
+tiers = ["docs", "pr", "release"]
+reports = ["skip-report"]
+
+[[jobs]]
+workflow = "ci.yml"
+job = "release"
+tiers = ["lane", "main", "extended", "release"]
+
+[[jobs]]
+workflow = "ci.yml"
+job = "tests"
+key = "shard"
+reports = ["skip-report"]
+
+[[jobs]]
+workflow = "ci.yml"
+job = "bench"
+tiers = ["lane", "main", "extended", "release"]
+reports = ["bench"]
+
+[[jobs]]
+workflow = "ci.yml"
+job = "linux-arm64-bundle"
+tiers = ["lane", "main", "extended", "release"]
+
+[[jobs]]
+workflow = "ci.yml"
+job = "native-gui"
+tiers = ["native-gui", "release"]
+reports = ["skip-report", "junit"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "unit"
+target = "test-shard-unit"
+tiers = ["pr", "lane", "main", "extended", "release"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "btrc"
+target = "test-shard-btrc"
+tiers = ["lane", "main", "extended", "release"]
+changed_tiers = ["pr"]
+changed_paths = ["src/tests/btrc/**", "src/stdlib/**"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "corpus-python"
+target = "test-shard-corpus-python"
+tiers = ["lane", "main", "extended", "release"]
+corpus_tiers = ["pr"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "corpus-btrc"
+target = "test-shard-corpus-btrc"
+tiers = ["lane", "main", "extended", "release"]
+corpus_tiers = ["pr"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "bootstrap"
+target = "test-shard-bootstrap"
+tiers = ["lane", "main", "extended", "release"]
+reports = ["boundary-report"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "c11-gcc-O0"
+target = "test-c11-one C11_CC=gcc C11_OPT=O0"
+tiers = ["lane", "main", "extended", "release"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "c11-gcc-O1"
+target = "test-c11-one C11_CC=gcc C11_OPT=O1"
+tiers = ["lane", "main", "extended", "release"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "c11-gcc-O2"
+target = "test-c11-one C11_CC=gcc C11_OPT=O2"
+tiers = ["lane", "main", "extended", "release"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "c11-gcc-O3"
+target = "test-c11-one C11_CC=gcc C11_OPT=O3"
+tiers = ["lane", "main", "extended", "release"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "c11-clang-O0"
+target = "test-c11-one C11_CC=clang C11_OPT=O0"
+tiers = ["lane", "main", "extended", "release"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "c11-clang-O1"
+target = "test-c11-one C11_CC=clang C11_OPT=O1"
+tiers = ["lane", "main", "extended", "release"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "c11-clang-O2"
+target = "test-c11-one C11_CC=clang C11_OPT=O2"
+tiers = ["lane", "main", "extended", "release"]
+
+[[shards]]
+job = "ci.yml/tests"
+shard = "c11-clang-O3"
+target = "test-c11-one C11_CC=clang C11_OPT=O3"
+tiers = ["lane", "main", "extended", "release"]
+
+# ------------------------------------------------------------- macos.yml ---
+
+[[jobs]]
+workflow = "macos.yml"
+job = "native-bundle"
+key = "target"
+
+[[jobs]]
+workflow = "macos.yml"
+job = "tests"
+key = "shard"
+reports = ["skip-report"]
+
+[[jobs]]
+workflow = "macos.yml"
+job = "native-gui"
+tiers = ["lane", "native-gui", "release"]
+reports = ["skip-report", "junit"]
+
+[[shards]]
+job = "macos.yml/native-bundle"
+target = "macos-arm64"
+tiers = ["lane", "main", "extended", "release"]
+changed_tiers = ["pr"]
+changed_paths = ["**/MacOS/**", "**/*.m", "tools/NativeHeaderReader.cpp", "src/tests/native/**"]
+
+[[shards]]
+job = "macos.yml/native-bundle"
+target = "macos-x64"
+tiers = ["main", "extended", "release"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "unit"
+target = "test-shard-unit"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr"]
+changed_paths = ["**/MacOS/**", "**/*.m", "tools/NativeHeaderReader.cpp", "src/tests/native/**"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "btrc"
+target = "test-shard-btrc"
+tiers = ["main", "extended", "release"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "corpus-python"
+target = "test-shard-corpus-python"
+tiers = ["main", "extended", "release"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "corpus-btrc"
+target = "test-shard-corpus-btrc"
+tiers = ["main", "extended", "release"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "bootstrap"
+target = "test-shard-bootstrap BTRC_CC=clang"
+tiers = ["main", "extended", "release"]
+reports = ["boundary-report"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "c11-clang-O0"
+target = "test-c11-one C11_CC=clang C11_OPT=O0"
+tiers = ["main", "extended", "release"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "c11-clang-O1"
+target = "test-c11-one C11_CC=clang C11_OPT=O1"
+tiers = ["extended", "release"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "c11-clang-O2"
+target = "test-c11-one C11_CC=clang C11_OPT=O2"
+tiers = ["main", "extended", "release"]
+
+[[shards]]
+job = "macos.yml/tests"
+shard = "c11-clang-O3"
+target = "test-c11-one C11_CC=clang C11_OPT=O3"
+tiers = ["extended", "release"]
+
+# ----------------------------------------------------------- windows.yml ---
+
+[[jobs]]
+workflow = "windows.yml"
+job = "windows"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "**/Windows/**",
+  "**/*.ps1",
+  "src/devex/vscode/**",
+  "src/tests/native/win_compat*",
+  "src/tests/python/test_native_win_compat.py",
+  "src/tests/python/test_artifact_storage.py",
+  "src/tests/python/test_artifact_reparse.py",
+  "src/tests/python/test_btrcc_bundle_publication.py",
+]
+reports = ["skip-report"]
+
+[[jobs]]
+workflow = "windows.yml"
+job = "bootstrap"
+tiers = ["main", "extended", "release"]
+reports = ["skip-report"]
+
+# -------------------------------------------------------------- hardware ---
+# Nothing here runs on GitHub. Each entry names a runner the expected-skip
+# manifests cite in covered_by; the ledger bundle counts the hosted skips
+# each one is owed and records them as awaiting until its evidence arrives.
+
+[[hardware]]
+id = "macos-acceptance"
+runner = "macos"
+description = "The owner's Mac: the hardware skip category (CoreAudio output device, GPU adapter, physical display), pinned Xcode and signing"
+
+[[hardware]]
+id = "ios-device"
+runner = "ios"
+description = "A physical iPhone or iPad, and the iOS simulator lanes until they run hosted"
+
+[[hardware]]
+id = "android-device"
+runner = "android"
+description = "A physical Android device, and the arm64 emulator the hosted runners cannot start"

@@ -5,15 +5,23 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push;
-  # `-f focus=native-gui` runs only the native-GUI job.
+  # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push:
+  # `-f focus=native-gui` runs only the native-GUI job, `-f focus=extended`
+  # the extended tier.
   workflow_dispatch:
     inputs:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui]
+        options: [full, native-gui, extended]
         default: full
+  # release.yml calls this workflow with the tier it runs.
+  workflow_call:
+    inputs:
+      tier:
+        description: The ci/tiers.toml tier to run
+        type: string
+        required: true
 
 # There is no binary-cache account (PLAN.md D26), so every magic-nix-cache
 # step sets use-flakehub: false and uses the GitHub Actions cache alone. At
@@ -29,26 +37,34 @@ permissions:
 # shard's skip gate. `nix develop --command` keeps the variable.
 env:
   BTRC_TEST_RUNNER: macos-hosted
+  # The scope job plans this file's jobs from ci/tiers.toml under this name.
+  CI_WORKFLOW: macos.yml
 
 # A newer push to a pull request cancels the run it supersedes. Runs on main
 # never cancel one another: GitHub keeps one running and one pending run per
 # group, so a newer main push replaces an older one still waiting. A manual
-# dispatch gets a group of its own.
+# dispatch, and each call from release.yml, gets a group of its own. The
+# literal prefix keeps the three workflows release.yml calls apart: a called
+# workflow's github.workflow is its caller's.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.event_name == 'push' && 'main' || format('dispatch-{0}', github.run_id) }}
+  group: macos-${{ inputs.tier && format('call-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.event_name == 'push' && 'main' || format('dispatch-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Classifies a pull request's diff so the jobs below run only where it can
-  # matter (WORKSTREAMS.md §3.2); ci.yml and macos.yml carry identical copies.
-  #   docs  Markdown that no test or tool reads: ci.yml's docs job alone.
-  #   lane  any other change on a codex/* branch: the Linux matrix, and on
-  #         macOS the arm64 bundle and the native-GUI job.
-  #   native-gui  a dispatch with focus=native-gui: the native-GUI job alone.
-  #   full  everything: a push to main, a full dispatch, the ci:full label
-  #         (added before a push or a rerun), a change under FULL_PATHS (the
-  #         compilers, their specs and runtime, the stdlib modules btrcc
-  #         imports, the CI hotspots), or any other branch's change.
+  # Classifies the event into one tier, then reads ci/tiers.toml for the jobs
+  # and matrix rows that tier runs in this workflow (CI_WORKFLOW). ci.yml,
+  # macos.yml and windows.yml carry identical copies; ci/tiers.toml describes
+  # each tier and lists every job.
+  #   release, extended  release.yml's call (its tier input), or a dispatch
+  #         with focus=extended.
+  #   native-gui  a dispatch with focus=native-gui.
+  #   main  a push, a full dispatch, the ci:full label (added before a push or
+  #         a rerun), a change under FULL_PATHS (the compilers, their specs and
+  #         runtime, the stdlib modules btrcc imports, the CI hotspots), or a
+  #         pull request too large to list.
+  #   docs  Markdown that no test or tool reads.
+  #   lane  any other change on a codex/* branch.
+  #   pr    any other pull request; its changed paths select its shards.
   # Labels and files are read through the API rather than the event payload,
   # so "Re-run all jobs" sees a label added after the push ("Re-run failed
   # jobs" keeps this job's earlier result).
@@ -59,72 +75,93 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      class: ${{ steps.classify.outputs.class }}
+      tier: ${{ steps.classify.outputs.tier }}
+      plan: ${{ steps.plan.outputs.plan }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
       - name: Classify the change
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
+          TIER: ${{ inputs.tier }}
           FOCUS: ${{ inputs.focus }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
-          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows)\.yml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
+          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
           TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix)\.md$'
         run: |
           set -euo pipefail
           shopt -s inherit_errexit
+          mkdir -p build
+          : > build/changed-files.txt
           classify() {
-            if [ "$EVENT" = workflow_dispatch ]; then
-              echo "${FOCUS:-full}"
+            if [ -n "$TIER" ]; then
+              echo "$TIER"
+              return
+            elif [ "$EVENT" = workflow_dispatch ]; then
+              case "${FOCUS:-full}" in
+                full) echo main ;;
+                *) echo "$FOCUS" ;;
+              esac
               return
             elif [ "$EVENT" != pull_request ]; then
-              echo full
+              echo main
               return
             fi
             pull=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST")
             if jq -e 'any(.labels[]; .name == "ci:full")' <<<"$pull" >/dev/null; then
-              echo full
+              echo main
               return
             fi
             pages=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST/files?per_page=100")
             # The files endpoint lists at most 3,000 files; an unlisted one could be anything.
             if [ "$(jq 'map(length) | add // 0' <<<"$pages")" -ne "$(jq '.changed_files' <<<"$pull")" ]; then
-              echo full
+              echo main
               return
             fi
             # A rename counts at both paths.
             names=$(jq -r '.[][] | .filename, (.previous_filename // empty)' <<<"$pages")
+            printf '%s\n' "$names" > build/changed-files.txt
             if grep -Eq "$FULL_PATHS" <<<"$names"; then
-              echo full
+              echo main
             elif ! grep -Evq '\.md$' <<<"$names" && ! grep -Eq "$TEST_READ_MARKDOWN" <<<"$names"; then
               echo docs
             elif [[ "$HEAD_REF" == codex/* ]]; then
               echo lane
             else
-              echo full
+              echo pr
             fi
           }
-          class=$(classify)
-          case "$class" in
-            docs | lane | full | native-gui) ;;
-            *) echo "::error::unknown scope class: $class"; exit 1 ;;
+          tier=$(classify)
+          case "$tier" in
+            docs | pr | lane | main | extended | release | native-gui) ;;
+            *) echo "::error::unknown tier: $tier"; exit 1 ;;
           esac
-          echo "class=$class" >> "$GITHUB_OUTPUT"
-          echo "Scope: \`$class\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          echo "Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Plan the tier's jobs
+        id: plan
+        env:
+          TIER: ${{ steps.classify.outputs.tier }}
+        run: |
+          set -euo pipefail
+          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt)
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+          jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
 
   native-bundle:
     needs: scope
-    if: needs.scope.outputs.class == 'full' || needs.scope.outputs.class == 'lane'
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-bundle')
     strategy:
       fail-fast: false
-      matrix:
-        # Fixed targets make the bundle architecture an explicit CI contract.
-        # The lane class builds only the arm64 bundle. A filtered `include`
-        # list cannot express that: GitHub adds an include row back as a new
-        # combination when it matches none, so each row's machine and Rosetta
-        # flag derive from the target below instead.
-        target: ${{ fromJSON(needs.scope.outputs.class == 'full' && '["macos-arm64", "macos-x64"]' || '["macos-arm64"]') }}
+      # ci/tiers.toml's rows make the bundle architecture an explicit CI
+      # contract; the lane and pr tiers build only the arm64 bundle. Each
+      # row's machine and Rosetta flag derive from its target below.
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['native-bundle'] }}
     # Both bundles build on the arm64 runner; x64 runs through Rosetta.
     runs-on: macos-15
     timeout-minutes: 45
@@ -197,7 +234,8 @@ jobs:
           retention-days: 14
 
   # The suite on native macOS, sharded like Linux CI's `tests` job through the
-  # same Makefile targets, with two of its eight strict-C11 configurations.
+  # same Makefile targets, with two of its eight strict-C11 configurations (all
+  # four clang ones in the extended tier; ci/tiers.toml lists the rows).
   # Linux skips about 3,000 cases that only macOS can run (native imports, the
   # Objective-C emitter, CoreAudio, ImageIO, debug artifacts, link reuse);
   # these shards run them. They compile with clang: default_c_compiler()
@@ -207,22 +245,14 @@ jobs:
   # hardware) and runs on the acceptance Mac.
   tests:
     needs: scope
-    if: needs.scope.outputs.class == 'full'
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'tests')
     runs-on: macos-15
     # Hosted macOS runners have three cores, and the unit shard carries the
     # native-interop cases Linux skips.
     timeout-minutes: 180
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { shard: unit, target: test-shard-unit }
-          - { shard: btrc, target: test-shard-btrc }
-          - { shard: corpus-python, target: test-shard-corpus-python }
-          - { shard: corpus-btrc, target: test-shard-corpus-btrc }
-          - { shard: bootstrap, target: test-shard-bootstrap BTRC_CC=clang }
-          - { shard: c11-clang-O0, target: test-c11-one C11_CC=clang C11_OPT=O0 }
-          - { shard: c11-clang-O2, target: test-c11-one C11_CC=clang C11_OPT=O2 }
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix.tests }}
     name: tests (${{ matrix.shard }})
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -260,6 +290,19 @@ jobs:
           /usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"
 
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+        env:
+          PYTEST_ADDOPTS: ${{ matrix.pytest_addopts }}
+
+      # The bootstrap shard's boundary-check writes build/boundary-report.json;
+      # the release bundle ingests it.
+      - name: Retain the boundary report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: boundary-report-macos-tests-${{ matrix.shard }}
+          path: build/boundary-report.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       # Every pytest session classifies its skips in build/skip-report*.json.
       # Keep the report even from a failed shard, so a red run's coverage is
@@ -276,34 +319,35 @@ jobs:
   # A shard whose runner is lost (one c11 job died with no log at all) never
   # reaches its `if: always()` upload, and the run's artifact list just lacks
   # its report. This job runs after every shard, whatever their outcome, and
-  # names each tests job that left no skip report, so missing coverage shows
-  # as a warning on the run rather than as an absent artifact. A run a newer
-  # push cancelled is skipped: its shards never had the chance to upload.
+  # names each report the plan expected from the tests job that is missing,
+  # so missing coverage shows as a warning on the run rather than as an
+  # absent artifact. The names come from the plan, not the run's job list,
+  # because release.yml's calls prefix every job name. A run a newer push
+  # cancelled is skipped: its shards never had the chance to upload.
   skip-reports:
     needs: [scope, tests]
-    if: ${{ !cancelled() && needs.scope.outputs.class == 'full' }}
+    if: ${{ !cancelled() && contains(fromJSON(needs.scope.outputs.plan).jobs, 'tests') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       actions: read
     steps:
-      - name: Name every test shard that left no skip report
+      - name: Name every report the test shards left missing
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPECTED: ${{ join(fromJSON(needs.scope.outputs.plan).reports.tests, ' ') }}
         run: |
           artifacts=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name')
-          shards=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
-            --jq '.jobs[].name | select(startswith("tests (")) | ltrimstr("tests (") | rtrimstr(")")')
-          test -n "$shards"
+          test -n "$EXPECTED"
           missing=0
-          for shard in $shards; do
-            if ! grep -qx "skip-report-macos-tests-$shard" <<<"$artifacts"; then
-              echo "::warning::tests ($shard) uploaded no skip report; its skips are unclassified"
-              echo "- tests ($shard): no skip report" >> "$GITHUB_STEP_SUMMARY"
+          for name in $EXPECTED; do
+            if ! grep -qx "$name" <<<"$artifacts"; then
+              echo "::warning::no $name artifact; that shard's evidence is missing"
+              echo "- $name: missing" >> "$GITHUB_STEP_SUMMARY"
               missing=$((missing + 1))
             fi
           done
-          echo "$missing test shard(s) left no skip report"
+          echo "$missing expected report(s) missing"
 
   # The native-GUI gate on macOS: `make test-native-gui` runs the AppKit, font,
   # pointer, tray and app cases a codex/* lane change needs without the
@@ -312,7 +356,7 @@ jobs:
   # correctness cases run; real-GPU timing stays with the owner's Mac.
   native-gui:
     needs: scope
-    if: needs.scope.outputs.class == 'lane' || needs.scope.outputs.class == 'native-gui'
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui')
     runs-on: macos-15
     timeout-minutes: 90
     steps:
