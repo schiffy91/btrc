@@ -504,6 +504,8 @@ Documented deviations sit beside them:
 
 ## Spec commit (`ccompat-r18-spec`) and IR
 
+**Status (2026-10-03).** The spec commit has landed on lane `stage16/c4-spec` (packet CL-C-03): `src/language/targets.toml`, `TargetManifest` and `TargetUnion` in `tools/compiler_codegen/hosted_abi.py`, the generated tables, test 3 (`test_target_macro_table.py`) and the spec-rule, generated-row, `PackageTarget` and width checks in `test_hosted_abi_contract.py`. No compiler behavior changed. `stdlib_symbols.py` and `builtins.py` merge per-target results through `TargetUnion`; until the behavior commit conditions text, every target reads the same unconditioned parse, so the union is vacuous. The union of `test_hosted_abi_contract.py`'s prototype scan, btrc's `ensureStdlibIndex` fallback and the generated-source check's per-target stdlib conditioning need the conditioning owners and land with the behavior commit.
+
 **No ASDL change.** The grammar gains only the `@syntax` comment block above.
 
 **`src/language/targets.toml`.** Spec fields are spelled as the generated fields, so each is named once (AGENTS.md, Naming):

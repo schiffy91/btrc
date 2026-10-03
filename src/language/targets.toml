@@ -1,0 +1,220 @@
+# Compilation targets shared by both compilers (PLAN.md D21). Generated
+# catalogs are data-only; edit this file. PLAN.md Stage 24 adds ios and
+# android rows, environments, triples, sysroots and data models.
+schema_version = 1
+
+# One row per (operating_system, architecture); six today.
+[[targets]]
+operating_system = "linux"
+architecture = "x86_64"
+
+[[targets]]
+operating_system = "linux"
+architecture = "aarch64"
+
+[[targets]]
+operating_system = "macos"
+architecture = "x86_64"
+
+[[targets]]
+operating_system = "macos"
+architecture = "aarch64"
+
+[[targets]]
+operating_system = "windows"
+architecture = "x86_64"
+
+[[targets]]
+operating_system = "windows"
+architecture = "aarch64"
+
+# Target predefined macros (D20): with a file's own earlier #defines, the only
+# names #if evaluates. Values are gcc's and clang's at -std=c11. An omitted
+# selector selects every value; environments stays empty until Stage 24.
+
+# Operating system.
+[[predefined_macros]]
+name = "__ELF__"
+value = 1
+operating_systems = ["linux"]
+
+[[predefined_macros]]
+name = "__linux"
+value = 1
+operating_systems = ["linux"]
+
+[[predefined_macros]]
+name = "__linux__"
+value = 1
+operating_systems = ["linux"]
+
+[[predefined_macros]]
+name = "__unix"
+value = 1
+operating_systems = ["linux"]
+
+[[predefined_macros]]
+name = "__unix__"
+value = 1
+operating_systems = ["linux"]
+
+[[predefined_macros]]
+name = "__APPLE__"
+value = 1
+operating_systems = ["macos"]
+
+[[predefined_macros]]
+name = "__MACH__"
+value = 1
+operating_systems = ["macos"]
+
+[[predefined_macros]]
+name = "_WIN32"
+value = 1
+operating_systems = ["windows"]
+
+[[predefined_macros]]
+name = "_WIN64"
+value = 1
+operating_systems = ["windows"]
+
+# Architecture.
+[[predefined_macros]]
+name = "__amd64"
+value = 1
+architectures = ["x86_64"]
+
+[[predefined_macros]]
+name = "__amd64__"
+value = 1
+architectures = ["x86_64"]
+
+[[predefined_macros]]
+name = "__x86_64"
+value = 1
+architectures = ["x86_64"]
+
+[[predefined_macros]]
+name = "__x86_64__"
+value = 1
+architectures = ["x86_64"]
+
+[[predefined_macros]]
+name = "__aarch64__"
+value = 1
+architectures = ["aarch64"]
+
+[[predefined_macros]]
+name = "__arm64"
+value = 1
+operating_systems = ["macos"]
+architectures = ["aarch64"]
+
+[[predefined_macros]]
+name = "__arm64__"
+value = 1
+operating_systems = ["macos"]
+architectures = ["aarch64"]
+
+# Plain char is unsigned only on linux-aarch64 (AAPCS64; Apple and Windows
+# keep it signed).
+[[predefined_macros]]
+name = "__CHAR_UNSIGNED__"
+value = 1
+operating_systems = ["linux"]
+architectures = ["aarch64"]
+
+# Sizes shared by every target. The data model (__SIZEOF_LONG__,
+# __SIZEOF_WCHAR_T__, __LP64__, _LP64) waits for Stage 24's columns.
+[[predefined_macros]]
+name = "__CHAR_BIT__"
+value = 8
+
+[[predefined_macros]]
+name = "__SIZEOF_SHORT__"
+value = 2
+
+[[predefined_macros]]
+name = "__SIZEOF_INT__"
+value = 4
+
+[[predefined_macros]]
+name = "__SIZEOF_LONG_LONG__"
+value = 8
+
+[[predefined_macros]]
+name = "__SIZEOF_POINTER__"
+value = 8
+
+[[predefined_macros]]
+name = "__SIZEOF_SIZE_T__"
+value = 8
+
+[[predefined_macros]]
+name = "__SIZEOF_PTRDIFF_T__"
+value = 8
+
+# Byte order. clang and gcc spell __BYTE_ORDER__ as __ORDER_LITTLE_ENDIAN__;
+# the table holds its value.
+[[predefined_macros]]
+name = "__ORDER_LITTLE_ENDIAN__"
+value = 1234
+
+[[predefined_macros]]
+name = "__ORDER_BIG_ENDIAN__"
+value = 4321
+
+[[predefined_macros]]
+name = "__ORDER_PDP_ENDIAN__"
+value = 3412
+
+[[predefined_macros]]
+name = "__BYTE_ORDER__"
+value = 1234
+
+# The language standard btrc emits.
+[[predefined_macros]]
+name = "__STDC__"
+value = 1
+
+[[predefined_macros]]
+name = "__STDC_VERSION__"
+value = 201112
+
+[conditionals]
+# Reserved names that no target defines: #if reads 0 and defined() reads 0.
+undefined_macro_names = ["__ANDROID__", "__cplusplus"]
+# Set by C headers or C compiler flags, never by btrc: #if refuses them.
+foreign_macro_names = [
+  "NDEBUG",
+  "TARGET_CPU_ARM",
+  "TARGET_CPU_ARM64",
+  "TARGET_CPU_PPC",
+  "TARGET_CPU_PPC64",
+  "TARGET_CPU_X86",
+  "TARGET_CPU_X86_64",
+  "TARGET_IPHONE_SIMULATOR",
+  "TARGET_OS_BRIDGE",
+  "TARGET_OS_DRIVERKIT",
+  "TARGET_OS_EMBEDDED",
+  "TARGET_OS_IOS",
+  "TARGET_OS_IPHONE",
+  "TARGET_OS_LINUX",
+  "TARGET_OS_MAC",
+  "TARGET_OS_MACCATALYST",
+  "TARGET_OS_OSX",
+  "TARGET_OS_SIMULATOR",
+  "TARGET_OS_TV",
+  "TARGET_OS_UNIX",
+  "TARGET_OS_VISION",
+  "TARGET_OS_WATCH",
+  "TARGET_OS_WIN32",
+  "TARGET_OS_WINDOWS",
+  "TARGET_RT_64_BIT",
+  "TARGET_RT_BIG_ENDIAN",
+  "TARGET_RT_LITTLE_ENDIAN",
+  "TARGET_RT_MAC_CFM",
+  "TARGET_RT_MAC_MACHO",
+  "WINAPI_FAMILY",
+  "bool",
+]

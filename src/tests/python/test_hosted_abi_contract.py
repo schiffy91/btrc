@@ -1,12 +1,17 @@
 """Canonical hosted-ABI model, provenance, and namespace contracts."""
 
+import copy
+import os
 import re
 import shutil
+import subprocess
+import tomllib
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from src.compiler.python.abi import generated as generated_abi
 from src.compiler.python.abi.declarations import (
     CONSUME,
     DEALLOC_FREE,
@@ -21,18 +26,24 @@ from src.compiler.python.abi.declarations import (
 )
 from src.compiler.python.abi.hosted import HOSTED_ABI
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.analyzer.types import CIntegerWidths
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.frontend.packages import PackageTarget
 from src.compiler.python.frontend.sources import CompilerStdlibSource, StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast.generated import FunctionDecl, TypedefDecl
+from src.tests.c_toolchains import host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.compiler_codegen.hosted_abi import (
     HostedAbiCatalogGenerator,
     HostedAbiManifest,
     HostedAbiManifestError,
+    TargetManifest,
+    TargetUnion,
 )
 from tools.compiler_codegen.runtime import RuntimeManifest
 
@@ -336,7 +347,8 @@ def test_source_string_adopters_are_derived_from_the_canonical_registry() -> Non
 def test_generated_registry_is_current_and_has_one_domain_owner() -> None:
     runtime = RuntimeManifest.load(SOURCE_ROOT / "runtime/c/manifest.toml")
     manifest = HostedAbiManifest.load(SOURCE_ROOT / "language/hosted_abi.toml", runtime)
-    artifacts = HostedAbiCatalogGenerator(manifest).artifacts()
+    targets = TargetManifest.load(SOURCE_ROOT / "language/targets.toml", manifest)
+    artifacts = HostedAbiCatalogGenerator(manifest, targets).artifacts()
     artifact = next(item for item in artifacts if item.path.suffix == ".btrc")
     path = REPOSITORY_ROOT.joinpath(*artifact.path.parts)
     expected = artifact.content.decode()
@@ -429,3 +441,264 @@ def test_generated_enum_names_are_safe_but_anonymous_values_are_raw() -> None:
     assert not _analyze("enum Error { EINVAL = 1 }; int main() { return EINVAL; }").errors
     errors = _analyze("enum { EINVAL = 1 }; int main() { return EINVAL; }").errors
     assert any("EINVAL" in error and "hosted C symbol" in error for error in errors)
+
+
+# The compilation-target spec (src/language/targets.toml, PLAN.md D21) and its
+# generated rows: docs/design/c-preprocessor-conditionals.md, "Shared owners".
+
+TARGET_SPEC = SOURCE_ROOT / "language/targets.toml"
+
+
+def _target_document() -> dict:
+    return tomllib.loads(TARGET_SPEC.read_text())
+
+
+def _hosted_manifest() -> HostedAbiManifest:
+    runtime = RuntimeManifest.load(SOURCE_ROOT / "runtime/c/manifest.toml")
+    return HostedAbiManifest.load(SOURCE_ROOT / "language/hosted_abi.toml", runtime)
+
+
+def _macro(document: dict, name: str) -> dict:
+    return next(row for row in document["predefined_macros"] if row["name"] == name)
+
+
+def _duplicate_target(document: dict) -> None:
+    document["targets"].append(dict(document["targets"][0]))
+
+
+def _overlapping_rows(document: dict) -> None:
+    document["predefined_macros"].append({"name": "__linux__", "value": 2, "architectures": ["aarch64"]})
+
+
+TARGET_RULE_VIOLATIONS = {
+    "schema": (lambda document: document.update(schema_version=2), "unsupported target spec schema version"),
+    "unknown-key": (lambda document: document.update(environments=[]), "unknown target spec keys: environments"),
+    "duplicate-target": (_duplicate_target, "target 'linux-x86_64' appears more than once"),
+    "unknown-os": (
+        lambda document: _macro(document, "__linux__").update(operating_systems=["ios"]),
+        "'__linux__' selects unknown operating systems",
+    ),
+    "unknown-architecture": (
+        lambda document: _macro(document, "__aarch64__").update(architectures=["riscv64"]),
+        "'__aarch64__' selects unknown architectures",
+    ),
+    "environments": (
+        lambda document: _macro(document, "_WIN32").update(environments=["gnu"]),
+        "'_WIN32' selects environments",
+    ),
+    "unreserved-name": (
+        lambda document: _macro(document, "__linux__").update(name="linux"),
+        "'linux' is not a reserved name",
+    ),
+    "lowercase-underscore-name": (
+        lambda document: _macro(document, "__linux__").update(name="_linux"),
+        "'_linux' is not a reserved name",
+    ),
+    "negative-value": (
+        lambda document: _macro(document, "__STDC__").update(value=-1),
+        "outside \\[0, 2\\*\\*63 - 1\\]",
+    ),
+    "wide-value": (
+        lambda document: _macro(document, "__STDC__").update(value=2**63),
+        "outside \\[0, 2\\*\\*63 - 1\\]",
+    ),
+    "overlapping-rows": (_overlapping_rows, "'__linux__' has rows that both select 'linux-aarch64'"),
+    "unreserved-undefined": (
+        lambda document: document["conditionals"].update(undefined_macro_names=["ANDROID"]),
+        "undefined macro name 'ANDROID' is not a reserved name",
+    ),
+    "undefined-in-table": (
+        lambda document: document["conditionals"].update(undefined_macro_names=["__cplusplus", "__linux__"]),
+        "undefined macro name '__linux__' is also a predefined macro",
+    ),
+    "reserved-foreign": (
+        lambda document: document["conditionals"].update(foreign_macro_names=["__FOREIGN"]),
+        "foreign macro name '__FOREIGN' is a reserved name",
+    ),
+    "hosted-foreign": (
+        lambda document: document["conditionals"].update(foreign_macro_names=["printf"]),
+        "foreign macro name 'printf' is already a hosted-ABI name",
+    ),
+    "unsorted": (
+        lambda document: document["conditionals"].update(foreign_macro_names=["bool", "NDEBUG"]),
+        "foreign_macro_names must be sorted and unique",
+    ),
+    "repeated": (
+        lambda document: document["conditionals"].update(foreign_macro_names=["NDEBUG", "NDEBUG"]),
+        "foreign_macro_names must be sorted and unique",
+    ),
+    "unsorted-selector": (
+        lambda document: _macro(document, "__linux__").update(operating_systems=["macos", "linux"]),
+        "operating_systems must be sorted and unique",
+    ),
+}
+
+
+def test_target_spec_loads_and_satisfies_the_generator_rules() -> None:
+    targets = TargetManifest.load(TARGET_SPEC, _hosted_manifest())
+    assert targets.labels == (
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos-x86_64",
+        "macos-aarch64",
+        "windows-x86_64",
+        "windows-aarch64",
+    )
+    assert {"__CHAR_BIT__", "__STDC_VERSION__", "__BYTE_ORDER__"} <= {macro.name for macro in targets.predefined_macros}
+
+
+@pytest.mark.parametrize("violation", tuple(TARGET_RULE_VIOLATIONS))
+def test_target_spec_generator_rules_fail_closed(violation: str) -> None:
+    mutate, message = TARGET_RULE_VIOLATIONS[violation]
+    hosted = _hosted_manifest()
+    document = copy.deepcopy(_target_document())
+    TargetManifest.from_document(copy.deepcopy(document), hosted)
+    mutate(document)
+    with pytest.raises(HostedAbiManifestError, match=message):
+        TargetManifest.from_document(document, hosted)
+
+
+def test_generated_target_rows_equal_the_spec() -> None:
+    targets = TargetManifest.load(TARGET_SPEC, _hosted_manifest())
+    assert [tuple(row) for row in generated_abi.TARGET_ROWS] == [
+        (target.operating_system, target.architecture) for target in targets.targets
+    ]
+    assert [tuple(row) for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS] == [
+        (macro.name, macro.value, macro.operating_systems, macro.architectures, macro.environments)
+        for macro in targets.predefined_macros
+    ]
+    assert targets.undefined_macro_names == generated_abi.TARGET_UNDEFINED_MACRO_NAMES
+    assert targets.foreign_macro_names == generated_abi.TARGET_FOREIGN_MACRO_NAMES
+    assert targets.fingerprint == generated_abi.TARGET_SPEC_FINGERPRINT
+    tables = (SOURCE_ROOT / "compiler/btrc/generated/hosted_abi/Tables.btrc").read_text()
+    assert f'self.targetSpecFingerprint = "{targets.fingerprint}";' in tables
+    for target in targets.targets:
+        assert f'built.push(GeneratedTargetRow("{target.operating_system}", "{target.architecture}"));' in tables
+
+
+def test_target_union_merges_targets_and_names_a_disagreement() -> None:
+    union = TargetUnion(TargetManifest.load(TARGET_SPEC, _hosted_manifest()))
+    first, *rest = union.labels
+    owners = union.owners(
+        {label: {"Vector": {"Vector.btrc"}} for label in union.labels} | {first: {"Map": {"Map.btrc"}}}
+    )
+    assert owners == {"Map": {"Map.btrc"}, "Vector": {"Vector.btrc"}}
+    merged = union.merge("Vector.btrc", {label: {"Vector": 1} for label in union.labels} | {first: {"Only": 2}})
+    assert merged == {"Only": 2, "Vector": 1}
+    disagreeing = {label: {"Vector": 1} for label in union.labels} | {rest[-1]: {"Vector": 2}}
+    with pytest.raises(
+        HostedAbiManifestError, match=f"Vector.btrc: 'Vector' differs between targets '{first}' and '{rest[-1]}'"
+    ):
+        union.merge("Vector.btrc", disagreeing)
+    with pytest.raises(HostedAbiManifestError, match="must cover exactly the spec targets"):
+        union.merge("Vector.btrc", {first: {}})
+
+
+# Every OS-ARCH pair either compiler might be asked for: the spec's rows and
+# near misses on each axis.
+_CANDIDATE_OPERATING_SYSTEMS = ("linux", "macos", "windows", "ios", "android")
+_CANDIDATE_ARCHITECTURES = ("x86_64", "aarch64", "riscv64")
+
+
+def _spec_labels() -> set[str]:
+    return {f"{row.operating_system}-{row.architecture}" for row in generated_abi.TARGET_ROWS}
+
+
+def test_target_rows_equal_the_reference_package_targets() -> None:
+    accepted = set()
+    for operating_system in _CANDIDATE_OPERATING_SYSTEMS:
+        for architecture in _CANDIDATE_ARCHITECTURES:
+            label = f"{operating_system}-{architecture}"
+            try:
+                target = PackageTarget.parse(label)
+            except ValueError:
+                continue
+            accepted.add(f"{target.operating_system}-{target.architecture}")
+    assert accepted == _spec_labels()
+
+
+def test_target_rows_equal_the_self_hosted_package_targets(tmp_path: Path, immutable_btrcc: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "Main.btrc"
+    source.write_text("int main() { return 0; }\n")
+    (project / "btrc.toml").write_text('manifest-version = 1\n\n[package]\nname = "targets"\n')
+    environment = {**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache"), "BTRC_HOME": str(SOURCE_ROOT)}
+    accepted = set()
+    for operating_system in _CANDIDATE_OPERATING_SYSTEMS[:4]:
+        for architecture in _CANDIDATE_ARCHITECTURES:
+            label = f"{operating_system}-{architecture}"
+            result = subprocess.run(
+                [str(immutable_btrcc), "--strict-imports", "--target", label, str(source)],
+                cwd=REPOSITORY_ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=TRANSPILE_TIMEOUT,
+            )
+            if result.returncode == 0:
+                accepted.add(label)
+            else:
+                assert f"unsupported package target '{label}'" in result.stderr, result.stderr
+    assert accepted == _spec_labels()
+
+
+def _selected_value(label: str, name: str) -> int:
+    operating_system, architecture = label.split("-", 1)
+    values = [
+        row.value
+        for row in generated_abi.TARGET_PREDEFINED_MACRO_ROWS
+        if row.name == name
+        and (not row.operating_systems or operating_system in row.operating_systems)
+        and (not row.architectures or architecture in row.architectures)
+    ]
+    assert len(values) == 1, f"{name} on {label}"
+    return values[0]
+
+
+def _table_widths(label: str) -> tuple[int, int, int, int]:
+    char_bit = _selected_value(label, "__CHAR_BIT__")
+    return (
+        char_bit,
+        char_bit * _selected_value(label, "__SIZEOF_SHORT__"),
+        char_bit * _selected_value(label, "__SIZEOF_INT__"),
+        char_bit * _selected_value(label, "__SIZEOF_LONG_LONG__"),
+    )
+
+
+def test_reference_analyzer_widths_equal_every_target_row() -> None:
+    widths = CIntegerWidths.native()
+    for label in sorted(_spec_labels()):
+        assert _table_widths(label) == (widths.char, widths.short, widths.int_, widths.long_long), label
+
+
+def test_self_hosted_analyzer_widths_equal_every_target_row(tmp_path: Path) -> None:
+    # The self-hosted analyzer takes these ranks' ranges from <limits.h> of the
+    # C compiler that builds btrcc (ConstantValidator.builtinCastRange).
+    constants = (SOURCE_ROOT / "compiler/btrc/analyzer/validation/Constants.btrc").read_text()
+    for base, limit in (("signed char", "SCHAR"), ("short", "SHRT"), ("int", "INT"), ("long long", "LLONG")):
+        pattern = rf'base == "{base}"[^{{]*\{{\s*return self\.signedCastRange\({limit}_MIN, {limit}_MAX\);'
+        assert re.search(pattern, constants), base
+    compiler = host_c_compiler()
+    if compiler is None:
+        pytest.skip("requires the configured C compiler")
+    probe = tmp_path / "limits.c"
+    executable = tmp_path / "limits"
+    probe.write_text(
+        "#include <limits.h>\n#include <stdio.h>\n"
+        'int main(void) { printf("%d %d %d %d %lld\\n", CHAR_BIT, SCHAR_MAX, SHRT_MAX, INT_MAX, LLONG_MAX); '
+        "return 0; }\n"
+    )
+    subprocess.run(
+        [*compiler, "-std=c11", str(probe), "-o", str(executable)],
+        check=True,
+        capture_output=True,
+        timeout=C_COMPILE_TIMEOUT,
+    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT)
+    char_bit, schar_max, short_max, int_max, long_long_max = map(int, result.stdout.split())
+    limits = (char_bit, (schar_max + 1).bit_length(), (short_max + 1).bit_length(), (int_max + 1).bit_length())
+    for label in sorted(_spec_labels()):
+        char, short, int_, long_long = _table_widths(label)
+        assert limits == (char, char, short, int_), label
+        assert (long_long_max + 1).bit_length() == long_long, label

@@ -69,10 +69,39 @@ class GeneratedHostedFunctionRow {
 	}
 }
 
+class GeneratedTargetRow {
+	public string operatingSystem;
+	public string architecture;
+
+	public GeneratedTargetRow(string operatingSystem, string architecture) {
+		self.operatingSystem = operatingSystem;
+		self.architecture = architecture;
+	}
+}
+
+class GeneratedPredefinedMacroRow {
+	public string name;
+	public long long value;
+	public Vector<string> operatingSystems;
+	public Vector<string> architectures;
+	public Vector<string> environments;
+
+	public GeneratedPredefinedMacroRow(string name, long long value, Vector<string> operatingSystems, Vector<string> architectures, Vector<string> environments) {
+		self.name = name;
+		self.value = value;
+		self.operatingSystems = operatingSystems;
+		self.architectures = architectures;
+		self.environments = environments;
+	}
+}
+
 class GeneratedHostedAbiData {
 	public string stdlibSourceMarker;
 	public string userSourceMarker;
 	public string fingerprint;
+	public string targetSpecFingerprint;
+	private Vector<GeneratedTargetRow>? targetRowsMemo = null;
+	private Vector<GeneratedPredefinedMacroRow>? predefinedMacroRowsMemo = null;
 	private Vector<GeneratedHostedFunctionRow>? functionRows = null;
 	private Map<string, int>? functionSlots = null;
 	private Map<string, GeneratedHostedFunctionRow>? functionMemo = null;
@@ -82,6 +111,8 @@ class GeneratedHostedAbiData {
 	private Vector<string>? ownedNamesMemo = null;
 	private Vector<string>? runtimeAdoptingHelpersMemo = null;
 	private Vector<string>? noreturnFunctionsMemo = null;
+	private Vector<string>? undefinedMacroNamesMemo = null;
+	private Vector<string>? foreignMacroNamesMemo = null;
 
 	private Vector<GeneratedHostedParameterRow> emptyParameters() {
 		Vector<GeneratedHostedParameterRow> values = [];
@@ -93,10 +124,16 @@ class GeneratedHostedAbiData {
 		return values;
 	}
 
+	private Vector<string> emptyNames() {
+		Vector<string> values = [];
+		return values;
+	}
+
 	public GeneratedHostedAbiData() {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.fingerprint = "b07b01e79a64ba737b576643e93e54c5dce217fdbe11a11c74a1a4ddc3b86fe2";
+		self.targetSpecFingerprint = "41217ebe87181609d3bb2d8f68f3f4f9b3460196efcffac209ddd9d060f245c0";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -16361,5 +16398,114 @@ class GeneratedHostedAbiData {
 		values.push("longjmp");
 		values.push("pthread_exit");
 		values.push("quick_exit");
+	}
+
+	public Vector<string> undefinedMacroNames() {
+		Vector<string>? memo = self.undefinedMacroNamesMemo;
+		if (memo != null) { return memo; }
+		Vector<string> built = [];
+		self.pushUndefinedMacroNames0(built);
+		self.undefinedMacroNamesMemo = built;
+		return built;
+	}
+
+	private void pushUndefinedMacroNames0(Vector<string> values) {
+		values.push("__ANDROID__");
+		values.push("__cplusplus");
+	}
+
+	public Vector<string> foreignMacroNames() {
+		Vector<string>? memo = self.foreignMacroNamesMemo;
+		if (memo != null) { return memo; }
+		Vector<string> built = [];
+		self.pushForeignMacroNames0(built);
+		self.foreignMacroNamesMemo = built;
+		return built;
+	}
+
+	private void pushForeignMacroNames0(Vector<string> values) {
+		values.push("NDEBUG");
+		values.push("TARGET_CPU_ARM");
+		values.push("TARGET_CPU_ARM64");
+		values.push("TARGET_CPU_PPC");
+		values.push("TARGET_CPU_PPC64");
+		values.push("TARGET_CPU_X86");
+		values.push("TARGET_CPU_X86_64");
+		values.push("TARGET_IPHONE_SIMULATOR");
+		values.push("TARGET_OS_BRIDGE");
+		values.push("TARGET_OS_DRIVERKIT");
+		values.push("TARGET_OS_EMBEDDED");
+		values.push("TARGET_OS_IOS");
+		values.push("TARGET_OS_IPHONE");
+		values.push("TARGET_OS_LINUX");
+		values.push("TARGET_OS_MAC");
+		values.push("TARGET_OS_MACCATALYST");
+		values.push("TARGET_OS_OSX");
+		values.push("TARGET_OS_SIMULATOR");
+		values.push("TARGET_OS_TV");
+		values.push("TARGET_OS_UNIX");
+		values.push("TARGET_OS_VISION");
+		values.push("TARGET_OS_WATCH");
+		values.push("TARGET_OS_WIN32");
+		values.push("TARGET_OS_WINDOWS");
+		values.push("TARGET_RT_64_BIT");
+		values.push("TARGET_RT_BIG_ENDIAN");
+		values.push("TARGET_RT_LITTLE_ENDIAN");
+		values.push("TARGET_RT_MAC_CFM");
+		values.push("TARGET_RT_MAC_MACHO");
+		values.push("WINAPI_FAMILY");
+		values.push("bool");
+	}
+
+	public Vector<GeneratedTargetRow> targetRows() {
+		Vector<GeneratedTargetRow>? memo = self.targetRowsMemo;
+		if (memo != null) { return memo; }
+		Vector<GeneratedTargetRow> built = [];
+		built.push(GeneratedTargetRow("linux", "x86_64"));
+		built.push(GeneratedTargetRow("linux", "aarch64"));
+		built.push(GeneratedTargetRow("macos", "x86_64"));
+		built.push(GeneratedTargetRow("macos", "aarch64"));
+		built.push(GeneratedTargetRow("windows", "x86_64"));
+		built.push(GeneratedTargetRow("windows", "aarch64"));
+		self.targetRowsMemo = built;
+		return built;
+	}
+
+	public Vector<GeneratedPredefinedMacroRow> predefinedMacroRows() {
+		Vector<GeneratedPredefinedMacroRow>? memo = self.predefinedMacroRowsMemo;
+		if (memo != null) { return memo; }
+		Vector<GeneratedPredefinedMacroRow> built = [];
+		built.push(GeneratedPredefinedMacroRow("__ELF__", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__linux", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__linux__", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__unix", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__unix__", 1LL, ["linux"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__APPLE__", 1LL, ["macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__MACH__", 1LL, ["macos"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("_WIN32", 1LL, ["windows"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("_WIN64", 1LL, ["windows"], self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__amd64", 1LL, self.emptyNames(), ["x86_64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__amd64__", 1LL, self.emptyNames(), ["x86_64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__x86_64", 1LL, self.emptyNames(), ["x86_64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__x86_64__", 1LL, self.emptyNames(), ["x86_64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__aarch64__", 1LL, self.emptyNames(), ["aarch64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__arm64", 1LL, ["macos"], ["aarch64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__arm64__", 1LL, ["macos"], ["aarch64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__CHAR_UNSIGNED__", 1LL, ["linux"], ["aarch64"], self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__CHAR_BIT__", 8LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_SHORT__", 2LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_INT__", 4LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_LONG_LONG__", 8LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_POINTER__", 8LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_SIZE_T__", 8LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__SIZEOF_PTRDIFF_T__", 8LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__ORDER_LITTLE_ENDIAN__", 1234LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__ORDER_BIG_ENDIAN__", 4321LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__ORDER_PDP_ENDIAN__", 3412LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__BYTE_ORDER__", 1234LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__STDC__", 1LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		built.push(GeneratedPredefinedMacroRow("__STDC_VERSION__", 201112LL, self.emptyNames(), self.emptyNames(), self.emptyNames()));
+		self.predefinedMacroRowsMemo = built;
+		return built;
 	}
 }
