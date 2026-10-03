@@ -52,19 +52,19 @@ accept; "Pinned" is the exact version provisioned.
 | Windows ARM64 | x64 emulation | Prism (24H2 and later) | emulated x64 is never native evidence (Stage 23) | https://learn.microsoft.com/windows/arm/apps-on-arm-x86-emulation | 2026-10-02 | verified online |
 | Windows x64 | CI runner | `windows-latest` = Windows Server 2025 | — | https://docs.github.com/en/actions/reference/runners/github-hosted-runners | 2026-10-02 | verified online |
 | Windows ARM64 | CI runner | `windows-11-arm` (GA for public repositories 2025-08-07) | availability to this repository still unverified ⚠ | https://github.blog/changelog/2025-08-07-arm64-hosted-runners-for-public-repositories-are-now-generally-available/ | 2026-10-02 | verified online (GA); repo access unverified |
-| Android | NDK | **r29, `29.0.14206865`** (2025-10-06), as PLAN.md Stage 23 names | r28+: 16 KiB ELF alignment by default for arm64-v8a and x86_64; NDK minimum API 21 | https://github.com/android/ndk/releases ; https://github.com/android/ndk/wiki/Changelog-r28 | 2026-10-02 | verified online |
+| Android | NDK | **r29, `29.0.14206865`** (2025-10-06), as PLAN.md Stage 23 names | r28+: 16 KiB ELF alignment by default for arm64-v8a and x86_64; NDK minimum API 21 | https://github.com/android/ndk/releases ; https://github.com/android/ndk/wiki/Changelog-r28 | 2026-10-02 | verified online; `nix develop .#platforms` (2026-10-03) |
 | Android | newer NDK (not adopted) | r30, `30.0.16248370` (2026-09-08, current LTS) | — | https://developer.android.com/ndk/downloads ; https://github.com/android/ndk/wiki/Changelog-r30 | 2026-10-02 | verified online |
 | Android | `minSdk` | **API 29** | D21 | PLAN.md D21 | 2026-10-02 | decision |
 | Android | `targetSdk` / `compileSdk` | **API 36** | Play requires target API 36 for new apps and updates from 2026-08-31 (extension to 2026-11-01); API 37 is stable (2026-06-16) and optional | https://developer.android.com/google/play/requirements/target-sdk ; https://android-developers.googleblog.com/2026/06/Android-17.html | 2026-10-02 | verified online |
 | Android | 16 KiB pages | NDK r29 defaults plus AGP ≥8.5.1 zip alignment | Play blocks non-16 KiB updates from 2027-02-01 (the 2025 blog's 2025-11-01 applied to new Android 15+ targets) | https://developer.android.com/guide/practices/page-sizes | 2026-10-02 | verified online |
-| Android | JDK | **JDK 17** | AGP 9.4's minimum and default; no official page requires 21 | https://developer.android.com/build/releases/gradle-plugin | 2026-10-02 | verified online |
+| Android | JDK | **JDK 17** | AGP 9.4's minimum and default; no official page requires 21 | https://developer.android.com/build/releases/gradle-plugin | 2026-10-02 | verified online; `nix develop .#platforms` (2026-10-03): nixpkgs `jdk17` 17.0.20+2 |
 | Android | packaging driver | **Gradle 9.6.0 with AGP 9.4.0** | the direct aapt2/d8/zipalign/apksigner path is not documented as a supported end-to-end build ("invoked by the build tools") | https://developer.android.com/build/releases/gradle-plugin ; https://developer.android.com/tools | 2026-10-02 | verified online |
-| Android | build-tools | 37.0.0 | AGP 9.4 needs ≥36.0.0 | `https://dl.google.com/android/repository/repository2-3.xml` | 2026-10-02 | verified online (SDK repository feed) |
-| Android | platform-tools (adb) | 37.0.1 | — | https://developer.android.com/tools/releases/platform-tools | 2026-10-02 | verified online |
-| Android | cmdline-tools (`sdkmanager`) | 23.0 (`commandlinetools-mac_arm64-15859902_latest.zip`) | the page now marks `sdkmanager` deprecated in favour of `android sdk` | https://developer.android.com/tools/sdkmanager ; SDK repository feed | 2026-10-02 | verified online |
-| Android | emulator | 37.2.12 | — | SDK repository feed | 2026-10-02 | verified online |
-| Android emulator | 16 KiB system image | `system-images;android-36;google_apis_ps16k;arm64-v8a` | `adb shell getconf PAGE_SIZE` prints 16384 | `https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-3.xml` | 2026-10-02 | verified online |
-| Android emulator | current and floor images | `system-images;android-36;google_apis;arm64-v8a`, `system-images;android-29;google_apis;arm64-v8a` | — | same feed | 2026-10-02 | naming per the feed's pattern; Stage 23 confirms with `sdkmanager --list` |
+| Android | build-tools | 37.0.0 | AGP 9.4 needs ≥36.0.0 | `https://dl.google.com/android/repository/repository2-3.xml` | 2026-10-02 | verified online (SDK repository feed); `nix develop .#platforms` (2026-10-03) |
+| Android | platform-tools (adb) | 37.0.1 | — | https://developer.android.com/tools/releases/platform-tools | 2026-10-02 | verified online; `nix develop .#platforms` (2026-10-03) |
+| Android | cmdline-tools (`sdkmanager`) | 23.0 (`commandlinetools-mac_arm64-16111833_latest.zip`; the feed re-published 23.0 under build 16111833 by 2026-10-03, replacing 15859902) | the page now marks `sdkmanager` deprecated in favour of `android sdk`; 23.0's `sdkmanager --version` prints the Android CLI's version (`1.0.16500706`) | https://developer.android.com/tools/sdkmanager ; SDK repository feed | 2026-10-03 | verified online; `nix develop .#platforms` (2026-10-03) |
+| Android | emulator | 37.2.12 | — | SDK repository feed | 2026-10-02 | verified online; `nix develop .#platforms` (2026-10-03) |
+| Android emulator | 16 KiB system image | `system-images;android-36;google_apis_ps16k;arm64-v8a` | `adb shell getconf PAGE_SIZE` prints 16384 | `https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-3.xml` | 2026-10-02 | verified online; in `.#platforms` on aarch64-darwin (evaluated; realized on the Mac) |
+| Android emulator | current and floor images | `system-images;android-36;google_apis;arm64-v8a`, `system-images;android-29;google_apis;arm64-v8a` | — | same feed | 2026-10-02 | in `.#platforms` on aarch64-darwin (evaluated; realized on the Mac); the x86_64 twins of both are realized on x86_64-linux and listed by `sdkmanager --list_installed` (2026-10-03) |
 | all GPU slices | wgpu-native | **v27.0.4.0** prebuilt release archives, `release` builds | the same version the flake builds for macOS/Linux; naga 29 (flake `wgpu-utils` 29.0.1) is newer and does not prove wgpu-native acceptance | https://github.com/gfx-rs/wgpu-native/releases/tag/v27.0.4.0 | 2026-10-02 | verified online; flake |
 | all GUI slices | FreeType | **2.14.3** (2026-03-22) | `src/stdlib/GUI/btrc.toml` already documents 2.14.3 behaviour | https://download.savannah.gnu.org/releases/freetype/ | 2026-10-02 | verified online; flake |
 | host | Nix | 2.34.6 (Determinate, host) | the flake's own `nix` package is 2.34.8 and is not the one in use | recorded host | 2026-09-30 | recorded host |
@@ -76,20 +76,32 @@ Asset names of release v27.0.4.0 (each also has a `-debug` twin). The latest
 release is v29.0.1.1; moving to it is a separate change that moves the flake
 too, so every slice keeps one version.
 
-| Slice | Archive |
-| --- | --- |
-| macOS arm64 | `wgpu-macos-aarch64-release.zip` (the flake builds the same version from source) |
-| Linux x86_64 | `wgpu-linux-x86_64-release.zip` (the flake builds the same version from source) |
-| Windows x64 | `wgpu-windows-x86_64-gnu-release.zip` |
-| Windows ARM64 | `wgpu-windows-aarch64-msvc-release.zip`, the only Windows ARM64 asset |
-| iOS device | `wgpu-ios-aarch64-release.zip` |
-| iOS simulator | `wgpu-ios-aarch64-simulator-release.zip` |
-| Android arm64-v8a | `wgpu-android-aarch64-release.zip` |
-| Android x86_64 | `wgpu-android-x86_64-release.zip` |
+| Slice | Archive | SHA-256 |
+| --- | --- | --- |
+| macOS arm64 | `wgpu-macos-aarch64-release.zip` (the flake builds the same version from source) | `15367c26fdbe6892db35007d39f3883593384e777360b70e6bd704cb5dedde53` |
+| Linux x86_64 | `wgpu-linux-x86_64-release.zip` (the flake builds the same version from source) | `271481ef76fbf3ea09631a6079e9493636ecf813cd9c92306c44a1a452991ba1` |
+| Windows x64 | `wgpu-windows-x86_64-gnu-release.zip` | `c0c2dbcef3c6a9933a1a1bf7cbdaaebed61a33c833bacb0269662f91536be8bd` |
+| Windows ARM64 | `wgpu-windows-aarch64-msvc-release.zip`, the only Windows ARM64 asset | `71271c3671bbcbb8935211dc18bfc1f765326d72f6d1710c93afb0d597000aa9` |
+| iOS device | `wgpu-ios-aarch64-release.zip` | `d7adb36b2ca7aa22c40bcf9ac96f1222353533040027db4f95288cdb590c06be` |
+| iOS simulator | `wgpu-ios-aarch64-simulator-release.zip` | `1f7c89e4b400dcacd145322f41c5e7a4a2c8b306e74259b8298a55f858279f51` |
+| Android arm64-v8a | `wgpu-android-aarch64-release.zip` | `80a93ecfcb14d07f6cadb8bc9bdcf78974f3668b27a89f52a1b006cd14e985a0` |
+| Android x86_64 | `wgpu-android-x86_64-release.zip` | `01dfab96efcb980f04da1814c3d0300c06bd3cadb3ee65cc7f1be17ff904523a` |
 
-The archives' SHA-256 digests are not recorded yet: this session could not
-reach GitHub's release API. `platforms-p1-toolchains` records each digest when
-it first downloads the archive, and every later fetch checks it.
+Each digest is the SHA-256 of the archive file, downloaded on 2026-10-03 from
+`https://github.com/gfx-rs/wgpu-native/releases/download/v27.0.4.0/<archive>`
+with `nix store prefetch-file`. GitHub's release API was not reachable from
+that session, so the digests were not compared with the assets' published
+`digest` fields. `nix/wgpu-native-prebuilt.nix` pins the same digests as
+fixed-output fetches, so every later fetch checks them; nothing consumes them
+until Stage 28 (`tooling-cross-gpu-deps`). To re-check one:
+
+```sh
+nix store prefetch-file --hash-type sha256 \
+  https://github.com/gfx-rs/wgpu-native/releases/download/v27.0.4.0/<archive>
+gh api repos/gfx-rs/wgpu-native/releases/tags/v27.0.4.0 \
+  --jq '.assets[] | select(.name | endswith("-release.zip")) | "\(.name) \(.digest)"'
+nix build --no-link .#devShells.x86_64-linux.platforms.wgpuNativePrebuilt.<slice>
+```
 
 ### Windows ARM64 and the MSVC question
 
@@ -109,6 +121,46 @@ architectures and GNU on x64"). So:
 - Linking the MSVC `.lib` into a MinGW image is untested and is not a plan.
 
 The owner confirms this at the Stage 24 target-spec review.
+
+## The `.#platforms` shell
+
+`nix develop .#platforms` is the default dev shell plus the Android SDK, NDK
+r29 and JDK 17 above (`nix/platforms.nix`), with `ANDROID_HOME`,
+`ANDROID_SDK_ROOT`, `ANDROID_NDK_HOME` and `JAVA_HOME` exported. The default
+shell and the CI image stay unchanged. It exists on x86_64-linux,
+aarch64-darwin and x86_64-darwin; Google ships no aarch64-linux SDK host tools.
+Enter it with a GC root, which Determinate Nix's collector otherwise sweeps:
+
+```sh
+nix develop .#platforms --profile ~/.cache/btrc/gcroots/platforms
+```
+
+| Host | System images | Closure |
+| --- | --- | --- |
+| x86_64-linux | `google_apis;x86_64` for API 29 and 36 | 17.75 GB, against the default shell's 4.66 GB (2026-10-03); the emulator's closure is 9.19 GB and the two images 3.38 and 4.59 GB |
+| aarch64-darwin | `google_apis;arm64-v8a` for API 29 and 36, and `google_apis_ps16k;arm64-v8a` for API 36 | evaluated only; the Mac realizes it (`MAC-P1-03`) |
+
+The API 29 image brings platform 29 with it, because androidenv composes
+images only for the platforms it installs. The SDK licences are accepted in a
+nixpkgs import that only this shell evaluates (D8).
+
+The pinned nixpkgs' androidenv feed lacks platform-tools 37.0.1, cmdline-tools
+23.0, emulator 37.2.12 and the API 36 `google_apis_ps16k` image.
+`nix/android-repo-overlay.json` adds exactly those entries, produced by
+nixpkgs' own `androidenv/update.rb` from Google's
+`repository2-3.xml` and `sys-img/google_apis/sys-img2-3.xml` on 2026-10-03.
+Each archive is fetched against the SHA-1 that feed publishes; re-check an
+entry by comparing its `url` and `sha1` with the feed.
+
+Checked on x86_64-linux on 2026-10-03: `java -version` prints 17.0.20,
+`adb version` 37.0.1, `zig version` 0.16.0, the NDK's `source.properties`
+`Pkg.Revision = 29.0.14206865`, and the NDK's clang builds a strict C11 program
+for `aarch64-linux-android29` (ELF64, AArch64) and `x86_64-linux-android29`
+(ELF64, X86-64), both with 16 KiB (`0x4000`) segment alignment.
+
+`wine` is not in the shell. Its closure is 1.89 GB, under the 2 GB the
+provisioning step allows, but it is supplementary only and the cloud
+container's disk could not carry it beside the SDK; it stays an unavailable row.
 
 ## Recorded host
 
@@ -134,11 +186,15 @@ or does not print it. On Linux every probe is reported not applicable.
 | `zig` | `nix develop --command zig version` | present | `0.16.0` |
 | `nix` | `nix --version` | present | `2.34.6` |
 | `podman` | `podman --version` | present | `5.8.2` |
-| `jdk` | `java -version` | absent | `version` |
-| `android-sdk` | `sdkmanager --list` | absent | `build-tools` |
-| `adb` | `adb version` | absent | `Android Debug Bridge` |
+| `jdk` | `nix develop .#platforms --command java -version` | present | `openjdk version "17.` |
+| `android-sdk` | `nix develop .#platforms --command sdkmanager --list_installed` | present | `build-tools/37.0.0` |
+| `adb` | `nix develop .#platforms --command adb version` | present | `Version 37.0.1` |
 | `wine` | `wine --version` | absent | `wine-` |
 <!-- host-facts:end -->
+
+The `jdk`, `android-sdk` and `adb` rows record the `.#platforms` shell as
+checked on x86_64-linux on 2026-10-03. The Mac matches them once `MAC-P1-03`
+realizes that shell there; until then the probe reports them as mismatches.
 
 wgpu-native 27.0.4.0 is a flake pin, not a host install, so it is checked with
 `nix eval`, not by the probe.
@@ -152,14 +208,13 @@ Nothing below is met. Each row names the item that has to close first.
 | An installed iOS 17.x simulator runtime launching a C11 app; Xcode 27 does not accept keyboard or mouse input on simulators older than iOS 18.0, which limits UI automation there | `tooling-ios-simulator-runtimes` | not installed; the download is a Stage 23 step on the Mac |
 | iOS/iPadOS 17 and current on physical iPhone and iPad | `tooling-ios-physical-devices` | no device (D8) |
 | Development-signed or distribution-signed iOS builds; notarization | `qualification-signing-accounts`, `tooling-apple-signing` | 0 valid signing identities; no account (D8) |
-| JDK 17, NDK r29, SDK build-tools/platform-tools/emulator in `nix develop` | `tooling-android-sdk-ndk` | none installed; licence acceptance is approved (D8) |
 | API 29, API 36 and 16 KiB AVDs booting | `tooling-android-sdk-ndk` | no SDK |
 | Android hardware: an API 29 vendor and a current 16 KiB vendor | `tooling-android-physical-devices` | no device (D8) |
 | Native Windows 11 x64 and ARM64 hardware runs | `tooling-windows-physical` | no hardware (D8) |
 | A local Windows 11 ARM VM (`ssh winvm`) | `tooling-windows-vm` | D8 declines a local Windows VM |
 | `windows-11-arm` runner access and an `aarch64-windows-msvc` GPU link | `tooling-windows-ci-arm64-llvm` | blocked on a pushed `ci/**` job (D4) |
-| wgpu-native archive digests and an extracted, linked archive per slice | `platforms-p1-toolchains` | not downloaded; GitHub's release API is unreachable from this session |
-| `wine` for supplementary Windows runs | `platforms-p1-toolchains` | not installed; supplementary only (platform-parity.md §2) |
+| An extracted, linked wgpu-native archive per slice | `tooling-cross-gpu-deps` | the digests are pinned (above); linking waits for Stage 28 |
+| `wine` for supplementary Windows runs | `platforms-p1-toolchains` | not in `.#platforms` (see [the shell](#the-platforms-shell)); supplementary only (platform-parity.md §2) |
 | The D21 target spec in `src/language` carrying these values | `platforms-p1-target-spec` | Stage 24 |
 
 ## Revisit
