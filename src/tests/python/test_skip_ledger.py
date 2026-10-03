@@ -15,6 +15,9 @@ import pytest
 from src.tests import runner_capabilities as capabilities
 from src.tests.process_limits import TRANSPILE_TIMEOUT
 from tools.qualification.skips import (
+    HARDWARE_CAPABILITIES,
+    HOSTED_CATEGORIES,
+    HOSTED_RUNNERS,
     MANIFEST_ROOT,
     RUNNERS,
     ExpectedSkipManifest,
@@ -110,9 +113,9 @@ def _rule(**overrides) -> dict:
 def test_every_tracked_manifest_is_valid_and_named_for_a_known_runner():
     manifests = {path.stem: ExpectedSkipManifest.load(path) for path in sorted(MANIFEST_ROOT.glob("*.json"))}
 
-    assert {"macos", "linux-devcontainer", "windows"} <= set(manifests)
+    assert {"macos", "macos-hosted", "linux-devcontainer", "windows"} <= set(manifests)
     assert set(manifests) <= set(RUNNERS)
-    assert all(manifests[runner].enforce for runner in ("macos", "linux-devcontainer", "windows"))
+    assert all(manifests[runner].enforce for runner in ("macos", "macos-hosted", "linux-devcontainer", "windows"))
     for manifest in manifests.values():
         for rule in manifest.rules:
             for pattern in rule.files:
@@ -266,15 +269,42 @@ WINDOWS_SKIPS = {
     ),
 }
 
+# Hosted macos-15 skips from macOS runs 37110991739 (5b57618) and 37099829848
+# (379ab93), and the two hardware-tier skips its manifest admits.
+HOSTED_SKIPS = {
+    "windows-executable-release": (
+        "src/tests/btrc/test_bootstrap_harness.py::test_x",
+        "native Windows executable-release contract",
+    ),
+    "dev-full": ("src/tests/btrc/test_frontend_io_boundaries.py::test_x", "requires /dev/full"),
+    "linux-glibc-call-shapes": (
+        "src/tests/python/test_native_linux_call_shapes.py::test_x[python]",
+        "the call shapes are proven against glibc",
+    ),
+    "darwin-gcc-sanitizer-runtime": (
+        "src/tests/python/test_arc_witness_runtime.py::test_witness_transitions_are_exact[asan-ubsan-gcc]",
+        "gcc cannot link ASan+UBSan here: ld: library not found for -lasan\ncollect2: error: ld returned 1 exit status",
+    ),
+    "coreaudio-output-device": (
+        "src/tests/python/test_core_audio_device_runtime.py::test_core_audio_provider_on_both_frontends[btrc]",
+        "SKIP: CoreAudio output session unavailable",
+    ),
+    "gpu-compute-adapter": (
+        "src/tests/python/test_native_gpu_runtime.py::test_native_gpu_rejects_malformed_wgsl_without_aborting",
+        "no native compute adapter is available",
+    ),
+}
+
 EXPECTED_BY_RUNNER = {
     "macos": dict(zip(("dap-session-developer-mode", "linux-freetype-macro-constants"), MACOS_SKIPS[:2], strict=True)),
+    "macos-hosted": HOSTED_SKIPS,
     "linux-devcontainer": LINUX_SKIPS,
     "windows": WINDOWS_SKIPS,
 }
 
 
-@pytest.mark.parametrize("runner", ["linux-devcontainer", "windows"])
-def test_the_linux_and_windows_manifests_explain_their_recorded_skips(runner):
+@pytest.mark.parametrize("runner", ["macos-hosted", "linux-devcontainer", "windows"])
+def test_the_ci_runner_manifests_explain_their_recorded_skips(runner):
     manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
 
     assert manifest.enforce
@@ -285,18 +315,87 @@ def test_the_linux_and_windows_manifests_explain_their_recorded_skips(runner):
     assert manifest.classify("src/tests/python/test_cases.py::test_x", "requires the native Windows CRT") is None
 
 
+def test_the_hosted_macos_manifest_expects_only_platform_and_hardware_skips():
+    """Hosted macOS runs everything it can: another OS's tests and the hardware tier are all it may skip."""
+
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "macos-hosted.json")
+    rules = {rule.id: rule for rule in manifest.rules}
+
+    assert HOSTED_RUNNERS == {"macos-hosted": "macos"}
+    assert {rule.category for rule in manifest.rules} == set(HOSTED_CATEGORIES)
+    hardware = {rule_id: rule for rule_id, rule in rules.items() if rule.category == "hardware"}
+    assert set(hardware) == {"coreaudio-output-device", "gpu-compute-adapter"}
+    for rule in hardware.values():
+        assert rule.covered_by == ("macos",), rule.id
+        assert rule.gating_capabilities and set(rule.gating_capabilities) <= set(HARDWARE_CAPABILITIES), rule.id
+    # The acceptance Mac's platform rules all apply to the hosted image too.
+    mac = {rule.id: rule for rule in ExpectedSkipManifest.load(MANIFEST_ROOT / "macos.json").rules}
+    assert {rule_id for rule_id, rule in mac.items() if rule.category == "platform"} <= set(rules)
+    # Only gcc's sanitizer cases are a platform gap: the same cases through
+    # clang run here, so their skips are defects.
+    for nodeid, reason in (
+        (
+            "src/tests/python/test_arc_witness_runtime.py::test_witness_transitions_are_exact[asan-ubsan-clang0]",
+            "clang cannot link ASan+UBSan here: ld: library not found",
+        ),
+        (
+            "src/tests/python/test_freestanding_reference.py::test_reference_runtime_is_strict_and_width_correct"
+            "[ubsan-clang]",
+            "compiler wrapper does not provide its UBSan runtime",
+        ),
+        # macos.yml enables developer mode, and ThreadSanitizer starts on the image.
+        (
+            "src/tests/debug/test_dap_session.py::test_stop_on_entry",
+            "needs macOS developer mode for lldb to launch an inferior (sudo /usr/sbin/DevToolsSecurity -enable)",
+        ),
+        (
+            "src/tests/python/test_gpu_async_runtime.py::test_x",
+            "ThreadSanitizer runtime crashes on an independent exact-flags probe",
+        ),
+        # The hardware tier is the device, never the provider or the toolchain.
+        (
+            "src/tests/python/test_core_audio_device_runtime.py::test_core_audio_provider_on_both_frontends[python]",
+            "SKIP: CoreAudio provider unavailable",
+        ),
+        ("src/tests/python/test_native_gpu_runtime.py::test_x", "WebGPU build flags are unavailable"),
+        ("src/tests/python/test_wgsl_semantics.py::test_x", "naga WGSL validator is not installed"),
+    ):
+        assert manifest.classify(nodeid, reason) is None, nodeid
+
+
+def test_ci_manifests_name_coverage_that_ci_reports_can_confirm():
+    """Linux and Windows claim macOS coverage from the hosted runner, whose reports every push uploads."""
+
+    for runner in ("linux-devcontainer", "windows"):
+        manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+        claimed = {other for rule in manifest.rules for other in rule.covered_by}
+        assert "macos-hosted" in claimed, runner
+        assert claimed <= {"macos-hosted", "linux-devcontainer", "windows"}, runner
+
+
+def test_macos_ci_classifies_every_session_as_the_hosted_runner():
+    """A Darwin host detects as the acceptance Mac, so the workflow names its runner once, for every job."""
+
+    workflow = (REPO / ".github/workflows/macos.yml").read_text(encoding="utf-8")
+    code = [line for line in workflow.splitlines() if not line.lstrip().startswith("#")]
+
+    assert re.search(r"(?m)^env:\n  BTRC_TEST_RUNNER: macos-hosted\n(?!  )", "\n".join(code) + "\n")
+    # No job or step overrides it.
+    assert sum("BTRC_TEST_RUNNER" in line for line in code) == 1
+
+
 def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
     manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json")
     rules = {rule.id: rule for rule in manifest.rules}
 
-    assert rules["native-reader-macos-only"].covered_by == ("macos",)
+    assert rules["native-reader-macos-only"].covered_by == ("macos-hosted",)
     assert rules["windows-junctions"].covered_by == ("windows",)
     # Only a display and a session bus are missing everywhere; the pugixml,
     # SQLite, lldb and native-provider cases Linux skips run on macOS.
     uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
     assert uncovered == {"linux-tray-session-bus"}
     for rule_id in ("pugixml-sdk", "native-compiler-provider", "native-receipt-provider", "lldb-missing"):
-        assert rules[rule_id].covered_by == ("macos",), rule_id
+        assert rules[rule_id].covered_by == ("macos-hosted",), rule_id
     # No rule waits on a lane that has landed.
     assert not [rule_id for rule_id, rule in rules.items() if "Delete this rule once" in rule.note]
     # CI runs every shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe),
@@ -321,7 +420,7 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
         "src/tests/python/test_native_unique_resources.py::test_unique_owned_output_actual_sqlite_open[x]",
     ):
         rule = manifest.classify(nodeid, "requires macOS and the explicitly built native header reader")
-        assert rule.id == "native-reader-macos-only" and rule.covered_by == ("macos",), nodeid
+        assert rule.id == "native-reader-macos-only" and rule.covered_by == ("macos-hosted",), nodeid
 
 
 @pytest.mark.parametrize("runner", sorted(EXPECTED_BY_RUNNER))
@@ -358,11 +457,50 @@ def test_each_tracked_manifest_fails_the_gate_on_an_injected_skip(tmp_path, runn
         ([_rule(files=[])], "at least one file glob"),
         ([{**_rule(), "surprise": True}], "unknown field"),
         ([{key: value for key, value in _rule().items() if key != "covered_by"}], "covered_by: required"),
+        ([_rule(category="hardware")], "hardware rule names its devices"),
+        ([_rule(category="hardware", gating={"capabilities": ["holodeck"]})], "hardware rule names its devices"),
+        (
+            [_rule(category="hardware", gating={"capabilities": ["gpu-adapter"]}, covered_by=[])],
+            "names a runner that has the device",
+        ),
     ],
 )
 def test_malformed_manifests_are_rejected(tmp_path, rules, message):
     with pytest.raises(SkipLedgerError, match=message):
         ExpectedSkipManifest.load(_manifest(tmp_path, "macos", rules))
+
+
+@pytest.mark.parametrize(
+    ("rule", "message"),
+    [
+        (_rule(category="capability", covered_by=["macos"]), "expects only platform and hardware skips"),
+        (_rule(category="runtime-probe"), "not 'runtime-probe'"),
+        (
+            _rule(category="hardware", gating={"capabilities": ["gpu-adapter"]}, covered_by=["linux-devcontainer"]),
+            "hardware skip is covered by macos",
+        ),
+    ],
+)
+def test_a_hosted_manifest_admits_only_platform_and_hardware_rules(tmp_path, rule, message):
+    with pytest.raises(SkipLedgerError, match=message):
+        ExpectedSkipManifest.load(_manifest(tmp_path, "macos-hosted", [rule]))
+    hosted = ExpectedSkipManifest.load(
+        _manifest(
+            tmp_path,
+            "macos-hosted",
+            [
+                _rule(category="platform"),
+                _rule(
+                    id="no-device", category="hardware", gating={"capabilities": ["gpu-adapter"]}, covered_by=["macos"]
+                ),
+            ],
+        )
+    )
+    assert [rule.category for rule in hosted.rules] == ["platform", "hardware"]
+    # Other runners keep every category.
+    assert ExpectedSkipManifest.load(
+        _manifest(tmp_path, "linux-devcontainer", [{**rule, "covered_by": ["macos"]}])
+    ).rules
 
 
 def test_a_manifest_must_be_named_for_its_runner(tmp_path):

@@ -9,10 +9,19 @@ does not explain.
 
 Runners
 -------
-``macos``, ``linux-devcontainer`` (the CI and ``make linux-ci`` container),
-``windows``, and later the ``ios`` and ``android`` executors. A run names its
-runner through ``BTRC_TEST_RUNNER``, or it is detected from the host. Each
-runner's manifest is ``src/tests/fixtures/expected-skips/<runner>.json``.
+``macos`` (the acceptance Mac), ``macos-hosted`` (GitHub's hosted macOS
+runners, which ``macos.yml`` names), ``linux-devcontainer`` (the CI and
+``make linux-ci`` container), ``windows``, and later the ``ios`` and
+``android`` executors. A run names its runner through ``BTRC_TEST_RUNNER``,
+or it is detected from the host; a Darwin host detects as ``macos``, so a
+hosted runner must name itself. Each runner's manifest is
+``src/tests/fixtures/expected-skips/<runner>.json``.
+
+A hosted runner is a CI image of a platform whose acceptance host is another
+runner (``HOSTED_RUNNERS``). Everything the image can run, it runs: its
+manifest may expect only ``platform`` skips (tests for another OS) and
+``hardware`` skips (a device the image lacks), and each hardware rule names
+the acceptance host in ``covered_by``.
 
 Manifest schema ``btrc.expected-skips/1``
 -----------------------------------------
@@ -32,7 +41,10 @@ Manifest schema ``btrc.expected-skips/1``
                   ``provider-configuration`` (an environment-configured
                   provider is absent) | ``capability`` (a host capability
                   probe found it absent) | ``runtime-probe`` (a sanitizer or
-                  runtime does not start here).
+                  runtime does not start here) | ``hardware`` (a device is
+                  absent: ``gating.capabilities`` names it from
+                  ``HARDWARE_CAPABILITIES``, and ``covered_by`` names a runner
+                  that has it).
   ``gating``      optional ``{"env": [...], "tools": [...], "capabilities":
                   [...]}``: what would have to change for the test to run.
   ``covered_by``  the runners that do run these tests; ``[]`` marks them
@@ -57,7 +69,7 @@ REPO = Path(__file__).resolve().parents[2]
 MANIFEST_SCHEMA = "btrc.expected-skips/1"
 SKIP_REPORT_SCHEMA = "btrc.skip-report/1"
 MANIFEST_ROOT = REPO / "src" / "tests" / "fixtures" / "expected-skips"
-RUNNERS = ("macos", "linux-devcontainer", "windows", "ios", "android")
+RUNNERS = ("macos", "macos-hosted", "linux-devcontainer", "windows", "ios", "android")
 CATEGORIES = (
     "platform",
     "missing-tool",
@@ -65,7 +77,14 @@ CATEGORIES = (
     "provider-configuration",
     "capability",
     "runtime-probe",
+    "hardware",
 )
+# The devices a hardware-tier skip may wait on: an audio output device, a GPU
+# compute adapter, a physical display and a physical (non-simulated) device.
+HARDWARE_CAPABILITIES = ("coreaudio-device", "gpu-adapter", "physical-display", "physical-device")
+# Each hosted runner, and the acceptance host that runs its hardware tier.
+HOSTED_RUNNERS = {"macos-hosted": "macos"}
+HOSTED_CATEGORIES = ("platform", "hardware")
 _RULE_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ENVIRONMENT_NAME = re.compile(r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]*[A-Z0-9]\b|\b(?:DISPLAY|CC|CXX|SDKROOT)\b")
 
@@ -159,6 +178,15 @@ class SkipRule:
         files = cls._texts(data, "files", where, required=True)
         if not files:
             raise SkipLedgerError(f"{where}.files: name at least one file glob")
+        capabilities = cls._texts(gating, "capabilities", f"{where}.gating")
+        if category == "hardware":
+            if not capabilities or not set(capabilities) <= set(HARDWARE_CAPABILITIES):
+                raise SkipLedgerError(
+                    f"{where}.gating.capabilities: a hardware rule names its devices from "
+                    f"{', '.join(HARDWARE_CAPABILITIES)}"
+                )
+            if not covered_by:
+                raise SkipLedgerError(f"{where}.covered_by: a hardware rule names a runner that has the device")
         return cls(
             id=rule_id,
             files=files,
@@ -169,7 +197,7 @@ class SkipRule:
             note=cls._text(data, "note", where),
             gating_env=cls._texts(gating, "env", f"{where}.gating"),
             gating_tools=cls._texts(gating, "tools", f"{where}.gating"),
-            gating_capabilities=cls._texts(gating, "capabilities", f"{where}.gating"),
+            gating_capabilities=capabilities,
         )
 
     @staticmethod
@@ -242,6 +270,17 @@ class ExpectedSkipManifest:
         duplicates = sorted(name for name, count in Counter(rule.id for rule in rules).items() if count > 1)
         if duplicates:
             raise SkipLedgerError(f"{where}.rules: duplicate id(s) {', '.join(duplicates)}")
+        acceptance = HOSTED_RUNNERS.get(runner)
+        for index, rule in enumerate(rules if acceptance is not None else ()):
+            if rule.category not in HOSTED_CATEGORIES:
+                raise SkipLedgerError(
+                    f"{where}.rules[{index}].category: the hosted runner {runner} expects only "
+                    f"{' and '.join(HOSTED_CATEGORIES)} skips, not {rule.category!r}"
+                )
+            if rule.category == "hardware" and acceptance not in rule.covered_by:
+                raise SkipLedgerError(
+                    f"{where}.rules[{index}].covered_by: a {runner} hardware skip is covered by {acceptance}"
+                )
         return cls(
             runner=runner,
             enforce=enforce,
