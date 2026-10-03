@@ -2,7 +2,6 @@
 
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -39,16 +38,10 @@ from src.compiler.python.syntax.ast.generated import (
     Program,
     TypeExpr,
 )
+from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_GCC, sanitizer_clang
 from src.tests.python.reference_pipeline import analyze, emit_c
 
-STRICT_C_COMPILERS = tuple(
-    compiler for compiler in (shutil.which("gcc"), shutil.which("clang")) if compiler is not None
-)
-ASAN_COMPILER = (
-    "/usr/bin/clang"
-    if sys.platform == "darwin" and os.access("/usr/bin/clang", os.X_OK)
-    else (STRICT_C_COMPILERS[-1] if STRICT_C_COMPILERS else None)
-)
+ASAN_COMPILER = sanitizer_clang() or HOST_GCC
 
 
 def _assert_value_initializer_promotes_call_result(function: str) -> None:
@@ -630,12 +623,12 @@ def test_invalid_callable_return_abi_is_rejected():
 
 
 @pytest.mark.skipif(
-    not STRICT_C_COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires a strict C11 compiler",
 )
 @pytest.mark.parametrize(
     "c_compiler",
-    STRICT_C_COMPILERS,
+    HOST_C_COMPILERS,
     ids=lambda path: Path(path).name,
 )
 def test_callable_runtime_is_strict_c11_clean(
@@ -650,12 +643,12 @@ def test_callable_runtime_is_strict_c11_clean(
 
 
 @pytest.mark.skipif(
-    not STRICT_C_COMPILERS,
+    not HOST_C_COMPILERS,
     reason="requires a strict C11 compiler",
 )
 @pytest.mark.parametrize(
     "c_compiler",
-    STRICT_C_COMPILERS,
+    HOST_C_COMPILERS,
     ids=lambda path: Path(path).name,
 )
 def test_long_concat_classifies_each_leaf_at_its_source_flow_entry(

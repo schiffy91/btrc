@@ -4,11 +4,9 @@ import Library.Image;
 
 import ./ImageIoSamples.btrc;
 #include <assert.h>
-#include "ImageIoFaults.h"
 
-void imageIoBegin(int failure);
-int imageIoOutstanding();
-int imageIoCreations();
+/* imageIoBegin, imageIoOutstanding and imageIoCreations come from
+ * ImageIoFaults.h, which the harness binds through [[native.bindings]]. */
 
 void decodeOnce(int failure) {
 	var decoder = MacOSEncodedImageDecoder();

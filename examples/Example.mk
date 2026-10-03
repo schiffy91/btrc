@@ -4,8 +4,9 @@
 # resolve the same way as in the test suites. The Python reference compiler is
 # the default; build an example with the self-hosted compiler instead with
 #   make BTRC=/path/to/btrcc
-# test_examples.py transpiles every entry through both compilers and checks the
-# generated C is byte-identical.
+# test_examples.py transpiles every entry through both compilers and runs the
+# SDK-free ones from each compiler's C, checking they behave the same. The two
+# compilers' C is not byte-identical (docs/design/compiler-parity.md).
 
 EXAMPLES_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 BTRC_ROOT := $(abspath $(EXAMPLES_DIR)/..)

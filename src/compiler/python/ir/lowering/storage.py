@@ -511,7 +511,10 @@ class StorageLowerer:
                 "__btrc_update_old_cleanup",
             )
         sequence.append(IRBinOp(left=right, op="=", right=lowered_right))
-        if right_owned:
+        if right_keep and not right_owned:
+            sequence.append(self._lifetime.retain_value(right, right_type))
+        if right_owned or right_keep:
+            # A kept right operand holds its own +1 until the update releases it.
             self._lifetime.protect_temporary(
                 right_decl,
                 right_type,
@@ -519,8 +522,6 @@ class StorageLowerer:
                 sequence,
                 "__btrc_update_rhs_cleanup",
             )
-        if right_keep and not right_owned:
-            sequence.append(self._lifetime.retain_value(right, right_type))
         return MaterializedStorageUpdate(
             target=target,
             right_type=right_type,
@@ -718,6 +719,10 @@ class StorageLowerer:
         else:
             sequence.append(value)
         return IRCommaExpr(expressions=sequence)
+
+    def wrap_physical_operation(self, target: MaterializedStorageTarget, operation: IRExpr) -> IRExpr:
+        """Apply one in-place C operation to a stabilized physical target."""
+        return self._wrap_target(target, [operation])
 
     def _wrap_target(
         self,

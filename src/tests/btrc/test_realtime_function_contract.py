@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
+
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "RealtimeFunction.btrc"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _reference(source: Path, output: Path, cache: Path) -> subprocess.CompletedProcess[str]:
@@ -39,7 +39,7 @@ def _selfhost(compiler: Path, source: Path, output: Path) -> subprocess.Complete
     return compiled
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_realtime_function_preserves_proof_through_typed_storage_and_one_way_downgrade(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -58,7 +58,7 @@ def test_realtime_function_preserves_proof_through_typed_storage_and_one_way_dow
         assert "typedef int (*__btrc_fn_int_int)(int);" in emitted
         assert "typedef __btrc_fn_int_int ProvenTransform;" in emitted
     for frontend, source in generated.items():
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"RealtimeFunction-{frontend}-{Path(compiler).name}"
             built = subprocess.run(
                 [
@@ -212,7 +212,7 @@ def test_realtime_function_allows_only_inert_zero_initialization(
     assert selfhost.returncode == 0, selfhost.stderr
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_realtime_function_vector_storage_preserves_proof_and_cannot_upgrade(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -239,7 +239,7 @@ def test_realtime_function_vector_storage_preserves_proof_and_cannot_upgrade(
         executable = tmp_path / f"vector-{frontend}"
         built = subprocess.run(
             [
-                STRICT_COMPILERS[0],
+                HOST_C_COMPILERS[0],
                 "-std=c11",
                 "-pedantic-errors",
                 "-Wall",

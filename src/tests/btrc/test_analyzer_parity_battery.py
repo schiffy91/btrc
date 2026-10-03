@@ -92,6 +92,40 @@ INVALID_PROBES = (
         _main("int b = nope; return b;"),
         GpuDiagnostic("Unresolved identifier 'nope' used as a value", 1, 22),
     ),
+    # An unknown ALL_CAPS spelling is not a C macro the compiler can see.
+    ParityProbe(
+        "unresolved-all-caps-constant",
+        _main("int value = SOME_UNDECLARED_CONSTANT; return value;"),
+        GpuDiagnostic("Unresolved identifier 'SOME_UNDECLARED_CONSTANT' used as a value", 1, 26),
+    ),
+    ParityProbe(
+        "unresolved-enum-member-spelling",
+        "enum Color { RED, GREEN };\nint main() { Color c = COLOR_BLUE; return 0; }\n",
+        GpuDiagnostic("Unresolved identifier 'COLOR_BLUE' used as a value", 2, 24),
+    ),
+    # An unresolved name is reported before the inference error it causes.
+    ParityProbe(
+        "unresolved-var-initializer",
+        _main("var a = UNKNOWN_X; return 0;"),
+        GpuDiagnostic("Unresolved identifier 'UNKNOWN_X' used as a value", 1, 22),
+    ),
+    ParityProbe(
+        "unresolved-var-operand",
+        _main("var n = -UNKNOWN_X; return 0;"),
+        GpuDiagnostic("Unresolved identifier 'UNKNOWN_X' used as a value", 1, 23),
+    ),
+    ParityProbe(
+        "unresolved-var-enum-spelling",
+        "enum E { A, B };\nint main() { var x = E_C; return 0; }\n",
+        GpuDiagnostic("Unresolved identifier 'E_C' used as a value", 2, 22),
+    ),
+    ParityProbe(
+        "generated-enum-symbol-var-initializer",
+        "enum E { A, B };\nint main() { var x = E_A; return 0; }\n",
+        GpuDiagnostic(
+            "Source reference to compiler-generated C symbol 'E_A' for enum value 'E.A' is not allowed", 2, 22
+        ),
+    ),
     ParityProbe(
         "duplicate-function-definition",
         "int f() { return 1; }\nint f() { return 2; }\nint main() { return f(); }\n",
@@ -190,6 +224,10 @@ INVALID_PROBES = (
 )
 
 VALID_PROBES = (
+    # Hosted ABI macros and C11 predefined macros are the foreign constants
+    # a file without an unmodeled include may name.
+    ParityProbe("hosted-abi-macro", _main("int e = EOF; return e < 0 ? 0 : 1;")),
+    ParityProbe("c11-predefined-macro", _main("int line = __LINE__; return line == 1 ? 0 : 1;")),
     ParityProbe("bool-xor", _main("bool b = true; bool flag = false; bool c = b ^ flag; return c ? 1 : 0;")),
     ParityProbe(
         "bool-bitwise-var",
@@ -268,6 +306,28 @@ def test_valid_probe_compiles_in_both_compilers(harness: ParityHarness, probe: P
 
     assert (reference.returncode, reference.diagnostic) == (0, None)
     assert (selfhost.returncode, selfhost.diagnostic) == (0, None)
+
+
+def test_an_unmodeled_include_admits_its_macros_only_in_its_own_file(harness: ParityHarness, tmp_path: Path) -> None:
+    """A raw quoted include of a C header the importer does not model is the
+    explicit compatibility path for ALL_CAPS names; it covers the including
+    file, never a module that file imports."""
+    (tmp_path / "Local.h").write_text("#define LOCAL_LIMIT 7\n")
+    (tmp_path / "Helper.btrc").write_text("int helperLimit() { return HELPER_LIMIT; }\n")
+    admitted = ParityProbe("unmodeled-include", '#include "Local.h"\n' + _main("return LOCAL_LIMIT == 7 ? 0 : 1;"))
+    reference, selfhost = harness.compile_probe(admitted)
+    assert (reference.returncode, reference.diagnostic) == (0, None)
+    assert (selfhost.returncode, selfhost.diagnostic) == (0, None)
+
+    rejected = ParityProbe(
+        "unmodeled-include-elsewhere",
+        '#include "Local.h"\nimport ./Helper.btrc;\n' + _main("return helperLimit() == LOCAL_LIMIT ? 0 : 1;"),
+    )
+    reference, selfhost = harness.compile_probe(rejected)
+    for outcome in (reference, selfhost):
+        assert outcome.returncode != 0
+        assert outcome.diagnostic is not None
+        assert outcome.diagnostic.message == "Unresolved identifier 'HELPER_LIMIT' used as a value"
 
 
 def test_source_include_of_a_standard_header_is_emitted_once(harness: ParityHarness) -> None:

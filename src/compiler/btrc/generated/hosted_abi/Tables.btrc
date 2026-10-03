@@ -96,7 +96,7 @@ class GeneratedHostedAbiData {
 	public GeneratedHostedAbiData() {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
-		self.fingerprint = "ee0d07c4b6a3fcf3bb243fa3194a746c9e978c91bdd0d2b62807fb4f1ed73a77";
+		self.fingerprint = "b07b01e79a64ba737b576643e93e54c5dce217fdbe11a11c74a1a4ddc3b86fe2";
 	}
 
 	/* Every table builds on first use. A compile that never asks for a
@@ -10889,6 +10889,12 @@ class GeneratedHostedAbiData {
 		values.push("KEV_INET_SIFDSTADDR");
 		values.push("KEV_INET_SIFNETMASK");
 		values.push("KEV_INET_SUBCLASS");
+		values.push("LC_ALL");
+		values.push("LC_COLLATE");
+		values.push("LC_CTYPE");
+		values.push("LC_MONETARY");
+		values.push("LC_NUMERIC");
+		values.push("LC_TIME");
 		values.push("LDBL_DECIMAL_DIG");
 		values.push("LDBL_DIG");
 		values.push("LDBL_EPSILON");
@@ -11100,15 +11106,15 @@ class GeneratedHostedAbiData {
 		values.push("NL_MSGMAX");
 		values.push("NL_NMAX");
 		values.push("NL_SETMAX");
+	}
+
+	private void pushMacroNames6(Vector<string> values) {
 		values.push("NL_TEXTMAX");
 		values.push("NOFLSH");
 		values.push("NOKERNINFO");
 		values.push("NSIG");
 		values.push("NSS_BUFLEN_PASSWD");
 		values.push("NTOHL");
-	}
-
-	private void pushMacroNames6(Vector<string> values) {
 		values.push("NTOHLL");
 		values.push("NTOHS");
 		values.push("NULL");
@@ -11284,6 +11290,7 @@ class GeneratedHostedAbiData {
 		values.push("PRIO_PGRP");
 		values.push("PRIO_PROCESS");
 		values.push("PRIO_USER");
+		values.push("PROC_PIDTASKINFO");
 		values.push("PTHREAD_CANCELED");
 		values.push("PTHREAD_COND_INITIALIZER");
 		values.push("PTHREAD_DESTRUCTOR_ITERATIONS");
@@ -11352,6 +11359,9 @@ class GeneratedHostedAbiData {
 		values.push("RLIMIT_MEMLOCK");
 		values.push("RLIMIT_MSGQUEUE");
 		values.push("RLIMIT_NICE");
+	}
+
+	private void pushMacroNames7(Vector<string> values) {
 		values.push("RLIMIT_NLIMITS");
 		values.push("RLIMIT_NOFILE");
 		values.push("RLIMIT_NPROC");
@@ -11359,9 +11369,6 @@ class GeneratedHostedAbiData {
 		values.push("RLIMIT_RSS");
 		values.push("RLIMIT_RTPRIO");
 		values.push("RLIMIT_RTTIME");
-	}
-
-	private void pushMacroNames7(Vector<string> values) {
 		values.push("RLIMIT_SIGPENDING");
 		values.push("RLIMIT_STACK");
 		values.push("RLIMIT_THREAD_CPULIMITS");
@@ -11605,6 +11612,9 @@ class GeneratedHostedAbiData {
 		values.push("SO_MARK");
 		values.push("SO_MAX_PACING_RATE");
 		values.push("SO_MEMINFO");
+	}
+
+	private void pushMacroNames8(Vector<string> values) {
 		values.push("SO_NETNS_COOKIE");
 		values.push("SO_NETSVC_MARKING_LEVEL");
 		values.push("SO_NET_SERVICE_TYPE");
@@ -11612,9 +11622,6 @@ class GeneratedHostedAbiData {
 		values.push("SO_NOADDRERR");
 		values.push("SO_NOFCS");
 		values.push("SO_NOSIGPIPE");
-	}
-
-	private void pushMacroNames8(Vector<string> values) {
 		values.push("SO_NOTIFYCONFLICT");
 		values.push("SO_NO_CHECK");
 		values.push("SO_NP_EXTENSIONS");
@@ -11858,6 +11865,9 @@ class GeneratedHostedAbiData {
 		values.push("UINT8_MAX");
 		values.push("UINTMAX_C");
 		values.push("UINTMAX_MAX");
+	}
+
+	private void pushMacroNames9(Vector<string> values) {
 		values.push("UINTPTR_MAX");
 		values.push("UINT_FAST16_MAX");
 		values.push("UINT_FAST32_MAX");
@@ -11865,9 +11875,6 @@ class GeneratedHostedAbiData {
 		values.push("UINT_FAST8_MAX");
 		values.push("UINT_LEAST16_MAX");
 		values.push("UINT_LEAST32_MAX");
-	}
-
-	private void pushMacroNames9(Vector<string> values) {
 		values.push("UINT_LEAST64_MAX");
 		values.push("UINT_LEAST8_MAX");
 		values.push("UINT_MAX");
@@ -11946,6 +11953,7 @@ class GeneratedHostedAbiData {
 		values.push("_IOFBF");
 		values.push("_IOLBF");
 		values.push("_IONBF");
+		values.push("_SC_NPROCESSORS_ONLN");
 		values.push("__bool_true_false_are_defined");
 		values.push("alloca");
 		values.push("assert");
@@ -12110,6 +12118,9 @@ class GeneratedHostedAbiData {
 		values.push("unlink");
 		values.push("unlinkat");
 		values.push("unsetenv");
+	}
+
+	private void pushMacroNames10(Vector<string> values) {
 		values.push("va_arg");
 		values.push("va_copy");
 		values.push("va_end");
@@ -12118,9 +12129,8 @@ class GeneratedHostedAbiData {
 		values.push("w_retcode");
 		values.push("w_stopsig");
 		values.push("w_stopval");
+		values.push("w_termsig");
 	}
-
-	private void pushMacroNames10(Vector<string> values) { values.push("w_termsig"); }
 
 	public Vector<string> typedefNames() {
 		Vector<string>? memo = self.typedefNamesMemo;
@@ -13701,6 +13711,12 @@ class GeneratedHostedAbiData {
 		values.push("KEV_INET_SIFDSTADDR");
 		values.push("KEV_INET_SIFNETMASK");
 		values.push("KEV_INET_SUBCLASS");
+		values.push("LC_ALL");
+		values.push("LC_COLLATE");
+		values.push("LC_CTYPE");
+		values.push("LC_MONETARY");
+		values.push("LC_NUMERIC");
+		values.push("LC_TIME");
 		values.push("LDBL_DECIMAL_DIG");
 		values.push("LDBL_DIG");
 		values.push("LDBL_EPSILON");
@@ -13874,15 +13890,15 @@ class GeneratedHostedAbiData {
 		values.push("M_SQRT2");
 		values.push("NAME_MAX");
 		values.push("NAN");
+	}
+
+	private void pushOwnedNames6(Vector<string> values) {
 		values.push("NBBY");
 		values.push("NCCS");
 		values.push("NETSVC_MRKNG_LVL_L2");
 		values.push("NETSVC_MRKNG_LVL_L3L2_ALL");
 		values.push("NETSVC_MRKNG_LVL_L3L2_BK");
 		values.push("NETSVC_MRKNG_UNKNOWN");
-	}
-
-	private void pushOwnedNames6(Vector<string> values) {
 		values.push("NET_MAXID");
 		values.push("NET_RT_DUMP");
 		values.push("NET_RT_DUMP2");
@@ -14096,6 +14112,7 @@ class GeneratedHostedAbiData {
 		values.push("PRIO_PGRP");
 		values.push("PRIO_PROCESS");
 		values.push("PRIO_USER");
+		values.push("PROC_PIDTASKINFO");
 		values.push("PTHREAD_CANCELED");
 		values.push("PTHREAD_COND_INITIALIZER");
 		values.push("PTHREAD_DESTRUCTOR_ITERATIONS");
@@ -14126,6 +14143,9 @@ class GeneratedHostedAbiData {
 		values.push("REG_EBRACK");
 		values.push("REG_ECOLLATE");
 		values.push("REG_ECTYPE");
+	}
+
+	private void pushOwnedNames7(Vector<string> values) {
 		values.push("REG_EEND");
 		values.push("REG_EESCAPE");
 		values.push("REG_EMPTY");
@@ -14133,9 +14153,6 @@ class GeneratedHostedAbiData {
 		values.push("REG_ENOSYS");
 		values.push("REG_EPAREN");
 		values.push("REG_ERANGE");
-	}
-
-	private void pushOwnedNames7(Vector<string> values) {
 		values.push("REG_ERPAREN");
 		values.push("REG_ESIZE");
 		values.push("REG_ESPACE");
@@ -14379,6 +14396,9 @@ class GeneratedHostedAbiData {
 		values.push("SOL_SOCKET");
 		values.push("SOL_TIPC");
 		values.push("SOL_TLS");
+	}
+
+	private void pushOwnedNames8(Vector<string> values) {
 		values.push("SOL_VSOCK");
 		values.push("SOL_X25");
 		values.push("SOL_XDP");
@@ -14386,9 +14406,6 @@ class GeneratedHostedAbiData {
 		values.push("SONPX_SETOPTSHUT");
 		values.push("SO_ACCEPTCONN");
 		values.push("SO_ATTACH_BPF");
-	}
-
-	private void pushOwnedNames8(Vector<string> values) {
 		values.push("SO_ATTACH_FILTER");
 		values.push("SO_ATTACH_REUSEPORT_CBPF");
 		values.push("SO_ATTACH_REUSEPORT_EBPF");
@@ -14632,6 +14649,9 @@ class GeneratedHostedAbiData {
 		values.push("TIOCSETA");
 		values.push("TIOCSETAF");
 		values.push("TIOCSETAW");
+	}
+
+	private void pushOwnedNames9(Vector<string> values) {
 		values.push("TIOCSETD");
 		values.push("TIOCSIG");
 		values.push("TIOCSPGRP");
@@ -14639,9 +14659,6 @@ class GeneratedHostedAbiData {
 		values.push("TIOCSTAT");
 		values.push("TIOCSTI");
 		values.push("TIOCSTOP");
-	}
-
-	private void pushOwnedNames9(Vector<string> values) {
 		values.push("TIOCSWINSZ");
 		values.push("TIOCTIMESTAMP");
 		values.push("TIOCUCNTL");
@@ -14765,6 +14782,7 @@ class GeneratedHostedAbiData {
 		values.push("_IOFBF");
 		values.push("_IOLBF");
 		values.push("_IONBF");
+		values.push("_SC_NPROCESSORS_ONLN");
 		values.push("__bool_true_false_are_defined");
 		values.push("__btrc_close_descriptors_except");
 		values.push("__btrc_close_descriptors_except_many");
@@ -14884,6 +14902,9 @@ class GeneratedHostedAbiData {
 		values.push("atomic_int_least64_t");
 		values.push("atomic_int_least8_t");
 		values.push("atomic_intmax_t");
+	}
+
+	private void pushOwnedNames10(Vector<string> values) {
 		values.push("atomic_intptr_t");
 		values.push("atomic_is_lock_free");
 		values.push("atomic_llong");
@@ -14892,9 +14913,6 @@ class GeneratedHostedAbiData {
 		values.push("atomic_long");
 		values.push("atomic_ptrdiff_t");
 		values.push("atomic_schar");
-	}
-
-	private void pushOwnedNames10(Vector<string> values) {
 		values.push("atomic_short");
 		values.push("atomic_signal_fence");
 		values.push("atomic_size_t");
@@ -15137,6 +15155,9 @@ class GeneratedHostedAbiData {
 		values.push("filesec_unset_property");
 		values.push("finite");
 		values.push("finitef");
+	}
+
+	private void pushOwnedNames11(Vector<string> values) {
 		values.push("finitel");
 		values.push("fixpt_t");
 		values.push("float_t");
@@ -15145,9 +15166,6 @@ class GeneratedHostedAbiData {
 		values.push("flocktimeout");
 		values.push("floor");
 		values.push("floorf");
-	}
-
-	private void pushOwnedNames11(Vector<string> values) {
 		values.push("floorl");
 		values.push("fls");
 		values.push("flsl");
@@ -15390,6 +15408,9 @@ class GeneratedHostedAbiData {
 		values.push("ip_mreqn");
 		values.push("ip_msfilter");
 		values.push("ip_opts");
+	}
+
+	private void pushOwnedNames12(Vector<string> values) {
 		values.push("ipv6_mreq");
 		values.push("iruserok");
 		values.push("iruserok_sa");
@@ -15398,9 +15419,6 @@ class GeneratedHostedAbiData {
 		values.push("isatty");
 		values.push("isblank");
 		values.push("iscntrl");
-	}
-
-	private void pushOwnedNames12(Vector<string> values) {
 		values.push("isdigit");
 		values.push("isfdtype");
 		values.push("isfinite");
@@ -15643,6 +15661,9 @@ class GeneratedHostedAbiData {
 		values.push("powf");
 		values.push("powl");
 		values.push("pread");
+	}
+
+	private void pushOwnedNames13(Vector<string> values) {
 		values.push("printf");
 		values.push("proc_pidinfo");
 		values.push("proc_rlimit_control_wakeupmon");
@@ -15651,9 +15672,6 @@ class GeneratedHostedAbiData {
 		values.push("pselect");
 		values.push("pseudo_AF_HDRCMPLT");
 		values.push("pseudo_AF_KEY");
-	}
-
-	private void pushOwnedNames13(Vector<string> values) {
 		values.push("pseudo_AF_PIP");
 		values.push("pseudo_AF_RTIP");
 		values.push("pseudo_AF_XTP");
@@ -15896,6 +15914,9 @@ class GeneratedHostedAbiData {
 		values.push("sae_associd_t");
 		values.push("sae_connid_t");
 		values.push("sbrk");
+	}
+
+	private void pushOwnedNames14(Vector<string> values) {
 		values.push("scalb");
 		values.push("scalbf");
 		values.push("scalbl");
@@ -15904,9 +15925,6 @@ class GeneratedHostedAbiData {
 		values.push("scalblnl");
 		values.push("scalbn");
 		values.push("scalbnf");
-	}
-
-	private void pushOwnedNames14(Vector<string> values) {
 		values.push("scalbnl");
 		values.push("scandir");
 		values.push("scandir_b");
@@ -16149,6 +16167,9 @@ class GeneratedHostedAbiData {
 		values.push("syscall_arg_t");
 		values.push("sysconf");
 		values.push("system");
+	}
+
+	private void pushOwnedNames15(Vector<string> values) {
 		values.push("tan");
 		values.push("tanf");
 		values.push("tanh");
@@ -16157,9 +16178,6 @@ class GeneratedHostedAbiData {
 		values.push("tanl");
 		values.push("tcdrain");
 		values.push("tcflag_t");
-	}
-
-	private void pushOwnedNames15(Vector<string> values) {
 		values.push("tcflow");
 		values.push("tcflush");
 		values.push("tcgetattr");

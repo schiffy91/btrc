@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import re
 from collections.abc import Iterable
+from dataclasses import replace
 
 from ..abi.freestanding import FreestandingRuntime
 from ..runtime.catalog import RuntimeHelperCatalog
@@ -13,11 +14,13 @@ from .nodes import (
     IRBlock,
     IRCall,
     IRCast,
+    IRCleanupSlot,
     IRCxxNew,
     IRDoWhile,
     IREnumDef,
     IRExprStmt,
     IRFor,
+    IRFunctionDecl,
     IRFunctionDef,
     IRFunctionPointerTypedef,
     IRFunctionRef,
@@ -31,6 +34,7 @@ from .nodes import (
     IRNode,
     IRObjectiveCBlock,
     IRObjectiveCMessage,
+    IRParam,
     IRReturn,
     IRStatementSequence,
     IRStmtExpr,
@@ -63,6 +67,13 @@ _MUTATING_CALL_SLOT = {
 _GPU_RUNTIME_FEATURE = "BTRC_RT_NEEDS_GPU"
 _GPU_RUNTIME_HEADER = "btrc_gpu_compute_internal.h"
 _SETJMP_RUNTIME_HEADER = "setjmp.h"
+# Generated file-scope adapter families, each numbered from 1 by its owner.
+_ADAPTER_FAMILIES = (
+    "__btrc_arc_slot_access_",
+    "__btrc_mutex_value_access_",
+    "__btrc_store_",
+    "__btrc_cleanup_take_",
+)
 _DECLARATION_GROUPS = (
     ("enum", "enum_defs"),
     ("forward", "struct_forwards"),
@@ -126,6 +137,9 @@ class IROptimizer:
             # structs/typedefs while retaining providers used by live CTypes.
             self._prune_runtime_support()
         self._normalize_unused_parameters()
+        self._order_prototypes()
+        self._renumber_adapters()
+        self._renumber_temporaries()
         if not self._module.freestanding:
             # Keep the standalone Stage-5 API complete; the application
             # finalizer repeats this idempotently while deriving the remaining
@@ -677,6 +691,173 @@ class IROptimizer:
         providers: dict[str, set[DeclarationKey]],
     ) -> set[DeclarationKey]:
         return {key for name in names for key in providers.get(name, ())}
+
+    def _renumber_adapters(self) -> None:
+        """Order and number each generated adapter family by first use.
+
+        Adapters are created when lowering first needs them, so creation
+        order followed the order functions were lowered in, and a family's
+        names depended on adapters that only dead functions used. After
+        dead-code elimination each family is ordered by the first surviving
+        non-adapter function that names a member, ties keeping creation
+        order, and numbered from 1. The adapters' positions are then filled
+        family by family in that order; btrcc's optimizer applies the same
+        rule.
+        """
+        definitions = self._module.function_defs
+        families = {
+            prefix: [
+                index
+                for index, function in enumerate(definitions)
+                if function.name.startswith(prefix) and function.name[len(prefix) :].isdigit()
+            ]
+            for prefix in _ADAPTER_FAMILIES
+        }
+        members = {definitions[index].name for indexes in families.values() for index in indexes}
+        if not members:
+            return
+        first_use: dict[str, int] = {}
+        for position, function in enumerate(definitions):
+            if function.name in members:
+                continue
+            for node in IRNode.walk_value(function):
+                for name in IROptimizer._adapter_references(node):
+                    if name in members:
+                        first_use.setdefault(name, position)
+        placeholders: dict[str, str] = {}
+        finals: dict[str, str] = {}
+        ordered: list[int] = []
+        for prefix, indexes in families.items():
+            ranked = sorted(
+                indexes, key=lambda index: (first_use.get(definitions[index].name, len(definitions)), index)
+            )
+            for number, source in enumerate(ranked, start=1):
+                placeholder = f"#{prefix}{number}"
+                placeholders[definitions[source].name] = placeholder
+                finals[placeholder] = f"{prefix}{number}"
+            ordered.extend(ranked)
+        # The adapters keep the positions they occupy, filled family by family.
+        reordered = list(definitions)
+        for position, source in zip(sorted(ordered), ordered, strict=True):
+            reordered[position] = definitions[source]
+        self._module.function_defs[:] = reordered
+        if not any(name != finals[placeholder] for name, placeholder in placeholders.items()):
+            return
+        nodes = tuple(IRNode.walk_value(self._module))
+        self._rename_symbols(nodes, placeholders)
+        self._rename_symbols(nodes, finals)
+
+    @staticmethod
+    def _adapter_references(node) -> tuple[str, ...]:
+        """Symbols one IR node names that could be a generated adapter."""
+        names: list[str] = []
+        if isinstance(node, IRFunctionRef):
+            names.append(node.name)
+        elif isinstance(node, IRCall) and isinstance(node.callee, str):
+            names.append(node.callee)
+        slot = getattr(node, "cleanup_slot", None)
+        if isinstance(slot, IRCleanupSlot):
+            names.append(slot.take_function)
+        return tuple(names)
+
+    @staticmethod
+    def _rename_symbols(nodes: tuple[object, ...], renamed: dict[str, str]) -> None:
+        renamed_slots: dict[int, IRCleanupSlot] = {}
+        for node in nodes:
+            if isinstance(node, (IRFunctionDef, IRFunctionDecl, IRFunctionRef)) and node.name in renamed:
+                node.name = renamed[node.name]
+            elif isinstance(node, IRCall) and isinstance(node.callee, str) and node.callee in renamed:
+                node.callee = renamed[node.callee]
+                if node.helper_ref in renamed:
+                    node.helper_ref = renamed[node.helper_ref]
+            slot = getattr(node, "cleanup_slot", None)
+            if isinstance(slot, IRCleanupSlot) and slot.take_function in renamed:
+                if id(slot) not in renamed_slots:
+                    renamed_slots[id(slot)] = replace(slot, take_function=renamed[slot.take_function])
+                node.cleanup_slot = renamed_slots[id(slot)]
+
+    def _renumber_temporaries(self) -> None:
+        """Number each function's compiler temporaries from 1, in allocation order.
+
+        Lowering draws every temporary from one counter, so a function's names
+        depended on how much else was lowered before it, including functions
+        dead-code elimination later removed. Renumbering per function keeps
+        each prefix and the allocation order and skips any number a
+        non-temporary name in the function already spells. btrcc's optimizer
+        applies the same rule.
+        """
+        generated = self._module.temporary_names
+        if not generated:
+            return
+        bodies = [*self._module.function_defs]
+        for declaration in self._module.objective_c_classes:
+            bodies.extend(declaration.methods)
+        for function in bodies:
+            nodes = tuple(IRNode.walk_value(function))
+            temporaries: dict[str, int] = {}
+            occupied: set[str] = set()
+            for node in nodes:
+                name = getattr(node, "name", None) if isinstance(node, (IRVar, IRVarDecl, IRParam)) else None
+                if not isinstance(name, str):
+                    continue
+                if name in generated:
+                    prefix, _, number = name.rpartition("_")
+                    temporaries[name] = int(number) if number.isdigit() and prefix else 0
+                else:
+                    occupied.add(name)
+            if not temporaries:
+                continue
+            # Two phases through placeholders no identifier can spell, so a
+            # node the IR shares between two places is never renamed twice.
+            placeholders: dict[str, str] = {}
+            finals: dict[str, str] = {}
+            counter = 0
+            for name in sorted(temporaries, key=lambda item: temporaries[item]):
+                if not temporaries[name]:
+                    continue
+                prefix = name.rpartition("_")[0]
+                while True:
+                    counter += 1
+                    candidate = f"{prefix}_{counter}"
+                    if candidate not in occupied:
+                        break
+                placeholders[name] = f"#{counter}"
+                finals[f"#{counter}"] = candidate
+            self._rename_temporaries(nodes, placeholders)
+            self._rename_temporaries(nodes, finals)
+
+    @staticmethod
+    def _rename_temporaries(nodes: tuple[object, ...], renamed: dict[str, str]) -> None:
+        renamed_slots: dict[int, IRCleanupSlot] = {}
+        for node in nodes:
+            if isinstance(node, (IRVar, IRVarDecl)) and node.name in renamed:
+                node.name = renamed[node.name]
+            slot = getattr(node, "cleanup_slot", None)
+            if isinstance(slot, IRCleanupSlot) and slot.name in renamed:
+                # A declaration and its registration share one slot record.
+                if id(slot) not in renamed_slots:
+                    renamed_slots[id(slot)] = replace(slot, name=renamed[slot.name])
+                node.cleanup_slot = renamed_slots[id(slot)]
+            for root_field in ("storage_root", "array_storage_root"):
+                root = getattr(node, root_field, None)
+                if isinstance(root, str) and root in renamed:
+                    setattr(node, root_field, renamed[root])
+
+    def _order_prototypes(self) -> None:
+        """Order prototypes independently of the lowering phase that declared them.
+
+        Prototypes with no definition in this module keep their relative order
+        and come first; the rest follow their definitions' order. btrcc's
+        optimizer applies the same rule, so both compilers emit one prototype
+        block for one set of definitions.
+        """
+        positions = {function.name: index for index, function in enumerate(self._module.function_defs)}
+        external = [declaration for declaration in self._module.function_decls if declaration.name not in positions]
+        defined = sorted(
+            (declaration for declaration in self._module.function_decls if declaration.name in positions),
+            key=lambda declaration: positions[declaration.name],
+        )
+        self._module.function_decls = [*external, *defined]
 
     def _normalize_unused_parameters(self) -> None:
         for function in self._module.function_defs:

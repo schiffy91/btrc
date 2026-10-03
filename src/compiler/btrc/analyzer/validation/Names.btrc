@@ -10,6 +10,7 @@ import ../Declarations.btrc;
 import ../Generics.btrc;
 import ../HostedAbi.btrc;
 import ../Models.btrc;
+import ../Types.btrc;
 import ../ownership/Cycles.btrc;
 import ./Calls.btrc;
 import ./Storage.btrc;
@@ -981,6 +982,36 @@ class NameValidator {
 			genericIndex = genericIndex + 1;
 		}
 		return false;
+	}
+
+	/* Whether an unresolved ALL_CAPS value can name a C object-like macro.
+	 * Only names the compiler can account for pass through to C: a hosted ABI
+	 * macro, a C11 predefined macro, or, in a file that textually includes a
+	 * header or C source the importer does not model, any ALL_CAPS spelling.
+	 * Every other unknown name is diagnosed here instead of failing as an
+	 * undeclared identifier in the C compile. */
+	public bool foreignConstant(string name, Node site) {
+		if (!SemanticTypeSystem.isCIntegerIdentifier(name) || name == "errno") { return false; }
+		/* C11 6.10.8.1: object-like macros every hosted unit predefines. */
+		bool predefined = name == "__DATE__" || name == "__FILE__" || name == "__LINE__" || name == "__STDC__" || name == "__STDC_HOSTED__" || name == "__STDC_VERSION__" || name == "__TIME__";
+		return self.hostedAbi.macroName(name) || predefined || self.state.analyzed.unmodeledIncludeLines.has(site.line);
+	}
+
+	/* A raw quoted `#include` of a C header or source (not a btrc file). */
+	class bool unmodeledInclude(string text) {
+		int index = 0;
+		while (index < text.length() && Strings.isSpace(text[index])) { index = index + 1; }
+		if (index >= text.length() || text[index] != '#') { return false; }
+		index = index + 1;
+		while (index < text.length() && Strings.isSpace(text[index])) { index = index + 1; }
+		if (!text.substring(index, text.length() - index).startsWith("include")) { return false; }
+		index = index + 7;
+		while (index < text.length() && Strings.isSpace(text[index])) { index = index + 1; }
+		if (index >= text.length() || text[index] != '"') { return false; }
+		int close = index + 1;
+		while (close < text.length() && text[close] != '"') { close = close + 1; }
+		if (close >= text.length() || close == index + 1) { return false; }
+		return !text.substring(index + 1, close - index - 1).endsWith(".btrc");
 	}
 
 	public void deferGeneratedSymbolReference(Node identifier, Map<string, Node> variables, bool sourceKnown) {

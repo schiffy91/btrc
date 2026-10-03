@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
+
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).with_name("fixtures") / "DdsEncodedImageDecoderContract.btrc"
 API = REPOSITORY / "src" / "stdlib" / "Image" / "DDSEncodedImageDecoder.btrc"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=120)
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 def test_dds_decoder_runs_with_both_frontends(semantic_btrcc: Path, tmp_path: Path) -> None:
     generated = {
         "reference": tmp_path / "DdsEncodedImageReference.c",
@@ -44,7 +44,7 @@ def test_dds_decoder_runs_with_both_frontends(semantic_btrcc: Path, tmp_path: Pa
     generated["selfhost"].write_text(selfhost.stdout)
 
     for frontend, source in generated.items():
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"DdsEncodedImage-{frontend}-{Path(compiler).name}"
             built = _run(
                 [

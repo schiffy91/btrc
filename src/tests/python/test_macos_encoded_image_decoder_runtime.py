@@ -11,12 +11,20 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.native_bindings import NativeBindingPackage
+
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "src/tests/native/image"
 APPLE_CLANG = "/usr/bin/clang"
 PACKAGE_NAME = "btrc_stdlib_image"
 COMPILE_TIMEOUT = 240
 RUN_TIMEOUT = 60
+# The cleanup program binds its fault header's controls; it re-spells no prototype.
+CLEANUP_BINDING = (
+    FIXTURES / "ImageIoFaults.h",
+    ("imageIoBegin", "imageIoOutstanding", "imageIoCreations"),
+    (FIXTURES / "ImageIoSamples.btrc",),
+)
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="ImageIO is available only on macOS")
 
@@ -145,12 +153,14 @@ def _run(executable, *arguments):
 def test_imageio_provider(compiler, fixture, hooks, tmp_path, request, sdk_environment):
     generated = tmp_path / f"{fixture}-{compiler}.c"
     plan = tmp_path / f"{fixture}-{compiler}.json"
-    payload = _transpile(compiler, FIXTURES / f"{fixture}.btrc", generated, plan, request, sdk_environment)
+    source = FIXTURES / f"{fixture}.btrc"
+    if hooks:
+        header, symbols, companions = CLEANUP_BINDING
+        source = NativeBindingPackage.write(source, tmp_path / "package", header, symbols, companions)
+    payload = _transpile(compiler, source, generated, plan, request, sdk_environment)
     if compiler == "btrc":
         reference_plan = tmp_path / "reference.json"
-        _transpile(
-            "python", FIXTURES / f"{fixture}.btrc", tmp_path / "reference.c", reference_plan, request, sdk_environment
-        )
+        _transpile("python", source, tmp_path / "reference.c", reference_plan, request, sdk_environment)
         assert plan.read_bytes() == reference_plan.read_bytes()
     arguments = []
     if not hooks:

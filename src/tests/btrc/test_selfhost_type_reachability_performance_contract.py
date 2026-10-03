@@ -14,7 +14,9 @@ def test_type_reachability_scans_each_type_field_once() -> None:
     scanner_end = source.index("\n    }\n", scanner_start)
     scanner = source[scanner_start:scanner_end]
     collector_start = source.index("private void collectStructRefsNode(")
-    collector_end = source.index("\n    }\n\n    private void eliminateDeadStructs", collector_start)
+    collector_end = source.index(
+        "\n    }\n\n    /* Typed C declarations survive only when live code reaches them.", collector_start
+    )
     collector = source[collector_start:collector_end]
 
     assert "while (index < length)" in scanner

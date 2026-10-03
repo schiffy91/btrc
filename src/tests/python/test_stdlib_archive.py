@@ -8,7 +8,6 @@ while emitting far less C.
 
 import ast
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +22,7 @@ from src.compiler.python.artifacts.publication import ArtifactPublisher, Artifac
 from src.compiler.python.artifacts.stdlib import StdlibArchivePublisher
 from src.compiler.python.cli.compiler import CompilerCommand
 from src.compiler.python.frontend.sources import CompilerStdlibSource, StdlibRepository
+from src.tests.c_toolchains import host_c_compiler
 
 
 def _archive_publisher() -> StdlibArchivePublisher:
@@ -365,7 +365,7 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
 
 
 def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
-    cc = shutil.which("cc") or shutil.which("gcc")
+    cc = host_c_compiler()
     if cc is None:
         pytest.skip("no C compiler available")
 
@@ -374,7 +374,7 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     subprocess.run(
         [
-            cc,
+            *cc,
             "-std=c11",
             "-O1",
             "-ffunction-sections",
@@ -403,7 +403,7 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     inline_bin = str(tmp_path / "inline_bin")
     subprocess.run(
-        [cc, "-std=c11", inline_c, "-o", inline_bin, "-lm", "-lpthread"],
+        [*cc, "-std=c11", inline_c, "-o", inline_bin, "-lm", "-lpthread"],
         check=True,
         timeout=120,
     )
@@ -415,7 +415,7 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     ref_bin = str(tmp_path / "ref_bin")
     subprocess.run(
-        [cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"],
+        [*cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"],
         check=True,
         timeout=120,
     )
@@ -446,7 +446,7 @@ def test_reference_matches_inline_and_is_smaller(tmp_path, monkeypatch, capsys):
 
 
 def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
-    cc = shutil.which("cc") or shutil.which("gcc")
+    cc = host_c_compiler()
     if cc is None:
         pytest.skip("no C compiler available")
 
@@ -455,7 +455,7 @@ def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     subprocess.run(
         [
-            cc,
+            *cc,
             "-std=c11",
             "-O1",
             "-ffunction-sections",
@@ -482,7 +482,7 @@ def test_reference_catches_stdlib_throw(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     ref_bin = str(tmp_path / "throw_bin")
     subprocess.run(
-        [cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"],
+        [*cc, "-std=c11", f"-I{std}", ref_c, str(std / "libbtrc.a"), "-o", ref_bin, "-lm", "-lpthread"],
         check=True,
         timeout=120,
     )

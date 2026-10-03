@@ -1,0 +1,50 @@
+# Changes recorded in native-ui-api-inventory.md, "Changes since the frozen
+# inventory", plus the IFontFace interface now discovered by GUI/I*.btrc.
+# These reconcile today's source with the immutable
+# ui0-source-inventory-2026-09-21 denominator; they do not re-freeze its slots.
+# New methods/signatures require a reviewed catalog amendment, never an ignore.
+
+release = "ui0-source-inventory-2026-09-21"
+
+[current]
+interface_files = 20
+interfaces = 25
+interface_declarations = 152
+facade_declarations = 26
+
+[[additions]]
+source = "IApplication.btrc"
+owner = "IApplication"
+decision = "btrc-D035"
+declarations = [
+  "IButton createButton(string title);",
+  "ITextField createTextField(string text, string placeholder);",
+  "IContainer createContainer();",
+  "IStack createRow(double spacing);",
+  "IStack createColumn(double spacing);",
+  "IGPUView createGPUView(bool capture);",
+  "ILabel createLabel(string text);",
+  "IImageView createImageView();",
+  "IPanel createPanel(RGBA fill, double radius);",
+  "IProgressIndicator createProgressIndicator();",
+  "ILevelIndicator createLevelIndicator(double warning, double critical);",
+  "ISlider createSlider(double minimum, double maximum, int intervals);",
+  "ISelect createSelect();",
+  "IScrollView createScrollView();",
+  "IGrid createGrid(int columns, int rows, double columnSpacing, double rowSpacing);",
+]
+
+[[additions]]
+source = "IFontFace.btrc"
+owner = "IFontFace"
+decision = "btrc-D068 (16185609): FontFace.btrc renamed to IFontFace.btrc"
+declarations = [
+  "FontMetrics metrics();",
+  "FontGlyph? glyph(int codepoint, bool render);",
+]
+
+[[removals]]
+id = "GUI.rasterText"
+decision = "btrc-D056"
+replacement = "GUI.rasterizeText"
+reason = "Unused facade removed; keep its frozen operation slots until a reviewed release re-freezes the denominator."

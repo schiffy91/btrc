@@ -584,8 +584,10 @@ class CompilerGenerationPublisher:
                         validate_destinations,
                         public_destinations,
                     ),
-                    # Unchanged units keep their inode and mtime for native reuse.
+                    # Unchanged units keep their inode and mtime for native reuse;
+                    # the primary is replaced whenever another output changed.
                     retain_unchanged=True,
+                    anchor_follows_changes=True,
                 )
             finally:
                 # Failure can leave a recovery journal; preserve intent until

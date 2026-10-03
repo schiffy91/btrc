@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS, sanitizer_clang
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 REPOSITORY = Path(__file__).resolve().parents[3]
@@ -17,7 +17,6 @@ FIXTURES = Path(__file__).with_name("fixtures")
 CONTRACT_FIXTURE = FIXTURES / "RealtimeAudioRouterContract.btrc"
 BARRIER_FIXTURE = FIXTURES / "RealtimeAudioRouterBarrier.btrc"
 API = REPOSITORY / "src" / "stdlib" / "Audio" / "RealtimeAudioRouter.btrc"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _reference(source: Path, output: Path, cache: Path) -> subprocess.CompletedProcess[str]:
@@ -110,12 +109,6 @@ def _build_and_run(
     )
 
 
-def _host_clang() -> str | None:
-    if sys.platform == "darwin" and os.access("/usr/bin/clang", os.X_OK):
-        return "/usr/bin/clang"
-    return shutil.which("clang")
-
-
 def test_router_contract_is_product_neutral_and_exposes_explicit_generation_barriers() -> None:
     source = API.read_text()
     assert "class RealtimeAudioRouter" in source
@@ -133,7 +126,7 @@ def test_router_contract_is_product_neutral_and_exposes_explicit_generation_barr
     assert "CoreAudio" not in source
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires GCC or Clang")
 @pytest.mark.parametrize(
     ("fixture", "expected"),
     (
@@ -149,7 +142,7 @@ def test_router_runs_from_both_frontends_with_strict_compilers(
 ) -> None:
     generated = _compile_pair(semantic_btrcc, fixture, tmp_path)
     for frontend, source in generated.items():
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"{fixture.stem}-{frontend}-{Path(compiler).name}"
             run = _build_and_run(compiler, source, executable)
             assert run.returncode == 0, run.stderr
@@ -161,7 +154,7 @@ def test_detach_barrier_is_address_undefined_and_thread_sanitizer_clean(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    clang = _host_clang()
+    clang = sanitizer_clang()
     if clang is None:
         pytest.skip("sanitizer proof requires Clang")
     generated = _compile_pair(semantic_btrcc, BARRIER_FIXTURE, tmp_path)

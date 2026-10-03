@@ -241,6 +241,7 @@ def test_opaque_wrapper_bypasses_link_reuse(tmp_path):
 
 
 def test_nix_toolchain_can_reuse_link(tmp_path):
+    # Deliberately Nix's Clang: link reuse is the store-pinned toolchain's contract.
     cc = os.environ.get("BTRC_TEST_NIX_CLANG") or shutil.which("clang")
     if cc is None or not Path(cc).resolve().is_relative_to("/nix/store"):
         pytest.skip("Nix Clang toolchain is unavailable")
