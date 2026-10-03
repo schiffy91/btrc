@@ -1204,7 +1204,7 @@ Owner: each packet is one command, or a short fixed sequence, prepared by the pa
 
 **Steps**
 
-1. From a clone outside Drive, run: ~/.cache/btrc/tools/withlock.sh gui-capture nix develop --profile ~/.cache/btrc/gcroots/ui1 --command python -m pytest src/tests/python/test_native_ui_shell.py -k macos --junitxml ~/.cache/btrc/evidence/ui1-macos/junit.xml
+1. From a clone outside Drive, run: ~/.cache/btrc/tools/withlock.sh gui-capture nix develop --profile ~/.cache/btrc/gcroots/ui1 --command python -m pytest src/tests/python/test_native_ui_shell.py src/tests/python/test_native_ui_shell_macos.py --junitxml ~/.cache/btrc/evidence/ui1-macos/junit.xml
 2. Rerun with BTRC_UI_SHELL_PAUSE=1, open Accessibility Inspector on the fixture window, and save one screenshot to the same folder.
 
 **Acceptance**
