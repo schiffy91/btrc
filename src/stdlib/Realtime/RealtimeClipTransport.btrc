@@ -501,6 +501,33 @@ struct RealtimeClipTransportRenderer {
 	void* context;
 };
 
+/* Where one render found and left the transport, for the composing @realtime
+ * program that rendered it. Plain data the caller owns: renderWithClock fills
+ * it from the callback's own state, so the read takes no lock, allocation or
+ * retry. The first group is the block's start, after the commands queued
+ * before it were applied; the end group is the state the next block starts
+ * from. Frames are clip source frames, floored like RealtimeClipClock.frame();
+ * a token of zero means no clip was active (state REALTIME_CLIP_STAGED).
+ * deviceFrame and streamEpoch echo the block's output device frame and epoch;
+ * mappingGeneration is the generation captured input and practice telemetry
+ * carry. It changes on activation, every seek, starting play from a paused
+ * or ended clip, a change of speed, entering or wrapping a loop,
+ * configurePractice while playing, and a device discontinuity while
+ * playing. */
+struct RealtimeClipTransportBlockClock {
+	unsigned long long token;
+	RealtimeClipPlaybackState state;
+	long long frame;
+	double speed;
+	unsigned long long mappingGeneration;
+	unsigned long long deviceFrame;
+	unsigned long long streamEpoch;
+	unsigned long long endToken;
+	RealtimeClipPlaybackState endState;
+	long long endFrame;
+	unsigned long long endMappingGeneration;
+};
+
 class RealtimeClipTransportOpenOutcome {
 	private RealtimeClipTransportStatus _status;
 	private RealtimeClipTransport? _transport;
@@ -587,13 +614,23 @@ class RealtimeClipTransport implements IRealtimeClipTransport {
 	}
 
 	/* Renders one block of the transport into `outputs`, overwriting them, as
-	 * its realtimeProgram() would. False when it wrote silence instead: the
-	 * block does not match the transport's format or limits, another render is
-	 * inside, or suspend() has closed admission. After suspend() returns, render
-	 * touches no clip state; stop calling it before close(). */
-	class @realtime bool render(struct RealtimeClipTransportRenderer renderer, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) {
+	 * its realtimeProgram() would. The block's output device frame and stream
+	 * epoch drive the practice mapping, and captured input reports the block's
+	 * input device frame; a new epoch, a discontinuity flag or a gap in output
+	 * frames re-anchors the mapping under a new generation. False when it
+	 * wrote silence instead: the block does not match the transport's format
+	 * or limits, another render is inside, or suspend() has closed admission.
+	 * After suspend() returns, render touches no clip state; stop calling it
+	 * before close(). */
+	class @realtime bool render(struct RealtimeClipTransportRenderer renderer, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs) { return RealtimeClipTransport.renderWithClock(renderer, block, inputs, outputs, null); }
+
+	/* render(), also filling `clock` (when not null) with the playhead the
+	 * block was rendered at. When it returns false the transport was not
+	 * entered: `clock` reports no clip, with the block's own device frame and
+	 * epoch. */
+	class @realtime bool renderWithClock(struct RealtimeClipTransportRenderer renderer, struct AudioBlockView block, Span<const float> inputs, Span<float> outputs, struct RealtimeClipTransportBlockClock* clock) {
 		struct BtrcRealtimeClipTransportContext* context = (struct BtrcRealtimeClipTransportContext*)renderer.context;
-		if (btrcRealtimeClipTransportRenderRaw(context, inputs, block.inputChannelCount, outputs, block.outputChannelCount, block.frameCount) == 0) { return true; }
+		if (btrcRealtimeClipTransportRenderRaw(context, block, inputs, outputs, clock) == 0) { return true; }
 		RealtimeAudioSamples.silence(outputs);
 		return false;
 	}
@@ -666,9 +703,8 @@ class RealtimeClipTransport implements IRealtimeClipTransport {
 		struct BtrcRealtimeClipTransportSnapshotValue snapshot = {0};
 		RealtimeClipTransportStatus status = btrcRealtimeClipTransportOwnerReadClock(self._owner, token.value(), &snapshot);
 		if (status != REALTIME_CLIP_TRANSPORT_OK) { return RealtimeClipClockOutcome.failed(status); }
-		unsigned long long deviceFrame = snapshot.renderedFrames > (unsigned long long)ULLONG_MAX - snapshot.silentFrames ? (unsigned long long)ULLONG_MAX : snapshot.renderedFrames + snapshot.silentFrames;
 		RealtimePlaybackLoop loop = snapshot.loopEnabled != 0 ? RealtimePlaybackLoop.active(snapshot.loopStart, snapshot.loopEnd) : RealtimePlaybackLoop.disabled();
-		return RealtimeClipClockOutcome.available(RealtimeClipClock(token, snapshot.state, snapshot.frame, self.clampFrame(deviceFrame), self.clampFrame(snapshot.mappingGeneration), snapshot.totalFrames, RealtimePlaybackSpeed(snapshot.speed), RealtimePlaybackVolume(snapshot.volumePermille), loop));
+		return RealtimeClipClockOutcome.available(RealtimeClipClock(token, snapshot.state, snapshot.frame, self.clampFrame(snapshot.deviceFrame), self.clampFrame(snapshot.mappingGeneration), snapshot.totalFrames, RealtimePlaybackSpeed(snapshot.speed), RealtimePlaybackVolume(snapshot.volumePermille), loop));
 	}
 
 	public RealtimeClipTransportTelemetryOutcome telemetry() {
