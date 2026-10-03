@@ -394,3 +394,338 @@ def test_report_cannot_replace_program(tmp_path, alias):
         perf.main([str(source), "--json", str(report)])
     assert error.value.code == 2
     assert source.read_text() == "int main() { return 0; }\n"
+
+
+# -- --cprofile: reference-compiler attribution ---------------------------------------------
+
+
+def test_owner_rules_cover_every_reference_compiler_file():
+    """No reference-compiler source falls through to the driver by accident."""
+
+    files = sorted(path for path in perf.COMPILER_ROOT.rglob("*.py") if "__pycache__" not in path.parts)
+    assert files
+    for path in files:
+        relative = path.relative_to(perf.COMPILER_ROOT).as_posix()
+        assert perf.ProfileAttribution.owner_rule(relative, None) is not None, relative
+    assert {rule[0] for rule in perf.OWNER_RULES} | {"startup"} == set(perf.OWNERS)
+    assert set(perf.OWNER_PHASE_GROUPS) == {*perf.OWNERS, perf.UNATTRIBUTED}
+    assert set(perf.OWNER_PHASE_GROUPS.values()) <= set(perf.PHASE_GROUPS)
+    assert perf.ProfileAttribution.owner_rule("frontend/packages.py", "NativeLinkPlan")[0] == "native-plan"
+    assert perf.ProfileAttribution.owner_rule("frontend/packages.py", "PackageUniverse")[0] == "frontend"
+    assert perf.ProfileAttribution.owner_rule("ir/optimizer.py", "IROptimizer")[0] == "optimizer"
+    assert perf.ProfileAttribution.owner_rule("ir/lowering/calls.py", None)[0] == "lowering"
+    assert perf.ProfileAttribution.owner_rule("application/modules.py", None)[0] == "module-units"
+    assert perf.ProfileAttribution.owner_rule("mainly.py", None) is None
+
+
+def test_class_spans_name_the_innermost_owner_class(tmp_path):
+    source = tmp_path / "owners.py"
+    source.write_text(
+        "def loose():\n"  # 1
+        "    return 1\n"  # 2
+        "\n"  # 3
+        "@decorated\n"  # 4
+        "class Outer:\n"  # 5
+        "    def method(self):\n"  # 6
+        "        return [x for x in ()]\n"  # 7
+        "\n"  # 8
+        "    class Inner:\n"  # 9
+        "        def method(self):\n"  # 10
+        "            return 2\n"  # 11
+        "\n"  # 12
+        "    def after(self):\n"  # 13
+        "        return 3\n"  # 14
+    )
+    spans = perf.ClassSpans()
+    assert spans.owner(source, 1) is None
+    assert spans.owner(source, 4) == "Outer"
+    assert spans.owner(source, 7) == "Outer"
+    assert spans.owner(source, 10) == "Outer.Inner"
+    assert spans.owner(source, 13) == "Outer"
+    assert spans.owner(tmp_path / "absent.py", 1) is None
+
+
+def test_profile_attribution_partitions_time_among_owners(tmp_path):
+    """Own time splits by each caller's own time in it; inherited time by cumulative time."""
+
+    compiler = tmp_path / "src/compiler/python"
+    (compiler / "analyzer").mkdir(parents=True)
+    (compiler / "ir/lowering").mkdir(parents=True)
+    (compiler / "analyzer/types.py").write_text("class TypeSystem:\n    def resolve(self):\n        pass\n")
+    (compiler / "ir/lowering/calls.py").write_text("class CallLowerer:\n    def lower(self):\n        pass\n")
+    analyzer = (str(compiler / "analyzer/types.py"), 2, "resolve")
+    lowering = (str(compiler / "ir/lowering/calls.py"), 2, "lower")
+    helper = ("/usr/lib/python3/re.py", 10, "match")
+    builtin = ("~", 0, "<built-in method builtins.isinstance>")
+    module = (str(compiler / "analyzer/types.py"), 1, "<module>")
+    importer = ("<frozen importlib._bootstrap>", 1, "_find_and_load")
+    harness = ("<string>", 1, "<module>")
+    stats = {
+        # (primitive calls, calls, own time, cumulative time, callers)
+        harness: (1, 1, 0.5, 10.0, {}),
+        analyzer: (1, 1, 2.0, 5.0, {harness: (1, 1, 2.0, 5.0)}),
+        lowering: (1, 1, 1.0, 3.5, {harness: (1, 1, 1.0, 3.5)}),
+        # re.match: 3 s of its own; the analyzer's calls spent 1 s in it, the lowerer's 2 s.
+        helper: (5, 5, 3.0, 4.0, {analyzer: (2, 2, 1.0, 1.5), lowering: (3, 3, 2.0, 2.5)}),
+        # isinstance's own second goes to its only caller, re.match, then on by cumulative time.
+        builtin: (9, 9, 1.0, 1.0, {helper: (9, 9, 1.0, 1.0)}),
+        importer: (1, 1, 0.25, 1.0, {harness: (1, 1, 0.25, 1.0)}),
+        module: (1, 1, 0.25, 0.25, {importer: (1, 1, 0.25, 0.25)}),
+    }
+    attribution = perf.ProfileAttribution(stats, root=tmp_path, compiler=compiler)
+    rollup = attribution.rollup(top=10)
+    owners = rollup["owners_s"]
+    assert rollup["profile_total_s"] == pytest.approx(8.0)
+    assert sum(owners.values()) == pytest.approx(8.0)
+    assert owners["analyzer"] == pytest.approx(2.0 + 1.0 + 1.0 * 1.5 / 4.0)
+    assert owners["lowering"] == pytest.approx(1.0 + 2.0 + 1.0 * 2.5 / 4.0)
+    assert owners["startup"] == pytest.approx(0.5)
+    assert owners["unattributed"] == pytest.approx(0.5)
+    assert {row["class"] for row in rollup["classes"]} == {
+        "src/compiler/python/analyzer/types.py:TypeSystem",
+        "src/compiler/python/ir/lowering/calls.py:CallLowerer",
+    }
+    # A module's import time is startup's; the time its functions run is its owner's.
+    modules = {(row["owner"], row["module"]): row["seconds"] for row in rollup["modules"]}
+    assert modules[("startup", "src/compiler/python/analyzer/types.py")] == pytest.approx(0.25)
+    assert modules[("startup", "<frozen importlib._bootstrap>")] == pytest.approx(0.25)
+    assert modules[("analyzer", "src/compiler/python/analyzer/types.py")] == pytest.approx(owners["analyzer"])
+    heaviest = rollup["functions"][0]
+    assert heaviest["owner"] == "lowering" and heaviest["owner_class"] == "CallLowerer"
+    assert heaviest["self_s"] == 1.0 and heaviest["calls"] == 1
+
+
+def test_profile_attribution_survives_recursion_and_untimed_edges(tmp_path):
+    compiler = tmp_path / "src/compiler/python"
+    (compiler / "backend").mkdir(parents=True)
+    (compiler / "backend/c_emitter.py").write_text("class CEmitter:\n    def emit(self):\n        pass\n")
+    emitter = (str(compiler / "backend/c_emitter.py"), 2, "emit")
+    walk = ("/usr/lib/python3/ast.py", 5, "walk")
+    fast = ("~", 0, "<built-in method builtins.len>")
+    stats = {
+        emitter: (1, 1, 1.0, 3.0, {}),
+        # walk recurses into itself; only the emitter is a real caller.
+        walk: (1, 50, 2.0, 2.0, {emitter: (1, 1, 0.5, 2.0), walk: (0, 49, 1.5, 1.5)}),
+        # Too fast for the clock on every edge: split by call count.
+        fast: (4, 4, 0.0004, 0.0004, {walk: (3, 3, 0.0, 0.0), emitter: (1, 1, 0.0, 0.0)}),
+    }
+    owners = perf.ProfileAttribution(stats, root=tmp_path, compiler=compiler).rollup()["owners_s"]
+    assert owners["emitter"] == pytest.approx(3.0004)
+    assert owners["unattributed"] == pytest.approx(0.0)
+
+
+def test_profile_attribution_reads_a_real_reference_profile(tmp_path):
+    """A cProfile of the reference lexer lands on the frontend, its imports on startup."""
+
+    script = tmp_path / "lex.py"
+    script.write_text(
+        "from src.compiler.python.lexer.lexer import Lexer\n"
+        "for _ in range(20):\n"
+        "    Lexer('int main() { return 1 + 2; }\\n', 'Main.btrc').tokenize()\n"
+    )
+    profile = tmp_path / "lex.prof"
+    subprocess.run(
+        [sys.executable, "-P", "-m", "cProfile", "-o", str(profile), str(script)],
+        cwd=tmp_path,
+        env={**perf.os.environ, "PYTHONPATH": str(ROOT)},
+        check=True,
+        capture_output=True,
+        timeout=RUN_TIMEOUT,
+    )
+    rollup = perf.ProfileAttribution.load([profile]).rollup()
+    owners = rollup["owners_s"]
+    assert owners["frontend"] > 0.0 and owners["startup"] > 0.0
+    assert sum(owners.values()) == pytest.approx(rollup["profile_total_s"])
+    assert any(row["class"] == "src/compiler/python/lexer/lexer.py:Lexer" for row in rollup["classes"])
+
+
+def test_reference_attribution_groups_phases_and_their_remainder():
+    phases = {
+        "resolve_includes": 0.5,
+        "lex": 0.25,
+        "analyze": 1.0,
+        "lower": 2.0,
+        "setjmp-analysis": 0.5,
+        "optimize": 0.25,
+        "emit": 0.125,
+        "artifact-hit": 0.0625,
+    }
+    groups = perf.ReferenceAttribution.grouped_phases(phases, 6.0)
+    assert groups == pytest.approx(
+        {"frontend": 0.75, "analyze": 1.0, "lower": 2.0, "optimize": 0.75, "emit": 0.125, "outside": 1.375}
+    )
+    assert sum(groups.values()) == pytest.approx(6.0)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--cprofile"],
+        ["--cprofile", "--stand-in", "--workspace", "."],
+        ["--cprofile", "--stand-in", "--edits", "typo"],
+        ["--cprofile", "--stand-in", "--edits", "navigation,navigation"],
+        ["--cprofile", "--stand-in", "--cold-samples", "0", "--edits", "none"],
+        ["--cprofile", "--stand-in", "--cold-samples", "-1"],
+        ["--cprofile", "--stand-in", "--edit-samples", "0"],
+        ["--cprofile", "--stand-in", "--min-attributed", "1.5"],
+        ["--cprofile", "--stand-in", "--frontend", "selfhost"],
+        ["--cprofile", "--stand-in", "--target", "unknown-x64"],
+        ["--cprofile", "--workspace", "/nonexistent/btrsmith"],
+    ],
+)
+def test_cprofile_rejects_invalid_options_before_building(options):
+    with pytest.raises(SystemExit) as error:
+        perf.main(options)
+    assert error.value.code == 2
+
+
+def test_cprofile_dry_run_takes_one_sample_and_resolves_defaults():
+    arguments = perf.ReferenceAttribution.parse_arguments(
+        ["--cprofile", "--stand-in", "--mode", "release", "--cold-samples", "4", "--edit-samples", "6", "--dry-run"]
+    )
+    assert (arguments.cold_samples, arguments.edit_samples, arguments.units) == (1, 1, "whole")
+    assert [fixture.name for fixture in arguments.fixtures] == [fixture.name for fixture in budget_bench.EDIT_FIXTURES]
+    assert perf.ReferenceAttribution.parse_arguments(["--cprofile", "--stand-in"]).units == "module"
+
+
+def test_cprofile_stand_in_attributes_the_reference_compiler(tmp_path, capsys):
+    """Cold and edit builds of budget_bench's stand-in, each plain and profiled, reconcile to wall time."""
+
+    path = tmp_path / "attribution.json"
+    code = perf.main(
+        [
+            "--cprofile",
+            "--frontend",
+            "reference",
+            "--stand-in",
+            "--cold-samples",
+            "1",
+            "--edits",
+            "navigation",
+            "--edit-samples",
+            "1",
+            "--min-attributed",
+            "0.5",
+            "--out",
+            str(tmp_path / "runs"),
+            "--json",
+            str(path),
+        ]
+    )
+    rendered = capsys.readouterr().out
+    assert code == 0, rendered
+    report = json.loads(path.read_text())
+    assert report["schema"] == perf.ReferenceAttribution.SCHEMA and report["failure"] is None
+    assert report["configuration"]["stand_in"] is True
+    assert list(report["scenarios"]) == ["cold", "edit-navigation"]
+    work = Path(report["provenance"]["work_directory"])
+    for name, scenario in report["scenarios"].items():
+        (sample,) = scenario["samples"]
+        assert (work / sample["profile"]).is_file()
+        assert sample["plain_phases_s"]["analyze"] > 0.0 and sample["profiled_phases_s"]["lower"] > 0.0
+        owners = scenario["attribution"]["owners_s"]
+        assert sum(owners.values()) == pytest.approx(scenario["profile_total_s"])
+        assert owners["analyzer"] > 0.0 and owners["frontend"] > 0.0 and owners["startup"] > 0.0
+        assert scenario["profile_total_s"] <= scenario["profiled_wall_total_s"]
+        assert scenario["attributed_fraction"] == pytest.approx(
+            scenario["attributed_s"] / scenario["profiled_wall_total_s"]
+        )
+        assert scenario["attributed_fraction"] >= 0.5, name
+        reconciliation = scenario["reconciliation"]
+        assert list(reconciliation) == list(perf.PHASE_GROUPS)
+        assert sum(row["plain_phase_s"] for row in reconciliation.values()) == pytest.approx(
+            scenario["plain_wall_total_s"]
+        )
+        assert sum(row["owner_s"] for row in reconciliation.values()) == pytest.approx(
+            scenario["profiled_wall_total_s"]
+        )
+        assert scenario["attribution"]["classes"] and scenario["attribution"]["functions"]
+        assert f"| {name} | 1 |" in rendered
+    edited = (work / "ws" / budget_bench.EDIT_FIXTURES[0].module).read_text()
+    assert budget_bench.EDIT_FIXTURES[0].render(2) in edited
+    assert report["summary"]["meets_minimum"] is True
+    assert set(report["summary"]["scenario_fractions"]) == {"cold", "edit-navigation"}
+
+
+def test_cprofile_below_min_attributed_fails_with_the_report(tmp_path, monkeypatch):
+    def summarize(self):
+        self.report["summary"] = {"attributed_fraction": 0.5, "minimum_fraction": 0.4, "meets_minimum": False}
+
+    monkeypatch.setattr(perf.ReferenceAttribution, "cold", lambda self: None)
+    monkeypatch.setattr(perf.ReferenceAttribution, "edits", lambda self: None)
+    monkeypatch.setattr(perf.ReferenceAttribution, "summarize", summarize)
+    path = tmp_path / "attribution.json"
+    assert (
+        perf.main(["--cprofile", "--stand-in", "--min-attributed", "0.9", "--out", str(tmp_path), "--json", str(path)])
+        == 1
+    )
+    report = json.loads(path.read_text())
+    assert "below --min-attributed 90%" in report["failure"]
+
+
+def test_cprofile_failed_compile_keeps_its_log(tmp_path):
+    workspace = tmp_path / "product"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / budget_bench.ENTRY).write_text("int main( {\n")
+    path = tmp_path / "attribution.json"
+    assert (
+        perf.main(
+            [
+                "--cprofile",
+                "--workspace",
+                str(workspace),
+                "--edits",
+                "none",
+                "--cold-samples",
+                "1",
+                "--out",
+                str(tmp_path / "runs"),
+                "--json",
+                str(path),
+            ]
+        )
+        == 1
+    )
+    report = json.loads(path.read_text())
+    assert "reference compile cold-1-plain failed" in report["failure"]
+    work = Path(report["provenance"]["work_directory"])
+    assert (work / "logs/cold-1-plain.stderr").stat().st_size > 0
+    assert (workspace / budget_bench.ENTRY).read_text() == "int main( {\n"
+
+
+# -- the stage6-reference runbook preset -----------------------------------------------------
+
+
+def test_stage6_reference_preset_expands_to_valid_perf_commands(tmp_path, monkeypatch):
+    from tools.runbook.engine import Host, Preset, RunbookEngine, RunOptions
+
+    monkeypatch.setenv("BTRC_LOCK_DIR", str(tmp_path / "locks"))
+    preset = Preset.load("stage6-reference")
+    assert preset.packet == "MAC-R-03" and preset.kind == "measurement"
+    for stand_in, extra in ((False, []), (True, ["--rehearsal", "--stand-in", "--dry-run"])):
+        options = RunOptions.parse(["stage6-reference", "--home", str(tmp_path / "home"), *extra])
+        engine = RunbookEngine(preset, options, host=Host("Darwin" if not stand_in else "Linux"))
+        engine.frozen = {"shas": {"btrc": "0" * 40, "btrsmith": {"post-stage4": "1" * 40}}}
+        state = engine.new_state()
+        cells = {cell.id: cell for cell in engine.cells}
+        assert set(cells) == {"reference-cold-dev", "reference-cold-release", "reference-edits"}
+        for cell in cells.values():
+            assert cell.lock == "bench" and cell.quiet and cell.shell == "btrsmith"
+            command = engine.expand_command(cell.command, engine.context(cell, state))
+            assert command[:5] == ["python3", "-m", "tools.perf", "--cprofile", "--frontend"]
+            assert ("--stand-in" in command) == stand_in and ("--workspace" in command) != stand_in
+            assert ("--dry-run" in command) == stand_in
+            assert command[command.index("--min-attributed") + 1] == "0.90"
+            workspace = command.index("--workspace") + 1 if not stand_in else None
+            if workspace is not None:
+                (tmp_path / "pin").mkdir(exist_ok=True)
+                command[workspace] = str(tmp_path / "pin")
+            arguments = perf.ReferenceAttribution.parse_arguments(command[3:])
+            assert arguments.min_attributed == 0.9
+            assert Path(arguments.json) == state.cell_out(cell.id) / "attribution.json"
+            if cell.id == "reference-edits":
+                assert arguments.cold_samples == 0 and len(arguments.fixtures) == len(budget_bench.EDIT_FIXTURES)
+                assert arguments.edit_samples == (1 if stand_in else 5)
+            else:
+                assert arguments.fixtures == () and arguments.cold_samples == (1 if stand_in else 3)
+                assert arguments.mode == cell.variables["mode"]
