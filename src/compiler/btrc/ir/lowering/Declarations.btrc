@@ -2943,12 +2943,16 @@ class DeclarationLowerer {
 		Vector<string> constructorSourceBindings = self.context.snapshotSourceBindings();
 		Vector<string> noConstructorSourceBindings = [];
 		self.context.restoreSourceBindings(noConstructorSourceBindings);
+		/* Field initializers belong to the class scope: the constructor's
+		 * parameters are not visible to them, so a same-named global is
+		 * neither shadowed nor captured there. */
+		if (!foreign) {
+			Map<string, Node> genericFieldVars = self.genericInitializerVarTypes(inst, null);
+			self.appendInheritedFieldInitializers(decl, genericFieldVars, ibody);
+			self.appendInstanceFieldInitializers(decl, genericFieldVars, true, typeMap, ibody);
+		}
 		if (ctor != null) {
 			self.functions.activateSourceLexicalParameters(ctor.params());
-		}
-		if (!foreign) {
-			self.appendInheritedFieldInitializers(decl, genericCtorVars, ibody);
-			self.appendInstanceFieldInitializers(decl, genericCtorVars, true, typeMap, ibody);
 		}
 		Vector<IRNode> ctorBodyStmts = [];
 		if (!foreign && ctor != null && ctor.bodyNode != null) {
@@ -3445,14 +3449,16 @@ class DeclarationLowerer {
 		Vector<string> sourceBindings = self.context.snapshotSourceBindings();
 		Vector<string> noSourceBindings = [];
 		self.context.restoreSourceBindings(noSourceBindings);
+		Map<string, Node> noTypeMap = {};
+		/* Inherited defaults first, root class outward, then this class's
+		 * own, and only then the constructor body. Field initializers belong
+		 * to the class scope, without the constructor's parameters. */
+		Map<string, Node> fieldVars = self.ctorVarTypes(decl, null);
+		self.appendInheritedFieldInitializers(decl, fieldVars, body);
+		self.appendInstanceFieldInitializers(decl, fieldVars, false, noTypeMap, body);
 		if (ctor != null) {
 			self.functions.activateSourceLexicalParameters(ctor.params());
 		}
-		Map<string, Node> noTypeMap = {};
-		/* Inherited defaults first, root class outward, then this class's
-		 * own, and only then the constructor body. */
-		self.appendInheritedFieldInitializers(decl, ctorVars, body);
-		self.appendInstanceFieldInitializers(decl, ctorVars, false, noTypeMap, body);
 		/* Constructor body (user code). */
 		if (ctor != null && ctor.bodyNode != null) {
 			IRNode blk = self.functions.lowerBody(ctor.bodyNode, ctorVars);
