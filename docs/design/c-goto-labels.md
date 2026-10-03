@@ -22,7 +22,7 @@ btrc has no `defer`. Its cleanup scopes are three things, and this section decid
 
 | Topic | Decision |
 |---|---|
-| AST | **`GotoStmt(identifier name, int name_line, int name_col)`** sits at `goto`, and its name position is the label identifier. **`LabelStmt(identifier name)`** sits at its identifier. A label is a statement-list item of its own: it marks the position before the next item, or the end of the list (the C23 6.8.2 block-item form). It owns no sub-statement, which is why it is `LabelStmt` and not the roadmap's `LabeledStmt`. Both kinds are appended to `stmt`. |
+| AST | **`GotoStmt(identifier name, int name_line, int name_col)`** sits at `goto`, and its name position is the label identifier. **`LabelStmt(identifier name)`** sits at its identifier. A label is a statement-list item of its own: it marks the position before the next item, or the end of the list (the C23 6.8.2 block-item form). It owns no sub-statement, which is why it is `LabelStmt`, and not the labeled statement (`IDENT ":" statement`, with a body) that the roadmap and the first C3 draft reserved. Both kinds are appended to `stmt`. |
 | Placement | A label may stand wherever a statement-list item may: in function, method, constructor, accessor and lambda bodies, blocks, loop bodies, case bodies, and `try`/`catch`/`finally` blocks. It may precede a declaration, end a block or a case body, or follow another label (`a: b:`). That is C23 placement, a documented btrc extension: C11 6.8.1 requires a statement after a label, and gcc `-std=c11 -pedantic-errors` rejects `L: int x;` and `{ L: }` (probe). btrc always emits `name: ;`, so its output stays strict C11. In a braceless body (Stage 16), leading labels and the statement after them form the synthesized block. |
 | Scope and name space | Labels have function scope (C11 6.2.1p3). Each callable body is one label scope: function, method, constructor, getter, setter, and the body of every lambda (including `spawn` lambdas). Labels live in their own name space (C11 6.2.3p1), so a label may share a name with any variable, type or function, and it never claims a binding. |
 | Spelling | A label name is checked like a binding whose C name the compiler generates. Python calls `validate_name(name, "Label", …, c_name_generated=True)`; btrc calls a new `validateLabelName`. A source-macro collision is refused in both compilers, so btrc gains that check for labels (`declarations.py:823-825` has it; `Names.btrc:132-146` lacks it). A hosted-macro name such as `EOF` is accepted and renamed (row C names below). |
@@ -41,7 +41,7 @@ btrc has no `defer`. Its cleanup scopes are three things, and this section decid
 | @gpu | `goto` and labels are refused through the existing statement table. The WGSL emitters fail closed. |
 | Unused labels | They are accepted and emit nothing; `-Wall -Werror` would otherwise fail on `-Wunused-label`. |
 | Fall-through comments | gcc's `-Wimplicit-fallthrough` fails `-Werror` when a falling case ends in a label, directly or at the end of a nested block (probes `ft4.c`, `ft_more.c`). Lowering therefore sets `IRLabel.falls_through` on each such tail label, and both emitters write `/* fall through */` immediately before it. |
-| Schema timing | The two AST constructors and the two IR kinds land in Stage 19's serial `ccompat-c3-schema-vocabulary` commit. If that commit lands without them, Stage 20 opens with the same serial schema commit in the main session. The grammar rules land with the parsers, as C1's did. Until then, both parsers keep today's errors, with no interim message, so the probes change only once. |
+| Schema timing | The two AST constructors and the two IR kinds land in Stage 19's serial `ccompat-c3-schema-vocabulary` commit; `c-vocabulary-specifiers.md` reserves exactly this schema. If that commit lands without them, Stage 20 opens with the same serial schema commit in the main session. The grammar rules land with the parsers, as C1's did. Until then, both parsers keep today's errors, with no interim message, so the probes change only once: C3's pending-refusal tables hold no `goto` entry. |
 
 ### Why a goto never enters a nested list
 
@@ -86,9 +86,8 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
 
   A declaration is plain when its declared type is plain and its initializer's type, if it has one, is neither a managed value type nor a type parameter. The managed-value test is Python `StorageModel.is_managed_value_type` (`analyzer/storage.py:263-277`) and its btrc counterpart. The initializer rule exists because `StorageLowerer` makes an owner from either type (`ir/lowering/storage.py:855-884`). Probes show scope-end releases for `void* p = new Box();`, `char* q = make();` and even `const char* r = "abc";` in both compilers.
 - **Variably modified.** Python `TypeSystem.is_variably_modified(type, constant_bounds)`; btrc `SemanticTypeSystem.variablyModified`. A type is variably modified when its outermost `array_size` is non-null and is *not* in `constant_array_bound_ids`/`constantArrayBoundKeys`. The analyzer adds a bound exactly when it is constant (`analyzer/statements.py:509-511`), and Stage 18 allows a run-time bound only on the outermost extent. Later rows for pointer-to-VLA and block-scope VM typedefs inherit this predicate.
-- **Termination predicates take the targeted names.** Python `ControlFlowAnalyzer.statement_must_terminate`, `block_must_terminate` and `statement_sequence_must_terminate` (`flow.py:249-306`) and btrc `ControlFlowValidator.statementTerminates`, `blockTerminates` and `statementSequenceTerminates` (`validation/ControlFlow.btrc:157-259`) gain a targeted-name parameter. It is empty or null for bodies without jumps.
-  - btrc deletes the duplicate `ExpressionTypeResolver.blockTerminates/elseTerminates/statementTerminates` (`analyzer/Expressions.btrc:86-119`). Both lambda paths call `ControlFlowValidator` instead (`validation/ControlFlow.btrc:63`, `validation/Expressions.btrc:775`).
-  - That change lands first, as its own parity commit with a both-compiler test (a typed lambda ending in `while (true) { return n; }` and one ending in a terminating `switch`). Python accepts both today and btrc refuses them; no accepted program changes.
+- **The completion owner takes the targeted names.** Today's predicates are Python `ControlFlowAnalyzer.statement_must_terminate`, `block_must_terminate` and `statement_sequence_must_terminate` (`flow.py:249-306`) and btrc `ControlFlowValidator.statementTerminates`, `blockTerminates` and `statementSequenceTerminates` (`validation/ControlFlow.btrc:157-259`). Stage 19's r15b replaces them with one completion owner per compiler, `can_complete_normally` and `canCompleteNormally` (`c-vocabulary-specifiers.md`, "Completion owner"). Stage 20 gives that owner a targeted-name parameter, empty or null for bodies without jumps.
+  - btrc's duplicate, `ExpressionTypeResolver.blockTerminates/elseTerminates/statementTerminates` (`analyzer/Expressions.btrc:86-119`), is already gone: the D-13 parity commit (`CL-C-02`) deleted it, with a both-compiler test (a typed lambda ending in `while (true) { return n; }` and one ending in a terminating `switch`, which Python accepted and btrc refused). btrc's one lambda check is now `ControlFlowValidator`'s statement-analysis path (`validation/ControlFlow.btrc:63`), as Python's is `_analyze_lambda`; `ExpressionValidator.validateLambda` no longer checks termination, because `validation/Expressions.btrc` cannot import `ControlFlowValidator` without the self-hosted compiler's first import cycle.
 
 ## Conventions both parsers keep identical
 
@@ -157,7 +156,7 @@ btrc stops at its first error. Python continues, and its first error is the same
   - `int f(int n) { if (n > 0) { goto done; } return 1; done: }` gets the existing missing-return error.
 - **Unreachable code (R14).** After a direct terminal, the next item must be a targeted label (Python `statements.py:1719-1731`; btrc `validation/ControlFlow.btrc:512`, `:543`).
   - **Limitation:** a targeted label that is reachable only from code after it (a dead labeled cycle such as `return 0; again: n++; goto again;`) is accepted. Its C is valid and warning-free, and a test pins it.
-- **Rebase on r15b.** Stage 19 r15b adds `_Noreturn` call statements to the same predicates. Stage 20 rebases after r15b and keeps both. R14's wording follows whatever terminal set r15b chooses.
+- **Rebase on r15b.** Stage 19 r15b replaces these predicates with the completion owner, which also covers `_Noreturn` call statements. Stage 20 rebases after r15b and extends that owner. R14's wording follows whatever terminal set r15b chooses.
 
 ### Python nullable facts (warnings only; btrc has no counterpart)
 
@@ -360,11 +359,11 @@ Each refusal has the same text and position in both compilers. Positions are at 
 
 ## Consumers to update
 
-The construct is one commit (D5): Python first, then the btrc port by the same implementer. It is preceded by the btrc lambda-termination parity commit.
+The construct is one commit (D5): Python first, then the btrc port by the same implementer. It is preceded by the btrc lambda-termination parity commit (D-13 in `c-vocabulary-specifiers.md`), which lands early, before C3, as `CL-C-02`.
 
 - **Python:**
   - Parser: `Parser._parse_statement` (two first arms, `goto`) and Stage 16's `_parse_body`.
-  - `analyzer/flow.py`: `JumpScopeIndex`, `JumpList`, `JumpSite`; the predicates with targeted names; `ControlFlowAnalyzer.validate_goto` (R2–R8) and `validate_label_entry` (R9–R11).
+  - `analyzer/flow.py`: `JumpScopeIndex`, `JumpList`, `JumpSite`; the completion owner with targeted names; `ControlFlowAnalyzer.validate_goto` (R2–R8) and `validate_label_entry` (R9–R11).
   - `analyzer/types.py`: `is_plain_c_object`, `declaration_is_plain`, `is_variably_modified`.
   - `analyzer/program.py` and `analyzer.py`: `jump_body_ids`, the body-root stack and the index cache.
   - `analyzer/statements.py`: the five entry points, the `_analyze_stmt` arms, R1, R14, R16, the nullable joins, and termination callers that pass targeted names.
@@ -382,9 +381,8 @@ The construct is one commit (D5): Python first, then the btrc port by the same i
 - **btrc:**
   - Parser: `Parser.parseStatement` and `parseBody`. Syntax: `AstCanonicalRenderer`.
   - Analyzer:
-    - `validation/ControlFlow.btrc`: index, predicates, `directTerminal`, R1–R11, R14, lambda path;
-    - `analyzer/Expressions.btrc`: delete the duplicate predicates;
-    - `validation/Expressions.btrc:775`; `validation/Declarations.btrc:801`;
+    - `validation/ControlFlow.btrc`: index, the completion owner, `directTerminal`, R1–R11, R14, lambda path;
+    - `validation/Declarations.btrc:801` (the duplicate predicates in `analyzer/Expressions.btrc` and the check in `validation/Expressions.btrc` are already gone, `CL-C-02`);
     - `validation/Names.btrc`: `validateLabelName`;
     - `analyzer/Models.btrc`: `jumpBodyKeys`, `VALIDATION_JUMP_BODY`;
     - `validation/Validator.btrc`: the replay arm;
@@ -531,17 +529,17 @@ Outside the manifest:
    - The lambda wording differs too: "does not return a value on every path" (`statements.py:819`) against "does not return on every path" (`validation/ControlFlow.btrc:64`).
    - Python checks lambda termination only for an explicit return type (`statements.py:814-818`), while btrc uses the inferred one.
 
-   *(Stage 21.)*
-5. **btrc has no source-macro check for locals.** btrcc accepts `#define LIMIT 3` with `int LIMIT = 0;`, which gcc then rejects. Local-name diagnostics also differ: `Variable name 'EOF' … at 2:6` against `Local variable name 'EOF' … at 2:2`. *(Stage 21.)*
+   *(r15b: its completion owner and D-7's unified missing-return and lambda wording close the first two points. The third, explicit against inferred lambda return types, goes to Stage 21's divergence sweep unless r15b's lambda caller settles it.)*
+5. **btrc has no source-macro check for locals.** btrcc accepts `#define LIMIT 3` with `int LIMIT = 0;`, which gcc then rejects. Local-name diagnostics also differ: `Variable name 'EOF' … at 2:6` against `Local variable name 'EOF' … at 2:2`. *(Stage 21's divergence sweep.)*
 6. **btrc `collectNode` collects every node's `name`**, local declarations included (`ModuleUnits.btrc:506-508`). Stage 20 only excludes its two kinds. *(Module-unit owner.)*
-7. **btrc validates direct local names at block entry** (`Names.btrc:272`, `validation/ControlFlow.btrc:536`), so multi-error programs order their diagnostics differently from Python. *(Stage 21.)*
-8. **Some infinite loops are refused as a missing return in both compilers.** That happens when a `while (true)` or `for (;;)` body does not itself terminate (`flow.py:286-301`, `validation/ControlFlow.btrc:252-256`), although the C is valid. *(Stage 21 docs.)*
+7. **btrc validates direct local names at block entry** (`Names.btrc:272`, `validation/ControlFlow.btrc:536`), so multi-error programs order their diagnostics differently from Python. *(Stage 21's divergence sweep.)*
+8. **Some infinite loops are refused as a missing return in both compilers.** That happens when a `while (true)` or `for (;;)` body does not itself terminate (`flow.py:286-301`, `validation/ControlFlow.btrc:252-256`), although the C is valid. *(Stage 21's divergence sweep. r15b's completion table already drops the body rule, so a `while (true)` with no `break` cannot complete normally; the sweep verifies that and documents whatever remains.)*
 
 ## Lanes and merge order
 
-1. **Prerequisites.** `ccompat-c1-integrate` (the braceless-body helper) and Stage 19's vocabulary and schema commit. Stage 20 rebases after r15b. It may overlap the r15c, r15d and r16 lanes, but no sibling lane may touch flow, ownership or setjmp code.
+1. **Prerequisites.** `ccompat-c1-integrate` (the braceless-body helper), the btrc lambda-termination parity commit (`CL-C-02`), and Stage 19's vocabulary and schema commit. Stage 20 rebases after r15b. It may overlap the r15c, r15d and r16 lanes, but no sibling lane may touch flow, ownership or setjmp code. *Scheduling, pending owner approval (WORKSTREAMS.md Q5):* Stage 20's construct commit merges after r15a and r14, so r11 still merges last; its implementation may still overlap r15c, r15d and r16.
 2. **Read-only, in parallel.** One agent writes the fixture drafts listed here and re-verifies every position. A second agent refines the Python contract's signatures against the code.
-3. **Serial, main session.** The schema commit if Stage 19 omitted it, then the btrc lambda-termination parity commit.
+3. **Serial, main session.** The schema commit if Stage 19 omitted it. The btrc lambda-termination parity commit has already landed by then (`CL-C-02`).
 4. **One implementer, one branch.** Python first, then the btrc port. It lands as one construct commit with the tests, docs and inventory changes, and builds its btrcc under the semaphore.
 5. **Two adversarial reviewers.**
    - **ARC checklist:**
@@ -569,7 +567,7 @@ Outside the manifest:
 | B3: replayed btrc validation records never build the jump index (blocking) | Accepted. The index is a pure function of the body, built by its owner in the analyzer and again in lowering. `VALIDATION_JUMP_BODY` marks jump bodies; replay installs it; the record version becomes v5. A warm-cache test and a record-verification test cover it. |
 | M1: which `source_binding_c_name` is meant is ambiguous | Accepted. Only the stateless rule is used (`calls.py:851`, `HostedAbi.btrc:316`), with a shadowing fixture. |
 | M2: `EOF:` contradicts local validation, and btrc lacks the source-macro check | Accepted. `c_name_generated` validation runs in the label arm, with a btrc source-macro check for labels. The divergence for locals goes to Stage 21. |
-| M3: btrc lambdas use a second termination predicate | Accepted, as a preceding parity commit that deletes the duplicate and has a both-compiler test. |
+| M3: btrc lambdas use a second termination predicate | Accepted, as a preceding parity commit that deletes the duplicate and has a both-compiler test. It is D-13 in `c-vocabulary-specifiers.md` and lands before C3 as `CL-C-02`. |
 | M4: btrc module units collect `name` from every IR node | Accepted. `collectNode` skips both kinds, both IR models name the field `name`, and a module-units test covers it. The broader over-collection goes to the module-unit owner. |
 | M5 and the second review's major: re-registration misses `Thread` cleanups | Accepted, with a correction: a deep copy would fail the verifier's identity check on `IRCleanupSlot` (`verifier.py:366-371`). The recipe on the `ManagedLocal` is re-issued through `register`, which reuses the slot metadata. A4 asserts completeness. `GotoExceptions.btrc` has a `Thread` case with a throw. |
 | M6: two classes named `JumpFrame` | Accepted. The analyzer has `JumpList` and `JumpSite`; lowering has `JumpLoweringFrame` and `LoweredLabel`. All four names are unused in both compilers today. |

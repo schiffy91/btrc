@@ -905,6 +905,7 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
     - r15a in the declarator lane
     - r14 if approved
   - **Merge order:** r15b, r15c, r15d, r16, stragglers, r15a, then r14 as its own batch.
+- **Reconciled with Stage 20** (`c-vocabulary-specifiers.md`, `c-goto-labels.md`). The vocabulary commit reserves the goto design's schema at zero bytes: `GotoStmt(name, name_line, name_col)`, `LabelStmt(name)` (a label owns no statement), `IRGoto` and `IRLabel(falls_through)`. The pending-refusal tables hold no `goto` entry. The btrc lambda-termination parity commit (D-13) lands before this stage; r15b keeps the completion table and D-7's missing-return and lambda wording.
 
 ### Stage 20: goto and labels, alone (approved, D19)
 - **Items.** `ccompat-r11-goto-labels`. `goto` is already a keyword (grammar.ebnf:38).
@@ -913,6 +914,11 @@ D5 amends §5's every-step gating for this bucket. Both compilers still land in 
   - Positive cleanup programs are clean under the ARC witness.
   - If declined: a documented refusal in Stage 21.
 - **Overlap.** It may **overlap Stage 19's r15c/r15d/r16 lanes**, rebasing after r15b (`_Noreturn` flow).
+- **Design** (`docs/design/c-goto-labels.md`).
+  - `LabelStmt(name)` is a statement-list item that owns no statement; its schema lands in Stage 19's vocabulary commit.
+  - No interim message: until this stage, both parsers keep today's `goto` errors, so the probes change once.
+  - Released re-initialization: a backward goto releases the owners its frame declared after the label, so each pass releases the previous pass's values, as a loop does.
+  - Forward-only realtime: a backward goto is the blocking effect `backward goto 'L'`; a forward goto is effect-free.
 - **Parallelization: SERIAL implementation.**
   - 2 read-only agents first: one gathers unsafe-path fixtures, reusing Stage 14's VLA cases; one drafts the Python contract.
   - Then 1 implementer, Python first and then btrc.

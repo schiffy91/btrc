@@ -53,7 +53,7 @@ Each defect below was either reproduced or read from the code at `c7f785e`. Prob
 | D-10 | `sizeof` of an expression lowers to `sizeof(<btrc type>)` (`ir/lowering/expressions.py:2109-2131`; btrcc does the same). `sizeof('a')` becomes `sizeof(char)`, and `sizeof(true)` and `sizeof(x == 2)` become `sizeof(bool)`, where C would measure `int`. This is btrc's existing meaning. C3 keeps it and makes the layout model measure the same thing. | probes `szs.btrc`, `szs2.btrc` | documented; shared owner B |
 | D-11 | Lowering takes the address of plain locals; this is harmless today but fatal for `register`. The two forms are described after this table. | probes | r15a |
 | D-12 | Qualified generic arguments through typedefs: `typedef const int CI; Vector<CI> v;` is accepted by the reference compiler and rejected by gcc. btrcc refuses it ("generic arguments cannot be const-qualified", `syntax/Identity.btrc:1086-1088`). Separately, `Vector<struct S>` where `S` has a `const int` member is accepted, and gcc rejects the element stores. | probes `typedefconst.btrc`, `cm4.btrc` | r15a |
-| D-13 | There are three termination predicates, and the btrc lambda one lacks switch and loop rules. They are listed after this table. | source reading | r15b |
+| D-13 | There are three termination predicates, and the btrc lambda one lacks switch and loop rules. They are listed after this table. | source reading | the btrc lambda-termination parity commit (`CL-C-02`, before C3); r15b then owns the completion table |
 
 **D-7, wording differences:**
 - **Const modification.** Python says "Cannot modify const-qualified storage" (`expressions.py:785`). btrc says "Cannot modify const storage of type 'const int'" (`validation/Storage.btrc:844`).
@@ -72,7 +72,9 @@ Each defect below was either reproduced or read from the code at `c7f785e`. Prob
 
 As a result, Python accepts `() => { while (true) { return 1; } }` and btrcc refuses it.
 
-The vocabulary commit records D-1, D-2, D-3, D-5, D-8, D-9 and D-12 as `known-divergence` probes. Each owner flips its probe in the commit that fixes it. D-13 is not a C construct, so the completion owner's parity test covers it instead of a probe.
+**D-13's owner.** The third predicate does not wait for r15b. It is deleted first, in its own both-compiler parity commit (`CL-C-02`, `src/tests/btrc/test_lambda_termination_parity.py`), which leaves btrc one lambda termination check, on `ControlFlowValidator`'s statement-analysis path, as Python has one (`_analyze_lambda`). `ExpressionValidator.validateLambda` drops its duplicate check, because `validation/Expressions.btrc` cannot import `ControlFlowValidator` without the self-hosted compiler's first import cycle. The goto design needs that commit before Stage 20 (`c-goto-labels.md`, review M3). r15b then replaces the two remaining predicates with the completion owner below, and unifies the missing-return and lambda wording (D-7).
+
+The vocabulary commit records D-1, D-2, D-3, D-5, D-8, D-9 and D-12 as `known-divergence` probes. Each owner flips its probe in the commit that fixes it. D-13 is not a C construct, so the parity commit's test, extended by the completion owner, covers it instead of a probe.
 
 ## Decisions
 
@@ -88,7 +90,7 @@ The vocabulary commit records D-1, D-2, D-3, D-5, D-8, D-9 and D-12 as `known-di
 | r14 variadic definitions | `FunctionDecl.is_variadic`; `VaArgExpr(expr expr, type_expr type)`. Managed variadic arguments are borrowed for the call, as hosted variadic calls already treat them. | `is_variadic` on `IRFunctionDef`/`IRFunctionDecl`; `IRVaArg` |
 | Target layout | C4's `[[targets]]` rows gain the data model, char and `wchar_t` signedness, and the `long double`/`max_align_t` cells. A `[target_layout]` table holds the cells all targets share, and `[[layout_typedefs]]` holds the C11 standard typedefs. The analyzer types literals, casts and constants at the selected target's widths. | spec columns only |
 | Constants | One typed evaluator per compiler gives C2's three kinds of answer, each with the value's C type. Proven constants lower to plain C operators. Every layout value the analysis consumes is asserted again in C. | none (uses `IRStaticAssert`) |
-| Stage 20 reservation | `GotoStmt(identifier name)` and `LabeledStmt(identifier name, stmt body, int name_line, int name_col)` are added now, at zero bytes, so `ast.asdl` changes once. Stage 20 owns their semantics, and may change their fields only before this commit lands. | `IRGoto` and `IRLabel`, which the verifier refuses until Stage 20 |
+| Stage 20 reservation | `GotoStmt(identifier name, int name_line, int name_col)` and `LabelStmt(identifier name)` are added now, at zero bytes, so `ast.asdl` changes once. The schema is the goto design's (`c-goto-labels.md`, "Schema commit"): a label owns no sub-statement. Stage 20 owns their semantics and their grammar rules. | `IRGoto(name)` and `IRLabel(name, falls_through)`, which the verifier refuses until Stage 20 |
 
 **The vocabulary row in detail:**
 - **New keywords.** `inline restrict _Alignas _Alignof _Noreturn _Static_assert _Thread_local`, plus `va_arg`.
@@ -136,11 +138,11 @@ The main session lands the vocabulary commit and then two serial shared-owner co
 **`auto` as inference.** When `auto` is followed by an identifier and `=` (no base type), the parser refuses it at `auto` with the targeted message under Refusals.
 
 **Pending refusals.** Until a construct's lane lands, its token is refused at its own position with ``C11 '{spelling}' is not supported yet``.
-- **Tables.** There is one table per parser, keyed by token kind, beside Stage 14's `_DEFERRED_C_SPECIFIERS` (`parser.py:252-257`) and `deferredCSpecifierMessage` (`Parser.btrc:81`). The tables hold the nine new tokens plus `auto`, `register` and `goto`.
+- **Tables.** There is one table per parser, keyed by token kind, beside Stage 14's `_DEFERRED_C_SPECIFIERS` (`parser.py:252-257`) and `deferredCSpecifierMessage` (`Parser.btrc:81`). The tables hold the nine new tokens plus `auto` and `register`. They hold no `goto` entry: until Stage 20, both parsers keep today's `goto` errors with no interim message, so the `goto` probes in `c3_c4.toml` change only once, in Stage 20 (`c-goto-labels.md`, "Schema timing").
 - **Hooks.** The pending check reuses Stage 14's call sites, extended from identifier spellings to token kinds. Those are the calls to `_refuse_deferred_c_specifier` (`parser.py:162-164`) from `_expect`, from the `_parse_type_expr` base fallback and from `_parse_primary`, plus their btrc twins. The specifier loop and each parser's unexpected-token constructor also check the table.
 - **Not pending.** East-position qualifiers and `* qualifier` levels need no entry; they keep today's diagnostics until r15a.
 - **Contract test.** The two tables must be equal.
-- **Cleanup.** Each lane deletes its own entries. `ccompat-c3-integrate` deletes the tables if Stage 20 has already removed `goto`; otherwise Stage 20 deletes the last entry.
+- **Cleanup.** Each lane deletes its own entries, and `ccompat-c3-integrate` deletes the tables. Stage 20 never touches them.
 - **Stability.** The vocabulary commit already carries both tables with the same hooks, so commit A does not change any recorded probe diagnostic again.
 
 **2. Positions and value types.**
@@ -280,10 +282,10 @@ Some sites also clear `is_const`/`is_volatile`. Those call `value_type` and keep
 - A parsed `PointerQualifiers` entry sits at the first qualifier token after its `*`. An entry synthesized by typedef composition sits at the `TypeExpr` it qualifies.
 - A `TypeExpr` starts at the first token its parser consumes, leading storage-class and function specifiers included. This is today's rule for `static` (`parser.py:411`).
 - A `FunctionDecl` starts at the first token after annotations and `keep` (`parser.py:1121`), so `static inline int f()` starts at `static`.
-- `GotoStmt` sits at `goto`. `LabeledStmt` and its `name_line`/`name_col` sit at the label.
+- `GotoStmt` sits at `goto`, and its `name_line`/`name_col` sit at the label identifier. `LabelStmt` sits at its identifier.
 - Parser refusals sit at the offending token. Specifier-position refusals sit at the `TypeExpr`. Use refusals sit at the operator, call or access, as in C2.
 
-**Grammar.** The vocabulary commit writes every rule; the lanes touch no grammar text.
+**Grammar.** The vocabulary commit writes every C3 rule; the lanes touch no grammar text.
 
 ```
 type_expr  = { declaration_specifier } base_type [ generic_args ]
@@ -303,12 +305,11 @@ static_assert = "_Static_assert" "(" expr "," string_literals ")" ";"
 unary        += "sizeof" unary | "sizeof" "(" type_name ")"
               | "_Alignof" "(" type_name ")"
 primary      += "va_arg" "(" assignment "," type_name ")"
-goto_stmt     = "goto" IDENT ";"                  (* Stage 20 *)
-labeled_stmt  = IDENT ":" statement               (* Stage 20 *)
 ```
 
 - `type_name` is C2's rule, and `string_literals` is C1 r05's.
 - A rule whose lane has not landed carries `(* refused until <item> lands *)`; each lane deletes its own marker.
+- The `goto` and label rules are not C3's. They land with Stage 20's construct commit, together with the parsers (`c-goto-labels.md`, "Schema commit"), so this commit writes no `goto` rule.
 - The `@lexical` reserved-keyword comment (`grammar.ebnf:23-33`) is rewritten. `override` is the only keyword without a rule, along with `goto` until Stage 20. `_Atomic`, `_Bool`, `_Complex`, `_Generic` and `_Imaginary` are identifiers, handled as the vocabulary row describes.
 
 **Disambiguation:**
@@ -388,7 +389,7 @@ labeled_stmt  = IDENT ":" statement               (* Stage 20 *)
   - the specifier validator, `value_type` and the qualifier owner;
   - the identity encoders, the type-shape transformers and the declarator copier;
   - the layout model and `CTypeLowerer`.
-- **`GotoStmt`, `LabeledStmt`.** The parsers keep refusing them until Stage 20; their coverage test lists them as "refused before analysis".
+- **`GotoStmt`, `LabelStmt`.** The parsers keep today's `goto` errors until Stage 20 and never build either kind; their coverage test lists them as "refused before analysis".
 
 ## Rules by row
 
@@ -556,7 +557,7 @@ It may contain these expressions:
 
 **Completion owner** (D-13).
 - **Python.** `ControlFlowAnalyzer.can_complete_normally` (`analyzer/flow.py`) replaces `statement_must_terminate`/`block_must_terminate` (`:249-306`).
-- **btrc.** `ControlFlowValidator.canCompleteNormally` replaces `statementTerminates`/`blockTerminates` (`validation/ControlFlow.btrc:157-260`). `ExpressionTypeResolver.blockTerminates`, `statementTerminates` and `elseTerminates` (`analyzer/Expressions.btrc:86-118`) are deleted, and both btrc lambda checks call the validator instead.
+- **btrc.** `ControlFlowValidator.canCompleteNormally` replaces `statementTerminates`/`blockTerminates` (`validation/ControlFlow.btrc:157-260`). `ExpressionTypeResolver`'s copy (`blockTerminates`, `statementTerminates` and `elseTerminates`) is already gone: the D-13 parity commit (`CL-C-02`) deleted it and left one btrc lambda check, on the validator's statement-analysis path, so r15b changes only the validator's predicate.
 - **Callers.** The function, method, lambda, getter, `_Noreturn` and `va_list` checks call it, as do Stage 20 and both lowering sites (`ir/lowering/exceptions.py:1563`, `ir/lowering/Statements.btrc:1043`).
 
 The rules below say when a statement can complete normally. The infinite-loop rule is btrc's, as in Java, not C's: C makes a missing return undefined only when the caller uses the value (6.9.1p12).
@@ -765,7 +766,7 @@ Python's `IRVerifier` checks these after optimization; in btrc, `CEmitter`, whic
 - A `va_list` value appears only as an uninitialized declaration, a direct call argument or a `va_*` operand, and it is never volatile.
 - `IRStaticAssert` appears only in a block or in `IRModule.static_asserts`.
 - No inline definition references a session-local static. No plain-inline definition references a runtime helper or a `static` function.
-- `IRGoto` and `IRLabel` are refused until Stage 20.
+- `IRGoto` and `IRLabel` are refused until Stage 20, whose V1–V4 replace the refusal (`c-goto-labels.md`).
 
 ## Refusals
 
@@ -961,9 +962,16 @@ The main session is the only owner. One read-only pre-drafter prepares the delta
 
     stmt = ...
          | StaticAssertStmt(expr condition, expr* parts)
-         -- Stage 20 owns both; the parsers refuse them until then.
-         | GotoStmt(identifier name)
-         | LabeledStmt(identifier name, stmt body, int name_line, int name_col)
+         -- Stage 20 owns both (c-goto-labels.md, whose comments these are);
+         -- no parser builds them until then.
+         -- `goto name;` (C11 6.8.6.1). line/col mark `goto`; name_line and
+         -- name_col mark the label identifier.
+         | GotoStmt(identifier name, int name_line, int name_col)
+         -- `name:` as a statement-list item (C23 6.8.2): it marks the position
+         -- before the next item, or the end of the list, and owns no statement.
+         -- line/col mark the identifier. Each callable and lambda body is one
+         -- label scope; labels have their own name space.
+         | LabelStmt(identifier name)
 
     expr = ...
          | CompoundLiteral(type_expr target_type, expr initializer)
@@ -990,7 +998,7 @@ The main session is the only owner. One read-only pre-drafter prepares the delta
 | `PointerQualifiers.*` | `pointerDepth`, `isConst`, `isVolatile`, `isRestrict` | existing |
 | `AlignmentSpecifier.type`, `.value` | `type`, `valueNode` | existing |
 | `AlignofExpr.type`; `VaArgExpr.expr`, `.type` | `type`, `expr` | existing |
-| `GotoStmt.name`; `LabeledStmt.name`, `.body`, `name_line`, `name_col` | `name`, `bodyNode`, `nameLine`, `nameCol` | existing |
+| `GotoStmt.name`, `name_line`, `name_col`; `LabelStmt.name` | `name`, `nameLine`, `nameCol` | existing |
 
 `sizeof(Node)` stays 760, and `Node()` gains seven `= false` stores. The two moves keep every existing kind's child order:
 - every kind that has `condition` and another child already orders `bodyNode` (176) before `condition`;
@@ -1001,7 +1009,7 @@ The main session is the only owner. One read-only pre-drafter prepares the delta
 **Nine new kinds:**
 - `NK_STATIC_ASSERT_DECL`, after `NK_TYPEDEF_DECL`;
 - `NK_STATIC_ASSERT_MEMBER`, after `NK_ANONYMOUS_MEMBER`;
-- `NK_STATIC_ASSERT_STMT`, `NK_GOTO_STMT` and `NK_LABELED_STMT`, after `NK_RELEASE_STMT`;
+- `NK_STATIC_ASSERT_STMT`, `NK_GOTO_STMT` and `NK_LABEL_STMT`, after `NK_RELEASE_STMT`;
 - `NK_ALIGNOF_EXPR` and `NK_VA_ARG_EXPR`, after `NK_COMPOUND_LITERAL`;
 - `NK_POINTER_QUALIFIERS` and `NK_ALIGNMENT_SPECIFIER`, after `NK_INDEX_DESIGNATOR`.
 
@@ -1026,7 +1034,7 @@ Regenerate `syntax/ast/generated.py` and `generated/ast/Node.btrc`, and update `
 | `IRTypedefDef` (`:591`): `is_const`, `is_restrict` | `IRTypedefDef` (`:683`): the same |
 | `IRStaticAssert(IRStmt)`: `condition: IRExpr = None`, `message: str = ""`; the verifier enforces non-null, as for C2's `IRDesignation`. `IRModule.static_asserts`. | `IRK_STATIC_ASSERT` in the statement group (`kind >= IRK_VAR_DECL`), reusing `condition` and `text`; `IRModule.staticAsserts` |
 | `IRAlignof(IRExpr)`: `c_type`. `IRVaArg(IRExpr)`: `va_list`, `c_type`. | `IRK_ALIGNOF` and `IRK_VA_ARG`, before `IRK_VAR_DECL`, reusing `cType` and `expr` |
-| `IRGoto`, `IRLabel`: `label` | `IRK_GOTO`, `IRK_LABEL`, reusing `name` |
+| `IRGoto(IRStmt)`: `name: str = ""`. `IRLabel(IRStmt)`: `name: str = ""`, `falls_through: bool = False`. | `IRK_GOTO` and `IRK_LABEL`, appended after `IRK_LINE_MARKER` so both stay `>= IRK_VAR_DECL`, reusing `name` and (for the label) `fallsThrough`; built by `IRNode.gotoStatement(name)` and `IRNode.labelStatement(name, fallsThrough)` |
 
 The shape invariants are the "Lowering invariants" above. This commit lands the checks that need no lane: the flags' types, the shape of `alignment`, where `IRStaticAssert` may appear, and the refusal of `IRGoto`/`IRLabel`.
 
@@ -1459,21 +1467,23 @@ Neither shared-owner commit nor any lane changes a boundary record: the boundary
    - Then commit B, with 1 constant-evaluator parity reviewer.
 
    One D5 gate runs after commit B, plus commit B's cross-target gates.
+
+   *Scheduling, pending owner approval (WORKSTREAMS.md Q5):* commit B lands as two serial commits, B1 (target widths, the typed evaluator and constant lowering: D-2, D-3, D-4, D-9) then B2 (the layout model, the `SizeofOperand` owner, the cross-check assertions and `#pragma pack`). The D5 gate runs after B2. Outside this section, the same plan keeps C2's schema commit serial after C4's behavior commit and splits C2's r10 into designators, then compound literals; those belong to the C2 design.
 2. **Lanes, at most 4 writers.** Each construct is one commit: Python first, then the btrc port by the same agent. Each lane builds its own btrcc under the `btrcc-build` semaphore.
    - **Wave 1:** r15b; r15c (with the evaluator parity reviewer); r15d; and r16 followed by the stragglers, done by one agent because they share the lexer.
    - **r15a**, the declarator lane, takes the first free slot. r07 and r17 have already merged.
    - **r14** takes the next free slot and merges as its own batch.
-   - **Stage 20** may start once r15b, which owns the completion owner, has merged. It may overlap r15c, r15d and r16, because its AST and IR nodes already exist. This section leaves Stage 20 three notes:
+   - **Stage 20** may start once r15b, which owns the completion owner, has merged. It may overlap r15c, r15d and r16, because its AST and IR nodes already exist. *Scheduling, pending owner approval (WORKSTREAMS.md Q5):* Stage 20's construct commit merges after r15a and r14, so r11 still merges last; its implementation may still overlap r15c, r15d and r16. This section leaves Stage 20 three notes:
      - the completion owner gains labels and `goto`;
      - the `va_list` flow rule must follow `goto`;
-     - a label may not precede a declaration (C11 6.8.1), so `lbl: int x;` and `lbl: _Static_assert(...)` are either refused or emitted with `lbl: ;` first.
+     - a label before a declaration is C23 placement (C11 6.8.1 requires a statement). The goto design accepts it as a documented extension and always emits `lbl: ;`, so `lbl: int x;` and `lbl: _Static_assert(...)` stay strict C11.
 3. **Merge order:** r15b, r15c, r15d, r16, stragglers, r15a, then r14. This is the item spec's order. Each batch gets a D5 gate.
    - Batch 1: r15b, r15c.
    - Batch 2: r15d, r16, stragglers.
    - Batch 3: r15a, with a BTRSmith rerun for the D-1 flip.
    - Batch 4: r14.
 4. **`ccompat-c3-integrate`:**
-   1. Delete the pending tables, or leave `goto` to Stage 20.
+   1. Delete the pending tables. They never held `goto`.
    2. Complete known-language-gaps:
       - every † row;
       - row 20's note on `va_arg`;
@@ -1496,7 +1506,7 @@ Neither shared-owner commit nor any lane changes a boundary record: the boundary
 | `sizeof` conditions btrc cannot evaluate (r15c) | D20: the front-end layout model plus a refusal naming the type. The condition, and every layout value the analysis consumes, are asserted again in C. |
 | r14 go/no-go | D19 approves it; its consumer is the probe battery plus mined headers. |
 | Managed variadic arguments | Borrowed for the call, as hosted variadic calls already are; `va_arg` reads plain C types only. |
-| `goto`/label fields (c3-schema) | Carried in this commit at zero bytes; Stage 20 owns the semantics. |
+| `goto`/label fields (c3-schema) | Carried in this commit at zero bytes, with the goto design's schema (`GotoStmt(name, name_line, name_col)`, `LabelStmt(name)`, `IRGoto`, `IRLabel`); Stage 20 owns the semantics, the grammar rules and the parsers. |
 
 **Outside Stage 19:**
 - `x-pointer-to-array` stays rejected, as C2 decided; Stage 21 lands it or records a refusal.
@@ -1512,7 +1522,7 @@ Neither shared-owner commit nor any lane changes a boundary record: the boundary
 | I-1 (blocking): btrc compound assignment takes the address of every target, plain locals included, which breaks `register` and outer `restrict`. | Accepted (probe `plain.btrc`: only btrcc emits `int volatile* __btrc_lvalue_1 = &a`). btrc uses value temporaries for identifier roots. `directLvaluePointerType` adds `restrict`/`volatile` from `qualifiersAt`. A post-optimization rule forbids taking a `register` object's address. The corpus covers `+=`, `++` and `try`. |
 | I-2 (blocking) and S-7: hoisted call operands copy a `va_list`. | Accepted (probe `hoist.btrc`: both compilers copy a struct operand into a temporary). The planners never hoist a `va_list`, and a call that also reads `ap` is refused. `va_*` arguments are emitted verbatim. A verifier rule limits where a `va_list` value may appear. The corpus includes `vfprintf(stderr, prefix(), ap)`. |
 | I-3: `_Static_assert` and `parts` are invisible to strict imports and to the module-unit closures. | Accepted (`imports.py:390-396`, `:477-482`, `:693`; `Visibility.btrc:123-129`, `:315`, `:542`; `modules.py:568-600`; `ModuleUnits.btrc:37-66`, `:506-530`). `StaticAssertDecl` joins both filters, both `TypeExpr` branches visit `parts`, and both closures follow `static_asserts`. Probes run under strict imports and `--module-units`. |
-| I-4: there is a third termination predicate, and the draft states only leaf rules. | Accepted (D-13). One completion owner per compiler, with a full rule table, serves every check and both lowering sites. `ExpressionTypeResolver`'s copy is deleted. A parity test covers the table. |
+| I-4: there is a third termination predicate, and the draft states only leaf rules. | Accepted (D-13). One completion owner per compiler, with a full rule table, serves every check and both lowering sites. `ExpressionTypeResolver`'s copy is deleted first, in its own parity commit (`CL-C-02`). A parity test covers the table. |
 | I-5: the lookahead rules contradict each other, function specifiers have no refusal stage, and the pending slot leaks. | Accepted. `_scan_type_expr` does serve `_is_cast` and `_is_sizeof_type`, and `_QUALIFIERS` already scans `(static int)` as a cast. The scanner skips every specifier in every mode, and the analyzer's table owns storage-class refusals. The parser refuses function specifiers off the top-level path. The slot is filled only there and asserted empty on entry. A parse-parity test covers the positions. |
 | I-6: type equality and the type-identity encodings diverge and lose qualifiers. | Accepted, with a correction: `aliasTypesSame` already compares `shapeKey` (`validation/Types.btrc:583-590`), so extending the encoding fixes it and its callers. `sameTypeShape` and `callableComponentSameTypeShape` move to the encoding. Both compilers use one encoding (a restrict bit and `v<depth>c<bits>` segments), byte-identical for unqualified types. `encodable` stays true for qualifiers and becomes false for storage bools and alignment. |
 | I-7: the D-1 flip changes every `is_volatile` reader, and the strip-site list is incomplete. | Accepted. Every reader and IR flag goes through `qualifiers_at`. `value_type` lands its storage half in commit A, with the missing sites added, and its qualifier half in r15a. A contract test bans direct clears and raw reads. |
@@ -1539,8 +1549,8 @@ Neither shared-owner commit nor any lane changes a boundary record: the boundary
 | I-28 and S-10: a thread-local's address is not an address constant. | Accepted (C11 6.6p9). It is refused in static and thread-local initializers. |
 | I-29 and S-19: `restrict` must accept `void*`, incomplete pointees and typedefs. | Accepted (C11 6.2.5p1, 6.7.3p2), with positive probes. |
 | I-30 and S-18: citation errors. | Accepted. `TYPE_KEYWORDS` is at `tokens.py:529` and `LiteralDecoder` at `lexer.py:19`. Repetition is C11 6.7.3p5 and 6.7.4p5. The grammar comment no longer claims that every C11 keyword has a rule. The infinite-loop rule is btrc's, not C's (6.9.1p12). |
-| I-31: the order in which the pending tables are cleaned up. | Accepted. r15a removes `auto` and `register`. Integrate deletes the tables only if Stage 20 has removed `goto`. |
-| I-32 and S-28: a label before a declaration. | Accepted as a Stage 20 note (C11 6.8.1). |
+| I-31: the order in which the pending tables are cleaned up. | Accepted. r15a removes `auto` and `register`, and integrate deletes the tables. Superseded in part by the goto design: the tables never hold `goto`, because the parsers keep today's `goto` errors until Stage 20. |
+| I-32 and S-28: a label before a declaration. | Accepted as a Stage 20 note (C11 6.8.1). The goto design resolves it: C23 placement, emitted as `lbl: ;`. |
 | I-33: the new flags have no `effective_` twin. | Accepted. Qualifiers on a typedef-named or `CFunction`-named outer type stay in the C text. |
 | S-1 (blocking): the layout model's `sizeof` operand typing contradicts the C that lowering emits. | Accepted (probes `szs.btrc`, `szs2.btrc`; D-10). One `SizeofOperand` owner serves the evaluator and lowering in both compilers, so btrc measures what it emits. The deviation from C is documented, and every layout value the analysis consumes is asserted again in C. |
 | S-2 (blocking): the evaluator's constant "proof" is unsound. | Accepted (probes `caps.btrc`, `vla.btrc`; D-9): identifiers resolve scope-first, `sizeof` of a VLA is not constant, a per-consumer table decides which kinds each accepts, and negative probes cover it. Rejected in part: limiting constant lowering to known values would keep D-2 for `sizeof(T) / 2`. Plain operators are safe for every C constant expression, because the C compiler re-checks C11 6.6p4. |
