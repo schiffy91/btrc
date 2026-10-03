@@ -41,7 +41,7 @@ SITES = {
     ): CONDITIONED,
     # Exceptions.
     ("src/compiler/python/frontend/sources.py", "ConditionalExpression.lex"): "conditioning's own payload lex",
-    ("src/compiler/python/frontend/sources.py", "ConditionalExpression._expansion"): "conditioning's replacement lex",
+    ("src/compiler/python/frontend/sources.py", "ConditionalExpression._replacement"): "conditioning's replacement lex",
     ("src/compiler/python/frontend/sources.py", "_ConditionalWalk.run"): "conditioning's own raw lex",
     (
         "src/devex/lsp/features/signature_help.py",

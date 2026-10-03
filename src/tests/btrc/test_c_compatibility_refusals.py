@@ -669,6 +669,18 @@ VLA_REFUSALS = [
         ("Variable 'values' is a variable-length array and cannot have an initializer", 1, 29),
         id="r23-initializer",
     ),
+    # Both compilers report a refused spawn capture at the spawn since CL-REQ-06.
+    pytest.param(
+        "int main() { int count = 2; int values[count]; values[0] = 1; "
+        "var worker = spawn(() => values[0]); return worker.join() - 1; }",
+        (
+            "spawn cannot capture array storage through 'values'; "
+            "copy it into a scalar-only struct or managed collection",
+            1,
+            76,
+        ),
+        id="r23-spawn-capture",
+    ),
 ]
 
 # Row 7: function-pointer declarators that a typedef spells instead, and
@@ -793,23 +805,6 @@ VLA_DIVERGENT_REFUSALS = [
         ("Initializer for 'copy' requires an array initializer", 1, 48),
         ("Variable 'copy' is a variable-length array and cannot have an initializer", 1, 48),
         id="r23-copy-initializer",
-    ),
-    pytest.param(
-        "int main() { int count = 2; int values[count]; values[0] = 1; "
-        "var worker = spawn(() => values[0]); return worker.join() - 1; }",
-        (
-            "spawn cannot capture array storage through 'values'; "
-            "copy it into a scalar-only struct or managed collection",
-            1,
-            76,
-        ),
-        (
-            "spawn cannot capture array storage through 'values'; "
-            "copy it into a scalar-only struct or managed collection",
-            1,
-            82,
-        ),
-        id="r23-spawn-capture",
     ),
 ]
 
