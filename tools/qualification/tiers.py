@@ -101,7 +101,7 @@ class TierCondition:
         for selected_tier, paths in self.selected:
             if selected_tier == tier:
                 # No list (a dispatch, a diff too large to list) or an empty one could be anything.
-                return not changed or GitHubPaths.any_selected(paths, changed)
+                return not any(changed or ()) or GitHubPaths.any_selected(paths, changed or ())
         # A plan without a change list (a push, a dispatch) has no paths to match.
         return (
             tier in self.changed_tiers and changed is not None and GitHubPaths.any_selected(self.changed_paths, changed)
@@ -227,6 +227,8 @@ class TierManifest:
 
     @staticmethod
     def _condition(reader: _Reader, scheduled: set[str], paths: Mapping[str, tuple[str, ...]]) -> TierCondition:
+        """An entry's tiers; ``corpus_tiers`` is read here too, to keep it apart from ``selected_tiers``."""
+
         selected = reader.data.get("selected_tiers", {})
         if not isinstance(selected, Mapping) or not all(isinstance(name, str) for name in selected.values()):
             raise TierManifestError(f"{reader.where}.selected_tiers: maps a tier to a [paths] set name")
@@ -244,7 +246,8 @@ class TierManifest:
             raise TierManifestError(f"{reader.where}: changed_tiers and changed_paths go together")
         if overlap := set(condition.tiers) & set(condition.changed_tiers):
             raise TierManifestError(f"{reader.where}: {sorted(overlap)} cannot be both unconditional and changed")
-        if overlap := set(selected) & {*condition.tiers, *condition.changed_tiers}:
+        listed = {*condition.tiers, *condition.changed_tiers, *reader.names("corpus_tiers", scheduled)}
+        if overlap := set(selected) & listed:
             raise TierManifestError(f"{reader.where}: {sorted(overlap)} cannot be both selected and listed")
         return condition
 

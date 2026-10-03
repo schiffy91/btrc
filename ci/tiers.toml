@@ -15,7 +15,7 @@ schema = "btrc.ci-tiers/1"
 [tiers]
 docs = "A pull request that changes only Markdown no test or tool reads: the static gates."
 pr = "Any other pull request: generated, lint and format; the unit shard; the corpus directories its paths select; macOS and Windows shards only when their paths change."
-lane = "A codex/* pull request: the release job and the unit shard; the rest of the Linux matrix, the macOS arm64 bundle and native-GUI job, and Windows only when their paths change."
+lane = "A codex/* pull request: the static gates, the release job and the unit shard; the rest of the Linux matrix, the macOS arm64 bundle and native-GUI job, and Windows only when their paths change."
 main = "A push to main, a pull request that touches the compilers or the CI hotspots, the ci:full label, or a full dispatch: today's full matrix."
 extended = "A nightly or extended dispatch: the main matrix plus macOS's remaining clang C11 cells."
 release = "release.yml's dispatch or tag: every hosted job of every tier, then one ledger bundle."
@@ -41,20 +41,29 @@ directories = ["gpu"]
 # changed file matches its set, or when the change list is missing or empty.
 # The last pattern a path matches decides, so a `!` pattern carves out of an
 # earlier one. A change that touches none of them (UI catalog data, its
-# loader and tests, a tools/ui or host-spike script) runs only the release job
-# and the unit shard.
+# loader and tests, a tools/ui or host-spike script) runs only the static
+# gates, the release job and the unit shard.
 [paths]
 # The Linux heavy jobs: C11, bootstrap, both corpora, btrc, bench and the
-# arm64 bundle. The unit shard already runs every src/tests/python/test_*.py.
+# arm64 bundle. The unit shard already runs every src/tests/python/test_*.py,
+# except the one a btrc-shard test imports. Every Linux test shard runs inside
+# tools/virtual-display.sh, which sources tools/ui/headless-session.sh. The
+# root files configure pytest, the dev container and checkout line endings.
 lane-linux = [
   "src/stdlib/**",
   "src/tests/**",
   "!src/tests/python/test_*.py",
+  "src/tests/python/test_exception_codegen_contracts.py",
   "examples/**",
   "tools/**",
   "!tools/ui/**",
+  "tools/ui/headless-session.sh",
   "!tools/target_hosts/**",
   "!tools/qualification/ui_catalog.py",
+  "pyproject.toml",
+  "uv.lock",
+  ".gitattributes",
+  ".dockerignore",
 ]
 # The macOS arm64 bundle and native-GUI job.
 lane-macos = [
@@ -78,7 +87,7 @@ lane-macos = [
 [[jobs]]
 workflow = "ci.yml"
 job = "static"
-tiers = ["docs", "pr", "release"]
+tiers = ["docs", "pr", "lane", "release"]
 reports = ["skip-report"]
 
 [[jobs]]

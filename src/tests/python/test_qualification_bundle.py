@@ -111,6 +111,15 @@ def _minimal(**overrides: object) -> dict:
             "both selected and listed",
         ),
         (
+            {
+                "paths": {"x": ["src/**"]},
+                "shards": [
+                    {"job": "ci.yml/tests", "shard": "unit", "corpus_tiers": ["pr"], "selected_tiers": {"pr": "x"}}
+                ],
+            },
+            "both selected and listed",
+        ),
+        (
             {"shards": [{"job": "ci.yml/tests", "shard": "unit", "tiers": ["pr"], "selected_tiers": ["pr"]}]},
             "maps a tier to a \\[paths\\] set name",
         ),
@@ -257,15 +266,16 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
 def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:
     manifest = _manifest()
     ci = manifest.plan("ci.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
-    assert ci["jobs"] == ["release", "tests", "bench", "linux-arm64-bundle"]
+    # The static job runs the naming contract, which reads every tracked file.
+    assert ci["jobs"] == ["static", "release", "tests", "bench", "linux-arm64-bundle"]
     assert ci["matrix"] == manifest.plan("ci.yml", "main")["matrix"]
     macos = manifest.plan("macos.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
     assert macos["jobs"] == ["native-bundle", "native-gui"]
     assert list(_rows(macos, "native-bundle")) == ["macos-arm64"]
 
 
-LANE_LINUX = ["release", "tests", "bench", "linux-arm64-bundle"]
-LANE_LIGHT = ["release", "tests"]
+LANE_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]
+LANE_LIGHT = ["static", "release", "tests"]
 LANE_MACOS = ["native-bundle", "native-gui"]
 
 
@@ -289,6 +299,10 @@ LANE_MACOS = ["native-bundle", "native-gui"]
         (["docs/design/native-ui-catalog.toml", "docs/design/ui0-source-amendments.toml"], LANE_LIGHT, []),
         # tools/ui is the macOS GUI harness: macOS, not the Linux heavy shards.
         (["tools/ui/codex-setup.sh"], LANE_LIGHT, LANE_MACOS),
+        # ... except the headless session every Linux test shard runs inside.
+        (["tools/ui/headless-session.sh"], LANE_LINUX, LANE_MACOS),
+        # A btrc-shard contract imports this unit test module.
+        (["src/tests/python/test_exception_codegen_contracts.py"], LANE_LINUX, []),
         (["src/tests/python/test_native_gui_target.py"], LANE_LIGHT, LANE_MACOS),
         (["src/stdlib/GUI/MacOS/Window.btrc"], LANE_LINUX, LANE_MACOS),
         (["src/tests/native/gui/shell/probes/macos/ShellProbe.m"], LANE_LINUX, LANE_MACOS),
@@ -305,6 +319,23 @@ LANE_MACOS = ["native-bundle", "native-gui"]
         # No change list, or an empty one, fails safe to the whole lane selection.
         (None, LANE_LINUX, LANE_MACOS),
         ([], LANE_LINUX, LANE_MACOS),
+        ([""], LANE_LINUX, LANE_MACOS),
+        # Root files that configure pytest, the container or line endings reach every shard.
+        (["pyproject.toml"], LANE_LINUX, []),
+        (["uv.lock"], LANE_LINUX, []),
+        ([".gitattributes"], LANE_LINUX, []),
+        ([".dockerignore"], LANE_LINUX, []),
+        # Each macOS pattern on its own, with a path no other pattern matches.
+        (["MacOS/Notes.txt"], LANE_LIGHT, LANE_MACOS),
+        (["docs/design/probe.m"], LANE_LIGHT, LANE_MACOS),
+        (["src/stdlib/GUI/Linux/Window.btrc"], LANE_LINUX, LANE_MACOS),
+        (["src/stdlib/UI/View.btrc"], LANE_LINUX, LANE_MACOS),
+        (["src/stdlib/App/App.btrc"], LANE_LINUX, LANE_MACOS),
+        (["src/stdlib/Audio/Mixer.btrc"], LANE_LINUX, LANE_MACOS),
+        (["src/stdlib/GPU/Device.btrc"], LANE_LINUX, LANE_MACOS),
+        (["src/tests/native/gui/Shell.c"], LANE_LINUX, LANE_MACOS),
+        (["src/tests/fixtures/expected-skips/macos-hosted.json"], LANE_LINUX, LANE_MACOS),
+        (["src/stdlib/Image/EncodedImage.btrc"], LANE_LINUX, []),
     ],
 )
 def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
@@ -318,8 +349,10 @@ def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
     plan = manifest.plan("macos.yml", "lane", changed)
     assert plan["jobs"] == macos
     assert list(_rows(plan, "native-bundle")) == (["macos-arm64"] if macos else [])
-    # Windows keeps its own rule: only its paths, and nothing without a list.
-    assert manifest.plan("windows.yml", "lane", changed)["jobs"] == []
+    # Windows keeps its own rule: only its paths, as in the pr tier, and nothing without a list.
+    windows = manifest.plan("windows.yml", "lane", changed)["jobs"]
+    assert windows == (["windows"] if changed == ["pyproject.toml"] else [])
+    assert windows == (manifest.plan("windows.yml", "pr", changed)["jobs"] if changed is not None else [])
 
 
 def test_lane_path_selection_leaves_every_other_tier_alone() -> None:

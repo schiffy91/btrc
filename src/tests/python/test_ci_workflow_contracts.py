@@ -953,26 +953,27 @@ def test_a_plain_pull_request_plans_from_its_changed_paths(tmp_path: Path) -> No
     assert _plan(tmp_path, "windows.yml", tier)["jobs"] == []
 
 
-LANE_HEAVY_LINUX = ["release", "tests", "bench", "linux-arm64-bundle"]
+LANE_HEAVY_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]
+LANE_LIGHT_LINUX = ["static", "release", "tests"]
 
 
 @pytest.mark.parametrize(
     ("files", "linux", "macos"),
     [
-        # A catalog-data packet: scope, release and the unit shard only.
+        # A catalog-data packet: scope, the static gates, release and the unit shard only.
         (
             (
                 "docs/design/native-ui-catalog/families.toml",
                 "tools/qualification/ui_catalog.py",
                 "src/tests/python/test_ui0_catalog.py",
             ),
-            ["release", "tests"],
+            LANE_LIGHT_LINUX,
             [],
         ),
-        (("tools/ui/codex-setup.sh",), ["release", "tests"], ["native-bundle", "native-gui"]),
+        (("tools/ui/codex-setup.sh",), LANE_LIGHT_LINUX, ["native-bundle", "native-gui"]),
         (("src/stdlib/GUI/MacOS/Window.btrc",), LANE_HEAVY_LINUX, ["native-bundle", "native-gui"]),
         (("src/stdlib/HTTP/Client.btrc",), LANE_HEAVY_LINUX, []),
-        (("src/tests/python/test_native_gui_target.py",), ["release", "tests"], ["native-bundle", "native-gui"]),
+        (("src/tests/python/test_native_gui_target.py",), LANE_LIGHT_LINUX, ["native-bundle", "native-gui"]),
         # A pull request with no listed file plans the whole lane selection.
         ((), LANE_HEAVY_LINUX, ["native-bundle", "native-gui"]),
     ],
@@ -985,9 +986,7 @@ def test_a_lane_pull_request_runs_the_jobs_its_paths_select(
     ci = _plan(tmp_path, "ci.yml", tier)
     assert ci["jobs"] == linux
     shards = [row["shard"] for row in ci["matrix"]["tests"]["include"]]
-    assert shards == (
-        ["unit"] if linux == ["release", "tests"] else [name for name, _ in _tier_shards("ci.yml", "main")]
-    )
+    assert shards == (["unit"] if linux == LANE_LIGHT_LINUX else [name for name, _ in _tier_shards("ci.yml", "main")])
     assert _plan(tmp_path, "macos.yml", tier)["jobs"] == macos
     assert _plan(tmp_path, "windows.yml", tier)["jobs"] == []
 
