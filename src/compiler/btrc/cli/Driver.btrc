@@ -1850,7 +1850,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 			int recordLength = Strings.toInt(sizes.substring(0, space));
 			int textLength = Strings.toInt(sizes.substring(space + 1, sizes.length() - space - 1));
 			int start = sizesEnd + 1;
-			if (recordLength < 0 || textLength < 0 || start + recordLength + textLength > length) { break; }
+			if (recordLength < 0 || textLength < 0 || recordLength > length - start || textLength > length - start - recordLength) { break; }
 			entries.put(identity, BtrccModuleUnitPayload(packed.substring(start, recordLength), packed.substring(start + recordLength, textLength)));
 			at = start + recordLength + textLength;
 		}
