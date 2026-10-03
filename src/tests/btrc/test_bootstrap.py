@@ -19,12 +19,10 @@ from __future__ import annotations
 
 import filecmp
 import os
-import shutil
 import tempfile
 import unittest
 
 from src.tests.btrc.bootstrap_harness import (
-    CC,
     EXE_SUFFIX,
     REPO,
     compile_c,
@@ -33,9 +31,10 @@ from src.tests.btrc.bootstrap_harness import (
     snapshot_compiler_inputs,
     transpile_with_python,
 )
+from src.tests.c_toolchains import host_c_compiler
 
 
-@unittest.skipUnless(CC and shutil.which(CC[0]), "needs a C compiler")
+@unittest.skipUnless(host_c_compiler() is not None, "needs a C compiler")
 class TestBootstrap(unittest.TestCase):
     def test_bootstrap_fixed_point_and_self_built_compiler_is_functional(self):
         """Prove the fixed point, then exercise that same self-built compiler."""

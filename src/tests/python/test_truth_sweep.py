@@ -14,7 +14,6 @@ Covers three audit findings:
           wildcard that also hides ordinary program errors.
 """
 
-import shutil
 import subprocess
 import tempfile
 
@@ -27,6 +26,7 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import TypeExpr
+from src.tests.c_toolchains import host_c_compiler
 from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 
@@ -49,9 +49,10 @@ def analyze(source: str):
 
 
 def compile_and_run(source: str) -> str:
-    """Compile snippet to C, build with gcc -std=c11, run, return stdout."""
-    if shutil.which("gcc") is None:
-        pytest.skip("gcc not available")
+    """Compile snippet to C, build it as strict C11, run, return stdout."""
+    compiler = host_c_compiler()
+    if compiler is None:
+        pytest.skip("no C compiler available")
     c_code = emit_c(source)
     with tempfile.TemporaryDirectory() as td:
         c_path = f"{td}/prog.c"
@@ -59,12 +60,12 @@ def compile_and_run(source: str) -> str:
         with open(c_path, "w") as f:
             f.write(c_code)
         build = subprocess.run(
-            ["gcc", "-std=c11", "-pedantic-errors", c_path, "-o", exe, "-lm"],
+            [*compiler, "-std=c11", "-pedantic-errors", c_path, "-o", exe, "-lm"],
             capture_output=True,
             text=True,
             timeout=C_COMPILE_TIMEOUT,
         )
-        assert build.returncode == 0, f"gcc failed:\n{build.stderr}\n{c_code}"
+        assert build.returncode == 0, f"C compile failed:\n{build.stderr}\n{c_code}"
         run = subprocess.run([exe], capture_output=True, text=True, timeout=10)
         assert run.returncode == 0, f"program failed: {run.stderr}"
         return run.stdout

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
-from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
+from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler, sanitizer_clang
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 ROOTS = {
@@ -117,9 +116,7 @@ def _tsan_unavailable(detail: str) -> bool:
 def test_arc_concurrency_regressions_are_thread_sanitizer_clean(
     tmp_path: Path,
 ) -> None:
-    compiler = (
-        "/usr/bin/clang" if sys.platform == "darwin" and os.access("/usr/bin/clang", os.X_OK) else shutil.which("clang")
-    )
+    compiler = sanitizer_clang()
     if compiler is None:
         pytest.skip("ThreadSanitizer requires clang")
     try:

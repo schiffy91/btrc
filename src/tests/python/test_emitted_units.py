@@ -3,19 +3,20 @@
 import json
 import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import default_toolchain
 from src.tests.process_limits import TOOL_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 PROGRAM = ROOT / "src/tests/collections/ForinInterfaceListLiteral.btrc"
 GOLDEN = ROOT / "src/tests/collections/expected/ForinInterfaceListLiteral.stdout"
+TOOLCHAIN = default_toolchain()
 
 
 @pytest.mark.parametrize("split", [False, True])
@@ -176,7 +177,7 @@ def test_both_compilers_map_the_same_lines_without_restating(tmp_path, request):
     assert mapped[0] and mapped[0] == mapped[1]
 
 
-@pytest.mark.skipif(os.name == "nt" or shutil.which("cc") is None, reason="POSIX filenames and a C toolchain")
+@pytest.mark.skipif(os.name == "nt" or TOOLCHAIN is None, reason="POSIX filenames and a C toolchain")
 @pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
 def test_debug_split_build_preserves_escaped_source_and_output_paths(tmp_path, request, frontend):
     from src.compiler.python.backend.c_emitter import CEmitter
@@ -325,7 +326,7 @@ def test_explicit_unit_paths_stay_stable_when_outputs_already_exist(tmp_path, re
     assert {path: Path(path).read_bytes() for path in paths} == contents
 
 
-@pytest.mark.skipif(sys.platform != "linux" or shutil.which("cc") is None, reason="needs a Linux C toolchain")
+@pytest.mark.skipif(sys.platform != "linux" or TOOLCHAIN is None, reason="needs a Linux C toolchain")
 @pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
 def test_split_units_link_and_run_like_one(tmp_path, request, frontend):
     out = tmp_path / "program.c"
@@ -346,7 +347,7 @@ def test_split_units_link_and_run_like_one(tmp_path, request, frontend):
     assert "__btrc_tls = {" not in secondary
     assert "static void* __btrc_cleanup_take" not in secondary
     executable = tmp_path / "program"
-    NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++")
+    NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc=TOOLCHAIN[0], cxx=TOOLCHAIN[1])
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert result.stdout == GOLDEN.read_text()
@@ -375,7 +376,7 @@ def test_single_unit_output_keeps_static_runtime_state(tmp_path):
     assert not list(tmp_path.glob("program.c.unit-*.c"))
 
 
-@pytest.mark.skipif(sys.platform != "linux" or shutil.which("cc") is None, reason="needs a Linux C toolchain")
+@pytest.mark.skipif(sys.platform != "linux" or TOOLCHAIN is None, reason="needs a Linux C toolchain")
 @pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
 def test_debug_split_units_map_lines_and_run(tmp_path, request, frontend):
     """--debug stamps #line back to the .btrc source in every unit, each unit
@@ -394,7 +395,13 @@ def test_debug_split_units_map_lines_and_run(tmp_path, request, frontend):
     assert program_lines > 0, "no unit maps a line back to the program"
     executable = tmp_path / "program"
     NativePlanBuilder().build(
-        plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++", optimization=0, debug_info=True
+        plan_path=plan,
+        generated_c=out,
+        output=executable,
+        cc=TOOLCHAIN[0],
+        cxx=TOOLCHAIN[1],
+        optimization=0,
+        debug_info=True,
     )
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
@@ -406,7 +413,7 @@ def test_debug_split_units_map_lines_and_run(tmp_path, request, frontend):
         assert "ForinInterfaceListLiteral.btrc" in with_debug.stdout
 
 
-@pytest.mark.skipif(shutil.which("cc") is None, reason="needs a C toolchain")
+@pytest.mark.skipif(TOOLCHAIN is None, reason="needs a C toolchain")
 @pytest.mark.parametrize("debug", [False, True])
 @pytest.mark.parametrize("separate_prefix", [False, True])
 def test_cached_split_cli_restores_complete_executable_generation(tmp_path, debug, separate_prefix):
@@ -470,7 +477,7 @@ def test_cached_split_cli_restores_complete_executable_generation(tmp_path, debu
             assert resets <= {str(path)}, (path, resets)
     executable = tmp_path / "program"
     report = NativePlanBuilder().build(
-        plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++", debug_info=debug
+        plan_path=plan, generated_c=out, output=executable, cc=TOOLCHAIN[0], cxx=TOOLCHAIN[1], debug_info=debug
     )
     assert len(report.units) == 1 + len(units)
     executed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
@@ -490,7 +497,7 @@ def test_cached_split_cli_restores_complete_executable_generation(tmp_path, debu
     # Source edits must resolve again and change actual executable behavior.
     dependency.write_text(dependency.read_text().replace("return 39;", "return 49;"))
     assert "(cached)" not in compile_program().stdout
-    NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc="cc", cxx="c++")
+    NativePlanBuilder().build(plan_path=plan, generated_c=out, output=executable, cc=TOOLCHAIN[0], cxx=TOOLCHAIN[1])
     executed = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
     assert executed.returncode == 0, executed.stderr
     assert executed.stdout == "790\n"

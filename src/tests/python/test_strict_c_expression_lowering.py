@@ -1,7 +1,6 @@
 """Focused strict-C11 contracts for expression lowering."""
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -13,11 +12,12 @@ from src.compiler.python.ir.lowering.types import CTypeLowerer
 from src.compiler.python.ir.nodes import IRBinOp, IRCall, IRLiteral, IRNode, IRVar
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG
 from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.reference_pipeline import emit_c
 
-CLANG = shutil.which("clang")
+# The depth test measures Clang's own default bracket-depth limit.
+CLANG = HOST_CLANG
 
 
 def _generate(source: str):
