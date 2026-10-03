@@ -15,6 +15,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
+from itertools import pairwise
 from types import MappingProxyType
 from typing import Protocol
 
@@ -559,8 +560,8 @@ class SourceFileReader:
             raise SourceReadError(f"source file {path!r} contains a NUL byte at character {nul}")
         return SourceText(self.normalize_newlines(text), identity)
 
-    @staticmethod
-    def normalize_newlines(text: str) -> str:
+    @classmethod
+    def normalize_newlines(cls, text: str) -> str:
         """CRLF and lone CR become LF, as every source reader and editor buffer sees them."""
 
         return text if "\r" not in text else text.replace("\r\n", "\n").replace("\r", "\n")
@@ -1478,6 +1479,19 @@ class ConditionalExpression:
             raise self._error(
                 f"Macro '{name}' expands to nothing in #if; test it with defined({name})", anchor.line, anchor.col
             )
+        for prefix, following in pairwise(tokens):
+            # E15, while the replacement's own columns still show adjacency.
+            if (
+                prefix.value in _WIDE_CHARACTER_PREFIXES
+                and following.type == TokenKind.CHAR_LIT
+                and following.line == prefix.line
+                and following.col == prefix.col + len(prefix.value)
+            ):
+                raise self._error(
+                    f"Wide character constant {prefix.value}{following.value} in #if; write its integer value",
+                    anchor.line,
+                    anchor.col,
+                )
         produced: list[tuple[Token, tuple]] = []
         inner_active = active | {name}
         for token in tokens:
@@ -1687,7 +1701,8 @@ class ConditionalExpression:
             chosen_node = node.operands[1] if take_first else node.operands[2]
             chosen = first if take_first else second
             if unsigned:
-                chosen = self._convert(chosen, self._static_unsigned(chosen_node), atom)
+                spelled = _ConditionalAtom("op", "?:", atom.line, atom.col)
+                chosen = self._convert(chosen, self._static_unsigned(chosen_node), spelled)
             return chosen, unsigned
         left_node, right_node = node.operands
         if operator in {"&&", "||"}:
@@ -1981,13 +1996,18 @@ class _ConditionalWalk:
         line, col = self._position(token, offset)
         return self._error(message, line, col)
 
-    def _check_conditional_shape(self, token: Token) -> None:
-        text = token.value
+    def _check_preceding_splice(self, token: Token) -> None:
+        """D10 when the line before a directive ends in a splice, so C would continue it (a ``//`` comment)."""
+
         previous = self._lines[token.line - 2] if token.line >= 2 else ""
         if previous.endswith("??/"):
             raise self._error("multi-line preprocessor directives are unsupported", token.line - 1, len(previous) - 2)
         if previous.endswith("\\"):
             raise self._error("multi-line preprocessor directives are unsupported", token.line - 1, len(previous))
+
+    def _check_conditional_shape(self, token: Token) -> None:
+        text = token.value
+        self._check_preceding_splice(token)
         trigraph = _C11_TRIGRAPH.search(text)
         if trigraph is not None:
             raise self._shape_error("C11 trigraphs in preprocessor directives are unsupported", token, trigraph.start())
@@ -2103,6 +2123,9 @@ class _ConditionalWalk:
             raise self._error(f"'#{name}' takes no operands; unexpected '{spelling}'", line, col)
 
     def _define(self, token: Token) -> None:
+        # C would read a #define or #undef after a continued // comment as
+        # comment text, so #if would see a macro C does not (or miss an #undef).
+        self._check_preceding_splice(token)
         directive = SourceSymbolDirective.parse(token.value)
         if directive is None:
             return

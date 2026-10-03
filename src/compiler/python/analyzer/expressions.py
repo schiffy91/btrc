@@ -109,6 +109,7 @@ class ExpressionAnalyzer:
         self.storage = storage
         self.types = types
         self._refused_string_concats: set[int] = set()
+        self._refused_macro_uses: set[int] = set()
 
     def _validate_fixed_array_assignment(self, target, expression) -> bool:
         """Reject array-object rebinding while preserving pointer-valued slots."""
@@ -877,9 +878,7 @@ class ExpressionAnalyzer:
             )
             return
         if self.index.source_macros.declared(name):
-            violation = self.index.source_macros.code_use_violation(name)
-            if violation is not None:
-                self.session.error(violation, expression.line, expression.col)
+            self._refuse_undefined_macro_use(expression)
             return
         if self.declarations.known_c_global(name):
             return
@@ -1529,6 +1528,7 @@ class ExpressionAnalyzer:
         if isinstance(expression, CharLiteral):
             return (True, self._character_constant_value(expression.value))
         if isinstance(expression, Identifier):
+            self._refuse_undefined_macro_use(expression)
             return self._constant_identifier(expression.name, enum_owner, allowed)
         if isinstance(expression, FieldAccessExpr):
             return self._constant_field(expression, enum_owner, allowed)
@@ -1650,6 +1650,14 @@ class ExpressionAnalyzer:
                 expression.col,
             )
         return True
+
+    def _refuse_undefined_macro_use(self, expression: Identifier) -> None:
+        """Code, constant contexts included, may not use an #undef'd source macro (U1, U2)."""
+
+        violation = self.index.source_macros.code_use_violation(expression.name)
+        if violation is not None and id(expression) not in self._refused_macro_uses:
+            self._refused_macro_uses.add(id(expression))
+            self.session.error(violation, expression.line, expression.col)
 
     def _is_constant_macro_name(self, name) -> bool:
         return self.index.source_macros.declared(name) or (name.isupper() and name != "NULL")

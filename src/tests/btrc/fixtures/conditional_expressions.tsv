@@ -85,4 +85,5 @@
 -	1 >> -1	error 1:7 Shift count -1 is out of range in #if expression
 -	-1 << 1	error 1:8 Left shift of negative value in #if expression
 -	-1 < 0u	error 1:8 #if expression converts negative value -1 to unsigned for '<'
--	1 ? -1 : 0u	error 1:7 #if expression converts negative value -1 to unsigned for '?'
+-	1 ? -1 : 0u	error 1:7 #if expression converts negative value -1 to unsigned for '?:'
+#define W L'a'	W	error 2:5 Wide character constant L'a' in #if; write its integer value

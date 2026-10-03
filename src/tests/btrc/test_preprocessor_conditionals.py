@@ -155,6 +155,11 @@ DIRECTIVE_ERRORS = [
     ("#/**/if 1\n#endif", ("a comment between '#' and the directive name is unsupported", 1, 2)),
     ("#if\f1\n#endif", ("only spaces and tabs may separate tokens in a preprocessor directive (C11 6.10p5)", 1, 4)),
     ("#if 1\n#endif\v", ("only spaces and tabs may separate tokens in a preprocessor directive (C11 6.10p5)", 2, 7)),
+    ("// note \\\n#define M 1\n#ifdef M\n#endif", ("multi-line preprocessor directives are unsupported", 1, 9)),
+    (
+        "#define M 1\n// note \\\n#undef M\n#ifdef M\n#endif",
+        ("multi-line preprocessor directives are unsupported", 2, 9),
+    ),
     ('#if 1\nstring s = "open;\n#endif', ("Unterminated string literal", 2, 12)),
     ("#if 0\nint x = 08;\n#endif", ("Invalid digit '8' in octal literal", 2, 9)),
     (
@@ -617,6 +622,15 @@ DIAGNOSTIC_CASES = [
         15,
     ),
     DiagnosticCase(
+        "U1-constant",
+        {"Main.btrc": "#define N 3\n#undef N\nenum E { A = N };\nint main() { return A; }\n"},
+        "Source macro 'N' cannot be used in code because it is #undef'd; "
+        "btrc emits every #define and #undef before the program",
+        "Main.btrc",
+        3,
+        14,
+    ),
+    DiagnosticCase(
         "U2",
         {"Main.btrc": "#define WRAP 1\n#define A WRAP\n#undef WRAP\nint main() { return A; }\n"},
         "Source macro 'A' cannot be used in code because it expands to #undef'd macro 'WRAP'; "
@@ -794,3 +808,17 @@ def test_runtime_override_hooks_are_the_runtime_header_ifndef_defaults() -> None
     for name in hooks:
         assert SourceMacroRules.violation(name, define=True) is None
         assert SourceMacroRules.violation(name, define=False) is not None
+
+
+def test_the_verifier_skips_exactly_the_conditioning_candidates() -> None:
+    """LexMain stays raw while --emit-tokens conditions, so the lexer-parity selection skips every candidate."""
+
+    from tools.compiler_codegen.verification import CompilerBoundaryVerifier
+
+    pattern = CompilerBoundaryVerifier._SOURCE_DEPENDENCY
+    for source in (*FAST_PATH_SHAPES[:-2], "#ifdef X\n#endif\n", "  %:if 1\n"):
+        assert pattern.search(source) is not None, source
+    for path in sorted(TESTS.rglob("*.btrc")):
+        text = path.read_text(encoding="utf-8")
+        if SourceConditionals.candidate(text):
+            assert pattern.search(text) is not None, path
