@@ -224,15 +224,21 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-C-00`, `CL-C-02` | Claude | `stage19/c-prep` | — | integrated in batch 12 (CL-C-02 keeps one btrc check site, `ControlFlowValidator`, because `validation/Expressions.btrc` cannot import `ControlFlow.btrc` without an import cycle) |
 | `CL-REQ-01` | Claude | — | — | done: already fixed by `3812e44`, no code change |
 | `CL-REQ-02` | Claude | `stage18/req02-objc-emitter-transpile` | — | integrated in batch 13 |
-| `CL-REQ-03` | Claude | `stage18/req03-module-unit-corpus` | the module-unit fixes for `EnumDuplicateExplicitValues` and `ChildProcessClosedFds` (avoids the C4-held files) | in flight |
+| `CL-REQ-03` | Claude | `stage18/req03-module-unit-corpus` | — | integrated in batch 14 |
+| `CL-REQ-04` | Claude | (next) | `src/devex/formatter/**` for the multi-line generic class header double indent | queue |
 | `CL-UIA-21` | Claude | `stage30/headless-gui-shell` | — | integrated in batch 13 (`tools/ui/headless-session.sh` and `test_headless_session.py` included) |
 | `CL-R-02` | Claude | `stage5/runbook-kit` | — | integrated in batch 13 |
-| `CL-R-01` | Claude | BTRSmith `stage4/pin-bump` | BTRSmith `flake.nix`, `flake.lock`, `src/**`, `tests/**`, `tools/**`, `make/**`, `docs/Handoff.md` | in flight (pins btrc `cdf9d95`) |
-| `CL-C-03` | Claude | `stage16/c4-spec` | `src/language/targets.toml`, the target generator and generated tables | in flight |
+| `CL-R-01` | Claude | BTRSmith `stage4/pin-bump` (`49a23af`) | BTRSmith `flake.nix`, `flake.lock`, `src/**`, `tests/**`, `tools/**`, `make/**`, `docs/Handoff.md` | Linux done; waits for `MAC-R-01` |
+| `CL-C-03` | Claude | `stage16/c4-spec` | — | integrated in batch 14 |
+| `CL-C-05` | Claude | (next) | the C4 Python half, then `CL-C-06` | next |
+| `CL-P1-01` | Claude | `stage22/doc-closeout` | — | integrated in batch 14 |
+| `CL-P1-02` | Claude | `stage23/platforms-shell` | `flake.nix`, `flake.lock`, `nix/*` | in flight |
+| `CL-R-36` | Claude | `stage38/macos-hardware-tier` | `.github/workflows/{ci,macos,windows}.yml`, `test_ci_workflow_contracts.py`, the expected-skip manifests' tier field | in flight |
+| `CL-R-06` | Claude | `stage6/reference-attribution` | `tools/perf.py` (`--cprofile`), `tools/runbook` (the `attribution` result kind and the `stage6-reference` preset) | in flight |
 | `CL-C-04` | Claude | `stage16/c4-directives` | — | integrated in batch 13 |
 | Reserved: C4 lane (`CL-C-03…06`) | Claude | `stage16/c4-*` | `pipeline/ModuleUnits.btrc` with `application/modules.py`, `src/compiler/*/frontend/**`, `backend/c_emitter.py`, `ir/Emitter.btrc` | reserved: `CL-C-01` and `CL-R-00` are on `main` |
-| Reserved: `flake.nix`/`nix/*` | Claude | — | `CL-P1-02` (free now) | queue |
-| Reserved: `macos.yml`/`ci.yml` | Claude | — | `CL-R-36` (free now), then `CL-R-38`, then `CL-UIB-04`, then `CL-UIB-14` | queue |
+| Reserved: `flake.nix`/`nix/*` | Claude | — | held by `CL-P1-02` | queue |
+| Reserved: `macos.yml`/`ci.yml` | Claude | — | held by `CL-R-36`; then then `CL-R-38`, then `CL-UIB-04`, then `CL-UIB-14` | queue |
 
 ### 3.4 Parity rule, and the stdlib modules the compiler imports
 
