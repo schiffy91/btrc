@@ -79,6 +79,16 @@ class CompilerPipeline {
 		return Strings.join(rendered, "\n");
 	}
 
+	/* --emit-ir / --emit-optimized-ir: the module's canonical dump in place of C. */
+	private BtrccCompilationResult irDump(IRModule module, Analyzed analyzed, FeResolvedSource resolved, BtrccResolvedCompilation input, FeResolvedPackages packages) {
+		string dump = IRCanonicalRenderer().render(module);
+		keep module;
+		BtrccPhaseTimer.print();
+		BtrccCompilationResult result = BtrccCompilationResult(true, dump, self.renderedWarnings(analyzed, resolved, input.sourcePath), packages.linkPlan.canonicalJson());
+		result.inputPaths = input.inputPaths;
+		return result;
+	}
+
 	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) { return self.compileResolved(self.resolve(source, sourcePath, options), options); }
 
 	public BtrccResolvedCompilation resolve(string source, string sourcePath, BtrccOptions options) {
@@ -222,6 +232,15 @@ class CompilerPipeline {
 		module.debug = options.debug;
 		if (options.debug && !options.outputPath.isEmpty()) { module.debugCfile = FeCanonicalPath.absolute(options.outputPath); }
 		BtrccPhaseTimer.mark("lower");
+		if (options.irDump == "ir") {
+			/* As below: the graphs stay alive until the process exits. */
+			keep program;
+			keep resolved;
+			keep analyzer;
+			keep analyzed;
+			keep lowerer;
+			return self.irDump(module, analyzed, resolved, input, packages);
+		}
 		bool hasRealtimeRoot = false;
 		int realtimeIndex = 0;
 		while (realtimeIndex < module.functions.len) {
@@ -261,6 +280,15 @@ class CompilerPipeline {
 		IROptimizer optimizer = IROptimizer(setjmpSafety, runtimeHelpers);
 		optimizer.optimize(module, options.runDce);
 		BtrccPhaseTimer.mark("optimize");
+		if (options.irDump == "optimized-ir") {
+			/* As below: the graphs stay alive until the process exits. */
+			keep program;
+			keep resolved;
+			keep analyzer;
+			keep analyzed;
+			keep lowerer;
+			return self.irDump(module, analyzed, resolved, input, packages);
+		}
 		CEmitter emitter = CEmitter();
 		for name in module.nativeUnits.keys() {
 			IRModule unit = module.nativeUnits.get(name);

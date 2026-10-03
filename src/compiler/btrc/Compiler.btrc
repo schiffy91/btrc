@@ -35,7 +35,7 @@ class Compiler {
 			self.stdlibDirectory, Platform.currentDirectory(), options.target,
 			options.outputPath, options.unitsPrefix, options.linkPlanPath,
 			Environment.get("BTRC_UNIT_LINES", "40000"),
-			f"{options.debug}:{options.runDce}:{options.strictImports}:{options.includeStdlib}:{options.moduleUnits}"] {
+			f"{options.debug}:{options.irDump}:{options.runDce}:{options.strictImports}:{options.includeStdlib}:{options.moduleUnits}"] {
 			digest.appendText(self.sourceFiles.contentDigest(value));
 		}
 		return digest.finish();

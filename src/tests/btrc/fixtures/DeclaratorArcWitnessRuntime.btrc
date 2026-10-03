@@ -1,0 +1,146 @@
+/* Per-declarator ARC under the witness (C row 3, PLAN.md Stage 16 exit):
+ * test_c_compatibility_declarator_arc.py counts every retain, release, edge
+ * store and string retain/release the generated C performs, and each scenario
+ * prints its counts. One pass warms up the runtime's lazily grown state (the
+ * try and cleanup stacks); the measured pass must then leave no allocation
+ * behind. */
+
+#include <assert.h>
+
+extern long arc_witness_count(int kind);
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+
+int created = 0;
+int destroyed = 0;
+long marks[5];
+bool quiet = true;
+
+class Tracker {
+	public int id;
+
+	public Tracker(int id) {
+		self.id = id;
+		created++;
+	}
+
+	public void __del__() { destroyed++; }
+}
+
+class Holder {
+	public Tracker first = new Tracker(20), second = new Tracker(21);
+	public int count = 2, *spare;
+
+	public Holder() { self.spare = null; }
+}
+
+Tracker make(int id) { return new Tracker(id); }
+
+Tracker boom(int id) {
+	if (id > 0) { throw "boom"; }
+	return new Tracker(id);
+}
+
+void mark() {
+	created = 0;
+	destroyed = 0;
+	for (int kind = 0; kind < 5; kind++) { marks[kind] = arc_witness_count(kind); }
+}
+
+void report(string label) {
+	long retains = arc_witness_count(0) - marks[0];
+	long releases = arc_witness_count(1) - marks[1];
+	long edges = arc_witness_count(2) - marks[2];
+	long stringRetains = arc_witness_count(3) - marks[3];
+	long stringReleases = arc_witness_count(4) - marks[4];
+	if (!quiet) { print(f"{label}: created={created} destroyed={destroyed} retains={retains} releases={releases} edges={edges} string-retains={stringRetains} string-releases={stringReleases}"); }
+}
+
+/* Two fresh results: each declarator adopts its own, and each is released. */
+void freshDeclarators() {
+	Tracker a = make(1), b = make(2);
+	assert(a.id + b.id == 3);
+}
+
+/* A later declarator copying an earlier one retains it. */
+void aliasDeclarators() {
+	Tracker a = new Tracker(3), alias = a, c = new Tracker(4);
+	assert(alias.id == 3 && c.id == 4);
+}
+
+/* `*` binds per declarator: slot and view are raw pointers, value and other
+ * managed strings. */
+void pointerDeclarators() {
+	int strings = (int)__btrc_string_live_count();
+	{
+		string *slot, value = f"value {created}", *view, other = value;
+		assert(sizeof(slot) == sizeof(string*) && sizeof(view) == sizeof(string*) && sizeof(*slot) == sizeof(value));
+		assert(value.equals("value 0") && other.equals("value 0"));
+		assert((int)__btrc_string_live_count() == strings + 1);
+	}
+	assert((int)__btrc_string_live_count() == strings);
+}
+
+/* A function-pointer declarator beside managed ones owns nothing. */
+void functionPointerDeclarators() {
+	Tracker (*factory)(int) = make, built = factory(7), copy = built;
+	assert(built.id == 7 && copy.id == 7);
+}
+
+/* Class fields declared together each hold one edge. */
+void fieldDeclarators() {
+	Holder holder = new Holder();
+	assert(holder.first.id == 20 && holder.second.id == 21 && holder.count == 2);
+}
+
+/* The throwing initializer unwinds only the declarators before it. */
+void throwingDeclarator() {
+	try {
+		Tracker before = make(8), failed = boom(9), after = make(10);
+		assert(before.id + failed.id + after.id < 0);
+	} catch (string error) {
+		assert(error.equals("boom"));
+	}
+}
+
+/* Every iteration, including the one that continues, releases both. */
+void loopDeclarators() {
+	for (int round = 0; round < 3; round++) {
+		Tracker a = make(round), b = a;
+		if (round == 1) { continue; }
+		assert(b.id == round);
+	}
+}
+
+void runAll() {
+	mark();
+	freshDeclarators();
+	report("fresh");
+	mark();
+	aliasDeclarators();
+	report("alias");
+	mark();
+	pointerDeclarators();
+	report("pointer");
+	mark();
+	functionPointerDeclarators();
+	report("function-pointer");
+	mark();
+	fieldDeclarators();
+	report("fields");
+	mark();
+	throwingDeclarator();
+	report("throwing");
+	mark();
+	loopDeclarators();
+	report("loop");
+}
+
+int main() {
+	runAll();
+	arc_test_allocation_checkpoint();
+	quiet = false;
+	runAll();
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
+}

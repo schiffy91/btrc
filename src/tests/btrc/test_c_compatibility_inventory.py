@@ -29,6 +29,11 @@ track (``c1``, ``c2``, ``c3_c4``, ``c5``); every ``[[probe]]`` entry holds:
 ``source`` or ``corpus``
     The program inline, or a runnable corpus file whose golden it must match.
 
+Recorded outcomes are never edited by hand: ``python3 -m
+src.tests.btrc.c_compat_inventory record`` re-observes the selected rows
+through both compilers and rewrites their ``revision`` and outcomes, refusing
+any outcome the entry's ``status`` forbids (see that module).
+
 Probe programs are kept inline rather than as ``.btrc`` files because most of
 them fail to lex or parse, and the strict-import audit and the lexer-parity
 check read every ``.btrc`` file under ``src/tests``. A stage that implements a
@@ -39,20 +44,13 @@ entry into a ``corpus`` reference in the same commit.
 from __future__ import annotations
 
 import re
-import subprocess
-import tomllib
 from pathlib import Path
 
 import pytest
 
-from src.tests.btrc.allocation_tracking_harness import compiler_environment
-from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source
+from src.tests.btrc.c_compat_inventory import MANIFESTS, PROBES, TESTS, load_probes, observe, rewrite_entry
 from src.tests.c_toolchains import HOST_C_COMPILERS as COMPILERS
 
-REPO = Path(__file__).resolve().parents[3]
-TESTS = REPO / "src/tests"
-PROBES = Path(__file__).with_name("fixtures") / "c_compat_probe"
-MANIFESTS = ("c1", "c2", "c3_c4", "c5")
 STATUSES = frozenset({"accepted", "rejected", "known-divergence", "refused-on-purpose"})
 ROWS = frozenset(str(row) for row in range(1, 25))
 EXTRA_GAPS = frozenset(
@@ -85,88 +83,7 @@ KNOWN_DIVERGENCES = {
     "x-alignof-expression": "_Alignof(expression) passes through as an unknown call (Stage 19)",
 }
 
-_SELFHOST_DIAGNOSTIC = re.compile(r"error: (?P<message>.*) at (?P<line>\d+):(?P<col>\d+)\n?")
-_REFERENCE_DIAGNOSTIC = re.compile(r"(?i)error: (?P<message>[^\n]+)\n\s*--> .*:(?P<line>\d+):(?P<col>\d+)\n")
-_UNPOSITIONED_DIAGNOSTIC = re.compile(r"(?i)error: (?P<message>[^\n]+)\n?")
-
-
-def _load() -> list[dict]:
-    probes = []
-    for name in MANIFESTS:
-        for probe in tomllib.loads((PROBES / f"{name}.toml").read_text())["probe"]:
-            probes.append({**probe, "manifest": name})
-    return probes
-
-
-PROBE_TABLE = _load()
-
-
-def _source(probe: dict) -> str:
-    if "corpus" in probe:
-        return (TESTS / probe["corpus"]).read_text()
-    return probe["source"]
-
-
-def _diagnostic(stderr: str) -> str:
-    for pattern in (_SELFHOST_DIAGNOSTIC, _REFERENCE_DIAGNOSTIC):
-        match = pattern.fullmatch(stderr) if pattern is _SELFHOST_DIAGNOSTIC else pattern.match(stderr)
-        if match is not None:
-            return f"{match.group('message')} at {match.group('line')}:{match.group('col')}"
-    # A front-end refusal raised before any token has a position.
-    unpositioned = _UNPOSITIONED_DIAGNOSTIC.fullmatch(stderr)
-    assert unpositioned is not None, f"unrecognized diagnostic:\n{stderr}"
-    return unpositioned.group("message")
-
-
-def _strict_outcome(generated: Path, tmp_path: Path, frontend: str) -> dict:
-    """Build with every strict C11 compiler and require one agreed outcome."""
-    outcomes = {}
-    for compiler in COMPILERS:
-        name = Path(compiler).name
-        executable = tmp_path / f"{frontend}-{name}"
-        environment = compiler_environment(compiler)
-        build = subprocess.run(
-            [
-                compiler,
-                "-std=c11",
-                "-pedantic-errors",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                "-O2",
-                str(generated),
-                "-pthread",
-                "-lm",
-                "-o",
-                str(executable),
-            ],
-            cwd=REPO,
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if build.returncode != 0:
-            outcomes[name] = {"c": "rejected"}
-            continue
-        run = subprocess.run(
-            [str(executable)],
-            cwd=REPO,
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        outcomes[name] = {"exit": run.returncode, "stdout": run.stdout}
-    distinct = {repr(sorted(outcome.items())) for outcome in outcomes.values()}
-    assert len(distinct) == 1, f"{frontend}: strict C compilers disagree: {outcomes}"
-    return next(iter(outcomes.values()))
-
-
-def _outcome(result: subprocess.CompletedProcess[str], generated: Path, tmp_path: Path, frontend: str) -> dict:
-    if result.returncode != 0:
-        return {"diagnostic": _diagnostic(result.stderr)}
-    return _strict_outcome(generated, tmp_path, frontend)
+PROBE_TABLE = load_probes()
 
 
 def test_manifest_schema_and_status_vocabulary() -> None:
@@ -207,6 +124,17 @@ def test_every_row_and_extra_gap_has_a_positive_and_a_negative_program() -> None
     assert not missing, missing
 
 
+def test_recorder_spells_every_recorded_outcome_as_the_manifest_does() -> None:
+    """Re-recording an unchanged outcome leaves each manifest byte-identical."""
+    for name in MANIFESTS:
+        text = (PROBES / f"{name}.toml").read_text()
+        rewritten = text
+        for probe in (probe for probe in PROBE_TABLE if probe["manifest"] == name):
+            outcome = {"python": probe["python"], "btrcc": probe["btrcc"]}
+            rewritten = rewrite_entry(rewritten, probe["id"], probe["revision"], outcome)
+        assert rewritten == text, name
+
+
 def test_known_divergences_are_exactly_the_listed_ones() -> None:
     recorded = {probe["id"] for probe in PROBE_TABLE if probe["status"] == "known-divergence"}
     assert recorded == set(KNOWN_DIVERGENCES)
@@ -225,12 +153,5 @@ def test_recorded_outcome_holds_in_both_compilers(
     tmp_path: Path,
     probe: dict,
 ) -> None:
-    source = _source(probe)
-    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
-    reference, reference_c = compile_reference_source(tmp_path, source)
-
-    observed = {
-        "python": _outcome(reference, reference_c, tmp_path, "python"),
-        "btrcc": _outcome(selfhost, selfhost_c, tmp_path, "btrcc"),
-    }
+    observed = observe(semantic_btrcc, tmp_path, probe)
     assert observed == {"python": probe["python"], "btrcc": probe["btrcc"]}

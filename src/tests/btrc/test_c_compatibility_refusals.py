@@ -1000,3 +1000,36 @@ def test_managed_vla_elements_are_borrowed_storage(semantic_btrcc: Path, tmp_pat
     # The reference raises this during lowering, where it has no source position.
     assert reference.stderr.startswith(f"error: {message}\n")
     assert diagnostic_identity(selfhost.stderr) == (message, 1, 61)
+
+
+# PLAN.md Stage 16's C1 exit requires byte-identical negative diagnostics for
+# every C1 refusal. Each family below names the parametrization that pins it in
+# test_refusal_is_identical_in_both_compilers, with the message it must carry,
+# so a family cannot move to the divergent list or lose its pin unnoticed.
+C1_REFUSAL_FAMILIES = {
+    "r01-named-void": VOID_LIST,
+    "r01-unnamed-definition": UNNAMED,
+    "r02-declaration-if-body": DECLARATION_BODY,
+    "r03-missing-declarator": "Expected declarator name, got SEMICOLON ';'",
+    "r04-exact-fit": EXACT_FIT.format(3, 4),
+    "r04-overflow": OVERFLOW.format(4, 2),
+    "r05-fstring-then-literal": ADJACENT_FSTRING,
+    "r06-file-scope-semicolon": "Unexpected token ';' at top level",
+    "r07-signature-mismatch": "Cannot assign 'CFunction<int, int, int>' to variable 'unary' of type 'CFunction<int, int>'",
+    "r19-comma-operator": "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'" + TUPLE_HINT,
+}
+
+
+def test_every_c1_refusal_family_is_pinned_identically() -> None:
+    identical = {
+        param.id: param.values[1]
+        for param in REFUSALS
+        + C_REFUSALS
+        + DECLARATOR_REFUSALS
+        + ADJACENT_STRING_REFUSALS
+        + CHAR_ARRAY_REFUSALS
+        + FUNCTION_POINTER_REFUSALS
+    }
+    for family, message in C1_REFUSAL_FAMILIES.items():
+        assert family in identical, family
+        assert identical[family][0] == message, family
