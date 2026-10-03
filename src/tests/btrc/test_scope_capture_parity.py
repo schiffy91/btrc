@@ -130,3 +130,16 @@ def test_scope_resolved_names_fail_identically(
 def test_scope_resolved_names_run_identically(semantic_btrcc: Path, tmp_path: Path, source: str) -> None:
     for frontend, generated in compile_snippet_pair(semantic_btrcc, tmp_path, source, "scope-capture-program"):
         strict_build_and_run(generated, tmp_path / f"{frontend}.bin")
+
+
+def test_spawn_capture_diagnostic_names_the_spawn(semantic_btrcc: Path, tmp_path: Path) -> None:
+    source = "int main() { int zs[2] = {1, 2}; Thread<int> w = spawn(() => zs[0]); return w.join() - 1; }"
+    column = source.index("spawn(") + 1
+    selfhost, _ = compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = compile_reference_snippet(tmp_path, source, "spawn-capture-position")
+    assert selfhost.returncode != 0 and reference.returncode != 0
+    assert (
+        f"spawn cannot capture array storage through 'zs'; copy it into a scalar-only struct or managed collection at 1:{column}"
+        in selfhost.stderr
+    )
+    assert f":1:{column}" in reference.stderr

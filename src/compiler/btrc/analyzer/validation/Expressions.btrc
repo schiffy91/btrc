@@ -808,8 +808,9 @@ class ExpressionValidator {
 		self.state.localBindings = previousLocalBindings;
 	}
 
+	/* Diagnostics name the spawn, as the reference compiler's do. */
 	public void validateSpawnCaptures(Node expression, Map<string, Node> vars) {
-		Vector<string> names = LambdaFreeNames.of(expression).keys();
+		Vector<string> names = LambdaFreeNames.of(expression.fn).keys();
 		int captureIndex = 0;
 		while (captureIndex < names.len) {
 			string name = names.get(captureIndex);
@@ -1014,7 +1015,7 @@ class ExpressionValidator {
 			}
 			self.validateExpr(expression.fn,  vars);
 			if (expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
-				self.validateSpawnCaptures(expression.fn,  vars);
+				self.validateSpawnCaptures(expression,  vars);
 			}
 			Node? callable = self.types.inferType(expression.fn,  vars);
 			if (expression.fn == null || (expression.fn.kind != NK_LAMBDA_EXPR && (callable == null || (callable.base != "__fn_ptr" && callable.base != "__realtime_fn_ptr")))) {
