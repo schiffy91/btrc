@@ -322,6 +322,12 @@ def linux_atspi_error() -> str | None:
     if result.returncode != 0 or '"unix:' not in result.stdout:
         detail = result.stderr.strip() or f"exit status {result.returncode}"
         return f"AT-SPI is unavailable: no accessibility bus on the session bus ({detail[:200]})"
+    # The launcher caches its address, so a socket another session deleted is still advertised.
+    address = result.stdout.split('"unix:', 1)[1].split('"', 1)[0]
+    for part in address.split(","):
+        key, _, value = part.partition("=")
+        if key == "path" and not Path(value).is_socket():
+            return f"AT-SPI is unavailable: the accessibility bus socket {value} is gone"
     return None
 
 

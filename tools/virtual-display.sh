@@ -33,7 +33,7 @@ case "$session" in
     exit 2
     ;;
 esac
-if command -v "$server" >/dev/null && command -v dbus-run-session >/dev/null; then
+if command -v "$server" >/dev/null && command -v dbus-daemon >/dev/null; then
   exec "$(dirname "${BASH_SOURCE[0]}")/ui/headless-session.sh" "--$session" -- "$@"
 fi
 if ! command -v xvfb-run >/dev/null; then

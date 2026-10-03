@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -22,27 +23,33 @@ VIRTUAL_DISPLAY = ROOT / "tools/virtual-display.sh"
 TIMEOUT = 120
 # Run inside the session: what the command sees and what the gates conclude.
 PROBE = """
-import json, os, sys
+import json, os
 from pathlib import Path
 from src.tests.runner_capabilities import linux_atspi_error, linux_display_error, linux_wayland_display_error
 variables = ("DISPLAY", "WAYLAND_DISPLAY", "SDL_VIDEODRIVER", "GDK_BACKEND", "VK_DRIVER_FILES", "XDG_RUNTIME_DIR")
 wayland = os.environ.get("WAYLAND_DISPLAY")
 display = os.environ.get("DISPLAY")
+if wayland:
+    socket = Path(os.environ["XDG_RUNTIME_DIR"], wayland)
+else:
+    socket = Path("/tmp/.X11-unix", "X" + display.lstrip(":"))
 print(json.dumps({
     "environ": {name: os.environ.get(name) for name in variables},
     "display": linux_display_error(),
     "wayland": linux_wayland_display_error(),
     "atspi": linux_atspi_error(),
-    "socket": str(Path(os.environ["XDG_RUNTIME_DIR"], wayland)) if wayland
-    else f"/tmp/.X11-unix/X{display.lstrip(':')}" if display else None,
+    "socket": str(socket),
+    "inode": socket.stat().st_ino,
 }))
 """
+# Run inside the session: report the runtime directory, then wait to be stopped.
+WAITER = 'printf "%s" "$XDG_RUNTIME_DIR" > "$1.tmp" && mv "$1.tmp" "$1" && exec sleep 60'
 
 
 def _require_session_tools(*tools: str) -> None:
     if sys.platform != "linux":
         pytest.skip("headless GUI sessions are Linux-only")
-    missing = [tool for tool in ("dbus-run-session", *tools) if shutil.which(tool) is None]
+    missing = [tool for tool in ("dbus-daemon", *tools) if shutil.which(tool) is None]
     missing += [] if os.environ.get("BTRC_ATSPI_LIBEXEC") else ["BTRC_ATSPI_LIBEXEC"]
     if not missing:
         return
@@ -66,6 +73,15 @@ def _session_environment(**overrides: str) -> dict[str, str]:
         environment.pop(name, None)
     environment["PYTHONPATH"] = str(ROOT)
     return {**environment, **overrides}
+
+
+def _stopped(socket: str, inode: int) -> bool:
+    """Whether the server that owned `socket` is gone; under xdist another
+    session's Xvfb may already listen on the freed display number."""
+    try:
+        return Path(socket).stat().st_ino != inode
+    except FileNotFoundError:
+        return True
 
 
 def _probe(*command: str, **overrides: str) -> dict:
@@ -92,8 +108,9 @@ def test_x11_session_offers_a_display_and_the_accessibility_bus():
     assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("x11", "x11")
     if os.environ.get("BTRC_LAVAPIPE_ICD"):
         assert seen["environ"]["VK_DRIVER_FILES"] == os.environ["BTRC_LAVAPIPE_ICD"]
-    # Xvfb removed its socket when the session stopped it.
-    assert not Path(seen["socket"]).exists()
+    # The session stopped Xvfb and removed its private runtime directory.
+    assert _stopped(seen["socket"], seen["inode"])
+    assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
 
 
 def test_wayland_session_offers_a_compositor_and_the_accessibility_bus():
@@ -105,10 +122,20 @@ def test_wayland_session_offers_a_compositor_and_the_accessibility_bus():
     assert seen["environ"]["DISPLAY"] is None
     assert seen["environ"]["WAYLAND_DISPLAY"]
     assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("wayland", "wayland")
-    # weston removed its socket, and the session its private runtime directory.
-    assert not Path(seen["socket"]).exists()
-    if not os.environ.get("XDG_RUNTIME_DIR"):
-        assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
+    # The session stopped weston and removed its private runtime directory.
+    assert _stopped(seen["socket"], seen["inode"])
+    assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
+
+
+def test_sessions_never_share_a_runtime_directory(tmp_path):
+    """The AT-SPI bus always binds <runtime>/at-spi/bus: a session that reused
+    its caller's directory would replace and then delete the caller's socket."""
+    _require_session_tools("Xvfb")
+    shared = tmp_path / "runtime"
+    shared.mkdir(mode=0o700)
+    seen = _probe(str(SESSION), "--x11", "--", XDG_RUNTIME_DIR=str(shared))
+    assert seen["environ"]["XDG_RUNTIME_DIR"] != str(shared)
+    assert not (shared / "at-spi").exists()
 
 
 @pytest.mark.parametrize(("session", "server"), [(None, "Xvfb"), ("x11", "Xvfb"), ("wayland", "weston")])
@@ -148,6 +175,35 @@ def test_session_returns_the_command_status(mode):
         timeout=TIMEOUT,
     )
     assert result.returncode == 7, result.stderr
+
+
+@pytest.mark.parametrize("mode", ["--x11", "--wayland"])
+def test_terminating_the_session_stops_the_command_and_the_servers(tmp_path, mode):
+    """A TERM to the PID the caller holds, as subprocess timeouts send, reaches the
+    session: the command is stopped and everything the session started with it."""
+    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    report = tmp_path / "runtime"
+    session = subprocess.Popen(
+        [str(SESSION), mode, "--", "sh", "-c", WAITER, "sh", str(report)],
+        cwd=ROOT,
+        env=_session_environment(),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + TIMEOUT
+        while not report.exists():
+            assert session.poll() is None, session.stderr.read() if session.stderr else ""
+            assert time.monotonic() < deadline, "the session never started its command"
+            time.sleep(0.1)
+        session.terminate()
+        assert session.wait(timeout=TIMEOUT) == 143
+    finally:
+        if session.poll() is None:
+            session.kill()
+            session.wait(timeout=TIMEOUT)
+    assert not Path(report.read_text()).exists()
 
 
 @pytest.mark.parametrize("arguments", [[], ["--x11"], ["--x11", "--"], ["--x11", "--wayland", "--", "true"], ["--vnc"]])
