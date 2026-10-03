@@ -1,0 +1,166 @@
+# Stage 6: per-file-cache floor spikes (PLAN.md Stage 6 `perf-floor-spikes`; CL-R-05, run by MAC-R-03).
+#
+#   tools/runbook/run.sh stage6-spikes stage6-reference stage6-native
+#
+# On the Mac: builds a clang -O2 btrcc from the spikes' base and from each
+# never-merged spike branch (spike/stage6-{decl,parse,instances,records,
+# visibility,composed}), then counts instructions retired at --jobs 1 for
+# budget_bench's three private-body edit fixtures with each binary
+# (tools/bench/scripts/edit_instr.py, every fixture from the same primed cache
+# snapshot), checks that every spike emits the base's units, and times the
+# composed spike once end to end on a quiet machine. Instruction cells are
+# single-thread algorithmic cuts, so they tolerate light load (PLAN.md
+# "Throwaway experiments"); only the wall-clock cell waits for quiet.
+#
+# The spikes are deliberately unsound caches; their only output is these
+# numbers. CL-R-08 turns instructions.json into the separate-compilation.md
+# lever table and the D12 resident-compiler decision. Each spike branch's
+# commit message records what it skips and why its key is unsound.
+#
+# In a container: tools/runbook/run.sh stage6-spikes --rehearsal --stand-in --dry-run
+# builds every variant with the host cc and times the composed spike on
+# budget_bench's stand-in; the instruction and identity cells need BTRSmith
+# and macOS (`cp -c`, `/usr/bin/time -l`) and are skipped there.
+
+[preset]
+title = "Stage 6 per-file-cache floor spikes (instructions retired per lever, composed wall clock)"
+packet = "MAC-R-03"
+kind = "measurement"
+# Instruction counts at --jobs 1 tolerate light load; the composed wall-clock cell asks for quiet itself.
+quiet = false
+on_failure = "continue"
+before = [
+  "put Stage 5's BTRSmith pin in --btrsmith-branch if BTRSmith main has moved since MAC-R-02",
+  "for the composed wall-clock cell: stop the podman machine (`podman machine stop`) and every agent session, build and guest; it waits for a quiet 60 s window",
+]
+next_action = "nothing: CL-R-08 reads out/table/instructions.json and the composed wall clock for the Stage 6 lever table and D12."
+
+[btrc]
+# The measurement scripts come from main; every binary is built from its own tree below.
+ref = "main"
+
+[btrsmith]
+# The pin Stage 5 measured: BTRSmith main after MAC-R-01's fast-forward push.
+pins = { post-stage4 = "main" }
+branch_pin = "post-stage4"
+
+[variables]
+# The spikes' common base: origin/main-kn9jxh when CL-R-05 cut them. A rebase of
+# the spike branches moves this SHA with them.
+ref_base = "8dd6d1cda3b4df73844daf7367b5a035fcaf0386"
+ref_decl = "spike/stage6-decl"
+ref_parse = "spike/stage6-parse"
+ref_instances = "spike/stage6-instances"
+ref_records = "spike/stage6-records"
+ref_visibility = "spike/stage6-visibility"
+ref_composed = "spike/stage6-composed"
+# The clang -O2 btrcc of each tree (Apple clang on the Mac; docs/design/compile-performance.md "Measuring a compile").
+spike_build = '"{scripts}/build_btrcc.sh" "{run}/spikes/{lever}/btrcc" "{host_entry}"'
+fixtures = "audio-preparation,navigation,ui-controller"
+# Each repeat is one more revision of every fixture from the same primed snapshot.
+instr_repeat = "3"
+wall_samples = "20"
+
+[rehearsal.variables]
+# build_btrcc.sh links for Apple clang (no -lm); off the Mac a rehearsal builds each tree with `make btrcc`.
+spike_build = 'make NIX= btrcc && mkdir -p "{run}/spikes/{lever}" && cp bin/btrcc "{run}/spikes/{lever}/btrcc" && echo "BUILD OK {run}/spikes/{lever}/btrcc (make btrcc, rehearsal)"'
+instr_repeat = "1"
+wall_samples = "1"
+
+[stand_in]
+collapse = ["pin"]
+
+[quiet]
+# Overridden locally by ~/.cache/btrc/runbook/quiet.toml (README.md).
+window_s = 60
+interval_s = 5
+
+[[cell]]
+id = "build-{lever}"
+title = "build the clang -O2 btrcc of {lever} ({ref_{lever}})"
+matrix = { lever = ["base", "decl", "parse", "instances", "records", "visibility", "composed"] }
+tree = "{ref_{lever}}"
+cwd = "tree"
+lock = "btrcc-build"
+timeout_hours = 2
+env = { BTRC_REPO = "{tree}" }
+command = ["sh", "-c", "{spike_build}"]
+
+[[cell]]
+id = "instr-{lever}"
+title = "instructions retired at --jobs 1 for the three body-edit fixtures, {lever} btrcc"
+matrix = { lever = ["base", "decl", "parse", "instances", "records", "visibility", "composed"] }
+tree = "{ref_{lever}}"
+lock = "bench"
+shell = "btrsmith"
+stand_in = "skip"
+timeout_hours = 3
+env = { BTRC_BENCH_HOME = "{out}", BSM_WORKSPACE = "{btrsmith}", BTRC_REPO = "{tree}" }
+command = [
+  "bash", "-c",
+  'set -o pipefail; python3 "{scripts}/edit_instr.py" "{run}/spikes/{lever}/btrcc" "{lever}" --prime --jobs 1 --fixtures "{fixtures}" --repeat "{instr_repeat}" 2>&1 | tee "{out}/instr.txt"',
+]
+
+[[cell]]
+id = "identity-{lever}"
+title = "the {lever} spike emits the base's module units for the last edit (cmp_units.py)"
+matrix = { lever = ["decl", "parse", "instances", "records", "visibility", "composed"] }
+stand_in = "skip"
+timeout_hours = 1
+command = [
+  "sh", "-c",
+  'python3 "{scripts}/cmp_units.py" "{cell:instr-base}/perf/ei-base" "{cell:instr-{lever}}/perf/ei-{lever}" | tee "{out}/cmp_units.txt"; grep -q "^differing 0 " "{out}/cmp_units.txt"',
+]
+
+[[cell]]
+id = "table"
+title = "per-lever instructions-retired deltas against the base, as JSON"
+stand_in = "skip"
+timeout_hours = 1
+command = [
+  "python3", "-c",
+  """
+import json, re, sys
+from pathlib import Path
+levers = ["base", "decl", "parse", "instances", "records", "visibility", "composed"]
+cells = dict(zip(levers, sys.argv[1:8]))
+out = Path(sys.argv[8])
+pattern = re.compile(r"^(\\S+) jobs=1 (\\S+) wall=([0-9.]+)s instr=([0-9.]+|nan)G peak=([0-9.]+|nan)GiB")
+table = {}
+for lever, cell in cells.items():
+    rows = {}
+    for line in (Path(cell) / "instr.txt").read_text().splitlines():
+        match = pattern.match(line)
+        if match:
+            rows.setdefault(match[2], []).append({"wall_s": float(match[3]), "instructions_g": float(match[4]), "peak_gib": float(match[5])})
+    table[lever] = rows
+base = table["base"]
+deltas = {}
+for lever in levers[1:]:
+    deltas[lever] = {}
+    for fixture, rows in table[lever].items():
+        before = min(row["instructions_g"] for row in base.get(fixture, [{"instructions_g": float("nan")}]))
+        after = min(row["instructions_g"] for row in rows)
+        deltas[lever][fixture] = {"base_g": before, "spike_g": after, "delta_g": after - before, "ratio": after / before if before else None}
+out.mkdir(parents=True, exist_ok=True)
+(out / "instructions.json").write_text(json.dumps({"schema": 1, "metric": "instructions retired, --jobs 1, min over repeats", "samples": table, "deltas": deltas}, indent=2, sort_keys=True) + "\\n")
+for lever, fixtures in deltas.items():
+    print(lever, " ".join("%s=%+.2fG" % (name, row["delta_g"]) for name, row in sorted(fixtures.items())))
+""",
+  "{cell:instr-base}", "{cell:instr-decl}", "{cell:instr-parse}", "{cell:instr-instances}",
+  "{cell:instr-records}", "{cell:instr-visibility}", "{cell:instr-composed}", "{out}",
+]
+
+[[cell]]
+id = "composed-wall"
+title = "one quiet wall-clock run of the composed spike on the three body-edit fixtures (budget_bench edit)"
+lock = "bench"
+quiet = true
+shell = "btrsmith"
+result = "budget-bench"
+timeout_hours = 4
+command = [
+  "python3", "-m", "tools.budget_bench", "--btrcc", "{run}/spikes/composed/btrcc", "{workspace_args}",
+  "--out", "{out}", "--frontend", "selfhost", "--scenarios", "edit",
+  "--incremental-samples", "{wall_samples}", "{dry_run_args}",
+]
