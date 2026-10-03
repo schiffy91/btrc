@@ -1342,7 +1342,9 @@ class StatementAnalyzer:
     def _claim_local_binding(self, name, kind, line=0, col=0, *, c_name_generated=False) -> bool:
         self.declarations.validate_name(name, kind.capitalize(), line, col, c_name_generated=c_name_generated)
         existing = self.session.scope.symbols.get(name)
-        if existing is None or existing.kind == "function":
+        # A capture entry only records that this lambda scope read the
+        # enclosing binding; a local declared after that read shadows it.
+        if existing is None or existing.kind in {"function", "capture"}:
             outer = self.session.scope.parent.lookup(name) if self.session.scope.parent else None
             if outer is not None and self.types.contains_thread_storage(outer.type):
                 self.session.error(f"Binding '{name}' cannot shadow an active Thread owner", line, col)

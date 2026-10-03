@@ -90,6 +90,20 @@ def test_scope_resolved_names_fail_identically(
             id="nested-lambda-parameter-shadows-outer-array",
         ),
         pytest.param(
+            # A body local reads the capture in its own initializer, then
+            # shadows it for the rest of the body.
+            "int main() { int x = 3; var f = () => { int x = x + 1; return x; }; return f() == 4 ? 0 : 1; }",
+            id="lambda-local-initialized-from-capture",
+        ),
+        pytest.param(
+            "int main() { int x = 3; var f = () => { int y = x; int x = 5; return x * 10 + y; }; return f() == 53 ? 0 : 1; }",
+            id="lambda-local-declared-after-capture-read",
+        ),
+        pytest.param(
+            "int main() { int x = 3; var f = () => { var g = () => x; int x = 5; return g() * 10 + x; }; return f() == 35 ? 0 : 1; }",
+            id="nested-lambda-capture-before-body-local",
+        ),
+        pytest.param(
             # A later block's local does not retype the global for the body.
             "@realtime int increment(int value) { return value + 1; } RealtimeFunction<int, int> transform = increment; "
             "@realtime int apply(int value) { int result = transform(value); "

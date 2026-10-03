@@ -2060,7 +2060,10 @@ class OwnershipLowerer:
         if self._session.local_ownership_scopes:
             self._session.local_ownership_scopes[-1][var_name] = class_type
             current_names = self._local_c_name_scopes[-1]
-            if var_name not in current_names:
+            # A declaration's own C name replaces a binding the scope already
+            # holds: a lambda body local that shadows a capture or parameter
+            # is the name every later use in that scope reads.
+            if var_name not in current_names or c_name is not None:
                 if c_name is None:
                     c_name = self.next_source_binding_c_name(var_name, provenance)
                 current_names[var_name] = c_name
