@@ -295,6 +295,46 @@ def test_lines_above_a_line_default_relower_its_callers(compiler: str, tmp_path,
     _lowered(incremental, 2)
 
 
+_DIVERGENCE_PROGRAM = {
+    "Lib.btrc": """void fail() {
+	exit(1);
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+string? lookup(int key) {
+	if (key > 0) { return "found"; }
+	return null;
+}
+
+int use(int key) {
+	string? found = lookup(key);
+	if (found == null) {
+		fail();
+	}
+	string value = found;
+	return value.length();
+}
+""",
+    "Main.btrc": """import ./Use.btrc;
+
+int main() {
+	print(f"{use(1)}");
+	return 0;
+}
+""",
+}
+
+
+def test_a_callee_that_starts_returning_replays_no_stale_warning(compiler: str, tmp_path, request):
+    """SB-D5: "never returns" is a body fact; the caller's warnings depend on it."""
+    cold, _, clean = _incremental_matches_clean(
+        compiler, request, tmp_path, _DIVERGENCE_PROGRAM, {"Lib.btrc": ("exit(1);", "return;")}
+    )
+    assert not cold.diagnostics
+    assert any("Possibly-null value stored" in line for line in clean.diagnostics), clean.diagnostics
+
+
 @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
 def test_an_unrelated_line_shift_reuses_every_other_unit(compiler: str, debug: bool, tmp_path, request):
     """The fixes stay narrow: lines added above a plain function relower only its group."""

@@ -1452,11 +1452,27 @@ class NullableFlow {
 		return false;
 	}
 
-	/* Whether no statement after this one in its sequence can run. */
+	/* Whether no statement after this one in its sequence can run. A journal
+	 * records each program-wide "never returns" answer the body relied on:
+	 * those are callee body facts, outside the interface a record is keyed
+	 * by, so a replay asks them again. */
 	public bool endsFlow(Node statement) {
 		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT) { return true; }
 		Node? called = statement.expr;
-		return statement.kind == NK_EXPR_STMT && called != null && called.kind == NK_CALL_EXPR && self.callDiverges(called, self.ownerClass, {}, true);
+		if (statement.kind != NK_EXPR_STMT || called == null || called.kind != NK_CALL_EXPR) { return false; }
+		if (self.state.analyzed.journal == null) { return self.callDiverges(called, self.ownerClass, {}, true, null); }
+		Vector<string> asked = [];
+		bool diverges = self.callDiverges(called, self.ownerClass, {}, true, asked);
+		if (asked.len == 3) {
+			ValidationFact? fact = self.state.analyzed.journalFact(VALIDATION_DIVERGENCE, called, null);
+			if (fact != null) {
+				fact.detail = asked.get(0);
+				fact.name = asked.get(1);
+				fact.member = asked.get(2);
+				fact.parameter = diverges ? 1 : 0;
+			}
+		}
+		return diverges;
 	}
 
 	/* ---- calls that never return ---- */
@@ -1526,25 +1542,48 @@ class NullableFlow {
 	}
 
 	/* `locals` are the pre-pass's shadowing names; with `scoped`, a name
-	 * shadows when it resolves to a binding of the code being validated. */
-	private bool callDiverges(Node call, string owner, Map<string, bool> locals, bool scoped) {
+	 * shadows when it resolves to a binding of the code being validated. The
+	 * question left to the program once the scope has ruled out shadowing is
+	 * pushed onto `asked` as its kind, class and name (divergenceAnswer). */
+	private bool callDiverges(Node call, string owner, Map<string, bool> locals, bool scoped, Vector<string>? asked) {
 		Node? callee = call.callee;
 		if (callee == null) { return false; }
 		if (callee.kind == NK_IDENTIFIER) {
 			if (self.shadowed(callee.name, locals, scoped)) { return false; }
-			if (self.hostedAbi.noreturnFunction(callee.name)) { return true; }
-			return self.functionDefinitions.has(callee.name) && self.nonreturning.has(self.functionDefinitions.get(callee.name));
+			return self.askDivergence("function", "", callee.name, asked);
 		}
 		if (callee.kind != NK_FIELD_ACCESS_EXPR || callee.optional || callee.arrow) { return false; }
 		Node? receiver = callee.obj;
 		if (receiver == null) { return false; }
-		if (receiver.kind == NK_SELF_EXPR) { return owner != "" && self.dispatchNeverReturns(owner, callee.field); }
+		if (receiver.kind == NK_SELF_EXPR) { return owner != "" && self.askDivergence("dispatch", owner, callee.field, asked); }
 		if (receiver.kind == NK_FIELD_ACCESS_EXPR && receiver.obj != null && receiver.obj.kind == NK_SELF_EXPR) {
 			string fieldClass = self.selfFieldClass(owner, receiver);
-			return fieldClass != "" && self.dispatchNeverReturns(fieldClass, callee.field);
+			return fieldClass != "" && self.askDivergence("dispatch", fieldClass, callee.field, asked);
 		}
 		if (receiver.kind != NK_IDENTIFIER || self.shadowed(receiver.name, locals, scoped)) { return false; }
-		Node? method = self.method(receiver.name, callee.field);
+		return self.askDivergence("static", receiver.name, callee.field, asked);
+	}
+
+	private bool askDivergence(string kind, string owner, string name, Vector<string>? asked) {
+		if (asked != null) {
+			asked.push(kind);
+			asked.push(owner);
+			asked.push(name);
+		}
+		return self.divergenceAnswer(kind, owner, name);
+	}
+
+	/* Whether every call the program resolves this way never returns:
+	 * "function" a top-level function or hosted noreturn function `name`,
+	 * "static" the static method `owner.name`, "dispatch" every method
+	 * `self.name()` dispatches to from class `owner`. */
+	public bool divergenceAnswer(string kind, string owner, string name) {
+		if (kind == "function") {
+			if (self.hostedAbi.noreturnFunction(name)) { return true; }
+			return self.functionDefinitions.has(name) && self.nonreturning.has(self.functionDefinitions.get(name));
+		}
+		if (kind == "dispatch") { return self.dispatchNeverReturns(owner, name); }
+		Node? method = self.method(owner, name);
 		return method != null && method.access == "class" && self.nonreturning.has(method);
 	}
 
@@ -1599,7 +1638,7 @@ class NullableFlow {
 		if (statement.kind == NK_THROW_STMT) { return true; }
 		if (statement.kind == NK_EXPR_STMT) {
 			Node? called = statement.expr;
-			return called != null && called.kind == NK_CALL_EXPR && self.callDiverges(called, owner, locals, false);
+			return called != null && called.kind == NK_CALL_EXPR && self.callDiverges(called, owner, locals, false, null);
 		}
 		if (statement.kind == NK_BLOCK) { return self.statementsDiverge(statement.statements(), owner, locals); }
 		if (statement.kind == NK_IF_STMT) {
