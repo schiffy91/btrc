@@ -244,7 +244,7 @@
       "files": [
         "src/tests/python/test_native_tray_runtime.py"
       ],
-      "reason": "^native tray backend is unavailable: (no session bus|org\\.kde\\.StatusNotifierWatcher is not on the session bus)",
+      "reason": "^native tray backend is unavailable: no session bus",
       "category": "capability",
       "gating": {
         "env": [
@@ -255,7 +255,7 @@
         ]
       },
       "covered_by": [],
-      "note": "No runner hosts a StatusNotifierItem watcher. tools/virtual-display.sh runs CI's shards inside tools/ui/headless-session.sh, whose private session bus has no watcher on it; a shell without a session bus has no bus at all. No other runner runs the Linux tray backend."
+      "note": "The devcontainer has no D-Bus session bus, and no other runner runs the Linux tray backend."
     },
     {
       "id": "windows-artifact-storage",
