@@ -103,6 +103,29 @@ INVALID_PROBES = (
         "enum Color { RED, GREEN };\nint main() { Color c = COLOR_BLUE; return 0; }\n",
         GpuDiagnostic("Unresolved identifier 'COLOR_BLUE' used as a value", 2, 24),
     ),
+    # An unresolved name is reported before the inference error it causes.
+    ParityProbe(
+        "unresolved-var-initializer",
+        _main("var a = UNKNOWN_X; return 0;"),
+        GpuDiagnostic("Unresolved identifier 'UNKNOWN_X' used as a value", 1, 22),
+    ),
+    ParityProbe(
+        "unresolved-var-operand",
+        _main("var n = -UNKNOWN_X; return 0;"),
+        GpuDiagnostic("Unresolved identifier 'UNKNOWN_X' used as a value", 1, 23),
+    ),
+    ParityProbe(
+        "unresolved-var-enum-spelling",
+        "enum E { A, B };\nint main() { var x = E_C; return 0; }\n",
+        GpuDiagnostic("Unresolved identifier 'E_C' used as a value", 2, 22),
+    ),
+    ParityProbe(
+        "generated-enum-symbol-var-initializer",
+        "enum E { A, B };\nint main() { var x = E_A; return 0; }\n",
+        GpuDiagnostic(
+            "Source reference to compiler-generated C symbol 'E_A' for enum value 'E.A' is not allowed", 2, 22
+        ),
+    ),
     ParityProbe(
         "duplicate-function-definition",
         "int f() { return 1; }\nint f() { return 2; }\nint main() { return f(); }\n",
