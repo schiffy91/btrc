@@ -216,16 +216,17 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 
 | Packet | Agent | Branch | Holds | State |
 |---|---|---|---|---|
-| `CL-C-01` | Claude | `stage16/ccompat-c1-integrate` | `src/tests/btrc/fixtures/c_compat_probe/c1.toml`, `src/tests/btrc/test_c_compatibility_{inventory,refusals,bodies,function_pointers,integration}.py`, the C1 programs in `src/tests/c_compat/`, `parser.py` and `Parser.btrc` (confirmed findings only), the Stage 16 sections of `c-compatibility.md`, C rows 1/3/5/7/19 of `known-language-gaps.md` | in flight |
+| `CL-C-01` | Claude | `stage16/ccompat-c1-integrate` | — | integrated in batch 12 (C1 exit; Mac BTRSmith rerun owed) |
 | `CL-R-00` | Claude | `stage4/btrsmith-defects-compiler`, `stage4/residual-final`, `stage4/c-output-parity` | — | integrated in batch 11, with the Stage 4 drift ledger in `src/stdlib/README.md`; `CL-R-01` (the BTRSmith pin bump) remains |
 | `CX-UIA-02` (adopted from PR #21) | Codex | `codex/ui0-catalog` (`b7aa53f`) | — for the first commit; the follow-up (shard loader and family cells) holds `docs/design/native-ui-catalog/`, `tools/qualification/ui_catalog.py` and `src/tests/python/test_ui0_catalog.py` | first commit integrated in batch 11 and PR #21 closed; the follow-up goes on a new `codex/…` branch and draft PR |
 | `CL-UIA-01` (Gate 0) | Claude | — | — | done: `main` at `7a83bb1` |
 | `CL-UIA-02` | Claude | `stage30/ci-codex-lanes` | `.github/workflows/{ci,macos,windows}.yml`, `src/tests/python/test_ci_workflow_contracts.py` | in flight (its focus dispatch lands with `CX-UIA-01`) |
-| `CL-C-00`, `CL-C-02` | Claude | `stage19/c-prep` | the C3 vocabulary and goto design docs; `analyzer/Expressions.btrc` and the btrc termination predicate's owner | in flight |
-| `CL-REQ-01` | Claude | `stage18/req01-profile-cache` | the files its fix needs (named in its report) | in flight |
+| `CL-C-00`, `CL-C-02` | Claude | `stage19/c-prep` | — | integrated in batch 12 (CL-C-02 keeps one btrc check site, `ControlFlowValidator`, because `validation/Expressions.btrc` cannot import `ControlFlow.btrc` without an import cycle) |
+| `CL-REQ-01` | Claude | — | — | done: already fixed by `3812e44`, no code change |
+| `CL-REQ-02` | Claude | `stage18/req02-objc-emitter-transpile` | the reference compiler's hotspot behind the 230 s `ObjectiveCEmitter.btrc` transpile in `test_objective_c_emitter.py` | in flight |
 | `CL-UIA-21` | Claude | `stage30/headless-gui-shell` | `flake.nix`, `flake.lock`, `nix/*`, the devcontainer definition | in flight |
 | `CL-R-02` | Claude | `stage5/runbook-kit` | `tools/runbook/**` | in flight |
-| Reserved: C4 lane (`CL-C-04…06`) | Claude | `stage16/c4-*` | `pipeline/ModuleUnits.btrc` with `application/modules.py`, `src/compiler/*/frontend/**`, `backend/c_emitter.py`, `ir/Emitter.btrc` | reserved from the moment `CL-C-01` and `CL-R-00` are on `main` |
+| Reserved: C4 lane (`CL-C-03…06`) | Claude | `stage16/c4-*` | `pipeline/ModuleUnits.btrc` with `application/modules.py`, `src/compiler/*/frontend/**`, `backend/c_emitter.py`, `ir/Emitter.btrc` | reserved: `CL-C-01` and `CL-R-00` are on `main` |
 | Reserved: `flake.nix`/`nix/*` | Claude | — | `CL-P1-02` after `CL-UIA-21` | queue |
 | Reserved: `macos.yml`/`ci.yml` | Claude | — | after `CL-UIA-02`: `CL-R-36`, then `CL-R-38`, then `CL-UIB-04`, then `CL-UIB-14` | queue |
 
