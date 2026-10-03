@@ -1629,9 +1629,7 @@ class ExceptionLowerer:
         if not any(with_setjmp.values()):
             return
         roots = {
-            function.name
-            for function in module.function_defs
-            if with_setjmp[id(function)] or mentions[id(function)]
+            function.name for function in module.function_defs if with_setjmp[id(function)] or mentions[id(function)]
         }
         if not call_effects:
             call_effects = ExceptionLowerer.build_setjmp_call_effects(module, solved_effects, roots=roots)
