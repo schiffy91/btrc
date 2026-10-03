@@ -3561,10 +3561,10 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 - **Owner:** Claude · **Group:** P1 · **Stage:** Stage 24 · **Environment:** Linux cloud · **Start now:** no · **Estimate:** 8 agent-hours
 - **PLAN items:** `platforms-p1-target-spec` (commit 1a)
 - **Depends on:** [CL-C-06](#cl-c-06)
-- **Why not now:** Starts once C4 lands (CL-C-06) under D27's Stage 24 clause (§2, §7 Q2; needs the owner's approval). If the owner strikes that clause, it waits for CL-C-40 (D1).
+- **Why not now:** Starts once C4 lands (CL-C-06) under D27's Stage 24 clause (§2, §7 Q2; the owner approved it on 2026-10-03). If the owner strikes that clause, it waits for CL-C-40 (D1).
 - **Parallel-safe with:** CX-P1-01, CX-P1-02, CX-P1-03, CX-P1-04, CX-P1-05, CX-P1-06, MAC-P1-03, MAC-P1-04
 
-> **Review change:** Depends on `CL-C-06` (C4 landed), not only on the spec commit `CL-C-03`, matching its own step 1. Stage 24 starts after C4 only under D27's explicit Stage 24 clause, which needs the owner's approval; struck, it waits for `CL-C-40` (§10 P3). Never beside `CL-C-07` or `CL-C-23`.
+> **Review change:** Depends on `CL-C-06` (C4 landed), not only on the spec commit `CL-C-03`, matching its own step 1. Stage 24 starts after C4 only under D27's explicit Stage 24 clause, which the owner approved on 2026-10-03; struck, it waits for `CL-C-40` (§10 P3). Never beside `CL-C-07` or `CL-C-23`.
 
 **Owned paths**
 
@@ -5467,7 +5467,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 > **Review change:** AGENTS.md is 37,433 bytes; Codex's documented default `project_doc_max_bytes` is 32 KiB, which would cut it at line 664 and drop the Makefile targets, the Hard Rules and an appended Codex section. Moving the two measurement sections frees only about 6 KB, so the Python file tree moves too (§10 F4).
 
-> **Writer note:** Step 9 is superseded: Gate 0 recorded D27 as in force on 2026-10-03, because the owner asked for the split and started Codex (§2). Stage 24's early start still waits for the owner (§7 Q2).
+> **Writer note:** Step 9 is superseded: Gate 0 recorded D27 as in force on 2026-10-03, because the owner asked for the split and started Codex (§2). The owner approved Stage 24's early start on 2026-10-03 (§7 Q2).
 
 **Owned paths**
 

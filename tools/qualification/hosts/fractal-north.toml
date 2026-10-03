@@ -1,0 +1,21 @@
+# FRACTAL-NORTH, the x86_64 NixOS acceptance host PLAN.md D7 names. It did not
+# resolve on 2026-09-30, so its hardware is unrecorded: the manifest names the
+# read-only probe D7 runs at Stage 10's start and the spec the answer must
+# meet. An awaiting-probe manifest matches no host, so no report embeds it
+# until the probe's answers are recorded here and `status` becomes "recorded".
+schema = 1
+id = "fractal-north"
+role = "x86_64-acceptance"
+status = "awaiting-probe"
+architecture = "x86_64"
+instruction_counter = "perf stat -e instructions:u"
+source = "PLAN.md D7 (FRACTAL-NORTH.local did not resolve on 2026-09-30)"
+probe = ["nproc", "free -g", "lscpu", "nix --version"]
+
+[requirements]
+min_logical_cores = 16
+min_memory_gib = 16
+
+[toolchain]
+environment = "nix develop (flake.lock) on NixOS"
+cc = "clang"

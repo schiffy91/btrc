@@ -1,0 +1,94 @@
+name: Release
+
+# One release dispatch runs every hosted job of every tier (ci/tiers.toml's
+# release tier) across ci.yml, macos.yml and windows.yml, then bundles every
+# skip report, JUnit file, bench result and boundary report they left into
+# one ledger bundle, uploaded as ledger-bundle-<sha> (PLAN.md Stage 38). A v*
+# tag does the same; the nightly schedule runs the extended tier and bundles
+# it too. Hardware-tier runners appear in the bundle as awaiting.
+on:
+  push:
+    tags: ["v*"]
+  schedule:
+    - cron: "23 8 * * *"
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: Which tier to run and bundle
+        type: choice
+        options: [release, extended]
+        default: release
+
+permissions:
+  contents: read
+
+# Release runs of one ref queue behind each other; nothing cancels them.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Each call carries the most its jobs need: scope reads pull requests and
+  # skip-reports lists the run's artifacts.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    with:
+      tier: ${{ github.event_name == 'schedule' && 'extended' || inputs.tier || 'release' }}
+
+  macos:
+    uses: ./.github/workflows/macos.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    with:
+      tier: ${{ github.event_name == 'schedule' && 'extended' || inputs.tier || 'release' }}
+
+  windows:
+    uses: ./.github/workflows/windows.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    with:
+      tier: ${{ github.event_name == 'schedule' && 'extended' || inputs.tier || 'release' }}
+
+  # Runs whatever the calls' outcome, so a red run still yields its bundle.
+  # The command fails when a report the tier plan expects is missing or an
+  # input is unreadable, after the bundle is written and uploaded.
+  bundle:
+    needs: [ci, macos, windows]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - name: Download every artifact of this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: build/release-artifacts
+      - name: Bundle every report into one ledger
+        env:
+          TIER: ${{ github.event_name == 'schedule' && 'extended' || inputs.tier || 'release' }}
+        run: |
+          python3 -m tools.qualification bundle \
+            --artifacts build/release-artifacts \
+            --output "build/ledger-bundle-$GITHUB_SHA" \
+            --tier "$TIER" \
+            --revision "$GITHUB_SHA" \
+            --run "$GITHUB_RUN_ID"
+      - name: Retain the ledger bundle
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ledger-bundle-${{ github.sha }}
+          path: build/ledger-bundle-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 90
