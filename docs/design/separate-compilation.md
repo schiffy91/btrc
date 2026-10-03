@@ -148,6 +148,12 @@ consulted. Delivery order:
 4. **Key reuse by the declarations a group consulted** rather than the
    program interface, so a signature edit invalidates only its consumers.
 
+Step 4 and skipping analysis of unchanged groups altogether are specified in
+[`stage-b-reuse-keys.md`](stage-b-reuse-keys.md): the per-group consulted-fact
+keys, the skip-unchanged journal, its fall-back, the counters both compilers
+expose, and the Stage 7 invalidation rows. It also records three stale reuses
+the Stage A keys allow today.
+
 Stage B alone does not reach the 10 s edit budget. After it, an edit still
 parses every file, reads native headers, builds visibility and lowers the
 declarations session. Per-file parse and header caches are separate work.
