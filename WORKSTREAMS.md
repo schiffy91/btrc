@@ -1,7 +1,7 @@
 # WORKSTREAMS: the shared work plan for Claude, Codex and the owner
 
 **Status:** in force, 2026-10-03 (D27, §2). **Roadmap and decisions:** [PLAN.md](PLAN.md). **Rules every agent follows:** [AGENTS.md](AGENTS.md).
-**Contents:** 445 work packets (Claude 182, Codex 208, owner 55), generated from six planning analysts' output plus the writer adjustments in §9 and the review changes in §10.
+**Contents:** 449 work packets (Claude 185, Codex 209, owner 55), generated from six planning analysts' output plus the writer adjustments in §9 and the review changes in §10, with four packets added on 2026-10-03 (`CX-UIA-30`, `CL-UIA-24`, `CL-R-50`, `CL-P2-29`; [codex-ui-lanes.md](docs/workstreams/codex-ui-lanes.md)).
 
 1. [Purpose and how to use this doc](#1-purpose-and-how-to-use-this-doc)
 2. [Decision D27](#2-decision-d27-two-builder-agents-and-which-ui-work-starts-early)
@@ -58,14 +58,14 @@
 
 The first waves are listed explicitly in §5.4.
 
-**Numbers.** Estimates are **agent-hours** for balancing load between the agents. They are not calendar estimates, and PLAN.md stays estimate-free (ref:1822). Packet totals after the writer adjustments in §9 and the review changes in §10:
+**Numbers.** Estimates are **agent-hours** for balancing load between the agents. They are not calendar estimates, and PLAN.md stays estimate-free (ref:1822). Packet totals after the writer adjustments in §9, the review changes in §10 and the 2026-10-03 UI-lanes changes:
 
 | Owner | Packets | Agent-hours | Start now (dependencies met on `main`) |
 |---|---:|---:|---:|
-| Claude (`CL-`) | 182 (181 active; `CL-UIB-01` merged into `CL-UIA-01`) | 1448 | 17 |
-| Codex (`CX-`) | 208 | 1890 | 26 |
+| Claude (`CL-`) | 185 (184 active; `CL-UIB-01` merged into `CL-UIA-01`) | 1458 | 19 |
+| Codex (`CX-`) | 209 | 1896 | 30 |
 | Owner (`MAC-`) | 55 | 106.3 attended; the Mac is busy about 282.5 h, with 14 overnights | 2 |
-| **Total** | **445** | **3444.3** | **45** |
+| **Total** | **449** | **3460.3** | **51** |
 
 **Where this doc lives.** Packet `CL-UIA-01` commits it as `WORKSTREAMS.md` at the repository root, next to PLAN.md, and links it from AGENTS.md and PLAN.md. That commit is **Gate 0** (`CL-UIA-01` alone; §5.4). Codex's first draft PR (#21) predates it. This doc was generated from the six planning analysts' raw output (`packets.analyst.json`, beside it in the planning scratchpad), the writer adjustments in §9 and the review changes in §10. `packets.json` holds the final packets exactly as §6 renders them.
 
@@ -112,12 +112,12 @@ Codex's draft PR #21 (the UI0 catalog, `CX-UIA-02`) is integrated in the first b
 | Class | Rule | Packets |
 |---|---|---|
 | **PLAN-sanctioned without D27** | Runs even if D27 is struck | Claude in bucket order: `CL-UIA-01` (Gate 0), `CL-R-00`, `CL-R-01`, `CL-C-01…`, `CL-C-00`, `CL-C-02`, `CL-REQ-01`, `CL-P1-02`, `CL-UIA-02` (CI policy commit), and the bucket-1 preparation below. Codex: `CX-C-01`, `CX-P1-02`, `CX-P1-03` (after `CL-UIA-02`), `CX-P2-01…03`. |
-| **Starts now** (dependencies on `main`, or planning/spike) | No wait for buckets 2–3 | UI0: `CX-UIA-01`, `CX-UIA-02` (follow-up; PR #21's commit is integrated), `CX-UIA-06`, `CL-UIA-21`, then `CL-UIA-03` once `CX-UIA-02` is ready; shell fixture `CX-UIA-09`; UI2 drafts `CX-UIA-18/19/20`; UI4–UI9 pre-drafts `CX-UIB-01…05`; spikes `CX-UIA-12`, `CX-UIA-13`, `CX-UIB-06`, `CX-UIB-07`; generators `CX-UIB-08` (and `CX-UIB-09` with BTRSmith access). Non-UI Codex starters: `CX-P1-03…06` (`CL-UIA-02` is on `main`; Q20's default is in force), `CX-R-01`, `CX-R-03`. |
-| **Starts when in-stage dependencies land** | No wait for buckets 2–3 to close | macOS and Linux-SDL UI1–UI3 and the tray: `CX-UIA-03/04/05/07`, `CX-UIA-10`, `CX-UIA-11`, `CL-UIA-09`, `CL-UIA-11/12`, `CL-UIA-13`, `CL-UIA-14`, `CL-UIA-19`, `CL-UIA-20`, `CX-UIA-21…28`; the GTK4 port `CX-UIA-29` and `CL-UIA-23` only if D23 picks GTK4 |
+| **Starts now** (dependencies on `main`, or planning/spike) | No wait for buckets 2–3 | UI0: `CX-UIA-01`, `CX-UIA-02` (follow-up; PR #21's commit is integrated), `CX-UIA-06`, `CL-UIA-21`, `CL-UIA-24`, then `CL-UIA-03` once `CX-UIA-02` is ready; shell fixture `CX-UIA-09`; UI2 drafts `CX-UIA-18/19/20`; UI4–UI9 pre-drafts `CX-UIB-01…05`; spikes `CX-UIA-12`, `CX-UIA-13`, `CX-UIB-06`, `CX-UIB-07`; generators `CX-UIB-08` (and `CX-UIB-09` with BTRSmith access). Non-UI Codex starters: `CX-P1-03…06` (`CL-UIA-02` is on `main`; Q20's default is in force), `CX-R-01`, `CX-R-03`. |
+| **Starts when in-stage dependencies land** | No wait for buckets 2–3 to close | macOS and Linux-SDL UI1–UI3 and the tray: `CX-UIA-03/04/05/07/30`, `CX-UIA-10`, `CX-UIA-11`, `CL-UIA-09`, `CL-UIA-11/12`, `CL-UIA-13`, `CL-UIA-14`, `CL-UIA-19`, `CL-UIA-20`, `CX-UIA-21…28`; the GTK4 port `CX-UIA-29` and `CL-UIA-23` only if D23 picks GTK4 |
 | **Gated by bucket 3** | Waits for its Stage 23–29 packets | `CX-UIA-15/16/17` (Win32, UIKit, Android shells), `CL-UIA-06…08` (GObject, after interop step 7) and `CX-UIA-14` (GTK4 spike), `CL-UIA-10` (D23), `CL-UIA-22` (new-platform feasibility and the UI2/UI3 re-check), all of Stage 35 (`CX-UIB-42…65`, `CL-UIB-14`, `CL-UIB-19`) |
 | **Gated by the Stage 33 landing, the five shells and `CL-UIA-22`** | Contract approval `CL-UIB-02` checks against real shells | `CX-UIB-10…17`, `CL-UIB-02…08`, the Stage 34 providers |
 | **Gated by the BTRSmith btrc landing** | After the pin bump (`CL-UIB-15`'s step for that landing) | `CX-UIB-66…76`, `CX-UIB-83…85` |
-| **Claude early starts** (D27's last clause) | Measure nothing; merge nothing that changes compiler behavior ahead of order, except Stage 24/25 after C4 | Bucket-1 preparation and Stage 38 CI on existing runners: `CL-R-02`, `CL-R-04`, `CL-R-05` (spike branches never merged), `CL-R-06`, `CL-R-23`, `CL-R-36`, `CL-R-37`, `CL-R-38`. After C4 (`CL-C-06`): `CL-P1-03…20`. After UI2 (`CL-UIA-14`): `CL-UIA-15…18`. |
+| **Claude early starts** (D27's last clause) | Measure nothing; merge nothing that changes compiler behavior ahead of order, except Stage 24/25 after C4 | Bucket-1 preparation and Stage 38 CI on existing runners: `CL-R-02`, `CL-R-04`, `CL-R-05` (spike branches never merged), `CL-R-06`, `CL-R-23`, `CL-R-36`, `CL-R-37`, `CL-R-38`, `CL-R-50`. After C4 (`CL-C-06`): `CL-P1-03…20`. After UI2 (`CL-UIA-14`): `CL-UIA-15…18`. |
 
 ## 3. Coordination protocol
 
@@ -235,7 +235,7 @@ iOS and iPadOS are one platform family: one provider directory (`GUI/IOS`, `App/
 
 #### 3.3.2 In-flight lock table (snapshot; Claude updates it in every integration merge commit)
 
-Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]` draft PRs plus the Claude lanes listed here. The Codex UI lanes open now, with the paths each lane will claim, are in [`docs/workstreams/codex-ui-lanes.md`](docs/workstreams/codex-ui-lanes.md); a lane holds its paths only once its draft PR exists.
+Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]` draft PRs plus the Claude lanes listed here. [`docs/workstreams/codex-ui-lanes.md`](docs/workstreams/codex-ui-lanes.md) lists the Codex UI lanes open now and the paths each lane will claim; a lane holds its paths only once its draft PR exists.
 
 | Packet | Agent | Branch | Holds | State |
 |---|---|---|---|---|
@@ -1076,7 +1076,7 @@ flowchart TD
   end
 
   subgraph CX["Codex: stdlib UI and platform providers"]
-    UI0["CX-UIA-01, 02, 06 UI0 gate, catalog, hosts"] --> UI0B["CX-UIA-03, 04, 05, 07 operation map, docs"]
+    UI0["CX-UIA-01, 02, 06 UI0 gate, catalog, hosts"] --> UI0B["CX-UIA-03, 04, 30, 05, 07 operation and case maps, docs"]
     SHF["CX-UIA-09 shell fixture"] --> SHM["CX-UIA-10, 11 macOS and Linux SDL shells"]
     DRAFT["CX-UIA-18..20 UI2 drafts"]
     SHM --> CK1["CL-UIA-09 UI1 checkpoint"]
@@ -1204,7 +1204,7 @@ Wave 1b, in any order as capacity allows (at most one Codex PR with lane- or mai
 
 ### 5.5 Load by stage
 
-Agent-hours (and packet counts) per stage and owner, after the §9 adjustments and §10 review changes. A packet counts under the first stage its `plan_stage` names. The last column is the Mac's occupied wall-clock hours for the owner packets (estimates), with overnights in brackets: the Mac, not the owner's attention, is the bottleneck.
+Agent-hours (and packet counts) per stage and owner, after the §9 adjustments, the §10 review changes and the 2026-10-03 UI-lanes changes. A packet counts under the first stage its `plan_stage` names. The last column is the Mac's occupied wall-clock hours for the owner packets (estimates), with overnights in brackets: the Mac, not the owner's attention, is the bottleneck.
 
 | Stage | Title | Claude | Codex | Owner | Total h | Owner Mac wall h (overnights) |
 |---:|---|---:|---:|---:|---:|---:|
@@ -1230,9 +1230,9 @@ Agent-hours (and packet counts) per stage and owner, after the §9 adjustments a
 | 25 | P1 test hosts and P2 runtime parity | 48 (5) | 59 (7) | 6 (1) | 113 | 6 |
 | 26 | P3 OS services | 23 (5) | 128 (16) | 2 (1) | 153 | 3 |
 | 27 | W1 Windows host and interop lane I (one ownership design, function tables, early Objective-C and JNI slices, then COM) | 110 (11) | 16 (2) | 2 (1) | 128 | 2 |
-| 28 | P4 dependency closure and library artifacts (W1 exit) | 38 (6) | 93 (12) | 3 (1) | 134 | 3 |
+| 28 | P4 dependency closure and library artifacts (W1 exit) | 41 (7) | 93 (12) | 3 (1) | 137 | 3 |
 | 29 | Non-UI platform tracks and interop lane II (Objective-C protocols, then JNI) | 58 (7) | 184 (20) | 5 (2) | 247 | 5 |
-| 30 | UI0 catalog, journeys and evidence hosts | 31.5 (6) | 32 (7) | 1 (1) | 64.5 | 1 |
+| 30 | UI0 catalog, journeys and evidence hosts | 35.5 (7) | 38 (8) | 1 (1) | 74.5 | 1 |
 | 31 | UI1 shells on all five platforms and the toolkit decision | 44 (8) | 85 (9) | 2.5 (2) | 131.5 | 3.5 |
 | 32 | UI2 contracts (events, executor, lifecycle) and the Library.UI split | 42 (6) | 45 (6) | 3 (2) | 90 | 4 |
 | 33 | UI3 input, focus and commands, then the tray | 10 (3) | 62 (6) | 1.5 (1) | 73.5 | 1.5 |
@@ -1240,13 +1240,13 @@ Agent-hours (and packet counts) per stage and owner, after the §9 adjustments a
 | 35 | Windows, iOS and Android UI tracks (one milestone behind Stage 34) | 46 (4) | 274 (24) | 8 (3) | 328 | 9 |
 | 36 | BTRSmith screen migration slices (one milestone behind Stage 34) | 8 (1) | 110 (11) | 5 (2) | 123 | 10 |
 | 37 | UI10 automation and mobile restoration; UI11 long tail | 23 (3) | 192 (19) | 6.5 (3) | 221.5 | 11.5 |
-| 38 | CI tiers, macOS native suite, BTRSmith CI, cross-target benchmarks | 38 (5) | 10 (1) | — | 48 | — |
+| 38 | CI tiers, macOS native suite, BTRSmith CI, cross-target benchmarks | 41 (6) | 10 (1) | — | 51 | — |
 | 39 | P5 journeys on installed products and the macOS MVP closure | 8 (1) | 62 (6) | 4.5 (3) | 74.5 | 10 |
 | 40 | Physical instrument, listening and latency sessions | — | 35 (4) | 1 (1) | 36 | 4 |
 | 41 | P6 numeric acceptance | — | 10 (1) | 1.5 (1) | 11.5 | 10 (1) |
 | 42 | P7 release engineering | 36 (4) | 70 (8) | 1.5 (1) | 107.5 | 3 |
 | 43 | Final platform exits and the release candidate | 14 (2) | 6 (1) | 2 (1) | 22 | 6 |
-| **All** | | **1448 (181)** | **1890 (208)** | **106.3 (55)** | **3444.3** | **282.5 (14)** |
+| **All** | | **1458 (184)** | **1896 (209)** | **106.3 (55)** | **3460.3** | **282.5 (14)** |
 
 ## 6. Packets in full
 

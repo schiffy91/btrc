@@ -9550,6 +9550,7 @@
      "owned_paths": [
       "integration branches integ/ui0-* off main-kn9jxh",
       "PLAN.md (Stage 30 Progress log)",
+      "Makefile: the `NATIVE_GUI_TESTS` line only (step 6; hotspot)",
       "src/stdlib/btrc.lock, src/stdlib/btrc.symbols, src/devex/lsp/catalog/generated.py, src/tests/fixtures/expected-skips/*.json (regenerated or applied from fragments)"
      ],
      "must_not_touch": [
@@ -10608,7 +10609,7 @@
      "acceptance": [
       "In the cloud container, `nix develop --command tools/virtual-display.sh make NIX= test-native-gui` has 0 failures and reports pass and skip counts for each frontend (python and selfhost), with the skip list printed.",
       "`make test-native-gui` passes its own skip gate on `build/skip-report-native-gui.json`; new rules go only in the fragment commit.",
-      "Lane CI green (run ids; windows.yml 'green (scope only)'), and `junit-macos-native-gui` shows the AppKit cases executed.",
+      "Lane CI green (run ids; windows.yml \"green (scope only)\"), and `junit-macos-native-gui` shows the AppKit cases executed.",
       "make lint, make format-check and git diff --check pass. The PR-body report follows the protocol."
      ],
      "parallel_safe_with": [

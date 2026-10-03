@@ -5694,6 +5694,7 @@ Claude: the compilers, specs, runtime, interop, the C track, Stage 24, bucket 1,
 
 - integration branches `integ/ui0-*` off main-kn9jxh
 - PLAN.md (Stage 30 Progress log)
+- Makefile: the `NATIVE_GUI_TESTS` line only (step 6; hotspot)
 - src/stdlib/btrc.lock, src/stdlib/btrc.symbols, src/devex/lsp/catalog/generated.py, `src/tests/fixtures/expected-skips/*.json` (regenerated or applied from fragments)
 
 **Must not touch**

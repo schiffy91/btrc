@@ -2860,7 +2860,7 @@ Steps 1–3 landed in batch 13 (CL-UIA-02's integrator fragment).
 
 - [ ] In the cloud container, `nix develop --command tools/virtual-display.sh make NIX= test-native-gui` has 0 failures and reports pass and skip counts for each frontend (python and selfhost), with the skip list printed.
 - [ ] `make test-native-gui` passes its own skip gate on `build/skip-report-native-gui.json`; new rules go only in the fragment commit.
-- [ ] Lane CI green (run ids; windows.yml 'green (scope only)'), and `junit-macos-native-gui` shows the AppKit cases executed.
+- [ ] Lane CI green (run ids; windows.yml "green (scope only)"), and `junit-macos-native-gui` shows the AppKit cases executed.
 - [ ] make lint, make format-check and git diff --check pass. The PR-body report follows the protocol.
 
 **Risks**
