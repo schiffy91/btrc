@@ -69,7 +69,7 @@ def test_captured_immediate_lambda_lifts_once_and_is_strict_c11(
     )
     selfhost = compiled[0][1].read_text()
     assert len(set(re.findall(r"__btrc_lambda_\d+", selfhost))) == 1
-    assert not re.search(r"__btrc_fn_[A-Za-z0-9_]+\s+__btrc_operand_\d+", selfhost)
+    assert not re.search(r"__btrc_fn_[A-Za-z0-9_]+\s+__btrc_call_operand_\d+", selfhost)
     for artifact in compiled:
         strict_c11_matrix(artifact, tmp_path)
 

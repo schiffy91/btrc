@@ -49,7 +49,7 @@ class ConcurrencyLowerer {
 		definition.returnType = "void";
 		definition.isStatic = true;
 		definition.params.push(IRParam("void*", "__raw"));
-		string envType = "struct " + envName + "*";
+		string envType = envName + "*";
 		Vector<IRNode> body = [];
 		body.push(IRNode.variableDeclaration(envType, "__env", IRNode.cast(envType, IRNode.variable("__raw"))));
 		IRNode field = IRNode.fieldAccess(IRNode.variable("__env"), self.hostedAbi.lexicalBindingCName(fieldName, false), true);
@@ -102,7 +102,7 @@ class ConcurrencyLowerer {
 		definition.isStatic = true;
 		definition.params.push(IRParam("void*", "__raw"));
 		Vector<IRNode> body = [];
-		string envType = "struct " + envName + "*";
+		string envType = envName + "*";
 		body.push(IRNode.variableDeclaration(envType, "__env", IRNode.cast(envType, IRNode.variable("__raw"))));
 		if (adapters.len > 0) {
 			self.context.referenceHelper("__btrc_arc_guard_hook");

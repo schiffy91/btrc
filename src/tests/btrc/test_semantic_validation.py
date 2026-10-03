@@ -147,7 +147,11 @@ def test_optional_receiver_runs_once_and_fallback_stays_lazy(semantic_btrcc: Pat
     assert result.returncode == 0, result.stderr
     main_c = generated.read_text().split("int main(void)", 1)[1]
     assert main_c.count(": fallback()") == 4
-    assert main_c.count(": ((void)0)), __btrc_boundary_result_") == 4
+    # Each boundary releases its handed-off receiver, then yields its result.
+    released_then_result = re.findall(
+        r"__btrc_arc_release(?:_acyclic)?\(__btrc_released_operand_\d+, [^;]*?\), __btrc_call_result_\d+\);", main_c
+    )
+    assert len(released_then_result) == 4
     strict_build_and_run(generated, tmp_path / "optional-once")
 
 

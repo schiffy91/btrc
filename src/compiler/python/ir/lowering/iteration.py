@@ -18,6 +18,7 @@ from src.compiler.python.ir.nodes import (
     IRExprStmt,
     IRFieldAccess,
     IRFor,
+    IRIf,
     IRIndex,
     IRLiteral,
     IRSizeof,
@@ -227,23 +228,49 @@ class IterationLowerer:
         body: Block | None,
         provenance: CallableProvenance,
     ) -> IterationPlan:
-        """Plan ``for x in range(...)`` after expression operands are lowered."""
-        start = IRLiteral(text="0")
-        end = IRLiteral(text="0")
-        step = IRLiteral(text="1")
-        if lowered_args:
-            if len(lowered_args) == 1:
-                end = lowered_args[0]
-            else:
-                start = lowered_args[0]
-                end = lowered_args[1]
-            if len(lowered_args) >= 3:
-                step = lowered_args[2]
+        """Plan ``for x in range(...)`` after expression operands are lowered.
+
+        Each operand is evaluated exactly once, into its own temporary, so a
+        bound with effects runs once and the loop cannot observe a later
+        change to it; a zero step exits before the first iteration.
+        """
+        if not 1 <= len(lowered_args) <= 3:
+            raise CodegenError(f"range expects 1 to 3 arguments, got {len(lowered_args)}")
+        prefix: list[IRStmt] = []
+        start: IRExpr = IRLiteral(text="0")
+        step: IRExpr = IRLiteral(text="1")
+        if len(lowered_args) == 1:
+            end = self._range_operand(lowered_args[0], "__range_end", prefix)
+        else:
+            start = self._range_operand(lowered_args[0], "__range_start", prefix)
+            end = self._range_operand(lowered_args[1], "__range_end", prefix)
+            if len(lowered_args) == 3:
+                step = self._range_operand(lowered_args[2], "__range_step", prefix)
+                if not (IterationLowerer._integer_literal(step) and step.text != "0"):
+                    prefix.append(
+                        IRIf(
+                            condition=IRBinOp(left=step, op="==", right=IRLiteral(text="0")),
+                            then_block=IRBlock(
+                                stmts=[
+                                    IRExprStmt(
+                                        expr=IRCall(
+                                            callee="fputs",
+                                            args=[
+                                                IRLiteral(text='"range step cannot be zero\\n"'),
+                                                IRVar(name="stderr"),
+                                            ],
+                                        )
+                                    ),
+                                    IRExprStmt(expr=IRCall(callee="exit", args=[IRLiteral(text="1")])),
+                                ]
+                            ),
+                        )
+                    )
         c_name = self._ownership.declare_local_ownership(var_name, provenance)
         provenance.shadow(var_name)
         condition = IRBinOp(left=IRVar(name=c_name), op="<", right=end)
         update: IRExpr = IRUnaryOp(op="++", operand=IRVar(name=c_name), prefix=False)
-        if len(lowered_args) >= 3:
+        if len(lowered_args) == 3:
             condition = IRTernary(
                 condition=IRBinOp(left=step, op=">", right=IRLiteral(text="0")),
                 true_expr=condition,
@@ -252,12 +279,24 @@ class IterationLowerer:
             update = IRBinOp(left=IRVar(name=c_name), op="+=", right=step)
         return IterationPlan(
             source_body=body,
-            prefix=[],
+            prefix=prefix,
             bindings=(),
             init=IRVarDecl(c_type=CType(text="int"), name=c_name, init=start),
             condition=condition,
             update=update,
         )
+
+    def _range_operand(self, lowered: IRExpr, prefix_name: str, prefix: list[IRStmt]) -> IRExpr:
+        """An integer literal is its own value; any other operand is evaluated once."""
+        if IterationLowerer._integer_literal(lowered):
+            return lowered
+        name = self._session.fresh_temp(prefix_name)
+        prefix.append(IRVarDecl(c_type=CType(text="int"), name=name, init=lowered))
+        return IRVar(name=name)
+
+    @staticmethod
+    def _integer_literal(value: IRExpr) -> bool:
+        return isinstance(value, IRLiteral) and value.text.isdigit()
 
     @contextmanager
     def c_for_scope(self, node: CForStmt, provenance: CallableProvenance):

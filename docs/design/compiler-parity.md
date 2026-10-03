@@ -12,6 +12,7 @@ which differences remain in the C the two compilers emit.
 | Acceptance and the first diagnostic (message, line, column) of ordinary programs | `src/tests/btrc/test_analyzer_parity_battery.py` |
 | Acceptance, first diagnostic and byte-identical WGSL of `@gpu` programs | `src/tests/btrc/test_gpu_diagnostics_parity.py` |
 | Runtime behaviour of every corpus program | the unified corpus runner, through both compilers |
+| Byte-identical C of every corpus program listed in `src/tests/fixtures/c_output_parity/identical.txt` | `src/tests/btrc/test_c_output_parity.py` |
 | Runtime behaviour of every SDK-free example | `src/tests/python/test_examples.py` |
 | Recorded outcome of every C-compatibility probe | `src/tests/btrc/test_c_compatibility_inventory.py` |
 | Analyzer warnings (message, file, line, column and rendering) of probe programs, and that a warning never changes the exit status | `src/tests/btrc/test_warning_parity_battery.py` |
@@ -114,31 +115,56 @@ to every function, not only native imports.
 
 ## Remaining differences in emitted C
 
-The two compilers' C is not byte-identical, so `test_examples.py` and the
-corpus compare behaviour, not text. A survey of 414 corpus programs (`basics`,
-`classes`, `collections`, `memory` and the `Fstring*` strings) on
-2026-10-01 found 82 byte-identical and the rest differing only in the
-families below. None changes observable behaviour; each is a rewrite of a
-lowering owner in one compiler, not a local fix, so they are recorded rather
-than converged here.
+`python3 -m src.tests.c_output_parity survey --btrcc <btrcc>` transpiles every
+corpus program through both compilers, normalizing only the absolute checkout
+path, and prints the byte-identical count and a first-difference histogram;
+`--module-units` also compares every emitted module unit, and the *user
+declarations* view drops the runtime catalog's helper text, which both
+compilers copy verbatim. `--write-manifest` records the identical set in
+`src/tests/fixtures/c_output_parity/identical.txt`, and
+`src/tests/btrc/test_c_output_parity.py` requires every listed program to
+stay byte-identical. Regenerate the manifest whenever a program joins the set.
 
-| Family | Python | `btrcc` | Scope |
+On 2026-10-02 (`stage4/c-output-parity`) the survey measured:
+
+| View | Before the lane (`7e7e128`) | After |
+| --- | --- | --- |
+| Whole programs byte-identical | 224 of 972 | 776 of 977 |
+| User declarations identical | 226 of 972 | 776 of 977 |
+| Module units identical | 770 of 3830 | 2542 of 3845 |
+| Programs with every module unit identical | 138 of 972 | 496 of 977 |
+
+The converged families are described in the lane's commits: runtime-helper
+order, header placement, typed-declaration pruning, prototype order,
+per-function temporary numbering, first-use adapter numbering, the physical
+storage model for stores and updates, managed slot transactions,
+call-boundary cleanup guards, f-strings through the call boundary, lifted
+lambda and spawn-wrapper placement, enum placement, iterable ownership,
+static linkage, throw-operand protection and the `@gpu` fallback's catalog
+bounds check.
+
+The 201 programs that still differ, by the family of their first differing
+line:
+
+| Family | Python | `btrcc` | Programs |
 | --- | --- | --- | --- |
-| Call-boundary temporaries | `__btrc_call_operand_N`, `__btrc_call_result_N` | `__btrc_operand_N`, `__btrc_boundary_result_N` | most programs that pass a managed value to a call |
-| Released-operand cleanup | unconditional `__btrc_string_release(x)` | `x` declared `= NULL`, released under `x != NULL ? ... : (void)0` | the same call boundaries |
-| Store temporaries | `__btrc_slot_new_N`, `__btrc_slot_old_N` | `__btrc_store_value_N`, `__btrc_store_current_N` | managed stores |
-| Indexed stores | index captured in `int __btrc_storage_index_N`, then `a[i] = v` | address captured in `T volatile* __btrc_lvalue_N`, then `*p = v` | every indexed assignment, including the `@gpu` CPU fallback |
-| Promoted ternary branches | `__btrc_promoted_branch_N` | `__btrc_promoted_N` | `??` and ternaries over managed values |
-| `bool` in `print` | `printf("%d", (int)b)` | `printf("%d", b)` | printing a `bool` |
-| `@gpu` fallback index check | `__btrc_gpu_index_check` | `__btrc_gpu_checked_index` | CPU fallback bodies |
-| Runtime-helper selection | `__btrc_arc_release_acyclic` materialized in fewer units | materialized wherever an acyclic release could be reached | ARC programs |
-| Header order | `<setjmp.h>` before `<stdatomic.h>` | `<stdatomic.h>` before `<setjmp.h>` | programs needing both (2 of 414) |
+| Temporary allocation order | the same lowering numbers some temporaries in a different order (e.g. call operands before storage receivers) | | 51 |
+| Generic-instance and type-declaration order | instance views in its discovery order | instance views in a different discovery order | 47 |
+| Explicit releases in public collection methods | flushes cycle roots at each release of a cyclable value | polls at each release and flushes once at the method's end (`installReleaseBearingBoundary`) | 37 |
+| Operand staging | stages every operand of an ordered expression | skips operands it proves inert (receivers, `bool` formats, some field projections), and lowers property stores through `__btrc_property_value` | 29 |
+| Runtime-helper selection | a few helpers (`__btrc_string_retain`, `__btrc_interface_try_methods`, `__btrc_arc_release_acyclic`) materialized in different programs | | 16 |
+| Other | function-pointer typedef order (7), `<stdatomic.h>` selection (3), prototypes (2), switch lowering, span and VLA hoists, a shadowing catch binding's numbering | | 21 |
 
-Converging these means choosing one lowering per family and moving the other
-compiler's owner to it, with the corpus and the C11 matrix proving each step.
-Until then a test may require identical **behaviour** of the two compilers'
-output, or identical text of a narrow fragment it names (the WGSL modules, a
-diagnostic), but not identical translation units.
+None changes observable behaviour; the corpus, the C11 matrix and the
+bootstrap run on both compilers' output. The collection-release batching is
+deliberately left in `btrcc`: flushing per release inside a collection loop
+over cyclable values could make large self-host collections quadratic, so it
+needs a measured decision before either compiler moves.
+
+Until a program is listed in the manifest, a test may require identical
+**behaviour** of the two compilers' output, or identical text of a narrow
+fragment it names (the WGSL modules, a diagnostic), but not identical
+translation units.
 
 ## Nullable-to-non-nullable stores
 

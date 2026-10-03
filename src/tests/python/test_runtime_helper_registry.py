@@ -151,9 +151,11 @@ def test_manifest_dependencies_are_known_and_catalog_complete() -> None:
     python_names = {helper.name for helper in manifest.helpers_for("python")}
     btrc_names = {helper.name for helper in manifest.helpers_for("btrc")}
     assert btrc_names <= python_names
+    # btrcc lowers collections and WebGPU dispatch itself; the @gpu CPU
+    # fallback's bounds check is the one gpu helper both compilers call.
     assert python_names - btrc_names == {
         helper.name for helper in manifest.helpers if helper.category in {"collections", "gpu"}
-    }
+    } - {"__btrc_gpu_index_check"}
 
 
 def test_manifest_rejects_an_undeclared_helper_source_reference(tmp_path: Path) -> None:

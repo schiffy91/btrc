@@ -221,31 +221,26 @@ class RuntimeHelperCatalog {
 	}
 
 	/* Replace the runtime seam from the optimizer's live helper set.  Source
-     * bodies remain in canonical manifest order; headers retain discovery
-     * order while structured include nodes prevent duplicate emission. */
-	public void materializeInto(IRModule module, Map<string, bool> selected) {
+     * bodies follow the canonical catalog order. The hosted headers the live
+     * helpers and structured IR need follow every source-derived include,
+     * sorted by name and skipping any already included, as Python's
+     * IROptimizer._refresh_hosted_runtime_headers places them. */
+	public void materializeInto(IRModule module, Map<string, bool> selected, Map<string, bool> structuredHeaders) {
 		Vector<string> materialized = [];
 		Vector<string> ordered = self.selectedInCanonicalOrder(selected);
-		int helperIndex = 0;
-		while (helperIndex < ordered.len) {
-			materialized.push(self.source(ordered.get(helperIndex)));
-			helperIndex = helperIndex + 1;
+		Map<string, bool> required = {};
+		for name in ordered {
+			materialized.push(self.source(name));
+			for header in self.headers(name) { required.put(header, true); }
 		}
 		module.helpers = materialized;
-
-		Vector<string> names = selected.keys();
-		int nameIndex = 0;
-		while (nameIndex < names.len) {
-			Vector<string> requiredHeaders = self.headers(names.get(nameIndex));
-			int headerIndex = 0;
-			while (headerIndex < requiredHeaders.len) {
-				string header = requiredHeaders.get(headerIndex);
-				if (!self.hasSystemInclude(module, header)) {
-					module.preprocessorDecls.push(IRPreprocessorDecl.include(header, true));
-				}
-				headerIndex = headerIndex + 1;
+		for header in structuredHeaders.keys() { required.put(header, true); }
+		Vector<string> headers = required.keys();
+		headers.sort();
+		for header in headers {
+			if (!self.hasSystemInclude(module, header)) {
+				module.preprocessorDecls.push(IRPreprocessorDecl.include(header, true));
 			}
-			nameIndex = nameIndex + 1;
 		}
 	}
 }

@@ -147,3 +147,23 @@ def test_dynamic_zero_range_step_exits_before_iteration(semantic_btrcc: Path, tm
     run = run_in_repo([str(binary)], timeout=30)
     assert run.returncode == 1
     assert "range step cannot be zero" in run.stderr
+
+
+def test_python_dynamic_zero_range_step_exits_before_iteration(tmp_path: Path) -> None:
+    """The reference compiler evaluates range operands once and rejects a zero step, as btrcc does."""
+    from src.compiler.python import Compiler, CompilerOptions
+
+    fixture = FIXTURES / "RangeZeroRuntime.btrc"
+    result = Compiler().compile(fixture.read_text(), str(fixture), CompilerOptions(use_cache=False))
+    assert result.failure is None and result.c_source is not None, result.failure
+    generated = tmp_path / "range-zero.c"
+    generated.write_text(result.c_source)
+    binary = tmp_path / "range-zero"
+    build = _run(
+        [*CC, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", str(generated), "-o", str(binary), "-lm"],
+        timeout=60,
+    )
+    assert build.returncode == 0, build.stderr
+    run = _run([str(binary)], timeout=30)
+    assert run.returncode == 1
+    assert "range step cannot be zero" in run.stderr
