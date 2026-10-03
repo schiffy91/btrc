@@ -33,7 +33,7 @@ before = [
   "put Stage 5's BTRSmith pin in --btrsmith-branch if BTRSmith main has moved since MAC-R-02",
   "for the composed wall-clock cell: stop the podman machine (`podman machine stop`) and every agent session, build and guest; it waits for a quiet 60 s window",
 ]
-next_action = "nothing: CL-R-08 reads out/table/instructions.json and the composed wall clock for the Stage 6 lever table and D12."
+next_action = "nothing: CL-R-08 reads cells/table/summary.txt (the deltas, then instructions.json) and cells/composed-wall/summary.txt on the evidence branch for the Stage 6 lever table and D12."
 
 [btrc]
 # The measurement scripts come from main; every binary is built from its own tree below.
@@ -101,11 +101,15 @@ tree = "{ref_{lever}}"
 lock = "bench"
 shell = "btrsmith"
 stand_in = "skip"
+# gate-summary stages out/summary.txt (here edit_instr.py's output) on the evidence branch.
+result = "gate-summary"
 timeout_hours = 3
-env = { BTRC_BENCH_HOME = "{out}", BSM_WORKSPACE = "{btrsmith}", BTRC_REPO = "{base_tree}" }
+# BTRC_BENCH_HOME moves edit_instr.py's workspace into this cell; bsm_env.sh
+# would follow it, so the measured PKG_CONFIG_PATH is named explicitly.
+env = { BTRC_BENCH_HOME = "{out}", BSM_WORKSPACE = "{btrsmith}", BTRC_REPO = "{base_tree}", BSM_PKG_CONFIG_PATH = "{home}/measure/bsm-pkg-config-path.txt" }
 command = [
   "bash", "-c",
-  'set -o pipefail; python3 "{scripts}/edit_instr.py" "{run}/spikes/{lever}/btrcc" "{lever}" --prime --jobs 1 --fixtures "{fixtures}" --repeat "{instr_repeat}" 2>&1 | tee "{out}/instr.txt"',
+  'set -o pipefail; python3 "{scripts}/edit_instr.py" "{run}/spikes/{lever}/btrcc" "{lever}" --prime --jobs 1 --fixtures "{fixtures}" --repeat "{instr_repeat}" 2>&1 | tee "{out}/instr.txt"; code=$?; cp "{out}/instr.txt" "{out}/summary.txt"; exit $code',
 ]
 
 [[cell]]
@@ -113,16 +117,19 @@ id = "identity-{lever}"
 title = "the {lever} spike emits the base's module units for the last fixture edit (cmp_units.py)"
 matrix = { lever = ["decl", "parse", "instances", "records", "visibility", "composed"] }
 stand_in = "skip"
+result = "gate-summary"
 timeout_hours = 1
 command = [
   "sh", "-c",
-  'python3 "{scripts}/cmp_units.py" "{cell:instr-base}/perf/ei-base" "{cell:instr-{lever}}/perf/ei-{lever}" | tee "{out}/cmp_units.txt"; grep -q "^differing 0 " "{out}/cmp_units.txt"',
+  'python3 "{scripts}/cmp_units.py" "{cell:instr-base}/perf/ei-base" "{cell:instr-{lever}}/perf/ei-{lever}" > "{out}/summary.txt"; cat "{out}/summary.txt"; grep -q "name differences set()$" "{out}/summary.txt" && grep -q "^differing 0 " "{out}/summary.txt"',
 ]
 
 [[cell]]
 id = "table"
 title = "per-lever instructions-retired deltas against the base, as JSON"
 stand_in = "skip"
+# out/summary.txt carries the delta lines and the whole instructions.json to the evidence branch.
+result = "gate-summary"
 timeout_hours = 1
 command = [
   "python3", "-c",
@@ -151,8 +158,9 @@ for lever in levers[1:]:
         deltas[lever][fixture] = {"base_g": before, "spike_g": after, "delta_g": after - before, "ratio": after / before if before else None}
 out.mkdir(parents=True, exist_ok=True)
 (out / "instructions.json").write_text(json.dumps({"schema": 1, "metric": "instructions retired, --jobs 1, min over repeats", "samples": table, "deltas": deltas}, indent=2, sort_keys=True) + "\\n")
-for lever, fixtures in deltas.items():
-    print(lever, " ".join("%s=%+.2fG" % (name, row["delta_g"]) for name, row in sorted(fixtures.items())))
+lines = [lever + " " + " ".join("%s=%+.2fG" % (name, row["delta_g"]) for name, row in sorted(fixtures.items())) for lever, fixtures in deltas.items()]
+print("\\n".join(lines))
+(out / "summary.txt").write_text("\\n".join(lines) + "\\n\\n" + (out / "instructions.json").read_text())
 """,
   "{cell:instr-base}", "{cell:instr-decl}", "{cell:instr-parse}", "{cell:instr-instances}",
   "{cell:instr-records}", "{cell:instr-visibility}", "{cell:instr-composed}", "{out}",
@@ -167,10 +175,27 @@ cwd = "tree"
 lock = "bench"
 quiet = true
 shell = "btrsmith"
-result = "budget-bench"
+# Not budget-bench: that result is ingested into the qualification ledger, and
+# these are a never-merged spike's timings. summary.txt carries each edit
+# scenario's median, p95 and max, then the whole report.json.
+result = "gate-summary"
 timeout_hours = 4
 command = [
-  "python3", "-m", "tools.budget_bench", "--btrcc", "{run}/spikes/composed/btrcc", "{workspace_args}",
-  "--out", "{out}", "--frontend", "selfhost", "--scenarios", "edit",
-  "--incremental-samples", "{wall_samples}", "{dry_run_args}",
+  "bash", "-c",
+  'python3 -m tools.budget_bench --btrcc "{run}/spikes/composed/btrcc" {workspace_args} --out "{out}" --frontend selfhost --scenarios edit --incremental-samples "{wall_samples}" {dry_run_args}; code=$?; python3 -c "$0" "{out}" || code=1; exit $code',
+  """
+import json, sys
+from pathlib import Path
+out = Path(sys.argv[1])
+report = json.loads((out / "report.json").read_text())
+lines = []
+for name, row in sorted(report.get("scenarios", dict()).items()):
+    lines.append("%s exit=0 0s median=%s p95=%s max=%s samples=%d" % (name, row.get("median"), row.get("p95"), row.get("max"), len(row.get("samples", []))))
+failure = report.get("failure")
+if failure:
+    lines.append("failure exit=1 0s " + str(failure))
+(out / "summary.txt").write_text("\\n".join(lines) + "\\n\\n" + json.dumps(report, indent=2, sort_keys=True) + "\\n")
+print("\\n".join(lines))
+sys.exit(1 if failure else 0)
+""",
 ]
