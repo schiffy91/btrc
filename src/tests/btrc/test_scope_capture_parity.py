@@ -34,6 +34,14 @@ from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build
             "A lambda cannot capture nonescaping Span 'view'",
             id="lambda-captures-span",
         ),
+        pytest.param(
+            # A local of a non-realtime callable type shadows the global.
+            "@realtime int increment(int value) { return value + 1; } RealtimeFunction<int, int> transform = increment; "
+            "@realtime int apply(int value) { CFunction<int, int> transform = increment; return transform(value); } "
+            "int main() { return apply(1) - 2; }",
+            "reaches forbidden unknown operation 'indirect call through 'transform''",
+            id="realtime-call-through-shadowing-local",
+        ),
     ],
 )
 def test_scope_resolved_names_fail_identically(
@@ -60,6 +68,14 @@ def test_scope_resolved_names_fail_identically(
         pytest.param(
             "int main() { int values[2] = {1, 2}; Thread<int> worker = spawn(() => { var twice = (int values) => values * 2; return twice(4); }); return worker.join() == 8 && values[0] == 1 ? 0 : 1; }",
             id="nested-lambda-parameter-shadows-outer-array",
+        ),
+        pytest.param(
+            # A later block's local does not retype the global for the body.
+            "@realtime int increment(int value) { return value + 1; } RealtimeFunction<int, int> transform = increment; "
+            "@realtime int apply(int value) { int result = transform(value); "
+            "if (value > 100) { float transform = 2.0f; result = result + (int)transform; } return transform(result); } "
+            "int main() { return apply(2) == 4 ? 0 : 1; }",
+            id="realtime-call-through-global-beside-block-local",
         ),
     ],
 )
