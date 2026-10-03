@@ -16,10 +16,15 @@ them into operation-level acceptance cases with a stable denominator.
 UI implementation is **bucket 4**, queued behind compiler performance,
 C compatibility and platform foundations under
 [PLAN.md's sequential execution order](../../PLAN.md#phase-overview).
-This inventory does not authorize early UI work. Once bucket 4 begins, start
+PLAN.md D27 amends that order for UI work: its "UI work that starts now" and
+"Starts as soon as its in-stage dependencies land" clauses are the exact list
+of UI work that may run before bucket 4, and everything on its "Stays gated"
+list waits as before. This inventory authorizes nothing beyond that list. Start
 with native-shell feasibility and an editor-and-focus slice using the existing
-GUI owners, before expanding controls. The dependency order below applies
-within that bucket; it is not a parallel workstream beside optimization.
+GUI owners, before expanding controls. The dependency order below applies to
+UI work whether it starts early under D27 or in bucket 4. Codex may build the
+UI lanes and draft UI contracts, but Claude is the one contract owner: a draft
+becomes a contract only when Claude approves it (D27).
 
 | Decision for review | Recommendation | Evidence required before expanding the work |
 | --- | --- | --- |

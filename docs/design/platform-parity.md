@@ -615,21 +615,29 @@ complete declared matrix passes on the same source revision and package set.
 Platform foundations are **bucket 3**, after compiler performance and
 C compatibility, under [PLAN.md's sequential execution order](../../PLAN.md#phase-overview).
 The UI portions of the platform milestones run in bucket 4; final installed
-product qualification runs in bucket 5. Do not start a platform implementation
-as a parallel track beside the active compiler-performance milestone. The
-sequence below describes platform dependencies within those scheduled buckets.
+product qualification runs in bucket 5. Within buckets 3 and 4, platform lanes
+may run in parallel (PLAN.md D6(c)), and there is exactly one contract owner:
+Claude owns every contract, while the bucket 3–4 platform lanes may be split
+between Claude and Codex, with one writer at a time per hotspot (D27, which
+amends D6(c)). A packet runs ahead of its bucket only as D27 allows: a Codex
+packet when its dependencies are met on `main` or it is planning or spike work,
+and it changes no file on Claude's list; a Claude packet only for an early start
+D27 names. Codex lanes land only through Claude's gated integration
+([WORKSTREAMS.md](../../WORKSTREAMS.md) §3.8). The sequence below describes
+platform dependencies within those scheduled buckets.
 
 P0 → P1 with tiny apps on **all three** platforms → P2/P3/P4 shared contracts
 → W1 and the I1/A1 shells → W2/I2/A2 providers → P5/P6/P7 qualification.
-These are dependency lanes, not instructions to spawn agents. Work one bounded
-contract at a time; keep other platforms' incomplete rows visible.
+These are dependency lanes. Each lane works one bounded contract at a time,
+and every contract keeps its one owner, Claude; keep other platforms'
+incomplete rows visible.
 
 Recommend Windows host/filesystem/process first where it unlocks reuse and
 native SDK testing, while proving the mobile target and JNI/Objective-C paths
 early within bucket 3. Do not postpone Android's bridge or iOS lifecycle
 discovery until after a full desktop port. M6a/M11 preserve target identity in
 their contracts; that design constraint does not start the port ahead of its
-scheduled bucket.
+scheduled bucket. Only an early start D27 allows does.
 
 A platform is complete only when its inventory, language/runtime behavior,
 applicable stdlib APIs, native packages, BTRSmith journeys, numeric budgets and
@@ -647,3 +655,10 @@ with sources; Xcode is pinned by build number (27A266a). The device registry
 physical gate to a device or an unavailable record. The desktop-only
 adaptations ([platform-adaptations.md](platform-adaptations.md)) are a draft
 awaiting the owner's sign-off.
+
+- `btrsmith-p0-inventory`: pending, assigned to Codex packet `CX-P1-01`. Its
+  BTRSmith journeys and package contracts are inventoried in the private
+  BTRSmith repository and stay out of this repository's totals.
+- `platforms-p0-adaptations`: pending, assigned to Codex packet `CX-P1-02`,
+  which finishes the draft for the owner's sign-off. Stage 22's exit needs
+  that sign-off.
