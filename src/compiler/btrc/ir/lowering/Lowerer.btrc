@@ -124,9 +124,6 @@ class IRLowerer {
 	/* Module units: files whose declaration bodies or positions this unit copied. */
 	public Map<string, bool> consultedSources() { return self.context.consultedSources; }
 
-	/* The tuple shapes a declarations lowering declared, in order. */
-	public Vector<string> tupleShapes() { return self.context.tupleShapes; }
-
 	/* Lower one compilation group's module unit (see LoweringContext). */
 	public void configureModuleUnit(string ownedGroup, Map<string, string> groupOfFile, bool declarationsElsewhere) { self.context.configureModuleUnit(ownedGroup, groupOfFile, declarationsElsewhere); }
 

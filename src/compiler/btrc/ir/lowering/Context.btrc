@@ -70,8 +70,6 @@ class LoweringContext {
 	public bool debug = false;
 	/* Files whose bodies or positions this lowering copied (consultSource). */
 	public Map<string, bool> consultedSources = {};
-	/* The program's tuple shapes, in the order this lowering declared them. */
-	public Vector<string> tupleShapes = [];
 
 	/* Functions appended since `from` came from the declaration at `line`;
 	 * the emitter packs translation units along these source boundaries. */

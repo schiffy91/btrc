@@ -489,6 +489,17 @@ class ModuleUnitDeclarations {
 		self.addNames(kind, position, names, resolved);
 	}
 
+	/* A digest of every entry's kind and names, in the shared order. */
+	public string orderDigest() {
+		SHA256 digest = SHA256();
+		for (int entry = 0; entry < self.kinds.len; entry++) {
+			Vector<string> names = self.provides.get(entry).keys();
+			names.sort();
+			digest.appendText(Strings.fromInt(self.kinds.get(entry)) + "\t" + Strings.join(names, ",") + "\n");
+		}
+		return digest.finish();
+	}
+
 	private void addNames(int kind, int position, Map<string, bool> names, Map<string, bool> refs) {
 		int entry = self.kinds.len;
 		self.kinds.push(kind);
@@ -888,9 +899,6 @@ class ModuleUnitCompiler {
 
 	private Map<string, bool> lastInstances = {};
 	private Map<string, bool> lastConsulted = {};
-	/* The program's tuple shapes, in the order the declarations lowering
-	 * declared them: every unit emits the ones it uses in this order. */
-	private Vector<string> tupleShapes = [];
 
 	/* The generic-instance members the last lowered group defines. */
 	public Map<string, bool> lastInstanceNames() { return self.lastInstances; }
@@ -1033,7 +1041,7 @@ class ModuleUnitCompiler {
 
 	/* The context, the group's resolved lines with their original positions,
 	 * and the program interface and facts digests. */
-	private string programDigest() {
+	private string programDigest(ModuleUnitDeclarations shared) {
 		ModuleUnitProgram input = self.input;
 		SHA256 digest = SHA256();
 		/* Analysis changes interfaces only as a function of the whole
@@ -1062,9 +1070,10 @@ class ModuleUnitCompiler {
 		}
 		digest.appendText("\nfacts\n");
 		digest.appendText(self.facts.usesTrycatch ? "trycatch" : "no-trycatch");
-		/* A unit emits the tuple structs it uses in the program's discovery
-		 * order, which any group's body can move. */
-		for shape in self.tupleShapes { digest.appendText("tuple:" + shape + "\n"); }
+		/* A unit takes the shared declarations it uses in their program
+		 * order, which other groups' bodies can move: tuple shapes are
+		 * declared in discovery order. */
+		digest.appendText("shared:" + shared.orderDigest() + "\n");
 		for instance in input.analyzed.genericInstances { digest.appendText("class:" + instance.mangled + "\n"); }
 		for instance in input.analyzed.methodGenInstances {
 			digest.appendText("method:" + instance.classBase + "." + instance.methodName + "<");
@@ -1844,7 +1853,6 @@ class ModuleUnitCompiler {
 		 * bodies and computes the facts every later lowering shares. */
 		IRLowerer declarationsLowerer = self.lowerer("<declarations>", false);
 		IRModule declarations = declarationsLowerer.lower(input.program);
-		self.tupleShapes = declarationsLowerer.tupleShapes();
 		keep declarationsLowerer;
 		ModuleUnitDeclarations shared = ModuleUnitDeclarations(declarations);
 		shared.configureNativeHeaders(input.analyzed.nativeDeclarations);
@@ -1858,7 +1866,7 @@ class ModuleUnitCompiler {
 		CycleReturnBoundaryLowerer programBoundaries = CycleReturnBoundaryLowerer();
 		bool programReleases = programBoundaries.releasesCyclableValues(programUnit);
 		BtrccPhaseTimer.mark("u-program-unit");
-		string programIdentity = self.programDigest();
+		string programIdentity = self.programDigest(shared);
 		BtrccPhaseTimer.mark("u-digest");
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");

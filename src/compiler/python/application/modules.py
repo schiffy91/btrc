@@ -639,6 +639,13 @@ class SharedDeclarations:
                 names.add(node.name)
         return names
 
+    def order(self) -> list[str]:
+        """Every entry's kind and names, in the shared order."""
+        return [
+            f"{field_name}:{','.join(sorted(self._provided(field_name, declaration)))}"
+            for field_name, declaration in self._entries
+        ]
+
     def configure_native_headers(self, declarations: Iterable[object]) -> None:
         """Record the C names each native binding header declares.
 
@@ -797,7 +804,7 @@ class ModuleUnitCompiler:
         return {name: digest.hexdigest() for name, digest in digests.items()}, counts
 
     @staticmethod
-    def _program_facts_digest(analyzed, facts: ProgramLoweringFacts) -> str:
+    def _program_facts_digest(analyzed, facts: ProgramLoweringFacts, shared: SharedDeclarations) -> str:
         digest = hashlib.sha256()
 
         def add(value: object) -> None:
@@ -809,9 +816,11 @@ class ModuleUnitCompiler:
             return sorted(ProgramInterface.canonical(instance) for instance in instances)
 
         add(bool(facts.uses_trycatch))
-        # A unit emits the tuple structs and the specializations it holds in
-        # the program's discovery order, which any group's body can move.
-        add(list(facts.tuple_types or ()))
+        # A unit takes the shared declarations it uses in their program order,
+        # and lowers its specializations in discovery order; other groups'
+        # bodies can move both (tuple, span and atomic shapes are discovered
+        # in bodies).
+        add(shared.order())
         add([view.symbol for view in facts.class_views or ()])
         add([view.symbol for view in facts.method_views or ()])
         add({name: type_args(instances) for name, instances in analyzed.generic_instances.items()})
@@ -874,7 +883,7 @@ class ModuleUnitCompiler:
         program_setjmp = self.setjmp_functions(program_unit)
         program_releases = IROptimizer.releases_cyclable_values(program_unit)
         interface = ProgramInterface().digest(analyzed.program.declarations)
-        program_digest = self._program_facts_digest(analyzed, facts)
+        program_digest = self._program_facts_digest(analyzed, facts, shared)
         group_sources, group_lines = self._group_sources(source, groups)
         context = json.dumps(
             {

@@ -413,6 +413,55 @@ def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, tm
     _lowered(incremental, 3)
 
 
+_SPAN_PROGRAM = {
+    "Lib.btrc": """int pick(int value) {
+	int storage[2] = {value, value};
+	Span<int> view = Span(storage);
+	double other[1] = {0.5};
+	Span<double> flag = Span(other);
+	return view.isEmpty() || flag.isEmpty() ? 0 : value;
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+int combine(int value) {
+	double left[2] = {1.5, 2.5};
+	Span<double> dv = Span(left);
+	int right[2] = {value, value};
+	Span<int> iv = Span(right);
+	return (dv.isEmpty() ? 0 : 1) + (iv.isEmpty() ? 0 : 1) + pick(value);
+}
+""",
+    "Main.btrc": """import ./Use.btrc;
+
+int main() {
+	print(f"{combine(2)}");
+	return 0;
+}
+""",
+}
+
+
+def test_reordered_span_shapes_keep_other_units_exact(compiler: str, tmp_path, request):
+    """btrcpy declares span shapes once, in body-discovery order, and every unit
+    takes them in that order; btrcc declares them in each unit's own session."""
+    _, incremental, _ = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _SPAN_PROGRAM,
+        {
+            "Lib.btrc": (
+                "\tint storage[2] = {value, value};\n\tSpan<int> view = Span(storage);\n"
+                "\tdouble other[1] = {0.5};\n\tSpan<double> flag = Span(other);\n",
+                "\tdouble other[1] = {0.5};\n\tSpan<double> flag = Span(other);\n"
+                "\tint storage[2] = {value, value};\n\tSpan<int> view = Span(storage);\n",
+            )
+        },
+    )
+    _lowered(incremental, 3 if compiler == "python" else 1)
+
+
 _INSTANCE_ORDER_PROGRAM = {
     "Lib.btrc": """class Box<T> {
 	public T value;

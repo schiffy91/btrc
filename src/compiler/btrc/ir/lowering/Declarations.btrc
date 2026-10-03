@@ -4009,7 +4009,6 @@ class DeclarationLowerer {
 			}
 			instanceIndex = instanceIndex + 1;
 		}
-		self.context.tupleShapes = order;
 		int s = 0;
 		while (s < order.len) {
 			string mangled = order.get(s);
