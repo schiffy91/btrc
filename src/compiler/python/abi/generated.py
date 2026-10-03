@@ -34,6 +34,19 @@ class GeneratedHostedFunctionRow(NamedTuple):
     realtime_effect: str
 
 
+class GeneratedTargetRow(NamedTuple):
+    operating_system: str
+    architecture: str
+
+
+class GeneratedPredefinedMacroRow(NamedTuple):
+    name: str
+    value: int
+    operating_systems: tuple[str, ...]
+    architectures: tuple[str, ...]
+    environments: tuple[str, ...]
+
+
 HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
     GeneratedHostedFunctionRow(
         name='_Exit',
@@ -17622,3 +17635,266 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
 HOSTED_ABI_FINGERPRINT = 'b07b01e79a64ba737b576643e93e54c5dce217fdbe11a11c74a1a4ddc3b86fe2'
+
+TARGET_ROWS: tuple[GeneratedTargetRow, ...] = (
+    GeneratedTargetRow('linux', 'x86_64'),
+    GeneratedTargetRow('linux', 'aarch64'),
+    GeneratedTargetRow('macos', 'x86_64'),
+    GeneratedTargetRow('macos', 'aarch64'),
+    GeneratedTargetRow('windows', 'x86_64'),
+    GeneratedTargetRow('windows', 'aarch64'),
+)
+
+TARGET_PREDEFINED_MACRO_ROWS: tuple[GeneratedPredefinedMacroRow, ...] = (
+    GeneratedPredefinedMacroRow(
+        name='__ELF__',
+        value=1,
+        operating_systems=('linux',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__linux',
+        value=1,
+        operating_systems=('linux',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__linux__',
+        value=1,
+        operating_systems=('linux',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__unix',
+        value=1,
+        operating_systems=('linux',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__unix__',
+        value=1,
+        operating_systems=('linux',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__APPLE__',
+        value=1,
+        operating_systems=('macos',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__MACH__',
+        value=1,
+        operating_systems=('macos',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='_WIN32',
+        value=1,
+        operating_systems=('windows',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='_WIN64',
+        value=1,
+        operating_systems=('windows',),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__amd64',
+        value=1,
+        operating_systems=(),
+        architectures=('x86_64',),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__amd64__',
+        value=1,
+        operating_systems=(),
+        architectures=('x86_64',),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__x86_64',
+        value=1,
+        operating_systems=(),
+        architectures=('x86_64',),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__x86_64__',
+        value=1,
+        operating_systems=(),
+        architectures=('x86_64',),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__aarch64__',
+        value=1,
+        operating_systems=(),
+        architectures=('aarch64',),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__arm64',
+        value=1,
+        operating_systems=('macos',),
+        architectures=('aarch64',),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__arm64__',
+        value=1,
+        operating_systems=('macos',),
+        architectures=('aarch64',),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__CHAR_UNSIGNED__',
+        value=1,
+        operating_systems=('linux',),
+        architectures=('aarch64',),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__CHAR_BIT__',
+        value=8,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__SIZEOF_SHORT__',
+        value=2,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__SIZEOF_INT__',
+        value=4,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__SIZEOF_LONG_LONG__',
+        value=8,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__SIZEOF_POINTER__',
+        value=8,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__SIZEOF_SIZE_T__',
+        value=8,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__SIZEOF_PTRDIFF_T__',
+        value=8,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__ORDER_LITTLE_ENDIAN__',
+        value=1234,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__ORDER_BIG_ENDIAN__',
+        value=4321,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__ORDER_PDP_ENDIAN__',
+        value=3412,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__BYTE_ORDER__',
+        value=1234,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__STDC__',
+        value=1,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+    GeneratedPredefinedMacroRow(
+        name='__STDC_VERSION__',
+        value=201112,
+        operating_systems=(),
+        architectures=(),
+        environments=(),
+    ),
+)
+
+TARGET_UNDEFINED_MACRO_NAMES: tuple[str, ...] = (
+    '__ANDROID__',
+    '__cplusplus',
+)
+
+TARGET_FOREIGN_MACRO_NAMES: tuple[str, ...] = (
+    'NDEBUG',
+    'TARGET_CPU_ARM',
+    'TARGET_CPU_ARM64',
+    'TARGET_CPU_PPC',
+    'TARGET_CPU_PPC64',
+    'TARGET_CPU_X86',
+    'TARGET_CPU_X86_64',
+    'TARGET_IPHONE_SIMULATOR',
+    'TARGET_OS_BRIDGE',
+    'TARGET_OS_DRIVERKIT',
+    'TARGET_OS_EMBEDDED',
+    'TARGET_OS_IOS',
+    'TARGET_OS_IPHONE',
+    'TARGET_OS_LINUX',
+    'TARGET_OS_MAC',
+    'TARGET_OS_MACCATALYST',
+    'TARGET_OS_OSX',
+    'TARGET_OS_SIMULATOR',
+    'TARGET_OS_TV',
+    'TARGET_OS_UNIX',
+    'TARGET_OS_VISION',
+    'TARGET_OS_WATCH',
+    'TARGET_OS_WIN32',
+    'TARGET_OS_WINDOWS',
+    'TARGET_RT_64_BIT',
+    'TARGET_RT_BIG_ENDIAN',
+    'TARGET_RT_LITTLE_ENDIAN',
+    'TARGET_RT_MAC_CFM',
+    'TARGET_RT_MAC_MACHO',
+    'WINAPI_FAMILY',
+    'bool',
+)
+
+TARGET_SPEC_FINGERPRINT = '41217ebe87181609d3bb2d8f68f3f4f9b3460196efcffac209ddd9d060f245c0'
