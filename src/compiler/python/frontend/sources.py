@@ -950,7 +950,10 @@ class ConditionedSource:
     tests: tuple[ConditionalTest, ...] = ()
 
 
-_COMPILER_RESERVED_PREFIXES = ("__btrc_", "__BTRC_", "__gpu_", "btrc_", "BTRC_")
+_COMPILER_RESERVED_PREFIXES = ("__btrc_", "__BTRC_", "__gpu_", "btrc_")
+# A macro name may not take BTRC_ either: the emitted C defines BTRC_INCLUDE_*,
+# BTRC_RT_* and BTRC_FREESTANDING. Other declarations may (stdlib enum values do).
+_MACRO_RESERVED_PREFIXES = (*_COMPILER_RESERVED_PREFIXES, "BTRC_")
 # The runtime's embedder hooks: btrc_rt.h defines each only under #ifndef, so a
 # program may #define it first (test_runtime_dependencies.py pins the GPU one).
 _RUNTIME_OVERRIDE_MACROS = frozenset({"BTRC_RT_ARENA_BYTES", "BTRC_RT_GPU_HEADER"})
@@ -967,7 +970,15 @@ class SourceMacroRules:
 
     @staticmethod
     def compiler_reserved_prefix(name: str) -> str | None:
+        """The compiler-reserved prefix of a declaration name, if any."""
+
         return next((prefix for prefix in _COMPILER_RESERVED_PREFIXES if name.startswith(prefix)), None)
+
+    @staticmethod
+    def macro_reserved_prefix(name: str) -> str | None:
+        """The compiler-reserved prefix of a macro name, ``BTRC_`` included."""
+
+        return next((prefix for prefix in _MACRO_RESERVED_PREFIXES if name.startswith(prefix)), None)
 
     @classmethod
     def violation(cls, name: str, *, define: bool) -> str | None:
@@ -977,7 +988,7 @@ class SourceMacroRules:
             return "'defined' cannot be #define'd or #undef'd (C11 6.10.8p2)"
         if name in TokenVocabulary.canonical().keywords:
             return f"'{name}' is a reserved word and cannot be used as a name"
-        prefix = cls.compiler_reserved_prefix(name)
+        prefix = cls.macro_reserved_prefix(name)
         if prefix is not None and not (define and name in _RUNTIME_OVERRIDE_MACROS):
             return (
                 f"Macro name '{name}' uses the compiler-reserved '{prefix}' prefix"
