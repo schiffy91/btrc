@@ -50,7 +50,9 @@ def _records(cache: Path) -> dict[Path, tuple[int, int]]:
     return records
 
 
-def _build(command: list[str], source: Path, output: Path, cache: Path, *extra: str) -> _Build:
+def _build(
+    command: list[str], source: Path, output: Path, cache: Path, *extra: str, environment: dict[str, str] | None = None
+) -> _Build:
     output.mkdir(parents=True, exist_ok=True)
     for stale in output.glob("p*.c"):
         stale.unlink()
@@ -76,6 +78,7 @@ def _build(command: list[str], source: Path, output: Path, cache: Path, *extra: 
             "BTRC_CACHE_DIR": str(cache),
             # btrcc reports its module-unit counters in its timing lines.
             **({} if command[0] == sys.executable else {"BTRC_TIMING": "1"}),
+            **(environment or {}),
         },
         capture_output=True,
         text=True,
@@ -99,6 +102,7 @@ def _incremental_matches_clean(
     files: dict[str, str],
     edits: dict[str, tuple[str, str]],
     *extra: str,
+    environment: dict[str, str] | None = None,
 ) -> tuple[_Build, _Build, _Build]:
     """Cold build, edit, incremental build; then a clean build of the edited
     program in a fresh cache, into the same output directory. Returns the
@@ -116,7 +120,7 @@ def _incremental_matches_clean(
         text = path.read_text()
         assert old in text, (name, old)
         path.write_text(text.replace(old, new, 1))
-    incremental = _build(command, source, output, root / "cache", *extra)
+    incremental = _build(command, source, output, root / "cache", *extra, environment=environment)
     clean = _build(command, source, output, root / "fresh-cache", *extra)
     assert incremental.diagnostics == clean.diagnostics
     assert incremental.units.keys() == clean.units.keys()
@@ -300,43 +304,165 @@ def test_lines_above_a_line_default_relower_its_callers(compiler: str, tmp_path,
     _lowered(incremental, 2)
 
 
-_DIVERGENCE_PROGRAM = {
-    "Lib.btrc": """void fail() {
+_LOOKUP = """string? lookup(int key) {
+	if (key > 0) { return "found"; }
+	return null;
+}
+"""
+
+_MAIN_USES = """import ./Use.btrc;
+
+int main() {
+	print(f"{use(1)}");
+	return 0;
+}
+"""
+
+# Each way a call can never return: a top-level function, a static method, and
+# a method `self` dispatches to, each defined in `Lib` and called from `Use`.
+_DIVERGENCE_PROGRAMS = {
+    "function": {
+        "Lib.btrc": """void fail() {
 	exit(1);
 }
 """,
-    "Use.btrc": """import ./Lib.btrc;
+        "Use.btrc": f"""import ./Lib.btrc;
 
-string? lookup(int key) {
+{_LOOKUP}
+int use(int key) {{
+	string? found = lookup(key);
+	if (found == null) {{
+		fail();
+	}}
+	string value = found;
+	return value.length();
+}}
+""",
+        "Main.btrc": _MAIN_USES,
+    },
+    "static": {
+        "Lib.btrc": """class Fail {
+	class void now() {
+		exit(1);
+	}
+}
+""",
+        "Use.btrc": f"""import ./Lib.btrc;
+
+{_LOOKUP}
+int use(int key) {{
+	string? found = lookup(key);
+	if (found == null) {{
+		Fail.now();
+	}}
+	string value = found;
+	return value.length();
+}}
+""",
+        "Main.btrc": _MAIN_USES,
+    },
+    "dispatch": {
+        "Lib.btrc": """class Guard {
+	public Guard() {}
+
+	public void stop() {
+		exit(1);
+	}
+}
+""",
+        "Use.btrc": f"""import ./Lib.btrc;
+
+{_LOOKUP}
+class Checker extends Guard {{
+	public Checker() {{}}
+
+	public int check(int key) {{
+		string? found = lookup(key);
+		if (found == null) {{
+			self.stop();
+		}}
+		string value = found;
+		return value.length();
+	}}
+}}
+
+int use(int key) {{
+	Checker checker = Checker();
+	return checker.check(key);
+}}
+""",
+        "Main.btrc": _MAIN_USES,
+    },
+}
+
+
+@pytest.mark.parametrize("form", sorted(_DIVERGENCE_PROGRAMS))
+def test_a_callee_that_starts_returning_replays_no_stale_warning(compiler: str, form: str, tmp_path, request):
+    """SB-D5: "never returns" is a body fact; the caller's warnings depend on it."""
+    cold, _, clean = _incremental_matches_clean(
+        compiler, request, tmp_path, _DIVERGENCE_PROGRAMS[form], {"Lib.btrc": ("exit(1);", "return;")}
+    )
+    assert not cold.diagnostics
+    assert any("Possibly-null value stored" in line for line in clean.diagnostics), clean.diagnostics
+
+
+_DISPATCH_PROGRAM = {
+    "Base.btrc": """string? lookup(int key) {
 	if (key > 0) { return "found"; }
 	return null;
 }
 
-int use(int key) {
-	string? found = lookup(key);
-	if (found == null) {
-		fail();
+class Base {
+	public Base() {}
+
+	public void stop() {
+		exit(1);
 	}
-	string value = found;
-	return value.length();
+
+	public int run(int key) {
+		string? found = lookup(key);
+		if (found == null) {
+			self.stop();
+		}
+		string value = found;
+		return value.length();
+	}
 }
 """,
-    "Main.btrc": """import ./Use.btrc;
+    "Sub.btrc": """import ./Base.btrc;
+
+class Sub extends Base {
+	public Sub() {}
+
+	public void stop() {
+		exit(2);
+	}
+}
+""",
+    "Main.btrc": """import ./Base.btrc;
+import ./Sub.btrc;
 
 int main() {
-	print(f"{use(1)}");
+	Sub sub = Sub();
+	print(f"{sub.run(1)}");
 	return 0;
 }
 """,
 }
 
 
-def test_a_callee_that_starts_returning_replays_no_stale_warning(compiler: str, tmp_path, request):
-    """SB-D5: "never returns" is a body fact; the caller's warnings depend on it."""
-    cold, _, clean = _incremental_matches_clean(
-        compiler, request, tmp_path, _DIVERGENCE_PROGRAM, {"Lib.btrc": ("exit(1);", "return;")}
+def test_verify_mode_accepts_a_record_whose_answers_moved(compiler: str, tmp_path, request):
+    """A record a replay would reject, because a "never returns" answer moved,
+    is not a disagreement for BTRC_VERIFY_VALIDATION_RECORDS (btrcc; btrcpy
+    keeps no analysis records)."""
+    _, _, clean = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _DISPATCH_PROGRAM,
+        {"Sub.btrc": ("exit(2);", "return;")},
+        environment={"BTRC_VERIFY_VALIDATION_RECORDS": "1"},
     )
-    assert not cold.diagnostics
     assert any("Possibly-null value stored" in line for line in clean.diagnostics), clean.diagnostics
 
 

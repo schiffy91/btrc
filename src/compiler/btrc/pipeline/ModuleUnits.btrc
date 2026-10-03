@@ -2958,7 +2958,9 @@ class ValidationRecords implements IValidationRecords {
 			/* Verifying: the record must equal the live journal, and must
 			 * resolve to nodes that encode back to the same text. */
 			Map<string, string> declarations = self.loaded.get(group);
-			if (text == null || !declarations.has(slot) || !declarations.get(slot).equals(text)) { return false; }
+			/* A record whose "never returns" answers moved is one a replay
+			 * rejects, so it is not a disagreement. */
+			if (text == null || !declarations.has(slot) || !declarations.get(slot).equals(text)) { return declarations.has(slot) && self.divergenceMoved(declarations.get(slot), journal); }
 			Vector<ValidationFact>? decoded = self.codec.decode(text);
 			if (decoded == null) { return false; }
 			ValidationJournal replayed = ValidationJournal();
@@ -2976,6 +2978,22 @@ class ValidationRecords implements IValidationRecords {
 		out.append("d\t" + slot + "\n");
 		out.append(text);
 		return true;
+	}
+
+	/* Whether a stored record answers a "never returns" question otherwise
+	 * than the live journal does. */
+	private bool divergenceMoved(string stored, ValidationJournal journal) {
+		Vector<ValidationFact>? recorded = self.codec.decode(stored);
+		if (recorded == null) { return false; }
+		Map<string, int> live = {};
+		for fact in journal.facts {
+			if (fact.kind == VALIDATION_DIVERGENCE) { live.put(fact.detail + "\t" + fact.name + "\t" + fact.member, fact.parameter); }
+		}
+		for fact in recorded {
+			string question = fact.detail + "\t" + fact.name + "\t" + fact.member;
+			if (fact.kind == VALIDATION_DIVERGENCE && live.has(question) && live.get(question) != fact.parameter) { return true; }
+		}
+		return false;
 	}
 
 	public bool reusable(Node declaration) {

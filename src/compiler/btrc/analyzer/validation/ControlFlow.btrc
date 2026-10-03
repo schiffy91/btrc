@@ -1565,12 +1565,28 @@ class NullableFlow {
 	}
 
 	private bool askDivergence(string kind, string owner, string name, Vector<string>? asked) {
-		if (asked != null) {
+		if (asked != null && self.divergenceReadsBodies(kind, owner, name)) {
 			asked.push(kind);
 			asked.push(owner);
 			asked.push(name);
 		}
 		return self.divergenceAnswer(kind, owner, name);
+	}
+
+	/* Whether an answer reads a callable's body. Otherwise it follows from
+	 * the hosted ABI and the program interface alone, which every record's
+	 * key covers. */
+	private bool divergenceReadsBodies(string kind, string owner, string name) {
+		if (kind == "function") { return !self.hostedAbi.noreturnFunction(name) && self.functionDefinitions.has(name); }
+		if (kind == "static") {
+			Node? method = self.method(owner, name);
+			return method != null && method.access == "class";
+		}
+		Vector<string> classes = [];
+		if (self.state.analyzed.isGenericClass(owner)) { classes.push(owner); }
+		else { classes = self.state.analyzed.subclassesOf(owner); }
+		for cls in classes { if (self.method(cls, name) != null) { return true; } }
+		return false;
 	}
 
 	/* Whether every call the program resolves this way never returns:
