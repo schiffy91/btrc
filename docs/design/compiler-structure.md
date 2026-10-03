@@ -74,7 +74,7 @@ stage owners:
 Compiler
   CompilationPipeline / CompilerPipeline
     FrontendStage
-      SourceResolver -> ResolvedSource(text, provenance, dependency graph)
+      SourceResolver -> ResolvedSource(conditioned text, provenance, dependency graph, #if records)
       Lexer
       Parser
     SemanticAnalyzer
@@ -144,7 +144,7 @@ src/compiler/python/
   frontend/
     __init__.py
     stage.py                      # frontend composition
-    sources.py                    # SourceResolver/dependency graph
+    sources.py                    # SourceResolver/dependency graph; per-file #if conditioning (SourceConditionals)
     imports.py                    # ImportResolver/visibility
     packages.py                   # PackageUniverse/GitDependencyCache
     native_imports.py             # NativeHeaderCodec: checked Clang semantic input
