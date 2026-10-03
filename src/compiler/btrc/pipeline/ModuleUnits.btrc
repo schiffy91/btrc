@@ -888,6 +888,9 @@ class ModuleUnitCompiler {
 
 	private Map<string, bool> lastInstances = {};
 	private Map<string, bool> lastConsulted = {};
+	/* The program's tuple shapes, in the order the declarations lowering
+	 * declared them: every unit emits the ones it uses in this order. */
+	private Vector<string> tupleShapes = [];
 
 	/* The generic-instance members the last lowered group defines. */
 	public Map<string, bool> lastInstanceNames() { return self.lastInstances; }
@@ -1045,8 +1048,23 @@ class ModuleUnitCompiler {
 			for declaration in input.program.declarations() { digest.appendText(SHA256.digest(renderer.render(declaration))); }
 		}
 		AstCanonicalRenderer positionFree = AstCanonicalRenderer.positionFreeRenderer();
+		/* The order of the program's files, as imports and includes place
+		 * them, orders every unit's directives and prototypes; it is not in
+		 * the interface digest, which sorts groups by name. */
+		digest.appendText("\nfiles\n");
+		string previousFile = "";
+		bool started = false;
+		for line in input.resolved.userLines {
+			if (started && line.sourceFile.equals(previousFile)) { continue; }
+			started = true;
+			previousFile = line.sourceFile;
+			digest.appendText("file:" + line.sourceFile + "\n");
+		}
 		digest.appendText("\nfacts\n");
 		digest.appendText(self.facts.usesTrycatch ? "trycatch" : "no-trycatch");
+		/* A unit emits the tuple structs it uses in the program's discovery
+		 * order, which any group's body can move. */
+		for shape in self.tupleShapes { digest.appendText("tuple:" + shape + "\n"); }
 		for instance in input.analyzed.genericInstances { digest.appendText("class:" + instance.mangled + "\n"); }
 		for instance in input.analyzed.methodGenInstances {
 			digest.appendText("method:" + instance.classBase + "." + instance.methodName + "<");
@@ -1826,6 +1844,7 @@ class ModuleUnitCompiler {
 		 * bodies and computes the facts every later lowering shares. */
 		IRLowerer declarationsLowerer = self.lowerer("<declarations>", false);
 		IRModule declarations = declarationsLowerer.lower(input.program);
+		self.tupleShapes = declarationsLowerer.tupleShapes();
 		keep declarationsLowerer;
 		ModuleUnitDeclarations shared = ModuleUnitDeclarations(declarations);
 		shared.configureNativeHeaders(input.analyzed.nativeDeclarations);

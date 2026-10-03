@@ -809,6 +809,11 @@ class ModuleUnitCompiler:
             return sorted(ProgramInterface.canonical(instance) for instance in instances)
 
         add(bool(facts.uses_trycatch))
+        # A unit emits the tuple structs and the specializations it holds in
+        # the program's discovery order, which any group's body can move.
+        add(list(facts.tuple_types or ()))
+        add([view.symbol for view in facts.class_views or ()])
+        add([view.symbol for view in facts.method_views or ()])
         add({name: type_args(instances) for name, instances in analyzed.generic_instances.items()})
         add(
             {

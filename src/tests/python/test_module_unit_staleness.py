@@ -335,6 +335,123 @@ def test_a_callee_that_starts_returning_replays_no_stale_warning(compiler: str, 
     assert any("Possibly-null value stored" in line for line in clean.diagnostics), clean.diagnostics
 
 
+_IMPORT_ORDER_PROGRAM = {
+    "First.btrc": """#define FIRST_LIMIT 4
+
+int first() { return FIRST_LIMIT; }
+""",
+    "Second.btrc": """#define SECOND_LIMIT 5
+
+int second() { return SECOND_LIMIT; }
+""",
+    "Main.btrc": """import ./First.btrc;
+import ./Second.btrc;
+
+int main() {
+	print(f"{first() + second()}");
+	return 0;
+}
+""",
+}
+
+
+def test_swapping_two_imports_matches_a_clean_build(compiler: str, tmp_path, request):
+    """SB-D6: the import order decides every unit's directive and prototype order."""
+    _, incremental, _ = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _IMPORT_ORDER_PROGRAM,
+        {"Main.btrc": ("import ./First.btrc;\nimport ./Second.btrc;", "import ./Second.btrc;\nimport ./First.btrc;")},
+    )
+    _lowered(incremental, 3)
+
+
+_TUPLE_PROGRAM = {
+    "Lib.btrc": """int pick(int value) {
+	(int, string) pair = (value, "lib");
+	return pair._0;
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+int combine(int value) {
+	(double, int) left = (1.5, value);
+	(int, string) right = (value, "use");
+	return left._1 + right._0 + pick(value);
+}
+""",
+    "Main.btrc": """import ./Use.btrc;
+
+int main() {
+	print(f"{combine(2)}");
+	return 0;
+}
+""",
+}
+
+
+def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, tmp_path, request):
+    """SB-D7: tuple structs were ordered by discovery across every body."""
+    _, incremental, _ = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _TUPLE_PROGRAM,
+        {
+            "Lib.btrc": (
+                '(int, string) pair = (value, "lib");',
+                '(double, int) flag = (0.5, value);\n\t(int, string) pair = (value, "lib");',
+            )
+        },
+    )
+    _lowered(incremental, 3)
+
+
+_INSTANCE_ORDER_PROGRAM = {
+    "Lib.btrc": """class Box<T> {
+	public T value;
+
+	public Box(T value) { self.value = value; }
+
+	public T get() { return self.value; }
+}
+""",
+    "Use.btrc": """import ./Lib.btrc;
+
+float total() {
+	Box<int> whole = new Box<int>(2);
+	Box<float> part = new Box<float>(0.5);
+	return whole.get() + part.get();
+}
+""",
+    "Main.btrc": """import ./Use.btrc;
+
+int main() {
+	print(f"{total()}");
+	return 0;
+}
+""",
+}
+
+
+def test_swapping_instance_uses_keeps_the_template_unit_exact(compiler: str, tmp_path, request):
+    """SB-D8: a template's instances were emitted in discovery order."""
+    _, incremental, _ = _incremental_matches_clean(
+        compiler,
+        request,
+        tmp_path,
+        _INSTANCE_ORDER_PROGRAM,
+        {
+            "Use.btrc": (
+                "Box<int> whole = new Box<int>(2);\n\tBox<float> part = new Box<float>(0.5);",
+                "Box<float> part = new Box<float>(0.5);\n\tBox<int> whole = new Box<int>(2);",
+            )
+        },
+    )
+    _lowered(incremental, 3)
+
+
 @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
 def test_an_unrelated_line_shift_reuses_every_other_unit(compiler: str, debug: bool, tmp_path, request):
     """The fixes stay narrow: lines added above a plain function relower only its group."""
