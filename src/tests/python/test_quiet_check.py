@@ -11,6 +11,7 @@ mode, because a hosted runner is never quiet.
 from __future__ import annotations
 
 import json
+import os
 import platform
 from collections.abc import Sequence
 from pathlib import Path
@@ -26,6 +27,7 @@ from tools.runbook.quiet import (
     ProcessProbe,
     ProcessRule,
     ProcessTable,
+    ProcFilesystem,
     QuietCheck,
     QuietRefused,
     QuietSettings,
@@ -167,6 +169,45 @@ def test_the_process_probe_fails_closed_when_ps_fails() -> None:
     broken = ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): (1, "")}))
 
     assert not ProcessProbe(broken, QuietSettings()).observe().ok
+
+
+def fake_proc(root: Path, uptime: float, *rows: tuple[int, int, str, str, int, bytes]) -> ProcFilesystem:
+    """A /proc tree: (pid, ppid, comm, state, cpu ticks, cmdline) per process, started at tick 100."""
+
+    root.mkdir()
+    (root / "uptime").write_text(f"{uptime} 0.00\n")
+    (root / "self").mkdir()
+    for pid, ppid, comm, state, ticks, cmdline in rows:
+        entry = root / str(pid)
+        entry.mkdir()
+        fixed = [state, str(ppid), *["0"] * 9, str(ticks), "0", *["0"] * 6, "100", "0"]
+        (entry / "stat").write_text(f"{pid} ({comm}) {' '.join(fixed)}\n")
+        (entry / "cmdline").write_bytes(cmdline)
+    return ProcFilesystem(root)
+
+
+def test_the_process_table_reads_proc_when_ps_is_not_installed(tmp_path: Path) -> None:
+    ticks = os.sysconf("SC_CLK_TCK")
+    proc = fake_proc(
+        tmp_path / "proc",
+        100.0 / ticks + 10.0,
+        (10, 1, "clang", "R", 5 * ticks, b"/usr/bin/clang\0-c\0x.c\0"),
+        (11, 2, "kworker/0:1 (x)", "I", 0, b""),
+    )
+    rows = {process.pid: process for process in ProcessTable(FakeRunner({}), own_pid=500, proc=proc).snapshot()}
+
+    assert rows[10].args == "/usr/bin/clang -c x.c" and rows[10].ppid == 1 and rows[10].cpu_percent == 50.0
+    assert rows[11].args == "[kworker/0:1 (x)]" and rows[11].ppid == 2
+    # The probe reads the same rows: the compile is a build that blocks a quiet round.
+    observation = ProcessProbe(ProcessTable(FakeRunner({}), proc=proc), QuietSettings()).observe()
+    assert not observation.ok and "pid 10 /usr/bin/clang -c x.c" in observation.detail
+
+
+def test_a_failing_ps_still_fails_closed_where_proc_exists(tmp_path: Path) -> None:
+    proc = fake_proc(tmp_path / "proc", 50.0, (10, 1, "sh", "S", 0, b"sh\0"))
+    broken = ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): (1, "")}), proc=proc)
+
+    assert broken.snapshot() is None
 
 
 def test_background_cpu_is_summed_per_group_against_its_limit() -> None:
