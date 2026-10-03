@@ -3,6 +3,8 @@
 import Library.BackgroundJobs.WorkerPools;
 import Library.Timer;
 import Library.Digest.SHA256;
+import Library.FileSystem;
+import Library.IO;
 import Library.JSON;
 import Library.Map;
 import Library.Platform;
@@ -2668,6 +2670,7 @@ class ValidationRecords implements IValidationRecords {
 	private Map<string, Map<string, string>> instancesWritten = {};
 	private Map<string, bool> instancesUnwritable = {};
 	public int instancesReplayed = 0;
+	private Node? spikeAnchor = null;
 
 	/* `nativeIdentity` identifies the imported native declarations (as the
 	 * artifact cache keys them), or is empty when they are not cacheable. */
@@ -2710,6 +2713,7 @@ class ValidationRecords implements IValidationRecords {
 			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
 		}
 		self.codec = ValidationRecordCodec(program.declarations(), self.fileOfDeclaration);
+		if (program.declarations().len > 0) { self.spikeAnchor = program.declarations().get(0); }
 		string context = f"validation-record-v4;target={options.target};strict={options.strictImports};stdlib={options.includeStdlib}";
 		Map<string, string> sources = {};
 		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
@@ -2987,6 +2991,33 @@ class ValidationRecords implements IValidationRecords {
 		lines.sort();
 		return Strings.join(lines, "");
 	}
+
+	public string spikeClosureKey(string seed) {
+		if (self.verify || self.interfaceDigest.isEmpty()) { return ""; }
+		string directory = SpikeCacheDirectory.root("instances");
+		if (directory.isEmpty()) { return ""; }
+		return PathTools.join(directory, SHA256.digest("instances-v1\n" + self.interfaceDigest + "\n" + seed));
+	}
+
+	public string? spikeLoadClosure(string key) { return Path.exists(key) ? Path.readAll(key) : null; }
+
+	public void spikeStoreClosure(string key, string text) {
+		Path.writeAll(key + ".tmp", text);
+		rename(key + ".tmp", key);
+	}
+
+	/* Facts named by position against the first declaration, so every node is
+	 * a foreign one and found through the program-wide indexes. */
+	public string? spikeEncodeFacts(Vector<ValidationFact> facts) {
+		Node? anchor = self.spikeAnchor;
+		if (anchor == null) { return null; }
+		ValidationJournal journal = ValidationJournal();
+		journal.facts = facts;
+		Map<string, bool> files = {};
+		return self.codec.encode(anchor, journal, files);
+	}
+
+	public Vector<ValidationFact>? spikeDecodeFacts(string text) { return self.codec.decode(text); }
 
 	public void abandon(Node declaration) {
 		string group = self.groupOf(declaration);
