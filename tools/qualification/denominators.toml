@@ -6,7 +6,14 @@
 # change, never a side effect of deleting a row.
 #
 # The three UI0 denominators come from the 2026-09-21 source inventory (btrc
-# 4e5c982). P0's operation denominator is its compact inventory ledger,
+# 4e5c982). The ui-operation and ui-case ids are read from the UI0 seed
+# ledger, docs/design/native-ui-catalog.toml, which holds exactly that
+# release's ui-operation and ui-case slots (moved off the Markdown checklists by CL-UIA-24 with the
+# same ids and sha256). The family-cell ids still come from the N-rows of
+# native-ui-parity.md until docs/design/native-ui-catalog/families.toml
+# lands. A kind may hold several releases, one entry each; a re-freeze is a
+# new reviewed entry beside the old one, and every entry here is in force.
+# P0's operation denominator is its compact inventory ledger,
 # docs/design/platform-inventory.toml, frozen per target slice on 2026-10-02
 # (btrc c7f785e): 84 stdlib exports outside UI0's groups, 223 runtime
 # helpers and 16 corpus topics. BTRSmith's journey denominator is frozen in
@@ -32,7 +39,7 @@ frontends = ["reference", "selfhost"]
 ids = 162
 slots = 1620
 sha256 = "c08b9a805be6b6af113049890ab74814b7d64832c4117800838edc58b417551e"
-source = { document = "docs/design/native-ui-api-inventory.md", pattern = '^\| `([A-Za-z]\w*\.[A-Za-z]\w*)` \|' }
+source = { ledger = "docs/design/native-ui-catalog.toml" }
 
 [[denominators]]
 kind = "ui-case"
@@ -42,7 +49,7 @@ frontends = ["reference", "selfhost"]
 ids = 47
 slots = 470
 sha256 = "1bbc6343d0dc262da4f93983669c3471bb21c9438483cb33bca7de0f67a1e864"
-source = { document = "docs/design/native-ui-parity.md", pattern = '^\| (E\d{2}) —' }
+source = { ledger = "docs/design/native-ui-catalog.toml" }
 
 [[denominators]]
 kind = "operation"
