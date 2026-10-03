@@ -29,6 +29,7 @@ from .nodes import (
     IRInclude,
     IRLiteral,
     IRMacroDef,
+    IRMacroUndef,
     IRModule,
     IRNode,
     IRObjectiveCAutoreleasePool,
@@ -228,11 +229,12 @@ class IRVerifier:
         if not isinstance(self.module.preprocessor_decls, list):
             raise TypeError("IRModule.preprocessor_decls requires a list")
         for declaration in self.module.preprocessor_decls:
-            if not isinstance(declaration, (IRInclude, IRMacroDef)):
+            if not isinstance(declaration, (IRInclude, IRMacroDef, IRMacroUndef)):
                 raise TypeError(
-                    f"IRModule.preprocessor_decls requires IRInclude or IRMacroDef, got {type(declaration).__name__}"
+                    "IRModule.preprocessor_decls requires IRInclude, IRMacroDef or IRMacroUndef, "
+                    f"got {type(declaration).__name__}"
                 )
-            if isinstance(declaration, IRMacroDef):
+            if isinstance(declaration, (IRMacroDef, IRMacroUndef)):
                 declaration.validate()
 
     def validate_type_declarations(self) -> None:

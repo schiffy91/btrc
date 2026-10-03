@@ -876,7 +876,12 @@ class ExpressionAnalyzer:
                 f"Ambiguous enum member '{name}' belongs to {enums}; qualify it", expression.line, expression.col
             )
             return
-        if self.index.source_macros.declared(name) or self.declarations.known_c_global(name):
+        if self.index.source_macros.declared(name):
+            violation = self.index.source_macros.code_use_violation(name)
+            if violation is not None:
+                self.session.error(violation, expression.line, expression.col)
+            return
+        if self.declarations.known_c_global(name):
             return
         if self.calls.validate_constructor_default_member(expression, direct_callee=direct_callee):
             return

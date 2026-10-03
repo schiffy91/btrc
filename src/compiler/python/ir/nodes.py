@@ -488,6 +488,20 @@ class IRMacroDef(IRNode):
 
 
 @dataclass
+class IRMacroUndef(IRNode):
+    """A source ``#undef NAME``, emitted in hoisted source order."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        if not IRMacroDef._is_c_identifier(self.name):
+            raise ValueError(f"invalid macro name: {self.name!r}")
+
+
+@dataclass
 class IRStructField(IRNode):
     """A field in a C struct."""
 
@@ -1024,7 +1038,7 @@ class IRModule(IRNode):
     temporary_names: set[str] = field(
         default_factory=set, repr=False, compare=False, metadata={"ir_traverse": False, "ir_render": False}
     )
-    preprocessor_decls: list[IRInclude | IRMacroDef] = field(default_factory=list)
+    preprocessor_decls: list[IRInclude | IRMacroDef | IRMacroUndef] = field(default_factory=list)
     freestanding: bool = False
     runtime_roots: set[str] = field(default_factory=set)
     native_external_names: set[str] = field(default_factory=set, metadata={"ir_traverse": False})
@@ -1380,6 +1394,7 @@ __all__ = (
     "IRLineMarker",
     "IRLiteral",
     "IRMacroDef",
+    "IRMacroUndef",
     "IRModule",
     "IRNode",
     "IRObjectiveCAutoreleasePool",

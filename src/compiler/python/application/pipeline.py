@@ -19,9 +19,11 @@ from ..analyzer.analyzer import SemanticAnalyzer
 from ..backend.c_emitter import CEmitter
 from ..frontend.imports import FrontendVisibilityError
 from ..frontend.native_imports import NativeHeaderSource
-from ..frontend.packages import NativeGeneratedUnit, NativeLinkPlan
+from ..frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
 from ..frontend.sources import (
     CompilerStdlibSource,
+    ConditionalEnvironment,
+    PreprocessorConditionalError,
     ResolvedSource,
     SourceResolver,
     StdlibRepository,
@@ -521,11 +523,14 @@ class CompilationPipeline:
         return tuple(diagnostics)
 
     @staticmethod
-    def _failure(error: Exception) -> CompilerFailure:
+    def failure_for(error: Exception) -> CompilerFailure:
         if isinstance(error, (LexerError, ParseError)):
             message = str(error).removesuffix(f" at {error.line}:{error.col}")
             diagnostic = CompilerDiagnostic(message, error.line, error.col)
             return CompilerFailure(CompilerFailureKind.SYNTAX, message, (diagnostic,))
+        if isinstance(error, PreprocessorConditionalError):
+            diagnostic = CompilerDiagnostic(error.message, error.line, error.col, file=error.file, local=True)
+            return CompilerFailure(CompilerFailureKind.SYNTAX, error.message, (diagnostic,))
         if isinstance(error, FrontendVisibilityError):
             diagnostics = tuple(CompilerDiagnostic(message, line, col) for message, line, col in error.errors)
             return CompilerFailure(CompilerFailureKind.FRONTEND, "import visibility validation failed", diagnostics)
@@ -728,12 +733,18 @@ class CompilationPipeline:
         )
         try:
             parsed = self.parse(source, filename, options, profile)
-        except (LexerError, ParseError, FrontendVisibilityError, RecursionError) as error:
+        except (
+            LexerError,
+            ParseError,
+            FrontendVisibilityError,
+            PreprocessorConditionalError,
+            RecursionError,
+        ) as error:
             return self._result(
                 source,
                 options,
                 profile,
-                failure=self._failure(error),
+                failure=self.failure_for(error),
                 split_source_spaces=split_source_spaces,
             )
 
@@ -783,7 +794,7 @@ class CompilationPipeline:
                     timed=self._timed,
                 )
             except CodegenError as error:
-                return self._result(source, options, profile, failure=self._failure(error), **common)
+                return self._result(source, options, profile, failure=self.failure_for(error), **common)
             return self._result(
                 source,
                 options,
@@ -818,7 +829,7 @@ class CompilationPipeline:
                     module,
                     program,
                     options.stdlib_archive,
-                    self.frontend.stdlib.source(""),
+                    self.frontend.stdlib.source("", ConditionalEnvironment(source.native_plan.target)),
                 )
                 self._finalize_optimized_ir(module)
                 self._timed(profile, "stdlib_archive", start)
@@ -837,7 +848,7 @@ class CompilationPipeline:
             else:
                 c_source = self.emit(module, profile)
         except (CodegenError, StdlibArchiveError) as error:
-            return self._result(source, options, profile, failure=self._failure(error), **common)
+            return self._result(source, options, profile, failure=self.failure_for(error), **common)
         return self._result(
             source,
             options,
@@ -878,17 +889,27 @@ class CompilationPipeline:
             graph=resolved.graph,
         )
 
-    def build_stdlib_archive(self, out_dir: str) -> CompilerActionResult:
-        """Compile and publish the canonical standard library through owned stages."""
+    def build_stdlib_archive(self, out_dir: str, target: str | None = None) -> CompilerActionResult:
+        """Compile and publish the canonical standard library through owned stages.
 
-        stdlib_source = self.frontend.stdlib.source("")
+        Each stdlib file is conditioned for ``target``, the host when unset.
+        """
+
+        try:
+            environment = ConditionalEnvironment(PackageTarget.coerce(target))
+        except ValueError as error:
+            return CompilerActionResult(failure=CompilerFailure(CompilerFailureKind.INPUT, str(error)))
+        try:
+            stdlib_source = self.frontend.stdlib.source("", environment)
+        except PreprocessorConditionalError as error:
+            return CompilerActionResult(failure=self.failure_for(error))
         if not stdlib_source.strip():
             failure = CompilerFailure(CompilerFailureKind.INPUT, "no stdlib sources found")
             return CompilerActionResult(failure=failure)
         try:
             program = Parser(Lexer(stdlib_source, "<stdlib>").tokenize()).parse()
         except (LexerError, ParseError) as error:
-            return CompilerActionResult(failure=self._failure(error))
+            return CompilerActionResult(failure=self.failure_for(error))
         for declaration in program.declarations:
             declaration.source_file = CompilerStdlibSource()
             CompilerStdlibSource.stamp_nested(declaration)
@@ -922,6 +943,6 @@ class CompilationPipeline:
             module = self.optimize(module, options)
             self.stdlib_archive.publish(out_dir, module, stdlib_source)
         except (CodegenError, StdlibArchiveError) as error:
-            failure = self._failure(error)
+            failure = self.failure_for(error)
             return CompilerActionResult(failure=failure)
         return CompilerActionResult.completed(f"Built stdlib archive → {out_dir}", directory=out_dir)

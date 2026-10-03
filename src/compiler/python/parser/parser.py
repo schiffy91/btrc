@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import re
 from types import MappingProxyType
 
 from src.compiler.python.syntax.ast.generated import (
@@ -129,6 +130,18 @@ class ParseError(Exception):
         super().__init__(f"{message} at {line}:{col}")
 
 
+class DirectivePlacementError(ParseError):
+    """A preprocessor directive anywhere but at file scope (B1)."""
+
+    _NAME = re.compile(r"#[ \t\f\v]*([A-Za-z_][A-Za-z0-9_]*)?")
+
+    @classmethod
+    def at(cls, token: Token) -> DirectivePlacementError:
+        match = cls._NAME.match(token.value)
+        name = (match.group(1) or "") if match is not None else ""
+        return cls(f"Preprocessor directive '#{name}' must be at file scope", token.line, token.col)
+
+
 class Parser:
     """Own one complete recursive-descent parse invocation."""
 
@@ -139,7 +152,15 @@ class Parser:
     def parse(self):
         decls = []
         while not self._at_end():
-            decls.extend(self._parse_top_level_items())
+            try:
+                decls.extend(self._parse_top_level_items())
+            except ParseError as error:
+                # A directive the parser met anywhere but at an item start is
+                # out of place, whatever the item's own error would say (B1).
+                current = self._peek()
+                if current.type == TokenKind.PREPROCESSOR and not isinstance(error, DirectivePlacementError):
+                    raise DirectivePlacementError.at(current) from error
+                raise
         return Program(declarations=decls)
 
     # ---- Token helpers ----
@@ -152,6 +173,8 @@ class Parser:
 
     def _advance(self) -> Token:
         tok = self.tokens[self.pos]
+        if tok.type == TokenKind.PREPROCESSOR:
+            raise DirectivePlacementError.at(tok)
         self.pos += 1
         return tok
 
@@ -1030,7 +1053,8 @@ class Parser:
         raise self._error(f"Unexpected token '{tok.value}' at top level")
 
     def _parse_preprocessor(self) -> PreprocessorDirective:
-        tok = self._advance()
+        tok = self.tokens[self.pos]
+        self.pos += 1
         return PreprocessorDirective(text=tok.value, line=tok.line, col=tok.col)
 
     def _parse_import_decl(self) -> ImportDecl:

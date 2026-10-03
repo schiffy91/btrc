@@ -46,6 +46,10 @@ class SourceMacroAnalyzer:
     def plan_call(self, call) -> SourceMacroCallPlan | None:
         if not isinstance(call.callee, Identifier):
             return None
+        violation = self.index.source_macros.code_use_violation(call.callee.name)
+        if violation is not None:
+            self.session.error(violation, call.callee.line, call.callee.col)
+            return None
         directive = self.index.source_macros.active(call.callee.name)
         if directive is None or not directive.function_like:
             return None

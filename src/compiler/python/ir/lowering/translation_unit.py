@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
-from src.compiler.python.frontend.sources import CompilationGroups
+from src.compiler.python.frontend.sources import CompilationGroups, SourceConditionals, SourceMacroRules
 from src.compiler.python.ir.lowering.reachability import StdlibReachability
 from src.compiler.python.ir.nodes import (
     CType,
@@ -26,6 +26,7 @@ from src.compiler.python.ir.nodes import (
     IRInclude,
     IRLiteral,
     IRMacroDef,
+    IRMacroUndef,
     IRParam,
     IRStructDef,
     IRStructField,
@@ -92,6 +93,7 @@ _DEFINE_NAME = re.compile("^\\s+([A-Za-z_][A-Za-z0-9_]*)(.*)$")
 _IDENTIFIER = re.compile("^[A-Za-z_][A-Za-z0-9_]*$")
 _INCLUDE = re.compile('^\\s*(?:<([^>\\r\\n]+)>|"([^"\\r\\n]+)")\\s*$')
 _C11_TRIGRAPH = re.compile("\\?\\?[=/'()!<>-]")
+_UNDEF = re.compile("[ \\t]+([A-Za-z_][A-Za-z0-9_]*)[ \\t]*")
 
 
 class TranslationUnitLowerer:
@@ -869,6 +871,10 @@ class TranslationUnitLowerer:
         text = declaration.text.strip()
         if text.endswith("\\"):
             raise CodegenError("multi-line preprocessor directives are unsupported")
+        if SourceConditionals.directive_whitespace(text) is not None:
+            raise CodegenError("only spaces and tabs may separate tokens in a preprocessor directive (C11 6.10p5)")
+        if SourceConditionals.unclosed_comment(text) is not None:
+            raise CodegenError("a comment in a preprocessor directive must close on the same line")
         if self.is_pack_pragma(text):
             return
         match = _DIRECTIVE.fullmatch(text)
@@ -887,6 +893,11 @@ class TranslationUnitLowerer:
                 self._session.module.preprocessor_decls.append(include)
         elif directive == "define":
             self._session.module.preprocessor_decls.append(self._parse_define(payload, text))
+        elif directive == "undef":
+            match = _UNDEF.fullmatch(SourceMacroRules.without_comments(payload))
+            if match is None:
+                raise CodegenError(f"malformed #undef directive: {text}")
+            self._session.module.preprocessor_decls.append(IRMacroUndef(name=match.group(1)))
         elif directive == "pragma":
             raise CodegenError(f"unsupported #pragma directive: {text}")
         else:

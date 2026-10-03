@@ -214,7 +214,7 @@ class CompilerCommand:
         if args.build_stdlib is not None:
             if not self.compiler.stdlib_archive_available:
                 parser.error("--build-stdlib requires a configured stdlib archive repository")
-            self._complete_action(self.compiler.build_stdlib_archive(args.build_stdlib))
+            self._complete_action(self.compiler.build_stdlib_archive(args.build_stdlib, args.target))
             return 0
         if not args.input:
             parser.error("the following arguments are required: input")

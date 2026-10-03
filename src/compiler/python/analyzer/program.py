@@ -219,9 +219,11 @@ class SourceMacroNamespace:
         self,
         declared_names: Iterable[str] = (),
         definitions: Mapping[str, SourceSymbolDirective] | None = None,
+        undefined_names: Iterable[str] = (),
     ) -> None:
         self._declared_names = frozenset(declared_names)
         self._definitions = MappingProxyType(dict(definitions or {}))
+        self._undefined_names = frozenset(undefined_names)
 
     @classmethod
     def empty(cls) -> SourceMacroNamespace:
@@ -240,6 +242,57 @@ class SourceMacroNamespace:
 
     def active(self, name: str) -> SourceSymbolDirective | None:
         return self._definitions.get(name)
+
+    def undefined(self, name: str) -> bool:
+        """Whether some live ``#undef`` names the macro."""
+
+        return name in self._undefined_names
+
+    def code_use_violation(self, name: str) -> str | None:
+        """Why code may not use a declared source macro (U1, U2), if it may not.
+
+        Every directive is emitted before the program, so code sees each
+        macro's final state, never the one at its own position.
+        """
+
+        if not self._undefined_names or name not in self._declared_names:
+            return None
+        suffix = "btrc emits every #define and #undef before the program"
+        if name in self._undefined_names:
+            return f"Source macro '{name}' cannot be used in code because it is #undef'd; {suffix}"
+        directive = self.active(name)
+        if directive is None:
+            return None
+        reached = next(
+            (identifier for identifier in self._reached_identifiers(name) if identifier in self._undefined_names),
+            None,
+        )
+        if reached is None:
+            return None
+        return (
+            f"Source macro '{name}' cannot be used in code because it expands to #undef'd macro '{reached}'; {suffix}"
+        )
+
+    def _reached_identifiers(self, name: str) -> list[str]:
+        """Replacement identifiers reachable from an active macro, in discovery order."""
+
+        reached: list[str] = []
+        pending = [name]
+        visiting: set[str] = set()
+        while pending:
+            current = pending.pop(0)
+            if current in visiting:
+                continue
+            visiting.add(current)
+            directive = self.active(current)
+            if directive is None:
+                continue
+            for identifier in directive.replacement_identifiers():
+                if identifier not in reached:
+                    reached.append(identifier)
+                if identifier not in visiting and self.active(identifier) is not None:
+                    pending.append(identifier)
+        return reached
 
     def string_spellings(self, name: str, visiting: frozenset[str] = frozenset()) -> tuple[str, ...] | None:
         """The ``"..."`` spellings an object-like macro expands to, or ``None``."""

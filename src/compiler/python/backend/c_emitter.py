@@ -44,6 +44,7 @@ from ..ir.nodes import (
     IRLineMarker,
     IRLiteral,
     IRMacroDef,
+    IRMacroUndef,
     IRModule,
     IRObjectiveCAutoreleasePool,
     IRObjectiveCBlock,
@@ -433,12 +434,12 @@ class CEmitter:
         formatting pass; the emitter never scans generated C to infer them."""
         if module.freestanding:
             if any(
-                not isinstance(declaration, IRMacroDef) and declaration.is_system
+                isinstance(declaration, IRInclude) and declaration.is_system
                 for declaration in module.preprocessor_decls
             ):
                 raise ValueError("freestanding system includes must be lowered before C emission")
             has_seam = any(
-                not isinstance(declaration, IRMacroDef) and declaration.header == "btrc_rt.h"
+                isinstance(declaration, IRInclude) and declaration.header == "btrc_rt.h"
                 for declaration in module.preprocessor_decls
             )
             if module.needs_runtime and not has_seam:
@@ -1108,12 +1109,14 @@ class CEmitter:
 
     def _preprocessor_text(
         self,
-        declaration: IRInclude | IRMacroDef,
+        declaration: IRInclude | IRMacroDef | IRMacroUndef,
     ) -> str:
         if isinstance(declaration, IRInclude):
             if self._include_once and not declaration.is_system:
                 return self._include_once_text(declaration)
             return self._include_text(declaration)
+        if isinstance(declaration, IRMacroUndef):
+            return f"#undef {declaration.name}"
         return self._macro_text(declaration)
 
     @classmethod
