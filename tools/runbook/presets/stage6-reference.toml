@@ -1,0 +1,84 @@
+# Stage 6: reference-compiler attribution (PLAN.md Stage 6 `perf-ref-attribution`; CL-R-06, run by MAC-R-03).
+#
+#   tools/runbook/run.sh stage6-spikes stage6-reference stage6-native
+#
+# On the Mac, on the BTRSmith pin Stage 5 measured: `tools/perf.py --cprofile`
+# times the reference compiler's cold transpiles and budget_bench's three
+# body-edit fixtures, each sample once plain (the unprofiled `btrcpy
+# timing:` phases) and once under cProfile, and writes per scenario the time
+# by owner, module and owner class, its reconciliation with the phases, and the
+# attributed fraction. The Stage 6 exit is at least 90% attributed; a scenario
+# below it turns its cell red. Rerunning the same command resumes.
+#
+# Each cell's `attribution` result carries its attributed fractions and owner
+# shares into summary.json and the evidence branch; the full JSON (modules,
+# owner classes, functions) and the .prof files stay under the run's
+# workspace in out/<cell>/.
+# In a container: tools/runbook/run.sh stage6-reference --rehearsal --stand-in --dry-run
+
+[preset]
+title = "Stage 6 reference-compiler attribution (cProfile by owner and phase)"
+packet = "MAC-R-03"
+kind = "measurement"
+# Every cell times plain builds beside the profiled ones, so it waits for quiet.
+quiet = true
+on_failure = "continue"
+before = [
+  "stop the podman machine (`podman machine stop`) and every agent session, build and guest on the Mac",
+  "put Stage 5's BTRSmith pin in --btrsmith-branch if BTRSmith main has moved since MAC-R-02",
+]
+next_action = "nothing: CL-R-08 reads the attribution JSON (out/<cell>/attribution.json) for the Stage 8 reference cuts."
+
+[btrc]
+ref = "main"
+
+[btrsmith]
+# The pin Stage 5 measured: BTRSmith main after MAC-R-01's fast-forward push.
+pins = { post-stage4 = "main" }
+branch_pin = "post-stage4"
+
+[variables]
+cold_samples = "3"
+edit_samples = "5"
+# PLAN.md Stage 6 exit: at least 90% of reference time attributed.
+min_attributed = "0.90"
+
+[rehearsal.variables]
+# A container rehearsal proves the wiring, not the numbers.
+cold_samples = "1"
+edit_samples = "1"
+
+[stand_in]
+collapse = ["pin"]
+
+[quiet]
+# Overridden locally by ~/.cache/btrc/runbook/quiet.toml (README.md).
+window_s = 60
+interval_s = 5
+
+[[cell]]
+id = "reference-cold-{mode}"
+title = "reference cold transpile, plain and under cProfile ({mode})"
+matrix = { mode = ["dev", "release"] }
+lock = "bench"
+shell = "btrsmith"
+result = "attribution"
+timeout_hours = 4
+command = [
+  "python3", "-m", "tools.perf", "--cprofile", "--frontend", "reference", "{workspace_args}",
+  "--mode", "{mode}", "--cold-samples", "{cold_samples}", "--edits", "none",
+  "--min-attributed", "{min_attributed}", "--out", "{out}", "--json", "{out}/attribution.json", "{dry_run_args}",
+]
+
+[[cell]]
+id = "reference-edits"
+title = "reference body edits (budget_bench EDIT_FIXTURES), plain and under cProfile"
+lock = "bench"
+shell = "btrsmith"
+result = "attribution"
+timeout_hours = 4
+command = [
+  "python3", "-m", "tools.perf", "--cprofile", "--frontend", "reference", "{workspace_args}",
+  "--mode", "dev", "--cold-samples", "0", "--edits", "all", "--edit-samples", "{edit_samples}",
+  "--min-attributed", "{min_attributed}", "--out", "{out}", "--json", "{out}/attribution.json", "{dry_run_args}",
+]

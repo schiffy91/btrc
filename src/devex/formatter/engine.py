@@ -238,6 +238,19 @@ class SourceView:
                 cursor -= 1
         return frozenset(result)
 
+    def type_headers(self) -> tuple[StatementSpan, ...]:
+        """Each type declaration's header, from its first token to its body's ``{``.
+
+        A header holding ``=`` or parentheses declares a variable or function
+        of a ``struct`` type rather than a type body, so it is not one.
+        """
+        result: list[StatementSpan] = []
+        for open_index in sorted(self.class_braces):
+            start_index = self._declaration_start(open_index)
+            if not any(lexeme.text in {"=", "(", ")"} for lexeme in self.significant[start_index:open_index]):
+                result.append(StatementSpan(start_index, open_index))
+        return tuple(result)
+
     def _index_containing_braces(self) -> tuple[int | None, ...]:
         result: list[int | None] = []
         stack: list[int] = []
@@ -1189,6 +1202,19 @@ class BtrcFormatter:
             last_index_by_line[lexeme.line] = index
             index_of[id(lexeme)] = index
 
+        # A wrapped type header: every line after the keyword's continues it,
+        # except one that opens the body, and the body nests one level in from
+        # the keyword's line however the header wraps.
+        type_header_continuations: dict[int, bool] = {}
+        type_body_braces: set[int] = set()
+        for header in view.type_headers():
+            type_body_braces.add(header.end_index)
+            header_line = view.significant[header.start_index].line
+            for index in range(header.start_index, header.end_index + 1):
+                lexeme = view.significant[index]
+                if lexeme.line != header_line and lexeme.line not in type_header_continuations:
+                    type_header_continuations[lexeme.line] = index != header.end_index
+
         brace_depth = 0
         paren_depth = 0
         previous_token: Lexeme | None = None
@@ -1248,6 +1274,7 @@ class BtrcFormatter:
                         or (previous_token is not None and previous_token.text in self._TRAILING_CONTINUATION_TOKENS)
                         or self._continues_adjacent_strings(first_token, previous_token, previous_first)
                     )
+                    continued = type_header_continuations.get(line.number, continued)
                     if continued or first == "}" or (paren_depth > 0 and first in {")", "]"}):
                         # A closing ')' or ']' line stays with its statement.
                         pass
@@ -1298,7 +1325,10 @@ class BtrcFormatter:
                     continue
                 if lexeme.text == "{":
                     brace_depth += 1
-                    brace_frames.append((line_extra, body_extra, pending_ifs, pending_dos))
+                    # A type body nests past its header's first line, not past
+                    # the continuation line its '{' may close the header on.
+                    frame_extra = body_extra if index in type_body_braces else line_extra
+                    brace_frames.append((frame_extra, body_extra, pending_ifs, pending_dos))
                     body_extra = line_extra = 0
                     pending_ifs = []
                     pending_dos = []

@@ -2,7 +2,7 @@
   "schema": "btrc.expected-skips/1",
   "runner": "linux-devcontainer",
   "enforce": true,
-  "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, sqlite, BTRC_NATIVE_PROVIDER_CC/CXX). Every covered_by macos claim was checked against macOS run 36898564246's unit and btrc reports. Every shard runs under tools/virtual-display.sh (Xvfb and Mesa lavapipe), so the Linux GUI and GPU compute-adapter tests run and their skips are no longer expected.",
+  "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, sqlite, BTRC_NATIVE_PROVIDER_CC/CXX). Every covered_by macOS claim was checked against macOS run 36898564246's unit and btrc reports, and again (as macos-hosted) against macOS run 37110991739 in Stage 38. Every shard runs under tools/virtual-display.sh (Xvfb and Mesa lavapipe), so the Linux GUI and GPU compute-adapter tests run and their skips are no longer expected. Its macOS coverage names macos-hosted, the runner macos.yml reports as since Stage 38 (CL-R-36), so every claim is checked against hosted reports on each push; the acceptance Mac runs a superset.",
   "rules": [
     {
       "id": "native-reader-macos-only",
@@ -14,7 +14,7 @@
       "reason": "^requires macOS and the explicitly built native header reader$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Native imports of Apple SDK headers (AppKit, Foundation, CoreFoundation, Objective-C and C++ owners, callbacks, realtime, resources) need macOS and its SDK; the macOS unit and btrc shards build the reader and run these."
     },
@@ -26,7 +26,7 @@
       "reason": "^native SHA requires macOS and the configured SDK reader$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "The SDK-backed artifact digest provider is composed only by cli/MacOSMain.btrc; macos.yml's btrc shard runs it."
     },
@@ -38,7 +38,7 @@
       "reason": "^requires the (Apple (AppKit|Foundation) SDK|actual macOS CoreFoundation SDK)$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Reads the real Apple SDK headers, which exist only on macOS."
     },
@@ -50,7 +50,7 @@
       "reason": "^requires the Apple Foundation runtime$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Links and runs emitted Objective-C against Foundation."
     },
@@ -62,7 +62,7 @@
       "reason": "^requires real AppKit$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Runs a real AppKit application loop."
     },
@@ -75,7 +75,7 @@
       "reason": "^CoreAudio is available only on macOS$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "CoreAudio exists only on macOS; Linux audio runs through the ALSA cases of test_native_linux_providers.py."
     },
@@ -87,7 +87,7 @@
       "reason": "^ImageIO is available only on macOS$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "ImageIO exists only on macOS; Linux image decoding runs in test_native_linux_providers.py."
     },
@@ -99,7 +99,7 @@
       "reason": "^actual SDK compiler qualification runs on macOS$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Compiles emitted C++ with the Apple SDK compiler."
     },
@@ -111,7 +111,7 @@
       "reason": "^Darwin executable debug maps reference object files$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Mach-O debug maps; ELF executables embed their DWARF instead."
     },
@@ -123,7 +123,7 @@
       "reason": "^Darwin dependency-info link receipts$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "ld64's -dependency_info receipts have no GNU ld equivalent."
     },
@@ -135,7 +135,7 @@
       "reason": "^Mach-O spawn interposition$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Interposes posix_spawn through Mach-O dyld."
     },
@@ -147,7 +147,7 @@
       "reason": "^this reader/runtime has no qualified persistent-cache provider$",
       "category": "capability",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Only the macOS reader/runtime is admitted as an immutable persistent-cache provider; BTRC_NATIVE_CACHE_REQUIRED=1 turns this skip into a failure where one is required."
     },
@@ -159,7 +159,7 @@
       "reason": "^requires Apple LLDB$",
       "category": "platform",
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "Resolves Apple's lldb through xcrun."
     },
@@ -176,7 +176,7 @@
         ]
       },
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "The Linux dev shell carries no lldb: nixpkgs' Linux lldb is built for python3.13 while the debug adapter probes the shell's python3 (3.14), so stage4/tools-ci left it out. macos.yml's unit shard enables developer mode and runs these four DAP sessions (run 36934014516)."
     },
@@ -196,7 +196,7 @@
         ]
       },
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "The Linux dev shell carries no pugixml; only the Darwin shells add it, for the macOS-only C++ owner proofs. The Darwin dev shells carry it since stage4/tools-ci (88a5c36), and macOS run 36934014516 ran every case this rule explains."
     },
@@ -216,7 +216,7 @@
         ]
       },
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "The header reader implements a native compiler provider only on Apple hosts (tools/NativeHeaderReader.cpp refuses with unsupported-compiler-provider elsewhere), so only the Darwin dev shells export BTRC_NATIVE_PROVIDER_CC/CXX; exported here, these skips would become failures. macOS run 36934014516 ran every case this rule explains."
     },
@@ -235,7 +235,7 @@
         ]
       },
       "covered_by": [
-        "macos"
+        "macos-hosted"
       ],
       "note": "The header reader implements a native compiler provider only on Apple hosts (tools/NativeHeaderReader.cpp refuses with unsupported-compiler-provider elsewhere), so only the Darwin dev shells export BTRC_NATIVE_PROVIDER_CC/CXX; exported here, these skips would become failures. macOS run 36934014516 ran every case this rule explains."
     },

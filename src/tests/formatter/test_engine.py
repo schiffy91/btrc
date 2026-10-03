@@ -740,3 +740,35 @@ def test_ifs_inside_an_unbraced_do_body_close_with_its_while(body: str) -> None:
 def test_a_body_opened_on_a_continuation_line_nests_past_it(body: str) -> None:
     source = _in_main(body)
     assert formatted(source, indent_style="tabs") == source
+
+
+_WRAPPED_TYPE_HEADERS = [
+    "class Pair<\n\tA, B> {\n\tprivate A _a;\n}\n",
+    "class Pair<\n\tA, B>\n{\n\tprivate A _a;\n}\n",
+    "interface I {\n\tint f();\n}\n\nclass R<A>\n\timplements I {\n\tpublic int f() { return 0; }\n}\n",
+    "interface I {\n\tint f();\n}\n\nclass R\n\timplements I {\n\tpublic int f() { return 0; }\n}\n",
+    "class Base {\n}\n\nclass D<A,\n\tB>\n\textends Base {\n\tprivate A _a;\n\tpublic void m() {\n"
+    "\t\tif (true) {\n\t\t\treturn;\n\t\t}\n\t}\n}\n",
+]
+
+
+@pytest.mark.parametrize("source", _WRAPPED_TYPE_HEADERS)
+def test_a_wrapped_type_header_keeps_its_body_one_level_in_from_the_keyword(source: str) -> None:
+    result = formatted(source, indent_style="tabs")
+    assert result == source
+    assert formatted(result, indent_style="tabs") == result
+
+
+@pytest.mark.parametrize("expected", _WRAPPED_TYPE_HEADERS)
+def test_a_wrapped_type_header_body_is_reindented_from_any_indentation(expected: str) -> None:
+    flattened = "\n".join(line.lstrip("\t") for line in expected.split("\n"))
+    deepened = "\n".join("\t\t" + line if line else line for line in expected.split("\n"))
+    for source in (flattened, deepened):
+        result = formatted(source, indent_style="tabs")
+        assert result == expected
+        assert formatted(result, indent_style="tabs") == result
+
+
+def test_a_struct_typed_declaration_continuation_is_not_a_type_header() -> None:
+    source = "struct P {\n\tint x;\n};\n\nint main() {\n\tstruct P p =\n\t\t{1};\n\treturn 0;\n}\n"
+    assert formatted(source, indent_style="tabs") == source

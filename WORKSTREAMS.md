@@ -225,20 +225,20 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-REQ-01` | Claude | — | — | done: already fixed by `3812e44`, no code change |
 | `CL-REQ-02` | Claude | `stage18/req02-objc-emitter-transpile` | — | integrated in batch 13 |
 | `CL-REQ-03` | Claude | `stage18/req03-module-unit-corpus` | — | integrated in batch 14 |
-| `CL-REQ-04` | Claude | (next) | `src/devex/formatter/**` for the multi-line generic class header double indent | queue |
+| `CL-REQ-04` | Claude | `stage18/req04-formatter-indent` | — | integrated in batch 15 |
 | `CL-UIA-21` | Claude | `stage30/headless-gui-shell` | — | integrated in batch 13 (`tools/ui/headless-session.sh` and `test_headless_session.py` included) |
 | `CL-R-02` | Claude | `stage5/runbook-kit` | — | integrated in batch 13 |
 | `CL-R-01` | Claude | BTRSmith `stage4/pin-bump` (`49a23af`) | BTRSmith `flake.nix`, `flake.lock`, `src/**`, `tests/**`, `tools/**`, `make/**`, `docs/Handoff.md` | Linux done; waits for `MAC-R-01` |
 | `CL-C-03` | Claude | `stage16/c4-spec` | — | integrated in batch 14 |
-| `CL-C-05` | Claude | (next) | the C4 Python half, then `CL-C-06` | next |
+| `CL-C-05`, `CL-C-06` | Claude | `stage16/c4-python`, then `stage16/c4-conditionals` (the one paired commit) | `src/compiler/*/frontend/**`, `pipeline/ModuleUnits.btrc` with `application/modules.py`, `backend/c_emitter.py`, `ir/Emitter.btrc`, `Parser.btrc`/`parser.py` B1, the source-macro and U1/U2 sites, `src/devex/formatter` and LSP C4 cases, `c3_c4.toml` r18 rows | CL-C-05 done (Python half); CL-C-06 in flight |
 | `CL-P1-01` | Claude | `stage22/doc-closeout` | — | integrated in batch 14 |
 | `CL-P1-02` | Claude | `stage23/platforms-shell` | `flake.nix`, `flake.lock`, `nix/*` | in flight |
-| `CL-R-36` | Claude | `stage38/macos-hardware-tier` | `.github/workflows/{ci,macos,windows}.yml`, `test_ci_workflow_contracts.py`, the expected-skip manifests' tier field | in flight |
-| `CL-R-06` | Claude | `stage6/reference-attribution` | `tools/perf.py` (`--cprofile`), `tools/runbook` (the `attribution` result kind and the `stage6-reference` preset) | in flight |
+| `CL-R-36` | Claude | `stage38/macos-hardware-tier` | — | integrated in batch 15 (`macos-hosted` runner manifest, `hardware` skip category); releases the workflows to `CL-R-38` |
+| `CL-R-06` | Claude | `stage6/reference-attribution` | — | integrated in batch 15 |
 | `CL-C-04` | Claude | `stage16/c4-directives` | — | integrated in batch 13 |
 | Reserved: C4 lane (`CL-C-03…06`) | Claude | `stage16/c4-*` | `pipeline/ModuleUnits.btrc` with `application/modules.py`, `src/compiler/*/frontend/**`, `backend/c_emitter.py`, `ir/Emitter.btrc` | reserved: `CL-C-01` and `CL-R-00` are on `main` |
 | Reserved: `flake.nix`/`nix/*` | Claude | — | held by `CL-P1-02` | queue |
-| Reserved: `macos.yml`/`ci.yml` | Claude | — | held by `CL-R-36`; then then `CL-R-38`, then `CL-UIB-04`, then `CL-UIB-14` | queue |
+| Reserved: `macos.yml`/`ci.yml` | Claude | — | free; next then `CL-R-38`, then `CL-UIB-04`, then `CL-UIB-14` | queue |
 
 ### 3.4 Parity rule, and the stdlib modules the compiler imports
 
@@ -272,7 +272,7 @@ A branch that changes integrator-owned data ends with up to two special commits,
    Claude re-applies the content in the merge commit, possibly adjusted. A new runner name that `RUNNERS` in `tools/qualification/skips.py` lacks also needs an entry there, which Claude adds: `windows-arm64` and `windows-corpus` do; `ios` and `android` are already listed.
 2. **`derived: regenerate`** carries regenerated outputs only: `src/stdlib/btrc.lock` (`btrcpy --fetch`), `btrc.symbols` and the LSP catalog. Claude drops this commit and regenerates.
 
-**Skip rules.** Every new or changed test that skips on any existing runner (`linux-devcontainer`, `macos`, `windows`, `ios`, `android`) adds a rule to that runner's manifest in the `fragment:` commit, and `covered_by` names the runner that does run it. Any acceptance item that says CI is green implies this. The skip gate runs in every unit shard and fails on a skip its runner's manifest does not expect, so a Windows-, iOS- or Android-only module needs `linux-devcontainer` and `macos` rules before its PR goes green.
+**Skip rules.** Every new or changed test that skips on any existing runner (`linux-devcontainer`, `macos-hosted` for GitHub's macOS runners, `macos` for the owner's Mac, `windows`, `ios`, `android`) adds a rule to that runner's manifest in the `fragment:` commit, and `covered_by` names the runner that does run it (`macos-hosted` when a hosted macOS shard runs it; `macos` only for cases that need the Mac's hardware). Any acceptance item that says CI is green implies this. The skip gate runs in every unit shard and fails on a skip its runner's manifest does not expect, so a Windows-, iOS- or Android-only module needs `linux-devcontainer`, `macos-hosted` and `macos` rules before its PR goes green. Hardware-tier cases (a real audio device, a physical display, signing) are the `hardware` skip category: hosted runners skip them and the owner's Mac runs them.
 
 **Reading older packet text.** Where a packet says a hand-written change goes "in the PR body", "as a fragment" or "in the derived commit", it means the `fragment:` commit. Regenerated outputs always go in `derived:`.
 
