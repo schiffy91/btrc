@@ -123,18 +123,22 @@ class StorageValidator {
 	public bool staticArrayDesignator(Node? expression) {
 		if (expression == null) { return false; }
 		if (StringConstant.isNode(expression)) { return true; }
-		if (expression.kind == NK_IDENTIFIER && self.state.analyzed.globalVarTypes.has(expression.name)) {
+		if (expression.kind == NK_IDENTIFIER && self.namesFileScope(expression.name) && self.state.analyzed.globalVarTypes.has(expression.name)) {
 			Node typeExpr = self.state.analyzed.globalVarTypes.get(expression.name);
 			return typeExpr.isArray;
 		}
 		return false;
 	}
 
+	/* A local, parameter or other block binding that shadows a global or
+	 * function has automatic storage, so it is never a C address constant. */
+	private bool namesFileScope(string name) { return !self.state.localBindings.has(name); }
+
 	public bool staticAddressOperand(Node? expression) {
 		if (expression == null) { return false; }
 		if (StringConstant.isNode(expression)) { return true; }
 		if (expression.kind == NK_IDENTIFIER) {
-			if (self.state.analyzed.isObjectiveCGlobal(expression.name)) { return false; }
+			if (!self.namesFileScope(expression.name) || self.state.analyzed.isObjectiveCGlobal(expression.name)) { return false; }
 			return self.state.analyzed.funcNames.has(expression.name) || self.state.analyzed.globalVarTypes.has(expression.name);
 		}
 		if (expression.kind == NK_FIELD_ACCESS_EXPR && !expression.arrow) {
@@ -176,6 +180,9 @@ class StorageValidator {
 		if (expression.kind == NK_IDENTIFIER) {
 			if (expression.name == "NULL") {
 				return STATIC_INITIALIZER_ADDRESS;
+			}
+			if (!self.namesFileScope(expression.name)) {
+				return STATIC_INITIALIZER_INVALID;
 			}
 			if (self.state.analyzed.funcNames.has(expression.name)) {
 				return STATIC_INITIALIZER_ADDRESS;
