@@ -121,6 +121,21 @@ class StringLowerer {
 		return SemanticTypeSystem.resolvedStructName(typeExpr, self.analyzed) != "";
 	}
 
+	/* C's default argument promotions at a typed variadic tail, spelled as
+	 * explicit casts exactly as Python's CallLowerer.promote_variadic_argument
+	 * spells them. */
+	public IRNode promoteVariadicArgument(Node? sourceType, IRNode value) {
+		Node? canonicalType = self.printfCanonicalType(sourceType);
+		if (canonicalType == null) { return value; }
+		Node canonical = canonicalType;
+		if (canonical.pointerDepth > 0 || canonical.isArray) { return value; }
+		if (canonical.base == "float") { return IRNode.cast("double", value); }
+		string base = canonical.base;
+		bool narrow = base == "bool" || base == "byte" || base == "char" || base == "signed char" || base == "unsigned char" || base == "short" || base == "short int" || base == "signed short" || base == "signed short int" || base == "unsigned short" || base == "unsigned short int";
+		if (narrow || self.analyzed.enumTable.has(base)) { return IRNode.cast("int", value); }
+		return value;
+	}
+
 	public PrintfArg adaptPrintfArg(IRNode value, Node? valueType, string fallbackFormat) {
 		Node? canonicalType = self.printfCanonicalType(valueType);
 		string spec = fallbackFormat;
@@ -396,7 +411,7 @@ class StringLowerer {
      * str, trim, ...). Used by print/f-string lowering to force %s when the
      * receiver's type is untracked — e.g. an enum's `e.toString()`. Mirrors the
      * field-name set in fstrings._lower_interp / calls._lower_print. */
-	public bool isStringProducingMethod(string m) { return m == "toString" || m == "str" || m == "trim" || m == "toUpper" || m == "toLower" || m == "substring" || m == "replace" || m == "repeat" || m == "reverse" || m == "capitalize" || m == "split"; }
+	public bool isStringProducingMethod(string m) { return m == "capitalize" || m == "join" || m == "repeat" || m == "replace" || m == "reverse" || m == "split" || m == "str" || m == "substring" || m == "toLower" || m == "toString" || m == "toUpper" || m == "trim"; }
 
 	/* Double every '%' so printf reads it as a literal percent (mirrors
      * fstrings.py's text.replace("%", "%%")). */

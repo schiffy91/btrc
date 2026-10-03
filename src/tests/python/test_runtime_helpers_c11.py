@@ -1,6 +1,5 @@
 """Strict-C execution tests for the non-string runtime helper boundary cases."""
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -8,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
-from src.tests.c_toolchains import HOST_C_COMPILERS
+from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG
 from src.tests.python.c11_runtime_sources import RUNTIME_HELPER_HEADERS
 
 RUNTIME_CATALOG = RuntimeHelperCatalog()
@@ -51,7 +50,8 @@ HELPER_ORDER = (
     ),
 )
 
-CLANG = shutil.which("clang")
+# The warning-clean proofs hold the helpers to Clang's unused-entity warnings.
+CLANG = HOST_CLANG
 NO_C11_RUNTIME = not HOST_C_COMPILERS or sys.platform == "win32"
 
 

@@ -1807,7 +1807,7 @@ class ModuleUnitCompiler {
 		ModuleUnitGraph programGraph = ModuleUnitGraph.fromUnit(programUnit, self.lastInstances);
 		self.addHostedRealtimeExternals(programUnit);
 		bool programSetjmp = self.unitHasSetjmp(programUnit);
-		CycleReturnBoundaryLowerer programBoundaries = CycleReturnBoundaryLowerer(programUnit.temporaryNames);
+		CycleReturnBoundaryLowerer programBoundaries = CycleReturnBoundaryLowerer();
 		bool programReleases = programBoundaries.releasesCyclableValues(programUnit);
 		BtrccPhaseTimer.mark("u-program-unit");
 		string programIdentity = self.programDigest();
@@ -2027,7 +2027,7 @@ class ModuleUnitCompiler {
 		optimizer.optimizeModuleUnit(programUnit, self.options.runDce, programEffects, releases, programUnneeded);
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(input.runtimeHelpers);
 		for helper in references.requiredBy(programUnit).keys() { helperNames.put(helper, true); }
-		input.runtimeHelpers.materializeInto(programUnit, helperNames);
+		input.runtimeHelpers.materializeInto(programUnit, helperNames, references.requiredHeaders());
 		if (programUnit.helpers.len > 0) {
 			build.units.push(CEmitter().emitRuntimeUnit(shared.runtimeModule(programUnit)));
 			build.unitNames.push(ModuleUnitCompiler.runtimeUnitName());
@@ -2187,7 +2187,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		Map<string, bool> base = self.compiler.baseRealtimeSafe();
 		for name in unit.realtimeSafeExternals.keys() { if (!base.has(name)) { safe.push(name); } }
 		safe.sort();
-		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer(unit.temporaryNames);
+		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer();
 		reply.set("exports", ModuleUnitRecord.stringsJson(exports));
 		reply.set("realtime-roots", ModuleUnitRecord.stringsJson(roots));
 		reply.set("realtime-safe", ModuleUnitRecord.stringsJson(safe));
@@ -2287,7 +2287,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 			self.shared.trimNativeIncludes(unit);
 			text = CEmitter().emitModuleUnit(unit);
 		}
-		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer(unit.temporaryNames);
+		CycleReturnBoundaryLowerer boundaries = CycleReturnBoundaryLowerer();
 		JSONValue header = JSONValue.makeObject();
 		header.set("kept", JSONValue.makeBool(kept));
 		header.set("exports", ModuleUnitRecord.stringsJson(exports));

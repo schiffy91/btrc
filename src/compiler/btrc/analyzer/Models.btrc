@@ -149,6 +149,10 @@ interface IValidationRecords {
 
 class Analyzed {
 	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
+	/* Combined source lines of files that textually include a C header or
+	 * source the importer does not model; ALL_CAPS names there may be C
+	 * macros the compiler cannot see. */
+	public Map<int, bool> unmodeledIncludeLines = {};
 	private Map<string, FeNativeImportedDeclaration> nativeClassIndex;
 	private Map<string, Node> nativeOwnedFunctions = {};
 	public Map<string, bool> nativeLifetimeOperations = {};

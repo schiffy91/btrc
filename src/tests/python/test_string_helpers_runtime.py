@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_CLANG
 from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 RUNTIME_CATALOG = RuntimeHelperCatalog()
@@ -17,7 +17,8 @@ ALLOC = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_catego
 STRING_OWNERSHIP = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string_ownership")}
 STRING = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string")}
 
-CLANG = shutil.which("clang")
+# The sanitizer flags below are spelled for Clang.
+CLANG = HOST_CLANG
 pytestmark = pytest.mark.skipif(CLANG is None, reason="needs Clang")
 
 _HEADERS = """\

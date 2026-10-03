@@ -1180,7 +1180,10 @@ def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
 
     assert "public void materializeInto(" in runtime_catalog
     assert "class CycleReturnBoundaryLowerer {" in cycle_boundaries
-    assert "private IRTemporaryNames temporaryNames;" in cycle_boundaries
+    # Return temporaries are allocated per function, collision-free against
+    # the function's own declarations, not from the lowering counter.
+    assert "private Map<string, bool> localNames" in cycle_boundaries
+    assert "IRTemporaryNames" not in cycle_boundaries
     assert (
         "LoweringContext"
         not in cycle_boundaries[

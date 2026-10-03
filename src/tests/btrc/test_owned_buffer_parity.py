@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
+
 REPOSITORY = Path(__file__).resolve().parents[3]
 FIXTURE = REPOSITORY / "src/tests/memory/OwnedBuffer.btrc"
 EXPECTED = "PASS OwnedBuffer\n"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _reference(
@@ -56,7 +56,7 @@ def _selfhost(
     return compiled
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
 def test_fixture_runs_from_both_frontends_with_gcc_and_clang(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -75,7 +75,7 @@ def test_fixture_runs_from_both_frontends_with_gcc_and_clang(
         assert "OwnedBuffers_tryOpen" in emitted
         assert "_Atomic(unsigned int)* counterBorrow" in emitted
         assert "atomic_load_explicit" in emitted
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"OwnedBuffer-{frontend}-{Path(compiler).name}"
             built = subprocess.run(
                 [

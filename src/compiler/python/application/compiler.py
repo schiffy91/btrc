@@ -261,7 +261,9 @@ class Compiler:
             if cached is not None:
                 names = NativeLinkPlan.cached_unit_names(cached.link_plan, options.units_prefix, len(cached.c_units))
                 native_plan = (
-                    resolved.native_plan.with_cached_artifacts(cached.link_plan, names, options.units_prefix)
+                    resolved.native_plan.with_cached_artifacts(
+                        cached.link_plan, names, options.units_prefix, cached.c_units
+                    )
                     if names is not None
                     else None
                 )

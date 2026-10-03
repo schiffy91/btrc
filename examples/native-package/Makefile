@@ -1,5 +1,10 @@
 # Canonical native-plan consumer.  TARGET is explicit because cross builds must
 # never infer platform predicates from the machine running Make.
+#
+# Unlike the other examples this Makefile does not include ../Example.mk, and
+# cannot: the flake's native-package-plan check copies only this directory into
+# its sandbox and drives it with BTRCPY, NATIVE_PLAN, CC and CXX overrides, so it
+# must build with nothing above it, as a package outside the repository would.
 
 REPOSITORY := ../..
 PYTHON ?= python3

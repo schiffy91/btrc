@@ -1,7 +1,12 @@
 /* Test-only interception of real SDK calls, not a replacement decoder.
  * The reader sees unmodified Apple headers; this is force-included only when
- * compiling the generated conformance executable. */
-#pragma once
+ * compiling the generated conformance executable. ImageIoCleanup.btrc binds
+ * imageIoBegin, imageIoOutstanding and imageIoCreations through its
+ * harness-written [[native.bindings]], whose package holds a copy of this
+ * header; the macro guard, unlike #pragma once, keeps that copy's include a
+ * no-op after the force-included original. */
+#ifndef BTRC_TEST_IMAGE_IO_FAULTS_H
+#define BTRC_TEST_IMAGE_IO_FAULTS_H
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <ImageIO/ImageIO.h>
@@ -221,3 +226,5 @@ static inline Boolean imageIoString(CFStringRef string, char* buffer, CFIndex ca
 #define CFNumberGetValue imageIoNumber
 #define CGImageGetWidth imageIoWidth
 #define CFStringGetCString imageIoString
+
+#endif

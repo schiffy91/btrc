@@ -216,16 +216,18 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 
 | Packet | Agent | Branch | Holds | State |
 |---|---|---|---|---|
-| `CL-C-01` | Claude | `stage16/c1-integrate` | `src/tests/btrc/fixtures/c_compat_probe/c1.toml`, `src/tests/btrc/test_c_compatibility_{inventory,refusals,bodies,function_pointers,integration}.py`, the C1 programs in `src/tests/c_compat/`, `parser.py` and `Parser.btrc` (confirmed findings only), the Stage 16 sections of `c-compatibility.md`, C rows 1/3/5/7/19 of `known-language-gaps.md` | in flight |
-| `CL-R-00` | Claude | `stage4/btrsmith-defects-compiler` (12 commits ahead of `origin/main`) | `cli/Driver.btrc`, `pipeline/Pipeline.btrc`, `frontend/Packages.btrc`, `frontend/packages.py`, `test_native_packages.py` | open; integrate before C4's reservation |
-| `CL-R-00` | Claude | `stage4/residual-final` (6) | `Makefile`, `examples/native-package/Makefile`, both `test_native_packages.py` | open; integrate before C4's reservation |
-| `CL-R-00` | Claude | `stage4/c-output-parity` (37) | `pipeline/ModuleUnits.btrc`, `ir/gpu/Pipeline.btrc`, `src/runtime/c/manifest.toml`, boundary records (D14 re-captures) | open; integrate before C4's reservation |
-| `CX-UIA-02` (adopted from PR #21) | Codex | `codex/ui0-catalog` (draft PR #21, `b7aa53f`) | `docs/design/native-ui-catalog.toml`, `docs/design/ui0-source-amendments.toml`, `docs/design/ui0-catalog.md`, `src/tests/python/test_ui0_catalog.py` | in flight; opened before Gate 0; integrated in the first batch after it |
-| `CL-UIA-01` (Gate 0) | Claude | next batch | PLAN.md (Decisions, Standing approvals, Stage 30 exit, sub-agent rules, Progress), AGENTS.md (Codex section, the two moved sections, the Python file tree), `docs/design/compile-performance.md`, `test_python_compiler_structure.py`, `tools/perf.py` (one comment), `WORKSTREAMS.md`, `.github/PULL_REQUEST_TEMPLATE/codex-packet.md` | landed with this doc |
-| `CL-UIA-02` | Claude | the batch after Gate 0 (focus commit with `CX-UIA-01`) | `.github/workflows/{ci,macos,windows}.yml`, `src/tests/python/test_ci_workflow_contracts.py` | next |
+| `CL-C-01` | Claude | `stage16/ccompat-c1-integrate` | `src/tests/btrc/fixtures/c_compat_probe/c1.toml`, `src/tests/btrc/test_c_compatibility_{inventory,refusals,bodies,function_pointers,integration}.py`, the C1 programs in `src/tests/c_compat/`, `parser.py` and `Parser.btrc` (confirmed findings only), the Stage 16 sections of `c-compatibility.md`, C rows 1/3/5/7/19 of `known-language-gaps.md` | in flight |
+| `CL-R-00` | Claude | `stage4/btrsmith-defects-compiler`, `stage4/residual-final`, `stage4/c-output-parity` | — | integrated in batch 11, with the Stage 4 drift ledger in `src/stdlib/README.md`; `CL-R-01` (the BTRSmith pin bump) remains |
+| `CX-UIA-02` (adopted from PR #21) | Codex | `codex/ui0-catalog` (`b7aa53f`) | — for the first commit; the follow-up (shard loader and family cells) holds `docs/design/native-ui-catalog/`, `tools/qualification/ui_catalog.py` and `src/tests/python/test_ui0_catalog.py` | first commit integrated in batch 11 and PR #21 closed; the follow-up goes on a new `codex/…` branch and draft PR |
+| `CL-UIA-01` (Gate 0) | Claude | — | — | done: `main` at `7a83bb1` |
+| `CL-UIA-02` | Claude | `stage30/ci-codex-lanes` | `.github/workflows/{ci,macos,windows}.yml`, `src/tests/python/test_ci_workflow_contracts.py` | in flight (its focus dispatch lands with `CX-UIA-01`) |
+| `CL-C-00`, `CL-C-02` | Claude | `stage19/c-prep` | the C3 vocabulary and goto design docs; `analyzer/Expressions.btrc` and the btrc termination predicate's owner | in flight |
+| `CL-REQ-01` | Claude | `stage18/req01-profile-cache` | the files its fix needs (named in its report) | in flight |
+| `CL-UIA-21` | Claude | `stage30/headless-gui-shell` | `flake.nix`, `flake.lock`, `nix/*`, the devcontainer definition | in flight |
+| `CL-R-02` | Claude | `stage5/runbook-kit` | `tools/runbook/**` | in flight |
 | Reserved: C4 lane (`CL-C-04…06`) | Claude | `stage16/c4-*` | `pipeline/ModuleUnits.btrc` with `application/modules.py`, `src/compiler/*/frontend/**`, `backend/c_emitter.py`, `ir/Emitter.btrc` | reserved from the moment `CL-C-01` and `CL-R-00` are on `main` |
-| Reserved: `flake.nix`/`nix/*` | Claude | — | `CL-UIA-21` first, then `CL-P1-02` | queue |
-| Reserved: `macos.yml`/`ci.yml` | Claude | — | `CL-UIA-02`, then `CL-R-36`, then `CL-R-38`, then `CL-UIB-04`, then `CL-UIB-14` | queue |
+| Reserved: `flake.nix`/`nix/*` | Claude | — | `CL-P1-02` after `CL-UIA-21` | queue |
+| Reserved: `macos.yml`/`ci.yml` | Claude | — | after `CL-UIA-02`: `CL-R-36`, then `CL-R-38`, then `CL-UIB-04`, then `CL-UIB-14` | queue |
 
 ### 3.4 Parity rule, and the stdlib modules the compiler imports
 

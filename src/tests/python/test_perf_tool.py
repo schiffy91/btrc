@@ -9,10 +9,16 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import default_c_compiler, default_cxx_compiler, default_toolchain
 from src.tests.process_limits import RUN_TIMEOUT
-from tools import perf
+from tools import budget_bench, perf
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_default_drivers_are_the_budget_bench_toolchain():
+    arguments = perf.Perf.parse_arguments(["Program.btrc"])
+    assert (arguments.cc, arguments.cxx) == (budget_bench.CC, budget_bench.CXX) == ("clang", "clang++")
 
 
 def test_phase_times_reads_both_compilers_marks():
@@ -166,7 +172,7 @@ def test_c_stats_counts_definitions(tmp_path):
     )
 
 
-@pytest.mark.skipif(shutil.which("cc") is None, reason="needs a C compiler")
+@pytest.mark.skipif(default_toolchain() is None, reason="needs a C and C++ toolchain")
 def test_reference_compiler_measurement(tmp_path):
     report = tmp_path / "report.json"
     code = perf.main(
@@ -179,7 +185,9 @@ def test_reference_compiler_measurement(tmp_path):
             "--opt",
             "O0",
             "--cc",
-            "cc",
+            default_c_compiler(),
+            "--cxx",
+            default_cxx_compiler(),
             "--out",
             str(tmp_path / "work"),
             "--json",

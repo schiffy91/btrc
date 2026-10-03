@@ -4,19 +4,18 @@ The fixture prints batch timings for profiling; correctness checks do not depend
 on a wall-clock threshold or scheduler fairness on a busy test host.
 """
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 FIXTURE = Path(__file__).with_name("fixtures") / "arc_contention.c"
-COMPILERS = tuple(path for name in ("clang", "gcc") if (path := shutil.which(name)))
 
 
-@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda value: Path(value).name)
+@pytest.mark.parametrize("c_compiler", HOST_C_COMPILERS, ids=lambda value: Path(value).name)
 @pytest.mark.parametrize("portable", (False, True), ids=("native", "portable"))
 def test_foreground_and_background_arc_complete(tmp_path: Path, c_compiler: str, portable: bool) -> None:
     definitions = RuntimeHelperCatalog().definitions_for({"__btrc_arc_retain", "__btrc_arc_release_acyclic"})

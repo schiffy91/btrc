@@ -121,7 +121,9 @@ class CleanupSlotRegistry {
 		if (self.cleanupTakeAdapters.has(slotType)) {
 			return self.cleanupTakeAdapters.get(slotType);
 		}
-		string name = "__btrc_cleanup_take_" + Strings.fromInt(self.adapterDefinitions.len + 1);
+		/* Each adapter family numbers its own members, as Python's
+		 * CleanupSlotRegistry does. */
+		string name = "__btrc_cleanup_take_" + Strings.fromInt(self.cleanupTakeAdapters.len + 1);
 		self.cleanupTakeAdapters.put(slotType, name);
 		self.adapterDefinitions.push(self.takeAdapter(name, slotType));
 		return name;
@@ -142,7 +144,7 @@ class CleanupSlotRegistry {
 		body.push(IRNode.variableDeclaration(slotType, "current", IRNode.dereference(IRNode.variable("typed_slot"))));
 		Vector<IRNode> clearBody = [];
 		clearBody.push(IRNode.assignment(IRNode.dereference(IRNode.variable("typed_slot")), IRNode.cast(slotType, IRNode.variable("replacement"))));
-		body.push(IRNode.ifStatement(IRNode.binary(IRNode.binary(IRNode.variable("replace_if_equal"), "!=", IRNode.literal("0")), "&&", IRNode.binary(IRNode.variable("current"), "==", IRNode.cast(slotType, IRNode.variable("expected")))), IRNode.block(clearBody), null));
+		body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable("replace_if_equal"), "&&", IRNode.binary(IRNode.variable("current"), "==", IRNode.cast(slotType, IRNode.variable("expected")))), IRNode.block(clearBody), null));
 		body.push(IRNode.returnStatement(IRNode.cast("void*", IRNode.variable("current"))));
 		definition.body = IRNode.block(body);
 		return definition;
@@ -444,6 +446,21 @@ class ManagedLifetimeLowerer {
 		return IRNode.call("__btrc_poll_cycles", arguments);
 	}
 
+	/* The collector poll Python's poll_release_batch appends after releasing
+	 * a handed-off value whose type may join a cycle. */
+	public bool releaseMayEnqueue(string runtimeType) {
+		if (runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType)) { return false; }
+		return self.cycles.runtimeTypeMayCycle(runtimeType);
+	}
+
+	/* Release a value a call boundary handed off. String and ARC releases
+	 * accept NULL, so they run unconditionally, as Python's release_and_clear
+	 * spells them; a native release keeps its NULL guard. */
+	public IRNode releaseAfterHandoff(IRNode target, string runtimeType) {
+		if (!self.managedValues.isNativeName(runtimeType)) { return self.releaseRuntime(target, runtimeType); }
+		return self.optionalRelease(target, runtimeType);
+	}
+
 	public IRNode optionalRelease(IRNode target, string runtimeType) {
 		Vector<IRNode> releaseBody = [];
 		releaseBody.push(IRNode.cast("void", self.releaseRuntime(target, runtimeType)));
@@ -458,9 +475,10 @@ class ManagedLifetimeLowerer {
 		if (runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType)) {
 			return self.cleanupSlots.registerSlot(self.context, declaration, IRNode.functionReference(cleanup), null, true);
 		}
+		/* Any type with a visitor passes it, as Python's visitor_for does. */
 		IRNode visitor = IRNode.literal("NULL");
 		string visitorSymbol = self.cycles.visitorSymbol(runtimeType);
-		if (self.cycles.runtimeTypeMayCycle(runtimeType) && visitorSymbol != "") {
+		if (visitorSymbol != "") {
 			visitor = IRNode.functionReference(visitorSymbol);
 		}
 		return self.cleanupSlots.registerSlot(self.context, declaration, IRNode.functionReference(cleanup), visitor, false);
@@ -469,6 +487,22 @@ class ManagedLifetimeLowerer {
 	public IRNode? cleanupRegistration(IRNode declaration, string runtimeType) {
 		if (!self.context.exceptionsAreEnabled()) { return null; }
 		return self.registerCleanupSlot(declaration, runtimeType);
+	}
+
+	/* Register one staged slot for exception cleanup at most once, behind a
+	 * local flag, as Python's OwnershipLowerer.protect_temporary does. */
+	public void protectTemporary(IRNode declaration, string runtimeType, string flagPrefix, Vector<IRNode> declarations, Vector<IRNode> sequence, bool always = false) {
+		if (!always && !self.context.exceptionsAreEnabled()) { return; }
+		string flagName = self.context.freshTemporary(flagPrefix);
+		IRNode flagDeclaration = IRNode.variableDeclaration("bool", flagName, IRNode.literal("false"));
+		declarations.push(flagDeclaration);
+		self.context.recordLocal(flagDeclaration);
+		IRNode flag = IRNode.variable(flagName);
+		Vector<IRNode> registerOnce = [];
+		registerOnce.push(self.registerCleanupSlot(declaration, runtimeType));
+		registerOnce.push(IRNode.binary(flag, "=", IRNode.literal("true")));
+		registerOnce.push(IRNode.literal("0"));
+		sequence.push(IRNode.ternary(flag, IRNode.literal("0"), IRNode.commaExpression(registerOnce)));
 	}
 
 	public void maybeRegisterCleanup(string variableName, string runtimeType, Vector<IRNode> statements) {

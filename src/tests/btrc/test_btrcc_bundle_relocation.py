@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,13 +10,13 @@ import pytest
 
 from src.compiler.python.artifacts.archive import TargetCatalog
 from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import configured_c_compiler, host_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
 CC = configured_c_compiler()
 
 pytestmark = pytest.mark.skipif(
-    not CC or shutil.which(CC[0]) is None,
+    host_c_compiler() is None,
     reason="needs a C compiler",
 )
 
