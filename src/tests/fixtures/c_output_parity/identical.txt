@@ -86,7 +86,6 @@ basics/PointerCast.btrc
 basics/PointerToPointer.btrc
 basics/Print.btrc
 basics/PrintEmpty.btrc
-basics/PrintHello.btrc
 basics/PrintInt.btrc
 basics/PrintMultiArgs.btrc
 basics/PureC.btrc
@@ -301,7 +300,6 @@ control_flow/CompoundAssign.btrc
 control_flow/ContinueInSwitchInLoop.btrc
 control_flow/ControlFlow.btrc
 control_flow/DoWhile.btrc
-control_flow/DoWhileBasic.btrc
 control_flow/DoWhileContinueEvaluatesCond.btrc
 control_flow/DoWhileNestedForin.btrc
 control_flow/EmptyBodies.btrc
@@ -671,7 +669,6 @@ strings/FstringWithListSize.btrc
 strings/FstringWithString.btrc
 strings/FstringWithStringMethod.btrc
 strings/Fstrings.btrc
-strings/IndexofFloat.btrc
 strings/LiteralBraces.btrc
 strings/Regex.btrc
 strings/RegexSafety.btrc
