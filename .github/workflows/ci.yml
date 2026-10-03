@@ -15,8 +15,110 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the run it supersedes. Runs on main
+# never cancel one another: GitHub keeps one running and one pending run per
+# group, so a newer main push replaces an older one still waiting. A manual
+# dispatch gets a group of its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.event_name == 'push' && 'main' || format('dispatch-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Classifies a pull request's diff so the jobs below run only where it can
+  # matter (WORKSTREAMS.md §3.2); ci.yml and macos.yml carry identical copies.
+  #   docs  Markdown that no test or tool reads: ci.yml's docs job alone.
+  #   lane  any other change on a codex/* branch: the Linux matrix, and on
+  #         macOS the arm64 bundle alone.
+  #   full  everything: a push to main, a manual dispatch, the ci:full label
+  #         (added before a push or a rerun), a change under FULL_PATHS (the
+  #         compilers, their specs and runtime, the stdlib modules btrcc
+  #         imports, the CI hotspots), or any other branch's change.
+  # Labels and files are read through the API rather than the event payload,
+  # so a rerun sees a label added after the push.
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      class: ${{ steps.classify.outputs.class }}
+    steps:
+      - name: Classify the change
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows)\.yml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
+          TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix)\.md$'
+        run: |
+          set -euo pipefail
+          shopt -s inherit_errexit
+          classify() {
+            if [ "$EVENT" != pull_request ]; then
+              echo full
+              return
+            fi
+            pull=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST")
+            if jq -e 'any(.labels[]; .name == "ci:full")' <<<"$pull" >/dev/null; then
+              echo full
+              return
+            fi
+            pages=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST/files?per_page=100")
+            # The files endpoint lists at most 3,000 files; an unlisted one could be anything.
+            if [ "$(jq 'map(length) | add // 0' <<<"$pages")" -ne "$(jq '.changed_files' <<<"$pull")" ]; then
+              echo full
+              return
+            fi
+            # A rename counts at both paths.
+            names=$(jq -r '.[][] | .filename, (.previous_filename // empty)' <<<"$pages")
+            if grep -Eq "$FULL_PATHS" <<<"$names"; then
+              echo full
+            elif ! grep -Evq '\.md$' <<<"$names" && ! grep -Eq "$TEST_READ_MARKDOWN" <<<"$names"; then
+              echo docs
+            elif [[ "$HEAD_REF" == codex/* ]]; then
+              echo lane
+            else
+              echo full
+            fi
+          }
+          class=$(classify)
+          case "$class" in
+            docs | lane | full) ;;
+            *) echo "::error::unknown scope class: $class"; exit 1 ;;
+          esac
+          echo "class=$class" >> "$GITHUB_OUTPUT"
+          echo "Scope: \`$class\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # A Markdown-only change runs the static gates. The naming contract also runs
+  # because it reads every tracked Markdown file, so a document can fail it.
+  docs:
+    needs: scope
+    if: needs.scope.outputs.class == 'docs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - run: nix develop --command make NIX= lint format-check
+      - run: nix develop --command python3 -m pytest -q -rs src/tests/btrc/test_naming_convention_contract.py --skip-report=build/skip-report-docs.json
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-ci-docs
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
+
   release:
+    needs: scope
+    if: needs.scope.outputs.class == 'full' || needs.scope.outputs.class == 'lane'
     runs-on: ubuntu-latest
     steps:
       # Pin action implementations by commit so moving tags cannot alter CI.
@@ -79,6 +181,8 @@ jobs:
   # two minutes) and the self-host compiler once. Together the shards cover
   # exactly what `make test` and `make test-c11` cover.
   tests:
+    needs: scope
+    if: needs.scope.outputs.class == 'full' || needs.scope.outputs.class == 'lane'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -122,7 +226,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: skip-report-linux-${{ matrix.shard }}
+          name: skip-report-ci-tests-${{ matrix.shard }}
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14
@@ -133,8 +237,8 @@ jobs:
   # names each tests job that left no skip report, so missing coverage shows
   # as a warning on the run rather than as an absent artifact.
   skip-reports:
-    needs: tests
-    if: always()
+    needs: [scope, tests]
+    if: always() && (needs.scope.outputs.class == 'full' || needs.scope.outputs.class == 'lane')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -150,7 +254,7 @@ jobs:
           test -n "$shards"
           missing=0
           for shard in $shards; do
-            if ! grep -qx "skip-report-linux-$shard" <<<"$artifacts"; then
+            if ! grep -qx "skip-report-ci-tests-$shard" <<<"$artifacts"; then
               echo "::warning::tests ($shard) uploaded no skip report; its skips are unclassified"
               echo "- tests ($shard): no skip report" >> "$GITHUB_STEP_SUMMARY"
               missing=$((missing + 1))
@@ -159,6 +263,8 @@ jobs:
           echo "$missing test shard(s) left no skip report"
 
   bench:
+    needs: scope
+    if: needs.scope.outputs.class == 'full' || needs.scope.outputs.class == 'lane'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -187,6 +293,8 @@ jobs:
           path: build/bench/results.json
 
   linux-arm64-bundle:
+    needs: scope
+    if: needs.scope.outputs.class == 'full' || needs.scope.outputs.class == 'lane'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:

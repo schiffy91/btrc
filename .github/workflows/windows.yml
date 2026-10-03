@@ -18,6 +18,14 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the run it supersedes. Runs on main
+# never cancel one another: GitHub keeps one running and one pending run per
+# group, so a newer main push replaces an older one still waiting. A manual
+# dispatch gets a group of its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.event_name == 'push' && 'main' || format('dispatch-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -292,7 +300,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: skip-report-windows
+          name: skip-report-windows-windows
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14
