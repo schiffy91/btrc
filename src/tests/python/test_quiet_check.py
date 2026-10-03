@@ -128,6 +128,8 @@ def test_process_table_rejects_malformed_rows() -> None:
     [
         ((10, 1, "owner", 1.0, "/opt/claude-code/bin/claude --resume"), "agent"),
         ((11, 1, "owner", 1.0, "/usr/local/bin/codex exec"), "agent"),
+        ((20, 1, "owner", 1.0, "node /opt/homebrew/bin/claude --continue"), "agent"),
+        ((21, 1, "owner", 1.0, "/Users/o/Library/Application Support/Claude/claude-code/2.1/claude"), "agent"),
         ((12, 1, "owner", 1.0, "/tmp/btrcc-a1b2 --jobs 8 src/BTRSmith.btrc"), "compiler build"),
         ((13, 1, "owner", 1.0, "/nix/store/x-gcc/libexec/gcc/cc1 -quiet x.c"), "compiler build"),
         ((14, 1, "owner", 1.0, "/nix/store/x-python3/bin/python3 -m pytest src/tests -n 8"), "test run"),
@@ -152,6 +154,7 @@ def test_the_process_probe_passes_a_quiet_desktop_and_honours_ignore_rules() -> 
         (90, 1, "owner", 0.5, "/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder"),
         (91, 1, "owner", 0.2, "/Applications/Claude.app/Contents/MacOS/Claude"),
         (92, 1, "root", 0.0, "/nix/var/nix/profiles/default/bin/nix-daemon"),
+        (93, 1, "owner", 0.0, "nix develop --profile /Users/o/.cache/btrc/gcroots/dev"),
     )
     assert ProcessProbe(quiet_desktop, QuietSettings()).observe().ok
 

@@ -14,11 +14,18 @@ enters this checkout's pinned dev shell (GC-rooted at
 command prints what it is about to do, each cell as it starts and finishes,
 and at the end a summary and the **next** thing to do.
 
-**If it stops** (a red cell, a reboot, Ctrl-C, a locked SSH agent), rerun the
-same command. Finished cells are not repeated, failed ones run again, and the
-run keeps the SHAs it resolved the first time. `--list` shows every cell and
-its status without running anything; `--fresh` abandons the current run and
-starts a new one (needed after a fix lands, because the SHAs are frozen).
+**If it stops** (a red cell, a reboot, Ctrl-C, a closed terminal, a locked SSH
+agent), rerun the same command. Finished cells are not repeated, failed ones
+run again, an interrupted cell starts over, and the run keeps the SHAs it
+resolved the first time. Once a run is green and published, rerunning it says
+so and does nothing. `--list` shows every cell and its status without running
+anything; `--fresh` abandons the current run and starts a new one (needed after
+a fix lands, because the SHAs are frozen).
+
+Exit status: 0 green (and published, for an acceptance run); 1 a red or
+unfinished cell; 2 a setup problem the message names; 3 the quiet check gave
+up (`--quiet-timeout`); 4 green but not yet published (unlock 1Password and
+rerun); 130 interrupted.
 
 ## What a run does
 
@@ -30,18 +37,26 @@ starts a new one (needed after a fix lands, because the SHAs are frozen).
    `~/.cache/btrsmith/hub.git` into `~/.cache/btrsmith/clones/<preset>/<pin>`.
    A clone with local changes is never touched; the run stops and says so.
 3. **Cells**, in order. Each runs under its lock (`gate`, `bench`,
-   `gui-capture`, `guest`, `btrcc-build`, ...; through
-   `tools/bench/scripts/withlock.sh` on the Mac), after the quiet check when
-   the cell asks for it, with its log under the run's raw-log directory and a
-   checkpoint in `cells/<id>.json`.
+   `gui-capture`, `guest`, `btrcc-build`, ...), after the quiet check when the
+   cell asks for it, with its log under the run's raw-log directory and a
+   checkpoint in `cells/<id>.json`. The engine takes the lock itself with
+   `flock` on the files `tools/bench/scripts/withlock.sh` uses
+   (`$BTRC_LOCK_DIR`, default `~/.cache/btrc/locks`; macOS `lockf` locks the
+   same way, so the two exclude each other), and runs the quiet check while
+   holding it, so no lock wait separates a quiet window from its measurement.
+   `btrcc-build` is the same two-slot semaphore. On the Mac a missing lock file
+   is an error, as in `withlock.sh`.
 4. **Evidence** (`evidence.py`): `summary.json` and `summary.txt` in the run's
    workspace; every acceptance budget_bench report ingested with
    `python3 -m tools.qualification ingest --budget-bench ... --this-host`;
    a redacted (`$HOME` → `~`, other home paths → `<redacted>`) and
    secret-scanned (built-in patterns, plus gitleaks when it is on `PATH`) copy
-   of the summaries, never raw logs, pushed fast-forward to the never-merged
-   branch `evidence/<preset>-<date>` on the btrc hub's upstream (WORKSTREAMS.md
-   §7 Q24). Raw logs stay in `~/.cache/btrc/bench/<run>`.
+   of the summaries, never raw logs or the host name, pushed fast-forward to
+   the never-merged branch `evidence/<preset>-<date>` on the btrc hub's
+   upstream, or on BTRSmith's for a preset whose summary quotes BTRSmith
+   (`evidence_repo = "btrsmith"`: stage4-requal), per WORKSTREAMS.md §7 Q24.
+   Each report is ingested once per run, however often the run is resumed.
+   Raw logs stay in `~/.cache/btrc/bench/<run>`.
 
 | Where | Measurement presets | Gate presets |
 | --- | --- | --- |
@@ -56,8 +71,8 @@ starts a new one (needed after a fix lands, because the SHAs are frozen).
   (`podman machine stop podman-machine-default`, "let the backup finish", the
   pid of a stray build) and retries every minute; it never changes a setting.
   `--quiet-timeout HOURS` gives up instead of waiting forever.
-- **1Password.** Pushes (BTRSmith main, the evidence branch) need the SSH
-  agent. When `ssh-add -l` lists no identity the run asks you to unlock it and
+- **1Password.** Pushes (BTRSmith main, then the BTRSmith hub so later clones
+  see it; the evidence branch) need the SSH agent. When `ssh-add -l` lists no identity the run asks you to unlock it and
   waits up to `--owner-wait` minutes (30); if you miss it, rerun the same
   command and only the push runs.
 - **Stage 2's qualifying column.** `stage4-requal` compares release-check
@@ -139,7 +154,9 @@ work it measures. Placeholders `{name}` expand from the preset's
 | `{tree}` | a worktree of the btrc clone at the cell's `tree` ref |
 | `{cell:<id>}` | another cell's output directory |
 
-A placeholder that is a whole list-valued argument (`{btrcc_args}`,
+A variable may itself hold placeholders, and a matrix value may pick a
+variable: `"--scenarios", "{scenarios_{group}}"` with `group = ["cold", ...]`
+reads `scenarios_cold`. A placeholder that is a whole list-valued argument (`{btrcc_args}`,
 `{workspace_args}`, `{dry_run_args}`) expands to zero or more arguments.
 
 ```toml
@@ -152,6 +169,7 @@ on_failure = "continue"  # or stop: nothing after the first red cell runs
 before = ["..."]         # printed first: what the owner does before starting
 next_action = "..."      # printed last when the run is green and published
 baseline = "{home}/runbook/stage5-summary.json"   # for [[regression]]
+evidence_repo = "btrc"   # or btrsmith: where the evidence branch goes
 
 [btrc]
 ref = "main"
@@ -159,6 +177,7 @@ ref = "main"
 [btrsmith]
 pins = { label = "ref", ... }   # resolved once per run
 branch_pin = "label"            # what --btrsmith-branch replaces
+optional = ["label"]            # a pin the hub may have lost: its cells are skipped (Q44)
 
 [variables]
 name = "value"
@@ -213,7 +232,7 @@ owner_action = "..."            # printed before the cell runs
 | `exit` | exit 0 | exit code |
 | `budget-bench` | exit 0 and `report.json` has no failure | per scenario median, p95, max, sample count, facts, metric medians |
 | `gate-summary` | exit 0 | every `batch_gate.sh` step's exit, duration and counts |
-| `failure-list` | the failures are named, whatever the exit | the failing tests (for a later `subset`) |
+| `failure-list` | the failures are named, whatever the exit | the failing tests (for a later `subset`); with `retries`, a run that names failures is repeated and only tests failing every attempt count (the rest are listed as `flaky`) |
 | `instr` | `instr.sh` reports `rc=0` | instructions retired, peak footprint, real time |
 
 ## Rehearsed here, proven only on the Mac
@@ -221,7 +240,9 @@ owner_action = "..."            # printed before the cell runs
 The tests (`src/tests/python/test_runbook_engine.py`,
 `test_quiet_check.py`) drive the engine against fake hubs and fake probes, and
 the macOS CI unit shard runs the real Darwin probes once in report-only mode.
-Only the owner's Mac can prove: the quiet window actually arriving (Drive,
-Spotlight, Time Machine), `withlock.sh`/`lockf` interplay with other agents,
-BTRSmith's dev shell, `release-check` output and the qualifying list, the
-1Password push, and every number.
+The macOS unit shard also proves that the engine's `flock` excludes
+`/usr/bin/lockf`, which `withlock.sh` uses. Only the owner's Mac can prove: the
+quiet window actually arriving (Drive, Spotlight, Time Machine, the real
+process names), BTRSmith's dev shell and `bsm_env.sh`, `release-check` output
+and the qualifying list, `batch_gate.sh` with the BTRSmith clone, the
+1Password push, the Apple-clang btrcc build, and every number.

@@ -27,8 +27,12 @@ ref = "main"
 # The post-Stage-4 pin is BTRSmith main after MAC-R-01's fast-forward push.
 pins = { aeeca0fd = "aeeca0fd", post-stage4 = "main" }
 branch_pin = "post-stage4"
+# WORKSTREAMS.md §7 Q44: if aeeca0fd is gone from the hub, measure only the new pin.
+optional = ["aeeca0fd"]
 
 [variables]
+# The clang -O2 btrcc (Apple clang on the Mac; docs/design/compile-performance.md "Measuring a compile").
+btrcc_build = '"{scripts}/build_btrcc.sh" "{run}/btrcc/btrcc" "{host_entry}"'
 cold_samples = "5"
 incremental_samples = "20"
 native_jobs = "8"
@@ -36,9 +40,15 @@ workers = "1,2,4,8"
 corpus_jobs = "1"
 # Every scenario that reads the BTRSmith workspace; batch has its own cell (no
 # stand-in), and self-compile/corpus do not depend on the pin.
-product_scenarios = "cold,release,edit,instance-edit,interface-edit,noop,touch,memory,workers"
+# The product scenarios in three cells per pin and frontend, so an interrupted
+# night repeats at most one group: cold builds and memory, edits, steady state.
+scenarios_cold = "cold,release,memory,workers"
+scenarios_edits = "edit,instance-edit,interface-edit"
+scenarios_steady = "noop,touch"
 
 [rehearsal.variables]
+# build_btrcc.sh links for Apple clang (no -lm); off the Mac a rehearsal builds with `make btrcc`.
+btrcc_build = 'make btrcc && cp bin/btrcc "{run}/btrcc/btrcc" && echo "BUILD OK {run}/btrcc/btrcc (make btrcc, rehearsal)"'
 # A container rehearsal proves the wiring, not the numbers.
 corpus_jobs = "4"
 
@@ -154,6 +164,17 @@ fact = "compiler_peak_footprint_bytes"
 limit = 2147483648
 label = "reference compiler peak <= 2 GiB"
 
+[[budget]]
+scenario = "release-module"
+fact = "ratio_to_whole"
+limit = 1.10
+label = "module-unit release <= 110% of whole-program"
+[[budget]]
+scenario = "interface-edit"
+fact = "ratio_max"
+limit = 1.10
+label = "interface edit <= 110% of a clean build of the changed tree"
+
 [[cell]]
 id = "btrcc"
 title = "build the clang -O2 btrcc every timing names"
@@ -162,19 +183,19 @@ lock = "btrcc-build"
 quiet = false
 timeout_hours = 2
 env = { BTRC_REPO = "{btrc}" }
-command = ["{scripts}/build_btrcc.sh", "{run}/btrcc/btrcc", "{host_entry}"]
+command = ["sh", "-c", "{btrcc_build}"]
 
 [[cell]]
-id = "product-{pin}-{frontend}"
-title = "budget_bench product scenarios, {frontend} frontend, BTRSmith {pin}"
-matrix = { pin = ["aeeca0fd", "post-stage4"], frontend = ["selfhost", "reference"] }
+id = "product-{group}-{pin}-{frontend}"
+title = "budget_bench {group} scenarios, {frontend} frontend, BTRSmith {pin}"
+matrix = { pin = ["aeeca0fd", "post-stage4"], frontend = ["selfhost", "reference"], group = ["cold", "edits", "steady"] }
 lock = "bench"
 shell = "btrsmith"
 result = "budget-bench"
-timeout_hours = 10
+timeout_hours = 6
 command = [
   "python3", "-m", "tools.budget_bench", "{btrcc_args}", "{workspace_args}", "--out", "{out}",
-  "--frontend", "{frontend}", "--scenarios", "{product_scenarios}",
+  "--frontend", "{frontend}", "--scenarios", "{scenarios_{group}}",
   "--cold-samples", "{cold_samples}", "--incremental-samples", "{incremental_samples}",
   "--native-jobs", "{native_jobs}", "--workers", "{workers}", "--timing-cold", "{dry_run_args}",
 ]

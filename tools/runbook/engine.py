@@ -138,6 +138,7 @@ class Preset:
     btrc_ref: str
     pins: Mapping[str, str]
     branch_pin: str | None
+    optional_pins: tuple[str, ...]
     variables: Mapping[str, str]
     rehearsal_variables: Mapping[str, str]
     collapse: tuple[str, ...]
@@ -209,6 +210,7 @@ class Preset:
                 btrc_ref=str(data.get("btrc", {}).get("ref", "main")),
                 pins=pins,
                 branch_pin=branch_pin or (next(iter(pins)) if len(pins) == 1 else None),
+                optional_pins=tuple(btrsmith.get("optional", ())),
                 variables={key: str(value) for key, value in data.get("variables", {}).items()},
                 rehearsal_variables={
                     key: str(value) for key, value in data.get("rehearsal", {}).get("variables", {}).items()
@@ -444,13 +446,25 @@ class Git:
         command = ["git", *arguments]
         try:
             completed = subprocess.run(
-                command, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=timeout
+                command,
+                cwd=cwd,
+                env=Git.environment(),
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired as error:
             raise RunbookError(f"`{shlex.join(command)}` timed out after {timeout:g} s") from error
         if check and completed.returncode != 0:
             raise RunbookError(f"`{shlex.join(command)}` failed: {completed.stderr.strip()[-600:]}")
         return completed.stdout.strip()
+
+    @staticmethod
+    def environment() -> dict[str, str]:
+        """Never prompt: an HTTPS remote without credentials fails at once instead of waiting on a terminal."""
+
+        return dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="", SSH_ASKPASS="")
 
     @classmethod
     def ok(cls, *arguments: str, cwd: Path | None = None) -> bool:
@@ -499,37 +513,63 @@ class Git:
 
 
 class Locks:
-    """The shared locks: ``withlock.sh`` on the Mac, Python ``flock`` elsewhere."""
+    """The shared locks of AGENTS.md "Locks", taken in this process with ``flock``.
 
-    def __init__(self, directory: Path, *, use_script: bool, create: bool) -> None:
+    ``tools/bench/scripts/withlock.sh`` takes the same files with macOS
+    ``lockf``, which locks through ``O_EXLOCK``: the BSD ``flock`` lock, so the
+    two exclude each other. Taking the lock here, not by prefixing the command
+    with ``withlock.sh``, lets the quiet check run while the lock is held, so no
+    lock wait separates a quiet window from its measurement. ``btrcc-build`` is
+    the same two-slot semaphore (``btrcc-build.1``, ``btrcc-build.2``).
+    """
+
+    SLOT_WAIT_S = 5.0
+
+    def __init__(self, directory: Path, *, create: bool) -> None:
         self.directory = directory
-        self.use_script = use_script
         self.create = create
 
-    def prefix(self, name: str | None) -> list[str]:
-        if name is None or not self.use_script:
-            return []
-        return [str(REPO / "tools" / "bench" / "scripts" / "withlock.sh"), name]
+    def path(self, name: str) -> Path:
+        path = self.directory / name
+        if not path.exists():
+            if not self.create:
+                raise RunbookError(f"lock {path} does not exist (AGENTS.md 'Locks'); is BTRC_LOCK_DIR right?")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        return path
 
     @contextlib.contextmanager
     def held(self, name: str | None) -> Iterator[None]:
-        if name is None or self.use_script:
+        if name is None:
             yield
             return
         import fcntl
 
-        path = self.directory / (f"{name}.1" if name == "btrcc-build" else name)
-        if not path.exists():
-            if not self.create:
-                raise RunbookError(f"lock {path} does not exist (AGENTS.md 'Locks')")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.touch()
-        with path.open("a") as stream:
-            fcntl.flock(stream, fcntl.LOCK_EX)
+        slots = [f"{name}.1", f"{name}.2"] if name == "btrcc-build" else [name]
+        streams = [self.path(slot).open("a") for slot in slots]
+        try:
+            if len(streams) == 1:
+                fcntl.flock(streams[0], fcntl.LOCK_EX)
+                held = streams[0]
+            else:
+                held = None
+                while held is None:
+                    for stream in streams:
+                        try:
+                            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            continue
+                        held = stream
+                        break
+                    else:
+                        time.sleep(self.SLOT_WAIT_S)
             try:
                 yield
             finally:
-                fcntl.flock(stream, fcntl.LOCK_UN)
+                fcntl.flock(held, fcntl.LOCK_UN)
+        finally:
+            for stream in streams:
+                stream.close()
 
 
 class Host:
@@ -681,7 +721,8 @@ class RunState:
 class Results:
     """Turn a finished command into (passed, results, message) by the cell's ``result`` kind."""
 
-    DEFAULT_FAILURES = (r"^FAILED\s+(\S+)", r"\*\*\* \[([^\]]+)\] Error")
+    # pytest's summary lines. Make's own "*** [target] Error" lines are not test names.
+    DEFAULT_FAILURES = (r"^FAILED\s+(\S+)",)
 
     @classmethod
     def read(cls, cell: CellSpec, code: int, out: Path, log: Path) -> tuple[bool, dict[str, object], str]:
@@ -814,8 +855,10 @@ class RunbookEngine:
             for cell in preset.cells(stand_in=options.stand_in)
             if cell.optional and not self.requested(cell.id, options.with_cells)
         ]
-        lock_dir = Path(os.environ.get("BTRC_LOCK_DIR") or options.home / "locks")
-        self.locks = Locks(lock_dir, use_script=self.host.system == "Darwin" and not options.rehearsal, create=True)
+        # withlock.sh's own default, so both name the same files; a rehearsal keeps its locks beside its cache.
+        default = options.home / "locks" if options.rehearsal else Path.home() / ".cache" / "btrc" / "locks"
+        self.lock_dir = Path(os.environ.get("BTRC_LOCK_DIR") or default)
+        self.locks = Locks(self.lock_dir, create=options.rehearsal or self.host.system != "Darwin")
         self.state: RunState | None = None
         self.frozen: dict[str, Any] = {}
 
@@ -941,7 +984,15 @@ class RunbookEngine:
                 pin_clone = self.btrsmith_clone(label)
                 Git.clone(self.btrsmith_hub(), pin_clone)
                 if label not in pins:
-                    pins[label] = Git.resolve(pin_clone, ref)
+                    try:
+                        pins[label] = Git.resolve(pin_clone, ref)
+                    except RunbookError:
+                        if label not in self.preset.optional_pins:
+                            raise
+                        pins[label] = None
+                if pins[label] is None:
+                    say(f"  BTRSmith {label:<7}{ref} is not in the hub; its cells are skipped (optional pin)")
+                    continue
                 Git.checkout(pin_clone, pins[label])
                 say(f"  BTRSmith {label:<7}{ref} = {pins[label][:12]}  ({pin_clone})")
         state.save(frozen)
@@ -1016,6 +1067,10 @@ class RunbookEngine:
     def skip_reason(self, cell: CellSpec, outcomes: Mapping[str, CellOutcome]) -> str | None:
         if cell.stand_in == "skip" and self.options.stand_in:
             return "needs the real BTRSmith; skipped under --stand-in"
+        pin = cell.variables.get("pin")
+        if pin is not None and pin in self.frozen.get("shas", {}).get("btrsmith", {}):
+            if self.frozen["shas"]["btrsmith"][pin] is None:
+                return f"BTRSmith pin {pin} is not in the hub; only the other pins are measured"
         if cell.provides == "btrcc" and self.options.btrcc is not None:
             return f"using --btrcc {self.options.btrcc}"
         if cell.action == "push" and (self.options.dry_run or self.options.rehearsal):
@@ -1142,7 +1197,12 @@ class RunbookEngine:
         Git.worktree(clone, trees[ref], state.work / "trees" / trees[ref][:12])
 
     def quiet(self, cell: CellSpec, state: RunState) -> dict[str, object]:
-        settings = QuietSettings().overlay(self.preset.quiet_table).load(self.options.home / "runbook" / "quiet.toml")
+        settings = (
+            QuietSettings()
+            .overlay({"workspace_root": str(self.options.home / "bench.noindex")})
+            .overlay(self.preset.quiet_table)
+            .load(self.options.home / "runbook" / "quiet.toml")
+        )
         if self.options.quiet_window_s is not None:
             settings = settings.overlay({"window_s": self.options.quiet_window_s})
         check = self.quiet_factory(state.work, settings, self.options.rehearsal)
@@ -1159,7 +1219,6 @@ class RunbookEngine:
         argv = self.expand_command(cell.command, context)
         if cell.shell == "btrsmith" and not self.options.stand_in:
             argv = [str(Path(str(context["scripts"])) / "bsm_env.sh"), *argv]
-        argv = [*self.locks.prefix(cell.lock), *argv]
         cwd = {
             "btrc": Path(str(context["btrc"])),
             "btrsmith": Path(str(context.get("btrsmith", context["btrc"]))),
@@ -1189,14 +1248,24 @@ class RunbookEngine:
                 attempt_log = log if attempt == 1 else log.with_suffix(f".attempt{attempt}.log")
                 code = self.execute(argv, cwd, environment, attempt_log, cell.timeout_s)
             passed, results, message = Results.read(cell, code, out, attempt_log)
+            if cell.result == "failure-list" and attempt > 1 and passed and outcome.results.get("failures"):
+                # A failure counts only if every attempt failed it; the rest were flakes the rerun cleared.
+                earlier = list(outcome.results.get("failures", []))  # type: ignore[arg-type]
+                now = list(results.get("failures", []))  # type: ignore[arg-type]
+                results["failures"] = [name for name in now if name in earlier]
+                results["flaky"] = sorted(set(earlier) ^ set(now))
+                count = len(results["failures"])  # type: ignore[arg-type]
+                message = f"{count} failure(s) named in every attempt" if count else ""
             outcome.exit, outcome.results, outcome.message = code, results, message
             outcome.log = str(attempt_log)
-            if passed:
+            named = cell.result == "failure-list" and bool(results.get("failures"))
+            if passed and not (named and attempt < attempts):
                 outcome.status = "passed"
                 return
             self.show_tail(attempt_log)
             if attempt < attempts:
-                say(f"    attempt {attempt} failed ({message}); rerunning once more")
+                reason = "named failures" if passed else message
+                say(f"    attempt {attempt} ended with {reason}; rerunning once more")
         outcome.status = "failed"
 
     @staticmethod
@@ -1298,6 +1367,9 @@ class RunbookEngine:
             return
         say(f"    pushing {sha[:12]} to {remote} {branch} (fast-forward only)")
         Git.run("push", remote, f"{sha}:refs/heads/{branch}", cwd=clone)
+        if hub.exists() and Git.run("rev-parse", "--is-bare-repository", cwd=hub) == "true":
+            # The hub feeds every later clone (stage5 resolves BTRSmith main there), so keep it level.
+            Git.run("push", str(hub), f"{sha}:refs/heads/{branch}", cwd=clone)
         outcome.status, outcome.exit = "passed", 0
         outcome.results = {"remote": remote, "branch": branch, "sha": sha}
         outcome.message = f"{branch} is now {sha[:12]}"
@@ -1373,6 +1445,15 @@ class RunbookEngine:
         state = self.open_state()
         self.state = state
         self.frozen = self.freeze(state)
+        published = self.frozen.get("published")
+        if published and all(
+            (outcome := state.checkpoint(cell.id)) is not None and outcome.status in CellOutcome.FINISHED
+            for cell in self.cells
+        ):
+            say(f"  run {state.run_id} is complete and published to {published.get('branch')}.")
+            say(f"  summary: {state.work / 'summary.txt'}")
+            say("  Nothing to do. Add --fresh to start a new round (for example after a fix lands).")
+            return 0
         say(f"  run             {state.run_id}")
         say(f"  workspace       {state.work}")
         say(f"  raw logs        {state.logs}")
@@ -1393,7 +1474,12 @@ class RunbookEngine:
         summary = publisher.publish()
         say("")
         say(publisher.render_text(summary))
-        return 0 if summary["result"] == "green" else 1
+        if summary["result"] != "green":
+            return 1
+        publication = summary.get("publication") or {}
+        if self.options.acceptance() and self.options.publish and not publication.get("pushed"):  # type: ignore[union-attr]
+            return 4
+        return 0
 
 
 class Evidence:
@@ -1415,8 +1501,16 @@ class Evidence:
             return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def interrupt(signum: int, frame: object) -> None:
+    """SIGTERM/SIGHUP stop a run like Ctrl-C: the running cell's process group is stopped too."""
+
+    raise KeyboardInterrupt
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     options = RunOptions.parse(argv)
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, interrupt)
     status = 0
     for name in options.presets:
         try:

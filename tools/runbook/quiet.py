@@ -74,13 +74,16 @@ class CpuRule:
 
 
 DEFAULT_PROCESS_RULES = (
-    ProcessRule("agent", r"claude|codex", "name"),
+    # The CLI agents, however launched (``node …/bin/claude``, a path with spaces); the
+    # desktop chat app (``…/Claude.app/Contents/MacOS/Claude``) is not an agent session.
+    ProcessRule("agent", r"(^|/)(claude|codex)(\s|$)"),
     ProcessRule(
         "compiler build", r"btrcc[\w.-]*|cc1|cc1plus|cc1obj|clang(\+\+)?(-\d+)?|gcc(-\d+)?|g\+\+|ld|ld64", "name"
     ),
     ProcessRule("test run", r"(^|[/\s])(py\.test|pytest)(\s|$)|-m\s+pytest\b"),
     ProcessRule("nix builder", r"_?nixbld\d*", "user"),
-    ProcessRule("nix build", r"(^|/)nix(-build|-store)?\s+(build|develop|flake check|store)\b"),
+    # An idle `nix develop` shell is not load; builds are (and their builders run as _nixbld users).
+    ProcessRule("nix build", r"(^|/)nix(-build|-store)?\s+(build|flake check|store)\b"),
     ProcessRule("guest", r"qemu-system[\w-]*|emulator\d*|vfkit|krunkit|UTM|VirtualBoxVM", "name"),
     ProcessRule("simulator", r"Simulator|launchd_sim|SimulatorTrampoline", "name"),
 )

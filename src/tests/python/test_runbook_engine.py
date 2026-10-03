@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
@@ -40,7 +41,19 @@ def git_identity(monkeypatch: pytest.MonkeyPatch) -> None:
         "GIT_CONFIG_NOSYSTEM": "1",
     }.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.delenv("BTRC_LOCK_DIR", raising=False)
+    monkeypatch.delenv("BTRC_TEST_BTRCC", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def lock_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The Mac's lock files, as AGENTS.md "Locks" lays them out."""
+
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    for name in ("gate", "bench", "linux-ci", "guest", "gui-capture", "signing", "btrcc-build.1", "btrcc-build.2"):
+        (directory / name).touch()
+    monkeypatch.setenv("BTRC_LOCK_DIR", str(directory))
+    return directory
     monkeypatch.delenv("BTRC_TEST_BTRCC", raising=False)
 
 
@@ -225,12 +238,12 @@ def test_stage5_measures_both_pins_on_both_frontends_with_quiet_before_every_mea
 
     for pin in ("aeeca0fd", "post-stage4"):
         for frontend in ("selfhost", "reference"):
-            for kind in ("product", "batch", "make-noop"):
+            for kind in ("product-cold", "product-edits", "product-steady", "batch", "make-noop"):
                 cell = cells[f"{kind}-{pin}-{frontend}"]
                 assert cell.quiet and cell.lock == "bench" and cell.result == "budget-bench"
     assert preset.pins == {"aeeca0fd": "aeeca0fd", "post-stage4": "main"}
-    product = " ".join(cells["product-aeeca0fd-selfhost"].command)
-    for option in ("--timing-cold", "--native-jobs {native_jobs}", "--workers {workers}", "{product_scenarios}"):
+    product = " ".join(cells["product-cold-aeeca0fd-selfhost"].command)
+    for option in ("--timing-cold", "--native-jobs {native_jobs}", "--workers {workers}", "{scenarios_cold}"):
         assert option in product
     assert preset.variables["workers"] == "1,2,4,8" and preset.variables["native_jobs"] == "8"
     assert preset.variables["cold_samples"] == "5" and preset.variables["incremental_samples"] == "20"
@@ -488,7 +501,6 @@ REQUAL = """\
 def test_new_release_check_failures_block_the_push(
     tmp_path: Path, hubs: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(runbook.Locks, "prefix", lambda self, name: [])
     preset = write_preset(tmp_path, REQUAL)
     (tmp_path / "home").mkdir()
     (tmp_path / "home" / "qualifying.txt").write_text("# Stage 2\ntests/Old.py::test_x\ntests/Gone.py::test_y\n")
@@ -518,7 +530,6 @@ def test_a_green_requalification_fast_forwards_btrsmith_main_upstream(
         "tests/Old.py::test_x\ntests/Drifted.py::test_reference\ntests/Drifted.py::test_selfhost\n"
     )
     engine = engine_for(preset, options(tmp_path, hubs, preset), system="Darwin")
-    monkeypatch.setattr(runbook.Locks, "prefix", lambda self, name: [])
 
     assert engine.run() == 0
     pin = git("rev-parse", "stage4/pin-bump", cwd=hubs["btrsmith"])
@@ -564,8 +575,11 @@ def test_stage5_rehearsal_commands_use_the_stand_in_and_one_sample(tmp_path: Pat
 
     assert set(cells) == {
         "btrcc",
-        "product-stand-in-selfhost",
-        "product-stand-in-reference",
+        *(
+            f"product-{group}-stand-in-{frontend}"
+            for group in ("cold", "edits", "steady")
+            for frontend in ("selfhost", "reference")
+        ),
         "batch-stand-in-selfhost",
         "batch-stand-in-reference",
         "make-noop-stand-in-selfhost",
@@ -574,10 +588,11 @@ def test_stage5_rehearsal_commands_use_the_stand_in_and_one_sample(tmp_path: Pat
         "scaling-reference",
     }
     selfhost = engine.expand_command(
-        cells["product-stand-in-selfhost"].command, engine.context(cells["product-stand-in-selfhost"], state)
+        cells["product-cold-stand-in-selfhost"].command, engine.context(cells["product-cold-stand-in-selfhost"], state)
     )
     reference = engine.expand_command(
-        cells["product-stand-in-reference"].command, engine.context(cells["product-stand-in-reference"], state)
+        cells["product-cold-stand-in-reference"].command,
+        engine.context(cells["product-cold-stand-in-reference"], state),
     )
     assert selfhost[:5] == ["python3", "-m", "tools.budget_bench", "--btrcc", str(state.work / "btrcc" / "btrcc")]
     assert "--stand-in" in selfhost and "--dry-run" in selfhost and "--workspace" not in selfhost
@@ -586,7 +601,7 @@ def test_stage5_rehearsal_commands_use_the_stand_in_and_one_sample(tmp_path: Pat
     assert scaling[scaling.index("--corpus-jobs") + 1] == "4"
     assert engine.skip_reason(cells["batch-stand-in-selfhost"], {}) is not None
     assert engine.skip_reason(cells["make-noop-stand-in-reference"], {}) is not None
-    assert engine.skip_reason(cells["product-stand-in-selfhost"], {}) is None
+    assert engine.skip_reason(cells["product-cold-stand-in-selfhost"], {}) is None
 
 
 PRESETS_STAGE5 = runbook.PRESETS / "stage5.toml"
@@ -658,20 +673,40 @@ def test_the_host_entry_follows_the_compiler_host() -> None:
     assert Host("Linux").entry() == "src/compiler/btrc/BtrccMain.btrc"
 
 
-def test_locks_on_the_mac_go_through_withlock_and_elsewhere_through_flock(tmp_path: Path) -> None:
-    mac = runbook.Locks(tmp_path, use_script=True, create=False)
-    assert mac.prefix("bench")[0].endswith("tools/bench/scripts/withlock.sh") and mac.prefix("bench")[1] == "bench"
-    assert mac.prefix(None) == []
+def test_locks_exclude_withlock_sh_and_each_other(tmp_path: Path, lock_dir: Path) -> None:
+    """The engine's flock excludes macOS lockf (withlock.sh) on the same file, and util-linux flock."""
 
-    linux = runbook.Locks(tmp_path / "locks", use_script=False, create=True)
-    assert linux.prefix("gate") == []
-    with linux.held("gate"), linux.held("btrcc-build"):
-        assert (tmp_path / "locks" / "gate").is_file() and (tmp_path / "locks" / "btrcc-build.1").is_file()
+    locks = runbook.Locks(lock_dir, create=False)
+    with locks.held("bench"):
+        if Path("/usr/bin/lockf").exists():
+            # withlock.sh's own call: -t 0 gives up at once with EX_TEMPFAIL (75) when the lock is held.
+            busy = subprocess.run(
+                ["/usr/bin/lockf", "-s", "-k", "-t", "0", str(lock_dir / "bench"), "true"], timeout=TOOL_TIMEOUT
+            )
+            assert busy.returncode == 75
+        elif shutil.which("flock"):
+            busy = subprocess.run(["flock", "-n", str(lock_dir / "bench"), "true"], timeout=TOOL_TIMEOUT)
+            assert busy.returncode == 1
+        else:
+            import fcntl
+
+            with (lock_dir / "bench").open("a") as other, pytest.raises(BlockingIOError):
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if Path("/usr/bin/lockf").exists():
+        free = subprocess.run(
+            ["/usr/bin/lockf", "-s", "-k", "-t", "0", str(lock_dir / "bench"), "true"], timeout=TOOL_TIMEOUT
+        )
+        assert free.returncode == 0
+
+    with locks.held("btrcc-build"), locks.held("btrcc-build"):
+        pass  # two slots: a second build gets the other one
     with (
         pytest.raises(RunbookError, match="does not exist"),
-        runbook.Locks(tmp_path / "none", use_script=False, create=False).held("gate"),
+        runbook.Locks(tmp_path / "none", create=False).held("gate"),
     ):
         pass
+    with runbook.Locks(tmp_path / "fresh", create=True).held("gate"):
+        assert (tmp_path / "fresh" / "gate").is_file()
 
 
 # -- evidence ---------------------------------------------------------------------------------
@@ -684,6 +719,8 @@ def test_redaction_replaces_every_home_path() -> None:
         "~/.cache/btrc/x and /Users/<redacted>/y and /home/<redacted>/z"
     )
     assert redactor.value({"/Users/owner/a": ["/Users/owner/b", 3]}) == {"~/a": ["~/b", 3]}
+    host = {"system": "Darwin", "node": "Owners-MacBook-Pro.local", "release": "27.0"}
+    assert redactor.value({"host": host}) == {"host": {"system": "Darwin", "node": "<redacted>", "release": "27.0"}}
 
 
 def test_the_builtin_secret_scan_finds_tokens_keys_and_home_paths(tmp_path: Path) -> None:
@@ -743,8 +780,18 @@ def test_an_acceptance_run_pushes_redacted_summaries_to_an_evidence_branch(
     assert str(Path.home()) not in json.dumps(summary) or str(Path.home()) == "/"
     first = git("rev-parse", branch, cwd=hubs["btrc_upstream"])
 
+    # Rerunning a published green run does nothing: no second ingest, no second push.
     rerun = acceptance_run(tmp_path, hubs)
     assert rerun.run() == 0
+    assert git("rev-parse", branch, cwd=hubs["btrc_upstream"]) == first
+
+    # A run republished (say, red, then fixed by a rerun) builds on the branch, fast-forward.
+    state_path = rerun.state.state_path  # type: ignore[union-attr]
+    state = json.loads(state_path.read_text())
+    del state["published"]
+    state_path.write_text(json.dumps(state))
+    again = acceptance_run(tmp_path, hubs)
+    assert again.run() == 0
     second = git("rev-parse", branch, cwd=hubs["btrc_upstream"])
     assert second != first and git("rev-parse", f"{second}^", cwd=hubs["btrc_upstream"]) == first
 
@@ -762,7 +809,7 @@ def test_a_secret_in_the_evidence_stops_the_push(
 
     monkeypatch.setattr(EvidencePublisher, "stage", leaky)
 
-    assert engine.run() == 0
+    assert engine.run() == 4
     summary = json.loads((engine.state.work / "summary.json").read_text())  # type: ignore[union-attr]
     assert summary["secret_scan"]["builtin"] == ["leak.txt:1: AWS access key"]
     assert summary["publication"]["pushed"] is False
@@ -775,7 +822,7 @@ def test_publication_waits_for_the_owner_when_the_ssh_agent_is_locked(
     engine = acceptance_run(tmp_path, hubs, "--evidence-remote", "git@github.com:example/none.git", "--owner-wait", "0")
     monkeypatch.setattr(Host, "ssh_agent_ready", staticmethod(lambda: False))
 
-    assert engine.run() == 0
+    assert engine.run() == 4  # green, but the evidence is not published yet
     summary = json.loads((engine.state.work / "summary.json").read_text())  # type: ignore[union-attr]
     assert summary["publication"]["pushed"] is False
     assert "unlock 1Password" in summary["publication"]["message"]
@@ -855,3 +902,130 @@ def test_checkpoints_round_trip(tmp_path: Path) -> None:
     assert state.checkpoint("a") == outcome
     (state.cells_dir / "b.json").write_text("{broken")
     assert state.checkpoint("b") is None
+
+
+def test_a_gui_flake_cleared_by_the_rerun_is_not_counted(tmp_path: Path, hubs: dict[str, Path]) -> None:
+    """release-check reruns once when it names failures; only tests failing both times count."""
+
+    flag = tmp_path / "first-attempt"
+    preset = write_preset(
+        tmp_path,
+        f"""\
+        [preset]
+        title = "gui"
+        [[cell]]
+        id = "release-check"
+        result = "failure-list"
+        retries = 1
+        command = ["sh", "-c", "echo 'FAILED tests/Real.py::t'; if [ ! -e {flag} ]; then touch {flag}; echo 'FAILED tests/Gui.py::flaky'; fi; exit 2"]
+        """,
+    )
+    engine = engine_for(preset, options(tmp_path, hubs, preset, "--rehearsal"))
+    engine.run()
+    outcome = engine.state.checkpoint("release-check")  # type: ignore[union-attr]
+
+    assert outcome is not None and outcome.status == "passed" and outcome.attempts == 2
+    assert outcome.results["failures"] == ["tests/Real.py::t"]
+    assert outcome.results["flaky"] == ["tests/Gui.py::flaky"]
+
+
+def test_a_missing_optional_pin_skips_only_its_cells(tmp_path: Path, hubs: dict[str, Path]) -> None:
+    """WORKSTREAMS.md §7 Q44: if aeeca0fd is gone, Stage 5 measures only the new pin."""
+
+    preset = write_preset(
+        tmp_path,
+        """\
+        [preset]
+        title = "pins"
+        [btrsmith]
+        pins = { gone = "0123456789abcdef0123456789abcdef01234567", new = "stage4/pin-bump" }
+        branch_pin = "new"
+        optional = ["gone"]
+        [[cell]]
+        id = "measure-{pin}"
+        matrix = { pin = ["gone", "new"] }
+        cwd = "btrsmith"
+        command = ["true"]
+        """,
+    )
+    engine = engine_for(preset, options(tmp_path, hubs, preset, "--rehearsal"))
+
+    assert engine.run() == 0
+    gone = engine.state.checkpoint("measure-gone")  # type: ignore[union-attr]
+    assert gone is not None and gone.status == "skipped" and "not in the hub" in gone.message
+    assert engine.state.checkpoint("measure-new").status == "passed"  # type: ignore[union-attr]
+
+    required = write_preset(tmp_path, preset.read_text().replace('optional = ["gone"]\n', ""), name="required")
+    with pytest.raises(RunbookError, match="is not in"):
+        engine_for(required, options(tmp_path, hubs, required, "--rehearsal")).run()
+
+
+def test_stage5_marks_aeeca0fd_optional_and_splits_each_night_into_resumable_groups() -> None:
+    preset = Preset.load("stage5")
+    ids = {cell.id for cell in preset.cells(stand_in=False)}
+
+    assert preset.optional_pins == ("aeeca0fd",)
+    assert {f"product-{group}-post-stage4-selfhost" for group in ("cold", "edits", "steady")} <= ids
+    groups = {preset.variables[f"scenarios_{group}"] for group in ("cold", "edits", "steady")}
+    covered = {name for group in groups for name in group.split(",")}
+    assert covered == {
+        "cold",
+        "release",
+        "memory",
+        "workers",
+        "edit",
+        "instance-edit",
+        "interface-edit",
+        "noop",
+        "touch",
+    }
+    facts = {(budget.scenario, budget.fact) for budget in preset.budgets if budget.fact}
+    assert ("release-module", "ratio_to_whole") in facts and ("interface-edit", "ratio_max") in facts
+
+
+def test_stopping_the_engine_stops_the_running_cell_and_leaves_no_checkpoint(
+    tmp_path: Path, hubs: dict[str, Path]
+) -> None:
+    """A SIGTERM (a closed terminal, a logout) stops the cell's whole process group; the rerun repeats it."""
+
+    import signal
+    import time
+
+    preset = write_preset(
+        tmp_path,
+        """\
+        [preset]
+        title = "long"
+        [[cell]]
+        id = "long"
+        command = ["sh", "-c", "echo $$ > {out}/pid; exec sleep 120"]
+        """,
+    )
+    arguments = [
+        str(preset), "--rehearsal", "--home", str(tmp_path / "home"), "--btrc-hub", str(hubs["btrc"]),
+        "--min-free-gb", "0",
+    ]  # fmt: skip
+    engine = subprocess.Popen(
+        ["python3", "-m", "tools.runbook", *arguments], cwd=REPO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    pid_file = (
+        tmp_path / "home" / "bench.noindex" / f"fake-{datetime.date.today().isoformat()}" / "out" / "long" / "pid"
+    )
+    deadline = time.monotonic() + TOOL_TIMEOUT
+    while not (pid_file.is_file() and pid_file.read_text().strip()) and time.monotonic() < deadline:
+        assert engine.poll() is None
+        time.sleep(0.1)
+    cell = int(pid_file.read_text())
+    engine.send_signal(signal.SIGTERM)
+
+    assert engine.wait(timeout=TOOL_TIMEOUT) == 130
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            os.kill(cell, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        pytest.fail("the cell's sleep survived the engine")
+    assert not (pid_file.parent.parent.parent / "cells" / "long.json").exists()

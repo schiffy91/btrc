@@ -58,7 +58,9 @@ SECRET_PATTERNS = (
 
 
 class Redactor:
-    """Replace the owner's home and any other user's home path with placeholders."""
+    """Replace the owner's home, any other user's home path and the host name with placeholders."""
+
+    PRIVATE_KEYS = frozenset({"node", "hostname", "user", "username"})
 
     def __init__(self, home: Path | None = None) -> None:
         self.home = str(home or Path.home())
@@ -74,7 +76,11 @@ class Redactor:
         if isinstance(value, list):
             return [self.value(item) for item in value]
         if isinstance(value, dict):
-            return {self.text(str(key)): self.value(item) for key, item in value.items()}
+            # platform.uname()'s node is the Mac's network name; it never leaves the machine.
+            return {
+                self.text(str(key)): "<redacted>" if key in self.PRIVATE_KEYS else self.value(item)
+                for key, item in value.items()
+            }
         return value
 
 
@@ -164,7 +170,10 @@ class EvidencePublisher:
         stdlib = None
         if shas.get("btrc") and Git.ok("rev-parse", "--verify", "--quiet", f"{shas['btrc']}:src/stdlib", cwd=clone):
             stdlib = Git.run("rev-parse", f"{shas['btrc']}:src/stdlib", cwd=clone)
-        build_log = btrcc.with_name(btrcc.name + ".build.log")
+        builders = [outcome for outcome in self.outcomes if self.provides_btrcc(outcome.id)]
+        build_log = (
+            Path(builders[0].log) if builders and builders[0].log else btrcc.with_name(btrcc.name + ".build.log")
+        )
         return {
             "host": host,
             "host_matches_acceptance": host == ACCEPTANCE_HOST,
@@ -189,12 +198,18 @@ class EvidencePublisher:
             },
         }
 
+    def provides_btrcc(self, cell_id: str) -> bool:
+        return any(cell.id == cell_id and cell.provides == "btrcc" for cell in self.engine.cells)
+
     @staticmethod
     def build_line(log: Path) -> str | None:
+        """build_btrcc.sh's verdict, which names the C compiler that built btrcc."""
+
         if not log.is_file():
             return None
         lines = [line for line in log.read_text(errors="replace").splitlines() if line.strip()]
-        return lines[-1][:300] if lines else None
+        verdicts = [line for line in lines if line.startswith(("BUILD OK", "BUILD FAIL"))]
+        return (verdicts or lines or [""])[-1][:300] or None
 
     def misses(self, outcome: CellOutcome) -> list[dict[str, object]]:
         """The preset's budgets this budget-bench cell's report misses (findings, not failures)."""
@@ -321,7 +336,11 @@ class EvidencePublisher:
         if not self.options.acceptance():
             reason = "rehearsal, stand-in or dry run: qualification takes acceptance runs only"
             return [{"cell": outcome.id, "status": "skipped", "message": reason} for outcome in reports]
+        done = set(self.engine.frozen.get("ingested", []))
         for outcome in reports:
+            if outcome.id in done:
+                records.append({"cell": outcome.id, "status": "ingested earlier", "message": ""})
+                continue
             report = str(outcome.results["report"])
             command = [
                 sys.executable, "-m", "tools.qualification", "ingest", "--budget-bench", report, "--this-host",
@@ -341,6 +360,10 @@ class EvidencePublisher:
             except (OSError, subprocess.TimeoutExpired) as error:
                 status, tail = "error", [str(error)]
             records.append({"cell": outcome.id, "status": status, "message": " | ".join(tail)})
+            if status == "ingested":
+                # The ledger appends; a rerun must not record the same samples twice.
+                self.engine.frozen.setdefault("ingested", []).append(outcome.id)
+                self.state.save(self.engine.frozen)
         return records
 
     # -- the redacted copy
@@ -359,7 +382,10 @@ class EvidencePublisher:
                 if key in outcome.results and source.is_file():
                     target = stage / "cells" / outcome.id / name
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(self.redactor.text(source.read_text(errors="replace")))
+                    text = source.read_text(errors="replace")
+                    if name.endswith(".json"):
+                        text = json.dumps(self.redactor.value(json.loads(text)), indent=2) + "\n"
+                    target.write_text(self.redactor.text(text))
         return stage
 
     def scan(self, stage: Path) -> dict[str, object]:
@@ -411,7 +437,12 @@ class EvidencePublisher:
     @staticmethod
     def git_with(environment: Mapping[str, str], cwd: Path, *arguments: str) -> str:
         completed = subprocess.run(
-            ["git", *arguments], cwd=cwd, env=dict(environment), capture_output=True, text=True, timeout=300
+            ["git", *arguments],
+            cwd=cwd,
+            env=dict(environment) | {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""},
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if completed.returncode != 0:
             raise RunbookError(f"git {' '.join(arguments[:2])} failed: {completed.stderr.strip()[-400:]}")
@@ -467,6 +498,9 @@ class EvidencePublisher:
                 publication = self.push(stage, summary)
             except RunbookError as error:
                 publication = {"pushed": False, "message": f"push failed: {error}; rerun the same command to retry"}
+            if publication.get("pushed") and summary["result"] == "green":
+                self.engine.frozen["published"] = {"branch": self.branch, "commit": publication.get("commit")}
+                self.state.save(self.engine.frozen)
         summary["publication"] = publication
         self.write(summary)
         return summary

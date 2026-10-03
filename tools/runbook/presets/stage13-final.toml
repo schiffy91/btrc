@@ -1,4 +1,4 @@
-# Stage 13: bucket-1 exit qualification (PLAN.md Stage 13, MAC-R-03).
+# Stage 13: bucket-1 exit qualification (PLAN.md Stage 13, MAC-R-09).
 #
 #   tools/runbook/run.sh stage13-final
 #
@@ -10,7 +10,7 @@
 
 [preset]
 title = "Stage 13 bucket-1 exit qualification"
-packet = "MAC-R-03"
+packet = "MAC-R-09"
 kind = "measurement"
 quiet = false
 on_failure = "stop"
@@ -29,15 +29,23 @@ ref = "main"
 pins = { final = "main" }
 
 [variables]
+# The clang -O2 btrcc (Apple clang on the Mac; docs/design/compile-performance.md "Measuring a compile").
+btrcc_build = '"{scripts}/build_btrcc.sh" "{run}/btrcc/btrcc" "{host_entry}"'
 gate_base = "origin/main"
 cold_samples = "5"
 incremental_samples = "20"
 native_jobs = "8"
 workers = "1,2,4,8"
 corpus_jobs = "1"
-product_scenarios = "cold,release,edit,instance-edit,interface-edit,noop,touch,memory,workers"
+# The product scenarios in three cells per pin and frontend, so an interrupted
+# night repeats at most one group: cold builds and memory, edits, steady state.
+scenarios_cold = "cold,release,memory,workers"
+scenarios_edits = "edit,instance-edit,interface-edit"
+scenarios_steady = "noop,touch"
 
 [rehearsal.variables]
+# build_btrcc.sh links for Apple clang (no -lm); off the Mac a rehearsal builds with `make btrcc`.
+btrcc_build = 'make btrcc && cp bin/btrcc "{run}/btrcc/btrcc" && echo "BUILD OK {run}/btrcc/btrcc (make btrcc, rehearsal)"'
 corpus_jobs = "4"
 
 [stand_in]
@@ -75,7 +83,27 @@ limit = 10
 frontend = "selfhost"
 scenario = "cold-dev"
 limit = 20
-label = "selfhost cold dev <= min(20 s, baseline / 10); working budget 13 s"
+label = "selfhost cold dev <= 20 s (and <= baseline / 10, judged against the frozen baseline)"
+[[budget]]
+frontend = "selfhost"
+scenario = "cold-dev"
+limit = 13.5
+label = "selfhost cold dev working budget 13.5 s (PLAN.md Corrections)"
+[[budget]]
+frontend = "selfhost"
+scenario = "cold-transpile"
+limit = 40
+label = "M8a: selfhost cold transpile <= 40 s"
+[[budget]]
+scenario = "release-module"
+fact = "ratio_to_whole"
+limit = 1.10
+label = "module-unit release <= 110% of whole-program"
+[[budget]]
+scenario = "interface-edit"
+fact = "ratio_max"
+limit = 1.10
+label = "interface edit <= 110% of a clean build of the changed tree"
 [[budget]]
 frontend = "selfhost"
 scenario = "release-whole"
@@ -198,20 +226,20 @@ provides = "btrcc"
 lock = "btrcc-build"
 timeout_hours = 2
 env = { BTRC_REPO = "{btrc}" }
-command = ["{scripts}/build_btrcc.sh", "{run}/btrcc/btrcc", "{host_entry}"]
+command = ["sh", "-c", "{btrcc_build}"]
 
 [[cell]]
-id = "product-{pin}-{frontend}"
-title = "final quiet product scenarios, {frontend} frontend, BTRSmith {pin}"
-matrix = { pin = ["final"], frontend = ["selfhost", "reference"] }
+id = "product-{group}-{pin}-{frontend}"
+title = "final quiet {group} scenarios, {frontend} frontend, BTRSmith {pin}"
+matrix = { pin = ["final"], frontend = ["selfhost", "reference"], group = ["cold", "edits", "steady"] }
 lock = "bench"
 quiet = true
 shell = "btrsmith"
 result = "budget-bench"
-timeout_hours = 10
+timeout_hours = 6
 command = [
   "python3", "-m", "tools.budget_bench", "{btrcc_args}", "{workspace_args}", "--out", "{out}",
-  "--frontend", "{frontend}", "--scenarios", "{product_scenarios}",
+  "--frontend", "{frontend}", "--scenarios", "{scenarios_{group}}",
   "--cold-samples", "{cold_samples}", "--incremental-samples", "{incremental_samples}",
   "--native-jobs", "{native_jobs}", "--workers", "{workers}", "--timing-cold", "{dry_run_args}",
 ]
