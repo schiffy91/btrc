@@ -1,7 +1,9 @@
 /* Instance-owned orchestration for the self-hosted compiler pipeline. */
 
 import Library.BackgroundJobs.WorkerPools;
+import Library.Digest.SHA256;
 import Library.FileSystem;
+import Library.IO;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
@@ -14,6 +16,98 @@ import ./ModuleUnits.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
 import ../ir/lowering/Reachability.btrc;
+import ../lexer/Lexer.btrc;
+import ../parser/Parser.btrc;
+import ../syntax/Identity.btrc;
+
+/* Stage 6 parse spike (never merged): each source file's top-level AST is
+ * cached under its text's digest and decoded instead of lexed and parsed. A
+ * file whose lines moved in the combined source is relocated by the shift.
+ * Unsound by design: the key ignores the grammar. Any file that lexes or
+ * parses with an error makes the whole program take the normal path, so
+ * diagnostics never come from here. */
+class SpikeParseCache {
+	private GrammarInfo grammar;
+	private string directory;
+	public int decoded = 0;
+	public int parsed = 0;
+
+	public SpikeParseCache(GrammarInfo grammar, bool enabled) {
+		self.grammar = grammar;
+		self.directory = enabled ? SpikeCacheDirectory.root("parse") : "";
+	}
+
+	public Node? parse(FeResolvedSource resolved) {
+		if (self.directory.isEmpty() || resolved.stdlibLineCount != 0) { return null; }
+		Node program = Node();
+		program.kind = NK_PROGRAM;
+		Vector<Node> declarations = program.declarationsMut();
+		int index = 0;
+		int count = resolved.userLines.len;
+		while (index < count) {
+			string file = resolved.userLines.get(index).sourceFile;
+			int start = index;
+			Vector<string> texts = [];
+			while (index < count && resolved.userLines.get(index).sourceFile.equals(file)) {
+				texts.push(resolved.userLines.get(index).text);
+				index++;
+			}
+			/* Combined-source lines are 1-based; a segment continues the line
+			 * after its predecessor's last. */
+			if (!self.segment(FeSourceText.joinLines(texts), start + 1, declarations)) { return null; }
+		}
+		return program;
+	}
+
+	private bool segment(string text, int firstLine, Vector<Node> declarations) {
+		string path = PathTools.join(self.directory, SHA256.digest("parse-v1\n" + text));
+		if (Path.exists(path)) {
+			string stored = Path.readAll(path);
+			int newline = stored.indexOf("\n");
+			if (newline > 0) {
+				int storedLine = Strings.toInt(stored.substring(0, newline));
+				SpikeNodeCodec codec = SpikeNodeCodec();
+				Vector<Node>? nodes = codec.decodeAll(stored.substring(newline + 1, stored.length() - newline - 1));
+				if (nodes != null) {
+					if (storedLine != firstLine) { SpikeParseCache.relocate(nodes, firstLine - storedLine); }
+					for node in nodes { declarations.push(node); }
+					self.decoded = self.decoded + 1;
+					return true;
+				}
+			}
+		}
+		Lexer lexer = Lexer(text, self.grammar, firstLine, 1);
+		Vector<Token> tokens = lexer.tokenize();
+		if (lexer.failed) { return false; }
+		Parser parser = Parser(tokens, self.grammar);
+		Node program = parser.parseProgram();
+		if (parser.failed) { return false; }
+		Vector<Node> nodes = program.declarations();
+		SpikeNodeCodec codec = SpikeNodeCodec();
+		string encoded = codec.encodeAll(nodes);
+		Path.writeAll(path + ".tmp", Strings.fromInt(firstLine) + "\n" + encoded);
+		rename(path + ".tmp", path);
+		for node in nodes { declarations.push(node); }
+		self.parsed = self.parsed + 1;
+		return true;
+	}
+
+	/* Every node's line, once, moved by `delta`. */
+	class void relocate(Vector<Node> roots, int delta) {
+		Map<string, bool> seen = {};
+		Vector<Node> pending = [];
+		for root in roots { pending.push(root); }
+		while (pending.len > 0) {
+			Node node = pending.pop();
+			string identity = AstIdentity.key(node);
+			if (seen.has(identity)) { continue; }
+			seen.put(identity, true);
+			if (node.line > 0) { node.line = node.line + delta; }
+			if (node.nameLine > 0) { node.nameLine = node.nameLine + delta; }
+			AstStructure.children(node, pending);
+		}
+	}
+}
 
 class CompilerPipeline {
 	private GrammarInfo grammar;
@@ -125,18 +219,27 @@ class CompilerPipeline {
 		var packages = input.packages;
 		string sourcePath = input.sourcePath;
 
-		Lexer lexer = Lexer(resolved.source, self.grammar);
-		Vector<Token> tokens = lexer.tokenize();
-		BtrccPhaseTimer.mark("lex");
-		if (lexer.failed) {
-			return self.failure("error: " + lexer.diagnostic);
-		}
+		SpikeParseCache spikeParse = SpikeParseCache(self.grammar, options.useCache && resolved.strictImports);
+		Node? spikeProgram = spikeParse.parse(resolved);
+		Node program = Node();
+		if (spikeProgram != null) {
+			program = spikeProgram;
+			BtrccPhaseTimer.mark("spike-parse");
+			BtrccPhaseTimer.note(f"spike-parse=decoded:{spikeParse.decoded},parsed:{spikeParse.parsed}");
+		} else {
+			Lexer lexer = Lexer(resolved.source, self.grammar);
+			Vector<Token> tokens = lexer.tokenize();
+			BtrccPhaseTimer.mark("lex");
+			if (lexer.failed) {
+				return self.failure("error: " + lexer.diagnostic);
+			}
 
-		Parser parser = Parser(tokens, self.grammar);
-		Node program = parser.parseProgram();
-		BtrccPhaseTimer.mark("parse");
-		if (parser.failed) {
-			return self.failure("error: " + parser.diagnostic);
+			Parser parser = Parser(tokens, self.grammar);
+			program = parser.parseProgram();
+			BtrccPhaseTimer.mark("parse");
+			if (parser.failed) {
+				return self.failure("error: " + parser.diagnostic);
+			}
 		}
 
 		self.hostedAbi.stampProgramSources(program, resolved.stdlibLineCount, resolved.userLines, sourcePath, self.stdlib.directory());

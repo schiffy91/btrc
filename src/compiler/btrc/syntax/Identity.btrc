@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ./Literals.btrc;
 #include <stdint.h>
 
 class AstIdentity {
@@ -1370,5 +1371,336 @@ class TypeIdentity {
 			return "__btrc_fn_" + TypeIdentity.legacySequence(args);
 		}
 		return "__btrc_fn_ZQf" + TypeIdentity.encodeTypes(args);
+	}
+}
+
+/* Stage 6 floor spike (never merged): a byte codec for whole AST subtrees,
+ * generated from Node's fields. Every field that differs from Node()'s
+ * default is written as its index and value; a node reached twice is written
+ * once and referenced after, so shared subtrees stay shared. A float
+ * literal's value is re-derived from its spelling, as the parser derives it. */
+class SpikeNodeCodec {
+	private StringBuilder out = StringBuilder();
+	private Map<string, int> written = {};
+	private string input = "";
+	private int at = 0;
+	/* The input's length, read once: length() counts the bytes each time. */
+	private int size = 0;
+	private Vector<Node> read = [];
+	public bool failed = false;
+
+	public SpikeNodeCodec() {}
+
+	private void integer(int value) { self.out.append(Strings.fromInt(value)); self.out.append(";"); }
+
+	private void text(string? value) { if (value == null) { self.integer(0); return; } self.integer(value.length()); self.out.append(value); }
+
+	public string encodeAll(Vector<Node> nodes) {
+		self.integer(nodes.len);
+		for node in nodes { self.node(node); }
+		return self.out.toString();
+	}
+
+	private void nodes(Vector<Node>? values) {
+		if (values == null) { self.integer(0); return; }
+		self.integer(values.len);
+		for value in values { self.node(value); }
+	}
+
+	private void strings(Vector<string>? values) {
+		if (values == null) { self.integer(0); return; }
+		self.integer(values.len);
+		for value in values { self.text(value); }
+	}
+
+	private void node(Node? value) {
+		if (value == null) { self.out.append("n"); return; }
+		string identity = AstIdentity.key(value);
+		if (self.written.has(identity)) { self.out.append("r"); self.integer(self.written.get(identity)); return; }
+		self.written.put(identity, self.written.len);
+		self.out.append("o");
+		if (value.kind != 0) { self.integer(0); self.integer(value.kind); }
+		if (value.declarationsStorage != null) { self.integer(1); self.nodes(value.declarationsStorage); }
+		if (!value.text.isEmpty()) { self.integer(2); self.text(value.text); }
+		if (value.line != 0) { self.integer(3); self.integer(value.line); }
+		if (value.col != 0) { self.integer(4); self.integer(value.col); }
+		if (value.sourceFile != null) { self.integer(5); self.text(value.sourceFile); }
+		if (value.spec != null) { self.integer(6); self.node(value.spec); }
+		if (!value.name.isEmpty()) { self.integer(7); self.text(value.name); }
+		if (value.genericParamsStorage != null) { self.integer(8); self.strings(value.genericParamsStorage); }
+		if (value.membersStorage != null) { self.integer(9); self.nodes(value.membersStorage); }
+		if (value.parent != null) { self.integer(10); self.text(value.parent); }
+		if (value.interfacesStorage != null) { self.integer(11); self.strings(value.interfacesStorage); }
+		if (value.isAbstract) { self.integer(12); }
+		if (value.nameLine != 0) { self.integer(13); self.integer(value.nameLine); }
+		if (value.nameCol != 0) { self.integer(14); self.integer(value.nameCol); }
+		if (value.methodsStorage != null) { self.integer(15); self.nodes(value.methodsStorage); }
+		if (value.returnType != null) { self.integer(16); self.node(value.returnType); }
+		if (value.paramsStorage != null) { self.integer(17); self.nodes(value.paramsStorage); }
+		if (value.bodyNode != null) { self.integer(18); self.node(value.bodyNode); }
+		if (value.isGpu) { self.integer(19); }
+		if (value.isRealtime) { self.integer(20); }
+		if (value.keepReturn) { self.integer(21); }
+		if (value.fieldsStorage != null) { self.integer(22); self.nodes(value.fieldsStorage); }
+		if (value.isForward) { self.integer(23); }
+		if (value.valuesStorage != null) { self.integer(24); self.nodes(value.valuesStorage); }
+		if (value.variantsStorage != null) { self.integer(25); self.nodes(value.variantsStorage); }
+		if (value.original != null) { self.integer(26); self.node(value.original); }
+		if (!value.alias.isEmpty()) { self.integer(27); self.text(value.alias); }
+		if (value.recursive) { self.integer(28); }
+		if (value.namesStorage != null) { self.integer(29); self.strings(value.namesStorage); }
+		if (value.segmentsStorage != null) { self.integer(30); self.strings(value.segmentsStorage); }
+		if (!value.path.isEmpty()) { self.integer(31); self.text(value.path); }
+		if (!value.base.isEmpty()) { self.integer(32); self.text(value.base); }
+		if (value.genericArgsStorage != null) { self.integer(33); self.nodes(value.genericArgsStorage); }
+		if (value.pointerDepth != 0) { self.integer(34); self.integer(value.pointerDepth); }
+		if (value.isArray) { self.integer(35); }
+		if (value.arraySize != null) { self.integer(36); self.node(value.arraySize); }
+		if (value.isConst) { self.integer(37); }
+		if (value.isNullable) { self.integer(38); }
+		if (value.nullableOuterDepth != 0) { self.integer(39); self.integer(value.nullableOuterDepth); }
+		if (value.isStatic) { self.integer(40); }
+		if (value.isExtern) { self.integer(41); }
+		if (value.isVolatile) { self.integer(42); }
+		if (value.type != null) { self.integer(43); self.node(value.type); }
+		if (value.default_ != null) { self.integer(44); self.node(value.default_); }
+		if (value.keep_) { self.integer(45); }
+		if (!value.access.isEmpty()) { self.integer(46); self.text(value.access); }
+		if (value.initializer != null) { self.integer(47); self.node(value.initializer); }
+		if (value.isConstructor) { self.integer(48); }
+		if (value.hasGetter) { self.integer(49); }
+		if (value.hasSetter) { self.integer(50); }
+		if (value.getterBody != null) { self.integer(51); self.node(value.getterBody); }
+		if (value.setterBody != null) { self.integer(52); self.node(value.setterBody); }
+		if (value.valueNode != null) { self.integer(53); self.node(value.valueNode); }
+		if (value.statementsStorage != null) { self.integer(54); self.nodes(value.statementsStorage); }
+		if (value.condition != null) { self.integer(55); self.node(value.condition); }
+		if (value.thenBlock != null) { self.integer(56); self.node(value.thenBlock); }
+		if (value.elseBlock != null) { self.integer(57); self.node(value.elseBlock); }
+		if (!value.varName.isEmpty()) { self.integer(58); self.text(value.varName); }
+		if (value.varName2 != null) { self.integer(59); self.text(value.varName2); }
+		if (value.iterable != null) { self.integer(60); self.node(value.iterable); }
+		if (value.init != null) { self.integer(61); self.node(value.init); }
+		if (value.update != null) { self.integer(62); self.node(value.update); }
+		if (value.casesStorage != null) { self.integer(63); self.nodes(value.casesStorage); }
+		if (value.expr != null) { self.integer(64); self.node(value.expr); }
+		if (value.tryBlock != null) { self.integer(65); self.node(value.tryBlock); }
+		if (!value.catchVar.isEmpty()) { self.integer(66); self.text(value.catchVar); }
+		if (value.catchType != null) { self.integer(67); self.node(value.catchType); }
+		if (value.catchBlock != null) { self.integer(68); self.node(value.catchBlock); }
+		if (value.finallyBlock != null) { self.integer(69); self.node(value.finallyBlock); }
+		if (value.ifStmt != null) { self.integer(70); self.node(value.ifStmt); }
+		if (value.expression != null) { self.integer(71); self.node(value.expression); }
+		if (value.bodyNodeListStorage != null) { self.integer(72); self.nodes(value.bodyNodeListStorage); }
+		if (value.valueInt != 0) { self.integer(73); self.integer(value.valueInt); }
+		if (!value.raw.isEmpty()) { self.integer(74); self.text(value.raw); }
+		if (!value.valueString.isEmpty()) { self.integer(76); self.text(value.valueString); }
+		if (value.valueBool) { self.integer(77); }
+		if (value.left != null) { self.integer(78); self.node(value.left); }
+		if (!value.op.isEmpty()) { self.integer(79); self.text(value.op); }
+		if (value.right != null) { self.integer(80); self.node(value.right); }
+		if (value.operand != null) { self.integer(81); self.node(value.operand); }
+		if (value.prefix) { self.integer(82); }
+		if (value.callee != null) { self.integer(83); self.node(value.callee); }
+		if (value.argsStorage != null) { self.integer(84); self.nodes(value.argsStorage); }
+		if (value.argNamesStorage != null) { self.integer(85); self.strings(value.argNamesStorage); }
+		if (value.obj != null) { self.integer(86); self.node(value.obj); }
+		if (value.index != null) { self.integer(87); self.node(value.index); }
+		if (!value.field.isEmpty()) { self.integer(88); self.text(value.field); }
+		if (value.arrow) { self.integer(89); }
+		if (value.optional) { self.integer(90); }
+		if (value.targetType != null) { self.integer(91); self.node(value.targetType); }
+		if (value.trueExpr != null) { self.integer(92); self.node(value.trueExpr); }
+		if (value.falseExpr != null) { self.integer(93); self.node(value.falseExpr); }
+		if (value.target != null) { self.integer(94); self.node(value.target); }
+		if (value.elementsStorage != null) { self.integer(95); self.nodes(value.elementsStorage); }
+		if (value.entriesStorage != null) { self.integer(96); self.nodes(value.entriesStorage); }
+		if (value.partsStorage != null) { self.integer(97); self.nodes(value.partsStorage); }
+		if (value.capturesStorage != null) { self.integer(98); self.nodes(value.capturesStorage); }
+		if (value.fn != null) { self.integer(99); self.node(value.fn); }
+		if (value.key != null) { self.integer(100); self.node(value.key); }
+		self.out.append("e");
+	}
+
+	/* The nodes `encoded` holds, or null when it is malformed. */
+	public Vector<Node>? decodeAll(string encoded) {
+		self.input = encoded;
+		self.at = 0;
+		self.size = encoded.length();
+		Vector<Node> nodes = [];
+		int count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			Node? value = self.readNode();
+			if (value == null) { self.failed = true; break; }
+			nodes.push(value);
+		}
+		if (self.failed || self.at != self.size) { return null; }
+		return nodes;
+	}
+
+	private int readInteger() {
+		int value = 0;
+		bool negative = false;
+		int length = self.size;
+		if (self.at < length && self.input[self.at] == '-') { negative = true; self.at++; }
+		while (self.at < length && self.input[self.at] != ';') {
+			char digit = self.input[self.at];
+			if (digit < '0' || digit > '9') { self.failed = true; return 0; }
+			value = value * 10 + (int)(digit - '0');
+			self.at++;
+		}
+		if (self.at >= length) { self.failed = true; return 0; }
+		self.at++;
+		return negative ? -value : value;
+	}
+
+	private string readText() {
+		int length = self.readInteger();
+		if (self.failed || length < 0 || self.at + length > self.size) { self.failed = true; return ""; }
+		string value = self.input.substring(self.at, length);
+		self.at = self.at + length;
+		return value;
+	}
+
+	private Vector<Node> readNodes() {
+		Vector<Node> values = [];
+		int count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) {
+			Node? value = self.readNode();
+			if (value == null) { self.failed = true; break; }
+			values.push(value);
+		}
+		return values;
+	}
+
+	private Vector<string> readStrings() {
+		Vector<string> values = [];
+		int count = self.readInteger();
+		for (int index = 0; index < count && !self.failed; index++) { values.push(self.readText()); }
+		return values;
+	}
+
+	private Node? readNode() {
+		if (self.failed || self.at >= self.size) { self.failed = true; return null; }
+		char tag = self.input[self.at];
+		self.at++;
+		if (tag == 'n') { return null; }
+		if (tag == 'r') {
+			int reference = self.readInteger();
+			if (self.failed || reference < 0 || reference >= self.read.len) { self.failed = true; return null; }
+			return self.read.get(reference);
+		}
+		if (tag != 'o') { self.failed = true; return null; }
+		Node value = Node();
+		self.read.push(value);
+		while (!self.failed && self.at < self.size && self.input[self.at] != 'e') {
+			int field = self.readInteger();
+			if (self.failed) { return null; }
+			if (field == 0) { value.kind = self.readInteger(); }
+			else if (field == 1) { value.declarationsStorage = self.readNodes(); }
+			else if (field == 2) { string text = self.readText(); value.text = text; }
+			else if (field == 3) { value.line = self.readInteger(); }
+			else if (field == 4) { value.col = self.readInteger(); }
+			else if (field == 5) { string text = self.readText(); value.sourceFile = text; }
+			else if (field == 6) { Node? child = self.readNode(); if (child != null) { value.spec = child; } }
+			else if (field == 7) { string text = self.readText(); value.name = text; }
+			else if (field == 8) { value.genericParamsStorage = self.readStrings(); }
+			else if (field == 9) { value.membersStorage = self.readNodes(); }
+			else if (field == 10) { string text = self.readText(); value.parent = text; }
+			else if (field == 11) { value.interfacesStorage = self.readStrings(); }
+			else if (field == 12) { value.isAbstract = true; }
+			else if (field == 13) { value.nameLine = self.readInteger(); }
+			else if (field == 14) { value.nameCol = self.readInteger(); }
+			else if (field == 15) { value.methodsStorage = self.readNodes(); }
+			else if (field == 16) { Node? child = self.readNode(); if (child != null) { value.returnType = child; } }
+			else if (field == 17) { value.paramsStorage = self.readNodes(); }
+			else if (field == 18) { Node? child = self.readNode(); if (child != null) { value.bodyNode = child; } }
+			else if (field == 19) { value.isGpu = true; }
+			else if (field == 20) { value.isRealtime = true; }
+			else if (field == 21) { value.keepReturn = true; }
+			else if (field == 22) { value.fieldsStorage = self.readNodes(); }
+			else if (field == 23) { value.isForward = true; }
+			else if (field == 24) { value.valuesStorage = self.readNodes(); }
+			else if (field == 25) { value.variantsStorage = self.readNodes(); }
+			else if (field == 26) { Node? child = self.readNode(); if (child != null) { value.original = child; } }
+			else if (field == 27) { string text = self.readText(); value.alias = text; }
+			else if (field == 28) { value.recursive = true; }
+			else if (field == 29) { value.namesStorage = self.readStrings(); }
+			else if (field == 30) { value.segmentsStorage = self.readStrings(); }
+			else if (field == 31) { string text = self.readText(); value.path = text; }
+			else if (field == 32) { string text = self.readText(); value.base = text; }
+			else if (field == 33) { value.genericArgsStorage = self.readNodes(); }
+			else if (field == 34) { value.pointerDepth = self.readInteger(); }
+			else if (field == 35) { value.isArray = true; }
+			else if (field == 36) { Node? child = self.readNode(); if (child != null) { value.arraySize = child; } }
+			else if (field == 37) { value.isConst = true; }
+			else if (field == 38) { value.isNullable = true; }
+			else if (field == 39) { value.nullableOuterDepth = self.readInteger(); }
+			else if (field == 40) { value.isStatic = true; }
+			else if (field == 41) { value.isExtern = true; }
+			else if (field == 42) { value.isVolatile = true; }
+			else if (field == 43) { Node? child = self.readNode(); if (child != null) { value.type = child; } }
+			else if (field == 44) { Node? child = self.readNode(); if (child != null) { value.default_ = child; } }
+			else if (field == 45) { value.keep_ = true; }
+			else if (field == 46) { string text = self.readText(); value.access = text; }
+			else if (field == 47) { Node? child = self.readNode(); if (child != null) { value.initializer = child; } }
+			else if (field == 48) { value.isConstructor = true; }
+			else if (field == 49) { value.hasGetter = true; }
+			else if (field == 50) { value.hasSetter = true; }
+			else if (field == 51) { Node? child = self.readNode(); if (child != null) { value.getterBody = child; } }
+			else if (field == 52) { Node? child = self.readNode(); if (child != null) { value.setterBody = child; } }
+			else if (field == 53) { Node? child = self.readNode(); if (child != null) { value.valueNode = child; } }
+			else if (field == 54) { value.statementsStorage = self.readNodes(); }
+			else if (field == 55) { Node? child = self.readNode(); if (child != null) { value.condition = child; } }
+			else if (field == 56) { Node? child = self.readNode(); if (child != null) { value.thenBlock = child; } }
+			else if (field == 57) { Node? child = self.readNode(); if (child != null) { value.elseBlock = child; } }
+			else if (field == 58) { string text = self.readText(); value.varName = text; }
+			else if (field == 59) { string text = self.readText(); value.varName2 = text; }
+			else if (field == 60) { Node? child = self.readNode(); if (child != null) { value.iterable = child; } }
+			else if (field == 61) { Node? child = self.readNode(); if (child != null) { value.init = child; } }
+			else if (field == 62) { Node? child = self.readNode(); if (child != null) { value.update = child; } }
+			else if (field == 63) { value.casesStorage = self.readNodes(); }
+			else if (field == 64) { Node? child = self.readNode(); if (child != null) { value.expr = child; } }
+			else if (field == 65) { Node? child = self.readNode(); if (child != null) { value.tryBlock = child; } }
+			else if (field == 66) { string text = self.readText(); value.catchVar = text; }
+			else if (field == 67) { Node? child = self.readNode(); if (child != null) { value.catchType = child; } }
+			else if (field == 68) { Node? child = self.readNode(); if (child != null) { value.catchBlock = child; } }
+			else if (field == 69) { Node? child = self.readNode(); if (child != null) { value.finallyBlock = child; } }
+			else if (field == 70) { Node? child = self.readNode(); if (child != null) { value.ifStmt = child; } }
+			else if (field == 71) { Node? child = self.readNode(); if (child != null) { value.expression = child; } }
+			else if (field == 72) { value.bodyNodeListStorage = self.readNodes(); }
+			else if (field == 73) { value.valueInt = self.readInteger(); }
+			else if (field == 74) { string text = self.readText(); value.raw = text; }
+			else if (field == 76) { string text = self.readText(); value.valueString = text; }
+			else if (field == 77) { value.valueBool = true; }
+			else if (field == 78) { Node? child = self.readNode(); if (child != null) { value.left = child; } }
+			else if (field == 79) { string text = self.readText(); value.op = text; }
+			else if (field == 80) { Node? child = self.readNode(); if (child != null) { value.right = child; } }
+			else if (field == 81) { Node? child = self.readNode(); if (child != null) { value.operand = child; } }
+			else if (field == 82) { value.prefix = true; }
+			else if (field == 83) { Node? child = self.readNode(); if (child != null) { value.callee = child; } }
+			else if (field == 84) { value.argsStorage = self.readNodes(); }
+			else if (field == 85) { value.argNamesStorage = self.readStrings(); }
+			else if (field == 86) { Node? child = self.readNode(); if (child != null) { value.obj = child; } }
+			else if (field == 87) { Node? child = self.readNode(); if (child != null) { value.index = child; } }
+			else if (field == 88) { string text = self.readText(); value.field = text; }
+			else if (field == 89) { value.arrow = true; }
+			else if (field == 90) { value.optional = true; }
+			else if (field == 91) { Node? child = self.readNode(); if (child != null) { value.targetType = child; } }
+			else if (field == 92) { Node? child = self.readNode(); if (child != null) { value.trueExpr = child; } }
+			else if (field == 93) { Node? child = self.readNode(); if (child != null) { value.falseExpr = child; } }
+			else if (field == 94) { Node? child = self.readNode(); if (child != null) { value.target = child; } }
+			else if (field == 95) { value.elementsStorage = self.readNodes(); }
+			else if (field == 96) { value.entriesStorage = self.readNodes(); }
+			else if (field == 97) { value.partsStorage = self.readNodes(); }
+			else if (field == 98) { value.capturesStorage = self.readNodes(); }
+			else if (field == 99) { Node? child = self.readNode(); if (child != null) { value.fn = child; } }
+			else if (field == 100) { Node? child = self.readNode(); if (child != null) { value.key = child; } }
+			else { self.failed = true; return null; }
+		}
+		if (self.failed || self.at >= self.size) { self.failed = true; return null; }
+		self.at++;
+		if (value.kind == NK_FLOAT_LITERAL && !value.raw.isEmpty()) { value.valueFloat = (float)FloatLiteral(value.raw).doubleValue(); }
+		return value;
 	}
 }
