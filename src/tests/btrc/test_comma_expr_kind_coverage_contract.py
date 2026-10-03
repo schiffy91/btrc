@@ -27,6 +27,7 @@ VALUE_ONLY = "classifies a stored, passed or returned value; a header comma is d
 BTRC_EXEMPT = {
     "analyzer/validation/Calls.btrc": "classifies a source-macro argument; a header comma is no argument",
     "analyzer/validation/Constants.btrc": "folds a constant expression; a header comma is never folded",
+    "analyzer/validation/ControlFlow.btrc": "nullable flow narrows a ternary's branches and classifies stored values; a header comma is walked as plain children",
     "analyzer/validation/Ownership.btrc": VALUE_ONLY,
     "analyzer/validation/Storage.btrc": VALUE_ONLY,
     "analyzer/validation/Types.btrc": VALUE_ONLY,

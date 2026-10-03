@@ -61,7 +61,7 @@ def test_initializer_owners_are_sanitizer_clean(
         ),
         (
             "int values[1] = {0}",
-            "Expected SEMICOLON, got LBRACKET",
+            "C-style for initializer cannot declare an array",
         ),
     ],
 )
