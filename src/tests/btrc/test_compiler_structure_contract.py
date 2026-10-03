@@ -147,12 +147,6 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
         ("TypeIdentity", "symbolComponent"),
         # Called by the stdlib worker pool through IWorkerRequestHandler.
         ("ModuleUnitWorker", "handle"),
-        # The targets.toml tables (C4 spec commit). FeConditionalEnvironment
-        # reads them once C4's behavior commit lands; remove them here then.
-        ("GeneratedHostedAbiData", "targetRows"),
-        ("GeneratedHostedAbiData", "predefinedMacroRows"),
-        ("GeneratedHostedAbiData", "undefinedMacroNames"),
-        ("GeneratedHostedAbiData", "foreignMacroNames"),
     }
 )
 

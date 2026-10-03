@@ -3,21 +3,96 @@
 import Library.Map;
 import Library.Vector;
 
+import ../frontend/Models.btrc;
 import ../generated/ast/Node.btrc;
+import ./HostedAbi.btrc;
 import ../parser/SourceMacros.btrc;
 import ../syntax/Literals.btrc;
 
 class SourceMacroNamespace {
 	private Map<string, bool> declaredNames;
 	private Map<string, SourceMacroDefinition> activeDefinitions;
+	/* Every name some live #undef names. */
+	private Map<string, bool> undefinedNames;
+	private HostedAbiRepository? hostedAbi;
+	private SourceMacroRules? rules;
+	private int stdlibLineCount;
+	private Vector<FeLine> sourceLines;
 
-	public SourceMacroNamespace(Node program) {
+	/* With `rules`, collection validates every directive in hoisted program
+	 * order (M1-M4 and the name rules) and fails at the first refusal,
+	 * positioned in its own file through `sourceLines`. */
+	public SourceMacroNamespace(Node program, HostedAbiRepository? hostedAbi = null, SourceMacroRules? rules = null, int stdlibLineCount = 0, Vector<FeLine>? sourceLines = null) {
 		self.declaredNames = {};
 		self.activeDefinitions = {};
+		self.undefinedNames = {};
+		self.hostedAbi = hostedAbi;
+		self.rules = rules;
+		self.stdlibLineCount = stdlibLineCount;
+		Vector<FeLine> none = [];
+		self.sourceLines = sourceLines != null ? sourceLines : none;
 		self.collect(program);
 	}
 
 	public bool declared(string name) { return self.declaredNames.has(name); }
+
+	/* Whether some live #undef names the macro. */
+	public bool undefined(string name) { return self.undefinedNames.has(name); }
+
+	/* Fail at `site`, at its own file's position when the combined line maps
+	 * to one; validation reports one error and stops. */
+	public void fail(string message, Node site) {
+		int index = site.line - self.stdlibLineCount - 1;
+		if (index >= 0 && index < self.sourceLines.len) {
+			FeLine line = self.sourceLines.get(index);
+			fprintf(stderr, "%s\n", FeVisibilityDiagnostic(message, line.sourceFile, line.lineNumber, site.col, line.text).render());
+		} else {
+			fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
+		}
+		exit(1);
+	}
+
+	/* Why code may not use a declared source macro (U1, U2), or "". Every
+	 * directive is emitted before the program, so code sees each macro's
+	 * final state, never the one at its own position. */
+	public string codeUseViolation(string name) {
+		if (self.undefinedNames.len == 0 || !self.declaredNames.has(name)) { return ""; }
+		string suffix = "btrc emits every #define and #undef before the program";
+		if (self.undefined(name)) { return f"Source macro '{name}' cannot be used in code because it is #undef'd; {suffix}"; }
+		if (self.active(name) == null) { return ""; }
+		for identifier in self.reachedIdentifiers(name) {
+			if (self.undefined(identifier)) { return f"Source macro '{name}' cannot be used in code because it expands to #undef'd macro '{identifier}'; {suffix}"; }
+		}
+		return "";
+	}
+
+	/* Refuse a code use of an #undef'd source macro at its identifier. */
+	public void refuseCodeUse(string name, Node site) {
+		string violation = self.codeUseViolation(name);
+		if (!violation.isEmpty()) { self.fail(violation, site); }
+	}
+
+	/* Replacement identifiers reachable from an active macro, breadth first
+	 * in discovery order. */
+	private Vector<string> reachedIdentifiers(string name) {
+		Vector<string> reached = [];
+		Vector<string> pending = [name];
+		Map<string, bool> visiting = {};
+		int cursor = 0;
+		while (cursor < pending.len) {
+			string current = pending.get(cursor);
+			cursor++;
+			if (visiting.has(current)) { continue; }
+			visiting.put(current, true);
+			SourceMacroDefinition? definition = self.active(current);
+			if (definition == null) { continue; }
+			for identifier in definition.replacementIdentifiers() {
+				if (!reached.contains(identifier)) { reached.push(identifier); }
+				if (!visiting.has(identifier) && self.active(identifier) != null) { pending.push(identifier); }
+			}
+		}
+		return reached;
+	}
 
 	public SourceMacroDefinition? active(string name) {
 		if (!self.activeDefinitions.has(name)) { return null; }
@@ -126,20 +201,41 @@ class SourceMacroNamespace {
 		return false;
 	}
 
+	private bool stdlibDirective(Node declaration) {
+		HostedAbiRepository? hostedAbi = self.hostedAbi;
+		return hostedAbi != null && hostedAbi.compilerStdlibNode(declaration);
+	}
+
 	private void collect(Node program) {
-		int index = 0;
-		while (index < program.declarations().len) {
-			Node declaration = program.declarations().get(index);
-			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
-				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
-				if (definition.isDefinition()) {
-					self.declaredNames.put(definition.name(), true);
-					self.activeDefinitions.put(definition.name(), definition);
-				} else if (definition.isUndef()) {
-					self.activeDefinitions.remove(definition.name());
-				}
+		Vector<Node> sites = [];
+		Vector<SourceMacroDefinition> definitions = [];
+		Map<string, bool> ownDefinitions = {};
+		for declaration in program.declarations() {
+			if (declaration.kind != NK_PREPROCESSOR_DIRECTIVE) { continue; }
+			SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
+			if (!definition.isDefinition() && !definition.isUndef()) { continue; }
+			sites.push(declaration);
+			definitions.push(definition);
+			if (definition.isDefinition() && !self.stdlibDirective(declaration)) { ownDefinitions.put(definition.name(), true); }
+		}
+		SourceMacroRules? rules = self.rules;
+		for (int index = 0; index < definitions.len; index++) {
+			SourceMacroDefinition definition = definitions.get(index);
+			Node declaration = sites.get(index);
+			string name = definition.name();
+			if (rules != null) {
+				string violation = rules.violation(name, definition.isDefinition());
+				if (!violation.isEmpty()) { self.fail(violation, declaration); }
 			}
-			index++;
+			if (definition.isDefinition()) {
+				if (rules != null && self.activeDefinitions.has(name) && !SourceMacroRules.sameDefinition(self.activeDefinitions.get(name), definition)) { self.fail(SourceMacroRules.redefinitionMessage(name), declaration); }
+				self.declaredNames.put(name, true);
+				self.activeDefinitions.put(name, definition);
+				continue;
+			}
+			if (rules != null && !ownDefinitions.has(name)) { self.fail(f"#undef of '{name}' is not allowed; btrc undefines only macros that its own sources #define", declaration); }
+			self.undefinedNames.put(name, true);
+			self.activeDefinitions.remove(name);
 		}
 	}
 

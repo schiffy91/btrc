@@ -86,3 +86,22 @@ def test_cached_fragments(directive_driver, tmp_path, source, mode, expected):
     assert result.stderr == ""
     ending = "uncached lexical failure\n" if mode == "malformed" else f"loads=2 stores={1 if mode == 'warm' else 2}\n"
     assert result.stdout == expected + ending
+
+
+def test_conditioned_text_keys_the_cache(directive_driver, tmp_path):
+    """The scanner reads conditioned text: one raw file under two targets gives
+    two entries, and a restore never brings back the other target's (dead) import."""
+
+    program = tmp_path / "Input.btrc"
+    program.write_text(
+        "#if defined(__linux__)\nimport ./Linux.btrc;\n#else\nimport ./Other.btrc;\n#endif\nint main() { return 0; }\n"
+    )
+    result = subprocess.run(
+        [str(directive_driver), str(ROOT / "src/language/grammar.ebnf"), str(program), "conditioned"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ("linux:import:2:2:./Linux.btrc\nwindows:import:4:4:./Other.btrc\nentries=2 hits=2\n")

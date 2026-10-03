@@ -1,8 +1,10 @@
 """Per-file compilation units for the btrc LSP.
 
 Every file is lexed and parsed in its own coordinate space — in native editor
-coordinates, with no preprocessing — so token and AST positions match the
-editor exactly. ``import`` is a real keyword now, so each file's ImportDecl
+coordinates — so token and AST positions match the editor exactly. The only
+preprocessing is conditioning (c-preprocessor-conditionals.md): dead groups and
+conditional directives become empty lines, so a dead line has no tokens,
+declarations or diagnostics, and every live line keeps its position. ``import`` is a real keyword now, so each file's ImportDecl
 nodes carry true line/col and are read directly. Caching and composition live
 in workspace.py.
 
@@ -20,9 +22,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from src.compiler.python.frontend.sources import (
+    ConditionalEnvironment,
     FrontendFingerprint,
+    PreprocessorConditionalError,
+    SourceConditionals,
     SourceDependencyKind,
     SourceDirectiveScanner,
+    SourceFileReader,
     StdlibRepository,
 )
 from src.compiler.python.lexer.lexer import Lexer, LexerError
@@ -127,6 +133,9 @@ class FileUnit:
     path: str  # absolute path
     source: str
     content_hash: str
+    # The LF-normalized source with dead groups and conditional directives
+    # blanked; structural queries read it, text-before-cursor helpers ``source``.
+    conditioned_source: str = ""
     tokens: list[Token] = field(default_factory=list)
     decls: list = field(default_factory=list)
     dependencies: FileDependencies = field(default_factory=FileDependencies)
@@ -149,17 +158,29 @@ class FileUnit:
         *,
         stdlib: StdlibRepository | None = None,
         directive_scanner: SourceDirectiveScanner | None = None,
+        conditionals: SourceConditionals | None = None,
     ) -> FileUnit:
-        """Lex and parse one file in its own coordinate space."""
+        """LF-normalize, condition, lex and parse one file in its own coordinate space.
 
+        A conditioning failure is kept as a lexical error at its file position.
+        """
+
+        source = SourceFileReader.normalize_newlines(source)
         unit = cls(
             path=os.path.abspath(path),
             source=source,
             content_hash=hashlib.sha256(source.encode()).hexdigest(),
-            defined_names=frozenset((stdlib or StdlibRepository()).defined_names(source)),
+            conditioned_source=source,
         )
+        conditionals = conditionals or SourceConditionals(ConditionalEnvironment.for_host())
         try:
-            unit.tokens = Lexer(source, os.path.basename(path)).tokenize()
+            unit.conditioned_source = conditionals.condition(source, unit.path).text
+        except PreprocessorConditionalError as error:
+            unit.lex_error = LexerError(error.message, error.line, error.col)
+            return unit
+        unit.defined_names = frozenset((stdlib or StdlibRepository()).defined_names(unit.conditioned_source))
+        try:
+            unit.tokens = Lexer(unit.conditioned_source, os.path.basename(path)).tokenize()
         except LexerError as error:
             unit.lex_error = error
             return unit

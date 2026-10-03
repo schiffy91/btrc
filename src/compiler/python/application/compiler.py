@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..frontend.packages import IncludeResolutionError, NativeLinkPlan
-from ..frontend.sources import ResolvedSource, SourceFileReader, SourceText
+from ..frontend.sources import PreprocessorConditionalError, ResolvedSource, SourceFileReader, SourceText
 from .pipeline import CompilationPipeline
 from .results import (
     CompilerActionResult,
@@ -245,6 +245,13 @@ class Compiler:
                 failure=CompilerFailure(CompilerFailureKind.PACKAGE, str(error)),
                 profile=CompilerResult.profile_snapshot(profile),
             )
+        except PreprocessorConditionalError as error:
+            return CompilerResult(
+                options=options,
+                source_bundle=None,
+                failure=CompilationPipeline.failure_for(error),
+                profile=CompilerResult.profile_snapshot(profile),
+            )
         cache_inputs = (
             self._cache_inputs(resolved, options)
             if options.cacheable and (not resolved.native_plan.bindings or resolved.native_cache_identity is not None)
@@ -329,10 +336,10 @@ class Compiler:
             profile=profile,
         )
 
-    def build_stdlib_archive(self, output_directory: str) -> CompilerActionResult:
+    def build_stdlib_archive(self, output_directory: str, target: str | None = None) -> CompilerActionResult:
         """Build the canonical stdlib through the configured application pipeline."""
 
-        return self.pipeline.build_stdlib_archive(output_directory)
+        return self.pipeline.build_stdlib_archive(output_directory, target)
 
     def build_selfhost_bundle(
         self,

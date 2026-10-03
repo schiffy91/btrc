@@ -42,7 +42,7 @@ class SemanticValidator {
 	public SemanticValidator(Node program, Analyzed analyzed, HostedAbiRepository hostedAbi, OperatorSemantics operators, GpuSemantics gpu, CycleSemantics cycles, SourceRuntimeSymbols sourceRuntimeSymbols, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
 		self.program = program;
 		self.state = SemanticValidationState(analyzed);
-		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program);
+		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program, hostedAbi, analyzed.sourceMacroRules, analyzed.stdlibLineCount, analyzed.sourceLines);
 		analyzed.sourceMacros = sourceMacros;
 
 		self.types = TypeValidator(self.state, operators, gpu, semanticTypes, declarationRegistry, expressionTypes);

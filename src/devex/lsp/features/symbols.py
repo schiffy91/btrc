@@ -103,7 +103,7 @@ class SymbolProvider:
         """Extract document symbols from the parsed AST."""
         if not result.ast or not result.positions_are_stable():
             return []
-        source_lines = result.source.split("\n")
+        source_lines = self.resolver.structural_source(result).split("\n")
         symbols: list[lsp.DocumentSymbol] = []
         for decl in self.resolver.active_decls(result):
             if isinstance(decl, ClassDecl):

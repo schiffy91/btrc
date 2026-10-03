@@ -213,7 +213,9 @@ class NameValidator {
 		while (index < program.declarations().len) {
 			Node declaration = program.declarations().get(index);
 			self.nativeDeclaration = self.state.analyzed.isNativeDeclaration(declaration);
-			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
+			/* With the shared rules, the source-macro namespace has already
+			 * validated every directive (M1-M4). */
+			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE && self.state.analyzed.sourceMacroRules == null) {
 				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
 				if (definition.isDefinition()) {
 					self.validateMacroName(definition.name(), declaration);

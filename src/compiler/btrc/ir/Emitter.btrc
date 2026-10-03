@@ -426,6 +426,8 @@ class CEmitter {
 					replacement = " " + declaration.replacement;
 				}
 				out.push("#define " + declaration.name + parameters + replacement);
+			} else if (declaration.kind == IR_PREPROCESSOR_UNDEF) {
+				out.push("#undef " + declaration.name);
 			} else {
 				print("internal compiler error: invalid preprocessor IR declaration");
 				exit(1);

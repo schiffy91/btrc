@@ -5,6 +5,7 @@ import Library.Vector;
 import ../generated/ast/Node.btrc;
 import ../frontend/Models.btrc;
 import ../frontend/Timing.btrc;
+import ../parser/SourceMacros.btrc;
 import ./Declarations.btrc;
 import ./Expressions.btrc;
 import ./Generics.btrc;
@@ -80,11 +81,16 @@ class SemanticAnalyzer {
 
 	public void configureValidationRecords(IValidationRecords? records) { self.validationRecords = records; }
 
+	/* Shares conditioning's #define/#undef name rules (M1-M4). */
+	public void configureSourceMacroRules(SourceMacroRules rules) { self.analysis.sourceMacroRules = rules; }
+
 	public void configureNativeDeclarations(Vector<FeNativeImportedDeclaration> declarations) { self.analysis.setNativeDeclarations(declarations); }
 
 	/* Record every line of a user source file that has a raw quoted include
 	 * of an unmodeled C header or source. */
 	public void configureUnmodeledIncludes(Node program, int stdlibLineCount, Vector<FeLine> userLines) {
+		self.analysis.stdlibLineCount = stdlibLineCount;
+		self.analysis.sourceLines = userLines;
 		Map<string, bool> files = {};
 		for declaration in program.declarations() {
 			if (declaration.kind != NK_PREPROCESSOR_DIRECTIVE || !NameValidator.unmodeledInclude(declaration.text)) { continue; }

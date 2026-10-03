@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from src.tests.btrc.dual_frontend_harness import compile_snippet_pair, strict_c11_matrix
+from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
 
 STANDARD_PREDEFINED_MACRO_SOURCE = r"""
     #define CHECK_SUM(first, ...) ((__LINE__ > 0 && sizeof(__FILE__) > 1 && ((first) + (__VA_ARGS__)) == 42) ? 0 : 1)
@@ -51,18 +52,16 @@ def test_standard_predefined_tokens_work_in_variadic_source_macros(
         strict_c11_matrix(artifact, tmp_path)
 
 
-def test_c_horizontal_space_is_accepted_consistently_in_source_macros(
+def test_form_feed_and_vertical_tab_in_a_source_macro_are_refused_consistently(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    compiled = compile_snippet_pair(
-        semantic_btrcc,
-        tmp_path,
-        EXTENDED_HORIZONTAL_SPACE_SOURCE,
-        "extended-horizontal-space-macro",
-    )
-    for artifact in compiled:
-        strict_c11_matrix(artifact, tmp_path)
+    """C11 6.10p5 allows only spaces and tabs between a directive's tokens;
+    lowering refuses the rest in both compilers (C4's D17 for live directives)."""
+
+    for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, EXTENDED_HORIZONTAL_SPACE_SOURCE):
+        assert result.returncode != 0
+        assert "only spaces and tabs may separate tokens in a preprocessor directive (C11 6.10p5)" in result.stderr
 
 
 def test_guaranteed_predefined_macros_have_inferable_c11_value_types(

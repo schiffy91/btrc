@@ -1,0 +1,151 @@
+/* C row 18: preprocessor conditionals (C4, D19, D20). btrc conditions each
+ * file before lexing it: dead groups and conditional directives become empty
+ * lines. #if reads target macros and the file's own earlier #defines, and the
+ * output below is the same on every target. */
+#include <assert.h>
+
+#define LEVEL 2
+#define LIMIT 10
+#define LIMIT  10 /* an identical redefinition */
+#define USE_FAST 1
+
+#ifndef DEFAULT_SIZE
+#define DEFAULT_SIZE 4
+#endif
+
+#if 0
+int value() { return 1; }
+#endif
+int value() { return 2; }
+
+#ifdef USE_FAST
+int speed() { return 2; }
+#else
+int speed() { return 1; }
+#endif
+
+#if LEVEL == 1
+string levelName() { return "one"; }
+#elif LEVEL == 2
+string levelName() { return "two"; }
+#else
+string levelName() { return "other"; }
+#endif
+
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+bool knownOperatingSystem() { return true; }
+#else
+bool knownOperatingSystem() { return false; }
+#endif
+
+#if __CHAR_BIT__ == 8 && __STDC_VERSION__ >= 201112 && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+bool knownDataLayout() { return true; }
+#else
+bool knownDataLayout() { return false; }
+#endif
+
+#if 7 / -2 == -3 && 7 % -2 == 1 && -7 / 2 == -3 && 0xffffffffffffffff == 18446744073709551615u
+bool cArithmetic() { return true; }
+#else
+bool cArithmetic() { return false; }
+#endif
+
+#if 'A' == 65 && true && !false
+bool constants() { return true; }
+#else
+bool constants() { return false; }
+#endif
+
+#if 0
+#if garbage (
+#elif 1 / 0
+int unreachable() { return 0; }
+#endif
+#elif 1
+int nested() { return 3; }
+#endif
+
+#define TEMPORARY 1
+#ifdef TEMPORARY
+int temporaryBefore() { return 1; }
+#endif
+#undef TEMPORARY
+#ifndef TEMPORARY
+int temporaryAfter() { return 1; }
+#endif
+
+class Counter {
+	public int count;
+#if LEVEL > 1
+	public int step;
+#else
+	public string step;
+#endif
+
+	public Counter() {
+		self.count = 0;
+		self.step = LEVEL;
+	}
+}
+
+struct Pair {
+	int first;
+#ifdef USE_FAST
+	int second;
+#endif
+};
+
+int choose(int selector) {
+	int result = 0;
+	switch (selector) {
+#if LIMIT > 5
+		case 1: result = 10;
+		break;
+#endif
+		default: result = -1;
+		break;
+	}
+	return result;
+}
+
+int sumBetweenOperands() {
+	return 1 +
+#if DEFAULT_SIZE == 4
+		DEFAULT_SIZE
+#else
+		0
+#endif
+		+ 1;
+}
+
+int braceless(int x) {
+	if (x > 0)
+#if LEVEL == 2
+		return 1;
+#else
+		return 2;
+#endif
+	return 0;
+}
+
+int main() {
+	assert(value() == 2);
+	assert(speed() == 2);
+	assert(levelName() == "two");
+	assert(knownOperatingSystem());
+	assert(knownDataLayout());
+	assert(cArithmetic());
+	assert(constants());
+	assert(nested() == 3);
+	assert(temporaryBefore() + temporaryAfter() == 2);
+	Counter counter = Counter();
+	assert(counter.step == 2);
+	Pair pair = {1, 2};
+	assert(pair.first + pair.second == 3);
+	assert(choose(1) == 10 && choose(2) == -1);
+	assert(sumBetweenOperands() == 6);
+	assert(braceless(1) == 1 && braceless(0) == 0);
+	assert(LIMIT == 10);
+	print("PASS: preprocessor conditionals");
+	return 0;
+}

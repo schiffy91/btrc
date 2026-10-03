@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from itertools import pairwise, zip_longest
 from typing import ClassVar
 
+from src.compiler.python.frontend.sources import (
+    ConditionalEnvironment,
+    PreprocessorConditionalError,
+    SourceConditionals,
+)
 from src.compiler.python.lexer.lexer import Lexer, LexerError
 from src.compiler.python.parser.parser import ParseError, Parser
 
@@ -52,6 +57,112 @@ class FunctionSpan:
 class StatementSpan:
     start_index: int
     end_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConditionalLayout:
+    """How indentation treats ``#if`` regions (c-preprocessor-conditionals.md).
+
+    A region whose every group is balanced in ``{}``, ``()`` and ``[]`` is
+    indented normally, each group from the depth at its opening directive:
+    ``open`` saves that state, ``branch`` restores it, ``close`` drops it. Any
+    other region, or one without ``#endif``, is kept verbatim; only its first
+    group counts toward the depth after it.
+    """
+
+    verbatim: frozenset[int] = frozenset()
+    skipped: frozenset[int] = frozenset()
+    marks: dict[int, str] | None = None
+
+    _OPENING: ClassVar[frozenset[str]] = frozenset({"if", "ifdef", "ifndef"})
+    _BRANCHES: ClassVar[frozenset[str]] = frozenset({"elif", "else", "elifdef", "elifndef"})
+    _BRACKETS: ClassVar[dict[str, tuple[str, int]]] = {
+        "{": ("{", 1),
+        "}": ("{", -1),
+        "(": ("(", 1),
+        ")": ("(", -1),
+        "[": ("[", 1),
+        "]": ("[", -1),
+    }
+
+    @staticmethod
+    def directive_name(text: str) -> str:
+        index = 1
+        while index < len(text) and text[index] in " \t":
+            index += 1
+        end = index
+        while end < len(text) and (text[end].isalnum() or text[end] == "_"):
+            end += 1
+        return text[index:end]
+
+    @classmethod
+    def conditional(cls, lexeme: Lexeme) -> bool:
+        """Whether a line-first lexeme is a conditional directive."""
+
+        return lexeme.kind is LexemeKind.PREPROCESSOR and (
+            cls.directive_name(lexeme.text) in cls._OPENING | cls._BRANCHES | {"endif"}
+        )
+
+    @classmethod
+    def of(cls, view: SourceView, tokens_by_line: dict[int, list[Lexeme]]) -> ConditionalLayout:
+        last_line = view.lines[-1].number if view.lines else 0
+        regions: list[list[int]] = []
+        stack: list[list[int]] = []
+        for line in view.lines:
+            line_tokens = tokens_by_line.get(line.number)
+            if not line_tokens or line_tokens[0].kind is not LexemeKind.PREPROCESSOR:
+                continue
+            name = cls.directive_name(line_tokens[0].text)
+            if name in cls._OPENING:
+                region = [line.number]
+                stack.append(region)
+                regions.append(region)
+            elif name in cls._BRANCHES and stack:
+                stack[-1].append(line.number)
+            elif name == "endif" and stack:
+                stack.pop().append(-line.number)
+        for region in stack:
+            region.append(-(last_line + 1))
+        if not regions:
+            return cls()
+        verbatim: set[int] = set()
+        skipped: set[int] = set()
+        marks: dict[int, str] = {}
+        for region in regions:
+            end = -region[-1]
+            boundaries = [*region[:-1], end]
+            if region[0] in verbatim:
+                continue
+            terminated = end <= last_line
+            balanced = terminated and all(
+                cls._balanced(tokens_by_line, first, second) for first, second in pairwise(boundaries)
+            )
+            if balanced:
+                marks[region[0]] = "open"
+                for boundary in region[1:-1]:
+                    marks[boundary] = "branch"
+                marks[end] = "close"
+                continue
+            verbatim.update(range(region[0], end + 1))
+            if len(boundaries) > 2:
+                skipped.update(range(boundaries[1], end + 1))
+        for line_number in verbatim:
+            marks.pop(line_number, None)
+        return cls(frozenset(verbatim), frozenset(skipped), marks)
+
+    @classmethod
+    def _balanced(cls, tokens_by_line: dict[int, list[Lexeme]], first: int, second: int) -> bool:
+        depths = {"{": 0, "(": 0, "[": 0}
+        for line_number in range(first + 1, second):
+            for lexeme in tokens_by_line.get(line_number, ()):
+                bracket = cls._BRACKETS.get(lexeme.text) if lexeme.kind is LexemeKind.SYMBOL else None
+                if bracket is None:
+                    continue
+                kind, delta = bracket
+                depths[kind] += delta
+                if depths[kind] < 0:
+                    return False
+        return not any(depths.values())
 
 
 class SourceView:
@@ -691,13 +802,28 @@ class BtrcFormatter:
 
     @staticmethod
     def _validated_tokens(source: str, filename: str) -> tuple[tuple[object, str], ...]:
+        """The raw token stream, once the source parses.
+
+        A source with conditionals parses as each target sees it, so the
+        formatter accepts it the same way on every host.
+        """
         try:
             tokens = Lexer(source, filename).tokenize()
             signature = tuple((token.type, token.value) for token in tokens)
-            Parser(list(tokens)).parse()
+            if not SourceConditionals.candidate(source):
+                Parser(list(tokens)).parse()
+                return signature
+            texts = {
+                SourceConditionals(environment).condition(source, filename).text
+                for environment in ConditionalEnvironment.every_target()
+            }
+            for text in sorted(texts):
+                Parser(Lexer(text, filename).tokenize()).parse()
             return signature
-        except (LexerError, ParseError) as error:
-            raise FormatError(str(error), getattr(error, "line", 1), getattr(error, "col", 1)) from error
+        except (LexerError, ParseError, PreprocessorConditionalError) as error:
+            raise FormatError(
+                getattr(error, "message", None) or str(error), getattr(error, "line", 1), getattr(error, "col", 1)
+            ) from error
 
     def _format_constructs(self, source: str) -> str:
         view = SourceView(source)
@@ -1110,11 +1236,29 @@ class BtrcFormatter:
         brace_frames: list[tuple[int, int, list[int], list[tuple[int, int]]]] = []
         previous_first: Lexeme | None = None
         rendered: list[str] = []
+        conditionals = ConditionalLayout.of(view, tokens_by_line)
+        saved: list[tuple] = []
         for line in view.lines:
             text = line.text
             line_tokens = tokens_by_line.get(line.number, [])
             line_extra = 0
-            if line.number in protected:
+            mark = conditionals.marks.get(line.number) if conditionals.marks else None
+            if mark == "branch" and saved:
+                (
+                    brace_depth,
+                    paren_depth,
+                    body_extra,
+                    header_extra,
+                    pending_ifs,
+                    pending_dos,
+                    brace_frames,
+                    previous_token,
+                    previous_first,
+                ) = self._copied_layout_state(saved[-1])
+            if line.number in conditionals.skipped:
+                rendered.append(text)
+                continue
+            if line.number in protected or line.number in conditionals.verbatim:
                 rendered.append(text)
             elif not text.strip():
                 rendered.append("")
@@ -1207,9 +1351,29 @@ class BtrcFormatter:
             if line_tokens and line_tokens[0].kind is not LexemeKind.PREPROCESSOR:
                 last_index = last_index_by_line[line.number]
                 header_extra = line_extra if view.ends_body_header(last_index) else None
-            if line_tokens:
+            # A conditional directive line is transparent: a statement
+            # continued across one still continues from the line before it.
+            if line_tokens and not ConditionalLayout.conditional(line_tokens[0]):
                 previous_token = line_tokens[-1]
                 previous_first = line_tokens[0]
+            if mark == "open":
+                saved.append(
+                    self._copied_layout_state(
+                        (
+                            brace_depth,
+                            paren_depth,
+                            body_extra,
+                            header_extra,
+                            pending_ifs,
+                            pending_dos,
+                            brace_frames,
+                            previous_token,
+                            previous_first,
+                        )
+                    )
+                )
+            elif mark == "close" and saved:
+                saved.pop()
 
         had_final_newline = source.endswith("\n")
         result = "\n".join(rendered)
@@ -1218,6 +1382,23 @@ class BtrcFormatter:
         if not had_final_newline:
             result = result.rstrip("\n")
         return result
+
+    @staticmethod
+    def _copied_layout_state(state: tuple) -> tuple:
+        """A copy of the indentation walk's state whose lists the walk may mutate."""
+
+        (brace_depth, paren_depth, body_extra, header_extra, ifs, dos, frames, previous, first) = state
+        return (
+            brace_depth,
+            paren_depth,
+            body_extra,
+            header_extra,
+            list(ifs),
+            list(dos),
+            [(extra, body, list(frame_ifs), list(frame_dos)) for extra, body, frame_ifs, frame_dos in frames],
+            previous,
+            first,
+        )
 
     @staticmethod
     def _apply_edits(source: str, edits: list[tuple[int, int, str]]) -> str:

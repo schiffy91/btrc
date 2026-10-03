@@ -68,7 +68,7 @@ EXTRA_GAPS = frozenset(
         "x-pointer-compound-assignment",
     }
 )
-REFUSAL_ROWS = frozenset({"19", "20", "21", "22", "23", "24"})
+REFUSAL_ROWS = frozenset({"18", "19", "20", "21", "22", "23", "24"})
 
 # Programs that a compiler accepts and miscompiles, or accepts and leaves for
 # the C compiler to reject, or rejects for the wrong reason. Each is fixed by
