@@ -1,8 +1,8 @@
 #ifndef BTRC_TEST_NATIVE_THREAD_FAULT_CONTROL_H
 #define BTRC_TEST_NATIVE_THREAD_FAULT_CONTROL_H
 
-/* The controls BackgroundJobsFailures.btrc binds through its harness-written
- * [[native.bindings]]; NativeThreadFaults.c implements them. Kept apart from
+/* The controls BackgroundJobsFailures.btrc and NativeWorkerFailures.btrc bind
+ * through their harness-written [[native.bindings]]; NativeThreadFaults.c implements them. Kept apart from
  * NativeThreadFaults.h, whose pthread macros the implementation cannot see. */
 typedef enum ThreadFault {
     FAULT_MUTEX_INIT,

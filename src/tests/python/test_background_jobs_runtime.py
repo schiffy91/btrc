@@ -21,6 +21,24 @@ WORKER_POOLS = FIXTURE / "HostWorkerPools.btrc"
 WORKER_POOLS_EXPECTED = FIXTURE / "host_worker_pools.expected"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
+NATIVE_WORKER = FIXTURE / "NativeWorkerFailures.btrc"
+FAULT_CONTROLS = (
+    FIXTURE / "NativeThreadFaultControl.h",
+    (
+        "job_fault_reset",
+        "job_fault_at",
+        "job_fault_calls",
+        "job_fault_live_threads",
+        "job_fault_disposals",
+        "job_fault_dispose",
+        "FAULT_MUTEX_INIT",
+        "FAULT_COND_INIT",
+        "FAULT_CREATE",
+        "FAULT_JOIN",
+        "FAULT_MUTEX_DESTROY",
+        "FAULT_COND_DESTROY",
+    ),
+)
 # Each probe program binds its fixture's header; it re-spells no prototype.
 BINDINGS = {
     CONFORMANCE: (
@@ -46,23 +64,8 @@ BINDINGS = {
             "JOB_PROBE_CLEANUP_THROW",
         ),
     ),
-    FAILURES: (
-        FIXTURE / "NativeThreadFaultControl.h",
-        (
-            "job_fault_reset",
-            "job_fault_at",
-            "job_fault_calls",
-            "job_fault_live_threads",
-            "job_fault_disposals",
-            "job_fault_dispose",
-            "FAULT_MUTEX_INIT",
-            "FAULT_COND_INIT",
-            "FAULT_CREATE",
-            "FAULT_JOIN",
-            "FAULT_MUTEX_DESTROY",
-            "FAULT_COND_DESTROY",
-        ),
-    ),
+    FAILURES: FAULT_CONTROLS,
+    NATIVE_WORKER: FAULT_CONTROLS,
 }
 
 PLANNED_CONSUMER = """\
@@ -286,7 +289,7 @@ def test_native_worker_retains_its_body_until_join(compiler, tmp_path, request, 
         pytest.skip("requires a supported POSIX sanitizer toolchain")
     generated = tmp_path / f"native-worker-{compiler}.c"
     executable = tmp_path / f"native-worker-{compiler}"
-    _transpile(compiler, generated, request, FIXTURE / "NativeWorkerFailures.btrc")
+    _transpile(compiler, generated, request, NATIVE_WORKER)
     _compile(
         "/usr/bin/clang" if sanitized and sys.platform == "darwin" else "clang",
         generated,
