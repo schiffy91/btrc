@@ -12,11 +12,13 @@ from pathlib import Path
 
 import pytest
 
+from tools.qualification.tiers import MANIFEST as TIER_MANIFEST
+from tools.qualification.tiers import TierManifest
+
 REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS = REPO / ".github/workflows"
 UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 SETUP_NODE = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"
-SHARD_ROW = r"- \{ shard: ([a-zA-Z0-9-]+), target: ([^}]+?) \}"
 SKIP_REPORTS = "build/skip-report*.json"
 
 
@@ -64,7 +66,9 @@ def _jobs(workflow: str) -> dict[str, str]:
 def _steps(job: str) -> list[str]:
     lines = job.splitlines()
     starts = [index for index, line in enumerate(lines) if line.startswith("      - ")]
-    return ["\n".join(lines[start:end]) for start, end in zip(starts, [*starts[1:], len(lines)], strict=True)]
+    # A job that calls a reusable workflow has no steps.
+    ends = [*starts[1:], len(lines)] if starts else []
+    return ["\n".join(lines[start:end]) for start, end in zip(starts, ends, strict=True)]
 
 
 def _makefile_recipe(makefile: str, rule: str) -> str:
@@ -101,6 +105,10 @@ def test_every_workflow_action_reference_is_pinned_to_a_commit() -> None:
             if "uses:" not in line:
                 continue
             reference = line.split("uses:", 1)[1].split("#", 1)[0].strip()
+            if reference.startswith("./.github/workflows/"):
+                # A reusable workflow of this repository runs at the caller's commit.
+                assert (REPO / reference).is_file(), (workflow.name, reference)
+                continue
             revision = reference.rsplit("@", 1)[-1]
             assert len(revision) == 40, (workflow.name, reference)
             assert all(character in "0123456789abcdef" for character in revision), (
@@ -260,9 +268,10 @@ def _parsed(name: str) -> dict[str, object]:
     return document
 
 
-# The workflow classes (WORKSTREAMS.md §3.2). The core three gate every change;
-# a lane workflow belongs to one packet and runs when its paths change; a
-# dispatch-only workflow is a probe someone starts by hand; release runs on tags.
+# The workflow classes (WORKSTREAMS.md §3.2). The core three gate every change
+# and are what release.yml calls; a lane workflow belongs to one packet and
+# runs when its paths change; a dispatch-only workflow is a probe someone
+# starts by hand; release runs on dispatch, tags and the nightly schedule.
 CORE_WORKFLOWS = ("ci.yml", "macos.yml", "windows.yml")
 LANE_WORKFLOWS = ("host-*.yml", "windows-*.yml", "ios.yml", "android.yml")
 DISPATCH_ONLY_WORKFLOWS = ("windows-msvc-probe.yml", "acceptance-x86.yml")
@@ -281,10 +290,10 @@ def _workflow_class(name: str) -> str | None:
     return None
 
 
-def _dispatch_violations(dispatch: object) -> list[str]:
+def _dispatch_violations(dispatch: object, event: str = "workflow_dispatch") -> list[str]:
     if dispatch is None or (isinstance(dispatch, dict) and set(dispatch) <= {"inputs"}):
         return []
-    return [f"workflow_dispatch may carry only inputs: {dispatch!r}"]
+    return [f"{event} may carry only inputs: {dispatch!r}"]
 
 
 def _trigger_violations(name: str, triggers: object) -> list[str]:
@@ -297,20 +306,29 @@ def _trigger_violations(name: str, triggers: object) -> list[str]:
         return [f"{name}'s on: block is not a mapping"]
     main = {"branches": ["main"]}
     if kind == "core":
-        problems = (
-            [] if set(triggers) == {"push", "pull_request", "workflow_dispatch"} else [f"triggers {sorted(triggers)}"]
-        )
+        core = {"push", "pull_request", "workflow_dispatch", "workflow_call"}
+        problems = [] if set(triggers) == core else [f"triggers {sorted(triggers)}"]
         problems += [f"{event} must be {main}" for event in ("push", "pull_request") if triggers.get(event) != main]
-        return problems + _dispatch_violations(triggers.get("workflow_dispatch"))
+        return (
+            problems
+            + _dispatch_violations(triggers.get("workflow_dispatch"))
+            + _dispatch_violations(triggers.get("workflow_call"), "workflow_call")
+        )
     if kind == "dispatch-only":
         return (
             [] if set(triggers) == {"workflow_dispatch"} else [f"triggers {sorted(triggers)}"]
         ) + _dispatch_violations(triggers.get("workflow_dispatch"))
     if kind == "tag":
         push = triggers.get("push")
-        problems = [] if set(triggers) <= {"push", "workflow_dispatch"} else [f"triggers {sorted(triggers)}"]
+        allowed = {"push", "workflow_dispatch", "schedule"}
+        problems = [] if set(triggers) <= allowed else [f"triggers {sorted(triggers)}"]
         if not (isinstance(push, dict) and set(push) == {"tags"} and push["tags"]):
             problems.append(f"push must name tags only: {push!r}")
+        schedule = triggers.get("schedule", [])
+        if not (
+            isinstance(schedule, list) and all(isinstance(entry, dict) and set(entry) == {"cron"} for entry in schedule)
+        ):
+            problems.append(f"schedule must be a list of crons: {schedule!r}")
         return problems + _dispatch_violations(triggers.get("workflow_dispatch"))
     required = {"push", "pull_request", "workflow_dispatch"}
     problems = [] if required <= set(triggers) <= required | {"workflow_call"} else [f"triggers {sorted(triggers)}"]
@@ -358,15 +376,26 @@ def test_every_workflow_parses_and_follows_its_class_trigger_policy() -> None:
 @pytest.mark.parametrize(
     ("name", "on", "problems"),
     [
-        ("ci.yml", "push:\n  branches: [main]\npull_request:\n  branches: [main]\nworkflow_dispatch:\n", 0),
+        (
+            "ci.yml",
+            "push:\n  branches: [main]\npull_request:\n  branches: [main]\nworkflow_dispatch:\nworkflow_call:\n",
+            0,
+        ),
         (
             "macos.yml",
             "push:\n  branches: [main]\npull_request:\n  branches: [main]\n"
-            "workflow_dispatch:\n  inputs:\n    focus:\n      type: choice\n      options: [full, native-gui]\n",
+            "workflow_dispatch:\n  inputs:\n    focus:\n      type: choice\n      options: [full, native-gui]\n"
+            "workflow_call:\n  inputs:\n    tier:\n      type: string\n",
             0,
         ),
-        ("ci.yml", "push:\n  branches: [main, dev]\npull_request:\n  branches: [main]\nworkflow_dispatch:\n", 1),
-        ("windows.yml", "push:\n  branches: [main]\npull_request:\n  branches: [main]\n", 1),
+        ("ci.yml", "push:\n  branches: [main]\npull_request:\n  branches: [main]\nworkflow_dispatch:\n", 1),
+        (
+            "ci.yml",
+            "push:\n  branches: [main, dev]\npull_request:\n  branches: [main]\nworkflow_dispatch:\n"
+            "workflow_call:\n  secrets:\n    token:\n      required: true\n",
+            2,
+        ),
+        ("windows.yml", "push:\n  branches: [main]\npull_request:\n  branches: [main]\nworkflow_call:\n", 1),
         (
             "host-linux.yml",
             "push:\n  branches: [main]\n  paths: [.github/workflows/host-linux.yml]\npull_request:\n  branches: [main]\n"
@@ -407,6 +436,8 @@ def test_every_workflow_parses_and_follows_its_class_trigger_policy() -> None:
         ("windows-msvc-probe.yml", "workflow_dispatch:\n  inputs:\n    toolset:\n      default: v143\n", 0),
         ("acceptance-x86.yml", "workflow_dispatch:\npush:\n  branches: [main]\n", 1),
         ("release.yml", "push:\n  tags: ['v*']\nworkflow_dispatch:\n", 0),
+        ("release.yml", "push:\n  tags: ['v*']\nschedule:\n  - cron: '23 8 * * *'\nworkflow_dispatch:\n", 0),
+        ("release.yml", "push:\n  tags: ['v*']\nschedule: daily\nworkflow_call:\n", 2),
         ("release.yml", "push:\n  branches: [main]\n  tags: ['v*']\n", 1),
         ("nightly.yml", "workflow_dispatch:\n", 1),
     ],
@@ -416,11 +447,14 @@ def test_the_trigger_policy_holds_each_workflow_class_to_its_shape(name: str, on
 
 
 def test_core_workflows_cancel_superseded_pull_request_runs_and_queue_main() -> None:
+    # The literal prefix keeps them apart when release.yml calls all three:
+    # a called workflow's github.workflow is its caller's name.
     for name in CORE_WORKFLOWS:
+        stem = name.rsplit(".", 1)[0]
         assert _parsed(name)["concurrency"] == {
-            "group": "${{ github.workflow }}-${{ github.event_name == 'pull_request' && "
-            "format('pr-{0}', github.head_ref) || github.event_name == 'push' && 'main' || "
-            "format('dispatch-{0}', github.run_id) }}",
+            "group": f"{stem}-${{{{ inputs.tier && format('call-{{0}}', github.run_id) || "
+            "github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || "
+            "github.event_name == 'push' && 'main' || format('dispatch-{0}', github.run_id) }}",
             "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
         }, name
 
@@ -434,11 +468,25 @@ def _job_names(workflow: dict[str, object]) -> list[str]:
 # A job runs the suite when a step calls pytest or a make target that does:
 # test, test-<anything> (the shards, test-c11-one, test-native-gui) or linux-ci.
 RUNS_PYTEST = re.compile(r"\bpytest\b|\bmake\b.*\s(?:test(?:-[a-z0-9-]+)?|linux-ci)(?:\s|$)")
+TIERS = TierManifest.load(TIER_MANIFEST)
+PLAN = "fromJSON(needs.scope.outputs.plan)"
 
 
-def _matrix_rows(matrix: object) -> list[dict[str, object]] | None:
-    """The combinations a static matrix expands to; None when an expression decides them."""
+def _plan_matrix(job: str) -> str:
+    access = f".{job}" if re.fullmatch(r"[a-z]+", job) else f"['{job}']"
+    return f"${{{{ {PLAN}.matrix{access} }}}}"
 
+
+def _matrix_rows(matrix: object, workflow: str | None = None, job: str | None = None) -> list[dict[str, object]] | None:
+    """The combinations a matrix expands to; None when an expression decides them.
+
+    A matrix the scope job's plan supplies expands to every row ci/tiers.toml
+    lists for that job, with the pytest_addopts a pr-tier corpus row adds.
+    """
+
+    if matrix == _plan_matrix(job or "") and workflow is not None:
+        tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{job}")
+        return [{**shard.row, "pytest_addopts": ""} for shard in TIERS.shards_of(tiered)]
     if not isinstance(matrix, dict):
         return None
     axes = {key: value for key, value in matrix.items() if key not in ("include", "exclude")}
@@ -455,11 +503,11 @@ def _matrix_rows(matrix: object) -> list[dict[str, object]] | None:
     return rows + [dict(row) for row in include if not any(row.items() <= base.items() for base in rows)]
 
 
-def _job_commands(job: dict[str, object]) -> list[str]:
-    """Each step's script, once per static matrix combination with its values filled in."""
+def _job_commands(job: dict[str, object], workflow: str | None = None, name: str | None = None) -> list[str]:
+    """Each step's script, once per matrix combination with its values filled in."""
 
     scripts = [_code(str(step.get("run", ""))) for step in job.get("steps", [])]
-    rows = _matrix_rows(job.get("strategy", {}).get("matrix")) or [{}]
+    rows = _matrix_rows(job.get("strategy", {}).get("matrix"), workflow, name) or [{}]
     return [
         re.sub(r"\$\{\{ matrix\.([a-z_]+) \}\}", lambda use, row=row: str(row.get(use.group(1), use.group(0))), script)
         for script in scripts
@@ -476,15 +524,16 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         (path.name, name): job
         for path in _workflow_paths()
         for name, job in _parsed(path.name)["jobs"].items()
-        if any(RUNS_PYTEST.search(command) for command in _job_commands(job))
+        if "steps" in job and any(RUNS_PYTEST.search(command) for command in _job_commands(job, path.name, name))
     }
     assert {
-        ("ci.yml", "docs"),
+        ("ci.yml", "static"),
         ("ci.yml", "tests"),
         ("ci.yml", "native-gui"),
         ("macos.yml", "tests"),
         ("macos.yml", "native-gui"),
         ("windows.yml", "windows"),
+        ("windows.yml", "bootstrap"),
     } <= set(test_jobs)
     for (workflow, name), job in test_jobs.items():
         final = job["steps"][-1]
@@ -503,7 +552,7 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
             assert keys == [], (workflow, name)
             continue
         assert keys, f"{workflow} {name}: a matrix job needs a matrix suffix"
-        rows = _matrix_rows(matrix)
+        rows = _matrix_rows(matrix, workflow, name)
         if rows is None:
             # An expression decides the combinations: name only its own axes.
             assert set(keys) <= set(matrix), (workflow, name, keys)
@@ -511,79 +560,145 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         names = [tuple(row.get(key) for key in keys) for row in rows]
         assert all(None not in values for values in names), (workflow, name, keys)
         assert len(set(names)) == len(rows), f"{workflow} {name}: skip-report names collide across the matrix"
+        # The tier manifest names the same reports, so the bundle expects them.
+        tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
+        assert "skip-report" in tiered.reports, (workflow, name)
+        if tiered.key is not None:
+            assert keys == [tiered.key], (workflow, name)
 
 
-def test_sharded_workflows_name_every_shard_that_left_no_skip_report() -> None:
+def test_sharded_workflows_name_every_report_the_plan_expected_that_is_missing() -> None:
     """A lost runner never reaches its own upload, so a later job names the gap."""
 
-    for workflow, runs in (("ci.yml", ("full", "lane")), ("macos.yml", ("full",))):
+    for workflow in ("ci.yml", "macos.yml"):
         job = _job(_workflow(workflow), "skip-reports")
         parsed = _parsed(workflow)["jobs"]["skip-reports"]
         assert parsed["needs"] == ["scope", "tests"], workflow
-        condition = _class_condition(runs)
-        condition = f"({condition})" if len(runs) > 1 else condition
-        assert parsed["if"] == f"${{{{ !cancelled() && {condition} }}}}", workflow
+        assert parsed["if"] == (
+            f"${{{{ !cancelled() && needs.scope.result == 'success' && contains({PLAN}.jobs, 'tests') }}}}"
+        ), workflow
         assert re.search(r"(?m)^    timeout-minutes: \d+$", job), workflow
         assert "actions: read" in job, workflow
-        step = _code(_steps(job)[-1])
-        assert "/actions/runs/$GITHUB_RUN_ID/artifacts" in step, workflow
-        assert "/attempts/$GITHUB_RUN_ATTEMPT/jobs" in step, workflow
-        stem = workflow.rsplit(".", 1)[0]
-        assert f'"skip-report-{stem}-tests-$shard"' in step, workflow
-        assert "::warning::" in step and "GITHUB_STEP_SUMMARY" in step, workflow
+        step = _parsed(workflow)["jobs"]["skip-reports"]["steps"][-1]
+        assert step["env"]["EXPECTED"] == f"${{{{ join({PLAN}.reports.tests, ' ') }}}}", workflow
+        script = _code(step["run"])
+        assert "/actions/runs/$GITHUB_RUN_ID/artifacts" in script, workflow
+        # Job names carry release.yml's call prefix, so the plan names the shards.
+        assert "/jobs" not in script, workflow
+        assert 'grep -qx "$name"' in script, workflow
+        assert "::warning::" in script and "GITHUB_STEP_SUMMARY" in script, workflow
 
 
-# The scope job (WORKSTREAMS.md §3.2): which classes run each job.
-SCOPED_JOBS = {
-    "ci.yml": {
-        "docs": ("docs",),
-        "release": ("full", "lane"),
-        "tests": ("full", "lane"),
-        "skip-reports": ("full", "lane"),
-        "bench": ("full", "lane"),
-        "linux-arm64-bundle": ("full", "lane"),
-        "native-gui": ("native-gui",),
-    },
-    "macos.yml": {
-        "native-bundle": ("full", "lane"),
-        "tests": ("full",),
-        "skip-reports": ("full",),
-        "native-gui": ("lane", "native-gui"),
-    },
-}
-
-
-def _class_condition(classes: tuple[str, ...]) -> str:
-    return " || ".join(f"needs.scope.outputs.class == '{name}'" for name in classes)
-
-
-def _scope_step(workflow: str) -> dict[str, object]:
+def _scope_step(workflow: str, name: str = "Classify the change") -> dict[str, object]:
     steps = _parsed(workflow)["jobs"]["scope"]["steps"]
-    assert len(steps) == 1, workflow
-    return steps[0]
+    return next(step for step in steps if step.get("name") == name)
 
 
-def test_scope_runs_first_and_gates_every_other_job_by_class() -> None:
-    assert _parsed("ci.yml")["jobs"]["scope"] == _parsed("macos.yml")["jobs"]["scope"]
-    for workflow, classes in SCOPED_JOBS.items():
-        jobs = _parsed(workflow)["jobs"]
-        assert _job_names(_parsed(workflow))[0] == "scope", workflow
-        assert set(jobs) == {"scope", *classes}, workflow
-        scope = jobs["scope"]
-        assert scope["runs-on"] == "ubuntu-latest", workflow
-        assert scope["permissions"] == {"contents": "read", "pull-requests": "read"}, workflow
-        assert scope["outputs"] == {"class": "${{ steps.classify.outputs.class }}"}, workflow
-        for name, runs in classes.items():
-            if name == "skip-reports":
-                continue
-            assert jobs[name]["needs"] == "scope", (workflow, name)
-            assert jobs[name]["if"] == _class_condition(runs), (workflow, name)
-    # The lane class builds only the arm64 bundle; x64 runs through Rosetta.
-    bundle = _parsed("macos.yml")["jobs"]["native-bundle"]
-    assert bundle["strategy"]["matrix"] == {
-        "target": "${{ fromJSON(needs.scope.outputs.class == 'full' && "
-        '\'["macos-arm64", "macos-x64"]\' || \'["macos-arm64"]\') }}'
+def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
+    scope = _parsed("ci.yml")["jobs"]["scope"]
+    for workflow in CORE_WORKFLOWS:
+        document = _parsed(workflow)
+        assert document["jobs"]["scope"] == scope, workflow
+        assert document["env"]["CI_WORKFLOW"] == workflow, workflow
+        assert _job_names(document)[0] == "scope", workflow
+        listed = {entry.job for entry in TIERS.jobs if entry.workflow == workflow}
+        jobs = document["jobs"]
+        assert set(jobs) - {"scope", "skip-reports"} == listed, workflow
+        for name in listed:
+            job = jobs[name]
+            assert job["needs"] == "scope", (workflow, name)
+            assert job["if"] == f"contains({PLAN}.jobs, '{name}')", (workflow, name)
+            tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
+            matrix = job.get("strategy", {}).get("matrix")
+            if tiered.key is None:
+                assert matrix is None, (workflow, name)
+            else:
+                assert matrix == _plan_matrix(name), (workflow, name)
+                assert job["strategy"]["fail-fast"] == "false", (workflow, name)
+    assert scope["runs-on"] == "ubuntu-latest"
+    assert scope["permissions"] == {"contents": "read", "pull-requests": "read"}
+    assert scope["outputs"] == {
+        "tier": "${{ steps.classify.outputs.tier }}",
+        "plan": "${{ steps.plan.outputs.plan }}",
     }
+    plan = _scope_step("ci.yml", "Plan the tier's jobs")
+    assert plan["env"] == {"TIER": "${{ steps.classify.outputs.tier }}"}
+    assert (
+        'python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" '
+        "--changed build/changed-files.txt" in plan["run"]
+    )
+    assert 'echo "plan=$plan" >> "$GITHUB_OUTPUT"' in plan["run"]
+    # The classifier's tiers are the manifest's scheduled tiers.
+    script = _scope_step("ci.yml")["run"]
+    case = re.search(r"case \"\$tier\" in\n\s*(.+?)\) ;;", script)
+    assert case is not None
+    assert set(case.group(1).split(" | ")) == set(TIERS.scheduled_tiers())
+
+
+def test_a_pr_tier_corpus_row_reaches_pytest_through_pytest_addopts() -> None:
+    corpus = [shard for shard in TIERS.shards if shard.corpus_tiers]
+    assert {shard.job for shard in corpus} == {"ci.yml/tests"}
+    for workflow in ("ci.yml", "macos.yml"):
+        suite = next(
+            step for step in _parsed(workflow)["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", "")
+        )
+        assert suite["env"] == {"PYTEST_ADDOPTS": "${{ matrix.pytest_addopts }}"}, workflow
+    linux = next(step for step in _parsed("ci.yml")["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", ""))
+    assert '-v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest' in linux["run"]
+
+
+def test_bootstrap_shards_keep_their_boundary_report_for_the_bundle() -> None:
+    for workflow in ("ci.yml", "macos.yml"):
+        steps = _parsed(workflow)["jobs"]["tests"]["steps"]
+        upload = next(step for step in steps if step.get("name") == "Retain the boundary report")
+        assert steps.index(upload) == len(steps) - 2, workflow
+        assert upload["if"] == "always()" and upload["uses"] == UPLOAD_ARTIFACT, workflow
+        stem = workflow.rsplit(".", 1)[0]
+        assert upload["with"]["name"] == f"boundary-report-{stem}-tests-${{{{ matrix.shard }}}}", workflow
+        assert upload["with"]["path"] == "build/boundary-report.json", workflow
+        assert upload["with"]["if-no-files-found"] == "ignore", workflow
+        bootstrap = [
+            shard for shard in TIERS.shards if shard.job == f"{workflow}/tests" and "boundary-report" in shard.reports
+        ]
+        assert [shard.row["shard"] for shard in bootstrap] == ["bootstrap"], workflow
+    # test-shard-bootstrap is what writes it.
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    assert "test-boundaries" in _makefile_recipe(makefile, "test-shard-bootstrap")
+    assert "--report build/boundary-report.json" in _makefile_recipe(makefile, "test-boundaries")
+
+
+def test_release_runs_every_tiered_workflow_at_one_tier_then_bundles_them() -> None:
+    release = _parsed("release.yml")
+    assert release["on"]["workflow_dispatch"]["inputs"]["tier"]["options"] == ["release", "extended"]
+    tier = "${{ github.event_name == 'schedule' && 'extended' || inputs.tier || 'release' }}"
+    jobs = release["jobs"]
+    calls = {name: job for name, job in jobs.items() if "uses" in job}
+    assert {job["uses"] for job in calls.values()} == {f"./.github/workflows/{name}" for name in CORE_WORKFLOWS}
+    for name, job in calls.items():
+        assert job["with"] == {"tier": tier}, name
+        assert job["permissions"] == {"contents": "read", "pull-requests": "read", "actions": "read"}, name
+    bundle = jobs["bundle"]
+    assert bundle["needs"] == sorted(calls) and bundle["if"] == "${{ !cancelled() }}"
+    steps = bundle["steps"]
+    download = next(step for step in steps if str(step.get("uses", "")).startswith("actions/download-artifact@"))
+    # Every artifact: the bundle sorts evidence from archives by name.
+    assert download["with"] == {"path": "build/release-artifacts"}
+    command = next(step for step in steps if "tools.qualification bundle" in step.get("run", ""))
+    assert command["env"] == {"TIER": tier}
+    for option in ("--artifacts build/release-artifacts", '--tier "$TIER"', '--revision "$GITHUB_SHA"'):
+        assert option in command["run"], option
+    upload = steps[-1]
+    assert upload["if"] == "always()" and upload["uses"] == UPLOAD_ARTIFACT
+    assert upload["with"]["name"] == "ledger-bundle-${{ github.sha }}"
+    assert upload["with"]["path"] == "build/ledger-bundle-${{ github.sha }}"
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert '--output "build/ledger-bundle-$GITHUB_SHA"' in command["run"]
+    # A called workflow plans its jobs for the tier it is given.
+    for name in CORE_WORKFLOWS:
+        assert _parsed(name)["on"]["workflow_call"] == {
+            "inputs": {"tier": {"description": "The ci/tiers.toml tier to run", "type": "string", "required": "true"}}
+        }, name
+    assert _scope_step("ci.yml")["env"]["TIER"] == "${{ inputs.tier }}"
 
 
 def _compiler_import_closure() -> set[str]:
@@ -620,6 +735,8 @@ def test_scope_full_paths_cover_the_compilers_and_their_stdlib_closure() -> None
         "src/stdlib/Callback.btrc",
         "src/stdlib/BackgroundJobs/Unix/ProcessThreadsProvider.btrc",
         ".github/workflows/macos.yml",
+        ".github/workflows/release.yml",
+        "ci/tiers.toml",
         "Makefile",
         "flake.lock",
     ):
@@ -676,7 +793,9 @@ FAKE_GH = """gh() {
 def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...] = (), **pull: object) -> str:
     """Run the scope step's script against a stand-in `gh` that serves one pull request.
 
-    A dispatch's `focus` input rides in `pull` as `focus`.
+    A dispatch's `focus` input rides in `pull` as `focus`, a call's `tier` as
+    `tier`. The script runs in `tmp_path`, where it leaves
+    build/changed-files.txt for the plan step.
     """
 
     step = _scope_step("ci.yml")
@@ -693,6 +812,7 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
     }
     (tmp_path / "pull.json").write_text(json.dumps(document), encoding="utf-8")
     output = tmp_path / "output"
+    output.unlink(missing_ok=True)
     environment = {
         **os.environ,
         "FAKE_GH": str(tmp_path),
@@ -700,6 +820,7 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
         "GITHUB_OUTPUT": str(output),
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
         "EVENT": event,
+        "TIER": str(pull.get("tier", "")),
         "FOCUS": str(pull.get("focus", "")),
         "PULL_REQUEST": "21" if event == "pull_request" else "",
         "HEAD_REF": head,
@@ -708,6 +829,7 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
     }
     completed = subprocess.run(
         ["bash", "-c", f'source "$FAKE_GH/gh.sh"\n{step["run"]}'],
+        cwd=tmp_path,
         env=environment,
         capture_output=True,
         text=True,
@@ -716,21 +838,53 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
     )
     assert completed.returncode == 0, completed.stderr
     lines = output.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1 and lines[0].startswith("class="), lines
-    return lines[0].removeprefix("class=")
+    assert len(lines) == 1 and lines[0].startswith("tier="), lines
+    return lines[0].removeprefix("tier=")
+
+
+def _plan(tmp_path: Path, workflow: str, tier: str) -> dict[str, object]:
+    """Run the scope job's plan step after `_classify`, as the job runs it."""
+
+    step = _scope_step(workflow, "Plan the tier's jobs")
+    output = tmp_path / "plan-output"
+    output.unlink(missing_ok=True)
+    environment = {
+        **os.environ,
+        "PYTHONPATH": str(REPO),
+        "CI_WORKFLOW": workflow,
+        "TIER": tier,
+        "GITHUB_OUTPUT": str(output),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+    }
+    completed = subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1 and lines[0].startswith("plan="), lines
+    return json.loads(lines[0].removeprefix("plan="))
 
 
 @pytest.mark.parametrize(
     ("event", "head", "files", "pull", "expected"),
     [
-        ("push", "", (), {}, "full"),
-        ("workflow_dispatch", "", (), {}, "full"),
-        ("workflow_dispatch", "", (), {"focus": "full"}, "full"),
+        ("push", "", (), {}, "main"),
+        ("workflow_dispatch", "", (), {}, "main"),
+        ("workflow_dispatch", "", (), {"focus": "full"}, "main"),
         ("workflow_dispatch", "", (), {"focus": "native-gui"}, "native-gui"),
+        ("workflow_dispatch", "", (), {"focus": "extended"}, "extended"),
+        ("workflow_dispatch", "", (), {"tier": "release", "focus": ""}, "release"),
+        ("push", "", (), {"tier": "extended"}, "extended"),
         ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "docs/qualification/notes.md"), {}, "docs"),
         ("pull_request", "stage30/notes", ("WORKSTREAMS.md",), {}, "docs"),
         ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "PLAN.md"), {}, "lane"),
-        ("pull_request", "stage30/notes", ("src/stdlib/GUI/README.md",), {}, "full"),
+        ("pull_request", "stage30/notes", ("src/stdlib/GUI/README.md",), {}, "pr"),
         (
             "pull_request",
             "codex/ui0-catalog",
@@ -738,20 +892,22 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
             {},
             "lane",
         ),
-        ("pull_request", "codex/cx-p2-04", ("src/stdlib/FileSystem/Windows/FileSystemProvider.btrc",), {}, "full"),
+        ("pull_request", "codex/cx-p2-04", ("src/stdlib/FileSystem/Windows/FileSystemProvider.btrc",), {}, "main"),
         (
             "pull_request",
             "codex/cx-uia-09",
             ("src/stdlib/GUI/Linux/Window.btrc", "src/stdlib/Strings.btrc"),
             {},
-            "full",
+            "main",
         ),
-        ("pull_request", "codex/cx-uia-09", ("tools/ui/moved.py <- src/compiler/python/main.py",), {}, "full"),
-        ("pull_request", "codex/cx-uia-09", ("src/stdlib/GUI/Linux/Window.btrc",), {"labels": ("ci:full",)}, "full"),
+        ("pull_request", "codex/cx-uia-09", ("tools/ui/moved.py <- src/compiler/python/main.py",), {}, "main"),
+        ("pull_request", "codex/cx-uia-09", ("src/stdlib/GUI/Linux/Window.btrc",), {"labels": ("ci:full",)}, "main"),
         ("pull_request", "codex/cx-uia-09", ("src/stdlib/GUI/Linux/Window.btrc",), {"labels": ("ci:fast",)}, "lane"),
         ("pull_request", "codex/cx-uia-09", tuple(f"docs/n{i}.md" for i in range(150)), {}, "docs"),
-        ("pull_request", "codex/cx-uia-09", ("docs/a.md",), {"changed_files": 3001}, "full"),
-        ("pull_request", "stage30/ci-codex-lanes", ("src/tests/python/test_x.py",), {}, "full"),
+        ("pull_request", "codex/cx-uia-09", ("docs/a.md",), {"changed_files": 3001}, "main"),
+        ("pull_request", "stage30/ci-codex-lanes", ("src/tests/python/test_x.py",), {}, "pr"),
+        ("pull_request", "stage38/ci-tiers", ("ci/tiers.toml",), {}, "main"),
+        ("pull_request", "stage38/ci-tiers", (".github/workflows/release.yml",), {}, "main"),
     ],
 )
 def test_scope_classifies_a_pull_requests_diff(
@@ -759,6 +915,42 @@ def test_scope_classifies_a_pull_requests_diff(
 ) -> None:
     assert shutil.which("jq") and shutil.which("bash"), "the dev shell provides jq and bash"
     assert _classify(tmp_path, event, head, files, **pull) == expected
+    changed = (tmp_path / "build" / "changed-files.txt").read_text(encoding="utf-8").split()
+    if event == "pull_request" and "changed_files" not in pull and "labels" not in pull:
+        # Both sides of a rename, as the plan step reads them.
+        assert changed == [part for name in files for part in name.split(" <- ")]
+    elif event != "pull_request":
+        assert changed == []
+
+
+def test_a_docs_only_pull_request_runs_only_the_static_job(tmp_path: Path) -> None:
+    files = ("docs/design/ui0-catalog.md",)
+    for workflow in CORE_WORKFLOWS:
+        tier = _classify(tmp_path, "pull_request", "stage30/notes", files)
+        plan = _plan(tmp_path, workflow, tier)
+        assert plan["jobs"] == (["static"] if workflow == "ci.yml" else []), workflow
+
+
+def test_a_compiler_pull_request_runs_the_full_main_matrix(tmp_path: Path) -> None:
+    files = ("src/compiler/python/main.py", "src/stdlib/GUI/MacOS/Window.btrc")
+    tier = _classify(tmp_path, "pull_request", "stage38/ci-tiers", files)
+    assert tier == "main"
+    for workflow in CORE_WORKFLOWS:
+        assert _plan(tmp_path, workflow, tier) == TIERS.plan(workflow, "main"), workflow
+    assert len(TIERS.plan("ci.yml", "main")["matrix"]["tests"]["include"]) == 13
+
+
+def test_a_plain_pull_request_plans_from_its_changed_paths(tmp_path: Path) -> None:
+    files = ("tools/qualification/report.py", "src/tests/strings/Escapes.btrc")
+    tier = _classify(tmp_path, "pull_request", "stage38/ci-tiers", files)
+    assert tier == "pr"
+    plan = _plan(tmp_path, "ci.yml", tier)
+    assert plan["jobs"] == ["static", "tests"]
+    rows = {row["shard"]: row for row in plan["matrix"]["tests"]["include"]}
+    assert list(rows) == ["unit", "corpus-python", "corpus-btrc"]
+    assert rows["corpus-btrc"]["pytest_addopts"] == '-k "python-strings/ or btrc-strings/"'
+    assert _plan(tmp_path, "macos.yml", tier)["jobs"] == []
+    assert _plan(tmp_path, "windows.yml", tier)["jobs"] == []
 
 
 def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
@@ -782,7 +974,7 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
     makefile = (REPO / "Makefile").read_text(encoding="utf-8")
 
     assert "fail-fast: false" in job
-    shards = re.findall(SHARD_ROW, job)
+    shards = _tier_shards("ci.yml", "main")
     assert [shard for shard, _ in shards] == [
         "unit",
         "btrc",
@@ -810,6 +1002,17 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
     # software Vulkan, as `make linux-ci` does, so the GUI and adapter tests run.
     assert "btrc-devcontainer:latest tools/virtual-display.sh make NIX=" in _code(job)
     assert "tools/virtual-display.sh make NIX=" in (REPO / "tools/linux-ci.sh").read_text(encoding="utf-8")
+    # Every tier's rows are rows of this list: the extended and release tiers
+    # add none on Linux.
+    for tier in TIERS.scheduled_tiers():
+        assert {name for name, _ in _tier_shards("ci.yml", tier)} <= {name for name, _ in shards}, tier
+
+
+def _tier_shards(workflow: str, tier: str) -> list[tuple[str, str]]:
+    """The (shard, target) rows ci/tiers.toml gives a workflow's tests job in one tier."""
+
+    matrix = TIERS.plan(workflow, tier)["matrix"].get("tests", {"include": []})
+    return [(row["shard"], row["target"]) for row in matrix["include"]]
 
 
 def test_linux_arm64_ci_runs_and_uploads_the_archived_bundle() -> None:
@@ -851,12 +1054,12 @@ def test_macos_ci_matrix_runs_and_uploads_both_archived_bundles() -> None:
 
 def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
     job = _job(_workflow("macos.yml"), "tests")
-    linux = dict(re.findall(SHARD_ROW, _job(_workflow("ci.yml"), "tests")))
+    linux = dict(_tier_shards("ci.yml", "main"))
     makefile = (REPO / "Makefile").read_text(encoding="utf-8")
 
     assert "runs-on: macos-15" in job
     assert "fail-fast: false" in job
-    shards = re.findall(SHARD_ROW, job)
+    shards = _tier_shards("macos.yml", "main")
     assert [shard for shard, _ in shards] == [
         "unit",
         "btrc",
@@ -866,6 +1069,11 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
         "c11-clang-O0",
         "c11-clang-O2",
     ]
+    # The extended tier adds clang's other two levels; it never adds gcc,
+    # whose Objective-C support the native cases need.
+    extended = _tier_shards("macos.yml", "extended")
+    assert [shard for shard, _ in extended if shard not in dict(shards)] == ["c11-clang-O1", "c11-clang-O3"]
+    shards = extended
     # The shards reuse Linux CI's Makefile targets. Only the bootstrap row
     # differs: test_bootstrap.py compiles with `cc`, which is GCC in the dev
     # shell, not through default_c_compiler(), so the macOS row names clang.
@@ -893,7 +1101,9 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
     suite = _step_containing(job, "make NIX=")
     assert _code(suite).strip() == (
         "- run: nix develop --command make NIX= PYTEST_WORKERS=3 "
-        "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}"
+        "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}\n"
+        "        env:\n"
+        "          PYTEST_ADDOPTS: ${{ matrix.pytest_addopts }}"
     )
     assert "podman" not in job
 
@@ -924,10 +1134,19 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     assert re.search(r"grep[^\n]*PASS", job) is None
     assert job.count("src/tests/strings/expected/BracesInCodeGen.stdout") >= 2
     assert "src/tests/stdlib/expected/PathWindowsLexical.stdout" in job
+    # The bootstrap runs in its own job, which the pr and lane tiers leave out.
+    assert "src.tests.btrc.test_bootstrap" not in _code(job)
+    bootstrap = _job(_workflow("windows.yml"), "bootstrap")
+    assert "runs-on: windows-latest" in bootstrap
+    assert "python -m pip install '.[dev]'" in bootstrap
+    assert "zig-x86_64-windows-$ver.zip" in bootstrap and "$expectedSha256" in bootstrap
+    assert 'BTRC_CC: "zig cc -target x86_64-windows-gnu"' in bootstrap
+    assert 'BTRC_BOOTSTRAP_TIMEOUT_SECONDS: "3600"' in bootstrap
     # The bootstrap imports src.tests; as a script beside the installed wheel
     # it cannot, so it runs as a module from the checkout.
-    assert "python -m unittest -v src.tests.btrc.test_bootstrap" in _code(job)
-    assert "python src/tests/btrc/test_bootstrap.py" not in _code(job)
+    assert "python -m unittest -v src.tests.btrc.test_bootstrap" in _code(bootstrap)
+    assert "python src/tests/btrc/test_bootstrap.py" not in _code(bootstrap)
+    assert "python -m tools.qualification skip-gate build/skip-report-windows-bootstrap-harness.json" in bootstrap
     # Logical-line equality tolerates Git's platform EOL checkout while still
     # rejecting any extra, missing, or otherwise changed output line.
     assert job.count(".splitlines()") >= 4
@@ -949,22 +1168,23 @@ def test_linux_bench_job_guards_every_performance_indicator() -> None:
 
 def test_a_focused_dispatch_runs_only_the_native_gui_job() -> None:
     # `gh workflow run ci.yml -f focus=native-gui` (likewise macos.yml) skips
-    # every other job: SCOPED_JOBS gives native-gui as the only job of its
-    # class, and the scope step passes the input through.
-    for workflow in SCOPED_JOBS:
+    # every other job: the native-gui tier lists only the native-GUI job, and
+    # the scope step passes the input through.
+    for workflow in CORE_WORKFLOWS:
         document = _parsed(workflow)
         assert document["on"]["workflow_dispatch"] == {
             "inputs": {
                 "focus": {
                     "description": "Which jobs to run",
                     "type": "choice",
-                    "options": ["full", "native-gui"],
+                    "options": ["full", "native-gui", "extended"],
                     "default": "full",
                 }
             }
         }, workflow
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
-        assert [job for job, runs in SCOPED_JOBS[workflow].items() if "native-gui" in runs] == ["native-gui"]
+        expected = [] if workflow == "windows.yml" else ["native-gui"]
+        assert TIERS.plan(workflow, "native-gui")["jobs"] == expected, workflow
 
     linux = _job(_workflow("ci.yml"), "native-gui")
     assert _code(linux).count("make NIX=") == 1

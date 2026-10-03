@@ -122,8 +122,7 @@
       devShells = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
         system = pkgs.stdenv.hostPlatform.system;
-      in {
-        default = pkgs.mkShell ({
+        defaultShell = {
           # The test suite deliberately compiles strict C at -O0. Nixpkgs'
           # fortify setup diagnoses -O0 as a preprocessor warning, and -Werror
           # correctly promotes it. Release derivations retain their hardening;
@@ -167,7 +166,24 @@
           GI_TYPELIB_PATH = lib.makeSearchPath "lib/girepository-1.0" [
             (lib.getLib (atSpiCore pkgs)) (lib.getLib pkgs.glib) (lib.getLib pkgs.gobject-introspection)
           ];
-        } // nativeHeaderEnvironment pkgs);
+        } // nativeHeaderEnvironment pkgs;
+        platforms = import ./nix/platforms.nix { inherit nixpkgs system lib; };
+      in {
+        default = pkgs.mkShell defaultShell;
+      } // lib.optionalAttrs (system != "aarch64-linux") {
+        # The default shell plus the Android SDK, NDK r29 and JDK 17
+        # (nix/platforms.nix), kept out of the default shell and the CI image.
+        # Google ships no aarch64-linux SDK host tools, so that system has none.
+        # Enter it with a GC root, which Determinate Nix's collector otherwise
+        # sweeps:
+        #   nix develop .#platforms --profile ~/.cache/btrc/gcroots/platforms
+        # It also carries wgpu-native's pinned prebuilt release archives for
+        # the cross GPU slices (nix/wgpu-native-prebuilt.nix):
+        #   nix build .#devShells.<system>.platforms.wgpuNativePrebuilt.<slice>
+        platforms = pkgs.mkShell (defaultShell // platforms.environment // {
+          packages = defaultShell.packages ++ platforms.packages;
+          passthru.wgpuNativePrebuilt = import ./nix/wgpu-native-prebuilt.nix { inherit (pkgs) fetchurl; };
+        });
       });
       packages = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;

@@ -79,6 +79,8 @@ def test_production_test_targets_require_gpu_and_cover_both_compilers() -> None:
     assert "test-c11-one C11_CC=$$cc C11_OPT=$$opt" in c11_recipe and "$(SHARD_BTRCC)" in c11_recipe
     assert "--compilers=python,btrc" in c11_recipe
     assert "PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}" in ci
+    # ci/tiers.toml lists the shards the tests job runs; the main tier runs these.
+    tiers = (REPO / "ci/tiers.toml").read_text(encoding="utf-8")
     for shard in ("test-shard-corpus-btrc", "test-shard-bootstrap", "test-c11-one C11_CC=clang C11_OPT=O3"):
-        assert shard in ci
+        assert f'target = "{shard}"' in tiers
     assert ".#checks.x86_64-linux.gpu-runtime-package" in ci

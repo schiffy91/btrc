@@ -6,6 +6,8 @@ ingest        copy raw inputs under the qualification root and write a ledger
 denominators  check the frozen inventory denominators against their sources
 skip-gate     fail on a skip the runner's expected-skip manifest does not explain
 skip-coverage compare skip reports: shard partitions and covered_by claims
+tiers         check ci/tiers.toml, or print one workflow's plan for one tier
+bundle        ingest a CI run's downloaded artifacts into one ledger bundle
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from tools.qualification.adapters import (
     JUnitAdapter,
     SkipReportAdapter,
 )
+from tools.qualification.bundle import LedgerBundle
 from tools.qualification.denominators import MANIFEST as DENOMINATORS
 from tools.qualification.denominators import DenominatorManifest
 from tools.qualification.report import QualificationReport
@@ -47,6 +50,8 @@ from tools.qualification.skips import (
 )
 from tools.qualification.statistics import Statistic
 from tools.qualification.store import QualificationStore, QualificationStoreError
+from tools.qualification.tiers import MANIFEST as TIERS
+from tools.qualification.tiers import TierManifest, TierManifestError
 
 _STATISTICS = "|".join(re.escape(statistic.value) for statistic in sorted(Statistic, key=len, reverse=True))
 _BUDGET = re.compile(rf"^(?P<scenario>[a-z0-9-]+):(?P<statistic>{_STATISTICS})<=(?P<limit>\d+(?:\.\d+)?)$")
@@ -107,6 +112,18 @@ class QualificationCommand:
         coverage.add_argument("--whole", type=Path, nargs="*", default=[], help="reports of the whole gate")
         coverage.add_argument("--shards", type=Path, nargs="*", default=[], help="reports of its shards")
         coverage.add_argument("--claims", type=Path, nargs="*", default=[], help="reports whose covered_by to check")
+        tiers = commands.add_parser("tiers")
+        tiers.add_argument("--manifest", type=Path, default=TIERS)
+        tiers.add_argument("--workflow", help="print this workflow's plan as one line of JSON")
+        tiers.add_argument("--tier", help="the tier to plan (with --workflow)")
+        tiers.add_argument("--changed", type=Path, help="a pull request's changed paths, one per line")
+        bundle = commands.add_parser("bundle")
+        bundle.add_argument("--artifacts", type=Path, required=True, help="downloaded artifacts, one directory each")
+        bundle.add_argument("--output", type=Path, required=True, help="an empty or absent directory")
+        bundle.add_argument("--tier", required=True, help="the tier the run ran")
+        bundle.add_argument("--revision", required=True, help="the commit the run tested")
+        bundle.add_argument("--run", help="the CI run id")
+        bundle.add_argument("--manifest", type=Path, default=TIERS)
         return parser
 
     def run(self, argv: list[str] | None = None) -> int:
@@ -118,11 +135,22 @@ class QualificationCommand:
                 return self.skip_coverage(arguments)
             if arguments.command == "denominators":
                 return self.check_denominators(arguments.manifest)
+            if arguments.command == "tiers":
+                return self.tiers(arguments)
+            if arguments.command == "bundle":
+                return self.bundle(arguments)
             records = self.records(arguments)
             if arguments.command == "ingest":
                 return self.ingest(arguments, records)
             return self.report(arguments, records)
-        except (LedgerSchemaError, SkipLedgerError, QualificationStoreError, OSError, json.JSONDecodeError) as error:
+        except (
+            LedgerSchemaError,
+            SkipLedgerError,
+            QualificationStoreError,
+            TierManifestError,
+            OSError,
+            json.JSONDecodeError,
+        ) as error:
             print(f"qualification: {error}", file=sys.stderr)
             return 2
 
@@ -277,6 +305,43 @@ class QualificationCommand:
                 print(f"  CONTRADICTED {line}")
             failed = failed or bool(contradicted)
         return 1 if failed else 0
+
+    @staticmethod
+    def tiers(arguments: argparse.Namespace) -> int:
+        manifest = TierManifest.load(arguments.manifest)
+        if arguments.workflow is None:
+            if arguments.tier is not None or arguments.changed is not None:
+                raise TierManifestError("--tier and --changed plan one --workflow")
+            for workflow in manifest.workflows():
+                for tier in manifest.scheduled_tiers():
+                    plan = manifest.plan(workflow, tier)
+                    rows = sum(len(matrix["include"]) for matrix in plan["matrix"].values())
+                    print(f"{workflow} {tier}: {len(plan['jobs'])} job(s), {rows} matrix row(s)")
+            for runner in manifest.hardware:
+                print(f"hardware {runner.id} ({runner.runner}): awaiting")
+            return 0
+        if arguments.tier is None:
+            raise TierManifestError("--workflow needs --tier")
+        changed = None
+        if arguments.changed is not None:
+            lines = arguments.changed.read_text(encoding="utf-8").splitlines()
+            changed = [line.strip() for line in lines if line.strip()]
+        plan = manifest.plan(arguments.workflow, arguments.tier, changed)
+        print(json.dumps(plan, separators=(",", ":"), sort_keys=True))
+        return 0
+
+    @staticmethod
+    def bundle(arguments: argparse.Namespace) -> int:
+        manifest = TierManifest.load(arguments.manifest)
+        bundle = LedgerBundle(arguments.artifacts, manifest, arguments.tier, arguments.revision, arguments.run)
+        outcome = bundle.build(arguments.output)
+        print(f"wrote {outcome.records} records to {outcome.output}")
+        if outcome.passed:
+            return 0
+        print(f"ledger bundle incomplete: {len(outcome.problems)} problem(s)", file=sys.stderr)
+        for problem in outcome.problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:
