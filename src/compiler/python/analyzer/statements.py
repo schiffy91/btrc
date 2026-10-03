@@ -195,6 +195,8 @@ class StatementAnalyzer:
         if isinstance(expression, NullLiteral):
             return "address"
         if isinstance(expression, Identifier):
+            if not self._names_file_scope(expression.name):
+                return None
             if expression.name in self.index.function_table:
                 return "address"
             symbol = self.session.global_scope.symbols.get(expression.name)
@@ -255,8 +257,19 @@ class StatementAnalyzer:
             return "integer" if self.types.is_integral_value(target) else "arithmetic"
         return None
 
+    def _names_file_scope(self, name: str) -> bool:
+        """Whether ``name`` resolves past every local scope to file scope.
+
+        A local, parameter or other block binding that shadows a global or
+        function has automatic storage, so it is never a C address constant.
+        """
+        symbol = self.session.scope.lookup(name)
+        return symbol is None or symbol is self.session.global_scope.symbols.get(name)
+
     def _is_static_address_operand(self, expression) -> bool:
         if isinstance(expression, Identifier):
+            if not self._names_file_scope(expression.name):
+                return False
             declaration = self.index.global_declarations.get(expression.name)
             origin = getattr(declaration, "source_file", None)
             if (
@@ -286,7 +299,7 @@ class StatementAnalyzer:
             return True
         if isinstance(expression, Identifier):
             symbol = self.session.global_scope.symbols.get(expression.name)
-            return bool(symbol and symbol.type and symbol.type.is_array)
+            return bool(symbol and symbol.type and symbol.type.is_array and self._names_file_scope(expression.name))
         if isinstance(expression, FieldAccessExpr) and (not expression.arrow):
             field_type = self.aggregates.type_of(expression)
             return bool(field_type and field_type.is_array and self._is_static_address_operand(expression))
@@ -1329,7 +1342,9 @@ class StatementAnalyzer:
     def _claim_local_binding(self, name, kind, line=0, col=0, *, c_name_generated=False) -> bool:
         self.declarations.validate_name(name, kind.capitalize(), line, col, c_name_generated=c_name_generated)
         existing = self.session.scope.symbols.get(name)
-        if existing is None or existing.kind == "function":
+        # A capture entry only records that this lambda scope read the
+        # enclosing binding; a local declared after that read shadows it.
+        if existing is None or existing.kind in {"function", "capture"}:
             outer = self.session.scope.parent.lookup(name) if self.session.scope.parent else None
             if outer is not None and self.types.contains_thread_storage(outer.type):
                 self.session.error(f"Binding '{name}' cannot shadow an active Thread owner", line, col)

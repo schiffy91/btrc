@@ -1,0 +1,48 @@
+// Captures locals whose names ShadowGlobals.btrc, which this file does not
+// import, also declares as globals.
+
+int capturedLocal() {
+	int count = 5;
+	var read = () => count;
+	count = 1;
+	return read();
+}
+
+int capturedParameter(int offset) {
+	var add = (int value) => value + offset;
+	return add(2);
+}
+
+int capturedInBlock() {
+	int total = 0;
+	{
+		int step = 11;
+		var times = (int value) => value * step;
+		total = times(2);
+	}
+	return total;
+}
+
+int capturedLoopVariable() {
+	int sum = 0;
+	for (int scale = 1; scale <= 3; scale++) {
+		var weigh = (int value) => value * scale;
+		sum = sum + weigh(10);
+	}
+	return sum;
+}
+
+int capturedThroughNestedLambda() {
+	int count = 4;
+	var outer = (int value) => {
+		var inner = (int extra) => extra + count;
+		return inner(value);
+	};
+	return outer(6);
+}
+
+int spawnedCapture() {
+	int count = 21;
+	Thread<int> worker = spawn(() => count * 2);
+	return worker.join();
+}

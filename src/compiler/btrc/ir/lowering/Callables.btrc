@@ -103,10 +103,12 @@ class CallableBoundaryContext {
 class CallableValueSemantics {
 	private Analyzed analysis;
 	private ExpressionTypeResolver expressionTypes;
+	private LoweringContext context;
 
-	public CallableValueSemantics(Analyzed analysis, ExpressionTypeResolver expressionTypes) {
+	public CallableValueSemantics(Analyzed analysis, ExpressionTypeResolver expressionTypes, LoweringContext context) {
 		self.analysis = analysis;
 		self.expressionTypes = expressionTypes;
+		self.context = context;
 	}
 
 	public Node resolveType(Node? typeExpr, CallableBoundaryContext context) {
@@ -164,7 +166,12 @@ class CallableValueSemantics {
 
 	public bool validatedReferenceOwner(Node typeExpr) { return typeExpr.pointerDepth > 0 || self.analysis.isClass(typeExpr.base) || self.analysis.isGenericClass(typeExpr.base); }
 
-	public bool lexicalIdentifier(string name, CallableBoundaryContext context) { return context.declaresCallable(name) || !self.analysis.globalVarTypes.has(name); }
+	/* Every global's type is seeded into the lowering variable table, so a
+	 * name found there is a global unless an active source binding (a local,
+	 * parameter, loop or catch variable, or lambda capture) shadows it. */
+	private bool resolvesLexically(string name) { return self.context.sourceLexicalBindings.has(name) || !self.analysis.globalVarTypes.has(name); }
+
+	public bool lexicalIdentifier(string name, CallableBoundaryContext context) { return context.declaresCallable(name) || self.resolvesLexically(name); }
 
 	public int expressionAbi(Node? expression, CallableBoundaryContext context) {
 		if (expression == null) { return 0; }
@@ -215,20 +222,12 @@ class CallableValueSemantics {
 	}
 
 	public Vector<string> captureNames(Node lambda, CallableBoundaryContext context) {
-		Map<string, bool> parameterNames = {};
-		int parameter = 0;
-		while (parameter < lambda.params().len) {
-			parameterNames.put(lambda.params().get(parameter).name, true);
-			parameter = parameter + 1;
-		}
-		Map<string, bool> usedNames = {};
-		ExpressionTypeResolver.collectIdentifiers(lambda.bodyNode, usedNames);
 		Vector<string> captures = [];
-		Vector<string> names = usedNames.keys();
+		Vector<string> names = LambdaFreeNames.of(lambda).keys();
 		int index = 0;
 		while (index < names.len) {
 			string name = names.get(index);
-			if (!parameterNames.has(name) && context.hasVariable(name) && !self.analysis.globalVarTypes.has(name)) {
+			if (context.hasVariable(name) && self.resolvesLexically(name)) {
 				captures.push(name);
 			}
 			index = index + 1;

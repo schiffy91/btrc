@@ -1226,3 +1226,182 @@ class ExpressionTypeResolver {
 		return null;
 	}
 }
+
+/* The names a lambda body reads from its enclosing scopes: its captures.
+ *
+ * A name is free only where none of the body's own bindings is visible: the
+ * lambda's parameters, a local declared earlier in an enclosing block, a
+ * loop, catch or C-for variable, or a nested lambda's parameter. A local's
+ * initializer is read before the local binds, and every block, loop, case
+ * and catch clause closes its bindings, as in the reference compiler's scope
+ * chain. A nested lambda's free names are free in the enclosing body unless
+ * that body binds them. */
+class LambdaFreeNames {
+	private Vector<Map<string, bool>> scopes;
+	private Map<string, bool> names;
+
+	public LambdaFreeNames() {
+		self.scopes = [];
+		self.names = {};
+	}
+
+	class Map<string, bool> of(Node lambda) {
+		LambdaFreeNames collector = LambdaFreeNames();
+		collector.collectLambda(lambda);
+		return collector.names;
+	}
+
+	private void push() {
+		Map<string, bool> scope = {};
+		self.scopes.push(scope);
+	}
+
+	private void pop() { self.scopes.pop(); }
+
+	private void bind(string? name) {
+		if (name == null || name == "" || self.scopes.len == 0) { return; }
+		self.scopes.get(self.scopes.len - 1).put(name, true);
+	}
+
+	private bool bound(string name) {
+		int index = self.scopes.len - 1;
+		while (index >= 0) {
+			if (self.scopes.get(index).has(name)) { return true; }
+			index = index - 1;
+		}
+		return false;
+	}
+
+	private void collectLambda(Node lambda) {
+		self.push();
+		for parameter in lambda.params() {
+			self.visit(parameter.type);
+			self.bind(parameter.name);
+		}
+		self.visit(lambda.bodyNode);
+		self.pop();
+	}
+
+	private void visitList(Vector<Node> nodes) {
+		for node in nodes { self.visit(node); }
+	}
+
+	private void scoped(Vector<Node> statements) {
+		self.push();
+		self.visitList(statements);
+		self.pop();
+	}
+
+	private void visit(Node? n) {
+		if (n == null) { return; }
+		if (n.kind == NK_IDENTIFIER) {
+			if (!self.bound(n.name)) { self.names.put(n.name, true); }
+			return;
+		}
+		if (n.kind == NK_SELF_EXPR || n.kind == NK_SUPER_EXPR) {
+			self.names.put("self", true);
+			return;
+		}
+		if (n.kind == NK_LAMBDA_EXPR) {
+			self.collectLambda(n);
+			return;
+		}
+		if (n.kind == NK_BLOCK) {
+			self.scoped(n.statements());
+			return;
+		}
+		if (n.kind == NK_CASE_CLAUSE) {
+			self.visit(n.valueNode);
+			self.scoped(n.bodyNodeList());
+			return;
+		}
+		if (n.kind == NK_VAR_DECL_STMT) {
+			self.visit(n.type);
+			self.visit(n.initializer);
+			self.bind(n.name);
+			return;
+		}
+		if (n.kind == NK_FOR_IN_STMT || n.kind == NK_PARALLEL_FOR_STMT) {
+			self.visit(n.iterable);
+			self.push();
+			self.bind(n.varName);
+			self.bind(n.varName2);
+			self.visit(n.bodyNode);
+			self.pop();
+			return;
+		}
+		if (n.kind == NK_C_FOR_STMT) {
+			self.push();
+			self.visit(n.init);
+			self.visit(n.condition);
+			self.visit(n.update);
+			self.visit(n.bodyNode);
+			self.pop();
+			return;
+		}
+		if (n.kind == NK_TRY_CATCH_STMT) {
+			self.visit(n.tryBlock);
+			self.visit(n.catchType);
+			self.push();
+			self.bind(n.catchVar);
+			self.visit(n.catchBlock);
+			self.pop();
+			self.visit(n.finallyBlock);
+			return;
+		}
+		/* Every other node binds nothing: visit each child expression,
+		 * statement and type as collectIdentifiers does. */
+		self.visit(n.spec);
+		self.visit(n.returnType);
+		self.visit(n.bodyNode);
+		self.visit(n.original);
+		self.visit(n.arraySize);
+		self.visit(n.type);
+		self.visit(n.default_);
+		self.visit(n.initializer);
+		self.visit(n.getterBody);
+		self.visit(n.setterBody);
+		self.visit(n.valueNode);
+		self.visit(n.condition);
+		self.visit(n.thenBlock);
+		self.visit(n.elseBlock);
+		self.visit(n.iterable);
+		self.visit(n.init);
+		self.visit(n.update);
+		self.visit(n.expr);
+		self.visit(n.tryBlock);
+		self.visit(n.catchType);
+		self.visit(n.catchBlock);
+		self.visit(n.finallyBlock);
+		self.visit(n.ifStmt);
+		self.visit(n.expression);
+		self.visit(n.left);
+		self.visit(n.right);
+		self.visit(n.operand);
+		self.visit(n.callee);
+		self.visit(n.obj);
+		self.visit(n.index);
+		self.visit(n.targetType);
+		self.visit(n.trueExpr);
+		self.visit(n.falseExpr);
+		self.visit(n.target);
+		self.visit(n.fn);
+		self.visit(n.key);
+		self.visitList(n.declarations());
+		self.visitList(n.members());
+		self.visitList(n.methods());
+		self.visitList(n.params());
+		self.visitList(n.fields());
+		self.visitList(n.values());
+		self.visitList(n.variants());
+		self.visitList(n.genericArgs());
+		self.visitList(n.statements());
+		self.visitList(n.cases());
+		self.visitList(n.args());
+		self.visitList(n.elements());
+		self.visitList(n.entries());
+		self.visitList(n.parts());
+		self.visitList(n.captures());
+		self.visitList(n.bodyNodeList());
+	}
+}

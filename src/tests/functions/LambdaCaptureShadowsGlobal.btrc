@@ -1,0 +1,54 @@
+// A lambda or spawn captures a local, parameter or loop variable even when a
+// global of the same name exists: in a module the capturing module never
+// imports (shadowhelpers/ShadowGlobals.btrc), or in this file.
+import ./shadowhelpers/ShadowGlobals.btrc
+import ./shadowhelpers/ShadowUse.btrc
+#include <assert.h>
+
+int limit = 100;
+
+// A field initializer belongs to the class scope: the constructor parameter
+// does not shadow the global there, so the lambda reads the global.
+class Gauge {
+	public __fn_ptr<int> read = () => limit;
+	public Gauge(int limit) {}
+}
+
+// Once the shadowing block ends, the global is visible again.
+int afterBlock() {
+	{
+		int limit = 1;
+		var local = () => limit;
+		assert(local() == 1);
+	}
+	var global = () => limit;
+	return global();
+}
+
+int main() {
+	assert(capturedLocal() == 5);
+	assert(capturedParameter(1) == 3);
+	assert(capturedInBlock() == 22);
+	assert(capturedLoopVariable() == 60);
+	assert(capturedThroughNestedLambda() == 10);
+	assert(spawnedCapture() == 42);
+	assert(afterBlock() == 100);
+
+	Gauge gauge = new Gauge(5);
+	assert(gauge.read() == 100);
+	delete gauge;
+
+	// A local shadowing a global in this file is captured by value.
+	int limit = 8;
+	var under = (int value) => value < limit;
+	limit = 1;
+	assert(under(5));
+	assert(!under(9));
+	var current = () => limit;
+	assert(current() == 1);
+
+	// Capturing never touched the globals.
+	assert(count == 9 && offset == 40 && step == 7 && scale == 3);
+	print("PASS: test_lambda_capture_shadows_global");
+	return 0;
+}

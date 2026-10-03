@@ -1,0 +1,7 @@
+// Globals that ShadowUse.btrc never imports. Their names match locals there,
+// so a lambda or spawn in ShadowUse must capture its own local, never read
+// one of these.
+int count = 9;
+int offset = 40;
+int step = 7;
+int scale = 3;

@@ -1,0 +1,30 @@
+// A block local types only the uses it encloses. A call through a global
+// realtime function value stays proven safe although a later block declares
+// a local of the same name and another type.
+@realtime int increment(int value) { return value + 1; }
+
+RealtimeFunction<int, int> transform = increment;
+
+@realtime int apply(int value) {
+	int result = transform(value);
+	if (value > 100) {
+		float transform = 2.0f;
+		result = result + (int)transform;
+	}
+	for (int step = 0; step < 2; step++) {
+		int transform = step;
+		result = result + transform;
+	}
+	return transform(result);
+}
+
+int main() {
+	if (apply(2) != 5) {
+		return 1;
+	}
+	if (apply(200) != 205) {
+		return 2;
+	}
+	print("PASS: test_realtime_global_callable_scope");
+	return 0;
+}

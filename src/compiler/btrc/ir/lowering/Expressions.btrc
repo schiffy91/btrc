@@ -1194,10 +1194,11 @@ class ExpressionLowerer {
      * params, sorted lexicographically. Mirrors analyzer._analyze_lambda's
      * capture computation (btrcc does it on-demand at lowering, having no
      * persistent scope). Module-level globals are visible directly inside the
-     * lifted lambda (file scope), so they are NEVER captured even though they
+     * lifted lambda (file scope), so they are never captured even though they
      * appear in varTypes (the global scope is seeded into every function's
-     * varTypes); mirrors the reference, where captures come from enclosing
-     * function scope, not the module scope. */
+     * varTypes), unless an active local binding shadows them; mirrors the
+     * reference, where captures come from enclosing function scope, not the
+     * module scope. */
 	public IRNode lowerSpawn(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		self.context.referenceHelper("__btrc_thread_spawn");
 		Node fn = node.fn;

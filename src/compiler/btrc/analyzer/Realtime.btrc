@@ -41,6 +41,12 @@ class RealtimeCallable {
 	/* After its first effect a callable's verdict and witness are fixed; see
 	 * RealtimeAnalyzer.effect. */
 	public bool settled;
+	/* The bindings a lexical scope displaced in variables, innermost last,
+	 * so closing the scope restores each name's enclosing type. */
+	private Vector<string> displacedNames;
+	private Vector<Node> displacedTypes;
+	private Vector<bool> displacedPresent;
+	private Vector<int> scopeMarks;
 
 	public RealtimeCallable(string key, string label, Node declaration) {
 		self.key = key;
@@ -51,6 +57,42 @@ class RealtimeCallable {
 		self.localNames = {};
 		self.events = [];
 		self.settled = false;
+		self.displacedNames = [];
+		self.displacedTypes = [];
+		self.displacedPresent = [];
+		self.scopeMarks = [];
+	}
+
+	public void openScope() { self.scopeMarks.push(self.displacedNames.len); }
+
+	public void closeScope() {
+		int mark = self.scopeMarks.pop();
+		while (self.displacedNames.len > mark) {
+			string name = self.displacedNames.pop();
+			Node previous = self.displacedTypes.pop();
+			if (self.displacedPresent.pop()) {
+				self.variables.put(name, previous);
+			} else {
+				self.variables.remove(name);
+			}
+		}
+	}
+
+	/* Bind a local in the innermost scope; an unknown type hides the name's
+	 * enclosing type rather than leaving it visible. */
+	public void bindLocal(string? name, Node? typeExpr) {
+		if (name == null || name == "") { return; }
+		if (self.scopeMarks.len > 0) {
+			bool present = self.variables.has(name);
+			self.displacedNames.push(name);
+			self.displacedTypes.push(present ? self.variables.get(name) : Node());
+			self.displacedPresent.push(present);
+		}
+		if (typeExpr != null) {
+			self.variables.put(name, typeExpr);
+		} else {
+			self.variables.remove(name);
+		}
 	}
 }
 
@@ -349,13 +391,6 @@ class RealtimeAnalyzer {
 	private void collectLocals(Node? node, RealtimeCallable callable) {
 		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
 		if (node.kind == NK_VAR_DECL_STMT) {
-			Node? typeExpr = node.type;
-			if (typeExpr == null && node.initializer != null) {
-				typeExpr = self.expressionTypes.infer(node.initializer, callable.variables);
-			}
-			if (typeExpr != null) {
-				callable.variables.put(node.name, typeExpr);
-			}
 			callable.localNames.put(node.name, true);
 		}
 		self.collectChildren(node, callable, true);
@@ -396,6 +431,41 @@ class RealtimeAnalyzer {
 
 	private void visit(Node? node, RealtimeCallable callable) {
 		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
+		/* Each block, case and lambda scopes the locals it declares, so a
+		 * local types only the uses it encloses and never a global's. */
+		if (node.kind == NK_BLOCK || node.kind == NK_CASE_CLAUSE) {
+			callable.openScope();
+			self.collectChildren(node, callable, false);
+			callable.closeScope();
+			return;
+		}
+		if (node.kind == NK_LAMBDA_EXPR) {
+			self.effect(callable, "allocation", "closure construction", node);
+			callable.openScope();
+			for parameter in node.params() { callable.bindLocal(parameter.name, parameter.type); }
+			self.collectChildren(node, callable, false);
+			callable.closeScope();
+			return;
+		}
+		if (node.kind == NK_PARALLEL_FOR_STMT) {
+			self.effect(callable, "blocking", "parallel for", node);
+			self.visit(node.iterable, callable);
+			callable.openScope();
+			callable.bindLocal(node.varName, null);
+			self.visit(node.bodyNode, callable);
+			callable.closeScope();
+			return;
+		}
+		if (node.kind == NK_TRY_CATCH_STMT) {
+			self.effect(callable, "exceptions", "exception operation", node);
+			self.visit(node.tryBlock, callable);
+			callable.openScope();
+			callable.bindLocal(node.catchVar, node.catchType);
+			self.visit(node.catchBlock, callable);
+			callable.closeScope();
+			self.visit(node.finallyBlock, callable);
+			return;
+		}
 		if (node.kind == NK_WHILE_STMT) {
 			self.effect(callable, "blocking", "unproven while loop", node);
 			self.visit(node.condition, callable);
@@ -409,53 +479,9 @@ class RealtimeAnalyzer {
 			return;
 		}
 		if (node.kind == NK_C_FOR_STMT) {
-			RealtimeLoopProof proof = self.canonicalCFor(node, callable);
-			if (!proof.valid) {
-				self.effect(callable, "blocking", "unproven C-style loop", node);
-				self.collectChildren(node, callable, false);
-				return;
-			}
-			Vector<Node> declarations = node.init.declarations();
-			Vector<Node> updates = RealtimeAnalyzer.forUpdateOperands(node.update);
-			self.visit(declarations.get(proof.inductionIndex), callable);
-			/* The other declarators run before the loop. Each may declare the
-			 * bound but never write, or take the address of, the induction
-			 * variable or a bound declared before it. */
-			bool violated = false;
-			int declarationIndex = 0;
-			while (declarationIndex < declarations.len) {
-				Node declaration = declarations.get(declarationIndex);
-				if (declarationIndex != proof.inductionIndex) {
-					RealtimeLoopGuard initializer = RealtimeLoopGuard(node);
-					initializer.violated = violated;
-					if (declaration.name != proof.induction) { initializer.names.put(proof.induction, true); }
-					if (proof.bound != "" && declaration.name != proof.bound) { initializer.names.put(proof.bound, true); }
-					self.loopGuards.push(initializer);
-					self.visit(declaration, callable);
-					self.loopGuards.pop();
-					violated = initializer.violated;
-				}
-				declarationIndex++;
-			}
-			self.visit(node.condition, callable);
-			self.visit(updates.get(proof.stepIndex), callable);
-			RealtimeLoopGuard guard = RealtimeLoopGuard(node);
-			guard.violated = violated;
-			guard.names.put(proof.induction, true);
-			if (proof.bound != "") { guard.names.put(proof.bound, true); }
-			self.loopGuards.push(guard);
-			/* Every other update operand runs each iteration, so like the body
-			 * it may write neither the induction variable nor its bound. */
-			int updateIndex = 0;
-			while (updateIndex < updates.len) {
-				if (updateIndex != proof.stepIndex) { self.visit(updates.get(updateIndex), callable); }
-				updateIndex++;
-			}
-			self.visit(node.bodyNode, callable);
-			self.loopGuards.pop();
-			if (!guard.violated) {
-				self.analyzed.recordRealtimeBoundedLoop(node);
-			}
+			callable.openScope();
+			self.visitCFor(node, callable);
+			callable.closeScope();
 			return;
 		}
 		if (node.kind == NK_CALL_EXPR) {
@@ -534,6 +560,7 @@ class RealtimeAnalyzer {
 			if (self.managedType(declaredType, {})) {
 				self.effect(callable, "ARC", "managed local '" + node.name + "'", node);
 			}
+			callable.bindLocal(node.name, declaredType);
 			return;
 		}
 		if (node.kind == NK_RETURN_STMT) {
@@ -548,7 +575,11 @@ class RealtimeAnalyzer {
 			self.effect(callable, "blocking", "unproven for-in loop", node);
 			self.visit(node.iterable, callable);
 			self.iterationEvents(node, callable);
+			callable.openScope();
+			callable.bindLocal(node.varName, null);
+			callable.bindLocal(node.varName2, null);
 			self.visit(node.bodyNode, callable);
+			callable.closeScope();
 			return;
 		}
 		if (node.kind == NK_UNARY_EXPR && (node.op == "++" || node.op == "--")) {
@@ -575,16 +606,12 @@ class RealtimeAnalyzer {
 			self.effect(callable, "strings", "string value", node);
 		} else if (node.kind == NK_LIST_LITERAL || node.kind == NK_MAP_LITERAL) {
 			self.effect(callable, "collections", "collection literal", node);
-		} else if (node.kind == NK_LAMBDA_EXPR) {
-			self.effect(callable, "allocation", "closure construction", node);
 		} else if (node.kind == NK_SPAWN_EXPR) {
 			self.effect(callable, "blocking", "thread spawn", node);
-		} else if (node.kind == NK_TRY_CATCH_STMT || node.kind == NK_THROW_STMT) {
+		} else if (node.kind == NK_THROW_STMT) {
 			self.effect(callable, "exceptions", "exception operation", node);
 		} else if (node.kind == NK_DELETE_STMT || node.kind == NK_KEEP_STMT || node.kind == NK_RELEASE_STMT) {
 			self.effect(callable, "ARC", "managed lifetime operation", node);
-		} else if (node.kind == NK_PARALLEL_FOR_STMT) {
-			self.effect(callable, "blocking", "parallel for", node);
 		} else if (node.kind == NK_BINARY_EXPR) {
 			self.visit(node.left, callable);
 			self.visit(node.right, callable);
@@ -613,6 +640,67 @@ class RealtimeAnalyzer {
 			return;
 		}
 		self.collectChildren(node, callable, false);
+	}
+
+	/* A C-style loop's declarators bind for the whole loop. Bind them before
+	 * the bound proof reads their types. */
+	private void visitCFor(Node node, RealtimeCallable callable) {
+		if (node.init != null && node.init.kind == NK_FOR_INIT_VAR) {
+			for declaration in node.init.declarations() {
+				Node? declaredType = declaration.type;
+				if (declaredType == null && declaration.initializer != null) {
+					declaredType = self.expressionTypes.infer(declaration.initializer, callable.variables);
+				}
+				callable.bindLocal(declaration.name, declaredType);
+			}
+		}
+		RealtimeLoopProof proof = self.canonicalCFor(node, callable);
+		if (!proof.valid) {
+			self.effect(callable, "blocking", "unproven C-style loop", node);
+			self.collectChildren(node, callable, false);
+			return;
+		}
+		Vector<Node> declarations = node.init.declarations();
+		Vector<Node> updates = RealtimeAnalyzer.forUpdateOperands(node.update);
+		self.visit(declarations.get(proof.inductionIndex), callable);
+		/* The other declarators run before the loop. Each may declare the
+		 * bound but never write, or take the address of, the induction
+		 * variable or a bound declared before it. */
+		bool violated = false;
+		int declarationIndex = 0;
+		while (declarationIndex < declarations.len) {
+			Node declaration = declarations.get(declarationIndex);
+			if (declarationIndex != proof.inductionIndex) {
+				RealtimeLoopGuard initializer = RealtimeLoopGuard(node);
+				initializer.violated = violated;
+				if (declaration.name != proof.induction) { initializer.names.put(proof.induction, true); }
+				if (proof.bound != "" && declaration.name != proof.bound) { initializer.names.put(proof.bound, true); }
+				self.loopGuards.push(initializer);
+				self.visit(declaration, callable);
+				self.loopGuards.pop();
+				violated = initializer.violated;
+			}
+			declarationIndex++;
+		}
+		self.visit(node.condition, callable);
+		self.visit(updates.get(proof.stepIndex), callable);
+		RealtimeLoopGuard guard = RealtimeLoopGuard(node);
+		guard.violated = violated;
+		guard.names.put(proof.induction, true);
+		if (proof.bound != "") { guard.names.put(proof.bound, true); }
+		self.loopGuards.push(guard);
+		/* Every other update operand runs each iteration, so like the body
+		 * it may write neither the induction variable nor its bound. */
+		int updateIndex = 0;
+		while (updateIndex < updates.len) {
+			if (updateIndex != proof.stepIndex) { self.visit(updates.get(updateIndex), callable); }
+			updateIndex++;
+		}
+		self.visit(node.bodyNode, callable);
+		self.loopGuards.pop();
+		if (!guard.violated) {
+			self.analyzed.recordRealtimeBoundedLoop(node);
+		}
 	}
 
 	private void visitCallee(Node callee, RealtimeCallable callable) {

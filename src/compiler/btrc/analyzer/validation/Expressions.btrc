@@ -731,15 +731,13 @@ class ExpressionValidator {
 			self.types.validateArrayReturn(expression, "Lambda");
 		}
 
-		Map<string, bool> usedNames = {};
-		ExpressionTypeResolver.collectIdentifiers(expression.bodyNode, usedNames);
-		Vector<string> names = usedNames.keys();
+		Vector<string> names = LambdaFreeNames.of(expression).keys();
 		plan.borrowedBindings = self.types.cloneFlags(parameterNames);
 		plan.localBindings = self.types.cloneFlags(parameterNames);
 		int captureIndex = 0;
 		while (captureIndex < names.len) {
 			string name = names.get(captureIndex);
-			if (!parameterNames.has(name) && vars.has(name) && self.state.localBindings.has(name)) {
+			if (vars.has(name) && self.state.localBindings.has(name)) {
 				/* Lifted environment fields are non-owning copies.  Model them as
                  * borrowed lexical proxies even when the enclosing local owns its
                  * slot, so rebind/release validation matches generated code. */
@@ -749,8 +747,11 @@ class ExpressionValidator {
 					TypeValidator.fail("A lambda cannot capture Thread handle '" + name + "'; join it before capture or create a fresh owner " + "inside the lambda", expression);
 				}
 				Node? captured = self.types.resolveAliases(vars.get(name));
-				if (captured != null && (captured.base == "Span" || captured.base == "Atomic") && captured.pointerDepth == 0 && !captured.isArray) {
-					TypeValidator.fail("A lambda cannot capture " + captured.base + " value '" + name + "' by value", expression);
+				if (captured != null && captured.base == "Span") {
+					TypeValidator.fail("A lambda cannot capture nonescaping Span '" + name + "'", expression);
+				}
+				if (captured != null && captured.base == "Atomic" && captured.pointerDepth == 0) {
+					TypeValidator.fail("A lambda cannot copy Atomic owner '" + name + "'; capture an Atomic<T>*", expression);
 				}
 			}
 			captureIndex = captureIndex + 1;
@@ -807,20 +808,13 @@ class ExpressionValidator {
 		self.state.localBindings = previousLocalBindings;
 	}
 
+	/* Diagnostics name the spawn, as the reference compiler's do. */
 	public void validateSpawnCaptures(Node expression, Map<string, Node> vars) {
-		Map<string, bool> parameterNames = {};
-		int parameterIndex = 0;
-		while (parameterIndex < expression.params().len) {
-			parameterNames.put(expression.params().get(parameterIndex).name, true);
-			parameterIndex = parameterIndex + 1;
-		}
-		Map<string, bool> usedNames = {};
-		ExpressionTypeResolver.collectIdentifiers(expression.bodyNode, usedNames);
-		Vector<string> names = usedNames.keys();
+		Vector<string> names = LambdaFreeNames.of(expression.fn).keys();
 		int captureIndex = 0;
 		while (captureIndex < names.len) {
 			string name = names.get(captureIndex);
-			if (!parameterNames.has(name) && vars.has(name) && !self.state.analyzed.globalVarTypes.has(name)) {
+			if (vars.has(name) && (self.state.localBindings.has(name) || !self.state.analyzed.globalVarTypes.has(name))) {
 				Node captureType = vars.get(name);
 				Node? canonical = self.types.resolveAliases(captureType);
 				if (canonical != null && (canonical.base == "Span" || canonical.base == "Atomic") && canonical.pointerDepth == 0 && !canonical.isArray) {
@@ -1024,7 +1018,7 @@ class ExpressionValidator {
 			}
 			self.validateExpr(expression.fn,  vars);
 			if (expression.fn != null && expression.fn.kind == NK_LAMBDA_EXPR) {
-				self.validateSpawnCaptures(expression.fn,  vars);
+				self.validateSpawnCaptures(expression,  vars);
 			}
 			Node? callable = self.types.inferType(expression.fn,  vars);
 			if (expression.fn == null || (expression.fn.kind != NK_LAMBDA_EXPR && (callable == null || (callable.base != "__fn_ptr" && callable.base != "__realtime_fn_ptr")))) {

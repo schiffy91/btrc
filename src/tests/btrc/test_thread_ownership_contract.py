@@ -44,6 +44,11 @@ from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build
             "spawn cannot capture array storage through 'values'",
         ),
         (
+            # A global of the same name does not hide the captured local.
+            "int values = 1; Thread<int> launch() { int values[2] = {7, 8}; return spawn(() => values[0]); } int main() { return launch().join(); }",
+            "spawn cannot capture array storage through 'values'",
+        ),
+        (
             "int main() { Thread<Thread<int>> worker = null; return 0; }",
             "result type cannot contain another Thread handle",
         ),
