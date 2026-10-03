@@ -1201,4 +1201,4 @@ def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
     assert "HostedAbiRepository hostedAbi" in setjmp_analysis
     assert "HostedAbiRepository" not in setjmp_safety
     assert "private SetjmpEffectAnalysis effectAnalysis;" in setjmp_safety
-    assert "self.effectAnalysis.analyze(module)" in setjmp_safety
+    assert "self.effectAnalysis.analyze(module, roots)" in setjmp_safety

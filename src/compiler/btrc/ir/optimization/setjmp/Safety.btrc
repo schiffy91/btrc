@@ -805,25 +805,30 @@ class SetjmpSafetyPlanner {
 		self.setjmpBodies = {};
 		self.validateGlobals(module);
 		bool hasSetjmp = false;
+		/* Only a function that calls setjmp can qualify storage: the scan marks
+		 * nothing elsewhere, and validation rejects only what was marked. */
+		Map<string, bool> roots = {};
 		int index = 0;
 		while (index < module.functions.len) {
 			IRFunction definition = module.functions.get(index);
 			if (self.bodyContainsSetjmp(definition)) {
 				hasSetjmp = true;
+				roots.put(definition.name, true);
 			}
 			index = index + 1;
 		}
 		if (!hasSetjmp) { return; }
-		self.effectsByFunction = solvedEffects.len > 0 ? solvedEffects : self.effectAnalysis.analyze(module);
+		self.effectsByFunction = solvedEffects.len > 0 ? solvedEffects : self.effectAnalysis.analyze(module, roots);
 		index = 0;
 		while (index < module.functions.len) {
 			IRFunction definition = module.functions.get(index);
-			if (definition.body != null) {
-				self.rejectUnmodelledCaptures(definition, self.effectsByFunction.get(definition.name));
+			IRNode? body = definition.body;
+			if (body != null && self.bodyContainsSetjmp(definition)) {
+				SetjmpCallEffects effects = self.effectsByFunction.get(definition.name);
+				self.rejectUnmodelledCaptures(definition, effects);
 				Vector<IRNode> visible = [];
-				self.scanBlock(definition.body, visible, definition.params, self.effectsByFunction.get(definition.name));
-				IRNode? body = definition.body;
-				if (body != null && self.bodyContainsSetjmp(definition)) { self.qualifyGeneratedLocals(body); }
+				self.scanBlock(body, visible, definition.params, effects);
+				self.qualifyGeneratedLocals(body);
 			}
 			self.validateFunction(definition);
 			index = index + 1;

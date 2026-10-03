@@ -33,7 +33,7 @@ def test_setjmp_effect_analysis_has_one_retained_owner() -> None:
 
     assert "class SetjmpEffectAnalysis {" in source
     assert "private IRModule module;" in source
-    assert "public Map<string, SetjmpCallEffects> analyze(IRModule module)" in source
+    assert "public Map<string, SetjmpCallEffects> analyze(IRModule module, Map<string, bool> roots)" in source
     assert _TOP_LEVEL_BEHAVIOR.findall(source) == []
 
 
@@ -47,8 +47,8 @@ def test_setjmp_safety_has_one_explicit_module_operation() -> None:
     assert _TOP_LEVEL_BEHAVIOR.findall(source) == []
 
     assert apply.count("self.validateGlobals(module);") == 1
-    assert apply.count("self.effectAnalysis.analyze(module)") == 1
+    assert apply.count("self.effectAnalysis.analyze(module, roots)") == 1
     assert apply.count("self.validateFunction(definition);") == 1
     assert apply.index("self.validateGlobals(module);") < apply.index("bool hasSetjmp")
-    assert apply.index("self.effectAnalysis.analyze(module)") < apply.index("self.scanBlock(")
+    assert apply.index("self.effectAnalysis.analyze(module, roots)") < apply.index("self.scanBlock(")
     assert apply.index("self.scanBlock(") < apply.index("self.validateFunction(")
