@@ -638,7 +638,14 @@ def _native_unit_plan(command: list[str], source: Path, output: Path, *, module_
     )
     assert completed.returncode == 0, completed.stderr
     plan = json.loads((output / "program.link.json").read_text(encoding="utf-8"))
-    plan["emitted-units"] = [Path(path).name for path in plan.get("emitted-units", [])]
+    units = [Path(path) if Path(path).is_absolute() else ROOT / path for path in plan.get("emitted-units", [])]
+    # Each digest is this compiler's own C for that unit, and the two
+    # compilers' unit bodies still differ (docs/design/compiler-parity.md), so
+    # the digests are checked against the files here and left out of the plan.
+    digests = plan.pop("emitted-unit-digests", None)
+    if digests is not None:
+        assert digests == [hashlib.sha256(unit.read_bytes()).hexdigest() for unit in units]
+    plan["emitted-units"] = [unit.name for unit in units]
     return plan
 
 
