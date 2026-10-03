@@ -61,6 +61,9 @@ class BtrccOptions {
 	/* -o: write the generated C here instead of stdout; --debug: #line directives. */
 	public string outputPath = "";
 	public bool debug = false;
+	/* --emit-ir / --emit-optimized-ir: print the IR dump before or after the
+	 * optimizer instead of C; empty for C. */
+	public string irDump = "";
 	public bool useCache = true;
 	public int inputIndex;
 	public string diagnostic;

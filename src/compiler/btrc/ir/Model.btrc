@@ -973,3 +973,175 @@ class IRModule {
 		self.helpers = [];
 	}
 }
+
+/* Serializes one complete structured IR module without consulting a backend
+ * (mirrors IRCanonicalRenderer in src/compiler/python/ir/nodes.py). The two
+ * compilers' IR models differ, so the formats differ too; each is
+ * deterministic and names every IR field that differs from a fresh node's,
+ * so two dumps from one compiler are equal exactly when the IR is. Left out:
+ * the temporary-name counter and a GPU kernel's source AST declaration. */
+class IRCanonicalRenderer {
+	private Vector<string> lines = [];
+
+	public string render(IRModule module) {
+		self.lines = ["$format btrcc-ir-v1"];
+		self.module(module, 0);
+		return Strings.join(self.lines, "\n") + "\n";
+	}
+
+	private void line(int depth, string text) { self.lines.push("  ".repeat(depth) + text); }
+
+	private string quoted(string value) {
+		Vector<string> pieces = ["\""];
+		int start = 0;
+		for (int index = 0; index < value.length(); index++) {
+			char letter = value[index];
+			string escape = "";
+			if (letter == '\\') { escape = "\\\\"; }
+			else if (letter == '"') { escape = "\\\""; }
+			else if (letter == '\n') { escape = "\\n"; }
+			else if (letter == '\r') { escape = "\\r"; }
+			else if (letter == '\t') { escape = "\\t"; }
+			if (!escape.isEmpty()) {
+				pieces.push(value.substring(start, index - start));
+				pieces.push(escape);
+				start = index + 1;
+			}
+		}
+		pieces.push(value.substring(start, value.length() - start));
+		pieces.push("\"");
+		return Strings.join(pieces, "");
+	}
+
+	private string text(string name, string value) { return value.isEmpty() ? "" : f" {name}={self.quoted(value)}"; }
+
+	private string flag(string name, bool value) { return value ? f" {name}" : ""; }
+
+	private void module(IRModule module, int depth) {
+		self.line(depth, f"module language={self.quoted(module.language)}{self.flag("debug", module.debug)}{self.text("debugCfile", module.debugCfile)}");
+		for declaration in module.preprocessorDecls {
+			self.line(depth + 1, f"preprocessor kind={declaration.kind}{self.text("header", declaration.header)}{self.flag("system", declaration.isSystem)}{self.text("name", declaration.name)}{self.flag("functionLike", declaration.functionLike)}{self.text("replacement", declaration.replacement)}");
+			self.strings(depth + 2, "param", declaration.params);
+		}
+		for definition in module.enumDefs {
+			self.line(depth + 1, f"enum name={self.quoted(definition.name)}");
+			for value in definition.values {
+				self.line(depth + 2, f"value name={self.quoted(value.name)}");
+				self.child(depth + 3, "value", value.value);
+			}
+		}
+		for forward in module.structForwards { self.line(depth + 1, f"structForward name={self.quoted(forward.name)}"); }
+		for pointer in module.functionPointerTypedefs {
+			self.line(depth + 1, f"functionPointerTypedef name={self.quoted(pointer.name)} returnType={self.quoted(pointer.returnType)}");
+			self.strings(depth + 2, "paramType", pointer.paramTypes);
+		}
+		for declaration in module.functionDecls {
+			self.line(depth + 1, f"functionDecl name={self.quoted(declaration.name)} returnType={self.quoted(declaration.returnType)}{self.flag("static", declaration.isStatic)}{self.flag("cLinkage", declaration.cLinkage)}");
+			self.params(depth + 2, declaration.params);
+		}
+		for typedefinition in module.typedefDefs {
+			self.line(depth + 1, f"typedef name={self.quoted(typedefinition.name)} targetType={self.quoted(typedefinition.targetType)}{self.flag("volatile", typedefinition.isVolatile)}");
+		}
+		for tagged in module.taggedUnionDefs {
+			self.line(depth + 1, f"taggedUnion name={self.quoted(tagged.name)} tagType={self.quoted(tagged.tagType)}");
+			for variant in tagged.variants {
+				self.line(depth + 2, f"variant name={self.quoted(variant.name)}");
+				self.fields(depth + 3, variant.fields);
+			}
+		}
+		for structure in module.structDefs {
+			self.line(depth + 1, f"struct name={self.quoted(structure.name)} packAlignment={structure.packAlignment}");
+			self.fields(depth + 2, structure.fields);
+		}
+		for global in module.globalDecls {
+			self.line(depth + 1, f"global name={self.quoted(global.name)} cType={self.quoted(global.cType)}{self.flag("unsizedArray", global.isUnsizedArray)}{self.flag("static", global.isStatic)}{self.flag("extern", global.isExtern)}{self.flag("volatile", global.isVolatile)}{self.flag("effectiveVolatile", global.effectiveIsVolatile)}");
+			self.child(depth + 2, "init", global.init);
+			self.child(depth + 2, "arraySize", global.arraySize);
+		}
+		for objective in module.objectiveCClasses {
+			self.line(depth + 1, f"objectiveCClass name={self.quoted(objective.name)} superclass={self.quoted(objective.superclass)}");
+			self.strings(depth + 2, "protocol", objective.protocols);
+			self.fields(depth + 2, objective.fields);
+			for method in objective.methods {
+				self.line(depth + 2, f"method selector={self.quoted(method.selector)} returnType={self.quoted(method.returnType)}{self.flag("classMethod", method.isClassMethod)}");
+				self.params(depth + 3, method.params);
+				self.child(depth + 3, "body", method.body);
+			}
+		}
+		for owner in module.functions {
+			self.line(depth + 1, f"function name={self.quoted(owner.name)} returnType={self.quoted(owner.returnType)}{self.flag("static", owner.isStatic)}{self.flag("archiveExport", owner.archiveExport)}{self.flag("realtime", owner.isRealtime)}{self.flag("cLinkage", owner.cLinkage)}{self.text("sourceFile", owner.sourceFile)}");
+			self.params(depth + 2, owner.params);
+			self.child(depth + 2, "body", owner.body);
+		}
+		for kernel in module.gpuKernels {
+			IRGpuBuffer? output = kernel.outputBuffer;
+			string outputText = output == null ? "" : f" output={self.quoted(output.name)}:{self.quoted(output.elemType)}:{output.binding}";
+			self.line(depth + 1, f"gpuKernel name={self.quoted(kernel.name)} workgroupSize={kernel.workgroupSize}{outputText} wgsl={self.quoted(kernel.wgslSource)}");
+			for buffer in kernel.paramBuffers { self.line(depth + 2, f"buffer name={self.quoted(buffer.name)} elemType={self.quoted(buffer.elemType)} binding={buffer.binding}"); }
+			for uniform in kernel.uniformParams { self.line(depth + 2, f"uniform name={self.quoted(uniform.name)} storageType={self.quoted(uniform.storageType)}"); }
+		}
+		for name in module.realtimeSafeExternals.keys().sorted() {
+			self.line(depth + 1, f"realtimeSafeExternal name={self.quoted(name)} value={module.realtimeSafeExternals.get(name)}");
+		}
+		for name in module.realtimeIntrinsicTargets.keys().sorted() {
+			self.line(depth + 1, f"realtimeIntrinsicTarget name={self.quoted(name)} target={self.quoted(module.realtimeIntrinsicTargets.get(name))}");
+		}
+		for helper in module.helpers { self.line(depth + 1, f"helper {self.quoted(helper)}"); }
+		for name in module.nativeUnits.keys().sorted() {
+			self.line(depth + 1, f"nativeUnit name={self.quoted(name)}");
+			self.module(module.nativeUnits.get(name), depth + 2);
+		}
+	}
+
+	/* One line per element, so no separator can make two lists render alike. */
+	private void strings(int depth, string role, Vector<string> values) {
+		for value in values { self.line(depth, f"{role} {self.quoted(value)}"); }
+	}
+
+	private void params(int depth, Vector<IRParam>? params) {
+		if (params == null) { return; }
+		for param in params {
+			self.line(depth, f"param cType={self.quoted(param.cType)} name={self.quoted(param.name)}{self.flag("volatile", param.isVolatile)}{self.flag("effectiveVolatile", param.effectiveIsVolatile)}{self.flag("setjmpInferredVolatile", param.setjmpInferredVolatile)}");
+		}
+	}
+
+	private void fields(int depth, Vector<IRStructField> fields) {
+		for field in fields {
+			self.line(depth, f"field cType={self.quoted(field.cType)} name={self.quoted(field.name)}{self.flag("volatile", field.isVolatile)}{self.flag("effectiveVolatile", field.effectiveIsVolatile)}");
+			self.child(depth + 1, "arraySize", field.arraySize);
+		}
+	}
+
+	private void child(int depth, string role, IRNode? node) {
+		if (node == null) { return; }
+		IRKind kind = (IRKind)node.kind;
+		string scalars = f"{self.flag("prefix", node.prefix)}{self.flag("arrow", node.arrow)}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", node.isArrayDecl)}{self.flag("volatile", node.isVolatile)}{self.flag("effectiveVolatile", node.effectiveIsVolatile)}{self.flag("setjmpInferredVolatile", node.setjmpInferredVolatile)}{self.flag("static", node.isStatic)}{self.flag("extern", node.isExtern)}{self.flag("cycleReturnTemp", node.isCycleReturnTemp)}{self.flag("fallsThrough", node.fallsThrough)}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", node.neverReturns)}{self.flag("realtimeBounded", node.realtimeBounded)}";
+		string texts = f"{self.text("text", node.text)}{self.text("name", node.name)}{self.text("callee", node.callee)}{self.text("op", node.op)}{self.text("targetType", node.targetType)}{self.text("bridge", node.bridge)}{self.text("field", node.field)}{self.text("storageRoot", node.storageRoot)}{self.text("arrayStorageRoot", node.arrayStorageRoot)}{self.text("cType", node.cType)}{self.text("sourceFile", node.sourceFile)}{self.text("helperRef", node.helperRef)}{self.text("realtimeProvenance", node.realtimeProvenance)}";
+		string line = node.sourceLine == 0 ? "" : f" line={node.sourceLine}";
+		self.line(depth, f"{role}: {kind.toString()}{texts}{scalars}{line}");
+		IRCleanupSlot? slot = node.cleanupSlot;
+		if (slot != null) { self.line(depth + 1, f"cleanupSlot site={slot.site} name={self.quoted(slot.name)} cType={self.quoted(slot.cType)} takeFunction={self.quoted(slot.takeFunction)}"); }
+		self.strings(depth + 1, "fieldName", node.fieldNames());
+		self.params(depth + 1, node.params);
+		self.child(depth + 1, "left", node.left);
+		self.child(depth + 1, "right", node.right);
+		self.child(depth + 1, "operand", node.operand);
+		self.child(depth + 1, "expr", node.expr);
+		self.child(depth + 1, "obj", node.obj);
+		self.child(depth + 1, "index", node.index);
+		self.child(depth + 1, "condition", node.condition);
+		self.child(depth + 1, "trueExpr", node.trueExpr);
+		self.child(depth + 1, "falseExpr", node.falseExpr);
+		self.child(depth + 1, "arraySize", node.arraySize);
+		self.child(depth + 1, "init", node.init);
+		self.child(depth + 1, "target", node.target);
+		self.child(depth + 1, "value", node.value);
+		self.child(depth + 1, "thenBlock", node.thenBlock);
+		self.child(depth + 1, "elseBlock", node.elseBlock);
+		self.child(depth + 1, "body", node.body);
+		self.child(depth + 1, "update", node.update);
+		for argument in node.args() { self.child(depth + 1, "arg", argument); }
+		for statement in node.stmts() { self.child(depth + 1, "stmt", statement); }
+		self.child(depth + 1, "result", node.result);
+	}
+}

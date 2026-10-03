@@ -8,7 +8,7 @@ row = "1"
 construct = "int f(void)"
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: void parameter list\n" }
 btrcc = { exit = 0, stdout = "PASS: void parameter list\n" }
 corpus = "c_compat/VoidParameterList.btrc"
@@ -19,7 +19,7 @@ row = "1"
 construct = "int f(int); unnamed prototype parameter"
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: unnamed prototype parameters\nPASS: prototype defaults and names come from the definition\nPASS: (void) parameter lists\n" }
 btrcc = { exit = 0, stdout = "PASS: unnamed prototype parameters\nPASS: prototype defaults and names come from the definition\nPASS: (void) parameter lists\n" }
 corpus = "c_compat/VoidAndUnnamedParameters.btrc"
@@ -30,7 +30,7 @@ row = "1"
 construct = "int f(void, int) is invalid C"
 intent = "negative"
 status = "rejected"
-revision = "5472f61"
+revision = "8b73c79"
 python = { diagnostic = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)' at 1:12" }
 btrcc = { diagnostic = "A 'void' parameter must be the only one, unnamed and unqualified: write '(void)' at 1:12" }
 source = '''
@@ -44,7 +44,7 @@ row = "1"
 construct = "int f(int) { ... } is invalid C (6.9.1p5)"
 intent = "negative"
 status = "rejected"
-revision = "5472f61"
+revision = "8b73c79"
 python = { diagnostic = "Parameter name required: only a function prototype without a body may omit it at 1:11" }
 btrcc = { diagnostic = "Parameter name required: only a function prototype without a body may omit it at 1:11" }
 source = '''
@@ -58,7 +58,7 @@ row = "2"
 construct = "braceless if/else bodies"
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: braceless if/else\nPASS: dangling else binds to the nearest if\nPASS: braceless loops\nPASS: braceless break, continue and return\nPASS: braceless bodies with managed values\n" }
 btrcc = { exit = 0, stdout = "PASS: braceless if/else\nPASS: dangling else binds to the nearest if\nPASS: braceless loops\nPASS: braceless break, continue and return\nPASS: braceless bodies with managed values\n" }
 corpus = "c_compat/BracelessBodies.btrc"
@@ -69,7 +69,7 @@ row = "2"
 construct = "braceless for/while bodies"
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: braceless loops\n" }
 btrcc = { exit = 0, stdout = "PASS: braceless loops\n" }
 source = '''
@@ -92,7 +92,7 @@ row = "2"
 construct = "dangling else binds to the nearest if"
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: dangling else\n" }
 btrcc = { exit = 0, stdout = "PASS: dangling else\n" }
 source = '''
@@ -121,7 +121,7 @@ row = "2"
 construct = "a declaration is not a statement body"
 intent = "negative"
 status = "rejected"
-revision = "5472f61"
+revision = "8b73c79"
 python = { diagnostic = "A declaration cannot be the body of a control statement; enclose it in braces at 4:3" }
 btrcc = { diagnostic = "A declaration cannot be the body of a control statement; enclose it in braces at 4:3" }
 source = '''
@@ -139,7 +139,7 @@ row = "3"
 construct = "int a = 1, b = 2;"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
 btrcc = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
 corpus = "c_compat/MultipleDeclarators.btrc"
@@ -150,7 +150,7 @@ row = "3"
 construct = "int *p, value; binds * per declarator"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
 btrcc = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
 corpus = "c_compat/MultipleDeclarators.btrc"
@@ -161,7 +161,7 @@ row = "3"
 construct = "int x, y; in a struct"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
 btrcc = { exit = 0, stdout = "PASS: local declarators\nPASS: globals, fields and typedefs\nPASS: left-to-right initialization\nPASS: managed declarators\n" }
 corpus = "c_compat/MultipleDeclarators.btrc"
@@ -172,7 +172,7 @@ row = "3"
 construct = "int a, ; is invalid C"
 intent = "negative"
 status = "rejected"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { diagnostic = "Expected declarator name, got SEMICOLON ';' at 2:13" }
 btrcc = { diagnostic = "Expected declarator name, got SEMICOLON ';' at 2:13" }
 source = '''
@@ -188,7 +188,7 @@ row = "4"
 construct = "char s[] = \"abc\""
 intent = "positive"
 status = "accepted"
-revision = "c670c81"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: class static\nPASS: line splice\nPASS: xbc abcd jello Tag\n" }
 btrcc = { exit = 0, stdout = "PASS: unsized local\nPASS: sized local\nPASS: signed and unsigned char\nPASS: escapes count bytes\nPASS: global\nPASS: static local\nPASS: struct field\nPASS: adjacent literals\nPASS: class static\nPASS: line splice\nPASS: xbc abcd jello Tag\n" }
 corpus = "c_compat/CharArrayStringInit.btrc"
@@ -199,7 +199,7 @@ row = "4"
 construct = "char s[4] = \"abc\""
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: sized char array\n" }
 btrcc = { exit = 0, stdout = "PASS: sized char array\n" }
 source = '''
@@ -221,7 +221,7 @@ row = "4"
 construct = "char s[3] = \"abc\" drops the terminator (D20 refuses)"
 intent = "negative"
 status = "rejected"
-revision = "5472f61"
+revision = "8b73c79"
 python = { diagnostic = "String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty at 2:17" }
 btrcc = { diagnostic = "String literal fills all 3 elements of the char array and leaves no room for its terminator; declare 4 elements or leave the bound empty at 2:17" }
 source = '''
@@ -237,7 +237,7 @@ row = "4"
 construct = "char s[2] = \"abc\" overflows"
 intent = "negative"
 status = "rejected"
-revision = "5472f61"
+revision = "8b73c79"
 python = { diagnostic = "String literal needs 4 elements with its terminator but the char array has 2 at 2:17" }
 btrcc = { diagnostic = "String literal needs 4 elements with its terminator but the char array has 2 at 2:17" }
 source = '''
@@ -253,7 +253,7 @@ row = "5"
 construct = "\"a\" \"b\" concatenation, opening with any run of macro pieces"
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: a concatenation may open with macro pieces\nPASS: source-macro pieces\nPASS: globals and strings\n" }
 btrcc = { exit = 0, stdout = "PASS: escapes stop at a piece boundary\nPASS: sizeof sees the concatenated literal\nPASS: printf format concatenation\nPASS: multi-line message\nPASS: a concatenation may open with macro pieces\nPASS: source-macro pieces\nPASS: globals and strings\n" }
 corpus = "c_compat/AdjacentStringLiterals.btrc"
@@ -264,7 +264,7 @@ row = "5"
 construct = "an f-string beside a literal (D20 refuses)"
 intent = "negative"
 status = "rejected"
-revision = "5472f61"
+revision = "8b73c79"
 python = { diagnostic = "An f-string cannot be concatenated with an adjacent string literal at 3:16" }
 btrcc = { diagnostic = "An f-string cannot be concatenated with an adjacent string literal at 3:16" }
 source = '''
@@ -281,7 +281,7 @@ row = "6"
 construct = "empty statement ; and for (...);"
 intent = "positive"
 status = "accepted"
-revision = "5472f61"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: empty loop bodies\nPASS: empty statements in lists and branches\nPASS: empty statements after return, in cases and in do\n" }
 btrcc = { exit = 0, stdout = "PASS: empty loop bodies\nPASS: empty statements in lists and branches\nPASS: empty statements after return, in cases and in do\n" }
 corpus = "c_compat/EmptyStatement.btrc"
@@ -292,7 +292,7 @@ row = "6"
 construct = "a stray ; at file scope is not ISO C"
 intent = "negative"
 status = "rejected"
-revision = "5472f61"
+revision = "8b73c79"
 python = { diagnostic = "Unexpected token ';' at top level at 2:1" }
 btrcc = { diagnostic = "Unexpected token ';' at top level at 2:1" }
 source = '''
@@ -306,7 +306,7 @@ row = "7"
 construct = "int (*op)(int, int) = add;"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: function pointer locals and globals\n" }
 btrcc = { exit = 0, stdout = "PASS: function pointer locals and globals\n" }
 corpus = "c_compat/FunctionPointerLocal.btrc"
@@ -317,7 +317,7 @@ row = "7"
 construct = "typedef int (*BinaryOp)(int, int);"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: function pointer typedefs\n" }
 btrcc = { exit = 0, stdout = "PASS: function pointer typedefs\n" }
 corpus = "c_compat/FunctionPointerTypedef.btrc"
@@ -328,7 +328,7 @@ row = "7"
 construct = "int apply(int (*op)(int, int), ...)"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: function pointer parameters\n" }
 btrcc = { exit = 0, stdout = "PASS: function pointer parameters\n" }
 corpus = "c_compat/FunctionPointerParameter.btrc"
@@ -339,7 +339,7 @@ row = "7"
 construct = "int (*ops[2])(int, int)"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: function pointer arrays\n" }
 btrcc = { exit = 0, stdout = "PASS: function pointer arrays\n" }
 corpus = "c_compat/FunctionPointerArray.btrc"
@@ -350,7 +350,7 @@ row = "7"
 construct = "struct S { int (*encode)(const char*, int); };"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: function pointer fields\n" }
 btrcc = { exit = 0, stdout = "PASS: function pointer fields\n" }
 corpus = "c_compat/FunctionPointerField.btrc"
@@ -361,7 +361,7 @@ row = "7"
 construct = "(int (*)(const void*, const void*))f and sizeof(int (*)(int))"
 intent = "positive"
 status = "accepted"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: function pointer casts and sizeof\n" }
 btrcc = { exit = 0, stdout = "PASS: function pointer casts and sizeof\n" }
 corpus = "c_compat/FunctionPointerCast.btrc"
@@ -372,7 +372,7 @@ row = "7"
 construct = "int (*f)(int, int) = add, value = 3, (*g)(void) = seven;"
 intent = "positive"
 status = "accepted"
-revision = "b4af234"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: function pointers in declarator lists\n" }
 btrcc = { exit = 0, stdout = "PASS: function pointers in declarator lists\n" }
 corpus = "c_compat/FunctionPointerDeclaratorLists.btrc"
@@ -383,7 +383,7 @@ row = "7"
 construct = "a function pointer of the wrong signature"
 intent = "negative"
 status = "rejected"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { diagnostic = "Cannot assign 'CFunction<int, int, int>' to variable 'unary' of type 'CFunction<int, int>' at 3:2" }
 btrcc = { diagnostic = "Cannot assign 'CFunction<int, int, int>' to variable 'unary' of type 'CFunction<int, int>' at 3:2" }
 source = '''
@@ -400,7 +400,7 @@ row = "7"
 construct = "CFunction<int, const void*, const void*> (btrc spelling)"
 intent = "positive"
 status = "accepted"
-revision = "cf28fe7"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: test_interop_qsort_callback\n" }
 btrcc = { exit = 0, stdout = "PASS: test_interop_qsort_callback\n" }
 corpus = "basics/InteropQsortCallback.btrc"

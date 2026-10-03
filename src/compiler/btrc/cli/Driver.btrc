@@ -199,7 +199,7 @@ class BtrccCommandLine {
 
 	public string argument(int index) { return self.arguments.get(index); }
 
-	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
+	public string usage() { return "usage: btrcc [--strict-imports | --relaxed-imports] " + "[--no-stdlib] [--no-dce] [--no-cache] [--target OS-ARCH] " + "[--emit-link-plan PATH] [--emit-units PREFIX [--module-units [--jobs N]]] [--emit-ir | --emit-optimized-ir] [--debug] [-o PATH] [--] <file.btrc>\n" + "       btrcc --stdlib-dir\n\n" + "Strict imports are the default; --strict-imports explicitly " + "asserts that mode.\n" + "--relaxed-imports enables legacy implicit cross-file visibility " + "and stdlib composition.\n" + "--no-stdlib disables relaxed stdlib composition; explicit " + "imports still resolve."; }
 
 	private BtrccOptions invalid(BtrccOptions options, string diagnostic) {
 		options.valid = false;
@@ -254,6 +254,11 @@ class BtrccCommandLine {
 				options.linkPlanPath = self.arguments.get(index);
 			} else if (option.equals("--debug")) {
 				options.debug = true;
+			} else if (option.equals("--emit-ir") || option.equals("--emit-optimized-ir")) {
+				if (!options.irDump.isEmpty()) {
+					return self.invalid(options, "--emit-ir and --emit-optimized-ir may be specified only once");
+				}
+				options.irDump = option.equals("--emit-ir") ? "ir" : "optimized-ir";
 			} else if (option.equals("-o") || option.equals("--output")) {
 				if (!options.outputPath.isEmpty()) {
 					return self.invalid(options, "-o may be specified only once");
@@ -313,6 +318,12 @@ class BtrccCommandLine {
 		if (options.moduleJobs > 0 && !options.moduleUnits) {
 			return self.invalid(options, "--jobs requires --module-units");
 		}
+		if (!options.irDump.isEmpty() && !options.unitsPrefix.isEmpty()) {
+			return self.invalid(options, "--emit-ir and --emit-optimized-ir print one module and cannot be combined with --emit-units");
+		}
+		/* As in the reference CLI, an IR dump goes to standard output and -o
+		 * is ignored: no C is generated, published or cached. */
+		if (!options.irDump.isEmpty()) { options.outputPath = ""; }
 		if (options.showStdlibDirectory) {
 			if (inputIndex >= 0) {
 				return self.invalid(options, "--stdlib-dir does not accept an input file");

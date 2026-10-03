@@ -8,7 +8,7 @@ row = "19"
 construct = "for (i = 0, j = 9; i < j; i++, j--)"
 intent = "positive"
 status = "accepted"
-revision = "3f294e0"
+revision = "8b73c79"
 python = { exit = 0, stdout = "PASS: two-index loops\nPASS: left-to-right operands\nPASS: managed operands\n" }
 btrcc = { exit = 0, stdout = "PASS: two-index loops\nPASS: left-to-right operands\nPASS: managed operands\n" }
 corpus = "c_compat/CommaForHeaders.btrc"
@@ -19,7 +19,7 @@ row = "19"
 construct = "int x = (1, 2); comma operator outside for"
 intent = "positive"
 status = "refused-on-purpose"
-revision = "3f294e0"
+revision = "8b73c79"
 python = { diagnostic = "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'; btrc reads a parenthesized comma list as a tuple, not C's comma operator at 2:2" }
 btrcc = { diagnostic = "Cannot assign 'Tuple<int, int>' to variable 'value' of type 'int'; btrc reads a parenthesized comma list as a tuple, not C's comma operator at 2:2" }
 source = '''
@@ -238,7 +238,7 @@ row = "19"
 construct = "for (int i = 0, int j = 0; ...) repeats a specifier"
 intent = "negative"
 status = "rejected"
-revision = "35e6b91"
+revision = "8b73c79"
 python = { diagnostic = "Expected declarator name, got INT 'int' at 2:18" }
 btrcc = { diagnostic = "Expected declarator name, got INT 'int' at 2:18" }
 source = '''

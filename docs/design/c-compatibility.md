@@ -354,9 +354,9 @@ step did and still owes, in both compilers:
   (`LiteralDecoder.string_byte_length`, `StringLiteral.byteLength`) are gone;
   r05's decoder is the one owner in each compiler, and the lexer test checks
   its byte counts.
-- **Body IR proof in btrcc.** btrcc has no `--emit-ir`, so r02's
-  braced-versus-braceless proof compares btrcc's C output, while the Python
-  compiler compares raw IR.
+- **Body IR proof in btrcc (done at `ccompat-c1-integrate`).** btrcc now
+  has `--emit-ir` and `--emit-optimized-ir`, so r02's braced-versus-braceless
+  proof compares each compiler's own raw IR; see "C1 exit" below.
 - **Deferred by r04, all existing behavior shared with `int` arrays:** a bound
   the front end cannot evaluate (a C `#define` or `sizeof`) leaves the exact
   fit to the C compiler; a global used only through `sizeof(g)` is dropped by
@@ -419,6 +419,116 @@ with a regression test that runs through both
   reports the ABI-dependent integer mix in both compilers. A local's bound is
   validated after its initializer, where the reference compiler checks it, so
   `char t[sizeof("abc") - 1] = "abc";` reports r04's exact fit first in both.
+
+## C1 exit (`ccompat-c1-integrate`)
+
+PLAN.md Stage 16's C1 exit, closed in both compilers on the lane
+`stage16/ccompat-c1-integrate`. Every inventory entry of rows 1-7 and of row
+19 (`fixtures/c_compat_probe/c1.toml`, `c5.toml`) was re-observed through
+both compilers by `python3 -m src.tests.btrc.c_compat_inventory record --rows
+1-7,19` and is recorded at the tree it ran on; the recorder rewrites only an
+entry's `revision` and outcomes, refuses an outcome its `status` forbids, and
+`test_recorder_spells_every_recorded_outcome_as_the_manifest_does` proves it
+reproduces every manifest byte for byte. No recorded outcome changed.
+
+| Row | Construct | Inventory entries | Python | btrcc | Corpus |
+|-----|-----------|-------------------|--------|-------|--------|
+| 1 | `(void)` and unnamed prototype parameters | 2 accepted, 2 refusals | PASS | PASS | `VoidParameterList`, `VoidAndUnnamedParameters` |
+| 2 | Braceless `if`/`else`/`while`/`for`/`do` bodies | 3 accepted, 1 refusal | PASS | PASS | `BracelessBodies` |
+| 3 | Several declarators | 3 accepted, 1 refusal | PASS | PASS | `MultipleDeclarators` |
+| 4 | `char` arrays from string literals | 2 accepted, 2 refusals | PASS | PASS | `CharArrayStringInit` |
+| 5 | Adjacent string literals | 1 accepted, 1 refusal | PASS | PASS | `AdjacentStringLiterals` |
+| 6 | The empty statement | 1 accepted, 1 refusal | PASS | PASS | `EmptyStatement` |
+| 7 | Function-pointer declarators | 8 accepted, 1 refusal | PASS | PASS | `FunctionPointer*`, `basics/InteropQsortCallback` |
+| 19 | The comma operator in `for` headers | 1 accepted, 1 refused on purpose, 1 refusal | PASS | PASS | `CommaForHeaders` |
+
+"PASS" means the recorded outcome holds: an accepted entry builds and runs
+under gcc and clang with `-std=c11 -pedantic-errors -Wall -Wextra -Werror`,
+and a refusal reports its recorded message, line and column.
+
+- **Raw IR is identical for braced and braceless bodies.** btrcc gained
+  `--emit-ir` (after lowering) and `--emit-optimized-ir` (after the
+  optimizer): `IRCanonicalRenderer` in `ir/Model.btrc`, the counterpart of the
+  Python `IRCanonicalRenderer` in `ir/nodes.py`, prints every IR field of
+  the module and of each node that differs from a fresh node's (not the
+  temporary-name counter or a GPU kernel's source AST), one line per list
+  element. As in the reference CLI, a dump goes to standard output and `-o`
+  is ignored; btrcc also refuses a dump beside `--emit-units`. The two models
+  differ, so each compiler's dump is compared only with its own.
+  `test_c_compatibility_bodies.py` pairs braced and braceless programs
+  (`if`/`else`, `else if` chains, `while`, C-`for`, `do`-`while`, nesting, a
+  dangling `else`, `break`/`continue`/`return`, managed temporaries, objects
+  and receivers, empty statements) and requires identical `--emit-ir` dumps
+  and identical C, with and without `--debug`, in each compiler.
+  `test_selfhost_ir_dumps_precede_and_follow_the_optimizer` pins the two
+  flags and their refusal beside each other or `--emit-units`.
+- **ARC is proven per declarator.** `test_c_compatibility_declarator_arc.py`
+  compiles `fixtures/DeclaratorArcWitnessRuntime.btrc` through both
+  compilers and instruments the generated C: each ARC retain, release,
+  edge-store and edge-removal helper (an edge helper that reads its slot
+  counts the object the slot held) and the string adoption, retain and
+  release helpers call a witness (`fixtures/arc_declarator_witness.c`). The
+  program prints exact counts per
+  scenario -- fresh declarators, a copying declarator, `*` bound per
+  declarator beside managed strings, a function pointer in the list, class
+  fields declared together, an initializer that throws partway through the
+  list, a loop that continues -- and both compilers must print the same
+  pinned counts under every strict C11 compiler, with the allocation tracker
+  showing the measured pass leaves nothing allocated.
+- **Negative diagnostics match.** `test_refusal_is_identical_in_both_compilers`
+  pins every C1 refusal's message, line and column through both compilers;
+  `test_every_c1_refusal_family_is_pinned_identically` requires each family
+  the exit names (r01 void misuse and unnamed definitions, r02 a declaration
+  as a body, r03 a missing declarator, r04 exact fit and overflow, r05 an
+  adjacent f-string, r06 a file-scope `;`, r07 a signature mismatch, r19 a
+  comma outside a `for` header) to stay in that identical list.
+- **Strict C11.** The `c_compat` corpus (23 programs) through both
+  compilers under gcc 15.2 and clang 21.1 at `-O0` to `-O3`
+  (`-std=c11 -pedantic-errors -Wall -Wextra -Werror`): 46 of 46 in each of
+  the 8 configurations.
+- **Header mining on Linux.** `python3 -m tools.c_header_miner` counts the C1
+  constructs in the `cc -M` closure of glibc and of each library `pkg-config`
+  finds, then replays every self-contained occurrence (only C keyword types,
+  every name made fresh) as a program through both compilers. On the nix dev
+  shell (gcc 15.2, glibc, ALSA 1.2.15, SDL3 3.4, FreeType 2.14, libpng 1.6,
+  libjpeg-turbo 3.1, dbus 1.16, fontconfig 2.17, wgpu-native 27; 316 headers):
+
+  | Construct | glibc | ALSA | SDL3 | FreeType | libpng | jpeg | dbus | fontconfig | wgpu |
+  |-----------|------:|-----:|-----:|---------:|-------:|-----:|-----:|-----------:|-----:|
+  | r01 `(void)` list | 17 | 43 | 132 | 0 | 0 | 0 | 3 | 20 | 0 |
+  | r01 unnamed prototype parameter | 17 | 0 | 12 | 0 | 23 | 3 | 0 | 0 | 0 |
+  | r02 braceless body | 70 | 3 | 17 | 2 | 5 | 0 | 4 | 0 | 0 |
+  | r03 several declarators | 46 | 43 | 27 | 6 | 14 | 10 | 32 | 6 | 0 |
+  | r04 `char` array from a literal | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+  | r05 adjacent literals | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+  | r06 empty statement | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+  | r07 function-pointer declarator | 39 | 22 | 3 | 18 | 0 | 26 | 38 | 2 | 201 |
+  | r19 comma in a `for` header | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+  The replay found 8 function-pointer typedefs, 13 prototypes with `(void)`
+  or unnamed parameters and 7 several-declarator declarations whose types
+  are all C keywords; all 28 compile in both compilers. Before renaming,
+  four glibc prototypes (`pause`, `getlogin`, `gethostid`,
+  `pthread_testcancel`) met the hosted-ABI rule that a hosted symbol is
+  reached through its header, not re-declared -- a deliberate refusal, not a
+  C1 one. The braceless bodies, adjacent literals and the comma operator
+  occur in `static inline` bodies and macros whose types come from the rest
+  of the header, so the census counts them but the replay cannot isolate
+  them; they reach btrc through the native-header reader, which takes
+  declarations, not bodies. The counts are a syntactic census; the
+  patterns are listed in the tool.
+- **Found, outside C1 (both recorded in `docs/known-language-gaps.md`).**
+  Taking the address of a managed local that the setjmp planner keeps
+  `volatile` emits `char** view = &value` against `char* volatile value`,
+  which strict C11 refuses, whether the declarations are separate or share a
+  list. `string* p = null;` warns `Possibly-null value stored in
+  non-nullable variable 'p' of type 'string'`: a raw pointer is checked as
+  its pointee. The witness program avoids both.
+- **Mac-only, not claimed here.** PLAN.md's batch gates include a BTRSmith
+  rerun; BTRSmith is private and builds only on the Mac host, so the C1
+  exit's BTRSmith compile (and its `--jobs 1` instructions-retired and peak
+  memory row under `/usr/bin/time -l`) remains for the Mac. The miner's
+  Darwin SDK census likewise waits for a Mac run of `tools/c_header_miner.py`.
 
 ## C2 aggregates (Stage 17) and array dimensions (Stage 18)
 
