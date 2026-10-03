@@ -125,7 +125,12 @@ class LedgerRollup:
                 tests[(state.subject.id, self.family(state.subject.platform))].append(state)
         for state in self.slots.values():
             classification = state.classification
-            if state.subject.kind in REGRESSION_KINDS and classification and classification.regression:
+            if (
+                state.subject.kind in REGRESSION_KINDS
+                and classification
+                and classification.regression
+                and not state.retired
+            ):
                 state.derived = self.derived(state.subject, classification.regression, tests)
 
     @staticmethod
@@ -213,15 +218,18 @@ class QualificationReport:
     def evidence_rows(self) -> list[dict[str, Any]]:
         rows = []
         for key, states in self.rollup.denominators().items():
-            counts = Counter(state.current.status for state in states if state.current is not None)
+            # A retired slot is counted only as retired, so a row's columns add up to its slots;
+            # evidence on one is a problem, not an outcome.
+            live = [state for state in states if not state.retired]
+            counts = Counter(state.current.status for state in live if state.current is not None)
             rows.append(
                 {
                     **self._group(key),
                     "slots": len(states),
                     **{status.value: counts.get(status, 0) for status in self.STATUSES},
-                    "unrecorded": sum(1 for state in states if state.current is None and not state.retired),
+                    "unrecorded": sum(1 for state in live if state.current is None),
                     **self._retired(states),
-                    "failed": sum(1 for state in states if state.failed),
+                    "failed": sum(1 for state in live if state.failed),
                 }
             )
         return rows
@@ -426,13 +434,13 @@ class QualificationReport:
 
         problems = []
         rows = self.denominator_rows()
-        releases = Counter(row["kind"] for row in rows)
+        per_kind = Counter(row["kind"] for row in rows)
         for row in rows:
             problems += row["drift"]
             if row["missing_slots"]:
                 examples = ", ".join(row["missing_examples"])
                 # A kind with several releases names the release its missing slots belong to.
-                release = f" of release {row['release']}" if releases[row["kind"]] > 1 else ""
+                release = f" of release {row['release']}" if per_kind[row["kind"]] > 1 else ""
                 problems.append(
                     f"{row['kind']}: {row['missing_slots']} of {row['slots']} declared slots{release} "
                     f"have no record (e.g. {examples})"

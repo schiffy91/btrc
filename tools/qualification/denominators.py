@@ -47,7 +47,14 @@ old one, never an edit of it. Every entry in the manifest is in force; a
 release leaves force only when a reviewed change removes its entry. The
 report counts missing slots per release, counts a slot as undeclared only
 when it is outside the union of every release of its kind, and its coverage
-of a kind is that union.
+of a kind is that union. A missing slot two releases share is missing from
+both. `DenominatorManifest.by_kind` is each kind's base release, the first
+entry, so a later release is always appended after it.
+
+A ``{ledger}`` source yields every id of its kind in that file, so a later
+release never adds records to a ledger an earlier release reads -- that would
+drift the earlier release. It takes its own source: an inline list or its
+own ledger (for UI0, a shard beside the seed, never the seed itself).
 """
 
 from __future__ import annotations

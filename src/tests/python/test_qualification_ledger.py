@@ -39,6 +39,8 @@ P6_HOST = {
 }
 # Inventory evidence is current only as of a revision and a moment.
 AUDIT = {"source": "inventory", "btrc_revision": "4e5c982", "recorded_at": "2026-09-21T12:00:00+00:00"}
+# The operation btrc-D056 removed after the 2026-09-21 release froze it.
+RETIRED_SLOT = {"kind": "ui-operation", "id": "GUI.rasterText", "platform": "macos", "frontend": "reference"}
 
 
 def _record(**sections) -> dict:
@@ -249,15 +251,34 @@ def test_passed_evidence_requires_accepted_samples(measurement, message):
         ({"classification": {"regression": []}}, "expected at least one entry"),
         ({"classification": {"regression": ["a.py::t", "a.py::t"]}}, "unique"),
         ({"classification": {"links": ["text input"]}}, "is not an N-ID, E-ID or milestone"),
-        ({"classification": {"implementation": "retired"}}, "a retired slot names the decision that retired it"),
         (
-            {"classification": {"implementation": "retired", "decision": "btrc-D056", "parity": "missing"}},
+            {"classification": {"implementation": "retired", "decision": "btrc-D056"}},
+            "only an inventory slot can be retired, not a scenario",
+        ),
+        (
+            {"subject": RETIRED_SLOT, "classification": {"implementation": "retired"}},
+            "a retired slot names the decision that retired it",
+        ),
+        (
+            {
+                "subject": RETIRED_SLOT,
+                "classification": {"implementation": "retired", "decision": "btrc-D056", "parity": "missing"},
+            },
             "a retired slot has no parity class",
         ),
         (
             {
+                "subject": RETIRED_SLOT,
+                "classification": {"implementation": "retired", "decision": "btrc-D056", "regression": "a.py::t"},
+            },
+            "a retired slot names no regression tests",
+        ),
+        (
+            {
+                "subject": RETIRED_SLOT,
                 "classification": {"implementation": "retired", "decision": "btrc-D056"},
                 "evidence": {"status": "unavailable", "observed": "skipped"},
+                "provenance": AUDIT,
             },
             "a retired slot carries no evidence",
         ),
@@ -1432,7 +1453,9 @@ def test_a_retired_slot_is_reported_apart_from_classified_unclassified_and_missi
     assert "| unrecorded | failed | retired |" in markdown and "| undeclared | drift | retired |" in markdown
     # Without a retired slot, no table grows a retired column: other ledgers report as before.
     plain = QualificationReport(records[4:], loaded)
-    assert all("retired" not in row for row in (*plain.evidence_rows(), *plain.implementation_rows()))
+    tables = (plain.evidence_rows(), plain.implementation_rows(), plain.parity_rows(), plain.completeness_rows())
+    tables += (plain.denominator_rows(), plain.coverage_rows())
+    assert all(table and all("retired" not in row for row in table) for table in tables)
     assert "retired" not in plain.render_markdown()
 
     # Evidence folded onto a retired slot from a later record is refused by the report.
@@ -1443,7 +1466,11 @@ def test_a_retired_slot_is_reported_apart_from_classified_unclassified_and_missi
         evidence={"status": "unavailable", "observed": "skipped"},
         provenance=AUDIT,
     )
-    assert QualificationReport([*records, run], loaded).problems() == ["ui-operation: 1 retired slots carry evidence"]
+    folded = QualificationReport([*records, run], loaded)
+    assert folded.problems() == ["ui-operation: 1 retired slots carry evidence"]
+    # ... and is counted only as retired, so the row still adds up to its slots.
+    evidence = group(folded.evidence_rows(), "linux", "selfhost")
+    assert (evidence["unavailable"], evidence["unrecorded"], evidence["retired"], evidence["slots"]) == (0, 1, 1, 2)
     # A retired slot without a record is still missing: retirement is recorded, never assumed.
     unrecorded = [
         record
