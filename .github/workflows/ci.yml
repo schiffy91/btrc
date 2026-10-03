@@ -297,7 +297,7 @@ jobs:
   # cancelled is skipped: its shards never had the chance to upload.
   skip-reports:
     needs: [scope, tests]
-    if: ${{ !cancelled() && contains(fromJSON(needs.scope.outputs.plan).jobs, 'tests') }}
+    if: ${{ !cancelled() && needs.scope.result == 'success' && contains(fromJSON(needs.scope.outputs.plan).jobs, 'tests') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

@@ -184,7 +184,7 @@ job = "macos.yml/native-bundle"
 target = "macos-arm64"
 tiers = ["lane", "main", "extended", "release"]
 changed_tiers = ["pr"]
-changed_paths = ["**/MacOS/**", "**/*.m", "tools/NativeHeaderReader.cpp", "src/tests/native/**"]
+changed_paths = ["**/MacOS/**", "**/*.m", "tools/NativeHeaderReader.cpp", "src/tests/native/**", "src/tests/fixtures/expected-skips/macos-hosted.json"]
 
 [[shards]]
 job = "macos.yml/native-bundle"
@@ -197,7 +197,7 @@ shard = "unit"
 target = "test-shard-unit"
 tiers = ["main", "extended", "release"]
 changed_tiers = ["pr"]
-changed_paths = ["**/MacOS/**", "**/*.m", "tools/NativeHeaderReader.cpp", "src/tests/native/**"]
+changed_paths = ["**/MacOS/**", "**/*.m", "tools/NativeHeaderReader.cpp", "src/tests/native/**", "src/tests/fixtures/expected-skips/macos-hosted.json"]
 
 [[shards]]
 job = "macos.yml/tests"
@@ -264,6 +264,8 @@ changed_paths = [
   "src/tests/python/test_artifact_storage.py",
   "src/tests/python/test_artifact_reparse.py",
   "src/tests/python/test_btrcc_bundle_publication.py",
+  "src/tests/fixtures/expected-skips/windows.json",
+  "pyproject.toml",
 ]
 reports = ["skip-report"]
 

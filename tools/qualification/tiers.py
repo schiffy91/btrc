@@ -57,7 +57,7 @@ class GitHubPaths:
     @staticmethod
     def pattern(glob: str) -> re.Pattern[str]:
         text = re.escape(glob)
-        text = text.replace(r"\*\*/", "(?:.*/)?").replace(r"\*\*", ".*").replace(r"\*", "[^/]*").replace(r"\?", "[^/]")
+        text = text.replace(r"\*\*/", "(?:.*/)?").replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
         return re.compile(text)
 
     @classmethod
@@ -398,6 +398,9 @@ class _Reader:
             raise TierManifestError(f"{self.where}.{name}: expected a list of text")
         if len(set(value)) != len(value):
             raise TierManifestError(f"{self.where}.{name}: repeats an entry")
+        if name.endswith("paths") and any(char in item for item in value for char in "?+[]"):
+            # GitHub's ?, + and [] differ from shell globs; GitHubPaths supports *, ** and ! only.
+            raise TierManifestError(f"{self.where}.{name}: use only *, ** and a leading !")
         return tuple(value)
 
     def names(self, name: str, allowed: set[str]) -> tuple[str, ...]:

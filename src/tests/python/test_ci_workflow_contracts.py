@@ -574,7 +574,9 @@ def test_sharded_workflows_name_every_report_the_plan_expected_that_is_missing()
         job = _job(_workflow(workflow), "skip-reports")
         parsed = _parsed(workflow)["jobs"]["skip-reports"]
         assert parsed["needs"] == ["scope", "tests"], workflow
-        assert parsed["if"] == f"${{{{ !cancelled() && contains({PLAN}.jobs, 'tests') }}}}", workflow
+        assert parsed["if"] == (
+            f"${{{{ !cancelled() && needs.scope.result == 'success' && contains({PLAN}.jobs, 'tests') }}}}"
+        ), workflow
         assert re.search(r"(?m)^    timeout-minutes: \d+$", job), workflow
         assert "actions: read" in job, workflow
         step = _parsed(workflow)["jobs"]["skip-reports"]["steps"][-1]

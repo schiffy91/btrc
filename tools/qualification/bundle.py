@@ -48,7 +48,7 @@ from tools.qualification.schema import (
     Subject,
     SubjectKind,
 )
-from tools.qualification.skips import SkipLedgerError, SkipReport
+from tools.qualification.skips import SkipReport
 from tools.qualification.tiers import TierManifest
 
 BUNDLE_SCHEMA = "btrc.ledger-bundle/1"
@@ -241,7 +241,7 @@ class LedgerBundle:
             artifact = kept.relative_to(output).as_posix()
             try:
                 derived = self.records(item, artifact)
-            except (LedgerSchemaError, SkipLedgerError, json.JSONDecodeError, KeyError, TypeError) as error:
+            except (ValueError, OSError, KeyError, TypeError) as error:
                 problems.append(f"{artifact}: {error}")
                 derived = []
             records += derived

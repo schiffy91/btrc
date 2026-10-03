@@ -85,6 +85,7 @@ def _minimal(**overrides: object) -> dict:
             "two shard 'unit' rows",
         ),
         ({"corpus": [{"paths": ["src/**"], "directories": ["Strings"]}]}, "corpus directory names"),
+        ({"corpus": [{"paths": ["src/?.py"], "directories": ["stdlib"]}]}, "only \\*, \\*\\* and a leading !"),
     ],
 )
 def test_a_malformed_manifest_is_refused_with_its_reason(change: dict, message: str) -> None:
@@ -216,6 +217,11 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
     windows = manifest.plan("windows.yml", "pr", ["src/stdlib/FileSystem/Windows/FileSystemProvider.btrc"])
     assert windows["jobs"] == ["windows"], "the two-hour bootstrap waits for the main tier"
     assert manifest.plan("windows.yml", "lane", ["src/devex/vscode/package.json"])["jobs"] == ["windows"]
+    # A platform's expected-skip manifest is read only by that platform's skip gate.
+    skips = ["src/tests/fixtures/expected-skips/macos-hosted.json"]
+    assert list(_rows(manifest.plan("macos.yml", "pr", skips), "tests")) == ["unit"]
+    skips = ["src/tests/fixtures/expected-skips/windows.json"]
+    assert manifest.plan("windows.yml", "pr", skips)["jobs"] == ["windows"]
     # A push or dispatch has no change list: changed-path entries stay out.
     assert manifest.plan("windows.yml", "lane")["jobs"] == []
 
