@@ -192,13 +192,23 @@ asserts how many groups relowered.
   relied on, as a `VALIDATION_DIVERGENCE` fact (`validation-record-v5`).
   Replay asks every answer again before installing anything. A moved answer
   validates the declaration live and voids the record. This is
-  `summary.diverges` with early cutoff, logged per declaration. btrcpy keeps
-  no analysis records.
+  `summary.diverges` with early cutoff, logged per declaration.
+  - Only an answer that reads a callable's body is journaled. An answer that
+    follows from the hosted ABI or the interface alone, such as a call to
+    `print`, is already covered by the key.
+  - Verify mode treats a stored record whose answers moved as one a replay
+    rejects, not as a disagreement.
+
+  btrcpy keeps no analysis records.
 - **SB-D6.** btrcc's facts digest covers the program's file order. btrcpy's
   ordered interface digest already did. Every group relowers, as SB-12
   expects.
 - **SB-D7 and SB-D8.** Both facts digests cover:
-  - the tuple shapes in discovery order;
+  - the order of the shared declarations each unit draws from (each entry's
+    kind and names). Tuple shapes are declared there in body-discovery
+    order, and in btrcpy span and atomic shapes too; the review found the
+    span case stale when only tuple shapes were covered. btrcc declares
+    spans in each unit's own session;
   - in btrcpy, the class and method specializations in discovery order.
     btrcc's instance lists were already ordered.
 

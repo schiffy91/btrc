@@ -729,8 +729,10 @@ parameters its leading statements consume (the two body facts lowering reads
 from other declarations). The facts digest covers exception use, generic class,
 method and callable instance tables, the realtime-safe set and stdlib
 reachability, plus the orders a unit emits in that other groups' bodies
-decide: the tuple shapes and the class and method specializations in
-discovery order (SB-D7, SB-D8), and in btrcc the order of the program's files
+decide: the order of the shared declarations (tuple shapes, and in btrcpy
+span and atomic shapes, are declared there in body-discovery order), the
+class and method specializations in discovery order (SB-D7, SB-D8), and in
+btrcc the order of the program's files
 (SB-D6; btrcpy's interface digest is already ordered). Both are whole-program:
 a public signature change, a new generic
 instance or newly reached stdlib declaration anywhere invalidates every group.
