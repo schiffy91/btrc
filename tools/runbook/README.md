@@ -207,7 +207,7 @@ lock = "bench"                  # gate, bench, linux-ci, guest, gui-capture, sig
 quiet = true
 shell = "btrsmith"              # run inside tools/bench/scripts/bsm_env.sh with the pin's dev shell
 cwd = "btrc"                    # btrc, btrsmith, tree or out
-result = "budget-bench"         # exit, budget-bench, gate-summary, failure-list, instr
+result = "budget-bench"         # exit, budget-bench, gate-summary, failure-list, instr, attribution
 retries = 1                     # rerun a failed attempt (GUI flakes)
 timeout_hours = 10
 when = "green"                  # run only if every earlier cell passed
@@ -234,6 +234,7 @@ owner_action = "..."            # printed before the cell runs
 | `gate-summary` | exit 0 | every `batch_gate.sh` step's exit, duration and counts |
 | `failure-list` | the failures are named, whatever the exit | the failing tests (for a later `subset`); with `retries`, a run that names failures is repeated and only tests failing every attempt count (the rest are listed as `flaky`) |
 | `instr` | `instr.sh` reports `rc=0` | instructions retired, peak footprint, real time |
+| `attribution` | exit 0 and `attribution.json` (`tools/perf.py --cprofile`) has no failure | the attributed fractions (overall, minimum, per scenario), the target and each scenario's owner shares; never ingested |
 
 ## Rehearsed here, proven only on the Mac
 

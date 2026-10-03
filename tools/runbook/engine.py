@@ -61,7 +61,7 @@ DEFAULT_MIN_FREE_GB = 80.0
 REHEARSAL_MIN_FREE_GB = 5.0
 REHEARSAL_QUIET_WINDOW_S = 10.0
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][\w.:-]*)\}")
-_RESULTS = ("exit", "budget-bench", "gate-summary", "failure-list", "instr")
+_RESULTS = ("exit", "budget-bench", "gate-summary", "failure-list", "instr", "attribution")
 _ACTIONS = ("subset", "push")
 
 
@@ -732,6 +732,7 @@ class Results:
             "gate-summary": cls.gate_summary,
             "failure-list": cls.failure_list,
             "instr": cls.instr,
+            "attribution": cls.attribution,
         }[cell.result]
         return reader(cell, code, out, log)
 
@@ -821,6 +822,38 @@ class Results:
         }
         passed = code == 0 and match[1] == "0"
         return passed, results, "" if passed else f"rc={match[1]}"
+
+    @staticmethod
+    def attribution(cell: CellSpec, code: int, out: Path, log: Path) -> tuple[bool, dict[str, object], str]:
+        """`tools/perf.py --cprofile`'s attribution.json: its summary, never a ledger report."""
+
+        path = out / "attribution.json"
+        if not path.is_file():
+            return False, {}, f"exit {code}; no attribution.json in {out}"
+        report = json.loads(path.read_text())
+        configuration = report.get("configuration", {})
+        summary = report.get("summary", {})
+        results: dict[str, object] = {
+            "attribution": str(path),
+            "dry_run": configuration.get("dry_run"),
+            "stand_in": configuration.get("stand_in"),
+            **{
+                key: summary.get(key)
+                for key in (
+                    "attributed_fraction",
+                    "minimum_fraction",
+                    "target_fraction",
+                    "meets_target",
+                    "scenario_fractions",
+                    "owner_shares",
+                )
+            },
+        }
+        failure = report.get("failure")
+        if failure:
+            results["failure"] = failure
+        passed = code == 0 and not failure
+        return passed, results, "" if passed else (failure or f"exit {code}")
 
 
 # -- the engine ----------------------------------------------------------------------
