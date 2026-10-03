@@ -79,7 +79,7 @@ class IRLowerer {
 		self.cleanupSlots = CleanupSlotRegistry();
 		self.cTypes = CTypeLowerer(analyzed, hostedAbi);
 
-		CallableValueSemantics callableValues = CallableValueSemantics(analyzed, expressionTypes);
+		CallableValueSemantics callableValues = CallableValueSemantics(analyzed, expressionTypes, self.context);
 		CallableBoundaryPolicy callableBoundaries = CallableBoundaryPolicy(callableValues);
 		AssignmentLowerer assignments = AssignmentLowerer(expressionTypes, callableValues, callableBoundaries);
 		CallTargetResolver callTargets = CallTargetResolver(analyzed, hostedAbi, semanticDeclarations, expressionTypes, callableValues, self.cTypes, self.context);

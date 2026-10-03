@@ -820,7 +820,7 @@ class ExpressionValidator {
 		int captureIndex = 0;
 		while (captureIndex < names.len) {
 			string name = names.get(captureIndex);
-			if (!parameterNames.has(name) && vars.has(name) && !self.state.analyzed.globalVarTypes.has(name)) {
+			if (!parameterNames.has(name) && vars.has(name) && (self.state.localBindings.has(name) || !self.state.analyzed.globalVarTypes.has(name))) {
 				Node captureType = vars.get(name);
 				Node? canonical = self.types.resolveAliases(captureType);
 				if (canonical != null && (canonical.base == "Span" || canonical.base == "Atomic") && canonical.pointerDepth == 0 && !canonical.isArray) {
