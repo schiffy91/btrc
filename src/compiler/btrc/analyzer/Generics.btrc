@@ -1446,23 +1446,33 @@ class GenericSpecializer {
 
 	/* Section text: `<context length>\n<context><facts length>\n<facts>`, one
 	 * section per run of facts made under one specialization. */
+	/* Every section is decoded before any is applied, so a record that no
+	 * longer resolves leaves the tables untouched for the live pass. */
 	private bool spikeReplay(IValidationRecords records, string text, Analyzed analyzed) {
 		int at = 0;
 		int length = text.length();
+		Vector<string> contexts = [];
+		Vector<Vector<ValidationFact>> sections = [];
 		while (at < length) {
 			int newline = text.find("\n", at);
 			if (newline < 0) { return false; }
 			int contextLength = Strings.toInt(text.substring(at, newline - at));
+			if (contextLength < 0 || newline + 1 + contextLength > length) { return false; }
 			string context = text.substring(newline + 1, contextLength);
 			at = newline + 1 + contextLength;
 			newline = text.find("\n", at);
 			if (newline < 0) { return false; }
 			int factsLength = Strings.toInt(text.substring(at, newline - at));
+			if (factsLength < 0 || newline + 1 + factsLength > length) { return false; }
 			Vector<ValidationFact>? facts = records.spikeDecodeFacts(text.substring(newline + 1, factsLength));
 			at = newline + 1 + factsLength;
 			if (facts == null) { return false; }
-			string previous = analyzed.beginInstance(context);
-			self.replayDemand(facts);
+			contexts.push(context);
+			sections.push(facts);
+		}
+		for (int index = 0; index < sections.len; index++) {
+			string previous = analyzed.beginInstance(contexts.get(index));
+			self.replayDemand(sections.get(index));
 			analyzed.endInstance(previous);
 		}
 		return true;
