@@ -2,7 +2,7 @@
   "schema": "btrc.expected-skips/1",
   "runner": "windows",
   "enforce": true,
-  "description": "windows.yml's native pytest steps (artifact storage and reparse portability, the Windows compatibility seams, and the bootstrap harness), each writing its own build/skip-report-windows-*.json and gated on it. Classified from Windows run 36898564289 on cf28fe7 (2026-10-01), whose one recorded skip was the POSIX process-group case, and from each selected file's os.name skip conditions.",
+  "description": "windows.yml's native pytest steps (artifact storage and reparse portability, the Windows compatibility seams, and the bootstrap harness), each writing its own build/skip-report-windows-*.json and gated on it. Classified from Windows run 36898564289 on cf28fe7 (2026-10-01), whose one recorded skip was the POSIX process-group case, and from each selected file's os.name skip conditions. Its macOS coverage names macos-hosted, the runner macos.yml reports as since Stage 38 (CL-R-36), so every claim is checked against hosted reports on each push; the acceptance Mac runs a superset.",
   "rules": [
     {
       "id": "posix-process-group",
@@ -12,7 +12,7 @@
       "reason": "^POSIX process-group contract$",
       "category": "platform",
       "covered_by": [
-        "macos",
+        "macos-hosted",
         "linux-devcontainer"
       ],
       "note": "test_stage_timeout_kills_spawned_descendants kills a POSIX process group; Windows has none. The macOS and Linux btrc shards run it."
@@ -25,7 +25,7 @@
       "reason": "^requires POSIX no-follow utime$",
       "category": "platform",
       "covered_by": [
-        "macos",
+        "macos-hosted",
         "linux-devcontainer"
       ],
       "note": "Windows sets artifact times through the handle API instead, which the native Windows cases of the same file prove here."
@@ -38,7 +38,7 @@
       "reason": "^FIFOs are unavailable$",
       "category": "platform",
       "covered_by": [
-        "macos",
+        "macos-hosted",
         "linux-devcontainer"
       ],
       "note": "Windows has no mkfifo; the special-file rejection runs on the POSIX unit shards."

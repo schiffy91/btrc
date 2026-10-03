@@ -390,6 +390,75 @@ warning-free `WindowsMain.btrc` transpile.
 | Windows 36898564289 | `windows` | green; 126 warnings, as above | this lane | fixed |
 | macOS 36898564246 | `tests (unit)` | 8 `test_native_import_consumer.py::test_macos_panel_and_progress_controls` cases (NativeGUI "Factory retained fields", NativeLabels `Panel.c` assertion), both compilers, both modes. Behind them sat a skip-gate failure the red run hid: 3 pugixml skips in `test_module_units.py` that `macos.json` did not expect | `stage4/gui-core-macos` (GUI); this lane (manifest) | GUI open; manifest fixed |
 
+## macOS: the hosted runner and the hardware tier
+
+Stage 38's `qualification-ci-macos-native-suite` (packet `CL-R-36`),
+2026-10-03. Its exit is "the macOS shards skip only hardware-tier cases".
+
+**Two macOS runners.** Hosted CI and the acceptance Mac used to share
+`macos.json`, because a Darwin host detects as `macos`. They now differ:
+
+| Runner | Who | Manifest | May expect |
+| --- | --- | --- | --- |
+| `macos` | the acceptance Mac (`make test` in `nix develop`) | `macos.json`, unchanged rules | any category, as before |
+| `macos-hosted` | every `macos.yml` job (`env: BTRC_TEST_RUNNER: macos-hosted`) | `macos-hosted.json` | `platform` and `hardware` only |
+
+`tools/qualification/skips.py` enforces the hosted policy when it loads a
+manifest: `HOSTED_RUNNERS` maps `macos-hosted` to `macos`, a hosted rule
+must be `platform` or `hardware`, and a hosted hardware rule is
+`covered_by` the acceptance Mac. A `hardware` rule anywhere names its device
+in `gating.capabilities` from `HARDWARE_CAPABILITIES` (`coreaudio-device`,
+`gpu-adapter`, `physical-display`, `physical-device`) and names a runner
+that has it.
+
+**Classification.** macOS runs 37110991739 (`main`, `5b57618`) and
+37099829848 (`stage30/ci-codex-lanes`, `379ab93`) skip the same set: unit 86,
+btrc 3, and none in the corpus, bootstrap and strict-C11 shards. Every one is
+`platform`:
+
+- the 13 rules `macos.json` already classed `platform` (Windows-only, Linux
+  toolchain and SDK, `/dev/full`, XDG, ALSA and the Linux tray);
+- the two gcc sanitizer cases, `test_witness_transitions_are_exact[asan-ubsan-gcc]`
+  and `test_reference_runtime_is_strict_and_width_correct[ubsan-gcc]`. On the
+  Mac they sit under `runtime-probe` rules. On the hosted runner they become
+  one `platform` rule, `darwin-gcc-sanitizer-runtime`, narrowed to those two
+  node ids: GCC ships no libsanitizer for aarch64-darwin, the same cases pass
+  through clang and `/usr/bin/clang` on that runner, and they pass through
+  gcc in the devcontainer. They are not filed to the nix owner: upstream
+  GCC has no libsanitizer port for aarch64-darwin, so no dev-shell change
+  can supply one.
+
+The two hardware rules matched nothing: macos-15 has a CoreAudio output and a
+paravirtual Metal adapter, so the device cases ran. `coreaudio-output-device`
+expects only "output capability" and "output session unavailable";
+"CoreAudio provider unavailable" stays a defect. `gpu-compute-adapter`
+expects only "no native compute adapter is available"; a missing WebGPU
+toolchain stays a defect. Rules the hosted manifest leaves out are now
+unexpected there: `dap-session-developer-mode` (the workflow enables
+developer mode), `gpu-async-thread-sanitizer` (TSan starts on the image),
+and the clang variants of the sanitizer cases.
+
+No skip needed a fix or an owner: none was outside `platform` and
+`hardware`.
+
+**Coverage claims.** Linux and Windows `covered_by` claims that named `macos`
+now name `macos-hosted`, the runner whose reports every push uploads; the
+acceptance Mac runs a superset. With the reports above relabelled
+`macos-hosted`, plus CI 37110991727 and Windows 37110991752 (both
+`5b57618`), `skip-gate` finds 0 unexpected skips in all 30 reports, and
+`skip-coverage --claims` over the first run's reports with Linux's and
+Windows' confirms 3,228 claims, with 0 contradicted and 0 unchecked. The hosted reports' only uncovered skips are the two Linux tray
+cases (`linux-native-reader-uncovered`), which no runner runs.
+
+**Proof run.** The dispatch on `stage38/macos-hardware-tier` (`831e7f7`),
+macOS run 37118683472, is green with every shard gated as `macos-hosted`:
+unit 98 skips and btrc 3, all expected and all `platform` (the unit count
+grew by the 12 `linux-headless-session` cases landed since), and none
+elsewhere. Neither hardware rule fired. CI run 37118685082 on the same head
+had 0 unexpected skips in all 13 reports; its unit shard failed only
+`test_quiet_check.py:355` ("ps failed"), which failed the same way on
+`main`'s push run 37117628092 at `27e48d4` and passed on its dispatch.
+
 ## Appendix: per-job evidence
 
 One row per job and signature, as the lane recorded it. "Latest of N

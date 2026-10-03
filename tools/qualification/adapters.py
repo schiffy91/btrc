@@ -48,6 +48,7 @@ from tools.qualification.statistics import SampleStatistics
 REPO = Path(__file__).resolve().parents[2]
 RUNNER_PLATFORMS = {
     "macos": Platform.MACOS,
+    "macos-hosted": Platform.MACOS,
     "linux": Platform.LINUX,
     "linux-devcontainer": Platform.LINUX,
     "windows": Platform.WINDOWS,

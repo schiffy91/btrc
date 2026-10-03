@@ -22,6 +22,14 @@ on:
 permissions:
   contents: read
 
+# Every pytest session here classifies its skips as the hosted runner: a Darwin
+# host would otherwise detect as `macos`, the acceptance Mac. macos-hosted.json
+# expects only platform skips and the hardware tier the acceptance Mac covers
+# (a CoreAudio output device, a GPU compute adapter); anything else fails the
+# shard's skip gate. `nix develop --command` keeps the variable.
+env:
+  BTRC_TEST_RUNNER: macos-hosted
+
 # A newer push to a pull request cancels the run it supersedes. Runs on main
 # never cancel one another: GitHub keeps one running and one pending run per
 # group, so a newer main push replaces an older one still waiting. A manual
@@ -193,9 +201,10 @@ jobs:
   # Linux skips about 3,000 cases that only macOS can run (native imports, the
   # Objective-C emitter, CoreAudio, ImageIO, debug artifacts, link reuse);
   # these shards run them. They compile with clang: default_c_compiler()
-  # selects it on Darwin, and the bootstrap and test-c11 shards name it. Cases
-  # that need a CoreAudio device or a real GPU adapter skip by capability on
-  # hosted runners and stay with the self-hosted Mac tier.
+  # selects it on Darwin, and the bootstrap and test-c11 shards name it. Only
+  # the hardware tier may skip here: a case that finds no CoreAudio output
+  # device or GPU compute adapter is expected (macos-hosted.json, category
+  # hardware) and runs on the acceptance Mac.
   tests:
     needs: scope
     if: needs.scope.outputs.class == 'full'
