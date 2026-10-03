@@ -143,6 +143,9 @@ DIRECTIVE_ERRORS = [
     ("#if 1\n#error inside\n#endif", ("#error inside", 2, 1)),
     ("#if 1 \\\n+ 1\n#endif", ("multi-line preprocessor directives are unsupported", 1, 7)),
     ("int a; // note \\\n#if 1\n#endif", ("multi-line preprocessor directives are unsupported", 1, 16)),
+    # A backslash that only spaces separate from the newline still splices in C.
+    ("int a; // note \\  \n#if 1\n#endif", ("multi-line preprocessor directives are unsupported", 1, 16)),
+    ("#if 0\n#define Y \\ \n#else\n#endif", ("multi-line preprocessor directives are unsupported", 2, 11)),
     ("#\\\nif 1\n#endif", ("multi-line preprocessor directives are unsupported", 1, 2)),
     ("#if 0\n#define X \\\n1\n#endif", ("multi-line preprocessor directives are unsupported", 2, 11)),
     ("#if 1 ??= 2\n#endif", ("C11 trigraphs in preprocessor directives are unsupported", 1, 7)),

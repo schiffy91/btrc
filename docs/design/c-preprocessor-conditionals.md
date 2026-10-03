@@ -806,6 +806,7 @@ Outside the manifest:
 - A record joins an evaluation once through `FeConditionalTest.recorded`, the btrc form of Python's identity check.
 - The lowering invariant is driven by `LoweringInvariantDriver.btrc`, which hands `CompilerPipeline.compileResolved` a composed source that conditioning never saw.
 - The generated-source check (`StdlibSymbolIndexGenerator.verify_conditions`) conditions every stdlib module for every target, and refuses an `#undef` or a test of an absent name.
+- Two C11 gaps found by the CL-C-06 soundness review are closed in both compilers. A `\` or `??/` that only spaces and tabs separate from the newline is a splice to gcc and clang (they only warn), so the preceding-line rule and the dead-directive check give D10 for it too. A hexadecimal constant ending in `e`/`E` directly followed by `+`/`-` (`0x1e+1`) is one invalid preprocessing number in C (6.4.8), which btrc's lexer splits; `#if` refuses it as E11, spelled `'0x1e+'`.
 
 **Where the diagnostics are pinned.** The port must reproduce every message and file-local `line:col` in these tables, which are the complete list:
 - `src/tests/btrc/fixtures/conditional_expressions.tsv`: the expression battery (values and E, I and A errors), for `ConditionalExpressionDriver.btrc`.

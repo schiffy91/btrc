@@ -1452,6 +1452,24 @@ class ConditionalExpression:
                     )
         return expanded
 
+    @staticmethod
+    def split_number(token: Token, following: object) -> bool:
+        """A hexadecimal constant ending in ``e``/``E`` with an adjacent ``+``/``-``.
+
+        C reads ``0x1e+1`` as one preprocessing number (C11 6.4.8), which is no
+        valid constant; btrc's lexer splits it, so #if refuses it (E11).
+        """
+
+        return (
+            token.type == TokenKind.INT_LIT
+            and token.value[:2] in {"0x", "0X"}
+            and token.value[-1] in "eE"
+            and isinstance(following, Token)
+            and following.value in {"+", "-"}
+            and following.line == token.line
+            and following.col == token.col + len(token.value)
+        )
+
     def _local_macro(self, name: str) -> bool:
         return name in self._macros
 
@@ -1480,7 +1498,11 @@ class ConditionalExpression:
                 f"Macro '{name}' expands to nothing in #if; test it with defined({name})", anchor.line, anchor.col
             )
         for prefix, following in pairwise(tokens):
-            # E15, while the replacement's own columns still show adjacency.
+            # E11 and E15, while the replacement's own columns still show adjacency.
+            if self.split_number(prefix, following):
+                raise self._error(
+                    f"Invalid integer literal '{prefix.value}{following.value}'", anchor.line, anchor.col
+                )
             if (
                 prefix.value in _WIDE_CHARACTER_PREFIXES
                 and following.type == TokenKind.CHAR_LIT
@@ -1526,6 +1548,9 @@ class ConditionalExpression:
             token = item
             kind = token.type
             if kind == TokenKind.INT_LIT:
+                following = expanded[index + 1][0] if index + 1 < len(expanded) else None
+                if self.split_number(token, following):
+                    raise self._error(f"Invalid integer literal '{token.value}{following.value}'", token.line, token.col)
                 try:
                     value = LiteralDecoder.parse_integer_value(token.value)
                 except ValueError:
@@ -1921,6 +1946,21 @@ class SourceConditionals:
         return None
 
     @staticmethod
+    def trailing_splice(line: str) -> int | None:
+        """The offset of a ``\\`` or ``??/`` that ends ``line`` but for spaces and tabs.
+
+        C splices such a line onto the next (gcc and clang only warn about
+        the spaces), so it continues a ``//`` comment or a directive.
+        """
+
+        body = line.rstrip(" \t")
+        if body.endswith("??/"):
+            return len(body) - 3
+        if body.endswith("\\"):
+            return len(body) - 1
+        return None
+
+    @staticmethod
     def directive_whitespace(text: str) -> int | None:
         """The offset of a ``\\f`` or ``\\v`` after a directive's ``#`` (D17)."""
 
@@ -1974,7 +2014,9 @@ class _ConditionalWalk:
 
         newline = text.find("\n")
         if newline < 0:
-            return None
+            # gcc and clang also splice a backslash that only spaces and tabs
+            # separate from the newline (they warn, even under -pedantic-errors).
+            return SourceConditionals.trailing_splice(text)
         if text[:newline].endswith("??/"):
             return newline - 3
         return newline - 1
@@ -2000,10 +2042,9 @@ class _ConditionalWalk:
         """D10 when the line before a directive ends in a splice, so C would continue it (a ``//`` comment)."""
 
         previous = self._lines[token.line - 2] if token.line >= 2 else ""
-        if previous.endswith("??/"):
-            raise self._error("multi-line preprocessor directives are unsupported", token.line - 1, len(previous) - 2)
-        if previous.endswith("\\"):
-            raise self._error("multi-line preprocessor directives are unsupported", token.line - 1, len(previous))
+        splice = SourceConditionals.trailing_splice(previous)
+        if splice is not None:
+            raise self._error("multi-line preprocessor directives are unsupported", token.line - 1, splice + 1)
 
     def _check_conditional_shape(self, token: Token) -> None:
         text = token.value

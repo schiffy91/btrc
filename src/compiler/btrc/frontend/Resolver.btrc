@@ -725,6 +725,16 @@ class FeConditionalExpression {
 		return expanded;
 	}
 
+	/* A hexadecimal constant ending in `e`/`E` with an adjacent `+`/`-`: C
+	 * reads `0x1e+1` as one preprocessing number (C11 6.4.8), which is no
+	 * valid constant; btrc's lexer splits it, so #if refuses it (E11). */
+	public bool splitNumber(Token token, Token? following) {
+		if (following == null || token.type != "INT_LIT" || token.value.length() < 3) { return false; }
+		char last = token.value[token.value.length() - 1];
+		bool hex = token.value[0] == '0' && (token.value[1] == 'x' || token.value[1] == 'X');
+		return hex && (last == 'e' || last == 'E') && (following.value == "+" || following.value == "-") && following.line == token.line && following.col == token.col + token.value.length();
+	}
+
 	private bool widePrefix(string value) { return value == "L" || value == "u" || value == "U"; }
 
 	private Vector<FeConditionalItem> expansion(string name, Token anchor, Map<string, bool> active) {
@@ -761,9 +771,14 @@ class FeConditionalExpression {
 			return produced;
 		}
 		for (int index = 0; index + 1 < tokens.len; index++) {
-			/* E15, while the replacement's own columns still show adjacency. */
+			/* E11 and E15, while the replacement's own columns still show
+			 * adjacency. */
 			Token prefix = tokens.get(index);
 			Token following = tokens.get(index + 1);
+			if (self.splitNumber(prefix, following)) {
+				self.fail(f"Invalid integer literal '{prefix.value}{following.value}'", anchor.line, anchor.col);
+				return produced;
+			}
 			if (self.widePrefix(prefix.value) && following.type == "CHAR_LIT" && following.line == prefix.line && following.col == prefix.col + prefix.value.length()) {
 				self.fail(f"Wide character constant {prefix.value}{following.value} in #if; write its integer value", anchor.line, anchor.col);
 				return produced;
@@ -838,6 +853,12 @@ class FeConditionalExpression {
 			Token token = candidate;
 			string kind = token.type;
 			if (kind == "INT_LIT") {
+				Token? next = null;
+				if (index + 1 < expanded.len) { next = expanded.get(index + 1).token; }
+				if (next != null && self.splitNumber(token, next)) {
+					self.fail(f"Invalid integer literal '{token.value}{next.value}'", token.line, token.col);
+					return atoms;
+				}
 				IntegerLiteralInfo info = IntegerLiteral(token.value).details();
 				bool unsignedSuffix = info.suffix.indexOf("u") >= 0;
 				bool tooLarge = info.decimal && !unsignedSuffix && info.magnitude > FeConditionalExpression.intmaxMax();
@@ -1401,9 +1422,21 @@ class FeConditionalWalk {
 	 * line, or -1. */
 	class int spliceOffset(string text) {
 		int newline = text.indexOf("\n");
-		if (newline < 0) { return -1; }
+		/* gcc and clang also splice a backslash that only spaces and tabs
+		 * separate from the newline (they warn, even under -pedantic-errors). */
+		if (newline < 0) { return FeConditionalWalk.trailingSplice(text); }
 		if (newline >= 3 && text[newline - 3] == '?' && text[newline - 2] == '?' && text[newline - 1] == '/') { return newline - 3; }
 		return newline - 1;
+	}
+
+	/* The offset of a `\` or `??/` that ends `line` but for spaces and
+	 * tabs, or -1: C splices such a line onto the next. */
+	class int trailingSplice(string line) {
+		int end = line.length();
+		while (end > 0 && (line[end - 1] == ' ' || line[end - 1] == '\t')) { end--; }
+		if (end >= 3 && line[end - 3] == '?' && line[end - 2] == '?' && line[end - 1] == '/') { return end - 3; }
+		if (end >= 1 && line[end - 1] == '\\') { return end - 1; }
+		return -1;
 	}
 
 	class bool conditionalName(string name) { return name == "if" || name == "ifdef" || name == "ifndef" || name == "elif" || name == "else" || name == "endif" || name == "elifdef" || name == "elifndef"; }
@@ -1439,11 +1472,8 @@ class FeConditionalWalk {
 	 * continue it (a `//` comment). */
 	private void checkPrecedingSplice(Token token) {
 		string previous = token.line >= 2 ? self.lines.get(token.line - 2) : "";
-		if (previous.endsWith("??/")) {
-			self.fail("multi-line preprocessor directives are unsupported", token.line - 1, previous.length() - 2);
-		} else if (previous.endsWith("\\")) {
-			self.fail("multi-line preprocessor directives are unsupported", token.line - 1, previous.length());
-		}
+		int splice = FeConditionalWalk.trailingSplice(previous);
+		if (splice >= 0) { self.fail("multi-line preprocessor directives are unsupported", token.line - 1, splice + 1); }
 	}
 
 	private void checkConditionalShape(Token token) {

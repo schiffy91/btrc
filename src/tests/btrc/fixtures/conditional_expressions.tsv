@@ -87,3 +87,6 @@
 -	-1 < 0u	error 1:8 #if expression converts negative value -1 to unsigned for '<'
 -	1 ? -1 : 0u	error 1:7 #if expression converts negative value -1 to unsigned for '?:'
 #define W L'a'	W	error 2:5 Wide character constant L'a' in #if; write its integer value
+-	0x1e+1 == 31	error 1:5 Invalid integer literal '0x1e+'
+-	0x1e + 1 == 31	1
+#define V 0x1E-1	V	error 2:5 Invalid integer literal '0x1E-'
