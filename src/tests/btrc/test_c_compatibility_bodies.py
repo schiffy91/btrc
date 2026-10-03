@@ -14,13 +14,14 @@ AST, positions included, matches between the two parsers.
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from src.tests.btrc.c_compatibility_harness import reference_output, relative_to_program, selfhost_output, write_program
 
 REPO = Path(__file__).resolve().parents[3]
 CORPUS = REPO / "src/tests/c_compat"
@@ -138,48 +139,6 @@ PAIRS = [
 ]
 
 
-def _write(directory: Path, source: str) -> Path:
-    """Write *source* as ``Program.btrc`` so file names never differ."""
-    directory.mkdir(parents=True, exist_ok=True)
-    program = directory / "Program.btrc"
-    program.write_text(source)
-    return program
-
-
-def _reference(program: Path, *flags: str) -> str:
-    """The reference compiler's ``--emit-ir`` dump, else its generated C."""
-    output = program.with_suffix(".c")
-    command = [sys.executable, "-m", "src.compiler.python.main", str(program), "--no-stdlib", "--no-cache", *flags]
-    if "--emit-ir" not in flags:
-        command.extend(["-o", str(output)])
-    result = subprocess.run(
-        command,
-        cwd=REPO,
-        env={**os.environ, "BTRC_CACHE_DIR": str(program.parent / "cache")},
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stderr
-    return result.stdout if "--emit-ir" in flags else output.read_text()
-
-
-def _selfhost(compiler: Path, program: Path, *flags: str) -> str:
-    result = subprocess.run(
-        [str(compiler), "--no-stdlib", *flags, str(program)],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stderr
-    return result.stdout
-
-
-def _relative(text: str, program: Path) -> str:
-    return text.replace(str(program.parent), "<dir>")
-
-
 @pytest.mark.parametrize(("braced", "braceless"), PAIRS)
 def test_braceless_body_lowers_exactly_like_its_braced_twin(
     semantic_btrcc: Path,
@@ -187,14 +146,16 @@ def test_braceless_body_lowers_exactly_like_its_braced_twin(
     braced: str,
     braceless: str,
 ) -> None:
-    left = _write(tmp_path / "braced", braced)
-    right = _write(tmp_path / "braceless", braceless)
+    left = write_program(tmp_path / "braced", braced)
+    right = write_program(tmp_path / "braceless", braceless)
 
     for flags in (("--emit-ir",), (), ("--debug",)):
-        assert _relative(_reference(left, *flags), left) == _relative(_reference(right, *flags), right), flags
+        assert relative_to_program(reference_output(left, *flags), left) == relative_to_program(
+            reference_output(right, *flags), right
+        ), flags
     for flags in ((), ("--debug",)):
-        assert _relative(_selfhost(semantic_btrcc, left, *flags), left) == _relative(
-            _selfhost(semantic_btrcc, right, *flags), right
+        assert relative_to_program(selfhost_output(semantic_btrcc, left, *flags), left) == relative_to_program(
+            selfhost_output(semantic_btrcc, right, *flags), right
         ), flags
 
 
@@ -215,7 +176,7 @@ def _source_lines(generated: str, statement: str) -> list[int]:
 
 
 def test_debug_line_markers_map_braceless_bodies_to_their_own_lines(semantic_btrcc: Path, tmp_path: Path) -> None:
-    program = _write(
+    program = write_program(
         tmp_path,
         "int main() {\n"
         "\tint x = 0;\n"
@@ -229,7 +190,7 @@ def test_debug_line_markers_map_braceless_bodies_to_their_own_lines(semantic_btr
         "\treturn x;\n"
         "}\n",
     )
-    for generated in (_reference(program, "--debug"), _selfhost(semantic_btrcc, program, "--debug")):
+    for generated in (reference_output(program, "--debug"), selfhost_output(semantic_btrcc, program, "--debug")):
         lines = {value: _source_lines(generated, f"(x = {value})") for value in range(11, 16)}
         assert lines == {11: [3], 12: [5], 13: [6], 14: [7], 15: [9]}, generated
 

@@ -1,4 +1,5 @@
 import Library.Map;
+import Library.Strings;
 import Library.Vector;
 
 import ../../../analyzer/Declarations.btrc;
@@ -17,12 +18,52 @@ import ./Lifetime.btrc;
 
 /* Return-path cycle flushing is a structured-IR transformation shared by
  * function lowering and whole-module optimization.  It depends only on the
- * module's deterministic temporary-name state, never on LoweringContext or
- * semantic-analysis services. */
+ * function it rewrites, never on LoweringContext or semantic-analysis
+ * services: each function numbers its return temporaries from 1, skipping
+ * every name the function already declares, as Python's
+ * IROptimizer._next_cycle_return_name does. */
 class CycleReturnBoundaryLowerer {
-	private IRTemporaryNames temporaryNames;
+	private int returnCounter = 0;
+	private Map<string, bool> localNames = {};
 
-	public CycleReturnBoundaryLowerer(IRTemporaryNames temporaryNames) { self.temporaryNames = temporaryNames; }
+	public CycleReturnBoundaryLowerer() {}
+
+	private void collectDeclaredNames(IRNode? node) {
+		if (node == null) { return; }
+		if (node.kind == IRK_VAR_DECL) { self.localNames.put(node.name, true); }
+		self.collectDeclaredNames(node.left);
+		self.collectDeclaredNames(node.right);
+		self.collectDeclaredNames(node.operand);
+		self.collectDeclaredNames(node.expr);
+		self.collectDeclaredNames(node.obj);
+		self.collectDeclaredNames(node.index);
+		self.collectDeclaredNames(node.condition);
+		self.collectDeclaredNames(node.trueExpr);
+		self.collectDeclaredNames(node.falseExpr);
+		self.collectDeclaredNames(node.arraySize);
+		self.collectDeclaredNames(node.init);
+		self.collectDeclaredNames(node.value);
+		self.collectDeclaredNames(node.target);
+		self.collectDeclaredNames(node.thenBlock);
+		self.collectDeclaredNames(node.elseBlock);
+		self.collectDeclaredNames(node.body);
+		self.collectDeclaredNames(node.update);
+		self.collectDeclaredNames(node.result);
+		for argument in node.args() { self.collectDeclaredNames(argument); }
+		for statement in node.stmts() { self.collectDeclaredNames(statement); }
+	}
+
+	private string nextReturnName() {
+		while (true) {
+			self.returnCounter = self.returnCounter + 1;
+			string name = "__btrc_cycle_return_" + Strings.fromInt(self.returnCounter);
+			if (!self.localNames.has(name)) {
+				self.localNames.put(name, true);
+				return name;
+			}
+		}
+		return "";
+	}
 
 	private bool containsCyclableRelease(IRNode? node) {
 		if (node == null) { return false; }
@@ -96,7 +137,7 @@ class CycleReturnBoundaryLowerer {
 			if (statement.kind == IRK_RETURN) {
 				bool materialized = self.isMaterializedReturn(rewritten, statement);
 				if (statement.value != null && !materialized) {
-					string result = self.temporaryNames.fresh("__btrc_cycle_return");
+					string result = self.nextReturnName();
 					IRNode declaration = IRNode.variableDeclaration(definition.returnType, result, statement.value);
 					declaration.isCycleReturnTemp = true;
 					rewritten.push(declaration);
@@ -113,6 +154,10 @@ class CycleReturnBoundaryLowerer {
 	}
 
 	private void forceBoundary(IRFunction definition) {
+		self.returnCounter = 0;
+		self.localNames = {};
+		for parameter in definition.params { self.localNames.put(parameter.name, true); }
+		self.collectDeclaredNames(definition.body);
 		self.rewriteReturns(definition, definition.body);
 		if (IRStatementSequence(definition.body.stmts()).mayFallThrough() && !self.endsWithFlush(definition.body.stmts())) {
 			definition.body.stmtsMut().push(self.forcedFlush());
@@ -187,7 +232,7 @@ class CycleBoundaryLowerer {
 		arguments.push(self.lifetime.runtimeDescriptor(self.managedValues.runtimeType(resolved)));
 		arguments.push(IRNode.variable("context"));
 		Vector<IRNode> thenBody = [];
-		thenBody.push(IRNode.expressionStatement(IRNode.call("fn", arguments)));
+		thenBody.push(IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("fn"), arguments)));
 		output.push(IRNode.ifStatement(slot, IRNode.block(thenBody), null));
 	}
 

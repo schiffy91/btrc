@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING
 
@@ -58,6 +59,11 @@ class SourceRuntimeSymbols:
 
 
 _CYCLE_COLLECTIONS = frozenset({"Vector", "Array", "List", "Map", "Set"})
+# C11 6.10.8.1: object-like macros every hosted translation unit predefines.
+_C_PREDEFINED_MACROS = frozenset(
+    {"__DATE__", "__FILE__", "__LINE__", "__STDC__", "__STDC_HOSTED__", "__STDC_VERSION__", "__TIME__"}
+)
+_QUOTED_INCLUDE = re.compile(r'\s*#\s*include\s*"([^"]+)"')
 
 
 class GeneratedSymbolRegistry:
@@ -78,6 +84,73 @@ class GeneratedSymbolRegistry:
         self.storage = storage
         self.types = types
         self._source_symbols = SourceRuntimeSymbols(runtime_catalog)
+        # Source files with a raw quoted include of an unmodeled C header.
+        self._compatibility_files: set[object] = set()
+        # Unresolved references already reported where analysis needed them.
+        self._reported_ids: set[int] = set()
+
+    def configure_unmodeled_includes(self, program) -> None:
+        """Record the source files that take the unmodeled-include path."""
+        self._reported_ids = set()
+        self._compatibility_files = {
+            declaration.source_file
+            for declaration in self.session.declarations(program)
+            if isinstance(declaration, PreprocessorDirective) and self.unmodeled_include(declaration.text)
+        }
+
+    def report_unresolved_value(self, expression) -> bool:
+        """Report an unresolved name in `expression` now, before an inference
+        error that would only be its consequence, as the self-hosted validator
+        does. A spelling a later generated claim may own stays deferred."""
+        for node in self._walk_ast(expression):
+            if not isinstance(node, Identifier) or id(node) in self._reported_ids:
+                continue
+            node_id = id(node)
+            if (
+                node_id not in self.session.unresolved_c_symbol_reference_ids
+                or node_id in self.session.unresolved_direct_callee_ids
+            ):
+                continue
+            symbol = node.name
+            enum_claim = self._enum_claim(symbol)
+            if enum_claim is not None:
+                self._reported_ids.add(node_id)
+                self.session.error(
+                    f"Source reference to compiler-generated C symbol '{symbol}' for {enum_claim} is not allowed",
+                    node.line,
+                    node.col,
+                )
+                return True
+            if (
+                self._source_symbols.is_helper(symbol)
+                or self._source_symbols.is_compiler_owned(symbol)
+                or self._may_be_generated_claim(symbol)
+                or self.foreign_constant(symbol, self.session.current_source_file in self._compatibility_files)
+            ):
+                continue
+            self._reported_ids.add(node_id)
+            self.session.error(f"Unresolved identifier '{symbol}' used as a value", node.line, node.col)
+            return True
+        return False
+
+    def _enum_claim(self, symbol: str) -> str | None:
+        """The owner of a simple enum's generated spelling, as its claim names it."""
+        for index, letter in enumerate(symbol):
+            if letter != "_":
+                continue
+            owner, member = symbol[:index], symbol[index + 1 :]
+            members = self.index.enum_table.get(owner) if owner else None
+            if members is not None and member in members:
+                return f"enum value '{owner}.{member}'"
+            if members is not None and member == "toString":
+                return f"enum helper for '{owner}'"
+        return None
+
+    def _may_be_generated_claim(self, symbol: str) -> bool:
+        """Whether a class, interface or rich-enum claim could own `symbol`;
+        those claims also depend on generic instances not yet found."""
+        owners = (self.index.class_table, self.index.rich_enum_table, self.index.interface_table)
+        return any(symbol[:index] in table for index, letter in enumerate(symbol) if letter == "_" for table in owners)
 
     def claim_gpu_symbols(self, declaration, claims) -> None:
         for suffix, role in (("__gpuitem", "CPU item worker"), ("__gpucpu", "CPU fallback wrapper")):
@@ -126,6 +199,7 @@ class GeneratedSymbolRegistry:
 
     def validate_generated_symbol_references(self, program, claims) -> None:
         """Resolve deferred identifiers after every generated claim is known."""
+        compatibility_files = self._compatibility_files
         for declaration in self.session.declarations(program):
             if isinstance(declaration, PreprocessorDirective):
                 self._validate_preprocessor_symbols(declaration, claims)
@@ -133,7 +207,7 @@ class GeneratedSymbolRegistry:
                 if not isinstance(node, Identifier):
                     continue
                 node_id = id(node)
-                if node_id not in self.session.unresolved_c_symbol_reference_ids:
+                if node_id not in self.session.unresolved_c_symbol_reference_ids or node_id in self._reported_ids:
                     continue
                 symbol = node.name
                 direct_call = node_id in self.session.unresolved_direct_callee_ids
@@ -153,8 +227,32 @@ class GeneratedSymbolRegistry:
                     self.session.error(
                         f"{action} compiler-owned C symbol '{symbol}' is not allowed", node.line, node.col
                     )
-                elif not direct_call and (not symbol.isupper()) and (not supported):
+                elif (
+                    not direct_call
+                    and (not supported)
+                    and not self.foreign_constant(symbol, declaration.source_file in compatibility_files)
+                ):
                     self.session.error(f"Unresolved identifier '{symbol}' used as a value", node.line, node.col)
+
+    @staticmethod
+    def foreign_constant(symbol: str, compatibility: bool) -> bool:
+        """Whether an unresolved ALL_CAPS value can name a C object-like macro.
+
+        Only names the compiler can account for pass through to C: a hosted
+        ABI macro, a C11 predefined macro, or, in a file that textually
+        includes a header or C source the importer does not model, any
+        ALL_CAPS spelling. Every other unknown name is diagnosed here instead
+        of failing as an undeclared identifier in the C compile.
+        """
+        if not symbol.isupper():
+            return False
+        return HOSTED_ABI.macro_name(symbol) or symbol in _C_PREDEFINED_MACROS or compatibility
+
+    @staticmethod
+    def unmodeled_include(text: str) -> bool:
+        """A raw quoted `#include` of a C header or source (not a btrc file)."""
+        match = _QUOTED_INCLUDE.match(text)
+        return match is not None and not match.group(1).endswith(".btrc")
 
     def _validate_preprocessor_symbols(self, declaration, claims) -> None:
         directive = SourceSymbolDirective.parse(declaration.text)

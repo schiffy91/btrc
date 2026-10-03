@@ -6,7 +6,6 @@ import contextlib
 import json
 import os
 import shlex
-import shutil
 import signal
 import subprocess
 import sys
@@ -16,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import NativeLinkPlan, PackageTarget
+from src.tests.c_toolchains import HOST_CLANG
 from src.tests.process_limits import RUN_TIMEOUT, TOOL_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="real POSIX compiler-
 
 @pytest.fixture
 def project(tmp_path):
-    clang = shutil.which("clang")
+    clang = HOST_CLANG
     if clang is None:
         pytest.skip("native process-worker proof requires Clang")
     parts = []

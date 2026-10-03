@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import configured_c_compiler, host_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
 CC = configured_c_compiler()
@@ -321,7 +320,7 @@ def test_frontend_traversal_is_iterative_and_streaming() -> None:
 
 
 @pytest.mark.skipif(
-    not CC or shutil.which(CC[0]) is None,
+    host_c_compiler() is None,
     reason="needs a C compiler",
 )
 def test_frontend_resolver_reuse_resets_state_and_isolates_results(
@@ -409,7 +408,7 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
 
 
 @pytest.mark.skipif(
-    os.name == "nt" or not CC or shutil.which(CC[0]) is None,
+    os.name == "nt" or host_c_compiler() is None,
     reason="needs symlinks and a C compiler",
 )
 def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
@@ -525,7 +524,7 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
 
 
 @pytest.mark.skipif(
-    not CC or shutil.which(CC[0]) is None,
+    host_c_compiler() is None,
     reason="needs a C compiler",
 )
 @pytest.mark.parametrize("frontend", ["reference", "selfhost"])
@@ -639,7 +638,7 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
 
 
 @pytest.mark.skipif(
-    not CC or shutil.which(CC[0]) is None,
+    host_c_compiler() is None,
     reason="needs a C compiler",
 )
 def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
@@ -763,7 +762,7 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
 
 
 @pytest.mark.skipif(
-    os.name == "nt" or not CC or shutil.which(CC[0]) is None,
+    os.name == "nt" or host_c_compiler() is None,
     reason="needs hard links and a C compiler",
 )
 def test_store_source_identity_survives_deduplicating_relinks(tmp_path: Path) -> None:

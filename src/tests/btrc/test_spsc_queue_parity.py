@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import HOST_C_COMPILERS
+
 REPO = Path(__file__).resolve().parents[3]
 FIXTURE = REPO / "src/tests/threads/SpscRawCallback.btrc"
 EXPECTED = "PASS spsc_raw_callback\n"
-STRICT_COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _reference(output: Path, cache: Path) -> subprocess.CompletedProcess[str]:
@@ -48,7 +48,7 @@ def _selfhost(compiler: Path, output: Path) -> subprocess.CompletedProcess[str]:
     return compiled
 
 
-@pytest.mark.skipif(not STRICT_COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.skipif(not HOST_C_COMPILERS, reason="requires a strict C11 compiler")
 def test_raw_callback_queue_runs_from_both_frontends_with_gcc_and_clang(
     semantic_btrcc: Path,
     tmp_path: Path,
@@ -68,7 +68,7 @@ def test_raw_callback_queue_runs_from_both_frontends_with_gcc_and_clang(
         assert "SPSCQueues_tryPopBorrowed" in emitted
         assert "atomic_load_explicit" in emitted
         assert "atomic_store_explicit" in emitted
-        for compiler in STRICT_COMPILERS:
+        for compiler in HOST_C_COMPILERS:
             executable = tmp_path / f"spsc-{frontend}-{Path(compiler).name}"
             built = subprocess.run(
                 [

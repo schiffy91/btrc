@@ -89,7 +89,7 @@ class IRLowerer {
 		CallOwnershipLowerer callOwnership = CallOwnershipLowerer(analyzed, managedValues, ownershipSemantics, operandPlanner, callableValues, self.context, managedLifetime, self.cTypes, callTargets);
 		ManagedTypeLowerer managedTypes = ManagedTypeLowerer(analyzed, managedValues, cycles, operandPlanner, self.context, managedLifetime, self.cTypes);
 		CycleBoundaryLowerer cycleBoundaries = CycleBoundaryLowerer(analyzed, managedValues, cycles, self.cleanupSlots, self.context, self.cTypes, managedLifetime);
-		CycleReturnBoundaryLowerer cycleReturns = CycleReturnBoundaryLowerer(self.context.temporaryNames());
+		CycleReturnBoundaryLowerer cycleReturns = CycleReturnBoundaryLowerer();
 		AggregateValueLowerer aggregateValues = AggregateValueLowerer(analyzed, managedValues, operandPlanner);
 		CallLowerer calls = CallLowerer(callTargets, self.cTypes, self.context);
 		self.gpuPipeline = GpuPipeline(analyzed, hostedAbi, gpuSemantics, managedValues, operandPlanner, managedLifetime, calls, self.cTypes);
@@ -173,9 +173,6 @@ class IRLowerer {
 				facts.trycatchComputed = true;
 			}
 		}
-		if (self.context.exceptionsAreEnabled()) {
-			self.declarations.requireSystemInclude(module, "setjmp.h");
-		}
 
 		BtrccPhaseTimer.mark("l-setup");
 		/* A module unit whose declarations come from the shared program
@@ -226,15 +223,13 @@ class IRLowerer {
 		}
 		BtrccPhaseTimer.mark("l-generic-methods");
 
+		self.declarations.emitEnums(program, module);
 		self.declarations.emitDeclarations(program, module);
 		BtrccPhaseTimer.mark("l-declarations");
 		self.functions.materializeDeferredClosure();
 		if (self.context.declarationsElsewhere) { self.declarations.emitReferencedInterfaces(module); }
 		self.cTypes.appendFunctionPointerTypedefs(module);
 		self.cTypes.appendRealtimeTypeDeclarations(module);
-		if (self.cTypes.usesAtomic()) {
-			self.declarations.requireSystemInclude(module, "stdatomic.h");
-		}
 		self.cleanupSlots.finalize(module);
 		self.expressionTypes.disableMemo();
 		if (self.context.moduleUnits) { self.partitionModuleUnit(module); }

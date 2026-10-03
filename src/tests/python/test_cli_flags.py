@@ -15,6 +15,7 @@ import pytest
 from src.compiler.python import Compiler
 from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.cli.compiler import CompilerCommand
+from src.tests.c_toolchains import HOST_GCC, host_c_compiler
 
 
 def run_main(monkeypatch, argv):
@@ -169,7 +170,7 @@ def test_freestanding_stdlib_program_has_no_system_includes(tmp_path, monkeypatc
     assert '#include "btrc_rt.h"' in c
 
 
-@pytest.mark.skipif(shutil.which("cc") is None, reason="requires a hosted C11 compiler")
+@pytest.mark.skipif(host_c_compiler() is None, reason="requires a hosted C11 compiler")
 def test_freestanding_thread_feature_selects_pthread_seam(tmp_path, monkeypatch):
     c, out = compile_btrc(
         tmp_path,
@@ -187,7 +188,7 @@ def test_freestanding_thread_feature_selects_pthread_seam(tmp_path, monkeypatch)
     executable = tmp_path / "freestanding_thread"
     subprocess.run(
         [
-            shutil.which("cc"),
+            *host_c_compiler(),
             "-std=c11",
             "-pedantic-errors",
             "-Wall",
@@ -244,7 +245,8 @@ def test_dce_prunes_unused_stdlib_structs(tmp_path, monkeypatch):
 # --- the debug build is real: it compiles and runs ---
 
 
-@pytest.mark.skipif(shutil.which("gcc") is None or shutil.which("nm") is None, reason="needs gcc + nm")
+# The allowed undefined symbols are GCC's runtime builtins, so this links with GCC.
+@pytest.mark.skipif(HOST_GCC is None or shutil.which("nm") is None, reason="needs gcc + nm")
 @pytest.mark.parametrize(
     "program",
     (USES_VECTOR, USES_CONVERSIONS),
@@ -263,7 +265,7 @@ def test_freestanding_stdlib_links_with_zero_libc(tmp_path, monkeypatch, program
     setjmp_flags = ["-DBTRC_RT_SETJMP_HEADER=<btrc_test_setjmp.h>"] if "BTRC_RT_NEEDS_SETJMP" in generated else []
     r = subprocess.run(
         [
-            "gcc",
+            HOST_GCC,
             "-std=c11",
             "-pedantic-errors",
             "-Wall",
@@ -299,7 +301,7 @@ def test_freestanding_stdlib_links_with_zero_libc(tmp_path, monkeypatch, program
     assert not unexpected, "freestanding object has external deps:\n" + "\n".join(unexpected)
 
 
-@pytest.mark.skipif(shutil.which("gcc") is None and shutil.which("cc") is None, reason="no C compiler")
+@pytest.mark.skipif(host_c_compiler() is None, reason="no C compiler")
 def test_freestanding_runtime_formatter(tmp_path):
     # The reference runtime's printf/snprintf must format ints, strings, hex,
     # width/zero-pad, and floats correctly (it has no libc to fall back on).
@@ -327,10 +329,10 @@ int main(void) {
 }
 """
     (tmp_path / "h.c").write_text(harness)
-    cc = shutil.which("gcc") or shutil.which("cc")
+    cc = host_c_compiler()
     binp = tmp_path / "h"
     r = subprocess.run(
-        [cc, "-std=c11", "-w", f"-I{tmp_path}", str(tmp_path / "h.c"), "-o", str(binp)],
+        [*cc, "-std=c11", "-w", f"-I{tmp_path}", str(tmp_path / "h.c"), "-o", str(binp)],
         capture_output=True,
         text=True,
         timeout=120,
@@ -340,13 +342,13 @@ int main(void) {
     assert run.returncode == 0, f"{run.returncode} formatter mismatch(es)"
 
 
-@pytest.mark.skipif(shutil.which("cc") is None and shutil.which("gcc") is None, reason="no C compiler")
+@pytest.mark.skipif(host_c_compiler() is None, reason="no C compiler")
 def test_debug_build_compiles_and_runs(tmp_path, monkeypatch):
-    cc = shutil.which("cc") or shutil.which("gcc")
+    cc = host_c_compiler()
     _c, out = compile_btrc(tmp_path, monkeypatch, USES_VECTOR, "--debug")
     binary = tmp_path / "prog_bin"
     r = subprocess.run(
-        [cc, "-std=c11", "-g", str(out), "-o", str(binary), "-lm", "-lpthread"],
+        [*cc, "-std=c11", "-g", str(out), "-o", str(binary), "-lm", "-lpthread"],
         capture_output=True,
         text=True,
         timeout=120,

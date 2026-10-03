@@ -75,7 +75,10 @@ def test_ir_renderer_serializes_every_module_field_and_nested_body() -> None:
     rendered = IRCanonicalRenderer().render(result.ir_module)
     module_value = json.loads(rendered)["module"]
 
-    assert set(module_value) == {"$type", *(field.name for field in dataclasses.fields(IRModule))}
+    fields = dataclasses.fields(IRModule)
+    # Only declared lowering bookkeeping stays out of a canonical dump.
+    assert {field.name for field in fields if not field.metadata.get("ir_render", True)} == {"temporary_names"}
+    assert set(module_value) == {"$type", *(field.name for field in fields if field.metadata.get("ir_render", True))}
     assert '"$type": "IRVarDecl"' in rendered
     assert '"$type": "IRReturn"' in rendered
 

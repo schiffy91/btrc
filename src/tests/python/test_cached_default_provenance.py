@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.sources import ResolvedSource
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import configured_c_compiler, host_c_compiler
 from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
@@ -79,7 +78,7 @@ def test_cache_identity_covers_root_import_path_and_native_line(tmp_path: Path) 
 
 
 @pytest.mark.skipif(
-    not CC or shutil.which(CC[0]) is None,
+    host_c_compiler() is None,
     reason="needs a C compiler",
 )
 def test_cached_cli_preserves_local_and_imported_default_source_coordinates(tmp_path: Path) -> None:

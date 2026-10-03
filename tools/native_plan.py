@@ -279,10 +279,13 @@ class NativePlanReader:
         if schema == 2:
             fields = ROOT_FIELDS | {"generated-units"}
         elif schema == 4:
-            # Adapter units remain optional alongside secondary C outputs.
+            # Adapter units remain optional alongside secondary C outputs, and
+            # so do the units' digests, which older compilers did not write.
             fields = ROOT_FIELDS | {"emitted-units"}
             if isinstance(payload, dict) and "generated-units" in payload:
                 fields = fields | {"generated-units"}
+            if isinstance(payload, dict) and "emitted-unit-digests" in payload:
+                fields = fields | {"emitted-unit-digests"}
         root = PlanJson.exact_mapping(payload, fields, "native link plan")
         canonical = json.dumps(root, allow_nan=False, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
         if encoded != canonical.encode("utf-8"):
@@ -343,6 +346,16 @@ class NativePlanReader:
             records = PlanJson.array(root["emitted-units"], "native link plan emitted-units")
             if not records:
                 raise NativePlanError("native link plan emitted-units must not be empty")
+            if "emitted-unit-digests" in root:
+                # Each unit's SHA-256, so the plan changes whenever any unit
+                # of the program does.
+                digests = PlanJson.array(root["emitted-unit-digests"], "native link plan emitted-unit-digests")
+                if len(digests) != len(records) or not all(
+                    isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) for digest in digests
+                ):
+                    raise NativePlanError(
+                        "native link plan emitted-unit-digests must give one SHA-256 per emitted unit"
+                    )
             emitted_paths = tuple(
                 self.generated_input(PlanJson.text(path, "emitted unit path"), f"emitted translation unit {index}")
                 for index, path in enumerate(records, 1)

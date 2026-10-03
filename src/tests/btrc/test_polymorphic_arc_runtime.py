@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,9 +11,9 @@ from src.tests.btrc.runtime_ownership_harness import (
     sanitized_build_and_run,
 )
 from src.tests.btrc.selfhost_snippet_harness import REPO, compile_source
+from src.tests.c_toolchains import HOST_C_COMPILERS
 
 FIXTURE = REPO / "src/tests/btrc/fixtures/PolymorphicArcRuntime.btrc"
-STRICT_COMPILERS = tuple(compiler for name in ("gcc", "clang") if (compiler := shutil.which(name)) is not None)
 
 
 def _compile_both(semantic_btrcc: Path, tmp_path: Path):
@@ -78,8 +77,8 @@ def test_polymorphic_owners_destroy_and_visit_concrete_values(
         semantic_btrcc,
         tmp_path,
     )
-    assert STRICT_COMPILERS, "strict C compiler required"
-    for compiler in STRICT_COMPILERS:
+    assert HOST_C_COMPILERS, "strict C compiler required"
+    for compiler in HOST_C_COMPILERS:
         name = Path(compiler).name
         _strict_build_and_run(
             compiler,

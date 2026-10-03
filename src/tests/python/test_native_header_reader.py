@@ -17,6 +17,7 @@ from src.compiler.python.frontend.native_imports import (
     NativeImportError,
 )
 from src.compiler.python.frontend.packages import NativeBinding, NativeInitializerBinding, NativeResourceBinding
+from src.tests.c_toolchains import HOST_CLANG, host_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -1260,7 +1261,8 @@ def test_record_layout_uses_target_abi(reader, tmp_path, target, size, alignment
 
 
 def test_record_layout_agrees_with_compiled_c(reader, tmp_path):
-    compiler = shutil.which("clang") or shutil.which("cc")
+    # Clang is the reader's own layout engine; any host compiler shares its ABI.
+    compiler = [HOST_CLANG] if HOST_CLANG else host_c_compiler()
     assert compiler, "record qualification requires a native C compiler"
     declarations = (
         "typedef struct Node { unsigned char tag; double value; struct Node *next; } Node;\n"
@@ -1295,7 +1297,7 @@ def test_record_layout_agrees_with_compiled_c(reader, tmp_path):
     )
     executable = tmp_path / "Layout"
     subprocess.run(
-        [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", str(probe), "-o", str(executable)],
+        [*compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", str(probe), "-o", str(executable)],
         check=True,
         capture_output=True,
         text=True,

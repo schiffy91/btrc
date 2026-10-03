@@ -25,6 +25,7 @@ from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceDependencyGraph
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
+from src.tests.c_toolchains import HOST_CLANG, host_c_compiler
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
@@ -34,7 +35,7 @@ from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "src" / "tests" / "native" / "modules"
-C_COMPILER = shutil.which("cc")
+C_COMPILER = host_c_compiler()
 
 
 def test_groups_merge_import_cycles_and_reciprocal_includes(tmp_path):
@@ -160,7 +161,7 @@ class _Workspace:
         executable = output / "program"
         subprocess.run(
             [
-                C_COMPILER,
+                *C_COMPILER,
                 "-std=c11",
                 "-pedantic-errors",
                 "-Wall",
@@ -781,7 +782,17 @@ def test_enum_functions_belong_to_the_enums_unit(tmp_path, request):
         sources = sorted(str(path) for path in output.glob("p*.c"))
         executable = output / "program"
         subprocess.run(
-            [C_COMPILER, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", *sources, "-o", str(executable)]
+            [
+                *C_COMPILER,
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                *sources,
+                "-o",
+                str(executable),
+            ]
             + ["-lm", "-lpthread"],
             check=True,
             capture_output=True,
@@ -1122,7 +1133,7 @@ def test_module_units_emit_the_whole_program_functions(compiler: str, tmp_path, 
         pytest.skip("module-unit execution needs a C compiler")
     executable = tmp_path / "units" / "program"
     subprocess.run(
-        [C_COMPILER, "-std=c11", *map(str, units), "-o", str(executable), "-lm", "-lpthread"],
+        [*C_COMPILER, "-std=c11", *map(str, units), "-o", str(executable), "-lm", "-lpthread"],
         check=True,
         capture_output=True,
         timeout=180,
@@ -1192,7 +1203,7 @@ def test_runtime_helpers_are_compiled_once_in_the_runtime_unit(compiler: str, tm
     executable = output / "program"
     subprocess.run(
         [
-            C_COMPILER,
+            *C_COMPILER,
             "-std=c11",
             "-pedantic-errors",
             "-Wall",
@@ -1530,7 +1541,7 @@ def test_native_plan_rebuilds_only_the_edited_unit(compiler: str, tmp_path, requ
     private body edit recompiles only the edited group's unit and relinks,
     and the program runs with the edit.
     """
-    clang = shutil.which("clang")
+    clang = HOST_CLANG
     if clang is None:
         pytest.skip("the native plan builder needs clang")
     if compiler == "python":

@@ -12,14 +12,13 @@ function-like macro cannot capture.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.c_toolchains import configured_c_compiler
+from src.tests.c_toolchains import configured_c_compiler, host_c_compiler
 
 REPO = Path(__file__).resolve().parents[3]
 CC = configured_c_compiler()
@@ -50,7 +49,7 @@ int main() {
 # the Windows workflow includes btrc_win_compat.h.
 MACRO = "#define open(...) btrc_open(__VA_ARGS__)\n"
 
-pytestmark = pytest.mark.skipif(not CC or shutil.which(CC[0]) is None, reason="needs a C compiler")
+pytestmark = pytest.mark.skipif(host_c_compiler() is None, reason="needs a C compiler")
 
 
 def _build_and_run(generated: Path, tmp_path: Path) -> str:
