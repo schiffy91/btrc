@@ -1,6 +1,10 @@
 import Library.Process;
 import Library.IO;
 
+// struct rlimit and getrlimit are this program's own C dependency. A runtime
+// helper's header is visible only in the units whose code uses that helper.
+#include <sys/resource.h>
+
 bool closesFdAboveLoweredSoftLimit() {
 	struct rlimit originalLimit;
 	if (getrlimit((int)RLIMIT_NOFILE, &originalLimit) != 0 || (uintmax_t)originalLimit.rlim_cur <= (uintmax_t)6) {

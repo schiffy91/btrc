@@ -31,6 +31,7 @@ from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.pugixml_fixtures import pugixml_project as pugixml_project
+from src.tests import runner
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -1858,3 +1859,23 @@ def test_cancelling_the_owner_leaves_no_workers(tmp_path, immutable_btrcc):
             owner.kill()
             owner.wait()
     assert not list(output.glob("program*.c"))
+
+
+# Corpus programs that once failed only as module units: an enum whose members
+# share an explicit value (its `_toString` was a switch with duplicate labels),
+# and a program whose C type came from a runtime helper header that only another
+# unit includes. The module-unit corpus run is opt-in, so these keep running.
+_MODULE_UNIT_CORPUS_REGRESSIONS = ("enums/EnumDuplicateExplicitValues.btrc", "stdlib/ChildProcessClosedFds.btrc")
+
+
+@pytest.mark.parametrize("program", _MODULE_UNIT_CORPUS_REGRESSIONS)
+def test_module_unit_corpus_regressions_build_and_run(compiler: str, program: str, tmp_path, request):
+    """Each program builds as module units, links, runs and matches its golden."""
+    path = os.path.join(runner.BTRC_TEST_DIR, program)
+    if compiler == "python":
+        units, warnings = runner._transpile_python_module_units(path, str(tmp_path))
+    else:
+        units, warnings = runner._transpile_btrc_module_units(request.getfixturevalue("btrcc_bin"), path, str(tmp_path))
+    assert len(units) > 1
+    assert warnings == runner.expected_warnings(path)
+    runner._compile_run_check(units, path, program)

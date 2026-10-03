@@ -8,12 +8,14 @@ from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.ir.nodes import (
     CType,
     IRAssign,
+    IRBinOp,
     IRBlock,
     IRCase,
     IREnumDef,
     IREnumValue,
     IRFieldAccess,
     IRFunctionDef,
+    IRIf,
     IRLiteral,
     IRParam,
     IRReturn,
@@ -92,11 +94,17 @@ class DeclarationLowerer:
         self._session.module.enum_defs.append(IREnumDef(name=decl.name or None, values=values))
         if not decl.name:
             return
-        cases = [
-            IRCase(value=IRVar(name=f"{decl.name}_{v.name}"), body=[IRReturn(value=IRLiteral(text=f'"{v.name}"'))])
+        # Structured comparisons rather than a switch: members that share an
+        # explicit value (aliases) would be duplicate case labels in C.
+        # Mirrors enumToStringFn in the self-hosted compiler.
+        stmts = [
+            IRIf(
+                condition=IRBinOp(left=IRVar(name="val"), op="==", right=IRVar(name=f"{decl.name}_{v.name}")),
+                then_block=IRBlock(stmts=[IRReturn(value=IRLiteral(text=f'"{v.name}"'))]),
+            )
             for v in decl.values
         ]
-        cases.append(IRCase(value=None, body=[IRReturn(value=IRLiteral(text='"unknown"'))]))
+        stmts.append(IRReturn(value=IRLiteral(text='"unknown"')))
         self._session.module.function_defs.append(
             IRFunctionDef(
                 name=f"{decl.name}_toString",
@@ -104,7 +112,7 @@ class DeclarationLowerer:
                 params=[IRParam(c_type=CType(text=decl.name), name="val")],
                 is_static=True,
                 archive_export=True,
-                body=IRBlock(stmts=[IRSwitch(value=IRVar(name="val"), cases=cases)]),
+                body=IRBlock(stmts=stmts),
             )
         )
 
