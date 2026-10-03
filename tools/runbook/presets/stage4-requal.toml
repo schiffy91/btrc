@@ -1,0 +1,127 @@
+# Stage 4: BTRSmith requalification at the new pin, then BTRSmith main (MAC-R-01).
+#
+#   tools/runbook/run.sh stage4-requal --btrsmith-branch stage4/pin-bump
+#   tools/runbook/run.sh stage4-requal --btrsmith-branch stage4/pin-bump --with ab    # plus Stage 15's A/B
+#
+# Strictly in order: the D5 batch gate with the BTRSmith clone, release-check
+# on each frontend (serially, under gui-capture), the diff against Stage 2's
+# qualifying column, and on green a fast-forward push of BTRSmith main (needs
+# the 1Password SSH agent). On red, main stays untouched and summary.txt names
+# the failures for CL-R-01.
+
+[preset]
+title = "Stage 4 BTRSmith requalification and pin bump"
+packet = "MAC-R-01"
+kind = "gate"
+quiet = false
+on_failure = "continue"
+before = [
+  "no other agent, gate or guest is running on the Mac",
+  "the 1Password SSH agent will be needed for the final push (the run asks when it gets there)",
+  "Stage 2's qualifying-column failures are listed one per line in {home}/runbook/stage2-qualifying-failures.txt",
+]
+next_action = "nothing: BTRSmith main is pushed at the new pin; MAC-R-02 (`tools/runbook/run.sh stage5`) is next, overnight."
+
+[btrc]
+ref = "main"
+
+[btrsmith]
+# --btrsmith-branch replaces this ref.
+pins = { requal = "stage4/pin-bump" }
+
+[variables]
+gate_base = "origin/main"
+qualifying_failures = "{home}/runbook/stage2-qualifying-failures.txt"
+release_check_target = "release-check"
+# Stage 15's pending Mac row (WORKSTREAMS.md §7 Q43): btrcc before and after the C1 schema commit.
+ab_before = "a637aed"
+ab_after = "5472f61"
+
+[[cell]]
+id = "gate"
+title = "D5 batch gate (diff, lint, format, generated, extension, test, bootstrap, test-c11, BTRSmith frontend check and library smoke)"
+lock = "gate"
+result = "gate-summary"
+stand_in = "skip"
+timeout_hours = 10
+command = ["{scripts}/batch_gate.sh", "{btrc}", "{out}", "{gate_base}", "{btrsmith}"]
+
+[[cell]]
+id = "release-check-{frontend}"
+title = "BTRSmith make {release_check_target}, {frontend} frontend (GUI targets; one rerun on failure)"
+matrix = { frontend = ["reference", "selfhost"] }
+lock = "gui-capture"
+cwd = "btrsmith"
+result = "failure-list"
+retries = 1
+stand_in = "skip"
+timeout_hours = 3
+command = ["nix", "develop", ".", "--command", "make", "{release_check_target}", "BTRC_FRONTEND={frontend}"]
+
+[[cell]]
+id = "qualifying-diff"
+title = "release-check failures are a subset of Stage 2's qualifying column"
+action = "subset"
+of = "release-check-*"
+allowed = "{qualifying_failures}"
+stand_in = "skip"
+
+[[cell]]
+id = "push-btrsmith-main"
+title = "fast-forward BTRSmith main to the requalified pin"
+action = "push"
+repo = "btrsmith"
+branch = "main"
+when = "green"
+stand_in = "skip"
+owner_action = "unlock 1Password if asked; the push is fast-forward only and never forced"
+
+[[cell]]
+id = "ab-build-before"
+title = "Stage 15 A/B: clang -O2 btrcc at {ab_before}"
+optional = true
+tree = "{ab_before}"
+cwd = "tree"
+lock = "btrcc-build"
+stand_in = "skip"
+timeout_hours = 2
+env = { BTRC_REPO = "{tree}" }
+command = ["{scripts}/build_btrcc.sh", "{out}/btrcc", "{host_entry}"]
+
+[[cell]]
+id = "ab-build-after"
+title = "Stage 15 A/B: clang -O2 btrcc at {ab_after}"
+optional = true
+tree = "{ab_after}"
+cwd = "tree"
+lock = "btrcc-build"
+stand_in = "skip"
+timeout_hours = 2
+env = { BTRC_REPO = "{tree}" }
+command = ["{scripts}/build_btrcc.sh", "{out}/btrcc", "{host_entry}"]
+
+[[cell]]
+id = "ab-instr-before"
+title = "Stage 15 A/B: BTRSmith --jobs 1 instructions and peak, btrcc {ab_before}"
+optional = true
+tree = "{ab_before}"
+cwd = "tree"
+lock = "bench"
+result = "instr"
+stand_in = "skip"
+timeout_hours = 1
+env = { BTRC_REPO = "{tree}", BSM_WORKSPACE = "{btrsmith}", BTRSMITH_DEV_SHELL = "{btrsmith}" }
+command = ["{scripts}/instr.sh", "{cell:ab-build-before}/btrcc", "stage15-before"]
+
+[[cell]]
+id = "ab-instr-after"
+title = "Stage 15 A/B: BTRSmith --jobs 1 instructions and peak, btrcc {ab_after}"
+optional = true
+tree = "{ab_after}"
+cwd = "tree"
+lock = "bench"
+result = "instr"
+stand_in = "skip"
+timeout_hours = 1
+env = { BTRC_REPO = "{tree}", BSM_WORKSPACE = "{btrsmith}", BTRSMITH_DEV_SHELL = "{btrsmith}" }
+command = ["{scripts}/instr.sh", "{cell:ab-build-after}/btrcc", "stage15-after"]

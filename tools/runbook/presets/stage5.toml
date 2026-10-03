@@ -1,0 +1,225 @@
+# Stage 5: the quiet baseline measurement round (PLAN.md Stage 5, MAC-R-02).
+#
+#   tools/runbook/run.sh stage5
+#
+# Overnight, on the quiet Mac: both BTRSmith pins (aeeca0fd for continuity with
+# the 65057cb record, and the post-Stage-4 pin, D9) x both frontends, every
+# budget_bench scenario at 5 cold and 20 incremental samples, with the quiet
+# check before every cell. Rerunning the same command resumes.
+
+[preset]
+title = "Stage 5 quiet baseline measurement round"
+packet = "MAC-R-02"
+kind = "measurement"
+quiet = true
+on_failure = "continue"
+before = [
+  "stop the podman machine (`podman machine stop`) and every agent session, build and guest on the Mac",
+  "leave the Mac alone overnight; the round waits for a quiet 60 s window before every cell",
+]
+next_action = "nothing: the evidence branch is pushed; CL-R-03 writes the Stage 5 gap table from it."
+
+[btrc]
+ref = "main"
+
+[btrsmith]
+# label = ref. Resolved once per run and recorded; a resumed run reuses the SHAs.
+# The post-Stage-4 pin is BTRSmith main after MAC-R-01's fast-forward push.
+pins = { aeeca0fd = "aeeca0fd", post-stage4 = "main" }
+branch_pin = "post-stage4"
+
+[variables]
+cold_samples = "5"
+incremental_samples = "20"
+native_jobs = "8"
+workers = "1,2,4,8"
+corpus_jobs = "1"
+# Every scenario that reads the BTRSmith workspace; batch has its own cell (no
+# stand-in), and self-compile/corpus do not depend on the pin.
+product_scenarios = "cold,release,edit,instance-edit,interface-edit,noop,touch,memory,workers"
+
+[rehearsal.variables]
+# A container rehearsal proves the wiring, not the numbers.
+corpus_jobs = "4"
+
+[stand_in]
+# budget_bench's stand-in has no pins: one cell per frontend instead of per pin.
+collapse = ["pin"]
+
+[quiet]
+# Overridden locally by ~/.cache/btrc/runbook/quiet.toml (README.md).
+window_s = 60
+interval_s = 5
+
+# M11 budgets (docs/design/plan-reference.md "Numeric acceptance budgets", D13).
+# A miss is a finding in summary.json (D9), not a failed cell.
+[[budget]]
+frontend = "selfhost"
+scenario = "cold-transpile"
+limit = 55
+[[budget]]
+frontend = "selfhost"
+scenario = "cold-dev"
+limit = 80
+[[budget]]
+frontend = "selfhost"
+scenario = "release-whole"
+limit = 90
+[[budget]]
+frontend = "selfhost"
+scenario = "edit-navigation"
+limit = 10
+[[budget]]
+frontend = "selfhost"
+scenario = "edit-navigation"
+statistic = "p95"
+limit = 15
+[[budget]]
+frontend = "selfhost"
+scenario = "edit-ui-controller"
+limit = 10
+[[budget]]
+frontend = "selfhost"
+scenario = "edit-ui-controller"
+statistic = "p95"
+limit = 15
+[[budget]]
+frontend = "selfhost"
+scenario = "edit-audio-preparation"
+limit = 10
+[[budget]]
+frontend = "selfhost"
+scenario = "edit-audio-preparation"
+statistic = "p95"
+limit = 15
+[[budget]]
+scenario = "noop"
+limit = 5
+[[budget]]
+scenario = "touch"
+limit = 5
+[[budget]]
+frontend = "selfhost"
+scenario = "batch"
+limit = 60
+[[budget]]
+frontend = "selfhost"
+scenario = "memory"
+fact = "compiler_peak_footprint_bytes"
+limit = 3221225472
+label = "selfhost compiler peak <= 3 GiB"
+[[budget]]
+frontend = "reference"
+scenario = "cold-transpile"
+limit = 180
+[[budget]]
+frontend = "reference"
+scenario = "cold-dev"
+limit = 210
+[[budget]]
+frontend = "reference"
+scenario = "edit-navigation"
+limit = 15
+[[budget]]
+frontend = "reference"
+scenario = "edit-navigation"
+statistic = "p95"
+limit = 20
+[[budget]]
+frontend = "reference"
+scenario = "edit-ui-controller"
+limit = 15
+[[budget]]
+frontend = "reference"
+scenario = "edit-ui-controller"
+statistic = "p95"
+limit = 20
+[[budget]]
+frontend = "reference"
+scenario = "edit-audio-preparation"
+limit = 15
+[[budget]]
+frontend = "reference"
+scenario = "edit-audio-preparation"
+statistic = "p95"
+limit = 20
+[[budget]]
+frontend = "reference"
+scenario = "batch"
+limit = 120
+[[budget]]
+frontend = "reference"
+scenario = "memory"
+fact = "compiler_peak_footprint_bytes"
+limit = 2147483648
+label = "reference compiler peak <= 2 GiB"
+
+[[cell]]
+id = "btrcc"
+title = "build the clang -O2 btrcc every timing names"
+provides = "btrcc"
+lock = "btrcc-build"
+quiet = false
+timeout_hours = 2
+env = { BTRC_REPO = "{btrc}" }
+command = ["{scripts}/build_btrcc.sh", "{run}/btrcc/btrcc", "{host_entry}"]
+
+[[cell]]
+id = "product-{pin}-{frontend}"
+title = "budget_bench product scenarios, {frontend} frontend, BTRSmith {pin}"
+matrix = { pin = ["aeeca0fd", "post-stage4"], frontend = ["selfhost", "reference"] }
+lock = "bench"
+shell = "btrsmith"
+result = "budget-bench"
+timeout_hours = 10
+command = [
+  "python3", "-m", "tools.budget_bench", "{btrcc_args}", "{workspace_args}", "--out", "{out}",
+  "--frontend", "{frontend}", "--scenarios", "{product_scenarios}",
+  "--cold-samples", "{cold_samples}", "--incremental-samples", "{incremental_samples}",
+  "--native-jobs", "{native_jobs}", "--workers", "{workers}", "--timing-cold", "{dry_run_args}",
+]
+
+[[cell]]
+id = "batch-{pin}-{frontend}"
+title = "budget_bench warm 10-executable batch, {frontend} frontend, BTRSmith {pin}"
+matrix = { pin = ["aeeca0fd", "post-stage4"], frontend = ["selfhost", "reference"] }
+lock = "bench"
+shell = "btrsmith"
+result = "budget-bench"
+stand_in = "skip"
+timeout_hours = 4
+command = [
+  "python3", "-m", "tools.budget_bench", "{btrcc_args}", "{workspace_args}", "--out", "{out}",
+  "--frontend", "{frontend}", "--scenarios", "batch", "--cold-samples", "{cold_samples}",
+  "--native-jobs", "{native_jobs}", "{dry_run_args}",
+]
+
+[[cell]]
+id = "make-noop-{pin}-{frontend}"
+title = "product-Make no-op (--entry make), {frontend} frontend, BTRSmith {pin}"
+matrix = { pin = ["aeeca0fd", "post-stage4"], frontend = ["selfhost", "reference"] }
+lock = "bench"
+shell = "btrsmith"
+result = "budget-bench"
+stand_in = "skip"
+timeout_hours = 2
+command = [
+  "python3", "-m", "tools.budget_bench", "{btrcc_args}", "{workspace_args}", "--out", "{out}",
+  "--frontend", "{frontend}", "--entry", "make", "--scenarios", "noop",
+  "--incremental-samples", "{incremental_samples}", "--native-jobs", "{native_jobs}", "{dry_run_args}",
+]
+
+[[cell]]
+id = "scaling-{frontend}"
+title = "self-compile and full-corpus wall/RSS baselines, {frontend} frontend"
+matrix = { frontend = ["selfhost", "reference"] }
+lock = "bench"
+shell = "btrsmith"
+result = "budget-bench"
+timeout_hours = 8
+# self-compile and corpus never read the workspace; the branch pin (post-Stage-4) satisfies the option.
+command = [
+  "python3", "-m", "tools.budget_bench", "{btrcc_args}", "{workspace_args}", "--out", "{out}",
+  "--frontend", "{frontend}", "--scenarios", "self-compile,corpus", "--cold-samples", "{cold_samples}",
+  "--corpus-jobs", "{corpus_jobs}", "{dry_run_args}",
+]
