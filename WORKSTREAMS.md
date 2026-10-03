@@ -150,13 +150,19 @@ This protocol is fixed. Every packet follows it, and a packet's own text never o
   - `ci.yml`: the Linux matrix, the devcontainer and C11;
   - `macos.yml`: macOS shards, the header reader, the AppKit fixtures. Hosted macos-15 exposes a paravirtual Metal adapter: GPU correctness rows run there, while real-GPU timing, pacing and idle-CPU rows stay owner-tier;
   - `windows.yml`: the native bootstrap and the VSIX. It runs a fixed module list; Windows, iOS and Android provider suites run on the host lanes' provider-suite jobs (`CX-P1-07/08/09`).
-  - Once `CL-UIA-02` lands, a first `scope` job trims what a PR runs. Markdown outside the test-read set runs only lint, format-check and generated-check. Other `codex/*` PRs run macOS native-bundle (arm64) plus the native-GUI job. The full macOS matrix runs for changes to `src/compiler/**`, `src/language/**`, `src/runtime/**`, `tools/compiler_codegen/**` or a compiler-import module, for the PR label `ci:full`, and on `main`.
+  - A first `scope` job in each of the three workflows picks one tier and reads `ci/tiers.toml` (`CL-R-38`, batch 16) for the jobs and matrix rows that tier runs:
+    - `docs`: Markdown outside the test-read set runs only the `static` job (generated-check, lint, format-check and the naming contract).
+    - `lane`: other `codex/*` PRs run the Linux matrix, macOS native-bundle (arm64) plus the native-GUI job, and Windows only when its paths change.
+    - `pr`: any other PR runs `static` and the unit shard, plus the corpus shards its changed paths select.
+    - `main`: a push to `main`, a full dispatch, the PR label `ci:full`, or a change to `src/compiler/**`, `src/language/**`, `src/runtime/**`, `tools/compiler_codegen/**`, a compiler-import module or a CI hotspot (including `release.yml` and `ci/tiers.toml`) runs today's full matrix on all three workflows.
+    - `extended` (a dispatch with `focus=extended`, and the nightly `release.yml` run at 08:23 UTC) adds macOS clang O1 and O3; `release` (a `release.yml` dispatch or a `v*` tag) runs every hosted job and assembles one ledger bundle.
+    - The old `docs` job is now `static`, and `release.yml`'s calls prefix every job name.
 - **Workflow files a packet owns** follow the lane-workflow class in `test_ci_workflow_contracts.py`: push and pull_request to `main` with a paths filter that includes the workflow file itself, plus `workflow_dispatch` (and `workflow_call` for a reusable workflow). Every pytest job uploads its skip report as its last step, and the packet adds that workflow's row in the same commit.
   - Until `CL-UIA-02` replaces the exact-trigger test with this class policy, a new workflow fails every unit shard, so lane-workflow packets wait for it.
   - Until a workflow file is on `main`, it runs only on its `pull_request` trigger, because GitHub dispatches only workflows on the default branch. Rerun with `gh run rerun <id> [--failed]`.
 - **Rerun or focus:**
   - `gh workflow run ci.yml --ref codex/<id>` (likewise `macos.yml`, `windows.yml` and any lane workflow already on `main`);
-  - once `CL-UIA-02` lands, `-f focus=native-gui` runs only the native-GUI job;
+  - `-f focus=native-gui` runs only the native-GUI job, and `-f focus=extended` the extended tier;
   - read results with `gh run list --branch codex/<id>`, `gh run view <run-id> --log-failed` and `gh run download <run-id> -n <artifact>`.
 - **Capacity, measured on 2026-10-03.**
   - One `macos.yml` run is 9 macOS jobs and about 236 runner-minutes; its unit shard alone took 65 minutes in run 37084025400. At most 5 macOS jobs ran at once on this account, and whole runs took 66–125 minutes.
@@ -232,13 +238,16 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-C-03` | Claude | `stage16/c4-spec` | — | integrated in batch 14 |
 | `CL-C-05`, `CL-C-06` | Claude | `stage16/c4-python`, then `stage16/c4-conditionals` (the one paired commit) | `src/compiler/*/frontend/**`, `pipeline/ModuleUnits.btrc` with `application/modules.py`, `backend/c_emitter.py`, `ir/Emitter.btrc`, `Parser.btrc`/`parser.py` B1, the source-macro and U1/U2 sites, `src/devex/formatter` and LSP C4 cases, `c3_c4.toml` r18 rows | CL-C-05 done (Python half); CL-C-06 in flight |
 | `CL-P1-01` | Claude | `stage22/doc-closeout` | — | integrated in batch 14 |
-| `CL-P1-02` | Claude | `stage23/platforms-shell` | `flake.nix`, `flake.lock`, `nix/*` | in flight |
+| `CL-P1-02` | Claude | `stage23/platforms-shell` | — | integrated in batch 16 (`nix develop .#platforms`; the Mac realization and AVD boot are `MAC-P1-03`'s) |
+| `CL-R-38` | Claude | `stage38/ci-tiers` | — | integrated in batch 16 (`ci/tiers.toml`, `release.yml`, `tools/qualification/{tiers,bundle}.py`); a `release.yml` dispatch and a full macOS run of the new plan remain unverified until they run on `main` |
+| `CL-R-23` | Claude | `stage10/host-manifests` | — | integrated in batch 16; `adapters.py` does not yet carry `host_manifest` into the ledger records |
+| `CL-R-04` | Claude | `stage6/stageb-spec` | — | integrated in batch 16 (docs only); its defects SB-D1…D8 wait for the C4 landing, and SB-D9 is `CL-REQ-05` |
 | `CL-R-36` | Claude | `stage38/macos-hardware-tier` | — | integrated in batch 15 (`macos-hosted` runner manifest, `hardware` skip category); releases the workflows to `CL-R-38` |
 | `CL-R-06` | Claude | `stage6/reference-attribution` | — | integrated in batch 15 |
 | `CL-C-04` | Claude | `stage16/c4-directives` | — | integrated in batch 13 |
 | Reserved: C4 lane (`CL-C-03…06`) | Claude | `stage16/c4-*` | `pipeline/ModuleUnits.btrc` with `application/modules.py`, `src/compiler/*/frontend/**`, `backend/c_emitter.py`, `ir/Emitter.btrc` | reserved: `CL-C-01` and `CL-R-00` are on `main` |
-| Reserved: `flake.nix`/`nix/*` | Claude | — | held by `CL-P1-02` | queue |
-| Reserved: `macos.yml`/`ci.yml` | Claude | — | free; next then `CL-R-38`, then `CL-UIB-04`, then `CL-UIB-14` | queue |
+| Reserved: `flake.nix`/`nix/*` | Claude | — | free | queue |
+| Reserved: `macos.yml`/`ci.yml`/`windows.yml`/`release.yml` | Claude | — | free; next `CL-UIB-04`, then `CL-UIB-14` | queue |
 
 ### 3.4 Parity rule, and the stdlib modules the compiler imports
 

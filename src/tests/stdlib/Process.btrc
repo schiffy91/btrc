@@ -111,9 +111,11 @@ int main() {
 	var tempRoot = ShellWords.quote(Environment.get("TMPDIR", "/tmp"));
 	var tempPattern = ShellWords.quote(f"btrc-process-{Platform.pid()}-*");
 	var countCommand = f"find {tempRoot} -maxdepth 1 -type f -name {tempPattern} | wc -l";
-	var before = sh.run(countCommand, logFailure=false).trimmed();
+	// Only find's output counts: other tests delete their own files in the shared
+	// temporary directory, and find reports each one that vanishes on stderr.
+	var before = sh.run(countCommand, stderr=COMMAND_OUTPUT_COLLECT, logFailure=false).trimmed();
 	assert(sh.run("cat", stdin="temp check").stdout().equals("temp check"));
-	var after = sh.run(countCommand, logFailure=false).trimmed();
+	var after = sh.run(countCommand, stderr=COMMAND_OUTPUT_COLLECT, logFailure=false).trimmed();
 	assert(after.equals(before));
 	print("PASS");
 	return 0;

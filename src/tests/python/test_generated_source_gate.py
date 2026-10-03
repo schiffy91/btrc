@@ -197,7 +197,9 @@ def test_ci_checks_drift_before_packaging_and_after_release_builds() -> None:
     windows = (REPO / ".github/workflows/windows.yml").read_text(encoding="utf-8")
 
     assert ci.index("make NIX= generated-check") < ci.index("nix build .#btrc")
-    # Once before the release builds, and once after them beside a clean-tree check.
-    assert ci.count("make NIX= generated-check") == 2
+    # In the release job: once before its builds, and once after them beside a
+    # clean-tree check. (The static job runs its own for the docs and pr tiers.)
+    release = ci.split("\n  release:\n", 1)[1].split("\n  tests:\n", 1)[0]
+    assert release.count("make NIX= generated-check") == 2
     assert 'test -z "$(git status --porcelain --untracked-files=all)"' in ci
     assert "python -m tools.compiler_codegen.main check" in windows
