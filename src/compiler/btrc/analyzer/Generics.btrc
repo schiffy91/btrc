@@ -1,5 +1,6 @@
 /* Retained generic normalization, inference, and closure owner. */
 
+import Library.Digest.SHA256;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
@@ -1427,7 +1428,109 @@ class GenericSpecializer {
 		self.expressions.endScopedMemo(ownsMemo);
 	}
 
+	/* Stage 6 instances spike (never merged): a closure pass whose entry state
+	 * and program interface match an earlier build's replays that pass's net
+	 * effect from one packed record: the instances it added, in order, and its
+	 * call-argument writes, instead of one record (or scan) per instance with
+	 * every duplicate demand fact. Unsound by design: a body edit inside a
+	 * template changes the closure without changing the key. */
+	private int spikePasses = 0;
+
+	private string spikeSeed(Analyzed analyzed) {
+		SHA256 seed = SHA256();
+		seed.appendText(f"pass={self.spikePasses};validated={self.validated};classes={self.closedClassInstances.len};methods={self.closedMethodInstances.len}\n");
+		for instance in analyzed.genericInstances { seed.appendText(instance.mangled + "\n"); }
+		for instance in analyzed.methodGenInstances { seed.appendText(TypeIdentity.methodInstanceKey(instance.classBase, instance.classArgs, instance.methodName, instance.methodArgs) + "\n"); }
+		return seed.finish();
+	}
+
+	/* Section text: `<context length>\n<context><facts length>\n<facts>`, one
+	 * section per run of facts made under one specialization. */
+	private bool spikeReplay(IValidationRecords records, string text, Analyzed analyzed) {
+		int at = 0;
+		int length = text.length();
+		while (at < length) {
+			int newline = text.find("\n", at);
+			if (newline < 0) { return false; }
+			int contextLength = Strings.toInt(text.substring(at, newline - at));
+			string context = text.substring(newline + 1, contextLength);
+			at = newline + 1 + contextLength;
+			newline = text.find("\n", at);
+			if (newline < 0) { return false; }
+			int factsLength = Strings.toInt(text.substring(at, newline - at));
+			Vector<ValidationFact>? facts = records.spikeDecodeFacts(text.substring(newline + 1, factsLength));
+			at = newline + 1 + factsLength;
+			if (facts == null) { return false; }
+			string previous = analyzed.beginInstance(context);
+			self.replayDemand(facts);
+			analyzed.endInstance(previous);
+		}
+		return true;
+	}
+
+	private string? spikeRecord(IValidationRecords records, Analyzed analyzed, int classStart, int methodStart, Vector<ValidationFact> log) {
+		StringBuilder out = StringBuilder();
+		Vector<ValidationFact> demand = [];
+		for (int index = classStart; index < analyzed.genericInstances.len; index++) {
+			GenInstance instance = analyzed.genericInstances.get(index);
+			ValidationFact fact = ValidationFact(VALIDATION_GENERIC_CLASS, null);
+			fact.name = instance.base;
+			fact.arguments = instance.args;
+			demand.push(fact);
+		}
+		for (int index = methodStart; index < analyzed.methodGenInstances.len; index++) {
+			MethodGenInstance instance = analyzed.methodGenInstances.get(index);
+			ValidationFact fact = ValidationFact(VALIDATION_GENERIC_METHOD, null);
+			fact.name = instance.classBase;
+			fact.member = instance.methodName;
+			fact.arguments = instance.classArgs;
+			fact.moreArguments = instance.methodArgs;
+			demand.push(fact);
+		}
+		string? encoded = records.spikeEncodeFacts(demand);
+		if (encoded == null) { return null; }
+		out.append("0\n" + Strings.fromInt(encoded.length()) + "\n" + encoded);
+		int start = 0;
+		while (start < log.len) {
+			string context = log.get(start).detail;
+			int end = start;
+			Vector<ValidationFact> run = [];
+			while (end < log.len && log.get(end).detail.equals(context)) { run.push(log.get(end)); end++; }
+			string? facts = records.spikeEncodeFacts(run);
+			if (facts == null) { return null; }
+			out.append(Strings.fromInt(context.length()) + "\n" + context + Strings.fromInt(facts.length()) + "\n" + facts);
+			start = end;
+		}
+		return out.toString();
+	}
+
 	private void closeGenericInstanceGraph(Analyzed analyzed, OperatorSemantics operators) {
+		IValidationRecords? records = self.records;
+		string spikeKey = records != null ? records.spikeClosureKey(self.spikeSeed(analyzed)) : "";
+		self.spikePasses = self.spikePasses + 1;
+		if (records != null && !spikeKey.isEmpty()) {
+			string? stored = records.spikeLoadClosure(spikeKey);
+			if (stored != null && self.spikeReplay(records, stored, analyzed)) {
+				for instance in analyzed.genericInstances { self.closedClassInstances.put(instance.mangled, true); }
+				for instance in analyzed.methodGenInstances { self.closedMethodInstances.put(TypeIdentity.methodInstanceKey(instance.classBase, instance.classArgs, instance.methodName, instance.methodArgs), true); }
+				BtrccPhaseTimer.note("spike-instances=replayed");
+				return;
+			}
+		}
+		int classStart = analyzed.genericInstances.len;
+		int methodStart = analyzed.methodGenInstances.len;
+		Vector<ValidationFact> log = [];
+		analyzed.spikeCallLog = log;
+		self.closeGenericInstanceGraphLive(analyzed, operators);
+		analyzed.spikeCallLog = null;
+		if (records != null && !spikeKey.isEmpty()) {
+			string? text = self.spikeRecord(records, analyzed, classStart, methodStart, log);
+			if (text != null) { records.spikeStoreClosure(spikeKey, text); }
+			BtrccPhaseTimer.note(text != null ? "spike-instances=stored" : "spike-instances=unencodable");
+		}
+	}
+
+	private void closeGenericInstanceGraphLive(Analyzed analyzed, OperatorSemantics operators) {
 		Map<string, bool> processedClasses = self.closedClassInstances;
 		Map<string, bool> processedMethods = self.closedMethodInstances;
 		int classIndex = 0;

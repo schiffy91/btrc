@@ -145,6 +145,13 @@ interface IValidationRecords {
 	Vector<ValidationFact>? recordedInstance(Node template, string section);
 	bool journalsInstance(Node template);
 	bool finishInstance(Node template, string section, ValidationJournal journal);
+	/* Stage 6 instances spike (never merged): one packed closure record per
+	 * closure pass, keyed by `seed` and the program interface; "" disables it. */
+	string spikeClosureKey(string seed);
+	string? spikeLoadClosure(string key);
+	void spikeStoreClosure(string key, string text);
+	string? spikeEncodeFacts(Vector<ValidationFact> facts);
+	Vector<ValidationFact>? spikeDecodeFacts(string text);
 }
 
 class Analyzed {
@@ -498,7 +505,18 @@ class Analyzed {
 		return fact;
 	}
 
+	/* Stage 6 instances spike: every call-argument write while a closure pass
+	 * runs, with the specialization it was made under in `detail`. */
+	public Vector<ValidationFact>? spikeCallLog = null;
+
 	public void recordMethodCallArguments(Node call, Vector<Node> arguments) {
+		Vector<ValidationFact>? log = self.spikeCallLog;
+		if (log != null) {
+			ValidationFact logged = ValidationFact(VALIDATION_CALL_ARGUMENTS, call);
+			logged.arguments = arguments;
+			logged.detail = self.activeInstance;
+			log.push(logged);
+		}
 		if (self.activeInstance.isEmpty()) {
 			self.methodGenCallArgs.put(AstIdentity.key(call), arguments);
 			ValidationFact? fact = self.journalFact(VALIDATION_CALL_ARGUMENTS, call, null);
