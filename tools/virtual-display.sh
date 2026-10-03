@@ -34,7 +34,12 @@ case "$session" in
     ;;
 esac
 if command -v "$server" >/dev/null && command -v dbus-daemon >/dev/null; then
-  exec "$(dirname "${BASH_SOURCE[0]}")/ui/headless-session.sh" "--$session" -- "$@"
+  # Sourced, not executed: in the devcontainer every new bash re-reads the dev
+  # shell through BASH_ENV, which nests one more nix-shell.* directory into
+  # TMPDIR. One more level pushes the corpus's unix-socket paths under TMPDIR
+  # past sun_path's 108 bytes. The script exits with the command's status.
+  # shellcheck source=ui/headless-session.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/ui/headless-session.sh" "--$session" -- "$@"
 fi
 if ! command -v xvfb-run >/dev/null; then
   exec "$@"

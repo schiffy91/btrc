@@ -148,6 +148,28 @@ def test_virtual_display_delegates_to_the_session(session, server):
     assert seen["environ"]["GDK_BACKEND"] == (session or "x11")
 
 
+def test_virtual_display_adds_no_bash_env_level(tmp_path):
+    """The devcontainer re-reads the dev shell through BASH_ENV in every new bash,
+    and each read nests another directory into TMPDIR. virtual-display.sh runs the
+    session in its own process, so the command sees one level, not two: CI's
+    unix-socket fixtures under TMPDIR sit close to sun_path's 108 bytes."""
+    _require_session_tools("Xvfb")
+    profile = tmp_path / "profile.sh"
+    profile.write_text('export TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/level.XXXXXX")"\n')
+    root = tmp_path / "tmp"
+    root.mkdir()
+    result = subprocess.run(
+        [str(VIRTUAL_DISPLAY), sys.executable, "-c", "import os; print(os.environ['TMPDIR'])"],
+        cwd=ROOT,
+        env=_session_environment(BASH_ENV=str(profile), TMPDIR=str(root)),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()).parent == root
+
+
 def test_virtual_display_rejects_an_unknown_session():
     if sys.platform != "linux":
         pytest.skip("headless GUI sessions are Linux-only")

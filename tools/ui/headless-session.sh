@@ -25,7 +25,8 @@
 # This script is the session's only owner, rather than a child of
 # dbus-run-session, so a TERM sent to the PID its caller holds reaches it: it
 # passes TERM (and INT) to the command, then stops the servers and the bus and
-# removes the session's directory. The command's status is the script's. A
+# removes the session's directory. The command's status is the script's.
+# tools/virtual-display.sh sources it, so it must always end in exit. A
 # server that fails to start has its log printed.
 #
 # The dev shell provides every tool (flake.nix): dbus-daemon, Xvfb, weston and
