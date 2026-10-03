@@ -1484,21 +1484,31 @@ class SetjmpEffectAnalysis {
 	 * the same whichever functions each round revisits: after the first round,
 	 * only a function that consulted a summary that just moved can move. A
 	 * flow computed once no consulted summary moves afterwards is the flow the
-	 * final catalog would give, so the contexts reuse it. */
-	public Map<string, SetjmpCallEffects> analyze(IRModule module) {
+	 * final catalog would give, so the contexts reuse it.
+	 *
+	 * Only `roots` and the definitions their flows consult, transitively, are
+	 * solved, and only they get a context. A flow depends on no summary it
+	 * does not consult, so each context is the one a whole-module solve gives.
+	 * A function first reached through a consulted summary is analyzed in the
+	 * round that reaches it, as every root is in the first round. */
+	public Map<string, SetjmpCallEffects> analyze(IRModule module, Map<string, bool> roots) {
 		self.initialize(module);
 		Map<string, SetjmpPointerFlowResult> flows = {};
 		Map<string, Map<string, bool>> consultedBy = {};
+		Map<string, bool> active = {};
+		for name in roots.keys() {
+			if (self.definitions.has(name)) { active.put(name, true); }
+		}
 		Map<string, bool> moved = {};
-		bool first = true;
 		while (true) {
 			Map<string, bool> movedNow = {};
+			bool reached = false;
 			int index = 0;
 			while (index < self.module.functions.len) {
 				IRFunction definition = self.module.functions.get(index);
 				index = index + 1;
-				if (definition.body == null) { continue; }
-				if (!first) {
+				if (definition.body == null || !active.has(definition.name)) { continue; }
+				if (consultedBy.has(definition.name)) {
 					bool stale = false;
 					for callee in consultedBy.get(definition.name).keys() {
 						if (moved.has(callee)) { stale = true; }
@@ -1513,16 +1523,21 @@ class SetjmpEffectAnalysis {
 				if (self.summaries.get(definition.name).merge(summary)) {
 					movedNow.put(definition.name, true);
 				}
+				for callee in self.consulted.keys() {
+					if (!active.has(callee)) {
+						active.put(callee, true);
+						reached = true;
+					}
+				}
 			}
-			if (movedNow.len == 0) { break; }
+			if (movedNow.len == 0 && !reached) { break; }
 			moved = movedNow;
-			first = false;
 		}
 		Map<string, SetjmpCallEffects> contexts = {};
 		int index = 0;
 		while (index < self.module.functions.len) {
 			IRFunction definition = self.module.functions.get(index);
-			if (definition.body != null) {
+			if (definition.body != null && flows.has(definition.name)) {
 				contexts.put(definition.name, SetjmpCallEffects(self.summaries, self.externalEffects, flows.get(definition.name)));
 			}
 			index = index + 1;
