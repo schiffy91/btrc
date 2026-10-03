@@ -46,7 +46,7 @@ branch_pin = "post-stage4"
 
 [variables]
 # The spikes' common base: origin/main-kn9jxh when CL-R-05 cut them. A rebase of
-# the spike branches moves this SHA with them.
+# the spike branches moves this SHA, and base_tree below, with them.
 ref_base = "8dd6d1cda3b4df73844daf7367b5a035fcaf0386"
 ref_decl = "spike/stage6-decl"
 ref_parse = "spike/stage6-parse"
@@ -55,7 +55,12 @@ ref_records = "spike/stage6-records"
 ref_visibility = "spike/stage6-visibility"
 ref_composed = "spike/stage6-composed"
 # The clang -O2 btrcc of each tree (Apple clang on the Mac; docs/design/compile-performance.md "Measuring a compile").
-spike_build = '"{scripts}/build_btrcc.sh" "{run}/spikes/{lever}/btrcc" "{host_entry}"'
+spike_build = 'mkdir -p "{run}/spikes/{lever}" && "{scripts}/build_btrcc.sh" "{run}/spikes/{lever}/btrcc" "{host_entry}"'
+# Every binary compiles against the base tree's stdlib (the spikes change no
+# stdlib or runtime file), so --debug paths in the units are the same for
+# every lever and cmp_units.py compares them as they are. The engine checks
+# a tree out at {run}/trees/<first 12 hex digits of its SHA>.
+base_tree = "{run}/trees/8dd6d1cda3b4"
 fixtures = "audio-preparation,navigation,ui-controller"
 # Each repeat is one more revision of every fixture from the same primed snapshot.
 instr_repeat = "3"
@@ -95,7 +100,7 @@ lock = "bench"
 shell = "btrsmith"
 stand_in = "skip"
 timeout_hours = 3
-env = { BTRC_BENCH_HOME = "{out}", BSM_WORKSPACE = "{btrsmith}", BTRC_REPO = "{tree}" }
+env = { BTRC_BENCH_HOME = "{out}", BSM_WORKSPACE = "{btrsmith}", BTRC_REPO = "{base_tree}" }
 command = [
   "bash", "-c",
   'set -o pipefail; python3 "{scripts}/edit_instr.py" "{run}/spikes/{lever}/btrcc" "{lever}" --prime --jobs 1 --fixtures "{fixtures}" --repeat "{instr_repeat}" 2>&1 | tee "{out}/instr.txt"',
@@ -103,7 +108,7 @@ command = [
 
 [[cell]]
 id = "identity-{lever}"
-title = "the {lever} spike emits the base's module units for the last edit (cmp_units.py)"
+title = "the {lever} spike emits the base's module units for the last fixture edit (cmp_units.py)"
 matrix = { lever = ["decl", "parse", "instances", "records", "visibility", "composed"] }
 stand_in = "skip"
 timeout_hours = 1
@@ -154,6 +159,9 @@ for lever, fixtures in deltas.items():
 [[cell]]
 id = "composed-wall"
 title = "one quiet wall-clock run of the composed spike on the three body-edit fixtures (budget_bench edit)"
+# budget_bench pairs the binary with its own tree's stdlib: run it from the composed tree.
+tree = "{ref_composed}"
+cwd = "tree"
 lock = "bench"
 quiet = true
 shell = "btrsmith"
