@@ -400,7 +400,7 @@ Stage 38's `qualification-ci-macos-native-suite` (packet `CL-R-36`),
 
 | Runner | Who | Manifest | May expect |
 | --- | --- | --- | --- |
-| `macos` | the acceptance Mac (`make test` in `nix develop`) | `macos.json`, unchanged rules | every category, as before |
+| `macos` | the acceptance Mac (`make test` in `nix develop`) | `macos.json`, unchanged rules | any category, as before |
 | `macos-hosted` | every `macos.yml` job (`env: BTRC_TEST_RUNNER: macos-hosted`) | `macos-hosted.json` | `platform` and `hardware` only |
 
 `tools/qualification/skips.py` enforces the hosted policy when it loads a
@@ -424,7 +424,9 @@ btrc 3, and none in the corpus, bootstrap and strict-C11 shards. Every one is
   one `platform` rule, `darwin-gcc-sanitizer-runtime`, narrowed to those two
   node ids: GCC ships no libsanitizer for aarch64-darwin, the same cases pass
   through clang and `/usr/bin/clang` on that runner, and they pass through
-  gcc in the devcontainer.
+  gcc in the devcontainer. They are not filed to the nix owner: upstream
+  GCC has no libsanitizer port for aarch64-darwin, so no dev-shell change
+  can supply one.
 
 The two hardware rules matched nothing: macos-15 has a CoreAudio output and a
 paravirtual Metal adapter, so the device cases ran. `coreaudio-output-device`

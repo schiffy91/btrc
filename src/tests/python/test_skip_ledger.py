@@ -330,13 +330,27 @@ def test_the_hosted_macos_manifest_expects_only_platform_and_hardware_skips():
         assert rule.gating_capabilities and set(rule.gating_capabilities) <= set(HARDWARE_CAPABILITIES), rule.id
     # The acceptance Mac's platform rules all apply to the hosted image too.
     mac = {rule.id: rule for rule in ExpectedSkipManifest.load(MANIFEST_ROOT / "macos.json").rules}
-    assert {rule_id for rule_id, rule in mac.items() if rule.category == "platform"} <= set(rules)
+    shared = {rule_id for rule_id, rule in mac.items() if rule.category == "platform"}
+    assert shared <= set(rules)
+    # Kept identical, so the two Mac manifests cannot drift apart.
+    for rule_id in shared:
+        assert (
+            rules[rule_id].files,
+            rules[rule_id].nodes,
+            rules[rule_id].reason.pattern,
+            rules[rule_id].covered_by,
+        ) == (
+            mac[rule_id].files,
+            mac[rule_id].nodes,
+            mac[rule_id].reason.pattern,
+            mac[rule_id].covered_by,
+        ), rule_id
     # Only gcc's sanitizer cases are a platform gap: the same cases through
     # clang run here, so their skips are defects.
     for nodeid, reason in (
         (
             "src/tests/python/test_arc_witness_runtime.py::test_witness_transitions_are_exact[asan-ubsan-clang0]",
-            "clang cannot link ASan+UBSan here: ld: library not found",
+            "gcc cannot link ASan+UBSan here: ld: library not found for -lasan",
         ),
         (
             "src/tests/python/test_freestanding_reference.py::test_reference_runtime_is_strict_and_width_correct"
@@ -379,7 +393,7 @@ def test_macos_ci_classifies_every_session_as_the_hosted_runner():
     workflow = (REPO / ".github/workflows/macos.yml").read_text(encoding="utf-8")
     code = [line for line in workflow.splitlines() if not line.lstrip().startswith("#")]
 
-    assert re.search(r"(?m)^env:\n  BTRC_TEST_RUNNER: macos-hosted\n(?!  )", "\n".join(code) + "\n")
+    assert re.search(r"(?m)^env:\n(?:  \S.*\n)*?  BTRC_TEST_RUNNER: macos-hosted$", "\n".join(code))
     # No job or step overrides it.
     assert sum("BTRC_TEST_RUNNER" in line for line in code) == 1
 
@@ -463,6 +477,10 @@ def test_each_tracked_manifest_fails_the_gate_on_an_injected_skip(tmp_path, runn
             [_rule(category="hardware", gating={"capabilities": ["gpu-adapter"]}, covered_by=[])],
             "names a runner that has the device",
         ),
+        (
+            [_rule(category="hardware", gating={"capabilities": ["gpu-adapter"], "tools": ["naga"]})],
+            "gated by capabilities only",
+        ),
     ],
 )
 def test_malformed_manifests_are_rejected(tmp_path, rules, message):
@@ -477,8 +495,9 @@ def test_malformed_manifests_are_rejected(tmp_path, rules, message):
         (_rule(category="runtime-probe"), "not 'runtime-probe'"),
         (
             _rule(category="hardware", gating={"capabilities": ["gpu-adapter"]}, covered_by=["linux-devcontainer"]),
-            "hardware skip is covered by macos",
+            "hardware skip must be covered by macos",
         ),
+        (_rule(category="platform", covered_by=["macos"]), "platform skip must not be covered by macos"),
     ],
 )
 def test_a_hosted_manifest_admits_only_platform_and_hardware_rules(tmp_path, rule, message):

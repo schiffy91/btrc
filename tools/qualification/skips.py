@@ -81,6 +81,8 @@ CATEGORIES = (
 )
 # The devices a hardware-tier skip may wait on: an audio output device, a GPU
 # compute adapter, a physical display and a physical (non-simulated) device.
+# These name manifest gating, not probes: of them only physical-device is also
+# a target capability in src/tests/runner_capabilities.py.
 HARDWARE_CAPABILITIES = ("coreaudio-device", "gpu-adapter", "physical-display", "physical-device")
 # Each hosted runner, and the acceptance host that runs its hardware tier.
 HOSTED_RUNNERS = {"macos-hosted": "macos"}
@@ -187,6 +189,9 @@ class SkipRule:
                 )
             if not covered_by:
                 raise SkipLedgerError(f"{where}.covered_by: a hardware rule names a runner that has the device")
+            # A device is the whole gate: a missing tool or variable is not hardware.
+            if gating.get("env") or gating.get("tools"):
+                raise SkipLedgerError(f"{where}.gating: a hardware rule is gated by capabilities only")
         return cls(
             id=rule_id,
             files=files,
@@ -279,7 +284,12 @@ class ExpectedSkipManifest:
                 )
             if rule.category == "hardware" and acceptance not in rule.covered_by:
                 raise SkipLedgerError(
-                    f"{where}.rules[{index}].covered_by: a {runner} hardware skip is covered by {acceptance}"
+                    f"{where}.rules[{index}].covered_by: a {runner} hardware skip must be covered by {acceptance}"
+                )
+            # A test for another OS cannot run on this one's acceptance host either.
+            if rule.category == "platform" and acceptance in rule.covered_by:
+                raise SkipLedgerError(
+                    f"{where}.rules[{index}].covered_by: a {runner} platform skip must not be covered by {acceptance}"
                 )
         return cls(
             runner=runner,
