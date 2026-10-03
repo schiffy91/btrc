@@ -1,5 +1,6 @@
 /* Strict per-file import visibility owners. */
 
+import Library.FileSystem;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
@@ -616,14 +617,12 @@ class FeConditionalTestChecker {
 	private FeSourcePathPolicy sourcePaths;
 	private FeDeclarationSymbolExtractor symbols;
 	/* Every live directive of a btrc source, in program order. */
-	private Vector<string> directivePaths;
 	private Vector<string> directiveIdentities;
 	private Vector<string> directiveTexts;
 
 	public FeConditionalTestChecker() {
 		self.sourcePaths = FeSourcePathPolicy();
 		self.symbols = FeDeclarationSymbolExtractor();
-		self.directivePaths = [];
 		self.directiveIdentities = [];
 		self.directiveTexts = [];
 	}
@@ -645,7 +644,6 @@ class FeConditionalTestChecker {
 			if (declaration.kind != NK_PREPROCESSOR_DIRECTIVE) { continue; }
 			FeLine? line = resolved.userLineForCombined(declaration.line);
 			if (line == null) { continue; }
-			self.directivePaths.push(line.sourceFile);
 			self.directiveIdentities.push(self.sourcePaths.identity(line.sourceFile));
 			self.directiveTexts.push(declaration.text);
 		}
@@ -656,13 +654,13 @@ class FeConditionalTestChecker {
 		return null;
 	}
 
-	/* The first file other than `identity` whose live directives
-	 * #define/#undef `name`, or "". */
+	/* The canonical path of the first file other than `identity` whose live
+	 * directives #define/#undef `name`, or "". */
 	private string elsewhere(string name, bool define, string identity) {
 		for (int index = 0; index < self.directiveTexts.len; index++) {
 			SourceMacroDefinition directive = SourceMacroDefinition(self.directiveTexts.get(index));
 			bool matches = (define && directive.isDefinition()) || (!define && directive.isUndef());
-			if (matches && directive.name() == name && self.directiveIdentities.get(index) != identity) { return self.directivePaths.get(index); }
+			if (matches && directive.name() == name && self.directiveIdentities.get(index) != identity) { return self.directiveIdentities.get(index); }
 		}
 		return "";
 	}
@@ -720,8 +718,9 @@ class FeConditionalTestChecker {
 			string include = FeConditionalTestChecker.quotedInclude(self.directiveTexts.get(index));
 			if (include.isEmpty()) { continue; }
 			string header = include.substring(1, include.length() - 2);
-			/* An imported C file is spliced as a quoted include of its path. */
-			if (header.endsWith(".btrc") || imported.contains(self.sourcePaths.identity(header))) { continue; }
+			/* An imported C file is spliced as a quoted include of its
+			 * absolute path. */
+			if (header.endsWith(".btrc") || (PathTools.isAbsolute(header) && imported.contains(self.sourcePaths.identity(header)))) { continue; }
 			return f"{include} in {here}";
 		}
 		if (imported.len > 0) {
@@ -746,7 +745,10 @@ class FeConditionalTestChecker {
 				return f"native header {header} for {here}";
 			}
 		}
-		for package in plan.packages {
+		Vector<FePackageNode> packages = [];
+		for package in plan.packages { packages.push(package); }
+		packages.sortBy((FePackageNode left, FePackageNode right) => Strings.lessThan(left.name, right.name));
+		for package in packages {
 			for binding in package.bindings {
 				if (binding.selectedFor(plan.target) && self.sourcePaths.identity(binding.module) == identity) {
 					string header = FeConditionalTestChecker.basename(binding.header);

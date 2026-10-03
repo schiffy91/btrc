@@ -25,6 +25,9 @@ class Parser {
 	public GrammarInfo grammar;
 	public bool failed;
 	public string diagnostic;
+	/* An f-string interpolation's parser: as in the reference, only the
+	 * program's parser turns its errors at a directive into B1. */
+	public bool interpolation = false;
 
 	public Parser(Vector<Token> tokens, GrammarInfo grammar) {
 		self.tokens = tokens;
@@ -120,7 +123,7 @@ class Parser {
 
 	public void failExpected(string expected, Token actual) {
 		if (self.failed) { return; }
-		if (self.peek().type == "PREPROCESSOR") {
+		if (!self.interpolation && self.peek().type == "PREPROCESSOR") {
 			self.failDirectivePlacement(self.peek());
 			return;
 		}
@@ -136,7 +139,7 @@ class Parser {
 
 	public void failAt(string message, Token actual) {
 		if (self.failed) { return; }
-		if (self.peek().type == "PREPROCESSOR") {
+		if (!self.interpolation && self.peek().type == "PREPROCESSOR") {
 			self.failDirectivePlacement(self.peek());
 			return;
 		}
@@ -3090,6 +3093,7 @@ class Parser {
 			return Node();
 		}
 		Parser sub = Parser(subToks, self.grammar);
+		sub.interpolation = true;
 		Node expr = sub.parseExpression();
 		sub.expect("SEMICOLON");
 		if (sub.failed && !self.failed) {

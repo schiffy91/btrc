@@ -14,6 +14,8 @@ class SourceMacroDefinition {
 	private bool functionLikeValue;
 	private bool variadicValue;
 	private bool parametersValidValue;
+	/* Each malformed parameter, in order; M1 compares them. */
+	private Vector<string> invalidParametersValue;
 
 	public SourceMacroDefinition(string sourceText) {
 		self.operationValue = "";
@@ -24,6 +26,7 @@ class SourceMacroDefinition {
 		self.functionLikeValue = false;
 		self.variadicValue = false;
 		self.parametersValidValue = true;
+		self.invalidParametersValue = [];
 		self.parse(sourceText);
 	}
 
@@ -40,6 +43,8 @@ class SourceMacroDefinition {
 	public bool variadic() { return self.variadicValue; }
 
 	public bool parametersValid() { return self.parametersValidValue; }
+
+	public Vector<string> invalidParameters() { return self.invalidParametersValue; }
 
 	public int expectedArity() {
 		if (self.variadicValue) {
@@ -381,11 +386,13 @@ class SourceMacroDefinition {
 			if (parameter == "...") {
 				if (self.variadicValue || !last) {
 					self.parametersValidValue = false;
+					self.invalidParametersValue.push(parameter);
 				}
 				self.variadicValue = true;
 				self.parametersValue.set("__VA_ARGS__", true);
 			} else if (!self.validIdentifier(parameter) || self.parametersValue.has(parameter)) {
 				self.parametersValidValue = false;
+				self.invalidParametersValue.push(parameter);
 			} else {
 				self.parametersValue.set(parameter, true);
 				self.parameterOrderValue.push(parameter);
@@ -624,13 +631,16 @@ class SourceMacroRules {
 	/* C11 6.10.3p2: the same kind, parameters and normalized replacement. */
 	class bool sameDefinition(SourceMacroDefinition first, SourceMacroDefinition second) {
 		if (first.functionLike() != second.functionLike() || first.variadic() != second.variadic() || first.parametersValid() != second.parametersValid()) { return false; }
-		Vector<string> left = first.parameterOrder();
-		Vector<string> right = second.parameterOrder();
+		if (!SourceMacroRules.sameNames(first.parameterOrder(), second.parameterOrder()) || !SourceMacroRules.sameNames(first.invalidParameters(), second.invalidParameters())) { return false; }
+		return SourceMacroRules.normalizedReplacement(first.replacement()) == SourceMacroRules.normalizedReplacement(second.replacement());
+	}
+
+	class bool sameNames(Vector<string> left, Vector<string> right) {
 		if (left.len != right.len) { return false; }
 		for (int index = 0; index < left.len; index++) {
 			if (left.get(index) != right.get(index)) { return false; }
 		}
-		return SourceMacroRules.normalizedReplacement(first.replacement()) == SourceMacroRules.normalizedReplacement(second.replacement());
+		return true;
 	}
 
 	/* The end of the quoted literal that starts at `index`. */

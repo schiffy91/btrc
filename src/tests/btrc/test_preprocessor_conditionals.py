@@ -893,6 +893,9 @@ SELFHOST_FILES = [
     *FAST_PATH_SHAPES,
     *C_SHAPES,
     SELECTION,
+    # M1 compares malformed parameter lists too.
+    "#define F(a, 1) a\n#define F(a, 2) a\n#if 1\n#endif",
+    "#define F(a, 1) a\n#define F(a, 1) a\n#if 1\n#endif",
 ]
 
 
@@ -1062,6 +1065,18 @@ def selfhost_diagnostic(btrcc: Path, tmp_path: Path, files: dict[str, str]) -> t
 @pytest.mark.parametrize("case", DIAGNOSTIC_CASES, ids=lambda case: case.name)
 def test_selfhost_diagnostics(case: DiagnosticCase, immutable_btrcc: Path, tmp_path: Path) -> None:
     assert selfhost_diagnostic(immutable_btrcc, tmp_path, case.files) == (case.message, case.file, case.line, case.col)
+
+
+def test_an_interpolation_is_not_a_directive_site(immutable_btrcc: Path, tmp_path: Path) -> None:
+    """B1 is the program parser's refusal; an f-string interpolation keeps its own error."""
+
+    files = {"Main.btrc": 'int main() {\n  string s = f"{#x}";\n  return 0;\n}\n'}
+    (tmp_path / "selfhost").mkdir()
+    selfhost = selfhost_diagnostic(immutable_btrcc, tmp_path / "selfhost", files)
+    reference = reference_diagnostic(tmp_path, files)
+    for message, file, line, _col in (selfhost, reference):
+        assert (file, line) == ("Main.btrc", 2)
+        assert not message.startswith("Preprocessor directive")
 
 
 def test_selfhost_program_checks_run_in_every_emitting_mode(immutable_btrcc: Path, tmp_path: Path) -> None:
