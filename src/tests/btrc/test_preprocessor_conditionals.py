@@ -897,9 +897,7 @@ SELFHOST_FILES = [
 
 
 @pytest.mark.parametrize("source", SELFHOST_FILES)
-def test_selfhost_conditions_each_file_as_the_reference(
-    conditional_driver: Path, tmp_path: Path, source: str
-) -> None:
+def test_selfhost_conditions_each_file_as_the_reference(conditional_driver: Path, tmp_path: Path, source: str) -> None:
     assert selfhost_condition(conditional_driver, tmp_path, source) == reference_condition(source)
 
 
@@ -955,7 +953,11 @@ def test_selfhost_per_target_selection(
     system, architecture = target.split("-")
     header, value = {"linux": ("stdio.h", "1"), "macos": ("stdlib.h", "2"), "windows": ("string.h", "3")}[system]
     for c_source in (compiled.stdout, reference.c_source):
-        includes = {line for line in c_source.splitlines() if line in {f"#include <{name}>" for name in ("stdio.h", "stdlib.h", "string.h")}}
+        includes = {
+            line
+            for line in c_source.splitlines()
+            if line in {f"#include <{name}>" for name in ("stdio.h", "stdlib.h", "string.h")}
+        }
         assert f"#include <{header}>" in includes
         assert f"return {value};" in c_source
         assert all(f"return {other};" not in c_source for other in {"1", "2", "3"} - {value})
@@ -978,14 +980,35 @@ def test_selfhost_dead_import_adds_no_edge_source_or_plan_entry(immutable_btrcc:
     root = tmp_path / "Main.btrc"
     selfhost = btrcc_run(
         immutable_btrcc,
-        ["--no-stdlib", "--no-cache", "--target", "linux-x86_64", str(root), "-o", str(tmp_path / "selfhost.c"),
-         "--emit-link-plan", str(tmp_path / "selfhost.json")],
+        [
+            "--no-stdlib",
+            "--no-cache",
+            "--target",
+            "linux-x86_64",
+            str(root),
+            "-o",
+            str(tmp_path / "selfhost.c"),
+            "--emit-link-plan",
+            str(tmp_path / "selfhost.json"),
+        ],
         tmp_path,
     )
     assert selfhost.returncode == 0, selfhost.stderr
     reference = subprocess.run(
-        [sys.executable, "-m", "src.compiler.python.main", str(root), "--no-stdlib", "--no-cache", "--target",
-         "linux-x86_64", "-o", str(tmp_path / "reference.c"), "--emit-link-plan", str(tmp_path / "reference.json")],
+        [
+            sys.executable,
+            "-m",
+            "src.compiler.python.main",
+            str(root),
+            "--no-stdlib",
+            "--no-cache",
+            "--target",
+            "linux-x86_64",
+            "-o",
+            str(tmp_path / "reference.c"),
+            "--emit-link-plan",
+            str(tmp_path / "reference.json"),
+        ],
         cwd=REPO,
         env={**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache")},
         capture_output=True,
@@ -1015,8 +1038,15 @@ def selfhost_diagnostic(btrcc: Path, tmp_path: Path, files: dict[str, str]) -> t
         (tmp_path / name).write_text(text)
     result = btrcc_run(
         btrcc,
-        ["--no-stdlib", "--no-cache", "--target", "linux-x86_64", str(tmp_path / "Main.btrc"), "-o",
-         str(tmp_path / "Main.c")],
+        [
+            "--no-stdlib",
+            "--no-cache",
+            "--target",
+            "linux-x86_64",
+            str(tmp_path / "Main.btrc"),
+            "-o",
+            str(tmp_path / "Main.c"),
+        ],
         tmp_path,
     )
     assert result.returncode != 0, result.stderr
@@ -1042,9 +1072,7 @@ def test_selfhost_program_checks_run_in_every_emitting_mode(immutable_btrcc: Pat
     for name, text in files.items():
         (tmp_path / name).write_text(text)
     for mode in ([], ["--emit-ir"], ["--emit-optimized-ir"]):
-        result = btrcc_run(
-            immutable_btrcc, ["--no-stdlib", "--no-cache", *mode, str(tmp_path / "Main.btrc")], tmp_path
-        )
+        result = btrcc_run(immutable_btrcc, ["--no-stdlib", "--no-cache", *mode, str(tmp_path / "Main.btrc")], tmp_path)
         assert result.returncode != 0 and "'USE_FAST' is defined in Config.btrc" in result.stderr, mode
 
 
@@ -1066,12 +1094,24 @@ def test_selfhost_module_units_carry_the_whole_directive_list_with_undefs(
     (tmp_path / "B.btrc").write_text("#undef X\nint b() { return 1; }\n")
     result = btrcc_run(
         immutable_btrcc,
-        ["--no-stdlib", "--no-cache", "--target", "linux-x86_64", "Main.btrc", "-o", "out.c", "--emit-units",
-         "out", "--module-units"],
+        [
+            "--no-stdlib",
+            "--no-cache",
+            "--target",
+            "linux-x86_64",
+            "Main.btrc",
+            "-o",
+            "out.c",
+            "--emit-units",
+            "out",
+            "--module-units",
+        ],
         tmp_path,
     )
     assert result.returncode == 0, result.stderr
-    whole = [line for line in (tmp_path / "out.c").read_text().splitlines() if line.startswith(("#define X", "#undef X"))]
+    whole = [
+        line for line in (tmp_path / "out.c").read_text().splitlines() if line.startswith(("#define X", "#undef X"))
+    ]
     assert whole == ["#undef X", "#define X 1", "#undef X", "#define X 2"]
     units = sorted(tmp_path.glob("out.unit-*.c"))
     assert units
@@ -1171,8 +1211,17 @@ class CacheWorkspace:
         output.mkdir()
         result = btrcc_run(
             btrcc,
-            ["--no-stdlib", "--target", target, "Main.btrc", "-o", str(output / "program.c"), "--emit-units",
-             str(output / "program"), "--module-units"],
+            [
+                "--no-stdlib",
+                "--target",
+                target,
+                "Main.btrc",
+                "-o",
+                str(output / "program.c"),
+                "--emit-units",
+                str(output / "program"),
+                "--module-units",
+            ],
             self.sources,
             BTRC_TIMING="1",
             BTRC_CACHE_DIR=str(self.root / f"selfhost-{cache}"),
@@ -1180,7 +1229,9 @@ class CacheWorkspace:
         assert result.returncode == 0, result.stderr
         counters = {
             name: int(value)
-            for name, value in (item.split(":") for item in result.stderr.split("module-units=", 1)[1].split()[0].split(","))
+            for name, value in (
+                item.split(":") for item in result.stderr.split("module-units=", 1)[1].split()[0].split(",")
+            )
         }
         texts = [(output / "program.c").read_text()]
         texts.extend(path.read_text() for path in sorted(output.glob("program.unit-*.c")))
@@ -1209,7 +1260,7 @@ def test_reference_caches_follow_conditioned_text(tmp_path: Path, monkeypatch: p
     workspace.edit("A.btrc", "#define TAG 2", "#define TAG 3")
     assert workspace.reference(monkeypatch, "linux-x86_64")[1] == ALL_GROUPS
     # An edit confined to a dead group is a whole-program hit.
-    hit, lowered, before = workspace.reference(monkeypatch, "linux-x86_64")
+    _warm, _lowered, before = workspace.reference(monkeypatch, "linux-x86_64")
     workspace.edit("A.btrc", "return 5;", "return 9;")
     dead, lowered, after = workspace.reference(monkeypatch, "linux-x86_64")
     assert dead.cache_hit and not lowered and after == before
@@ -1312,15 +1363,24 @@ NATIVE_CASES = [
     pytest.param(
         "import ./Api.btrc;\n#ifdef measure\n#endif\nint main() { return 0; }\n",
         "// Native wrapper module.\n",
-        ("'measure' comes from a native header; #if is evaluated before C compilation and cannot test it",
-         "Main.btrc", 2, 8),
+        (
+            "'measure' comes from a native header; #if is evaluated before C compilation and cannot test it",
+            "Main.btrc",
+            2,
+            8,
+        ),
         id="P2",
     ),
     pytest.param(
         "import ./Api.btrc;\nint main() { return 0; }\n",
         "// Native wrapper module.\n#ifndef HAVE_MEASURE\n#endif\n",
-        ("'HAVE_MEASURE' may come from C that btrc does not read (native header Native.h for Api.btrc); "
-         "#if is evaluated before C compilation and cannot test it", "Api.btrc", 2, 9),
+        (
+            "'HAVE_MEASURE' may come from C that btrc does not read (native header Native.h for Api.btrc); "
+            "#if is evaluated before C compilation and cannot test it",
+            "Api.btrc",
+            2,
+            9,
+        ),
         id="P3-binding",
     ),
 ]

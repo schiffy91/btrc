@@ -800,6 +800,13 @@ Outside the manifest:
 
 **Status (2026-10-03).** The reference compiler's half is on lane `stage16/c4-python`; the btrc port (CL-C-06) follows on the same branch and squashes both halves into one construct commit. Nothing below is observable on `main` until then.
 
+**Status (CL-C-06).** The btrc port matches every table above: `ConditionalExpressionDriver.btrc` runs the battery and conditions whole files (the directive rows, blanking, the shapes and the corpus program), and btrcc gives every `DIAGNOSTIC_CASES` row with the same message, file and `line:col`. Choices the port made where the languages differ:
+- btrc has no exceptions in the compiler, so `FeConditionalExpression` keeps the first failure (`FeConditionalFailure`) and every step returns once one is recorded; the resolver prints it through `FeVisibilityDiagnostic.render()` and exits 1, like its other resolution errors, and `FeConditionalTestChecker` (P1-P4, `frontend/Visibility.btrc`) returns it to `CompilerPipeline`.
+- `SourceMacroRules` lives in `parser/SourceMacros.btrc` beside `SourceMacroDefinition`, built by `CompilerPipeline` from the vocabulary, `HostedAbiRepository.ownedNameSet()` and the spec's foreign names; conditioning and `SourceMacroNamespace` share it. The namespace renders M1-M4 and U1/U2 at their own file's position, as the reference does.
+- A record joins an evaluation once through `FeConditionalTest.recorded`, the btrc form of Python's identity check.
+- The lowering invariant is driven by `LoweringInvariantDriver.btrc`, which hands `CompilerPipeline.compileResolved` a composed source that conditioning never saw.
+- The generated-source check (`StdlibSymbolIndexGenerator.verify_conditions`) conditions every stdlib module for every target, and refuses an `#undef` or a test of an absent name.
+
 **Where the diagnostics are pinned.** The port must reproduce every message and file-local `line:col` in these tables, which are the complete list:
 - `src/tests/btrc/fixtures/conditional_expressions.tsv`: the expression battery (values and E, I and A errors), for `ConditionalExpressionDriver.btrc`.
 - `src/tests/btrc/test_preprocessor_conditionals.py`: `DIRECTIVE_ERRORS` (D1–D17, the raw lex in a dead group, in-file M1, M3, M4, the keyword and `BTRC_` rules), `DIAGNOSTIC_CASES` (I1 and its imported-file position, resolution order, the package form of I3, P1, P3 for a quoted include and a C import, P4, cross-file M1, M2–M4, U1 in code, a call and a default, U2, B1), and the lowering invariant.

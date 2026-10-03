@@ -292,7 +292,7 @@ src/compiler/btrc/
     NativeHeaderProcess.btrc      # bounded Unix execution of the SDK reader
     SourceIo.btrc                # bounded UTF-8 filesystem owner
     Stdlib.btrc                   # FeStdlibRepository
-    Resolver.btrc                 # FeFrontendResolver
+    Resolver.btrc                 # FeFrontendResolver; per-file #if conditioning (FeSourceConditionals)
     Visibility.btrc               # ImportVisibilityChecker
     Timing.btrc                   # opt-in compiler phase timings
 

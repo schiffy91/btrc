@@ -1065,7 +1065,9 @@ PREPROCESSOR_REFUSALS = [
     ),
     pytest.param("#define X X\n#if X\n#endif" + MAIN, ("Macro 'X' expands to itself in #if", 2, 5), id="r18-i6"),
     pytest.param(
-        "#define P a ## b\n#if P\n#endif" + MAIN, ("Macro 'P' uses '##', which #if does not evaluate", 2, 5), id="r18-i8"
+        "#define P a ## b\n#if P\n#endif" + MAIN,
+        ("Macro 'P' uses '##', which #if does not evaluate", 2, 5),
+        id="r18-i8",
     ),
     pytest.param(
         "#if 0 && (1, 2)\n#endif" + MAIN, ("',' is not allowed in a #if expression", 1, 12), id="r18-e7-comma"
@@ -1080,9 +1082,7 @@ PREPROCESSOR_REFUSALS = [
         ("Wide character constant L'a' in #if; write its integer value", 1, 5),
         id="r18-e15",
     ),
-    pytest.param(
-        "#if -1 << 1\n#endif" + MAIN, ("Left shift of negative value in #if expression", 1, 8), id="r18-a4"
-    ),
+    pytest.param("#if -1 << 1\n#endif" + MAIN, ("Left shift of negative value in #if expression", 1, 8), id="r18-a4"),
     pytest.param(
         "#if -1 < 0u\n#endif" + MAIN,
         ("#if expression converts negative value -1 to unsigned for '<'", 1, 8),

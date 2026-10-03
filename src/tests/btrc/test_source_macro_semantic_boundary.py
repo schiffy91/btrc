@@ -155,10 +155,7 @@ def test_non_identical_macro_redefinition_is_refused(
 
 
 def test_identical_macro_redefinition_is_accepted(semantic_btrcc: Path, tmp_path: Path) -> None:
-    source = (
-        "#define WRAP(value) (value)\n#define WRAP(value)  (value) /* same */\n"
-        "int main(){ return WRAP(0); }"
-    )
+    source = "#define WRAP(value) (value)\n#define WRAP(value)  (value) /* same */\nint main(){ return WRAP(0); }"
     for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
         assert result.returncode == 0, result.stderr
 

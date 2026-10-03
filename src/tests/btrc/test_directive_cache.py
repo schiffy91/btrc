@@ -104,6 +104,4 @@ def test_conditioned_text_keys_the_cache(directive_driver, tmp_path):
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout == (
-        "linux:import:2:2:./Linux.btrc\nwindows:import:4:4:./Other.btrc\nentries=2 hits=2\n"
-    )
+    assert result.stdout == ("linux:import:2:2:./Linux.btrc\nwindows:import:4:4:./Other.btrc\nentries=2 hits=2\n")
