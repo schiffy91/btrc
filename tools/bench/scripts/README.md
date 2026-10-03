@@ -32,6 +32,7 @@ and take the `bench` lock for timed runs (AGENTS.md "Measurements", "Locks").
 | `bench.sh` | `bench.sh <btrc-tree> <btrcc> <out> [options]`: runs `python3 -m tools.budget_bench` from that tree, inside `bsm_env.sh`, on `BSM_WORKSPACE`. |
 | `build_btrcc.sh` | `build_btrcc.sh <out> [entry]`: transpiles the host entry with the reference compiler and builds it with Apple clang `-O2`, the binary every timing names (`docs/design/compile-performance.md`, "Measuring a compile"). Wrap it in `withlock.sh btrcc-build`. |
 | `withlock.sh` | `withlock.sh <lock> <command>`: holds one of the shared locks, or a slot of the two-slot `btrcc-build` semaphore, with macOS `lockf`. |
+| `tools/runbook/run.sh` | `run.sh <preset>`: the owner's one-command session. It clones from the hubs, builds btrcc with `build_btrcc.sh`, runs `bench.sh`'s budget_bench, `batch_gate.sh` and `instr.sh` cells under their locks after the automated quiet check, resumes after an interruption, and publishes redacted summaries (`tools/runbook/README.md`). |
 
 A dry run of one scenario on the reference frontend, for example:
 
