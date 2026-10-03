@@ -176,6 +176,18 @@
       "note": "glibc's transparent-union socket addresses, its variadic fcntl and the native tag aliases are proven against the Linux dev shell's sysroot through both frontends; the devcontainer's unit shard runs every case."
     },
     {
+      "id": "linux-headless-session",
+      "files": [
+        "src/tests/python/test_headless_session.py"
+      ],
+      "reason": "^headless GUI sessions are Linux-only$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "tools/ui/headless-session.sh starts Xvfb or weston with the AT-SPI bus from the Linux dev shell; the devcontainer's unit shard runs every case."
+    },
+    {
       "id": "linux-freetype-macro-constants",
       "files": [
         "src/tests/python/test_native_macro_constants.py"
