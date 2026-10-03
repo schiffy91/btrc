@@ -1660,8 +1660,12 @@ class _BoundaryCaptureSession:
 class CompilerBoundaryVerifier:
     """Own canonical AST dumps and Python/self-hosted lexer comparisons."""
 
+    # A source that imports or includes another btrc file is lexed as part of
+    # that program; one with a SourceConditionals candidate line is skipped
+    # too, because ``--emit-tokens`` conditions it while LexMain stays raw.
     _SOURCE_DEPENDENCY = re.compile(
-        r"^[ \t]*(?:import|#include[ \t]*(?:\"[^\"]*\.btrc\"|<[^>]*\.btrc>))",
+        r"^[ \t]*(?:import|#include[ \t]*(?:\"[^\"]*\.btrc\"|<[^>]*\.btrc>))"
+        r"|^[ \t\f\v]*(?:#[ \t\f\v]*(?:if|el|en|er|\\|\?\?/|/\*)|%:|\?\?=)",
         re.MULTILINE,
     )
 

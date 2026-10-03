@@ -322,12 +322,6 @@ class FrontendStage:
     def _c_evidence(path: str, here: str, directives: list[tuple[str, str]], source: ResolvedSource) -> str | None:
         """What C that btrc does not read could define a macro for the file at ``path`` (P3)."""
 
-        for owner, text in directives:
-            if owner != path:
-                continue
-            match = _QUOTED_INCLUDE.match(text)
-            if match is not None and not match.group(1)[1:-1].endswith(".btrc"):
-                return f"{match.group(1)} in {here}"
         imported = sorted(
             dependency.target
             for each, dependency in source.graph.iter_edges()
@@ -335,6 +329,17 @@ class FrontendStage:
             and dependency.kind is SourceDependencyKind.IMPORT
             and dependency.target.endswith(".c")
         )
+        for owner, text in directives:
+            if owner != path:
+                continue
+            match = _QUOTED_INCLUDE.match(text)
+            # An imported C file is spliced as a quoted include of its path.
+            if (
+                match is not None
+                and not match.group(1)[1:-1].endswith(".btrc")
+                and match.group(1)[1:-1] not in imported
+            ):
+                return f"{match.group(1)} in {here}"
         if imported:
             return f"{os.path.basename(imported[0])} imported by {here}"
         plan = source.native_plan

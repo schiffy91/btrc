@@ -30,7 +30,12 @@ from src.compiler.python.analyzer.types import CIntegerWidths
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.frontend.packages import _TARGET_ARCHITECTURES, _TARGET_OPERATING_SYSTEMS, PackageTarget
-from src.compiler.python.frontend.sources import CompilerStdlibSource, StdlibRepository
+from src.compiler.python.frontend.sources import (
+    CompilerStdlibSource,
+    ConditionalEnvironment,
+    SourceConditionals,
+    StdlibRepository,
+)
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -265,8 +270,18 @@ def test_hosted_type_namespace_contains_portable_and_platform_typedefs() -> None
 def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
     declarations = {}
     typedefs = {}
-    for path in (SOURCE_ROOT / "stdlib").rglob("*.btrc"):
-        program = Parser(Lexer(path.read_text(), str(path)).tokenize()).parse()
+    # The union over every target: each conditioned text of a file is scanned.
+    programs = [
+        Parser(Lexer(text, str(path)).tokenize()).parse()
+        for path in (SOURCE_ROOT / "stdlib").rglob("*.btrc")
+        for text in sorted(
+            {
+                SourceConditionals(environment).condition(path.read_text(), str(path)).text
+                for environment in ConditionalEnvironment.every_target()
+            }
+        )
+    ]
+    for program in programs:
         for declaration in program.declarations:
             if isinstance(declaration, TypedefDecl):
                 typedefs[declaration.alias] = declaration.original

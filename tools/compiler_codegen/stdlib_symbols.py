@@ -20,13 +20,14 @@ class StdlibSymbolIndexGenerator:
         self._union = TargetUnion(targets if targets is not None else TargetManifest.load_repository(repository_root))
 
     def artifacts(self) -> tuple[GeneratedArtifact, ...]:
-        from src.compiler.python.frontend.sources import StdlibRepository
+        from src.compiler.python.frontend.sources import ConditionalEnvironment, StdlibRepository
         from src.compiler.python.frontend.symbol_index import StdlibSymbolIndex
 
         sources = StdlibRepository(directory=str(self._repository_root / "src" / "stdlib"))
-        # The frontend reads every module unconditioned until C4's behavior
-        # commit conditions it per target, so one parse serves every target.
-        owners = sources.parsed_symbol_owners()
-        merged = self._union.owners({label: owners for label in self._union.labels})
+        per_target = {
+            environment.label: sources.parsed_symbol_owners(environment=environment)
+            for environment in ConditionalEnvironment.every_target()
+        }
+        merged = self._union.owners(per_target)
         content = StdlibSymbolIndex.render(sources.symbol_index_digest(), merged).encode("utf-8")
         return (GeneratedArtifact(PurePosixPath("src/stdlib") / StdlibSymbolIndex.INDEX_FILE_NAME, content),)

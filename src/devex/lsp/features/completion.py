@@ -384,7 +384,7 @@ class CompletionProvider:
         if var_name == "self":
             decls = self.resolver.active_decls(result)
             return LexicalScopeIndex.find_enclosing_class_from_source(
-                decls, result.source, position.line
+                decls, self.resolver.structural_source(result), position.line
             ) or LexicalScopeIndex.find_enclosing_class(decls, line)
         class_table = result.analyzed.class_table if result.analyzed else {}
         return self.resolver.resolve_variable_type(

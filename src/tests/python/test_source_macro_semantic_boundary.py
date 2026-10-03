@@ -90,32 +90,48 @@ def test_scalar_and_exact_read_only_hosted_wrappers_remain_valid() -> None:
     assert _errors(source) == []
 
 
-def test_latest_redefinition_controls_the_hoisted_macro_namespace() -> None:
-    latest_safe = """
+def test_a_different_redefinition_is_refused_and_an_identical_one_accepted() -> None:
+    """C11 6.10.3p2 (M1): #if reads a value at its own position, code reads the final one."""
+
+    different = """
         #define WRAP(value) (value)
         #define WRAP(value) strlen(value)
         int main() { string text = "abc"; return WRAP(text) == 3 ? 0 : 1; }
     """
-    assert _errors(latest_safe) == []
+    assert _errors(different) == [
+        "Macro 'WRAP' is redefined with a different replacement; #undef it first (C11 6.10.3p2) at 3:9"
+    ]
 
-    latest_unmodeled = """
+    identical = """
         #define WRAP(value) strlen(value)
-        int before(string text) { return WRAP(text); }
-        #define WRAP(value) (value)
-        int after(string text) { return WRAP(text).length(); }
-        int main() { return 0; }
+        #define WRAP(value)  strlen(value) /* the same */
+        int main() { string text = "abc"; return WRAP(text) == 3 ? 0 : 1; }
     """
-    errors = _errors(latest_unmodeled)
-    assert sum("managed or opaque-borrow argument 1" in error for error in errors) == 2
+    assert _errors(identical) == []
 
 
-def test_undef_removes_the_final_active_definition() -> None:
+def test_code_cannot_use_an_undefined_macro() -> None:
+    """Every directive is hoisted, so code would see the #undef'd state (U1, U2)."""
+
     source = """
         #define WRAP(value) strlen(value)
         #undef WRAP
         int main() { string text = "abc"; return WRAP(text); }
     """
-    assert not any("Source macro 'WRAP'" in error for error in _errors(source))
+    assert _errors(source) == [
+        "Source macro 'WRAP' cannot be used in code because it is #undef'd; "
+        "btrc emits every #define and #undef before the program at 4:50"
+    ]
+    through = """
+        #define INNER 1
+        #define OUTER INNER
+        #undef INNER
+        int main() { return OUTER; }
+    """
+    assert _errors(through) == [
+        "Source macro 'OUTER' cannot be used in code because it expands to #undef'd macro 'INNER'; "
+        "btrc emits every #define and #undef before the program at 5:29"
+    ]
 
 
 def test_context_identifier_query_is_transitive_and_cycle_safe() -> None:

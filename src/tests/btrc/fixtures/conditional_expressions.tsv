@@ -1,0 +1,88 @@
+# The #if expression battery both compilers' evaluators run (C4,
+# c-preprocessor-conditionals.md). One case per line, three tab-separated
+# fields: the file's #define lines before the test, joined by ";" ("-" for
+# none); the #if payload; and "1" when the group is taken, "0" when it is not,
+# or "error LINE:COL MESSAGE". A case's file is its #define lines, one per
+# line, then "#if <payload>", a group line and "#endif"; the target is
+# linux-x86_64. Every case is ASCII: Python counts columns in code points and
+# btrc in bytes.
+-	1	1
+-	0	0
+-	1 + 2 * 3 == 7	1
+-	(1 + 2) * 3 == 9	1
+-	7 / 2 == 3 && 7 % 2 == 1	1
+-	7 / -2 == -3 && 7 % -2 == 1	1
+-	-7 / 2 == -3 && -7 % 2 == -1	1
+-	0xffffffffffffffff == 18446744073709551615u	1
+-	0xffffffffffffffff > 0	1
+-	-1 < 0	1
+-	~0 == -1	1
+-	~0u == 0xffffffffffffffff	1
+-	1 << 62 == 4611686018427387904	1
+-	-8 >> 1 == -4	1
+-	9223372036854775807 + 0 == 0x7fffffffffffffff	1
+-	0u - 1 == 18446744073709551615u	1
+-	!0 && !!5	1
+-	1 ? 2 : 3	1
+-	0 ? 1 : 0	0
+-	1 ? 0 : 1	0
+-	(0 || 0) | 0	0
+-	3 & 5 ^ 1 | 8	1
+-	'A' == 65 && '\n' == 10 && '\x41' == 65	1
+-	true && !false	1
+-	0b101 == 5 && 0o17 == 15 && 017 == 15	1
+-	defined(__linux__) && !defined(__APPLE__)	1
+-	defined __x86_64__ && __SIZEOF_POINTER__ == 8	1
+-	__CHAR_BIT__ * __SIZEOF_INT__ == 32	1
+-	__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__	1
+-	__STDC_VERSION__ >= 201112L	1
+-	_WIN32	0
+-	__ANDROID__	0
+-	0 && UNKNOWN	0
+-	1 || UNKNOWN	1
+-	0 ? UNKNOWN : 1	1
+-	defined(UNKNOWN) && UNKNOWN > 2	0
+#define A 1;#define B A + 1	B == 2	1
+#define LEVEL 3	LEVEL > 2 && defined(LEVEL)	1
+#define EMPTY	defined EMPTY	1
+-	UNKNOWN	error 1:5 Identifier 'UNKNOWN' in #if is not a macro defined earlier in this file or a target macro; test it with defined(UNKNOWN)
+-	1 && UNKNOWN	error 1:10 Identifier 'UNKNOWN' in #if is not a macro defined earlier in this file or a target macro; test it with defined(UNKNOWN)
+-	__GNUC__	error 1:5 '__GNUC__' is reserved for the C implementation and is not a btrc target macro; #if cannot test it
+-	defined(__LINE__)	error 1:13 '__LINE__' is reserved for the C implementation and is not a btrc target macro; #if cannot test it
+-	PATH_MAX > 0	error 1:5 'PATH_MAX' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it
+-	defined NDEBUG	error 1:13 'NDEBUG' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it
+-	0 && bool	error 1:10 'bool' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it
+#define VERSION(x) x	VERSION	error 2:5 Function-like macro 'VERSION' cannot be used in #if; btrc expands only object-like macros there
+#define FEATURE	FEATURE	error 2:5 Macro 'FEATURE' expands to nothing in #if; test it with defined(FEATURE)
+#define X X + 1	X	error 2:5 Macro 'X' expands to itself in #if
+#define D defined(Y)	D	error 2:5 Macro 'D' expands to 'defined'; C11 leaves that undefined
+#define P a ## b	P	error 2:5 Macro 'P' uses '##', which #if does not evaluate
+-	1 2	error 1:7 Missing operator before '2' in #if expression
+-	1 + )	error 1:9 Expected an operand in #if expression, got ')'
+-	1 +	error 1:7 #if expression ends after '+'; expected an operand
+-	(1	error 1:5 Unmatched '(' in #if expression
+-	1)	error 1:6 Unmatched ')' in #if expression
+-	1 ? 2	error 1:7 '?' in #if expression needs ':'
+-	x = 1	error 1:7 '=' is not allowed in a #if expression
+-	0 && (1, 2)	error 1:12 ',' is not allowed in a #if expression
+-	1 # 2	error 1:7 '#' is not allowed in a #if expression
+-	"text"	error 1:5 A string literal cannot appear in a #if expression
+-	1.5	error 1:5 Floating constant '1.5' in #if expression; #if needs integer constants
+-	'\xff'	error 1:5 Character constant '\xff' in #if has a target-dependent value; write its integer value
+-	18446744073709551616	error 1:5 Invalid integer literal '18446744073709551616'
+-	9223372036854775808	error 1:5 Invalid integer literal '9223372036854775808'
+-	sizeof(int)	error 1:5 sizeof cannot be evaluated in #if; test a target macro such as __SIZEOF_INT__
+-	defined	error 1:5 'defined' needs a macro name
+-	defined(3)	error 1:13 'defined' needs a macro name, got '3'
+-	defined(X	error 1:5 'defined(' needs a closing ')'
+-	L'a'	error 1:5 Wide character constant L'a' in #if; write its integer value
+-	08	error 1:5 Invalid digit '8' in octal literal
+-	1 / 0	error 1:7 Division by zero in #if expression
+-	1 % 0	error 1:7 Remainder by zero in #if expression
+-	9223372036854775807 + 1	error 1:25 Integer overflow in #if expression
+-	(-9223372036854775807 - 1) / -1	error 1:32 Integer overflow in #if expression
+-	1 << 64	error 1:7 Shift count 64 is out of range in #if expression
+-	1 >> -1	error 1:7 Shift count -1 is out of range in #if expression
+-	-1 << 1	error 1:8 Left shift of negative value in #if expression
+-	-1 < 0u	error 1:8 #if expression converts negative value -1 to unsigned for '<'
+-	1 ? -1 : 0u	error 1:7 #if expression converts negative value -1 to unsigned for '?'

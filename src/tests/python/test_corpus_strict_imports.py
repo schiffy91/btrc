@@ -12,7 +12,13 @@ import src.compiler.python.syntax.ast.generated as ast
 from src.compiler.python import Compiler
 from src.compiler.python.cli.compiler import CompilerCommand
 from src.compiler.python.frontend.imports import ImportVisibilityChecker
-from src.compiler.python.frontend.sources import SourceDependencyGraph, SourceDirectiveScanner, StdlibRepository
+from src.compiler.python.frontend.sources import (
+    ConditionalEnvironment,
+    SourceConditionals,
+    SourceDependencyGraph,
+    SourceDirectiveScanner,
+    StdlibRepository,
+)
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.process_limits import TOOL_TIMEOUT
@@ -148,10 +154,16 @@ class CorpusImportAudit:
             for path in root.rglob("*.btrc"):
                 if any(
                     directive.kind == "import" and isinstance(directive.payload, ast.LibraryGlob)
-                    for directive in self.directives.scan(path.read_text())
+                    for directive in self.directives.scan(self.conditioned(path))
                 ):
                     consumers.add(path.relative_to(self.repository).as_posix())
         return frozenset(consumers)
+
+    @staticmethod
+    def conditioned(path: Path) -> str:
+        """A source as the host target compiles it, dead groups blanked."""
+
+        return SourceConditionals(ConditionalEnvironment.for_host()).condition(path.read_text(), str(path)).text
 
     def run(self) -> CorpusImportAuditResult:
         diagnostics = []
@@ -159,7 +171,7 @@ class CorpusImportAudit:
         unknown_modules = []
         consumers = self.consumer_files()
         for path in consumers:
-            source = path.read_text()
+            source = self.conditioned(path)
             program = Parser(Lexer(source, str(path)).tokenize()).parse()
             graph, duplicates, missing_modules = self.direct_import_graph(path, program)
             duplicate_modules.extend(duplicates)
