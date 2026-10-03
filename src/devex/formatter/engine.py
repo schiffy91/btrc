@@ -96,6 +96,14 @@ class ConditionalLayout:
         return text[index:end]
 
     @classmethod
+    def conditional(cls, lexeme: Lexeme) -> bool:
+        """Whether a line-first lexeme is a conditional directive."""
+
+        return lexeme.kind is LexemeKind.PREPROCESSOR and (
+            cls.directive_name(lexeme.text) in cls._OPENING | cls._BRANCHES | {"endif"}
+        )
+
+    @classmethod
     def of(cls, view: SourceView, tokens_by_line: dict[int, list[Lexeme]]) -> ConditionalLayout:
         last_line = view.lines[-1].number if view.lines else 0
         regions: list[list[int]] = []
@@ -1313,9 +1321,9 @@ class BtrcFormatter:
             if line_tokens and line_tokens[0].kind is not LexemeKind.PREPROCESSOR:
                 last_index = last_index_by_line[line.number]
                 header_extra = line_extra if view.ends_body_header(last_index) else None
-            # A directive line owns no expression: a statement continued
-            # across one still continues from the line before it.
-            if line_tokens and line_tokens[0].kind is not LexemeKind.PREPROCESSOR:
+            # A conditional directive line is transparent: a statement
+            # continued across one still continues from the line before it.
+            if line_tokens and not ConditionalLayout.conditional(line_tokens[0]):
                 previous_token = line_tokens[-1]
                 previous_first = line_tokens[0]
             if mark == "open":

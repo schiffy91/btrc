@@ -951,6 +951,9 @@ class ConditionedSource:
 
 
 _COMPILER_RESERVED_PREFIXES = ("__btrc_", "__BTRC_", "__gpu_", "btrc_", "BTRC_")
+# The runtime's embedder hooks: btrc_rt.h defines each only under #ifndef, so a
+# program may #define it first (test_runtime_dependencies.py pins the GPU one).
+_RUNTIME_OVERRIDE_MACROS = frozenset({"BTRC_RT_ARENA_BYTES", "BTRC_RT_GPU_HEADER"})
 
 
 class SourceMacroRules:
@@ -959,6 +962,8 @@ class SourceMacroRules:
     Conditioning applies them to its own file's live directives and the
     analyzer to the whole program, so both refuse a name with one message.
     """
+
+    RUNTIME_OVERRIDES = _RUNTIME_OVERRIDE_MACROS
 
     @staticmethod
     def compiler_reserved_prefix(name: str) -> str | None:
@@ -973,7 +978,7 @@ class SourceMacroRules:
         if name in TokenVocabulary.canonical().keywords:
             return f"'{name}' is a reserved word and cannot be used as a name"
         prefix = cls.compiler_reserved_prefix(name)
-        if prefix is not None:
+        if prefix is not None and not (define and name in _RUNTIME_OVERRIDE_MACROS):
             return (
                 f"Macro name '{name}' uses the compiler-reserved '{prefix}' prefix"
                 if define

@@ -281,14 +281,17 @@ class SourceMacroDeclarations:
         for declaration, directive in parsed:
             name = directive.name
             define = directive.operation == "define"
-            if self._validate_mutation(declaration, name, define=define):
-                continue
+            # A refused name is still recorded, so later declarations report
+            # their collisions with it.
+            refused = self._validate_mutation(declaration, name, define=define)
             if define:
                 previous = definitions.get(name)
                 if previous is not None and not SourceMacroRules.same_definition(previous, directive):
                     self.context.error(SourceMacroRules.redefinition_message(name), declaration.line, declaration.col)
                 names.add(name)
                 definitions[name] = directive
+                continue
+            if refused:
                 continue
             if name not in own_definitions:
                 self.context.error(

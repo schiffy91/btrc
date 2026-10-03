@@ -781,3 +781,16 @@ def test_lowering_refuses_live_directive_shapes() -> None:
         _lower_directive("#define X 1 /* open")
     with pytest.raises(CodegenError, match=re.escape("malformed #undef directive: #undef X Y")):
         _lower_directive("#undef X Y")
+
+
+def test_runtime_override_hooks_are_the_runtime_header_ifndef_defaults() -> None:
+    """A btrc source may #define these BTRC_ names, and only these: btrc_rt.h defaults each under #ifndef."""
+
+    from src.compiler.python.frontend.sources import SourceMacroRules
+
+    header = (REPO / "src" / "runtime" / "c" / "btrc_rt.h").read_text()
+    hooks = set(re.findall(r"^#ifndef (BTRC_\w+)\n#define \1 \S", header, re.MULTILINE))
+    assert hooks == set(SourceMacroRules.RUNTIME_OVERRIDES)
+    for name in hooks:
+        assert SourceMacroRules.violation(name, define=True) is None
+        assert SourceMacroRules.violation(name, define=False) is not None

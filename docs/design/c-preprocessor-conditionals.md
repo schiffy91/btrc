@@ -796,6 +796,31 @@ Outside the manifest:
 - the quiet M11 re-measure shows no regression (step 4);
 - the full matrix passes on the final tree.
 
+## Python half and the btrc port (CL-C-05 → CL-C-06)
+
+**Status (2026-10-03).** The reference compiler's half is on lane `stage16/c4-python`; the btrc port (CL-C-06) follows on the same branch and squashes both halves into one construct commit. Nothing below is observable on `main` until then.
+
+**Where the diagnostics are pinned.** The port must reproduce every message and file-local `line:col` in these tables, which are the complete list:
+- `src/tests/btrc/fixtures/conditional_expressions.tsv`: the expression battery (values and E, I and A errors), for `ConditionalExpressionDriver.btrc`.
+- `src/tests/btrc/test_preprocessor_conditionals.py`: `DIRECTIVE_ERRORS` (D1–D17, the raw lex in a dead group, in-file M1, M3, M4, the keyword and `BTRC_` rules), `DIAGNOSTIC_CASES` (I1 and its imported-file position, resolution order, the package form of I3, P1, P3 for a quoted include and a C import, P4, cross-file M1, M2–M4, U1 in code, a call and a default, U2, B1), and the lowering invariant.
+- `src/tests/python/test_source_macro_semantic_boundary.py`: M1 and U1/U2 through the analyzer.
+
+**Choices the design left open, which the port copies.**
+- *Shape checks.* A line takes part when the lexer's first token on it starts at its first non-`[ \t\f\v]` character. In line order: a line starting `%:` or `??=` gives D14 at that character. For a `PREPROCESSOR` token with no name, a `\` or `??/` there gives D10 and `/*` gives D16, at that character. For a conditional name: a preceding line ending in `??/` gives D10 at its first `?` (column `len - 2`), one ending in `\` at that `\`; then the first trigraph (D11); then a splice (D10 at the `\`, or the first `?` of `??/`, before the token's first newline); then the first `\f` or `\v` after the `#` (D17); then the first unclosed `/*` (D15).
+- *Dead groups.* During the walk a non-conditional directive whose enclosing groups are not all taking gets D10 and then D15. Conditional directives were checked above at every level. D9 is raised before the stack is consulted.
+- *Payloads.* Every payload is pre-scanned first; a `#if`/`#elif` hit is E7 at it. For `#ifdef`, `#ifndef`, `#else` and `#endif`, the text before the hit is lexed and the hit becomes the next operand (`unexpected '#'`). D8 is raised when a pre-scanned payload lexes to nothing.
+- *Positions left open.* E13 without a name and E14 sit at `defined`; the `got '…'` forms sit at the offending token. E3 sits at the operator after which the expression ends, including a unary one. E4 sits at the `(`, E5 at the `)`, E6 at the `?`, and a stray `:` is E7 at it. A token left over after a complete expression, or before a missing `)`, is E1.
+- *Arithmetic order.* Both operands are evaluated before the operator's checks: A5 (left, then right), then A1, then `INTMAX_MIN / -1` (A2). For shifts the count (A3) is checked before A4. A `?:` arm's type is the usual arithmetic conversion of both arms, so `1 ? -1 : 0u` is A5 at the `?`.
+- *Records.* A record belongs to the atom that produced it: `defined` and `#ifdef` results, and every token of a macro's expansion (each macro expanded, inner ones too, at the outermost name's position). An atom appends its records when it is evaluated, each record once, so the records keep evaluation order. Python's cache text is `path\0name\0line\0col\0` then `1` or `0`.
+- *Name rules.* In order: `defined` (M3), a grammar keyword, a compiler-reserved prefix (`BTRC_` is now one, and it applies to declaration names too), a leading `_`, a hosted-ABI owned name, a `foreign_macro_names` entry (M4). One owner, `SourceMacroRules` in `frontend/sources.py`, serves conditioning and the analyzer.
+- *M2* allows `#undef` of a name that any non-stdlib `#define` in the program defines, before or after it. *U2* names the first `#undef`'d identifier in breadth-first order over replacement identifiers. *U1* is reported once, at the identifier, also for a call or a default.
+- *B1* fires in two places: when the parser consumes a `PREPROCESSOR` token outside an item start, and when any parse error is raised while the current token is a `PREPROCESSOR` token. The name is the longest identifier after `#` and spaces.
+- *P3 evidence order.* A quoted include in the file (a `.c` import is spliced as a quoted include of its absolute path and is excluded), then the first `.c` import by path, then a selected `[[native.headers]]` row (named `modules`, or none while the file lies in the package), then a binding.
+- *Positions of P1–P4.* At the tested name, in the testing file; the reference prints them through `CompilerDiagnostic.local`.
+- *LSP.* A conditioning error becomes the unit's `lex_error`. The formatter validates a candidate file by parsing it as each spec target conditions it.
+
+**Left to CL-C-06.** Everything btrc; the `ensureStdlibIndex` union over targets; the generated-source check that every stdlib module conditions for every target, holds no `#undef` and records no test of an absent name; the inventory (`c3_c4.toml` r18 rows and the new probes), `REFUSAL_ROWS` and the refusal rows, which the recorder observes through both compilers; the cache cases in both compilers; the directive-cache driver's conditioned mode; P2 and the binding form of P3, which need the native reader; the expected-skip manifests.
+
 ## What later stages rely on
 
 - **C2 (Stage 17).**

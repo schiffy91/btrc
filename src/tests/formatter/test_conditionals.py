@@ -33,7 +33,9 @@ return 1;
     return 0;
 }
 """
-    assert formatted(source) == """\
+    assert (
+        formatted(source)
+        == """\
 int f(int x) {
 #if 1
 \tif (x) {
@@ -45,6 +47,7 @@ int f(int x) {
 \treturn 0;
 }
 """
+    )
 
 
 def test_an_unbalanced_region_is_kept_verbatim_and_counts_its_first_group() -> None:
@@ -60,7 +63,9 @@ int f(int x) {
     return 0;
 }
 """
-    assert formatted(source) == """\
+    assert (
+        formatted(source)
+        == """\
 int f(int x) {
 #ifdef A
   if (x) {
@@ -72,6 +77,7 @@ int f(int x) {
 \treturn 0;
 }
 """
+    )
 
 
 def test_regions_in_class_bodies_and_between_operands() -> None:
@@ -92,7 +98,9 @@ int sum() {
 \t\t+ 4;
 }
 """
-    assert formatted(source) == """\
+    assert (
+        formatted(source)
+        == """\
 class C {
 #if 1
 \tpublic int a;
@@ -109,6 +117,7 @@ int sum() {
 \t\t+ 4;
 }
 """
+    )
 
 
 def test_nested_regions_keep_directives_at_column_zero() -> None:
