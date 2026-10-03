@@ -5,8 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push.
+  # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push;
+  # `-f focus=native-gui` runs only the native-GUI job.
   workflow_dispatch:
+    inputs:
+      focus:
+        description: Which jobs to run
+        type: choice
+        options: [full, native-gui]
+        default: full
 
 # There is no binary-cache account (PLAN.md D26), so every magic-nix-cache
 # step sets use-flakehub: false and uses the GitHub Actions cache alone. At
@@ -28,8 +35,9 @@ jobs:
   # matter (WORKSTREAMS.md §3.2); ci.yml and macos.yml carry identical copies.
   #   docs  Markdown that no test or tool reads: ci.yml's docs job alone.
   #   lane  any other change on a codex/* branch: the Linux matrix, and on
-  #         macOS the arm64 bundle alone.
-  #   full  everything: a push to main, a manual dispatch, the ci:full label
+  #         macOS the arm64 bundle and the native-GUI job.
+  #   native-gui  a dispatch with focus=native-gui: the native-GUI job alone.
+  #   full  everything: a push to main, a full dispatch, the ci:full label
   #         (added before a push or a rerun), a change under FULL_PATHS (the
   #         compilers, their specs and runtime, the stdlib modules btrcc
   #         imports, the CI hotspots), or any other branch's change.
@@ -49,6 +57,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
+          FOCUS: ${{ inputs.focus }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
           FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows)\.yml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
@@ -57,7 +66,10 @@ jobs:
           set -euo pipefail
           shopt -s inherit_errexit
           classify() {
-            if [ "$EVENT" != pull_request ]; then
+            if [ "$EVENT" = workflow_dispatch ]; then
+              echo "${FOCUS:-full}"
+              return
+            elif [ "$EVENT" != pull_request ]; then
               echo full
               return
             fi
@@ -86,7 +98,7 @@ jobs:
           }
           class=$(classify)
           case "$class" in
-            docs | lane | full) ;;
+            docs | lane | full | native-gui) ;;
             *) echo "::error::unknown scope class: $class"; exit 1 ;;
           esac
           echo "class=$class" >> "$GITHUB_OUTPUT"
@@ -340,4 +352,40 @@ jobs:
             dist/btrcc-linux-arm64.tar.gz.sha256
           if-no-files-found: error
           compression-level: 0
+          retention-days: 14
+
+  # The focused native-GUI gate (`gh workflow run ci.yml -f focus=native-gui`):
+  # `make test-native-gui` in the devcontainer, under the virtual display and
+  # software Vulkan the tests shards use. It keeps its JUnit results beside
+  # the skip report, so a GUI run's pass and skip counts survive without
+  # rerunning it.
+  native-gui:
+    needs: scope
+    if: needs.scope.outputs.class == 'native-gui'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - run: make devcontainer
+      - run: chmod -R a+w .
+      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS=--junitxml=build/junit/native-gui.xml btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui
+      - name: Retain the JUnit results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-ci-native-gui
+          path: build/junit/native-gui.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-ci-native-gui
+          path: build/skip-report*.json
+          if-no-files-found: warn
           retention-days: 14

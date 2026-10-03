@@ -443,11 +443,13 @@ SCOPED_JOBS = {
         "skip-reports": ("full", "lane"),
         "bench": ("full", "lane"),
         "linux-arm64-bundle": ("full", "lane"),
+        "native-gui": ("native-gui",),
     },
     "macos.yml": {
         "native-bundle": ("full", "lane"),
         "tests": ("full",),
         "skip-reports": ("full",),
+        "native-gui": ("lane", "native-gui"),
     },
 }
 
@@ -570,7 +572,10 @@ esac
 
 
 def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...] = (), **pull: object) -> str:
-    """Run the scope step's script against a stand-in `gh` that serves one pull request."""
+    """Run the scope step's script against a stand-in `gh` that serves one pull request.
+
+    A dispatch's `focus` input rides in `pull` as `focus`.
+    """
 
     step = _scope_step("ci.yml")
     bin_directory = tmp_path / "bin"
@@ -597,6 +602,7 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
         "GITHUB_OUTPUT": str(output),
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
         "EVENT": event,
+        "FOCUS": str(pull.get("focus", "")),
         "PULL_REQUEST": "21" if event == "pull_request" else "",
         "HEAD_REF": head,
         "FULL_PATHS": step["env"]["FULL_PATHS"],
@@ -616,6 +622,8 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
     [
         ("push", "", (), {}, "full"),
         ("workflow_dispatch", "", (), {}, "full"),
+        ("workflow_dispatch", "", (), {"focus": "full"}, "full"),
+        ("workflow_dispatch", "", (), {"focus": "native-gui"}, "native-gui"),
         ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "docs/qualification/notes.md"), {}, "docs"),
         ("pull_request", "stage30/notes", ("WORKSTREAMS.md",), {}, "docs"),
         ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "PLAN.md"), {}, "lane"),
@@ -834,3 +842,51 @@ def test_linux_bench_job_guards_every_performance_indicator() -> None:
     assert 'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= bench-check' in job
     assert "if: always()" in job
     assert "name: bench-results" in job and "build/bench/results.json" in job
+
+
+def test_a_focused_dispatch_runs_only_the_native_gui_job() -> None:
+    # `gh workflow run ci.yml -f focus=native-gui` (likewise macos.yml) skips
+    # every other job: SCOPED_JOBS gives native-gui as the only job of its
+    # class, and the scope step passes the input through.
+    for workflow in SCOPED_JOBS:
+        document = _parsed(workflow)
+        assert document["on"]["workflow_dispatch"] == {
+            "inputs": {
+                "focus": {
+                    "description": "Which jobs to run",
+                    "type": "choice",
+                    "options": ["full", "native-gui"],
+                    "default": "full",
+                }
+            }
+        }, workflow
+        assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
+        assert [job for job, runs in SCOPED_JOBS[workflow].items() if "native-gui" in runs] == ["native-gui"]
+
+    linux = _job(_workflow("ci.yml"), "native-gui")
+    assert _code(linux).count("make NIX=") == 1
+    assert (
+        'podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS=--junitxml=build/junit/native-gui.xml '
+        "btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 "
+        "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui"
+    ) in linux
+    assert "make devcontainer" in linux
+
+    macos = _parsed("macos.yml")["jobs"]
+    assert macos["native-gui"]["runs-on"] == "macos-15"
+    reader = next(step for step in macos["tests"]["steps"] if step.get("name") == "Build the native header reader")
+    steps = macos["native-gui"]["steps"]
+    suite = next(index for index, step in enumerate(steps) if "test-native-gui" in step.get("run", ""))
+    assert reader in steps[:suite], "the reader builds before the suite"
+    assert steps[suite] == {
+        "run": "nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 "
+        "BTRC_TEST_RUN_TIMEOUT=60 test-native-gui",
+        "env": {"PYTEST_ADDOPTS": "--junitxml=build/junit/native-gui.xml"},
+    }
+
+    # Each keeps its JUnit results, then (the skip-report contract) its skip report.
+    for workflow, stem in (("ci.yml", "ci"), ("macos.yml", "macos")):
+        junit = _parsed(workflow)["jobs"]["native-gui"]["steps"][-2]
+        assert junit["if"] == "always()", workflow
+        assert junit["with"]["name"] == f"junit-{stem}-native-gui", workflow
+        assert junit["with"]["path"] == "build/junit/native-gui.xml", workflow
