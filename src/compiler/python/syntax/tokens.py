@@ -205,7 +205,7 @@ class SourceSymbolDirective:
         if operation == "undef":
             return cls(operation, name)
         if not suffix.startswith("("):
-            return cls(operation, name, replacement=suffix.lstrip())
+            return cls(operation, name, replacement=suffix.lstrip(" \t\f\v\r"))
         close = suffix.find(")")
         if close < 0:
             return cls(operation, name, replacement=suffix, function_like=True)
@@ -230,7 +230,7 @@ class SourceSymbolDirective:
             operation,
             name,
             parameters=frozenset(parameters),
-            replacement=suffix[close + 1 :].lstrip(),
+            replacement=suffix[close + 1 :].lstrip(" \t\f\v\r"),
             parameter_order=tuple(parameter_order),
             function_like=True,
             variadic=variadic,

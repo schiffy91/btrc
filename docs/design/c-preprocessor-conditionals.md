@@ -214,7 +214,7 @@ pp_primary   = INT_LIT | CHAR_LIT | "true" | "false" | IDENT
 
 **Steps (C11 6.10.1p4).**
 1. Resolve each `defined`. Errors: E13 and E14, or I2/I3 for a reserved or foreign operand.
-2. Expand this file's object-like macros, recursively. A macro is never re-expanded inside its own expansion (I6). I4, I5, I7 and I8 are raised here. More than 4,096 tokens after expansion is E16, at the outermost macro being expanded.
+2. Expand this file's object-like macros, recursively. A macro is never re-expanded inside its own expansion (I6). I4, I5, I7 and I8 are raised here. One budget per directive counts every resulting token and every macro invocation; past 4,096 it is E16, at the outermost macro being expanded (or at the token for an unexpanded one). Expansion keeps one active set and one stack of open expansions, so a deep chain neither recurses on the host stack nor copies per level.
 3. Classify the remaining tokens in order: I2, I3, E7–E12, E15.
 4. Parse (E1–E6).
 5. Evaluate with short-circuiting. I1 and A1–A5 are raised only in evaluated operands.
@@ -428,7 +428,7 @@ The text is identical in both compilers, and positions follow the conventions.
 | E13 | `defined` without a name, or with `true`/`false` | `'defined' needs a macro name` / `…, got '3'` |
 | E14 | `defined(X` | `'defined(' needs a closing ')'` |
 | E15 | wide character constant | `Wide character constant L'a' in #if; write its integer value` |
-| E16 | expansion over 4,096 tokens | `#if expression expands to more than 4096 tokens` |
+| E16 | expansion over 4,096 tokens and macro invocations | `#if expression expands to more than 4096 tokens` |
 
 **Identifiers**
 
@@ -504,7 +504,7 @@ Documented deviations sit beside them:
 
 ## Spec commit (`ccompat-r18-spec`) and IR
 
-**Status (2026-10-03).** The spec commit has landed on lane `stage16/c4-spec` (packet CL-C-03): `src/language/targets.toml`, `TargetManifest` and `TargetUnion` in `tools/compiler_codegen/hosted_abi.py`, the generated tables, test 3 (`test_target_macro_table.py`) and the spec-rule, generated-row, `PackageTarget` and width checks in `test_hosted_abi_contract.py`. No compiler behavior changed. `stdlib_symbols.py` and `builtins.py` merge per-target results through `TargetUnion`; until the behavior commit conditions text, every target reads the same unconditioned parse, so the union is vacuous. The union of `test_hosted_abi_contract.py`'s prototype scan, btrc's `ensureStdlibIndex` fallback and the generated-source check's per-target stdlib conditioning need the conditioning owners and land with the behavior commit.
+**Status (2026-10-03).** The spec commit has landed on lane `stage16/c4-spec` (packet CL-C-03): `src/language/targets.toml`, `TargetManifest` and `TargetUnion` in `tools/compiler_codegen/hosted_abi.py`, the generated tables, test 3 (`test_target_macro_table.py`) and the spec-rule, generated-row, `PackageTarget` and width checks in `test_hosted_abi_contract.py`. No compiler behavior changed. `stdlib_symbols.py` and `builtins.py` merge per-target results through `TargetUnion`; since the behavior commit (`ccompat-r18-preprocessor-conditionals`) each target reads its own conditioned parse. That commit also added the union of `test_hosted_abi_contract.py`'s prototype scan, btrc's `ensureStdlibIndex` fallback and the generated-source check's per-target stdlib conditioning.
 
 **No ASDL change.** The grammar gains only the `@syntax` comment block above.
 
@@ -798,7 +798,7 @@ Outside the manifest:
 
 ## Python half and the btrc port (CL-C-05 → CL-C-06)
 
-**Status (2026-10-03).** The reference compiler's half is on lane `stage16/c4-python`; the btrc port (CL-C-06) follows on the same branch and squashes both halves into one construct commit. Nothing below is observable on `main` until then.
+**Status.** Both halves landed together in the construct commit `ccompat-r18-preprocessor-conditionals` (CL-C-05 and CL-C-06, lane `stage16/c4-conditionals`).
 
 **Status (CL-C-06).** The btrc port matches every table above: `ConditionalExpressionDriver.btrc` runs the battery and conditions whole files (the directive rows, blanking, the shapes and the corpus program), and btrcc gives every `DIAGNOSTIC_CASES` row with the same message, file and `line:col`. Choices the port made where the languages differ:
 - btrc has no exceptions in the compiler, so `FeConditionalExpression` keeps the first failure (`FeConditionalFailure`) and every step returns once one is recorded; the resolver prints it through `FeVisibilityDiagnostic.render()` and exits 1, like its other resolution errors, and `FeConditionalTestChecker` (P1-P4, `frontend/Visibility.btrc`) returns it to `CompilerPipeline`.
@@ -827,9 +827,9 @@ Outside the manifest:
 - *B1* fires in two places: when the parser consumes a `PREPROCESSOR` token outside an item start, and when any parse error is raised while the current token is a `PREPROCESSOR` token. The name is the longest identifier after `#` and spaces.
 - *P3 evidence order.* A quoted include in the file (a `.c` import is spliced as a quoted include of its absolute path and is excluded), then the first `.c` import by path, then a selected `[[native.headers]]` row (named `modules`, or none while the file lies in the package), then a binding.
 - *Positions of P1–P4.* At the tested name, in the testing file; the reference prints them through `CompilerDiagnostic.local`.
-- *LSP.* A conditioning error becomes the unit's `lex_error`. The formatter validates a candidate file by parsing it as each spec target conditions it.
+- *LSP.* A conditioning error becomes the unit's `lex_error`. The formatter validates a candidate file by parsing it as each spec target conditions it, skipping a target whose conditioning stops at a live `#error` (D12): such a guard refuses that target on purpose. The file fails when no target conditions, or on any other conditioning error.
 
-**Left to CL-C-06.** Everything btrc; the `ensureStdlibIndex` union over targets; the generated-source check that every stdlib module conditions for every target, holds no `#undef` and records no test of an absent name; the inventory (`c3_c4.toml` r18 rows and the new probes), `REFUSAL_ROWS` and the refusal rows, which the recorder observes through both compilers; the cache cases in both compilers; the directive-cache driver's conditioned mode; P2 and the binding form of P3, which need the native reader; the expected-skip manifests.
+**Done in CL-C-06** (the list CL-C-05 handed over). Everything btrc; the `ensureStdlibIndex` union over targets; the generated-source check that every stdlib module conditions for every target, holds no `#undef` and records no test of an absent name; the inventory (`c3_c4.toml` r18 rows and the new probes), `REFUSAL_ROWS` and the refusal rows, which the recorder observes through both compilers; the cache cases in both compilers; the directive-cache driver's conditioned mode; P2 and the binding form of P3, which need the native reader; the expected-skip manifests.
 
 ## What later stages rely on
 

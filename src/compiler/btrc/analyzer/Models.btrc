@@ -383,9 +383,6 @@ class Analyzed {
 	/* The program's source-macro namespace, installed by validation; lowering
 	 * decodes a string constant's extent through it. */
 	public SourceMacroNamespace? sourceMacros = null;
-	/* The #define/#undef name rules the pipeline shares with conditioning;
-	 * null keeps the analyzer's own macro-name checks. */
-	public SourceMacroRules? sourceMacroRules = null;
 	/* The composed source's user lines, which position macro refusals in
 	 * their own files. */
 	public int stdlibLineCount = 0;

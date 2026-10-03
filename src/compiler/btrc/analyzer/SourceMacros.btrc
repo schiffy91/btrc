@@ -14,23 +14,22 @@ class SourceMacroNamespace {
 	private Map<string, SourceMacroDefinition> activeDefinitions;
 	/* Every name some live #undef names. */
 	private Map<string, bool> undefinedNames;
-	private HostedAbiRepository? hostedAbi;
-	private SourceMacroRules? rules;
+	private HostedAbiRepository hostedAbi;
+	private SourceMacroRules rules;
 	private int stdlibLineCount;
 	private Vector<FeLine> sourceLines;
 
-	/* With `rules`, collection validates every directive in hoisted program
-	 * order (M1-M4 and the name rules) and fails at the first refusal,
-	 * positioned in its own file through `sourceLines`. */
-	public SourceMacroNamespace(Node program, HostedAbiRepository? hostedAbi = null, SourceMacroRules? rules = null, int stdlibLineCount = 0, Vector<FeLine>? sourceLines = null) {
+	/* Collection validates every directive in hoisted program order (M1-M4
+	 * and the name rules) and fails at the first refusal, positioned in its
+	 * own file through `sourceLines`. */
+	public SourceMacroNamespace(Node program, HostedAbiRepository hostedAbi, SourceMacroRules rules, int stdlibLineCount, Vector<FeLine> sourceLines) {
 		self.declaredNames = {};
 		self.activeDefinitions = {};
 		self.undefinedNames = {};
 		self.hostedAbi = hostedAbi;
 		self.rules = rules;
 		self.stdlibLineCount = stdlibLineCount;
-		Vector<FeLine> none = [];
-		self.sourceLines = sourceLines != null ? sourceLines : none;
+		self.sourceLines = sourceLines;
 		self.collect(program);
 	}
 
@@ -201,10 +200,7 @@ class SourceMacroNamespace {
 		return false;
 	}
 
-	private bool stdlibDirective(Node declaration) {
-		HostedAbiRepository? hostedAbi = self.hostedAbi;
-		return hostedAbi != null && hostedAbi.compilerStdlibNode(declaration);
-	}
+	private bool stdlibDirective(Node declaration) { return self.hostedAbi.compilerStdlibNode(declaration); }
 
 	private void collect(Node program) {
 		Vector<Node> sites = [];
@@ -218,22 +214,19 @@ class SourceMacroNamespace {
 			definitions.push(definition);
 			if (definition.isDefinition() && !self.stdlibDirective(declaration)) { ownDefinitions.put(definition.name(), true); }
 		}
-		SourceMacroRules? rules = self.rules;
 		for (int index = 0; index < definitions.len; index++) {
 			SourceMacroDefinition definition = definitions.get(index);
 			Node declaration = sites.get(index);
 			string name = definition.name();
-			if (rules != null) {
-				string violation = rules.violation(name, definition.isDefinition());
-				if (!violation.isEmpty()) { self.fail(violation, declaration); }
-			}
+			string violation = self.rules.violation(name, definition.isDefinition());
+			if (!violation.isEmpty()) { self.fail(violation, declaration); }
 			if (definition.isDefinition()) {
-				if (rules != null && self.activeDefinitions.has(name) && !SourceMacroRules.sameDefinition(self.activeDefinitions.get(name), definition)) { self.fail(SourceMacroRules.redefinitionMessage(name), declaration); }
+				if (self.activeDefinitions.has(name) && !SourceMacroRules.sameDefinition(self.activeDefinitions.get(name), definition)) { self.fail(SourceMacroRules.redefinitionMessage(name), declaration); }
 				self.declaredNames.put(name, true);
 				self.activeDefinitions.put(name, definition);
 				continue;
 			}
-			if (rules != null && !ownDefinitions.has(name)) { self.fail(f"#undef of '{name}' is not allowed; btrc undefines only macros that its own sources #define", declaration); }
+			if (!ownDefinitions.has(name)) { self.fail(f"#undef of '{name}' is not allowed; btrc undefines only macros that its own sources #define", declaration); }
 			self.undefinedNames.put(name, true);
 			self.activeDefinitions.remove(name);
 		}

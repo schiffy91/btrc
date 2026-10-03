@@ -344,14 +344,14 @@ class FeConditionalEnvironment {
 	class FeConditionalEnvironment forPackages(FeResolvedPackages packages, SourceMacroRules macroRules, GeneratedHostedAbiData data) {
 		FeNativeLinkPlan plan = packages.linkPlan;
 		Map<string, string> defines = {};
-		for item in plan.declarations {
+		for item in FeConditionalEnvironment.sortedDeclarations(plan.declarations) {
 			if (item.kind == "define" && !defines.has(item.value)) { defines.put(item.value, item.packageName); }
 		}
 		Vector<FePackageNode> nodes = [];
 		for node in plan.packages { nodes.push(node); }
 		nodes.sortBy((FePackageNode left, FePackageNode right) => Strings.lessThan(left.name, right.name));
 		for node in nodes {
-			for item in node.nativeDeclarations {
+			for item in FeConditionalEnvironment.sortedDeclarations(node.nativeDeclarations) {
 				if (item.kind == "define" && !defines.has(item.value)) { defines.put(item.value, item.packageName); }
 			}
 		}
@@ -369,6 +369,35 @@ class FeConditionalEnvironment {
 		FePackageTarget host = FePackageTarget.host();
 		Map<string, string> none = {};
 		return FeConditionalEnvironment(host.operatingSystem, host.architecture, rules, data, none);
+	}
+
+	class int compareNames(Vector<string> left, Vector<string> right) {
+		for (int index = 0; index < left.len && index < right.len; index++) {
+			int order = Strings.compare(left.get(index), right.get(index));
+			if (order != 0) { return order; }
+		}
+		return left.len - right.len;
+	}
+
+	/* Whether `left` comes first in the reference's plan order: by package,
+	 * then by the declaration's fields in turn (its dataclass ordering). */
+	class bool declarationBefore(FeNativeDeclaration left, FeNativeDeclaration right) {
+		Vector<string> leftFields = [left.packageName, left.kind, left.value, left.detail, left.language, left.standard];
+		Vector<string> rightFields = [right.packageName, right.kind, right.value, right.detail, right.language, right.standard];
+		int order = FeConditionalEnvironment.compareNames(leftFields, rightFields);
+		if (order == 0) { order = FeConditionalEnvironment.compareNames(left.operatingSystems, right.operatingSystems); }
+		if (order == 0) { order = FeConditionalEnvironment.compareNames(left.architectures, right.architectures); }
+		if (order == 0) { order = FeConditionalEnvironment.compareNames(left.modules, right.modules); }
+		return order < 0;
+	}
+
+	/* Native declarations in the reference's plan order, so a first match
+	 * names the same package or header in both compilers. */
+	class Vector<FeNativeDeclaration> sortedDeclarations(Vector<FeNativeDeclaration> declarations) {
+		Vector<FeNativeDeclaration> sorted = [];
+		for item in declarations { sorted.push(item); }
+		sorted.sortBy((FeNativeDeclaration left, FeNativeDeclaration right) => FeConditionalEnvironment.declarationBefore(left, right));
+		return sorted;
 	}
 
 	/* One environment per spec target, with no package graph. */
@@ -478,6 +507,46 @@ class FeConditionalItem {
 	}
 }
 
+/* The records of the macros whose expansion produced a token: each open
+ * expansion links its record to its parent's. */
+class FeConditionalOrigin {
+	public FeConditionalTest record;
+	public FeConditionalOrigin? parent;
+
+	public FeConditionalOrigin(FeConditionalTest record, FeConditionalOrigin? parent) {
+		self.record = record;
+		self.parent = parent;
+	}
+
+	/* The path's records, outermost first. */
+	public Vector<FeConditionalTest> records() {
+		Vector<FeConditionalTest> path = [];
+		FeConditionalOrigin? cursor = self;
+		while (cursor != null) {
+			path.push(cursor.record);
+			cursor = cursor.parent;
+		}
+		Vector<FeConditionalTest> records = [];
+		for (int index = path.len - 1; index >= 0; index--) { records.push(path.get(index)); }
+		return records;
+	}
+}
+
+/* One open macro expansion: its replacement and the next token to read. */
+class FeConditionalFrame {
+	public string name;
+	public Vector<Token> tokens;
+	public int index;
+	public FeConditionalOrigin origin;
+
+	public FeConditionalFrame(string name, Vector<Token> tokens, FeConditionalOrigin origin) {
+		self.name = name;
+		self.tokens = tokens;
+		self.index = 0;
+		self.origin = origin;
+	}
+}
+
 /* One parsed #if subexpression: "leaf", "unary", "binary" or "conditional". */
 class FeConditionalNode {
 	public string kind;
@@ -518,6 +587,8 @@ class FeConditionalExpression {
 	private Map<string, SourceMacroDefinition> macros;
 	private GrammarInfo grammar;
 	private Vector<string> lines;
+	/* The current directive's count of tokens and macro invocations (E16). */
+	private int budget = 0;
 	public FeConditionalFailure? failure = null;
 
 	public FeConditionalExpression(FeConditionalEnvironment environment, string path, Map<string, SourceMacroDefinition> macros, GrammarInfo grammar, Vector<string> lines) {
@@ -698,31 +769,33 @@ class FeConditionalExpression {
 
 	/* Expand this file's object-like macros (I4-I8, E16). An expanded token
 	 * sits at the outermost macro name in the directive and carries the
-	 * record of every macro expanded to produce it. */
+	 * record of every macro expanded to produce it. One budget per directive
+	 * counts every resulting token and every macro invocation, so neither a
+	 * wide nor a deep expansion is unbounded. */
 	private Vector<FeConditionalItem> expand(Vector<FeConditionalItem> items) {
+		self.budget = 0;
 		Vector<FeConditionalItem> expanded = [];
 		for item in items {
 			Token? token = item.token;
 			if (token != null && token.type == "IDENT" && self.macros.has(token.value)) {
-				Map<string, bool> active = {};
-				Vector<FeConditionalItem> produced = self.expansion(token.value, token, active);
+				Vector<FeConditionalItem> produced = self.expansion(token.value, token);
 				if (self.failed()) { return expanded; }
-				if (expanded.len + produced.len > FeConditionalExpression.expansionLimit()) {
-					self.failLimit(token.line, token.col);
-					return expanded;
-				}
 				for each in produced { expanded.push(each); }
-			} else {
-				expanded.push(item);
-				if (expanded.len > FeConditionalExpression.expansionLimit()) {
-					FeConditionalAtom? atom = item.atom;
-					if (token != null) { self.failLimit(token.line, token.col); }
-					else if (atom != null) { self.failLimit(atom.line, atom.col); }
-					return expanded;
-				}
+				continue;
 			}
+			FeConditionalAtom? atom = item.atom;
+			if (token != null) { self.spend(token.line, token.col); }
+			else if (atom != null) { self.spend(atom.line, atom.col); }
+			if (self.failed()) { return expanded; }
+			expanded.push(item);
 		}
 		return expanded;
+	}
+
+	/* Count one token or macro invocation against the directive's budget (E16). */
+	private void spend(int line, int col) {
+		self.budget++;
+		if (self.budget > FeConditionalExpression.expansionLimit()) { self.failLimit(line, col); }
 	}
 
 	/* A hexadecimal constant ending in `e`/`E` with an adjacent `+`/`-`: C
@@ -737,38 +810,38 @@ class FeConditionalExpression {
 
 	private bool widePrefix(string value) { return value == "L" || value == "u" || value == "U"; }
 
-	private Vector<FeConditionalItem> expansion(string name, Token anchor, Map<string, bool> active) {
-		Vector<FeConditionalItem> produced = [];
+	/* One macro's checked replacement tokens (I4, I8, E7, E0, I5, E11, E15);
+	 * empty once a failure is recorded. */
+	private Vector<Token> replacementTokens(string name, Token anchor) {
+		Vector<Token> tokens = [];
 		SourceMacroDefinition definition = self.macros.get(name);
-		FeConditionalTest record = self.test(name, anchor.line, anchor.col, true);
 		if (definition.functionLike()) {
 			self.fail(f"Function-like macro '{name}' cannot be used in #if; btrc expands only object-like macros there", anchor.line, anchor.col);
-			return produced;
+			return tokens;
 		}
 		if (definition.usesTokenPaste()) {
 			self.fail(f"Macro '{name}' uses '##', which #if does not evaluate", anchor.line, anchor.col);
-			return produced;
+			return tokens;
 		}
 		string replacement = definition.replacement();
 		int found = FeConditionalExpression.preScan(replacement);
 		if (found >= 0) {
 			string spelling = FeConditionalExpression.preScanSpelling(replacement, found);
 			self.fail(f"'{spelling}' is not allowed in a #if expression", anchor.line, anchor.col);
-			return produced;
+			return tokens;
 		}
 		Lexer lexer = Lexer(replacement, self.grammar);
 		Vector<Token> lexed = lexer.tokenize();
 		if (lexer.failed) {
 			self.fail(FeLexFailure(lexer.diagnostic).message, anchor.line, anchor.col);
-			return produced;
+			return tokens;
 		}
-		Vector<Token> tokens = [];
 		for each in lexed {
 			if (each.type != "EOF") { tokens.push(each); }
 		}
 		if (tokens.len == 0) {
 			self.fail(f"Macro '{name}' expands to nothing in #if; test it with defined({name})", anchor.line, anchor.col);
-			return produced;
+			return tokens;
 		}
 		for (int index = 0; index + 1 < tokens.len; index++) {
 			/* E11 and E15, while the replacement's own columns still show
@@ -777,45 +850,58 @@ class FeConditionalExpression {
 			Token following = tokens.get(index + 1);
 			if (self.splitNumber(prefix, following)) {
 				self.fail(f"Invalid integer literal '{prefix.value}{following.value}'", anchor.line, anchor.col);
-				return produced;
+				return tokens;
 			}
 			if (self.widePrefix(prefix.value) && following.type == "CHAR_LIT" && following.line == prefix.line && following.col == prefix.col + prefix.value.length()) {
 				self.fail(f"Wide character constant {prefix.value}{following.value} in #if; write its integer value", anchor.line, anchor.col);
-				return produced;
+				return tokens;
 			}
 		}
-		Map<string, bool> innerActive = {};
-		innerActive.merge(active);
-		innerActive.put(name, true);
-		for token in tokens {
+		return tokens;
+	}
+
+	/* Open one macro's expansion: check it, count it and push its frame. */
+	private void enter(string name, Token anchor, FeConditionalOrigin? parent, Map<string, bool> active, Vector<FeConditionalFrame> stack) {
+		Vector<Token> tokens = self.replacementTokens(name, anchor);
+		if (self.failed()) { return; }
+		self.spend(anchor.line, anchor.col);
+		if (self.failed()) { return; }
+		active.put(name, true);
+		stack.push(FeConditionalFrame(name, tokens, FeConditionalOrigin(self.test(name, anchor.line, anchor.col, true), parent)));
+	}
+
+	/* Expand one outermost macro without host recursion: one mutable active
+	 * set (I6) and one stack of open expansions replace per-level copies, and
+	 * each open expansion links its record to its parent's. */
+	private Vector<FeConditionalItem> expansion(string name, Token anchor) {
+		Vector<FeConditionalItem> produced = [];
+		Map<string, bool> active = {};
+		Vector<FeConditionalFrame> stack = [];
+		self.enter(name, anchor, null, active, stack);
+		while (!self.failed() && stack.len > 0) {
+			FeConditionalFrame frame = stack.get(stack.len - 1);
+			if (frame.index == frame.tokens.len) {
+				stack.pop();
+				active.remove(frame.name);
+				continue;
+			}
+			Token token = frame.tokens.get(frame.index);
+			frame.index++;
 			if (token.type == "IDENT" && token.value == "defined") {
-				self.fail(f"Macro '{name}' expands to 'defined'; C11 leaves that undefined", anchor.line, anchor.col);
+				self.fail(f"Macro '{frame.name}' expands to 'defined'; C11 leaves that undefined", anchor.line, anchor.col);
 				return produced;
 			}
 			if (token.type == "IDENT" && self.macros.has(token.value)) {
-				if (innerActive.has(token.value)) {
+				if (active.has(token.value)) {
 					self.fail(f"Macro '{token.value}' expands to itself in #if", anchor.line, anchor.col);
 					return produced;
 				}
-				Vector<FeConditionalItem> inner = self.expansion(token.value, anchor, innerActive);
-				if (self.failed()) { return produced; }
-				for each in inner {
-					Vector<FeConditionalTest> origin = [record];
-					for test in each.origin { origin.push(test); }
-					produced.push(FeConditionalItem(each.token, null, origin));
-					if (produced.len > FeConditionalExpression.expansionLimit()) {
-						self.failLimit(anchor.line, anchor.col);
-						return produced;
-					}
-				}
+				self.enter(token.value, anchor, frame.origin, active, stack);
 				continue;
 			}
-			Vector<FeConditionalTest> origin = [record];
-			produced.push(FeConditionalItem(Token(token.type, token.value, anchor.line, anchor.col), null, origin));
-			if (produced.len > FeConditionalExpression.expansionLimit()) {
-				self.failLimit(anchor.line, anchor.col);
-				return produced;
-			}
+			self.spend(anchor.line, anchor.col);
+			if (self.failed()) { return produced; }
+			produced.push(FeConditionalItem(Token(token.type, token.value, anchor.line, anchor.col), null, frame.origin.records()));
 		}
 		return produced;
 	}

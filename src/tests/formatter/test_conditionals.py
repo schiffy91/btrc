@@ -146,3 +146,20 @@ def test_a_source_that_does_not_condition_is_refused() -> None:
         BtrcFormatter(StyleConfig()).format("int a;\n#if 1\nint b;\n", "fixture.btrc")
     with pytest.raises(FormatError, match="Identifier 'FOO' in #if"):
         BtrcFormatter(StyleConfig()).format("#if FOO\n#endif\n", "fixture.btrc")
+
+
+def test_a_target_guard_with_error_formats_idempotently() -> None:
+    """A live #error refuses a target on purpose; the formatter validates the source
+    as every other target conditions it."""
+
+    source = (
+        "#if !defined(__APPLE__)\n#error this module supports only macOS\n#endif\nint main() {\n        return 0;\n}\n"
+    )
+    assert formatted(source) == (
+        "#if !defined(__APPLE__)\n#error this module supports only macOS\n#endif\nint main() { return 0; }\n"
+    )
+
+
+def test_a_source_that_every_target_refuses_still_fails() -> None:
+    with pytest.raises(FormatError, match="#error always"):
+        BtrcFormatter(StyleConfig()).format("#if 1\n#error always\n#endif\nint main() { return 0; }\n", "fixture.btrc")

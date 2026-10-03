@@ -729,7 +729,7 @@ class FeConditionalTestChecker {
 		}
 		Map<string, string> roots = {};
 		for package in plan.packages { roots.put(package.name, self.sourcePaths.identity(package.root)); }
-		for item in plan.declarations {
+		for item in FeConditionalEnvironment.sortedDeclarations(plan.declarations) {
 			if (item.kind != "header" || !item.selectedFor(plan.target)) { continue; }
 			bool applies = false;
 			if (item.modules.len > 0) {

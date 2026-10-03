@@ -805,7 +805,10 @@ class BtrcFormatter:
         """The raw token stream, once the source parses.
 
         A source with conditionals parses as each target sees it, so the
-        formatter accepts it the same way on every host.
+        formatter accepts it the same way on every host. A target whose
+        conditioning stops at a live ``#error`` (D12) is one the source
+        refuses on purpose, so it is skipped; the source fails only when no
+        target conditions, or on any other conditioning error.
         """
         try:
             tokens = Lexer(source, filename).tokenize()
@@ -813,10 +816,17 @@ class BtrcFormatter:
             if not SourceConditionals.candidate(source):
                 Parser(list(tokens)).parse()
                 return signature
-            texts = {
-                SourceConditionals(environment).condition(source, filename).text
-                for environment in ConditionalEnvironment.every_target()
-            }
+            texts: set[str] = set()
+            refused: PreprocessorConditionalError | None = None
+            for environment in ConditionalEnvironment.every_target():
+                try:
+                    texts.add(SourceConditionals(environment).condition(source, filename).text)
+                except PreprocessorConditionalError as error:
+                    if not (error.message == "#error" or error.message.startswith("#error ")):
+                        raise
+                    refused = refused or error
+            if not texts and refused is not None:
+                raise refused
             for text in sorted(texts):
                 Parser(Lexer(text, filename).tokenize()).parse()
             return signature

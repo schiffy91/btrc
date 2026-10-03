@@ -951,6 +951,9 @@ class ConditionedSource:
     tests: tuple[ConditionalTest, ...] = ()
 
 
+# C's white-space characters (C11 6.4p3), which both compilers trim; Python's
+# str.strip() would also take \x1c-\x1f and Unicode spaces.
+_C_WHITESPACE = " \t\n\v\f\r"
 _COMPILER_RESERVED_PREFIXES = ("__btrc_", "__BTRC_", "__gpu_", "btrc_")
 # A macro name may not take BTRC_ either: the emitted C defines BTRC_INCLUDE_*,
 # BTRC_RT_* and BTRC_FREESTANDING. Other declarations may (stdlib enum values do).
@@ -1066,7 +1069,7 @@ class SourceMacroRules:
             else:
                 pieces.append(value)
                 index += 1
-        return "".join(pieces).strip()
+        return "".join(pieces).strip(_C_WHITESPACE)
 
 
 class ConditionalEnvironment:
@@ -1320,6 +1323,7 @@ class ConditionalExpression:
         self._environment = environment
         self._path = path
         self._macros = macros
+        self._budget = 0
 
     def _error(self, message: str, line: int, col: int) -> PreprocessorConditionalError:
         return PreprocessorConditionalError(message, self._path, line, col)
@@ -1431,26 +1435,27 @@ class ConditionalExpression:
         """Expand this file's object-like macros (I4-I8, E16); returns items with their origins.
 
         An expanded token sits at the outermost macro name in the directive
-        and carries the record of every macro expanded to produce it.
+        and carries the record of every macro expanded to produce it. One
+        budget per directive counts every resulting token and every macro
+        invocation, so neither a wide nor a deep expansion is unbounded.
         """
 
+        self._budget = 0
         expanded: list[tuple[Token | _ConditionalAtom, tuple]] = []
         for item in items:
             if isinstance(item, Token) and self._local_macro(item.value) and item.type == TokenKind.IDENT:
-                anchor = item
-                produced = self._expansion(item.value, anchor, frozenset())
-                if len(expanded) + len(produced) > _EXPANSION_LIMIT:
-                    raise self._error(
-                        f"#if expression expands to more than {_EXPANSION_LIMIT} tokens", anchor.line, anchor.col
-                    )
-                expanded.extend(produced)
+                expanded.extend(self._expansion(item.value, item))
             else:
+                self._spend(item.line, item.col)
                 expanded.append((item, ()))
-                if len(expanded) > _EXPANSION_LIMIT:
-                    raise self._error(
-                        f"#if expression expands to more than {_EXPANSION_LIMIT} tokens", item.line, item.col
-                    )
         return expanded
+
+    def _spend(self, line: int, col: int) -> None:
+        """Count one token or macro invocation against the directive's budget (E16)."""
+
+        self._budget += 1
+        if self._budget > _EXPANSION_LIMIT:
+            raise self._error(f"#if expression expands to more than {_EXPANSION_LIMIT} tokens", line, col)
 
     @staticmethod
     def split_number(token: Token, following: object) -> bool:
@@ -1473,9 +1478,10 @@ class ConditionalExpression:
     def _local_macro(self, name: str) -> bool:
         return name in self._macros
 
-    def _expansion(self, name: str, anchor: Token, active: frozenset[str]) -> list[tuple[Token, tuple]]:
+    def _replacement(self, name: str, anchor: Token) -> list[Token]:
+        """One macro's checked replacement tokens (I4, I8, E7, E0, I5, E11, E15)."""
+
         directive = self._macros[name]
-        record = (self._test(name, anchor.line, anchor.col, local=True),)
         if directive.function_like:
             raise self._error(
                 f"Function-like macro '{name}' cannot be used in #if; btrc expands only object-like macros there",
@@ -1512,29 +1518,59 @@ class ConditionalExpression:
                     anchor.line,
                     anchor.col,
                 )
+        return tokens
+
+    @staticmethod
+    def _records(origin: tuple | None) -> tuple:
+        """The records of a linked origin ``(record, parent)``, outermost first."""
+
+        records = []
+        while origin is not None:
+            records.append(origin[0])
+            origin = origin[1]
+        return tuple(reversed(records))
+
+    def _expansion(self, name: str, anchor: Token) -> list[tuple[Token, tuple]]:
+        """Expand one outermost macro without host recursion.
+
+        One mutable active set (I6) and one stack of open expansions replace
+        per-level copies; each open expansion links its record to its
+        parent's, so an expanded token's records are the path that made it.
+        """
+
         produced: list[tuple[Token, tuple]] = []
-        inner_active = active | {name}
-        for token in tokens:
+        active: set[str] = set()
+        # Each frame: [name, tokens, next index, linked origin].
+        stack: list[list] = []
+
+        def enter(macro: str, parent: tuple | None) -> None:
+            tokens = self._replacement(macro, anchor)
+            self._spend(anchor.line, anchor.col)
+            record = self._test(macro, anchor.line, anchor.col, local=True)
+            active.add(macro)
+            stack.append([macro, tokens, 0, (record, parent)])
+
+        enter(name, None)
+        while stack:
+            frame = stack[-1]
+            macro, tokens, index, origin = frame
+            if index == len(tokens):
+                stack.pop()
+                active.discard(macro)
+                continue
+            frame[2] = index + 1
+            token = tokens[index]
             if token.type == TokenKind.IDENT and token.value == "defined":
                 raise self._error(
-                    f"Macro '{name}' expands to 'defined'; C11 leaves that undefined", anchor.line, anchor.col
+                    f"Macro '{macro}' expands to 'defined'; C11 leaves that undefined", anchor.line, anchor.col
                 )
             if token.type == TokenKind.IDENT and self._local_macro(token.value):
-                if token.value in inner_active:
+                if token.value in active:
                     raise self._error(f"Macro '{token.value}' expands to itself in #if", anchor.line, anchor.col)
-                for inner, origin in self._expansion(token.value, anchor, inner_active):
-                    produced.append((inner, record + origin))
-                    if len(produced) > _EXPANSION_LIMIT:
-                        raise self._error(
-                            f"#if expression expands to more than {_EXPANSION_LIMIT} tokens", anchor.line, anchor.col
-                        )
+                enter(token.value, origin)
                 continue
-            positioned = Token(token.type, token.value, anchor.line, anchor.col)
-            produced.append((positioned, record))
-            if len(produced) > _EXPANSION_LIMIT:
-                raise self._error(
-                    f"#if expression expands to more than {_EXPANSION_LIMIT} tokens", anchor.line, anchor.col
-                )
+            self._spend(anchor.line, anchor.col)
+            produced.append((Token(token.type, token.value, anchor.line, anchor.col), self._records(origin)))
         return produced
 
     def _classify(self, expanded: list[tuple[Token | _ConditionalAtom, tuple]]) -> list[_ConditionalAtom]:
@@ -2202,7 +2238,7 @@ class _ConditionalWalk:
                     self._check_dead_directive_shape(token)
                 elif name == "error":
                     payload, _col = self._payload(token)
-                    detail = SourceMacroRules.without_comments(payload).strip()
+                    detail = SourceMacroRules.without_comments(payload).strip(_C_WHITESPACE)
                     raise self._error(f"#error {detail}" if detail else "#error", token.line, token.col)
                 elif name in {"define", "undef"}:
                     self._define(token)

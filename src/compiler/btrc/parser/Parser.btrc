@@ -3097,6 +3097,12 @@ class Parser {
 		Node expr = sub.parseExpression();
 		sub.expect("SEMICOLON");
 		if (sub.failed && !self.failed) {
+			/* The program's parser turns any parse error into B1 while a
+			 * directive is its current token, as the reference does. */
+			if (!self.interpolation && self.peek().type == "PREPROCESSOR") {
+				self.failDirectivePlacement(self.peek());
+				return expr;
+			}
 			self.failed = true;
 			self.diagnostic = sub.diagnostic;
 			self.pos = self.tokens.len - 1;

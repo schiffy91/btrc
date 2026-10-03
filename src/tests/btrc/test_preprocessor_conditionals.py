@@ -515,6 +515,43 @@ DIAGNOSTIC_CASES = [
         8,
     ),
     DiagnosticCase(
+        "I3-package-define-order",
+        {
+            "btrc.toml": 'manifest-version = 1\n[package]\nname = "zroot"\n[dependencies]\nalpha = { path = "alpha" }\n'
+            '[[native.defines]]\nname = "SHARED_FLAG"\nvalue = "1"\n',
+            "alpha/btrc.toml": 'manifest-version = 1\n[package]\nname = "alpha"\n'
+            '[[native.defines]]\nname = "SHARED_FLAG"\nvalue = "1"\n',
+            "Main.btrc": "#ifdef SHARED_FLAG\n#endif\nint main() { return 0; }\n",
+        },
+        "'SHARED_FLAG' is a C compiler define of package 'alpha'; "
+        "#if is evaluated before C compilation and cannot test it",
+        "Main.btrc",
+        1,
+        8,
+    ),
+    DiagnosticCase(
+        "P3-native-header-order",
+        {
+            "btrc.toml": MANIFEST + '[[native.headers]]\npath = "Zeta.h"\n[[native.headers]]\npath = "Alpha.h"\n',
+            "Zeta.h": "\n",
+            "Alpha.h": "\n",
+            "Main.btrc": "#ifdef HAVE_X\n#endif\nint main() { return 0; }\n",
+        },
+        "'HAVE_X' may come from C that btrc does not read (native header Alpha.h for Main.btrc); "
+        "#if is evaluated before C compilation and cannot test it",
+        "Main.btrc",
+        1,
+        8,
+    ),
+    DiagnosticCase(
+        "B1-after-interpolation",
+        {"Main.btrc": 'int main() {\n    string s = f"{1 +}"\n#define X 1\n    return 0;\n}\n'},
+        "Preprocessor directive '#define' must be at file scope",
+        "Main.btrc",
+        3,
+        1,
+    ),
+    DiagnosticCase(
         "P1",
         {
             "Main.btrc": "import ./Config.btrc;\n#ifdef USE_FAST\nint fast() { return 1; }\n#endif\n"
@@ -676,6 +713,7 @@ def reference_diagnostic(tmp_path: Path, files: dict[str, str]) -> tuple[str, st
     """Compile through the reference CLI and read its first rendered error."""
 
     for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text)
     result = subprocess.run(
         [
@@ -896,6 +934,11 @@ SELFHOST_FILES = [
     *FAST_PATH_SHAPES,
     *C_SHAPES,
     SELECTION,
+    # C's white space only: \x1f is no space, in #error text or a replacement.
+    "#error stop\x1f",
+    "#define X \x1f1\n#if X == 1\n#endif",
+    # A hex escape takes hex digits only.
+    "#if '\\x+1' == 1\n#endif",
     # M1 compares malformed parameter lists too.
     "#define F(a, 1) a\n#define F(a, 2) a\n#if 1\n#endif",
     "#define F(a, 1) a\n#define F(a, 1) a\n#if 1\n#endif",
@@ -1041,6 +1084,7 @@ def selfhost_diagnostic(btrcc: Path, tmp_path: Path, files: dict[str, str]) -> t
     """btrcc's first error: rendered with its file, or a root-file parse error."""
 
     for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text)
     result = btrcc_run(
         btrcc,
@@ -1410,7 +1454,11 @@ def test_native_program_checks_in_both_compilers(
     main: str, api: str, expected: tuple[str, str, int, int], immutable_btrcc: Path, tmp_path: Path
 ) -> None:
     root = native_case(tmp_path, main, api)
-    arguments = ["--no-stdlib", "--no-cache", "--target", "linux-x86_64", str(root), "-o", str(tmp_path / "Main.c")]
+    # The host target: a native import needs BTRC_NATIVE_TARGET to match it,
+    # and the Darwin dev shell sets that triple for the Mac.
+    host = PackageTarget.parse(None)
+    target = f"{host.operating_system}-{host.architecture}"
+    arguments = ["--no-stdlib", "--no-cache", "--target", target, str(root), "-o", str(tmp_path / "Main.c")]
     reference = subprocess.run(
         [sys.executable, "-m", "src.compiler.python.main", *arguments],
         cwd=REPO,
@@ -1426,3 +1474,35 @@ def test_native_program_checks_in_both_compilers(
         assert match is not None, result.stderr
         found = (match["message"], os.path.basename(match["path"]), int(match["line"]), int(match["col"]))
         assert found == expected
+
+
+# -- E16: one budget for tokens and macro invocations --------------------------
+
+
+def macro_chain(depth: int, leaf: str) -> str:
+    """``#define M0 M1`` ... ``#define M<depth> <leaf>``, then ``#if M0 > 0``."""
+
+    lines = [f"#define M{index} M{index + 1}" for index in range(depth)]
+    lines.append(f"#define M{depth} {leaf}")
+    return "\n".join((*lines, "#if M0 > 0", "taken", "#endif", ""))
+
+
+EXPANSION_BUDGET = [
+    # A chain deeper than the budget fails at the outermost macro, without
+    # host recursion or per-level copies.
+    pytest.param(macro_chain(5000, "1"), "error 5002:5 #if expression expands to more than 4096 tokens", id="deep"),
+    # A deep chain with a wide leaf stays within the budget.
+    pytest.param(macro_chain(2000, " + ".join(["1"] * 300)), None, id="deep-and-wide"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), EXPANSION_BUDGET)
+def test_expansion_budget_in_both_compilers(
+    source: str, expected: str | None, conditional_driver: Path, tmp_path: Path
+) -> None:
+    reference = reference_condition(source)
+    if expected is None:
+        assert "taken" in reference
+    else:
+        assert reference == expected
+    assert selfhost_condition(conditional_driver, tmp_path, source) == reference

@@ -203,8 +203,7 @@ class CompilerPipeline {
 		GeneratedRuntimeCatalogData runtimeData = GeneratedRuntimeCatalogData();
 		SourceRuntimeSymbols sourceRuntimeSymbols = SourceRuntimeSymbols(runtimeData.rows, runtimeData.intrinsicEffects);
 		RuntimeHelperCatalog runtimeHelpers = RuntimeHelperCatalog(runtimeData.rows, runtimeData.intrinsicEffects);
-		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols);
-		analyzer.configureSourceMacroRules(self.macroRules());
+		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols, self.macroRules());
 		analyzer.configureNativeDeclarations(resolved.nativeDeclarations);
 		analyzer.configureUnmodeledIncludes(program, resolved.stdlibLineCount, resolved.userLines);
 		BtrccPhaseTimer.mark("catalog");
