@@ -249,6 +249,18 @@ def test_passed_evidence_requires_accepted_samples(measurement, message):
         ({"classification": {"regression": []}}, "expected at least one entry"),
         ({"classification": {"regression": ["a.py::t", "a.py::t"]}}, "unique"),
         ({"classification": {"links": ["text input"]}}, "is not an N-ID, E-ID or milestone"),
+        ({"classification": {"implementation": "retired"}}, "a retired slot names the decision that retired it"),
+        (
+            {"classification": {"implementation": "retired", "decision": "btrc-D056", "parity": "missing"}},
+            "a retired slot has no parity class",
+        ),
+        (
+            {
+                "classification": {"implementation": "retired", "decision": "btrc-D056"},
+                "evidence": {"status": "unavailable", "observed": "skipped"},
+            },
+            "a retired slot carries no evidence",
+        ),
     ],
 )
 def test_schema_violations_fail_with_their_location(change, message):
@@ -1203,16 +1215,19 @@ def test_the_tracked_denominators_match_their_sources():
     assert (ids[0], ids[-1], len(set(ids))) == ("E01", "E47", 47)
 
 
+SEED = "docs/design/native-ui-catalog.toml"
+
+
 def _frozen_copy(tmp_path: Path, *, drop: str | None = None, rewrite=None) -> Path:
-    """The tracked manifest re-rooted at `tmp_path`, with one source row dropped or a frozen value edited."""
+    """The tracked manifest re-rooted at `tmp_path`, with one seed id's records dropped or a frozen value edited."""
 
     from tools.qualification.denominators import MANIFEST, REPO
 
-    documents = ("docs/design/native-ui-parity.md", "docs/design/native-ui-api-inventory.md")
-    for document in (*documents, "docs/design/platform-inventory.toml"):
+    for document in ("docs/design/native-ui-parity.md", SEED, "docs/design/platform-inventory.toml"):
         text = (REPO / document).read_text(encoding="utf-8")
-        if drop is not None:
-            text = "\n".join(line for line in text.splitlines() if not line.startswith(drop))
+        if drop is not None and document == SEED:
+            # The seed is one blank-line-separated `[[records]]` table per slot.
+            text = "\n\n".join(block for block in text.split("\n\n") if f'id = "{drop}",' not in block)
         (tmp_path / document).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / document).write_text(text, encoding="utf-8")
     manifest = MANIFEST.read_text(encoding="utf-8")
@@ -1230,18 +1245,28 @@ def test_a_shrunken_source_or_a_lowered_freeze_fails_the_denominator_check(tmp_p
     copy = _frozen_copy(tmp_path)
     assert DenominatorManifest.load(copy, repo=tmp_path).drift() == []
 
-    shrunk = _frozen_copy(tmp_path, drop="| E47 —")
+    shrunk = _frozen_copy(tmp_path, drop="E47")
     assert DenominatorManifest.load(shrunk, repo=tmp_path).drift() == [
         "ui-case denominator (release ui0-source-inventory-2026-09-21): its source yields 46 ids, frozen at 47"
+    ]
+    # The retired operation stays in its release: dropping its seed slots is drift too.
+    retired = _frozen_copy(tmp_path, drop="GUI.rasterText")
+    assert DenominatorManifest.load(retired, repo=tmp_path).drift() == [
+        "ui-operation denominator (release ui0-source-inventory-2026-09-21): its source yields 161 ids, frozen at 162"
     ]
     lowered = _frozen_copy(
         tmp_path, rewrite=lambda text: text.replace("ids = 47\nslots = 470", "ids = 46\nslots = 460")
     )
     assert "its source yields 47 ids, frozen at 46" in DenominatorManifest.load(lowered, repo=tmp_path).drift()[0]
     renamed = _frozen_copy(tmp_path)
-    document = tmp_path / "docs/design/native-ui-parity.md"
-    document.write_text(document.read_text(encoding="utf-8").replace("| E47 —", "| E48 —"), encoding="utf-8")
+    seed = tmp_path / SEED
+    seed.write_text(seed.read_text(encoding="utf-8").replace('id = "E47",', 'id = "E48",'), encoding="utf-8")
     assert "different ids than the frozen sha256" in DenominatorManifest.load(renamed, repo=tmp_path).drift()[0]
+    # The Markdown checklists no longer feed the frozen operation and case ids.
+    unaffected = _frozen_copy(tmp_path)
+    roadmap = tmp_path / "docs/design/native-ui-parity.md"
+    roadmap.write_text(roadmap.read_text(encoding="utf-8").replace("| E47 —", "| E48 —"), encoding="utf-8")
+    assert DenominatorManifest.load(unaffected, repo=tmp_path).drift() == []
     miscounted = _frozen_copy(tmp_path, rewrite=lambda text: text.replace("slots = 470", "slots = 47"))
     assert (
         "slots = 47, but ids x platforms x frontends = 470"
@@ -1249,7 +1274,211 @@ def test_a_shrunken_source_or_a_lowered_freeze_fails_the_denominator_check(tmp_p
     )
 
     assert QualificationCommand().run(["denominators"]) == 0
-    assert "ui-case: 47 ids from docs/design/native-ui-parity.md" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert f"ui-case: 47 ids from {SEED}" in output and f"ui-operation: 162 ids from {SEED}" in output
+
+
+def _release(release: str, ids: list[str], platforms: list[str], frontends: list[str]) -> str:
+    """One `[[denominators]]` ui-operation entry with an inline id list, frozen at its own counts."""
+
+    from tools.qualification.denominators import Denominator
+
+    def quoted(values: list[str]) -> str:
+        return ", ".join(f'"{value}"' for value in values)
+
+    return f'''
+[[denominators]]
+kind = "ui-operation"
+release = "{release}"
+platforms = [{quoted(platforms)}]
+frontends = [{quoted(frontends)}]
+ids = {len(ids)}
+slots = {len(ids) * len(platforms) * max(1, len(frontends))}
+sha256 = "{Denominator.digest(ids)}"
+source = {{ list = [{quoted(ids)}] }}
+'''
+
+
+def _ui_operation(identifier: str, platform: str, frontend: str, **sections) -> LedgerRecord:
+    subject = {"kind": "ui-operation", "id": identifier, "platform": platform, "frontend": frontend}
+    return LedgerRecord.from_mapping({"schema": SCHEMA, "subject": subject, **sections})
+
+
+def test_a_kind_holds_several_releases_counted_per_release_and_as_a_union(tmp_path: Path):
+    from tools.qualification.denominators import DenominatorManifest
+    from tools.qualification.report import QualificationReport
+
+    manifest = tmp_path / "denominators.toml"
+    header = 'schema = "btrc.qualification.denominators/1"\n'
+    first = _release("ui-test-1", ["IWindow.close", "IWindow.open"], ["macos", "linux"], ["reference"])
+    second = _release("ui-test-2", ["IWindow.open", "IWindow.resize"], ["macos", "linux"], ["reference"])
+    manifest.write_text(header + first + second, encoding="utf-8")
+    loaded = DenominatorManifest.load(manifest, repo=tmp_path)
+
+    assert loaded.drift() == []
+    assert [denominator.release for denominator in loaded.releases(SubjectKind.UI_OPERATION)] == [
+        "ui-test-1",
+        "ui-test-2",
+    ]
+    assert loaded.by_kind()[SubjectKind.UI_OPERATION].release == "ui-test-1", "the base release is the first"
+    assert len(loaded.slot_keys(SubjectKind.UI_OPERATION)) == 6, "IWindow.open is declared by both, counted once"
+
+    records = [
+        _ui_operation(identifier, platform, "reference")
+        for identifier in ("IWindow.close", "IWindow.open", "IWindow.resize")
+        for platform in ("macos", "linux")
+    ]
+    report = QualificationReport(records, loaded)
+    assert report.problems() == []
+    # A slot only the second release declares is never undeclared against the first.
+    assert [
+        (row["release"], row["present"], row["missing_slots"], row["undeclared"]) for row in report.denominator_rows()
+    ] == [
+        ("ui-test-1", 4, 0, 0),
+        ("ui-test-2", 4, 0, 0),
+    ]
+    assert report.coverage_rows() == [
+        {
+            "kind": "ui-operation",
+            "releases": ["ui-test-1", "ui-test-2"],
+            "slots": 6,
+            "present": 6,
+            "missing_slots": 0,
+            "undeclared": 0,
+        }
+    ]
+
+    # Missing slots are counted against the release that declares them.
+    dropped = [
+        record
+        for record in records
+        if record.subject.key != ("ui-operation", "IWindow.resize", "linux", "reference", "")
+    ]
+    report = QualificationReport(dropped, loaded)
+    assert [row["missing_slots"] for row in report.denominator_rows()] == [0, 1]
+    assert report.coverage_rows()[0]["missing_slots"] == 1
+    assert report.problems() == [
+        "ui-operation: 1 of 4 declared slots of release ui-test-2 have no record (e.g. IWindow.resize linux reference)"
+    ]
+    # A slot no release declares is undeclared once, against the union.
+    stray = _ui_operation("IWindow.minimize", "macos", "reference")
+    report = QualificationReport([*records, stray], loaded)
+    assert [row["undeclared"] for row in report.denominator_rows()] == [1, 1]
+    assert report.coverage_rows()[0]["undeclared"] == 1
+    assert report.problems() == ["ui-operation: 1 slots are outside releases ui-test-1, ui-test-2"]
+    assert "## Coverage of every release in force" in report.render_markdown()
+    assert report.to_json()["coverage"] == report.coverage_rows()
+
+    # A release is frozen once: a second entry under its name is refused.
+    manifest.write_text(header + first + first, encoding="utf-8")
+    with pytest.raises(LedgerSchemaError, match="one entry per kind and release, but ui-operation ui-test-1 repeats"):
+        DenominatorManifest.load(manifest, repo=tmp_path)
+
+
+def test_a_retired_slot_is_reported_apart_from_classified_unclassified_and_missing(tmp_path: Path):
+    from tools.qualification.denominators import DenominatorManifest
+    from tools.qualification.report import QualificationReport
+
+    manifest = tmp_path / "denominators.toml"
+    release = _release(
+        "ui-test", ["GUI.rasterText", "GUI.rasterizeText"], ["macos", "linux"], ["reference", "selfhost"]
+    )
+    manifest.write_text('schema = "btrc.qualification.denominators/1"\n' + release, encoding="utf-8")
+    loaded = DenominatorManifest.load(manifest, repo=tmp_path)
+    retired = {"implementation": "retired", "decision": "btrc-D056"}
+    records = [
+        _ui_operation("GUI.rasterText", platform, frontend, classification=retired)
+        for platform in ("macos", "linux")
+        for frontend in ("reference", "selfhost")
+    ]
+    records += [
+        _ui_operation(
+            "GUI.rasterizeText",
+            platform,
+            frontend,
+            **(
+                {"classification": {"parity": "equivalent", "implementation": "source-only", "owner": "W1"}}
+                if (platform, frontend) == ("macos", "reference")
+                else {}
+            ),
+        )
+        for platform in ("macos", "linux")
+        for frontend in ("reference", "selfhost")
+    ]
+
+    report = QualificationReport(records, loaded)
+    assert report.problems() == []
+    row = report.denominator_rows()[0]
+    assert (row["slots"], row["present"], row["missing_slots"], row["retired"], row["undeclared"]) == (8, 8, 0, 4, 0)
+    assert report.coverage_rows()[0]["retired"] == 4
+
+    def group(rows, platform="macos", frontend="reference"):
+        return next(row for row in rows if (row["platform"], row["frontend"]) == (platform, frontend))
+
+    implementation = group(report.implementation_rows())
+    assert (implementation["source-only"], implementation["retired"], implementation["unclassified"]) == (1, 1, 0)
+    implementation = group(report.implementation_rows(), "linux")
+    assert (implementation["retired"], implementation["unclassified"]) == (1, 1)
+    parity = group(report.parity_rows())
+    assert (parity["slots"], parity["equivalent"], parity["unclassified"], parity["retired"]) == (2, 1, 0, 1)
+    evidence = group(report.evidence_rows())
+    assert (evidence["slots"], evidence["unrecorded"], evidence["retired"]) == (2, 1, 1)
+    completeness = group(report.completeness_rows())
+    assert (completeness["rows"], completeness["retired"], completeness["without_owner"]) == (2, 1, 0)
+    assert completeness["without_status"] == 1
+    markdown = report.render_markdown()
+    assert "| slots | equivalent | adapted | os-restricted | missing | unclassified | retired |" in markdown
+    assert "| missing | source-only | partial | custom | implemented | unclassified | retired |" in markdown
+    assert "| unrecorded | failed | retired |" in markdown and "| undeclared | drift | retired |" in markdown
+    # Without a retired slot, no table grows a retired column: other ledgers report as before.
+    plain = QualificationReport(records[4:], loaded)
+    assert all("retired" not in row for row in (*plain.evidence_rows(), *plain.implementation_rows()))
+    assert "retired" not in plain.render_markdown()
+
+    # Evidence folded onto a retired slot from a later record is refused by the report.
+    run = _ui_operation(
+        "GUI.rasterText",
+        "linux",
+        "selfhost",
+        evidence={"status": "unavailable", "observed": "skipped"},
+        provenance=AUDIT,
+    )
+    assert QualificationReport([*records, run], loaded).problems() == ["ui-operation: 1 retired slots carry evidence"]
+    # A retired slot without a record is still missing: retirement is recorded, never assumed.
+    unrecorded = [
+        record
+        for record in records
+        if record.subject.key != ("ui-operation", "GUI.rasterText", "linux", "selfhost", "")
+    ]
+    assert QualificationReport(unrecorded, loaded).denominator_rows()[0]["missing_slots"] == 1
+
+
+def test_stage_30_counts_the_seed_as_1610_classified_plus_10_retired():
+    from dataclasses import replace
+
+    from tools.qualification.denominators import REPO, DenominatorManifest
+    from tools.qualification.report import QualificationReport
+    from tools.qualification.schema import Classification, Implementation
+
+    retired = Classification(implementation=Implementation.RETIRED, decision="btrc-D056")
+    classified = Classification(implementation=Implementation.SOURCE_ONLY)
+    records = [
+        replace(record, classification=retired if record.subject.id == "GUI.rasterText" else classified)
+        for record in LedgerDocument.load(REPO / SEED)
+        if record.subject.kind is SubjectKind.UI_OPERATION
+    ]
+    tracked = DenominatorManifest.load()
+    report = QualificationReport(records, DenominatorManifest(tracked.releases(SubjectKind.UI_OPERATION)))
+
+    assert report.problems() == []
+    rows = report.implementation_rows()
+    assert sum(row["slots"] for row in rows) == 1620
+    assert sum(row["source-only"] for row in rows) == 1610
+    assert sum(row["retired"] for row in rows) == 10
+    assert sum(row["unclassified"] for row in rows) == 0
+    assert [(row["present"], row["missing_slots"], row["retired"]) for row in report.denominator_rows()] == [
+        (1620, 0, 10)
+    ]
 
 
 def test_a_p0_denominator_freezes_from_its_checked_inventory_ledger(tmp_path: Path):

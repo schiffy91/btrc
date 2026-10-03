@@ -72,7 +72,19 @@ Record fields
                            (declared, nothing behind it) | ``partial`` (a
                            provider implements a subset: UI's **P**) |
                            ``custom`` (custom controls stand in for native
-                           ones: UI's **C**) | ``implemented``.
+                           ones: UI's **C**) | ``implemented`` |
+                           ``retired`` (a reviewed decision removed the
+                           declaration after its release froze the slot).
+                           Retirement is a source state, so it lives here
+                           rather than in ``parity`` (P0-only, and about
+                           behavior on a platform) or ``evidence`` (what a
+                           run showed); it is the one disposition every
+                           inventory kind, family cells included, records
+                           in this field. A retired slot names its
+                           ``decision`` (``btrc-D056``) and carries neither
+                           ``parity`` nor ``evidence``; the report lists it
+                           apart, never as classified, unclassified or
+                           missing.
   ``owner``                who answers for the slot.
   ``regression``           the pytest node id (``path::name``) that pins it,
                            or a list of them. The report derives an inventory
@@ -156,6 +168,8 @@ Invariants
   ``skipped`` outcome.
 - ``missing`` parity, and ``missing`` or ``source-only`` implementation, is
   never ``passed`` or ``implemented-unverified``.
+- ``retired`` implementation names a ``decision`` and comes with no
+  ``parity`` and no ``evidence``.
 - ``covered_by`` appears only on ``unavailable`` evidence.
 - An inventory row never says ``ipados``, names a ``variant`` only when it is
   one of its family's ``TARGET_SLICES``, and its
@@ -234,6 +248,7 @@ class Implementation(StrEnum):
     PARTIAL = "partial"
     CUSTOM = "custom"
     IMPLEMENTED = "implemented"
+    RETIRED = "retired"
 
 
 class EvidenceStatus(StrEnum):
@@ -778,6 +793,13 @@ class LedgerRecord:
         ):
             return "covered_by belongs only to unavailable evidence"
         classification = self.classification
+        if classification is not None and classification.implementation is Implementation.RETIRED:
+            if classification.decision is None:
+                return "a retired slot names the decision that retired it"
+            if classification.parity is not None:
+                return "a retired slot has no parity class"
+            if evidence is not None:
+                return "a retired slot carries no evidence"
         if (
             classification is not None
             and evidence is not None

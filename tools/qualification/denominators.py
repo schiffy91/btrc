@@ -3,14 +3,16 @@
 platform-parity.md requires "immutable inventory denominators for each
 release". A denominator that is whatever rows a ledger happens to hold
 shrinks the moment a row is deleted, so each entry of ``denominators.toml``
-freezes one inventory kind: the release it was frozen for, where its ids are
+freezes one release of one inventory kind: the release's name, where its ids are
 declared, the platform families and frontends every id is qualified on, and
 the id count, slot count and digest it was frozen with. Loading a manifest
 re-reads every source, and a source that now yields other ids -- a deleted
 row, a renamed one -- is drift until the entry is deliberately re-frozen
 under a new release. `QualificationReport` counts every declared slot that
 has no record as missing, and every inventory record outside the declared
-slots as undeclared, and the report fails on either.
+slots as undeclared, and the report fails on either. A slot the ledger
+classifies as ``retired`` (`Implementation.RETIRED`) is present and stays in
+its release, but is reported apart from both classified and unclassified slots.
 
 Manifest::
 
@@ -24,7 +26,7 @@ Manifest::
     ids = 47                                # the frozen id count
     slots = 470                             # ids x platforms x frontends
     sha256 = "..."                          # of the sorted ids, one per line
-    source = { document = "docs/design/native-ui-parity.md", pattern = '^\\| (E\\d{2}) —' }
+    source = { ledger = "docs/design/native-ui-catalog.toml" }
 
 A P0 entry may name ``slices`` (from ``TARGET_SLICES``) instead of whole
 families: its ``platforms`` are then exactly the slices' families, in order,
@@ -36,7 +38,16 @@ artifact variant (``slots = ids x slices x frontends``)::
 
 A source is ``{document, pattern}`` (the first group of every matching line of
 a tracked document), ``{ledger}`` (the ids of this kind in a checked inventory
-ledger, such as P0's compact inventory) or ``{list}`` (the ids themselves).
+ledger, such as UI0's seed catalog or P0's compact inventory) or ``{list}``
+(the ids themselves).
+
+A kind may hold several releases, one entry each, keyed by ``(kind,
+release)``: a re-freeze that adds ids is a new reviewed release beside the
+old one, never an edit of it. Every entry in the manifest is in force; a
+release leaves force only when a reviewed change removes its entry. The
+report counts missing slots per release, counts a slot as undeclared only
+when it is outside the union of every release of its kind, and its coverage
+of a kind is that union.
 """
 
 from __future__ import annotations
@@ -44,6 +55,7 @@ from __future__ import annotations
 import hashlib
 import re
 import tomllib
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +66,7 @@ from tools.qualification.schema import (
     FieldReader,
     Frontend,
     LedgerDocument,
+    LedgerRecord,
     LedgerSchemaError,
     Platform,
     Subject,
@@ -137,14 +150,19 @@ class DenominatorManifest:
         entries = fields.data.get("denominators") or []
         if not isinstance(entries, Sequence) or isinstance(entries, str):
             raise LedgerSchemaError(f"{path}.denominators: expected a list of tables")
-        denominators = [cls.entry(entry, f"{path}.denominators[{index}]", repo) for index, entry in enumerate(entries)]
-        kinds = [denominator.kind for denominator in denominators]
-        if len(set(kinds)) != len(kinds):
-            raise LedgerSchemaError(f"{path}: one denominator per kind")
+        ledgers: dict[Path, list[LedgerRecord]] = {}
+        denominators = [
+            cls.entry(entry, f"{path}.denominators[{index}]", repo, ledgers) for index, entry in enumerate(entries)
+        ]
+        releases = Counter((denominator.kind.value, denominator.release) for denominator in denominators)
+        if repeated := [f"{kind} {release}" for (kind, release), count in releases.items() if count > 1]:
+            raise LedgerSchemaError(f"{path}: one entry per kind and release, but {', '.join(repeated)} repeats")
         return cls(denominators)
 
     @classmethod
-    def entry(cls, data: object, where: str, repo: Path) -> Denominator:
+    def entry(
+        cls, data: object, where: str, repo: Path, ledgers: dict[Path, list[LedgerRecord]] | None = None
+    ) -> Denominator:
         fields = FieldReader(data, where, Denominator.FIELDS)
         kind = fields.choice("kind", SubjectKind, required=True)
         if kind not in INVENTORY_KINDS:
@@ -163,7 +181,7 @@ class DenominatorManifest:
         sha256 = fields.text("sha256", required=True)
         if not re.fullmatch(r"[0-9a-f]{64}", sha256):
             raise LedgerSchemaError(f"{where}.sha256: expected 64 lowercase hex digits")
-        source, ids = cls.resolve(fields.data.get("source"), f"{where}.source", kind, repo)
+        source, ids = cls.resolve(fields.data.get("source"), f"{where}.source", kind, repo, ledgers)
         return Denominator(
             kind=kind,
             release=fields.text("release", required=True),
@@ -193,17 +211,25 @@ class DenominatorManifest:
         return value
 
     @staticmethod
-    def resolve(data: object, where: str, kind: SubjectKind, repo: Path) -> tuple[str, tuple[str, ...]]:
-        """A description of the source and the ids it declares today, in declaration order."""
+    def resolve(
+        data: object, where: str, kind: SubjectKind, repo: Path, ledgers: dict[Path, list[LedgerRecord]] | None = None
+    ) -> tuple[str, tuple[str, ...]]:
+        """A description of the source and the ids it declares today, in declaration order.
+
+        `ledgers` caches each ledger source by path, so entries that share one are read once.
+        """
 
         fields = FieldReader(data, where, ("document", "pattern", "ledger", "list"))
         if fields.present("list"):
             return "inline list", fields.texts("list") or ()
         if fields.present("ledger"):
             path = repo / fields.text("ledger")
-            ids = dict.fromkeys(
-                record.subject.id for record in LedgerDocument.load(path) if record.subject.kind is kind
-            )
+            records = ledgers.get(path) if ledgers is not None else None
+            if records is None:
+                records = LedgerDocument.load(path)
+                if ledgers is not None:
+                    ledgers[path] = records
+            ids = dict.fromkeys(record.subject.id for record in records if record.subject.kind is kind)
             return fields.text("ledger"), tuple(ids)
         document = fields.text("document", required=True)
         try:
@@ -225,4 +251,24 @@ class DenominatorManifest:
         return [problem for denominator in self.denominators for problem in denominator.drift()]
 
     def by_kind(self) -> Mapping[SubjectKind, Denominator]:
-        return {denominator.kind: denominator for denominator in self.denominators}
+        """Each kind's base release: the first entry the manifest declares for it."""
+
+        base: dict[SubjectKind, Denominator] = {}
+        for denominator in self.denominators:
+            base.setdefault(denominator.kind, denominator)
+        return base
+
+    def releases(self, kind: SubjectKind) -> tuple[Denominator, ...]:
+        """Every release in force for `kind`, in manifest order."""
+
+        return tuple(denominator for denominator in self.denominators if denominator.kind is kind)
+
+    def kinds(self) -> tuple[SubjectKind, ...]:
+        """The kinds with at least one release, in manifest order."""
+
+        return tuple(dict.fromkeys(denominator.kind for denominator in self.denominators))
+
+    def slot_keys(self, kind: SubjectKind) -> set[tuple[str, str, str, str, str]]:
+        """The union of the slots every release in force declares for `kind`."""
+
+        return set().union(*(denominator.slot_keys() for denominator in self.releases(kind)))

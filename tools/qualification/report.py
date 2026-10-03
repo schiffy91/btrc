@@ -4,7 +4,12 @@ Every count is taken against a denominator -- the distinct slots of one kind
 on one platform through one frontend and artifact variant -- so a slot
 without evidence is shown as *unrecorded* rather than vanishing. Given the
 frozen inventory denominators, the report also counts every declared slot
-the ledger has no record for as *missing*, and fails. The evidence table
+the ledger has no record for as *missing*, per release, and every slot outside
+the union of its kind's releases as *undeclared*, and fails on either; the
+coverage table counts each kind against that union. A slot classified as
+``retired`` is counted in its own column of every table, never as unrecorded,
+unclassified or missing; a ledger that retires no slot gets no such column,
+so its report reads as it did before the disposition existed. The evidence table
 carries the four outcome classes; the parity table carries the four
 classification classes; the implementation table keeps the source state
 (missing, source-only, partial, custom, implemented) apart from them;
@@ -71,6 +76,12 @@ class SlotState:
     @property
     def disagrees(self) -> bool:
         return self.derived is not None and self.evidence is not None and self.derived.status != self.evidence.status
+
+    @property
+    def retired(self) -> bool:
+        """A reviewed decision removed this slot's declaration: it is listed apart, never qualified."""
+
+        return self.classification is not None and self.classification.implementation is Implementation.RETIRED
 
     @property
     def failed(self) -> bool:
@@ -175,12 +186,25 @@ class QualificationReport:
         EvidenceStatus.UNAVAILABLE,
     )
     PARITIES = (Parity.EQUIVALENT, Parity.ADAPTED, Parity.OS_RESTRICTED, Parity.MISSING)
-    IMPLEMENTATIONS = tuple(Implementation)
+    IMPLEMENTATIONS = tuple(
+        implementation for implementation in Implementation if implementation is not Implementation.RETIRED
+    )
     GROUP = ("kind", "platform", "frontend", "variant")
 
     def __init__(self, records: Iterable[LedgerRecord], denominators: DenominatorManifest | None = None) -> None:
         self.rollup = LedgerRollup(records)
         self.denominators = denominators
+        # Tables gain a retired column only when the ledger retires a slot, so a ledger without
+        # retirements reports exactly as before the disposition existed.
+        self.retires = any(state.retired for state in self.rollup.slots.values())
+
+    def _retired(self, states: Iterable[SlotState]) -> dict[str, int]:
+        """The retired column of a row, present only when the ledger retires a slot."""
+
+        return {"retired": sum(1 for state in states if state.retired)} if self.retires else {}
+
+    def _columns(self, *columns: str) -> tuple[str, ...]:
+        return (*columns, "retired") if self.retires else columns
 
     @staticmethod
     def _group(key: GroupKey) -> dict[str, Any]:
@@ -195,7 +219,8 @@ class QualificationReport:
                     **self._group(key),
                     "slots": len(states),
                     **{status.value: counts.get(status, 0) for status in self.STATUSES},
-                    "unrecorded": sum(1 for state in states if state.current is None),
+                    "unrecorded": sum(1 for state in states if state.current is None and not state.retired),
+                    **self._retired(states),
                     "failed": sum(1 for state in states if state.failed),
                 }
             )
@@ -208,18 +233,23 @@ class QualificationReport:
             if not any(classification.parity for classification in classified):
                 continue
             counts = Counter(classification.parity for classification in classified if classification.parity)
+            retired = sum(1 for state in states if state.retired)
             rows.append(
                 {
                     **self._group(key),
                     "slots": len(states),
                     **{parity.value: counts.get(parity, 0) for parity in self.PARITIES},
-                    "unclassified": len(states) - sum(counts.values()),
+                    "unclassified": len(states) - sum(counts.values()) - retired,
+                    **self._retired(states),
                 }
             )
         return rows
 
     def implementation_rows(self) -> list[dict[str, Any]]:
-        """UI0's source inventory: implementation state, never folded into qualification."""
+        """UI0's source inventory: implementation state, never folded into qualification.
+
+        ``retired`` is its own column, so a retired slot is never unclassified.
+        """
 
         rows = []
         for key, states in self.rollup.denominators().items():
@@ -233,21 +263,26 @@ class QualificationReport:
                     "slots": len(states),
                     **{implementation.value: counts.get(implementation, 0) for implementation in self.IMPLEMENTATIONS},
                     "unclassified": len(states) - sum(counts.values()),
+                    **self._retired(states),
                 }
             )
         return rows
 
     def completeness_rows(self) -> list[dict[str, Any]]:
-        """P0: every inventory row needs parity, an owner, a regression and a current evidence status."""
+        """P0: every inventory row needs parity, an owner, a regression and a current evidence status.
+
+        A retired row needs none of them: it is counted apart.
+        """
 
         rows = []
-        for key, states in self.rollup.denominators().items():
+        for key, slots in self.rollup.denominators().items():
             if SubjectKind(key[0]) not in INVENTORY_KINDS:
                 continue
+            states = [state for state in slots if not state.retired]
             rows.append(
                 {
                     **self._group(key),
-                    "rows": len(states),
+                    "rows": len(slots),
                     "without_parity": sum(1 for s in states if not (s.classification and s.classification.parity)),
                     "without_owner": sum(1 for s in states if not (s.classification and s.classification.owner)),
                     "without_regression": sum(
@@ -255,6 +290,7 @@ class QualificationReport:
                     ),
                     "without_status": sum(1 for s in states if s.current is None),
                     "disagrees": sum(1 for s in states if s.disagrees),
+                    **self._retired(slots),
                 }
             )
         return rows
@@ -322,15 +358,24 @@ class QualificationReport:
             seen.setdefault(tuple(sorted(mapping.items())), mapping)
         return list(seen.values())
 
+    def _recorded(self, kind: SubjectKind) -> set[SlotKey]:
+        return {key for key in self.rollup.slots if key[0] == kind.value}
+
     def denominator_rows(self) -> list[dict[str, Any]]:
-        """Each frozen denominator against the ledger: declared, present, missing and undeclared slots."""
+        """Each frozen release against the ledger: declared, present, missing, retired and undeclared slots.
+
+        Missing slots are counted per release. Undeclared slots are counted
+        against the union of every release of the kind, so a slot another
+        release declares is never undeclared; every release of a kind shows
+        the same undeclared count.
+        """
 
         if self.denominators is None:
             return []
         rows = []
         for denominator in self.denominators.denominators:
             declared = denominator.slot_keys()
-            recorded = {key for key in self.rollup.slots if key[0] == denominator.kind.value}
+            recorded = self._recorded(denominator.kind)
             present = recorded & declared
             rows.append(
                 {
@@ -340,9 +385,38 @@ class QualificationReport:
                     "slots": denominator.frozen_slots,
                     "present": len(present),
                     "missing_slots": max(0, denominator.frozen_slots - len(present)),
-                    "undeclared": len(recorded - declared),
+                    **self._retired(self.rollup.slots[key] for key in present),
+                    "undeclared": len(recorded - self.denominators.slot_keys(denominator.kind)),
                     "drift": denominator.drift(),
                     "missing_examples": [" ".join(filter(None, key[1:])) for key in sorted(declared - recorded)[:5]],
+                }
+            )
+        return rows
+
+    def coverage_rows(self) -> list[dict[str, Any]]:
+        """Each inventory kind against every release in force for it: the count a full-coverage gate reads.
+
+        ``slots`` is the union of the releases' declared slots, so a slot two
+        releases share counts once. ``retired`` slots are present but resolve
+        by their decision, not by a classification.
+        """
+
+        if self.denominators is None:
+            return []
+        rows = []
+        for kind in self.denominators.kinds():
+            declared = self.denominators.slot_keys(kind)
+            recorded = self._recorded(kind)
+            present = recorded & declared
+            rows.append(
+                {
+                    "kind": kind.value,
+                    "releases": [denominator.release for denominator in self.denominators.releases(kind)],
+                    "slots": len(declared),
+                    "present": len(present),
+                    "missing_slots": len(declared - recorded),
+                    **self._retired(self.rollup.slots[key] for key in present),
+                    "undeclared": len(recorded - declared),
                 }
             )
         return rows
@@ -351,15 +425,27 @@ class QualificationReport:
         """Why this report cannot stand as complete; empty when it can."""
 
         problems = []
-        for row in self.denominator_rows():
+        rows = self.denominator_rows()
+        releases = Counter(row["kind"] for row in rows)
+        for row in rows:
             problems += row["drift"]
             if row["missing_slots"]:
                 examples = ", ".join(row["missing_examples"])
+                # A kind with several releases names the release its missing slots belong to.
+                release = f" of release {row['release']}" if releases[row["kind"]] > 1 else ""
                 problems.append(
-                    f"{row['kind']}: {row['missing_slots']} of {row['slots']} declared slots have no record (e.g. {examples})"
+                    f"{row['kind']}: {row['missing_slots']} of {row['slots']} declared slots{release} "
+                    f"have no record (e.g. {examples})"
                 )
+        for row in self.coverage_rows():
             if row["undeclared"]:
-                problems.append(f"{row['kind']}: {row['undeclared']} slots are outside release {row['release']}")
+                releases = ", ".join(row["releases"])
+                noun = "releases" if len(row["releases"]) > 1 else "release"
+                problems.append(f"{row['kind']}: {row['undeclared']} slots are outside {noun} {releases}")
+        retired = Counter(
+            state.subject.kind.value for state in self.rollup.slots.values() if state.retired and state.current
+        )
+        problems += [f"{kind}: {count} retired slots carry evidence" for kind, count in sorted(retired.items())]
         return problems
 
     def to_json(self) -> dict[str, Any]:
@@ -371,6 +457,7 @@ class QualificationReport:
             "implementation": self.implementation_rows(),
             "completeness": self.completeness_rows(),
             "denominators": self.denominator_rows(),
+            "coverage": self.coverage_rows(),
             "measurements": self.measurement_rows(),
             "unavailable": self.unavailable_rows(),
             "provenance": self.provenance_rows(),
@@ -391,20 +478,26 @@ class QualificationReport:
             "## Evidence",
             "",
         ]
-        columns = ("slots", *(status.value for status in self.STATUSES), "unrecorded", "failed")
+        columns = self._columns("slots", *(status.value for status in self.STATUSES), "unrecorded", "failed")
         lines += self._table((*self.GROUP, *columns), self.evidence_rows())
         if denominators := self.denominator_rows():
             rows = [{**row, "drift": "; ".join(row["drift"]) or "-"} for row in denominators]
-            names = ("kind", "release", "source", "slots", "present", "missing_slots", "undeclared", "drift")
+            names = self._columns(
+                "kind", "release", "source", "slots", "present", "missing_slots", "undeclared", "drift"
+            )
             lines += ["", "## Frozen denominators", "", *self._table(names, rows)]
+            rows = [{**row, "releases": ", ".join(row["releases"])} for row in self.coverage_rows()]
+            names = self._columns("kind", "releases", "slots", "present", "missing_slots", "undeclared")
+            lines += ["", "## Coverage of every release in force", "", *self._table(names, rows)]
         if parity := self.parity_rows():
-            columns = ("slots", *(parity_class.value for parity_class in self.PARITIES), "unclassified")
+            columns = self._columns("slots", *(parity_class.value for parity_class in self.PARITIES), "unclassified")
             lines += ["", "## Parity classification", "", *self._table((*self.GROUP, *columns), parity)]
         if implementation := self.implementation_rows():
-            columns = ("slots", *(state.value for state in self.IMPLEMENTATIONS), "unclassified")
+            columns = self._columns("slots", *(state.value for state in self.IMPLEMENTATIONS), "unclassified")
             lines += ["", "## Implementation state", "", *self._table((*self.GROUP, *columns), implementation)]
         if completeness := self.completeness_rows():
             columns = ("rows", "without_parity", "without_owner", "without_regression", "without_status", "disagrees")
+            columns = self._columns(*columns)
             lines += ["", "## Inventory completeness", "", *self._table((*self.GROUP, *columns), completeness)]
         provenance = self.provenance_rows()
         hosts = {tuple(sorted(mapping.items())): f"P{index}" for index, mapping in enumerate(provenance, start=1)}
