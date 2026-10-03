@@ -1,7 +1,9 @@
 import Library.IO;
+import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
 import ../../../compiler/btrc/syntax/Grammar.btrc;
 import ../../../compiler/btrc/frontend/Models.btrc;
 import ../../../compiler/btrc/frontend/Resolver.btrc;
@@ -28,11 +30,59 @@ class RememberedDirectives implements FeDirectiveCache {
 	}
 }
 
+/* Every stored scan, keyed by the scanned (conditioned) text. */
+class KeyedDirectives implements FeDirectiveCache {
+	public int hits = 0;
+	public Map<string, Vector<FeDirectiveRange>> entries = {};
+
+	public Vector<FeDirectiveRange>? load(string source, string grammar) {
+		if (!self.entries.has(source)) { return null; }
+		self.hits++;
+		return self.entries.get(source);
+	}
+
+	public void store(string source, string grammar, Vector<FeDirectiveRange> ranges) { self.entries.put(source, ranges); }
+}
+
+string conditioned(GrammarInfo grammar, string source, string operatingSystem) {
+	GeneratedHostedAbiData data = GeneratedHostedAbiData();
+	Map<string, bool> hosted = {};
+	for name in data.ownedNames() { hosted.put(name, true); }
+	Map<string, string> defines = {};
+	var environment = FeConditionalEnvironment(operatingSystem, "x86_64", FeConditionalEnvironment.macroRulesFor(grammar.vocabulary, hosted, data), data, defines);
+	return FeSourceConditionals(environment, grammar).condition(source, "/t/Input.btrc").text;
+}
+
+void printDirectives(string label, Vector<FeDirective> directives) {
+	for item in directives { print(f"{label}:{item.kind}:{item.start}:{item.end}:{item.payload}"); }
+}
+
+/* The cache scans conditioned text: one raw text under two targets gives
+ * two entries, and a restore brings back only that target's imports. */
+int conditionedMode(GrammarInfo grammar, string source) {
+	var cache = KeyedDirectives();
+	var scanner = FeDirectiveScanner(grammar, cache);
+	string linux = conditioned(grammar, source, "linux");
+	string windows = conditioned(grammar, source, "windows");
+	var linuxCold = scanner.scan(linux);
+	var windowsCold = scanner.scan(windows);
+	assert(cache.entries.len == 2 && cache.hits == 0);
+	var linuxWarm = scanner.scan(linux);
+	var windowsWarm = scanner.scan(windows);
+	assert(cache.hits == 2);
+	assert(linuxWarm.len == linuxCold.len && windowsWarm.len == windowsCold.len);
+	printDirectives("linux", linuxWarm);
+	printDirectives("windows", windowsWarm);
+	print(f"entries={cache.entries.len} hits={cache.hits}");
+	return 0;
+}
+
 int main(int argc, char** argv) {
 	if (argc != 4) { return 2; }
 	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
 	string source = Path.readAll(Strings.copy(argv[2]));
 	string mode = Strings.copy(argv[3]);
+	if (mode.equals("conditioned")) { return conditionedMode(grammar, source); }
 	var cache = RememberedDirectives();
 	var scanner = FeDirectiveScanner(grammar, cache);
 	var first = scanner.scan(source);

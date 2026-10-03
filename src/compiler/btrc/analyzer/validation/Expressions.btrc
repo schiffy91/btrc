@@ -940,6 +940,9 @@ class ExpressionValidator {
 	public void validateExprChildren(Node expression, Map<string, Node> vars) {
 		if (expression.kind == NK_IDENTIFIER) {
 			string name = expression.name;
+			/* Code sees every macro's final state: an #undef'd one is refused
+			 * (U1, U2). */
+			if (!vars.has(name)) { self.sourceMacros.refuseCodeUse(name, expression); }
 			if (self.state.analyzed.nativeLifetimeOperations.has(name)) { TypeValidator.fail("Native resource lifetime operations are reserved for managed cleanup", expression); }
 			self.calls.rejectConstructorDefaultInstanceMember(name, expression, false, vars);
 			if (self.state.inParameterDefault && self.sourceMacros.declared(name)) {

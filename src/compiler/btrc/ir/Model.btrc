@@ -774,10 +774,11 @@ class IRFunction {
 enum IRPreprocessorKind {
 	IR_PREPROCESSOR_INCLUDE = 1,
 	IR_PREPROCESSOR_MACRO = 2,
+	IR_PREPROCESSOR_UNDEF = 3,
 };
 
-/* A system <header> or local "header" include, or a structured single-line
- * macro.  A fat tagged node preserves source order in one homogeneous Vector.
+/* A system <header> or local "header" include, a structured single-line
+ * macro, or an #undef of a source macro.  A fat tagged node preserves source order in one homogeneous Vector.
  * `function_like` distinguishes F from F(), including an empty parameter list. */
 class IRPreprocessorDecl {
 	public int kind;
@@ -813,6 +814,14 @@ class IRPreprocessorDecl {
 		declaration.functionLike = functionLike;
 		declaration.params = params;
 		declaration.replacement = replacement;
+		return declaration;
+	}
+
+	/* A source `#undef NAME`, emitted in hoisted source order. */
+	class IRPreprocessorDecl undef(string name) {
+		IRPreprocessorDecl declaration = IRPreprocessorDecl();
+		declaration.kind = IR_PREPROCESSOR_UNDEF;
+		declaration.name = name;
 		return declaration;
 	}
 }

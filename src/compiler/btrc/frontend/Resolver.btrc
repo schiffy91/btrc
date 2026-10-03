@@ -358,6 +358,19 @@ class FeConditionalEnvironment {
 		return FeConditionalEnvironment(plan.target.operatingSystem, plan.target.architecture, macroRules, data, defines);
 	}
 
+	/* The packages' target, else the host's, with the generated hosted-ABI
+	 * owned names; the compiler pipeline passes its repository's set instead. */
+	class FeConditionalEnvironment standard(GrammarInfo grammar, FeResolvedPackages? packages) {
+		GeneratedHostedAbiData data = GeneratedHostedAbiData();
+		Map<string, bool> hosted = {};
+		for name in data.ownedNames() { hosted.put(name, true); }
+		SourceMacroRules rules = FeConditionalEnvironment.macroRulesFor(grammar.vocabulary, hosted, data);
+		if (packages != null) { return FeConditionalEnvironment.forPackages(packages, rules, data); }
+		FePackageTarget host = FePackageTarget.host();
+		Map<string, string> none = {};
+		return FeConditionalEnvironment(host.operatingSystem, host.architecture, rules, data, none);
+	}
+
 	/* One environment per spec target, with no package graph. */
 	public Vector<FeConditionalEnvironment> everyTarget() {
 		Vector<FeConditionalEnvironment> result = [];
@@ -2018,8 +2031,16 @@ class FeFrontendResolver {
 	private FeDependencyGraphBuilder dependencies;
 	private FeSourcePathPolicy sourcePaths;
 	private FeResolvedPackages? packages;
+	private GrammarInfo grammar;
+	private FeConditionalEnvironment? environment;
+	private FeSourceConditionals? conditionalsValue = null;
+	private Vector<FeConditionalTest> conditionalTests = [];
 
-	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages? packages = null, FeDirectiveCache? directiveCache = null) {
+	/* `environment` conditions every file; by default it is the packages'
+	 * target (else the host's) with the generated hosted-ABI names. */
+	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages? packages = null, FeDirectiveCache? directiveCache = null, FeConditionalEnvironment? environment = null) {
+		self.grammar = grammar;
+		self.environment = environment;
 		self.importPolicy = FePackageImportPolicy(packages == null ? null : packages.linkPlan.target);
 		self.directiveScanner = FeDirectiveScanner(grammar, directiveCache);
 		self.sourceDirectories = FeSourceDirectoryScanner();
@@ -2047,7 +2068,34 @@ class FeFrontendResolver {
 		return true;
 	}
 
-	private FeResolutionFrame openFrame(string source, string absPath) {
+	/* The resolver's conditioning, built on first use. */
+	public FeSourceConditionals conditionals() {
+		FeSourceConditionals? existing = self.conditionalsValue;
+		if (existing != null) { return existing; }
+		FeConditionalEnvironment? configured = self.environment;
+		FeConditionalEnvironment selected = configured != null ? configured : FeConditionalEnvironment.standard(self.grammar, self.packages);
+		FeSourceConditionals built = FeSourceConditionals(selected, self.grammar);
+		self.conditionalsValue = built;
+		return built;
+	}
+
+	/* Condition one file; a conditioning error ends the compile, rendered at
+	 * its file-local position. */
+	private string conditioned(string source, string absPath, bool record = true) {
+		FeConditionedSource result = self.conditionals().condition(source, absPath);
+		FeConditionalFailure? failure = result.failure;
+		if (failure != null) {
+			fprintf(stderr, "%s\n", failure.render());
+			exit(1);
+		}
+		if (record) {
+			for test in result.tests { self.conditionalTests.push(test); }
+		}
+		return result.text;
+	}
+
+	private FeResolutionFrame openFrame(string rawSource, string absPath) {
+		string source = self.conditioned(rawSource, absPath);
 		Vector<FeDirective> directives = self.directiveScanner.scan(source);
 		Map<int, int> byStart = {};
 		Map<int, bool> covered = {};
@@ -2138,6 +2186,7 @@ class FeFrontendResolver {
 		/* Each result owns a stable dependency graph. Resolver reuse must not
          * retain a prior call's include guards or dependency edges. */
 		self.included = {};
+		self.conditionalTests = [];
 		FeResolvedPackages? packages = self.packages;
 		self.importPolicy = FePackageImportPolicy(packages == null ? null : packages.linkPlan.target);
 		self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
@@ -2164,7 +2213,9 @@ class FeFrontendResolver {
 		BtrccPhaseTimer.mark("r-stdlib-source");
 		string combined = stdlibSource.length() > 0 ? stdlibSource + "\n" + userSource : userSource;
 		int stdlibLineCount = stdlibSource.length() > 0 ? FeSourceText(stdlibSource).lineCount() : 0;
-		return FeResolvedSource(userSource, combined, stdlibSource, userLines, self.dependencies.build(), self.strictImports, stdlibLineCount, self.sourcePaths.absolute(sourcePath), self.stdlibSnapshot);
+		FeResolvedSource resolved = FeResolvedSource(userSource, combined, stdlibSource, userLines, self.dependencies.build(), self.strictImports, stdlibLineCount, self.sourcePaths.absolute(sourcePath), self.stdlibSnapshot);
+		resolved.conditionalTests = self.conditionalTests;
+		return resolved;
 	}
 
 	private bool wordCharacter(char value) { return Strings.isAlnum(value) || value == '_'; }
@@ -2305,7 +2356,7 @@ class FeFrontendResolver {
 		Vector<string> lines = [];
 		int fileIndex = 0;
 		while (fileIndex < snapshot.count()) {
-			string content = snapshot.sourceAt(fileIndex);
+			string content = self.conditioned(snapshot.sourceAt(fileIndex), snapshot.pathAt(fileIndex), false);
 			if (!self.namesIntersect(self.definedTypeNames(content), userNames)) {
 				Vector<string> fileLines = self.sourceWithoutImports(content);
 				int lineIndex = 0;

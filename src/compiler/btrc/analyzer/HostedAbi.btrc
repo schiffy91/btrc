@@ -109,13 +109,19 @@ class HostedAbiRepository {
 		return built.has(name);
 	}
 
-	public bool ownedName(string name) {
+	public bool ownedName(string name) { return self.ownedNameSet().has(name); }
+
+	/* Every hosted-ABI owned name, which #if classifies as foreign. */
+	public Map<string, bool> ownedNameSet() {
 		Map<string, bool>? existing = self.ownedNames;
-		if (existing != null) { return existing.has(name); }
+		if (existing != null) { return existing; }
 		Map<string, bool> built = self.indexNames(self.data.ownedNames());
 		self.ownedNames = built;
-		return built.has(name);
+		return built;
 	}
+
+	/* The generated tables, target spec included. */
+	public GeneratedHostedAbiData tables() { return self.data; }
 
 	private bool adoptingHelper(string name) {
 		Map<string, bool>? existing = self.adoptingHelpers;

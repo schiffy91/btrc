@@ -13,6 +13,8 @@ import ../../analyzer/validation/Declarations.btrc;
 import ../../generated/ast/Node.btrc;
 import ../../generated/native_abi/Models.btrc;
 import ../../frontend/Models.btrc;
+import ../../frontend/Resolver.btrc;
+import ../../parser/SourceMacros.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Literals.btrc;
 import ../../syntax/Types.btrc;
@@ -4601,6 +4603,21 @@ class DeclarationLowerer {
 		return IRPreprocessorDecl.macro(name, true, params, replacement);
 	}
 
+	/* The one name of `#undef NAME`, comments aside (U3). */
+	private string undefName(string payload, string source) {
+		string text = SourceMacroRules.withoutComments(payload);
+		int index = 0;
+		while (index < text.length() && (text[index] == ' ' || text[index] == '\t')) { index = index + 1; }
+		int start = index;
+		if (index == 0 || index >= text.length() || !self.preprocessorIdentifierStart(text[index])) { self.preprocessorFail("malformed #undef directive: " + source); }
+		index = index + 1;
+		while (index < text.length() && self.preprocessorIdentifierPart(text[index])) { index = index + 1; }
+		string name = text.substring(start, index - start);
+		while (index < text.length() && (text[index] == ' ' || text[index] == '\t')) { index = index + 1; }
+		if (index != text.length()) { self.preprocessorFail("malformed #undef directive: " + source); }
+		return name;
+	}
+
 	private void lowerPreprocessorDirective(string sourceText, IRModule module) {
 		if (self.containsPreprocessorTrigraph(sourceText)) {
 			self.preprocessorFail("C11 trigraphs in preprocessor directives are unsupported");
@@ -4615,6 +4632,12 @@ class DeclarationLowerer {
 		string source = self.preprocessorTrim(sourceText);
 		if (source.length() == 0 || source[source.length() - 1] == '\\') {
 			self.preprocessorFail("multi-line preprocessor directives are unsupported");
+		}
+		if (FeSourceConditionals.directiveWhitespace(source) >= 0) {
+			self.preprocessorFail("only spaces and tabs may separate tokens in a preprocessor directive (C11 6.10p5)");
+		}
+		if (FeSourceConditionals.unclosedComment(source) >= 0) {
+			self.preprocessorFail("a comment in a preprocessor directive must close on the same line");
 		}
 		if (source[0] != '#') {
 			self.preprocessorFail("malformed preprocessor directive: " + source);
@@ -4643,6 +4666,10 @@ class DeclarationLowerer {
 		}
 		if (directive == "define") {
 			self.appendPreprocessorDecl(module, self.parseMacroDirective(payload, source));
+			return;
+		}
+		if (directive == "undef") {
+			module.preprocessorDecls.push(IRPreprocessorDecl.undef(self.undefName(payload, source)));
 			return;
 		}
 		if (directive == "pragma") {

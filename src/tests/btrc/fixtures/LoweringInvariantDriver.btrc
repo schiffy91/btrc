@@ -1,0 +1,43 @@
+/* The lowering invariant of C4 (c-preprocessor-conditionals.md): conditioning
+ * removes every conditional directive before lexing, so no source reaches
+ * lowering with one. This driver bypasses conditioning: it resolves a trivial
+ * program, then hands the pipeline a composed source whose first line is the
+ * directive given on the command line, and compiles that. Lowering must still
+ * refuse a conditional directive, and the shapes D15 and D17 in a live one.
+ *
+ *   LoweringInvariantDriver GRAMMAR STDLIB PROGRAM DIRECTIVE
+ */
+
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/SourceIo.btrc;
+import ../../../compiler/btrc/pipeline/Models.btrc;
+import ../../../compiler/btrc/pipeline/Pipeline.btrc;
+import ../../../compiler/btrc/syntax/Grammar.btrc;
+
+int main(int argc, char** argv) {
+	if (argc != 5) { return 2; }
+	FeSourceFileReader sourceFiles = FeSourceFileReader();
+	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
+	var pipeline = CompilerPipeline(grammar, Strings.copy(argv[2]), sourceFiles);
+	string path = Strings.copy(argv[3]);
+	BtrccOptions options = BtrccOptions();
+	options.includeStdlib = false;
+	options.useCache = false;
+	BtrccResolvedCompilation input = pipeline.resolve(sourceFiles.readRequired(path), path, options);
+	string body = "int main() { return 0; }";
+	input.source.source = Strings.copy(argv[4]) + "\n" + body;
+	input.source.userSource = input.source.source;
+	Vector<FeLine> lines = [FeLine(Strings.copy(argv[4]), input.source.rootSourcePath, 1), FeLine(body, input.source.rootSourcePath, 2)];
+	input.source.userLines = lines;
+	BtrccCompilationResult result = pipeline.compileResolved(input, options);
+	if (result.success) {
+		print("lowered");
+		return 0;
+	}
+	print(result.diagnostic);
+	return 1;
+}

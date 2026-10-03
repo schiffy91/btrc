@@ -10,6 +10,7 @@
  * first: `Node v = self.parseX(); node.field = v;`.
  */
 
+import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
@@ -51,6 +52,10 @@ class Parser {
 
 	public Token advance() {
 		Token t = self.peek();
+		if (t.type == "PREPROCESSOR") {
+			self.failDirectivePlacement(t);
+			return t;
+		}
 		if (self.pos < self.tokens.len - 1) {
 			self.pos = self.pos + 1;
 		}
@@ -94,8 +99,31 @@ class Parser {
      * parse loop unwinds without manufacturing more AST from bad input. The
      * driver owns presentation and exit status; token helpers never terminate
      * the process. */
+	/* A directive anywhere but at an item start is out of place, whatever
+	 * the item's own error would say (B1). The name is the longest
+	 * identifier after `#` and spaces. */
+	public void failDirectivePlacement(Token directive) {
+		if (self.failed) { return; }
+		string text = directive.value;
+		int start = 1;
+		while (start < text.length() && (text[start] == ' ' || text[start] == '\t' || text[start] == '\f' || text[start] == '\v')) { start++; }
+		int end = start;
+		if (end < text.length() && (text[end] == '_' || Strings.isAlpha(text[end]))) {
+			end++;
+			while (end < text.length() && (text[end] == '_' || Strings.isAlnum(text[end]))) { end++; }
+		}
+		string name = text.substring(start, end - start);
+		self.failed = true;
+		self.diagnostic = f"Preprocessor directive '#{name}' must be at file scope at {directive.line}:{directive.col}";
+		self.pos = self.tokens.len - 1;
+	}
+
 	public void failExpected(string expected, Token actual) {
 		if (self.failed) { return; }
+		if (self.peek().type == "PREPROCESSOR") {
+			self.failDirectivePlacement(self.peek());
+			return;
+		}
 		if (expected == "IDENT" && self.peek().line == actual.line && self.peek().col == actual.col && self.isReservedName(self.pos)) {
 			self.failAt(f"'{actual.value}' is a reserved word and cannot be used as a name", actual);
 			return;
@@ -108,6 +136,10 @@ class Parser {
 
 	public void failAt(string message, Token actual) {
 		if (self.failed) { return; }
+		if (self.peek().type == "PREPROCESSOR") {
+			self.failDirectivePlacement(self.peek());
+			return;
+		}
 		self.failed = true;
 		self.diagnostic = message + f" at {actual.line}:{actual.col}";
 		self.pos = self.tokens.len - 1;
@@ -810,7 +842,9 @@ class Parser {
 	}
 
 	public Node parsePreprocessor() {
-		Token tok = self.advance();
+		/* The one consumer of a directive token: advance() refuses it (B1). */
+		Token tok = self.peek();
+		if (self.pos < self.tokens.len - 1) { self.pos = self.pos + 1; }
 		Node n = Node();
 		n.kind = NK_PREPROCESSOR_DIRECTIVE;
 		n.text = tok.value;

@@ -167,6 +167,8 @@ class ConstantValidator {
 			return self.characterConstant(expression.valueString);
 		}
 		if (expression.kind == NK_IDENTIFIER) {
+			/* Constant contexts read a macro's final state too (U1, U2). */
+			self.sourceMacros.refuseCodeUse(expression.name, expression);
 			if (restrictEnum) {
 				if (allowedMembers.has(expression.name)) {
 					return self.storedEnumConstant(enumOwner, expression.name);

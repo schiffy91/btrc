@@ -15,6 +15,7 @@ import ../frontend/Packages.btrc;
 import ../frontend/Resolver.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Stdlib.btrc;
+import ../pipeline/Pipeline.btrc;
 import ../syntax/Grammar.btrc;
 
 class FrontendInspectionCommand {
@@ -74,7 +75,10 @@ class FrontendInspectionCommand {
 		GrammarInfo grammar = EbnfGrammarParser(self.sourceFiles.readRequired(dataPaths.grammar)).parse();
 		FeStdlibRepository stdlib = FeStdlibRepository(dataPaths.stdlib, self.sourceFiles);
 		FeResolvedPackages packages = FePackageGraphResolver(self.sourceFiles).resolveFor(path, target);
-		FeFrontendResolver resolver = FeFrontendResolver(grammar, stdlib, includeStdlib, strictImports, packages);
+		/* Conditioned for --target (else the host) through the compiler's own
+		 * environment, so this inspection matches what a compile resolves. */
+		FeConditionalEnvironment environment = CompilerPipeline(grammar, dataPaths.stdlib, self.sourceFiles).conditionalEnvironment(packages);
+		FeFrontendResolver resolver = FeFrontendResolver(grammar, stdlib, includeStdlib, strictImports, packages, null, environment);
 		FeResolvedSource resolved = resolver.resolve(source, path);
 		if (self.output.write(resolved.source)) { return 0; }
 		fprintf(stderr, "frontend: error: cannot write standard output\n");
