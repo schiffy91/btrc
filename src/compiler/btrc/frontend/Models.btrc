@@ -791,8 +791,67 @@ class FeNativeImportedDeclaration {
 	}
 }
 
+/* One evaluated test of a this-file or absent name in a #if family
+ * directive; the program checks (P1-P4) read them in resolution order. */
+class FeConditionalTest {
+	public string path;
+	public string name;
+	public int line;
+	public int col;
+	public bool local;
+	/* The directive's raw line, for a rendered diagnostic. */
+	public string lineText;
+	/* Set once the record joins an evaluation's list, which holds each once. */
+	public bool recorded = false;
+
+	public FeConditionalTest(string path, string name, int line, int col, bool local, string lineText) {
+		self.path = path;
+		self.name = name;
+		self.line = line;
+		self.col = col;
+		self.local = local;
+		self.lineText = lineText;
+	}
+}
+
+/* A file-local preprocessor-conditional or program-check failure, positioned
+ * in its own file also when that file is imported. */
+class FeConditionalFailure {
+	public string message;
+	public string file;
+	public int line;
+	public int col;
+	public string lineText;
+
+	public FeConditionalFailure(string message, string file, int line, int col, string lineText) {
+		self.message = message;
+		self.file = file;
+		self.line = line;
+		self.col = col;
+		self.lineText = lineText;
+	}
+
+	public string render() { return FeVisibilityDiagnostic(self.message, self.file, self.line, self.col, self.lineText).render(); }
+}
+
+/* A file's text with its dead groups and conditional directives blanked,
+ * or the first failure that conditioning it met. */
+class FeConditionedSource {
+	public string text;
+	public Vector<FeConditionalTest> tests;
+	public FeConditionalFailure? failure;
+
+	public FeConditionedSource(string text, Vector<FeConditionalTest> tests, FeConditionalFailure? failure = null) {
+		self.text = text;
+		self.tests = tests;
+		self.failure = failure;
+	}
+}
+
 class FeResolvedSource {
 	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
+	/* Every conditioned file's #if test records, in resolution order. */
+	public Vector<FeConditionalTest> conditionalTests = [];
 	public string userSource;
 	public string source;
 	public string stdlibSource;

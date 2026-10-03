@@ -1,0 +1,80 @@
+/* Runs the shared #if expression battery (conditional_expressions.tsv)
+ * through btrc's FeSourceConditionals for linux-x86_64, printing one outcome
+ * per case: "1" when the group is taken, "0" when it is not, or
+ * "error LINE:COL MESSAGE". `--no-target` conditions with an empty target
+ * instead, the D13 seam of an unrecognized host; `--file PATH` conditions one
+ * whole file and prints its conditioned text, or its error. */
+
+import Library.IO;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
+import ../../../compiler/btrc/syntax/Grammar.btrc;
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/Resolver.btrc;
+
+class ConditionalBattery {
+	private FeSourceConditionals conditionals;
+
+	public ConditionalBattery(GrammarInfo grammar, string operatingSystem, string architecture) {
+		GeneratedHostedAbiData data = GeneratedHostedAbiData();
+		Map<string, bool> hosted = {};
+		for name in data.ownedNames() { hosted.put(name, true); }
+		var rules = FeConditionalEnvironment.macroRulesFor(grammar.vocabulary, hosted, data);
+		Map<string, string> defines = {};
+		self.conditionals = FeSourceConditionals(FeConditionalEnvironment(operatingSystem, architecture, rules, data, defines), grammar);
+	}
+
+	private string outcome(FeConditionedSource conditioned, string taken) {
+		FeConditionalFailure? failure = conditioned.failure;
+		if (failure != null) { return f"error {failure.line}:{failure.col} {failure.message}"; }
+		return taken;
+	}
+
+	/* One battery line: the #define lines joined by ";" ("-" for none), the
+	 * payload, and the expected outcome, tab-separated. */
+	public string run(string line) {
+		Vector<string> fields = Strings.split(line, "\t");
+		Vector<string> lines = [];
+		if (fields.get(0) != "-") {
+			for define in Strings.split(fields.get(0), ";") { lines.push(define); }
+		}
+		lines.push("#if " + fields.get(1));
+		lines.push("taken");
+		lines.push("#endif");
+		lines.push("");
+		var conditioned = self.conditionals.condition(Strings.join(lines, "\n"), "/battery/Case.btrc");
+		return self.outcome(conditioned, conditioned.text.indexOf("taken") >= 0 ? "1" : "0");
+	}
+
+	public string file(string text) {
+		var conditioned = self.conditionals.condition(text, "/t/Main.btrc");
+		return self.outcome(conditioned, conditioned.text);
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc < 3) { return 2; }
+	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
+	string operatingSystem = "linux";
+	string architecture = "x86_64";
+	int index = 2;
+	if (Strings.copy(argv[index]) == "--no-target") {
+		operatingSystem = "";
+		architecture = "";
+		index++;
+	}
+	var battery = ConditionalBattery(grammar, operatingSystem, architecture);
+	if (Strings.copy(argv[index]) == "--file") {
+		if (index + 1 >= argc) { return 2; }
+		print(battery.file(Path.readAll(Strings.copy(argv[index + 1]))));
+		return 0;
+	}
+	for line in Strings.split(Path.readAll(Strings.copy(argv[index])), "\n") {
+		if (line.isEmpty() || line.startsWith("#")) { continue; }
+		print(battery.run(line));
+	}
+	return 0;
+}
