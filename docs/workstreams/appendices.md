@@ -136,7 +136,7 @@ Analysts wrote cross-group dependencies as PLAN item ids. Each resolves to the p
 | stage32:ui-2-contract-lifecycle (draft) | [CX-UIA-20](codex.md#cx-uia-20) | [CL-P2-22](claude.md#cl-p2-22) |
 | tooling-android-ci-emulator | [CX-P1-05](codex.md#cx-p1-05) | [CX-UIA-17](codex.md#cx-uia-17) |
 | tooling-android-sdk-ndk | [CL-P1-02](claude.md#cl-p1-02), [MAC-P1-03](owner.md#mac-p1-03) | [CX-UIA-17](codex.md#cx-uia-17) |
-| tooling-cross-gpu-deps | [CL-P2-17](claude.md#cl-p2-17) | [CX-UIA-15](codex.md#cx-uia-15) |
+| tooling-cross-gpu-deps | [CL-P2-29](claude.md#cl-p2-29) | [CX-UIA-15](codex.md#cx-uia-15) |
 | tooling-ios-simulator-runtimes | [MAC-P1-02](owner.md#mac-p1-02) | [CX-UIA-16](codex.md#cx-uia-16) |
 
 ### Appendix B. PLAN items → packets
@@ -305,7 +305,7 @@ Every PLAN item named in a packet's `plan_items`. A `[part]`, `#part` or `(part)
 | `qualification-ci-ios` | [CX-P2-49](codex.md#cx-p2-49), [MAC-P2-05](owner.md#mac-p2-05) |
 | `qualification-ci-linux-gui-audio` | [CL-UIA-11](claude.md#cl-uia-11) |
 | `qualification-ci-macos-native-suite` | [CL-R-36](claude.md#cl-r-36) |
-| `qualification-ci-tiering` | [CL-R-38](claude.md#cl-r-38), [CL-R-39](claude.md#cl-r-39) |
+| `qualification-ci-tiering` | [CL-R-38](claude.md#cl-r-38), [CL-R-39](claude.md#cl-r-39), [CL-R-50](claude.md#cl-r-50) |
 | `qualification-ci-windows-matrix` | [CL-P2-18](claude.md#cl-p2-18), [CX-P2-18](codex.md#cx-p2-18) |
 | `qualification-final-a2-exit` | [CL-R-45](claude.md#cl-r-45) |
 | `qualification-final-i2-exit` | [CL-R-45](claude.md#cl-r-45) |
@@ -336,7 +336,7 @@ Every PLAN item named in a packet's `plan_items`. A `[part]`, `#part` or `(part)
 | `tooling-android-sdk-ndk` | [CL-P1-02](claude.md#cl-p1-02), [MAC-P1-03](owner.md#mac-p1-03) |
 | `tooling-apple-signing` | [MAC-P1-04](owner.md#mac-p1-04) |
 | `tooling-audio-loopback-rig` | [CX-R-01](codex.md#cx-r-01), [CX-R-02](codex.md#cx-r-02), [MAC-R-13](owner.md#mac-r-13) |
-| `tooling-cross-gpu-deps` | [CL-P2-17](claude.md#cl-p2-17), [CX-P2-25](codex.md#cx-p2-25) |
+| `tooling-cross-gpu-deps` | [CL-P2-29](claude.md#cl-p2-29), [CX-P2-25](codex.md#cx-p2-25) |
 | `tooling-ios-physical-devices` | [MAC-P1-04](owner.md#mac-p1-04) |
 | `tooling-ios-simulator-runtimes` | [MAC-P1-02](owner.md#mac-p1-02) |
 | `tooling-linux-desktop-host` | [MAC-UIA-01](owner.md#mac-uia-01) |
@@ -348,11 +348,11 @@ Every PLAN item named in a packet's `plan_items`. A `[part]`, `#part` or `(part)
 | `tooling-windows-vm` | [CX-P1-03](codex.md#cx-p1-03) |
 | `tooling-x86-acceptance-host` | [CL-R-49](claude.md#cl-r-49), [MAC-R-07](owner.md#mac-r-07) |
 | `ui-0-broader-surface` | [CX-UIA-05](codex.md#cx-uia-05) |
-| `ui-0-catalog-schema` | [CX-UIA-02](codex.md#cx-uia-02) |
+| `ui-0-catalog-schema` | [CX-UIA-02](codex.md#cx-uia-02), [CL-UIA-24](claude.md#cl-uia-24) |
 | `ui-0-doc-reconcile` | [CX-UIA-07](codex.md#cx-uia-07) |
 | `ui-0-focused-gate` | [CL-UIA-02](claude.md#cl-uia-02), [CX-UIA-01](codex.md#cx-uia-01) |
 | `ui-0-host-matrix` | [CX-UIA-06](codex.md#cx-uia-06) |
-| `ui-0-operation-map` | [CX-UIA-03](codex.md#cx-uia-03), [CX-UIA-04](codex.md#cx-uia-04) |
+| `ui-0-operation-map` | [CX-UIA-03](codex.md#cx-uia-03), [CX-UIA-04](codex.md#cx-uia-04), [CX-UIA-30](codex.md#cx-uia-30) |
 | `ui-0-product-journeys` | [CL-UIA-03](claude.md#cl-uia-03) |
 | `ui-1-android-shell` | [CX-UIA-13](codex.md#cx-uia-13), [CX-UIA-17](codex.md#cx-uia-17), [MAC-UIA-03](owner.md#mac-uia-03) |
 | `ui-1-feasibility-review` | [CL-UIA-09](claude.md#cl-uia-09), [CL-UIA-10](claude.md#cl-uia-10), [CL-UIA-22](claude.md#cl-uia-22) |
@@ -849,6 +849,7 @@ The six analysts' packets are reproduced faithfully in §6, except for the chang
 14. **Scheduling note on `CL-UIB-16`.** The availability model moves earlier than Stage 37 (§7 Q12). §10 P4 places it after the GObject binding (`CL-UIA-08`) rather than right after `CL-P2-24`.
 15. **Base moved.** `main` advanced from `8b73c79` to `430a892` (batch 10a, realtime seam). It touched `src/tests/native_targets.py`, which `CL-P1-10` later rewrites: a trivial rebase. No other packet is affected.
 16. **Display only.** Packet text was escaped for Markdown: glob stars, angle brackets and backslash paths. Nothing else was reworded.
+17. **UI parallel plan (2026-10-03, after the owner asked for all the UI work in parallel).** Four packets were added: `CX-UIA-30` (the 470 ui-case slots no packet owned), `CL-UIA-24` (several ledger releases per kind, the retired disposition, frozen UI sources read from the seed ledger), `CL-R-50` (path-selective lane tier) and `CL-P2-29` (the wgpu flake wiring split out of `CL-P2-17`, which keeps only the BTRSmith lock merges). `CX-P1-03…06` start now under Q20's default; Q48–Q51 were added. The Codex-facing summary is `docs/workstreams/codex-ui-lanes.md`. The §10.1 counts stay the review's historical counts; WORKSTREAMS.md §1 carries the current ones.
 
 ## 10. Review
 
