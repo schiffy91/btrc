@@ -1048,6 +1048,8 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         "analyzer/Expressions.btrc",
         "analyzer/GPU.btrc",
         "analyzer/Realtime.btrc",
+        # The source-macro namespace asks which directives are the stdlib's (M2).
+        "analyzer/SourceMacros.btrc",
         "analyzer/validation/Borrows.btrc",
         "analyzer/validation/Calls.btrc",
         "analyzer/validation/ControlFlow.btrc",
