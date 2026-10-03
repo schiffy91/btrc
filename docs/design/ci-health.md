@@ -450,6 +450,15 @@ acceptance Mac runs a superset. With the reports above relabelled
 Windows' confirms 3,228 claims, with 0 contradicted and 0 unchecked. The hosted reports' only uncovered skips are the two Linux tray
 cases (`linux-native-reader-uncovered`), which no runner runs.
 
+**Proof run.** The dispatch on `stage38/macos-hardware-tier` (`831e7f7`),
+macOS run 37118683472, is green with every shard gated as `macos-hosted`:
+unit 98 skips and btrc 3, all expected and all `platform` (the unit count
+grew by the 12 `linux-headless-session` cases landed since), and none
+elsewhere. Neither hardware rule fired. CI run 37118685082 on the same head
+had 0 unexpected skips in all 13 reports; its unit shard failed only
+`test_quiet_check.py:355` ("ps failed"), which failed the same way on
+`main`'s push run 37117628092 at `27e48d4` and passed on its dispatch.
+
 ## Appendix: per-job evidence
 
 One row per job and signature, as the lane recorded it. "Latest of N
