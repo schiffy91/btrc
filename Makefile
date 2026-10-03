@@ -307,7 +307,7 @@ test-shard-unit: generated-check gpu-required ## CI shard: everything but the se
 NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py test_native_gui_appkit.py \
 	test_native_pointer_runtime.py test_native_control_sizing_runtime.py test_native_font_runtime.py \
 	test_native_app_runtime.py test_native_tray_runtime.py test_native_linux_providers.py \
-	test_native_linux_call_shapes.py) $(sort $(wildcard src/tests/python/test_native_ui_*.py))
+	test_native_linux_call_shapes.py test_native_webgpu_imports.py) $(sort $(wildcard src/tests/python/test_native_ui_*.py))
 
 test-native-gui: generated-check ## Focused gate: the native GUI, tray and provider suites only
 	$(NIX) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS)
