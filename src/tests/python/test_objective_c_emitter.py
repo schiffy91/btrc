@@ -322,9 +322,16 @@ def emitter_probe(request, tmp_path_factory):
     root = base / f"objc-emitter-{request.param}"
     root.mkdir(exist_ok=True)
     executable = root / "Emitter"
+    failure = root / "build.failure"
     with _run_exclusive(root / "build.lock"):
+        # A failed build is reported to every worker, not repeated by each.
+        assert not failure.is_file(), failure.read_text()
         if not executable.is_file():
-            _build_emitter_probe(request, root, executable)
+            try:
+                _build_emitter_probe(request, root, executable)
+            except Exception as error:
+                failure.write_text(f"{type(error).__name__}: {error}")
+                raise
     return executable
 
 
