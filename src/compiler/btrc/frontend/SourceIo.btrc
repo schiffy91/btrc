@@ -297,6 +297,9 @@ class FeSourceFileReader {
 	 * SHA-256 otherwise. Both name the same bytes the same way. */
 	public void useDigests(ISHA256Digest provider) { self.digests = provider; }
 
+	/* Stage 6 spike: the content digest of a file already read, or "". */
+	public string knownDigest(string path) { return self.contentDigests.has(path) ? self.contentDigests.get(path) : ""; }
+
 	public string contentDigest(string text) {
 		var provider = self.digests;
 		return provider == null ? SHA256.digest(text) : provider.digest(text);
@@ -474,5 +477,42 @@ class FeSourceDirectoryScanner {
 		if (!stream.close()) { self.fail(root); }
 		self.sort(names);
 		return names;
+	}
+}
+
+/* Stage 6 floor spike (never merged): throwaway caches under BTRC_CACHE_DIR,
+ * read and written without locks or validation. BTRC_SPIKE_OFF disables
+ * every lever, so one binary also measures its own base. */
+class SpikeCacheDirectory {
+	class string root(string lever) {
+		if (getenv("BTRC_SPIKE_OFF") != null) { return ""; }
+		string configured = Environment.get("BTRC_CACHE_DIR", "");
+		if (configured.isEmpty()) { configured = PathTools.join(Environment.get("HOME", ""), ".cache/btrc"); }
+		if (!PathTools.isAbsolute(configured)) { return ""; }
+		string directory = PathTools.join(configured, "spike-" + lever);
+		if (FileSystem.mkdirp(directory) != 0) { return ""; }
+		return directory;
+	}
+
+	/* Each source file's content digest, by the path its lines name: the
+	 * reader's digest of the file it read, else a digest of the lines. */
+	class Map<string, string> fileDigests(FeSourceFileReader reader, Vector<FeLine> lines) {
+		Map<string, string> digests = {};
+		Map<string, SHA256> pending = {};
+		for line in lines {
+			string path = line.sourceFile;
+			if (!digests.has(path)) {
+				string known = reader.knownDigest(path);
+				digests.put(path, known);
+				if (known.isEmpty()) { pending.put(path, SHA256()); }
+			}
+			if (pending.has(path)) {
+				SHA256 hash = pending.get(path);
+				hash.appendText(line.text);
+				hash.appendText("\n");
+			}
+		}
+		for path in pending.keys() { digests.put(path, pending.get(path).finish()); }
+		return digests;
 	}
 }
