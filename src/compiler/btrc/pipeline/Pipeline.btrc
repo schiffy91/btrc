@@ -1,7 +1,9 @@
 /* Instance-owned orchestration for the self-hosted compiler pipeline. */
 
 import Library.BackgroundJobs.WorkerPools;
+import Library.Digest.SHA256;
 import Library.FileSystem;
+import Library.IO;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
@@ -14,6 +16,50 @@ import ./ModuleUnits.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
 import ../ir/lowering/Reachability.btrc;
+
+/* Stage 6 visibility spike (never merged): a file's clean import-visibility
+ * verdict is reused while its own content and the program's import set are
+ * unchanged. Unsound by design: a changed file's new declarations can make an
+ * unchanged file's reference ambiguous, which this key does not see. */
+class SpikeVisibilityVerdicts {
+	private string directory;
+	private Map<string, string> keys = {};
+	public Map<string, bool> reused = {};
+	public Vector<string> checked = [];
+
+	public SpikeVisibilityVerdicts(FeResolvedSource resolved, FeSourceFileReader reader, bool useCache) {
+		self.directory = useCache ? SpikeCacheDirectory.root("visibility") : "";
+		if (self.directory.isEmpty()) {
+			for line in resolved.userLines { if (!self.keys.has(line.sourceFile)) { self.keys.put(line.sourceFile, ""); self.checked.push(line.sourceFile); } }
+			return;
+		}
+		SHA256 imports = SHA256();
+		Vector<string> identities = resolved.dependencies.sourceIdentities();
+		identities.sort();
+		for identity in identities {
+			imports.appendText(identity);
+			imports.appendText("\n");
+			for edge in resolved.dependencies.outgoingFrom(identity) {
+				imports.appendText("\t" + Strings.fromInt(edge.kind) + "\t" + edge.target + "\n");
+			}
+		}
+		string importSet = imports.finish();
+		Map<string, string> digests = SpikeCacheDirectory.fileDigests(reader, resolved.userLines);
+		for path in digests.keys() {
+			string key = SHA256.digest("visibility-v1\n" + importSet + "\n" + path + "\n" + digests.get(path));
+			self.keys.put(path, key);
+			if (Path.exists(PathTools.join(self.directory, key))) { self.reused.put(path, true); }
+			else { self.checked.push(path); }
+		}
+	}
+
+	public bool allReused() { return self.checked.len == 0; }
+
+	public void recordClean() {
+		if (self.directory.isEmpty()) { return; }
+		for path in self.checked { Path.writeAll(PathTools.join(self.directory, self.keys.get(path)), "clean\n"); }
+	}
+}
 
 class CompilerPipeline {
 	private GrammarInfo grammar;
@@ -147,14 +193,20 @@ class CompilerPipeline {
 		program.declarationsStorage = declarations;
 
 		if (options.strictImports) {
-			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceSymbolShadows(program));
-			FeVisibilityCheckResult checked = visibility.check();
-			if (!checked.success) {
-				return self.failure("error: " + checked.diagnostic);
+			SpikeVisibilityVerdicts verdicts = SpikeVisibilityVerdicts(resolved, self.sourceFiles, options.useCache);
+			if (!verdicts.allReused()) {
+				FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceSymbolShadows(program));
+				visibility.skippedFiles = verdicts.reused;
+				FeVisibilityCheckResult checked = visibility.check();
+				if (!checked.success) {
+					return self.failure("error: " + checked.diagnostic);
+				}
+				if (checked.diagnostics.len > 0) {
+					return self.failure(self.visibilityDiagnostic(checked.diagnostics));
+				}
+				verdicts.recordClean();
 			}
-			if (checked.diagnostics.len > 0) {
-				return self.failure(self.visibilityDiagnostic(checked.diagnostics));
-			}
+			BtrccPhaseTimer.note(f"spike-visibility=reused:{verdicts.reused.len},checked:{verdicts.checked.len}");
 		}
 
 		declarations = [];

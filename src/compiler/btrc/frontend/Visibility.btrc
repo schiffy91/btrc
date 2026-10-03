@@ -361,6 +361,8 @@ class FeImportVisibilityChecker {
 	 * answer needs two canonical-path lookups (system calls), and the checker
 	 * asks it for every reference it visits. */
 	private Map<string, bool> stdlibSourceFiles;
+	/* Stage 6 spike: files whose earlier verdict is reused unchecked. */
+	public Map<string, bool> skippedFiles = {};
 
 	public FeImportVisibilityChecker(Node program, FeResolvedSource resolved, FeStdlibRepository stdlib, FeStdlibSymbolIndex stdlibSymbols, GrammarInfo grammar, Map<string, bool> compilerImplicitSymbols) {
 		self.program = program;
@@ -548,6 +550,7 @@ class FeImportVisibilityChecker {
 				if (declarationLine == null) { continue; }
 				sourceFile = declarationLine.sourceFile;
 			}
+			if (self.skippedFiles.has(sourceFile)) { continue; }
 			Map<string, bool> reachable = self.visibilityReachable(sourceFile);
 			string sourceIdentity = self.sourcePaths.identity(sourceFile);
 			FeImportReferenceCollector collector = FeImportReferenceCollector(declaration.genericParams());
