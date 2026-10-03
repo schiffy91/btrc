@@ -7,8 +7,8 @@
 #
 # The three UI0 denominators come from the 2026-09-21 source inventory (btrc
 # 4e5c982). The ui-operation and ui-case ids are read from the UI0 seed
-# ledger, docs/design/native-ui-catalog.toml, which holds exactly those
-# releases' slots (moved off the Markdown checklists by CL-UIA-24 with the
+# ledger, docs/design/native-ui-catalog.toml, which holds exactly that
+# release's ui-operation and ui-case slots (moved off the Markdown checklists by CL-UIA-24 with the
 # same ids and sha256). The family-cell ids still come from the N-rows of
 # native-ui-parity.md until docs/design/native-ui-catalog/families.toml
 # lands. A kind may hold several releases, one entry each; a re-freeze is a

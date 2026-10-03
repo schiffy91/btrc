@@ -76,8 +76,8 @@ Record fields
                            ``retired`` (a reviewed decision removed the
                            declaration after its release froze the slot).
                            Retirement is a source state, so it lives here
-                           rather than in ``parity`` (P0-only, and about
-                           behavior on a platform) or ``evidence`` (what a
+                           rather than in ``parity`` (about behavior on a
+                           platform) or ``evidence`` (what a
                            run showed); it is the one disposition every
                            inventory kind, family cells included, records
                            in this field. A retired slot names its
