@@ -4,6 +4,14 @@
   outputs = { self, nixpkgs }:
     let
       lib = nixpkgs.lib;
+      # nixpkgs builds the AT-SPI bus launcher against NixOS's
+      # /run/current-system dbus-daemon, which no container or other Linux
+      # host has; this one spawns the store's dbus-daemon instead.
+      atSpiCore = pkgs: pkgs.at-spi2-core.overrideAttrs (old: {
+        mesonFlags = map (flag:
+          if lib.hasPrefix "-Ddbus_daemon=" flag then "-Ddbus_daemon=${pkgs.dbus}/bin/dbus-daemon" else flag
+        ) old.mesonFlags;
+      });
       cfg = {
         name = "btrc";
         image = "btrc-devcontainer:latest";
@@ -23,6 +31,9 @@
           (python314.withPackages (ps: [
             ps.build ps.setuptools
             ps.pytest ps.pytest-xdist ps.pytest-cov ps.pygls ps.lsprotocol
+          ] ++ lib.optionals stdenv.hostPlatform.isLinux [
+            # AT-SPI tree dumps of a headless GUI session (tools/ui/headless-session.sh).
+            ps.pyatspi ps.pygobject3
           ]))
             ruff gcc clang zig gnumake git jq gh nodejs_22 nixd freetype
             # naga validates generated WGSL in the GPU tests. wgpu-utils builds
@@ -42,6 +53,15 @@
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
             sdl3.dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
+            # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
+            # (weston's headless backend) display inside its own session bus,
+            # with the AT-SPI accessibility bus, for GTK4 and SDL windows.
+            # Only weston's compositor goes on PATH, not its demo clients.
+            xvfb dbus (atSpiCore pkgs) gtk4.dev glib.dev
+            (runCommand "weston-${weston.version}" { meta.mainProgram = "weston"; } ''
+              mkdir -p "$out/bin"
+              ln -s ${weston}/bin/weston "$out/bin/weston"
+            '')
           ];
       };
       files = import ./nix { inherit cfg lib; };
@@ -139,6 +159,14 @@
           # shell keeps its real GPU and CI's headless runner still gets an adapter.
           BTRC_LAVAPIPE_ICD = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
           BTRC_VULKAN_LOADER = "${pkgs.vulkan-loader}/lib";
+          # tools/ui/headless-session.sh starts the AT-SPI bus from here; the
+          # launcher is a libexec program, not on PATH.
+          BTRC_ATSPI_LIBEXEC = "${atSpiCore pkgs}/libexec";
+          # The AT-SPI and GLib typelibs pyatspi loads to dump a session's
+          # accessibility tree; mkShell sets no typelib path of its own.
+          GI_TYPELIB_PATH = lib.makeSearchPath "lib/girepository-1.0" [
+            (lib.getLib (atSpiCore pkgs)) (lib.getLib pkgs.glib) (lib.getLib pkgs.gobject-introspection)
+          ];
         } // nativeHeaderEnvironment pkgs);
       });
       packages = eachSystem (pkgs: let
