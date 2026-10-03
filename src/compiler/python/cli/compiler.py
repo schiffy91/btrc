@@ -188,6 +188,7 @@ class CompilerCommand:
                     diagnostic.col,
                     severity=diagnostic.severity,
                     diag_file=diagnostic.file,
+                    local=diagnostic.local,
                 )
         else:
             print(f"error: {failure.message}", file=self._diagnostics.stderr)
@@ -214,7 +215,7 @@ class CompilerCommand:
         if args.build_stdlib is not None:
             if not self.compiler.stdlib_archive_available:
                 parser.error("--build-stdlib requires a configured stdlib archive repository")
-            self._complete_action(self.compiler.build_stdlib_archive(args.build_stdlib))
+            self._complete_action(self.compiler.build_stdlib_archive(args.build_stdlib, args.target))
             return 0
         if not args.input:
             parser.error("the following arguments are required: input")
@@ -767,8 +768,9 @@ class DiagnosticPrinter:
         *,
         severity: str = "error",
         diag_file: str | None = None,
+        local: bool = False,
     ) -> None:
-        loc = self.result.map_diagnostic(CompilerDiagnostic(message, line, col, severity, diag_file))
+        loc = self.result.map_diagnostic(CompilerDiagnostic(message, line, col, severity, diag_file, local))
         if loc is None:
             display, native_line, source = (
                 os.path.basename(self.input_path),

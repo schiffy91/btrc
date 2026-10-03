@@ -8,6 +8,9 @@ import Library.Vector;
 
 import ../frontend/Packages.btrc;
 import ../frontend/NativeImports.btrc;
+import ../frontend/Resolver.btrc;
+import ../frontend/Visibility.btrc;
+import ../parser/SourceMacros.btrc;
 import ../ir/Stage.btrc;
 import ./Models.btrc;
 import ./ModuleUnits.btrc;
@@ -27,6 +30,8 @@ class CompilerPipeline {
 	/* The last resolve's native bindings, read and digested but not imported. */
 	private FeNativeDeclarationImporter? pendingNatives = null;
 	private IWorkerPoolFactory? workerPools = null;
+	private SourceMacroRules? macroRulesValue = null;
+	private Vector<FeConditionalEnvironment>? targetEnvironmentsValue = null;
 
 	public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory, FeSourceFileReader sourceFiles, FeNativeHeaderReader nativeHeaderReader = (FeNativeHeaderReader)null, FeDirectiveCache? directiveCache = null) {
 		self.grammar = grammar;
@@ -89,6 +94,29 @@ class CompilerPipeline {
 		return result;
 	}
 
+	/* The #define/#undef name rules, shared by conditioning and the analyzer. */
+	public SourceMacroRules macroRules() {
+		SourceMacroRules? existing = self.macroRulesValue;
+		if (existing != null) { return existing; }
+		SourceMacroRules built = FeConditionalEnvironment.macroRulesFor(self.grammar.vocabulary, self.hostedAbi.ownedNameSet(), self.hostedAbi.tables());
+		self.macroRulesValue = built;
+		return built;
+	}
+
+	/* The environment every file of one compile is conditioned with: the
+	 * packages' target and every package -D name of their graph. */
+	public FeConditionalEnvironment conditionalEnvironment(FeResolvedPackages packages) { return FeConditionalEnvironment.forPackages(packages, self.macroRules(), self.hostedAbi.tables()); }
+
+	/* One environment per spec target, for the stdlib symbol-index union. */
+	private Vector<FeConditionalEnvironment> targetEnvironments() {
+		Vector<FeConditionalEnvironment>? existing = self.targetEnvironmentsValue;
+		if (existing != null) { return existing; }
+		Map<string, string> none = {};
+		Vector<FeConditionalEnvironment> built = FeConditionalEnvironment("", "", self.macroRules(), self.hostedAbi.tables(), none).everyTarget();
+		self.targetEnvironmentsValue = built;
+		return built;
+	}
+
 	public BtrccCompilationResult compile(string source, string sourcePath, BtrccOptions options) { return self.compileResolved(self.resolve(source, sourcePath, options), options); }
 
 	public BtrccResolvedCompilation resolve(string source, string sourcePath, BtrccOptions options) {
@@ -97,7 +125,7 @@ class CompilerPipeline {
 		FeCanonicalPath.reset();
 		FeResolvedPackages packages = FePackageGraphResolver(self.sourceFiles).resolveFor(sourcePath, options.target);
 		BtrccPhaseTimer.mark("packages");
-		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages, options.useCache ? self.directiveCache : null);
+		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, options.includeStdlib, options.strictImports, packages, options.useCache ? self.directiveCache : null, self.conditionalEnvironment(packages));
 		FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 		BtrccPhaseTimer.mark("resolve");
 		Vector<string> sources = resolved.dependencies.sourceIdentities();
@@ -146,8 +174,11 @@ class CompilerPipeline {
 		for declaration in program.declarations() { declarations.push(declaration); }
 		program.declarationsStorage = declarations;
 
+		FeConditionalFailure? tested = FeConditionalTestChecker().verify(program, resolved, packages.linkPlan);
+		if (tested != null) { return self.failure(tested.render()); }
+
 		if (options.strictImports) {
-			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceSymbolShadows(program));
+			FeImportVisibilityChecker visibility = FeImportVisibilityChecker(program, resolved, self.stdlib, self.stdlibSymbols, self.grammar, self.hostedAbi.sourceSymbolShadows(program), self.targetEnvironments());
 			FeVisibilityCheckResult checked = visibility.check();
 			if (!checked.success) {
 				return self.failure("error: " + checked.diagnostic);
@@ -172,7 +203,7 @@ class CompilerPipeline {
 		GeneratedRuntimeCatalogData runtimeData = GeneratedRuntimeCatalogData();
 		SourceRuntimeSymbols sourceRuntimeSymbols = SourceRuntimeSymbols(runtimeData.rows, runtimeData.intrinsicEffects);
 		RuntimeHelperCatalog runtimeHelpers = RuntimeHelperCatalog(runtimeData.rows, runtimeData.intrinsicEffects);
-		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols);
+		SemanticAnalyzer analyzer = SemanticAnalyzer(sourceRuntimeSymbols, self.macroRules());
 		analyzer.configureNativeDeclarations(resolved.nativeDeclarations);
 		analyzer.configureUnmodeledIncludes(program, resolved.stdlibLineCount, resolved.userLines);
 		BtrccPhaseTimer.mark("catalog");

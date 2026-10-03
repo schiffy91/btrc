@@ -48,6 +48,9 @@ class CompilerDiagnostic:
     col: int = 0
     severity: str = "error"
     file: str | None = None
+    # A file-local position in ``file`` itself (conditioning and the #if
+    # program checks), never a parse-space line.
+    local: bool = False
 
 
 @dataclass(frozen=True)
@@ -191,6 +194,8 @@ class CompilerResult:
         return tuple(sorted(path for path in paths if path))
 
     def map_diagnostic(self, diagnostic: CompilerDiagnostic) -> tuple[str, int] | None:
+        if diagnostic.local and diagnostic.file:
+            return diagnostic.file, diagnostic.line
         if self.source_bundle is None:
             return (diagnostic.file, diagnostic.line) if diagnostic.file else None
         return self.source_bundle.map_diag_line(

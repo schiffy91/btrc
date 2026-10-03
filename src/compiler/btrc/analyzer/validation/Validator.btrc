@@ -4,6 +4,7 @@ import Library.Map;
 
 import ../../frontend/Timing.btrc;
 import ../../generated/ast/Node.btrc;
+import ../../parser/SourceMacros.btrc;
 import ../Declarations.btrc;
 import ../Expressions.btrc;
 import ../GPU.btrc;
@@ -39,10 +40,10 @@ class SemanticValidator {
 	private DeclarationValidator declarations;
 	private IValidationRecords? records = null;
 
-	public SemanticValidator(Node program, Analyzed analyzed, HostedAbiRepository hostedAbi, OperatorSemantics operators, GpuSemantics gpu, CycleSemantics cycles, SourceRuntimeSymbols sourceRuntimeSymbols, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
+	public SemanticValidator(Node program, Analyzed analyzed, HostedAbiRepository hostedAbi, SourceMacroRules macroRules, OperatorSemantics operators, GpuSemantics gpu, CycleSemantics cycles, SourceRuntimeSymbols sourceRuntimeSymbols, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
 		self.program = program;
 		self.state = SemanticValidationState(analyzed);
-		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program);
+		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program, hostedAbi, macroRules, analyzed.stdlibLineCount, analyzed.sourceLines);
 		analyzed.sourceMacros = sourceMacros;
 
 		self.types = TypeValidator(self.state, operators, gpu, semanticTypes, declarationRegistry, expressionTypes);

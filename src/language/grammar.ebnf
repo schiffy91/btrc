@@ -155,6 +155,23 @@
 
   preprocessor_directive = PREPROCESSOR ;
 
+  -- Preprocessor conditionals (C4, docs/design/c-preprocessor-conditionals.md)
+  -- are evaluated per file before lexing, so no rule here consumes them: dead
+  -- groups and conditional directives become empty lines, and a live #define,
+  -- #include or #undef stays one PREPROCESSOR token at file scope. The
+  -- grammar they follow, documentary only (C11 6.10.1):
+  --
+  --   if_section   = if_group { elif_group } [ else_group ] "#endif" ;
+  --   if_group     = ( "#if" pp_expr | "#ifdef" IDENT | "#ifndef" IDENT ) { group_part } ;
+  --   elif_group   = "#elif" pp_expr { group_part } ;
+  --   else_group   = "#else" { group_part } ;
+  --   pp_expr      = pp_or [ "?" pp_expr ":" pp_expr ] ;      (* right-assoc; no comma *)
+  --   pp_or        = pp_and { "||" pp_and } ;   ... "&&", "|", "^", "&", "== !=",
+  --                  "< > <= >=", "<< >>", "+ -", "* / %"     (* all left-assoc *)
+  --   pp_unary     = ( "+" | "-" | "~" | "!" ) pp_unary | pp_primary ;
+  --   pp_primary   = INT_LIT | CHAR_LIT | "true" | "false" | IDENT
+  --                | "defined" IDENT | "defined" "(" IDENT ")" | "(" pp_expr ")" ;
+
   -- ----------------------------------------------------------------
   -- Import declaration
   -- ----------------------------------------------------------------

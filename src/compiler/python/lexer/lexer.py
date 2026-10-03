@@ -137,10 +137,11 @@ class LiteralDecoder:
         if len(escaped) == 1 and escaped in cls._SIMPLE_ESCAPES:
             return cls._SIMPLE_ESCAPES[escaped]
         if escaped.startswith("x") and len(escaped) > 1:
-            try:
-                value = int(escaped[1:], 16)
-            except ValueError:
+            # Hex digits only: int() would also take a sign, spaces and "_".
+            digits = escaped[1:]
+            if not all(character in "0123456789abcdefABCDEF" for character in digits):
                 return None
+            value = int(digits, 16)
             return value if value <= 0xFF else None
         if 1 <= len(escaped) <= 3 and all(character in "01234567" for character in escaped):
             value = int(escaped, 8)

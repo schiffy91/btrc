@@ -236,6 +236,18 @@
         "macos"
       ],
       "note": "The harness exits 77 when wgpu-native finds no compute adapter. Hosted macos-15 exposes a paravirtual Metal adapter, so these cases ran there in macOS runs 37110991739 and 37099829848; the rule keeps a runner image without one from failing the gate, and the acceptance Mac's GPU covers them. The WebGPU toolchain itself is required: its skips stay unexpected."
+    },
+    {
+      "id": "c4-c-oracle-host",
+      "files": [
+        "src/tests/btrc/test_preprocessor_conditionals.py"
+      ],
+      "reason": "^the oracle compares against the host's own C preprocessor$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The C oracle compares btrc's linux-x86_64 selection with the host gcc and clang -E, so only an x86_64 Linux host runs it; the devcontainer does (CL-C-06)."
     }
   ]
 }

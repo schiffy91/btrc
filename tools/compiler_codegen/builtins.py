@@ -8,6 +8,11 @@ from types import MappingProxyType
 
 from src.compiler.python.analyzer.types import STRING_METHODS
 from src.compiler.python.frontend.packages import PackageManifestReader, PackageManifestValidator
+from src.compiler.python.frontend.sources import (
+    ConditionalEnvironment,
+    PreprocessorConditionalError,
+    SourceConditionals,
+)
 from src.compiler.python.lexer.lexer import Lexer, LexerError
 from src.compiler.python.parser.parser import ParseError, Parser
 from src.compiler.python.syntax.ast.generated import ClassDecl, FieldDecl, MethodDecl, PropertyDecl, TypeExpr
@@ -246,11 +251,18 @@ class BuiltinStdlibScanner:
 
         collections: dict[str, BuiltinClassSpec] = {}
         static_classes: dict[str, BuiltinClassSpec] = {}
+        environments = ConditionalEnvironment.every_target()
         for source_path in sorted(self._exported_modules(), key=self._source_order_key):
-            # The scanner reads every file unconditioned until C4's behavior
-            # commit conditions it per target, so one parse serves every target.
-            selected = self._selected_classes(self._parse_file(source_path))
-            merged = self._union.merge(str(source_path), {label: selected for label in self._union.labels})
+            # Each file is conditioned for every target; one parse serves the
+            # targets that see the same text.
+            parsed: dict[str, dict] = {}
+            per_target = {}
+            for environment in environments:
+                text = self._conditioned(source_path, environment)
+                if text not in parsed:
+                    parsed[text] = self._selected_classes(self._parse_file(source_path, text))
+                per_target[environment.label] = parsed[text]
+            merged = self._union.merge(str(source_path), per_target)
             for class_name, (static, class_spec) in merged.items():
                 (static_classes if static else collections)[class_name] = class_spec
 
@@ -325,12 +337,19 @@ class BuiltinStdlibScanner:
         """Use one case-sensitive, flavor-independent order: path parts joined by '/'."""
         return "/".join(PurePath(source_path).parts)
 
-    def _parse_file(self, source_path: Path) -> dict[str, ClassDecl]:
+    @staticmethod
+    def _conditioned(source_path: Path, environment: ConditionalEnvironment) -> str:
         try:
             source = source_path.read_text(encoding="utf-8")
+            return SourceConditionals(environment).condition(source, str(source_path)).text
+        except (OSError, UnicodeError, PreprocessorConditionalError) as error:
+            raise BuiltinCatalogGenerationError(f"cannot scan stdlib source {source_path}: {error}") from error
+
+    def _parse_file(self, source_path: Path, source: str) -> dict[str, ClassDecl]:
+        try:
             source = "\n".join("" if line.strip().startswith("import ") else line for line in source.splitlines())
             program = Parser(Lexer(source, source_path.name).tokenize()).parse()
-        except (OSError, UnicodeError, LexerError, ParseError) as error:
+        except (LexerError, ParseError) as error:
             raise BuiltinCatalogGenerationError(f"cannot scan stdlib source {source_path}: {error}") from error
         return {
             declaration.name: declaration for declaration in program.declarations if isinstance(declaration, ClassDecl)

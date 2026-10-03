@@ -603,6 +603,19 @@ class SemanticResolver:
         source = self.source_for_file(result, file)
         return lsp.Location(uri=uri, range=DocumentText(source).protocol_range(line, col, length))
 
+    @staticmethod
+    def structural_source(result: DocumentAnalysis) -> str:
+        """The active text for brace and scope queries, with dead groups blanked.
+
+        It is the active unit's conditioned text while that unit still matches
+        the buffer; text-before-cursor helpers keep reading the raw buffer.
+        """
+        source = result.source.replace("\r\n", "\n").replace("\r", "\n")
+        for unit in result.units:
+            if unit.path == result.path and unit.source == source and unit.conditioned_source:
+                return unit.conditioned_source
+        return result.source
+
     def source_for_file(self, result: DocumentAnalysis, file: str | None = None) -> str:
         """Return the analyzed source text for an active or imported location."""
         target = file or result.path
@@ -706,7 +719,9 @@ class SemanticResolver:
         if root == "self":
             enclosing = None
             if use_scope_map:
-                enclosing = LexicalScopeIndex.find_enclosing_class_from_source(decls, result.source, token.line - 1)
+                enclosing = LexicalScopeIndex.find_enclosing_class_from_source(
+                    decls, self.structural_source(result), token.line - 1
+                )
             enclosing = enclosing or LexicalScopeIndex.find_enclosing_class(decls, token.line)
             return ChainResolution(enclosing) if enclosing else None
         variable_type = self.resolve_variable_type(

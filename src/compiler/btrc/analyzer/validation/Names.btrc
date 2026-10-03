@@ -5,6 +5,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../../generated/ast/Node.btrc;
+import ../../parser/SourceMacros.btrc;
 import ../../syntax/Types.btrc;
 import ../Declarations.btrc;
 import ../Generics.btrc;
@@ -108,13 +109,7 @@ class NameValidator {
 
 	public bool c11ReservedName(string name) { return name == "auto" || name == "break" || name == "case" || name == "char" || name == "const" || name == "continue" || name == "default" || name == "do" || name == "double" || name == "else" || name == "enum" || name == "extern" || name == "float" || name == "for" || name == "goto" || name == "if" || name == "inline" || name == "int" || name == "long" || name == "register" || name == "restrict" || name == "return" || name == "short" || name == "signed" || name == "sizeof" || name == "static" || name == "struct" || name == "switch" || name == "typedef" || name == "union" || name == "unsigned" || name == "void" || name == "volatile" || name == "while" || name == "_Alignas" || name == "_Alignof" || name == "_Atomic" || name == "_Bool" || name == "_Complex" || name == "_Generic" || name == "_Imaginary" || name == "_Noreturn" || name == "_Static_assert" || name == "_Thread_local"; }
 
-	public string compilerReservedPrefix(string name) {
-		if (name.startsWith("__btrc_")) { return "__btrc_"; }
-		if (name.startsWith("__BTRC_")) { return "__BTRC_"; }
-		if (name.startsWith("__gpu_")) { return "__gpu_"; }
-		if (name.startsWith("btrc_")) { return "btrc_"; }
-		return "";
-	}
+	public string compilerReservedPrefix(string name) { return SourceMacroRules.compilerReservedPrefix(name); }
 
 	public bool cReservedIdentifier(string name) { return name.startsWith("__") || (name.length() > 1 && name[0] == '_' && name[1] >= 'A' && name[1] <= 'Z'); }
 
@@ -213,14 +208,6 @@ class NameValidator {
 		while (index < program.declarations().len) {
 			Node declaration = program.declarations().get(index);
 			self.nativeDeclaration = self.state.analyzed.isNativeDeclaration(declaration);
-			if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
-				SourceMacroDefinition definition = SourceMacroDefinition(declaration.text);
-				if (definition.isDefinition()) {
-					self.validateMacroName(definition.name(), declaration);
-				} else if (definition.isUndef()) {
-					self.validateUndefName(definition.name(), declaration);
-				}
-			}
 			if (self.namedTopLevel(declaration)) {
 				self.validateHostedTopLevelName(declaration);
 				string topLevelName = self.topLevelName(declaration);
@@ -1074,32 +1061,6 @@ class NameValidator {
 		while (index < self.generatedReferences.len) {
 			self.validateGeneratedSymbolReference(self.generatedReferences.get(index));
 			index = index + 1;
-		}
-	}
-
-	public void validateMacroName(string name, Node site) {
-		string prefix = self.compilerReservedPrefix(name);
-		if (prefix != "") {
-			TypeValidator.fail("Macro name '" + name + "' uses the compiler-reserved '" + prefix + "' prefix", site);
-		}
-		if (self.cFileScopeReservedIdentifier(name)) {
-			TypeValidator.fail("Macro name '" + name + "' is reserved by C11 at file scope", site);
-		}
-		if (self.hostedAbi.ownedName(name)) {
-			TypeValidator.fail("Macro name '" + name + "' is a compiler-owned hosted C symbol", site);
-		}
-	}
-
-	public void validateUndefName(string name, Node site) {
-		string prefix = self.compilerReservedPrefix(name);
-		if (prefix != "") {
-			TypeValidator.fail("Source #undef of compiler-owned C symbol '" + name + "' is not allowed", site);
-		}
-		if (self.cFileScopeReservedIdentifier(name)) {
-			TypeValidator.fail("Source #undef name '" + name + "' is reserved by C11 at file scope", site);
-		}
-		if (self.hostedAbi.ownedName(name)) {
-			TypeValidator.fail("Source #undef of compiler-owned hosted C symbol '" + name + "' is not allowed", site);
 		}
 	}
 

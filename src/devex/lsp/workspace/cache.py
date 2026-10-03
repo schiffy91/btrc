@@ -15,7 +15,7 @@ from src.compiler.python.frontend.packages import (
     PackageUniverse,
     ResolvedPackages,
 )
-from src.compiler.python.frontend.sources import FrontendCacheDirectory, SourceDependencyKind
+from src.compiler.python.frontend.sources import ConditionalEnvironment, FrontendCacheDirectory, SourceDependencyKind
 from src.compiler.python.syntax.ast.codec import AstJsonCodec
 from src.compiler.python.syntax.ast.generated import LibraryGlob, LibraryModules, PackagePath, QuotedPath, RelativePath
 from src.devex.lsp.workspace.units import _UNIT_CACHE_VERSION, FileDependencies, FileDependency, FileUnit
@@ -121,9 +121,13 @@ class UnitCache:
         unit_version: str = _UNIT_CACHE_VERSION,
         codec: FileUnitCacheCodec | None = None,
         file_store: PackageFileStore | None = None,
+        environment: ConditionalEnvironment | None = None,
     ) -> None:
         self._directory = os.path.abspath(directory) if directory is not None else None
         self._unit_version = unit_version
+        # Units are conditioned, so the target and its macro table are part of
+        # the key: a cache directory is shared by checkouts on several hosts.
+        self._environment = environment if environment is not None else ConditionalEnvironment.for_host()
         self._codec = codec if codec is not None else FileUnitCacheCodec()
         self._file_store = file_store if file_store is not None else PackageFileStore()
         self._pruned = False
@@ -152,7 +156,13 @@ class UnitCache:
         if self._directory is None:
             return None
         digest = hashlib.sha256()
-        for part in (str(FileUnitCacheCodec.SCHEMA_VERSION), self._unit_version, source):
+        for part in (
+            str(FileUnitCacheCodec.SCHEMA_VERSION),
+            self._unit_version,
+            self._environment.label,
+            self._environment.cache_identity(),
+            source,
+        ):
             encoded = part.encode()
             digest.update(len(encoded).to_bytes(8, "big"))
             digest.update(encoded)

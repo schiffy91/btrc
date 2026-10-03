@@ -286,7 +286,7 @@ def test_source_macros_lower_to_typed_shapes():
         ("#define BAD(x", "malformed function-like #define"),
         ("#include HEADER", "malformed #include"),
         ("#pragma once", "unsupported #pragma"),
-        ("#undef NAME", "unsupported preprocessor directive '#undef'"),
+        ("#define NAME 1\n#undef NAME EXTRA", "malformed #undef directive: #undef NAME EXTRA"),
         ("#define CONTINUED 1\\", "multi-line preprocessor directive"),
         ("#define CONTINUED ??/", "C11 trigraphs"),
     ],

@@ -1042,6 +1042,7 @@ class CallValidator {
 			return false;
 		}
 		string macroName = call.callee.name;
+		self.sourceMacros.refuseCodeUse(macroName, call.callee);
 		SourceMacroDefinition? active = self.sourceMacros.active(macroName);
 		if (active == null) { return false; }
 		SourceMacroDefinition definition = active;

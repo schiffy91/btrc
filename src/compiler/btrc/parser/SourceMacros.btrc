@@ -3,6 +3,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../syntax/Identity.btrc;
+import ../syntax/Tokens.btrc;
 
 class SourceMacroDefinition {
 	private string operationValue;
@@ -13,6 +14,8 @@ class SourceMacroDefinition {
 	private bool functionLikeValue;
 	private bool variadicValue;
 	private bool parametersValidValue;
+	/* Each malformed parameter, in order; M1 compares them. */
+	private Vector<string> invalidParametersValue;
 
 	public SourceMacroDefinition(string sourceText) {
 		self.operationValue = "";
@@ -23,6 +26,7 @@ class SourceMacroDefinition {
 		self.functionLikeValue = false;
 		self.variadicValue = false;
 		self.parametersValidValue = true;
+		self.invalidParametersValue = [];
 		self.parse(sourceText);
 	}
 
@@ -39,6 +43,8 @@ class SourceMacroDefinition {
 	public bool variadic() { return self.variadicValue; }
 
 	public bool parametersValid() { return self.parametersValidValue; }
+
+	public Vector<string> invalidParameters() { return self.invalidParametersValue; }
 
 	public int expectedArity() {
 		if (self.variadicValue) {
@@ -380,11 +386,13 @@ class SourceMacroDefinition {
 			if (parameter == "...") {
 				if (self.variadicValue || !last) {
 					self.parametersValidValue = false;
+					self.invalidParametersValue.push(parameter);
 				}
 				self.variadicValue = true;
 				self.parametersValue.set("__VA_ARGS__", true);
 			} else if (!self.validIdentifier(parameter) || self.parametersValue.has(parameter)) {
 				self.parametersValidValue = false;
+				self.invalidParametersValue.push(parameter);
 			} else {
 				self.parametersValue.set(parameter, true);
 				self.parameterOrderValue.push(parameter);
@@ -555,5 +563,152 @@ class SourceMacroDefinition {
 			}
 		}
 		return -1;
+	}
+}
+
+/* The per-directive #define/#undef name rules and macro identity. Per-file
+ * #if conditioning applies them to its own file's live directives and the
+ * analyzer to the whole program, so both refuse a name with one message. */
+class SourceMacroRules {
+	private TokenVocabulary vocabulary;
+	private Map<string, bool> hostedNames;
+	private Map<string, bool> foreignNames;
+
+	public SourceMacroRules(TokenVocabulary vocabulary, Map<string, bool> hostedNames, Map<string, bool> foreignNames) {
+		self.vocabulary = vocabulary;
+		self.hostedNames = hostedNames;
+		self.foreignNames = foreignNames;
+	}
+
+	/* The compiler-reserved prefix of a declaration name, if any. */
+	class string compilerReservedPrefix(string name) {
+		for prefix in ["__btrc_", "__BTRC_", "__gpu_", "btrc_"] {
+			if (name.startsWith(prefix)) { return prefix; }
+		}
+		return "";
+	}
+
+	/* A macro name may not take BTRC_ either: the emitted C defines
+	 * BTRC_INCLUDE_*, BTRC_RT_* and BTRC_FREESTANDING. */
+	class string macroReservedPrefix(string name) {
+		string prefix = SourceMacroRules.compilerReservedPrefix(name);
+		if (!prefix.isEmpty()) { return prefix; }
+		return name.startsWith("BTRC_") ? "BTRC_" : "";
+	}
+
+	/* The runtime's embedder hooks: btrc_rt.h defines each only under
+	 * #ifndef, so a program may #define it first. */
+	class bool runtimeOverride(string name) { return name == "BTRC_RT_ARENA_BYTES" || name == "BTRC_RT_GPU_HEADER"; }
+
+	public bool keyword(string name) { return !self.vocabulary.keywordToken(name).isEmpty(); }
+
+	public bool foreign(string name) { return self.foreignNames.has(name); }
+
+	public bool hosted(string name) { return self.hostedNames.has(name); }
+
+	/* The message refusing #define/#undef of `name`, or "". */
+	public string violation(string name, bool define) {
+		if (name == "defined") { return "'defined' cannot be #define'd or #undef'd (C11 6.10.8p2)"; }
+		if (self.keyword(name)) { return f"'{name}' is a reserved word and cannot be used as a name"; }
+		string prefix = SourceMacroRules.macroReservedPrefix(name);
+		if (!prefix.isEmpty() && !(define && SourceMacroRules.runtimeOverride(name))) {
+			return define ? f"Macro name '{name}' uses the compiler-reserved '{prefix}' prefix" : f"Source #undef of compiler-owned C symbol '{name}' is not allowed";
+		}
+		if (name.startsWith("_")) {
+			string subject = define ? "Macro name" : "Source #undef name";
+			return f"{subject} '{name}' is reserved by C11 at file scope";
+		}
+		if (self.hosted(name)) {
+			string action = define ? "Macro name" : "Source #undef of";
+			return f"{action} compiler-owned hosted C symbol '{name}' is not allowed";
+		}
+		if (self.foreign(name)) { return f"'{name}' is set by C headers or compiler flags; btrc sources cannot #define or #undef it"; }
+		return "";
+	}
+
+	class string redefinitionMessage(string name) { return f"Macro '{name}' is redefined with a different replacement; #undef it first (C11 6.10.3p2)"; }
+
+	/* C11 6.10.3p2: the same kind, parameters and normalized replacement. */
+	class bool sameDefinition(SourceMacroDefinition first, SourceMacroDefinition second) {
+		if (first.functionLike() != second.functionLike() || first.variadic() != second.variadic() || first.parametersValid() != second.parametersValid()) { return false; }
+		if (!SourceMacroRules.sameNames(first.parameterOrder(), second.parameterOrder()) || !SourceMacroRules.sameNames(first.invalidParameters(), second.invalidParameters())) { return false; }
+		return SourceMacroRules.normalizedReplacement(first.replacement()) == SourceMacroRules.normalizedReplacement(second.replacement());
+	}
+
+	class bool sameNames(Vector<string> left, Vector<string> right) {
+		if (left.len != right.len) { return false; }
+		for (int index = 0; index < left.len; index++) {
+			if (left.get(index) != right.get(index)) { return false; }
+		}
+		return true;
+	}
+
+	/* The end of the quoted literal that starts at `index`. */
+	class int skipQuoted(string text, int index) {
+		char quote = text[index];
+		int cursor = index + 1;
+		int length = text.length();
+		while (cursor < length) {
+			if (text[cursor] == '\\') {
+				cursor += 2;
+			} else if (text[cursor] == quote) {
+				return cursor + 1;
+			} else {
+				cursor++;
+			}
+		}
+		return length;
+	}
+
+	/* Every comment outside literals becomes one space. */
+	class string withoutComments(string text) {
+		StringBuilder pieces = StringBuilder();
+		int length = text.length();
+		int index = 0;
+		while (index < length) {
+			char value = text[index];
+			if (value == '"' || value == '\'') {
+				int end = SourceMacroRules.skipQuoted(text, index);
+				pieces.append(text.substring(index, end - index));
+				index = end;
+			} else if (value == '/' && index + 1 < length && text[index + 1] == '/') {
+				pieces.append(" ");
+				break;
+			} else if (value == '/' && index + 1 < length && text[index + 1] == '*') {
+				int close = text.find("*/", index + 2);
+				pieces.append(" ");
+				index = close < 0 ? length : close + 2;
+			} else {
+				pieces.appendChar(value);
+				index++;
+			}
+		}
+		return pieces.toString();
+	}
+
+	class bool space(char value) { return value == ' ' || value == '\t' || value == '\f' || value == '\v' || value == '\r' || value == '\n'; }
+
+	/* Comments become one space, whitespace runs outside literals one
+	 * space, and both ends are trimmed. */
+	class string normalizedReplacement(string raw) {
+		string text = SourceMacroRules.withoutComments(raw);
+		StringBuilder pieces = StringBuilder();
+		int length = text.length();
+		int index = 0;
+		while (index < length) {
+			char value = text[index];
+			if (value == '"' || value == '\'') {
+				int end = SourceMacroRules.skipQuoted(text, index);
+				pieces.append(text.substring(index, end - index));
+				index = end;
+			} else if (SourceMacroRules.space(value)) {
+				while (index < length && SourceMacroRules.space(text[index])) { index++; }
+				pieces.append(" ");
+			} else {
+				pieces.appendChar(value);
+				index++;
+			}
+		}
+		return pieces.toString().trim();
 	}
 }

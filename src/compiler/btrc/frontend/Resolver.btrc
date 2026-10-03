@@ -5,8 +5,11 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
+import ../generated/hosted_abi/Tables.btrc;
 import ../lexer/Lexer.btrc;
+import ../parser/SourceMacros.btrc;
 import ../syntax/Grammar.btrc;
+import ../syntax/Literals.btrc;
 import ../syntax/Tokens.btrc;
 import ./Timing.btrc;
 import ./Models.btrc;
@@ -282,6 +285,1555 @@ class FeDirectiveScanner {
 			index++;
 		}
 		return directives;
+	}
+}
+
+/* A btrc lexer failure split into its message and position, as the lexer
+ * renders it ("<message> at <line>:<col>"). */
+class FeLexFailure {
+	public string message;
+	public int line;
+	public int col;
+
+	public FeLexFailure(string diagnostic) {
+		self.message = diagnostic;
+		self.line = 0;
+		self.col = 0;
+		int at = Strings.rfind(diagnostic, " at ");
+		if (at < 0) { return; }
+		string position = diagnostic.substring(at + 4, diagnostic.length() - at - 4);
+		int colon = position.indexOf(":");
+		if (colon < 1) { return; }
+		self.message = diagnostic.substring(0, at);
+		self.line = Strings.toInt(position.substring(0, colon));
+		self.col = Strings.toInt(position.substring(colon + 1, position.length() - colon - 1));
+	}
+}
+
+/* The selected target's predefined macros and #if name classification.
+ * The environment is the target only: a file's own #define lines are
+ * tracked by the walk. Without a target (an unrecognized host) it still
+ * classifies names, and the first evaluated conditional fails (D13). */
+class FeConditionalEnvironment {
+	private string operatingSystem;
+	private string architecture;
+	private SourceMacroRules macroRules;
+	private GeneratedHostedAbiData data;
+	/* Every package -D name of the resolved graph, with its package. */
+	private Map<string, string> packageDefines;
+	private Map<string, long long>? selectedValues = null;
+	private Map<string, bool>? targetNames = null;
+
+	public FeConditionalEnvironment(string operatingSystem, string architecture, SourceMacroRules macroRules, GeneratedHostedAbiData data, Map<string, string> packageDefines) {
+		self.operatingSystem = operatingSystem;
+		self.architecture = architecture;
+		self.macroRules = macroRules;
+		self.data = data;
+		self.packageDefines = packageDefines;
+	}
+
+	/* The macro-name rules for a vocabulary, the hosted ABI's owned names
+	 * and the spec's foreign macro names. */
+	class SourceMacroRules macroRulesFor(TokenVocabulary vocabulary, Map<string, bool> hostedNames, GeneratedHostedAbiData data) {
+		Map<string, bool> foreign = {};
+		for name in data.foreignMacroNames() { foreign.put(name, true); }
+		return SourceMacroRules(vocabulary, hostedNames, foreign);
+	}
+
+	/* The resolved target, with every package -D name of the graph foreign. */
+	class FeConditionalEnvironment forPackages(FeResolvedPackages packages, SourceMacroRules macroRules, GeneratedHostedAbiData data) {
+		FeNativeLinkPlan plan = packages.linkPlan;
+		Map<string, string> defines = {};
+		for item in FeConditionalEnvironment.sortedDeclarations(plan.declarations) {
+			if (item.kind == "define" && !defines.has(item.value)) { defines.put(item.value, item.packageName); }
+		}
+		Vector<FePackageNode> nodes = [];
+		for node in plan.packages { nodes.push(node); }
+		nodes.sortBy((FePackageNode left, FePackageNode right) => Strings.lessThan(left.name, right.name));
+		for node in nodes {
+			for item in FeConditionalEnvironment.sortedDeclarations(node.nativeDeclarations) {
+				if (item.kind == "define" && !defines.has(item.value)) { defines.put(item.value, item.packageName); }
+			}
+		}
+		return FeConditionalEnvironment(plan.target.operatingSystem, plan.target.architecture, macroRules, data, defines);
+	}
+
+	/* The packages' target, else the host's, with the generated hosted-ABI
+	 * owned names; the compiler pipeline passes its repository's set instead. */
+	class FeConditionalEnvironment standard(GrammarInfo grammar, FeResolvedPackages? packages) {
+		GeneratedHostedAbiData data = GeneratedHostedAbiData();
+		Map<string, bool> hosted = {};
+		for name in data.ownedNames() { hosted.put(name, true); }
+		SourceMacroRules rules = FeConditionalEnvironment.macroRulesFor(grammar.vocabulary, hosted, data);
+		if (packages != null) { return FeConditionalEnvironment.forPackages(packages, rules, data); }
+		FePackageTarget host = FePackageTarget.host();
+		Map<string, string> none = {};
+		return FeConditionalEnvironment(host.operatingSystem, host.architecture, rules, data, none);
+	}
+
+	class int compareNames(Vector<string> left, Vector<string> right) {
+		for (int index = 0; index < left.len && index < right.len; index++) {
+			int order = Strings.compare(left.get(index), right.get(index));
+			if (order != 0) { return order; }
+		}
+		return left.len - right.len;
+	}
+
+	/* Whether `left` comes first in the reference's plan order: by package,
+	 * then by the declaration's fields in turn (its dataclass ordering). */
+	class bool declarationBefore(FeNativeDeclaration left, FeNativeDeclaration right) {
+		Vector<string> leftFields = [left.packageName, left.kind, left.value, left.detail, left.language, left.standard];
+		Vector<string> rightFields = [right.packageName, right.kind, right.value, right.detail, right.language, right.standard];
+		int order = FeConditionalEnvironment.compareNames(leftFields, rightFields);
+		if (order == 0) { order = FeConditionalEnvironment.compareNames(left.operatingSystems, right.operatingSystems); }
+		if (order == 0) { order = FeConditionalEnvironment.compareNames(left.architectures, right.architectures); }
+		if (order == 0) { order = FeConditionalEnvironment.compareNames(left.modules, right.modules); }
+		return order < 0;
+	}
+
+	/* Native declarations in the reference's plan order, so a first match
+	 * names the same package or header in both compilers. */
+	class Vector<FeNativeDeclaration> sortedDeclarations(Vector<FeNativeDeclaration> declarations) {
+		Vector<FeNativeDeclaration> sorted = [];
+		for item in declarations { sorted.push(item); }
+		sorted.sortBy((FeNativeDeclaration left, FeNativeDeclaration right) => FeConditionalEnvironment.declarationBefore(left, right));
+		return sorted;
+	}
+
+	/* One environment per spec target, with no package graph. */
+	public Vector<FeConditionalEnvironment> everyTarget() {
+		Vector<FeConditionalEnvironment> result = [];
+		for row in self.data.targetRows() {
+			Map<string, string> none = {};
+			result.push(FeConditionalEnvironment(row.operatingSystem, row.architecture, self.macroRules, self.data, none));
+		}
+		return result;
+	}
+
+	public SourceMacroRules rules() { return self.macroRules; }
+
+	public bool hasTarget() { return !self.operatingSystem.isEmpty() && !self.architecture.isEmpty(); }
+
+	public string label() { return self.hasTarget() ? self.operatingSystem + "-" + self.architecture : ""; }
+
+	private bool rowSelects(Vector<string> values, string value) { return values.len == 0 || values.contains(value); }
+
+	private Map<string, long long> selected() {
+		Map<string, long long>? existing = self.selectedValues;
+		if (existing != null) { return existing; }
+		Map<string, long long> values = {};
+		if (self.hasTarget()) {
+			for row in self.data.predefinedMacroRows() {
+				if (self.rowSelects(row.operatingSystems, self.operatingSystem) && self.rowSelects(row.architectures, self.architecture)) { values.put(row.name, row.value); }
+			}
+		}
+		self.selectedValues = values;
+		return values;
+	}
+
+	public unsigned long long targetValue(string name) {
+		Map<string, long long> values = self.selected();
+		return values.has(name) ? (unsigned long long)values.get(name) : 0ULL;
+	}
+
+	/* Whether the selected target defines a target macro. */
+	public bool selects(string name) { return self.selected().has(name); }
+
+	private bool targetMacroName(string name) {
+		Map<string, bool>? existing = self.targetNames;
+		if (existing != null) { return existing.has(name); }
+		Map<string, bool> names = {};
+		for row in self.data.predefinedMacroRows() { names.put(row.name, true); }
+		for undefinedName in self.data.undefinedMacroNames() { names.put(undefinedName, true); }
+		self.targetNames = names;
+		return names.has(name);
+	}
+
+	private bool foreignName(string name) { return self.macroRules.hosted(name) || self.macroRules.foreign(name) || name.startsWith("btrc_") || name.startsWith("BTRC_"); }
+
+	/* The class of a name that is not one of the file's own macros:
+	 * "target", "reserved", "foreign" or "absent". */
+	public string classify(string name) {
+		if (self.targetMacroName(name)) { return "target"; }
+		if (name.startsWith("_")) { return "reserved"; }
+		if (self.foreignName(name) || self.packageDefines.has(name)) { return "foreign"; }
+		return "absent";
+	}
+
+	class string reservedMessage(string name) { return f"'{name}' is reserved for the C implementation and is not a btrc target macro; #if cannot test it"; }
+
+	public string foreignMessage(string name) {
+		if (self.packageDefines.has(name) && !self.foreignName(name)) {
+			string package = self.packageDefines.get(name);
+			return f"'{name}' is a C compiler define of package '{package}'; #if is evaluated before C compilation and cannot test it";
+		}
+		return f"'{name}' is defined by C headers or C compiler flags, not by btrc; #if is evaluated before C compilation and cannot test it";
+	}
+}
+
+/* One classified #if operand or operator, positioned in the file. Its kind
+ * is "op", "number" or "absent". */
+class FeConditionalAtom {
+	public string kind;
+	public string text;
+	public int line;
+	public int col;
+	public unsigned long long value;
+	public bool isUnsigned;
+	public Vector<FeConditionalTest> tests;
+
+	public FeConditionalAtom(string kind, string text, int line, int col, unsigned long long value, bool isUnsigned, Vector<FeConditionalTest> tests) {
+		self.kind = kind;
+		self.text = text;
+		self.line = line;
+		self.col = col;
+		self.value = value;
+		self.isUnsigned = isUnsigned;
+		self.tests = tests;
+	}
+}
+
+/* A payload token or a resolved atom, with the records of the macros
+ * whose expansion produced it. */
+class FeConditionalItem {
+	public Token? token;
+	public FeConditionalAtom? atom;
+	public Vector<FeConditionalTest> origin;
+
+	public FeConditionalItem(Token? token, FeConditionalAtom? atom, Vector<FeConditionalTest> origin) {
+		self.token = token;
+		self.atom = atom;
+		self.origin = origin;
+	}
+}
+
+/* The records of the macros whose expansion produced a token: each open
+ * expansion links its record to its parent's. */
+class FeConditionalOrigin {
+	public FeConditionalTest record;
+	public FeConditionalOrigin? parent;
+
+	public FeConditionalOrigin(FeConditionalTest record, FeConditionalOrigin? parent) {
+		self.record = record;
+		self.parent = parent;
+	}
+
+	/* The path's records, outermost first. */
+	public Vector<FeConditionalTest> records() {
+		Vector<FeConditionalTest> path = [];
+		FeConditionalOrigin? cursor = self;
+		while (cursor != null) {
+			path.push(cursor.record);
+			cursor = cursor.parent;
+		}
+		Vector<FeConditionalTest> records = [];
+		for (int index = path.len - 1; index >= 0; index--) { records.push(path.get(index)); }
+		return records;
+	}
+}
+
+/* One open macro expansion: its replacement and the next token to read. */
+class FeConditionalFrame {
+	public string name;
+	public Vector<Token> tokens;
+	public int index;
+	public FeConditionalOrigin origin;
+
+	public FeConditionalFrame(string name, Vector<Token> tokens, FeConditionalOrigin origin) {
+		self.name = name;
+		self.tokens = tokens;
+		self.index = 0;
+		self.origin = origin;
+	}
+}
+
+/* One parsed #if subexpression: "leaf", "unary", "binary" or "conditional". */
+class FeConditionalNode {
+	public string kind;
+	public FeConditionalAtom atom;
+	public Vector<FeConditionalNode> operands;
+
+	public FeConditionalNode(string kind, FeConditionalAtom atom, Vector<FeConditionalNode> operands) {
+		self.kind = kind;
+		self.atom = atom;
+		self.operands = operands;
+	}
+}
+
+/* A 64-bit pattern and whether C reads it as unsigned. */
+class FeConditionalValue {
+	public unsigned long long bits;
+	public bool isUnsigned;
+
+	public FeConditionalValue(unsigned long long bits, bool isUnsigned) {
+		self.bits = bits;
+		self.isUnsigned = isUnsigned;
+	}
+}
+
+/* Evaluate one #if/#elif payload by C11 6.10.1 in 64-bit integers.
+ *
+ * The steps run in C11 6.10.1p4's order, each reporting its first error in
+ * token order: resolve `defined`, expand this file's object-like macros,
+ * classify the remaining tokens, parse, then evaluate with short-circuiting.
+ * Steps 1-4 apply to every operand; identifier and arithmetic errors only to
+ * evaluated ones. Arithmetic runs on unsigned long long bit patterns only:
+ * signs are read from bit 63 and overflow is found by magnitude comparison,
+ * so no signed type ever overflows. The first failure is kept; every step
+ * returns early once one is recorded. */
+class FeConditionalExpression {
+	private FeConditionalEnvironment environment;
+	private string path;
+	private Map<string, SourceMacroDefinition> macros;
+	private GrammarInfo grammar;
+	private Vector<string> lines;
+	/* The current directive's count of tokens and macro invocations (E16). */
+	private int budget = 0;
+	public FeConditionalFailure? failure = null;
+
+	public FeConditionalExpression(FeConditionalEnvironment environment, string path, Map<string, SourceMacroDefinition> macros, GrammarInfo grammar, Vector<string> lines) {
+		self.environment = environment;
+		self.path = path;
+		self.macros = macros;
+		self.grammar = grammar;
+		self.lines = lines;
+	}
+
+	public string lineText(int line) { return line >= 1 && line <= self.lines.len ? self.lines.get(line - 1) : ""; }
+
+	public void fail(string message, int line, int col) {
+		if (self.failure != null) { return; }
+		self.failure = FeConditionalFailure(message, self.path, line, col, self.lineText(line));
+	}
+
+	public bool failed() { return self.failure != null; }
+
+	class unsigned long long signBit() { return 1ULL << 63; }
+
+	class unsigned long long intmaxMax() { return (1ULL << 63) - 1ULL; }
+
+	class bool negative(unsigned long long bits, bool isUnsigned) { return !isUnsigned && (bits & FeConditionalExpression.signBit()) != 0ULL; }
+
+	/* The decimal spelling of a pattern read with its own signedness. */
+	class string spelled(unsigned long long bits, bool isUnsigned) {
+		if (FeConditionalExpression.negative(bits, isUnsigned)) {
+			unsigned long long magnitude = ~bits + 1ULL;
+			return f"-{magnitude}";
+		}
+		return f"{bits}";
+	}
+
+	// -- Lexing ------------------------------------------------------------
+
+	/* The offset of the first `#`, `##` or `%:` outside literals and
+	 * comments, or -1. */
+	class int preScan(string text) {
+		int length = text.length();
+		int index = 0;
+		while (index < length) {
+			char value = text[index];
+			if (value == '"' || value == '\'') {
+				index = SourceMacroRules.skipQuoted(text, index);
+				continue;
+			}
+			if (value == '/' && index + 1 < length && text[index + 1] == '/') { return -1; }
+			if (value == '/' && index + 1 < length && text[index + 1] == '*') {
+				int close = text.find("*/", index + 2);
+				if (close < 0) { return -1; }
+				index = close + 2;
+				continue;
+			}
+			if (value == '#') { return index; }
+			if (value == '%' && index + 1 < length && text[index + 1] == ':') { return index; }
+			index++;
+		}
+		return -1;
+	}
+
+	/* The spelling found by preScan at `offset`. */
+	class string preScanSpelling(string text, int offset) {
+		if (text[offset] == '%') { return "%:"; }
+		return offset + 1 < text.length() && text[offset + 1] == '#' ? "##" : "#";
+	}
+
+	/* Lex a payload or replacement in place; a lexer failure is E0 at its
+	 * position. */
+	public Vector<Token> lex(string text, int line, int col) {
+		Vector<Token> result = [];
+		Lexer lexer = Lexer(text, self.grammar, line, col);
+		Vector<Token> tokens = lexer.tokenize();
+		if (lexer.failed) {
+			FeLexFailure error = FeLexFailure(lexer.diagnostic);
+			self.fail(error.message, error.line, error.col);
+			return result;
+		}
+		for token in tokens {
+			if (token.type != "EOF") { result.push(token); }
+		}
+		return result;
+	}
+
+	/* Pre-scan, then lex, a #if/#elif payload (E7, E0). */
+	public Vector<Token> payloadTokens(string text, int line, int col) {
+		int found = FeConditionalExpression.preScan(text);
+		if (found >= 0) {
+			string spelling = FeConditionalExpression.preScanSpelling(text, found);
+			self.fail(f"'{spelling}' is not allowed in a #if expression", line, col + found);
+			Vector<Token> none = [];
+			return none;
+		}
+		return self.lex(text, line, col);
+	}
+
+	// -- Steps 1-3: defined, expansion, classification -----------------------
+
+	private bool keywordSpelling(string value, string keyword) { return !self.grammar.vocabulary.keywordToken(keyword).isEmpty() && value == keyword; }
+
+	/* An identifier, or a keyword, which #if reads as the identifier it
+	 * spells. */
+	public bool nameToken(Token token) { return token.type == "IDENT" || !self.grammar.vocabulary.keywordToken(token.value).isEmpty(); }
+
+	/* `true` and `false`, which no macro name may be. */
+	public bool booleanToken(Token token) { return token.type != "IDENT" && (self.keywordSpelling(token.value, "true") || self.keywordSpelling(token.value, "false")); }
+
+	private FeConditionalTest test(string name, int line, int col, bool local) { return FeConditionalTest(self.path, name, line, col, local, self.lineText(line)); }
+
+	private FeConditionalAtom number(string text, int line, int col, unsigned long long value, bool isUnsigned, Vector<FeConditionalTest> tests) { return FeConditionalAtom("number", text, line, col, value, isUnsigned, tests); }
+
+	/* `defined NAME`, classified as `#ifdef NAME` is (I2, I3). */
+	public FeConditionalAtom? definedValue(string name, int line, int col) {
+		string category = self.environment.classify(name);
+		Vector<FeConditionalTest> none = [];
+		if (category == "target") { return self.number("defined", line, col, self.environment.selects(name) ? 1ULL : 0ULL, false, none); }
+		if (category == "reserved") {
+			self.fail(FeConditionalEnvironment.reservedMessage(name), line, col);
+			return null;
+		}
+		if (self.macros.has(name)) {
+			Vector<FeConditionalTest> tests = [self.test(name, line, col, true)];
+			return self.number("defined", line, col, 1ULL, false, tests);
+		}
+		if (category == "foreign") {
+			self.fail(self.environment.foreignMessage(name), line, col);
+			return null;
+		}
+		Vector<FeConditionalTest> absent = [self.test(name, line, col, false)];
+		return self.number("defined", line, col, 0ULL, false, absent);
+	}
+
+	private Vector<FeConditionalItem> resolveDefined(Vector<Token> tokens) {
+		Vector<FeConditionalItem> resolved = [];
+		int index = 0;
+		while (index < tokens.len) {
+			Token token = tokens.get(index);
+			if (!(token.type == "IDENT" && token.value == "defined")) {
+				Vector<FeConditionalTest> none = [];
+				resolved.push(FeConditionalItem(token, null, none));
+				index++;
+				continue;
+			}
+			index++;
+			bool parenthesized = index < tokens.len && tokens.get(index).type == "LPAREN";
+			if (parenthesized) { index++; }
+			if (index >= tokens.len) {
+				self.fail("'defined' needs a macro name", token.line, token.col);
+				return resolved;
+			}
+			Token operand = tokens.get(index);
+			if (!self.nameToken(operand) || self.booleanToken(operand)) {
+				self.fail(f"'defined' needs a macro name, got '{operand.value}'", operand.line, operand.col);
+				return resolved;
+			}
+			index++;
+			if (parenthesized) {
+				if (index >= tokens.len || tokens.get(index).type != "RPAREN") {
+					self.fail("'defined(' needs a closing ')'", token.line, token.col);
+					return resolved;
+				}
+				index++;
+			}
+			FeConditionalAtom? atom = self.definedValue(operand.value, operand.line, operand.col);
+			if (atom == null) { return resolved; }
+			Vector<FeConditionalTest> origin = [];
+			resolved.push(FeConditionalItem(null, atom, origin));
+		}
+		return resolved;
+	}
+
+	class int expansionLimit() { return 4096; }
+
+	private void failLimit(int line, int col) {
+		int limit = FeConditionalExpression.expansionLimit();
+		self.fail(f"#if expression expands to more than {limit} tokens", line, col);
+	}
+
+	/* Expand this file's object-like macros (I4-I8, E16). An expanded token
+	 * sits at the outermost macro name in the directive and carries the
+	 * record of every macro expanded to produce it. One budget per directive
+	 * counts every resulting token and every macro invocation, so neither a
+	 * wide nor a deep expansion is unbounded. */
+	private Vector<FeConditionalItem> expand(Vector<FeConditionalItem> items) {
+		self.budget = 0;
+		Vector<FeConditionalItem> expanded = [];
+		for item in items {
+			Token? token = item.token;
+			if (token != null && token.type == "IDENT" && self.macros.has(token.value)) {
+				Vector<FeConditionalItem> produced = self.expansion(token.value, token);
+				if (self.failed()) { return expanded; }
+				for each in produced { expanded.push(each); }
+				continue;
+			}
+			FeConditionalAtom? atom = item.atom;
+			if (token != null) { self.spend(token.line, token.col); }
+			else if (atom != null) { self.spend(atom.line, atom.col); }
+			if (self.failed()) { return expanded; }
+			expanded.push(item);
+		}
+		return expanded;
+	}
+
+	/* Count one token or macro invocation against the directive's budget (E16). */
+	private void spend(int line, int col) {
+		self.budget++;
+		if (self.budget > FeConditionalExpression.expansionLimit()) { self.failLimit(line, col); }
+	}
+
+	/* A hexadecimal constant ending in `e`/`E` with an adjacent `+`/`-`: C
+	 * reads `0x1e+1` as one preprocessing number (C11 6.4.8), which is no
+	 * valid constant; btrc's lexer splits it, so #if refuses it (E11). */
+	public bool splitNumber(Token token, Token? following) {
+		if (following == null || token.type != "INT_LIT" || token.value.length() < 3) { return false; }
+		char last = token.value[token.value.length() - 1];
+		bool hex = token.value[0] == '0' && (token.value[1] == 'x' || token.value[1] == 'X');
+		return hex && (last == 'e' || last == 'E') && (following.value == "+" || following.value == "-") && following.line == token.line && following.col == token.col + token.value.length();
+	}
+
+	private bool widePrefix(string value) { return value == "L" || value == "u" || value == "U"; }
+
+	/* One macro's checked replacement tokens (I4, I8, E7, E0, I5, E11, E15);
+	 * empty once a failure is recorded. */
+	private Vector<Token> replacementTokens(string name, Token anchor) {
+		Vector<Token> tokens = [];
+		SourceMacroDefinition definition = self.macros.get(name);
+		if (definition.functionLike()) {
+			self.fail(f"Function-like macro '{name}' cannot be used in #if; btrc expands only object-like macros there", anchor.line, anchor.col);
+			return tokens;
+		}
+		if (definition.usesTokenPaste()) {
+			self.fail(f"Macro '{name}' uses '##', which #if does not evaluate", anchor.line, anchor.col);
+			return tokens;
+		}
+		string replacement = definition.replacement();
+		int found = FeConditionalExpression.preScan(replacement);
+		if (found >= 0) {
+			string spelling = FeConditionalExpression.preScanSpelling(replacement, found);
+			self.fail(f"'{spelling}' is not allowed in a #if expression", anchor.line, anchor.col);
+			return tokens;
+		}
+		Lexer lexer = Lexer(replacement, self.grammar);
+		Vector<Token> lexed = lexer.tokenize();
+		if (lexer.failed) {
+			self.fail(FeLexFailure(lexer.diagnostic).message, anchor.line, anchor.col);
+			return tokens;
+		}
+		for each in lexed {
+			if (each.type != "EOF") { tokens.push(each); }
+		}
+		if (tokens.len == 0) {
+			self.fail(f"Macro '{name}' expands to nothing in #if; test it with defined({name})", anchor.line, anchor.col);
+			return tokens;
+		}
+		for (int index = 0; index + 1 < tokens.len; index++) {
+			/* E11 and E15, while the replacement's own columns still show
+			 * adjacency. */
+			Token prefix = tokens.get(index);
+			Token following = tokens.get(index + 1);
+			if (self.splitNumber(prefix, following)) {
+				self.fail(f"Invalid integer literal '{prefix.value}{following.value}'", anchor.line, anchor.col);
+				return tokens;
+			}
+			if (self.widePrefix(prefix.value) && following.type == "CHAR_LIT" && following.line == prefix.line && following.col == prefix.col + prefix.value.length()) {
+				self.fail(f"Wide character constant {prefix.value}{following.value} in #if; write its integer value", anchor.line, anchor.col);
+				return tokens;
+			}
+		}
+		return tokens;
+	}
+
+	/* Open one macro's expansion: check it, count it and push its frame. */
+	private void enter(string name, Token anchor, FeConditionalOrigin? parent, Map<string, bool> active, Vector<FeConditionalFrame> stack) {
+		Vector<Token> tokens = self.replacementTokens(name, anchor);
+		if (self.failed()) { return; }
+		self.spend(anchor.line, anchor.col);
+		if (self.failed()) { return; }
+		active.put(name, true);
+		stack.push(FeConditionalFrame(name, tokens, FeConditionalOrigin(self.test(name, anchor.line, anchor.col, true), parent)));
+	}
+
+	/* Expand one outermost macro without host recursion: one mutable active
+	 * set (I6) and one stack of open expansions replace per-level copies, and
+	 * each open expansion links its record to its parent's. */
+	private Vector<FeConditionalItem> expansion(string name, Token anchor) {
+		Vector<FeConditionalItem> produced = [];
+		Map<string, bool> active = {};
+		Vector<FeConditionalFrame> stack = [];
+		self.enter(name, anchor, null, active, stack);
+		while (!self.failed() && stack.len > 0) {
+			FeConditionalFrame frame = stack.get(stack.len - 1);
+			if (frame.index == frame.tokens.len) {
+				stack.pop();
+				active.remove(frame.name);
+				continue;
+			}
+			Token token = frame.tokens.get(frame.index);
+			frame.index++;
+			if (token.type == "IDENT" && token.value == "defined") {
+				self.fail(f"Macro '{frame.name}' expands to 'defined'; C11 leaves that undefined", anchor.line, anchor.col);
+				return produced;
+			}
+			if (token.type == "IDENT" && self.macros.has(token.value)) {
+				if (active.has(token.value)) {
+					self.fail(f"Macro '{token.value}' expands to itself in #if", anchor.line, anchor.col);
+					return produced;
+				}
+				self.enter(token.value, anchor, frame.origin, active, stack);
+				continue;
+			}
+			self.spend(anchor.line, anchor.col);
+			if (self.failed()) { return produced; }
+			produced.push(FeConditionalItem(Token(token.type, token.value, anchor.line, anchor.col), null, frame.origin.records()));
+		}
+		return produced;
+	}
+
+	private bool punctuation(string value) {
+		for spelling in ["||", "&&", "|", "^", "&", "==", "!=", "<", ">", "<=", ">=", "<<", ">>", "+", "-", "*", "/", "%", "~", "!", "?", ":", "(", ")"] {
+			if (value == spelling) { return true; }
+		}
+		return false;
+	}
+
+	/* A narrow character constant's value when it is 0-127, else -1. */
+	private int characterValue(string raw) {
+		if (raw.length() < 3 || raw[0] != '\'' || raw[raw.length() - 1] != '\'') { return -1; }
+		if (raw[1] != '\\') {
+			if (raw.length() != 3 || raw[1] < ' ' || raw[1] > '~') { return -1; }
+			return (int)raw[1];
+		}
+		CharacterLiteralInfo info = CharacterLiteral(raw).details();
+		if (!info.known || info.value < 0 || info.value > 127) { return -1; }
+		return info.value;
+	}
+
+	private Vector<FeConditionalAtom> classify(Vector<FeConditionalItem> expanded) {
+		Vector<FeConditionalAtom> atoms = [];
+		for (int index = 0; index < expanded.len; index++) {
+			FeConditionalItem item = expanded.get(index);
+			FeConditionalAtom? resolved = item.atom;
+			if (resolved != null) {
+				atoms.push(resolved);
+				continue;
+			}
+			Token? candidate = item.token;
+			if (candidate == null) { continue; }
+			Token token = candidate;
+			string kind = token.type;
+			if (kind == "INT_LIT") {
+				Token? next = null;
+				if (index + 1 < expanded.len) { next = expanded.get(index + 1).token; }
+				if (next != null && self.splitNumber(token, next)) {
+					self.fail(f"Invalid integer literal '{token.value}{next.value}'", token.line, token.col);
+					return atoms;
+				}
+				IntegerLiteralInfo info = IntegerLiteral(token.value).details();
+				bool unsignedSuffix = info.suffix.indexOf("u") >= 0;
+				bool tooLarge = info.decimal && !unsignedSuffix && info.magnitude > FeConditionalExpression.intmaxMax();
+				if (!info.valid || tooLarge) {
+					self.fail(f"Invalid integer literal '{token.value}'", token.line, token.col);
+					return atoms;
+				}
+				atoms.push(self.number(token.value, token.line, token.col, info.magnitude, unsignedSuffix || info.magnitude > FeConditionalExpression.intmaxMax(), item.origin));
+			} else if (kind == "CHAR_LIT") {
+				int value = self.characterValue(token.value);
+				if (value < 0) {
+					self.fail(f"Character constant {token.value} in #if has a target-dependent value; write its integer value", token.line, token.col);
+					return atoms;
+				}
+				atoms.push(self.number(token.value, token.line, token.col, (unsigned long long)value, false, item.origin));
+			} else if (kind == "STRING_LIT" || kind == "FSTRING_LIT") {
+				self.fail("A string literal cannot appear in a #if expression", token.line, token.col);
+				return atoms;
+			} else if (kind == "FLOAT_LIT") {
+				self.fail(f"Floating constant '{token.value}' in #if expression; #if needs integer constants", token.line, token.col);
+				return atoms;
+			} else if (kind != "IDENT" && self.keywordSpelling(token.value, "sizeof")) {
+				self.fail("sizeof cannot be evaluated in #if; test a target macro such as __SIZEOF_INT__", token.line, token.col);
+				return atoms;
+			} else if (self.booleanToken(token)) {
+				atoms.push(self.number(token.value, token.line, token.col, token.value == "true" ? 1ULL : 0ULL, false, item.origin));
+			} else if (self.nameToken(token)) {
+				if (index + 1 < expanded.len && self.widePrefix(token.value)) {
+					Token? following = expanded.get(index + 1).token;
+					if (following != null && following.type == "CHAR_LIT" && following.line == token.line && following.col == token.col + token.value.length()) {
+						self.fail(f"Wide character constant {token.value}{following.value} in #if; write its integer value", token.line, token.col);
+						return atoms;
+					}
+				}
+				string category = self.environment.classify(token.value);
+				if (category == "target") {
+					atoms.push(self.number(token.value, token.line, token.col, self.environment.targetValue(token.value), false, item.origin));
+				} else if (category == "reserved") {
+					self.fail(FeConditionalEnvironment.reservedMessage(token.value), token.line, token.col);
+					return atoms;
+				} else if (category == "foreign") {
+					self.fail(self.environment.foreignMessage(token.value), token.line, token.col);
+					return atoms;
+				} else {
+					atoms.push(FeConditionalAtom("absent", token.value, token.line, token.col, 0ULL, false, item.origin));
+				}
+			} else if (self.punctuation(token.value)) {
+				atoms.push(FeConditionalAtom("op", token.value, token.line, token.col, 0ULL, false, item.origin));
+			} else {
+				self.fail(f"'{token.value}' is not allowed in a #if expression", token.line, token.col);
+				return atoms;
+			}
+		}
+		return atoms;
+	}
+
+	// -- Step 4: parse ---------------------------------------------------------
+
+	public FeConditionalNode? parse(Vector<FeConditionalAtom> atoms) {
+		FeConditionalParser parser = FeConditionalParser(self, atoms);
+		FeConditionalNode? node = parser.expression();
+		if (self.failed() || node == null) { return null; }
+		if (parser.index < atoms.len) {
+			FeConditionalAtom atom = atoms.get(parser.index);
+			if (atom.kind == "op" && atom.text == ")") {
+				self.fail("Unmatched ')' in #if expression", atom.line, atom.col);
+			} else if (atom.kind == "op" && atom.text == ":") {
+				self.fail("':' is not allowed in a #if expression", atom.line, atom.col);
+			} else {
+				self.fail(f"Missing operator before '{atom.text}' in #if expression", atom.line, atom.col);
+			}
+			return null;
+		}
+		return node;
+	}
+
+	// -- Step 5: evaluate ------------------------------------------------------
+
+	/* Steps 1-5 over a lexed payload; appends evaluated records to `tests`.
+	 * Check failed() before reading the answer. */
+	public bool evaluate(Vector<Token> tokens, Vector<FeConditionalTest> tests) {
+		Vector<FeConditionalItem> resolved = self.resolveDefined(tokens);
+		if (self.failed()) { return false; }
+		Vector<FeConditionalItem> expanded = self.expand(resolved);
+		if (self.failed()) { return false; }
+		Vector<FeConditionalAtom> atoms = self.classify(expanded);
+		if (self.failed()) { return false; }
+		FeConditionalNode? node = self.parse(atoms);
+		if (node == null) { return false; }
+		FeConditionalValue result = self.value(node, true, tests);
+		return !self.failed() && result.bits != 0ULL;
+	}
+
+	private bool comparison(string operator) { return operator == "<" || operator == ">" || operator == "<=" || operator == ">=" || operator == "==" || operator == "!="; }
+
+	private bool staticUnsigned(FeConditionalNode node) {
+		if (node.kind == "leaf") { return node.atom.isUnsigned; }
+		string operator = node.atom.text;
+		if (node.kind == "unary") { return operator != "!" && self.staticUnsigned(node.operands.get(0)); }
+		if (node.kind == "conditional") { return self.staticUnsigned(node.operands.get(1)) || self.staticUnsigned(node.operands.get(2)); }
+		if (operator == "&&" || operator == "||" || self.comparison(operator)) { return false; }
+		if (operator == "<<" || operator == ">>") { return self.staticUnsigned(node.operands.get(0)); }
+		return self.staticUnsigned(node.operands.get(0)) || self.staticUnsigned(node.operands.get(1));
+	}
+
+	/* An atom appends its records once, when it is evaluated. */
+	private void record(FeConditionalAtom atom, Vector<FeConditionalTest> tests) {
+		for test in atom.tests {
+			if (!test.recorded) {
+				test.recorded = true;
+				tests.push(test);
+			}
+		}
+	}
+
+	/* Check one evaluated operand converted to unsigned (A5). */
+	private void convert(unsigned long long bits, bool isUnsigned, string operator, int line, int col) {
+		if (FeConditionalExpression.negative(bits, isUnsigned)) {
+			string value = FeConditionalExpression.spelled(bits, false);
+			self.fail(f"#if expression converts negative value {value} to unsigned for '{operator}'", line, col);
+		}
+	}
+
+	private FeConditionalValue overflow(FeConditionalAtom atom) {
+		self.fail("Integer overflow in #if expression", atom.line, atom.col);
+		return FeConditionalValue(0ULL, false);
+	}
+
+	private unsigned long long magnitude(unsigned long long bits) { return FeConditionalExpression.negative(bits, false) ? ~bits + 1ULL : bits; }
+
+	private bool signedLess(unsigned long long left, unsigned long long right) { return (left ^ FeConditionalExpression.signBit()) < (right ^ FeConditionalExpression.signBit()); }
+
+	private FeConditionalValue value(FeConditionalNode node, bool evaluated, Vector<FeConditionalTest> tests) {
+		FeConditionalAtom atom = node.atom;
+		FeConditionalValue zero = FeConditionalValue(0ULL, false);
+		if (self.failed()) { return zero; }
+		if (node.kind == "leaf") {
+			if (evaluated) {
+				self.record(atom, tests);
+				if (atom.kind == "absent") {
+					self.fail(f"Identifier '{atom.text}' in #if is not a macro defined earlier in this file or a target macro; test it with defined({atom.text})", atom.line, atom.col);
+					return zero;
+				}
+			}
+			return FeConditionalValue(atom.value, atom.isUnsigned);
+		}
+		string operator = atom.text;
+		if (node.kind == "unary") {
+			FeConditionalValue operand = self.value(node.operands.get(0), evaluated, tests);
+			if (self.failed()) { return zero; }
+			if (!evaluated) { return FeConditionalValue(0ULL, operator != "!" && operand.isUnsigned); }
+			self.record(atom, tests);
+			if (operator == "!") { return FeConditionalValue(operand.bits == 0ULL ? 1ULL : 0ULL, false); }
+			if (operator == "+") { return operand; }
+			if (operator == "~") { return FeConditionalValue(~operand.bits, operand.isUnsigned); }
+			if (!operand.isUnsigned && operand.bits == FeConditionalExpression.signBit()) { return self.overflow(atom); }
+			return FeConditionalValue(~operand.bits + 1ULL, operand.isUnsigned);
+		}
+		if (node.kind == "conditional") {
+			FeConditionalValue condition = self.value(node.operands.get(0), evaluated, tests);
+			if (self.failed()) { return zero; }
+			bool resultUnsigned = self.staticUnsigned(node);
+			if (evaluated) { self.record(atom, tests); }
+			bool takeFirst = condition.bits != 0ULL;
+			FeConditionalValue first = self.value(node.operands.get(1), evaluated && takeFirst, tests);
+			if (self.failed()) { return zero; }
+			FeConditionalValue second = self.value(node.operands.get(2), evaluated && !takeFirst, tests);
+			if (self.failed()) { return zero; }
+			if (!evaluated) { return FeConditionalValue(0ULL, resultUnsigned); }
+			FeConditionalNode chosenNode = takeFirst ? node.operands.get(1) : node.operands.get(2);
+			unsigned long long chosen = takeFirst ? first.bits : second.bits;
+			if (resultUnsigned) {
+				self.convert(chosen, self.staticUnsigned(chosenNode), "?:", atom.line, atom.col);
+				if (self.failed()) { return zero; }
+			}
+			return FeConditionalValue(chosen, resultUnsigned);
+		}
+		FeConditionalNode leftNode = node.operands.get(0);
+		FeConditionalNode rightNode = node.operands.get(1);
+		if (operator == "&&" || operator == "||") {
+			FeConditionalValue condition = self.value(leftNode, evaluated, tests);
+			if (self.failed()) { return zero; }
+			if (evaluated) { self.record(atom, tests); }
+			bool shortCircuit = (operator == "&&") == (condition.bits == 0ULL);
+			FeConditionalValue rest = self.value(rightNode, evaluated && !shortCircuit, tests);
+			if (self.failed() || !evaluated) { return zero; }
+			if (shortCircuit) { return FeConditionalValue(operator == "&&" ? 0ULL : 1ULL, false); }
+			return FeConditionalValue(rest.bits != 0ULL ? 1ULL : 0ULL, false);
+		}
+		FeConditionalValue left = self.value(leftNode, evaluated, tests);
+		if (self.failed()) { return zero; }
+		FeConditionalValue right = self.value(rightNode, evaluated, tests);
+		if (self.failed()) { return zero; }
+		bool shift = operator == "<<" || operator == ">>";
+		bool isUnsigned = left.isUnsigned || (!shift && right.isUnsigned);
+		bool resultUnsigned = !self.comparison(operator) && isUnsigned;
+		if (!evaluated) { return FeConditionalValue(0ULL, resultUnsigned); }
+		self.record(atom, tests);
+		if (shift) {
+			bool countNegative = FeConditionalExpression.negative(right.bits, right.isUnsigned);
+			if (countNegative || right.bits >= 64ULL) {
+				string count = FeConditionalExpression.spelled(right.bits, right.isUnsigned);
+				self.fail(f"Shift count {count} is out of range in #if expression", atom.line, atom.col);
+				return zero;
+			}
+			int count = (int)right.bits;
+			if (operator == ">>") {
+				if (FeConditionalExpression.negative(left.bits, left.isUnsigned)) { return FeConditionalValue(~(~left.bits >> count), false); }
+				return FeConditionalValue(left.bits >> count, left.isUnsigned);
+			}
+			if (left.isUnsigned) { return FeConditionalValue(left.bits << count, true); }
+			if (FeConditionalExpression.negative(left.bits, false)) {
+				self.fail("Left shift of negative value in #if expression", atom.line, atom.col);
+				return zero;
+			}
+			if (left.bits > (FeConditionalExpression.intmaxMax() >> count)) { return self.overflow(atom); }
+			return FeConditionalValue(left.bits << count, false);
+		}
+		if (isUnsigned) {
+			self.convert(left.bits, left.isUnsigned, operator, atom.line, atom.col);
+			if (self.failed()) { return zero; }
+			self.convert(right.bits, right.isUnsigned, operator, atom.line, atom.col);
+			if (self.failed()) { return zero; }
+		}
+		unsigned long long a = left.bits;
+		unsigned long long b = right.bits;
+		if (operator == "/" || operator == "%") {
+			if (b == 0ULL) {
+				string noun = operator == "/" ? "Division" : "Remainder";
+				self.fail(f"{noun} by zero in #if expression", atom.line, atom.col);
+				return zero;
+			}
+			if (isUnsigned) { return FeConditionalValue(operator == "/" ? a / b : a % b, true); }
+			if (a == FeConditionalExpression.signBit() && b == ~0ULL) { return self.overflow(atom); }
+			bool aNegative = FeConditionalExpression.negative(a, false);
+			bool bNegative = FeConditionalExpression.negative(b, false);
+			unsigned long long quotient = self.magnitude(a) / self.magnitude(b);
+			unsigned long long remainder = self.magnitude(a) % self.magnitude(b);
+			if (operator == "/") { return FeConditionalValue(aNegative != bNegative ? ~quotient + 1ULL : quotient, false); }
+			return FeConditionalValue(aNegative ? ~remainder + 1ULL : remainder, false);
+		}
+		if (self.comparison(operator)) {
+			bool less = (isUnsigned && a < b) || (!isUnsigned && self.signedLess(a, b));
+			bool greater = (isUnsigned && a > b) || (!isUnsigned && self.signedLess(b, a));
+			bool answer = false;
+			if (operator == "<") { answer = less; }
+			else if (operator == ">") { answer = greater; }
+			else if (operator == "<=") { answer = !greater; }
+			else if (operator == ">=") { answer = !less; }
+			else if (operator == "==") { answer = a == b; }
+			else { answer = a != b; }
+			return FeConditionalValue(answer ? 1ULL : 0ULL, false);
+		}
+		if (operator == "&") { return FeConditionalValue(a & b, isUnsigned); }
+		if (operator == "^") { return FeConditionalValue(a ^ b, isUnsigned); }
+		if (operator == "|") { return FeConditionalValue(a | b, isUnsigned); }
+		if (operator == "+") {
+			unsigned long long sum = a + b;
+			if (!isUnsigned && FeConditionalExpression.negative(a, false) == FeConditionalExpression.negative(b, false) && FeConditionalExpression.negative(sum, false) != FeConditionalExpression.negative(a, false)) { return self.overflow(atom); }
+			return FeConditionalValue(sum, isUnsigned);
+		}
+		if (operator == "-") {
+			unsigned long long difference = a - b;
+			if (!isUnsigned && FeConditionalExpression.negative(a, false) != FeConditionalExpression.negative(b, false) && FeConditionalExpression.negative(difference, false) != FeConditionalExpression.negative(a, false)) { return self.overflow(atom); }
+			return FeConditionalValue(difference, isUnsigned);
+		}
+		if (isUnsigned) { return FeConditionalValue(a * b, true); }
+		bool productNegative = FeConditionalExpression.negative(a, false) != FeConditionalExpression.negative(b, false);
+		unsigned long long left64 = self.magnitude(a);
+		unsigned long long right64 = self.magnitude(b);
+		if (left64 != 0ULL && right64 > ~0ULL / left64) { return self.overflow(atom); }
+		unsigned long long product = left64 * right64;
+		unsigned long long limit = productNegative ? FeConditionalExpression.signBit() : FeConditionalExpression.intmaxMax();
+		if (product > limit) { return self.overflow(atom); }
+		return FeConditionalValue(productNegative ? ~product + 1ULL : product, false);
+	}
+}
+
+/* Recursive descent over classified #if atoms (E1-E7). */
+class FeConditionalParser {
+	private FeConditionalExpression owner;
+	private Vector<FeConditionalAtom> atoms;
+	public int index;
+
+	public FeConditionalParser(FeConditionalExpression owner, Vector<FeConditionalAtom> atoms) {
+		self.owner = owner;
+		self.atoms = atoms;
+		self.index = 0;
+	}
+
+	private FeConditionalAtom? peek() { return self.index < self.atoms.len ? self.atoms.get(self.index) : null; }
+
+	private bool isOp(FeConditionalAtom? atom, string spelling) { return atom != null && atom.kind == "op" && atom.text == spelling; }
+
+	private int precedence(string text) {
+		if (text == "||") { return 1; }
+		if (text == "&&") { return 2; }
+		if (text == "|") { return 3; }
+		if (text == "^") { return 4; }
+		if (text == "&") { return 5; }
+		if (text == "==" || text == "!=") { return 6; }
+		if (text == "<" || text == ">" || text == "<=" || text == ">=") { return 7; }
+		if (text == "<<" || text == ">>") { return 8; }
+		if (text == "+" || text == "-") { return 9; }
+		if (text == "*" || text == "/" || text == "%") { return 10; }
+		return -1;
+	}
+
+	public FeConditionalNode? expression() {
+		FeConditionalNode? condition = self.binary(1);
+		if (condition == null) { return null; }
+		FeConditionalAtom? question = self.peek();
+		if (question == null || !self.isOp(question, "?")) { return condition; }
+		self.index++;
+		FeConditionalNode? first = self.expression();
+		if (first == null) { return null; }
+		if (!self.isOp(self.peek(), ":")) {
+			self.owner.fail("'?' in #if expression needs ':'", question.line, question.col);
+			return null;
+		}
+		self.index++;
+		FeConditionalNode? second = self.expression();
+		if (second == null) { return null; }
+		Vector<FeConditionalNode> operands = [condition, first, second];
+		return FeConditionalNode("conditional", question, operands);
+	}
+
+	private FeConditionalNode? binary(int minimum) {
+		FeConditionalNode? left = self.unary();
+		if (left == null) { return null; }
+		while (true) {
+			FeConditionalAtom? operator = self.peek();
+			if (operator == null || operator.kind != "op") { return left; }
+			int precedence = self.precedence(operator.text);
+			if (precedence < 0 || precedence < minimum) { return left; }
+			self.index++;
+			FeConditionalNode? right = self.binary(precedence + 1);
+			if (right == null || left == null) { return null; }
+			Vector<FeConditionalNode> operands = [left, right];
+			left = FeConditionalNode("binary", operator, operands);
+		}
+		return left;
+	}
+
+	private bool unaryOperator(FeConditionalAtom? atom) { return self.isOp(atom, "+") || self.isOp(atom, "-") || self.isOp(atom, "~") || self.isOp(atom, "!"); }
+
+	private FeConditionalNode? unary() {
+		FeConditionalAtom? atom = self.peek();
+		if (atom != null && self.unaryOperator(atom)) {
+			self.index++;
+			if (self.peek() == null) {
+				self.owner.fail(f"#if expression ends after '{atom.text}'; expected an operand", atom.line, atom.col);
+				return null;
+			}
+			FeConditionalNode? operand = self.unary();
+			if (operand == null) { return null; }
+			Vector<FeConditionalNode> operands = [operand];
+			return FeConditionalNode("unary", atom, operands);
+		}
+		return self.primary();
+	}
+
+	private FeConditionalNode? primary() {
+		FeConditionalAtom? atom = self.peek();
+		Vector<FeConditionalNode> none = [];
+		if (atom == null) {
+			FeConditionalAtom previous = self.atoms.get(self.index - 1);
+			self.owner.fail(f"#if expression ends after '{previous.text}'; expected an operand", previous.line, previous.col);
+			return null;
+		}
+		if (atom.kind != "op") {
+			self.index++;
+			return FeConditionalNode("leaf", atom, none);
+		}
+		if (atom.text == "(") {
+			self.index++;
+			if (self.peek() == null) {
+				self.owner.fail("Unmatched '(' in #if expression", atom.line, atom.col);
+				return null;
+			}
+			FeConditionalNode? inner = self.expression();
+			if (inner == null) { return null; }
+			FeConditionalAtom? close = self.peek();
+			if (!self.isOp(close, ")")) {
+				if (close == null) {
+					self.owner.fail("Unmatched '(' in #if expression", atom.line, atom.col);
+				} else if (close.kind == "op" && close.text == ":") {
+					self.owner.fail("':' is not allowed in a #if expression", close.line, close.col);
+				} else {
+					self.owner.fail(f"Missing operator before '{close.text}' in #if expression", close.line, close.col);
+				}
+				return null;
+			}
+			self.index++;
+			return inner;
+		}
+		if (atom.text == ":") {
+			self.owner.fail("':' is not allowed in a #if expression", atom.line, atom.col);
+			return null;
+		}
+		self.owner.fail(f"Expected an operand in #if expression, got '{atom.text}'", atom.line, atom.col);
+		return null;
+	}
+}
+
+/* One open if-section on the walk's stack: its state is "taking",
+ * "seeking" or "done". */
+class FeConditionalEntry {
+	public Token token;
+	public string name;
+	public string state;
+	public bool elseSeen;
+
+	public FeConditionalEntry(Token token, string name, string state) {
+		self.token = token;
+		self.name = name;
+		self.state = state;
+		self.elseSeen = false;
+	}
+}
+
+/* Condition one file's text for one target (C11 6.10.1, D20).
+ *
+ * The result has exactly the raw file's lines: every conditional-directive
+ * line and every line of a dead group becomes empty, and live lines are
+ * byte-identical. A file with no candidate line is returned untouched. */
+class FeSourceConditionals {
+	private FeConditionalEnvironment environmentValue;
+	private GrammarInfo grammar;
+
+	public FeSourceConditionals(FeConditionalEnvironment environment, GrammarInfo grammar) {
+		self.environmentValue = environment;
+		self.grammar = grammar;
+	}
+
+	public FeConditionalEnvironment environment() { return self.environmentValue; }
+
+	class bool directiveSpace(char value) { return value == ' ' || value == '\t' || value == '\f' || value == '\v'; }
+
+	/* Whether some line could spell a conditional directive (the slow
+	 * path): `^[ \t\f\v]*(#[ \t\f\v]*(if|el|en|er|\\|??/|/*)|%:|??=)`. The
+	 * scan indexes the text and never copies it. */
+	class bool candidate(string text) {
+		FeSourceText source = FeSourceText(text);
+		int length = text.length();
+		int index = 0;
+		while (index < length) {
+			int cursor = index;
+			while (cursor < length && FeSourceConditionals.directiveSpace(text[cursor])) { cursor++; }
+			if (cursor < length && text[cursor] == '#') {
+				cursor++;
+				while (cursor < length && FeSourceConditionals.directiveSpace(text[cursor])) { cursor++; }
+				for spelling in ["if", "el", "en", "er", "\\", "??/", "/*"] {
+					if (source.startsWithAt(cursor, spelling)) { return true; }
+				}
+			} else if (source.startsWithAt(cursor, "%:") || source.startsWithAt(cursor, "??=")) {
+				return true;
+			}
+			int newline = text.find("\n", cursor);
+			if (newline < 0) { return false; }
+			index = newline + 1;
+		}
+		return false;
+	}
+
+	/* The offset of a `/*` that does not close on the directive's line
+	 * (D15), or -1. */
+	class int unclosedComment(string text) {
+		int length = text.length();
+		int index = 0;
+		while (index < length) {
+			char value = text[index];
+			if (value == '"' || value == '\'') {
+				index = SourceMacroRules.skipQuoted(text, index);
+				continue;
+			}
+			if (value == '/' && index + 1 < length && text[index + 1] == '/') { return -1; }
+			if (value == '/' && index + 1 < length && text[index + 1] == '*') {
+				int close = text.find("*/", index + 2);
+				if (close < 0) { return index; }
+				index = close + 2;
+				continue;
+			}
+			index++;
+		}
+		return -1;
+	}
+
+	/* The offset of a `\f` or `\v` after a directive's `#` (D17), or -1. */
+	class int directiveWhitespace(string text) {
+		for (int offset = 1; offset < text.length(); offset++) {
+			if (text[offset] == '\f' || text[offset] == '\v') { return offset; }
+		}
+		return -1;
+	}
+
+	public FeConditionedSource condition(string text, string path) {
+		if (!FeSourceConditionals.candidate(text)) {
+			Vector<FeConditionalTest> none = [];
+			return FeConditionedSource(text, none);
+		}
+		return FeConditionalWalk(self.environmentValue, self.grammar, path, text).run();
+	}
+}
+
+/* One slow-path conditioning of one file: raw lex, shape checks, walk and
+ * blanking. Every error goes to the expression's failure, the first one
+ * kept. */
+class FeConditionalWalk {
+	private FeConditionalEnvironment environment;
+	private GrammarInfo grammar;
+	private string path;
+	private string text;
+	private Vector<string> lines;
+	private Map<string, SourceMacroDefinition> macros;
+	private Vector<FeConditionalTest> tests;
+	private FeConditionalExpression expression;
+
+	public FeConditionalWalk(FeConditionalEnvironment environment, GrammarInfo grammar, string path, string text) {
+		self.environment = environment;
+		self.grammar = grammar;
+		self.path = path;
+		self.text = text;
+		self.lines = FeSourceText(text).lines();
+		self.macros = {};
+		self.tests = [];
+		self.expression = FeConditionalExpression(environment, path, self.macros, grammar, self.lines);
+	}
+
+	private void fail(string message, int line, int col) { self.expression.fail(message, line, col); }
+
+	private bool failed() { return self.expression.failed(); }
+
+	// -- Directive anatomy ---------------------------------------------------
+
+	/* The start of a directive's name, after `#` and spaces. */
+	class int nameStart(string text) {
+		int start = 1;
+		while (start < text.length() && FeSourceConditionals.directiveSpace(text[start])) { start++; }
+		return start;
+	}
+
+	/* The end of the name: the longest identifier at its start. */
+	class int nameEnd(string text) {
+		int end = FeConditionalWalk.nameStart(text);
+		if (end < text.length() && (text[end] == '_' || Strings.isAlpha(text[end]))) {
+			end++;
+			while (end < text.length() && (text[end] == '_' || Strings.isAlnum(text[end]))) { end++; }
+		}
+		return end;
+	}
+
+	class string directiveName(string text) {
+		int start = FeConditionalWalk.nameStart(text);
+		return text.substring(start, FeConditionalWalk.nameEnd(text) - start);
+	}
+
+	/* The offset of the first `\` or `??/` that splices a directive's
+	 * line, or -1. */
+	class int spliceOffset(string text) {
+		int newline = text.indexOf("\n");
+		/* gcc and clang also splice a backslash that only spaces and tabs
+		 * separate from the newline (they warn, even under -pedantic-errors). */
+		if (newline < 0) { return FeConditionalWalk.trailingSplice(text); }
+		if (newline >= 3 && text[newline - 3] == '?' && text[newline - 2] == '?' && text[newline - 1] == '/') { return newline - 3; }
+		return newline - 1;
+	}
+
+	/* The offset of a `\` or `??/` that ends `line` but for spaces and
+	 * tabs, or -1: C splices such a line onto the next. */
+	class int trailingSplice(string line) {
+		int end = line.length();
+		while (end > 0 && (line[end - 1] == ' ' || line[end - 1] == '\t')) { end--; }
+		if (end >= 3 && line[end - 3] == '?' && line[end - 2] == '?' && line[end - 1] == '/') { return end - 3; }
+		if (end >= 1 && line[end - 1] == '\\') { return end - 1; }
+		return -1;
+	}
+
+	class bool conditionalName(string name) { return name == "if" || name == "ifdef" || name == "ifndef" || name == "elif" || name == "else" || name == "endif" || name == "elifdef" || name == "elifndef"; }
+
+	class int trigraphOffset(string text) {
+		for (int index = 0; index + 2 < text.length(); index++) {
+			if (text[index] == '?' && text[index + 1] == '?') {
+				char last = text[index + 2];
+				if (last == '=' || last == '/' || last == '\'' || last == '(' || last == ')' || last == '!' || last == '<' || last == '>' || last == '-') { return index; }
+			}
+		}
+		return -1;
+	}
+
+	// -- Shape checks (C11 translation phases 1-3) ---------------------------
+
+	/* Fail at `offset` inside a directive token's text. */
+	private void shapeError(string message, Token token, int offset) {
+		int line = token.line;
+		int col = token.col;
+		for (int index = 0; index < offset && index < token.value.length(); index++) {
+			if (token.value[index] == '\n') {
+				line++;
+				col = 1;
+			} else {
+				col++;
+			}
+		}
+		self.fail(message, line, col);
+	}
+
+	/* D10 when the line before a directive ends in a splice, so C would
+	 * continue it (a `//` comment). */
+	private void checkPrecedingSplice(Token token) {
+		string previous = token.line >= 2 ? self.lines.get(token.line - 2) : "";
+		int splice = FeConditionalWalk.trailingSplice(previous);
+		if (splice >= 0) { self.fail("multi-line preprocessor directives are unsupported", token.line - 1, splice + 1); }
+	}
+
+	private void checkConditionalShape(Token token) {
+		string text = token.value;
+		self.checkPrecedingSplice(token);
+		if (self.failed()) { return; }
+		int trigraph = FeConditionalWalk.trigraphOffset(text);
+		if (trigraph >= 0) {
+			self.shapeError("C11 trigraphs in preprocessor directives are unsupported", token, trigraph);
+			return;
+		}
+		int splice = FeConditionalWalk.spliceOffset(text);
+		if (splice >= 0) {
+			self.shapeError("multi-line preprocessor directives are unsupported", token, splice);
+			return;
+		}
+		int whitespace = FeSourceConditionals.directiveWhitespace(text);
+		if (whitespace >= 0) {
+			self.shapeError("only spaces and tabs may separate tokens in a preprocessor directive (C11 6.10p5)", token, whitespace);
+			return;
+		}
+		int unclosed = FeSourceConditionals.unclosedComment(text);
+		if (unclosed >= 0) { self.shapeError("a comment in a preprocessor directive must close on the same line", token, unclosed); }
+	}
+
+	private void checkDeadDirectiveShape(Token token) {
+		int splice = FeConditionalWalk.spliceOffset(token.value);
+		if (splice >= 0) {
+			self.shapeError("multi-line preprocessor directives are unsupported", token, splice);
+			return;
+		}
+		int unclosed = FeSourceConditionals.unclosedComment(token.value);
+		if (unclosed >= 0) { self.shapeError("a comment in a preprocessor directive must close on the same line", token, unclosed); }
+	}
+
+	private void checkShapes(Vector<Token> tokens) {
+		int lastLine = 0;
+		for token in tokens {
+			if (token.type == "EOF" || token.line == lastLine) { continue; }
+			lastLine = token.line;
+			string line = self.lines.get(token.line - 1);
+			int indent = 0;
+			while (indent < line.length() && FeSourceConditionals.directiveSpace(line[indent])) { indent++; }
+			if (token.col != indent + 1) { continue; }
+			FeSourceText lineText = FeSourceText(line);
+			for spelling in ["%:", "??="] {
+				if (lineText.startsWithAt(indent, spelling)) {
+					self.fail(f"'{spelling}' is not supported as a spelling of '#'; write '#'", token.line, indent + 1);
+					return;
+				}
+			}
+			if (token.type != "PREPROCESSOR") { continue; }
+			string text = token.value;
+			int start = FeConditionalWalk.nameStart(text);
+			int end = FeConditionalWalk.nameEnd(text);
+			FeSourceText directive = FeSourceText(text);
+			if (start == end) {
+				if (directive.startsWithAt(start, "\\") || directive.startsWithAt(start, "??/")) {
+					self.shapeError("multi-line preprocessor directives are unsupported", token, start);
+					return;
+				}
+				if (directive.startsWithAt(start, "/*")) {
+					self.shapeError("a comment between '#' and the directive name is unsupported", token, start);
+					return;
+				}
+				continue;
+			}
+			if (FeConditionalWalk.conditionalName(text.substring(start, end - start))) {
+				self.checkConditionalShape(token);
+				if (self.failed()) { return; }
+			}
+		}
+	}
+
+	// -- The walk --------------------------------------------------------------
+
+	private bool live(Vector<FeConditionalEntry> stack, int count) {
+		for (int index = 0; index < count; index++) {
+			if (stack.get(index).state != "taking") { return false; }
+		}
+		return true;
+	}
+
+	private string payload(Token token) {
+		int end = FeConditionalWalk.nameEnd(token.value);
+		return token.value.substring(end, token.value.length() - end);
+	}
+
+	private int payloadCol(Token token) { return token.col + FeConditionalWalk.nameEnd(token.value); }
+
+	/* A payload's tokens; a pre-scanned `#` becomes the last one. */
+	private Vector<Token> structuralTokens(Token token) {
+		string payload = self.payload(token);
+		int col = self.payloadCol(token);
+		int found = FeConditionalExpression.preScan(payload);
+		string prefix = found < 0 ? payload : payload.substring(0, found);
+		Vector<Token> tokens = self.expression.lex(prefix, token.line, col);
+		if (found >= 0 && !self.failed()) { tokens.push(Token("PREPROCESSOR", FeConditionalExpression.preScanSpelling(payload, found), token.line, col + found)); }
+		return tokens;
+	}
+
+	private bool ifdef(Token token, string name) {
+		Vector<Token> lexed = self.structuralTokens(token);
+		if (self.failed()) { return false; }
+		if (lexed.len == 0) {
+			self.fail(f"'#{name}' needs a macro name", token.line, token.col);
+			return false;
+		}
+		Token operand = lexed.get(0);
+		if (operand.type == "PREPROCESSOR" || !self.expression.nameToken(operand) || self.expression.booleanToken(operand)) {
+			self.fail(f"'#{name}' needs a macro name, got '{operand.value}'", operand.line, operand.col);
+			return false;
+		}
+		if (lexed.len > 1) {
+			Token extra = lexed.get(1);
+			self.fail(f"'#{name}' takes one macro name; unexpected '{extra.value}'", extra.line, extra.col);
+			return false;
+		}
+		FeConditionalAtom? atom = self.expression.definedValue(operand.value, operand.line, operand.col);
+		if (atom == null) { return false; }
+		for test in atom.tests { self.tests.push(test); }
+		return (atom.value != 0ULL) == (name == "ifdef");
+	}
+
+	private bool evaluate(Token token, string name) {
+		Vector<Token> tokens = self.expression.payloadTokens(self.payload(token), token.line, self.payloadCol(token));
+		if (self.failed()) { return false; }
+		if (tokens.len == 0) {
+			self.fail(f"'#{name}' needs an expression", token.line, token.col);
+			return false;
+		}
+		return self.expression.evaluate(tokens, self.tests);
+	}
+
+	private void noOperands(Token token, string name) {
+		Vector<Token> tokens = self.structuralTokens(token);
+		if (!self.failed() && tokens.len > 0) {
+			Token first = tokens.get(0);
+			self.fail(f"'#{name}' takes no operands; unexpected '{first.value}'", first.line, first.col);
+		}
+	}
+
+	private void define(Token token) {
+		/* C would read a #define or #undef after a continued // comment as
+		 * comment text, so #if would see a macro C does not. */
+		self.checkPrecedingSplice(token);
+		if (self.failed()) { return; }
+		SourceMacroDefinition directive = SourceMacroDefinition(token.value);
+		if (!directive.isDefinition() && !directive.isUndef()) { return; }
+		string name = directive.name();
+		string message = self.environment.rules().violation(name, directive.isDefinition());
+		if (!message.isEmpty()) {
+			self.fail(message, token.line, token.col);
+			return;
+		}
+		if (directive.isUndef()) {
+			self.macros.remove(name);
+			return;
+		}
+		if (self.macros.has(name) && !SourceMacroRules.sameDefinition(self.macros.get(name), directive)) {
+			self.fail(SourceMacroRules.redefinitionMessage(name), token.line, token.col);
+			return;
+		}
+		self.macros.put(name, directive);
+	}
+
+	private void requireTarget(Token token) {
+		if (!self.environment.hasTarget()) { self.fail("preprocessor conditionals need a target; this host is not a btrc target, so pass --target OS-ARCH", token.line, token.col); }
+	}
+
+	private FeConditionedSource result(string text) { return FeConditionedSource(text, self.tests, self.expression.failure); }
+
+	public FeConditionedSource run() {
+		Lexer lexer = Lexer(self.text, self.grammar);
+		Vector<Token> tokens = lexer.tokenize();
+		if (lexer.failed) {
+			FeLexFailure error = FeLexFailure(lexer.diagnostic);
+			self.fail(error.message, error.line, error.col);
+			return self.result(self.text);
+		}
+		self.checkShapes(tokens);
+		if (self.failed()) { return self.result(self.text); }
+		Vector<FeConditionalEntry> stack = [];
+		Map<int, bool> blank = {};
+		int deadFrom = 0;
+		for token in tokens {
+			if (token.type != "PREPROCESSOR") { continue; }
+			string name = FeConditionalWalk.directiveName(token.value);
+			bool enclosingLive = self.live(stack, stack.len);
+			if (!FeConditionalWalk.conditionalName(name)) {
+				if (!enclosingLive) {
+					self.checkDeadDirectiveShape(token);
+				} else if (name == "error") {
+					string detail = SourceMacroRules.withoutComments(self.payload(token)).trim();
+					self.fail(detail.isEmpty() ? "#error" : f"#error {detail}", token.line, token.col);
+				} else if (name == "define" || name == "undef") {
+					self.define(token);
+				}
+				if (self.failed()) { return self.result(self.text); }
+				continue;
+			}
+			if (name == "elifdef" || name == "elifndef") {
+				string replacement = name == "elifdef" ? "#elif defined(NAME)" : "#elif !defined(NAME)";
+				self.fail(f"'#{name}' is C23; write '{replacement}'", token.line, token.col);
+				return self.result(self.text);
+			}
+			if (name == "if" || name == "ifdef" || name == "ifndef") {
+				if (enclosingLive) {
+					self.requireTarget(token);
+					if (self.failed()) { return self.result(self.text); }
+					bool taken = false;
+					if (name == "if") { taken = self.evaluate(token, name); }
+					else { taken = self.ifdef(token, name); }
+					if (self.failed()) { return self.result(self.text); }
+					stack.push(FeConditionalEntry(token, name, taken ? "taking" : "seeking"));
+				} else {
+					stack.push(FeConditionalEntry(token, name, "done"));
+				}
+			} else {
+				if (stack.len == 0) {
+					self.fail(f"'#{name}' without '#if'", token.line, token.col);
+					return self.result(self.text);
+				}
+				FeConditionalEntry entry = stack.get(stack.len - 1);
+				bool levelLive = self.live(stack, stack.len - 1);
+				if (name == "elif") {
+					if (entry.elseSeen) {
+						self.fail("'#elif' after '#else'", token.line, token.col);
+						return self.result(self.text);
+					}
+					if (levelLive && entry.state == "seeking") {
+						self.requireTarget(token);
+						if (self.failed()) { return self.result(self.text); }
+						bool taken = self.evaluate(token, name);
+						if (self.failed()) { return self.result(self.text); }
+						if (taken) { entry.state = "taking"; }
+					} else if (entry.state == "taking") {
+						entry.state = "done";
+					}
+				} else if (name == "else") {
+					if (entry.elseSeen) {
+						self.fail("'#else' after '#else'", token.line, token.col);
+						return self.result(self.text);
+					}
+					if (levelLive) {
+						self.noOperands(token, name);
+						if (self.failed()) { return self.result(self.text); }
+					}
+					entry.elseSeen = true;
+					entry.state = entry.state == "seeking" ? "taking" : "done";
+				} else {
+					if (levelLive) {
+						self.noOperands(token, name);
+						if (self.failed()) { return self.result(self.text); }
+					}
+					stack.pop();
+				}
+			}
+			blank.put(token.line, true);
+			bool liveNow = self.live(stack, stack.len);
+			if (!liveNow && deadFrom == 0) {
+				deadFrom = token.line + 1;
+			} else if (deadFrom != 0) {
+				for (int line = deadFrom; line < token.line; line++) { blank.put(line, true); }
+				deadFrom = liveNow ? 0 : token.line + 1;
+			}
+		}
+		if (stack.len > 0) {
+			FeConditionalEntry opened = stack.get(stack.len - 1);
+			self.fail(f"'#{opened.name}' without '#endif'", opened.token.line, opened.token.col);
+			return self.result(self.text);
+		}
+		if (blank.len == 0) { return self.result(self.text); }
+		Vector<string> kept = [];
+		for (int index = 0; index < self.lines.len; index++) { kept.push(blank.has(index + 1) ? "" : self.lines.get(index)); }
+		return self.result(FeSourceText.joinLines(kept));
 	}
 }
 
@@ -593,8 +2145,16 @@ class FeFrontendResolver {
 	private FeDependencyGraphBuilder dependencies;
 	private FeSourcePathPolicy sourcePaths;
 	private FeResolvedPackages? packages;
+	private GrammarInfo grammar;
+	private FeConditionalEnvironment? environment;
+	private FeSourceConditionals? conditionalsValue = null;
+	private Vector<FeConditionalTest> conditionalTests = [];
 
-	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages? packages = null, FeDirectiveCache? directiveCache = null) {
+	/* `environment` conditions every file; by default it is the packages'
+	 * target (else the host's) with the generated hosted-ABI names. */
+	public FeFrontendResolver(GrammarInfo grammar, FeStdlibRepository stdlib, bool includeStdlib, bool strictImports, FeResolvedPackages? packages = null, FeDirectiveCache? directiveCache = null, FeConditionalEnvironment? environment = null) {
+		self.grammar = grammar;
+		self.environment = environment;
 		self.importPolicy = FePackageImportPolicy(packages == null ? null : packages.linkPlan.target);
 		self.directiveScanner = FeDirectiveScanner(grammar, directiveCache);
 		self.sourceDirectories = FeSourceDirectoryScanner();
@@ -622,7 +2182,34 @@ class FeFrontendResolver {
 		return true;
 	}
 
-	private FeResolutionFrame openFrame(string source, string absPath) {
+	/* The resolver's conditioning, built on first use. */
+	public FeSourceConditionals conditionals() {
+		FeSourceConditionals? existing = self.conditionalsValue;
+		if (existing != null) { return existing; }
+		FeConditionalEnvironment? configured = self.environment;
+		FeConditionalEnvironment selected = configured != null ? configured : FeConditionalEnvironment.standard(self.grammar, self.packages);
+		FeSourceConditionals built = FeSourceConditionals(selected, self.grammar);
+		self.conditionalsValue = built;
+		return built;
+	}
+
+	/* Condition one file; a conditioning error ends the compile, rendered at
+	 * its file-local position. */
+	private string conditioned(string source, string absPath, bool record = true) {
+		FeConditionedSource result = self.conditionals().condition(source, absPath);
+		FeConditionalFailure? failure = result.failure;
+		if (failure != null) {
+			fprintf(stderr, "%s\n", failure.render());
+			exit(1);
+		}
+		if (record) {
+			for test in result.tests { self.conditionalTests.push(test); }
+		}
+		return result.text;
+	}
+
+	private FeResolutionFrame openFrame(string rawSource, string absPath) {
+		string source = self.conditioned(rawSource, absPath);
 		Vector<FeDirective> directives = self.directiveScanner.scan(source);
 		Map<int, int> byStart = {};
 		Map<int, bool> covered = {};
@@ -713,6 +2300,7 @@ class FeFrontendResolver {
 		/* Each result owns a stable dependency graph. Resolver reuse must not
          * retain a prior call's include guards or dependency edges. */
 		self.included = {};
+		self.conditionalTests = [];
 		FeResolvedPackages? packages = self.packages;
 		self.importPolicy = FePackageImportPolicy(packages == null ? null : packages.linkPlan.target);
 		self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
@@ -739,7 +2327,9 @@ class FeFrontendResolver {
 		BtrccPhaseTimer.mark("r-stdlib-source");
 		string combined = stdlibSource.length() > 0 ? stdlibSource + "\n" + userSource : userSource;
 		int stdlibLineCount = stdlibSource.length() > 0 ? FeSourceText(stdlibSource).lineCount() : 0;
-		return FeResolvedSource(userSource, combined, stdlibSource, userLines, self.dependencies.build(), self.strictImports, stdlibLineCount, self.sourcePaths.absolute(sourcePath), self.stdlibSnapshot);
+		FeResolvedSource resolved = FeResolvedSource(userSource, combined, stdlibSource, userLines, self.dependencies.build(), self.strictImports, stdlibLineCount, self.sourcePaths.absolute(sourcePath), self.stdlibSnapshot);
+		resolved.conditionalTests = self.conditionalTests;
+		return resolved;
 	}
 
 	private bool wordCharacter(char value) { return Strings.isAlnum(value) || value == '_'; }
@@ -880,7 +2470,7 @@ class FeFrontendResolver {
 		Vector<string> lines = [];
 		int fileIndex = 0;
 		while (fileIndex < snapshot.count()) {
-			string content = snapshot.sourceAt(fileIndex);
+			string content = self.conditioned(snapshot.sourceAt(fileIndex), snapshot.pathAt(fileIndex), false);
 			if (!self.namesIntersect(self.definedTypeNames(content), userNames)) {
 				Vector<string> fileLines = self.sourceWithoutImports(content);
 				int lineIndex = 0;

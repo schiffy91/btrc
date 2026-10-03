@@ -147,12 +147,6 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
         ("TypeIdentity", "symbolComponent"),
         # Called by the stdlib worker pool through IWorkerRequestHandler.
         ("ModuleUnitWorker", "handle"),
-        # The targets.toml tables (C4 spec commit). FeConditionalEnvironment
-        # reads them once C4's behavior commit lands; remove them here then.
-        ("GeneratedHostedAbiData", "targetRows"),
-        ("GeneratedHostedAbiData", "predefinedMacroRows"),
-        ("GeneratedHostedAbiData", "undefinedMacroNames"),
-        ("GeneratedHostedAbiData", "foreignMacroNames"),
     }
 )
 
@@ -1054,6 +1048,8 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         "analyzer/Expressions.btrc",
         "analyzer/GPU.btrc",
         "analyzer/Realtime.btrc",
+        # The source-macro namespace asks which directives are the stdlib's (M2).
+        "analyzer/SourceMacros.btrc",
         "analyzer/validation/Borrows.btrc",
         "analyzer/validation/Calls.btrc",
         "analyzer/validation/ControlFlow.btrc",

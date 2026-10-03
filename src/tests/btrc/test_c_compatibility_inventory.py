@@ -15,7 +15,7 @@ track (``c1``, ``c2``, ``c3_c4``, ``c5``); every ``[[probe]]`` entry holds:
     ``rejected`` -- refused today; a positive row is a later stage's target.
     ``known-divergence`` -- compiled, or refused, wrongly; see
     ``KNOWN_DIVERGENCES``.
-    ``refused-on-purpose`` -- a documented btrc refusal (rows 19-24,
+    ``refused-on-purpose`` -- a documented btrc refusal (rows 18-24,
     docs/known-language-gaps.md).
 ``revision``
     The commit the outcome was recorded against. An entry whose outcome a
@@ -68,7 +68,7 @@ EXTRA_GAPS = frozenset(
         "x-pointer-compound-assignment",
     }
 )
-REFUSAL_ROWS = frozenset({"19", "20", "21", "22", "23", "24"})
+REFUSAL_ROWS = frozenset({"18", "19", "20", "21", "22", "23", "24"})
 
 # Programs that a compiler accepts and miscompiles, or accepts and leaves for
 # the C compiler to reject, or rejects for the wrong reason. Each is fixed by

@@ -3,23 +3,30 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from dataclasses import dataclass
 
-from src.compiler.python.syntax.ast.generated import Program
+from src.compiler.python.syntax.ast.generated import PreprocessorDirective, Program
 
 from ..lexer.lexer import Lexer
 from ..parser.parser import Parser
-from ..syntax.tokens import Token
+from ..syntax.tokens import SourceSymbolDirective, Token
 from .imports import FrontendVisibilityError, ImportResolver, ImportVisibilityChecker
 from .native_imports import NativeHeaderSource
 from .packages import PackageUniverse
 from .sources import (
     CompilerStdlibSource,
+    ConditionalTest,
+    PreprocessorConditionalError,
     ResolvedSource,
+    SourceDependencyGraph,
+    SourceDependencyKind,
     SourceResolver,
     StdlibRepository,
 )
+
+_QUOTED_INCLUDE = re.compile(r'^[ \t]*#[ \t]*include[ \t]*("[^"\n]+")')
 
 
 @dataclass(frozen=True)
@@ -188,6 +195,8 @@ class FrontendStage:
         if source.native_declarations:
             program.declarations = list(source.native_declarations) + program.declarations
 
+        self.verify_tests(program, source)
+
         if source.strict_imports:
             errors = ImportVisibilityChecker(
                 program,
@@ -212,3 +221,143 @@ class FrontendStage:
             program=program,
             user_program=user_program,
         )
+
+    # -- Program checks on #if records (P1-P4) ------------------------------
+
+    @staticmethod
+    def _declaration_path(declaration) -> str | None:
+        source_file = getattr(declaration, "source_file", None)
+        if not isinstance(source_file, str) or not source_file or source_file.startswith("<"):
+            return None
+        return SourceDependencyGraph.canonical_file(source_file)
+
+    def verify_tests(self, program: Program, source: ResolvedSource) -> None:
+        """Refuse a ``#if`` test whose answer C could see differently (P1, P4, P2, P3).
+
+        Each record of an absent or this-file name is checked in resolution
+        order, trying P1, P4, P2 and P3 in turn; the first match fails at the
+        tested name in its own file.
+        """
+
+        tests = source.conditional_tests
+        if not tests:
+            return
+        defines: dict[str, str] = {}
+        undefines: dict[str, str] = {}
+        native_names: set[str] = set()
+        directives: list[tuple[str, str]] = []
+        for declaration in program.declarations:
+            if isinstance(getattr(declaration, "source_file", None), NativeHeaderSource):
+                native_names.update(StdlibRepository._declaration_names(declaration))
+                continue
+            if not isinstance(declaration, PreprocessorDirective):
+                continue
+            path = self._declaration_path(declaration)
+            if path is None:
+                continue
+            directives.append((path, declaration.text))
+            directive = SourceSymbolDirective.parse(declaration.text)
+            if directive is None:
+                continue
+            (defines if directive.operation == "define" else undefines).setdefault(directive.name, path)
+        for test in tests:
+            path = SourceDependencyGraph.canonical_file(test.path)
+            message = self._test_failure(test, path, defines, undefines, native_names, directives, source)
+            if message is not None:
+                raise PreprocessorConditionalError(message, test.path, test.line, test.col)
+
+    def _test_failure(
+        self,
+        test: ConditionalTest,
+        path: str,
+        defines: dict[str, str],
+        undefines: dict[str, str],
+        native_names: set[str],
+        directives: list[tuple[str, str]],
+        source: ResolvedSource,
+    ) -> str | None:
+        name = test.name
+        here = os.path.basename(test.path)
+        if not test.local:
+            elsewhere = next(
+                (owner for owner in self._owners(name, defines, directives, "define") if owner != path), None
+            )
+            if elsewhere is not None:
+                return (
+                    f"'{name}' is defined in {os.path.basename(elsewhere)}, but #if in {here} cannot see it; "
+                    "#if sees only target macros and #defines earlier in the same file"
+                )
+        else:
+            elsewhere = next(
+                (owner for owner in self._owners(name, undefines, directives, "undef") if owner != path), None
+            )
+            if elsewhere is not None:
+                return (
+                    f"'{name}' is #undef'd in {os.path.basename(elsewhere)}, but #if in {here} cannot see that; "
+                    "#if sees only #defines and #undefs earlier in the same file"
+                )
+            return None
+        if name in native_names:
+            return f"'{name}' comes from a native header; #if is evaluated before C compilation and cannot test it"
+        evidence = self._c_evidence(path, here, directives, source)
+        if evidence is not None:
+            return (
+                f"'{name}' may come from C that btrc does not read ({evidence}); "
+                "#if is evaluated before C compilation and cannot test it"
+            )
+        return None
+
+    @staticmethod
+    def _owners(name: str, first: dict[str, str], directives: list[tuple[str, str]], operation: str):
+        """Files whose live directives ``#define``/``#undef`` ``name``, in program order."""
+
+        if name not in first:
+            return
+        for path, text in directives:
+            directive = SourceSymbolDirective.parse(text)
+            if directive is not None and directive.operation == operation and directive.name == name:
+                yield path
+
+    @staticmethod
+    def _c_evidence(path: str, here: str, directives: list[tuple[str, str]], source: ResolvedSource) -> str | None:
+        """What C that btrc does not read could define a macro for the file at ``path`` (P3)."""
+
+        imported = sorted(
+            dependency.target
+            for each, dependency in source.graph.iter_edges()
+            if SourceDependencyGraph.canonical_file(each) == path
+            and dependency.kind is SourceDependencyKind.IMPORT
+            and dependency.target.endswith(".c")
+        )
+        for owner, text in directives:
+            if owner != path:
+                continue
+            match = _QUOTED_INCLUDE.match(text)
+            # An imported C file is spliced as a quoted include of its path.
+            if (
+                match is not None
+                and not match.group(1)[1:-1].endswith(".btrc")
+                and match.group(1)[1:-1] not in imported
+            ):
+                return f"{match.group(1)} in {here}"
+        if imported:
+            return f"{os.path.basename(imported[0])} imported by {here}"
+        plan = source.native_plan
+        roots = {package.name: os.path.realpath(package.root) for package in plan.packages}
+        for item in plan.declarations:
+            if item.kind != "header" or not item.selected_for(plan.target):
+                continue
+            if item.modules:
+                applies = any(SourceDependencyGraph.canonical_file(module) == path for module in item.modules)
+            else:
+                root = roots.get(item.package)
+                try:
+                    applies = root is not None and os.path.commonpath((path, root)) == root
+                except ValueError:
+                    applies = False
+            if applies:
+                return f"native header {os.path.basename(item.value)} for {here}"
+        for binding in plan.bindings:
+            if SourceDependencyGraph.canonical_file(binding.module) == path:
+                return f"native header {os.path.basename(binding.header)} for {here}"
+        return None

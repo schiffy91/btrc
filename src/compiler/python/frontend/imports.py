@@ -23,6 +23,8 @@ from .native_imports import NativeHeaderSource
 from .packages import IncludeResolutionError, PackageImportPolicy, ResolvedPackages
 from .sources import (
     CompilerStdlibSource,
+    ConditionalEnvironment,
+    SourceConditionals,
     SourceDependencyGraph,
     SourceDirective,
     SourceDirectiveScanner,
@@ -122,9 +124,16 @@ class ImportResolver:
         *,
         exit_on_error: bool = True,
         use_cache: bool = True,
+        environment: ConditionalEnvironment | None = None,
     ) -> tuple[str, list[str], list[tuple[str, int]], SourceDependencyGraph]:
-        """Resolve a source graph with file and original-line provenance."""
+        """Resolve a source graph with file and original-line provenance.
+
+        Every file is conditioned for ``environment`` (by default the packages'
+        target) before its directives are scanned; the graph keeps the files'
+        ``#if`` test records in resolution order.
+        """
         graph = SourceDependencyGraph()
+        conditionals = SourceConditionals(environment or ConditionalEnvironment.for_packages(packages))
         try:
             traced = self._resolve_traced(
                 source,
@@ -133,6 +142,7 @@ class ImportResolver:
                 set() if included is None else included,
                 graph,
                 source_path if use_cache else None,
+                conditionals,
             )
         except IncludeResolutionError as error:
             if not exit_on_error:
@@ -251,8 +261,9 @@ class ImportResolver:
         graph: SourceDependencyGraph,
         access: PackageImportPolicy,
         cache_input: str | None,
+        conditionals: SourceConditionals,
     ) -> ResolutionFrame | None:
-        """Register one source in the graph and start traversing it once."""
+        """Register one source in the graph, condition it, and start traversing it once."""
 
         absolute = os.path.abspath(source_path)
         identity = os.path.normcase(os.path.realpath(absolute))
@@ -260,6 +271,9 @@ class ImportResolver:
         if identity in included:
             return None
         included.add(identity)
+        conditioned = conditionals.condition(source, absolute)
+        graph.record_tests(conditioned.tests)
+        source = conditioned.text
         directives = self._directives.scan(source, cache_input=cache_input)
         return ResolutionFrame(
             absolute=absolute,
@@ -309,6 +323,7 @@ class ImportResolver:
         output: list[tuple[str, str, int]],
         access: PackageImportPolicy,
         cache_input: str | None,
+        conditionals: SourceConditionals,
     ) -> ResolutionFrame | None:
         """Inline one dependency, returning a child frame for btrc sources."""
 
@@ -331,6 +346,7 @@ class ImportResolver:
             graph,
             access,
             cache_input,
+            conditionals,
         )
 
     def _resolve_traced(
@@ -341,6 +357,7 @@ class ImportResolver:
         included: set[str],
         graph: SourceDependencyGraph,
         cache_input: str | None,
+        conditionals: SourceConditionals,
     ) -> list[tuple[str, str, int]]:
         """Compose one source graph depth-first without host recursion.
 
@@ -351,7 +368,7 @@ class ImportResolver:
 
         output: list[tuple[str, str, int]] = []
         access = PackageImportPolicy(packages.native_plan.target)
-        root = self._open_frame(source, source_path, included, graph, access, cache_input)
+        root = self._open_frame(source, source_path, included, graph, access, cache_input, conditionals)
         stack: list[ResolutionFrame] = [] if root is None else [root]
         while stack:
             frame = stack[-1]
@@ -366,6 +383,7 @@ class ImportResolver:
                     output,
                     access,
                     cache_input,
+                    conditionals,
                 )
                 if child is not None:
                     stack.append(child)

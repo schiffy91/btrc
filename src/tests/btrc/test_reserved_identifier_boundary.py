@@ -95,9 +95,10 @@ from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
             "compiler-generated C symbol",
         ),
         (
+            # M2: btrc undefines only macros its own sources #define.
             "#undef Box_new\nclass Box {} int main() { return 0; }",
             "Box_new",
-            "compiler-generated C symbol",
+            "btrc undefines only macros that its own sources #define",
         ),
         (
             "#undef __btrc_safe_calloc\nint main() { return 0; }",
@@ -148,9 +149,10 @@ from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair
             "compiler-generated C symbol",
         ),
         (
+            # D16: C removes the comment before it reads the directive name.
             "#/*gap*/define free(value) 0\nint main() { return 0; }",
             "free",
-            "hosted C symbol",
+            "a comment between '#' and the directive name is unsupported",
         ),
         (
             "#define CALL(value) Vault_" + "\\" + "\n" + "secret(value)\n"

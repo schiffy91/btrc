@@ -19,7 +19,7 @@ from src.compiler.python.analyzer.program import (
     SymbolInfo,
 )
 from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError, TypeSystem
-from src.compiler.python.frontend.sources import CompilerStdlibSource
+from src.compiler.python.frontend.sources import CompilerStdlibSource, SourceMacroRules
 from src.compiler.python.syntax.ast.generated import (
     ClassDecl,
     EnumDecl,
@@ -261,41 +261,57 @@ class SourceMacroDeclarations:
         self.context = context
 
     def collect(self, declarations) -> SourceMacroNamespace:
+        """Validate every directive in hoisted program order (M1-M4) and build the namespace."""
+
+        parsed = [
+            (declaration, directive)
+            for declaration in declarations
+            if isinstance(declaration, PreprocessorDirective)
+            and (directive := SourceSymbolDirective.parse(declaration.text)) is not None
+        ]
+        own_definitions = {
+            directive.name
+            for declaration, directive in parsed
+            if directive.operation == "define"
+            and not CompilerStdlibSource.authenticated(getattr(declaration, "source_file", None))
+        }
         names: set[str] = set()
+        undefined: set[str] = set()
         definitions: dict[str, SourceSymbolDirective] = {}
-        for declaration in declarations:
-            if not isinstance(declaration, PreprocessorDirective):
-                continue
-            directive = SourceSymbolDirective.parse(declaration.text)
-            if directive is None:
-                continue
+        for declaration, directive in parsed:
             name = directive.name
-            if directive.operation == "define":
+            define = directive.operation == "define"
+            # A refused name is still recorded, so later declarations report
+            # their collisions with it.
+            refused = self._validate_mutation(declaration, name, define=define)
+            if define:
+                previous = definitions.get(name)
+                if previous is not None and not SourceMacroRules.same_definition(previous, directive):
+                    self.context.error(SourceMacroRules.redefinition_message(name), declaration.line, declaration.col)
                 names.add(name)
                 definitions[name] = directive
-                self._validate_mutation(declaration, name, define=True)
-            else:
-                definitions.pop(name, None)
-                self._validate_mutation(declaration, name, define=False)
-        return SourceMacroNamespace(names, definitions)
+                continue
+            if refused:
+                continue
+            if name not in own_definitions:
+                self.context.error(
+                    f"#undef of '{name}' is not allowed; btrc undefines only macros that its own sources #define",
+                    declaration.line,
+                    declaration.col,
+                )
+                continue
+            undefined.add(name)
+            definitions.pop(name, None)
+        return SourceMacroNamespace(names, definitions, undefined)
 
-    def _validate_mutation(self, declaration, name: str, *, define: bool) -> None:
-        prefix = DeclarationRegistry.compiler_reserved_prefix(name)
-        if prefix is not None:
-            message = (
-                f"Macro name '{name}' uses the compiler-reserved '{prefix}' prefix"
-                if define
-                else f"Source #undef of compiler-owned C symbol '{name}' is not allowed"
-            )
-        elif DeclarationRegistry.c_file_scope_reserved_identifier(name):
-            subject = "Macro name" if define else "Source #undef name"
-            message = f"{subject} '{name}' is reserved by C11 at file scope"
-        elif HOSTED_ABI.owned_name(name):
-            action = "Macro name" if define else "Source #undef of"
-            message = f"{action} compiler-owned hosted C symbol '{name}' is not allowed"
-        else:
-            return
+    def _validate_mutation(self, declaration, name: str, *, define: bool) -> bool:
+        """Report a refused ``#define``/``#undef`` name; true when one was refused."""
+
+        message = SourceMacroRules.violation(name, define=define)
+        if message is None:
+            return False
         self.context.error(message, declaration.line, declaration.col)
+        return True
 
 
 class TopLevelRegistrar:
@@ -742,7 +758,6 @@ C11_RESERVED_NAMES = frozenset(
     }
 )
 _PUBLIC_NATIVE_BINDINGS = frozenset({"btrc_gpu_available"})
-_COMPILER_RESERVED_PREFIXES = ("__btrc_", "__BTRC_", "__gpu_", "btrc_")
 MAGIC_METHOD_SIGNATURES = {
     "__add__": (1, None),
     "__sub__": (1, None),
@@ -796,7 +811,7 @@ class DeclarationRegistry:
 
     @staticmethod
     def compiler_reserved_prefix(name: str) -> str | None:
-        return next((prefix for prefix in _COMPILER_RESERVED_PREFIXES if name.startswith(prefix)), None)
+        return SourceMacroRules.compiler_reserved_prefix(name)
 
     @staticmethod
     def c_reserved_identifier(name: str) -> bool:

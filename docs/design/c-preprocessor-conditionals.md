@@ -214,7 +214,7 @@ pp_primary   = INT_LIT | CHAR_LIT | "true" | "false" | IDENT
 
 **Steps (C11 6.10.1p4).**
 1. Resolve each `defined`. Errors: E13 and E14, or I2/I3 for a reserved or foreign operand.
-2. Expand this file's object-like macros, recursively. A macro is never re-expanded inside its own expansion (I6). I4, I5, I7 and I8 are raised here. More than 4,096 tokens after expansion is E16, at the outermost macro being expanded.
+2. Expand this file's object-like macros, recursively. A macro is never re-expanded inside its own expansion (I6). I4, I5, I7 and I8 are raised here. One budget per directive counts every resulting token and every macro invocation; past 4,096 it is E16, at the outermost macro being expanded (or at the token for an unexpanded one). Expansion keeps one active set and one stack of open expansions, so a deep chain neither recurses on the host stack nor copies per level.
 3. Classify the remaining tokens in order: I2, I3, E7–E12, E15.
 4. Parse (E1–E6).
 5. Evaluate with short-circuiting. I1 and A1–A5 are raised only in evaluated operands.
@@ -428,7 +428,7 @@ The text is identical in both compilers, and positions follow the conventions.
 | E13 | `defined` without a name, or with `true`/`false` | `'defined' needs a macro name` / `…, got '3'` |
 | E14 | `defined(X` | `'defined(' needs a closing ')'` |
 | E15 | wide character constant | `Wide character constant L'a' in #if; write its integer value` |
-| E16 | expansion over 4,096 tokens | `#if expression expands to more than 4096 tokens` |
+| E16 | expansion over 4,096 tokens and macro invocations | `#if expression expands to more than 4096 tokens` |
 
 **Identifiers**
 
@@ -504,7 +504,7 @@ Documented deviations sit beside them:
 
 ## Spec commit (`ccompat-r18-spec`) and IR
 
-**Status (2026-10-03).** The spec commit has landed on lane `stage16/c4-spec` (packet CL-C-03): `src/language/targets.toml`, `TargetManifest` and `TargetUnion` in `tools/compiler_codegen/hosted_abi.py`, the generated tables, test 3 (`test_target_macro_table.py`) and the spec-rule, generated-row, `PackageTarget` and width checks in `test_hosted_abi_contract.py`. No compiler behavior changed. `stdlib_symbols.py` and `builtins.py` merge per-target results through `TargetUnion`; until the behavior commit conditions text, every target reads the same unconditioned parse, so the union is vacuous. The union of `test_hosted_abi_contract.py`'s prototype scan, btrc's `ensureStdlibIndex` fallback and the generated-source check's per-target stdlib conditioning need the conditioning owners and land with the behavior commit.
+**Status (2026-10-03).** The spec commit has landed on lane `stage16/c4-spec` (packet CL-C-03): `src/language/targets.toml`, `TargetManifest` and `TargetUnion` in `tools/compiler_codegen/hosted_abi.py`, the generated tables, test 3 (`test_target_macro_table.py`) and the spec-rule, generated-row, `PackageTarget` and width checks in `test_hosted_abi_contract.py`. No compiler behavior changed. `stdlib_symbols.py` and `builtins.py` merge per-target results through `TargetUnion`; since the behavior commit (`ccompat-r18-preprocessor-conditionals`) each target reads its own conditioned parse. That commit also added the union of `test_hosted_abi_contract.py`'s prototype scan, btrc's `ensureStdlibIndex` fallback and the generated-source check's per-target stdlib conditioning.
 
 **No ASDL change.** The grammar gains only the `@syntax` comment block above.
 
@@ -795,6 +795,41 @@ Outside the manifest:
 - caches invalidate correctly (test 2, caches and directive cache);
 - the quiet M11 re-measure shows no regression (step 4);
 - the full matrix passes on the final tree.
+
+## Python half and the btrc port (CL-C-05 → CL-C-06)
+
+**Status.** Both halves landed together in the construct commit `ccompat-r18-preprocessor-conditionals` (CL-C-05 and CL-C-06, lane `stage16/c4-conditionals`).
+
+**Status (CL-C-06).** The btrc port matches every table above: `ConditionalExpressionDriver.btrc` runs the battery and conditions whole files (the directive rows, blanking, the shapes and the corpus program), and btrcc gives every `DIAGNOSTIC_CASES` row with the same message, file and `line:col`. Choices the port made where the languages differ:
+- btrc has no exceptions in the compiler, so `FeConditionalExpression` keeps the first failure (`FeConditionalFailure`) and every step returns once one is recorded; the resolver prints it through `FeVisibilityDiagnostic.render()` and exits 1, like its other resolution errors, and `FeConditionalTestChecker` (P1-P4, `frontend/Visibility.btrc`) returns it to `CompilerPipeline`.
+- `SourceMacroRules` lives in `parser/SourceMacros.btrc` beside `SourceMacroDefinition`, built by `CompilerPipeline` from the vocabulary, `HostedAbiRepository.ownedNameSet()` and the spec's foreign names; conditioning and `SourceMacroNamespace` share it. The namespace renders M1-M4 and U1/U2 at their own file's position, as the reference does.
+- A record joins an evaluation once through `FeConditionalTest.recorded`, the btrc form of Python's identity check.
+- The lowering invariant is driven by `LoweringInvariantDriver.btrc`, which hands `CompilerPipeline.compileResolved` a composed source that conditioning never saw.
+- The generated-source check (`StdlibSymbolIndexGenerator.verify_conditions`) conditions every stdlib module for every target, and refuses an `#undef` or a test of an absent name.
+- Two C11 gaps found by the CL-C-06 soundness review are closed in both compilers. A `\` or `??/` that only spaces and tabs separate from the newline is a splice to gcc and clang (they only warn), so the preceding-line rule and the dead-directive check give D10 for it too. A hexadecimal constant ending in `e`/`E` directly followed by `+`/`-` (`0x1e+1`) is one invalid preprocessing number in C (6.4.8), which btrc's lexer splits; `#if` refuses it as E11, spelled `'0x1e+'`.
+
+**Where the diagnostics are pinned.** The port must reproduce every message and file-local `line:col` in these tables, which are the complete list:
+- `src/tests/btrc/fixtures/conditional_expressions.tsv`: the expression battery (values and E, I and A errors), for `ConditionalExpressionDriver.btrc`.
+- `src/tests/btrc/test_preprocessor_conditionals.py`: `DIRECTIVE_ERRORS` (D1–D17, the raw lex in a dead group, in-file M1, M3, M4, the keyword and `BTRC_` rules), `DIAGNOSTIC_CASES` (I1 and its imported-file position, resolution order, the package form of I3, P1, P3 for a quoted include and a C import, P4, cross-file M1, M2–M4, U1 in code, a call and a default, U2, B1), and the lowering invariant.
+- `src/tests/python/test_source_macro_semantic_boundary.py`: M1 and U1/U2 through the analyzer.
+
+**Choices the design left open, which the port copies.**
+- *Shape checks.* A line takes part when the lexer's first token on it starts at its first non-`[ \t\f\v]` character. In line order: a line starting `%:` or `??=` gives D14 at that character. For a `PREPROCESSOR` token with no name, a `\` or `??/` there gives D10 and `/*` gives D16, at that character. For a conditional name: a preceding line ending in `??/` gives D10 at its first `?` (column `len - 2`), one ending in `\` at that `\`; then the first trigraph (D11); then a splice (D10 at the `\`, or the first `?` of `??/`, before the token's first newline); then the first `\f` or `\v` after the `#` (D17); then the first unclosed `/*` (D15).
+- *Live `#define` and `#undef`.* The preceding-line splice check (D10) also applies to them, before their name rules: C would read such a directive as `//` comment text, so `#if` would see a macro C does not (review finding). Like every slow-path check, it is not applied in a file without a candidate line.
+- *Dead groups.* During the walk a non-conditional directive whose enclosing groups are not all taking gets D10 and then D15. Conditional directives were checked above at every level. D9 is raised before the stack is consulted.
+- *Payloads.* Every payload is pre-scanned first; a `#if`/`#elif` hit is E7 at it. For `#ifdef`, `#ifndef`, `#else` and `#endif`, the text before the hit is lexed and the hit becomes the next operand (`unexpected '#'`). D8 is raised when a pre-scanned payload lexes to nothing.
+- *Positions left open.* E13 without a name and E14 sit at `defined`; the `got '…'` forms sit at the offending token. E3 sits at the operator after which the expression ends, including a unary one. E4 sits at the `(`, E5 at the `)`, E6 at the `?`, and a stray `:` is E7 at it. A token left over after a complete expression, or before a missing `)`, is E1.
+- *Arithmetic order.* Both operands are evaluated before the operator's checks: A5 (left, then right), then A1, then `INTMAX_MIN / -1` (A2). For shifts the count (A3) is checked before A4. A `?:` arm's type is the usual arithmetic conversion of both arms, so `1 ? -1 : 0u` is A5 at the `?`.
+- *E15 through a macro* is found while expanding: an `L`, `u` or `U` replacement token adjacent to a character constant gives E15 at the macro name. A5 for `?:` spells the operator `'?:'`, at the `?`.
+- *Records.* A record belongs to the atom that produced it: `defined` and `#ifdef` results, and every token of a macro's expansion (each macro expanded, inner ones too, at the outermost name's position). An atom appends its records when it is evaluated, each record once, so the records keep evaluation order. Python's cache text is `path\0name\0line\0col\0` then `1` or `0`.
+- *Name rules.* In order: `defined` (M3), a grammar keyword, a compiler-reserved macro prefix (the declaration prefixes plus `BTRC_`; declarations keep the old list, because stdlib enum values use `BTRC_`), except `#define` of the runtime's `#ifndef` hooks `BTRC_RT_GPU_HEADER` and `BTRC_RT_ARENA_BYTES`, a leading `_`, a hosted-ABI owned name, a `foreign_macro_names` entry (M4). One owner, `SourceMacroRules` in `frontend/sources.py`, serves conditioning and the analyzer.
+- *M2* allows `#undef` of a name that any non-stdlib `#define` in the program defines, before or after it. *U2* names the first `#undef`'d identifier in breadth-first order over replacement identifiers. *U1* is reported once, at the identifier, also for a call, a default and a constant context such as an enum initializer.
+- *B1* fires in two places: when the parser consumes a `PREPROCESSOR` token outside an item start, and when any parse error is raised while the current token is a `PREPROCESSOR` token. The name is the longest identifier after `#` and spaces.
+- *P3 evidence order.* A quoted include in the file (a `.c` import is spliced as a quoted include of its absolute path and is excluded), then the first `.c` import by path, then a selected `[[native.headers]]` row (named `modules`, or none while the file lies in the package), then a binding.
+- *Positions of P1–P4.* At the tested name, in the testing file; the reference prints them through `CompilerDiagnostic.local`.
+- *LSP.* A conditioning error becomes the unit's `lex_error`. The formatter validates a candidate file by parsing it as each spec target conditions it, skipping a target whose conditioning stops at a live `#error` (D12): such a guard refuses that target on purpose. The file fails when no target conditions, or on any other conditioning error.
+
+**Done in CL-C-06** (the list CL-C-05 handed over). Everything btrc; the `ensureStdlibIndex` union over targets; the generated-source check that every stdlib module conditions for every target, holds no `#undef` and records no test of an absent name; the inventory (`c3_c4.toml` r18 rows and the new probes), `REFUSAL_ROWS` and the refusal rows, which the recorder observes through both compilers; the cache cases in both compilers; the directive-cache driver's conditioned mode; P2 and the binding form of P3, which need the native reader; the expected-skip manifests.
 
 ## What later stages rely on
 

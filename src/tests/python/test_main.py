@@ -681,13 +681,13 @@ def test_parser_error_cached_path(tmp_path, monkeypatch, capsys):
 def test_codegen_error_is_reported_without_a_traceback(tmp_path, monkeypatch, capsys):
     src = write(
         tmp_path / "unsupported_directive.btrc",
-        "#undef UNSUPPORTED\nint main() { return 0; }\n",
+        "#line 1\nint main() { return 0; }\n",
     )
     with pytest.raises(SystemExit) as stopped:
         run_main(monkeypatch, ["--no-cache", "--no-stdlib", src])
     captured = capsys.readouterr()
     assert stopped.value.code == 1
-    assert "unsupported preprocessor directive '#undef'" in captured.err
+    assert "unsupported preprocessor directive '#line'" in captured.err
     assert "Traceback" not in captured.err
 
 

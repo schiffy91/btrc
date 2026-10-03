@@ -233,6 +233,18 @@
         "linux-devcontainer"
       ],
       "note": "The configured-PCM capability cases run wherever ALSA headers exist."
+    },
+    {
+      "id": "c4-c-oracle-host",
+      "files": [
+        "src/tests/btrc/test_preprocessor_conditionals.py"
+      ],
+      "reason": "^the oracle compares against the host's own C preprocessor$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The C oracle compares btrc's linux-x86_64 selection with the host gcc and clang -E, so only an x86_64 Linux host runs it; the devcontainer does (CL-C-06)."
     }
   ]
 }

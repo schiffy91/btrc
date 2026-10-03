@@ -1,5 +1,6 @@
 /* Strict per-file import visibility owners. */
 
+import Library.FileSystem;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
@@ -13,6 +14,7 @@ import ../syntax/Tokens.btrc;
 import ./Models.btrc;
 import ./Timing.btrc;
 import ./Packages.btrc;
+import ./Resolver.btrc;
 import ./SourceIo.btrc;
 import ./Stdlib.btrc;
 
@@ -361,8 +363,13 @@ class FeImportVisibilityChecker {
 	 * answer needs two canonical-path lookups (system calls), and the checker
 	 * asks it for every reference it visits. */
 	private Map<string, bool> stdlibSourceFiles;
+	/* Every spec target's environment: a stdlib symbol's owner is the union
+	 * of the file's live declarations over all of them, as btrc.symbols
+	 * records it. */
+	private Vector<FeConditionalEnvironment>? environments;
 
-	public FeImportVisibilityChecker(Node program, FeResolvedSource resolved, FeStdlibRepository stdlib, FeStdlibSymbolIndex stdlibSymbols, GrammarInfo grammar, Map<string, bool> compilerImplicitSymbols) {
+	public FeImportVisibilityChecker(Node program, FeResolvedSource resolved, FeStdlibRepository stdlib, FeStdlibSymbolIndex stdlibSymbols, GrammarInfo grammar, Map<string, bool> compilerImplicitSymbols, Vector<FeConditionalEnvironment>? environments = null) {
+		self.environments = environments;
 		self.program = program;
 		self.resolved = resolved;
 		self.stdlib = stdlib;
@@ -480,6 +487,14 @@ class FeImportVisibilityChecker {
 		return inside;
 	}
 
+	private Vector<FeConditionalEnvironment> targetEnvironments() {
+		Vector<FeConditionalEnvironment>? configured = self.environments;
+		if (configured != null) { return configured; }
+		Vector<FeConditionalEnvironment> built = FeConditionalEnvironment.standard(self.grammar, null).everyTarget();
+		self.environments = built;
+		return built;
+	}
+
 	private FeStdlibSymbolIndexResult ensureStdlibIndex() {
 		FeStdlibRootSnapshot snapshot = self.resolved.stdlibSnapshot;
 		if (self.stdlibSymbols.currentFor(snapshot)) {
@@ -494,22 +509,34 @@ class FeImportVisibilityChecker {
 		int fileIndex = 0;
 		while (fileIndex < snapshot.count()) {
 			string path = snapshot.pathAt(fileIndex);
-			string source = snapshot.sourceAt(fileIndex);
+			string raw = snapshot.sourceAt(fileIndex);
 			fileIndex++;
-			Lexer lexer = Lexer(source, self.grammar);
-			Vector<Token> tokens = lexer.tokenize();
-			if (lexer.failed) {
-				return FeStdlibSymbolIndexResult(false, f"cannot index standard-library source '{path}': " + lexer.diagnostic);
+			Vector<string> texts = [];
+			for environment in self.targetEnvironments() {
+				FeConditionedSource conditioned = FeSourceConditionals(environment, self.grammar).condition(raw, path);
+				FeConditionalFailure? failure = conditioned.failure;
+				if (failure != null) {
+					string label = environment.label();
+					return FeStdlibSymbolIndexResult(false, f"cannot index standard-library source '{path}' for {label}: {failure.message} at {failure.line}:{failure.col}");
+				}
+				if (!texts.contains(conditioned.text)) { texts.push(conditioned.text); }
 			}
-			Parser parser = Parser(tokens, self.grammar);
-			Node stdlibProgram = parser.parseProgram();
-			if (parser.failed) {
-				return FeStdlibSymbolIndexResult(false, f"cannot index standard-library source '{path}': " + parser.diagnostic);
-			}
-			int declarationIndex = 0;
-			while (declarationIndex < stdlibProgram.declarations().len) {
-				self.addDeclarationSymbols(nextSymbolFiles, stdlibProgram.declarations().get(declarationIndex), path);
-				declarationIndex++;
+			for source in texts {
+				Lexer lexer = Lexer(source, self.grammar);
+				Vector<Token> tokens = lexer.tokenize();
+				if (lexer.failed) {
+					return FeStdlibSymbolIndexResult(false, f"cannot index standard-library source '{path}': " + lexer.diagnostic);
+				}
+				Parser parser = Parser(tokens, self.grammar);
+				Node stdlibProgram = parser.parseProgram();
+				if (parser.failed) {
+					return FeStdlibSymbolIndexResult(false, f"cannot index standard-library source '{path}': " + parser.diagnostic);
+				}
+				int declarationIndex = 0;
+				while (declarationIndex < stdlibProgram.declarations().len) {
+					self.addDeclarationSymbols(nextSymbolFiles, stdlibProgram.declarations().get(declarationIndex), path);
+					declarationIndex++;
+				}
 			}
 		}
 		self.stdlibSymbols.replace(snapshot, nextSymbolFiles);
@@ -578,5 +605,157 @@ class FeImportVisibilityChecker {
 			}
 		}
 		return FeVisibilityCheckResult(true, "", diagnostics);
+	}
+}
+
+/* The program checks on #if test records (P1, P4, P2, P3). They run after
+ * parsing, once native declarations are prepended and before strict-import
+ * visibility: each record of an absent or this-file name is checked in
+ * resolution order, trying P1, P4, P2 and P3 in turn, and the first match
+ * fails at the tested name in its own file. */
+class FeConditionalTestChecker {
+	private FeSourcePathPolicy sourcePaths;
+	private FeDeclarationSymbolExtractor symbols;
+	/* Every live directive of a btrc source, in program order. */
+	private Vector<string> directiveIdentities;
+	private Vector<string> directiveTexts;
+
+	public FeConditionalTestChecker() {
+		self.sourcePaths = FeSourcePathPolicy();
+		self.symbols = FeDeclarationSymbolExtractor();
+		self.directiveIdentities = [];
+		self.directiveTexts = [];
+	}
+
+	class string basename(string path) {
+		int slash = Strings.rfind(path, "/");
+		int backslash = Strings.rfind(path, "\\");
+		int separator = slash > backslash ? slash : backslash;
+		return separator < 0 ? path : path.substring(separator + 1, path.length() - separator - 1);
+	}
+
+	public FeConditionalFailure? verify(Node program, FeResolvedSource resolved, FeNativeLinkPlan plan) {
+		if (resolved.conditionalTests.len == 0) { return null; }
+		Map<string, bool> nativeNames = {};
+		for imported in resolved.nativeDeclarations {
+			for name in self.symbols.names(imported.declaration) { nativeNames.put(name, true); }
+		}
+		for declaration in program.declarations() {
+			if (declaration.kind != NK_PREPROCESSOR_DIRECTIVE) { continue; }
+			FeLine? line = resolved.userLineForCombined(declaration.line);
+			if (line == null) { continue; }
+			self.directiveIdentities.push(self.sourcePaths.identity(line.sourceFile));
+			self.directiveTexts.push(declaration.text);
+		}
+		for test in resolved.conditionalTests {
+			string message = self.failure(test, nativeNames, resolved, plan);
+			if (!message.isEmpty()) { return FeConditionalFailure(message, test.path, test.line, test.col, test.lineText); }
+		}
+		return null;
+	}
+
+	/* The canonical path of the first file other than `identity` whose live
+	 * directives #define/#undef `name`, or "". */
+	private string elsewhere(string name, bool define, string identity) {
+		for (int index = 0; index < self.directiveTexts.len; index++) {
+			SourceMacroDefinition directive = SourceMacroDefinition(self.directiveTexts.get(index));
+			bool matches = (define && directive.isDefinition()) || (!define && directive.isUndef());
+			if (matches && directive.name() == name && self.directiveIdentities.get(index) != identity) { return self.directiveIdentities.get(index); }
+		}
+		return "";
+	}
+
+	private string failure(FeConditionalTest test, Map<string, bool> nativeNames, FeResolvedSource resolved, FeNativeLinkPlan plan) {
+		string name = test.name;
+		string identity = self.sourcePaths.identity(test.path);
+		string here = FeConditionalTestChecker.basename(test.path);
+		if (test.local) {
+			string undefined = self.elsewhere(name, false, identity);
+			if (undefined.isEmpty()) { return ""; }
+			string owner = FeConditionalTestChecker.basename(undefined);
+			return f"'{name}' is #undef'd in {owner}, but #if in {here} cannot see that; #if sees only #defines and #undefs earlier in the same file";
+		}
+		string defined = self.elsewhere(name, true, identity);
+		if (!defined.isEmpty()) {
+			string owner = FeConditionalTestChecker.basename(defined);
+			return f"'{name}' is defined in {owner}, but #if in {here} cannot see it; #if sees only target macros and #defines earlier in the same file";
+		}
+		if (nativeNames.has(name)) { return f"'{name}' comes from a native header; #if is evaluated before C compilation and cannot test it"; }
+		string evidence = self.cEvidence(identity, here, resolved, plan);
+		if (evidence.isEmpty()) { return ""; }
+		return f"'{name}' may come from C that btrc does not read ({evidence}); #if is evaluated before C compilation and cannot test it";
+	}
+
+	/* The quoted header a `#include "..."` directive names, quotes kept, or "". */
+	class string quotedInclude(string text) {
+		int index = 0;
+		int length = text.length();
+		while (index < length && (text[index] == ' ' || text[index] == '\t')) { index++; }
+		if (index >= length || text[index] != '#') { return ""; }
+		index++;
+		while (index < length && (text[index] == ' ' || text[index] == '\t')) { index++; }
+		if (!FeSourceText(text).startsWithAt(index, "include")) { return ""; }
+		index += 7;
+		while (index < length && (text[index] == ' ' || text[index] == '\t')) { index++; }
+		if (index >= length || text[index] != '"') { return ""; }
+		int close = index + 1;
+		while (close < length && text[close] != '"' && text[close] != '\n') { close++; }
+		if (close >= length || text[close] != '"' || close == index + 1) { return ""; }
+		return text.substring(index, close + 1 - index);
+	}
+
+	/* What C that btrc does not read could define a macro for the file (P3):
+	 * a quoted include, then a C import, then a selected native header, then
+	 * a binding. */
+	private string cEvidence(string identity, string here, FeResolvedSource resolved, FeNativeLinkPlan plan) {
+		Vector<string> imported = [];
+		for edge in resolved.dependencies.outgoingFrom(identity) {
+			if (edge.kind == FE_DEPENDENCY_IMPORT && edge.target.endsWith(".c")) { imported.push(edge.target); }
+		}
+		imported.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for (int index = 0; index < self.directiveTexts.len; index++) {
+			if (self.directiveIdentities.get(index) != identity) { continue; }
+			string include = FeConditionalTestChecker.quotedInclude(self.directiveTexts.get(index));
+			if (include.isEmpty()) { continue; }
+			string header = include.substring(1, include.length() - 2);
+			/* An imported C file is spliced as a quoted include of its
+			 * absolute path. */
+			if (header.endsWith(".btrc") || (PathTools.isAbsolute(header) && imported.contains(self.sourcePaths.identity(header)))) { continue; }
+			return f"{include} in {here}";
+		}
+		if (imported.len > 0) {
+			string first = FeConditionalTestChecker.basename(imported.get(0));
+			return f"{first} imported by {here}";
+		}
+		Map<string, string> roots = {};
+		for package in plan.packages { roots.put(package.name, self.sourcePaths.identity(package.root)); }
+		for item in FeConditionalEnvironment.sortedDeclarations(plan.declarations) {
+			if (item.kind != "header" || !item.selectedFor(plan.target)) { continue; }
+			bool applies = false;
+			if (item.modules.len > 0) {
+				for module in item.modules {
+					if (self.sourcePaths.identity(module) == identity) { applies = true; }
+				}
+			} else if (roots.has(item.packageName)) {
+				string root = roots.get(item.packageName);
+				applies = identity == root || identity.startsWith(root + "/") || identity.startsWith(root + "\\");
+			}
+			if (applies) {
+				string header = FeConditionalTestChecker.basename(item.value);
+				return f"native header {header} for {here}";
+			}
+		}
+		Vector<FePackageNode> packages = [];
+		for package in plan.packages { packages.push(package); }
+		packages.sortBy((FePackageNode left, FePackageNode right) => Strings.lessThan(left.name, right.name));
+		for package in packages {
+			for binding in package.bindings {
+				if (binding.selectedFor(plan.target) && self.sourcePaths.identity(binding.module) == identity) {
+					string header = FeConditionalTestChecker.basename(binding.header);
+					return f"native header {header} for {here}";
+				}
+			}
+		}
+		return "";
 	}
 }

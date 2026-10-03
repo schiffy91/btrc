@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.packages import IncludeResolutionError, ResolvedPackages
 from src.compiler.python.frontend.sources import (
+    ConditionalEnvironment,
+    SourceConditionals,
     SourceDependencyGraph,
     SourceDirectiveScanner,
     SourceFileReader,
@@ -87,6 +89,10 @@ class Workspace:
             source_reader=self._source_reader,
             directive_scanner=self._directives,
         )
+        # Files are conditioned for the host target. The environment is
+        # completed lazily, so on a host btrc does not target only a file with
+        # conditionals fails (D13), at its first evaluated conditional.
+        self._conditionals = SourceConditionals(ConditionalEnvironment.for_host())
         self._unit_cache = unit_cache or UnitCache.from_environment()
         self._imports = ImportResolver(
             self._stdlib,
@@ -124,6 +130,7 @@ class Workspace:
             source,
             stdlib=self._stdlib,
             directive_scanner=self._directives,
+            conditionals=self._conditionals,
         )
         self._cache.store_file(key, sig, unit)
         return unit
@@ -145,6 +152,7 @@ class Workspace:
                 overlay,
                 stdlib=self._stdlib,
                 directive_scanner=self._directives,
+                conditionals=self._conditionals,
             )
             self._cache.store_file(key, sig, unit)
             return unit
@@ -161,6 +169,7 @@ class Workspace:
             text,
             stdlib=self._stdlib,
             directive_scanner=self._directives,
+            conditionals=self._conditionals,
         )
         self._cache.store_file(key, sig, unit)
         return unit
@@ -194,6 +203,7 @@ class Workspace:
             source,
             stdlib=self._stdlib,
             directive_scanner=self._directives,
+            conditionals=self._conditionals,
         )
         if unit.error is None:
             self._unit_cache.store(source, unit)
