@@ -8,10 +8,11 @@ managed declarators, ``*`` bound per declarator beside managed strings, a
 function-pointer declarator in the list, class fields declared together, an
 initializer that throws partway through the list, and a loop that continues.
 
-The witness: before the C compiler sees the generated program, every ARC
-retain, release and edge-store helper, and the string retain and release
-helpers, gain one call to ``arc_witness_note``
-(``fixtures/arc_declarator_witness.c``). The program reads the counts back
+The witness: before the C compiler sees the generated program, each ARC
+retain, release, edge-store and edge-removal helper and each string
+adoption, retain and release helper the program reaches gains a call to
+``arc_witness_note`` (``fixtures/arc_declarator_witness.c``); an edge helper
+that reads its slot counts the object the slot held. The program reads the counts back
 around each scenario and prints them, so the exact numbers, not just a
 balanced end state, are pinned -- identically for both compilers, under
 every strict C11 compiler, with the allocation tracker proving the measured
@@ -32,35 +33,48 @@ from src.tests.c_toolchains import HOST_C_COMPILERS
 PROGRAM = FIXTURES / "DeclaratorArcWitnessRuntime.btrc"
 WITNESS = FIXTURES / "arc_declarator_witness.c"
 
-# Helper -> (witness kind, the parameter naming the counted object). Kinds:
-# 0 retain, 1 release, 2 edge store (the stored replacement), 3 string
-# retain, 4 string release.
-WITNESSED_HELPERS = {
-    "__btrc_arc_retain": (0, "object"),
-    "__btrc_arc_retain_edge": (0, "object"),
-    "__btrc_arc_release": (1, "object"),
-    "__btrc_arc_release_edge": (1, "object"),
-    "__btrc_arc_release_acyclic": (1, "object"),
-    "__btrc_arc_replace_edge": (2, "replacement"),
-    "__btrc_string_retain": (3, "value"),
-    "__btrc_string_release": (4, "value"),
-}
+# Each witnessed helper: (name, kind, the operand counted, and the line of
+# its body after which the note goes, or None for the top of the body). An
+# edge helper that reads its slot is noted after the read, so the counted
+# object is the one the slot held. Kinds: 0 retain, 1 release, 2 edge store,
+# 3 string retain, 4 string release, 5 edge removal, 6 string adoption.
+SLOT_READ = "    void* object = access(slot_storage, NULL, NULL, 0);\n"
+WITNESSED_HELPERS = (
+    ("__btrc_arc_retain", 0, "object", None),
+    ("__btrc_arc_retain_edge", 0, "object", None),
+    ("__btrc_arc_release", 1, "object", None),
+    ("__btrc_arc_release_edge", 1, "object", None),
+    ("__btrc_arc_release_acyclic", 1, "object", None),
+    ("__btrc_arc_replace_edge", 2, "replacement", None),
+    ("__btrc_arc_replace_edge", 5, "object", SLOT_READ),
+    ("__btrc_arc_adopt_edge", 2, "object", None),
+    ("__btrc_arc_unlink_edge", 5, "object", None),
+    ("__btrc_arc_destroy_edge", 5, "object", SLOT_READ),
+    ("__btrc_arc_destroy_slot", 5, "object", SLOT_READ),
+    ("__btrc_string_retain", 3, "value", None),
+    ("__btrc_string_release", 4, "value", None),
+    ("__btrc_string_adopt", 6, "value", None),
+)
 
 # Each scenario's counts. Two fresh declarators are adopted, not retained; a
-# copying declarator retains once; a field pair stores two edges, which the
-# holder's destruction removes; a throwing third initializer leaves only the
-# first declarator to unwind (and the caught string to release); a loop pays
-# one retain and two releases per iteration, the continued one included.
+# copying declarator retains once; the managed string beside the pointer
+# declarators is adopted once and retained once by its copy; a field pair
+# stores two edges, which the holder's destruction removes; a throwing third
+# initializer leaves only the first declarator to unwind (plus the thrown
+# string, adopted and released); a loop pays one retain and two releases per
+# iteration, the continued one included.
 EXPECTED = "".join(
-    f"{line}\n"
-    for line in (
-        "fresh: created=2 destroyed=2 retains=0 releases=2 edges=0 string-retains=0 string-releases=0",
-        "alias: created=2 destroyed=2 retains=1 releases=3 edges=0 string-retains=0 string-releases=0",
-        "pointer: created=0 destroyed=0 retains=0 releases=0 edges=0 string-retains=1 string-releases=2",
-        "function-pointer: created=1 destroyed=1 retains=1 releases=2 edges=0 string-retains=0 string-releases=0",
-        "fields: created=2 destroyed=2 retains=0 releases=1 edges=2 string-retains=0 string-releases=0",
-        "throwing: created=1 destroyed=1 retains=0 releases=1 edges=0 string-retains=0 string-releases=1",
-        "loop: created=3 destroyed=3 retains=3 releases=6 edges=0 string-retains=0 string-releases=0",
+    f"{label}: created={created} destroyed={destroyed} retains={retains} releases={releases} edges={edges} "
+    f"edge-removals={removals} string-adopts={adopts} string-retains={string_retains} "
+    f"string-releases={string_releases}\n"
+    for label, created, destroyed, retains, releases, edges, removals, adopts, string_retains, string_releases in (
+        ("fresh", 2, 2, 0, 2, 0, 0, 0, 0, 0),
+        ("alias", 2, 2, 1, 3, 0, 0, 0, 0, 0),
+        ("pointer", 0, 0, 0, 0, 0, 0, 1, 1, 2),
+        ("function-pointer", 1, 1, 1, 2, 0, 0, 0, 0, 0),
+        ("fields", 2, 2, 0, 1, 2, 2, 0, 0, 0),
+        ("throwing", 1, 1, 0, 1, 0, 0, 1, 0, 1),
+        ("loop", 3, 3, 3, 6, 0, 0, 0, 0, 0),
     )
 )
 
@@ -71,11 +85,15 @@ def _witness(generated: Path) -> set[str]:
     """Instrument the helpers *generated* defines; return their names."""
     text = generated.read_text()
     found = set()
-    for name, (kind, operand) in WITNESSED_HELPERS.items():
+    for name, kind, operand, after in WITNESSED_HELPERS:
         definition = re.search(rf"^static inline [^\n(]*\b{name}\(", text, re.MULTILINE)
         if definition is None:
             continue
         body = text.index(") {\n", definition.end()) + len(") {\n")
+        if after is not None:
+            # The line must sit in this helper's own body, before the next one.
+            end = text.index("\n}\n", body)
+            body = text.index(after, body, end) + len(after)
         text = f"{text[:body]}    arc_witness_note({kind}, (const void*){operand});\n{text[body:]}"
         found.add(name)
     generated.write_text(f"void arc_witness_note(int kind, const void* object);\n{text}")

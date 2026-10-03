@@ -321,6 +321,9 @@ class BtrccCommandLine {
 		if (!options.irDump.isEmpty() && !options.unitsPrefix.isEmpty()) {
 			return self.invalid(options, "--emit-ir and --emit-optimized-ir print one module and cannot be combined with --emit-units");
 		}
+		/* As in the reference CLI, an IR dump goes to standard output and -o
+		 * is ignored: no C is generated, published or cached. */
+		if (!options.irDump.isEmpty()) { options.outputPath = ""; }
 		if (options.showStdlibDirectory) {
 			if (inputIndex >= 0) {
 				return self.invalid(options, "--stdlib-dir does not accept an input file");

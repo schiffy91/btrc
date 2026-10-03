@@ -449,8 +449,11 @@ and a refusal reports its recorded message, line and column.
 - **Raw IR is identical for braced and braceless bodies.** btrcc gained
   `--emit-ir` (after lowering) and `--emit-optimized-ir` (after the
   optimizer): `IRCanonicalRenderer` in `ir/Model.btrc`, the counterpart of the
-  Python `IRCanonicalRenderer` in `ir/nodes.py`, prints every field of the
-  module and of each node that differs from a fresh node's. The two models
+  Python `IRCanonicalRenderer` in `ir/nodes.py`, prints every IR field of
+  the module and of each node that differs from a fresh node's (not the
+  temporary-name counter or a GPU kernel's source AST), one line per list
+  element. As in the reference CLI, a dump goes to standard output and `-o`
+  is ignored; btrcc also refuses a dump beside `--emit-units`. The two models
   differ, so each compiler's dump is compared only with its own.
   `test_c_compatibility_bodies.py` pairs braced and braceless programs
   (`if`/`else`, `else if` chains, `while`, C-`for`, `do`-`while`, nesting, a
@@ -461,9 +464,11 @@ and a refusal reports its recorded message, line and column.
   flags and their refusal beside each other or `--emit-units`.
 - **ARC is proven per declarator.** `test_c_compatibility_declarator_arc.py`
   compiles `fixtures/DeclaratorArcWitnessRuntime.btrc` through both
-  compilers and instruments the generated C: each ARC retain, release and
-  edge-store helper and the string retain and release helpers call a witness
-  (`fixtures/arc_declarator_witness.c`). The program prints exact counts per
+  compilers and instruments the generated C: each ARC retain, release,
+  edge-store and edge-removal helper (an edge helper that reads its slot
+  counts the object the slot held) and the string adoption, retain and
+  release helpers call a witness (`fixtures/arc_declarator_witness.c`). The
+  program prints exact counts per
   scenario -- fresh declarators, a copying declarator, `*` bound per
   declarator beside managed strings, a function pointer in the list, class
   fields declared together, an initializer that throws partway through the

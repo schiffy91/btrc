@@ -13,7 +13,7 @@ extern long arc_test_allocation_delta();
 
 int created = 0;
 int destroyed = 0;
-long marks[5];
+long marks[7];
 bool quiet = true;
 
 class Tracker {
@@ -44,7 +44,7 @@ Tracker boom(int id) {
 void mark() {
 	created = 0;
 	destroyed = 0;
-	for (int kind = 0; kind < 5; kind++) { marks[kind] = arc_witness_count(kind); }
+	for (int kind = 0; kind < 7; kind++) { marks[kind] = arc_witness_count(kind); }
 }
 
 void report(string label) {
@@ -53,7 +53,9 @@ void report(string label) {
 	long edges = arc_witness_count(2) - marks[2];
 	long stringRetains = arc_witness_count(3) - marks[3];
 	long stringReleases = arc_witness_count(4) - marks[4];
-	if (!quiet) { print(f"{label}: created={created} destroyed={destroyed} retains={retains} releases={releases} edges={edges} string-retains={stringRetains} string-releases={stringReleases}"); }
+	long edgeRemovals = arc_witness_count(5) - marks[5];
+	long stringAdopts = arc_witness_count(6) - marks[6];
+	if (!quiet) { print(f"{label}: created={created} destroyed={destroyed} retains={retains} releases={releases} edges={edges} edge-removals={edgeRemovals} string-adopts={stringAdopts} string-retains={stringRetains} string-releases={stringReleases}"); }
 }
 
 /* Two fresh results: each declarator adopts its own, and each is released. */

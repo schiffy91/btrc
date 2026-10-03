@@ -966,8 +966,9 @@ class IRModule {
 /* Serializes one complete structured IR module without consulting a backend
  * (mirrors IRCanonicalRenderer in src/compiler/python/ir/nodes.py). The two
  * compilers' IR models differ, so the formats differ too; each is
- * deterministic and names every field that differs from a fresh node's, so
- * two dumps from one compiler are equal exactly when the IR is. */
+ * deterministic and names every IR field that differs from a fresh node's,
+ * so two dumps from one compiler are equal exactly when the IR is. Left out:
+ * the temporary-name counter and a GPU kernel's source AST declaration. */
 class IRCanonicalRenderer {
 	private Vector<string> lines = [];
 
@@ -1008,7 +1009,8 @@ class IRCanonicalRenderer {
 	private void module(IRModule module, int depth) {
 		self.line(depth, f"module language={self.quoted(module.language)}{self.flag("debug", module.debug)}{self.text("debugCfile", module.debugCfile)}");
 		for declaration in module.preprocessorDecls {
-			self.line(depth + 1, f"preprocessor kind={declaration.kind}{self.text("header", declaration.header)}{self.flag("system", declaration.isSystem)}{self.text("name", declaration.name)}{self.flag("functionLike", declaration.functionLike)} params={self.quoted(Strings.join(declaration.params, ","))}{self.text("replacement", declaration.replacement)}");
+			self.line(depth + 1, f"preprocessor kind={declaration.kind}{self.text("header", declaration.header)}{self.flag("system", declaration.isSystem)}{self.text("name", declaration.name)}{self.flag("functionLike", declaration.functionLike)}{self.text("replacement", declaration.replacement)}");
+			self.strings(depth + 2, "param", declaration.params);
 		}
 		for definition in module.enumDefs {
 			self.line(depth + 1, f"enum name={self.quoted(definition.name)}");
@@ -1019,7 +1021,8 @@ class IRCanonicalRenderer {
 		}
 		for forward in module.structForwards { self.line(depth + 1, f"structForward name={self.quoted(forward.name)}"); }
 		for pointer in module.functionPointerTypedefs {
-			self.line(depth + 1, f"functionPointerTypedef name={self.quoted(pointer.name)} returnType={self.quoted(pointer.returnType)} paramTypes={self.quoted(Strings.join(pointer.paramTypes, ","))}");
+			self.line(depth + 1, f"functionPointerTypedef name={self.quoted(pointer.name)} returnType={self.quoted(pointer.returnType)}");
+			self.strings(depth + 2, "paramType", pointer.paramTypes);
 		}
 		for declaration in module.functionDecls {
 			self.line(depth + 1, f"functionDecl name={self.quoted(declaration.name)} returnType={self.quoted(declaration.returnType)}{self.flag("static", declaration.isStatic)}{self.flag("cLinkage", declaration.cLinkage)}");
@@ -1045,7 +1048,8 @@ class IRCanonicalRenderer {
 			self.child(depth + 2, "arraySize", global.arraySize);
 		}
 		for objective in module.objectiveCClasses {
-			self.line(depth + 1, f"objectiveCClass name={self.quoted(objective.name)} superclass={self.quoted(objective.superclass)} protocols={self.quoted(Strings.join(objective.protocols, ","))}");
+			self.line(depth + 1, f"objectiveCClass name={self.quoted(objective.name)} superclass={self.quoted(objective.superclass)}");
+			self.strings(depth + 2, "protocol", objective.protocols);
 			self.fields(depth + 2, objective.fields);
 			for method in objective.methods {
 				self.line(depth + 2, f"method selector={self.quoted(method.selector)} returnType={self.quoted(method.returnType)}{self.flag("classMethod", method.isClassMethod)}");
@@ -1078,6 +1082,11 @@ class IRCanonicalRenderer {
 		}
 	}
 
+	/* One line per element, so no separator can make two lists render alike. */
+	private void strings(int depth, string role, Vector<string> values) {
+		for value in values { self.line(depth, f"{role} {self.quoted(value)}"); }
+	}
+
 	private void params(int depth, Vector<IRParam>? params) {
 		if (params == null) { return; }
 		for param in params {
@@ -1101,7 +1110,7 @@ class IRCanonicalRenderer {
 		self.line(depth, f"{role}: {kind.toString()}{texts}{scalars}{line}");
 		IRCleanupSlot? slot = node.cleanupSlot;
 		if (slot != null) { self.line(depth + 1, f"cleanupSlot site={slot.site} name={self.quoted(slot.name)} cType={self.quoted(slot.cType)} takeFunction={self.quoted(slot.takeFunction)}"); }
-		if (node.fieldNames().len > 0) { self.line(depth + 1, f"fieldNames {self.quoted(Strings.join(node.fieldNames(), ","))}"); }
+		self.strings(depth + 1, "fieldName", node.fieldNames());
 		self.params(depth + 1, node.params);
 		self.child(depth + 1, "left", node.left);
 		self.child(depth + 1, "right", node.right);

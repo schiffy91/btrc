@@ -127,8 +127,16 @@ def observe(btrcc: Path, tmp_path: Path, probe: dict) -> dict:
     }
 
 
+_TOML_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t"}
+
+
 def _toml_string(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
+    """A TOML basic string: every control character a basic string forbids is escaped."""
+    escaped = "".join(
+        _TOML_ESCAPES.get(character)
+        or (f"\\u{ord(character):04X}" if ord(character) < 0x20 or ord(character) == 0x7F else character)
+        for character in value
+    )
     return f'"{escaped}"'
 
 
