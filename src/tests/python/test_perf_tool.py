@@ -11,9 +11,14 @@ import pytest
 
 from src.tests.c_toolchains import default_c_compiler, default_cxx_compiler, default_toolchain
 from src.tests.process_limits import RUN_TIMEOUT
-from tools import perf
+from tools import budget_bench, perf
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_default_drivers_are_the_budget_bench_toolchain():
+    arguments = perf.Perf.parse_arguments(["Program.btrc"])
+    assert (arguments.cc, arguments.cxx) == (budget_bench.CC, budget_bench.CXX) == ("clang", "clang++")
 
 
 def test_phase_times_reads_both_compilers_marks():
