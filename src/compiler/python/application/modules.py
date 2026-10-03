@@ -572,7 +572,8 @@ class SharedDeclarations:
     One declarations-only lowering session produces every type, prototype and
     extern global of the program. A unit lowers only what its group owns and
     then takes, by name closure, exactly the shared declarations its own IR
-    references; preprocessor declarations are shared by every unit.
+    references. Every unit lowers the program's whole directive list itself,
+    in source order.
     """
 
     _FIELDS = (
@@ -723,10 +724,13 @@ class SharedDeclarations:
         for index in sorted(included):
             field_name, declaration = self._entries[index]
             getattr(unit, field_name).append(copy.copy(declaration))
-        # Directives of other groups (their headers and macros) apply to every
-        # unit, as they do to the whole program; they precede all C code.
+        # The unit already lowered the program's whole directive list in source
+        # order. A runtime header the shared declarations need is added once;
+        # only identical includes are deduplicated, and macros never are.
         unit.preprocessor_decls.extend(
-            declaration for declaration in self._preprocessor if declaration not in unit.preprocessor_decls
+            declaration
+            for declaration in self._preprocessor
+            if isinstance(declaration, IRInclude) and declaration not in unit.preprocessor_decls
         )
 
 

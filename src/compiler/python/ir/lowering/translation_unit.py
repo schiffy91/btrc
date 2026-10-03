@@ -164,7 +164,8 @@ class TranslationUnitLowerer:
         self._session.stdlib_reachability = self._facts.stdlib_reachability
         self._classes.configure_pack_alignments(self.declaration_pack_alignments(self._analyzed.program))
         # A module unit whose declarations come from the shared program
-        # declarations lowers only what its own group defines.
+        # declarations lowers only what its own group defines, plus every
+        # group's directives.
         shared = self._session.declarations_elsewhere
         if shared:
             class_views = tuple(view for view in class_views if not self._foreign(view.declaration))
@@ -456,7 +457,9 @@ class TranslationUnitLowerer:
                 if reachability is None or reachability.reaches_name(name):
                     self._classes.emit_interface(name)
         for decl in declarations:
-            if shared and self._foreign(decl):
+            # Every unit lowers the whole directive list in source order; an
+            # imported C source is still included only by its own group.
+            if shared and self._foreign(decl) and not isinstance(decl, PreprocessorDirective):
                 continue
             with self._stamping_sources(decl):
                 if (

@@ -176,7 +176,8 @@ class IRLowerer {
 
 		BtrccPhaseTimer.mark("l-setup");
 		/* A module unit whose declarations come from the shared program
-		 * declarations lowers only what its own group defines. */
+		 * declarations lowers only what its own group defines, plus every
+		 * group's directives. */
 		bool shared = self.context.declarationsElsewhere;
 		if (!shared) { self.declarations.emitForwardDecls(program, module); }
 		self.gpuPipeline.registerKernels(program, module);

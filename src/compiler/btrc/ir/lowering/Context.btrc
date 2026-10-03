@@ -114,7 +114,8 @@ class LoweringContext {
 	/* Module-unit lowering: the one compilation group whose bodies this run
 	 * lowers. A declaration another group owns keeps its declaration-level IR
 	 * but no body, or is skipped entirely when its declarations come from the
-	 * shared program declarations. Every function and global created while
+	 * shared program declarations; its directives are still lowered, so every
+	 * unit keeps the whole directive list in source order. Every function and global created while
 	 * lowering a declaration records that declaration's group. */
 	public bool moduleUnits;
 	public string ownedGroup;
