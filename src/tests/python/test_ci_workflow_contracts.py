@@ -953,6 +953,53 @@ def test_a_plain_pull_request_plans_from_its_changed_paths(tmp_path: Path) -> No
     assert _plan(tmp_path, "windows.yml", tier)["jobs"] == []
 
 
+LANE_HEAVY_LINUX = ["release", "tests", "bench", "linux-arm64-bundle"]
+
+
+@pytest.mark.parametrize(
+    ("files", "linux", "macos"),
+    [
+        # A catalog-data packet: scope, release and the unit shard only.
+        (
+            (
+                "docs/design/native-ui-catalog/families.toml",
+                "tools/qualification/ui_catalog.py",
+                "src/tests/python/test_ui0_catalog.py",
+            ),
+            ["release", "tests"],
+            [],
+        ),
+        (("tools/ui/codex-setup.sh",), ["release", "tests"], ["native-bundle", "native-gui"]),
+        (("src/stdlib/GUI/MacOS/Window.btrc",), LANE_HEAVY_LINUX, ["native-bundle", "native-gui"]),
+        (("src/stdlib/HTTP/Client.btrc",), LANE_HEAVY_LINUX, []),
+        (("src/tests/python/test_native_gui_target.py",), ["release", "tests"], ["native-bundle", "native-gui"]),
+        # A pull request with no listed file plans the whole lane selection.
+        ((), LANE_HEAVY_LINUX, ["native-bundle", "native-gui"]),
+    ],
+)
+def test_a_lane_pull_request_runs_the_jobs_its_paths_select(
+    tmp_path: Path, files: tuple[str, ...], linux: list[str], macos: list[str]
+) -> None:
+    tier = _classify(tmp_path, "pull_request", "codex/cx-uia-03", files)
+    assert tier == "lane"
+    ci = _plan(tmp_path, "ci.yml", tier)
+    assert ci["jobs"] == linux
+    shards = [row["shard"] for row in ci["matrix"]["tests"]["include"]]
+    assert shards == (
+        ["unit"] if linux == ["release", "tests"] else [name for name, _ in _tier_shards("ci.yml", "main")]
+    )
+    assert _plan(tmp_path, "macos.yml", tier)["jobs"] == macos
+    assert _plan(tmp_path, "windows.yml", tier)["jobs"] == []
+
+
+def test_a_lane_pull_request_too_large_to_list_fails_safe_to_the_main_tier(tmp_path: Path) -> None:
+    files = ("docs/design/native-ui-catalog/families.toml",)
+    tier = _classify(tmp_path, "pull_request", "codex/cx-uia-03", files, changed_files=3001)
+    assert tier == "main"
+    for workflow in CORE_WORKFLOWS:
+        assert _plan(tmp_path, workflow, tier) == TIERS.plan(workflow, "main"), workflow
+
+
 def test_linux_x64_ci_runs_and_uploads_the_archived_bundle() -> None:
     job = _job(_workflow("ci.yml"), "release")
 

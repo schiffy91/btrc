@@ -15,7 +15,7 @@ schema = "btrc.ci-tiers/1"
 [tiers]
 docs = "A pull request that changes only Markdown no test or tool reads: the static gates."
 pr = "Any other pull request: generated, lint and format; the unit shard; the corpus directories its paths select; macOS and Windows shards only when their paths change."
-lane = "A codex/* pull request: the Linux matrix, the macOS arm64 bundle and native-GUI job, and Windows when its paths change."
+lane = "A codex/* pull request: the release job and the unit shard; the rest of the Linux matrix, the macOS arm64 bundle and native-GUI job, and Windows only when their paths change."
 main = "A push to main, a pull request that touches the compilers or the CI hotspots, the ci:full label, or a full dispatch: today's full matrix."
 extended = "A nightly or extended dispatch: the main matrix plus macOS's remaining clang C11 cells."
 release = "release.yml's dispatch or tag: every hosted job of every tier, then one ledger bundle."
@@ -36,6 +36,42 @@ directories = ["stdlib", "imports"]
 [[corpus]]
 paths = ["src/runtime/gpu/**", "tools/virtual-display.sh"]
 directories = ["gpu"]
+
+# Named path sets for `selected_tiers`: in the lane tier an entry runs when a
+# changed file matches its set, or when the change list is missing or empty.
+# The last pattern a path matches decides, so a `!` pattern carves out of an
+# earlier one. A change that touches none of them (UI catalog data, its
+# loader and tests, a tools/ui or host-spike script) runs only the release job
+# and the unit shard.
+[paths]
+# The Linux heavy jobs: C11, bootstrap, both corpora, btrc, bench and the
+# arm64 bundle. The unit shard already runs every src/tests/python/test_*.py.
+lane-linux = [
+  "src/stdlib/**",
+  "src/tests/**",
+  "!src/tests/python/test_*.py",
+  "examples/**",
+  "tools/**",
+  "!tools/ui/**",
+  "!tools/target_hosts/**",
+  "!tools/qualification/ui_catalog.py",
+]
+# The macOS arm64 bundle and native-GUI job.
+lane-macos = [
+  "**/MacOS/**",
+  "**/*.m",
+  "src/stdlib/GUI/**",
+  "src/stdlib/UI/**",
+  "src/stdlib/App/**",
+  "src/stdlib/Tray/**",
+  "src/stdlib/Audio/**",
+  "src/stdlib/GPU/**",
+  "src/tests/native/**",
+  "src/tests/python/test_native_*.py",
+  "tools/ui/**",
+  "tools/NativeHeaderReader.cpp",
+  "src/tests/fixtures/expected-skips/macos-hosted.json",
+]
 
 # ---------------------------------------------------------------- ci.yml ---
 
@@ -61,7 +97,8 @@ reports = ["skip-report"]
 [[jobs]]
 workflow = "ci.yml"
 job = "bench"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 changed_tiers = ["pr"]
 changed_paths = ["tools/bench/**", "src/tests/benchmarks/**", "src/tests/fixtures/benchmarks/**"]
 reports = ["bench"]
@@ -69,7 +106,8 @@ reports = ["bench"]
 [[jobs]]
 workflow = "ci.yml"
 job = "linux-arm64-bundle"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 [[jobs]]
 workflow = "ci.yml"
@@ -87,7 +125,8 @@ tiers = ["pr", "lane", "main", "extended", "release"]
 job = "ci.yml/tests"
 shard = "btrc"
 target = "test-shard-btrc"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 changed_tiers = ["pr"]
 changed_paths = ["src/tests/btrc/**", "src/stdlib/**"]
 
@@ -95,70 +134,81 @@ changed_paths = ["src/tests/btrc/**", "src/stdlib/**"]
 job = "ci.yml/tests"
 shard = "corpus-python"
 target = "test-shard-corpus-python"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 corpus_tiers = ["pr"]
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "corpus-btrc"
 target = "test-shard-corpus-btrc"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 corpus_tiers = ["pr"]
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "bootstrap"
 target = "test-shard-bootstrap"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 reports = ["boundary-report"]
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "c11-gcc-O0"
 target = "test-c11-one C11_CC=gcc C11_OPT=O0"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "c11-gcc-O1"
 target = "test-c11-one C11_CC=gcc C11_OPT=O1"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "c11-gcc-O2"
 target = "test-c11-one C11_CC=gcc C11_OPT=O2"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "c11-gcc-O3"
 target = "test-c11-one C11_CC=gcc C11_OPT=O3"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "c11-clang-O0"
 target = "test-c11-one C11_CC=clang C11_OPT=O0"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "c11-clang-O1"
 target = "test-c11-one C11_CC=clang C11_OPT=O1"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "c11-clang-O2"
 target = "test-c11-one C11_CC=clang C11_OPT=O2"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 [[shards]]
 job = "ci.yml/tests"
 shard = "c11-clang-O3"
 target = "test-c11-one C11_CC=clang C11_OPT=O3"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-linux" }
 
 # ------------------------------------------------------------- macos.yml ---
 
@@ -176,13 +226,15 @@ reports = ["skip-report"]
 [[jobs]]
 workflow = "macos.yml"
 job = "native-gui"
-tiers = ["lane", "native-gui", "release"]
+tiers = ["native-gui", "release"]
+selected_tiers = { lane = "lane-macos" }
 reports = ["skip-report", "junit"]
 
 [[shards]]
 job = "macos.yml/native-bundle"
 target = "macos-arm64"
-tiers = ["lane", "main", "extended", "release"]
+tiers = ["main", "extended", "release"]
+selected_tiers = { lane = "lane-macos" }
 changed_tiers = ["pr"]
 changed_paths = ["**/MacOS/**", "**/*.m", "tools/NativeHeaderReader.cpp", "src/tests/native/**", "src/tests/fixtures/expected-skips/macos-hosted.json"]
 

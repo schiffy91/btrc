@@ -13,6 +13,7 @@ Schema identifier: ``btrc.ci-tiers/1``.
                  every other field the row carries (``target``), ``tiers``,
                  and optional ``reports`` (``boundary-report``).
 ``[[corpus]]``   ``paths`` -> ``directories`` for ``corpus_tiers`` below.
+``[paths]``      path-set name -> ``paths`` globs, for ``selected_tiers`` below.
 ``[[hardware]]`` ``id``, ``runner`` (as covered_by spells it), ``description``.
 
 A job or shard runs in a tier its ``tiers`` names. In a tier its
@@ -20,7 +21,11 @@ A job or shard runs in a tier its ``tiers`` names. In a tier its
 ``changed_paths`` (GitHub's ``paths`` glob rules). In a tier its
 ``corpus_tiers`` names, a corpus shard runs only the corpus directories the
 change selects, through ``pytest_addopts``, and not at all when it selects
-none. A matrix job runs when any of its rows does.
+none. In a tier its ``selected_tiers`` maps to a ``[paths]`` set, it runs
+when a changed file matches that set, and also when the plan has no change
+list or an empty one: a selection only narrows a tier that would otherwise
+run it, so a change nobody listed fails safe to the broader plan. A matrix job
+runs when any of its rows does.
 
 `TierManifest.plan` is what the workflows' ``scope`` job emits, and
 `TierManifest.expected_reports` is what the release bundle checks it holds.
@@ -44,7 +49,9 @@ WHOLE_CORPUS = "*"
 _NAME = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)*$")
 _ROW_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 =._-]*$")
 _CORPUS_DIRECTORY = re.compile(r"^[a-z_]+$")
-_RESERVED_ROW_FIELDS = frozenset({"job", "tiers", "changed_tiers", "changed_paths", "corpus_tiers", "reports"})
+_RESERVED_ROW_FIELDS = frozenset(
+    {"job", "tiers", "changed_tiers", "changed_paths", "selected_tiers", "corpus_tiers", "reports"}
+)
 
 
 class TierManifestError(ValueError):
@@ -77,22 +84,34 @@ class GitHubPaths:
 
 @dataclass(frozen=True)
 class TierCondition:
-    """When an entry runs: always in ``tiers``; in ``changed_tiers`` when its paths change."""
+    """When an entry runs: always in ``tiers``; in ``changed_tiers`` when its paths change.
+
+    ``selected`` pairs a tier with the paths that select the entry in it; a
+    plan without a usable change list keeps the entry there.
+    """
 
     tiers: tuple[str, ...] = ()
     changed_tiers: tuple[str, ...] = ()
     changed_paths: tuple[str, ...] = ()
+    selected: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     def runs(self, tier: str, changed: tuple[str, ...] | None) -> bool:
         if tier in self.tiers:
             return True
+        for selected_tier, paths in self.selected:
+            if selected_tier == tier:
+                # No list (a dispatch, a diff too large to list) or an empty one could be anything.
+                return not changed or GitHubPaths.any_selected(paths, changed)
         # A plan without a change list (a push, a dispatch) has no paths to match.
         return (
             tier in self.changed_tiers and changed is not None and GitHubPaths.any_selected(self.changed_paths, changed)
         )
 
+    def selected_tiers(self) -> tuple[str, ...]:
+        return tuple(tier for tier, _ in self.selected)
+
     def names(self) -> set[str]:
-        return {*self.tiers, *self.changed_tiers}
+        return {*self.tiers, *self.changed_tiers, *self.selected_tiers()}
 
 
 @dataclass(frozen=True)
@@ -144,6 +163,7 @@ class TierManifest:
     shards: tuple[TierShard, ...]
     corpus: tuple[CorpusRule, ...] = ()
     hardware: tuple[HardwareRunner, ...] = ()
+    paths: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     root: Path = field(default=REPO, compare=False)
 
     @classmethod
@@ -156,7 +176,7 @@ class TierManifest:
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any], root: Path = REPO) -> TierManifest:
-        reader = _Reader(data, "tiers.toml", {"schema", "tiers", "jobs", "shards", "corpus", "hardware"})
+        reader = _Reader(data, "tiers.toml", {"schema", "tiers", "jobs", "shards", "corpus", "hardware", "paths"})
         if data.get("schema") != SCHEMA:
             raise TierManifestError(f"tiers.toml: schema must be {SCHEMA!r}")
         tiers = data.get("tiers")
@@ -168,37 +188,75 @@ class TierManifest:
         if HARDWARE_TIER not in tiers:
             raise TierManifestError(f"tiers.toml: [tiers] must describe {HARDWARE_TIER!r}")
         scheduled = set(tiers) - {HARDWARE_TIER}
-        jobs = tuple(cls._job(entry, f"jobs[{index}]", scheduled) for index, entry in enumerate(reader.tables("jobs")))
+        paths = cls._path_sets(data.get("paths", {}))
+        jobs = tuple(
+            cls._job(entry, f"jobs[{index}]", scheduled, paths) for index, entry in enumerate(reader.tables("jobs"))
+        )
         shards = tuple(
-            cls._shard(entry, f"shards[{index}]", scheduled) for index, entry in enumerate(reader.tables("shards"))
+            cls._shard(entry, f"shards[{index}]", scheduled, paths)
+            for index, entry in enumerate(reader.tables("shards"))
         )
         corpus = tuple(cls._corpus(entry, f"corpus[{index}]") for index, entry in enumerate(reader.tables("corpus")))
         hardware = tuple(
             HardwareRunner(**_Reader(entry, f"hardware[{index}]", {"id", "runner", "description"}).texts())
             for index, entry in enumerate(reader.tables("hardware"))
         )
-        manifest = cls(dict(tiers), jobs, shards, corpus, hardware, root)
+        manifest = cls(dict(tiers), jobs, shards, corpus, hardware, paths, root)
         manifest._validate()
+        used = {
+            name
+            for entry in (*reader.tables("jobs"), *reader.tables("shards"))
+            for name in entry.get("selected_tiers", {}).values()
+        }
+        if unused := sorted(set(paths) - used):
+            raise TierManifestError(f"tiers.toml: no entry selects with [paths] {', '.join(unused)}")
         return manifest
 
     @staticmethod
-    def _condition(reader: _Reader, scheduled: set[str]) -> TierCondition:
+    def _path_sets(data: object) -> dict[str, tuple[str, ...]]:
+        if not isinstance(data, Mapping):
+            raise TierManifestError("tiers.toml: [paths] maps a path-set name to its globs")
+        sets = {}
+        for name in data:
+            if not _NAME.match(name):
+                raise TierManifestError(f"paths.{name}: a path set needs a lowercase name")
+            sets[name] = _Reader({"paths": data[name]}, f"paths.{name}", {"paths"}).strings("paths")
+            if not sets[name] or sets[name][0].startswith("!"):
+                raise TierManifestError(f"paths.{name}: a path set starts with a pattern that selects")
+        return sets
+
+    @staticmethod
+    def _condition(reader: _Reader, scheduled: set[str], paths: Mapping[str, tuple[str, ...]]) -> TierCondition:
+        selected = reader.data.get("selected_tiers", {})
+        if not isinstance(selected, Mapping) or not all(isinstance(name, str) for name in selected.values()):
+            raise TierManifestError(f"{reader.where}.selected_tiers: maps a tier to a [paths] set name")
+        if unknown := sorted(set(selected) - scheduled):
+            raise TierManifestError(f"{reader.where}.selected_tiers: unknown {', '.join(unknown)}")
+        if unknown := sorted(set(selected.values()) - set(paths)):
+            raise TierManifestError(f"{reader.where}.selected_tiers: no [paths] set {', '.join(unknown)}")
         condition = TierCondition(
             tiers=reader.names("tiers", scheduled),
             changed_tiers=reader.names("changed_tiers", scheduled),
             changed_paths=reader.strings("changed_paths"),
+            selected=tuple((tier, paths[name]) for tier, name in selected.items()),
         )
         if bool(condition.changed_tiers) != bool(condition.changed_paths):
             raise TierManifestError(f"{reader.where}: changed_tiers and changed_paths go together")
         if overlap := set(condition.tiers) & set(condition.changed_tiers):
             raise TierManifestError(f"{reader.where}: {sorted(overlap)} cannot be both unconditional and changed")
+        if overlap := set(selected) & {*condition.tiers, *condition.changed_tiers}:
+            raise TierManifestError(f"{reader.where}: {sorted(overlap)} cannot be both selected and listed")
         return condition
 
     @classmethod
-    def _job(cls, entry: object, where: str, scheduled: set[str]) -> TierJob:
-        reader = _Reader(entry, where, {"workflow", "job", "key", "reports", "tiers", "changed_tiers", "changed_paths"})
+    def _job(cls, entry: object, where: str, scheduled: set[str], paths: Mapping[str, tuple[str, ...]]) -> TierJob:
+        reader = _Reader(
+            entry,
+            where,
+            {"workflow", "job", "key", "reports", "tiers", "changed_tiers", "changed_paths", "selected_tiers"},
+        )
         key = reader.optional_text("key")
-        condition = cls._condition(reader, scheduled)
+        condition = cls._condition(reader, scheduled, paths)
         if key is not None and condition.names():
             raise TierManifestError(f"{where}: a matrix job's tiers come from its shards")
         if key is None and not condition.names():
@@ -210,18 +268,18 @@ class TierManifest:
         return TierJob(workflow, job, condition, key, reports)
 
     @classmethod
-    def _shard(cls, entry: object, where: str, scheduled: set[str]) -> TierShard:
+    def _shard(cls, entry: object, where: str, scheduled: set[str], paths: Mapping[str, tuple[str, ...]]) -> TierShard:
         if not isinstance(entry, Mapping):
             raise TierManifestError(f"{where}: expected a table")
         reader = _Reader(entry, where, set(entry))
-        row = {name: value for name, value in entry.items() if name not in _RESERVED_ROW_FIELDS | {"corpus_tiers"}}
+        row = {name: value for name, value in entry.items() if name not in _RESERVED_ROW_FIELDS}
         for name, value in row.items():
             if not re.fullmatch(r"[a-z_]+", name) or not isinstance(value, str) or not _ROW_VALUE.match(value):
                 raise TierManifestError(f"{where}.{name}: a row field is a snake_case name with a plain text value")
         return TierShard(
             job=reader.text("job"),
             row=row,
-            condition=cls._condition(reader, scheduled),
+            condition=cls._condition(reader, scheduled, paths),
             corpus_tiers=reader.names("corpus_tiers", scheduled),
             reports=reader.names("reports", set(REPORT_KINDS)),
         )
