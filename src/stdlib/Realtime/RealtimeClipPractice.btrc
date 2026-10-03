@@ -85,10 +85,12 @@ class RealtimeClipPracticeInputSample {
 		self._sample = sample;
 	}
 
+	/* The block's input device frame plus this frame's offset in the block. */
 	public long long deviceFrame() { return self._deviceFrame; }
 
 	public long long mappingGeneration() { return self._mappingGeneration; }
 
+	/* In frames of the practice configuration's transportRate(). */
 	public long long transportFrame() { return self._transportFrame; }
 
 	public float sample() { return self._sample; }

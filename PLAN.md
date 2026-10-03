@@ -146,6 +146,10 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - Gates: clean (generated-source, lint, format, diff, zero-warning self-host transpiles, `boundary-check` 287 of 311). `src/tests/python`, `src/tests/btrc`, the corpus through both compilers, LSP and formatter: 11,288 passed and 3,165 skipped; the 24 failures were one module that ran before a lint fix restored its `TARGET` import, and they pass on re-run (36 passed, 16 skipped without a display). The bootstrap reached its fixed point.
   - Still open: `stage4/residual-native-importer` (D046, D039) and `stage4/residual-macos-conformance` (D044's macOS programs) are running; D049 lands with `stage4/objc-macro-constants`. The findings ledger in `src/stdlib/README.md` is written after those land.
 
+- **BTRSmith-reported btrc defects (2026-10-03).** The BTRSmith apply lane (`stage4/w2-btrsmith`, `e8a53e2`, pinning btrc `c7f785e`; it waits for the Mac smokes before BTRSmith `main`) reported seven btrc defects; one was already fixed upstream (`03e2e59`). Two lanes took the rest:
+  - `stage4/realtime-seam` (landed as batch 10a): the practice mapping scales clip source frames to transport frames on seek, loop and command paths; `render()` honours the block's input/output device frames, stream epoch and discontinuity flags and re-anchors on a new epoch; and the renderer gets a `@realtime`, allocation-free read of the rendered position, play state, speed and mapping generation. Realtime tests through both compilers: 210 passed, 117 skipped.
+  - `stage4/btrsmith-defects-compiler` (still open): unknown ALL_CAPS names refused at the use site, volatile generated locals across `setjmp` for GCC 15's `-Wclobbered`, and `--emit-units` primary outputs that change whenever any unit does. Its first integration failed two contracts; the lane is fixing them in both compilers.
+
 ### Stage 14: C5 inventory (done 2026-10-01, cloud lane `stage14/ccompat-inventory`)
 - `ccompat-c5-baseline`, `ccompat-refusal-policy`, `ccompat-r23-vla-audit` landed in `828f3a2`, `8b0ec02`, `dda6e26`: a 134-probe inventory through both compilers (`test_c_compatibility_inventory.py`), identical refusal diagnostics for rows 20, 22 and 24 (`_Bool` is `bool` per D20; reserved-word names give a targeted error), and VLA forms pinned and documented in `docs/known-language-gaps.md`. 171 of 171 tests passed and the bootstrap stayed byte-for-byte. The review later found that a negative runtime bound clamps the storage but not the iteration length (both compilers); `stage4/w2-compiler-gaps` owns the fix.
 
@@ -241,9 +245,15 @@ Each stage records its exit evidence here as it closes; measurements and commit 
   - Q2: the MSVC row scope.
   - Q3: no `ios-x86_64-simulator` row.
 
+### Two builder agents: Gate 0 (D27, 2026-10-03)
+- **D27 is in force.** The owner asked for the work to be split between Claude and OpenAI Codex, with Codex taking the GUI for each stdlib platform, and started Codex on it. D27 records the split; the owner may strike any clause, and Stage 24's early start after C4 still waits for the owner's word (WORKSTREAMS.md §7 Q2).
+- **`WORKSTREAMS.md`** (repository root) assigns every remaining PLAN.md item as one of 445 work packets: Claude 182, Codex 208, owner 55, each with owned paths, steps, acceptance and dependencies. The packets themselves are in `docs/workstreams/{claude,codex,owner}.md`, with `packets.json` and the planning appendices beside them. Six planning analysts wrote the packets from this plan; three review lenses checked them.
+- **Gate 0 (`CL-UIA-01`)** also adds the Codex section to AGENTS.md and trims AGENTS.md to under Codex's 32 KiB read limit (37,433 → 29,664 bytes). The two measurement sections moved to `docs/design/compile-performance.md`, and the Python file tree now lives only in `docs/design/compiler-structure.md`, which `test_python_compiler_structure.py` still checks. Gate 0 adds the Codex packet-report template (`.github/PULL_REQUEST_TEMPLATE/codex-packet.md`), the Codex standing approval, the Codex lane rules under "Where sub-agents help", the Stage 34–37 lane owners, and the Stage 30 and 37 catalog readings: PR #21's amendment model and catalog layout (WORKSTREAMS.md §7 Q35, Q36).
+- **Next.** Codex's PR #21 (`CX-UIA-02`) is integrated in the next batch, with `CL-UIA-02`'s CI policy. `CL-R-00` integrates the three open Stage 4 lanes and writes the findings ledger.
+
 ## Decisions (all resolved 2026-09-30)
 
-Every decision below is settled. Where stage text further down still says "you approve", "you close", "if approved", "your checklist" or "blocked on push", the resolution in this section and the standing approvals after it govern. No stage waits on a decision.
+Every decision below is settled. D27 (2026-10-03) adds a second builder agent, OpenAI Codex; [`WORKSTREAMS.md`](WORKSTREAMS.md) assigns every remaining item to Claude, Codex or the owner as work packets, and this plan stays the roadmap. Where stage text further down still says "you approve", "you close", "if approved", "your checklist" or "blocked on push", the resolution in this section and the standing approvals after it govern. No stage waits on a decision.
 
 | # | Decision | Resolution |
 |---|---|---|
@@ -273,6 +283,7 @@ Every decision below is settled. Where stage text further down still says "you a
 | D24 | **UI API choices** | • Host-owned event loop.<br>• Reuse `UIEventKind` / `UISemantics`.<br>• A shim keeps index-based `ISelect` until BTRSmith re-pins.<br>• Reproductions land with their fix, with no xfail. A reproduction written before its fix stays on a branch and is recorded as failing in the catalog.<br>• Directory name `GUI/IOS`.<br>• `Raster`/`View` are classified as legacy.<br>• A versioned change to `ui.snapshot` is allowed. |
 | D25 | **Product scope** | • **BTRSmith's PRD MVP stays macOS-only and unchanged.** The PRD gains a post-MVP cross-platform release section matching buckets 4–5: accessibility, Linux, Windows, iOS, iPadOS and Android.<br>• **The Player reference for #6** is `docs/product/PlayerScreenReference.png`, with deliberate deviations recorded in `PlayerConfiguration.md` and `UXConstants.md`. Correct musical geometry wins where the mock is wrong (HWW.md:51).<br>• **#13 (full-screen practice mode) is post-MVP.**<br>• **Skin art** outside Apple platforms: only owned or licensed assets ship; a platform without licensed art uses the procedural skin.<br>• **Mobile scope:** USB class-compliant audio input, yes. Plug-in hosting, no (a PRD exclusion). `btrsmithctl`/MCP stays desktop-only; mobile automation goes through the test channel.<br>• **The macOS MVP closure** stays in bucket 5 (D1). |
 | D26 | **Bucket-5 budgets, formats and CI cost** | • **P6 no-op:** ≤5 s (ref:3351), plus platform-parity's reference private-body edit row in the P6 table.<br>• **Linux:** ship via Nix first.<br>• **Android:** APK and AAB.<br>• **BTRSmith CI:** Linux hosted runners on every push and PR; macOS only for tagged releases; the self-hosted runner only on the D7 host, if it exists.<br>• **No binary-cache account.** Cache btrcc with `actions/cache`, keyed on `flake.lock` and the btrc revision.<br>• **Budget:** BTRSmith CI stays within the account's included monthly minutes. Cost per run is measured, and triggers are adjusted to fit. |
+| D27 | **Two builder agents (Claude and Codex); early UI work** | **Status.** In force 2026-10-03: the owner asked for the Claude/Codex split and started Codex on it. The owner may strike any clause; work under a struck clause takes no new packets, and its in-flight packets finish or park. Stage 24's early start (the last clause's first bullet) still waits for the owner's word (WORKSTREAMS.md §7 Q2).<br>**Roles.** Claude (the main session) stays the integrator and the one contract owner D6(c) asks for. It alone changes the compilers, shared specs, generators, generated files, `src/runtime/**` (`c/`, `gpu/`, `windows/`), the native readers, editor tooling (`src/devex/**`, except a file a Codex packet names while no C-track packet holds it) and the hotspot files (Makefile, `flake.nix`, `flake.lock`, `nix/*`, `conftest.py`, `runner_capabilities.py`, `native_plan.py`, `budget_bench.py`, `ci.yml`, `macos.yml`, `windows.yml`, PLAN.md, AGENTS.md). It also applies the integrator-owned data (`btrc.toml` manifests, expected-skip manifests, denominators, `ci/tiers.toml`), which Codex changes only through `fragment:` commits. It approves and freezes every contract, merges every branch and pushes `main`. Codex (OpenAI) is a second builder. It owns stdlib platform providers and UI (`GUI`, `UI`, `Tray`, `App`, except their `btrc.toml`), OS-service providers that need no compiler change, test hosts, packaging and host tooling in `tools/` directories it owns, the lane workflows it creates, fixtures, examples, evidence harnesses and their docs, and the BTRSmith UI slices. It may draft UI contracts as the single designated writer chain. A draft becomes a contract only when Claude approves it under the standing design rule. Codex files a request for any compiler, spec or runtime change, and Claude turns it into a packet. Owner steps are `MAC-` packets, one command each.<br>**Mechanics.** `WORKSTREAMS.md` assigns the packets and their paths. Codex works on `codex/…` branches, claims a packet with a draft PR titled `[CX-…]` that carries a `Packet:` line, opens draft PRs to `main` only to get CI, and never merges. Claude integrates at most two Codex code branches per batch into `main-kn9jxh`. Docs-only branches do not count, and an atomic landing (UI2, UI3, a Stage 34 landing, a Stage 35 track milestone, the Windows FileSystem/Process landing) counts as one. Claude runs D5 and pushes per D4. The parity rule is unchanged.<br>**Amends D1.** D1 still orders Claude's work and the gate queue, except for the early starts named in the last clause. A Codex packet may run ahead of its bucket when its dependencies are met on `main`, or when it is planning or spike work, and it changes no file on Claude's list. Codex batches never displace a bucket 1–3 batch or a quiet window.<br>**Amends D6(c).** The bucket 3–4 platform lanes may be split between the two agents. There is still one contract owner (Claude), and one writer at a time per hotspot. IView, IWindow and `App.btrc` form one Codex writer chain.<br>**UI work that starts now:**<br>• UI0: the focused GUI gate, the catalog and drift test, the host matrix, the BTRSmith caller map and the headless Wayland/X11/AT-SPI tooling;<br>• the native-shell fixture and its macOS and Linux-SDL proofs;<br>• docs-only drafts of the UI2 and UI4–UI9 contracts;<br>• spikes that merge only a findings note: GTK4/WebGPU in plain C, Win32/UIKit/Android shell notes, the collection data model, accessibility bridges;<br>• the 100,000-row fixture generator.<br>**Starts as soon as its in-stage dependencies land,** without waiting for buckets 2–3 to close: the macOS and Linux-SDL halves of UI1–UI3 and the tray (Stages 31–33). UI2 and UI3 approvals are provisional for Windows, iOS and Android until `CL-UIA-22` re-checks them on the real shells. A change then is a versioned contract change, landed atomically with macOS and Linux. If D23 picks GTK4, `CX-UIA-29` ports the Linux UI2/UI3 core to GTK4 before the Linux UI4 work.<br>**Stays gated:**<br>• any portable-contract edit before its packet is approved; such edits land atomically with both reference providers;<br>• the btrc-hosted GTK4 spike and D23, which come after interop step 7 (`CL-P2-24`) and the GObject binding (step 8);<br>• the Windows, iOS and Android shells and UI tracks (Stages 23–29 first);<br>• Stage 34–37 provider work, which waits for the Stage 33 landing, the five shells and `CL-UIA-22`;<br>• BTRSmith screen migration, which waits for its btrc landing and pin bump;<br>• every compiler, spec and runtime change the last clause does not name;<br>• Mac, device and account evidence (D8).<br>**Codex stdlib code while bucket 2 runs:**<br>• no `#if`, `#ifdef` or `#undef` in `src/stdlib` until C4 lands; after that, only conditions valid on every target, and never `#undef`;<br>• no struct member spelled `T[] name` (write `T* name`);<br>• no `volatile T*`;<br>• import every btrc type spelled `struct X`, `union X` or `enum X`;<br>• no identifier that C3 reserves (`inline`, `restrict`, `va_arg`, `_Alignas`, …).<br>Codex stdlib branches are re-gated after C4, r09, r13, the C3 vocabulary commit and r15a.<br>**Claude may also start early** (each item an explicit amendment of D1):<br>• Stage 24 (`CL-P1-03`…`15`) and Stage 25's compiler packets (`CL-P1-16`…`20`), once C4 lands (`CL-C-06`). They interleave with C2/C3 by hotspot, never beside `CL-C-07` or `CL-C-23`, and `CL-P1-05` never beside `CL-C-25` or `CL-C-30`. Interop (`CL-P2-05`…`24`), the GObject binding (`CL-UIA-06`…`08`) and `CL-UIB-16` wait for bucket 2's close (`CL-C-40`);<br>• bucket-1 preparation that measures nothing: the runbook kit, the Stage B key and journal spec, never-merged floor spikes, reference attribution tooling and the host manifests (the x86_64 workflow waits for D7's probe);<br>• Stage 38 CI on runners that already exist: the macOS hardware skip tier, BTRSmith Linux CI and CI tiers;<br>• the BTRSmith UI2 subscriptions and Library.UI split (`CL-UIA-15`…`18`) once UI2 lands, because bucket 1 measures the D9 BTRSmith copy pinned by `CL-R-01`, never BTRSmith `main`. |
 
 ### Standing approvals (every "you" step in the stages)
 
@@ -281,6 +292,7 @@ Every decision below is settled. Where stage text further down still says "you a
 | Pushes, `ci/**` branches, pin bumps | D4. Every "blocked on push" step proceeds after its gate. |
 | Closing issues (Stages 4, 9, 39, 40) | The agent posts the evidence and closes the issue once its acceptance is demonstrated, including #6's side-by-side visual review. Issues whose acceptance needs a listening approval or physical hardware (#4, #5, #21, #22, and Stage 40's records) stay open with the evidence posted. |
 | Design and interface approvals (Stage 27's ownership plan; Stage 32's interface diff and `ui.snapshot` change; Stage 34's contract packets) | Approved when its two adversarial reviewers and the parity reviewer leave no unresolved blocking finding. The main session records the approval and the review files in this plan. |
+| Codex contract drafts and Codex branches (D27) | A UI contract Codex drafts is approved when Claude's two feasibility reviewers and one parity reviewer leave no blocking finding open; Claude records the approval and the review files in this plan, and from then on owns the contract. A Codex branch lands only through Claude's batch gate (WORKSTREAMS.md §3.8). Codex never pushes `main` or `main-kn9jxh`, merges or closes a PR, edits `docs/design/plan-reference.md`, or claims Mac, device or account evidence. |
 | Stage 15's "≤0.3% or you explicitly accept more" | ≤0.3% passes. Up to 1% is accepted with the delta recorded. Above 1%, apply D17 or optimize before landing. |
 | Stage 12's conditional tiers (borrowed returns, M9 arena, thread-confined ARC, M8b) | A tier runs when a Stage 12 profile attributes ≥5% of a still-open row's cost to what it removes (M8b uses D17's 20%). Otherwise it is declined, with the numbers recorded. |
 | Parity exceptions | None. Anything that changes observable behavior is paired. |
@@ -1151,13 +1163,14 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
   - `tooling-linux-headless-gui`
   - `tooling-linux-desktop-host`
 - **Exit.**
-  - The drift test reports 19 files, 24 interfaces and 162 declarations, and fails when a dummy method is added.
+  - The drift test reports 19 files, 24 interfaces and 162 declarations for the frozen 2026-09-21 release (`ui0-source-inventory-2026-09-21`), pins every later source change as a reviewed amendment, and fails when a dummy method is added. On `8b73c79` the source has 20 files, 25 interfaces and 178 declarations: Codex's PR #21 (`CX-UIA-02`) pins the difference as amendments, and every later re-freeze is a new reviewed release, `CX-UIA-05` first (D27; WORKSTREAMS.md §7 Q35).
+  - The catalog lives in `docs/design/native-ui-catalog.toml` (the seed, with `ui0-source-amendments.toml` and `ui0-catalog.md`) plus shard documents under `docs/design/native-ui-catalog/`, merged by subject by `tools/qualification/ui_catalog.py` and checked by `test_ui0_catalog.py`. The seed changes only through reviewed releases (WORKSTREAMS.md §7 Q36).
   - All 1,620 operation slots and 470 case slots are classified, in the ledger format.
   - 100% of BTRSmith callers are mapped.
   - The journey catalog is frozen.
   - Linux GUI tests run under both Wayland and X11.
   - 1 gate plus linux-ci.
-- **Depends on.** D24, D25. Read-only mapping may start during bucket 3's gate windows.
+- **Depends on.** D24, D25. Read-only mapping may start during bucket 3's gate windows. Under D27 the UI0 packets start now (WORKSTREAMS.md §2). D23 decides the Linux toolkit for UI4–UI8 only, so the UI2/UI3 Linux work stays on the SDL provider; `CX-UIA-29` ports it if D23 picks GTK4.
 - **Parallelization: SERIAL first, then a read-only WORKFLOW of about 15 agents in waves of at most 10.**
   - **Serial first:** the focused gate and the catalog schema.
   - **Read-only fan-out:**
@@ -1271,7 +1284,7 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
     - Drafts for UI4 (3 sub-drafters plus a reconciler), UI6, UI7 (2 drafters) and UI9 run concurrently.
     - One IView writer drafts UI5 and the UI8 bridge contract.
     - Reviewed by 5 platform reviewers plus 1 adversary looking for AppKit-shaped APIs, then **one approval from you**.
-  - **Then milestone by milestone, UI4 to UI7.** macOS and Linux agents, each optionally split into 2 by family, each carrying the family's accessibility and GPU work. The integrator merges `btrc.toml` fragments and lands the contract plus providers atomically.
+  - **Then milestone by milestone, UI4 to UI7.** macOS and Linux agents, each optionally split into 2 by family, each carrying the family's accessibility and GPU work. Under D27 these provider lanes are Codex's and Claude stays the contract owner and integrator. Lanes carry `btrc.toml` changes as `fragment:` commits and regenerated files as `derived:` commits (WORKSTREAMS.md §3.5); the integrator re-applies the fragments, regenerates, and lands the contract plus providers atomically. An in-flight track owns its provider directory.
   - **Fixtures.** 2 agents, one per repository.
   - **Probes.** A serial contract with a proof that realtime paths do not allocate, then 1 agent per provider.
   - GUI captures and screen-reader sessions are serialized on the `gui-capture` lock.
@@ -1288,9 +1301,9 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
   - Mobile artwork stays ≤64 MiB.
 - **Overlap.** It overlaps Stage 34.
 - **Parallelization: WORKFLOW, 3 long-lived agents (up to 6), subject to D6(c).**
-  - Each agent owns one provider directory, `GUI/{Windows,IOS,Android}`, and submits `btrc.toml` fragments to the integrator.
+  - Each agent (a Codex lane under D27) owns one provider directory, `GUI/{Windows,IOS,Android}`, while its track is in flight, and submits `btrc.toml` changes as `fragment:` commits and regenerated files as `derived:` commits (WORKSTREAMS.md §3.5).
   - Each moves through core, then controls and layout, then collections and services, with accessibility and GPU inside every step.
-  - Contract defects go back to the single contract owner.
+  - Contract defects go back to the single contract owner, Claude (D27).
   - At most 3 builds and 2 guests at once. One device queue per guest.
 
 ### Stage 36: BTRSmith screen migration slices (one milestone behind Stage 34)
@@ -1310,8 +1323,8 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
   - Player shows 0 app-induced xruns over 30 minutes, with frame p95 ≤16.7 ms.
 - **Overlap.** It interleaves with Stages 34–35.
 - **Parallelization: WORKFLOW, at most 2 BTRSmith clones.**
-  - 1 integrator owns ApplicationSession, ApplicationView and GUIApplication. The event-loop change is serial.
-  - Per-slice agents work on disjoint frontend files: Library 2 (grid, picker), Settings 1, Player 2, accessibility 1 per screen.
+  - 1 integrator (Claude) owns ApplicationSession, ApplicationView and GUIApplication. The event-loop change is serial.
+  - Per-slice agents (Codex lanes under D27, in BTRSmith `codex/*` branches) work on disjoint frontend files: Library 2 (grid, picker), Settings 1, Player 2, accessibility 1 per screen.
   - Each duplicate pair counts as one unit of work.
 
 ### Stage 37: UI10 automation and mobile restoration; UI11 long tail
@@ -1323,12 +1336,12 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
 - **Exit.**
   - Drivers pass the seed journeys on the installed app.
   - 100 fresh-process restores (E47), with 0 replayed side effects.
-  - The catalog resolves 470 of 470 case slots and 1,620 of 1,620 operation slots, and 50 of 50 core families.
+  - The catalog resolves 470 of 470 case slots and 1,620 of 1,620 operation slots, and 50 of 50 core families. Those are the frozen 2026-09-21 release's counts; every slot of each later reviewed ui-operation release resolves too (WORKSTREAMS.md §7 Q35).
   - UI11 families are dispositioned.
   - A full gate.
   - **Deferred UI10 parts** (native-ui-parity.md:1142–1147): "all numeric goals on the named matrix" closes in Stage 41, and "minimum/current OS and SDK-update evidence" closes in Stage 42. The UI10 row stays open until Stage 42.
 - **Parallelization: WORKFLOW.**
-  - A serial script schema, then 5 per-platform driver agents.
+  - A serial script schema (Claude), then 5 per-platform driver agents (Codex lanes under D27, each owning its driver directory while in flight).
   - BTRSmith mobile: a serial checkpoint format, then 2 device agents.
   - UI11: 1 agent per family, then 1 per provider.
   - Evidence collection fans out per host. Aggregation and the gate are serial.
@@ -1473,6 +1486,18 @@ UI8 (accessibility) and UI9 (GPU) are qualified **throughout**, not as a final r
 4. Build one btrcc for the new base SHA, so the next wave can pin it. Prune `test-btrcc`.
 5. Hand the batch to the main session for the D5 gate. When it is green, the main session pushes `main` (D4).
 6. If the gate is green, fetch into the Drive checkout. If it is red, run D5's revert-bisect and send the culprit back to its lane.
+
+**Codex lanes (D27).** OpenAI Codex is a second builder; [`WORKSTREAMS.md`](WORKSTREAMS.md) §3 is the full protocol, and every rule above about lanes applies to Codex lanes too.
+
+| Codex lanes | Rule |
+|---|---|
+| Branches and claims | A Codex branch starts with `codex/`, one packet per branch. The claim key is the draft PR title `[CX-…]` plus the report's `Packet:` line, not the branch name. The draft PR opens against `main` with its first commit and lists the packet's owned paths first; that is the claim (WORKSTREAMS.md §3.3). |
+| Draft PRs | Only for CI. Codex never merges or closes a PR, and never pushes `main`, `main-kn9jxh` or another agent's branch. Claude closes the PR after integrating it. |
+| Owned paths | Each packet edits only its listed paths. Compiler sources, shared specs, generators, generated files, `src/runtime/**`, the native readers, editor tooling and the hotspot files above stay Claude's (WORKSTREAMS.md §3.3.1). |
+| `fragment:` and `derived:` commits | A branch ends with up to two special commits. `fragment: <what>` carries hand-written changes to integrator-owned data (`btrc.toml` exports and native rows, expected-skip rules, denominators, Makefile lines, `ci/tiers.toml`), which Claude re-applies. `derived: regenerate` carries `btrc.lock`, `btrc.symbols` and the LSP catalog, which Claude drops and regenerates. |
+| Compiler requests | A compiler, spec, runtime or hotspot change goes in the PR body as a `REQUEST(<target>)` block (WORKSTREAMS.md §3.6). Claude turns it into a packet in its next batch. |
+| Batch cap | At most two Codex code branches per integration batch; docs-only branches do not count, and an atomic landing counts as one. Codex batches never displace a bucket 1–3 batch or a quiet window. |
+| Evidence | Codex proves its work in a Linux container and on GitHub runners. Mac, device and account evidence is an owner (`MAC-`) packet, and stand-in evidence is labelled stand-in (D8). |
 
 ## Ultracode recommendation
 

@@ -43,9 +43,15 @@ def cross_target_environment(directory: Path, target: str, base: dict[str, str] 
         "Name: native-package-proof\nDescription: cross-target plan proof\nVersion: 1\nCflags:\nLibs:\n",
         encoding="utf-8",
     )
-    return {
+    environment = {
         **(os.environ if base is None else base),
         "BTRC_NATIVE_TARGET": TRIPLES[target],
         "BTRC_NATIVE_SYSROOT": str(sysroot),
         "PKG_CONFIG_PATH": str(packages),
     }
+    # The devcontainer sets BASH_ENV to the dev shell's environment, so every
+    # bash process re-sources it -- including Nix's pkg-config wrapper, which
+    # would then search the dev shell's PKG_CONFIG_PATH instead of this one.
+    # The child already inherits the dev shell, so it needs no re-sourcing.
+    environment.pop("BASH_ENV", None)
+    return environment
