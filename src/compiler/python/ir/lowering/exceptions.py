@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -1226,12 +1226,19 @@ class ExceptionLowerer:
         module: IRModule,
         solved_effects: Mapping[str, FunctionEffect] | None = None,
         consulted_solved: set[str] | None = None,
+        *,
+        roots: Collection[str] | None = None,
     ) -> dict[str, SetjmpCallEffects]:
         """Compute write, return-alias, and capture summaries to a fixed point.
 
         `solved_effects` supplies the program's least fixed point for functions
         another module unit defines. With those fixed, this unit's own least
         fixed point is the program's restricted to its functions.
+
+        With `roots`, only those functions and the definitions their flows
+        consult, transitively, are solved and returned. A flow depends on no
+        summary it does not consult, so each returned flow is the one the
+        whole-module solve gives.
         """
         type_facts = ExceptionLowerer.pointer_type_facts(module)
         definitions = {function.name: function for function in module.function_defs}
@@ -1256,12 +1263,15 @@ class ExceptionLowerer:
         # round only a function that consulted a summary that just moved can
         # move. A flow computed once no consulted summary moves afterwards is
         # the flow the final catalog would give, so it is kept as the result.
+        # A function first reached through a consulted summary is analyzed in
+        # the round that reaches it, as every function is in the first round.
+        active = set(definitions) if roots is None else {name for name in roots if name in definitions}
         moved: set[str] = set()
-        first = True
         while True:
             moved_now: set[str] = set()
+            pending = False
             for name, function in definitions.items():
-                if not first and not (consulted_by[name] & moved):
+                if name not in active or (name in consulted_by and not (consulted_by[name] & moved)):
                     continue
                 catalog.consulted = set()
                 flow = ExceptionLowerer.analyze_pointer_flow(function, globals_by_name, type_facts, catalog)
@@ -1271,11 +1281,14 @@ class ExceptionLowerer:
                 flows[name] = flow
                 if catalog.merge(name, ExceptionLowerer._flow_effect(flow, parameters)):
                     moved_now.add(name)
-            if not moved_now:
+                reached = consulted_by[name] - active
+                if reached:
+                    active |= reached
+                    pending = True
+            if not moved_now and not pending:
                 break
             moved = moved_now
-            first = False
-        return {name: SetjmpCallEffects(catalog=catalog, flow=flows[name]) for name in definitions}
+        return {name: SetjmpCallEffects(catalog=catalog, flow=flows[name]) for name in definitions if name in flows}
 
     @staticmethod
     def reject_unmodelled_setjmp_captures(function, effects) -> None:
@@ -1303,6 +1316,29 @@ class ExceptionLowerer:
                 if value.callee == "setjmp":
                     return True
                 continue
+            if isinstance(value, (list, tuple)):
+                pending.extend(value)
+                continue
+            value_type = type(value)
+            if value_type not in _SETJMP_SEARCH_FIELDS:
+                _SETJMP_SEARCH_FIELDS[value_type] = (
+                    tuple(node_field.name for node_field in dataclasses.fields(value))
+                    if dataclasses.is_dataclass(value)
+                    else None
+                )
+            names = _SETJMP_SEARCH_FIELDS[value_type]
+            if names:
+                pending.extend(getattr(value, name) for name in names)
+        return False
+
+    @staticmethod
+    def mentions_setjmp(value: object) -> bool:
+        """Whether `value` calls `setjmp` anywhere, including inside another call."""
+        pending = [value]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, IRCall) and value.callee == "setjmp":
+                return True
             if isinstance(value, (list, tuple)):
                 pending.extend(value)
                 continue
@@ -1588,9 +1624,19 @@ class ExceptionLowerer:
         }
         if not any(with_setjmp.values()):
             return
+        # Only a function that calls setjmp somewhere can qualify storage: the
+        # visibility pass marks nothing elsewhere, and qualifier safety only
+        # rejects what was marked. Effects are solved for those roots alone.
+        roots = {
+            function.name
+            for function in module.function_defs
+            if with_setjmp[id(function)] or ExceptionLowerer.mentions_setjmp(function.body)
+        }
         if not call_effects:
-            call_effects = ExceptionLowerer.build_setjmp_call_effects(module, solved_effects)
+            call_effects = ExceptionLowerer.build_setjmp_call_effects(module, solved_effects, roots=roots)
         for function in module.function_defs:
+            if function.name not in roots:
+                continue
             if with_setjmp[id(function)]:
                 ExceptionLowerer.reject_unmodelled_setjmp_captures(function, call_effects[function.name])
             visibility = _LexicalVisibilityPass(function.params, call_effects[function.name])
