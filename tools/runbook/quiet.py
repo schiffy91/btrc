@@ -198,17 +198,75 @@ class CommandRunner:
         return completed.returncode, completed.stdout
 
 
+@dataclass(frozen=True)
+class ProcFilesystem:
+    """Linux's process table read from ``/proc``, for a host without ``ps``.
+
+    CI's devcontainer image has no procps. Each row matches what ``ps`` reports:
+    the parent, the owner, the lifetime CPU share (``pcpu``) and the command line,
+    or ``[comm]`` for a kernel thread.
+    """
+
+    root: Path = Path("/proc")
+
+    def processes(self) -> list[ProcessInfo] | None:
+        try:
+            ticks = os.sysconf("SC_CLK_TCK")
+            uptime = float((self.root / "uptime").read_text().split()[0])
+            entries = [entry for entry in self.root.iterdir() if entry.name.isdigit()]
+        except (OSError, ValueError, IndexError):
+            return None
+        return [process for entry in entries if (process := self.process(entry, ticks, uptime)) is not None]
+
+    @staticmethod
+    def process(entry: Path, ticks: int, uptime: float) -> ProcessInfo | None:
+        try:
+            stat = (entry / "stat").read_text(errors="replace")
+            cmdline = (entry / "cmdline").read_bytes()
+            uid = entry.stat().st_uid
+        except OSError:
+            return None  # it exited while the table was read
+        # The command name (field 2) may hold spaces and parentheses, so the
+        # fixed fields are counted from its closing parenthesis.
+        fields = stat[stat.rfind(")") + 2 :].split()
+        try:
+            ppid, used, start = int(fields[1]), int(fields[11]) + int(fields[12]), int(fields[19])
+        except (IndexError, ValueError):
+            return None
+        command = cmdline.replace(b"\0", b" ").decode(errors="replace").strip()
+        args = command or f"[{stat[stat.find('(') + 1 : stat.rfind(')')]}]"
+        elapsed = uptime - start / ticks
+        cpu = round(100.0 * used / ticks / elapsed, 1) if elapsed > 0 else 0.0
+        return ProcessInfo(int(entry.name), ppid, ProcFilesystem.owner(uid), cpu, args)
+
+    @staticmethod
+    def owner(uid: int) -> str:
+        import pwd
+
+        try:
+            return pwd.getpwuid(uid).pw_name
+        except KeyError:
+            return str(uid)
+
+
 @dataclass
 class ProcessTable:
     """The host's processes, minus this check's own ancestry and descendants."""
 
     runner: CommandRunner = field(default_factory=CommandRunner)
     own_pid: int = field(default_factory=os.getpid)
+    # Read when ``ps`` is not installed; only Linux has it.
+    proc: ProcFilesystem | None = field(
+        default_factory=lambda: ProcFilesystem() if platform.system() == "Linux" else None
+    )
 
     COMMAND: Sequence[str] = ("ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "user=", "-o", "pcpu=", "-o", "args=")
 
     def snapshot(self) -> list[ProcessInfo] | None:
         result = self.runner.output(self.COMMAND)
+        if result is None and self.proc is not None:
+            processes = self.proc.processes()
+            return None if processes is None else self.foreign(processes)
         if result is None or result[0] != 0:
             return None
         processes = [process for line in result[1].splitlines() if (process := self.parse(line)) is not None]
