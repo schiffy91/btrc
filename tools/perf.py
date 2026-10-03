@@ -292,7 +292,7 @@ class TimingReport:
         return lines
 
 
-# The names AGENTS.md documents for reading a timing report.
+# The names docs/design/compile-performance.md documents for reading a timing report.
 phase_times = TimingReport.phase_times
 worker_phase_times = TimingReport.worker_phase_times
 worker_usage = TimingReport.worker_usage
