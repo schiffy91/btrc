@@ -219,7 +219,7 @@ def counting_preset(tmp_path: Path) -> Path:
 # -- presets ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["stage4-requal", "stage5", "stage13-final"])
+@pytest.mark.parametrize("name", ["stage4-requal", "stage5", "stage13-final", "stage6-reference"])
 def test_every_shipped_preset_parses_and_expands(name: str) -> None:
     preset = Preset.load(name)
 
@@ -838,6 +838,56 @@ def test_ingest_is_only_for_acceptance_reports(tmp_path: Path, hubs: dict[str, P
 
     assert {record["status"] for record in summary["ingest"]} == {"skipped"}
     assert len(summary["ingest"]) == 4
+
+
+ATTRIBUTION_WRITER = (
+    "import json, sys\n"
+    "out, outcome = sys.argv[1], sys.argv[2]\n"
+    "summary = {'attributed_fraction': 0.93, 'minimum_fraction': 0.91, 'target_fraction': 0.9,\n"
+    "           'meets_target': True, 'scenario_fractions': {'cold': 0.91},\n"
+    "           'owner_shares': {'cold': {'analyzer': 0.4}}}\n"
+    "failure = None if outcome == 'green' else 'attributed 41.0% below --min-attributed 90%'\n"
+    "report = {'configuration': {'dry_run': True, 'stand_in': True}, 'summary': summary, 'failure': failure}\n"
+    "json.dump(report, open(out + '/attribution.json', 'w'))\n"
+    "sys.exit(0 if failure is None else 1)\n"
+)
+
+
+def test_attribution_cells_record_the_summary_and_are_never_ingested(tmp_path: Path, hubs: dict[str, Path]) -> None:
+    writer = tmp_path / "attribution_writer.py"
+    writer.write_text(ATTRIBUTION_WRITER)
+    preset = write_preset(
+        tmp_path,
+        f"""\
+        [preset]
+        title = "attribution"
+        [[cell]]
+        id = "attribution-{{outcome}}"
+        matrix = {{ outcome = ["green", "red"] }}
+        result = "attribution"
+        command = ["python3", "{writer}", "{{out}}", "{{outcome}}"]
+        [[cell]]
+        id = "attribution-missing"
+        result = "attribution"
+        command = ["true"]
+        """,
+    )
+    engine = engine_for(preset, options(tmp_path, hubs, preset, "--rehearsal"))
+    engine.run()
+    summary = json.loads((engine.state.work / "summary.json").read_text())  # type: ignore[union-attr]
+    cells = {cell["id"]: cell for cell in summary["cells"]}
+
+    green = cells["attribution-green"]
+    assert green["status"] == "passed"
+    assert green["results"]["minimum_fraction"] == 0.91 and green["results"]["meets_target"] is True
+    assert green["results"]["owner_shares"] == {"cold": {"analyzer": 0.4}}
+    assert green["results"]["stand_in"] is True and "report" not in green["results"]
+    red = cells["attribution-red"]
+    assert red["status"] == "failed" and "below --min-attributed" in red["message"]
+    assert red["results"]["failure"] == red["message"]
+    missing = cells["attribution-missing"]
+    assert missing["status"] == "failed" and "no attribution.json" in missing["message"]
+    assert summary["ingest"] == []
 
 
 def test_regressions_compare_matching_cells_with_a_baseline_summary(tmp_path: Path, hubs: dict[str, Path]) -> None:

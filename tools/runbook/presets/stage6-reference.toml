@@ -4,15 +4,16 @@
 #
 # On the Mac, on the BTRSmith pin Stage 5 measured: `tools/perf.py --cprofile`
 # times the reference compiler's cold transpiles and budget_bench's three
-# body-edit fixtures, each sample once plain (the uninstrumented `btrcpy
+# body-edit fixtures, each sample once plain (the unprofiled `btrcpy
 # timing:` phases) and once under cProfile, and writes per scenario the time
 # by owner, module and owner class, its reconciliation with the phases, and the
 # attributed fraction. The Stage 6 exit is at least 90% attributed; a scenario
 # below it turns its cell red. Rerunning the same command resumes.
 #
-# The attribution JSON is each cell's `attribution.json` under the run's
-# workspace (out/<cell>/); the engine's `exit` result publishes only the
-# cell's status, so copy those files to the evidence branch with the summary.
+# Each cell's `attribution` result carries its attributed fractions and owner
+# shares into summary.json and the evidence branch; the full JSON (modules,
+# owner classes, functions) and the .prof files stay under the run's
+# workspace in out/<cell>/.
 # In a container: tools/runbook/run.sh stage6-reference --rehearsal --stand-in --dry-run
 
 [preset]
@@ -61,6 +62,7 @@ title = "reference cold transpile, plain and under cProfile ({mode})"
 matrix = { mode = ["dev", "release"] }
 lock = "bench"
 shell = "btrsmith"
+result = "attribution"
 timeout_hours = 4
 command = [
   "python3", "-m", "tools.perf", "--cprofile", "--frontend", "reference", "{workspace_args}",
@@ -73,6 +75,7 @@ id = "reference-edits"
 title = "reference body edits (budget_bench EDIT_FIXTURES), plain and under cProfile"
 lock = "bench"
 shell = "btrsmith"
+result = "attribution"
 timeout_hours = 4
 command = [
   "python3", "-m", "tools.perf", "--cprofile", "--frontend", "reference", "{workspace_args}",
