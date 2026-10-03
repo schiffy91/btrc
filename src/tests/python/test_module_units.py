@@ -25,7 +25,7 @@ from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceDependencyGraph
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
-from src.tests.c_toolchains import HOST_CLANG, host_c_compiler
+from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
@@ -1270,6 +1270,154 @@ def test_an_edit_replaces_only_the_changed_unit_files(compiler: str, tmp_path, r
     assert replaced == {name for name in after if "Main" in name}
     for name in after.keys() - replaced:
         assert after[name].st_mtime_ns == before[name].st_mtime_ns
+
+
+# Each group's header reads a macro an earlier group defines and must not see
+# one a later group defines, so a unit that put its own directives ahead of the
+# other groups' fails to preprocess.
+_DIRECTIVE_PROGRAM = {
+    "Config/Config.btrc": """#define CFG_SCALE 3
+#define CFG_LABEL "cfg"
+
+int configScale() {
+	return CFG_SCALE;
+}
+""",
+    "Probe/Probe.btrc": """import ../Config/Config.btrc;
+#include "probe.h"
+
+int probeValue() {
+	return probeScaled(configScale());
+}
+""",
+    "Main.btrc": """import ./Config/Config.btrc;
+import ./Probe/Probe.btrc;
+#include "lib.h"
+#define MAIN_OFFSET 10
+
+int main() {
+	int scaled = libScaled(2);
+	print(f"{configScale()} {probeValue()} {scaled + MAIN_OFFSET}");
+	return 0;
+}
+""",
+    "Probe/probe.h": """#ifndef CFG_SCALE
+#error CFG_SCALE must precede probe.h
+#endif
+#ifdef MAIN_OFFSET
+#error MAIN_OFFSET must follow probe.h
+#endif
+static inline int probeScaled(int value) { return value + CFG_SCALE; }
+""",
+    "lib.h": """#ifndef CFG_SCALE
+#error CFG_SCALE must precede lib.h
+#endif
+#ifdef MAIN_OFFSET
+#error MAIN_OFFSET must follow lib.h
+#endif
+static inline int libScaled(int value) { return value * CFG_SCALE; }
+""",
+}
+_DIRECTIVES = (
+    "#define CFG_SCALE 3",
+    '#define CFG_LABEL "cfg"',
+    '#include "probe.h"',
+    '#include "lib.h"',
+    "#define MAIN_OFFSET 10",
+)
+
+
+def _source_directives(text: str, directives: tuple[str, ...]) -> list[str]:
+    return [line for line in text.split("\n") if line in directives]
+
+
+def test_every_unit_carries_the_whole_directive_list_in_source_order(compiler: str, tmp_path, request):
+    """A `#define` / `#include` pair split across groups keeps its order in every unit.
+
+    Each unit, the runtime unit included, carries the whole program's directive
+    list in source order, so it compiles as strict C11 and the program runs;
+    a warm build after a directive edit equals a cold one.
+    """
+    if compiler == "python":
+        command = [sys.executable, "-m", "src.compiler.python.main"]
+    else:
+        command = [str(request.getfixturevalue("immutable_btrcc"))]
+    source = (tmp_path / "program").resolve()
+    for name, text in _DIRECTIVE_PROGRAM.items():
+        (source / name).parent.mkdir(parents=True, exist_ok=True)
+        (source / name).write_text(text)
+
+    def build(output: Path, cache: Path, *mode: str) -> dict[str, str]:
+        output.mkdir(parents=True)
+        completed = subprocess.run(
+            [*command, "Main.btrc", "-o", str(output / "p.c"), "--emit-units", str(output / "p"), *mode],
+            cwd=source,
+            env={
+                **os.environ,
+                "BTRC_HOME": str(ROOT / "src"),
+                "PYTHONPATH": str(ROOT),
+                "BTRC_CACHE_DIR": str(cache),
+            },
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert completed.returncode == 0, completed.stderr
+        return {path.name: path.read_text() for path in sorted(output.glob("p*.c"))}
+
+    root = tmp_path.resolve()
+    whole = build(root / "whole", root / "whole-cache")
+    assert list(whole) == ["p.c"]
+    assert _source_directives(whole["p.c"], _DIRECTIVES) == list(_DIRECTIVES)
+    units = build(root / "units", root / "cache", "--module-units")
+    assert len([name for name in units if ".unit-" in name]) >= 3
+    for name, text in units.items():
+        assert _source_directives(text, _DIRECTIVES) == list(_DIRECTIVES), name
+
+    # Every key covers the directive text: a warm build after a directive edit
+    # gives the same C as a cold build.
+    main = source / "Main.btrc"
+    main.write_text(main.read_text().replace("#define MAIN_OFFSET 10", "#define MAIN_OFFSET 20"))
+    warm = build(root / "warm", root / "cache", "--module-units")
+    assert warm == build(root / "cold", root / "cold-cache", "--module-units")
+    edited = (*_DIRECTIVES[:-1], "#define MAIN_OFFSET 20")
+    for name, text in warm.items():
+        assert _source_directives(text, edited) == list(edited), name
+
+    if not HOST_C_COMPILERS:
+        pytest.skip("module-unit compilation needs a C compiler")
+    for c_compiler in HOST_C_COMPILERS:
+        objects = []
+        for name in units:
+            objects.append(root / "units" / f"{name}.{Path(c_compiler).name}.o")
+            subprocess.run(
+                [
+                    c_compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    f"-I{source}",
+                    f"-I{source / 'Probe'}",
+                    "-c",
+                    str(root / "units" / name),
+                    "-o",
+                    str(objects[-1]),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=180,
+            )
+        executable = root / f"program-{Path(c_compiler).name}"
+        subprocess.run(
+            [c_compiler, *map(str, objects), "-o", str(executable), "-lm", "-lpthread"],
+            check=True,
+            capture_output=True,
+            timeout=180,
+        )
+        ran = subprocess.run([str(executable)], check=True, capture_output=True, text=True, timeout=30)
+        assert ran.stdout == "3 6 16\n", c_compiler
 
 
 _DYING_WORKER = """

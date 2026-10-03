@@ -456,7 +456,9 @@ class TranslationUnitLowerer:
                 if reachability is None or reachability.reaches_name(name):
                     self._classes.emit_interface(name)
         for decl in declarations:
-            if shared and self._foreign(decl):
+            # Every unit lowers the whole directive list in source order; an
+            # imported C source is still included only by its own group.
+            if shared and self._foreign(decl) and not isinstance(decl, PreprocessorDirective):
                 continue
             with self._stamping_sources(decl):
                 if (

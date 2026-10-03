@@ -693,9 +693,11 @@ class ModuleUnitDeclarations {
 			else if (kind == 6) { unit.functionDecls.push(self.shared.functionDecls.get(position)); }
 			else { unit.globalDecls.push(self.shared.globalDecls.get(position)); }
 		}
-		/* Directives of other groups (their headers and macros) apply to every
-		 * unit, as they do to the whole program; they precede all C code. */
+		/* The unit already lowered the program's whole directive list in source
+		 * order. A runtime header the shared declarations need is added once;
+		 * only identical includes are deduplicated, and macros never are. */
 		for declaration in self.shared.preprocessorDecls {
+			if (declaration.kind != IR_PREPROCESSOR_INCLUDE) { continue; }
 			bool present = false;
 			for existing in unit.preprocessorDecls {
 				if (existing.kind == declaration.kind && existing.header.equals(declaration.header) && existing.isSystem == declaration.isSystem && existing.name.equals(declaration.name) && existing.replacement.equals(declaration.replacement)) { present = true; }
