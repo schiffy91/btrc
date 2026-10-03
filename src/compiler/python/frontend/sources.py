@@ -1500,9 +1500,7 @@ class ConditionalExpression:
         for prefix, following in pairwise(tokens):
             # E11 and E15, while the replacement's own columns still show adjacency.
             if self.split_number(prefix, following):
-                raise self._error(
-                    f"Invalid integer literal '{prefix.value}{following.value}'", anchor.line, anchor.col
-                )
+                raise self._error(f"Invalid integer literal '{prefix.value}{following.value}'", anchor.line, anchor.col)
             if (
                 prefix.value in _WIDE_CHARACTER_PREFIXES
                 and following.type == TokenKind.CHAR_LIT
@@ -1550,7 +1548,9 @@ class ConditionalExpression:
             if kind == TokenKind.INT_LIT:
                 following = expanded[index + 1][0] if index + 1 < len(expanded) else None
                 if self.split_number(token, following):
-                    raise self._error(f"Invalid integer literal '{token.value}{following.value}'", token.line, token.col)
+                    raise self._error(
+                        f"Invalid integer literal '{token.value}{following.value}'", token.line, token.col
+                    )
                 try:
                     value = LiteralDecoder.parse_integer_value(token.value)
                 except ValueError:
