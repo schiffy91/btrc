@@ -111,23 +111,23 @@ class SemanticValidator {
 			if (declaration.kind == NK_CLASS_DECL) {
 				for member in declaration.members() {
 					if (member.kind == NK_FIELD_DECL) {
-						self.expressions.validateArrayBound(member.type, "Field '" + declaration.name + "." + member.name + "'", "field", member, globals);
+						self.controlFlow.validateArrayBound(member.type, "Field '" + declaration.name + "." + member.name + "'", "field", member, globals);
 					}
 				}
 			} else if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward) {
 				for field in declaration.fields() {
-					self.expressions.validateArrayBound(field.type, "struct field '" + declaration.name + "." + field.name + "'", "field", field, globals);
+					self.controlFlow.validateArrayBound(field.type, "struct field '" + declaration.name + "." + field.name + "'", "field", field, globals);
 				}
 			} else if (declaration.kind == NK_RICH_ENUM_DECL) {
 				for variant in declaration.variants() {
 					for parameter in variant.params() {
-						self.expressions.validateArrayBound(parameter.type, "rich-enum payload '" + declaration.name + "." + variant.name + "." + parameter.name + "'", "field", parameter, globals);
+						self.controlFlow.validateArrayBound(parameter.type, "rich-enum payload '" + declaration.name + "." + variant.name + "." + parameter.name + "'", "field", parameter, globals);
 					}
 				}
 			} else if (declaration.kind == NK_TYPEDEF_DECL) {
-				self.expressions.validateArrayBound(declaration.original, "typedef '" + declaration.alias + "'", "global", declaration, globals);
+				self.controlFlow.validateArrayBound(declaration.original, "typedef '" + declaration.alias + "'", "global", declaration, globals);
 			} else if (declaration.kind == NK_VAR_DECL_STMT && declaration.type != null) {
-				self.expressions.validateArrayBound(declaration.type, "Global '" + declaration.name + "'", "global", declaration, globals);
+				self.controlFlow.validateArrayBound(declaration.type, "Global '" + declaration.name + "'", "global", declaration, globals);
 			}
 		}
 		index = 0;

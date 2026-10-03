@@ -47,6 +47,7 @@ class ControlFlowValidator {
 	private void prepareLambdaBody(Node expression, Map<string, Node> variables) {
 		Node body = expression.bodyNode;
 		if (body == null) { return; }
+		for parameter in expression.params() { self.prepareArrayBound(parameter.type, variables); }
 		LambdaValidationPlan plan = self.expressions.planLambda(expression, variables);
 		Node? previousReturn = self.state.returnType;
 		int previousLoop = self.state.loopDepth;
@@ -70,7 +71,7 @@ class ControlFlowValidator {
 		if (body.kind == NK_LAMBDA_BLOCK) {
 			self.validateBlock(body.bodyNode, plan.variables);
 			bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
-			if (nonVoid && !ExpressionTypeResolver.blockTerminates(body.bodyNode)) {
+			if (nonVoid && !ControlFlowValidator.blockTerminates(body.bodyNode)) {
 				TypeValidator.fail("Non-void lambda does not return on every path", expression);
 			}
 		} else if (body.kind == NK_LAMBDA_EXPR_BODY) {
@@ -94,6 +95,17 @@ class ControlFlowValidator {
 			self.prepareExpression(expressions.get(index), variables);
 			index = index + 1;
 		}
+	}
+
+	/* A bound is validated as an expression, so its lambdas are prepared
+	 * first, as every other expression's are. */
+	private void prepareArrayBound(Node? typeExpr, Map<string, Node> variables) {
+		if (typeExpr != null && typeExpr.isArray) { self.prepareExpression(typeExpr.arraySize, variables); }
+	}
+
+	public void validateArrayBound(Node? typeExpr, string subject, string context, Node site, Map<string, Node> variables) {
+		self.prepareArrayBound(typeExpr, variables);
+		self.expressions.validateArrayBound(typeExpr, subject, context, site, variables);
 	}
 
 	/* Statement analysis owns nested executable bodies. Prepare every lambda
@@ -692,6 +704,7 @@ class ControlFlowValidator {
 		 * validated after its initializer, where the reference compiler
 		 * analyzes it, and before the name is in scope. */
 		if (self.state.owner != "" && declaration.type != null && declaration.type.isArray && declaration.type.arraySize != null) {
+			self.prepareArrayBound(declaration.type, vars);
 			self.expressions.validateExpr(declaration.type.arraySize, vars);
 		}
 		self.flow.expression(declaration.initializer, vars);

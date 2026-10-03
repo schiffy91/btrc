@@ -783,6 +783,9 @@ class ExpressionValidator {
 		self.state.loopDepth = 0;
 		self.state.breakDepth = 0;
 
+		/* A block body, and whether it returns on every path, belongs to
+		 * statement analysis: ControlFlowValidator prepares every lambda
+		 * before its enclosing expression reaches this validator. */
 		Node body = expression.bodyNode;
 		if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
 			self.validateExpr(body.expression,  plan.variables);
@@ -793,11 +796,6 @@ class ExpressionValidator {
 			}
 			if (!self.types.assignmentCompatible(plan.resultType, actual)) {
 				TypeValidator.fail("Lambda return type mismatch: expected '" + self.types.formatType(plan.resultType) + "' but got '" + self.types.formatType(actual) + "'", body.expression);
-			}
-		} else if (body != null && body.kind == NK_LAMBDA_BLOCK) {
-			bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
-			if (nonVoid && !ExpressionTypeResolver.blockTerminates(body.bodyNode)) {
-				TypeValidator.fail("Non-void lambda does not return on every path", expression);
 			}
 		}
 

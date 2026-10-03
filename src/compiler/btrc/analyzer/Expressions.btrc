@@ -84,41 +84,6 @@ class ExpressionTypeResolver {
 		return declared;
 	}
 
-	class bool blockTerminates(Node? block) {
-		if (block == null) { return false; }
-		int index = 0;
-		while (index < block.statements().len) {
-			if (ExpressionTypeResolver.statementTerminates(block.statements().get(index))) { return true; }
-			index = index + 1;
-		}
-		return false;
-	}
-
-	class bool elseTerminates(Node? elseNode) {
-		if (elseNode == null) { return false; }
-		if (elseNode.kind == NK_ELSE_BLOCK) {
-			return ExpressionTypeResolver.blockTerminates(elseNode.bodyNode);
-		}
-		return elseNode.kind == NK_ELSE_IF && ExpressionTypeResolver.statementTerminates(elseNode.ifStmt);
-	}
-
-	class bool statementTerminates(Node statement) {
-		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT) { return true; }
-		if (statement.kind == NK_BLOCK) {
-			return ExpressionTypeResolver.blockTerminates(statement);
-		}
-		if (statement.kind == NK_IF_STMT) {
-			return ExpressionTypeResolver.blockTerminates(statement.thenBlock) && ExpressionTypeResolver.elseTerminates(statement.elseBlock);
-		}
-		if (statement.kind == NK_TRY_CATCH_STMT) {
-			if (ExpressionTypeResolver.blockTerminates(statement.finallyBlock)) { return true; }
-			bool tryTerminates = ExpressionTypeResolver.blockTerminates(statement.tryBlock);
-			if (statement.catchBlock == null) { return tryTerminates; }
-			return tryTerminates && ExpressionTypeResolver.blockTerminates(statement.catchBlock);
-		}
-		return false;
-	}
-
 	public Node? infer(Node? expression, Map<string, Node> variables) { return self.inferType(expression, self.analyzed, self.operators, variables); }
 
 	public Node? inferRaw(Node? expression, Map<string, Node> variables) { return self.inferTypeRaw(expression, self.analyzed, self.operators, variables); }
