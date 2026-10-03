@@ -249,6 +249,8 @@ Each item is a prerequisite of CL-R-18 and lands paired:
   elsewhere cannot cut off early only to leave a stale order. Output changes
   once, in a paired commit, with every frozen boundary record re-captured.
 
+- **G13. Member-level instance demand in both compilers** (6.4).
+
 ## 3. Pass audit: every pass and the facts it consults
 
 Four read-only auditors listed every lookup each pass makes into another
@@ -263,7 +265,7 @@ namespace of section 5.2.
 | --- | --- | --- | --- |
 | `stampProgramSources` (`analyzer/HostedAbi.btrc:359`) | `pipeline/Pipeline.btrc:142` | file path to stdlib marker | fixed input |
 | `setNativeDeclarations`, `configureUnmodeledIncludes` (`analyzer/Models.btrc:176`, `analyzer/Analyzer.btrc:87`) | `Pipeline.btrc:176-177` | native imports; unmodeled include lines | `native`, `macro` |
-| `DeclarationRegistry.registerProgram` (`analyzer/Declarations.btrc:42`) | `Analyzer.btrc:50` | every header; `funcTable` last writer, `interfaceTable` and enum owners first writer, member indexes through ancestors (`:47-131`) | `name`, `program.order` |
+| `DeclarationRegistry.registerProgram` (`analyzer/Declarations.btrc:42`) | `Analyzer.btrc:50` | every header; `funcTable` last writer, `interfaceTable` and enum owners first writer, member indexes through ancestors (`:47-131`) | `name` (its ordered answer carries the writer order) |
 | `ExpressionTypeResolver.inferGlobals` (`analyzer/Expressions.btrc:173`) | `Analyzer.btrc:52` | callee and constructor signatures an initializer reaches | `global-type` |
 | `GenericSpecializer.discover`: argument upgrade, `collectGenericsDecl`, transitive closure, method-generic scan (`analyzer/Generics.btrc:50-73,234,654,711,957`) | `Analyzer.btrc:53` | whole class table (upgrade); template signatures and **template bodies**; callee signatures; global types | `exists`, `name`, `generic` |
 | `SourceMacroNamespace` (`analyzer/SourceMacros.btrc:14,129`) | `validation/Validator.btrc:45` | every `#define`/`#undef`, final state | `macro` |
@@ -291,7 +293,7 @@ namespace of section 5.2.
 | `emitEnums`, `emitDeclarations` (`ir/lowering/Declarations.btrc:2508-2588`) | every group's directives in program order; every C native import; `globalHasDefinition` (`:2496,2553-2556`) | `program`, `native`, `name` |
 | class lowering (`Declarations.btrc:3192-3837`) | ancestor fields, initializers and methods; interface tables; visitor need; **inherited `__del__` body** (`:3531-3546`); `runtimeTypeMayCycle` (`:3696,3710`) | `name`, `subtree`, `body`, `cycle` |
 | calls (`ir/lowering/Calls.btrc:163-169,298-355,393,424,549-559,747-879`) | callee signatures and body presence; native contracts; `print`/`Mutex` only if nothing else has the name; **callee default expressions**, lowered into the caller | `name`, `exists`, `native`, `subtree` |
-| callables (`ir/lowering/Callables.btrc:167-231,824,847-857`) | `lexicalBindingConflictsType`, i.e. any type or generic parameter name (`analyzer/Models.btrc:529-571`); globals named like a local (SB-D9) | `exists` |
+| callables (`ir/lowering/Callables.btrc:167-231,824,847-857`) | `lexicalBindingConflictsType`, i.e. any type or generic parameter name (`analyzer/Models.btrc:529-571`). Globals named like a local (SB-D9) are a defect to fix, not a query | `exists` |
 | functions (`ir/lowering/Functions.btrc:375-386,453-517`) | every global's type; default helpers positioned at the callee's default | `global-type`, `body` (debug) |
 | ownership (`ir/lowering/ownership/*`) | cyclability by subclass (`Lifetime.btrc:302,376-378,480`); consumed parameters (`Calls.btrc:342`); enum-value ownership count (`Operands.btrc:178`); global definitions (`ManagedTypes.btrc:314`) | `cycle`, `summary.consumed`, `enum-value`, `name` |
 | `ModuleUnitDeclarations.mergeInto` (`pipeline/ModuleUnits.btrc:618-707`), planner (`ir/optimization/Optimizer.btrc:1295-1318`) | shared declarations by name closure plus every macro replacement (`:656`); tuple shapes | `shared` |
@@ -382,7 +384,6 @@ compares the answers.
 | --- | --- | --- |
 | schema (`stage-b-v1`) and compiler identity (the artifact cache's toolchain fingerprint) | yes | yes |
 | options: target, strict imports, include stdlib (`ModuleUnits.btrc:2713`) | yes | yes |
-| native identity (`ModuleUnits.btrc:2741`) | yes | yes |
 | the group's own source digest: resolved lines with their file and line (`:2680-2696`), **plus its ordered import and include list** (SB-D6) | yes | yes |
 | lowering context: debug, DCE, target, and in debug mode the units prefix and output path (`:1817`) | no | yes |
 | the digest of the group's own journal fact sections (6.1, items 5–6, without warnings), as installed by live analysis or replay | no | yes |
@@ -392,7 +393,14 @@ so alternating debug and release builds do not void each other's journals.
 
 **No other group's positions are a fixed input.** Where another group's
 position reaches a group's output, it does so through a debug-mode `subtree`
-or `body` digest (5.2).
+or `body` answer in the **lowering** log (5.2). Analysis answers are
+position-free in every mode.
+
+The native identity (`ModuleUnits.btrc:2741`) is **not** a per-group input.
+It hashes the reader's parsed contracts, so a contract change would void every
+group. It stays the key of the native-declaration cache. Groups consult
+natives through the `native` namespace, which also answers the program's
+header list.
 
 ### 5.2 Query namespaces
 
@@ -403,7 +411,7 @@ lookups are logged too.
 | Namespace | Log | Query | Answer | Covers |
 | --- | --- | --- | --- | --- |
 | `name` | both | (kind, name) for kind in function, global, class, generic class, interface, struct, typedef, enum, rich enum, member-of-`C` (through ancestors) | the ordered list of every declaration with that name and kind, as (declaration path, `I(d)`); or `ABSENT` | callee and type resolution; last- and first-writer tables; prototype and definition as one unit; inherited members |
-| `subtree` | both | a foreign member subtree the group walks or encodes a position into: a callee's default, a field initializer, a typedef target, a struct field list | subtree digest | defaults closure; facts placed on prototype-owned nodes (review A1); transitive type facts |
+| `subtree` | both | a foreign member subtree the group walks or encodes a position into: a callee's default, a field initializer, a typedef target, a struct field list | subtree digest: position-free in the analysis log; with positions in the lowering log of a debug build | defaults closure (including debug default helpers, SB-D3); facts placed on prototype-owned nodes (review A1); transitive type facts |
 | `summary.<kind>` | analysis (`setjmp`: today's lowering check) | (declaration path, parameter) | the summary value | callee body facts, with early cutoff |
 | `enum-value` | both | a bare value name | (owner path or `AMBIGUOUS`, owner count) | enum ambiguity |
 | `macro` | both | a macro name, including each name its expansion reaches | (declared anywhere, final active definition text) | macro existence, values and string lengths |
@@ -413,9 +421,9 @@ lookups are logged too.
 | `global-type` | both | a global name | its inferred type, rendered | `var` globals |
 | `bound` | both | a foreign array-bound node | constant or not, and its value | foreign constant bounds |
 | `generic` | lowering, and analysis for the closure's instance sections | for a template the group owns: the set of demanded instances (canonical order, G12), each with its type arguments' and receiver class's `I(d)` | that set | instances lowered in the template's group; inherited generic methods |
-| `program` | both | `order` (the program order of groups, which first- and last-writer tables follow); try/catch use; stdlib reachability of the names the group mentions; `#pragma pack` state at the group's first declaration; the program's directive list | values | program-wide facts |
+| `program` | both | try/catch use; stdlib reachability of the names the group mentions; `#pragma pack` state at the group's first declaration; the program's directive list | values | program-wide facts |
 | `native` | both | a native declaration or contract the group consulted; the program's native header list | contract digest; the list | contracts outside the interface |
-| `body` | lowering only | a foreign declaration whose body text the unit copies: a `@gpu` kernel the unit dispatches, an inherited `__del__`, a default helper in debug mode | body digest | SB-D1 to SB-D4 |
+| `body` | lowering only | a foreign declaration whose body text the unit copies: a `@gpu` kernel the unit dispatches, an inherited `__del__` | body digest, with positions in a debug build | SB-D1, SB-D2, SB-D4 |
 | `shared` | lowering only | the unit's shared-declaration roots | the shared entries the unit pulls in, as (name, rendered digest), in canonical order (G12) | shared declarations |
 
 Two consequences shape the rows of section 9:
@@ -426,7 +434,19 @@ Two consequences shape the rows of section 9:
 - **Every macro replacement is a root of every unit** (`ModuleUnits.btrc:656`),
   so adding or changing a `#define` anywhere moves every unit's `shared`
   answer and relowers every group. That is today's behavior too, and the
-  counters report it (`lowered-for=shared`).
+  counters report it (`lowered-for=answer.shared`).
+- **Order needs no namespace of its own.** A `name` answer lists every
+  same-named declaration in program order, which carries all the first- and
+  last-writer order analysis reads. The order lowering reads is the directive
+  list, a `program` answer. A whole-program "group order" answer would make
+  every group live whenever any import moves.
+- **Queries are logged against the group of the declaration they are asked
+  for**, whichever pass asks. The claims pass asking `cycle(Node)` for `Node`
+  logs it in `Node`'s group (SB-08).
+- **A merged default stays foreign.** The defaults merge (`Names.btrc:383-393`;
+  `declarations.py:1027-1030`) marks each merged default with the prototype's
+  declaration path. Any walk of it through the definition then logs a
+  `subtree` query, with or without a fact recorded on it.
 
 Queries are logged at the lookup site through one owner per compiler: the
 analysis tables (`Analyzed` in `analyzer/Models.btrc`, `AnalysisSession` in
@@ -456,8 +476,15 @@ a clean build.
      cheap, and the rendering is already cached per group source digest
      (`ModuleUnits.btrc:2731-2781`).
    - The answers to `name`, `subtree`, `enum-value`, `macro`, `exists`,
-     `descendants`, `cycle`, `global-type`, `bound` (after G8), `native`, and
-     `program` (except reachability) are all known here, and are checked here.
+     `global-type`, `bound` (after G8), `native`, and `program` (except
+     reachability) are all known here, and are checked here.
+   - `descendants` and `cycle` include instances, so they are checked after
+     the generic sweeps instead (step 2b). Each answer is logged with the
+     phase that asked it, so a journaled answer is compared against the
+     instance list of that same phase: the claims pass sees a partial list
+     (`validation/Names.btrc:817`), the end check the final one (`:1071`).
+   - When several journals of a group share the fixed inputs (6.1), they are
+     tried newest first, and the first whose answers all match is taken.
    - The live set `L0` is: the changed groups, groups without a valid journal,
      and groups with a plan-time answer that differs.
 2. **Pre-pass summaries.**
@@ -471,6 +498,12 @@ a clean build.
    - A summary cycle that joins a journaled group to a live group makes the
      journaled group live, as the setjmp solve does (`separate-compilation.md`,
      "Stage A as implemented", step 4).
+   - `consumed` and `owned-default` can move here once G3 and G6 make them
+     pre-pass facts. Both compilers must make the move together, because the
+     step decides whether a change restarts.
+   - **2b.** After the generic sweeps (discover and close), `descendants` and
+     `cycle` are checked as in step 1. A group whose answer moves joins the
+     live set as a late invalidation (step 3).
 3. **Body-pass summaries.**
    - `raw-borrow`, `consumed` and `owned-default` are published as live
      declarations finish.
@@ -507,9 +540,10 @@ then equal a clean build's, whatever was replayed.
   therefore changes no key, and the locations reported are still right.
 - Foreign positions reach a unit only through copied foreign subtrees:
   default helpers (SB-D3), inherited `__del__` bodies (SB-D4) and kernel
-  bodies. In debug mode the `subtree` and `body` digests include positions,
-  so a line shift above such a subtree relowers exactly the units that copy
-  it. Release builds are unaffected.
+  bodies. In debug mode the lowering log's `subtree` and `body` answers
+  include positions, so a line shift above such a subtree relowers exactly the
+  units that copy it, without re-analyzing them. Release builds are
+  unaffected.
 
 ## 6. The skip-unchanged journal
 
@@ -523,9 +557,12 @@ self-hosted compiler").
 
 The store key is the analysis key's fixed inputs (5.1). Several journals per
 group may coexist, content-addressed, so two programs that share a group do
-not evict each other. The lowering log lives in `ModuleUnitRecord`, not in the
-journal, and each record names the digest of the journal it was lowered
-against. A record whose journal is missing or different is a miss for that
+not evict each other. At most four are kept per group; the oldest is evicted
+first. The lowering log lives in `ModuleUnitRecord`, not in the journal, and
+each record names the digest of the journal's **fact sections** (items 5–6,
+the same digest as the lowering key's input, 5.1) that it was lowered
+against. A change confined to the journal's log therefore keeps the record.
+A record whose fact digest matches no installed journal is a miss for that
 group only.
 
 Schema `stage-b-journal-v1` has these sections, in order:
@@ -577,14 +614,21 @@ A realtime section is either **absent** (the scan never ran, because no
 `@realtime` root existed: `analyzer/Realtime.btrc:210-228,278-280`) or
 present and possibly empty. The two are distinct. When a root first appears,
 a journaled group without a realtime section is scanned live for realtime
-only (`live-for=realtime`, counted in `realtime-scans`). The gate itself is
+only. Its other facts replay, but it counts as **analyzed**, with
+`live-for=realtime`, and also in `realtime-scans`, so
+`analyzed + replayed = groups` still holds. The gate itself is
 not logged per group: logging it would make every group live as soon as the
 first root appears anywhere.
 
 ### 6.2 What replay reproduces
 
-At a journaled declaration's place in program order, and in each sweep's own
-place for demand, the analyzer:
+Each fact is installed at the place its pass runs:
+- pre-pass facts (array-bound keys) at the pre-pass, before any live body reads
+  them;
+- demand in its own sweep;
+- body facts at the declaration's place in program order.
+
+At that place, the analyzer:
 
 - resolves each position and installs the facts into the same side tables a
   live pass writes, so later live groups and lowering read them unchanged;
@@ -637,21 +681,34 @@ the entry unit gaining `__btrc_flush_cycles`. Such a group is counted under a
 closed set of reasons, so a fixture's "exactly one group" check can tell it
 apart (PLAN.md Stage 9: "counted and explained").
 
-`lowered-for` reasons:
+`lowered-for` reasons, in **precedence order**. A group that qualifies for
+several is counted once, under the first that applies, so the counts sum to
+`lowered` in both compilers:
 
-| Reason | Meaning |
-| --- | --- |
-| `source` | own source changed |
-| `analysis` | analyzed live and the journal facts moved |
-| `answer.<namespace>` | a lowering answer moved |
-| `missing` | no record, or no matching journal digest |
-| `consulted-summary` | today's consulted setjmp summary check |
-| `summary-cycle` | a summary cycle joins a lowered group |
-| `entry` | the entry unit's cyclable-release fact |
-| `realtime` | a proof needs an unproven function |
-| `generic` | the kept-instance check (btrcc today); Python reports the same reason when its instance set moves |
+| # | Reason | Meaning |
+| --- | --- | --- |
+| 1 | `source` | own source changed |
+| 2 | `missing` | no record, or no record matching the journal fact digest |
+| 3 | `analysis` | analyzed live and the journal facts moved |
+| 4 | `answer.<namespace>` | a lowering answer moved; with several, the first namespace in 5.2's table order |
+| 5 | `kept-instances` | the instance members other units reference moved |
+| 6 | `consulted-summary` | today's consulted setjmp summary check |
+| 7 | `summary-cycle` | a summary cycle joins a lowered group |
+| 8 | `entry` | the entry unit's cyclable-release fact |
+| 9 | `realtime` | a proof needs an unproven function |
 
 These cover today's `relowered-<reason>` marks (`ModuleUnits.btrc:1874-1934`).
+
+**G13, member-level instance demand.**
+- btrcc lowers every member of a demanded instance and keeps the members other
+  units reference (`ModuleUnits.btrc:917-964,1925-1937`).
+- Python emits demanded instance views without that cross-unit pass
+  (`ir/lowering/translation_unit.py:147-151`; `application/modules.py:1648-1656`).
+- So a new call to an existing instance's method relowers the template group
+  in btrcc only.
+- The paired rule: both compilers compute the referenced member set from the
+  units' reference graphs and apply `kept-instances` alike. This is CL-R-18
+  groundwork, and SB-35 tests it.
 
 ### 6.5 Fall-back
 
@@ -664,24 +721,26 @@ names its reason in the counters:
 | `verify` | the verify mode is on (6.6) |
 | `dirty-share` | more than half of the groups are live after the plan step (Q2) |
 | `restarts` | a third restart would be needed (5.3) |
-| `native-unknown` | the program has native bindings and no native cache identity, defined the same way in both compilers (`frontend/NativeImports.btrc:3182`, `frontend/sources.py:1275`) |
+| `native-unknown` | the program has native bindings, and the compiler has no cache identity for them. btrcc derives its identity from the header reader (`frontend/NativeImports.btrc:3182,3214-3216`) and today **fails the compile** when bindings exist without a reader (`frontend/Packages.btrc:2012`). That stays, so this reason fires only in btrcpy, whose identity is its own (`frontend/sources.py:1275`). The fixtures run with the reader set, where neither compiler falls back |
+| `artifact-hit` | the whole-artifact cache served the build; nothing is grouped, so the line prints `groups=0` and zero counts |
 | `error` | an error was met in a build that replayed anything (5.3) |
 | `position` | a recorded position fails to resolve, or resolves to another kind. With the keys sound, this means a key defect, so nothing is half-installed |
 
 Any of these makes **one group** live and does not stop the others from
-replaying:
+replaying. They are listed in **precedence order**: a group is counted under
+the first that applies, so the `live-for` counts sum to `analyzed`.
 
-| Reason | Trigger |
-| --- | --- |
-| `missing` | no journal, or a void one |
-| `schema` | a different schema or compiler identity |
-| `corrupt` | a checksum, framing or decode failure |
-| `source` | the group's own source digest changed |
-| `answer.<namespace>` | a logged answer differs |
-| `prepass` | a pre-pass summary moved (5.3, step 2) |
-| `late` | invalidated by a body-pass summary (5.3, step 3) |
-| `unrecordable` | a fact with no encoding (today: a type with an array size) |
-| `realtime` | realtime scan only (6.1) |
+| # | Reason | Trigger |
+| --- | --- | --- |
+| 1 | `source` | the group's own source digest changed |
+| 2 | `corrupt` | a checksum, framing or decode failure |
+| 3 | `schema` | a different schema or compiler identity |
+| 4 | `missing` | no journal, or a void one |
+| 5 | `answer.<namespace>` | a logged answer differs; with several, the first namespace in 5.2's table order |
+| 6 | `prepass` | a pre-pass summary moved (5.3, step 2) |
+| 7 | `late` | invalidated after the generic sweeps or by a body-pass summary (5.3, steps 2b and 3) |
+| 8 | `unrecordable` | a fact with no encoding (today: a type with an array size) |
+| 9 | `realtime` | realtime scan only (6.1) |
 
 Today's replay is not all-or-nothing. When a raw-borrow re-proof fails,
 `replay` (`Validator.btrc:193-228`) undoes only the deferred references, and
@@ -704,11 +763,12 @@ lowers every group live, and then requires:
 - every stored journal section to equal the live one, and to round-trip
   through decode and encode;
 - every logged answer to equal the live answer;
-- every reused unit to equal the live unit, and the diagnostics to be equal;
-- zero body-pass entries into journaled groups, counted as a structural check
-  that "not entered" holds.
+- every reused unit to equal the live unit, and the diagnostics to be equal.
 
-It never takes a stored result.
+It never takes a stored result. Verify mode analyzes everything live, so the
+check that a journaled group is **not entered** runs in the harness's normal
+incremental builds instead: they count body-pass entries per group and
+require zero for every replayed group.
 
 Verify mode on unedited sources compares a unit with itself, so it cannot
 find a bypassing lookup. The structural test (5.2) does that. Under it, the
@@ -747,11 +807,14 @@ Definitions:
 - **analyzed**: a group any of whose declarations entered a body pass live.
   The normative per-compiler list of body passes is section 3's rows for the
   body phases, the generic collection, the native-invocation walk, the
-  nonreturning body scan, raw-borrow proofs, the array-bound pre-pass on the
-  group's own nodes, and the realtime scan.
+  nonreturning body scan, raw-borrow proofs, the rich-enum default pass
+  (`validation/Declarations.btrc:847`; `statements.py:1830`), the array-bound
+  pre-pass on the group's own nodes, and the realtime scan.
   - **Not** analysis: registration, the defaults merge, the generic-argument
     upgrade, global inference, normalization, cyclable flags, the interface
-    rendering, the claims pass and the end-of-analysis check (G9).
+    rendering, the claims pass and the end-of-analysis check (G9). Their
+    queries still go into the log of the group they are asked for (5.2), so a
+    moved answer makes that group live.
   - Instance scans of a journaled template group count only in
     `instance-scans` and do not make the group analyzed. Program-wide fixed
     points count against no group.
@@ -768,8 +831,8 @@ Definitions:
 - **Fall-back.** Under `fallback=<reason>`, `replayed=0`, and every group's
   `live-for` is that reason.
 - **Whole-artifact hit.** A build that hits the whole-artifact cache prints
-  `fallback=artifact-hit` and zero counts. Tests that need counters bypass
-  that cache.
+  `fallback=artifact-hit`, `groups=0` and zero counts (6.5). Tests that need
+  counters bypass that cache.
 
 **Native compiles and links** are not compiler counters. The native plan
 reports them for either compiler's link plan, independent of the compiler
@@ -816,11 +879,11 @@ reproduced today on Linux with both compilers; the scratch probes become
 | SB-05 | `fail()` changes from `exit(1)` to `return`; `Use` stores a nullable after calling it | stale warning set (SB-D5, **reproduced**, btrcc) | compare diagnostics | A: Lib, Use (`prepass`). L: Lib, Use. `restarts=0` |
 | SB-06 | `Other`, which `Use` does not import, adds `enum Paint { RED }`; `Use` writes bare `RED` from `Lib`'s `Color` | `Use` keeps resolving `RED` | `Main` imports `Other` | fails as a clean build does (`fallback=error`) |
 | SB-07 | `Lib` removes `#define LIMIT 4`, which `Use` uses (`#undef` is rejected in lowering, `ir/lowering/Declarations.btrc:4651`, so it cannot be the edit) | `Use` replays `known = true` | | fails as a clean build does |
-| SB-08 | `Use` adds `class Leaf extends Node` with a `Node` field (`Node` in `Lib`) | acyclic release helpers kept in `Lib` | | A: Use, plus Lib if its log holds `cycle(Node)` (`answer.cycle`). L: Lib, Use, Main (`entry`). N: Lib, Use, Main, `p.c`, runtime (**measured**, clean before/after) |
+| SB-08 | `Use` adds `class Leaf extends Node` with a `Node` field (`Node` in `Lib`) | acyclic release helpers kept in `Lib` | | A: Use (`source`), Lib (`late`: its `cycle(Node)` answer, logged by the claims pass, moved after the sweeps). L: Use, Lib (`analysis` or `answer.cycle`), Main (`entry`). N: Lib, Use, Main, `p.c`, runtime (**measured**, clean before/after) |
 | SB-09 | `Other` (not imported by `Use`) adds a global `int count = 9`; `Use` captures a local `count` | SB-D9 (**reproduced**, btrcc prints 10). A correctness row: after the fix, no unit depends on it | run the program | A: Other. L: Other. Output `5` in both compilers |
 | SB-10 | `Other` adds `class value {}`; `Use` has a local `value` | `Use` keeps the local's C name | | A: Other. L: Other, Use (`answer.exists`). N: Other, Use, `p.c`, runtime (**measured**) |
 | SB-11 | `Other` demands `Box<Gadget>` of `Lib`'s generic `Box<T>` | stale instance set in `Lib` | | A: Other (`instance-scans=live:1`). L: Other, Lib (`answer.generic`), Main (`entry`). N: Lib, Other, Main, `p.c`, runtime (**measured**) |
-| SB-12 | the root swaps two imports of groups that each `#define` | stale directive and prototype order (SB-D6, **reproduced**, btrcc) | | A: Main, plus every group whose `program.order` answer moved. L: every unit whose `shared` answer moved; units equal the after-clean build |
+| SB-12 | the root swaps two imports of groups that each `#define` | stale directive and prototype order (SB-D6, **reproduced**, btrcc) | | A: Main (`source`, the ordered import list). L: every group (`answer.program`: every unit carries the directive list, whose order moved). Units equal the after-clean build |
 | SB-13 | `var g = make();` in `Lib`; `make()` in `Other` changes its return type; `Use` reads `g` | `Use` keeps `g`'s old type | | A: Other, Lib, Use (`answer.global-type`). L: as A |
 | SB-14 | a realtime callee in `Lib` is renamed, and `Use`'s `@realtime` caller follows in the same edit | replayed edges to a vanished target read as safe (G5) | | equals a clean build |
 | SB-15 | `Other` adds a typedef renaming a capability that `Use`'s native invocation names | the skipped native-invocation walk misses it | | equals a clean build |
@@ -834,15 +897,17 @@ reproduced today on Linux with both compilers; the scratch probes become
 | SB-23 | `Use` demands `Vector<Gadget>` for a new class `Gadget` | a stdlib instance scan reading a user type | | A: Use (`instance-scans=live:1`). L: Use, `Vector` (`answer.generic`) |
 | SB-24 | `Use` has `Box<int>` in a body and a method generic whose closure demands `Box<float>`; `Main` adds `Box<char>` | demand replayed in one place instead of per sweep | | A: Main. L: Main, Lib (`answer.generic`). Instance order equals a clean build's |
 | SB-25 | `Use` adds the program's first `try`/`catch` | `usesTrycatch` changes every unit | | A: Use. L: every group (`answer.program`). N: every unit, `p.c`, runtime (**measured**) |
-| SB-26 | `Child extends Parent` in `Use` calls an inherited generic method of `Parent` in `Lib`; `Child`'s interface changes | the `generic` answer must carry the receiver's `I(d)` (`Lib`'s unit holds `Child_pick_int`) | | A: Use, Lib. L: Use, Lib |
+| SB-26 | `Child extends Parent` in `Use` calls an inherited generic method of `Parent` in `Lib`; `Child`'s interface changes | the `generic` answer must carry the receiver's `I(d)` (`Lib`'s unit holds `Child_pick_int`) | | A: Use (`instance-scans=live:1` for `Lib`'s template). L: Use, Lib (`answer.generic`) |
 | SB-27 | `--debug`: lines above `Base`, whose `__del__` `Derived` inherits | stale inherited `#line` (SB-D4, **reproduced**, both) | | A: Base. L: Base, Derived (`answer.body`) |
-| SB-28 | a body-only edit of `Lib` that adds a `(int, bool)` local | stale tuple order (SB-D7, **reproduced**, both) | | A: Lib. L: Lib, and `Use` only if its `shared` answer moves under G12 |
+| SB-28 | a body-only edit of `Lib` that adds a `(int, bool)` local | stale tuple order (SB-D7, **reproduced**, both) | | A: Lib. L: Lib (under G12 the tuple order no longer depends on `Lib`'s body) |
 | SB-29 | `Use` swaps its first `Box<int>` and `Box<float>` uses | stale instance order (SB-D8, **reproduced**, btrcpy) | | A: Use. L: Use; `Lib` unchanged under G12 |
 | SB-30 | `Use`'s journal deleted, `Use`'s unit record kept; then the reverse | a record reachable without its journal, and the reverse | two builds | first: A: Use (`missing`), L: none if facts equal. Second: A: none, L: Use (`missing`) |
-| SB-31 | alternate `--debug` and release builds with no edit | each mode voiding the other's journals | four builds | after the first two: A: none in either mode; L: none |
+| SB-31 | alternate `--debug` and release builds with no edit, in a program where `Use` calls a defaulted `Lib` function | each mode voiding the other's journals; debug positions leaking into analysis answers | four builds | after the first two: A: none in either mode; L: none |
 | SB-32 | SB-17's edit plus an unrelated error in `Other` | first-error order after replay | | `fallback=error`; diagnostics equal a clean build's |
 | SB-33 | divergence chain `fail` → `wrap` → `wrap2` → caller across four groups; edit `fail` | restart exhaustion on pre-pass summaries | | A: all four (`prepass`). `restarts=0` |
 | SB-34 | SB-17 built with `--jobs 1` and `--jobs 4` | logs depending on the worker count | | identical logs, records and counters |
+| SB-35 | `Use` starts calling a method of an existing `Box<int>` it never called before | member-level demand differing between compilers (G13) | | A: Use. L: Use, Lib (`kept-instances`) in both compilers |
+| SB-36 | `Main` imports a new group `Extra` | a whole-program order answer making every group live | | A: Main, Extra (`source`). L: Main, Extra, plus every group whose `shared` or `program` answer moved; no `dirty-share` |
 
 ## 10. Review
 
@@ -910,11 +975,38 @@ finding is resolved in this text; none is open.
 | P14 N must include program and runtime units | minor | the oracle (8) |
 | P15 byte-identical rendering stronger than needed | minor | G7 relaxed |
 
+**Round 2** (on `79a94eb`). Reviewer A confirmed A1–A17 resolved. Reviewer B
+confirmed 14 of 17, with B11 and B12 open. The parity reviewer confirmed 11
+of 15, with P3, P8, P10 and P12 partly open. The round raised these, all now
+resolved:
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| A-N1, B-N2 `program.order` undefined; it would make every group live | major | dropped; `name` answers carry writer order, and the directive list carries lowering order (5.2); SB-12 fixed; SB-36 |
+| A-N2, B-N1 debug positions in analysis answers break SB-03 and SB-31 | major | analysis answers position-free in every mode; positions only in the lowering log (5.1, 5.2, 5.4); SB-31 extended |
+| A-N3 `cycle`/`descendants` not known at plan time | minor | checked after the generic sweeps, per asking phase (5.3, step 2b) |
+| A-N4, B8 rest: journal choice; verify-mode entry check | minor | newest first, first full match, at most four kept (5.3, 6.1); the entry check moves to normal builds (6.6) |
+| A-N5 merged default walked with no fact recorded | minor | merged defaults keep the prototype's path and log `subtree` on any walk (5.2) |
+| B11, P-N2 no precedence; `generic` vs `answer.generic` | major | precedence-ordered reason lists; `kept-instances` (6.4, 6.5) |
+| B12 rest: SB-08, SB-12, SB-26, SB-28 not exact | major | exact sets given |
+| B6 rest: where pre-pass facts install | minor | at the pre-pass (6.2) |
+| B8 rest: record names the fact digest | minor | 6.1 |
+| B17 rest: default helper under `body` or `subtree` | minor | `subtree` (5.2) |
+| B2 rest: 3.2 still lists globals under `exists` | minor | removed |
+| P3 rest: where not-analysis queries land | major | logged against the group they are asked for (5.2, 7); SB-08 |
+| P4 rest: rich-enum default pass unclassified | minor | analysis (7) |
+| P5 rest: `consumed`/`owned-default` could be pre-pass | minor | allowed once G3 and G6 land, in both compilers together (5.3) |
+| P8 rest, P-N1 member-level demand differs | major | G13; SB-35 |
+| P10 rest: `native-unknown` predicate | minor | one predicate; btrcc's compile failure stays (6.5) |
+| P12 rest: `artifact-hit` missing from 6.5 | minor | added |
+| P-N3, B-N3 native identity as a per-group input contradicts SB-20 | major | removed from the fixed inputs; natives through the `native` namespace (5.1) |
+| P-N4 realtime-only scan's counter state | minor | analyzed, `live-for=realtime`, and in `realtime-scans` (6.1) |
+
 **Parity verdict.** Both compilers can expose identical counters once the
-groundwork lands: G3, G4 and G6 to G12. The native counts come from one
+groundwork lands: G3, G4 and G6 to G13. The native counts come from one
 compiler-independent tool. Before that groundwork, these rows may differ
-between the compilers: SB-08, SB-11, SB-16, SB-17 (until G4), SB-20, SB-28
-and SB-29.
+between the compilers: SB-08, SB-11, SB-16, SB-17 (until G4), SB-20, SB-28,
+SB-29 and SB-35.
 
 ## 11. Open questions, each with its default
 
