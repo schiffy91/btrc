@@ -3004,6 +3004,7 @@ class DeclarationLowerer {
 		Node? genericDestructor = self.analyzed.genericClassMethod(inst.base, "__del__");
 		bool hasDestructorHook = genericDestructor != null && genericDestructor.bodyNode != null;
 		if (genericDestructor != null && genericDestructor.bodyNode != null) {
+			self.context.consultSource(self.context.sourceFileForLine(genericDestructor.line));
 			self.context.currentReturnCType = "void";
 			self.context.currentReturnType = null;
 			self.context.currentReturnOwned = true;
@@ -3543,6 +3544,9 @@ class DeclarationLowerer {
 		body.push(IRNode.variableDeclaration(name + "*", "self", IRNode.cast(name + "*", IRNode.variable("object"))));
 		Node? dtor = self.analyzed.classMethod(name, "__del__");
 		if (dtor != null && dtor.kind == NK_METHOD_DECL && dtor.bodyNode != null) {
+			/* The hook copies the nearest `__del__`'s body, an ancestor's when
+			 * the class has none of its own. */
+			self.context.consultSource(self.context.sourceFileForLine(dtor.line));
 			self.context.currentReturnCType = "void";
 			self.context.currentReturnType = null;
 			self.context.currentReturnOwned = true;

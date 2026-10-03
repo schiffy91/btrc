@@ -1038,6 +1038,12 @@ class IRModule(IRNode):
     temporary_names: set[str] = field(
         default_factory=set, repr=False, compare=False, metadata={"ir_traverse": False, "ir_render": False}
     )
+    # Source files whose declarations' bodies or positions this unit copied:
+    # an inherited `__del__`, a `#line` or `__LINE__` position. A module unit
+    # reused across builds depends on those files' groups. Bookkeeping only.
+    consulted_sources: set[str] = field(
+        default_factory=set, repr=False, compare=False, metadata={"ir_traverse": False, "ir_render": False}
+    )
     preprocessor_decls: list[IRInclude | IRMacroDef | IRMacroUndef] = field(default_factory=list)
     freestanding: bool = False
     runtime_roots: set[str] = field(default_factory=set)

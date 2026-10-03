@@ -208,6 +208,11 @@ class ModuleUnitRecord {
 	public ModuleUnitGraph graph = ModuleUnitGraph();
 	/* The generic-instance members this unit's text defines. */
 	public Vector<string> keptInstances = [];
+	/* Every other group whose declaration bodies or source positions the unit
+	 * copied, with that group's source digest when it was lowered: a kernel's
+	 * WGSL, an inherited `__del__`, a `#line` or `__LINE__` position. None of
+	 * them is in the program interface. */
+	public Map<string, string> consultedSources = {};
 
 	public ModuleUnitRecord() {}
 
@@ -246,7 +251,7 @@ class ModuleUnitRecord {
 	 * Empty when a value cannot be carried in the format, and then nothing
 	 * is stored. */
 	public string toText() {
-		Vector<string> lines = ["btrc-module-unit-record\t4", "group\t" + self.group];
+		Vector<string> lines = ["btrc-module-unit-record\t5", "group\t" + self.group];
 		Vector<string> flags = ["flags"];
 		for flag in [self.kept, self.hasSetjmp, self.effectsSolved, self.releasesCyclable, self.definesEntry, self.programRelease] { flags.push(flag ? "1" : "0"); }
 		lines.push(Strings.join(flags, "\t"));
@@ -270,6 +275,14 @@ class ModuleUnitRecord {
 			edges.push(Strings.join(row, "\t"));
 		}
 		ModuleUnitRecord.section(lines, "graph-edges", Strings.join(edges, "\n"));
+		Vector<string> consulted = [];
+		Vector<string> groups = self.consultedSources.keys();
+		groups.sort();
+		for group in groups {
+			if (group.indexOf("\t") >= 0 || group.indexOf("\n") >= 0) { return ""; }
+			consulted.push(group + "\t" + self.consultedSources.get(group));
+		}
+		ModuleUnitRecord.section(lines, "consulted-sources", Strings.join(consulted, "\n"));
 		if (self.group.indexOf("\t") >= 0 || self.group.indexOf("\n") >= 0) { return ""; }
 		return Strings.join(lines, "\n");
 	}
@@ -321,7 +334,7 @@ class ModuleUnitRecord {
 	class ModuleUnitRecord? fromPayload(BtrccModuleUnitPayload? payload, string group) {
 		if (payload == null) { return null; }
 		Vector<string> lines = Strings.split(payload.record, "\n");
-		if (lines.len < 9 || !lines.get(0).equals("btrc-module-unit-record\t4") || !lines.get(1).equals("group\t" + group)) { return null; }
+		if (lines.len < 9 || !lines.get(0).equals("btrc-module-unit-record\t5") || !lines.get(1).equals("group\t" + group)) { return null; }
 		Vector<string> flags = Strings.split(lines.get(2), "\t");
 		if (flags.len != 7 || !flags.get(0).equals("flags")) { return null; }
 		for (int index = 1; index < 7; index++) {
@@ -361,6 +374,14 @@ class ModuleUnitRecord {
 			Vector<string> targets = [];
 			for (int target = 1; target < row.len; target++) { targets.push(row.get(target)); }
 			record.graph.edges.put(name, targets);
+		}
+		cursor.set(0, cursor.get(0) + count);
+		count = ModuleUnitRecord.sectionRows(lines, "consulted-sources", cursor);
+		if (count < 0) { return null; }
+		for (int index = 0; index < count; index++) {
+			Vector<string> row = Strings.split(lines.get(cursor.get(0) + index), "\t");
+			if (row.len != 2 || row.get(0).isEmpty() || record.consultedSources.has(row.get(0))) { return null; }
+			record.consultedSources.put(row.get(0), row.get(1));
 		}
 		if (cursor.get(0) + count != lines.len) { return null; }
 		return record;
@@ -866,9 +887,13 @@ class ModuleUnitCompiler {
 	}
 
 	private Map<string, bool> lastInstances = {};
+	private Map<string, bool> lastConsulted = {};
 
 	/* The generic-instance members the last lowered group defines. */
 	public Map<string, bool> lastInstanceNames() { return self.lastInstances; }
+
+	/* The files whose declaration bodies or positions the last lowered group copied. */
+	public Map<string, bool> lastConsultedSources() { return self.lastConsulted; }
 
 	public HostedAbiRepository hostedAbi() { return self.input.hostedAbi; }
 
@@ -902,6 +927,7 @@ class ModuleUnitCompiler {
 		BtrccPhaseTimer.mark("u-construct");
 		IRModule unit = lowerer.lower(self.input.program);
 		self.lastInstances = lowerer.instanceDefinitions();
+		self.lastConsulted = lowerer.consultedSources();
 		unit.debug = self.options.debug;
 		shared.mergeInto(unit);
 		self.addNativeRealtimeExternals(unit);
@@ -1043,7 +1069,8 @@ class ModuleUnitCompiler {
 		return digest.finish();
 	}
 
-	private string fileOfLine(int line) {
+	/* The source file a combined line belongs to, or "". */
+	public string fileOfLine(int line) {
 		FeLine? source = self.input.resolved.userLineForCombined(line);
 		if (source == null) { return ""; }
 		return source.sourceFile;
@@ -1820,7 +1847,7 @@ class ModuleUnitCompiler {
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
-			string identity = SHA256.digest("module-unit-v5\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
+			string identity = SHA256.digest("module-unit-v6\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
 			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
 			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }
 			IBtrccArtifactCache? store = self.store;
@@ -1830,6 +1857,18 @@ class ModuleUnitCompiler {
 				BtrccPhaseTimer.mark("u-record-load");
 				state.record = ModuleUnitRecord.fromPayload(payload, name);
 				state.stored = state.record != null;
+				/* A unit that copied another group's bodies or positions is
+				 * exact only while that group's source is unchanged. */
+				ModuleUnitRecord? loaded = state.record;
+				if (loaded != null) {
+					for group in loaded.consultedSources.keys() {
+						if (state.record != null && (!sources.has(group) || !sources.get(group).equals(loaded.consultedSources.get(group)))) {
+							state.record = null;
+							state.stored = false;
+							self.relowered("consulted-source");
+						}
+					}
+				}
 				BtrccPhaseTimer.mark("u-record-parse");
 			}
 			states.push(state);
@@ -1972,7 +2011,8 @@ class ModuleUnitCompiler {
 			JSONValue header = self.parseReply(reply.substring(newline + 1, headerLength), state.name);
 			ModuleUnitRecord record = ModuleUnitRecord();
 			record.group = state.name;
-			if (!header.get("kept").isBool() || !header.get("releases").isBool() || !header.get("entry").isBool() || !ModuleUnitRecord.stringsFrom(header.get("exports"), record.exports) || !ModuleUnitRecord.stringsFrom(header.get("helpers"), record.helpers) || !header.get("dropped").isObject()) {
+			Vector<string> consultedFiles = [];
+			if (!header.get("kept").isBool() || !header.get("releases").isBool() || !header.get("entry").isBool() || !ModuleUnitRecord.stringsFrom(header.get("exports"), record.exports) || !ModuleUnitRecord.stringsFrom(header.get("helpers"), record.helpers) || !ModuleUnitRecord.stringsFrom(header.get("sources"), consultedFiles) || !header.get("dropped").isObject()) {
 				fprintf(stderr, "internal compiler error: malformed finish reply for group '%s'\n", state.name);
 				exit(1);
 			}
@@ -1990,6 +2030,10 @@ class ModuleUnitCompiler {
 			record.graph = state.graph;
 			record.keptInstances = state.keptInstances.keys();
 			record.keptInstances.sort();
+			for file in consultedFiles {
+				string group = self.groupOfFile.has(file) ? self.groupOfFile.get(file) : "";
+				if (!group.isEmpty() && !group.equals(state.name) && sources.has(group)) { record.consultedSources.put(group, sources.get(group)); }
+			}
 			/* A dropped member another unit still needs would have been kept
 			 * alive by whole-program DCE: report its deferred diagnostic. */
 			JSONValue dropped = header.get("dropped");
@@ -2070,6 +2114,8 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 	private ModuleUnitCompiler compiler;
 	private ModuleUnitDeclarations shared;
 	private Map<string, IRModule> units = {};
+	/* Per group, the files whose bodies or positions its lowering copied. */
+	private Map<string, Map<string, bool>> consulted = {};
 	private Map<string, Map<string, SetjmpCallEffects>> effects = {};
 	private Map<string, SetjmpFunctionEffect> solved = {};
 	/* Each group's setjmp analysis, continued across one solve's rounds. */
@@ -2178,6 +2224,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		ModuleUnitGraph graph = ModuleUnitGraph.fromUnit(unit, self.compiler.lastInstanceNames());
 		self.compiler.addHostedRealtimeExternals(unit);
 		self.units.put(group, unit);
+		self.consulted.put(group, self.compiler.lastConsultedSources());
 		JSONValue reply = JSONValue.makeObject();
 		Vector<string> exports = [];
 		Vector<string> roots = [];
@@ -2296,6 +2343,16 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		header.set("releases", JSONValue.makeBool(boundaries.releasesCyclableValues(unit)));
 		header.set("entry", JSONValue.makeBool(definesEntry));
 		header.set("helpers", ModuleUnitRecord.stringsJson(helpers));
+		/* The WGSL of each kernel the unit dispatches is built from its body. */
+		Map<string, bool> files = {};
+		if (self.consulted.has(group)) { for file in self.consulted.get(group).keys() { files.put(file, true); } }
+		for kernel in unit.gpuKernels {
+			string file = self.compiler.fileOfLine(kernel.declaration.line);
+			if (!file.isEmpty()) { files.put(file, true); }
+		}
+		Vector<string> sources = files.keys();
+		sources.sort();
+		header.set("sources", ModuleUnitRecord.stringsJson(sources));
 		JSONValue invalid = JSONValue.makeObject();
 		for name in dropped.keys() { invalid.set(name, JSONValue.makeString(dropped.get(name))); }
 		header.set("dropped", invalid);

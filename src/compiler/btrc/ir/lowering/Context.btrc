@@ -68,6 +68,8 @@ class LoweringContext {
 	public Map<string, int> packAlignments;
 	/* --debug: statements carry line markers back to their .btrc source. */
 	public bool debug = false;
+	/* Files whose bodies or positions this lowering copied (consultSource). */
+	public Map<string, bool> consultedSources = {};
 
 	/* Functions appended since `from` came from the declaration at `line`;
 	 * the emitter packs translation units along these source boundaries. */
@@ -262,6 +264,13 @@ class LoweringContext {
 		}
 		IRModule active = self.module;
 		return active;
+	}
+
+	/* Note a file whose declaration body or source positions this unit
+	 * copies: an inherited `__del__`, a `#line` or `__LINE__` position. A
+	 * module unit reused across builds depends on those files' groups. */
+	public void consultSource(string file) {
+		if (!file.isEmpty()) { self.consultedSources.put(file, true); }
 	}
 
 	public string sourceFileForLine(int combinedLine) {
