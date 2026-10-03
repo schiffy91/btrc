@@ -54,8 +54,10 @@ ref_instances = "spike/stage6-instances"
 ref_records = "spike/stage6-records"
 ref_visibility = "spike/stage6-visibility"
 ref_composed = "spike/stage6-composed"
-# The clang -O2 btrcc of each tree (Apple clang on the Mac; docs/design/compile-performance.md "Measuring a compile").
-spike_build = 'mkdir -p "{run}/spikes/{lever}" && "{scripts}/build_btrcc.sh" "{run}/spikes/{lever}/btrcc" "{host_entry}"'
+# The clang -O2 btrcc of each tree (Apple clang on the Mac; docs/design/compile-performance.md "Measuring a compile"),
+# called with the output binary and the host entry. Variables expand in every
+# cell, so they never name a matrix value such as {lever}.
+spike_build = '"{scripts}/build_btrcc.sh"'
 # Every binary compiles against the base tree's stdlib (the spikes change no
 # stdlib or runtime file), so --debug paths in the units are the same for
 # every lever and cmp_units.py compares them as they are. The engine checks
@@ -68,7 +70,7 @@ wall_samples = "20"
 
 [rehearsal.variables]
 # build_btrcc.sh links for Apple clang (no -lm); off the Mac a rehearsal builds each tree with `make btrcc`.
-spike_build = 'make NIX= btrcc && mkdir -p "{run}/spikes/{lever}" && cp bin/btrcc "{run}/spikes/{lever}/btrcc" && echo "BUILD OK {run}/spikes/{lever}/btrcc (make btrcc, rehearsal)"'
+spike_build = """sh -c 'make NIX= btrcc && cp bin/btrcc "$0" && echo "BUILD OK $0 (make btrcc, rehearsal)"'"""
 instr_repeat = "1"
 wall_samples = "1"
 
@@ -89,7 +91,7 @@ cwd = "tree"
 lock = "btrcc-build"
 timeout_hours = 2
 env = { BTRC_REPO = "{tree}" }
-command = ["sh", "-c", "{spike_build}"]
+command = ["sh", "-c", 'mkdir -p "{run}/spikes/{lever}" && {spike_build} "{run}/spikes/{lever}/btrcc" "{host_entry}"']
 
 [[cell]]
 id = "instr-{lever}"
