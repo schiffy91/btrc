@@ -159,11 +159,11 @@ def test_python_dynamic_zero_range_step_exits_before_iteration(tmp_path: Path) -
     generated = tmp_path / "range-zero.c"
     generated.write_text(result.c_source)
     binary = tmp_path / "range-zero"
-    build = _run(
+    build = run_in_repo(
         [*CC, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", str(generated), "-o", str(binary), "-lm"],
         timeout=60,
     )
     assert build.returncode == 0, build.stderr
-    run = _run([str(binary)], timeout=30)
+    run = run_in_repo([str(binary)], timeout=30)
     assert run.returncode == 1
     assert "range step cannot be zero" in run.stderr
