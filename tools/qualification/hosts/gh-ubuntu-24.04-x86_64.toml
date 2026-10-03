@@ -1,0 +1,33 @@
+# GitHub-hosted ubuntu-24.04 x86_64, the standard runner a public repository
+# gets: D7's fallback x86_64 acceptance host when FRACTAL-NORTH does not meet
+# its spec. The runner image's kernel and installed memory drift between
+# image releases, so the manifest matches HostProvenance.summary() with
+# `summary_pattern` (a full match); the CPU part stays fixed, because
+# instructions retired are compared only on the same microarchitecture. A
+# runner allocated another CPU matches no manifest, and its report says so.
+schema = 1
+id = "gh-ubuntu-24.04-x86_64"
+role = "x86_64-acceptance"
+status = "recorded"
+architecture = "x86_64"
+summary_pattern = 'AMD EPYC 7763 64-Core Processor, 4 logical CPUs, 1[56](\.\d)? GiB, Linux 6\.\d+\.\d+-\d+-azure'
+memory_gib = 16
+os = "Ubuntu 24.04 LTS (runner image ubuntu-24.04), Linux azure kernel"
+# Ubuntu 24.04 ships kernel.perf_event_paranoid=4; the workflow (CL-R-49)
+# lowers it and puts perf on PATH, or the report's counter differs from this.
+instruction_counter = "perf stat -e instructions:u"
+source = "GitHub-hosted runner reference (standard Linux runner for public repositories: 4 vCPU, 16 GB); PLAN.md D7"
+
+[cpu]
+model = "AMD EPYC 7763 64-Core Processor"
+topology = "2 cores, 2 threads per core"
+logical_cores = 4
+physical_cores = 2
+
+[requirements]
+min_logical_cores = 4
+min_memory_gib = 15
+
+[toolchain]
+environment = "nix develop (flake.lock), installed by the acceptance workflow"
+cc = "clang"
