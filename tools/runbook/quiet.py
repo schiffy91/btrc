@@ -200,9 +200,9 @@ class CommandRunner:
 
 @dataclass(frozen=True)
 class ProcFilesystem:
-    """Linux's process table read from ``/proc``, for a host without ``ps``.
+    """Linux's process table read from ``/proc``.
 
-    CI's devcontainer image has no procps. Each row matches what ``ps`` reports:
+    CI's devcontainer cannot run the ``ps`` command below. Each row matches what ``ps`` reports:
     the parent, the owner, the lifetime CPU share (``pcpu``) and the command line,
     or ``[comm]`` for a kernel thread.
     """
@@ -255,7 +255,8 @@ class ProcessTable:
 
     runner: CommandRunner = field(default_factory=CommandRunner)
     own_pid: int = field(default_factory=os.getpid)
-    # Read when ``ps`` is not installed; only Linux has it.
+    # Linux's own table, read first there: CI's devcontainer ``ps`` cannot run
+    # this command. macOS has no /proc, so ``ps`` is its source.
     proc: ProcFilesystem | None = field(
         default_factory=lambda: ProcFilesystem() if platform.system() == "Linux" else None
     )
@@ -263,10 +264,9 @@ class ProcessTable:
     COMMAND: Sequence[str] = ("ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "user=", "-o", "pcpu=", "-o", "args=")
 
     def snapshot(self) -> list[ProcessInfo] | None:
+        if self.proc is not None and (processes := self.proc.processes()) is not None:
+            return self.foreign(processes)
         result = self.runner.output(self.COMMAND)
-        if result is None and self.proc is not None:
-            processes = self.proc.processes()
-            return None if processes is None else self.foreign(processes)
         if result is None or result[0] != 0:
             return None
         processes = [process for line in result[1].splitlines() if (process := self.parse(line)) is not None]

@@ -54,7 +54,7 @@ def ps_output(*rows: tuple[int, int, str, float, str]) -> tuple[int, str]:
 
 
 def table(*rows: tuple[int, int, str, float, str], own_pid: int = 500) -> ProcessTable:
-    return ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): ps_output(*rows)}), own_pid=own_pid)
+    return ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): ps_output(*rows)}), own_pid=own_pid, proc=None)
 
 
 class Script:
@@ -166,7 +166,7 @@ def test_the_process_probe_passes_a_quiet_desktop_and_honours_ignore_rules() -> 
 
 
 def test_the_process_probe_fails_closed_when_ps_fails() -> None:
-    broken = ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): (1, "")}))
+    broken = ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): (1, "")}), proc=None)
 
     assert not ProcessProbe(broken, QuietSettings()).observe().ok
 
@@ -186,7 +186,7 @@ def fake_proc(root: Path, uptime: float, *rows: tuple[int, int, str, str, int, b
     return ProcFilesystem(root)
 
 
-def test_the_process_table_reads_proc_when_ps_is_not_installed(tmp_path: Path) -> None:
+def test_the_process_table_reads_proc_on_linux(tmp_path: Path) -> None:
     ticks = os.sysconf("SC_CLK_TCK")
     proc = fake_proc(
         tmp_path / "proc",
@@ -203,10 +203,12 @@ def test_the_process_table_reads_proc_when_ps_is_not_installed(tmp_path: Path) -
     assert not observation.ok and "pid 10 /usr/bin/clang -c x.c" in observation.detail
 
 
-def test_a_failing_ps_still_fails_closed_where_proc_exists(tmp_path: Path) -> None:
-    proc = fake_proc(tmp_path / "proc", 50.0, (10, 1, "sh", "S", 0, b"sh\0"))
-    broken = ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): (1, "")}), proc=proc)
+def test_an_unreadable_proc_falls_back_to_ps_and_a_failing_ps_fails_closed(tmp_path: Path) -> None:
+    missing = ProcFilesystem(tmp_path / "no-proc")
+    fallback = ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): ps_output((7, 1, "u", 0.0, "sh"))}), proc=missing)
+    broken = ProcessTable(FakeRunner({tuple(ProcessTable.COMMAND): (1, "")}), proc=missing)
 
+    assert [process.pid for process in fallback.snapshot()] == [7]
     assert broken.snapshot() is None
 
 
