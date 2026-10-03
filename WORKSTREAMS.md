@@ -254,20 +254,22 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 | `CL-R-02` | Claude | `stage5/runbook-kit` | — | integrated in batch 13 |
 | `CL-R-01` | Claude | BTRSmith `stage4/pin-bump` (`49a23af`) | BTRSmith `flake.nix`, `flake.lock`, `src/**`, `tests/**`, `tools/**`, `make/**`, `docs/Handoff.md` | Linux done; waits for `MAC-R-01` |
 | `CL-C-03` | Claude | `stage16/c4-spec` | — | integrated in batch 14 |
-| `CL-C-05`, `CL-C-06` | Claude | `stage16/c4-python`, then `stage16/c4-conditionals` (the one paired commit) | `src/compiler/*/frontend/**`, `pipeline/ModuleUnits.btrc` with `application/modules.py`, `backend/c_emitter.py`, `ir/Emitter.btrc`, `Parser.btrc`/`parser.py` B1, the source-macro and U1/U2 sites, `src/devex/formatter` and LSP C4 cases, `c3_c4.toml` r18 rows | CL-C-05 done (Python half); CL-C-06 in flight |
+| `CL-C-05`, `CL-C-06` | Claude | `stage16/c4-python`, then `stage16/c4-conditionals` (the one paired commit) | — | C4 integrated in batch 19 (the paired construct commit plus the ten review fixes); Stage 24 (`CL-P1-03`) and C2 may start |
 | `CL-P1-01` | Claude | `stage22/doc-closeout` | — | integrated in batch 14 |
 | `CL-P1-02` | Claude | `stage23/platforms-shell` | — | integrated in batch 16 (`nix develop .#platforms`; the Mac realization and AVD boot are `MAC-P1-03`'s) |
 | `CL-R-38` | Claude | `stage38/ci-tiers` | — | integrated in batch 16 (`ci/tiers.toml`, `release.yml`, `tools/qualification/{tiers,bundle}.py`); push CI on `901728a` and the `release.yml` dispatch 37140445563 (one ledger bundle) were green |
 | `CL-R-50` | Claude | `stage38/lane-tier-paths` | — | integrated in batch 18 (`[paths]` sets and `selected_tiers` in `ci/tiers.toml`); the first real Codex lane run is still to be measured |
 | `CL-UIA-24` | Claude | `stage30/ui-ledger-releases` | — | integrated in batch 18 (several releases per kind, `retired`, the 2026-09-21 ui-operation and ui-case sources read from the seed with unchanged digests); the family-cell source moves to `families.toml` when `CX-UIA-02`'s follow-up lands |
 | `CL-R-05` | Claude | `stage6/spikes-preset` (spikes `spike/stage6-*`, never merged) | — | preset integrated in batch 18; its rehearsal runs with `--stand-in` in the cloud; the measurements are `MAC-R-03`'s |
-| `CL-REQ-05`, `CL-REQ-06` | Claude | `stage18/req05-lambda-capture`, `stage18/req06-scope-capture` | `src/compiler/*/ir/lowering` callables and declarations, the analyzer storage and realtime owners | done; integrate with C4 in batch 19 |
+| `CL-REQ-05`, `CL-REQ-06` | Claude | `stage18/req05-lambda-capture`, `stage18/req06-scope-capture` | — | integrated in batch 19; REQ-06's deferred parity gaps (enum-constant shadowing, `class int* p = &Box.x`, first-error order, `CFunction` in `@realtime`) await a packet |
+| `CL-P1-03` | Claude | `stage24/targets-schema` | `src/language/targets.toml`, `TargetManifest`, the regenerated target rows, `test_hosted_abi_contract.py`, `test_target_macro_table.py` | in flight (Stage 24 commit 1a, from batch 19) |
+| `CL-REQ-07` | Claude | `stage18/req07-module-unit-staleness` | `pipeline/ModuleUnits.btrc` with `application/modules.py` and the reuse-key sites SB-D1…D8 name | in flight (from batch 19) |
 | `CL-R-23` | Claude | `stage10/host-manifests` | — | integrated in batch 16; `adapters.py` does not yet carry `host_manifest` into the ledger records |
 | `CL-R-04` | Claude | `stage6/stageb-spec` | — | integrated in batch 16 (docs only); its defects SB-D1…D8 wait for the C4 landing, and SB-D9 is `CL-REQ-05` |
 | `CL-R-36` | Claude | `stage38/macos-hardware-tier` | — | integrated in batch 15 (`macos-hosted` runner manifest, `hardware` skip category); releases the workflows to `CL-R-38` |
 | `CL-R-06` | Claude | `stage6/reference-attribution` | — | integrated in batch 15 |
 | `CL-C-04` | Claude | `stage16/c4-directives` | — | integrated in batch 13 |
-| Reserved: C4 lane (`CL-C-03…06`) | Claude | `stage16/c4-*` | `pipeline/ModuleUnits.btrc` with `application/modules.py`, `src/compiler/*/frontend/**`, `backend/c_emitter.py`, `ir/Emitter.btrc` | reserved: `CL-C-01` and `CL-R-00` are on `main` |
+| Reserved: C2 schema (`CL-C-07`) | Claude | — | the ASDL, `Node`, IR and both parsers | next C-track packet; never beside `CL-P1-03`…`06` per D27 |
 | Reserved: `flake.nix`/`nix/*` | Claude | — | free | queue |
 | Reserved: `macos.yml`/`ci.yml`/`windows.yml`/`release.yml` | Claude | — | free; next `CL-UIA-11` (after `CX-UIA-09` and `CX-UIA-11`), then `CL-UIB-04`, then `CL-UIB-14`. `CL-R-50` edits `ci/tiers.toml` and the contract test, not the workflows | queue |
 
